@@ -19,6 +19,7 @@ import {
   User,
   GearSix,
   CaretUp,
+  Key,
 } from '@phosphor-icons/react'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -154,6 +155,14 @@ function UserMenu() {
             >
               <GearSix className="text-base text-gray-500" />
               アカウント設定
+            </Link>
+            <Link
+              href="/settings/api-keys"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Key className="text-base text-gray-500" />
+              APIキー管理
             </Link>
             <hr className="my-1 border-gray-100" />
             <button

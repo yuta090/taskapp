@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { ArrowLeft, User, Camera, Check, CircleNotch } from '@phosphor-icons/react'
+import { ArrowLeft, User, Camera, Check, CircleNotch, Key, CaretRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -233,6 +233,23 @@ export default function AccountSettingsPage() {
             </button>
           </div>
         </div>
+
+        {/* API Keys Link */}
+        <Link
+          href="/settings/api-keys"
+          className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 rounded-lg">
+              <Key className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">APIキー管理</h3>
+              <p className="text-xs text-gray-500">外部ツール連携用のAPIキーを管理</p>
+            </div>
+          </div>
+          <CaretRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+        </Link>
 
         {/* Account Info */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
