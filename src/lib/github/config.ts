@@ -19,16 +19,18 @@ export const GITHUB_CONFIG = {
 
 /**
  * GitHub App が設定されているかチェック
- * クライアントサイドでは NEXT_PUBLIC_GITHUB_ENABLED を使用
- * サーバーサイドでは実際の環境変数をチェック
+ * NEXT_PUBLIC_ 環境変数を使用してサーバー/クライアント両方で同じ結果を返す
+ * (Hydration エラー防止のため)
  */
 export function isGitHubConfigured(): boolean {
-  // クライアントサイド: NEXT_PUBLIC_ 環境変数で判定
-  if (typeof window !== 'undefined') {
-    return process.env.NEXT_PUBLIC_GITHUB_ENABLED === 'true'
-  }
+  // NEXT_PUBLIC_ はサーバー/クライアント両方でアクセス可能
+  return process.env.NEXT_PUBLIC_GITHUB_ENABLED === 'true'
+}
 
-  // サーバーサイド: 実際の設定をチェック
+/**
+ * GitHub App の設定が完全かチェック（サーバーサイドのみ）
+ */
+export function isGitHubFullyConfigured(): boolean {
   return !!(
     GITHUB_CONFIG.appId &&
     GITHUB_CONFIG.clientId &&

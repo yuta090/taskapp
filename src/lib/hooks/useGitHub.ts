@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { isGitHubConfigured } from '@/lib/github/config'
 import type {
   GitHubInstallation,
   GitHubRepository,
@@ -21,6 +22,8 @@ const supabase: any = createClient()
  * 組織のGitHub連携状態を取得
  */
 export function useGitHubInstallation(orgId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
   return useQuery({
     queryKey: ['github-installation', orgId],
     queryFn: async () => {
@@ -38,7 +41,7 @@ export function useGitHubInstallation(orgId: string | undefined) {
 
       return data as GitHubInstallation | null
     },
-    enabled: !!orgId,
+    enabled: !!orgId && githubEnabled,
   })
 }
 
@@ -46,6 +49,8 @@ export function useGitHubInstallation(orgId: string | undefined) {
  * 組織の連携可能リポジトリ一覧を取得
  */
 export function useGitHubRepositories(orgId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
   return useQuery({
     queryKey: ['github-repositories', orgId],
     queryFn: async () => {
@@ -60,7 +65,7 @@ export function useGitHubRepositories(orgId: string | undefined) {
       if (error) throw error
       return data as GitHubRepository[]
     },
-    enabled: !!orgId,
+    enabled: !!orgId && githubEnabled,
   })
 }
 
@@ -72,6 +77,8 @@ export function useGitHubRepositories(orgId: string | undefined) {
  * Spaceの連携リポジトリ一覧を取得
  */
 export function useSpaceGitHubRepos(spaceId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
   return useQuery({
     queryKey: ['space-github-repos', spaceId],
     queryFn: async () => {
@@ -88,7 +95,7 @@ export function useSpaceGitHubRepos(spaceId: string | undefined) {
       if (error) throw error
       return data as SpaceGitHubRepo[]
     },
-    enabled: !!spaceId,
+    enabled: !!spaceId && githubEnabled,
   })
 }
 
@@ -172,6 +179,8 @@ export function useUnlinkRepoFromSpace() {
  * タスクに紐付くPR一覧を取得
  */
 export function useTaskGitHubLinks(taskId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
   return useQuery({
     queryKey: ['task-github-links', taskId],
     queryFn: async () => {
@@ -194,7 +203,7 @@ export function useTaskGitHubLinks(taskId: string | undefined) {
       if (error) throw error
       return data as TaskGitHubLink[]
     },
-    enabled: !!taskId,
+    enabled: !!taskId && githubEnabled,
   })
 }
 
@@ -202,6 +211,8 @@ export function useTaskGitHubLinks(taskId: string | undefined) {
  * SpaceのPR一覧を取得（リポジトリ横断）
  */
 export function useSpacePullRequests(spaceId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
   return useQuery({
     queryKey: ['space-pull-requests', spaceId],
     queryFn: async () => {
@@ -233,7 +244,7 @@ export function useSpacePullRequests(spaceId: string | undefined) {
       if (error) throw error
       return data as GitHubPullRequest[]
     },
-    enabled: !!spaceId,
+    enabled: !!spaceId && githubEnabled,
   })
 }
 

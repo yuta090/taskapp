@@ -1,9 +1,12 @@
 import { z } from 'zod'
-import { getSupabaseClient, Task, TaskOwner, BallSide, TaskType, TaskStatus, DecisionState } from '../supabase/client.js'
-import { config } from '../config.js'
+import { getSupabaseClient, Task, TaskOwner, TaskStatus } from '../supabase/client.js'
+import { config, getAuthContext } from '../config.js'
+import { authorizeAndLog, type ActionType } from '../auth/index.js'
+import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
 
 // Schemas
 export const taskCreateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   title: z.string().min(1).describe('タスクのタイトル'),
   description: z.string().optional().describe('タスクの説明'),
   type: z.enum(['task', 'spec']).default('task').describe('タスクタイプ: task=通常, spec=仕様'),
@@ -19,6 +22,7 @@ export const taskCreateSchema = z.object({
 })
 
 export const taskUpdateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
   title: z.string().min(1).optional().describe('新しいタイトル'),
   description: z.string().optional().describe('新しい説明'),
@@ -29,7 +33,7 @@ export const taskUpdateSchema = z.object({
 })
 
 export const taskListSchema = z.object({
-  spaceId: z.string().uuid().optional().describe('スペースUUID (省略時はデフォルト)'),
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   ball: z.enum(['client', 'internal']).optional().describe('ボールでフィルタ'),
   status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']).optional().describe('ステータスでフィルタ'),
   type: z.enum(['task', 'spec']).optional().describe('タイプでフィルタ'),
@@ -37,18 +41,62 @@ export const taskListSchema = z.object({
 })
 
 export const taskGetSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
 })
 
 export const taskDeleteSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('削除するタスクのUUID'),
+  dryRun: z.boolean().default(true).describe('trueの場合は削除せず影響範囲を確認。falseの場合はconfirmTokenが必要'),
+  confirmToken: z.string().optional().describe('dryRun=falseの場合に必要な確認トークン'),
 })
+
+// ユーザー横断でのタスク一覧取得（新規）
+export const taskListMySchema = z.object({
+  ball: z.enum(['client', 'internal']).optional().describe('ボールでフィルタ'),
+  status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']).optional().describe('ステータスでフィルタ'),
+  limit: z.number().min(1).max(100).default(50).describe('取得件数'),
+})
+
+// Helper: 権限チェック
+async function checkAuth(spaceId: string, action: ActionType, toolName: string, resourceId?: string) {
+  const ctx = getAuthContext()
+  const result = await authorizeAndLog({
+    ctx,
+    spaceId,
+    action,
+    toolName,
+    resourceType: 'task',
+    resourceId,
+  })
+
+  if (!result.allowed) {
+    throw new Error(`権限エラー: ${result.reason}`)
+  }
+
+  return { ctx, role: result.role }
+}
 
 // Tool implementations
 export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Promise<{ task: Task; owners: TaskOwner[] }> {
+  // 権限チェック（write権限が必要）
+  await checkAuth(params.spaceId, 'write', 'task_create')
+
   const supabase = getSupabaseClient()
-  const spaceId = config.spaceId
-  const orgId = config.orgId
+
+  // スペースからorg_idを取得
+  const { data: space, error: spaceError } = await supabase
+    .from('spaces')
+    .select('org_id')
+    .eq('id', params.spaceId)
+    .single()
+
+  if (spaceError || !space) {
+    throw new Error('スペースが見つかりません')
+  }
+
+  const orgId = space.org_id
 
   // Validate spec task requirements
   if (params.type === 'spec') {
@@ -71,7 +119,7 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
     .from('tasks')
     .insert({
       org_id: orgId,
-      space_id: spaceId,
+      space_id: params.spaceId,
       title: params.title,
       description: params.description || '',
       status,
@@ -94,14 +142,14 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
   const ownerRows = [
     ...params.clientOwnerIds.map((userId) => ({
       org_id: orgId,
-      space_id: spaceId,
+      space_id: params.spaceId,
       task_id: task.id,
       side: 'client' as const,
       user_id: userId,
     })),
     ...params.internalOwnerIds.map((userId) => ({
       org_id: orgId,
-      space_id: spaceId,
+      space_id: params.spaceId,
       task_id: task.id,
       side: 'internal' as const,
       user_id: userId,
@@ -123,9 +171,10 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
 }
 
 export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Promise<Task> {
+  // 権限チェック（write権限が必要、リソースIDも渡して所有権チェック）
+  await checkAuth(params.spaceId, 'write', 'task_update', params.taskId)
+
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
 
   const updateData: Record<string, unknown> = {}
   if (params.title !== undefined) updateData.title = params.title
@@ -141,13 +190,11 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
 
   updateData.updated_at = new Date().toISOString()
 
-  // Enforce org/space scoping for security
   const { data, error } = await supabase
     .from('tasks')
     .update(updateData)
     .eq('id', params.taskId)
-    .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .select('*')
     .single()
 
@@ -156,16 +203,15 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
 }
 
 export async function taskList(params: z.infer<typeof taskListSchema>): Promise<Task[]> {
-  const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = params.spaceId || config.spaceId
+  // 権限チェック（read権限が必要）
+  await checkAuth(params.spaceId, 'read', 'task_list')
 
-  // Enforce org/space scoping for security
+  const supabase = getSupabaseClient()
+
   let query = supabase
     .from('tasks')
     .select('*')
-    .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .order('created_at', { ascending: false })
     .limit(params.limit)
 
@@ -186,17 +232,16 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
 }
 
 export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ task: Task; owners: TaskOwner[] }> {
-  const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  // 権限チェック（read権限が必要）
+  await checkAuth(params.spaceId, 'read', 'task_get', params.taskId)
 
-  // Enforce org/space scoping for security
+  const supabase = getSupabaseClient()
+
   const { data: task, error: taskError } = await supabase
     .from('tasks')
     .select('*')
     .eq('id', params.taskId)
-    .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (taskError) throw new Error('タスクが見つかりません')
@@ -205,61 +250,174 @@ export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ 
     .from('task_owners')
     .select('*')
     .eq('task_id', params.taskId)
-    .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
 
   if (ownersError) throw new Error('担当者の取得に失敗しました')
 
   return { task: task as Task, owners: (owners || []) as TaskOwner[] }
 }
 
-export async function taskDelete(params: z.infer<typeof taskDeleteSchema>): Promise<{ success: boolean; taskId: string }> {
+export async function taskDelete(params: z.infer<typeof taskDeleteSchema>): Promise<{
+  success: boolean
+  taskId?: string
+  dryRun?: boolean
+  affectedCount?: number
+  confirmToken?: string
+  message?: string
+}> {
+  // 権限チェック（delete権限が必要）
+  await checkAuth(params.spaceId, 'delete', 'task_delete', params.taskId)
+
+  const ctx = getAuthContext()
+
+  // dry_run モードの場合
+  if (params.dryRun) {
+    const result = await dryRunDelete({
+      ctx,
+      spaceId: params.spaceId,
+      resourceType: 'task',
+      resourceIds: [params.taskId],
+    })
+
+    return {
+      success: result.success,
+      dryRun: true,
+      affectedCount: result.affectedCount,
+      confirmToken: result.confirmToken,
+      message: result.message || result.error,
+    }
+  }
+
+  // 実際の削除（confirmTokenが必要）
+  if (!params.confirmToken) {
+    throw new Error('削除を実行するにはconfirmTokenが必要です。先にdryRun=trueで確認してください。')
+  }
+
+  const result = await confirmDelete({
+    ctx,
+    confirmToken: params.confirmToken,
+  })
+
+  if (!result.success) {
+    throw new Error(result.error || '削除に失敗しました')
+  }
+
+  return {
+    success: true,
+    taskId: params.taskId,
+  }
+}
+
+// ユーザー横断でのタスク一覧（新規ツール）
+export async function taskListMy(params: z.infer<typeof taskListMySchema>): Promise<{ spaceId: string; spaceName: string; tasks: Task[] }[]> {
+  const ctx = getAuthContext()
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
 
-  // Enforce org/space scoping for security
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', params.taskId)
-    .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+  // scope='user' でない場合はエラー
+  if (ctx.scope !== 'user') {
+    throw new Error('このツールはscope=userのAPIキーでのみ使用できます')
+  }
 
-  if (error) throw new Error('タスクの削除に失敗しました')
-  return { success: true, taskId: params.taskId }
+  if (!ctx.userId) {
+    throw new Error('user_idが設定されていません')
+  }
+
+  // ユーザーが所属するスペース一覧を取得
+  const { data: memberships, error: memberError } = await supabase
+    .from('space_memberships')
+    .select('space_id, spaces(id, name)')
+    .eq('user_id', ctx.userId)
+
+  if (memberError) {
+    throw new Error('スペース一覧の取得に失敗しました')
+  }
+
+  // allowed_space_idsでフィルタ
+  let spaceIds = memberships.map(m => m.space_id)
+  if (ctx.allowedSpaceIds) {
+    spaceIds = spaceIds.filter(id => ctx.allowedSpaceIds!.includes(id))
+  }
+
+  // 各スペースからタスクを取得
+  const results: { spaceId: string; spaceName: string; tasks: Task[] }[] = []
+
+  for (const membership of memberships) {
+    if (!spaceIds.includes(membership.space_id)) continue
+
+    // 権限チェック（read）
+    const authResult = await authorizeAndLog({
+      ctx,
+      spaceId: membership.space_id,
+      action: 'read',
+      toolName: 'task_list_my',
+    })
+
+    if (!authResult.allowed) continue
+
+    let query = supabase
+      .from('tasks')
+      .select('*')
+      .eq('space_id', membership.space_id)
+      .order('created_at', { ascending: false })
+      .limit(params.limit)
+
+    if (params.ball) {
+      query = query.eq('ball', params.ball)
+    }
+    if (params.status) {
+      query = query.eq('status', params.status)
+    }
+
+    const { data: tasks } = await query
+
+    const spaceData = membership.spaces as unknown as { id: string; name: string }
+
+    results.push({
+      spaceId: membership.space_id,
+      spaceName: spaceData?.name || 'Unknown',
+      tasks: (tasks || []) as Task[],
+    })
+  }
+
+  return results
 }
 
 // Tool definitions for MCP
 export const taskTools = [
   {
     name: 'task_create',
-    description: 'タスクを新規作成します。ball=clientの場合はclientOwnerIdsが必須です。type=specの場合はspecPathが必須です。',
+    description: 'タスクを新規作成します。spaceIdは必須です。ball=clientの場合はclientOwnerIdsが必須です。type=specの場合はspecPathが必須です。',
     inputSchema: taskCreateSchema,
     handler: taskCreate,
   },
   {
     name: 'task_update',
-    description: 'タスクを更新します。指定したフィールドのみ更新されます。',
+    description: 'タスクを更新します。spaceIdは必須です。指定したフィールドのみ更新されます。',
     inputSchema: taskUpdateSchema,
     handler: taskUpdate,
   },
   {
     name: 'task_list',
-    description: 'タスク一覧を取得します。ball, status, typeでフィルタ可能です。',
+    description: 'スペース内のタスク一覧を取得します。spaceIdは必須です。ball, status, typeでフィルタ可能です。',
     inputSchema: taskListSchema,
     handler: taskList,
   },
   {
     name: 'task_get',
-    description: 'タスクの詳細と担当者を取得します。',
+    description: 'タスクの詳細と担当者を取得します。spaceIdは必須です。',
     inputSchema: taskGetSchema,
     handler: taskGet,
   },
   {
     name: 'task_delete',
-    description: 'タスクを削除します。関連する担当者データも削除されます。',
+    description: '【破壊的操作】タスクを削除します。デフォルトはdryRun=trueで影響確認のみ。削除実行にはconfirmTokenが必要です。',
     inputSchema: taskDeleteSchema,
     handler: taskDelete,
+  },
+  {
+    name: 'task_list_my',
+    description: '【横断】自分が所属する全スペースのタスクを一括取得します。scope=userのAPIキーが必要です。',
+    inputSchema: taskListMySchema,
+    handler: taskListMy,
   },
 ]

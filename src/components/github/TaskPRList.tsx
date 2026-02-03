@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { GithubLogo, Plus, X } from '@phosphor-icons/react'
 import { useTaskGitHubLinks, useSpacePullRequests, useManualLinkPR, useUnlinkPR } from '@/lib/hooks'
+import { isGitHubConfigured } from '@/lib/github/config'
 import { PRBadge } from './PRBadge'
 
 interface TaskPRListProps {
@@ -16,10 +17,18 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
   const [showLinkDialog, setShowLinkDialog] = useState(false)
   const [selectedPRId, setSelectedPRId] = useState<string>('')
 
-  const { data: links = [], isLoading } = useTaskGitHubLinks(taskId)
-  const { data: spacePRs = [] } = useSpacePullRequests(spaceId)
+  // GitHub未設定の場合はフックを呼ばずに早期リターン
+  const githubEnabled = isGitHubConfigured()
+
+  const { data: links = [], isLoading } = useTaskGitHubLinks(githubEnabled ? taskId : undefined)
+  const { data: spacePRs = [] } = useSpacePullRequests(githubEnabled ? spaceId : undefined)
   const linkPR = useManualLinkPR()
   const unlinkPR = useUnlinkPR()
+
+  // GitHub未設定の場合は表示しない
+  if (!githubEnabled) {
+    return null
+  }
 
   // 未リンクのPRをフィルタ
   const linkedPRIds = links.map(l => l.github_pr_id)
