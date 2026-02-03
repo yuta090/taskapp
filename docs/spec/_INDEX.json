@@ -1,0 +1,31 @@
+{
+  "docs": [
+    {
+      "path": "/spec/REVIEW_SPEC.md",
+      "title": "REVIEW_SPEC",
+      "sections": [
+        {"id": "overview", "title": "概要"},
+        {"id": "roles-permissions", "title": "ロールと権限"},
+        {"id": "considering", "title": "検討中（considering）"},
+        {"id": "approvals", "title": "承認（approvals）"},
+        {"id": "changes-requested", "title": "差し戻し（changes requested）"},
+        {"id": "meeting-minutes", "title": "会議（議事録）"},
+        {"id": "meeting-minutes-md", "title": "議事録MD（A方式：タスク化）"},
+        {"id": "notifications", "title": "通知（メール＋アプリ内）"},
+        {"id": "spec-flow", "title": "仕様タスクの運用（specフロー）"}
+      ]
+    },
+    {
+      "path": "/spec/UI_RULES_AND_SCREENS.md",
+      "title": "UI_RULES_AND_SCREENS",
+      "sections": [
+        {"id": "global-rules", "title": "共通UIルール"},
+        {"id": "dashboards", "title": "ダッシュボード"},
+        {"id": "tasks", "title": "タスク一覧/詳細"},
+        {"id": "considering-view", "title": "検討中ビュー"},
+        {"id": "reviews", "title": "レビュー画面"},
+        {"id": "meeting-pages", "title": "会議（議事録）ページ"}
+      ]
+    }
+  ]
+}

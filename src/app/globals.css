@@ -1,0 +1,221 @@
+@import "tailwindcss";
+
+/* ============================================
+   TaskApp Design Tokens (from prototype v29)
+   ============================================ */
+
+@theme inline {
+  /* Font Family */
+  --font-sans: "Inter", "Noto Sans JP", sans-serif;
+
+  /* Font Sizes (custom) */
+  --text-2xs: 10px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+
+  /* Gray Scale (refined) */
+  --color-gray-25: #FCFCFD;
+  --color-gray-50: #F9FAFB;
+  --color-gray-100: #F3F4F6;
+  --color-gray-200: #E5E7EB;
+  --color-gray-300: #D1D5DB;
+  --color-gray-400: #9CA3AF;
+  --color-gray-500: #6B7280;
+  --color-gray-600: #4B5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1F2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #0B0F19;
+
+  /* Amber (Client-visible indicator) */
+  --color-amber-50: #FFFBEB;
+  --color-amber-100: #FEF3C7;
+  --color-amber-200: #FDE68A;
+  --color-amber-400: #FBBF24;
+  --color-amber-500: #F59E0B;
+  --color-amber-600: #D97706;
+
+  /* Indigo (Primary) */
+  --color-indigo-500: #6366F1;
+  --color-indigo-600: #4F46E5;
+
+  /* Red (Danger/Error) */
+  --color-red-50: #FEF2F2;
+  --color-red-100: #FEE2E2;
+  --color-red-500: #EF4444;
+  --color-red-600: #DC2626;
+
+  /* Blue (Info) */
+  --color-blue-50: #EFF6FF;
+  --color-blue-100: #DBEAFE;
+  --color-blue-600: #2563EB;
+
+  /* Shadows */
+  --shadow-subtle: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-pane: -1px 0 0 0 #E5E7EB;
+  --shadow-popover: 0 4px 12px -2px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* Animation: Aurora */
+  --animate-aurora: aurora 60s linear infinite;
+
+  @keyframes aurora {
+    from {
+      background-position: 50% 50%, 50% 50%;
+    }
+
+    to {
+      background-position: 350% 50%, 350% 50%;
+    }
+  }
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
+:root {
+  --background: #ffffff;
+  --foreground: #111827;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.8;
+  /* Updated for readability (1.5~2.0) */
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  letter-spacing: 0.05em;
+  /* Updated for readability (5%~10%) */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   3-Pane Layout Utilities
+   ============================================ */
+
+/* Inspector: must resize Main, never overlay */
+.inspector-pane {
+  width: 0;
+  overflow: hidden;
+  transition: width 150ms ease-out;
+}
+
+.inspector-pane.open {
+  width: 400px;
+  border-left: 1px solid var(--color-gray-200);
+}
+
+@media (min-width: 1920px) {
+  .inspector-pane.open {
+    width: 440px;
+  }
+}
+
+@media (min-width: 2560px) {
+  .inspector-pane.open {
+    width: 480px;
+  }
+}
+
+/* Content wrapper for ultra-wide screens */
+.content-wrap {
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+/* 4K monitors: align content to right (closer to inspector) */
+@media (min-width: 2560px) {
+  .content-wrap {
+    margin-left: auto;
+    margin-right: 0;
+    max-width: 1400px;
+  }
+}
+
+@media (max-width: 1400px) {
+  .content-wrap {
+    max-width: none;
+  }
+}
+
+/* ============================================
+   Row/List Density
+   ============================================ */
+
+/* Standard row height: 32-40px */
+.row-h {
+  height: 40px;
+}
+
+.row-h-sm {
+  height: 32px;
+}
+
+/* Hover actions pattern */
+.task-row:hover .row-actions {
+  display: flex;
+}
+
+.task-row:hover .row-meta {
+  display: none;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+/* Hide scrollbar */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Popover shadow */
+.popover {
+  box-shadow: var(--shadow-popover);
+}
+
+/* Animations */
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.2s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out forwards;
+}

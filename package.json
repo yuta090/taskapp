@@ -1,0 +1,53 @@
+{
+  "name": "taskapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 4000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "seed:test": "npx tsx scripts/seed-test-data.ts"
+  },
+  "dependencies": {
+    "@octokit/auth-app": "^8.2.0",
+    "@octokit/rest": "^22.0.1",
+    "@phosphor-icons/react": "^2.1.10",
+    "@stripe/stripe-js": "^8.7.0",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.93.3",
+    "@tanstack/react-query": "^5.90.20",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.29.3",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "resend": "^6.9.1",
+    "stripe": "^20.3.0",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.1",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.1.2",
+    "dotenv": "^16.6.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "jsdom": "^27.4.0",
+    "playwright": "^1.58.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
