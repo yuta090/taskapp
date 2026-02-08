@@ -34,6 +34,9 @@ export type TaskType = 'task' | 'spec'
 // Decision state for spec tasks
 export type DecisionState = 'considering' | 'decided' | 'implemented'
 
+// Client scope for portal visibility
+export type ClientScope = 'deliverable' | 'internal'
+
 // Meeting status
 export type MeetingStatus = 'planned' | 'in_progress' | 'ended'
 
@@ -300,6 +303,7 @@ export interface Database {
           type: TaskType
           spec_path: string | null
           decision_state: DecisionState | null
+          client_scope: ClientScope
           created_at: string
           updated_at: string
         }
@@ -319,6 +323,7 @@ export interface Database {
           type?: TaskType
           spec_path?: string | null
           decision_state?: DecisionState | null
+          client_scope?: ClientScope
           created_at?: string
           updated_at?: string
         }
@@ -338,6 +343,7 @@ export interface Database {
           type?: TaskType
           spec_path?: string | null
           decision_state?: DecisionState | null
+          client_scope?: ClientScope
           created_at?: string
           updated_at?: string
         }
@@ -701,6 +707,105 @@ export interface Database {
           updated_at?: string
         }
       }
+      wiki_pages: {
+        Row: {
+          id: string
+          org_id: string
+          space_id: string
+          title: string
+          body: string
+          tags: string[]
+          created_by: string
+          updated_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          space_id: string
+          title: string
+          body?: string
+          tags?: string[]
+          created_by: string
+          updated_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          space_id?: string
+          title?: string
+          body?: string
+          tags?: string[]
+          created_by?: string
+          updated_by?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      wiki_page_versions: {
+        Row: {
+          id: string
+          org_id: string
+          page_id: string
+          title: string
+          body: string
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          page_id: string
+          title: string
+          body: string
+          created_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          page_id?: string
+          title?: string
+          body?: string
+          created_by?: string
+          created_at?: string
+        }
+      }
+      wiki_page_publications: {
+        Row: {
+          id: string
+          org_id: string
+          milestone_id: string
+          source_page_id: string
+          published_title: string
+          published_body: string
+          published_by: string
+          published_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          milestone_id: string
+          source_page_id: string
+          published_title: string
+          published_body: string
+          published_by: string
+          published_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          milestone_id?: string
+          source_page_id?: string
+          published_title?: string
+          published_body?: string
+          published_by?: string
+          published_at?: string
+        }
+      }
     }
     Functions: {
       rpc_pass_ball: {
@@ -825,3 +930,8 @@ export type ApiKey = Tables['api_keys']['Row']
 export type Milestone = Tables['milestones']['Row']
 export type MilestoneInsert = Tables['milestones']['Insert']
 export type MilestoneUpdate = Tables['milestones']['Update']
+export type WikiPage = Tables['wiki_pages']['Row']
+export type WikiPageInsert = Tables['wiki_pages']['Insert']
+export type WikiPageUpdate = Tables['wiki_pages']['Update']
+export type WikiPageVersion = Tables['wiki_page_versions']['Row']
+export type WikiPagePublication = Tables['wiki_page_publications']['Row']
