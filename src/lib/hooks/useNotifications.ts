@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Notification, Json } from '@/types/database'
 
@@ -44,26 +44,47 @@ export function useNotifications(): UseNotificationsState {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
+
+  // ユーザーIDキャッシュ（auth.getUser()の重複呼び出し回避）
+  const userIdRef = useRef<string | null>(null)
+
+  // 認証状態変更時にキャッシュ無効化（logout/relogin対策）
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      userIdRef.current = null
+    })
+    return () => subscription.unsubscribe()
+  }, [supabase])
+
+  /** キャッシュ付きでユーザーIDを取得 */
+  const getUserId = useCallback(async (): Promise<string | null> => {
+    if (userIdRef.current) return userIdRef.current
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) return null
+    userIdRef.current = user.id
+    return user.id
+  }, [supabase])
+
   const fetchNotifications = useCallback(async () => {
     try {
       setLoading(true)
-      const supabase = createClient()
 
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-      if (userError || !user) {
+      const userId = await getUserId()
+      if (!userId) {
         setNotifications([])
         setLoading(false)
         return
       }
 
-      // Fetch in-app notifications for the user
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error: fetchError } = await (supabase as any)
         .from('notifications')
         .select('*')
-        .eq('to_user_id', user.id)
+        .eq('to_user_id', userId)
         .eq('channel', 'in_app')
         .order('created_at', { ascending: false })
         .limit(50)
@@ -81,12 +102,10 @@ export function useNotifications(): UseNotificationsState {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [supabase, getUserId])
 
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
-      const supabase = createClient()
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: updateError } = await (supabase as any)
         .from('notifications')
@@ -108,20 +127,18 @@ export function useNotifications(): UseNotificationsState {
     } catch (err) {
       console.error('Failed to mark notification as read:', err)
     }
-  }, [])
+  }, [supabase])
 
   const markAllAsRead = useCallback(async () => {
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-
-      if (!user) return
+      const userId = await getUserId()
+      if (!userId) return
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: updateError } = await (supabase as any)
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
-        .eq('to_user_id', user.id)
+        .eq('to_user_id', userId)
         .eq('channel', 'in_app')
         .is('read_at', null)
 
@@ -140,7 +157,7 @@ export function useNotifications(): UseNotificationsState {
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err)
     }
-  }, [])
+  }, [supabase, getUserId])
 
   useEffect(() => {
     fetchNotifications()

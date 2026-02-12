@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
+import { fireNotification } from '@/lib/slack/notify'
 import type {
   Task,
   TaskOwner,
@@ -10,6 +11,7 @@ import type {
   TaskType,
   TaskStatus,
   DecisionState,
+  ClientScope,
 } from '@/types/database'
 
 interface UseTasksOptions {
@@ -23,6 +25,7 @@ export interface CreateTaskInput {
   type: TaskType
   ball: BallSide
   origin: BallSide
+  clientScope?: ClientScope
   specPath?: string
   decisionState?: DecisionState
   clientOwnerIds: string[]
@@ -66,52 +69,56 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  // Memoize supabase client to prevent recreating on every render
-  const supabase = useMemo(() => createClient(), [])
+  // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
+
+  // フェッチのレース条件対策用カウンター
+  const fetchIdRef = useRef(0)
 
   const fetchTasks = useCallback(async () => {
+    const currentFetchId = ++fetchIdRef.current
     setLoading(true)
     setError(null)
 
     try {
-      // Fetch tasks with org_id scope to prevent cross-org data leak
+      // 1クエリで tasks + task_owners を取得（ネストselect）
       const { data: tasksData, error: tasksError } = await supabase
         .from('tasks')
-        .select('*')
+        .select('*, task_owners (*)')
         .eq('org_id' as never, orgId as never)
         .eq('space_id' as never, spaceId as never)
         .order('created_at', { ascending: false })
+        .limit(50)
 
       if (tasksError) throw tasksError
-      const tasksList = (tasksData || []) as Task[]
-      setTasks(tasksList)
 
-      // Fetch owners for all tasks with org_id scope
-      const taskIds = tasksList.map((t) => t.id)
-      if (taskIds.length > 0) {
-        const { data: ownersData, error: ownersError } = await supabase
-          .from('task_owners')
-          .select('*')
-          .eq('org_id' as never, orgId as never)
-          .in('task_id' as never, taskIds as never)
+      // レース条件: 古いリクエストの結果を無視
+      if (currentFetchId !== fetchIdRef.current) return
 
-        if (ownersError) throw ownersError
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawTasks = (tasksData || []) as any[]
 
-        // Group owners by task_id
-        const ownersByTask: Record<string, TaskOwner[]> = {}
-        const ownersList = (ownersData || []) as TaskOwner[]
-        ownersList.forEach((owner) => {
-          if (!ownersByTask[owner.task_id]) {
-            ownersByTask[owner.task_id] = []
-          }
-          ownersByTask[owner.task_id].push(owner)
-        })
-        setOwners(ownersByTask)
-      }
+      // task_owners をグルーピングし、tasks からは除去
+      const ownersByTask: Record<string, TaskOwner[]> = {}
+      const cleanTasks: Task[] = rawTasks.map((t) => {
+        const { task_owners, ...taskFields } = t
+        if (Array.isArray(task_owners)) {
+          ownersByTask[t.id] = task_owners as TaskOwner[]
+        }
+        return taskFields as Task
+      })
+
+      setTasks(cleanTasks)
+      setOwners(ownersByTask)
     } catch (err) {
+      if (currentFetchId !== fetchIdRef.current) return
       setError(err instanceof Error ? err : new Error('Failed to fetch tasks'))
     } finally {
-      setLoading(false)
+      if (currentFetchId === fetchIdRef.current) {
+        setLoading(false)
+      }
     }
   }, [orgId, spaceId, supabase])
 
@@ -136,6 +143,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         type: task.type,
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
+        client_scope: task.clientScope ?? 'deliverable',
         created_at: now,
         updated_at: now,
       }
@@ -175,6 +183,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               spec_path: task.type === 'spec' ? task.specPath ?? null : null,
               decision_state:
                 task.type === 'spec' ? task.decisionState ?? null : null,
+              client_scope: task.clientScope ?? 'deliverable',
               due_date: task.dueDate ?? null,
               assignee_id: task.assigneeId ?? null,
               milestone_id: task.milestoneId ?? null,
@@ -216,9 +225,31 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .insert(ownerRows as any)
           if (ownerError) throw ownerError
+
+          // owners をローカルstate に反映（insertデータから構築）
+          const now = new Date().toISOString()
+          const localOwners: TaskOwner[] = ownerRows.map((row) => ({
+            id: crypto.randomUUID(),
+            org_id: row.org_id,
+            space_id: row.space_id,
+            task_id: row.task_id,
+            side: row.side,
+            user_id: row.user_id,
+            created_at: now,
+          }))
+          setOwners((prev) => ({
+            ...prev,
+            [createdTask.id]: localOwners,
+          }))
         }
 
-        await fetchTasks()
+        // Fire-and-forget Slack notification
+        fireNotification({
+          event: 'task_created',
+          taskId: createdTask.id,
+          spaceId,
+        })
+
         return createdTask
       } catch (err) {
         setTasks((prev) => prev.filter((t) => t.id !== tempId))
@@ -228,7 +259,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [orgId, spaceId, supabase, fetchTasks]
+    [orgId, spaceId, supabase]
   )
 
   const updateTask = useCallback(
@@ -272,6 +303,22 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           .eq('id', taskId)
 
         if (updateError) throw updateError
+
+        // Fire-and-forget notification on status change
+        if (input.status !== undefined) {
+          const prevTask = prevTasks.find(t => t.id === taskId)
+          if (prevTask && prevTask.status !== input.status) {
+            fireNotification({
+              event: 'status_changed',
+              taskId,
+              spaceId,
+              changes: {
+                oldStatus: prevTask.status,
+                newStatus: input.status,
+              },
+            })
+          }
+        }
       } catch (err) {
         // Revert optimistic update
         setTasks(prevTasks)
@@ -279,7 +326,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [tasks, supabase]
+    [tasks, supabase, spaceId]
   )
 
   const deleteTask = useCallback(
@@ -334,10 +381,28 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           clientOwnerIds,
           internalOwnerIds,
         })
-        // Refetch to get updated owners
-        await fetchTasks()
+
+        // Fire-and-forget Slack notification
+        fireNotification({
+          event: 'ball_passed',
+          taskId,
+          spaceId,
+          changes: { newBall: ball },
+        })
+
+        // owners を再取得（passBallでowners が変わるため）
+        const { data: newOwners, error: ownerFetchError } = await supabase
+          .from('task_owners')
+          .select('*')
+          .eq('task_id' as never, taskId as never)
+        if (ownerFetchError) {
+          // owner取得失敗時はフルリフレッシュにフォールバック
+          await fetchTasks()
+        } else if (newOwners) {
+          setOwners((prev) => ({ ...prev, [taskId]: newOwners as TaskOwner[] }))
+        }
       } catch (err) {
-        // Revert on error
+        // エラー時のみ全件再取得
         await fetchTasks()
         throw err
       }

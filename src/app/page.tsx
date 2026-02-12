@@ -1,5 +1,4 @@
-'use client'
-
+import { LPHeader } from '@/components/lp/Header'
 import { Hero } from '@/components/lp/Hero'
 import { Problem } from '@/components/lp/Problem'
 import { Solution } from '@/components/lp/Solution'
@@ -13,6 +12,7 @@ import { LPFooter } from '@/components/lp/Footer'
 export default function Home() {
   return (
     <main className="font-sans antialiased text-slate-900 bg-white selection:bg-amber-100 selection:text-amber-900">
+      <LPHeader />
       <Hero />
       <Problem />
       <Solution />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { SquaresFour, Spinner } from '@phosphor-icons/react'
 import { Breadcrumb } from '@/components/shared'
@@ -162,11 +162,17 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     )
   }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId])
 
-  const handleTaskClick = (taskId: string) => {
+  // Stable refs for handleTaskClick to avoid recreating on every selection change
+  const selectedTaskIdRef = useRef(selectedTaskId)
+  selectedTaskIdRef.current = selectedTaskId
+  const syncUrlRef = useRef(syncUrlWithState)
+  syncUrlRef.current = syncUrlWithState
+
+  const handleTaskClick = useCallback((taskId: string) => {
     // Toggle: clicking same task closes inspector
-    const newTaskId = taskId === selectedTaskId ? null : taskId
-    syncUrlWithState(newTaskId)
-  }
+    const newTaskId = taskId === selectedTaskIdRef.current ? null : taskId
+    syncUrlRef.current(newTaskId)
+  }, [])
 
   const handleDateChange = useCallback(
     async (taskId: string, field: 'start' | 'end', newDate: string) => {

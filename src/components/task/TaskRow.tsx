@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
 import { AmberDot } from '@/components/shared'
 import type { Task, BallSide, TaskStatus } from '@/types/database'
@@ -8,7 +8,7 @@ import type { Task, BallSide, TaskStatus } from '@/types/database'
 interface TaskRowProps {
   task: Task
   isSelected?: boolean
-  onClick?: () => void
+  onClick?: (taskId: string) => void
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
 }
@@ -135,13 +135,17 @@ function BallIndicator({ ball }: { ball: BallSide }) {
   return null
 }
 
-export function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
-  const handleStatusChange = (newStatus: TaskStatus) => {
+  const handleStatusChange = useCallback((newStatus: TaskStatus) => {
     onStatusChange?.(task.id, newStatus)
-  }
+  }, [onStatusChange, task.id])
+
+  const handleClick = useCallback(() => {
+    onClick?.(task.id)
+  }, [onClick, task.id])
 
   return (
     <div
@@ -151,7 +155,7 @@ export function TaskRow({ task, isSelected, onClick, indent = false, onStatusCha
           : 'hover:bg-gray-50'
       }`}
       style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
-      onClick={onClick}
+      onClick={handleClick}
     >
       {/* Quick done checkbox - Left side like Linear */}
       {onStatusChange && (
@@ -244,4 +248,4 @@ export function TaskRow({ task, isSelected, onClick, indent = false, onStatusCha
       </div>
     </div>
   )
-}
+})

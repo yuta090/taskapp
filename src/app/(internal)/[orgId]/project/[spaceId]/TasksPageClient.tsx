@@ -1,14 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, X } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { Breadcrumb } from '@/components/shared'
 import { useInspector } from '@/components/layout'
 import { TaskRow } from '@/components/task/TaskRow'
-import { TaskInspector } from '@/components/task/TaskInspector'
-import { TaskCreateSheet, TaskCreateData } from '@/components/task/TaskCreateSheet'
+import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
+
+const TaskInspector = dynamic(() => import('@/components/task/TaskInspector').then(mod => ({ default: mod.TaskInspector })), { ssr: false })
+const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet').then(mod => ({ default: mod.TaskCreateSheet })), { ssr: false })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { TaskFilterMenu, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
@@ -325,19 +328,29 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     )
   }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId])
 
-  const handleFilterChange = (filter: FilterKey) => {
+  const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
-  }
+  }, [syncUrlWithState, isCreateOpen, selectedTaskId])
 
-  const handleCreateClose = () => {
+  const handleCreateClose = useCallback(() => {
     syncUrlWithState(false, selectedTaskId, activeFilter)
-  }
+  }, [syncUrlWithState, selectedTaskId, activeFilter])
 
-  const handleTaskSelect = (taskId: string) => {
+  // Stable refs for handleTaskSelect to keep callback identity stable across selection changes
+  const selectedTaskIdRef = useRef(selectedTaskId)
+  selectedTaskIdRef.current = selectedTaskId
+  const syncUrlRef = useRef(syncUrlWithState)
+  syncUrlRef.current = syncUrlWithState
+  const isCreateOpenRef = useRef(isCreateOpen)
+  isCreateOpenRef.current = isCreateOpen
+  const activeFilterRef = useRef(activeFilter)
+  activeFilterRef.current = activeFilter
+
+  const handleTaskSelect = useCallback((taskId: string) => {
     // Toggle: clicking same task closes inspector
-    const newTaskId = taskId === selectedTaskId ? null : taskId
-    syncUrlWithState(isCreateOpen, newTaskId, activeFilter)
-  }
+    const newTaskId = taskId === selectedTaskIdRef.current ? null : taskId
+    syncUrlRef.current(isCreateOpenRef.current, newTaskId, activeFilterRef.current)
+  }, [])
 
   const handleCreateSubmit = async (data: TaskCreateData) => {
     try {
@@ -362,7 +375,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     }
   }
 
-  const handleToggleGroup = (milestoneId: string | null) => {
+  const handleToggleGroup = useCallback((milestoneId: string | null) => {
     const key = milestoneId || '__none__'
     setCollapsedGroups((prev) => {
       const next = new Set(prev)
@@ -373,7 +386,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       }
       return next
     })
-  }
+  }, [])
+
+  const handleStatusChange = useCallback((taskId: string, status: TaskStatus) => {
+    updateTask(taskId, { status })
+  }, [updateTask])
 
   const sortOptions: { key: SortKey; label: string }[] = [
     { key: 'milestone', label: 'マイルストーン別' },
@@ -575,9 +592,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         key={task.id}
                         task={task}
                         isSelected={task.id === selectedTaskId}
-                        onClick={() => handleTaskSelect(task.id)}
+                        onClick={handleTaskSelect}
                         indent={showHeader}
-                        onStatusChange={(taskId, status) => updateTask(taskId, { status })}
+                        onStatusChange={handleStatusChange}
                       />
                     ))}
                   </div>

@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { PortalWikiClient } from './PortalWikiClient'
+import { PortalAllTasksClient } from './PortalAllTasksClient'
 
-export default async function PortalWikiPage() {
+export default async function PortalAllTasksPage() {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -50,53 +50,64 @@ export default async function PortalWikiPage() {
   }))
 
   const currentProject = projects[0]
-  const clientSpaceIds = projects.map((p: { id: string }) => p.id)
+  const spaceId = currentProject.id
 
-  // wikiPages と actionCount を並列取得
-  const [wikiResult, actionCountResult] = await Promise.all([
+  // milestones, tasks, actionCount を並列取得
+  const [milestonesResult, tasksResult, actionCountResult] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any)
-      .from('wiki_page_publications')
-      .select(`
-        id,
-        org_id,
-        published_title,
-        published_body,
-        published_at,
-        source_page_id,
-        wiki_pages!inner ( space_id ),
-        milestone_publications!inner ( is_published )
-      `)
-      .eq('org_id', currentProject.orgId)
-      .eq('milestone_publications.is_published', true)
-      .in('wiki_pages.space_id', clientSpaceIds)
-      .order('published_at', { ascending: false }),
+      .from('milestones')
+      .select('id, name, due_date, order_key')
+      .eq('space_id', spaceId)
+      .order('order_key', { ascending: true }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from('tasks')
+      .select('id, title, status, ball, due_date, type, decision_state, created_at, description, milestone_id')
+      .eq('space_id', spaceId)
+      .order('created_at', { ascending: false })
+      .limit(100),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
-      .eq('space_id', currentProject.id)
+      .eq('space_id', spaceId)
       .eq('ball', 'client')
       .neq('status', 'done'),
   ])
 
   // エラーログ（graceful degradation: 空データで続行）
-  if (wikiResult.error) console.error('[Portal Wiki] wiki query error:', wikiResult.error)
-  if (actionCountResult.error) console.error('[Portal Wiki] actionCount query error:', actionCountResult.error)
+  if (milestonesResult.error) console.error('[Portal AllTasks] milestones query error:', milestonesResult.error)
+  if (tasksResult.error) console.error('[Portal AllTasks] tasks query error:', tasksResult.error)
+  if (actionCountResult.error) console.error('[Portal AllTasks] actionCount query error:', actionCountResult.error)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const serializedPages = (wikiResult.data || []).map((p: any) => ({
-    id: p.id,
-    title: p.published_title,
-    body: p.published_body,
-    publishedAt: p.published_at,
+  const milestonesFormatted = (milestonesResult.data || []).map((m: any) => ({
+    id: m.id,
+    name: m.name,
+    due_date: m.due_date,
+    order_key: m.order_key,
+  }))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tasksFormatted = (tasksResult.data || []).map((task: any) => ({
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    status: task.status,
+    ball: task.ball,
+    dueDate: task.due_date,
+    type: task.type as 'task' | 'spec',
+    createdAt: task.created_at,
+    milestoneId: task.milestone_id,
   }))
 
   return (
-    <PortalWikiClient
+    <PortalAllTasksClient
       currentProject={currentProject}
       projects={projects}
-      wikiPages={serializedPages}
+      tasks={tasksFormatted}
+      milestones={milestonesFormatted}
       actionCount={actionCountResult.count || 0}
     />
   )

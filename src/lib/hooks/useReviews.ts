@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import type { Review, ReviewApproval, Task } from '@/types/database'
@@ -29,54 +29,38 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   const fetchReviews = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     try {
-      // Fetch reviews with tasks
+      // 1クエリで reviews + tasks + approvals を取得（ネストselect）
       const { data: reviewsData, error: reviewsError } = await supabase
         .from('reviews')
-        .select('*, task:tasks(*)')
+        .select('*, task:tasks(*), review_approvals(*)')
         .eq('space_id' as never, spaceId as never)
         .order('created_at', { ascending: false })
+        .limit(50)
 
       if (reviewsError) throw reviewsError
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const reviewsList = (reviewsData || []) as any[]
+      const rawReviews = (reviewsData || []) as any[]
 
-      // Fetch approvals for all reviews
-      const reviewIds = reviewsList.map((r) => r.id)
-      let approvalsByReview: Record<string, ReviewApproval[]> = {}
-
-      if (reviewIds.length > 0) {
-        const { data: approvalsData, error: approvalsError } = await supabase
-          .from('review_approvals')
-          .select('*')
-          .in('review_id' as never, reviewIds as never)
-
-        if (approvalsError) throw approvalsError
-
-        approvalsByReview = {}
-        const approvalsList = (approvalsData || []) as ReviewApproval[]
-        approvalsList.forEach((a) => {
-          if (!approvalsByReview[a.review_id]) {
-            approvalsByReview[a.review_id] = []
+      // review_approvals をパースし、reviews からは除去
+      const reviewsWithRelations: ReviewWithRelations[] = rawReviews.map(
+        (r) => {
+          const { review_approvals, ...reviewFields } = r
+          return {
+            ...reviewFields,
+            task: r.task as Task | undefined,
+            approvals: (Array.isArray(review_approvals) ? review_approvals : []) as ReviewApproval[],
           }
-          approvalsByReview[a.review_id].push(a)
-        })
-      }
-
-      // Combine data
-      const reviewsWithRelations: ReviewWithRelations[] = reviewsList.map(
-        (r) => ({
-          ...r,
-          task: r.task as Task | undefined,
-          approvals: approvalsByReview[r.id] || [],
-        })
+        }
       )
 
       setReviews(reviewsWithRelations)
@@ -91,36 +75,25 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
 
   const openReview = useCallback(
     async (taskId: string, reviewerIds: string[]) => {
-      try {
-        await rpc.reviewOpen(supabase, { taskId, reviewerIds })
-        await fetchReviews()
-      } catch (err) {
-        throw err
-      }
+      await rpc.reviewOpen(supabase, { taskId, reviewerIds })
+      // バックグラウンドで最新データを反映
+      void fetchReviews()
     },
     [supabase, fetchReviews]
   )
 
   const approveReview = useCallback(
     async (taskId: string) => {
-      try {
-        await rpc.reviewApprove(supabase, { taskId })
-        await fetchReviews()
-      } catch (err) {
-        throw err
-      }
+      await rpc.reviewApprove(supabase, { taskId })
+      void fetchReviews()
     },
     [supabase, fetchReviews]
   )
 
   const blockReview = useCallback(
     async (taskId: string, reason: string) => {
-      try {
-        await rpc.reviewBlock(supabase, { taskId, blockedReason: reason })
-        await fetchReviews()
-      } catch (err) {
-        throw err
-      }
+      await rpc.reviewBlock(supabase, { taskId, blockedReason: reason })
+      void fetchReviews()
     },
     [supabase, fetchReviews]
   )

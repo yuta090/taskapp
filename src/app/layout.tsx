@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import { QueryProvider } from '@/components/providers/QueryProvider'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -15,7 +14,7 @@ export default function RootLayout({
   return (
     <html lang="ja" className="antialiased">
       <body className="font-sans">
-        <QueryProvider>{children}</QueryProvider>
+        {children}
       </body>
     </html>
   )

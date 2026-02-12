@@ -37,6 +37,7 @@ function NavItem({ href, icon, label, badge, active }: NavItemProps) {
   return (
     <Link
       href={href}
+      prefetch={false}
       className={`px-2 py-2 rounded cursor-pointer flex items-center gap-2.5 group transition-colors ${
         active
           ? 'text-gray-900 bg-gray-200/60 font-medium'
@@ -67,6 +68,7 @@ function SubNavItem({ href, icon, label, active }: SubNavItemProps) {
   return (
     <Link
       href={href}
+      prefetch={false}
       className={`px-2 py-1.5 rounded cursor-pointer flex items-center gap-2 text-xs 2xl:text-sm ${
         active
           ? 'text-gray-900 bg-gray-200/60'
@@ -261,6 +263,7 @@ export function LeftNav() {
             {/* Project root */}
             <Link
               href={projectBasePath}
+              prefetch={false}
               className="px-2 py-2 text-gray-600 hover:bg-gray-200/50 rounded cursor-pointer flex items-center gap-2.5 group"
             >
               <div className="w-5 h-5 2xl:w-6 2xl:h-6 rounded bg-indigo-600 text-white flex items-center justify-center text-xs 2xl:text-sm shadow-sm">

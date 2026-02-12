@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { PortalWikiClient } from './PortalWikiClient'
+import { PortalMeetingsClient } from './PortalMeetingsClient'
 
-export default async function PortalWikiPage() {
+export default async function PortalMeetingsPage() {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -50,54 +50,62 @@ export default async function PortalWikiPage() {
   }))
 
   const currentProject = projects[0]
-  const clientSpaceIds = projects.map((p: { id: string }) => p.id)
+  const spaceId = currentProject.id
 
-  // wikiPages と actionCount を並列取得
-  const [wikiResult, actionCountResult] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // meetings と actionCount を並列取得（spaceId 確定後）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [meetingsResult, actionCountResult] = await Promise.all([
     (supabase as any)
-      .from('wiki_page_publications')
+      .from('meetings')
       .select(`
         id,
-        org_id,
-        published_title,
-        published_body,
-        published_at,
-        source_page_id,
-        wiki_pages!inner ( space_id ),
-        milestone_publications!inner ( is_published )
+        title,
+        held_at,
+        status,
+        minutes_md,
+        summary_subject,
+        summary_body,
+        started_at,
+        ended_at
       `)
-      .eq('org_id', currentProject.orgId)
-      .eq('milestone_publications.is_published', true)
-      .in('wiki_pages.space_id', clientSpaceIds)
-      .order('published_at', { ascending: false }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .eq('space_id', spaceId)
+      .in('status', ['ended', 'in_progress'])
+      .order('held_at', { ascending: false })
+      .limit(50),
     (supabase as any)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
-      .eq('space_id', currentProject.id)
+      .eq('space_id', spaceId)
       .eq('ball', 'client')
       .neq('status', 'done'),
   ])
 
   // エラーログ（graceful degradation: 空データで続行）
-  if (wikiResult.error) console.error('[Portal Wiki] wiki query error:', wikiResult.error)
-  if (actionCountResult.error) console.error('[Portal Wiki] actionCount query error:', actionCountResult.error)
+  if (meetingsResult.error) console.error('[Portal Meetings] meetings query error:', meetingsResult.error)
+  if (actionCountResult.error) console.error('[Portal Meetings] actionCount query error:', actionCountResult.error)
+
+  const meetings = meetingsResult.data
+  const actionCount = actionCountResult.count
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const serializedPages = (wikiResult.data || []).map((p: any) => ({
-    id: p.id,
-    title: p.published_title,
-    body: p.published_body,
-    publishedAt: p.published_at,
+  const formattedMeetings = (meetings || []).map((m: any) => ({
+    id: m.id,
+    title: m.title,
+    heldAt: m.held_at,
+    status: m.status,
+    minutesMd: m.minutes_md,
+    summarySubject: m.summary_subject,
+    summaryBody: m.summary_body,
+    startedAt: m.started_at,
+    endedAt: m.ended_at,
   }))
 
   return (
-    <PortalWikiClient
+    <PortalMeetingsClient
       currentProject={currentProject}
       projects={projects}
-      wikiPages={serializedPages}
-      actionCount={actionCountResult.count || 0}
+      meetings={formattedMeetings}
+      actionCount={actionCount || 0}
     />
   )
 }

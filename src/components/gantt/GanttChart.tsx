@@ -426,7 +426,7 @@ export function GanttChart({
                     endDate={endDate}
                     dayWidth={dayWidth}
                     rowIndex={row.rowIndex}
-                    onClick={() => onTaskClick?.(task.id)}
+                    onClick={onTaskClick}
                     isSelected={task.id === selectedTaskId}
                     onDateChange={onDateChange}
                   />

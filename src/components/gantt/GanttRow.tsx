@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef, memo } from 'react'
 import { GANTT_CONFIG } from '@/lib/gantt/constants'
 import { getTaskBarPosition, isWeekend, getDatesInRange, xToDate, formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import type { Task } from '@/types/database'
@@ -11,12 +11,12 @@ interface GanttRowProps {
   endDate: Date
   dayWidth: number
   rowIndex: number
-  onClick?: () => void
+  onClick?: (taskId: string) => void
   isSelected?: boolean
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
 }
 
-export function GanttRow({
+export const GanttRow = memo(function GanttRow({
   task,
   startDate,
   endDate,
@@ -162,8 +162,8 @@ export function GanttRow({
     if (justFinishedDragRef.current) {
       return
     }
-    onClick?.()
-  }, [onClick])
+    onClick?.(task.id)
+  }, [onClick, task.id])
 
   return (
     <g
@@ -380,4 +380,4 @@ export function GanttRow({
       )}
     </g>
   )
-}
+})

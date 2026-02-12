@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { fireNotification } from '@/lib/slack/notify'
 import type {
   TaskComment,
   TaskCommentInsert,
@@ -56,7 +57,21 @@ export function useTaskComments({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const supabase = useMemo(() => createClient(), [])
+  // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
+
+  // ユーザーIDキャッシュ（auth.getUser()の重複呼び出し回避）
+  const userIdRef = useRef<string | null>(null)
+
+  // 認証状態変更時にキャッシュ無効化（logout/relogin対策）
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      userIdRef.current = null
+    })
+    return () => subscription.unsubscribe()
+  }, [supabase])
 
   const fetchComments = useCallback(async () => {
     setLoading(true)
@@ -125,12 +140,15 @@ export function useTaskComments({
       const now = new Date().toISOString()
       const tempId = crypto.randomUUID()
 
-      // Get current user
-      const { data: authData, error: authError } = await supabase.auth.getUser()
-      if (authError || !authData?.user) {
-        throw new Error('ログインが必要です')
+      // Get current user (キャッシュ活用)
+      if (!userIdRef.current) {
+        const { data: authData, error: authError } = await supabase.auth.getUser()
+        if (authError || !authData?.user) {
+          throw new Error('ログインが必要です')
+        }
+        userIdRef.current = authData.user.id
       }
-      const userId = authData.user.id
+      const userId = userIdRef.current
 
       // If clientOnly mode, always use 'client' visibility
       const visibility = clientOnly ? 'client' : (input.visibility || 'client')
@@ -187,6 +205,16 @@ export function useTaskComments({
               : c
           )
         )
+
+        // Fire-and-forget Slack notification (only for client-visible comments)
+        if (visibility === 'client') {
+          fireNotification({
+            event: 'comment_added',
+            taskId,
+            spaceId,
+            changes: { commentBody: input.body },
+          })
+        }
 
         return createdComment
       } catch (err) {
