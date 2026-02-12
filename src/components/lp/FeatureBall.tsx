@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { User, PaperPlaneTilt, ArrowRight, ArrowLeft, Clock, CheckCircle } from '@phosphor-icons/react'
 import { SkewSeparator } from './Separators'
 import { useState, useEffect } from 'react'
@@ -89,7 +90,7 @@ function BallAnimationDemo() {
 
                     <div className="flex flex-col items-center text-center">
                         <div className="w-20 h-20 mb-4 rounded-full bg-slate-700 overflow-hidden border-2 border-slate-600 relative">
-                            <img src="/img/lp/feature_ball_client.png" alt="Client" className="w-full h-full object-cover" />
+                            <Image src="/img/lp/feature_ball_client.png" alt="Client" fill className="object-cover" sizes="80px" />
                         </div>
                         <div className={`font-bold text-lg mb-1 ${ballOwner === 'client' ? 'text-green-400' : 'text-slate-500'}`}>クライアント</div>
                         <div className="text-xs text-slate-500 font-mono">CLIENT</div>
@@ -119,7 +120,7 @@ function BallAnimationDemo() {
                         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
                     >
                         <div className={`absolute inset-0 rounded-full blur-xl transition-colors duration-500 ${ballOwner === 'developer' ? 'bg-amber-500/30' : 'bg-green-500/30'}`}></div>
-                        <img src="/img/lp/feature_ball.png" alt="Task Ball" className="w-full h-full object-contain drop-shadow-2xl relative z-10" />
+                        <Image src="/img/lp/feature_ball.png" alt="Task Ball" fill className="object-contain drop-shadow-2xl z-10" sizes="96px" />
 
                         {/* Status Label on Ball */}
                         <div className={`absolute -bottom-6 whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold border ${ballOwner === 'developer'
@@ -160,7 +161,7 @@ function BallAnimationDemo() {
 
                     <div className="flex flex-col items-center text-center">
                         <div className="w-32 h-20 mb-4 rounded-xl bg-slate-700 overflow-hidden border-2 border-slate-600 relative">
-                            <img src="/img/lp/scene_team_group.png?v=3" alt="Developer Team" className="w-full h-full object-cover" />
+                            <Image src="/img/lp/scene_team_group.png" alt="Developer Team" fill className="object-cover" sizes="128px" />
                         </div>
                         <div className={`font-bold text-lg mb-1 ${ballOwner === 'developer' ? 'text-amber-400' : 'text-slate-500'}`}>開発チーム</div>
                         <div className="text-xs text-slate-500 font-mono">SPECIALISTS</div>

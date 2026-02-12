@@ -62,6 +62,12 @@
 | AT-011 | 通知受信者ロジック | ✅ |
 | AT-012 | DB制約（SPECタスク） | ✅ |
 
+### Performance Optimization
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **最適化計画** | `PERFORMANCE_OPTIMIZATION_PLAN.md` | Claude×Codex分析に基づく4フェーズ最適化 (Phase 1-4 完了) |
+
 ### Planned (計画中)
 
 | Feature | Priority | Notes |

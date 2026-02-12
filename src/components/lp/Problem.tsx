@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { Clock, ChatCircleDots, Calculator } from '@phosphor-icons/react'
 
 function ProblemCard({ icon: Icon, title, desc, delay, rotation, baloon }: any) {
@@ -78,9 +79,11 @@ export function Problem() {
                         className="relative order-2 lg:order-1"
                     >
                         <div className="relative z-10 bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 p-8 transform rotate-3 hover:rotate-0 transition-transform duration-500">
-                            <img
-                                src="/img/lp/pain_multitasking.png"
-                                alt="Overwhelmed by multitasking"
+                            <Image
+                                src="/img/lp/pain_double_management.png"
+                                alt="Overwhelmed by tools: Excel, PowerPoint, and Task Apps"
+                                width={448}
+                                height={336}
                                 className="w-full h-auto max-w-md mx-auto object-contain"
                             />
                         </div>
@@ -90,11 +93,11 @@ export function Problem() {
                     <div className="grid gap-6 order-1 lg:order-2">
                         <ProblemCard
                             icon={Calculator}
-                            title="見積もり地獄"
-                            desc="「これ追加でいくら？」と聞かれるたびに、作業を止めて工数計算と資料作成。集中が途切れ、思考の切り替えが必要に。"
+                            title="進捗の二重管理"
+                            desc="顧客用はExcel、内部用はLinear。PMはただ情報を書き写すだけの「転記ロボット」になり、本来のマネジメント業務が疎かになっています。"
                             delay={0}
                             rotation={0}
-                            baloon="また仕様変更...！？"
+                            baloon="また転記作業...！？"
                         />
                         <ProblemCard
                             icon={ChatCircleDots}

@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { Sun, SunHorizon, MoonStars } from '@phosphor-icons/react'
 
 export function DayInLife() {
@@ -81,7 +82,7 @@ export function DayInLife() {
                                 「つくる」ことに集中した、充実した一日が終わります。
                             </p>
                             <div className="mt-6 p-1 bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                                <img src="/img/lp/scene_peaceful_evening.png" alt="Relaxing Evening" className="w-full h-auto rounded-lg" />
+                                <Image src="/img/lp/scene_peaceful_evening.png" alt="Relaxing Evening" width={800} height={450} className="w-full h-auto rounded-lg" />
                             </div>
                         </div>
                     </motion.div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { CheckCircle, ShieldCheck, CurrencyJpy } from '@phosphor-icons/react'
 
 export function FeaturePortal() {
@@ -23,9 +24,11 @@ export function FeaturePortal() {
                             whileHover={{ scale: 1.02 }}
                             className="absolute left-0 top-10 w-3/4 max-w-sm z-0 opacity-90 grayscale-[20%]"
                         >
-                            <img
+                            <Image
                                 src="/img/lp/scene_client_relief.png"
                                 alt="安心するクライアント"
+                                width={384}
+                                height={384}
                                 className="w-full h-auto drop-shadow-xl mask-image-gradient-b-transparent"
                             />
                             {/* Client Label */}

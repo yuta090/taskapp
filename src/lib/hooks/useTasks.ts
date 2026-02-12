@@ -264,26 +264,28 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput): Promise<void> => {
-      // Store previous state for rollback
-      const prevTasks = tasks
+      // Capture only the specific task for targeted rollback (avoids stale closure)
+      let prevTask: Task | undefined
 
       // Optimistic update
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                title: input.title ?? t.title,
-                description: input.description !== undefined ? input.description : t.description,
-                status: input.status ?? t.status,
-                priority: input.priority !== undefined ? input.priority : t.priority,
-                due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
-                assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
-                milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
-                updated_at: new Date().toISOString(),
-              }
-            : t
-        )
+        prev.map((t) => {
+          if (t.id === taskId) {
+            prevTask = t
+            return {
+              ...t,
+              title: input.title ?? t.title,
+              description: input.description !== undefined ? input.description : t.description,
+              status: input.status ?? t.status,
+              priority: input.priority !== undefined ? input.priority : t.priority,
+              due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
+              assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
+              milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
+              updated_at: new Date().toISOString(),
+            }
+          }
+          return t
+        })
       )
 
       try {
@@ -305,39 +307,44 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (updateError) throw updateError
 
         // Fire-and-forget notification on status change
-        if (input.status !== undefined) {
-          const prevTask = prevTasks.find(t => t.id === taskId)
-          if (prevTask && prevTask.status !== input.status) {
-            fireNotification({
-              event: 'status_changed',
-              taskId,
-              spaceId,
-              changes: {
-                oldStatus: prevTask.status,
-                newStatus: input.status,
-              },
-            })
-          }
+        if (input.status !== undefined && prevTask && prevTask.status !== input.status) {
+          fireNotification({
+            event: 'status_changed',
+            taskId,
+            spaceId,
+            changes: {
+              oldStatus: prevTask.status,
+              newStatus: input.status,
+            },
+          })
         }
       } catch (err) {
-        // Revert optimistic update
-        setTasks(prevTasks)
+        // Targeted rollback — only revert the specific task, preserving other concurrent mutations
+        if (prevTask) {
+          setTasks((prev) => prev.map((t) => (t.id === taskId ? prevTask! : t)))
+        }
         setError(err instanceof Error ? err : new Error('Failed to update task'))
         throw err
       }
     },
-    [tasks, supabase, spaceId]
+    [supabase, spaceId]
   )
 
   const deleteTask = useCallback(
     async (taskId: string): Promise<void> => {
-      // Store previous state for rollback
-      const prevTasks = tasks
-      const prevOwners = owners
+      // Capture specific item for targeted rollback (avoids stale closure)
+      let removedTask: Task | undefined
+      let removedIndex = -1
+      let removedOwners: TaskOwner[] | undefined
 
       // Optimistic update
-      setTasks((prev) => prev.filter((t) => t.id !== taskId))
+      setTasks((prev) => {
+        removedIndex = prev.findIndex((t) => t.id === taskId)
+        if (removedIndex !== -1) removedTask = prev[removedIndex]
+        return prev.filter((t) => t.id !== taskId)
+      })
       setOwners((prev) => {
+        removedOwners = prev[taskId]
         const next = { ...prev }
         delete next[taskId]
         return next
@@ -352,14 +359,22 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
         if (deleteError) throw deleteError
       } catch (err) {
-        // Revert optimistic update
-        setTasks(prevTasks)
-        setOwners(prevOwners)
+        // Targeted rollback — re-insert at original position, preserving other concurrent mutations
+        if (removedTask) {
+          setTasks((prev) => {
+            const next = [...prev]
+            next.splice(removedIndex, 0, removedTask!)
+            return next
+          })
+        }
+        if (removedOwners) {
+          setOwners((prev) => ({ ...prev, [taskId]: removedOwners! }))
+        }
         setError(err instanceof Error ? err : new Error('Failed to delete task'))
         throw err
       }
     },
-    [tasks, owners, supabase]
+    [supabase]
   )
 
   const passBall = useCallback(

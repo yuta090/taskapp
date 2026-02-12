@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { ArrowRight } from '@phosphor-icons/react'
 
 export function Workflow() {
@@ -18,7 +19,7 @@ export function Workflow() {
                     <h2 className="text-3xl font-bold text-slate-900">ベストプラクティスを組み込んだワークフロー</h2>
                     <p className="text-slate-500 mt-4">迷わない。止まらない。スムーズなアウトプット。</p>
                     <div className="mt-12 max-w-3xl mx-auto">
-                        <img src="/img/lp/feature_workflow_iso.png" alt="Workflow Pipeline" className="w-full h-auto object-contain" />
+                        <Image src="/img/lp/feature_workflow_iso.png" alt="Workflow Pipeline" width={768} height={480} className="w-full h-auto object-contain" />
                     </div>
                 </div>
 

@@ -2,8 +2,10 @@
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect } from 'react'
-import { ArrowRight, Play, Terminal } from '@phosphor-icons/react'
+import { ArrowRight, Play } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
+import Image from 'next/image'
+import Link from 'next/link'
 
 import { AuroraBackground } from '@/components/ui/aurora-background'
 
@@ -26,7 +28,7 @@ export function Hero() {
   }, [])
 
   return (
-    <AuroraBackground className="min-h-[90vh] py-32 pb-16">
+    <AuroraBackground className="min-h-[90vh] pt-24 pb-16">
       <div className="container mx-auto px-6 relative z-10 grid lg:grid-cols-2 gap-12 items-center flex-grow">
         {/* Left: Text Content - Immediate Display */}
         <div className="space-y-8">
@@ -53,14 +55,16 @@ export function Hero() {
 
           <div className="flex flex-col gap-3 pt-4">
             <div className="flex flex-col sm:flex-row gap-4">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="px-8 py-4 bg-amber-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2"
-              >
-                無料で始める
-                <ArrowRight weight="bold" />
-              </motion.button>
+              <Link href="/signup">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-8 py-4 bg-amber-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2"
+                >
+                  無料で始める
+                  <ArrowRight weight="bold" />
+                </motion.button>
+              </Link>
               <motion.button
                 whileHover={{ scale: 1.05, backgroundColor: "#f8fafc" }}
                 whileTap={{ scale: 0.95 }}
@@ -104,11 +108,16 @@ export function Hero() {
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ duration: 0.3 }}
                 >
-                  <img
-                    src={heroImages[currentImageIndex]}
-                    alt="TaskApp Feature"
-                    className="w-full flex-1 object-contain max-h-[85%]"
-                  />
+                  <div className="relative w-full flex-1 max-h-[85%]">
+                    <Image
+                      src={heroImages[currentImageIndex]}
+                      alt="TaskApp Feature"
+                      fill
+                      className="object-contain"
+                      sizes="(max-width: 1024px) 100vw, 50vw"
+                      priority={currentImageIndex === 0}
+                    />
+                  </div>
                   <p className="text-lg lg:text-xl font-bold text-slate-700 mt-4 text-center">
                     {heroCaptions[currentImageIndex]}
                   </p>
