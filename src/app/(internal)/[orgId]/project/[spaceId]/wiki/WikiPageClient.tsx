@@ -214,6 +214,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               initialContent={activePage.body || undefined}
               onChange={handleEditorChange}
               editable={true}
+              orgId={orgId}
+              spaceId={spaceId}
             />
           </div>
         </div>

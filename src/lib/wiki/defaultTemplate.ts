@@ -190,6 +190,19 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
     // Spacer
     { type: 'paragraph', content: [] },
 
+    // --- Meetings Block (dynamic) ---
+    {
+      type: 'heading',
+      props: { level: 2 },
+      content: [{ type: 'text', text: '最新の議事録' }],
+    },
+    {
+      type: 'meetingsList',
+      props: { orgId, spaceId, limit: '5' },
+    },
+    // Spacer
+    { type: 'paragraph', content: [] },
+
     // --- Quick Links ---
     {
       type: 'heading',
