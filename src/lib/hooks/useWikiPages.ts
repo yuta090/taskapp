@@ -25,7 +25,7 @@ interface UseWikiPagesReturn {
   pages: WikiPage[]
   loading: boolean
   error: Error | null
-  fetchPages: () => Promise<void>
+  fetchPages: () => Promise<string | null>
   createPage: (input: CreateWikiPageInput) => Promise<WikiPage>
   updatePage: (pageId: string, input: UpdateWikiPageInput) => Promise<void>
   deletePage: (pageId: string) => Promise<void>
@@ -42,7 +42,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
   const supabase = useMemo(() => createClient(), [])
   const defaultCreatedRef = useRef(false)
 
-  const fetchPages = useCallback(async () => {
+  // Returns the auto-created default page ID if one was created, null otherwise
+  const fetchPages = useCallback(async (): Promise<string | null> => {
     setLoading(true)
     setError(null)
 
@@ -64,29 +65,30 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       if (fetchedPages.length === 0 && !defaultCreatedRef.current) {
         defaultCreatedRef.current = true
         try {
+          // Get auth user — requires authenticated user for FK constraint
           const { data: authData } = await supabase.auth.getUser()
           const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
-          if (userId) {
-            const defaultBody = generateDefaultWikiBody(orgId, spaceId)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data: created, error: createErr } = await (supabase as any)
-              .from('wiki_pages')
-              .insert({
-                org_id: orgId,
-                space_id: spaceId,
-                title: DEFAULT_WIKI_TITLE,
-                body: defaultBody,
-                tags: DEFAULT_WIKI_TAGS,
-                created_by: userId,
-                updated_by: userId,
-              })
-              .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
-              .single()
+          if (!userId) return null
 
-            if (!createErr && created) {
-              setPages([created as WikiPage])
-              return
-            }
+          const defaultBody = generateDefaultWikiBody(orgId, spaceId)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: created, error: createErr } = await (supabase as any)
+            .from('wiki_pages')
+            .insert({
+              org_id: orgId,
+              space_id: spaceId,
+              title: DEFAULT_WIKI_TITLE,
+              body: defaultBody,
+              tags: DEFAULT_WIKI_TAGS,
+              created_by: userId,
+              updated_by: userId,
+            })
+            .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+            .single()
+
+          if (!createErr && created) {
+            setPages([created as WikiPage])
+            return (created as WikiPage).id
           }
         } catch {
           // Default page creation is non-critical — continue with empty list
@@ -94,8 +96,10 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       }
 
       setPages(fetchedPages)
+      return null
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to fetch wiki pages'))
+      return null
     } finally {
       setLoading(false)
     }

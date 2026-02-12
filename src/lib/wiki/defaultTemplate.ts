@@ -3,16 +3,10 @@
  * Auto-created when a project's wiki is first accessed with 0 pages.
  */
 
-// BlockNote block structure
-interface TemplateBlock {
-  type: string
-  content?: (
-    | { type: 'text'; text: string; styles?: Record<string, boolean | string> }
-    | { type: 'link'; href: string; content: { type: 'text'; text: string; styles?: Record<string, boolean | string> }[] }
-  )[]
-  props?: Record<string, unknown>
-  children?: TemplateBlock[]
-}
+// BlockNote block structure — content is loosely typed to support
+// various block types (paragraph, table, etc.)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TemplateBlock = Record<string, any>
 
 export const DEFAULT_WIKI_TITLE = 'プロジェクトホーム'
 
@@ -109,7 +103,7 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
             ],
           },
         ],
-      } as unknown,
+      },
     },
     // Spacer
     { type: 'paragraph', content: [] },
@@ -191,7 +185,7 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
             ],
           },
         ],
-      } as unknown,
+      },
     },
     // Spacer
     { type: 'paragraph', content: [] },

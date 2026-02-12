@@ -41,8 +41,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const selectedPageId = searchParams.get('page')
 
   useEffect(() => {
-    void fetchPages()
-  }, [fetchPages])
+    const init = async () => {
+      const defaultPageId = await fetchPages()
+      // Auto-navigate to default page when it's first created
+      if (defaultPageId && !selectedPageId) {
+        updateQuery({ page: defaultPageId })
+      }
+    }
+    void init()
+  }, [fetchPages]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup inspector on unmount
   useEffect(() => {

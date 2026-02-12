@@ -75,10 +75,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const selectedTaskId = searchParams.get('task')
   const activeFilter: FilterKey = useMemo(() => {
     const filterParam = searchParams.get('filter')
-    if (filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait') {
+    if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait') {
       return filterParam
     }
-    return 'all'
+    return 'active'
   }, [searchParams])
 
   useEffect(() => {
@@ -347,6 +347,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         type: data.type,
         ball: data.ball,
         origin: data.origin,
+        clientScope: data.clientScope,
         specPath: data.specPath,
         decisionState: data.decisionState,
         clientOwnerIds: data.clientOwnerIds,
