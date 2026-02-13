@@ -1,10 +1,16 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import type { IntegrationConnection, IntegrationProvider } from './types'
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000 // 5 minutes buffer
 
@@ -20,7 +26,7 @@ export async function refreshIfNeeded(
     expiresAt: Date | null
   }>,
 ): Promise<IntegrationConnection | null> {
-  const { data: connection, error } = await (supabaseAdmin as any)
+  const { data: connection, error } = await (getSupabaseAdmin() as any)
     .from('integration_connections')
     .select('*')
     .eq('id', connectionId)
@@ -46,7 +52,7 @@ export async function refreshIfNeeded(
   // Token is expired or about to expire — refresh
   if (!connection.refresh_token) {
     // No refresh token, mark as expired
-    await (supabaseAdmin as any)
+    await (getSupabaseAdmin() as any)
       .from('integration_connections')
       .update({ status: 'expired' } as any)
       .eq('id', connectionId)
@@ -67,7 +73,7 @@ export async function refreshIfNeeded(
       updateData.refresh_token = refreshed.refreshToken
     }
 
-    const { data: updated, error: updateError } = await (supabaseAdmin as any)
+    const { data: updated, error: updateError } = await (getSupabaseAdmin() as any)
       .from('integration_connections')
       .update(updateData as any)
       .eq('id', connectionId)
@@ -82,7 +88,7 @@ export async function refreshIfNeeded(
     return updated as IntegrationConnection
   } catch (err) {
     console.error('Token refresh failed:', err)
-    await (supabaseAdmin as any)
+    await (getSupabaseAdmin() as any)
       .from('integration_connections')
       .update({ status: 'expired' } as any)
       .eq('id', connectionId)
@@ -110,7 +116,7 @@ export async function getValidToken(
  * Revoke a token by marking it as revoked in the database.
  */
 export async function revokeToken(connectionId: string): Promise<boolean> {
-  const { error } = await (supabaseAdmin as any)
+  const { error } = await (getSupabaseAdmin() as any)
     .from('integration_connections')
     .update({ status: 'revoked' } as any)
     .eq('id', connectionId)
@@ -130,7 +136,7 @@ export async function findConnection(
   ownerType: 'user' | 'org',
   ownerId: string,
 ): Promise<IntegrationConnection | null> {
-  const { data, error } = await (supabaseAdmin as any)
+  const { data, error } = await (getSupabaseAdmin() as any)
     .from('integration_connections')
     .select('*')
     .eq('provider', provider)
