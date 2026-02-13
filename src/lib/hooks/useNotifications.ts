@@ -26,6 +26,11 @@ export interface NotificationWithPayload extends Omit<Notification, 'payload'> {
     decided_count?: number
     open_count?: number
     ball_client_count?: number
+    // Scheduling reminder fields
+    proposalId?: string
+    reminderType?: 'expiry_24h' | 'unresponded_48h'
+    expiresAt?: string
+    unrespondedNames?: string
     [key: string]: Json | undefined
   }
 }

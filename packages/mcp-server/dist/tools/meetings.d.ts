@@ -36,11 +36,11 @@ export declare const meetingListSchema: z.ZodObject<{
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     limit: number;
-    status?: "in_progress" | "planned" | "ended" | undefined;
     spaceId?: string | undefined;
+    status?: "in_progress" | "planned" | "ended" | undefined;
 }, {
-    status?: "in_progress" | "planned" | "ended" | undefined;
     spaceId?: string | undefined;
+    status?: "in_progress" | "planned" | "ended" | undefined;
     limit?: number | undefined;
 }>;
 export declare const meetingGetSchema: z.ZodObject<{
@@ -117,11 +117,11 @@ export declare const meetingTools: ({
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         limit: number;
-        status?: "in_progress" | "planned" | "ended" | undefined;
         spaceId?: string | undefined;
+        status?: "in_progress" | "planned" | "ended" | undefined;
     }, {
-        status?: "in_progress" | "planned" | "ended" | undefined;
         spaceId?: string | undefined;
+        status?: "in_progress" | "planned" | "ended" | undefined;
         limit?: number | undefined;
     }>;
     handler: typeof meetingList;

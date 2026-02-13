@@ -15,9 +15,9 @@ export declare const ballPassSchema: z.ZodObject<{
 }, {
     ball: "client" | "internal";
     taskId: string;
+    reason?: string | undefined;
     clientOwnerIds?: string[] | undefined;
     internalOwnerIds?: string[] | undefined;
-    reason?: string | undefined;
 }>;
 export declare const ballQuerySchema: z.ZodObject<{
     spaceId: z.ZodOptional<z.ZodString>;
@@ -80,9 +80,9 @@ export declare const ballTools: ({
     }, {
         ball: "client" | "internal";
         taskId: string;
+        reason?: string | undefined;
         clientOwnerIds?: string[] | undefined;
         internalOwnerIds?: string[] | undefined;
-        reason?: string | undefined;
     }>;
     handler: typeof ballPass;
 } | {

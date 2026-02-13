@@ -1,7 +1,7 @@
 # TaskApp Specification Index
 
-> **Last Updated**: 2025-02-03
-> **Status**: Production Ready (AT-001〜AT-012 実装済み)
+> **Last Updated**: 2026-02-12
+> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング機能 Phase 1-4 完了)
 
 このファイルは現行仕様の一覧です。古いバージョンは `docs/archive/` を参照。
 
@@ -25,6 +25,7 @@
 |----------|------|-------------|
 | **Auth/Invite/Billing** | `spec/AUTH_INVITE_BILLING_SPEC.md` | 認証・招待・課金仕様 |
 | **Assignee/Owner** | `spec/ASSIGNEE_OWNER_SPEC.md` | 担当者・オーナー仕様 |
+| **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
 
 ### Prototypes
 
@@ -68,6 +69,15 @@
 |----------|------|-------------|
 | **最適化計画** | `PERFORMANCE_OPTIMIZATION_PLAN.md` | Claude×Codex分析に基づく4フェーズ最適化 (Phase 1-4 完了) |
 
+### Scheduling (スケジューリング機能)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | コア日程調整 (提案・回答・確定) | ✅ |
+| Phase 2 | Google Calendar連携 (FreeBusy + OAuth) | ✅ |
+| Phase 3 | ビデオ会議連携 (Google Meet / Zoom / Teams) | ✅ |
+| Phase 4 | Realtime + pg_cron リマインダー + 期限切れ自動処理 | ✅ |
+
 ### Planned (計画中)
 
 | Feature | Priority | Notes |
@@ -106,6 +116,7 @@ decision_state = 'considering' | 'decided' | 'implemented'
 | `rpc_set_spec_state` | SPEC状態遷移 |
 | `rpc_meeting_start/end` | 会議ライフサイクル |
 | `rpc_parse_meeting_minutes` | 議事録→タスク生成 |
+| `rpc_confirm_proposal_slot` | 日程調整スロット確定→会議自動作成 |
 
 ---
 

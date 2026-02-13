@@ -110,9 +110,67 @@
 
 ---
 
+---
+
+## MCP連携（2025-02-03 決定 / 一部ペンディング）
+
+### 実装済み
+- **横断アクセス認可システム**
+  - APIキーに `scope` (space/org/user) を追加
+  - `allowed_space_ids` で複数プロジェクトへのアクセス制御
+  - `allowed_actions` (read/write/delete/bulk) で操作制限
+  - defense-in-depth: API層 + RPC層 + RLS
+- **破壊的操作の保護**
+  - dry_run/confirm パターン（30秒有効の確認トークン）
+- **監査ログ**
+  - `api_key_usage` テーブルで操作履歴を記録
+- **アカウント設定でのAPIキー管理UI**
+  - `/settings/api-keys` でユーザーがAPIキーを発行
+  - プロジェクトをチェックボックスで選択
+  - 許可する操作を選択
+
+### ペンディング: APIキーのみでの接続
+
+**現状のアーキテクチャ**
+```
+MCP Server → Supabase（直接接続）
+             ↑
+         SERVICE_KEY が必要
+```
+
+**目標のアーキテクチャ**
+```
+MCP Server → TaskApp API → Supabase
+             ↑
+         APIキーのみで認証
+```
+
+**実現条件**
+- 本番ドメインの確定
+- MCPサーバーをHTTP API経由に変更
+
+**期待される設定（将来）**
+```json
+{
+  "mcpServers": {
+    "taskapp": {
+      "env": {
+        "TASKAPP_API_KEY": "tsk_xxxxx",
+        "TASKAPP_API_URL": "https://taskapp.example.com/api"
+      }
+    }
+  }
+}
+```
+
+**優先度**: 本番デプロイ後
+
+---
+
 ## 変更履歴
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|----------|
+| v5.1 | 2025-02-03 | MCP連携の意思決定追加 |
 | v5 | 2025-02-02 | 認証・招待・課金の意思決定追加 |
 | v4 | - | レビュー・検討中・会議・代理入力・通知 |

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import type { Meeting, MeetingParticipant } from '@/types/database'
@@ -47,12 +47,32 @@ interface MinutesPreviewResult {
   }>
 }
 
+/** 一覧表示用の軽量カラム（minutes_md を除外して転送量を削減） */
+const MEETING_LIST_COLUMNS = `
+  id,
+  org_id,
+  space_id,
+  title,
+  held_at,
+  notes,
+  status,
+  started_at,
+  ended_at,
+  summary_subject,
+  summary_body,
+  created_at,
+  updated_at,
+  meeting_participants (*)
+` as const
+
 interface UseMeetingsReturn {
   meetings: Meeting[]
   participants: Record<string, MeetingParticipant[]>
   loading: boolean
   error: Error | null
   fetchMeetings: () => Promise<void>
+  /** 選択された会議の詳細（minutes_md等）をオンデマンドで取得 */
+  fetchMeetingDetail: (meetingId: string) => Promise<Meeting | null>
   createMeeting: (meeting: CreateMeetingInput) => Promise<Meeting>
   startMeeting: (meetingId: string) => Promise<void>
   endMeeting: (meetingId: string) => Promise<{
@@ -66,6 +86,8 @@ interface UseMeetingsReturn {
   previewMinutes: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
 }
 
+const MEETINGS_LIMIT = 50
+
 export function useMeetings({
   orgId,
   spaceId,
@@ -77,54 +99,88 @@ export function useMeetings({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const supabase = createClient()
+  // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
+
+  // フェッチのレース条件対策用カウンター
+  const fetchIdRef = useRef(0)
 
   const fetchMeetings = useCallback(async () => {
+    const currentFetchId = ++fetchIdRef.current
     setLoading(true)
     setError(null)
 
     try {
-      // Fetch meetings
+      // 1クエリで meetings + participants を取得（ネストselect）
       const { data: meetingsData, error: meetingsError } = await supabase
         .from('meetings')
-        .select('*')
+        .select(MEETING_LIST_COLUMNS)
         .eq('space_id' as never, spaceId as never)
         .order('held_at', { ascending: false })
+        .limit(MEETINGS_LIMIT)
 
       if (meetingsError) throw meetingsError
-      const meetings = (meetingsData || []) as Meeting[]
-      setMeetings(meetings)
 
-      // Fetch participants for all meetings
-      const meetingIds = meetings.map((m) => m.id)
-      if (meetingIds.length > 0) {
-        const { data: participantsData, error: participantsError } =
-          await supabase
-            .from('meeting_participants')
-            .select('*')
-            .in('meeting_id' as never, meetingIds as never)
+      // レース条件: 古いリクエストの結果を無視
+      if (currentFetchId !== fetchIdRef.current) return
 
-        if (participantsError) throw participantsError
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawMeetings = (meetingsData || []) as any[]
 
-        // Group participants by meeting_id
-        const participantsByMeeting: Record<string, MeetingParticipant[]> = {}
-        const participants = (participantsData || []) as MeetingParticipant[]
-        participants.forEach((p) => {
-          if (!participantsByMeeting[p.meeting_id]) {
-            participantsByMeeting[p.meeting_id] = []
-          }
-          participantsByMeeting[p.meeting_id].push(p)
-        })
-        setParticipants(participantsByMeeting)
-      }
+      // participants をグルーピングし、meetings からは除去
+      const participantsByMeeting: Record<string, MeetingParticipant[]> = {}
+      const cleanMeetings: Meeting[] = rawMeetings.map((m) => {
+        const { meeting_participants, ...meetingFields } = m
+        if (Array.isArray(meeting_participants)) {
+          participantsByMeeting[m.id] = meeting_participants as MeetingParticipant[]
+        }
+        return meetingFields as Meeting
+      })
+
+      setMeetings(cleanMeetings)
+      setParticipants(participantsByMeeting)
     } catch (err) {
+      if (currentFetchId !== fetchIdRef.current) return
       setError(
         err instanceof Error ? err : new Error('Failed to fetch meetings')
       )
     } finally {
-      setLoading(false)
+      if (currentFetchId === fetchIdRef.current) {
+        setLoading(false)
+      }
     }
   }, [spaceId, supabase])
+
+  /** 選択された会議の詳細をオンデマンドで取得し、ローカルstateも更新 */
+  const fetchMeetingDetail = useCallback(
+    async (meetingId: string): Promise<Meeting | null> => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('meetings')
+          .select('*')
+          .eq('id' as never, meetingId as never)
+          .single()
+
+        if (fetchError) throw fetchError
+        const fullMeeting = data as Meeting
+
+        // ローカルstateを更新
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === meetingId ? fullMeeting : m))
+        )
+
+        return fullMeeting
+      } catch (err) {
+        setError(
+          err instanceof Error ? err : new Error('Failed to fetch meeting detail')
+        )
+        return null
+      }
+    },
+    [supabase]
+  )
 
   const createMeeting = useCallback(
     async (meeting: CreateMeetingInput) => {
@@ -202,18 +258,27 @@ export function useMeetings({
         ]
 
         if (participantRows.length > 0) {
-          const { error: participantError } = await supabase
+          const { data: insertedParticipants, error: participantError } = await supabase
             .from('meeting_participants')
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .insert(participantRows as any)
+            .select('*')
           if (participantError) throw participantError
+
+          // 参加者もオプティミスティック更新
+          if (insertedParticipants) {
+            setParticipants((prev) => ({
+              ...prev,
+              [createdMeeting.id]: insertedParticipants as MeetingParticipant[],
+            }))
+          }
         }
 
+        // オプティミスティック更新: tempId → 実際のIDに差し替え
         setMeetings((prev) =>
           prev.map((m) => (m.id === tempId ? createdMeeting : m))
         )
 
-        await fetchMeetings()
         return createdMeeting
       } catch (err) {
         setMeetings((prev) => prev.filter((m) => m.id !== tempId))
@@ -223,7 +288,7 @@ export function useMeetings({
         throw err
       }
     },
-    [orgId, spaceId, supabase, fetchMeetings]
+    [orgId, spaceId, supabase]
   )
 
   const startMeeting = useCallback(
@@ -239,8 +304,8 @@ export function useMeetings({
 
       try {
         await rpc.meetingStart(supabase, { meetingId })
-        await fetchMeetings()
       } catch (err) {
+        // エラー時のみ最新データを再取得
         await fetchMeetings()
         throw err
       }
@@ -261,13 +326,28 @@ export function useMeetings({
 
       try {
         const result = await rpc.meetingEnd(supabase, { meetingId })
-        await fetchMeetings()
+
+        // サーバー応答で summary を更新
+        setMeetings((prev) =>
+          prev.map((m) =>
+            m.id === meetingId
+              ? {
+                  ...m,
+                  status: 'ended' as const,
+                  summary_subject: result.summary_subject,
+                  summary_body: result.summary_body,
+                }
+              : m
+          )
+        )
+
         return {
           summary_subject: result.summary_subject,
           summary_body: result.summary_body,
           counts: result.counts,
         }
       } catch (err) {
+        // エラー時のみ最新データを再取得
         await fetchMeetings()
         throw err
       }
@@ -354,6 +434,7 @@ export function useMeetings({
     loading,
     error,
     fetchMeetings,
+    fetchMeetingDetail,
     createMeeting,
     startMeeting,
     endMeeting,

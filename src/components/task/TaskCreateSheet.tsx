@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, ArrowRight, User, Calendar, Flag, Plus } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
-import type { TaskType, BallSide, DecisionState } from '@/types/database'
+import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
 
 interface TaskCreateSheetProps {
   spaceId: string
@@ -21,6 +21,7 @@ export interface TaskCreateData {
   type: TaskType
   ball: BallSide
   origin: BallSide
+  clientScope: ClientScope
   specPath?: string
   decisionState?: DecisionState
   clientOwnerIds: string[]
@@ -42,6 +43,7 @@ export function TaskCreateSheet({
   const [description, setDescription] = useState('')
   const [type, setType] = useState<TaskType>('task')
   const [ball, setBall] = useState<BallSide>(defaultBall)
+  const [clientScope, setClientScope] = useState<ClientScope>('deliverable')
   const [specPath, setSpecPath] = useState('')
   const [decisionState, setDecisionState] = useState<DecisionState>('considering')
   const [clientOwnerIds, setClientOwnerIds] = useState<string[]>(defaultClientOwnerIds)
@@ -217,6 +219,7 @@ export function TaskCreateSheet({
       type,
       ball,
       origin: 'internal', // Always internal when creating
+      clientScope,
       specPath: type === 'spec' ? specPath : undefined,
       decisionState: type === 'spec' ? decisionState : undefined,
       clientOwnerIds,
@@ -509,6 +512,35 @@ export function TaskCreateSheet({
                 </span>
               </button>
             </div>
+          </div>
+
+          {/* Client Scope toggle */}
+          <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className={`text-lg ${clientScope === 'deliverable' ? 'opacity-100' : 'opacity-30'}`}>👁</span>
+              <div>
+                <span className="text-sm font-medium text-gray-700">クライアントに表示</span>
+                <p className="text-xs text-gray-500">
+                  {clientScope === 'deliverable'
+                    ? 'クライアントポータルに表示されます'
+                    : '内部作業として非表示'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
+              data-testid="task-create-client-scope-toggle"
+              className={`relative w-11 h-6 rounded-full transition-colors ${
+                clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
 
           {/* Client owners (required when ball=client) */}

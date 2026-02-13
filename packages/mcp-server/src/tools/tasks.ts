@@ -12,6 +12,7 @@ export const taskCreateSchema = z.object({
   type: z.enum(['task', 'spec']).default('task').describe('タスクタイプ: task=通常, spec=仕様'),
   ball: z.enum(['client', 'internal']).default('internal').describe('ボール所有者: client=クライアント, internal=社内'),
   origin: z.enum(['client', 'internal']).default('internal').describe('起源: 誰が起票したか'),
+  clientScope: z.enum(['deliverable', 'internal']).default('deliverable').describe('クライアント可視性: deliverable=ポータルに表示, internal=非表示'),
   clientOwnerIds: z.array(z.string().uuid()).default([]).describe('クライアント側担当者のUUID配列'),
   internalOwnerIds: z.array(z.string().uuid()).default([]).describe('社内側担当者のUUID配列'),
   dueDate: z.string().optional().describe('期限日 (YYYY-MM-DD)'),
@@ -30,6 +31,7 @@ export const taskUpdateSchema = z.object({
   dueDate: z.string().optional().describe('新しい期限日'),
   assigneeId: z.string().uuid().optional().describe('新しい担当者'),
   priority: z.number().min(0).max(3).optional().describe('優先度 (0-3)'),
+  clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性: deliverable=ポータルに表示, internal=非表示'),
 })
 
 export const taskListSchema = z.object({
@@ -37,6 +39,7 @@ export const taskListSchema = z.object({
   ball: z.enum(['client', 'internal']).optional().describe('ボールでフィルタ'),
   status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']).optional().describe('ステータスでフィルタ'),
   type: z.enum(['task', 'spec']).optional().describe('タイプでフィルタ'),
+  clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性でフィルタ'),
   limit: z.number().min(1).max(100).default(50).describe('取得件数'),
 })
 
@@ -56,6 +59,7 @@ export const taskDeleteSchema = z.object({
 export const taskListMySchema = z.object({
   ball: z.enum(['client', 'internal']).optional().describe('ボールでフィルタ'),
   status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']).optional().describe('ステータスでフィルタ'),
+  clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性でフィルタ'),
   limit: z.number().min(1).max(100).default(50).describe('取得件数'),
 })
 
@@ -128,6 +132,7 @@ export async function taskCreate(params: z.infer<typeof taskCreateSchema>): Prom
       type: params.type,
       spec_path: params.type === 'spec' ? params.specPath : null,
       decision_state: params.type === 'spec' ? (params.decisionState || 'considering') : null,
+      client_scope: params.clientScope,
       due_date: params.dueDate || null,
       assignee_id: params.assigneeId || null,
       milestone_id: params.milestoneId || null,
@@ -183,6 +188,7 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
   if (params.dueDate !== undefined) updateData.due_date = params.dueDate
   if (params.assigneeId !== undefined) updateData.assignee_id = params.assigneeId
   if (params.priority !== undefined) updateData.priority = params.priority
+  if (params.clientScope !== undefined) updateData.client_scope = params.clientScope
 
   if (Object.keys(updateData).length === 0) {
     throw new Error('更新するフィールドがありません')
@@ -223,6 +229,9 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
   }
   if (params.type) {
     query = query.eq('type', params.type)
+  }
+  if (params.clientScope) {
+    query = query.eq('client_scope', params.clientScope)
   }
 
   const { data, error } = await query
@@ -366,6 +375,9 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
     }
     if (params.status) {
       query = query.eq('status', params.status)
+    }
+    if (params.clientScope) {
+      query = query.eq('client_scope', params.clientScope)
     }
 
     const { data: tasks } = await query

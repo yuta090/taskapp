@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import type { Task, DecisionState } from '@/types/database'
@@ -28,7 +28,9 @@ export function useSpecTasks({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   const fetchSpecTasks = useCallback(async () => {
     setLoading(true)
@@ -79,8 +81,8 @@ export function useSpecTasks({
           decisionState: state,
           meetingId,
         })
-        await fetchSpecTasks()
       } catch (err) {
+        // エラー時のみ再取得
         await fetchSpecTasks()
         throw err
       }

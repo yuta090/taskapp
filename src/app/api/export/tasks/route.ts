@@ -59,8 +59,10 @@ function escapeCSV(value: string | null | undefined): string {
   if (value === null || value === undefined) return ''
   let str = String(value)
 
-  // Formula injection対策: 危険な文字で始まる場合はシングルクォートでプレフィックス
-  if (str.length > 0 && FORMULA_PREFIXES.some(prefix => str.startsWith(prefix))) {
+  // Formula injection対策: 先頭空白を除いた最初の文字が危険な場合はプレフィックス
+  // " =1+1" のようなケースも防ぐ
+  const trimmed = str.trimStart()
+  if (trimmed.length > 0 && FORMULA_PREFIXES.some(prefix => trimmed.startsWith(prefix))) {
     str = "'" + str
   }
 
@@ -139,12 +141,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // ユーザーがこのスペースのメンバーか確認
+    // ユーザーが内部メンバー（owner/admin/member）か確認（clientロールは除外）
     const { data: membership } = await (supabase as any)
       .from('space_memberships')
-      .select('id')
+      .select('id, role')
       .eq('user_id', user.id)
       .eq('space_id', spaceId)
+      .neq('role', 'client')
       .single()
 
     if (!membership) {

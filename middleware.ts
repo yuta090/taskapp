@@ -7,8 +7,12 @@ const publicPaths = [
   '/signup',
   '/reset',
   '/invite',
-  '/portal',
   '/api/auth',
+]
+
+// 認証が必要なパス（portalは独自のauth checkを持つが、middleware でセッションリフレッシュ必要）
+const authRequiredPrefixes = [
+  '/portal',
 ]
 
 // 認証が必要なパス（これ以外はpublic）
@@ -57,14 +61,23 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // セッションをリフレッシュ
-  const { data: { user } } = await supabase.auth.getUser()
-
   // 公開パスのチェック
-  const isPublicPath = publicPaths.some(path => pathname.startsWith(path))
+  const isPublicPath = pathname === '/' || publicPaths.some(path => pathname.startsWith(path))
 
   // 保護されたパスのチェック
   const isProtectedPath = protectedPatterns.some(pattern => pattern.test(pathname))
+
+  // 認証が必要なプレフィックスのチェック
+  const needsAuth = authRequiredPrefixes.some(prefix => pathname.startsWith(prefix))
+
+  // 認証不要のパスではgetUser()をスキップ（DB往復を削減）
+  // ただし login/signup はリダイレクト判定のためgetUser()必要
+  if (isPublicPath && !isProtectedPath && !needsAuth && pathname !== '/login' && pathname !== '/signup') {
+    return response
+  }
+
+  // セッションをリフレッシュ
+  const { data: { user } } = await supabase.auth.getUser()
 
   // 認証済みユーザーがログイン/サインアップページにアクセスした場合
   if (user && (pathname === '/login' || pathname === '/signup')) {

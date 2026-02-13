@@ -9,6 +9,7 @@ import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { TaskComments } from './TaskComments'
 import { TaskPRList } from '@/components/github'
+import { SlackPostButton } from '@/components/slack'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState } from '@/types/database'
 
 interface TaskInspectorProps {
@@ -834,6 +835,9 @@ export function TaskInspector({
           orgId={task.org_id}
           readOnly={!onUpdate}
         />
+
+        {/* Slack */}
+        <SlackPostButton taskId={task.id} spaceId={spaceId} />
 
         {/* Comments */}
         <TaskComments

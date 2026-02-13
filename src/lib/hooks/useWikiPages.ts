@@ -3,7 +3,13 @@
 import { useState, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { WikiPage, WikiPageVersion, WikiPagePublication } from '@/types/database'
-import { DEFAULT_WIKI_TITLE, DEFAULT_WIKI_TAGS, generateDefaultWikiBody } from '@/lib/wiki/defaultTemplate'
+import {
+  DEFAULT_WIKI_TITLE,
+  DEFAULT_WIKI_TAGS,
+  generateDefaultWikiBody,
+  SPEC_TEMPLATES,
+} from '@/lib/wiki/defaultTemplate'
+import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 
 interface UseWikiPagesOptions {
   orgId: string
@@ -61,7 +67,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
       const fetchedPages = (data || []) as WikiPage[]
 
-      // Auto-create default page on first access when wiki is empty
+      // Auto-create default pages on first access when wiki is empty
+      // Creates: spec pages (API/DB/UI仕様書) → home page (with auto-links to specs)
       if (fetchedPages.length === 0 && !defaultCreatedRef.current) {
         defaultCreatedRef.current = true
         try {
@@ -70,9 +77,32 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
           const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
           if (!userId) return null
 
-          const defaultBody = generateDefaultWikiBody(orgId, spaceId)
+          // 1. Create spec pages first
+          const specRows = SPEC_TEMPLATES.map(spec => ({
+            org_id: orgId,
+            space_id: spaceId,
+            title: spec.title,
+            body: spec.generateBody(),
+            tags: spec.tags,
+            created_by: userId,
+            updated_by: userId,
+          }))
+
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data: created, error: createErr } = await (supabase as any)
+          const { data: specData } = await (supabase as any)
+            .from('wiki_pages')
+            .insert(specRows)
+            .select('id, title')
+
+          const specPages: SpecPageRef[] = (specData || []).map((s: { id: string; title: string }) => ({
+            id: s.id,
+            title: s.title,
+          }))
+
+          // 2. Create home page with auto-links to spec pages
+          const defaultBody = generateDefaultWikiBody(orgId, spaceId, specPages)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: homeData, error: homeErr } = await (supabase as any)
             .from('wiki_pages')
             .insert({
               org_id: orgId,
@@ -86,9 +116,18 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
             .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
             .single()
 
-          if (!createErr && created) {
-            setPages([created as WikiPage])
-            return (created as WikiPage).id
+          if (!homeErr && homeData) {
+            // Re-fetch all pages to get complete list
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data: allPages } = await (supabase as any)
+              .from('wiki_pages')
+              .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+              .eq('org_id', orgId)
+              .eq('space_id', spaceId)
+              .order('updated_at', { ascending: false })
+
+            setPages((allPages || []) as WikiPage[])
+            return (homeData as WikiPage).id
           }
         } catch {
           // Default page creation is non-critical — continue with empty list

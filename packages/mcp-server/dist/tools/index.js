@@ -6,7 +6,10 @@ import { reviewTools } from './reviews.js';
 import { milestoneTools } from './milestones.js';
 import { spaceTools } from './spaces.js';
 import { activityTools } from './activity.js';
-const allTools = [...taskTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools];
+import { clientTools } from './clients.js';
+import { wikiTools } from './wiki.js';
+import { minutesTools } from './minutes.js';
+const allTools = [...taskTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools];
 export function registerTools(server) {
     // List available tools
     server.setRequestHandler(ListToolsRequestSchema, async () => {

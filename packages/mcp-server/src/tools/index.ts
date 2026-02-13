@@ -8,8 +8,11 @@ import { milestoneTools } from './milestones.js'
 import { spaceTools } from './spaces.js'
 import { activityTools } from './activity.js'
 import { clientTools } from './clients.js'
+import { wikiTools } from './wiki.js'
+import { minutesTools } from './minutes.js'
+import { schedulingTools } from './scheduling.js'
 
-const allTools = [...taskTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools]
+const allTools = [...taskTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools]
 
 export function registerTools(server: Server): void {
   // List available tools

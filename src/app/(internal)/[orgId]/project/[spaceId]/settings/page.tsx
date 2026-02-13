@@ -3,6 +3,10 @@ import { MilestonesSettings } from './MilestonesSettings'
 import { MembersSettings } from './MembersSettings'
 import { ApiSettings } from './ApiSettings'
 import { GitHubSettings } from './GitHubSettings'
+import { SlackSettings } from './SlackSettings'
+import { AiSettings } from './AiSettings'
+import { GoogleCalendarSettings } from './GoogleCalendarSettings'
+import { VideoConferenceSettings } from './VideoConferenceSettings'
 import { ExportSettings } from './ExportSettings'
 import { SettingsHeader } from './SettingsHeader'
 
@@ -42,6 +46,26 @@ export default async function SettingsPage({ params }: PageProps) {
         {/* GitHub Settings section */}
         <section className="bg-white border border-gray-200 rounded-xl p-6">
           <GitHubSettings orgId={orgId} spaceId={spaceId} />
+        </section>
+
+        {/* Slack Settings section */}
+        <section className="bg-white border border-gray-200 rounded-xl p-6">
+          <SlackSettings orgId={orgId} spaceId={spaceId} />
+        </section>
+
+        {/* AI Settings section */}
+        <section className="bg-white border border-gray-200 rounded-xl p-6">
+          <AiSettings orgId={orgId} spaceId={spaceId} />
+        </section>
+
+        {/* Google Calendar Settings section */}
+        <section className="bg-white border border-gray-200 rounded-xl p-6">
+          <GoogleCalendarSettings orgId={orgId} spaceId={spaceId} />
+        </section>
+
+        {/* Video Conference Settings section */}
+        <section className="bg-white border border-gray-200 rounded-xl p-6">
+          <VideoConferenceSettings orgId={orgId} spaceId={spaceId} />
         </section>
 
         {/* API Settings section (admin only) */}

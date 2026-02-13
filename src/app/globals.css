@@ -237,19 +237,30 @@ body {
 
 /* ============================================
    Wiki Editor - Link Styling
+   BlockNote/Mantine overrides require !important
    ============================================ */
 
+.wiki-editor .bn-editor a[href],
+.wiki-editor .bn-block-content a[href],
+.wiki-editor [data-content-type] a[href],
 .wiki-editor a[href] {
-  color: #4f46e5;
-  text-decoration: underline;
-  text-decoration-color: #a5b4fc;
-  text-underline-offset: 2px;
-  transition: color 0.15s, text-decoration-color 0.15s;
+  color: #4f46e5 !important;
+  text-decoration: underline !important;
+  text-decoration-color: #a5b4fc !important;
+  text-underline-offset: 3px !important;
+  text-decoration-thickness: 1.5px !important;
+  transition: color 0.15s, text-decoration-color 0.15s, background-color 0.15s;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
+.wiki-editor .bn-editor a[href]:hover,
+.wiki-editor .bn-block-content a[href]:hover,
+.wiki-editor [data-content-type] a[href]:hover,
 .wiki-editor a[href]:hover {
-  color: #4338ca;
-  text-decoration-color: #6366f1;
+  color: #4338ca !important;
+  text-decoration-color: #6366f1 !important;
+  background-color: rgba(99, 102, 241, 0.06);
 }
 
 /* Internal link indicator (starts with /) */

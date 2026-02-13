@@ -41,10 +41,10 @@ export declare const activityLogSchema: z.ZodObject<{
     afterData: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     payload: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, "strip", z.ZodTypeAny, {
+    action: string;
     status: "error" | "ok" | "warning";
     entityTable: string;
     entityId: string;
-    action: string;
     actorType: "user" | "system" | "ai" | "service";
     reason?: string | undefined;
     actorService?: string | undefined;
@@ -56,11 +56,11 @@ export declare const activityLogSchema: z.ZodObject<{
     afterData?: Record<string, unknown> | undefined;
     payload?: Record<string, unknown> | undefined;
 }, {
+    action: string;
     entityTable: string;
     entityId: string;
-    action: string;
-    status?: "error" | "ok" | "warning" | undefined;
     reason?: string | undefined;
+    status?: "error" | "ok" | "warning" | undefined;
     actorType?: "user" | "system" | "ai" | "service" | undefined;
     actorService?: string | undefined;
     requestId?: string | undefined;
@@ -82,18 +82,18 @@ export declare const activitySearchSchema: z.ZodObject<{
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     limit: number;
+    action?: string | undefined;
     entityTable?: string | undefined;
     entityId?: string | undefined;
-    action?: string | undefined;
     sessionId?: string | undefined;
     actorId?: string | undefined;
     from?: string | undefined;
     to?: string | undefined;
 }, {
+    action?: string | undefined;
     limit?: number | undefined;
     entityTable?: string | undefined;
     entityId?: string | undefined;
-    action?: string | undefined;
     sessionId?: string | undefined;
     actorId?: string | undefined;
     from?: string | undefined;
@@ -136,10 +136,10 @@ export declare const activityTools: ({
         afterData: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
         payload: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     }, "strip", z.ZodTypeAny, {
+        action: string;
         status: "error" | "ok" | "warning";
         entityTable: string;
         entityId: string;
-        action: string;
         actorType: "user" | "system" | "ai" | "service";
         reason?: string | undefined;
         actorService?: string | undefined;
@@ -151,11 +151,11 @@ export declare const activityTools: ({
         afterData?: Record<string, unknown> | undefined;
         payload?: Record<string, unknown> | undefined;
     }, {
+        action: string;
         entityTable: string;
         entityId: string;
-        action: string;
-        status?: "error" | "ok" | "warning" | undefined;
         reason?: string | undefined;
+        status?: "error" | "ok" | "warning" | undefined;
         actorType?: "user" | "system" | "ai" | "service" | undefined;
         actorService?: string | undefined;
         requestId?: string | undefined;
@@ -181,18 +181,18 @@ export declare const activityTools: ({
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         limit: number;
+        action?: string | undefined;
         entityTable?: string | undefined;
         entityId?: string | undefined;
-        action?: string | undefined;
         sessionId?: string | undefined;
         actorId?: string | undefined;
         from?: string | undefined;
         to?: string | undefined;
     }, {
+        action?: string | undefined;
         limit?: number | undefined;
         entityTable?: string | undefined;
         entityId?: string | undefined;
-        action?: string | undefined;
         sessionId?: string | undefined;
         actorId?: string | undefined;
         from?: string | undefined;

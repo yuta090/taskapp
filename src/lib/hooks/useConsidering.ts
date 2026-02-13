@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import type { Task, BallSide, EvidenceType } from '@/types/database'
@@ -33,7 +33,9 @@ export function useConsidering({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   const fetchConsidering = useCallback(async () => {
     setLoading(true)
@@ -73,6 +75,9 @@ export function useConsidering({
         )
       }
 
+      // Decidedタスクはリストから消えるためオプティミスティック削除
+      setConsideringTasks((prev) => prev.filter((t) => t.id !== params.taskId))
+
       try {
         await rpc.decideConsidering(supabase, {
           taskId: params.taskId,
@@ -82,8 +87,9 @@ export function useConsidering({
           clientConfirmedBy: params.clientConfirmedBy,
           meetingId: params.meetingId,
         })
-        await fetchConsidering()
       } catch (err) {
+        // エラー時のみ再取得
+        await fetchConsidering()
         throw err
       }
     },

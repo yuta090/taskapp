@@ -79,6 +79,7 @@ export default function LoginPage() {
   }
 
   async function handleQuickLogin(demoEmail: string, demoPassword: string) {
+    console.log('handleQuickLogin called:', demoEmail)
     setError('')
     setQuickLoginLoading(demoEmail)
 

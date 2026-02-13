@@ -40,11 +40,11 @@ export declare const reviewBlockSchema: z.ZodObject<{
     taskId: z.ZodString;
     reason: z.ZodString;
 }, "strip", z.ZodTypeAny, {
-    taskId: string;
     reason: string;
+    taskId: string;
 }, {
-    taskId: string;
     reason: string;
+    taskId: string;
 }>;
 export declare const reviewListSchema: z.ZodObject<{
     spaceId: z.ZodOptional<z.ZodString>;
@@ -52,11 +52,11 @@ export declare const reviewListSchema: z.ZodObject<{
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     limit: number;
-    status?: "open" | "approved" | "changes_requested" | undefined;
     spaceId?: string | undefined;
+    status?: "open" | "approved" | "changes_requested" | undefined;
 }, {
-    status?: "open" | "approved" | "changes_requested" | undefined;
     spaceId?: string | undefined;
+    status?: "open" | "approved" | "changes_requested" | undefined;
     limit?: number | undefined;
 }>;
 export declare const reviewGetSchema: z.ZodObject<{
@@ -114,11 +114,11 @@ export declare const reviewTools: ({
         taskId: z.ZodString;
         reason: z.ZodString;
     }, "strip", z.ZodTypeAny, {
-        taskId: string;
         reason: string;
+        taskId: string;
     }, {
-        taskId: string;
         reason: string;
+        taskId: string;
     }>;
     handler: typeof reviewBlock;
 } | {
@@ -130,11 +130,11 @@ export declare const reviewTools: ({
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         limit: number;
-        status?: "open" | "approved" | "changes_requested" | undefined;
         spaceId?: string | undefined;
+        status?: "open" | "approved" | "changes_requested" | undefined;
     }, {
-        status?: "open" | "approved" | "changes_requested" | undefined;
         spaceId?: string | undefined;
+        status?: "open" | "approved" | "changes_requested" | undefined;
         limit?: number | undefined;
     }>;
     handler: typeof reviewList;

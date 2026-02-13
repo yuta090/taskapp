@@ -4,18 +4,24 @@ import { motion } from 'framer-motion'
 import { User, Robot, ArrowRight } from '@phosphor-icons/react'
 
 export function Solution() {
-    const yourTasks = [
-        { label: "つくる", desc: "コードを書き、デザインし、形にする" },
-        { label: "「できた」と言う", desc: "完了したらAIに伝えるだけ" },
-        { label: "仕様を決める", desc: "何を作るかを決定する" },
-        { label: "確認して送信", desc: "AIの下書きを確認してOKを出す" },
+    const routineYourTasks = [
+        { label: "AIとタスク・マイルストーンを作成", desc: "コーディングAIと会話して計画" },
+        { label: "GitHubでマージ / Slack報告", desc: "開発作業はいつも通り" },
+        { label: "確認して送信", desc: "週次レポートをチェック" },
     ]
 
-    const aiTasks = [
-        { label: "タスクを自動起票", desc: "チャットや仕様書から抽出" },
-        { label: "進捗を自動更新", desc: "GitHubやSlackと連携" },
-        { label: "見積もりを自動生成", desc: "追加要件を即座に金額化" },
-        { label: "週次レポートを作成", desc: "下書きから送信まで自動化" },
+    const routineAiTasks = [
+        { label: "MCP経由でタスクを自動起票", desc: "いつものAIから直接タスク化" },
+        { label: "進捗・ステータスを自動連携", desc: "マージでレビュー依頼、完了報告はSlackへ" },
+        { label: "週次レポートを自動作成", desc: "下書きから送信まで自動化" },
+    ]
+
+    const additionalYourTasks = [
+        { label: "仕様を決める", desc: "追加要件をチャットで相談" },
+    ]
+
+    const additionalAiTasks = [
+        { label: "見積もりを自動生成", desc: "即座に金額化して提示" },
     ]
 
     return (
@@ -68,8 +74,9 @@ export function Solution() {
                                     </div>
                                 </div>
 
-                                <ul className="space-y-6">
-                                    {yourTasks.map((task, i) => (
+                                {/* Routine Tasks */}
+                                <ul className="space-y-6 mb-8">
+                                    {routineYourTasks.map((task, i) => (
                                         <motion.li
                                             key={i}
                                             initial={{ opacity: 0, y: 10 }}
@@ -80,6 +87,35 @@ export function Solution() {
                                         >
                                             <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5 shadow-sm border border-slate-200">
                                                 {i + 1}
+                                            </span>
+                                            <div>
+                                                <div className="font-bold text-slate-800 text-lg mb-1">{task.label}</div>
+                                                <div className="text-sm text-slate-500 leading-relaxed">{task.desc}</div>
+                                            </div>
+                                        </motion.li>
+                                    ))}
+                                </ul>
+
+                                {/* Additional Tasks Header */}
+                                <div className="relative py-2 px-4 mb-4 bg-amber-50 rounded-lg border border-amber-100">
+                                    <span className="text-sm font-bold text-amber-800 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+                                        追加開発・変更も
+                                    </span>
+                                </div>
+
+                                <ul className="space-y-6">
+                                    {additionalYourTasks.map((task, i) => (
+                                        <motion.li
+                                            key={`add-${i}`}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            whileInView={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: 0.3 + i * 0.1 }}
+                                            viewport={{ once: true }}
+                                            className="flex items-start gap-4 p-4 rounded-xl hover:bg-slate-50 transition-colors duration-200"
+                                        >
+                                            <span className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5 shadow-sm border border-amber-200">
+                                                +
                                             </span>
                                             <div>
                                                 <div className="font-bold text-slate-800 text-lg mb-1">{task.label}</div>
@@ -114,13 +150,45 @@ export function Solution() {
                                     </div>
                                 </div>
 
-                                <ul className="space-y-6">
-                                    {aiTasks.map((task, i) => (
+                                {/* Routine Tasks */}
+                                <ul className="space-y-6 mb-8">
+                                    {routineAiTasks.map((task, i) => (
                                         <motion.li
                                             key={i}
                                             initial={{ opacity: 0, y: 10 }}
                                             whileInView={{ opacity: 1, y: 0 }}
                                             transition={{ delay: i * 0.1 + 0.2 }}
+                                            viewport={{ once: true }}
+                                            className="flex items-start gap-4 p-4 rounded-xl bg-gradient-to-r from-amber-50/50 to-transparent border border-amber-50/50 hover:border-amber-100 transition-colors duration-200"
+                                        >
+                                            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5 shadow-sm border border-amber-200">
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-slate-900 text-lg mb-1">{task.label}</div>
+                                                <div className="text-sm text-slate-600 leading-relaxed opacity-90">{task.desc}</div>
+                                            </div>
+                                        </motion.li>
+                                    ))}
+                                </ul>
+
+                                {/* Additional Tasks Header */}
+                                <div className="relative py-2 px-4 mb-4 bg-amber-100 rounded-lg border border-amber-200/50">
+                                    <span className="text-sm font-bold text-amber-800 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-amber-600"></div>
+                                        追加開発・変更も
+                                    </span>
+                                </div>
+
+                                <ul className="space-y-6">
+                                    {additionalAiTasks.map((task, i) => (
+                                        <motion.li
+                                            key={`add-${i}`}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            whileInView={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: 0.3 + i * 0.1 + 0.2 }}
                                             viewport={{ once: true }}
                                             className="flex items-start gap-4 p-4 rounded-xl bg-gradient-to-r from-amber-50/50 to-transparent border border-amber-50/50 hover:border-amber-100 transition-colors duration-200"
                                         >
@@ -142,20 +210,7 @@ export function Solution() {
                 </div>
 
                 {/* Image Placeholder */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    className="mt-16 max-w-3xl mx-auto"
-                >
-                    <div className="relative z-10 bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100 transform hover:scale-[1.01] transition-transform duration-500">
-                        <img
-                            src="/img/lp/solution_comparison.png?v=wide2"
-                            alt="人間とAIの役割分担"
-                            className="w-full h-auto"
-                        />
-                    </div>
-                </motion.div>
+
             </div>
         </section>
     )

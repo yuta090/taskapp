@@ -320,6 +320,36 @@ export async function getMinutesPreview(
 }
 
 // =============================================================================
+// 6.1 rpc_confirm_proposal_slot (Scheduling)
+// =============================================================================
+
+export interface ConfirmProposalSlotParams {
+  proposalId: string
+  slotId: string
+}
+
+interface ConfirmProposalSlotResult {
+  ok: boolean
+  meeting_id?: string
+  slot_start?: string
+  slot_end?: string
+  error?: string
+  current_status?: string
+  required?: number
+  eligible?: number
+}
+
+export async function confirmProposalSlot(
+  client: Client,
+  params: ConfirmProposalSlotParams
+): Promise<ConfirmProposalSlotResult> {
+  return callRpc<ConfirmProposalSlotResult>(client, 'rpc_confirm_proposal_slot', {
+    p_proposal_id: params.proposalId,
+    p_slot_id: params.slotId,
+  })
+}
+
+// =============================================================================
 // Export all functions as a namespace
 // =============================================================================
 
@@ -335,4 +365,5 @@ export const rpc = {
   generateMeetingMinutes,
   parseMeetingMinutes,
   getMinutesPreview,
+  confirmProposalSlot,
 }

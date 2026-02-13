@@ -196,16 +196,23 @@ export function FeatureTerminal() {
                             管理画面を開くためにブラウザを行ったり来たりする必要はもうありません。
                         </p>
                         <ul className="space-y-4">
-                            {['自然言語でタスク作成', '進捗の自動更新', 'CLIからワンコマンドで操作'].map((item, i) => (
+                            {[
+                                { title: '自然言語でタスク作成', desc: 'Claude Code, Codex, AntigravityやChatGPTからそのままタスク作成。' },
+                                { title: '進捗の自動更新', desc: '作業した進捗を自動で反映' },
+                                { title: 'CLIからワンコマンドで操作', desc: 'MCP対応アプリ全てから操作可能' }
+                            ].map((item, i) => (
                                 <motion.li
                                     key={i}
                                     initial={{ opacity: 0, x: -20 }}
                                     whileInView={{ opacity: 1, x: 0 }}
                                     transition={{ delay: 0.2 + (i * 0.1) }}
-                                    className="flex items-center gap-3 text-slate-700 font-medium"
+                                    className="flex items-start gap-3 text-slate-700 font-medium"
                                 >
-                                    <span className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-sm">✓</span>
-                                    {item}
+                                    <span className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-sm mt-0.5 shrink-0">✓</span>
+                                    <div>
+                                        <div className="font-bold text-slate-900">{item.title}</div>
+                                        <div className="text-sm text-slate-600 font-normal mt-0.5">{item.desc}</div>
+                                    </div>
                                 </motion.li>
                             ))}
                         </ul>

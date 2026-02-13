@@ -20,6 +20,6 @@ export async function startServer() {
     await server.connect(transport);
     // Log to stderr (stdout is used for MCP communication)
     console.error('TaskApp MCP Server started');
-    console.error('Available tools: task_create, task_update, task_list, task_get, ball_pass, ball_query, dashboard_get');
+    console.error('Available tools: task_*, ball_*, meeting_*, review_*, milestone_*, space_*, activity_*, client_*');
 }
 //# sourceMappingURL=server.js.map

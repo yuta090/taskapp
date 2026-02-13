@@ -32,6 +32,7 @@ export interface Task {
   type: 'task' | 'spec'
   spec_path: string | null
   decision_state: 'considering' | 'decided' | 'implemented' | null
+  client_scope: 'deliverable' | 'internal'
   created_at: string
   updated_at: string
 }
@@ -63,6 +64,29 @@ export interface Meeting {
   updated_at: string
 }
 
+export interface WikiPage {
+  id: string
+  org_id: string
+  space_id: string
+  title: string
+  body: string
+  tags: string[]
+  created_by: string
+  updated_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface WikiPageVersion {
+  id: string
+  org_id: string
+  page_id: string
+  title: string
+  body: string
+  created_by: string
+  created_at: string
+}
+
 export interface Space {
   id: string
   org_id: string
@@ -83,3 +107,4 @@ export type BallSide = 'client' | 'internal'
 export type TaskType = 'task' | 'spec'
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'considering'
 export type DecisionState = 'considering' | 'decided' | 'implemented'
+export type ClientScope = 'deliverable' | 'internal'

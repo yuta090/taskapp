@@ -1,5 +1,5 @@
 /**
- * Default wiki page template (BlockNote JSON)
+ * Default wiki page templates (BlockNote JSON)
  * Auto-created when a project's wiki is first accessed with 0 pages.
  */
 
@@ -8,16 +8,46 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TemplateBlock = Record<string, any>
 
-export const DEFAULT_WIKI_TITLE = 'プロジェクトホーム'
+// ---------------------------------------------------------------------------
+// Home page
+// ---------------------------------------------------------------------------
 
+export const DEFAULT_WIKI_TITLE = 'プロジェクトホーム'
 export const DEFAULT_WIKI_TAGS = ['ホーム', 'テンプレート']
+
+/** Spec page link info passed after spec pages are created */
+export interface SpecPageRef {
+  id: string
+  title: string
+}
 
 /**
  * Generate default wiki body as BlockNote JSON string.
- * Accepts orgId and spaceId to create correct internal links.
+ * Accepts specPages to create auto-links to the generated spec wiki pages.
  */
-export function generateDefaultWikiBody(orgId: string, spaceId: string): string {
+export function generateDefaultWikiBody(
+  orgId: string,
+  spaceId: string,
+  specPages?: SpecPageRef[],
+): string {
   const basePath = `/${orgId}/project/${spaceId}`
+  const wikiPath = `${basePath}/wiki`
+
+  // Build spec document links — either real links or placeholders
+  const specBlocks: TemplateBlock[] = specPages && specPages.length > 0
+    ? specPages.map(spec => ({
+        type: 'bulletListItem',
+        content: [
+          {
+            type: 'link',
+            href: `${wikiPath}?page=${spec.id}`,
+            content: [{ type: 'text', text: spec.title }],
+          },
+        ],
+      }))
+    : [
+        { type: 'bulletListItem', content: [{ type: 'text', text: '（仕様書ページが生成されませんでした）' }] },
+      ]
 
   const blocks: TemplateBlock[] = [
     // --- Project Overview ---
@@ -108,7 +138,7 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
     // Spacer
     { type: 'paragraph', content: [] },
 
-    // --- Specs & Documents ---
+    // --- Specs & Documents (auto-linked) ---
     {
       type: 'heading',
       props: { level: 2 },
@@ -117,37 +147,10 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
     {
       type: 'paragraph',
       content: [
-        { type: 'text', text: 'プロジェクトに関連する仕様書やドキュメントへのリンクを整理してください。', styles: { italic: true, textColor: 'gray' } },
+        { type: 'text', text: '各仕様書はWikiページとして管理されています。クリックして編集してください。', styles: { italic: true, textColor: 'gray' } },
       ],
     },
-    {
-      type: 'bulletListItem',
-      content: [
-        { type: 'text', text: 'API仕様書: ', styles: { bold: true } },
-        { type: 'text', text: '（リンクを追加）' },
-      ],
-    },
-    {
-      type: 'bulletListItem',
-      content: [
-        { type: 'text', text: 'DB設計書: ', styles: { bold: true } },
-        { type: 'text', text: '（リンクを追加）' },
-      ],
-    },
-    {
-      type: 'bulletListItem',
-      content: [
-        { type: 'text', text: 'UI仕様書: ', styles: { bold: true } },
-        { type: 'text', text: '（リンクを追加）' },
-      ],
-    },
-    {
-      type: 'bulletListItem',
-      content: [
-        { type: 'text', text: 'その他: ', styles: { bold: true } },
-        { type: 'text', text: '（リンクを追加）' },
-      ],
-    },
+    ...specBlocks,
     // Spacer
     { type: 'paragraph', content: [] },
 
@@ -214,7 +217,7 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
       content: [
         {
           type: 'link',
-          href: `${basePath}/tasks`,
+          href: `${basePath}`,
           content: [{ type: 'text', text: 'タスク一覧' }],
         },
         { type: 'text', text: ' — プロジェクトのタスクを管理' },
@@ -246,3 +249,398 @@ export function generateDefaultWikiBody(orgId: string, spaceId: string): string 
 
   return JSON.stringify(blocks)
 }
+
+// ---------------------------------------------------------------------------
+// Spec page templates
+// ---------------------------------------------------------------------------
+
+export interface SpecTemplate {
+  title: string
+  tags: string[]
+  generateBody: () => string
+}
+
+export const SPEC_TEMPLATES: SpecTemplate[] = [
+  {
+    title: 'API仕様書',
+    tags: ['仕様書', 'API'],
+    generateBody: () => JSON.stringify([
+      {
+        type: 'heading',
+        props: { level: 2 },
+        content: [{ type: 'text', text: 'API仕様書' }],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'プロジェクトのAPI仕様をここに記載してください。', styles: { italic: true, textColor: 'gray' } },
+        ],
+      },
+      { type: 'paragraph', content: [] },
+      // Base URL
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'ベースURL' }],
+      },
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: 'https://api.example.com/v1', styles: { code: true } }],
+      },
+      { type: 'paragraph', content: [] },
+      // Auth
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: '認証' }],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: '認証方式: ', styles: { bold: true } },
+          { type: 'text', text: '（Bearer Token / API Key / OAuth 等）' },
+        ],
+      },
+      { type: 'paragraph', content: [] },
+      // Endpoints
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'エンドポイント一覧' }],
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [{ type: 'text', text: 'メソッド', styles: { bold: true } }],
+                [{ type: 'text', text: 'パス', styles: { bold: true } }],
+                [{ type: 'text', text: '説明', styles: { bold: true } }],
+                [{ type: 'text', text: '認証', styles: { bold: true } }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: 'GET' }],
+                [{ type: 'text', text: '/example' }],
+                [{ type: 'text', text: '' }],
+                [{ type: 'text', text: '必要' }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: 'POST' }],
+                [{ type: 'text', text: '/example' }],
+                [{ type: 'text', text: '' }],
+                [{ type: 'text', text: '必要' }],
+              ],
+            },
+          ],
+        },
+      },
+      { type: 'paragraph', content: [] },
+      // Error codes
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'エラーコード' }],
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [{ type: 'text', text: 'コード', styles: { bold: true } }],
+                [{ type: 'text', text: '意味', styles: { bold: true } }],
+                [{ type: 'text', text: '対処法', styles: { bold: true } }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: '400' }],
+                [{ type: 'text', text: 'Bad Request' }],
+                [{ type: 'text', text: 'リクエストパラメータを確認' }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: '401' }],
+                [{ type: 'text', text: 'Unauthorized' }],
+                [{ type: 'text', text: '認証トークンを確認' }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: '500' }],
+                [{ type: 'text', text: 'Internal Server Error' }],
+                [{ type: 'text', text: 'サーバー側の問題' }],
+              ],
+            },
+          ],
+        },
+      },
+    ] as TemplateBlock[]),
+  },
+  {
+    title: 'DB設計書',
+    tags: ['仕様書', 'DB'],
+    generateBody: () => JSON.stringify([
+      {
+        type: 'heading',
+        props: { level: 2 },
+        content: [{ type: 'text', text: 'DB設計書' }],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'データベースのテーブル定義とリレーションをここに記載してください。', styles: { italic: true, textColor: 'gray' } },
+        ],
+      },
+      { type: 'paragraph', content: [] },
+      // ER overview
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'テーブル一覧' }],
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [{ type: 'text', text: 'テーブル名', styles: { bold: true } }],
+                [{ type: 'text', text: '説明', styles: { bold: true } }],
+                [{ type: 'text', text: '主なカラム', styles: { bold: true } }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: '（テーブル名）' }],
+                [{ type: 'text', text: '' }],
+                [{ type: 'text', text: '' }],
+              ],
+            },
+          ],
+        },
+      },
+      { type: 'paragraph', content: [] },
+      // Table detail template
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'テーブル定義（テンプレート）' }],
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [{ type: 'text', text: 'カラム名', styles: { bold: true } }],
+                [{ type: 'text', text: '型', styles: { bold: true } }],
+                [{ type: 'text', text: 'NOT NULL', styles: { bold: true } }],
+                [{ type: 'text', text: '説明', styles: { bold: true } }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: 'id' }],
+                [{ type: 'text', text: 'uuid' }],
+                [{ type: 'text', text: 'YES' }],
+                [{ type: 'text', text: 'Primary Key' }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: 'created_at' }],
+                [{ type: 'text', text: 'timestamptz' }],
+                [{ type: 'text', text: 'YES' }],
+                [{ type: 'text', text: '作成日時' }],
+              ],
+            },
+          ],
+        },
+      },
+      { type: 'paragraph', content: [] },
+      // Relationships
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'リレーション' }],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '主要なテーブル間のリレーションを記載してください。', styles: { italic: true, textColor: 'gray' } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [{ type: 'text', text: '（テーブルA）→（テーブルB）: 1対多' }],
+      },
+      { type: 'paragraph', content: [] },
+      // Indexes
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'インデックス' }],
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [{ type: 'text', text: 'テーブル', styles: { bold: true } }],
+                [{ type: 'text', text: 'カラム', styles: { bold: true } }],
+                [{ type: 'text', text: '種類', styles: { bold: true } }],
+                [{ type: 'text', text: '目的', styles: { bold: true } }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: '' }],
+                [{ type: 'text', text: '' }],
+                [{ type: 'text', text: 'UNIQUE / INDEX' }],
+                [{ type: 'text', text: '' }],
+              ],
+            },
+          ],
+        },
+      },
+    ] as TemplateBlock[]),
+  },
+  {
+    title: 'UI仕様書',
+    tags: ['仕様書', 'UI'],
+    generateBody: () => JSON.stringify([
+      {
+        type: 'heading',
+        props: { level: 2 },
+        content: [{ type: 'text', text: 'UI仕様書' }],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '画面一覧とUI仕様をここに記載してください。', styles: { italic: true, textColor: 'gray' } },
+        ],
+      },
+      { type: 'paragraph', content: [] },
+      // Screen list
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: '画面一覧' }],
+      },
+      {
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          rows: [
+            {
+              cells: [
+                [{ type: 'text', text: '画面名', styles: { bold: true } }],
+                [{ type: 'text', text: 'パス', styles: { bold: true } }],
+                [{ type: 'text', text: '説明', styles: { bold: true } }],
+                [{ type: 'text', text: 'ステータス', styles: { bold: true } }],
+              ],
+            },
+            {
+              cells: [
+                [{ type: 'text', text: '（画面名）' }],
+                [{ type: 'text', text: '/path' }],
+                [{ type: 'text', text: '' }],
+                [{ type: 'text', text: '設計中 / 実装済み' }],
+              ],
+            },
+          ],
+        },
+      },
+      { type: 'paragraph', content: [] },
+      // Design system
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: 'デザインシステム' }],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'カラーパレット: ', styles: { bold: true } },
+          { type: 'text', text: '（Figmaリンク等を追加）' },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'フォント: ', styles: { bold: true } },
+          { type: 'text', text: '（フォント指定）' },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'コンポーネント一覧: ', styles: { bold: true } },
+          { type: 'text', text: '（Storybookリンク等を追加）' },
+        ],
+      },
+      { type: 'paragraph', content: [] },
+      // Screen detail template
+      {
+        type: 'heading',
+        props: { level: 3 },
+        content: [{ type: 'text', text: '画面仕様（テンプレート）' }],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: '以下のテンプレートを各画面ごとにコピーして使用してください。', styles: { italic: true, textColor: 'gray' } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: '画面名: ', styles: { bold: true } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: '目的: ', styles: { bold: true } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'ユーザーアクション: ', styles: { bold: true } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: '表示データ: ', styles: { bold: true } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'バリデーション: ', styles: { bold: true } },
+        ],
+      },
+      {
+        type: 'bulletListItem',
+        content: [
+          { type: 'text', text: 'エラー表示: ', styles: { bold: true } },
+        ],
+      },
+    ] as TemplateBlock[]),
+  },
+]

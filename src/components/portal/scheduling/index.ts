@@ -1,0 +1,1 @@
+export { PortalSlotResponseForm } from './PortalSlotResponseForm'

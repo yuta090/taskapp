@@ -80,6 +80,18 @@ export type InviteRole = 'client' | 'member'
 // Billing status
 export type BillingStatus = 'active' | 'trialing' | 'past_due' | 'canceled'
 
+// Scheduling proposal status
+export type ProposalStatus = 'open' | 'confirmed' | 'cancelled' | 'expired'
+
+// Slot response type
+export type SlotResponseType = 'available' | 'unavailable_but_proceed' | 'unavailable'
+
+// Respondent side
+export type RespondentSide = 'client' | 'internal'
+
+// Video conference provider
+export type VideoProvider = 'zoom' | 'google_meet' | 'teams'
+
 export interface Database {
   public: {
     Tables: {
@@ -806,6 +818,146 @@ export interface Database {
           published_at?: string
         }
       }
+      scheduling_proposals: {
+        Row: {
+          id: string
+          org_id: string
+          space_id: string
+          title: string
+          description: string | null
+          duration_minutes: number
+          status: ProposalStatus
+          version: number
+          confirmed_slot_id: string | null
+          confirmed_meeting_id: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
+          video_provider: VideoProvider | null
+          meeting_url: string | null
+          external_meeting_id: string | null
+          expires_at: string | null
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          space_id: string
+          title: string
+          description?: string | null
+          duration_minutes?: number
+          status?: ProposalStatus
+          version?: number
+          confirmed_slot_id?: string | null
+          confirmed_meeting_id?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          video_provider?: VideoProvider | null
+          meeting_url?: string | null
+          external_meeting_id?: string | null
+          expires_at?: string | null
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          space_id?: string
+          title?: string
+          description?: string | null
+          duration_minutes?: number
+          status?: ProposalStatus
+          version?: number
+          confirmed_slot_id?: string | null
+          confirmed_meeting_id?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          video_provider?: VideoProvider | null
+          meeting_url?: string | null
+          external_meeting_id?: string | null
+          expires_at?: string | null
+          created_by?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      proposal_slots: {
+        Row: {
+          id: string
+          proposal_id: string
+          start_at: string
+          end_at: string
+          slot_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          proposal_id: string
+          start_at: string
+          end_at: string
+          slot_order?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          proposal_id?: string
+          start_at?: string
+          end_at?: string
+          slot_order?: number
+          created_at?: string
+        }
+      }
+      proposal_respondents: {
+        Row: {
+          id: string
+          proposal_id: string
+          user_id: string
+          side: RespondentSide
+          is_required: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          proposal_id: string
+          user_id: string
+          side: RespondentSide
+          is_required?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          proposal_id?: string
+          user_id?: string
+          side?: RespondentSide
+          is_required?: boolean
+          created_at?: string
+        }
+      }
+      slot_responses: {
+        Row: {
+          id: string
+          slot_id: string
+          respondent_id: string
+          response: SlotResponseType
+          responded_at: string
+        }
+        Insert: {
+          id?: string
+          slot_id: string
+          respondent_id: string
+          response: SlotResponseType
+          responded_at?: string
+        }
+        Update: {
+          id?: string
+          slot_id?: string
+          respondent_id?: string
+          response?: SlotResponseType
+          responded_at?: string
+        }
+      }
     }
     Functions: {
       rpc_pass_ball: {
@@ -900,6 +1052,22 @@ export interface Database {
           nearest_due: string | null
         }
       }
+      rpc_confirm_proposal_slot: {
+        Args: {
+          p_proposal_id: string
+          p_slot_id: string
+        }
+        Returns: {
+          ok: boolean
+          meeting_id?: string
+          slot_start?: string
+          slot_end?: string
+          error?: string
+          current_status?: string
+          required?: number
+          eligible?: number
+        }
+      }
     }
   }
 }
@@ -935,3 +1103,12 @@ export type WikiPageInsert = Tables['wiki_pages']['Insert']
 export type WikiPageUpdate = Tables['wiki_pages']['Update']
 export type WikiPageVersion = Tables['wiki_page_versions']['Row']
 export type WikiPagePublication = Tables['wiki_page_publications']['Row']
+export type SchedulingProposal = Tables['scheduling_proposals']['Row']
+export type SchedulingProposalInsert = Tables['scheduling_proposals']['Insert']
+export type SchedulingProposalUpdate = Tables['scheduling_proposals']['Update']
+export type ProposalSlot = Tables['proposal_slots']['Row']
+export type ProposalSlotInsert = Tables['proposal_slots']['Insert']
+export type ProposalRespondent = Tables['proposal_respondents']['Row']
+export type ProposalRespondentInsert = Tables['proposal_respondents']['Insert']
+export type SlotResponse = Tables['slot_responses']['Row']
+export type SlotResponseInsert = Tables['slot_responses']['Insert']
