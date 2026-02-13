@@ -8,10 +8,16 @@ import { buildSystemPrompt } from '@/lib/ai/prompt'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 interface AppMentionEvent {
   type: 'app_mention'
@@ -29,7 +35,7 @@ async function processAppMention(event: AppMentionEvent): Promise<void> {
 
   // チャンネルからspace/org情報を取得
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: channelLink, error: linkError } = await (supabaseAdmin as any)
+  const { data: channelLink, error: linkError } = await (getSupabaseAdmin() as any)
     .from('space_slack_channels')
     .select('space_id, org_id')
     .eq('channel_id', channel)

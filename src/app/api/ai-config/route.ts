@@ -5,10 +5,16 @@ import { SLACK_CONFIG } from '@/lib/slack/config'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * GET /api/ai-config?orgId=xxx
@@ -51,11 +57,11 @@ export async function GET(request: NextRequest) {
     // ここでは復号化してプレフィックスだけ返す
     let keyPrefix = ''
     try {
-      const { data: decrypted } = await supabaseAdmin
-        .rpc('decrypt_slack_token' as never, {
+      const { data: decrypted } = await (getSupabaseAdmin() as any)
+        .rpc('decrypt_slack_token', {
           encrypted: data.api_key_encrypted,
           secret: SLACK_CONFIG.clientSecret,
-        } as never)
+        })
 
       if (decrypted && typeof decrypted === 'string') {
         keyPrefix = decrypted.substring(0, 8) + '...'
@@ -144,11 +150,11 @@ export async function POST(request: NextRequest) {
     }
 
     // APIキーを暗号化
-    const { data: encryptedKey, error: encryptError } = await supabaseAdmin
-      .rpc('encrypt_slack_token' as never, {
+    const { data: encryptedKey, error: encryptError } = await (getSupabaseAdmin() as any)
+      .rpc('encrypt_slack_token', {
         token: apiKey,
         secret: SLACK_CONFIG.clientSecret,
-      } as never)
+      })
 
     if (encryptError || !encryptedKey) {
       console.error('API key encryption failed:', encryptError)
@@ -160,7 +166,7 @@ export async function POST(request: NextRequest) {
 
     // DB保存（upsert）
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: upsertError } = await (supabaseAdmin as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as any)
       .from('org_ai_config')
       .upsert(
         {
@@ -237,7 +243,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabaseAdmin as any)
+    const { error } = await (getSupabaseAdmin() as any)
       .from('org_ai_config')
       .delete()
       .eq('org_id', orgId)

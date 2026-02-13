@@ -1,10 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
 import { getSlackClientForOrg } from './client'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 export interface TaskAppUser {
   userId: string
@@ -29,15 +35,15 @@ export async function resolveTaskAppUser(
 
     // admin API でメールからユーザーを検索
     const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.listUsers()
+      await (getSupabaseAdmin() as any).auth.admin.listUsers()
 
     if (authError || !authData?.users) return null
 
-    const authUser = authData.users.find((u) => u.email === email)
+    const authUser = authData.users.find((u: any) => u.email === email)
     if (!authUser) return null
 
     // profiles テーブルから display_name を取得
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: profile, error: profileError } = await (getSupabaseAdmin() as any)
       .from('profiles' as never)
       .select('display_name' as never)
       .eq('id' as never, authUser.id as never)

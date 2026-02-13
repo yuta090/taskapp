@@ -11,10 +11,16 @@ import {
 // Webhookはbodyをrawで受け取る必要がある
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 export async function POST(request: NextRequest) {
   const payload = await request.text()
@@ -32,7 +38,7 @@ export async function POST(request: NextRequest) {
   const data = JSON.parse(payload)
 
   // イベントログ保存
-  await supabaseAdmin.from('github_webhook_events').insert({
+  await (getSupabaseAdmin() as any).from('github_webhook_events').insert({
     installation_id: data.installation?.id,
     event_type: event,
     action: data.action,
@@ -69,7 +75,7 @@ export async function POST(request: NextRequest) {
 
     // 処理済みマーク
     if (delivery) {
-      await supabaseAdmin
+      await (getSupabaseAdmin() as any)
         .from('github_webhook_events')
         .update({ processed: true })
         .eq('delivery_id', delivery)
@@ -81,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     // エラーログ更新
     if (delivery) {
-      await supabaseAdmin
+      await (getSupabaseAdmin() as any)
         .from('github_webhook_events')
         .update({
           processed: true,

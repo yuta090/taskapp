@@ -8,10 +8,16 @@ import { exchangeTeamsCode } from '@/lib/teams/client'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * Verify HMAC signed state (15 minute expiry)
@@ -144,7 +150,7 @@ async function handleGoogleCalendarCallback(
     const tokens = await exchangeCodeForTokens(code)
 
     // DB保存（upsert: provider + owner_type + owner_id でユニーク）
-    const { error: upsertError } = await (supabaseAdmin as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as any)
       .from('integration_connections')
       .upsert(
         {
@@ -171,7 +177,7 @@ async function handleGoogleCalendarCallback(
     }
 
     // Find any space for this org to redirect to settings
-    const { data: space } = await (supabaseAdmin as any)
+    const { data: space } = await (getSupabaseAdmin() as any)
       .from('spaces')
       .select('id')
       .eq('org_id', orgId)
@@ -200,7 +206,7 @@ async function handleZoomCallback(
   try {
     const tokens = await exchangeZoomCode(code)
 
-    const { error: upsertError } = await (supabaseAdmin as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as any)
       .from('integration_connections')
       .upsert(
         {
@@ -226,7 +232,7 @@ async function handleZoomCallback(
       )
     }
 
-    const { data: space } = await (supabaseAdmin as any)
+    const { data: space } = await (getSupabaseAdmin() as any)
       .from('spaces')
       .select('id')
       .eq('org_id', orgId)
@@ -255,7 +261,7 @@ async function handleTeamsCallback(
   try {
     const tokens = await exchangeTeamsCode(code)
 
-    const { error: upsertError } = await (supabaseAdmin as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as any)
       .from('integration_connections')
       .upsert(
         {
@@ -281,7 +287,7 @@ async function handleTeamsCallback(
       )
     }
 
-    const { data: space } = await (supabaseAdmin as any)
+    const { data: space } = await (getSupabaseAdmin() as any)
       .from('spaces')
       .select('id')
       .eq('org_id', orgId)

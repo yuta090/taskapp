@@ -7,10 +7,16 @@ import { invalidateSlackClientCache } from '@/lib/slack/client'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * POST /api/slack/token — 手動でBot Tokenを登録
@@ -77,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // トークンを暗号化
-    const { data: encryptedToken, error: encryptError } = await supabaseAdmin
+    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as any)
       .rpc('encrypt_slack_token', {
         token: botToken,
         secret: SLACK_CONFIG.clientSecret,
@@ -92,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     // DB保存（upsert）
-    const { error: upsertError } = await (supabaseAdmin as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as any)
       .from('slack_workspaces')
       .upsert(
         {
@@ -172,7 +178,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // workspace削除（cascade で space_slack_channels も削除される）
-    const { error } = await (supabaseAdmin as any)
+    const { error } = await (getSupabaseAdmin() as any)
       .from('slack_workspaces')
       .delete()
       .eq('org_id', orgId)

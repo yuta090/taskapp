@@ -10,10 +10,16 @@ import { isSlackFullyConfigured } from './config'
 import { postSlackMessage } from './client'
 import { buildTaskBlocks, buildTaskFallbackText } from './blocks'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 const EVENT_TO_COLUMN: Partial<Record<NotificationEventType, string>> = {
   task_created: 'notify_task_created',
@@ -30,7 +36,7 @@ export class SlackNotificationProvider implements NotificationProvider {
   }
 
   async isSpaceConfigured(spaceId: string): Promise<boolean> {
-    const { data } = await (supabaseAdmin as any)
+    const { data } = await (getSupabaseAdmin() as any)
       .from('space_slack_channels')
       .select('id')
       .eq('space_id', spaceId)
@@ -45,7 +51,7 @@ export class SlackNotificationProvider implements NotificationProvider {
     payload: TaskNotificationPayload,
   ): Promise<NotificationResult> {
     // 1. Get channel config
-    const { data: channelConfig } = await (supabaseAdmin as any)
+    const { data: channelConfig } = await (getSupabaseAdmin() as any)
       .from('space_slack_channels')
       .select('*, slack_workspaces!inner(org_id)')
       .eq('space_id', context.spaceId)
@@ -75,7 +81,7 @@ export class SlackNotificationProvider implements NotificationProvider {
       const result = await postSlackMessage(orgId, channelConfig.channel_id, text, blocks)
 
       // 5. Log success
-      await (supabaseAdmin as any).from('slack_message_logs').insert({
+      await (getSupabaseAdmin() as any).from('slack_message_logs').insert({
         org_id: orgId,
         space_id: context.spaceId,
         channel_id: channelConfig.channel_id,
@@ -91,7 +97,7 @@ export class SlackNotificationProvider implements NotificationProvider {
       return { messageId: result.ts || null }
     } catch (err) {
       // Log failure
-      await (supabaseAdmin as any).from('slack_message_logs').insert({
+      await (getSupabaseAdmin() as any).from('slack_message_logs').insert({
         org_id: orgId,
         space_id: context.spaceId,
         channel_id: channelConfig.channel_id,

@@ -9,10 +9,16 @@ import type { IntegrationConnection } from '@/lib/integrations/types'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * POST /api/integrations/freebusy
@@ -70,7 +76,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Batch fetch all active google_calendar connections for the requested users
-  const { data: connections } = await (supabaseAdmin as any)
+  const { data: connections } = await (getSupabaseAdmin() as any)
     .from('integration_connections')
     .select('*')
     .eq('provider', 'google_calendar')

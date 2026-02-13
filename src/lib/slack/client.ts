@@ -2,10 +2,16 @@ import { WebClient } from '@slack/web-api'
 import { createClient } from '@supabase/supabase-js'
 import { SLACK_CONFIG } from './config'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 // orgId -> WebClient キャッシュ
 const clientCache = new Map<string, { client: WebClient; expiresAt: number }>()
@@ -22,7 +28,7 @@ export async function getSlackClientForOrg(orgId: string): Promise<WebClient> {
   }
 
   // DBからトークン取得・復号化
-  const { data: workspace, error } = await (supabaseAdmin as any)
+  const { data: workspace, error } = await (getSupabaseAdmin() as any)
     .from('slack_workspaces')
     .select('bot_token_encrypted')
     .eq('org_id', orgId)
@@ -34,7 +40,7 @@ export async function getSlackClientForOrg(orgId: string): Promise<WebClient> {
   }
 
   // pgcrypto復号化（SLACK_CLIENT_SECRETをキーとして使用）
-  const { data: decrypted, error: decryptError } = await supabaseAdmin
+  const { data: decrypted, error: decryptError } = await (getSupabaseAdmin() as any)
     .rpc('decrypt_slack_token', {
       encrypted: workspace.bot_token_encrypted,
       secret: SLACK_CONFIG.clientSecret,

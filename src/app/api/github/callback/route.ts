@@ -5,10 +5,16 @@ import { verifySignedState } from '@/lib/github/config'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * GitHub App インストール後のコールバック
@@ -65,7 +71,7 @@ export async function GET(request: NextRequest) {
     const accountType = firstRepo.owner.type as 'Organization' | 'User'
 
     // 既存のインストールを確認
-    const { data: existingInstall } = await supabaseAdmin
+    const { data: existingInstall } = await (getSupabaseAdmin() as any)
       .from('github_installations')
       .select('id')
       .eq('org_id', orgId)
@@ -74,7 +80,7 @@ export async function GET(request: NextRequest) {
 
     if (existingInstall) {
       // 更新
-      await supabaseAdmin
+      await (getSupabaseAdmin() as any)
         .from('github_installations')
         .update({
           account_login: accountLogin,
@@ -85,7 +91,7 @@ export async function GET(request: NextRequest) {
     } else {
       // システムユーザーとして作成（created_by は後で更新可能）
       // 注: 実際には認証されたユーザーのIDを使用すべき
-      const { error: installError } = await supabaseAdmin
+      const { error: installError } = await (getSupabaseAdmin() as any)
         .from('github_installations')
         .insert({
           org_id: orgId,
@@ -114,7 +120,7 @@ export async function GET(request: NextRequest) {
       is_private: repo.private,
     }))
 
-    const { error: repoError } = await supabaseAdmin
+    const { error: repoError } = await (getSupabaseAdmin() as any)
       .from('github_repositories')
       .upsert(repoRecords, { onConflict: 'org_id,repo_id' })
 

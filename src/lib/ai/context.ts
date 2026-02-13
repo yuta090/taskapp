@@ -1,9 +1,15 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 export interface SlackMentionContext {
   spaceName: string
@@ -31,14 +37,14 @@ export async function buildMentionContext(
   // Fetch space, tasks, and memberships in parallel
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const [spaceResult, tasksResult, membershipsResult] = await Promise.all([
-    (supabaseAdmin as any)
+    (getSupabaseAdmin() as any)
       .from('spaces')
       .select('name')
       .eq('id', spaceId)
       .eq('org_id', orgId)
       .single(),
 
-    (supabaseAdmin as any)
+    (getSupabaseAdmin() as any)
       .from('tasks')
       .select('id, title, status, ball, assignee_id, due_date')
       .eq('space_id', spaceId)
@@ -46,7 +52,7 @@ export async function buildMentionContext(
       .order('updated_at', { ascending: false })
       .limit(20),
 
-    (supabaseAdmin as any)
+    (getSupabaseAdmin() as any)
       .from('space_memberships')
       .select('user_id')
       .eq('space_id', spaceId),
@@ -67,7 +73,7 @@ export async function buildMentionContext(
   // Fetch all profile names in one query
   const profileMap = new Map<string, string>()
   if (allUserIds.length > 0) {
-    const { data: profiles } = await (supabaseAdmin as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { data: profiles } = await (getSupabaseAdmin() as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .from('profiles')
       .select('id, display_name')
       .in('id', allUserIds)

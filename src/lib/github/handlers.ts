@@ -7,10 +7,16 @@ import type {
 } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const supabaseAdmin: any = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+let _supabaseAdmin: any = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * Pull Request イベントを処理
@@ -21,7 +27,7 @@ export async function handlePullRequestEvent(
   const { action, pull_request: pr, repository, installation } = data
 
   // org_id を installation_id から逆引き
-  const { data: inst } = await supabaseAdmin
+  const { data: inst } = await getSupabaseAdmin()
     .from('github_installations')
     .select('org_id')
     .eq('installation_id', installation.id)
@@ -33,7 +39,7 @@ export async function handlePullRequestEvent(
   }
 
   // github_repo_id を取得
-  const { data: repo } = await supabaseAdmin
+  const { data: repo } = await getSupabaseAdmin()
     .from('github_repositories')
     .select('id')
     .eq('org_id', inst.org_id)
@@ -53,7 +59,7 @@ export async function handlePullRequestEvent(
     : 'open'
 
   // PR情報を upsert
-  const { data: prRecord, error: prError } = await supabaseAdmin
+  const { data: prRecord, error: prError } = await getSupabaseAdmin()
     .from('github_pull_requests')
     .upsert({
       org_id: inst.org_id,
@@ -88,7 +94,7 @@ export async function handlePullRequestEvent(
   if (action === 'opened' || action === 'edited') {
     const result = await linkPRToTasks(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      supabaseAdmin as any,
+      getSupabaseAdmin() as any,
       inst.org_id,
       repo.id,
       prRecord.id,
@@ -118,7 +124,7 @@ export async function handleInstallationEvent(
 
     case 'deleted': {
       // インストール削除時は関連データを削除
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .from('github_installations')
         .delete()
         .eq('installation_id', installation.id)
@@ -164,7 +170,7 @@ export async function handleInstallationRepositoriesEvent(
   const { action, installation } = data
 
   // org_id を取得
-  const { data: inst } = await supabaseAdmin
+  const { data: inst } = await getSupabaseAdmin()
     .from('github_installations')
     .select('org_id')
     .eq('installation_id', installation.id)
@@ -186,7 +192,7 @@ export async function handleInstallationRepositoriesEvent(
       is_private: repo.private,
     }))
 
-    const { error } = await supabaseAdmin
+    const { error } = await getSupabaseAdmin()
       .from('github_repositories')
       .upsert(repos, { onConflict: 'org_id,repo_id' })
 
@@ -200,7 +206,7 @@ export async function handleInstallationRepositoriesEvent(
     // リポジトリ削除
     const repoIds = data.repositories_removed.map(r => r.id)
 
-    const { error } = await supabaseAdmin
+    const { error } = await getSupabaseAdmin()
       .from('github_repositories')
       .delete()
       .eq('org_id', inst.org_id)

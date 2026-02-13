@@ -7,10 +7,16 @@ import { postSlackMessage } from '@/lib/slack/client'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * Fire-and-forget 内部通知
@@ -106,7 +112,7 @@ async function handleTaskCreate(
   }
 
   // Look up org_id from space
-  const { data: space, error: spaceError } = await (supabaseAdmin as any)
+  const { data: space, error: spaceError } = await (getSupabaseAdmin() as any)
     .from('spaces')
     .select('org_id')
     .eq('id', spaceId)
@@ -133,7 +139,7 @@ async function handleTaskCreate(
 
   // Insert task
   const now = new Date().toISOString()
-  const { data: task, error: insertError } = await (supabaseAdmin as any)
+  const { data: task, error: insertError } = await (getSupabaseAdmin() as any)
     .from('tasks')
     .insert({
       org_id: orgId,

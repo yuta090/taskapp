@@ -11,10 +11,16 @@ if (!notificationRegistry.get('slack')) {
   notificationRegistry.register(new SlackNotificationProvider())
 }
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 const ALLOWED_EVENTS: NotificationEventType[] = [
   'task_created',
@@ -57,19 +63,19 @@ export async function POST(request: NextRequest) {
 
     // タスク・Space・Actor・Assignee情報を並列取得
     const [taskResult, spaceResult, actorResult] = await Promise.all([
-      (supabaseAdmin as any)
+      (getSupabaseAdmin() as any)
         .from('tasks')
         .select('*')
         .eq('id', taskId)
         .eq('space_id', spaceId)
         .single(),
-      (supabaseAdmin as any)
+      (getSupabaseAdmin() as any)
         .from('spaces')
         .select('name, org_id')
         .eq('id', spaceId)
         .single(),
       resolvedActorId
-        ? (supabaseAdmin as any)
+        ? (getSupabaseAdmin() as any)
             .from('profiles')
             .select('display_name')
             .eq('id', resolvedActorId)
@@ -87,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Assignee名取得
     let assigneeName: string | null = null
     if (task.assignee_id) {
-      const { data: assigneeProfile } = await (supabaseAdmin as any)
+      const { data: assigneeProfile } = await (getSupabaseAdmin() as any)
         .from('profiles')
         .select('display_name')
         .eq('id', task.assignee_id)

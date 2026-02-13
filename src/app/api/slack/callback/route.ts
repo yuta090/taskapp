@@ -7,10 +7,16 @@ import { invalidateSlackClientCache } from '@/lib/slack/client'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createSupabaseClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _supabaseAdmin
+}
 
 /**
  * GET /api/slack/callback?code=...&state=...
@@ -65,7 +71,7 @@ export async function GET(request: NextRequest) {
     }
 
     // トークンを暗号化
-    const { data: encryptedToken, error: encryptError } = await supabaseAdmin
+    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as any)
       .rpc('encrypt_slack_token', {
         token: tokenResponse.access_token,
         secret: SLACK_CONFIG.clientSecret,
@@ -79,7 +85,7 @@ export async function GET(request: NextRequest) {
     }
 
     // DB保存（upsert: org_id + team_id でユニーク）
-    const { error: upsertError } = await (supabaseAdmin as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as any)
       .from('slack_workspaces')
       .upsert(
         {
