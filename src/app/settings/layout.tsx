@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 
-export default function AuthLayout({
+export default function SettingsLayout({
   children,
 }: {
   children: React.ReactNode
