@@ -21,7 +21,7 @@ export default async function SettingsPage({ params }: PageProps) {
   const { orgId, spaceId } = await params
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col">
       <SettingsHeader orgId={orgId} spaceId={spaceId} />
       <div className="flex-1 overflow-y-auto">
         <div className="content-wrap py-6">

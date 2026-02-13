@@ -8,6 +8,7 @@ const publicPaths = [
   '/reset',
   '/invite',
   '/api/auth',
+  '/docs',
 ]
 
 // 認証が必要なパス（portalは独自のauth checkを持つが、middleware でセッションリフレッシュ必要）

@@ -133,6 +133,14 @@ function UserMenu({ userName, userEmail }: UserMenuProps) {
               <User className="text-base text-gray-500" />
               プロフィール設定
             </Link>
+            <Link
+              href="/docs/manual/client"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="text-base text-gray-500" />
+              ご利用ガイド
+            </Link>
             <hr className="my-1 border-gray-100" />
             <button
               type="button"

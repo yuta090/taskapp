@@ -166,6 +166,14 @@ function UserMenu() {
               <Key className="text-base text-gray-500" />
               APIキー管理
             </Link>
+            <Link
+              href="/docs/manual/internal"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="text-base text-gray-500" />
+              マニュアル
+            </Link>
             <hr className="my-1 border-gray-100" />
             <button
               type="button"

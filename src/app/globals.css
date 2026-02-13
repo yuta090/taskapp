@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* ============================================
    TaskApp Design Tokens (from prototype v29)
