@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { X, Plus, Trash2, Users, Calendar } from 'lucide-react'
+import { X, Plus, Trash, Users, CalendarBlank } from '@phosphor-icons/react'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
@@ -340,7 +340,7 @@ export function ProposalCreateSheet({
           {/* Slots */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-2">
-              <Calendar className="inline w-3.5 h-3.5 mr-1" />
+              <CalendarBlank className="inline w-3.5 h-3.5 mr-1" />
               候補日時（{MIN_SLOTS}〜{MAX_SLOTS}個）
             </label>
             <div className="space-y-2">
@@ -363,7 +363,7 @@ export function ProposalCreateSheet({
                       className="p-1 text-gray-400 hover:text-red-500"
                       data-testid={`slot-remove-${idx}`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { X, Calendar, Check } from 'lucide-react'
+import { X, CalendarBlank, Check } from '@phosphor-icons/react'
 import type { SlotResponseType } from '@/types/database'
 
 interface Slot {
@@ -207,7 +207,7 @@ export function PortalSlotResponseForm({
                   data-testid={`portal-slot-${idx}`}
                 >
                   <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
-                    <Calendar className="w-4 h-4 text-gray-400" />
+                    <CalendarBlank className="w-4 h-4 text-gray-400" />
                     候補 {idx + 1}: {formatSlotDate(slot.start_at)} 〜{' '}
                     {formatSlotEndTime(slot.end_at)}
                   </div>

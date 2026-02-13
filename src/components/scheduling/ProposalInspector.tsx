@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { X, Calendar, CheckCircle, Video } from 'lucide-react'
+import { X, CalendarBlank, CheckCircle, VideoCamera } from '@phosphor-icons/react'
 import { ProposalStatusBadge } from './ProposalStatusBadge'
 import { SlotResponseGrid } from './SlotResponseGrid'
 import { useProposalResponses } from '@/lib/hooks/useProposalResponses'
@@ -198,7 +198,7 @@ export function ProposalInspector({
                   className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-2"
                   data-testid="proposal-meeting-url"
                 >
-                  <Video className="w-4 h-4" />
+                  <VideoCamera className="w-4 h-4" />
                   ビデオ会議に参加
                 </a>
               )}
@@ -231,7 +231,7 @@ export function ProposalInspector({
                         日程を確定しますか？
                       </p>
                       <p className="text-sm text-gray-600">
-                        <Calendar className="inline w-3.5 h-3.5 mr-1" />
+                        <CalendarBlank className="inline w-3.5 h-3.5 mr-1" />
                         {formatDateTime(slot.start_at)} - {formatDateTime(slot.end_at).split(' ')[1]}
                       </p>
                       <div className="text-xs text-gray-500">

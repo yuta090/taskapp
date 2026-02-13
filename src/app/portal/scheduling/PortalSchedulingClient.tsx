@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Calendar, ArrowRight, CheckCircle, Clock } from 'lucide-react'
+import { CalendarBlank, ArrowRight, CheckCircle, Clock } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal/PortalShell'
 import { PortalSlotResponseForm } from '@/components/portal/scheduling/PortalSlotResponseForm'
 import type { SlotResponseType } from '@/types/database'
@@ -119,7 +119,7 @@ export function PortalSchedulingClient({
 
         {!loading && proposals.length === 0 && (
           <div className="text-center text-gray-400 py-20">
-            <Calendar className="w-10 h-10 mx-auto mb-3 opacity-50" />
+            <CalendarBlank className="w-10 h-10 mx-auto mb-3 opacity-50" />
             <p className="text-sm">日程調整はありません</p>
           </div>
         )}
@@ -170,7 +170,7 @@ function PortalProposalCard({
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <CalendarBlank className="w-4 h-4 text-gray-400 flex-shrink-0" />
             <h3 className="text-sm font-medium text-gray-900 truncate">
               {proposal.title}
             </h3>

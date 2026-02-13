@@ -1,6 +1,6 @@
 'use client'
 
-import { Calendar } from 'lucide-react'
+import { CalendarBlank } from '@phosphor-icons/react'
 import { ProposalStatusBadge } from './ProposalStatusBadge'
 import type { ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 
@@ -32,7 +32,7 @@ export function ProposalRow({ proposal, isSelected, onClick }: ProposalRowProps)
       data-testid={`proposal-row-${proposal.id}`}
     >
       <div className="flex-shrink-0 text-gray-400">
-        <Calendar className="w-4 h-4" />
+        <CalendarBlank className="w-4 h-4" />
       </div>
 
       <div className="flex-1 min-w-0 flex items-center gap-3">
