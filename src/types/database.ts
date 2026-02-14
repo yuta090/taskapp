@@ -145,6 +145,7 @@ export interface Database {
           type: 'project' | 'personal'
           name: string
           owner_user_id: string | null
+          preset_genre: string | null
           created_at: string
         }
         Insert: {
@@ -153,6 +154,7 @@ export interface Database {
           type: 'project' | 'personal'
           name: string
           owner_user_id?: string | null
+          preset_genre?: string | null
           created_at?: string
         }
         Update: {
@@ -161,6 +163,7 @@ export interface Database {
           type?: 'project' | 'personal'
           name?: string
           owner_user_id?: string | null
+          preset_genre?: string | null
           created_at?: string
         }
       }
@@ -309,6 +312,7 @@ export interface Database {
           status: TaskStatus
           priority: number | null
           assignee_id: string | null
+          start_date: string | null
           due_date: string | null
           ball: BallSide
           origin: BallSide
@@ -316,6 +320,7 @@ export interface Database {
           spec_path: string | null
           decision_state: DecisionState | null
           client_scope: ClientScope
+          actual_hours: number | null
           created_at: string
           updated_at: string
         }
@@ -329,6 +334,7 @@ export interface Database {
           status?: TaskStatus
           priority?: number | null
           assignee_id?: string | null
+          start_date?: string | null
           due_date?: string | null
           ball?: BallSide
           origin?: BallSide
@@ -336,6 +342,7 @@ export interface Database {
           spec_path?: string | null
           decision_state?: DecisionState | null
           client_scope?: ClientScope
+          actual_hours?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -349,6 +356,7 @@ export interface Database {
           status?: TaskStatus
           priority?: number | null
           assignee_id?: string | null
+          start_date?: string | null
           due_date?: string | null
           ball?: BallSide
           origin?: BallSide
@@ -356,6 +364,7 @@ export interface Database {
           spec_path?: string | null
           decision_state?: DecisionState | null
           client_scope?: ClientScope
+          actual_hours?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -693,6 +702,7 @@ export interface Database {
           org_id: string
           space_id: string
           name: string
+          start_date: string | null
           due_date: string | null
           order_key: number
           created_at: string
@@ -703,6 +713,7 @@ export interface Database {
           org_id: string
           space_id: string
           name: string
+          start_date?: string | null
           due_date?: string | null
           order_key?: number
           created_at?: string
@@ -713,6 +724,7 @@ export interface Database {
           org_id?: string
           space_id?: string
           name?: string
+          start_date?: string | null
           due_date?: string | null
           order_key?: number
           created_at?: string

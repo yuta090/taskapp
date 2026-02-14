@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, ArrowRight, User, Calendar, Flag, Plus } from '@phosphor-icons/react'
+import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
 import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
 
 interface TaskCreateSheetProps {
   spaceId: string
+  orgId?: string
   isOpen: boolean
   onClose: () => void
   onSubmit: (task: TaskCreateData) => void
@@ -33,6 +35,7 @@ export interface TaskCreateData {
 
 export function TaskCreateSheet({
   spaceId,
+  orgId,
   isOpen,
   onClose,
   onSubmit,
@@ -43,7 +46,7 @@ export function TaskCreateSheet({
   const [description, setDescription] = useState('')
   const [type, setType] = useState<TaskType>('task')
   const [ball, setBall] = useState<BallSide>(defaultBall)
-  const [clientScope, setClientScope] = useState<ClientScope>('deliverable')
+  const [clientScope, setClientScope] = useState<ClientScope>('internal')
   const [specPath, setSpecPath] = useState('')
   const [decisionState, setDecisionState] = useState<DecisionState>('considering')
   const [clientOwnerIds, setClientOwnerIds] = useState<string[]>(defaultClientOwnerIds)
@@ -56,6 +59,13 @@ export function TaskCreateSheet({
   const [newMilestoneName, setNewMilestoneName] = useState('')
   const [newMilestoneDue, setNewMilestoneDue] = useState('')
   const [milestoneCreating, setMilestoneCreating] = useState(false)
+  const [estimationExpanded, setEstimationExpanded] = useState(false)
+
+  // Estimation assist hook
+  const estimation = useEstimationAssist({
+    spaceId,
+    orgId: orgId || '',
+  })
 
   // Use hook for members with display names
   const {
@@ -209,7 +219,7 @@ export function TaskCreateSheet({
 
     // Validate: ball=client needs client owner
     if (ball === 'client' && clientOwnerIds.length === 0) {
-      alert('クライアントにボールを渡す場合はクライアント担当者を指定してください')
+      alert('外部にボールを渡す場合は外部担当者を指定してください')
       return
     }
 
@@ -238,6 +248,8 @@ export function TaskCreateSheet({
     setAssigneeId('')
     setMilestoneId('')
     setInternalOwnerIds([])
+    estimation.clear()
+    setEstimationExpanded(false)
     // Keep ball and clientOwnerIds for next creation
   }
 
@@ -276,12 +288,72 @@ export function TaskCreateSheet({
               ref={inputRef}
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value)
+                if (orgId) estimation.search(e.target.value)
+              }}
               placeholder="タスクタイトルを入力..."
               data-testid="task-create-title"
               className="w-full px-3 py-2 text-base border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
+
+          {/* Estimation Assist */}
+          {orgId && estimation.result && (
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <button
+                type="button"
+                onClick={() => setEstimationExpanded(!estimationExpanded)}
+                className="flex items-center gap-1.5 text-xs font-medium text-blue-700 w-full"
+              >
+                <ChartBar className="text-sm" />
+                <span>
+                  過去の類似タスク ({estimation.result.similarTasks.length}件)
+                </span>
+                {estimationExpanded
+                  ? <CaretDown className="text-xs ml-auto" />
+                  : <CaretRight className="text-xs ml-auto" />
+                }
+              </button>
+              {estimationExpanded && (
+                <div className="mt-2 space-y-1.5">
+                  {estimation.result.similarTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between text-xs text-gray-700 bg-white rounded px-2 py-1.5"
+                    >
+                      <span className="truncate mr-2">{t.title}</span>
+                      <span className="flex-shrink-0 text-blue-600 font-medium">
+                        {t.actual_hours}h
+                        {t.client_wait_days !== null && (
+                          <span className="text-amber-600 ml-1.5">
+                            / 待ち{t.client_wait_days}日
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  {/* Average summary */}
+                  <div className="flex items-center justify-between text-xs font-medium text-blue-800 border-t border-blue-200 pt-1.5 mt-1.5">
+                    <span>平均</span>
+                    <span>
+                      {estimation.result.avgHours !== null && (
+                        <span>作業 {estimation.result.avgHours}h</span>
+                      )}
+                      {estimation.result.avgClientWaitDays !== null && (
+                        <span className="text-amber-600 ml-1.5">
+                          / 顧客待ち {estimation.result.avgClientWaitDays}日
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {orgId && estimation.loading && (
+            <div className="text-xs text-gray-400 px-1">類似タスクを検索中...</div>
+          )}
 
           {/* Type selector */}
           <div className="flex gap-2">
@@ -508,7 +580,7 @@ export function TaskCreateSheet({
               >
                 <span className="flex items-center justify-center gap-1">
                   <ArrowRight weight="bold" className="text-xs" />
-                  クライアント
+                  外部
                 </span>
               </button>
             </div>
@@ -519,10 +591,10 @@ export function TaskCreateSheet({
             <div className="flex items-center gap-2">
               <span className={`text-lg ${clientScope === 'deliverable' ? 'opacity-100' : 'opacity-30'}`}>👁</span>
               <div>
-                <span className="text-sm font-medium text-gray-700">クライアントに表示</span>
+                <span className="text-sm font-medium text-gray-700">外部に公開</span>
                 <p className="text-xs text-gray-500">
                   {clientScope === 'deliverable'
-                    ? 'クライアントポータルに表示されます'
+                    ? '外部ポータルに表示されます'
                     : '内部作業として非表示'}
                 </p>
               </div>
@@ -547,7 +619,7 @@ export function TaskCreateSheet({
           {ball === 'client' && (
             <div className="p-3 bg-amber-50 rounded-lg">
               <label className="text-xs font-medium text-amber-600">
-                クライアント担当者（必須）
+                外部担当者（必須）
               </label>
               <div className="mt-2 flex items-center gap-2">
                 <User className="text-amber-500" />
@@ -566,7 +638,7 @@ export function TaskCreateSheet({
                 )}
                 {!membersLoading && !membersError && clientMembers.length === 0 && (
                   <div className="text-xs text-amber-600">
-                    クライアント担当者が見つかりません
+                    外部担当者が見つかりません
                   </div>
                 )}
                 {!membersLoading && clientMembers.length > 0 && (

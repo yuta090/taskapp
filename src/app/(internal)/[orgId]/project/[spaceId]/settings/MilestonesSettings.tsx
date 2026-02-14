@@ -7,6 +7,7 @@ import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@pho
 interface Milestone {
   id: string
   name: string
+  start_date: string | null
   due_date: string | null
   order_key: number
 }
@@ -22,13 +23,17 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
 
   // New milestone form
   const [newName, setNewName] = useState('')
+  const [newStartDate, setNewStartDate] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
   const [creating, setCreating] = useState(false)
+  const [dateError, setDateError] = useState<string | null>(null)
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [editStartDate, setEditStartDate] = useState('')
   const [editDueDate, setEditDueDate] = useState('')
+  const [editDateError, setEditDateError] = useState<string | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -39,7 +44,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error: err } = await (supabase as any)
         .from('milestones')
-        .select('id, name, due_date, order_key')
+        .select('id, name, start_date, due_date, order_key')
         .eq('space_id' as never, spaceId as never)
         .order('order_key' as never, { ascending: true })
 
@@ -59,6 +64,11 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
 
   const handleCreate = async () => {
     if (!newName.trim()) return
+    if (newStartDate && newDueDate && newStartDate > newDueDate) {
+      setDateError('開始日は期限日より前に設定してください')
+      return
+    }
+    setDateError(null)
     setCreating(true)
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,12 +77,14 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
         .insert({
           space_id: spaceId,
           name: newName.trim(),
+          start_date: newStartDate || null,
           due_date: newDueDate || null,
           order_key: Date.now(),
         })
 
       if (err) throw err
       setNewName('')
+      setNewStartDate('')
       setNewDueDate('')
       await fetchMilestones()
     } catch (err) {
@@ -103,23 +115,33 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
   const startEdit = (ms: Milestone) => {
     setEditingId(ms.id)
     setEditName(ms.name)
+    setEditStartDate(ms.start_date || '')
     setEditDueDate(ms.due_date || '')
+    setEditDateError(null)
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setEditName('')
+    setEditStartDate('')
     setEditDueDate('')
+    setEditDateError(null)
   }
 
   const saveEdit = async () => {
     if (!editingId || !editName.trim()) return
+    if (editStartDate && editDueDate && editStartDate > editDueDate) {
+      setEditDateError('開始日は期限日より前に設定してください')
+      return
+    }
+    setEditDateError(null)
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: err } = await (supabase as any)
         .from('milestones')
         .update({
           name: editName.trim(),
+          start_date: editStartDate || null,
           due_date: editDueDate || null,
         })
         .eq('id' as never, editingId as never)
@@ -172,32 +194,45 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
 
               {editingId === ms.id ? (
                 // Edit mode
-                <div className="flex-1 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="flex-1 px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    autoFocus
-                  />
-                  <input
-                    type="date"
-                    value={editDueDate}
-                    onChange={(e) => setEditDueDate(e.target.value)}
-                    className="px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={saveEdit}
-                    className="p-1 text-green-600 hover:bg-green-50 rounded"
-                  >
-                    <Check className="text-sm" />
-                  </button>
-                  <button
-                    onClick={cancelEdit}
-                    className="p-1 text-gray-500 hover:bg-gray-100 rounded"
-                  >
-                    <X className="text-sm" />
-                  </button>
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="flex-1 px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    <input
+                      type="date"
+                      value={editStartDate}
+                      onChange={(e) => setEditStartDate(e.target.value)}
+                      className="px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      title="開始日"
+                    />
+                    <input
+                      type="date"
+                      value={editDueDate}
+                      onChange={(e) => setEditDueDate(e.target.value)}
+                      className="px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      title="期限"
+                    />
+                    <button
+                      onClick={saveEdit}
+                      className="p-1 text-green-600 hover:bg-green-50 rounded"
+                    >
+                      <Check className="text-sm" />
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="p-1 text-gray-500 hover:bg-gray-100 rounded"
+                    >
+                      <X className="text-sm" />
+                    </button>
+                  </div>
+                  {editDateError && (
+                    <div className="text-xs text-red-500 pl-1">{editDateError}</div>
+                  )}
                 </div>
               ) : (
                 // View mode
@@ -206,9 +241,14 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
                     <div className="text-sm font-medium text-gray-900">
                       {ms.name}
                     </div>
-                    {ms.due_date && (
+                    {(ms.start_date || ms.due_date) && (
                       <div className="text-xs text-gray-500">
-                        期限: {new Date(ms.due_date).toLocaleDateString('ja-JP')}
+                        {ms.start_date && ms.due_date
+                          ? `${new Date(ms.start_date).toLocaleDateString('ja-JP')} 〜 ${new Date(ms.due_date).toLocaleDateString('ja-JP')}`
+                          : ms.start_date
+                            ? `開始: ${new Date(ms.start_date).toLocaleDateString('ja-JP')}`
+                            : `期限: ${new Date(ms.due_date!).toLocaleDateString('ja-JP')}`
+                        }
                       </div>
                     )}
                   </div>
@@ -248,11 +288,20 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
             />
           </div>
           <div className="w-40">
+            <label className="text-xs text-gray-500">開始日</label>
+            <input
+              type="date"
+              value={newStartDate}
+              onChange={(e) => { setNewStartDate(e.target.value); setDateError(null) }}
+              className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="w-40">
             <label className="text-xs text-gray-500">期限</label>
             <input
               type="date"
               value={newDueDate}
-              onChange={(e) => setNewDueDate(e.target.value)}
+              onChange={(e) => { setNewDueDate(e.target.value); setDateError(null) }}
               className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -265,6 +314,9 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
             {creating ? '作成中...' : '追加'}
           </button>
         </div>
+        {dateError && (
+          <div className="text-xs text-red-500 mt-1">{dateError}</div>
+        )}
       </div>
     </div>
   )

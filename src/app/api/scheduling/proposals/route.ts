@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // POST: 提案作成
 export async function POST(request: NextRequest) {
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { spaceId, title, description, durationMinutes, slots, respondents, expiresAt } = body
+    const { spaceId, title, description, durationMinutes, slots, respondents, expiresAt, videoProvider } = body
 
     // --- Validation ---
     if (!spaceId || !UUID_REGEX.test(spaceId)) {
@@ -21,6 +21,9 @@ export async function POST(request: NextRequest) {
     }
     if (!title || typeof title !== 'string' || title.length < 1 || title.length > 200) {
       return NextResponse.json({ error: 'Title is required (1-200 chars)' }, { status: 400 })
+    }
+    if (description != null && typeof description !== 'string') {
+      return NextResponse.json({ error: 'Description must be a string' }, { status: 400 })
     }
     if (description && description.length > 1000) {
       return NextResponse.json({ error: 'Description must be 1000 chars or less' }, { status: 400 })
@@ -37,12 +40,6 @@ export async function POST(request: NextRequest) {
     }
     if (respondents.length > 50) {
       return NextResponse.json({ error: 'Maximum 50 respondents allowed' }, { status: 400 })
-    }
-
-    // AT-001: At least 1 client respondent
-    const hasClient = respondents.some((r: { side: string }) => r.side === 'client')
-    if (!hasClient) {
-      return NextResponse.json({ error: 'At least 1 client respondent is required' }, { status: 400 })
     }
 
     // Validate each slot
@@ -64,7 +61,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate respondents
+    // Validate and dedupe respondents (by userId — prevents DB unique violation)
+    const seenUserIds = new Set<string>()
+    const deduped: typeof respondents = []
     for (const r of respondents) {
       if (!r.userId || !UUID_REGEX.test(r.userId)) {
         return NextResponse.json({ error: 'Invalid respondent userId' }, { status: 400 })
@@ -72,7 +71,11 @@ export async function POST(request: NextRequest) {
       if (!['client', 'internal'].includes(r.side)) {
         return NextResponse.json({ error: 'Respondent side must be client or internal' }, { status: 400 })
       }
+      if (seenUserIds.has(r.userId)) continue // skip duplicate
+      seenUserIds.add(r.userId)
+      deduped.push(r)
     }
+    const validatedRespondents = deduped
 
     // --- Authorization ---
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +84,7 @@ export async function POST(request: NextRequest) {
       .select('id, role')
       .eq('space_id', spaceId)
       .eq('user_id', user.id)
-      .in('role', ['admin', 'editor', 'member'])
+      .in('role', ['admin', 'editor', 'viewer'])
       .single()
 
     if (!membership) {
@@ -113,6 +116,7 @@ export async function POST(request: NextRequest) {
         status: 'open',
         expires_at: expiresAt || null,
         created_by: user.id,
+        video_provider: videoProvider || null,
       })
       .select('*')
       .single()
@@ -142,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     // --- Create respondents ---
-    const respondentInserts = respondents.map((r: { userId: string; side: string; isRequired?: boolean }) => ({
+    const respondentInserts = validatedRespondents.map((r: { userId: string; side: string; isRequired?: boolean }) => ({
       proposal_id: proposal.id,
       user_id: r.userId,
       side: r.side,
@@ -158,6 +162,26 @@ export async function POST(request: NextRequest) {
     if (respondentsError) {
       console.error('Respondents creation error:', respondentsError)
       return NextResponse.json({ error: 'Failed to create respondents' }, { status: 500 })
+    }
+
+    // --- Auto-set creator's response to 'available' for all slots ---
+    const creatorRespondent = (createdRespondents || []).find(
+      (r: { user_id: string }) => r.user_id === user.id
+    )
+    if (creatorRespondent && createdSlots && createdSlots.length > 0) {
+      const autoResponses = createdSlots.map((slot: { id: string }) => ({
+        slot_id: slot.id,
+        respondent_id: creatorRespondent.id,
+        response: 'available',
+      }))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: autoResponseError } = await (supabase as any)
+        .from('slot_responses')
+        .insert(autoResponses)
+      if (autoResponseError) {
+        console.error('Auto-response creation error:', autoResponseError)
+        // Non-fatal: proposal was created, just log the error
+      }
     }
 
     return NextResponse.json({
@@ -208,7 +232,7 @@ export async function GET(request: NextRequest) {
       .from('scheduling_proposals')
       .select(`
         *,
-        proposal_slots (*),
+        proposal_slots!proposal_slots_proposal_id_fkey (*),
         proposal_respondents (id, user_id, side, is_required)
       `)
       .eq('space_id', spaceId)
@@ -227,10 +251,14 @@ export async function GET(request: NextRequest) {
     if (proposalIds.length > 0) {
       // Get distinct respondent counts with responses
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: responseCounts } = await (supabase as any)
+      const { data: responseCounts, error: rcError } = await (supabase as any)
         .from('slot_responses')
         .select('respondent_id, proposal_respondents!inner(proposal_id)')
         .in('proposal_respondents.proposal_id', proposalIds)
+
+      if (rcError) {
+        console.error('Response count query error:', rcError)
+      }
 
       if (responseCounts) {
         const respondentsByProposal: Record<string, Set<string>> = {}

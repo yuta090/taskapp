@@ -69,8 +69,32 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
       // Auto-create default pages on first access when wiki is empty
       // Creates: spec pages (API/DB/UI仕様書) → home page (with auto-links to specs)
+      // Skip if space has a preset_genre set (content was seeded at creation or user chose blank)
       if (fetchedPages.length === 0 && !defaultCreatedRef.current) {
         defaultCreatedRef.current = true
+
+        // Check if space was created with a preset — if so, skip auto-creation
+        // preset_genre=NULL → legacy space (auto-create), non-NULL → preset applied or blank
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: spaceData } = await (supabase as any)
+            .from('spaces')
+            .select('preset_genre')
+            .eq('id', spaceId)
+            .eq('org_id', orgId)
+            .single()
+          if (spaceData?.preset_genre != null) {
+            // Preset applied or blank — do not auto-create wiki pages
+            setPages([])
+            return null
+          }
+        } catch {
+          // Fail-closed: if we can't verify preset status, skip auto-creation
+          // to avoid accidentally creating legacy pages in preset/blank spaces
+          setPages([])
+          return null
+        }
+
         try {
           // Get auth user — requires authenticated user for FK constraint
           const { data: authData } = await supabase.auth.getUser()

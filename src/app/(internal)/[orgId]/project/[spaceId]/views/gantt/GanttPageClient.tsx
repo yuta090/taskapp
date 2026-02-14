@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { SquaresFour, Spinner } from '@phosphor-icons/react'
-import { Breadcrumb } from '@/components/shared'
+import { Breadcrumb, ViewsTabNav } from '@/components/shared'
 import { GanttChart } from '@/components/gantt'
 import { useInspector } from '@/components/layout'
 import { TaskInspector } from '@/components/task/TaskInspector'
@@ -109,6 +109,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       title?: string
       description?: string | null
       status?: TaskStatus
+      startDate?: string | null
       dueDate?: string | null
       milestoneId?: string | null
       assigneeId?: string | null
@@ -179,7 +180,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       const task = tasks.find((t) => t.id === taskId)
       if (!task) return
 
-      const oldValue = field === 'end' ? task.due_date : task.created_at
+      const oldValue = field === 'end' ? task.due_date : (task.start_date || task.created_at)
       const fieldLabel = field === 'end' ? '期限日' : '開始日'
 
       // Add to log
@@ -194,23 +195,11 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       }
       setUpdateLog((prev) => [logEntry, ...prev].slice(0, 50)) // Keep last 50 entries
 
-      console.log(
-        `[ガントチャート] ${fieldLabel}変更: "${task.title}" ${oldValue || '未設定'} → ${newDate}`
-      )
-
       try {
         if (field === 'end') {
-          // Update due_date
           await updateTask(taskId, { dueDate: newDate })
-          console.log(`[ガントチャート] ${fieldLabel}を保存しました`)
         } else {
-          // Start date - requires start_date column in DB
-          // For now, log but don't save (would need DB migration)
-          console.warn(
-            `[ガントチャート] 開始日の保存には start_date カラムの追加が必要です`
-          )
-          // If start_date column exists, uncomment:
-          // await updateTask(taskId, { startDate: newDate })
+          await updateTask(taskId, { startDate: newDate })
         }
       } catch (err) {
         console.error(`[ガントチャート] ${fieldLabel}の保存に失敗しました:`, err)
@@ -251,6 +240,9 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
           </div>
         )}
       </div>
+
+      {/* Views Tab Nav */}
+      <ViewsTabNav orgId={orgId} spaceId={spaceId} activeView="gantt" />
 
       {/* Content */}
       <div className="flex-1 p-4 overflow-hidden">

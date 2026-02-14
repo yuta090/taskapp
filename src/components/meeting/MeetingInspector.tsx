@@ -36,15 +36,8 @@ export function MeetingInspector({
   const clientParticipants = participants.filter((p) => p.side === 'client')
   const internalParticipants = participants.filter((p) => p.side === 'internal')
 
-  // AT-001: クライアント参加者がいない場合は開始不可
-  const hasClientParticipants = clientParticipants.length > 0
-  // AT-002: plannedかつクライアント参加者がいる場合のみ開始可能
-  const canStart = meeting.status === 'planned' && hasClientParticipants
+  const canStart = meeting.status === 'planned'
   const canEnd = meeting.status === 'in_progress'
-  // 開始できない理由
-  const startDisabledReason = meeting.status === 'planned' && !hasClientParticipants
-    ? 'クライアント参加者を追加してください'
-    : null
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -146,7 +139,7 @@ export function MeetingInspector({
               {clientParticipants.length > 0 && (
                 <div>
                   <div className="flex items-center gap-1 mb-1">
-                    <AmberBadge>クライアント</AmberBadge>
+                    <AmberBadge>外部</AmberBadge>
                   </div>
                   <div className="space-y-1">
                     {clientParticipants.map((p) => (
@@ -181,11 +174,6 @@ export function MeetingInspector({
               {/* AT-002: plannedの場合のみ開始ボタンを表示 */}
               {meeting.status === 'planned' && (
                 <>
-                  {startDisabledReason && (
-                    <div className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mb-2">
-                      {startDisabledReason}
-                    </div>
-                  )}
                   <button
                     onClick={onStart}
                     disabled={!canStart}

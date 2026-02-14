@@ -330,7 +330,7 @@ export function GanttChart({
                         ? GANTT_CONFIG.COLORS.CLIENT
                         : GANTT_CONFIG.COLORS.INTERNAL,
                   }}
-                  title={task.ball === 'client' ? 'クライアント' : '社内'}
+                  title={task.ball === 'client' ? '外部' : '社内'}
                 />
 
                 {/* Task title */}
@@ -485,7 +485,7 @@ export function GanttChart({
             className="w-3 h-3 rounded"
             style={{ backgroundColor: GANTT_CONFIG.COLORS.CLIENT }}
           />
-          <span>クライアント確認待ち</span>
+          <span>外部確認待ち</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div

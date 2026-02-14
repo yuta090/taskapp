@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
+import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import type {
   Task,
   TaskOwner,
@@ -40,7 +41,7 @@ export interface UpdateTaskInput {
   description?: string | null
   status?: TaskStatus
   priority?: number | null
-  startDate?: string | null  // Note: requires start_date column in DB (future migration)
+  startDate?: string | null
   dueDate?: string | null
   assigneeId?: string | null
   milestoneId?: string | null
@@ -143,7 +144,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         type: task.type,
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
-        client_scope: task.clientScope ?? 'deliverable',
+        client_scope: task.clientScope ?? 'internal',
         created_at: now,
         updated_at: now,
       }
@@ -183,7 +184,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               spec_path: task.type === 'spec' ? task.specPath ?? null : null,
               decision_state:
                 task.type === 'spec' ? task.decisionState ?? null : null,
-              client_scope: task.clientScope ?? 'deliverable',
+              client_scope: task.clientScope ?? 'internal',
               due_date: task.dueDate ?? null,
               assignee_id: task.assigneeId ?? null,
               milestone_id: task.milestoneId ?? null,
@@ -250,6 +251,23 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           spaceId,
         })
 
+        // Fire-and-forget audit log
+        void createAuditLog({
+          supabase,
+          orgId,
+          spaceId,
+          actorId: userId,
+          actorRole: 'member',
+          eventType: 'task.created',
+          targetType: 'task',
+          targetId: createdTask.id,
+          summary: generateAuditSummary('task.created', { title: task.title }),
+          dataAfter: {
+            status: createdTask.status,
+            milestone_id: createdTask.milestone_id,
+          },
+        })
+
         return createdTask
       } catch (err) {
         setTasks((prev) => prev.filter((t) => t.id !== tempId))
@@ -278,6 +296,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               description: input.description !== undefined ? input.description : t.description,
               status: input.status ?? t.status,
               priority: input.priority !== undefined ? input.priority : t.priority,
+              start_date: input.startDate !== undefined ? input.startDate : t.start_date,
               due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
               assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
               milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
@@ -294,6 +313,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.description !== undefined) updateData.description = input.description
         if (input.status !== undefined) updateData.status = input.status
         if (input.priority !== undefined) updateData.priority = input.priority
+        if (input.startDate !== undefined) updateData.start_date = input.startDate
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
@@ -318,6 +338,56 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
             },
           })
         }
+
+        // Fire-and-forget audit logs
+        if (prevTask) {
+          const { data: authData } = await supabase.auth.getUser()
+          const actorId = authData?.user?.id ?? 'unknown'
+
+          // Status change audit log
+          if (input.status !== undefined && prevTask.status !== input.status) {
+            void createAuditLog({
+              supabase,
+              orgId,
+              spaceId,
+              actorId,
+              actorRole: 'member',
+              eventType: 'task.status_changed',
+              targetType: 'task',
+              targetId: taskId,
+              summary: generateAuditSummary('task.status_changed', { title: prevTask.title }),
+              dataBefore: {
+                status: prevTask.status,
+                milestone_id: prevTask.milestone_id,
+              },
+              dataAfter: {
+                status: input.status,
+                milestone_id: input.milestoneId !== undefined ? input.milestoneId : prevTask.milestone_id,
+              },
+            })
+          }
+
+          // Milestone reassignment audit log
+          if (input.milestoneId !== undefined && prevTask.milestone_id !== input.milestoneId) {
+            void createAuditLog({
+              supabase,
+              orgId,
+              spaceId,
+              actorId,
+              actorRole: 'member',
+              eventType: 'task.updated',
+              targetType: 'task',
+              targetId: taskId,
+              summary: generateAuditSummary('task.updated', { title: prevTask.title }),
+              dataBefore: {
+                milestone_id: prevTask.milestone_id,
+              },
+              dataAfter: {
+                milestone_id: input.milestoneId,
+              },
+            })
+          }
+        }
       } catch (err) {
         // Targeted rollback — only revert the specific task, preserving other concurrent mutations
         if (prevTask) {
@@ -327,7 +397,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase, spaceId]
+    [supabase, orgId, spaceId]
   )
 
   const deleteTask = useCallback(
@@ -358,6 +428,28 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           .eq('id', taskId)
 
         if (deleteError) throw deleteError
+
+        // Fire-and-forget audit log
+        if (removedTask) {
+          const { data: authData } = await supabase.auth.getUser()
+          const actorId = authData?.user?.id ?? 'unknown'
+
+          void createAuditLog({
+            supabase,
+            orgId,
+            spaceId,
+            actorId,
+            actorRole: 'member',
+            eventType: 'task.deleted',
+            targetType: 'task',
+            targetId: taskId,
+            summary: generateAuditSummary('task.deleted', { title: removedTask.title }),
+            dataBefore: {
+              status: removedTask.status,
+              milestone_id: removedTask.milestone_id,
+            },
+          })
+        }
       } catch (err) {
         // Targeted rollback — re-insert at original position, preserving other concurrent mutations
         if (removedTask) {
@@ -374,7 +466,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase]
+    [supabase, orgId, spaceId]
   )
 
   const passBall = useCallback(

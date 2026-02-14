@@ -1,8 +1,8 @@
 # 日程調整・ビデオ会議連携 仕様書
 
-> **Version**: 1.0
-> **Last Updated**: 2026-02-12
-> **Status**: 実装済み (Phase 1〜4 + セキュリティ修正)
+> **Version**: 1.1
+> **Last Updated**: 2026-02-14
+> **Status**: 実装済み (Phase 1〜4 + セキュリティ修正 + 空き時間自動取得)
 
 ---
 
@@ -140,7 +140,7 @@ open → expired    (pg_cron自動 or クライアントサイド判定)
 - スロット: 2-5個、未来日時、end > start
 - 回答者: 1-50人、client 1人以上必須(AT-001準拠)
 - 回答: max 5件/送信、slotId重複不可
-- UUID: `/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i`
+- UUID: `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` (v4限定ではなく汎用UUID)
 
 ---
 
@@ -287,6 +287,103 @@ interface VideoConferenceProvider {
 
 ---
 
+## 空き時間自動取得機能 (Phase 5)
+
+> **Version**: 1.1 (2026-02-14追加)
+
+### 概要
+
+Googleカレンダー連携済みユーザーが、自分のカレンダーの空き時間から候補日を自動取得し、日程調整提案に入力する機能。
+
+### UXフロー
+
+```
+[提案作成シート]
+     │
+     ├─ ① 「Googleカレンダーから空き時間を取得」をクリック
+     │   └─ パネルが展開
+     │
+     ├─ ② 期間を指定（デフォルト: 明日〜7日後）
+     │   └─ 「取得」ボタンをクリック
+     │
+     ├─ ③ FreeBusy APIで自分のbusyデータを取得
+     │   └─ 営業時間(平日9:00-18:00)内の空きスロットを算出
+     │
+     ├─ ④ 空き枠リストから候補を選択（最大5件）
+     │
+     └─ ⑤ 「選択したN件を候補日に設定」で自動入力
+```
+
+### 前提条件
+
+- Google Calendar 連携が有効 (`NEXT_PUBLIC_GOOGLE_CALENDAR_ENABLED=true`)
+- 現在のユーザーがGoogleカレンダーを接続済み (`integration_connections.status='active'`)
+
+### 処理ロジック
+
+#### 空きスロット算出 (`computeAvailableSlots`)
+
+**入力**:
+- `busyPeriods`: FreeBusy APIから取得したbusy配列 `{ start, end }[]`
+- `options`:
+  - `startDate / endDate`: 対象期間 (YYYY-MM-DD)
+  - `durationMinutes`: 所要時間
+  - `businessHourStart`: 営業開始時刻 (default: 9)
+  - `businessHourEnd`: 営業終了時刻 (default: 18)
+  - `stepMinutes`: スロット間隔 (default: 30分)
+  - `maxResults`: 最大結果数 (default: 20)
+
+**アルゴリズム**:
+1. 指定期間の各日をループ
+2. 平日(月〜金)のみ処理
+3. 営業時間内を `stepMinutes` 間隔でスキャン
+4. 各候補スロットが `busyPeriods` と重複しないか判定
+   - 重複条件: `busyStart < slotEnd && busyEnd > slotStart`
+5. 重複しないスロットを `AvailableSlot` として返す
+
+**出力**: `AvailableSlot[]`
+```typescript
+{
+  startAt: string   // "YYYY-MM-DDTHH:mm" (datetime-local形式)
+  endAt: string     // 同上
+  dayOfWeek: number // 0=日, 1=月, ... 6=土
+}
+```
+
+#### API利用
+
+既存の `POST /api/integrations/freebusy` を使用。新規APIエンドポイントは不要。
+
+```
+POST /api/integrations/freebusy
+{
+  userIds: [currentUserId],
+  timeMin: startDate + "T00:00:00" (ISO),
+  timeMax: endDate + "T23:59:59" (ISO)
+}
+→ { calendars: { [userId]: { busy: [...] } } }
+```
+
+### コンポーネント
+
+| Component | ファイル | 説明 |
+|-----------|---------|------|
+| AvailableSlotsSuggest | `src/components/scheduling/AvailableSlotsSuggest.tsx` | 空き時間取得UIパネル |
+| computeAvailableSlots | `src/lib/scheduling/computeAvailableSlots.ts` | 空きスロット算出ロジック |
+
+### 日本語表示フォーマット
+
+`formatSlotLabel()`: `"2/15(金) 10:00〜11:00"` 形式
+
+### 制約
+
+- 営業時間はクライアントサイドで固定 (9:00-18:00 JST, 月〜金)
+- 最大20件の候補を表示
+- 選択可能数は `MAX_SLOTS` (5) に準拠
+- GoogleカレンダーのFreeBusyスコープ (`calendar.freebusy`) のみ使用（予定詳細は取得しない）
+
+---
+
 ## コンポーネント構成
 
 ### 内部UI (`src/components/scheduling/`)
@@ -300,6 +397,7 @@ interface VideoConferenceProvider {
 | SlotResponseInput | 3択ラジオ |
 | ProposalStatusBadge | blue=open, green=confirmed, gray=cancelled, red=expired |
 | FreeBusyOverlay | Google Calendar空き/埋まり表示 |
+| AvailableSlotsSuggest | 空き時間から候補日自動取得 |
 
 ### ポータルUI (`src/components/portal/scheduling/`)
 

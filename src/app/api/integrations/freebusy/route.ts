@@ -67,6 +67,11 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Security note: This endpoint only returns busy/free periods (no event details)
+  // via the calendar.freebusy scope. Authenticated users can query other users'
+  // availability for scheduling purposes - this is by design.
+  // The freebusy scope is privacy-safe and does not expose event titles or attendees.
+
   // Limit to prevent abuse
   if (userIds.length > 20) {
     return NextResponse.json(

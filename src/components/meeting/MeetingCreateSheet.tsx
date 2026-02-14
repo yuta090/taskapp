@@ -94,12 +94,6 @@ export function MeetingCreateSheet({
     e.preventDefault()
     if (!title.trim()) return
 
-    // AT-001: クライアント参加者1名以上必須
-    if (clientParticipantIds.length === 0) {
-      setValidationError('クライアント参加者を1名以上選択してください')
-      return
-    }
-
     onSubmit({
       title: title.trim(),
       heldAt: heldAt ? new Date(heldAt).toISOString() : undefined,
@@ -177,17 +171,12 @@ export function MeetingCreateSheet({
             />
           </div>
 
-          {/* Client participants (REQUIRED - AT-001) */}
-          <div className={`p-3 rounded-lg border ${
-            validationError && clientParticipantIds.length === 0
-              ? 'bg-red-50 border-red-200'
-              : 'bg-amber-50 border-amber-200'
-          }`}>
+          {/* Client participants (optional) */}
+          <div className="p-3 rounded-lg border bg-amber-50 border-amber-200">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-amber-700 flex items-center gap-1">
                 <Users className="text-sm" />
-                クライアント参加者
-                <span className="text-red-500">*必須</span>
+                外部参加者
               </label>
               <AmberBadge>
                 {clientParticipantIds.length}名選択
@@ -203,7 +192,7 @@ export function MeetingCreateSheet({
               )}
               {!membersLoading && !membersError && clientMembers.length === 0 && (
                 <div className="text-xs text-amber-600">
-                  クライアントメンバーが見つかりません。先にメンバーを招待してください。
+                  外部メンバーが見つかりません。先にメンバーを招待してください。
                 </div>
               )}
               {!membersLoading && clientMembers.length > 0 && (

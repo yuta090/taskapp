@@ -12,7 +12,7 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const BALL_LABELS: Record<string, string> = {
-  client: 'クライアント',
+  client: '外部',
   internal: '社内',
 }
 
@@ -61,7 +61,7 @@ export function buildTaskBlocks(
   }
   contextElements.push({ type: 'mrkdwn', text: `${spaceName}` })
   if (task.ball === 'client') {
-    contextElements.push({ type: 'mrkdwn', text: 'クライアント確認待ち' })
+    contextElements.push({ type: 'mrkdwn', text: '確認待ち' })
   }
 
   if (contextElements.length > 0) {
@@ -99,7 +99,7 @@ export function buildTaskBlocks(
 
   if (event === 'ball_passed' && payload.changes?.newBall) {
     const direction = payload.changes.newBall === 'client'
-      ? ':arrow_right: クライアント'
+      ? ':arrow_right: 外部'
       : ':arrow_left: 社内'
     blocks.push({
       type: 'section',

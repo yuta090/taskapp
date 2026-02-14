@@ -81,23 +81,37 @@ export function calcDateRange(
   let maxDate = new Date(today)
   maxDate.setDate(maxDate.getDate() + futureDays)
 
-  // Only check due_dates (not created_at) for extending the range
+  // Check task start_date and due_date for extending the range
   tasks.forEach((task) => {
+    if (task.start_date) {
+      const start = new Date(task.start_date)
+      start.setHours(0, 0, 0, 0)
+      if (start < minDate) {
+        minDate = new Date(start)
+        minDate.setDate(minDate.getDate() - padding)
+      }
+    }
     if (task.due_date) {
       const due = new Date(task.due_date)
       due.setHours(0, 0, 0, 0)
-      // Extend backward only if due_date is in the past
       if (due < minDate) {
         minDate = new Date(due)
         minDate.setDate(minDate.getDate() - padding)
       }
-      // Extend forward if due_date is beyond our range
       if (due > maxDate) maxDate = due
     }
   })
 
-  // Check milestone dates
+  // Check milestone dates (start_date + due_date)
   milestones.forEach((milestone) => {
+    if (milestone.start_date) {
+      const start = new Date(milestone.start_date)
+      start.setHours(0, 0, 0, 0)
+      if (start < minDate) {
+        minDate = new Date(start)
+        minDate.setDate(minDate.getDate() - padding)
+      }
+    }
     if (milestone.due_date) {
       const due = new Date(milestone.due_date)
       due.setHours(0, 0, 0, 0)
@@ -210,7 +224,9 @@ export function getTaskBarPosition(
   startDate: Date,
   dayWidth: number
 ): { x: number; width: number } | null {
-  const taskStart = task.created_at ? new Date(task.created_at) : null
+  // Prefer start_date, fallback to created_at
+  const taskStartStr = task.start_date || task.created_at
+  const taskStart = taskStartStr ? new Date(taskStartStr) : null
   const taskEnd = task.due_date ? new Date(task.due_date) : null
 
   // If no dates, return null (won't render bar)

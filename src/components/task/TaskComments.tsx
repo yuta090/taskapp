@@ -344,7 +344,7 @@ export function TaskComments({
                 }`}
               >
                 <Eye className="text-xs" />
-                クライアントに表示
+                外部に公開
               </button>
               <button
                 type="button"
