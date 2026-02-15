@@ -116,7 +116,7 @@ export function BillingUsageCard({ orgId, showWarnings = true }: BillingUsageCar
           limit={limits.members_limit}
         />
         <UsageBar
-          label="クライアント"
+          label="外部"
           used={limits.clients_used}
           limit={limits.clients_limit}
         />

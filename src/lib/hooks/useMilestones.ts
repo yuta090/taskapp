@@ -10,11 +10,13 @@ interface UseMilestonesOptions {
 
 interface CreateMilestoneInput {
   name: string
+  startDate?: string | null
   dueDate?: string | null
 }
 
 interface UpdateMilestoneInput {
   name?: string
+  startDate?: string | null
   dueDate?: string | null
   orderKey?: number
 }
@@ -69,6 +71,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         org_id: '', // Will be set by DB
         space_id: spaceId,
         name: input.name,
+        start_date: input.startDate ?? null,
         due_date: input.dueDate ?? null,
         order_key: orderKey,
         created_at: now,
@@ -84,6 +87,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
           .insert({
             space_id: spaceId,
             name: input.name,
+            start_date: input.startDate ?? null,
             due_date: input.dueDate ?? null,
             order_key: orderKey,
           })
@@ -119,6 +123,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
             ? {
                 ...m,
                 name: input.name ?? m.name,
+                start_date: input.startDate !== undefined ? input.startDate : m.start_date,
                 due_date: input.dueDate !== undefined ? input.dueDate : m.due_date,
                 order_key: input.orderKey ?? m.order_key,
                 updated_at: new Date().toISOString(),
@@ -130,6 +135,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
       try {
         const updateData: Record<string, unknown> = {}
         if (input.name !== undefined) updateData.name = input.name
+        if (input.startDate !== undefined) updateData.start_date = input.startDate
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.orderKey !== undefined) updateData.order_key = input.orderKey
 

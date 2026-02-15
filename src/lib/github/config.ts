@@ -50,7 +50,7 @@ export function createSignedState(orgId: string, redirectUri: string): string {
     .update(payload)
     .digest('hex')
   const signedState = JSON.stringify({ payload, signature })
-  return Buffer.from(signedState).toString('base64url')
+  return Buffer.from(signedState).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 /**
@@ -59,7 +59,8 @@ export function createSignedState(orgId: string, redirectUri: string): string {
  */
 export function verifySignedState(state: string): { orgId: string; redirectUri: string } | null {
   try {
-    const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'))
+    const base64 = state.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'))
     const { payload, signature } = decoded
 
     // 署名検証

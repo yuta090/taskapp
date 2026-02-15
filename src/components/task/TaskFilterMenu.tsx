@@ -64,7 +64,7 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
 
 const BALL_OPTIONS: { value: BallSide; label: string }[] = [
   { value: 'internal', label: '社内' },
-  { value: 'client', label: 'クライアント' },
+  { value: 'client', label: '外部' },
 ]
 
 const TYPE_OPTIONS: { value: TaskType; label: string }[] = [
@@ -266,7 +266,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
                 </span>
                 <span>{owner.display_name || owner.user_id.slice(0, 8)}</span>
                 {owner.side === 'client' && (
-                  <span className="text-[10px] px-1 py-0.5 bg-amber-100 text-amber-600 rounded">クライアント</span>
+                  <span className="text-[10px] px-1 py-0.5 bg-amber-100 text-amber-600 rounded">外部</span>
                 )}
               </button>
             ))}

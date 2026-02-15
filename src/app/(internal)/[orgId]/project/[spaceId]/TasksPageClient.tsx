@@ -46,6 +46,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
+  const [reviewStatuses, setReviewStatuses] = useState<Record<string, 'open' | 'approved' | 'changes_requested'>>({})
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
@@ -84,10 +85,43 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return 'active'
   }, [searchParams])
 
+  // Fetch review statuses for badge display
+  const fetchReviewStatuses = useCallback(async () => {
+    try {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('reviews')
+        .select('task_id, status')
+        .eq('space_id' as never, spaceId as never)
+      if (data) {
+        const map: Record<string, 'open' | 'approved' | 'changes_requested'> = {}
+        data.forEach((r: { task_id: string; status: string }) => {
+          map[r.task_id] = r.status as 'open' | 'approved' | 'changes_requested'
+        })
+        setReviewStatuses(map)
+      }
+    } catch {
+      // Silently fail - review badges are non-critical
+    }
+  }, [spaceId])
+
+  // Optimistic update for review status badge (called from TaskReviewSection via TaskInspector)
+  const handleReviewChange = useCallback((taskId: string, status: string | null) => {
+    setReviewStatuses((prev) => {
+      if (!status) {
+        const next = { ...prev }
+        delete next[taskId]
+        return next
+      }
+      return { ...prev, [taskId]: status as 'open' | 'approved' | 'changes_requested' }
+    })
+  }, [])
+
   useEffect(() => {
     void fetchTasks()
     void fetchMilestones()
-  }, [fetchTasks, fetchMilestones])
+    void fetchReviewStatuses()
+  }, [fetchTasks, fetchMilestones, fetchReviewStatuses])
 
   useEffect(() => {
     return () => {
@@ -237,7 +271,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         .map((owner) => owner.user_id)
 
       if (ball === 'client' && clientOwnerIds.length === 0) {
-        alert('クライアント担当者を指定してください')
+        alert('外部担当者を指定してください')
         return
       }
 
@@ -251,6 +285,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       title?: string
       description?: string | null
       status?: TaskStatus
+      startDate?: string | null
       dueDate?: string | null
       milestoneId?: string | null
       assigneeId?: string | null
@@ -324,9 +359,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             ? (decisionState) => handleSetSpecState(selectedTask.id, decisionState)
             : undefined
         }
+        onReviewChange={handleReviewChange}
       />
     )
-  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId])
+  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -403,7 +439,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: 'Webリニューアル', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? 'クライアント確認待ち' : '課題' },
+    { label: activeFilter === 'client_wait' ? '確認待ち' : '課題' },
   ]
 
   return (
@@ -481,7 +517,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              クライアント待ち
+              確認待ち
             </button>
           </div>
 
@@ -595,6 +631,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         onClick={handleTaskSelect}
                         indent={showHeader}
                         onStatusChange={handleStatusChange}
+                        reviewStatus={reviewStatuses[task.id]}
                       />
                     ))}
                   </div>

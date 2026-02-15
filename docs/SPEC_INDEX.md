@@ -1,7 +1,7 @@
 # TaskApp Specification Index
 
-> **Last Updated**: 2026-02-12
-> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング機能 Phase 1-4 完了)
+> **Last Updated**: 2026-02-15
+> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング機能 Phase 1-4 完了、サブタスク階層対応)
 
 このファイルは現行仕様の一覧です。古いバージョンは `docs/archive/` を参照。
 
@@ -14,7 +14,7 @@
 | Document | Version | Path | Description |
 |----------|---------|------|-------------|
 | **API Spec** | v0.4 | `api/API_SPEC_v0.4.md` | RPC・認証・招待・課金API |
-| **DDL** | v0.3 + v0.4 | `db/DDL_v0.3.sql` + `db/DDL_v0.4_comments.sql` | DBスキーマ（v0.4はコメント機能追加） |
+| **DDL** | v0.3〜v0.6 | `db/DDL_v0.3.sql` 〜 `db/DDL_v0.6_subtasks.sql` | DBスキーマ（v0.6はサブタスク階層追加） |
 | **UI Rules** | current | `spec/UI_RULES_AND_SCREENS.md` | 3ペイン、Amber-500、UIルール |
 | **Review Spec** | current | `spec/REVIEW_SPEC.md` | 受け入れテスト AT-001〜AT-012 |
 | **Decisions** | v5 | `notes/DECISIONS_v5.md` | 設計判断の記録 |
@@ -26,6 +26,7 @@
 | **Auth/Invite/Billing** | `spec/AUTH_INVITE_BILLING_SPEC.md` | 認証・招待・課金仕様 |
 | **Assignee/Owner** | `spec/ASSIGNEE_OWNER_SPEC.md` | 担当者・オーナー仕様 |
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
+| **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層・ガントチャート連携仕様 |
 
 ### Prototypes
 

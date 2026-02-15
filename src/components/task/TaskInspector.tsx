@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, TreeStructure } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -10,6 +10,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { TaskComments } from './TaskComments'
 import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
+import { TaskReviewSection } from '@/components/review'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState } from '@/types/database'
 
 interface TaskInspectorProps {
@@ -22,14 +23,21 @@ interface TaskInspectorProps {
     title?: string
     description?: string | null
     status?: TaskStatus
+    startDate?: string | null
     dueDate?: string | null
     milestoneId?: string | null
     assigneeId?: string | null
+    parentTaskId?: string | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
   /** AT-009: Spec task state transition */
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
+  onReviewChange?: (taskId: string, status: string | null) => void
+  /** Available parent tasks for parent selection */
+  parentTasks?: { id: string; title: string }[]
+  /** Child tasks of this task */
+  childTasks?: Task[]
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -51,6 +59,9 @@ export function TaskInspector({
   onDelete,
   onUpdateOwners,
   onSetSpecState,
+  onReviewChange,
+  parentTasks = [],
+  childTasks = [],
 }: TaskInspectorProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(task.title)
@@ -158,6 +169,13 @@ export function TaskInspector({
   const handleStatusChange = async (status: TaskStatus) => {
     if (status !== task.status) {
       await onUpdate?.({ status })
+    }
+  }
+
+  const handleStartDateChange = async (dateStr: string) => {
+    const startDate = dateStr || null
+    if (startDate !== task.start_date) {
+      await onUpdate?.({ startDate })
     }
   }
 
@@ -305,7 +323,7 @@ export function TaskInspector({
           )}
           {task.ball === 'client' && (
             <div className="mt-2">
-              <AmberBadge>クライアント確認待ち</AmberBadge>
+              <AmberBadge>確認待ち</AmberBadge>
             </div>
           )}
         </div>
@@ -373,7 +391,7 @@ export function TaskInspector({
             >
               <span className="flex items-center justify-center gap-1">
                 <ArrowRight weight="bold" className="text-xs" />
-                クライアント
+                外部
               </span>
             </button>
           </div>
@@ -406,6 +424,65 @@ export function TaskInspector({
           )}
         </div>
 
+        {/* Parent Task */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+            <TreeStructure className="text-sm" />
+            親タスク
+          </label>
+          {onUpdate && parentTasks.length > 0 ? (
+            <select
+              value={task.parent_task_id || ''}
+              onChange={(e) => onUpdate?.({ parentTaskId: e.target.value || null })}
+              data-testid="task-inspector-parent"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">なし</option>
+              {parentTasks.map((pt) => (
+                <option key={pt.id} value={pt.id}>
+                  {pt.title}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-sm text-gray-700">
+              {task.parent_task_id
+                ? parentTasks.find((pt) => pt.id === task.parent_task_id)?.title || task.parent_task_id
+                : 'なし'}
+            </div>
+          )}
+        </div>
+
+        {/* Child Tasks */}
+        {childTasks.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <TreeStructure className="text-sm" />
+              子タスク
+              <span className="text-[10px] text-gray-400 ml-1">({childTasks.length}件)</span>
+            </label>
+            <div className="space-y-1">
+              {childTasks.map((child) => (
+                <div
+                  key={child.id}
+                  className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded text-sm"
+                >
+                  <div
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{
+                      backgroundColor:
+                        child.ball === 'client' ? '#F59E0B' : '#3B82F6',
+                    }}
+                  />
+                  <span className={`flex-1 truncate ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                    {child.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Assignee */}
         <div className="space-y-2">
           <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
@@ -413,7 +490,7 @@ export function TaskInspector({
             担当者
             {task.ball === 'client' && (
               <span className="text-[10px] text-amber-600 ml-1">
-                (クライアントも選択可)
+                (外部メンバーも選択可)
               </span>
             )}
             {/* 不整合状態警告: ball=internalでクライアント担当者（ロード中は非表示） */}
@@ -440,7 +517,7 @@ export function TaskInspector({
                 return (
                   <option key={m.id} value={m.id}>
                     {m.displayName}
-                    {m.role === 'client' && ' (クライアント)'}
+                    {m.role === 'client' && ' (外部)'}
                     {isClientInInternalBall && m.id === task.assignee_id && ' ⚠'}
                   </option>
                 )
@@ -474,7 +551,7 @@ export function TaskInspector({
               {clientMembers.length > 0 && (
                 <div>
                   <label className="text-xs font-medium text-amber-600">
-                    クライアント担当
+                    外部担当
                   </label>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {clientMembers.map((member) => {
@@ -545,7 +622,7 @@ export function TaskInspector({
             <div className="space-y-2">
               {clientOwners.length > 0 && (
                 <div>
-                  <div className="text-xs text-amber-600 mb-1">クライアント</div>
+                  <div className="text-xs text-amber-600 mb-1">外部</div>
                   <div className="flex flex-wrap gap-1">
                     {clientOwners.map((owner) => (
                       <span
@@ -747,6 +824,30 @@ export function TaskInspector({
           </div>
         )}
 
+        {/* Start Date */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-gray-500">開始日</label>
+          {onUpdate ? (
+            <div className="flex items-center gap-2">
+              <Calendar className="text-gray-400" />
+              <input
+                type="date"
+                value={task.start_date?.split('T')[0] || ''}
+                onChange={(e) => handleStartDateChange(e.target.value)}
+                data-testid="task-inspector-start-date"
+                className="flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          ) : task.start_date ? (
+            <div className="flex items-center gap-2 text-sm text-gray-700">
+              <Calendar className="text-gray-400" />
+              <span>{new Date(task.start_date).toLocaleDateString('ja-JP')}</span>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-400">未設定</div>
+          )}
+        </div>
+
         {/* Due Date */}
         <div className="space-y-2">
           <label className="text-xs font-medium text-gray-500">期限</label>
@@ -838,6 +939,15 @@ export function TaskInspector({
 
         {/* Slack */}
         <SlackPostButton taskId={task.id} spaceId={spaceId} />
+
+        {/* Review */}
+        <TaskReviewSection
+          taskId={task.id}
+          spaceId={spaceId}
+          orgId={task.org_id}
+          readOnly={!onUpdate}
+          onReviewChange={onReviewChange}
+        />
 
         {/* Comments */}
         <TaskComments

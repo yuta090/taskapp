@@ -11,6 +11,7 @@ interface TaskRowProps {
   onClick?: (taskId: string) => void
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
+  reviewStatus?: 'open' | 'approved' | 'changes_requested'
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -128,14 +129,14 @@ function BallIndicator({ ball }: { ball: BallSide }) {
     return (
       <span className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
         <ArrowRight weight="bold" className="text-xs" />
-        クライアント
+        外部確認待ち
       </span>
     )
   }
   return null
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
@@ -216,6 +217,25 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
               : task.decision_state === 'decided'
               ? '決定'
               : '検討中'}
+          </span>
+        )}
+
+        {/* Review status badge */}
+        {reviewStatus && (
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+              reviewStatus === 'approved'
+                ? 'bg-green-100 text-green-600'
+                : reviewStatus === 'changes_requested'
+                ? 'bg-red-100 text-red-600'
+                : 'bg-violet-100 text-violet-600'
+            }`}
+          >
+            {reviewStatus === 'approved'
+              ? '承認済'
+              : reviewStatus === 'changes_requested'
+              ? '差戻'
+              : 'レビュー中'}
           </span>
         )}
       </div>

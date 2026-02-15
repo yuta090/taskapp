@@ -3,9 +3,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { X, Plus, Trash, Users, CalendarBlank } from '@phosphor-icons/react'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { FreeBusyOverlay } from './FreeBusyOverlay'
+import { AvailableSlotsSuggest } from './AvailableSlotsSuggest'
 import { useSpaceVideoProvider } from '@/lib/hooks/useSpaceVideoProvider'
 import type { CreateProposalInput } from '@/lib/hooks/useSchedulingProposals'
 import type { SpaceMember } from '@/lib/hooks/useSpaceMembers'
@@ -71,11 +73,22 @@ export function ProposalCreateSheet({
     isOpen ? spaceId : null
   )
 
+  // Current user (for suggest available slots)
+  const { user: currentUser } = useCurrentUser()
+
   // Google Calendar Free/Busy integration
   const isGCalEnabled = isGoogleCalendarConfigured()
   const { connections: integrationConnections } = useIntegrations(
     isGCalEnabled && isOpen ? orgId : ''
   )
+
+  // 現在のユーザーがGoogleカレンダー接続済みか
+  const isCurrentUserCalendarConnected = useMemo(() => {
+    if (!currentUser || !isGCalEnabled) return false
+    return integrationConnections.some(
+      (c) => c.provider === 'google_calendar' && c.owner_id === currentUser.id && c.status === 'active'
+    )
+  }, [currentUser, isGCalEnabled, integrationConnections])
 
   // Build respondent list with calendar connection status for FreeBusyOverlay
   const freeBusyRespondents = useMemo(() => {
@@ -146,6 +159,22 @@ export function ProposalCreateSheet({
     )
   }, [])
 
+  // 空き時間候補が選択されたとき、スロットを置き換える
+  const handleSuggestedSlotsSelected = useCallback(
+    (suggested: { startAt: string }[]) => {
+      const newSlots: SlotDraft[] = suggested.map((s) => ({
+        id: crypto.randomUUID(),
+        startAt: s.startAt,
+      }))
+      // 最低 MIN_SLOTS 個を維持
+      while (newSlots.length < MIN_SLOTS) {
+        newSlots.push({ id: crypto.randomUUID(), startAt: '' })
+      }
+      setSlots(newSlots)
+    },
+    [],
+  )
+
   const toggleMember = useCallback(
     (userId: string, side: 'client' | 'internal') => {
       const setter = side === 'client' ? setSelectedClientIds : setSelectedInternalIds
@@ -184,11 +213,6 @@ export function ProposalCreateSheet({
         setValidationError('タイトルを入力してください')
         return
       }
-      if (selectedClientIds.size === 0) {
-        setValidationError('クライアント参加者を1名以上選択してください')
-        return
-      }
-
       const validSlots = slots.filter((s) => s.startAt)
       if (validSlots.length < MIN_SLOTS) {
         setValidationError(`候補日を${MIN_SLOTS}個以上入力してください`)
@@ -206,6 +230,12 @@ export function ProposalCreateSheet({
 
       setSubmitting(true)
       try {
+        // Always include current user as internal respondent (creator = auto-participate)
+        const internalRespondentIds = new Set(selectedInternalIds)
+        if (currentUser) {
+          internalRespondentIds.add(currentUser.id)
+        }
+
         const input: CreateProposalInput = {
           title: title.trim(),
           description: description.trim() || undefined,
@@ -220,7 +250,7 @@ export function ProposalCreateSheet({
               side: 'client' as const,
               isRequired: true,
             })),
-            ...Array.from(selectedInternalIds).map((userId) => ({
+            ...Array.from(internalRespondentIds).map((userId) => ({
               userId,
               side: 'internal' as const,
               isRequired: true,
@@ -247,6 +277,7 @@ export function ProposalCreateSheet({
       slots,
       selectedClientIds,
       selectedInternalIds,
+      currentUser,
       expiresAt,
       videoProvider,
       onSubmit,
@@ -369,16 +400,29 @@ export function ProposalCreateSheet({
                 </div>
               ))}
             </div>
-            {slots.length < MAX_SLOTS && (
-              <button
-                type="button"
-                onClick={addSlot}
-                className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
-                data-testid="slot-add"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                候補を追加
-              </button>
+            <div className="flex items-center gap-3 mt-2">
+              {slots.length < MAX_SLOTS && (
+                <button
+                  type="button"
+                  onClick={addSlot}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                  data-testid="slot-add"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  候補を追加
+                </button>
+              )}
+            </div>
+
+            {/* 空き時間自動取得 */}
+            {isGCalEnabled && currentUser && (
+              <AvailableSlotsSuggest
+                userId={currentUser.id}
+                durationMinutes={durationMinutes}
+                maxSlots={MAX_SLOTS}
+                onSlotsSelected={handleSuggestedSlotsSelected}
+                isCalendarConnected={isCurrentUserCalendarConnected}
+              />
             )}
 
             {/* Free/Busy overlay - only shown when Google Calendar is enabled and respondents are selected */}
@@ -398,12 +442,12 @@ export function ProposalCreateSheet({
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
             <label className="text-xs font-medium text-amber-700 flex items-center gap-1 mb-2">
               <Users className="w-3.5 h-3.5" />
-              クライアント参加者 <span className="text-red-400">*</span>
+              外部参加者
             </label>
             {membersLoading ? (
               <p className="text-xs text-gray-400">読み込み中...</p>
             ) : clientMembers.length === 0 ? (
-              <p className="text-xs text-gray-400">クライアントメンバーがいません</p>
+              <p className="text-xs text-gray-400">外部メンバーがいません</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {clientMembers.map((member) => {
@@ -427,11 +471,6 @@ export function ProposalCreateSheet({
                 })}
               </div>
             )}
-            {selectedClientIds.size === 0 && !membersLoading && clientMembers.length > 0 && (
-              <p className="text-xs text-amber-600 mt-1">
-                1名以上選択してください
-              </p>
-            )}
           </div>
 
           {/* Respondents: Internal */}
@@ -440,31 +479,42 @@ export function ProposalCreateSheet({
               <Users className="w-3.5 h-3.5" />
               社内メンバー
             </label>
+            {/* Creator is auto-included */}
+            {currentUser && (
+              <div className="flex items-center gap-1.5 mb-2">
+                <span className="px-2.5 py-1 text-xs rounded-full bg-blue-100 border border-blue-300 text-blue-700 font-medium">
+                  {internalMembers.find((m) => m.id === currentUser.id)?.displayName ?? 'あなた'}
+                  <span className="text-blue-400 ml-1">（主催者・自動参加）</span>
+                </span>
+              </div>
+            )}
             {membersLoading ? (
               <p className="text-xs text-gray-400">読み込み中...</p>
-            ) : internalMembers.length === 0 ? (
-              <p className="text-xs text-gray-400">社内メンバーがいません</p>
+            ) : internalMembers.filter((m) => m.id !== currentUser?.id).length === 0 ? (
+              <p className="text-xs text-gray-400">他の社内メンバーがいません</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {internalMembers.map((member) => {
-                  const isSelected = selectedInternalIds.has(member.id)
-                  return (
-                    <button
-                      key={member.id}
-                      type="button"
-                      onClick={() => toggleMember(member.id, 'internal')}
-                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                        isSelected
-                          ? 'bg-gray-200 border-gray-400 text-gray-800 font-medium'
-                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
-                      }`}
-                      data-testid={`proposal-create-internal-${member.id}`}
-                    >
-                      {member.displayName}
-                      {isSelected && ' ✓'}
-                    </button>
-                  )
-                })}
+                {internalMembers
+                  .filter((m) => m.id !== currentUser?.id)
+                  .map((member) => {
+                    const isSelected = selectedInternalIds.has(member.id)
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => toggleMember(member.id, 'internal')}
+                        className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                          isSelected
+                            ? 'bg-gray-200 border-gray-400 text-gray-800 font-medium'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
+                        }`}
+                        data-testid={`proposal-create-internal-${member.id}`}
+                      >
+                        {member.displayName}
+                        {isSelected && ' ✓'}
+                      </button>
+                    )
+                  })}
               </div>
             )}
           </div>

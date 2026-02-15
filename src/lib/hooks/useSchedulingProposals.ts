@@ -129,7 +129,14 @@ export function useSchedulingProposals({
       try {
         const response = await fetch(`/api/scheduling/proposals/${id}`)
         if (!response.ok) {
-          throw new Error('Failed to fetch proposal detail')
+          let errorMessage = 'Failed to fetch proposal detail'
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } catch {
+            // Response body is not JSON
+          }
+          throw new Error(errorMessage)
         }
         const data = await response.json()
         return data.proposal || null
@@ -160,17 +167,26 @@ export function useSchedulingProposals({
         })
 
         if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to create proposal')
+          let errorMessage = 'Failed to create proposal'
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } catch {
+            // Response body is not JSON (e.g. Next.js error page)
+          }
+          throw new Error(errorMessage)
         }
 
         const data = await response.json()
         const created = data.proposal
 
         // Optimistic update: add to list
+        // API returns `slots`/`respondents` but list expects `proposal_slots`/`proposal_respondents`
         setProposals((prev) => [{
           ...created,
-          respondentCount: created.respondents?.length || 0,
+          proposal_slots: created.slots || created.proposal_slots || [],
+          proposal_respondents: created.respondents || created.proposal_respondents || [],
+          respondentCount: (created.respondents || created.proposal_respondents || []).length,
           responseCount: 0,
         }, ...prev])
 
@@ -225,8 +241,14 @@ export function useSchedulingProposals({
         )
 
         if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to confirm slot')
+          let errorMessage = 'Failed to confirm slot'
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } catch {
+            // Response body is not JSON
+          }
+          throw new Error(errorMessage)
         }
 
         const data = await response.json()

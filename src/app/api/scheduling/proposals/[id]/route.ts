@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // GET: 提案詳細取得
 export async function GET(
@@ -22,12 +22,14 @@ export async function GET(
     }
 
     // Fetch proposal with related data
+    // Note: Must use explicit FK name because scheduling_proposals has TWO relations
+    // to proposal_slots (proposal_slots.proposal_id and scheduling_proposals.confirmed_slot_id)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: proposal, error } = await (supabase as any)
       .from('scheduling_proposals')
       .select(`
         *,
-        proposal_slots (*, slot_responses (id, slot_id, respondent_id, response, responded_at)),
+        proposal_slots!proposal_slots_proposal_id_fkey (*, slot_responses (id, slot_id, respondent_id, response, responded_at)),
         proposal_respondents (id, user_id, side, is_required)
       `)
       .eq('id', id)

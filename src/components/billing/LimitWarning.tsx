@@ -13,7 +13,7 @@ interface LimitWarningProps {
 const typeLabels: Record<string, string> = {
   projects: 'プロジェクト',
   members: 'メンバー',
-  clients: 'クライアント',
+  clients: '外部',
   storage: 'ストレージ',
 }
 

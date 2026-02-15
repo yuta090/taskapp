@@ -85,8 +85,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
 function getNotificationTypeLabel(type: string): string {
   switch (type) {
     case 'review_request': return 'レビュー依頼'
-    case 'client_question': return 'クライアントからの質問'
-    case 'client_feedback': return 'クライアントからのフィードバック'
+    case 'client_question': return '外部からの質問'
+    case 'client_feedback': return '外部からのフィードバック'
     case 'task_assigned': return 'タスク割り当て'
     case 'ball_passed': return 'ボール移動'
     case 'due_date_reminder': return '期限リマインダー'

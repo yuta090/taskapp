@@ -3,17 +3,19 @@
 import type { SlotResponseType } from '@/types/database'
 
 interface SlotResponseInputProps {
-  value: SlotResponseType
+  value: SlotResponseType | null
   onChange: (value: SlotResponseType) => void
   variant?: 'internal' | 'client'
   disabled?: boolean
+  name?: string
 }
 
-const RESPONSE_OPTIONS: Array<{
+export const RESPONSE_OPTIONS: Array<{
   value: SlotResponseType
   internalLabel: string
   clientLabel: string
   color: string
+  bgColor: string
   icon: string
 }> = [
   {
@@ -21,29 +23,46 @@ const RESPONSE_OPTIONS: Array<{
     internalLabel: '参加可能',
     clientLabel: '参加できます',
     color: 'text-green-600',
+    bgColor: 'bg-green-50',
     icon: '●',
   },
   {
     value: 'unavailable_but_proceed',
-    internalLabel: '欠席OK（進めてください）',
-    clientLabel: '欠席しますが、進めてください',
-    color: 'text-amber-500',
-    icon: '▲',
+    internalLabel: '欠席OK',
+    clientLabel: '欠席しますが進めてください',
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-50',
+    icon: '△',
   },
   {
     value: 'unavailable',
     internalLabel: '参加不可',
     clientLabel: '参加できません',
-    color: 'text-red-400',
+    color: 'text-red-500',
+    bgColor: 'bg-red-50',
     icon: '✕',
   },
 ]
+
+// Cycle order for click-to-cycle: null → available → proceed → unavailable → null
+const CYCLE_ORDER: (SlotResponseType | null)[] = [
+  null,
+  'available',
+  'unavailable_but_proceed',
+  'unavailable',
+]
+
+function getNextInCycle(current: SlotResponseType | null): SlotResponseType | null {
+  const idx = CYCLE_ORDER.indexOf(current)
+  return CYCLE_ORDER[(idx + 1) % CYCLE_ORDER.length]
+}
 
 export function SlotResponseInput({
   value,
   onChange,
   variant = 'internal',
   disabled = false,
+  name = 'slot-response',
 }: SlotResponseInputProps) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -62,7 +81,7 @@ export function SlotResponseInput({
           >
             <input
               type="radio"
-              name="slot-response"
+              name={name}
               value={option.value}
               checked={isSelected}
               onChange={() => !disabled && onChange(option.value)}
@@ -78,7 +97,48 @@ export function SlotResponseInput({
   )
 }
 
-// Icon-only display for grid cells
+// Click-to-cycle cell for compact grid view
+export function SlotResponseCell({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: SlotResponseType | null
+  onChange: (value: SlotResponseType | null) => void
+  disabled?: boolean
+}) {
+  const option = value ? RESPONSE_OPTIONS.find((o) => o.value === value) : null
+  const icon = option?.icon ?? '○'
+  const color = option?.color ?? 'text-gray-200'
+  const bgColor = option?.bgColor ?? ''
+
+  const handleClick = () => {
+    if (disabled) return
+    onChange(getNextInCycle(value))
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled}
+      className={`w-10 h-10 flex items-center justify-center rounded-lg text-base
+        transition-all duration-150 select-none
+        ${bgColor}
+        ${disabled
+          ? 'opacity-50 cursor-not-allowed'
+          : 'cursor-pointer hover:ring-2 hover:ring-gray-300 active:scale-95'
+        }`}
+      data-testid={`slot-cell-${value ?? 'pending'}`}
+      title={option?.internalLabel ?? '未回答（クリックで変更）'}
+      aria-label={`${option?.internalLabel ?? '未回答'} — クリックで変更`}
+    >
+      <span className={color} aria-hidden="true">{icon}</span>
+    </button>
+  )
+}
+
+// Icon-only display for grid cells (read-only)
 export function SlotResponseIcon({
   response,
   size = 'sm',
@@ -88,8 +148,8 @@ export function SlotResponseIcon({
 }) {
   if (!response) {
     return (
-      <span className={`${size === 'md' ? 'text-base' : 'text-sm'} text-gray-300`}>
-        ◌
+      <span className={`${size === 'md' ? 'text-base' : 'text-sm'} text-gray-200`}>
+        ○
       </span>
     )
   }

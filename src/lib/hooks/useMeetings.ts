@@ -184,13 +184,6 @@ export function useMeetings({
 
   const createMeeting = useCallback(
     async (meeting: CreateMeetingInput) => {
-      // AT-001: クライアント参加者が1名以上必須
-      if (meeting.clientParticipantIds.length === 0) {
-        const err = new Error('クライアント参加者を1名以上選択してください')
-        setError(err)
-        throw err
-      }
-
       const now = new Date().toISOString()
       const heldAt = meeting.heldAt ?? now
       const tempId = crypto.randomUUID()

@@ -58,8 +58,8 @@ export function GanttMilestone({
 }: GanttMilestoneProps) {
   const [isHovering, setIsHovering] = useState(false)
 
-  const { dueDate, x, daysUntil, urgency, colors, dateLabel, daysLabel } = useMemo(() => {
-    if (!milestone.due_date) return { dueDate: null, x: 0, daysUntil: 0, urgency: 'normal' as UrgencyLevel, colors: getUrgencyColors('normal'), dateLabel: '', daysLabel: '' }
+  const { dueDate, x, colors, dateLabel, daysLabel, rangeBar } = useMemo(() => {
+    if (!milestone.due_date) return { dueDate: null, x: 0, colors: getUrgencyColors('normal'), dateLabel: '', daysLabel: '', rangeBar: null }
 
     const due = new Date(milestone.due_date)
     const xPos = dateToX(due, startDate, dayWidth) + dayWidth / 2
@@ -79,16 +79,23 @@ export function GanttMilestone({
       daysLbl = `残${days}日`
     }
 
+    // Range bar when start_date exists
+    let range = null
+    if (milestone.start_date) {
+      const msStart = new Date(milestone.start_date)
+      const startX = dateToX(msStart, startDate, dayWidth) + dayWidth / 2
+      range = { startX, endX: xPos, width: Math.max(xPos - startX, 0) }
+    }
+
     return {
       dueDate: due,
       x: xPos,
-      daysUntil: days,
-      urgency: level,
       colors: getUrgencyColors(level),
       dateLabel: dateLbl,
       daysLabel: daysLbl,
+      rangeBar: range,
     }
-  }, [milestone.due_date, startDate, dayWidth])
+  }, [milestone.due_date, milestone.start_date, startDate, dayWidth])
 
   if (!dueDate) return null
 
@@ -108,7 +115,19 @@ export function GanttMilestone({
       onMouseLeave={() => setIsHovering(false)}
       style={{ cursor: 'pointer' }}
     >
-      {/* Column highlight - full height background */}
+      {/* Range bar - period background from start_date to due_date */}
+      {rangeBar && (
+        <rect
+          x={rangeBar.startX}
+          y={0}
+          width={rangeBar.width}
+          height={chartHeight}
+          fill={colors.bg}
+          opacity={isHovering ? 0.4 : 0.15}
+        />
+      )}
+
+      {/* Column highlight - due date vertical highlight */}
       <rect
         x={x - dayWidth / 2}
         y={0}
@@ -153,6 +172,20 @@ export function GanttMilestone({
       >
         {labelText} ({daysLabel})
       </text>
+
+      {/* Range line from start_date to due_date */}
+      {rangeBar && (
+        <line
+          x1={rangeBar.startX}
+          y1={labelHeight + diamondSize / 2 + 2}
+          x2={rangeBar.endX}
+          y2={labelHeight + diamondSize / 2 + 2}
+          stroke={colors.line}
+          strokeWidth={2}
+          opacity={isHovering ? 0.8 : 0.4}
+          strokeDasharray="4 2"
+        />
+      )}
 
       {/* Diamond marker below label */}
       <g transform={`translate(${x}, ${labelHeight + diamondSize / 2 + 2})`}>

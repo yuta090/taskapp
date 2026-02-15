@@ -137,6 +137,7 @@ export function ProposalInspector({
             onClick={onClose}
             className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600"
             data-testid="proposal-inspector-close"
+            aria-label="閉じる"
           >
             <X className="w-4 h-4" />
           </button>
@@ -240,7 +241,7 @@ export function ProposalInspector({
                           <span key={r.id} className="ml-1">
                             {r.displayName}
                             {r.side === 'client' && (
-                              <span className="text-amber-600">（クライアント）</span>
+                              <span className="text-amber-600">（外部）</span>
                             )}
                           </span>
                         ))}
@@ -320,10 +321,10 @@ export function ProposalInspector({
         {isOpen && (
           <div className="text-xs text-gray-400 space-y-1 pt-2 border-t border-gray-100">
             <p>
-              全員が「参加可能」か「欠席OK」で回答すると確定できます
+              セルをクリックして回答を切り替えてください
             </p>
             <p>
-              初期値は「欠席OK」です。参加できる日は「参加可能」に変更してください
+              ● 参加可能 → △ 欠席OK → ✕ 参加不可 の順に循環します
             </p>
           </div>
         )}

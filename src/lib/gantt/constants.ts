@@ -46,6 +46,10 @@ export const GANTT_CONFIG = {
     MILESTONE_PAST: '#6B7280',   // Gray-500 - overdue
     MILESTONE_PAST_BG: '#F3F4F6', // Gray-100
 
+    // Parent task summary bar
+    PARENT_BAR: '#6366F1',       // Indigo-500
+    PARENT_BAR_BG: '#E0E7FF',    // Indigo-100
+
     // Text
     TEXT_PRIMARY: '#0F172A',   // Slate-900
     TEXT_SECONDARY: '#64748B', // Slate-500

@@ -20,10 +20,12 @@ import {
   GearSix,
   CaretUp,
   Key,
+  Plus,
 } from '@phosphor-icons/react'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { createClient } from '@/lib/supabase/client'
+import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 
 interface NavItemProps {
   href: string
@@ -166,6 +168,14 @@ function UserMenu() {
               <Key className="text-base text-gray-500" />
               APIキー管理
             </Link>
+            <Link
+              href="/docs/manual/internal"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="text-base text-gray-500" />
+              マニュアル
+            </Link>
             <hr className="my-1 border-gray-100" />
             <button
               type="button"
@@ -191,7 +201,9 @@ export function LeftNav() {
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
   const orgId = match?.[1] ?? fallbackOrgId
   const spaceId = match?.[2] ?? fallbackSpaceId
+  const hasProjectRoute = !!match // true when orgId comes from URL, not fallback
   const { count: inboxCount } = useUnreadNotificationCount()
+  const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
   const handleQuickCreate = () => {
@@ -200,6 +212,10 @@ export function LeftNav() {
 
   const handleWorkspaceClick = () => {
     router.push(projectBasePath)
+  }
+
+  const handleSpaceCreated = (newSpaceId: string) => {
+    router.push(`/${orgId}/project/${newSpaceId}`)
   }
 
   return (
@@ -257,6 +273,16 @@ export function LeftNav() {
         <div>
           <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5 flex items-center justify-between">
             <span>チーム</span>
+            {hasProjectRoute && (
+              <button
+                type="button"
+                onClick={() => setIsSpaceCreateOpen(true)}
+                className="p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors"
+                title="新しいプロジェクト"
+              >
+                <Plus className="text-sm" weight="bold" />
+              </button>
+            )}
           </div>
 
           <div className="space-y-0.5">
@@ -287,7 +313,7 @@ export function LeftNav() {
               <SubNavItem
                 href={`${projectBasePath}?filter=client_wait`}
                 icon={<ChatCircleText />}
-                label="クライアント確認待ち"
+                label="確認待ち"
               />
               <SubNavItem
                 href={`${projectBasePath}/meetings`}
@@ -320,6 +346,14 @@ export function LeftNav() {
 
       {/* User Menu at bottom */}
       <UserMenu />
+
+      {/* Space Create Sheet */}
+      <SpaceCreateSheet
+        isOpen={isSpaceCreateOpen}
+        onClose={() => setIsSpaceCreateOpen(false)}
+        orgId={orgId}
+        onCreated={handleSpaceCreated}
+      />
     </aside>
   )
 }

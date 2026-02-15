@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
+import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import type {
   Task,
   TaskOwner,
@@ -33,6 +34,7 @@ export interface CreateTaskInput {
   dueDate?: string
   assigneeId?: string
   milestoneId?: string
+  parentTaskId?: string
 }
 
 export interface UpdateTaskInput {
@@ -40,10 +42,11 @@ export interface UpdateTaskInput {
   description?: string | null
   status?: TaskStatus
   priority?: number | null
-  startDate?: string | null  // Note: requires start_date column in DB (future migration)
+  startDate?: string | null
   dueDate?: string | null
   assigneeId?: string | null
   milestoneId?: string | null
+  parentTaskId?: string | null
 }
 
 interface UseTasksReturn {
@@ -61,6 +64,50 @@ interface UseTasksReturn {
     clientOwnerIds: string[],
     internalOwnerIds: string[]
   ) => Promise<void>
+}
+
+/**
+ * Validate parent_task_id assignment for 1-level hierarchy constraint.
+ * Throws if the assignment would violate nesting rules.
+ */
+function validateParentTask(
+  parentTaskId: string | null | undefined,
+  currentTaskId: string | undefined,
+  tasks: Task[],
+  spaceId: string
+): void {
+  if (!parentTaskId) return
+
+  // Self-reference check
+  if (currentTaskId && parentTaskId === currentTaskId) {
+    throw new Error('タスクを自分自身の親に設定することはできません')
+  }
+
+  const parentTask = tasks.find((t) => t.id === parentTaskId)
+
+  // Parent must exist in the current task list
+  if (!parentTask) {
+    // Parent may be in a different fetch — skip client-side check, DB trigger will catch it
+    return
+  }
+
+  // Parent must be in the same space
+  if (parentTask.space_id !== spaceId) {
+    throw new Error('親タスクは同じスペース内である必要があります')
+  }
+
+  // Parent must not itself be a child (no deep nesting)
+  if (parentTask.parent_task_id) {
+    throw new Error('子タスクを親に設定することはできません（階層は1段階まで）')
+  }
+
+  // Current task must not already be a parent of other tasks
+  if (currentTaskId) {
+    const hasChildren = tasks.some((t) => t.parent_task_id === currentTaskId)
+    if (hasChildren) {
+      throw new Error('子タスクを持つタスクを別タスクの子にすることはできません')
+    }
+  }
 }
 
 export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
@@ -124,6 +171,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const createTask = useCallback(
     async (task: CreateTaskInput) => {
+      // Validate parent task assignment before proceeding
+      validateParentTask(task.parentTaskId, undefined, tasks, spaceId)
+
       const now = new Date().toISOString()
       const tempId = crypto.randomUUID()
       const status = task.type === 'spec' ? 'considering' : 'backlog'
@@ -136,14 +186,17 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         status,
         priority: null,
         assignee_id: task.assigneeId ?? null,
+        start_date: null,
         due_date: task.dueDate ?? null,
         milestone_id: task.milestoneId ?? null,
+        parent_task_id: task.parentTaskId ?? null,
+        actual_hours: null,
         ball: task.ball,
         origin: task.origin,
         type: task.type,
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
-        client_scope: task.clientScope ?? 'deliverable',
+        client_scope: task.clientScope ?? 'internal',
         created_at: now,
         updated_at: now,
       }
@@ -183,10 +236,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               spec_path: task.type === 'spec' ? task.specPath ?? null : null,
               decision_state:
                 task.type === 'spec' ? task.decisionState ?? null : null,
-              client_scope: task.clientScope ?? 'deliverable',
+              client_scope: task.clientScope ?? 'internal',
               due_date: task.dueDate ?? null,
               assignee_id: task.assigneeId ?? null,
               milestone_id: task.milestoneId ?? null,
+              parent_task_id: task.parentTaskId ?? null,
               created_by: userId,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } as any
@@ -250,6 +304,23 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           spaceId,
         })
 
+        // Fire-and-forget audit log
+        void createAuditLog({
+          supabase,
+          orgId,
+          spaceId,
+          actorId: userId,
+          actorRole: 'member',
+          eventType: 'task.created',
+          targetType: 'task',
+          targetId: createdTask.id,
+          summary: generateAuditSummary('task.created', { title: task.title }),
+          dataAfter: {
+            status: createdTask.status,
+            milestone_id: createdTask.milestone_id,
+          },
+        })
+
         return createdTask
       } catch (err) {
         setTasks((prev) => prev.filter((t) => t.id !== tempId))
@@ -259,11 +330,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [orgId, spaceId, supabase]
+    [orgId, spaceId, supabase, tasks]
   )
 
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput): Promise<void> => {
+      // Validate parent task assignment if being changed
+      if (input.parentTaskId !== undefined) {
+        validateParentTask(input.parentTaskId, taskId, tasks, spaceId)
+      }
+
       // Capture only the specific task for targeted rollback (avoids stale closure)
       let prevTask: Task | undefined
 
@@ -278,9 +354,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               description: input.description !== undefined ? input.description : t.description,
               status: input.status ?? t.status,
               priority: input.priority !== undefined ? input.priority : t.priority,
+              start_date: input.startDate !== undefined ? input.startDate : t.start_date,
               due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
               assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
               milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
+              parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
               updated_at: new Date().toISOString(),
             }
           }
@@ -294,9 +372,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.description !== undefined) updateData.description = input.description
         if (input.status !== undefined) updateData.status = input.status
         if (input.priority !== undefined) updateData.priority = input.priority
+        if (input.startDate !== undefined) updateData.start_date = input.startDate
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
+        if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: updateError } = await (supabase as any)
@@ -318,6 +398,56 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
             },
           })
         }
+
+        // Fire-and-forget audit logs
+        if (prevTask) {
+          const { data: authData } = await supabase.auth.getUser()
+          const actorId = authData?.user?.id ?? 'unknown'
+
+          // Status change audit log
+          if (input.status !== undefined && prevTask.status !== input.status) {
+            void createAuditLog({
+              supabase,
+              orgId,
+              spaceId,
+              actorId,
+              actorRole: 'member',
+              eventType: 'task.status_changed',
+              targetType: 'task',
+              targetId: taskId,
+              summary: generateAuditSummary('task.status_changed', { title: prevTask.title }),
+              dataBefore: {
+                status: prevTask.status,
+                milestone_id: prevTask.milestone_id,
+              },
+              dataAfter: {
+                status: input.status,
+                milestone_id: input.milestoneId !== undefined ? input.milestoneId : prevTask.milestone_id,
+              },
+            })
+          }
+
+          // Milestone reassignment audit log
+          if (input.milestoneId !== undefined && prevTask.milestone_id !== input.milestoneId) {
+            void createAuditLog({
+              supabase,
+              orgId,
+              spaceId,
+              actorId,
+              actorRole: 'member',
+              eventType: 'task.updated',
+              targetType: 'task',
+              targetId: taskId,
+              summary: generateAuditSummary('task.updated', { title: prevTask.title }),
+              dataBefore: {
+                milestone_id: prevTask.milestone_id,
+              },
+              dataAfter: {
+                milestone_id: input.milestoneId,
+              },
+            })
+          }
+        }
       } catch (err) {
         // Targeted rollback — only revert the specific task, preserving other concurrent mutations
         if (prevTask) {
@@ -327,7 +457,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase, spaceId]
+    [supabase, orgId, spaceId, tasks]
   )
 
   const deleteTask = useCallback(
@@ -358,6 +488,28 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           .eq('id', taskId)
 
         if (deleteError) throw deleteError
+
+        // Fire-and-forget audit log
+        if (removedTask) {
+          const { data: authData } = await supabase.auth.getUser()
+          const actorId = authData?.user?.id ?? 'unknown'
+
+          void createAuditLog({
+            supabase,
+            orgId,
+            spaceId,
+            actorId,
+            actorRole: 'member',
+            eventType: 'task.deleted',
+            targetType: 'task',
+            targetId: taskId,
+            summary: generateAuditSummary('task.deleted', { title: removedTask.title }),
+            dataBefore: {
+              status: removedTask.status,
+              milestone_id: removedTask.milestone_id,
+            },
+          })
+        }
       } catch (err) {
         // Targeted rollback — re-insert at original position, preserving other concurrent mutations
         if (removedTask) {
@@ -374,7 +526,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase]
+    [supabase, orgId, spaceId]
   )
 
   const passBall = useCallback(

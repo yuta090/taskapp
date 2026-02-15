@@ -23,9 +23,10 @@ npm run lint     # Run ESLint
 | Spec | Version | Path |
 |------|---------|------|
 | API | v0.4 | `docs/api/API_SPEC_v0.4.md` |
-| DDL | v0.3+v0.4 | `docs/db/DDL_v0.3.sql` + `DDL_v0.4_comments.sql` |
+| DDL | v0.3〜v0.6 | `docs/db/DDL_v0.3.sql` 〜 `DDL_v0.6_subtasks.sql` |
 | UI Rules | current | `docs/spec/UI_RULES_AND_SCREENS.md` |
 | Review Spec | current | `docs/spec/REVIEW_SPEC.md` |
+| Subtask | v1.0 | `docs/spec/SUBTASK_HIERARCHY_SPEC.md` |
 
 ## UI Rules (Violations = Bugs)
 

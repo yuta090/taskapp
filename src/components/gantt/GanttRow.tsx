@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useCallback, useEffect, useRef, memo } from 'react'
 import { GANTT_CONFIG } from '@/lib/gantt/constants'
-import { getTaskBarPosition, isWeekend, getDatesInRange, xToDate, formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { getTaskBarPosition, isWeekend, getDatesInRange, xToDate, formatDateToLocalString, dateToX } from '@/lib/gantt/dateUtils'
 import type { Task } from '@/types/database'
 
 interface GanttRowProps {
@@ -14,6 +14,12 @@ interface GanttRowProps {
   onClick?: (taskId: string) => void
   isSelected?: boolean
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
+  /** Parent task with summary bar */
+  isParent?: boolean
+  /** Summary start date (auto-computed from children) */
+  summaryStart?: string | null
+  /** Summary end date (auto-computed from children) */
+  summaryEnd?: string | null
 }
 
 export const GanttRow = memo(function GanttRow({
@@ -25,6 +31,9 @@ export const GanttRow = memo(function GanttRow({
   onClick,
   isSelected,
   onDateChange,
+  isParent,
+  summaryStart,
+  summaryEnd,
 }: GanttRowProps) {
   const [isHovering, setIsHovering] = useState(false)
   const [dragState, setDragState] = useState<{
@@ -45,6 +54,35 @@ export const GanttRow = memo(function GanttRow({
     () => getTaskBarPosition(task, startDate, dayWidth),
     [task, startDate, dayWidth]
   )
+
+  // Compute summary bar position for parent tasks
+  const summaryBarPosition = useMemo(() => {
+    if (!isParent || (!summaryStart && !summaryEnd)) return null
+
+    const start = summaryStart ? new Date(summaryStart) : null
+    const end = summaryEnd ? new Date(summaryEnd) : null
+
+    if (!start && !end) return null
+
+    if (start && end) {
+      const x = dateToX(start, startDate, dayWidth)
+      const endX = dateToX(end, startDate, dayWidth)
+      return { x, width: Math.max(endX - x, 4) }
+    }
+
+    if (start) {
+      const x = dateToX(start, startDate, dayWidth)
+      return { x, width: Math.max(dayWidth, 4) }
+    }
+
+    if (end) {
+      const endX = dateToX(end, startDate, dayWidth)
+      // Position at the end date rather than stretching from x=0
+      return { x: Math.max(endX - dayWidth, 0), width: dayWidth }
+    }
+
+    return null
+  }, [isParent, summaryStart, summaryEnd, startDate, dayWidth])
 
   const totalWidth = dates.length * dayWidth
   const y = rowIndex * GANTT_CONFIG.ROW_HEIGHT
@@ -224,8 +262,70 @@ export const GanttRow = memo(function GanttRow({
         opacity={0.5}
       />
 
-      {/* Task bar */}
-      {displayPosition && (
+      {/* Parent summary bar (thin bar showing child date range) */}
+      {isParent && summaryBarPosition && (
+        <g onMouseEnter={handleBarMouseEnter} onMouseLeave={handleBarMouseLeave}>
+          {/* Summary bar background */}
+          <rect
+            x={summaryBarPosition.x}
+            y={y + GANTT_CONFIG.ROW_HEIGHT / 2 - 3}
+            width={summaryBarPosition.width}
+            height={6}
+            rx={2}
+            fill={GANTT_CONFIG.COLORS.PARENT_BAR}
+            opacity={0.7}
+          />
+          {/* Start cap */}
+          <rect
+            x={summaryBarPosition.x}
+            y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
+            width={3}
+            height={GANTT_CONFIG.BAR_HEIGHT}
+            rx={1}
+            fill={GANTT_CONFIG.COLORS.PARENT_BAR}
+            opacity={0.9}
+          />
+          {/* End cap */}
+          <rect
+            x={summaryBarPosition.x + summaryBarPosition.width - 3}
+            y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
+            width={3}
+            height={GANTT_CONFIG.BAR_HEIGHT}
+            rx={1}
+            fill={GANTT_CONFIG.COLORS.PARENT_BAR}
+            opacity={0.9}
+          />
+
+          {/* Summary tooltip on hover */}
+          {isHovering && (
+            <g>
+              <rect
+                x={summaryBarPosition.x}
+                y={y - 28}
+                width={180}
+                height={24}
+                rx={4}
+                fill="#1E293B"
+                opacity={0.95}
+              />
+              <text
+                x={summaryBarPosition.x + 8}
+                y={y - 12}
+                fontSize={11}
+                fill="white"
+                style={{ fontFamily: 'inherit' }}
+              >
+                {summaryStart && summaryEnd
+                  ? `${new Date(summaryStart).toLocaleDateString('ja-JP')} ~ ${new Date(summaryEnd).toLocaleDateString('ja-JP')}`
+                  : '子タスクのサマリー'}
+              </text>
+            </g>
+          )}
+        </g>
+      )}
+
+      {/* Task bar (for non-parent tasks, or parent's own bar if it has dates) */}
+      {!isParent && displayPosition && (
         <g
           onMouseEnter={handleBarMouseEnter}
           onMouseLeave={handleBarMouseLeave}
@@ -367,7 +467,7 @@ export const GanttRow = memo(function GanttRow({
       )}
 
       {/* No dates indicator */}
-      {!displayPosition && (
+      {!isParent && !displayPosition && (
         <text
           x={8}
           y={y + GANTT_CONFIG.ROW_HEIGHT / 2 + 4}
@@ -376,6 +476,19 @@ export const GanttRow = memo(function GanttRow({
           style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
         >
           期日未設定
+        </text>
+      )}
+
+      {/* Parent with no summary dates */}
+      {isParent && !summaryBarPosition && (
+        <text
+          x={8}
+          y={y + GANTT_CONFIG.ROW_HEIGHT / 2 + 4}
+          fontSize={GANTT_CONFIG.FONT.SIZE_XS}
+          fill={GANTT_CONFIG.COLORS.TEXT_MUTED}
+          style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
+        >
+          子タスクの期日未設定
         </text>
       )}
     </g>
