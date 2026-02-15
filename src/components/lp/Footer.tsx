@@ -21,7 +21,7 @@ export function LPFooter() {
                         時間を使わない。
                     </h2>
                     <p className="text-xl text-slate-400 mb-12">
-                        TaskAppがあれば、あなたは「つくる」ことに集中できます。<br />
+                        AgentPMがあれば、あなたは「つくる」ことに集中できます。<br />
                         報告も、見積もりも、進捗管理も——AIとポータルが引き受けます。
                     </p>
 
@@ -36,9 +36,16 @@ export function LPFooter() {
                         </motion.button>
                     </div>
 
-                    <p className="mt-8 text-sm text-slate-600">
-                        © 2026 TaskApp. All rights reserved.
-                    </p>
+                    <div className="mt-12 flex flex-col items-center gap-6">
+                        <div className="flex gap-6 text-sm text-slate-500">
+                            <a href="/terms" className="hover:text-slate-300 transition-colors">利用規約</a>
+                            <a href="/privacy" className="hover:text-slate-300 transition-colors">プライバシーポリシー</a>
+                            <a href="/pricing" className="hover:text-slate-300 transition-colors">料金プラン</a>
+                        </div>
+                        <p className="text-sm text-slate-600">
+                            © 2026 Sorekara Inc. All rights reserved.
+                        </p>
+                    </div>
                 </motion.div>
             </div>
         </footer>
