@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalFilesClient } from './PortalFilesClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalFilesPage() {
   const supabase = await createClient()
@@ -12,8 +13,8 @@ export default async function PortalFilesPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -56,8 +57,8 @@ export default async function PortalFilesPage() {
   const files: { id: string; name: string; type: string; size: number; createdAt: string }[] = []
 
   // Get action count for sidebar badge
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count: actionCount } = await (supabase as any)
+   
+  const { count: actionCount } = await (supabase as SupabaseClient)
     .from('tasks')
     .select('id', { count: 'exact', head: true })
     .eq('space_id', spaceId)

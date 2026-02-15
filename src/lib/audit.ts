@@ -118,8 +118,8 @@ export async function createAuditLog({
   visibility = 'team',
 }: CreateAuditLogParams): Promise<{ success: boolean; error?: string }> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any)
+     
+    const { error } = await (supabase as SupabaseClient)
       .from('audit_logs')
       .insert({
         org_id: orgId,

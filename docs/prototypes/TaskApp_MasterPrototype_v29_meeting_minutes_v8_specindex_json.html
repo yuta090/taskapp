@@ -120,7 +120,7 @@
             <span id="badge-inbox" class="ml-auto text-2xs px-1.5 py-0.5 rounded bg-gray-900 text-white">3</span>
           </div>
           <div id="nav-personal" onclick="switchView('my')" class="px-2 py-1.5 text-gray-600 hover:bg-gray-200/50 rounded cursor-pointer flex items-center gap-2 group transition-colors">
-            <i class="ph ph-target text-lg text-gray-500 group-hover:text-gray-900"></i> 自分の課題
+            <i class="ph ph-target text-lg text-gray-500 group-hover:text-gray-900"></i> マイタスク
           </div>
         </div>
 
@@ -139,7 +139,7 @@
 
             <div class="pl-2 mt-0.5 space-y-0.5 border-l border-gray-200 ml-4">
               <div onclick="setTaskCategoryFilter('all')" id="menu-tasks" class="px-2 py-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/50 rounded cursor-pointer flex items-center gap-2 text-xs">
-                <i class="ph ph-copy"></i> 課題
+                <i class="ph ph-copy"></i> タスク
               </div>
               <div onclick="switchView('tasks'); setTaskTab('considering')" id="menu-considering" class="px-2 py-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/50 rounded cursor-pointer flex items-center gap-2 text-xs">
                 <i class="ph ph-lightbulb"></i> 検討中
@@ -225,7 +225,7 @@
 
       <!-- VIEW: MY TASKS -->
       <section id="view-my" class="flex-1 overflow-y-auto hidden" aria-label="My Tasks">
-        <div class="px-5 py-2 text-xs font-medium text-gray-500">自分の課題</div>
+        <div class="px-5 py-2 text-xs font-medium text-gray-500">マイタスク</div>
         <div class="content-wrap"><div class="border-t border-gray-100" id="my-list"></div></div>
       </section>
 
@@ -565,7 +565,7 @@
 
     const spaces = {
       space_web: { id: 'space_web', name: 'Webリニューアル', org: 'アトラス', primaryClientContactId: 'cu1' },
-      personal: { id: 'personal', name: '自分の課題', org: 'アトラス' }
+      personal: { id: 'personal', name: 'マイタスク', org: 'アトラス' }
     };
 
     const users = {
@@ -1017,7 +1017,7 @@ async function setupSpecPathIndex() {
         `,
         right: `
           <button class="text-xs text-gray-600 hover:text-gray-900 flex items-center gap-1.5 py-1 px-2 hover:bg-gray-50 rounded" onclick="switchView('tasks')">
-            <i class="ph ph-list-bullets text-base"></i> 課題一覧
+            <i class="ph ph-list-bullets text-base"></i> タスク一覧
           </button>
         `
 
@@ -1085,7 +1085,7 @@ async function setupSpecPathIndex() {
 
       const catLabel =
         cat === 'bug' ? 'バグ' :
-        cat === 'task' ? '課題' :
+        cat === 'task' ? 'タスク' :
         cat === 'client' ? 'クライアント要確認' :
         'すべて';
 
@@ -1102,7 +1102,7 @@ async function setupSpecPathIndex() {
             <span class="font-medium text-gray-900">Webリニューアル</span>
 
             <div class="ml-3 pl-3 border-l border-gray-200 flex items-center gap-1">
-              ${tabBtn('all', 'すべての課題')}
+              ${tabBtn('all', 'すべてのタスク')}
               ${tabBtn('active', 'アクティブ')}
               ${tabBtn('backlog', 'バックログ')}
               ${tabBtn('considering', '検討中')}
@@ -1122,7 +1122,7 @@ async function setupSpecPathIndex() {
                   <i class="ph-fill ph-funnel text-gray-500"></i> すべて
                 </div>
                 <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded text-xs font-medium cursor-pointer" onclick="setTaskCategoryFilter('task')">
-                  <i class="ph-fill ph-check-circle text-indigo-600"></i> 課題
+                  <i class="ph-fill ph-check-circle text-indigo-600"></i> タスク
                 </div>
                 <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded text-xs font-medium cursor-pointer" onclick="setTaskCategoryFilter('bug')">
                   <i class="ph-fill ph-bug text-red-600"></i> バグ
@@ -1857,7 +1857,7 @@ function userPill(userId) {
       const mine = state.tasks.filter(t => t.assigneeId === me.id);
       root.innerHTML = mine.length
         ? mine.map(t => taskRow(t)).join('')
-        : `<div class="px-5 py-6 text-sm text-gray-500">割り当てられた課題はありません。</div>`;
+        : `<div class="px-5 py-6 text-sm text-gray-500">割り当てられたタスクはありません。</div>`;
     }
 
     // ----------------------------------------------------------------------------------

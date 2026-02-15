@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface SpaceSettings {
   ownerFieldEnabled: boolean | null // null = 組織設定に従う
@@ -46,7 +47,7 @@ export function useSpaceSettings(spaceId: string | null): UseSpaceSettingsResult
 
     try {
       // スペース設定を取得
-      const { data: spaceData, error: spaceError } = await (supabase as any)
+      const { data: spaceData, error: spaceError } = await (supabase as SupabaseClient)
         .from('spaces')
         .select('owner_field_enabled')
         .eq('id', spaceId)
@@ -62,7 +63,7 @@ export function useSpaceSettings(spaceId: string | null): UseSpaceSettingsResult
       })
 
       // 表示判定をRPCで取得
-      const { data: showData, error: showError } = await (supabase as any)
+      const { data: showData, error: showError } = await (supabase as SupabaseClient)
         .rpc('rpc_should_show_owner_field', { p_space_id: spaceId })
 
       if (showError) throw showError
@@ -97,7 +98,7 @@ export function useSpaceSettings(spaceId: string | null): UseSpaceSettingsResult
       const targetSpaceId = spaceId
 
       try {
-        const { error: updateError } = await (supabase as any)
+        const { error: updateError } = await (supabase as SupabaseClient)
           .from('spaces')
           .update({ owner_field_enabled: enabled })
           .eq('id', targetSpaceId)

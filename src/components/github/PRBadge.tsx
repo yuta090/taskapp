@@ -62,9 +62,9 @@ export function PRBadge({
       label: 'Closed',
     },
     merged: {
-      bg: 'bg-purple-50',
-      border: 'border-purple-200',
-      icon: 'text-purple-600',
+      bg: 'bg-gray-50',
+      border: 'border-gray-200',
+      icon: 'text-gray-600',
       label: 'Merged',
     },
   }

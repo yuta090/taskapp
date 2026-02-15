@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { CaretRight, CheckCircle } from '@phosphor-icons/react'
+import { CheckCircle } from '@phosphor-icons/react'
 import { ActionCard } from '../ui'
 
 interface Task {
@@ -26,6 +25,7 @@ interface ActionSectionProps {
 
 export function ActionSection({
   tasks,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   totalCount,
   waitingMessage,
   selectedTaskId,

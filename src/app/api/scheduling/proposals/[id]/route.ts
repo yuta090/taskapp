@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -24,8 +25,7 @@ export async function GET(
     // Fetch proposal with related data
     // Note: Must use explicit FK name because scheduling_proposals has TWO relations
     // to proposal_slots (proposal_slots.proposal_id and scheduling_proposals.confirmed_slot_id)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: proposal, error } = await (supabase as any)
+    const { data: proposal, error } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .select(`
         *,
@@ -40,8 +40,7 @@ export async function GET(
     }
 
     // Authorization: space member
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('id')
       .eq('space_id', proposal.space_id)
@@ -54,11 +53,10 @@ export async function GET(
 
     // Resolve display names for respondents
     const userIds = (proposal.proposal_respondents || []).map((r: { user_id: string }) => r.user_id)
-    let profileMap: Record<string, { display_name: string; avatar_url: string | null }> = {}
+    const profileMap: Record<string, { display_name: string; avatar_url: string | null }> = {}
 
     if (userIds.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: profiles } = await (supabase as any)
+      const { data: profiles } = await (supabase as SupabaseClient)
         .from('profiles')
         .select('id, display_name, avatar_url')
         .in('id', userIds)
@@ -71,16 +69,16 @@ export async function GET(
     }
 
     // Enrich respondents with profiles
-    const enrichedRespondents = (proposal.proposal_respondents || []).map((r: any) => ({
+    const enrichedRespondents = (proposal.proposal_respondents || []).map((r: { id: string; user_id: string; side: string; is_required: boolean }) => ({
       ...r,
       displayName: profileMap[r.user_id]?.display_name || '',
       avatarUrl: profileMap[r.user_id]?.avatar_url || null,
     }))
 
     // Enrich slots with response details
-    const enrichedSlots = (proposal.proposal_slots || []).map((slot: any) => ({
+    const enrichedSlots = (proposal.proposal_slots || []).map((slot: { id: string; slot_responses?: Array<{ id: string; respondent_id: string; response: string; responded_at: string; user_id?: string }> }) => ({
       ...slot,
-      responses: (slot.slot_responses || []).map((sr: any) => {
+      responses: (slot.slot_responses || []).map((sr: { id: string; respondent_id: string; response: string; responded_at: string; user_id?: string }) => {
         const respondent = (proposal.proposal_respondents || []).find(
           (r: { id: string }) => r.id === sr.respondent_id
         )
@@ -130,8 +128,7 @@ export async function PATCH(
     }
 
     // Fetch proposal
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: proposal } = await (supabase as any)
+    const { data: proposal } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .select('id, space_id, created_by, status')
       .eq('id', id)
@@ -150,8 +147,7 @@ export async function PATCH(
 
     // Authorization: creator or admin
     if (proposal.created_by !== user.id) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: adminMembership } = await (supabase as any)
+      const { data: adminMembership } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .select('id')
         .eq('space_id', proposal.space_id)
@@ -164,8 +160,7 @@ export async function PATCH(
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: updateError } = await (supabase as any)
+    const { error: updateError } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .update({ status: 'cancelled' })
       .eq('id', id)

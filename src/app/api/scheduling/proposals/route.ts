@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -78,8 +79,7 @@ export async function POST(request: NextRequest) {
     const validatedRespondents = deduped
 
     // --- Authorization ---
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('id, role')
       .eq('space_id', spaceId)
@@ -92,8 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get org_id from space
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: space } = await (supabase as any)
+    const { data: space } = await (supabase as SupabaseClient)
       .from('spaces')
       .select('org_id')
       .eq('id', spaceId)
@@ -104,8 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     // --- Create proposal ---
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: proposal, error: proposalError } = await (supabase as any)
+    const { data: proposal, error: proposalError } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .insert({
         org_id: space.org_id,
@@ -134,8 +132,7 @@ export async function POST(request: NextRequest) {
       slot_order: idx,
     }))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: createdSlots, error: slotsError } = await (supabase as any)
+    const { data: createdSlots, error: slotsError } = await (supabase as SupabaseClient)
       .from('proposal_slots')
       .insert(slotInserts)
       .select('*')
@@ -153,8 +150,7 @@ export async function POST(request: NextRequest) {
       is_required: r.isRequired !== false,
     }))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: createdRespondents, error: respondentsError } = await (supabase as any)
+    const { data: createdRespondents, error: respondentsError } = await (supabase as SupabaseClient)
       .from('proposal_respondents')
       .insert(respondentInserts)
       .select('*')
@@ -174,8 +170,7 @@ export async function POST(request: NextRequest) {
         respondent_id: creatorRespondent.id,
         response: 'available',
       }))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: autoResponseError } = await (supabase as any)
+      const { error: autoResponseError } = await (supabase as SupabaseClient)
         .from('slot_responses')
         .insert(autoResponses)
       if (autoResponseError) {
@@ -214,8 +209,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Authorization: space member
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('id')
       .eq('space_id', spaceId)
@@ -227,8 +221,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch proposals with counts
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: proposals, error } = await (supabase as any)
+    const { data: proposals, error } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .select(`
         *,
@@ -246,12 +239,11 @@ export async function GET(request: NextRequest) {
 
     // Count responses per proposal
     const proposalIds = (proposals || []).map((p: { id: string }) => p.id)
-    let responseCountMap: Record<string, number> = {}
+    const responseCountMap: Record<string, number> = {}
 
     if (proposalIds.length > 0) {
       // Get distinct respondent counts with responses
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: responseCounts, error: rcError } = await (supabase as any)
+      const { data: responseCounts, error: rcError } = await (supabase as SupabaseClient)
         .from('slot_responses')
         .select('respondent_id, proposal_respondents!inner(proposal_id)')
         .in('proposal_respondents.proposal_id', proposalIds)
@@ -261,9 +253,11 @@ export async function GET(request: NextRequest) {
       }
 
       if (responseCounts) {
+        type RcRow = { respondent_id: string; proposal_respondents: { proposal_id: string }[] }
         const respondentsByProposal: Record<string, Set<string>> = {}
-        for (const rc of responseCounts) {
-          const pid = rc.proposal_respondents?.proposal_id
+        for (const rc of responseCounts as RcRow[]) {
+          const joinData = Array.isArray(rc.proposal_respondents) ? rc.proposal_respondents[0] : rc.proposal_respondents
+          const pid = joinData?.proposal_id
           if (pid) {
             if (!respondentsByProposal[pid]) respondentsByProposal[pid] = new Set()
             respondentsByProposal[pid].add(rc.respondent_id)
@@ -275,7 +269,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const result = (proposals || []).map((p: any) => ({
+    const result = (proposals || []).map((p: { id: string; proposal_respondents?: Array<unknown> } & Record<string, unknown>) => ({
       ...p,
       respondentCount: p.proposal_respondents?.length || 0,
       responseCount: responseCountMap[p.id] || 0,

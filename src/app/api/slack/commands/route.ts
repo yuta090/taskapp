@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { verifySlackRequest } from '@/lib/slack/verify'
 import { getSlackClientForOrg } from '@/lib/slack/client'
 import { buildTaskCreateModal } from '@/lib/slack/modals'
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   const channelId = params.get('channel_id') || ''
 
   // 3. チャンネルから space_slack_channels を検索
-  const { data: channelLink, error: channelError } = await (getSupabaseAdmin() as any)
+  const { data: channelLink, error: channelError } = await (getSupabaseAdmin() as SupabaseClient)
     .from('space_slack_channels' as never)
     .select('org_id, space_id' as never)
     .eq('channel_id' as never, channelId as never)
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // 4. スペース名を取得
-    const { data: space } = await (getSupabaseAdmin() as any)
+    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
       .from('spaces' as never)
       .select('name' as never)
       .eq('id' as never, spaceId as never)
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const spaceName = (space as unknown as { name: string } | null)?.name || 'プロジェクト'
 
     // 5. メンバー一覧を取得（担当者ドロップダウン用）
-    const { data: memberships } = await (getSupabaseAdmin() as any)
+    const { data: memberships } = await (getSupabaseAdmin() as SupabaseClient)
       .from('space_memberships' as never)
       .select('user_id' as never)
       .eq('space_id' as never, spaceId as never)
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     let members: Array<{ id: string; name: string }> = []
     if (memberIds.length > 0) {
-      const { data: profiles } = await (getSupabaseAdmin() as any)
+      const { data: profiles } = await (getSupabaseAdmin() as SupabaseClient)
         .from('profiles' as never)
         .select('id, display_name' as never)
         .in('id' as never, memberIds as never)
@@ -93,8 +93,7 @@ export async function POST(request: NextRequest) {
     const slackClient = await getSlackClientForOrg(orgId)
     await slackClient.views.open({
       trigger_id: triggerId,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      view: modal as any,
+      view: modal as Parameters<typeof slackClient.views.open>[0]['view'],
     })
 
     // Slack は 200 + 空ボディを期待

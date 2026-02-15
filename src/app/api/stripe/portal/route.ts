@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStripe } from '@/lib/stripe'
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ユーザーが組織のownerであることを確認
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('user_id', user.id)
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 組織の課金情報を取得
-    const { data: billing } = await (supabase as any)
+    const { data: billing } = await (supabase as SupabaseClient)
       .from('org_billing')
       .select('stripe_customer_id')
       .eq('org_id', org_id)

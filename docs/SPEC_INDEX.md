@@ -1,7 +1,7 @@
 # TaskApp Specification Index
 
-> **Last Updated**: 2026-02-15
-> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング機能 Phase 1-4 完了、サブタスク階層対応)
+> **Last Updated**: 2026-02-20
+> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング Phase 1-4 完了、プリセットシステム実装済み（9ジャンル）、内部運用対応済み、バーンダウンチャート実装済み)
 
 このファイルは現行仕様の一覧です。古いバージョンは `docs/archive/` を参照。
 
@@ -14,7 +14,7 @@
 | Document | Version | Path | Description |
 |----------|---------|------|-------------|
 | **API Spec** | v0.4 | `api/API_SPEC_v0.4.md` | RPC・認証・招待・課金API |
-| **DDL** | v0.3〜v0.6 | `db/DDL_v0.3.sql` 〜 `db/DDL_v0.6_subtasks.sql` | DBスキーマ（v0.6はサブタスク階層追加） |
+| **DDL** | v0.3 + v0.4 | `db/DDL_v0.3.sql` + `db/DDL_v0.4_comments.sql` | DBスキーマ（v0.4はコメント機能追加） |
 | **UI Rules** | current | `spec/UI_RULES_AND_SCREENS.md` | 3ペイン、Amber-500、UIルール |
 | **Review Spec** | current | `spec/REVIEW_SPEC.md` | 受け入れテスト AT-001〜AT-012 |
 | **Decisions** | v5 | `notes/DECISIONS_v5.md` | 設計判断の記録 |
@@ -26,8 +26,9 @@
 | **Auth/Invite/Billing** | `spec/AUTH_INVITE_BILLING_SPEC.md` | 認証・招待・課金仕様 |
 | **Assignee/Owner** | `spec/ASSIGNEE_OWNER_SPEC.md` | 担当者・オーナー仕様 |
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
-| **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層・ガントチャート連携仕様 |
-| **Native App Migration** | `spec/NATIVE_APP_MIGRATION_SPEC.md` | モノレポ移行・React Native (Expo) ネイティブアプリ仕様 |
+| **Project Presets** | `spec/PRESET_SYSTEM_SPEC.md` | ジャンル別プリセット（Wiki+マイルストーン自動生成） |
+| **Internal Ops** | `spec/INTERNAL_OPS_SPEC.md` | クライアント不在時の内部運用対応（レビューUI・ラベル抽象化） |
+| **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2） |
 
 ### Prototypes
 
@@ -80,15 +81,38 @@
 | Phase 3 | ビデオ会議連携 (Google Meet / Zoom / Teams) | ✅ |
 | Phase 4 | Realtime + pg_cron リマインダー + 期限切れ自動処理 | ✅ |
 
-### Native App (ネイティブアプリ)
+### Project Presets (プリセットシステム)
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| Phase 0 | モノレポ基盤 (Turborepo + pnpm) | 計画中 |
-| Phase 1 | 共有パッケージ切り出し (@taskapp/shared) | 計画中 |
-| Phase 2 | Mobile アプリ基盤 (Expo + 認証 + タスク一覧) | 計画中 |
-| Phase 3 | 機能拡充 (会議・通知・日程調整) | 計画中 |
-| Phase 4 | ストア申請 (TestFlight / Play Console) | 計画中 |
+| Phase 1 | DB + 型定義 + RPC + API | ✅ |
+| Phase 2 | UI（SpaceCreateSheet + LeftNav統合） | ✅ |
+| Phase 3 | 全6ジャンルテンプレート + Wiki条件修正 | ✅ |
+| Phase 4 | Codexコードレビュー対応 | ✅ |
+
+### Internal Operations (内部運用対応)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| P0-1 | rpc_review_open 承認維持修正 + セキュリティ強化 | ✅ |
+| P0-2 | レビューUI導線（TaskReviewSection + バッジ） | ✅ |
+| P1-1 | 会議クライアント必須緩和 | ✅ |
+| P1-2 | client_scope デフォルト internal 化 | ✅ |
+| P1-3 | UXラベル抽象化（外部/社内） | ✅ |
+
+### Burndown Chart (バーンダウンチャート)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | マイルストーン start_date 追加 (DB + 型 + Hook + UI + Gantt) | ✅ |
+| Phase 1.5 | 監査ログ整備 (useTasks に4イベント追加) | ✅ |
+| Phase 2 | バーンダウンチャート (API + 集計ロジック + SVG + ページ) | ✅ |
+
+### Actionable Inbox (受信トレイアクション対応)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | 通知分類（actionable/informational）+ 要対応バッジ + タイプ別アクションパネル | ✅ |
 
 ### Planned (計画中)
 
@@ -129,6 +153,9 @@ decision_state = 'considering' | 'decided' | 'implemented'
 | `rpc_meeting_start/end` | 会議ライフサイクル |
 | `rpc_parse_meeting_minutes` | 議事録→タスク生成 |
 | `rpc_confirm_proposal_slot` | 日程調整スロット確定→会議自動作成 |
+| `rpc_create_space_with_preset` | プリセット付きSpace原子的作成 |
+| `rpc_review_open` | レビュー依頼（承認維持 + セキュリティ検証） |
+| `GET /api/burndown` | バーンダウンチャート日次集計API |
 
 ---
 

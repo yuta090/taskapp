@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 
@@ -126,8 +127,7 @@ export function useMeetings({
       // レース条件: 古いリクエストの結果を無視
       if (currentFetchId !== fetchIdRef.current) return
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawMeetings = (meetingsData || []) as any[]
+      const rawMeetings = (meetingsData || []) as Array<Record<string, unknown> & { id: string; meeting_participants?: unknown[] }>
 
       // participants をグルーピングし、meetings からは除去
       const participantsByMeeting: Record<string, MeetingParticipant[]> = {}
@@ -136,7 +136,7 @@ export function useMeetings({
         if (Array.isArray(meeting_participants)) {
           participantsByMeeting[m.id] = meeting_participants as MeetingParticipant[]
         }
-        return meetingFields as Meeting
+        return meetingFields as unknown as Meeting
       })
 
       setMeetings(cleanMeetings)
@@ -214,19 +214,16 @@ export function useMeetings({
           throw new Error('ログインが必要です')
         }
 
-        const { data: created, error: createError } = await supabase
+        const { data: created, error: createError } = await (supabase as SupabaseClient)
           .from('meetings')
-          .insert(
-            {
-              org_id: orgId,
-              space_id: spaceId,
-              title: meeting.title,
-              held_at: heldAt,
-              status: 'planned',
-              created_by: authData.user.id,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any
-          )
+          .insert({
+            org_id: orgId,
+            space_id: spaceId,
+            title: meeting.title,
+            held_at: heldAt,
+            status: 'planned',
+            created_by: authData.user.id,
+          })
           .select('*')
           .single()
 
@@ -251,10 +248,9 @@ export function useMeetings({
         ]
 
         if (participantRows.length > 0) {
-          const { data: insertedParticipants, error: participantError } = await supabase
+          const { data: insertedParticipants, error: participantError } = await (supabase as SupabaseClient)
             .from('meeting_participants')
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .insert(participantRows as any)
+            .insert(participantRows)
             .select('*')
           if (participantError) throw participantError
 

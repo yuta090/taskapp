@@ -15,8 +15,16 @@
 ### A. Inbox（受信トレイ） `/inbox`
 - ヘッダー：Inbox専用フィルタ（重要/その他/スヌーズ）＋「すべて既読」。
 - 行クリック：**Inbox Inspector**（Task Inspectorではない）。
-- Inbox Inspectorには通知詳細＋「タスクへ移動」リンク。
-- 「タスクへ移動」→ Project画面へ遷移して Task Inspector を開く。
+- **アクション通知と告知通知の区別**:
+  - アクション必要な通知（`review_request`, `ball_passed`, `task_assigned`, `confirmation_request`, `urgent_confirmation`, `spec_decision_needed`）は未読時に **「要対応」バッジ** を表示。
+  - Inbox Inspector内で通知タイプ別のインラインアクションパネルを表示:
+    - `review_request` → 承認する / 差し戻す（理由入力付き）
+    - `ball_passed` / `task_assigned` → 対応開始して次へ
+    - `confirmation_request` / `urgent_confirmation` → 日程を回答する（リンク遷移）
+    - `spec_decision_needed` → 決定済みにする
+  - アクション完了後、600ms後に自動で既読+次の通知へ遷移。
+  - 告知通知（`task_completed`, `meeting_ended`, `due_date_reminder` 等）は「既読にして次へ」のみ。
+- 「詳細を見る」→ Project画面へ遷移して Task Inspector を開く。
 
 ### B. Tasks List（プロジェクト） `/:orgId/project/:spaceId`
 - ヘッダー：Projectタブ（すべて/アクティブ/バックログなど）
@@ -31,6 +39,16 @@
 - 権限：閲覧＋コメントのみ。編集不可。
 - Safety：内部情報（TP-ID / GitHubリンク / 社内用ラベル）を表示しない。
 - Ball Ownership：クライアントがコメント返信→ステータス自動で `waiting_dev` へ。
+
+### E. Space Create Sheet（プロジェクト新規作成）
+- **エントリポイント**: LeftNavの「チーム」セクションヘッダ横「+」ボタン（プロジェクトルート上でのみ表示）。
+- **形状**: Bottom-sheet（backdrop付き）。3ペインの上にoverlay。
+- **2ステップフロー**:
+  - **Step 1（ジャンル選択）**: 3列カードグリッド（6ジャンル）+ 下部に「白紙から始める」テキストリンク。各カードにアイコン・ラベル・説明・「Wiki X件 / MS X件」表示。
+  - **Step 2（名前入力+確認）**: 選択ジャンルバッジ + [変更]リンク、プロジェクト名input（autoFocus）、プレビュー（作成されるWiki/マイルストーン名）、[キャンセル]/[作成]ボタン。
+- **作成中**: ボタンにSpinnerGap表示、disabled。
+- **作成完了**: Sheet閉じ → `/${orgId}/project/${newSpaceId}` へ自動ナビゲーション。
+- **閉じ方**: Xボタン / Backdrop クリック。全stateリセット。
 
 ## NG（禁止）
 - タスク詳細を中央モーダルで開く。

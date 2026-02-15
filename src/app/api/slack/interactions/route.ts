@@ -4,6 +4,7 @@ import { verifySlackRequest } from '@/lib/slack/verify'
 import { parseTaskCreateSubmission } from '@/lib/slack/modals'
 import { resolveTaskAppUser } from '@/lib/slack/usermap'
 import { postSlackMessage } from '@/lib/slack/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -92,8 +93,7 @@ async function handleTaskCreate(
   // Parse form values
   let submission: ReturnType<typeof parseTaskCreateSubmission>
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    submission = parseTaskCreateSubmission(view as any)
+    submission = parseTaskCreateSubmission(view as unknown as Parameters<typeof parseTaskCreateSubmission>[0])
   } catch {
     return NextResponse.json({
       response_action: 'errors',
@@ -112,7 +112,7 @@ async function handleTaskCreate(
   }
 
   // Look up org_id from space
-  const { data: space, error: spaceError } = await (getSupabaseAdmin() as any)
+  const { data: space, error: spaceError } = await (getSupabaseAdmin() as SupabaseClient)
     .from('spaces')
     .select('org_id')
     .eq('id', spaceId)
@@ -139,7 +139,7 @@ async function handleTaskCreate(
 
   // Insert task
   const now = new Date().toISOString()
-  const { data: task, error: insertError } = await (getSupabaseAdmin() as any)
+  const { data: task, error: insertError } = await (getSupabaseAdmin() as SupabaseClient)
     .from('tasks')
     .insert({
       org_id: orgId,

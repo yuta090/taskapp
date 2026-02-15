@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notificationRegistry } from '@/lib/notifications'
 import { SlackNotificationProvider } from '@/lib/slack/provider'
 import type { TaskNotificationPayload } from '@/lib/notifications/types'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Space membership チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('role')
       .eq('space_id', spaceId)
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     // タスク情報取得（space_idで所属チェック）
-    const { data: task } = await (supabase as any)
+    const { data: task } = await (supabase as SupabaseClient)
       .from('tasks')
       .select('*')
       .eq('id', taskId)
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Space情報取得
-    const { data: space } = await (supabase as any)
+    const { data: space } = await (supabase as SupabaseClient)
       .from('spaces')
       .select('name, org_id')
       .eq('id', spaceId)
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Actor名取得
-    const { data: profile } = await (supabase as any)
+    const { data: profile } = await (supabase as SupabaseClient)
       .from('profiles')
       .select('display_name')
       .eq('id', user.id)
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     // Assignee名取得
     let assigneeName: string | null = null
     if (task.assignee_id) {
-      const { data: assigneeProfile } = await (supabase as any)
+      const { data: assigneeProfile } = await (supabase as SupabaseClient)
         .from('profiles')
         .select('display_name')
         .eq('id', task.assignee_id)

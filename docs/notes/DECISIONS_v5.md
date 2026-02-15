@@ -167,10 +167,60 @@ MCP Server → TaskApp API → Supabase
 
 ---
 
+## プロジェクトプリセット（2026-02-14 決定）
+
+### 概要
+Asana/Mondayのようにジャンル別プリセットを用意し、プロジェクト作成時にWiki+マイルストーン+設定を一括セットアップ。
+
+### プリセット管理方式
+- **コードベース管理**（TypeScript）。DBにプリセット定義は持たない。
+- 理由: 既存の`defaultTemplate.ts`パターンを踏襲。BlockNote JSONの生成関数が必要なためコードが自然。
+- ファイル構成: `src/lib/presets/index.ts` + `src/lib/presets/genres/*.ts`
+
+### ジャンル構成（7種）
+- `web_development` — Web/アプリ開発（既存spec templateベース）
+- `system_development` — 業務システム開発
+- `design` — デザイン制作
+- `consulting` — コンサルティング
+- `marketing` — マーケティング
+- `event` — イベント企画
+- `blank` — 白紙（テンプレートなし）
+
+### 原子的作成
+- **RPC関数 `rpc_create_space_with_preset`** で単一トランザクション内にspace + membership + milestones + wiki pagesを一括作成。
+- SECURITY DEFINER + `auth.uid()` で認証。`org_memberships` でメンバーシップ確認。
+- 既存パターン（`rpc_confirm_proposal_slot`等）に倣う。
+
+### preset_genreカラムの3値セマンティクス
+| 値 | 意味 | Wiki自動生成 |
+|----|------|-------------|
+| `NULL` | 旧来のspace（機能導入前に作成） | する（後方互換） |
+| `'blank'` | ユーザーが明示的に「白紙」を選択 | しない |
+| ジャンル名 | プリセット適用済み | しない（作成時に適用済み） |
+
+### UI設計
+- **SpaceCreateSheet**: 2ステップのbottom-sheet UI（Step1: ジャンル選択 → Step2: 名前入力+確認）
+- **エントリポイント**: LeftNavの「チーム」セクションヘッダ横の「+」ボタン
+- プロジェクトルート外（/inbox等）では「+」ボタンを非表示（fallback orgId問題の回避）
+
+### ホームページのspecリンク
+- RPC内ではplaceholderで作成し、API Route側でRPC完了後にspecページIDを取得して更新。
+- 失敗しても致命的でない（リンクだけ未設定）。
+
+### Codexレビュー対応
+- fail-closed: preset_genreチェック失敗時は自動生成をスキップ（fail-openではなく）
+- org_id境界チェック追加
+- ホームページ更新をタグベースからIDベースに変更
+- orgIdのUUIDバリデーション追加
+- preset_genreカラムにCHECK制約追加
+
+---
+
 ## 変更履歴
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|----------|
+| v5.2 | 2026-02-14 | プロジェクトプリセットの意思決定追加 |
 | v5.1 | 2025-02-03 | MCP連携の意思決定追加 |
 | v5 | 2025-02-02 | 認証・招待・課金の意思決定追加 |
 | v4 | - | レビュー・検討中・会議・代理入力・通知 |

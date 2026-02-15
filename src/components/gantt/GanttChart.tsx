@@ -7,8 +7,6 @@ import {
   MagnifyingGlassPlus,
   ListBullets,
   Rows,
-  CaretDown,
-  CaretRight,
 } from '@phosphor-icons/react'
 import { GANTT_CONFIG, VIEW_MODE_CONFIG, type ViewMode } from '@/lib/gantt/constants'
 import {
@@ -17,15 +15,16 @@ import {
   isToday,
   dateToX,
 } from '@/lib/gantt/dateUtils'
-import { buildTaskTree, type TaskTreeNode } from '@/lib/gantt/treeUtils'
 import { GanttHeader } from './GanttHeader'
 import { GanttRow } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
 import type { Task, Milestone } from '@/types/database'
+import type { RiskAssessment } from '@/lib/risk/calculateRisk'
 
 interface GanttChartProps {
   tasks: Task[]
   milestones: Milestone[]
+  riskForecasts?: Map<string, RiskAssessment>
   selectedTaskId?: string
   onTaskClick?: (taskId: string) => void
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
@@ -36,47 +35,18 @@ interface TaskGroup {
   tasks: Task[]
 }
 
-type RowDataItem = {
-  type: 'header' | 'task'
-  milestone?: Milestone | null
-  task?: Task
-  rowIndex: number
-  depth: number
-  isParent: boolean
-  isCollapsed: boolean
-  childCount: number
-  summaryStart?: string | null
-  summaryEnd?: string | null
-}
-
 export function GanttChart({
   tasks,
   milestones,
+  riskForecasts,
   selectedTaskId,
   onTaskClick,
   onDateChange,
 }: GanttChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [groupByMilestone, setGroupByMilestone] = useState(true)
-  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
-
-  // Toggle collapse state for a parent task
-  const toggleCollapse = useCallback((taskId: string) => {
-    setCollapsedParents((prev) => {
-      const next = new Set(prev)
-      if (next.has(taskId)) {
-        next.delete(taskId)
-      } else {
-        next.add(taskId)
-      }
-      return next
-    })
-  }, [])
-
-  // Build task tree (parent-child hierarchy)
-  const taskTree = useMemo(() => buildTaskTree(tasks), [tasks])
 
   // Calculate date range
   const { start: startDate, end: endDate } = useMemo(
@@ -92,9 +62,7 @@ export function GanttChart({
 
   const totalWidth = dates.length * dayWidth
 
-  // Group tasks by milestone (using tree structure)
-  // Child tasks are grouped under the same milestone as their parent to avoid
-  // orphaned children when parent and child have different milestone_ids.
+  // Group tasks by milestone
   const taskGroups: TaskGroup[] = useMemo(() => {
     if (!groupByMilestone) {
       return [{ milestone: null, tasks }]
@@ -104,23 +72,10 @@ export function GanttChart({
     const milestoneMap = new Map<string, Milestone>()
     milestones.forEach((m) => milestoneMap.set(m.id, m))
 
-    // Build a lookup for parent task milestone_id
-    const taskById = new Map<string, Task>()
-    tasks.forEach((t) => taskById.set(t.id, t))
-
-    // Resolve effective milestone: child inherits parent's milestone for grouping
-    const getEffectiveMilestoneId = (task: Task): string | null => {
-      if (task.parent_task_id) {
-        const parent = taskById.get(task.parent_task_id)
-        if (parent) return parent.milestone_id || null
-      }
-      return task.milestone_id || null
-    }
-
-    // Group tasks by effective milestone_id
+    // Group tasks by milestone_id
     const tasksByMilestone = new Map<string | null, Task[]>()
     tasks.forEach((task) => {
-      const key = getEffectiveMilestoneId(task)
+      const key = task.milestone_id || null
       if (!tasksByMilestone.has(key)) {
         tasksByMilestone.set(key, [])
       }
@@ -147,80 +102,12 @@ export function GanttChart({
     return groups
   }, [tasks, milestones, groupByMilestone])
 
-  // Build row data with parent-child hierarchy
-  const rowData: RowDataItem[] = useMemo(() => {
-    const rows: RowDataItem[] = []
-    let currentRowIndex = 0
+  // Calculate total rows including group headers
+  const totalRows = useMemo(() => {
+    if (!groupByMilestone) return tasks.length
+    return taskGroups.reduce((sum, group) => sum + group.tasks.length + 1, 0) // +1 for header
+  }, [taskGroups, groupByMilestone, tasks.length])
 
-    // Helper: find tree node for a task
-    const treeNodeMap = new Map<string, TaskTreeNode>()
-    taskTree.forEach((node) => treeNodeMap.set(node.task.id, node))
-
-    taskGroups.forEach((group) => {
-      if (groupByMilestone) {
-        rows.push({
-          type: 'header',
-          milestone: group.milestone,
-          rowIndex: currentRowIndex,
-          depth: 0,
-          isParent: false,
-          isCollapsed: false,
-          childCount: 0,
-        })
-        currentRowIndex++
-      }
-
-      // Process tasks in tree order within each group
-      const groupTaskIds = new Set(group.tasks.map((t) => t.id))
-      const processedIds = new Set<string>()
-
-      group.tasks.forEach((task) => {
-        if (processedIds.has(task.id)) return
-
-        // Skip children (they're rendered under their parent)
-        if (task.parent_task_id && groupTaskIds.has(task.parent_task_id)) return
-
-        const node = treeNodeMap.get(task.id)
-        const isCollapsed = collapsedParents.has(task.id)
-        const children = (node?.children || []).filter((c) => groupTaskIds.has(c.id))
-
-        rows.push({
-          type: 'task',
-          task,
-          rowIndex: currentRowIndex,
-          depth: groupByMilestone ? 1 : 0,
-          isParent: children.length > 0,
-          isCollapsed,
-          childCount: children.length,
-          summaryStart: node?.summaryStart,
-          summaryEnd: node?.summaryEnd,
-        })
-        processedIds.add(task.id)
-        currentRowIndex++
-
-        // Add children if not collapsed
-        if (children.length > 0 && !isCollapsed) {
-          children.forEach((child) => {
-            rows.push({
-              type: 'task',
-              task: child,
-              rowIndex: currentRowIndex,
-              depth: groupByMilestone ? 2 : 1,
-              isParent: false,
-              isCollapsed: false,
-              childCount: 0,
-            })
-            processedIds.add(child.id)
-            currentRowIndex++
-          })
-        }
-      })
-    })
-
-    return rows
-  }, [taskGroups, groupByMilestone, taskTree, collapsedParents])
-
-  const totalRows = rowData.length
   const chartHeight = totalRows * GANTT_CONFIG.ROW_HEIGHT
 
   // Find today's position for scroll
@@ -254,8 +141,23 @@ export function GanttChart({
   // Today line position
   const todayX = todayIndex >= 0 ? dateToX(new Date(), startDate, dayWidth) : null
 
+  // Build row index map
+  let currentRowIndex = 0
+  const rowData: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; rowIndex: number }> = []
+
+  taskGroups.forEach((group) => {
+    if (groupByMilestone) {
+      rowData.push({ type: 'header', milestone: group.milestone, rowIndex: currentRowIndex })
+      currentRowIndex++
+    }
+    group.tasks.forEach((task) => {
+      rowData.push({ type: 'task', task, rowIndex: currentRowIndex })
+      currentRowIndex++
+    })
+  })
+
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg border border-slate-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Toolbar */}
       <div
         className="flex items-center justify-between px-4 border-b flex-shrink-0"
@@ -266,8 +168,8 @@ export function GanttChart({
         }}
       >
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium text-slate-900">ガントチャート</h2>
-          <span className="text-xs text-slate-500">
+          <h2 className="text-sm font-medium text-gray-900">ガントチャート</h2>
+          <span className="text-xs text-gray-500">
             {tasks.length} タスク
           </span>
         </div>
@@ -278,8 +180,8 @@ export function GanttChart({
             onClick={() => setGroupByMilestone(!groupByMilestone)}
             className={`p-1.5 rounded transition-colors ${
               groupByMilestone
-                ? 'bg-slate-200 text-slate-900'
-                : 'hover:bg-slate-100 text-slate-600'
+                ? 'bg-gray-200 text-gray-900'
+                : 'hover:bg-gray-100 text-gray-600'
             }`}
             title={groupByMilestone ? 'フラット表示' : 'マイルストーン別'}
           >
@@ -290,37 +192,37 @@ export function GanttChart({
             )}
           </button>
 
-          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <div className="w-px h-4 bg-gray-200 mx-1" />
 
           {/* Zoom controls */}
           <button
             onClick={() => cycleViewMode('out')}
             disabled={viewMode === 'month'}
-            className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="縮小"
           >
-            <MagnifyingGlassMinus className="w-4 h-4 text-slate-600" />
+            <MagnifyingGlassMinus className="w-4 h-4 text-gray-600" />
           </button>
 
-          <span className="px-2 text-xs font-medium text-slate-600 min-w-[32px] text-center">
+          <span className="px-2 text-xs font-medium text-gray-600 min-w-[32px] text-center">
             {VIEW_MODE_CONFIG[viewMode].label}
           </span>
 
           <button
             onClick={() => cycleViewMode('in')}
             disabled={viewMode === 'day'}
-            className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="拡大"
           >
-            <MagnifyingGlassPlus className="w-4 h-4 text-slate-600" />
+            <MagnifyingGlassPlus className="w-4 h-4 text-gray-600" />
           </button>
 
-          <div className="w-px h-4 bg-slate-200 mx-2" />
+          <div className="w-px h-4 bg-gray-200 mx-2" />
 
           {/* Today button */}
           <button
             onClick={scrollToToday}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <CalendarBlank className="w-3.5 h-3.5" />
             今日
@@ -339,7 +241,7 @@ export function GanttChart({
             backgroundColor: GANTT_CONFIG.COLORS.HEADER_BG,
           }}
         >
-          <span className="text-xs font-medium text-slate-500">タスク名</span>
+          <span className="text-xs font-medium text-gray-500">タスク名</span>
         </div>
 
         {/* Date header */}
@@ -377,7 +279,7 @@ export function GanttChart({
               return (
                 <div
                   key={`header-${row.milestone?.id || 'none'}`}
-                  className="flex items-center px-3 bg-slate-50 border-b font-medium"
+                  className="flex items-center px-3 bg-gray-50 border-b font-medium"
                   style={{
                     height: GANTT_CONFIG.ROW_HEIGHT,
                     borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
@@ -392,7 +294,7 @@ export function GanttChart({
                     }}
                   />
                   <span
-                    className="text-xs truncate"
+                    className="text-xs truncate flex-1"
                     style={{
                       color: row.milestone
                         ? GANTT_CONFIG.COLORS.MILESTONE
@@ -401,6 +303,29 @@ export function GanttChart({
                   >
                     {row.milestone?.name || 'マイルストーン未設定'}
                   </span>
+                  {/* Risk badge in sidebar */}
+                  {row.milestone && riskForecasts?.get(row.milestone.id) && (() => {
+                    const risk = riskForecasts.get(row.milestone!.id)!
+                    if (risk.level === 'none' || risk.remainingTasks === 0) return null
+                    const badgeColors = {
+                      high: { bg: '#FEE2E2', text: '#DC2626' },
+                      medium: { bg: '#FEF3C7', text: '#D97706' },
+                      low: { bg: '#DCFCE7', text: '#16A34A' },
+                    } as const
+                    const c = badgeColors[risk.level as keyof typeof badgeColors]
+                    if (!c) return null
+                    return (
+                      <span
+                        className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0"
+                        style={{ backgroundColor: c.bg, color: c.text }}
+                        title={risk.insufficientData
+                          ? `残${risk.remainingTasks}件 / データ不足`
+                          : `残${risk.remainingTasks}件 / ${risk.velocity.toFixed(1)}件/日`}
+                      >
+                        {risk.insufficientData ? '?' : risk.level === 'high' ? '高' : risk.level === 'medium' ? '中' : '低'}
+                      </span>
+                    )
+                  })()}
                 </div>
               )
             }
@@ -408,40 +333,19 @@ export function GanttChart({
             const task = row.task!
             const isSelected = task.id === selectedTaskId
             const statusColors = getStatusBadge(task.status)
-            const indentPx = 12 + row.depth * 16
 
             return (
               <div
                 key={task.id}
                 onClick={() => onTaskClick?.(task.id)}
-                className="flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-slate-50"
+                className="flex items-center gap-2 px-3 cursor-pointer transition-colors hover:bg-gray-50"
                 style={{
                   height: GANTT_CONFIG.ROW_HEIGHT,
                   backgroundColor: isSelected ? '#F1F5F9' : undefined,
                   borderBottom: `0.5px solid ${GANTT_CONFIG.COLORS.GRID_LINE}`,
-                  paddingLeft: indentPx,
-                  paddingRight: 8,
+                  paddingLeft: groupByMilestone ? 24 : 12,
                 }}
               >
-                {/* Collapse/expand toggle for parent tasks */}
-                {row.isParent ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleCollapse(task.id)
-                    }}
-                    className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-slate-200 text-slate-500"
-                  >
-                    {row.isCollapsed ? (
-                      <CaretRight className="w-3 h-3" weight="bold" />
-                    ) : (
-                      <CaretDown className="w-3 h-3" weight="bold" />
-                    )}
-                  </button>
-                ) : (
-                  <div className="flex-shrink-0 w-4" />
-                )}
-
                 {/* Ball indicator */}
                 <div
                   className="w-2 h-2 rounded-full flex-shrink-0"
@@ -456,21 +360,14 @@ export function GanttChart({
 
                 {/* Task title */}
                 <span
-                  className="flex-1 truncate text-slate-900"
+                  className="flex-1 truncate text-gray-900"
                   style={{
                     fontSize: GANTT_CONFIG.FONT.SIZE_SM,
-                    fontWeight: row.isParent ? 500 : isSelected ? 500 : 400,
+                    fontWeight: isSelected ? 500 : 400,
                   }}
                 >
                   {task.title}
                 </span>
-
-                {/* Child count badge for parent tasks */}
-                {row.isParent && (
-                  <span className="px-1 py-0.5 rounded text-[9px] font-medium text-indigo-600 bg-indigo-50 flex-shrink-0">
-                    {row.childCount}
-                  </span>
-                )}
 
                 {/* Status badge */}
                 <span
@@ -488,7 +385,7 @@ export function GanttChart({
 
           {tasks.length === 0 && (
             <div
-              className="flex items-center justify-center text-slate-400"
+              className="flex items-center justify-center text-gray-400"
               style={{
                 height: GANTT_CONFIG.ROW_HEIGHT * 3,
                 fontSize: GANTT_CONFIG.FONT.SIZE_SM,
@@ -556,10 +453,7 @@ export function GanttChart({
                     rowIndex={row.rowIndex}
                     onClick={onTaskClick}
                     isSelected={task.id === selectedTaskId}
-                    onDateChange={row.isParent ? undefined : onDateChange}
-                    isParent={row.isParent}
-                    summaryStart={row.summaryStart}
-                    summaryEnd={row.summaryEnd}
+                    onDateChange={onDateChange}
                   />
                 )
               })}
@@ -572,6 +466,7 @@ export function GanttChart({
                   startDate={startDate}
                   dayWidth={dayWidth}
                   chartHeight={chartHeight}
+                  risk={riskForecasts?.get(milestone.id)}
                 />
               ))}
 
@@ -598,7 +493,7 @@ export function GanttChart({
 
             {/* Empty state */}
             {tasks.length === 0 && (
-              <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
+              <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
                 タスクがありません
               </div>
             )}
@@ -608,7 +503,7 @@ export function GanttChart({
 
       {/* Legend */}
       <div
-        className="flex items-center gap-4 px-4 py-2 border-t text-xs text-slate-500 flex-shrink-0"
+        className="flex items-center gap-4 px-4 py-2 border-t text-xs text-gray-500 flex-shrink-0"
         style={{ borderColor: GANTT_CONFIG.COLORS.GRID_LINE }}
       >
         <div className="flex items-center gap-1.5">
@@ -634,13 +529,6 @@ export function GanttChart({
         </div>
         <div className="flex items-center gap-1.5">
           <div
-            className="w-3 h-1.5 rounded-sm"
-            style={{ backgroundColor: GANTT_CONFIG.COLORS.PARENT_BAR }}
-          />
-          <span>親タスク</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div
             className="w-2 h-2 rotate-45"
             style={{
               backgroundColor: GANTT_CONFIG.COLORS.MILESTONE_BG,
@@ -657,12 +545,12 @@ export function GanttChart({
 // Status badge color helper
 function getStatusBadge(status: string): { bg: string; text: string } {
   const colors: Record<string, { bg: string; text: string }> = {
-    backlog: { bg: '#F1F5F9', text: '#64748B' },
-    todo: { bg: '#DBEAFE', text: '#1D4ED8' },
-    in_progress: { bg: '#DCFCE7', text: '#15803D' },
-    in_review: { bg: '#FEF3C7', text: '#B45309' },
-    done: { bg: '#F1F5F9', text: '#64748B' },
-    considering: { bg: '#FEF3C7', text: '#B45309' },
+    backlog: { bg: '#F3F4F6', text: '#6B7280' },
+    todo: { bg: '#F3F4F6', text: '#6B7280' },
+    in_progress: { bg: '#EFF6FF', text: '#2563EB' },
+    in_review: { bg: '#FFFBEB', text: '#D97706' },
+    done: { bg: '#F0FDF4', text: '#16A34A' },
+    considering: { bg: '#F3F4F6', text: '#6B7280' },
   }
   return colors[status] || colors.backlog
 }
@@ -671,7 +559,7 @@ const statusLabels: Record<string, string> = {
   backlog: '未着手',
   todo: 'ToDo',
   in_progress: '進行中',
-  in_review: 'レビュー中',
+  in_review: '承認確認中',
   done: '完了',
   considering: '検討中',
 }

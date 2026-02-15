@@ -7,6 +7,7 @@ import {
   handleInstallationEvent,
   handleInstallationRepositoriesEvent,
 } from '@/lib/github'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Webhookはbodyをrawで受け取る必要がある
 export const runtime = 'nodejs'
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   const data = JSON.parse(payload)
 
   // イベントログ保存
-  await (getSupabaseAdmin() as any).from('github_webhook_events').insert({
+  await (getSupabaseAdmin() as SupabaseClient).from('github_webhook_events').insert({
     installation_id: data.installation?.id,
     event_type: event,
     action: data.action,
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     // 処理済みマーク
     if (delivery) {
-      await (getSupabaseAdmin() as any)
+      await (getSupabaseAdmin() as SupabaseClient)
         .from('github_webhook_events')
         .update({ processed: true })
         .eq('delivery_id', delivery)
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     // エラーログ更新
     if (delivery) {
-      await (getSupabaseAdmin() as any)
+      await (getSupabaseAdmin() as SupabaseClient)
         .from('github_webhook_events')
         .update({
           processed: true,

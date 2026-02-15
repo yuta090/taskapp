@@ -104,6 +104,7 @@ export function SlotResponseGrid({
           : null
         fresh[slot.id] = serverResp?.response ?? null
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMyDraftResponses(fresh)
       return
     }

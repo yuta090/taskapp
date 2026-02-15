@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { DownloadSimple, Spinner, Pencil, Check, X, Trash, Plus } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface ExportSettingsProps {
   spaceId: string
@@ -63,7 +64,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
   // テンプレート一覧を取得
   useEffect(() => {
     async function fetchTemplates() {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (supabase as SupabaseClient)
         .from('export_templates')
         .select('*')
         .eq('space_id', spaceId)
@@ -147,7 +148,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
     try {
       if (selectedTemplateId) {
         // 既存テンプレートを更新
-        const { error } = await (supabase as any)
+        const { error } = await (supabase as SupabaseClient)
           .from('export_templates')
           .update({
             name: editingName,
@@ -165,7 +166,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
         ))
       } else {
         // 新規テンプレート作成
-        const { data, error } = await (supabase as any)
+        const { data, error } = await (supabase as SupabaseClient)
           .from('export_templates')
           .insert({
             space_id: spaceId,
@@ -199,7 +200,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
     if (!confirm('このテンプレートを削除しますか？')) return
 
     try {
-      const { error } = await (supabase as any)
+      const { error } = await (supabase as SupabaseClient)
         .from('export_templates')
         .delete()
         .eq('id', selectedTemplateId)
@@ -232,7 +233,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
 
     try {
       // まず全てのis_defaultをfalseに
-      const { error: resetError } = await (supabase as any)
+      const { error: resetError } = await (supabase as SupabaseClient)
         .from('export_templates')
         .update({ is_default: false })
         .eq('space_id', spaceId)
@@ -240,7 +241,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
       if (resetError) throw resetError
 
       // 選択したテンプレートをデフォルトに
-      const { error } = await (supabase as any)
+      const { error } = await (supabase as SupabaseClient)
         .from('export_templates')
         .update({ is_default: true })
         .eq('id', selectedTemplateId)

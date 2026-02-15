@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * Fire-and-forget server-side notification.
@@ -91,8 +92,8 @@ export async function POST(
     }
 
     // Fetch task details and verify membership in parallel
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const taskPromise = (supabase as any)
+     
+    const taskPromise = (supabase as SupabaseClient)
       .from('tasks')
       .select('id, org_id, space_id, title, status, ball, type')
       .eq('id', taskId)
@@ -124,8 +125,8 @@ export async function POST(
     }
 
     // Verify user has access to this task's space (is a client member)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: membership } = await (supabase as any)
+     
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('id, role')
       .eq('space_id', task.space_id)
@@ -147,8 +148,8 @@ export async function POST(
     if (action === 'approve') {
       // Update task status to done and transfer ball to internal
       // IMPORTANT: Include ball='client' in WHERE clause to prevent race conditions
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: updatedTask, error: updateError } = await (supabase as any)
+       
+      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
         .from('tasks')
         .update({
           status: 'done',
@@ -205,8 +206,8 @@ export async function POST(
       // action === 'request_changes'
       // Transfer ball back to internal team
       // IMPORTANT: Include ball='client' in WHERE clause to prevent race conditions
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: updatedTask, error: updateError } = await (supabase as any)
+       
+      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
         .from('tasks')
         .update({
           ball: 'internal',
@@ -228,8 +229,8 @@ export async function POST(
       }
 
       // Run audit log (fire-and-forget) and comment insert (required) in parallel
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const commentPromise = (supabase as any)
+       
+      const commentPromise = (supabase as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -275,8 +276,8 @@ export async function POST(
         console.error('Failed to create task comment:', commentError)
 
         // Attempt to revert the ball change (conditional to avoid clobbering newer state)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any)
+         
+        await (supabase as SupabaseClient)
           .from('tasks')
           .update({ ball: 'client', updated_at: now })
           .eq('id', taskId)

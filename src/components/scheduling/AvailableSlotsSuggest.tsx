@@ -4,7 +4,6 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import { CalendarBlank, Lightning, CaretDown, CaretUp, Check, Info } from '@phosphor-icons/react'
 import {
   computeAvailableSlots,
-  formatSlotLabel,
   dayLabel,
   type AvailableSlot,
   type BusyPeriod,

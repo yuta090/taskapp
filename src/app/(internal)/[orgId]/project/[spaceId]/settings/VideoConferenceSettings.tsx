@@ -6,6 +6,7 @@ import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import type { IntegrationProvider } from '@/lib/integrations/types'
 import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type VideoProvider = 'google_meet' | 'zoom' | 'teams'
 
@@ -24,7 +25,6 @@ export function VideoConferenceSettings({ orgId, spaceId }: VideoConferenceSetti
   const {
     loading,
     error,
-    connections,
     disconnect,
     isConnected,
     getConnection,
@@ -45,7 +45,7 @@ export function VideoConferenceSettings({ orgId, spaceId }: VideoConferenceSetti
     let cancelled = false
     const fetchDefault = async () => {
       try {
-        const { data } = await (supabase as any)
+        const { data } = await (supabase as SupabaseClient)
           .from('spaces')
           .select('default_video_provider')
           .eq('id', spaceId)
@@ -69,7 +69,7 @@ export function VideoConferenceSettings({ orgId, spaceId }: VideoConferenceSetti
       setDefaultProvider(provider)
       setSaving(true)
       try {
-        await (supabase as any)
+        await (supabase as SupabaseClient)
           .from('spaces')
           .update({ default_video_provider: provider || null })
           .eq('id', spaceId)

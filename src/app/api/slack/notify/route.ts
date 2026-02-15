@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { notificationRegistry } from '@/lib/notifications'
 import { SlackNotificationProvider } from '@/lib/slack/provider'
@@ -63,19 +63,19 @@ export async function POST(request: NextRequest) {
 
     // タスク・Space・Actor・Assignee情報を並列取得
     const [taskResult, spaceResult, actorResult] = await Promise.all([
-      (getSupabaseAdmin() as any)
+      (getSupabaseAdmin() as SupabaseClient)
         .from('tasks')
         .select('*')
         .eq('id', taskId)
         .eq('space_id', spaceId)
         .single(),
-      (getSupabaseAdmin() as any)
+      (getSupabaseAdmin() as SupabaseClient)
         .from('spaces')
         .select('name, org_id')
         .eq('id', spaceId)
         .single(),
       resolvedActorId
-        ? (getSupabaseAdmin() as any)
+        ? (getSupabaseAdmin() as SupabaseClient)
             .from('profiles')
             .select('display_name')
             .eq('id', resolvedActorId)
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Assignee名取得
     let assigneeName: string | null = null
     if (task.assignee_id) {
-      const { data: assigneeProfile } = await (getSupabaseAdmin() as any)
+      const { data: assigneeProfile } = await (getSupabaseAdmin() as SupabaseClient)
         .from('profiles')
         .select('display_name')
         .eq('id', task.assignee_id)

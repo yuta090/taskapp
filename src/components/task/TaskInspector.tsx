@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, TreeStructure } from '@phosphor-icons/react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -12,13 +12,14 @@ import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface TaskInspectorProps {
   task: Task
   spaceId: string
   owners?: TaskOwner[]
   onClose: () => void
-  onPassBall?: (ball: 'client' | 'internal') => void
+  onPassBall?: (ball: 'client' | 'internal', clientOwnerIds?: string[], internalOwnerIds?: string[]) => void
   onUpdate?: (updates: {
     title?: string
     description?: string | null
@@ -28,6 +29,7 @@ interface TaskInspectorProps {
     milestoneId?: string | null
     assigneeId?: string | null
     parentTaskId?: string | null
+    actualHours?: number | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
@@ -44,7 +46,7 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'backlog', label: '未着手' },
   { value: 'todo', label: 'ToDo' },
   { value: 'in_progress', label: '進行中' },
-  { value: 'in_review', label: 'レビュー中' },
+  { value: 'in_review', label: '承認確認中' },
   { value: 'done', label: '完了' },
   { value: 'considering', label: '検討中' },
 ]
@@ -74,11 +76,14 @@ export function TaskInspector({
   const [specConfirmTaskId, setSpecConfirmTaskId] = useState<string | null>(null)
   const [isSettingSpecState, setIsSettingSpecState] = useState(false)
 
-  // Reset spec confirmation state when task changes
+  // Reset spec confirmation state and pending ball change when task changes
   useEffect(() => {
     setSpecConfirmClickTime(null)
     setSpecConfirmTaskId(null)
     setIsSettingSpecState(false)
+    setPendingBallChange(null)
+    setOwnerValidationError(null)
+    setEditingOwners(false)
   }, [task.id])
 
   // Milestone data
@@ -100,34 +105,30 @@ export function TaskInspector({
   const [selectedClientOwners, setSelectedClientOwners] = useState<string[]>([])
   const [selectedInternalOwners, setSelectedInternalOwners] = useState<string[]>([])
 
+  // Pending ball change state: when user clicks "外部" but no client owners exist yet
+  const [pendingBallChange, setPendingBallChange] = useState<'client' | null>(null)
+  const [ownerValidationError, setOwnerValidationError] = useState<string | null>(null)
+
+  // Ref for auto-scroll to inline owner selector
+  const pendingOwnerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to inline owner selector when pending state activates
+  useEffect(() => {
+    if (pendingBallChange && pendingOwnerRef.current) {
+      pendingOwnerRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [pendingBallChange])
+
   const supabase = useMemo(() => createClient(), [])
 
   const clientOwners = owners.filter((o) => o.side === 'client')
   const internalOwners = owners.filter((o) => o.side === 'internal')
 
-  // FR-ASN-001: ボール連動の担当者選択
-  // ball='internal' → 社内メンバーのみ、ball='client' → 全メンバー（社内+クライアント）
-  // 注意: 現在の担当者が選択肢にない場合でも表示できるよう含める
-  const assignableMembers = useMemo(() => {
-    const baseMembers = task.ball === 'client'
-      ? [...internalMembers, ...clientMembers]
-      : internalMembers
-
-    // 現在の担当者が選択肢に含まれていない場合は追加（不整合状態の表示用）
-    if (task.assignee_id && !baseMembers.some((m) => m.id === task.assignee_id)) {
-      const currentAssignee = members.find((m) => m.id === task.assignee_id)
-      if (currentAssignee) {
-        return [...baseMembers, currentAssignee]
-      }
-    }
-    return baseMembers
-  }, [task.ball, task.assignee_id, internalMembers, clientMembers, members])
-
   // Fetch milestones
   useEffect(() => {
     const fetchMilestones = async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: msData } = await (supabase as any)
+       
+      const { data: msData } = await (supabase as SupabaseClient)
         .from('milestones')
         .select('*')
         .eq('space_id' as never, spaceId as never)
@@ -186,6 +187,14 @@ export function TaskInspector({
     }
   }
 
+  const handleActualHoursChange = async (value: string) => {
+    const hours = value === '' ? null : parseFloat(value)
+    if (hours !== null && isNaN(hours)) return
+    if (hours !== task.actual_hours) {
+      await onUpdate?.({ actualHours: hours })
+    }
+  }
+
   const handleMilestoneChange = async (milestoneId: string) => {
     const newMilestoneId = milestoneId || null
     if (newMilestoneId !== task.milestone_id) {
@@ -200,14 +209,42 @@ export function TaskInspector({
     }
   }
 
-  // FR-ASN-003: ボール切り替え時の警告ハンドラー
+  // FR-ASN-003: ボール切り替え時のハンドラー（ペンディング状態対応）
   const handleBallChange = (newBall: 'client' | 'internal') => {
+    if (newBall === 'client') {
+      // 外部メンバーがスペースに存在しない場合
+      if (clientMembers.length === 0) {
+        setOwnerValidationError('スペースに外部メンバーが登録されていません。設定画面からメンバーを追加してください。')
+        return
+      }
+
+      // 既に外部担当者が設定されている場合はそのまま渡す
+      if (clientOwners.length > 0) {
+        onPassBall?.(newBall)
+        return
+      }
+
+      // 外部担当者が未設定 → ペンディング状態に移行して担当者選択UIを開く
+      setPendingBallChange('client')
+      setOwnerValidationError(null)
+      setSelectedClientOwners([])
+      setSelectedInternalOwners(internalOwners.map((o) => o.user_id))
+      setEditingOwners(true)
+      return
+    }
+
+    // 「社内」に切り替え: ペンディング状態をキャンセル
+    if (pendingBallChange) {
+      setPendingBallChange(null)
+      setOwnerValidationError(null)
+      setEditingOwners(false)
+      return
+    }
+
     // client → internal に切り替え時、担当者が社内メンバーでなければ警告
-    // 注意: membersロード中は誤警告を防ぐためスキップ（UIの不整合警告で後から検出可能）
-    if (newBall === 'internal' && task.ball === 'client' && task.assignee_id && !membersLoading) {
+    if (task.ball === 'client' && task.assignee_id && !membersLoading) {
       const isInternalAssignee = internalMembers.some((m) => m.id === task.assignee_id)
       if (!isInternalAssignee) {
-        // 担当者名を取得（clientMembersから、または全membersから）
         const assignee = clientMembers.find((m) => m.id === task.assignee_id)
           || members.find((m) => m.id === task.assignee_id)
         const assigneeName = assignee?.displayName || '現在の担当者'
@@ -237,7 +274,27 @@ export function TaskInspector({
   }
 
   const handleSaveOwners = async () => {
+    if (pendingBallChange === 'client') {
+      // ボール切替時: 外部担当者必須バリデーション
+      if (selectedClientOwners.length === 0) {
+        setOwnerValidationError('外部担当者を1人以上選択してください')
+        return
+      }
+      // ボール切替 + オーナー更新を一括実行
+      onPassBall?.('client', selectedClientOwners, selectedInternalOwners)
+      setPendingBallChange(null)
+      setOwnerValidationError(null)
+      setEditingOwners(false)
+      return
+    }
+    // 通常のオーナー更新
     await onUpdateOwners?.(selectedClientOwners, selectedInternalOwners)
+    setEditingOwners(false)
+  }
+
+  const handleCancelPendingBall = () => {
+    setPendingBallChange(null)
+    setOwnerValidationError(null)
     setEditingOwners(false)
   }
 
@@ -352,9 +409,9 @@ export function TaskInspector({
                   task.status === 'done'
                     ? 'text-green-500'
                     : task.status === 'in_progress'
-                    ? 'text-blue-500'
-                    : task.status === 'considering'
-                    ? 'text-amber-500'
+                    ? 'text-blue-400'
+                    : task.status === 'in_review'
+                    ? 'text-amber-400'
                     : 'text-gray-300'
                 }`}
               />
@@ -373,7 +430,7 @@ export function TaskInspector({
               onClick={() => handleBallChange('internal')}
               data-testid="task-inspector-ball-internal"
               className={`flex-1 px-3 py-2 rounded border text-sm transition-colors ${
-                task.ball === 'internal'
+                task.ball === 'internal' && !pendingBallChange
                   ? 'bg-gray-100 border-gray-300 font-medium'
                   : 'border-gray-200 hover:bg-gray-50'
               }`}
@@ -384,7 +441,7 @@ export function TaskInspector({
               onClick={() => handleBallChange('client')}
               data-testid="task-inspector-ball-client"
               className={`flex-1 px-3 py-2 rounded border text-sm transition-colors ${
-                task.ball === 'client'
+                task.ball === 'client' || pendingBallChange === 'client'
                   ? 'bg-amber-50 border-amber-300 font-medium text-amber-700'
                   : 'border-gray-200 hover:bg-gray-50'
               }`}
@@ -395,7 +452,114 @@ export function TaskInspector({
               </span>
             </button>
           </div>
+          {/* インラインオーナー選択: ボールトグル直下に表示（空間的断絶を防ぐ） */}
+          {pendingBallChange === 'client' && (
+            <div ref={pendingOwnerRef} className="mt-2 p-3 bg-amber-50/60 rounded-lg border border-amber-200 space-y-3">
+              {/* バリデーションエラー */}
+              {ownerValidationError && (
+                <p className="text-xs text-red-600 bg-red-50 px-2 py-1.5 rounded border border-red-200">
+                  {ownerValidationError}
+                </p>
+              )}
+
+              {/* 外部メンバーチップ */}
+              <div>
+                <label className="text-xs font-medium text-amber-700">
+                  外部担当者を選択
+                  <span className="text-[10px] ml-1 font-normal text-amber-500">(必須)</span>
+                </label>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {clientMembers.map((member) => {
+                    const isSelected = selectedClientOwners.includes(member.id)
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => {
+                          toggleClientOwner(member.id)
+                          setOwnerValidationError(null)
+                        }}
+                        className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                          isSelected
+                            ? 'bg-amber-200 border-amber-400 text-amber-800 font-medium'
+                            : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'
+                        }`}
+                      >
+                        {member.displayName}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* 社内メンバーチップ（折りたたみ気味に） */}
+              {internalMembers.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-gray-400">社内担当</label>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {internalMembers.map((member) => {
+                      const isSelected = selectedInternalOwners.includes(member.id)
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => toggleInternalOwner(member.id)}
+                          className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                            isSelected
+                              ? 'bg-gray-200 border-gray-300 text-gray-700 font-medium'
+                              : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          {member.displayName}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* アクションボタン */}
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={handleCancelPendingBall}
+                  className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded transition-colors"
+                >
+                  やめる
+                </button>
+                <button
+                  onClick={handleSaveOwners}
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded transition-colors"
+                >
+                  外部に渡す
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 外部メンバー不在エラー（クリックで消せる） */}
+          {ownerValidationError && !pendingBallChange && (
+            <button
+              type="button"
+              onClick={() => setOwnerValidationError(null)}
+              className="w-full text-left"
+            >
+              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200 flex items-center justify-between">
+                <span>{ownerValidationError}</span>
+                <X className="text-sm flex-shrink-0 text-red-400" />
+              </p>
+            </button>
+          )}
         </div>
+
+        {/* 承認フロー - ステータス/ボールの直後に配置 */}
+        <TaskReviewSection
+          taskId={task.id}
+          spaceId={spaceId}
+          orgId={task.org_id}
+          taskStatus={task.status}
+          readOnly={!onUpdate}
+          onReviewChange={onReviewChange}
+        />
 
         {/* Milestone */}
         <div className="space-y-2">
@@ -488,11 +652,6 @@ export function TaskInspector({
           <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
             <User className="text-sm" />
             担当者
-            {task.ball === 'client' && (
-              <span className="text-[10px] text-amber-600 ml-1">
-                (外部メンバーも選択可)
-              </span>
-            )}
             {/* 不整合状態警告: ball=internalでクライアント担当者（ロード中は非表示） */}
             {!membersLoading && task.ball === 'internal' && task.assignee_id && !internalMembers.some((m) => m.id === task.assignee_id) && (
               <span className="text-[10px] text-red-600 ml-1">
@@ -512,16 +671,35 @@ export function TaskInspector({
               }`}
             >
               <option value="">未設定</option>
-              {assignableMembers.map((m) => {
-                const isClientInInternalBall = task.ball === 'internal' && m.role === 'client'
-                return (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName}
-                    {m.role === 'client' && ' (外部)'}
-                    {isClientInInternalBall && m.id === task.assignee_id && ' ⚠'}
+              {/* 社内メンバーグループ */}
+              {internalMembers.length > 0 && (
+                <optgroup label="社内メンバー">
+                  {internalMembers.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.displayName}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {/* 外部メンバーグループ (ball='client'時のみ表示) */}
+              {(task.ball === 'client' || pendingBallChange === 'client') && clientMembers.length > 0 && (
+                <optgroup label="外部メンバー">
+                  {clientMembers.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.displayName}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {/* 不整合状態: 現在の担当者がリストにない場合 */}
+              {task.assignee_id && !internalMembers.some((m) => m.id === task.assignee_id) && !clientMembers.some((m) => m.id === task.assignee_id) && (() => {
+                const currentAssignee = members.find((m) => m.id === task.assignee_id)
+                return currentAssignee ? (
+                  <option key={currentAssignee.id} value={currentAssignee.id}>
+                    {currentAssignee.displayName} (不明)
                   </option>
-                )
-              })}
+                ) : null
+              })()}
             </select>
           ) : (
             <div className="text-sm text-gray-700">
@@ -534,11 +712,11 @@ export function TaskInspector({
         {shouldShowOwnerField && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-gray-500">責任者</label>
+            <label className="text-xs font-medium text-gray-500">実行担当</label>
             {onUpdateOwners && !editingOwners && (
               <button
                 onClick={handleStartEditingOwners}
-                className="text-xs text-blue-600 hover:text-blue-700"
+                className="text-xs text-gray-500 hover:text-gray-700"
               >
                 編集
               </button>
@@ -658,22 +836,23 @@ export function TaskInspector({
         </div>
         )}
 
+
         {/* Spec Task Info - AT-009: 2-click workflow */}
         {task.type === 'spec' && (
-          <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
-            <label className="text-xs font-medium text-purple-600">
+          <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="text-xs font-medium text-gray-500">
               仕様タスク
             </label>
 
             {/* Spec Path */}
             {task.spec_path ? (
               <div className="flex items-center gap-2 text-sm text-gray-700">
-                <LinkIcon className="text-purple-400" />
+                <LinkIcon className="text-gray-400" />
                 <a
                   href={task.spec_path}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-purple-600 hover:underline truncate"
+                  className="text-gray-600 hover:underline truncate"
                 >
                   {task.spec_path}
                 </a>
@@ -690,10 +869,8 @@ export function TaskInspector({
                 <span
                   className={`text-xs px-2 py-1 rounded font-medium ${
                     task.decision_state === 'implemented'
-                      ? 'bg-green-100 text-green-700'
-                      : task.decision_state === 'decided'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-amber-100 text-amber-700'
+                      ? 'bg-green-50 text-green-600'
+                      : 'bg-gray-100 text-gray-600'
                   }`}
                 >
                   {task.decision_state === 'implemented'
@@ -707,7 +884,7 @@ export function TaskInspector({
 
             {/* AT-009: 2-click workflow for decided → implemented */}
             {onSetSpecState && task.decision_state === 'decided' && (
-              <div className="pt-2 space-y-2 border-t border-purple-200">
+              <div className="pt-2 space-y-2 border-t border-gray-200">
                 {/* Step 1: Open spec to confirm */}
                 {(!specConfirmClickTime || specConfirmTaskId !== task.id) && (
                   <button
@@ -732,7 +909,7 @@ export function TaskInspector({
                     data-testid="spec-confirm-open"
                     className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
                       task.spec_path
-                        ? 'bg-purple-600 text-white hover:bg-purple-700'
+                        ? 'bg-gray-900 text-white hover:bg-gray-800'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
                   >
@@ -743,7 +920,7 @@ export function TaskInspector({
                 {/* Step 2: Mark as implemented (within 10 minutes) */}
                 {specConfirmClickTime && specConfirmTaskId === task.id && (
                   <>
-                    <div className="text-xs text-purple-600">
+                    <div className="text-xs text-gray-600">
                       仕様を確認しました。実装が完了したら下のボタンを押してください。
                       <br />
                       <span className="text-gray-500">
@@ -793,7 +970,7 @@ export function TaskInspector({
 
             {/* State transition for considering → decided */}
             {onSetSpecState && task.decision_state === 'considering' && (
-              <div className="pt-2 border-t border-purple-200">
+              <div className="pt-2 border-t border-gray-200">
                 <button
                   onClick={async () => {
                     if (!task.spec_path) {
@@ -813,7 +990,7 @@ export function TaskInspector({
                   data-testid="spec-mark-decided"
                   className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
                     task.spec_path && !isSettingSpecState
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      ? 'bg-gray-900 text-white hover:bg-gray-800'
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
@@ -871,6 +1048,37 @@ export function TaskInspector({
             <div className="text-sm text-gray-400">未設定</div>
           )}
         </div>
+
+        {/* Actual Hours (shown when task is done) */}
+        {task.status === 'done' && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <Timer className="text-sm" />
+              実績工数
+            </label>
+            {onUpdate ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={task.actual_hours ?? ''}
+                  onChange={(e) => handleActualHoursChange(e.target.value)}
+                  placeholder="0.0"
+                  data-testid="task-inspector-actual-hours"
+                  className="w-24 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-xs text-gray-500">時間</span>
+              </div>
+            ) : task.actual_hours !== null ? (
+              <div className="text-sm text-gray-700">
+                {task.actual_hours}h
+              </div>
+            ) : (
+              <div className="text-sm text-gray-400">未入力</div>
+            )}
+          </div>
+        )}
 
         {/* Description */}
         <div className="space-y-2">
@@ -939,15 +1147,6 @@ export function TaskInspector({
 
         {/* Slack */}
         <SlackPostButton taskId={task.id} spaceId={spaceId} />
-
-        {/* Review */}
-        <TaskReviewSection
-          taskId={task.id}
-          spaceId={spaceId}
-          orgId={task.org_id}
-          readOnly={!onUpdate}
-          onReviewChange={onReviewChange}
-        />
 
         {/* Comments */}
         <TaskComments

@@ -29,8 +29,9 @@ export function WikiPageInspector({
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [tagInput, setTagInput] = useState('')
 
-  // Reset state when page changes
+  // Reset state when page changes — intentional state sync from props
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional state reset when page changes
     setEditTitle(page.title)
     setIsEditingTitle(false)
     setIsDeleting(false)

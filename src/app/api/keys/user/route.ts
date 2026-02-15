@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 
 // Create admin client with service role key (bypasses RLS)
 function createAdminClient() {
@@ -65,7 +64,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const orgId = (membership.spaces as any).org_id
+    const spaces = membership.spaces as unknown as { org_id: string } | { org_id: string }[]
+    const orgId = Array.isArray(spaces) ? spaces[0]?.org_id : spaces?.org_id
 
     // Verify user has access to all selected spaces
     const { data: userSpaces, error: spacesError } = await adminClient
@@ -170,6 +170,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 // GET /api/keys/user - List current user's API keys
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()

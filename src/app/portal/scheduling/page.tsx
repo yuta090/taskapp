@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalSchedulingClient } from './PortalSchedulingClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalSchedulingPage() {
   const supabase = await createClient()
@@ -12,8 +13,8 @@ export default async function PortalSchedulingPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -53,8 +54,8 @@ export default async function PortalSchedulingPage() {
   const spaceId = currentProject.id
 
   // Fetch action count
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count: actionCount } = await (supabase as any)
+   
+  const { count: actionCount } = await (supabase as SupabaseClient)
     .from('tasks')
     .select('id', { count: 'exact', head: true })
     .eq('space_id', spaceId)

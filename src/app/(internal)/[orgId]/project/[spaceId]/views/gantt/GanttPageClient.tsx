@@ -9,6 +9,7 @@ import { useInspector } from '@/components/layout'
 import { TaskInspector } from '@/components/task/TaskInspector'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
+import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import type { BallSide, TaskStatus } from '@/types/database'
 
 interface GanttPageClientProps {
@@ -32,6 +33,8 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     error: milestonesError,
     fetchMilestones,
   } = useMilestones({ spaceId })
+
+  const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
 
   const [initialized, setInitialized] = useState(false)
   const [updateLog, setUpdateLog] = useState<Array<{
@@ -165,9 +168,11 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   // Stable refs for handleTaskClick to avoid recreating on every selection change
   const selectedTaskIdRef = useRef(selectedTaskId)
-  selectedTaskIdRef.current = selectedTaskId
   const syncUrlRef = useRef(syncUrlWithState)
-  syncUrlRef.current = syncUrlWithState
+  useEffect(() => {
+    selectedTaskIdRef.current = selectedTaskId
+    syncUrlRef.current = syncUrlWithState
+  })
 
   const handleTaskClick = useCallback((taskId: string) => {
     // Toggle: clicking same task closes inspector
@@ -221,9 +226,9 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
   ]
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200">
+      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
         <div className="flex items-center gap-2">
           <SquaresFour className="text-lg text-gray-500" />
           <Breadcrumb items={breadcrumbItems} />
@@ -232,7 +237,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         {/* Update log indicator */}
         {updateLog.length > 0 && (
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-gray-500">
               最終更新: {updateLog[0].taskTitle.slice(0, 15)}
               {updateLog[0].taskTitle.length > 15 ? '...' : ''} の
               {updateLog[0].field === 'end' ? '期限' : '開始'}日
@@ -248,7 +253,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       <div className="flex-1 p-4 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="flex items-center gap-2 text-slate-500">
+            <div className="flex items-center gap-2 text-gray-500">
               <Spinner className="w-5 h-5 animate-spin" />
               <span className="text-sm">読み込み中...</span>
             </div>
@@ -257,13 +262,13 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <p className="text-sm text-red-600 mb-2">エラーが発生しました</p>
-              <p className="text-xs text-slate-500">{error.message}</p>
+              <p className="text-xs text-gray-500">{error.message}</p>
               <button
                 onClick={() => {
                   fetchTasks()
                   fetchMilestones()
                 }}
-                className="mt-4 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                className="mt-4 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
               >
                 再試行
               </button>
@@ -273,6 +278,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
           <GanttChart
             tasks={tasks}
             milestones={milestones}
+            riskForecasts={riskForecasts}
             selectedTaskId={selectedTaskId}
             onTaskClick={handleTaskClick}
             onDateChange={handleDateChange}

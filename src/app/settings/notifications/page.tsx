@@ -48,7 +48,7 @@ export default function NotificationSettingsPage() {
       try {
         // Note: notification_settings table would need to be created
         // For now, use defaults and show as "準備中"
-        // const { data, error } = await (supabase as any)
+        // const { data, error } = await (supabase as SupabaseClient)
         //   .from('user_notification_settings')
         //   .select('*')
         //   .eq('user_id', user.id)
@@ -234,8 +234,8 @@ export default function NotificationSettingsPage() {
 
           {/* Review Request */}
           <SettingRow
-            label="レビュー依頼"
-            description="レビューを依頼された時"
+            label="承認依頼"
+            description="承認を依頼された時"
             enabled={settings.email_enabled && settings.email_on_review_request}
             disabled={!settings.email_enabled}
             onChange={() => handleToggle('email_on_review_request')}

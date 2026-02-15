@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * Spaceの連携リポジトリ一覧を取得
@@ -95,8 +96,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Spaceメンバーシップ確認（admin/editor のみ）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: membership } = await (supabase as any)
+   
+  const { data: membership } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select('role')
     .eq('space_id', spaceId)
@@ -111,8 +112,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Space の org_id を取得
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: space } = await (supabase as any)
+   
+  const { data: space } = await (supabase as SupabaseClient)
     .from('spaces')
     .select('org_id')
     .eq('id', spaceId)
@@ -126,8 +127,8 @@ export async function POST(request: NextRequest) {
   }
 
   // リポジトリが同じ組織に属しているか検証（クロス組織リンク防止）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: repo } = await (supabase as any)
+   
+  const { data: repo } = await (supabase as SupabaseClient)
     .from('github_repositories')
     .select('org_id')
     .eq('id', githubRepoId)
@@ -148,8 +149,8 @@ export async function POST(request: NextRequest) {
   }
 
   // リポジトリ紐付け
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: linked, error } = await (supabase as any)
+   
+  const { data: linked, error } = await (supabase as SupabaseClient)
     .from('space_github_repos')
     .insert({
       org_id: space.org_id,
@@ -212,8 +213,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   // リンク情報取得
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: link } = await (supabase as any)
+   
+  const { data: link } = await (supabase as SupabaseClient)
     .from('space_github_repos')
     .select('space_id')
     .eq('id', linkId)
@@ -227,8 +228,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   // Spaceメンバーシップ確認（admin/editor のみ）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: membership } = await (supabase as any)
+   
+  const { data: membership } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select('role')
     .eq('space_id', link.space_id)
@@ -243,8 +244,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   // 紐付け解除
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase as any)
+   
+  const { error } = await (supabase as SupabaseClient)
     .from('space_github_repos')
     .delete()
     .eq('id', linkId)

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalHistoryClient } from './PortalHistoryClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalHistoryPage() {
   const supabase = await createClient()
@@ -12,8 +13,8 @@ export default async function PortalHistoryPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -54,8 +55,8 @@ export default async function PortalHistoryPage() {
 
   // audit_logs と completed tasks を並列取得
   const [auditResult, completedResult] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('audit_logs')
       .select(`
         id,
@@ -74,8 +75,8 @@ export default async function PortalHistoryPage() {
       .in('action', ['task_approved', 'changes_requested'])
       .order('created_at', { ascending: false })
       .limit(50),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, type, status, updated_at')
       .eq('space_id', spaceId)

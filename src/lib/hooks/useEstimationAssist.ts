@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { findSimilarTasks, type EstimationResult } from '@/lib/estimation/findSimilarTasks'
 
@@ -30,6 +30,17 @@ export function useEstimationAssist({
 
   // Debounce timer ref
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Request generation counter to prevent stale responses from overwriting newer ones
+  const requestIdRef = useRef(0)
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
+  }, [])
 
   const search = useCallback(
     (title: string) => {
@@ -46,6 +57,7 @@ export function useEstimationAssist({
 
       // Debounce 500ms
       timerRef.current = setTimeout(async () => {
+        const currentRequestId = ++requestIdRef.current
         setLoading(true)
         try {
           const res = await findSimilarTasks(supabase, {
@@ -53,12 +65,19 @@ export function useEstimationAssist({
             spaceId,
             orgId,
           })
-          setResult(res.similarTasks.length > 0 ? res : null)
+          // Only update state if this is still the latest request (prevents race condition)
+          if (currentRequestId === requestIdRef.current) {
+            setResult(res.similarTasks.length > 0 ? res : null)
+          }
         } catch (err) {
           console.error('Estimation assist error:', err)
-          setResult(null)
+          if (currentRequestId === requestIdRef.current) {
+            setResult(null)
+          }
         } finally {
-          setLoading(false)
+          if (currentRequestId === requestIdRef.current) {
+            setLoading(false)
+          }
         }
       }, 500)
     },
@@ -69,6 +88,7 @@ export function useEstimationAssist({
     if (timerRef.current) {
       clearTimeout(timerRef.current)
     }
+    requestIdRef.current++
     setResult(null)
   }, [])
 

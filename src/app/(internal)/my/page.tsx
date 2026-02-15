@@ -5,6 +5,7 @@ import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, Sor
 import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Development mode fallback user ID
 const DEV_USER_ID = '0124bcca-7c66-406c-b1ae-2be8dac241c5'
@@ -87,7 +88,7 @@ const statusLabels: Record<StatusFilter, string> = {
   all: 'すべて',
   todo: 'TODO',
   in_progress: '進行中',
-  in_review: 'レビュー中',
+  in_review: '承認確認中',
 }
 
 const sortLabels: Record<SortField, string> = {
@@ -135,8 +136,7 @@ export default function MyTasksPage() {
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any)
+    const { error } = await (supabase as SupabaseClient)
       .from('tasks')
       .update({ status })
       .eq('id', taskId)
@@ -152,16 +152,15 @@ export default function MyTasksPage() {
     async function fetchData(uid: string) {
       setUserId(uid)
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const [tasksRes, spacesRes, milestonesRes] = await Promise.all([
-        (supabase as any)
+        supabase
           .from('tasks')
           .select('*')
           .eq('assignee_id', uid),
-        (supabase as any)
+        supabase
           .from('spaces')
           .select('*'),
-        (supabase as any)
+        supabase
           .from('milestones')
           .select('*')
           .order('due_date', { ascending: true, nullsFirst: false })
@@ -317,7 +316,7 @@ export default function MyTasksPage() {
       <header className="h-12 border-b border-gray-100 flex items-center px-5 flex-shrink-0">
         <h1 className="text-sm font-medium text-gray-900 flex items-center gap-2">
           <Target className="text-lg text-gray-500" />
-          自分のタスク
+          マイタスク
         </h1>
         <span className="ml-2 text-xs text-gray-400">
           {activeTasks.length}件
@@ -465,12 +464,12 @@ export default function MyTasksPage() {
               {taskGroups.map((group, groupIndex) => (
                 <div key={group.space?.id || `no-space-${groupIndex}`}>
                   {/* Project header - Level 0 */}
-                  <div className="flex items-center gap-1.5 px-2 py-2 bg-slate-100 rounded-sm">
-                    <Folder weight="fill" className="text-slate-500 text-sm" />
-                    <span className="text-[13px] font-bold text-slate-800">
+                  <div className="flex items-center gap-1.5 px-2 py-2 bg-gray-100 rounded-sm">
+                    <Folder weight="fill" className="text-gray-500 text-sm" />
+                    <span className="text-[13px] font-bold text-gray-800">
                       {group.space?.name || 'プロジェクト未設定'}
                     </span>
-                    <span className="text-xs text-slate-500 tabular-nums">
+                    <span className="text-xs text-gray-500 tabular-nums">
                       {group.milestoneGroups.reduce((acc, mg) => acc + mg.tasks.length, 0)}件
                     </span>
                   </div>
@@ -485,25 +484,25 @@ export default function MyTasksPage() {
                         <div key={mg.milestone?.id || `no-milestone-${mgIndex}`}>
                           {/* Milestone header - slight indent */}
                           <div
-                            className="flex items-center gap-1.5 pl-4 pr-2 py-1.5 bg-slate-50 rounded cursor-pointer hover:bg-slate-100 transition-colors select-none mx-2"
+                            className="flex items-center gap-1.5 pl-4 pr-2 py-1.5 bg-gray-50 rounded cursor-pointer hover:bg-gray-100 transition-colors select-none mx-2"
                             onClick={() => toggleMilestone(milestoneKey)}
                           >
-                            <div className="w-3 flex justify-center text-slate-400">
+                            <div className="w-3 flex justify-center text-gray-400">
                               {isCollapsed ? (
                                 <CaretRight weight="bold" className="text-[10px]" />
                               ) : (
                                 <CaretDown weight="bold" className="text-[10px]" />
                               )}
                             </div>
-                            <span className="text-[13px] font-semibold text-slate-700">
+                            <span className="text-[13px] font-semibold text-gray-700">
                               {mg.milestone?.name || 'マイルストーン未設定'}
                             </span>
                             {mg.milestone?.due_date && (
-                              <span className="text-xs text-slate-400 tabular-nums">
+                              <span className="text-xs text-gray-400 tabular-nums">
                                 {formatDate(mg.milestone.due_date)}
                               </span>
                             )}
-                            <span className="text-xs text-slate-400 tabular-nums">
+                            <span className="text-xs text-gray-400 tabular-nums">
                               ({mg.tasks.length})
                             </span>
                           </div>
@@ -535,8 +534,8 @@ export default function MyTasksPage() {
               {/* Completed tasks */}
               {filters.showCompleted && completedTasks.length > 0 && (
                 <div className="mt-6">
-                  <div className="flex items-center gap-2 px-4 py-2 border-t border-slate-200">
-                    <span className="text-xs font-semibold text-slate-400">
+                  <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-200">
+                    <span className="text-xs font-semibold text-gray-400">
                       完了 ({completedTasks.length})
                     </span>
                   </div>

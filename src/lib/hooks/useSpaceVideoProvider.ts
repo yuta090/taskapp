@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type VideoProvider = 'google_meet' | 'zoom' | 'teams'
 
@@ -28,7 +29,7 @@ export function useSpaceVideoProvider(spaceId: string | null): UseSpaceVideoProv
 
     const fetch = async () => {
       try {
-        const { data } = await (supabase as any)
+        const { data } = await (supabase as SupabaseClient)
           .from('spaces')
           .select('default_video_provider')
           .eq('id', spaceId)

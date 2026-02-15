@@ -1,14 +1,13 @@
 // GitHub Webhook Event Handlers
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { linkPRToTasks } from './task-linker'
 import type {
   GitHubPullRequestPayload,
   GitHubInstallationPayload,
 } from './types'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _supabaseAdmin: any = null
-function getSupabaseAdmin() {
+let _supabaseAdmin: SupabaseClient | null = null
+function getSupabaseAdmin(): SupabaseClient {
   if (!_supabaseAdmin) {
     _supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -93,8 +92,7 @@ export async function handlePullRequestEvent(
   let linkedTasks: string[] = []
   if (action === 'opened' || action === 'edited') {
     const result = await linkPRToTasks(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      getSupabaseAdmin() as any,
+      getSupabaseAdmin(),
       inst.org_id,
       repo.id,
       prRecord.id,
@@ -113,7 +111,7 @@ export async function handlePullRequestEvent(
 export async function handleInstallationEvent(
   data: GitHubInstallationPayload
 ): Promise<{ success: boolean }> {
-  const { action, installation, repositories } = data
+  const { action, installation } = data
 
   switch (action) {
     case 'created': {

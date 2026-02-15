@@ -76,7 +76,7 @@ export function PortalLayout({
     <div className="min-h-screen bg-[#F0F4F8] flex relative overflow-hidden font-sans selection:bg-indigo-50/30">
       {/* Aurora Background - Refined for freshness and contrast with black text */}
       <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute inset-0 bg-slate-50" /> {/* Base lightening layer made opaque */}
+        <div className="absolute inset-0 bg-gray-50" /> {/* Base lightening layer made opaque */}
         {/* Moved blobs further away/lighter to let black text pop. REPLACED VIOLET AT TOP WITH SKY BLUE */}
         <div className="absolute top-[-30%] left-[-10%] w-[70%] h-[70%] bg-sky-100/40 rounded-full blur-[120px] animate-pulse-slow"></div>
         <div className="absolute top-[-20%] right-[-20%] w-[60%] h-[60%] bg-blue-50/50 rounded-full blur-[100px] animate-pulse-slow animation-delay-2000"></div>

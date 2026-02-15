@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Pencil, Check, X } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface GeneralSettingsProps {
   spaceId: string
@@ -20,8 +21,8 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
 
   useEffect(() => {
     async function fetchSpace() {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
+       
+      const { data, error } = await (supabase as SupabaseClient)
         .from('spaces')
         .select('name')
         .eq('id', spaceId)
@@ -48,8 +49,8 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
     setSaving(true)
     setError(null)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any)
+     
+    const { error } = await (supabase as SupabaseClient)
       .from('spaces')
       .update({ name: name.trim() })
       .eq('id', spaceId)

@@ -14,7 +14,7 @@ interface Project {
 interface Meeting {
   id: string
   title: string
-  heldAt: string
+  heldAt: string | null
   status: string
   minutesMd?: string | null
   summarySubject?: string | null
@@ -73,7 +73,7 @@ function MeetingInspector({
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
           <h3 className="font-medium text-gray-900">{meeting.title}</h3>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-            <span>{formatDate(meeting.heldAt)}</span>
+            <span>{meeting.heldAt ? formatDate(meeting.heldAt) : '-'}</span>
             {meeting.startedAt && meeting.endedAt && (
               <span>
                 {formatTime(meeting.startedAt)} - {formatTime(meeting.endedAt)}
@@ -170,7 +170,7 @@ export function PortalMeetingsClient({
                       <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5" />
-                          {formatDate(meeting.heldAt)}
+                          {formatDate(meeting.heldAt || '')}
                         </span>
                         {meeting.startedAt && (
                           <span className="flex items-center gap-1">

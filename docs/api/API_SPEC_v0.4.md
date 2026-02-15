@@ -318,7 +318,66 @@ Stripe Customer Portal Session 作成。
 
 ---
 
-## 4. RPC一覧（認証・招待・課金）
+## 4. プロジェクト作成 API
+
+### 4.1 POST /api/spaces/create-with-preset
+
+プリセット付きプロジェクト（Space）作成。Space + メンバーシップ + マイルストーン + Wikiページを原子的に作成。
+
+**Input**
+```json
+{
+  "name": "Webサイトリニューアル",
+  "presetGenre": "web_development",
+  "orgId": "uuid"
+}
+```
+
+`presetGenre` の有効値:
+| 値 | ラベル | Wiki | マイルストーン |
+|----|--------|------|---------------|
+| `web_development` | Web/アプリ開発 | 5件（API/DB/UI仕様書+インフラ+ホーム） | 5件 |
+| `system_development` | 業務システム開発 | 5件（要件定義書+DB設計+画面一覧+テスト計画+ホーム） | 6件 |
+| `design` | デザイン制作 | 4件（ブリーフ+スタイルガイド+成果物+ホーム） | 5件 |
+| `consulting` | コンサルティング | 4件（調査レポート+提案資料+議事録テンプレ+ホーム） | 5件 |
+| `marketing` | マーケティング | 4件（キャンペーン+KPI+カレンダー+ホーム） | 5件 |
+| `event` | イベント企画 | 4件（企画書+タイムライン+備品リスト+ホーム） | 5件 |
+| `blank` | 白紙 | 0件 | 0件 |
+
+**Process**
+1. 認証チェック（Supabase Auth）
+2. リクエストバリデーション（name必須、orgId=UUID、presetGenre=有効値）
+3. プリセット定義取得（TypeScriptコードベース）
+4. RPC: `rpc_create_space_with_preset` で原子的に作成
+   - spaces作成（preset_genre記録）
+   - space_memberships作成（creator=admin）
+   - milestones一括作成
+   - wiki_pages一括作成（spec pages → home page）
+5. ホームページのspecリンクを実IDで更新（非致命的）
+
+**Output**
+```json
+{
+  "space": {
+    "id": "uuid",
+    "name": "Webサイトリニューアル",
+    "preset_genre": "web_development",
+    "org_id": "uuid"
+  },
+  "milestonesCreated": 5,
+  "wikiPagesCreated": 5
+}
+```
+
+**Errors**
+- `400`: name未指定、orgId不正、presetGenre無効
+- `401`: 未認証 / RPC側認証失敗
+- `403`: org非メンバー
+- `500`: RPC実行エラー
+
+---
+
+## 5. RPC一覧（認証・招待・課金・プリセット）
 
 | RPC | 目的 |
 |-----|------|
@@ -327,6 +386,7 @@ Stripe Customer Portal Session 作成。
 | `rpc_create_invite` | 招待作成（権限・制限チェック付き） |
 | `rpc_validate_invite` | 招待トークン検証 |
 | `rpc_accept_invite` | 招待受諾（メンバーシップ作成） |
+| `rpc_create_space_with_preset` | プリセット付きSpace原子的作成（space+membership+milestones+wiki） |
 
 ---
 
@@ -378,6 +438,16 @@ Stripe Customer Portal Session 作成。
 
 ---
 
+### 5a. spaces（preset_genre追加）
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| preset_genre | text NULL | プリセットジャンル。NULL=旧来space（wiki自動生成あり）、'blank'=白紙、その他=ジャンル名 |
+
+CHECK制約: `NULL` または `web_development`, `system_development`, `design`, `consulting`, `marketing`, `event`, `blank` のいずれか。
+
+---
+
 ## 6. 既存API（v0.3から継続）
 
 以下は API Spec v0.3 から変更なし:
@@ -398,5 +468,6 @@ Stripe Customer Portal Session 作成。
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|----------|
+| v0.4.1 | 2026-02-14 | プロジェクトプリセット作成API追加（spaces/create-with-preset, rpc_create_space_with_preset） |
 | v0.4 | 2025-02-02 | 認証・招待・課金API追加 |
 | v0.3 | - | DDL v0.2準拠、会議・レビュー・通知 |

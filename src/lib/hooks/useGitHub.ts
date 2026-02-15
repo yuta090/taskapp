@@ -33,12 +33,9 @@ export function useGitHubInstallation(orgId: string | undefined) {
         .from('github_installations')
         .select('*')
         .eq('org_id', orgId)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') { // not found is ok
-        throw error
-      }
-
+      if (error) throw error
       return data as GitHubInstallation | null
     },
     enabled: !!orgId && githubEnabled,
@@ -145,13 +142,8 @@ export function useUnlinkRepoFromSpace() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({
-      linkId,
-      spaceId,
-    }: {
-      linkId: string
-      spaceId: string
-    }) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mutationFn: async ({ linkId, spaceId }: { linkId: string; spaceId: string }) => {
       const res = await fetch(`/api/github/spaces?linkId=${linkId}`, {
         method: 'DELETE',
       })
@@ -299,13 +291,8 @@ export function useUnlinkPR() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({
-      linkId,
-      taskId,
-    }: {
-      linkId: string
-      taskId: string
-    }) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mutationFn: async ({ linkId, taskId }: { linkId: string; taskId: string }) => {
       const { error } = await supabase
         .from('task_github_links')
         .delete()

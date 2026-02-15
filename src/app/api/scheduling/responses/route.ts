@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const VALID_RESPONSES = ['available', 'unavailable_but_proceed', 'unavailable']
@@ -45,8 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify proposal is open
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: proposal } = await (supabase as any)
+    const { data: proposal } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .select('id, status, expires_at')
       .eq('id', proposalId)
@@ -69,8 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify user is a respondent
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: respondent } = await (supabase as any)
+    const { data: respondent } = await (supabase as SupabaseClient)
       .from('proposal_respondents')
       .select('id')
       .eq('proposal_id', proposalId)
@@ -83,8 +82,7 @@ export async function POST(request: NextRequest) {
 
     // Verify all slotIds belong to this proposal
     const slotIds = responses.map((r: { slotId: string }) => r.slotId)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: validSlots } = await (supabase as any)
+    const { data: validSlots } = await (supabase as SupabaseClient)
       .from('proposal_slots')
       .select('id')
       .eq('proposal_id', proposalId)
@@ -102,8 +100,7 @@ export async function POST(request: NextRequest) {
       responded_at: new Date().toISOString(),
     }))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: upsertError } = await (supabase as any)
+    const { error: upsertError } = await (supabase as SupabaseClient)
       .from('slot_responses')
       .upsert(upsertData, {
         onConflict: 'slot_id,respondent_id',

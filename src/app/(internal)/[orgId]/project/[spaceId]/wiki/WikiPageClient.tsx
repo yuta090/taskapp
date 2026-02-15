@@ -1,14 +1,16 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BookOpen, Plus, ArrowLeft } from '@phosphor-icons/react'
+import { BookOpen, Plus, ArrowLeft, Sparkle } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
 import { WikiPageRow } from '@/components/wiki/WikiPageRow'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
+import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
+import { createClient } from '@/lib/supabase/client'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 
 interface WikiPageClientProps {
@@ -25,6 +27,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [showPresetApplicator, setShowPresetApplicator] = useState(false)
+  const [milestonesEmpty, setMilestonesEmpty] = useState<boolean | null>(null)
+  const supabaseRef = useRef(createClient())
 
   const {
     pages,
@@ -39,24 +44,6 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`
   const selectedPageId = searchParams.get('page')
-
-  useEffect(() => {
-    const init = async () => {
-      const defaultPageId = await fetchPages()
-      // Auto-navigate to default page when it's first created
-      if (defaultPageId && !selectedPageId) {
-        updateQuery({ page: defaultPageId })
-      }
-    }
-    void init()
-  }, [fetchPages]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cleanup inspector on unmount
-  useEffect(() => {
-    return () => {
-      setInspector(null)
-    }
-  }, [setInspector])
 
   const updateQuery = useCallback(
     (updates: Record<string, string | null>) => {
@@ -74,9 +61,47 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     [router, projectBasePath, searchParams]
   )
 
+  useEffect(() => {
+    const init = async () => {
+      const defaultPageId = await fetchPages()
+      // Auto-navigate to default page when it's first created
+      if (defaultPageId && !selectedPageId) {
+        updateQuery({ page: defaultPageId })
+      }
+    }
+    void init()
+  }, [fetchPages, updateQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check if milestones are empty (for template CTA visibility)
+  useEffect(() => {
+    if (pages.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset CTA state when pages exist
+      setMilestonesEmpty(null)
+      setShowPresetApplicator(false)
+      return
+    }
+    const checkMilestones = async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { count } = await (supabaseRef.current as any)
+        .from('milestones')
+        .select('id', { count: 'exact', head: true })
+        .eq('space_id', spaceId)
+      setMilestonesEmpty(count === 0)
+    }
+    void checkMilestones()
+  }, [pages.length, spaceId])
+
+  // Cleanup inspector on unmount
+  useEffect(() => {
+    return () => {
+      setInspector(null)
+    }
+  }, [setInspector])
+
   // Load active page content when selected
   useEffect(() => {
     if (!selectedPageId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state when no page selected
       setActivePage(null)
       setInspector(null)
       return
@@ -253,7 +278,31 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <BookOpen className="text-4xl text-gray-300 mb-3" />
             <p className="text-gray-500 mb-1">Wikiページがありません</p>
-            <p className="text-sm text-gray-400">「新規ページ」からページを作成してください</p>
+            <p className="text-sm text-gray-400 mb-4">「新規ページ」からページを作成してください</p>
+
+            {/* Template apply CTA — only when both wiki and milestones are empty */}
+            {milestonesEmpty === true && (
+              showPresetApplicator ? (
+                <div className="w-full max-w-lg text-left">
+                  <PresetApplicator
+                    spaceId={spaceId}
+                    onApplied={() => {
+                      setShowPresetApplicator(false)
+                      void fetchPages()
+                    }}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowPresetApplicator(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-indigo-600 border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
+                >
+                  <Sparkle className="text-base" />
+                  テンプレートから作成
+                </button>
+              )
+            )}
           </div>
         ) : (
           <div>

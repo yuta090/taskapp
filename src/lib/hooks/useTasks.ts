@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
@@ -47,6 +48,7 @@ export interface UpdateTaskInput {
   assigneeId?: string | null
   milestoneId?: string | null
   parentTaskId?: string | null
+  actualHours?: number | null
 }
 
 interface UseTasksReturn {
@@ -131,7 +133,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
     try {
       // 1クエリで tasks + task_owners を取得（ネストselect）
-      const { data: tasksData, error: tasksError } = await supabase
+      const { data: tasksData, error: tasksError } = await (supabase as SupabaseClient)
         .from('tasks')
         .select('*, task_owners (*)')
         .eq('org_id' as never, orgId as never)
@@ -144,8 +146,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       // レース条件: 古いリクエストの結果を無視
       if (currentFetchId !== fetchIdRef.current) return
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawTasks = (tasksData || []) as any[]
+      const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }>
 
       // task_owners をグルーピングし、tasks からは除去
       const ownersByTask: Record<string, TaskOwner[]> = {}
@@ -154,7 +155,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (Array.isArray(task_owners)) {
           ownersByTask[t.id] = task_owners as TaskOwner[]
         }
-        return taskFields as Task
+        return taskFields as unknown as Task
       })
 
       setTasks(cleanTasks)
@@ -197,6 +198,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
         client_scope: task.clientScope ?? 'internal',
+        actual_hours: null,
         created_at: now,
         updated_at: now,
       }
@@ -221,7 +223,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           userId = authData.user.id
         }
 
-        const { data: created, error: createError } = await supabase
+        const { data: created, error: createError } = await (supabase as SupabaseClient)
           .from('tasks')
           .insert(
             {
@@ -242,8 +244,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               milestone_id: task.milestoneId ?? null,
               parent_task_id: task.parentTaskId ?? null,
               created_by: userId,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any
+            } as Record<string, unknown>
           )
           .select('*')
           .single()
@@ -274,10 +275,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         ]
 
         if (ownerRows.length > 0) {
-          const { error: ownerError } = await supabase
+          const { error: ownerError } = await (supabase as SupabaseClient)
             .from('task_owners')
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .insert(ownerRows as any)
+            .insert(ownerRows as Record<string, unknown>[])
           if (ownerError) throw ownerError
 
           // owners をローカルstate に反映（insertデータから構築）
@@ -359,6 +359,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
               milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
               parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
+              actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
               updated_at: new Date().toISOString(),
             }
           }
@@ -377,9 +378,10 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
+        if (input.actualHours !== undefined) updateData.actual_hours = input.actualHours
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: updateError } = await (supabase as any)
+         
+        const { error: updateError } = await (supabase as SupabaseClient)
           .from('tasks')
           .update(updateData)
           .eq('id', taskId)
@@ -481,8 +483,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       })
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: deleteError } = await (supabase as any)
+         
+        const { error: deleteError } = await (supabase as SupabaseClient)
           .from('tasks')
           .delete()
           .eq('id', taskId)
@@ -558,7 +560,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         })
 
         // owners を再取得（passBallでowners が変わるため）
-        const { data: newOwners, error: ownerFetchError } = await supabase
+        const { data: newOwners, error: ownerFetchError } = await (supabase as SupabaseClient)
           .from('task_owners')
           .select('*')
           .eq('task_id' as never, taskId as never)
@@ -574,7 +576,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase, fetchTasks]
+    [supabase, fetchTasks, spaceId]
   )
 
   return {

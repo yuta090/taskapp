@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { TerminalWindow, Cpu, User, CheckCircle, Code, PaperPlaneTilt, ChatCircleDots } from '@phosphor-icons/react'
 
 type Message = {
@@ -16,7 +16,7 @@ export function FeatureTerminal() {
     const [isTyping, setIsTyping] = useState(false)
     const scrollRef = useRef<HTMLDivElement>(null)
 
-    const scenario = [
+    const scenario = useMemo(() => [
         // Scene 1: Requirement Analysis
         {
             role: 'user',
@@ -69,7 +69,7 @@ export function FeatureTerminal() {
                     </div>
                     <div className="pl-5 text-slate-500 text-[10px] font-mono border-l-2 border-slate-700">
                         <div>--assign @me</div>
-                        <div>--milestone "Login Review"</div>
+                        <div>--milestone {'"'}Login Review{'"'}</div>
                         <div>--rate 10000</div>
                     </div>
                 </div>
@@ -112,8 +112,8 @@ export function FeatureTerminal() {
                         <span>Running: send_chat_message</span>
                     </div>
                     <div className="pl-5 text-slate-500 text-[10px] font-mono border-l-2 border-slate-700">
-                        <div>--channel "#ABC社様"</div>
-                        <div>--text "お世話になっております。見積もりが完了しました..."</div>
+                        <div>--channel {'"'}#ABC社様{'"'}</div>
+                        <div>--text {'"'}お世話になっております。見積もりが完了しました...{'"'}</div>
                     </div>
                 </div>
             )
@@ -131,7 +131,7 @@ export function FeatureTerminal() {
                 </div>
             )
         }
-    ]
+    ], [])
 
     useEffect(() => {
         let currentIndex = 0
@@ -155,9 +155,9 @@ export function FeatureTerminal() {
 
                 setMessages(prev => [...prev, {
                     id: Math.random().toString(36),
-                    role: step.role as any,
+                    role: step.role as Message['role'],
                     content: step.content,
-                    type: step.type as any
+                    type: step.type as Message['type']
                 }])
 
                 currentIndex++
@@ -167,7 +167,7 @@ export function FeatureTerminal() {
         runScenario()
 
         return () => { mounted = false }
-    }, [])
+    }, [scenario])
 
     // Auto scroll
     useEffect(() => {

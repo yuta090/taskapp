@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Milestone } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface UseMilestonesOptions {
   spaceId: string
@@ -43,8 +44,8 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
     setError(null)
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error: err } = await (supabase as any)
+       
+      const { data, error: err } = await (supabase as SupabaseClient)
         .from('milestones')
         .select('*')
         .eq('space_id' as never, spaceId as never)
@@ -81,8 +82,8 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
       setMilestones((prev) => [...prev, optimisticMilestone])
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data, error: err } = await (supabase as any)
+         
+        const { data, error: err } = await (supabase as SupabaseClient)
           .from('milestones')
           .insert({
             space_id: spaceId,
@@ -139,8 +140,8 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.orderKey !== undefined) updateData.order_key = input.orderKey
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: err } = await (supabase as any)
+         
+        const { error: err } = await (supabase as SupabaseClient)
           .from('milestones')
           .update(updateData)
           .eq('id' as never, id as never)
@@ -164,8 +165,8 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
       setMilestones((prev) => prev.filter((m) => m.id !== id))
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: err } = await (supabase as any)
+         
+        const { error: err } = await (supabase as SupabaseClient)
           .from('milestones')
           .delete()
           .eq('id' as never, id as never)

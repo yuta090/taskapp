@@ -1,6 +1,6 @@
 'use client'
 
-import { MilestoneDot, type MilestoneStatus } from '../ui'
+import { type MilestoneStatus } from '../ui'
 
 interface Milestone {
   id: string
@@ -27,7 +27,7 @@ export function MilestoneTimeline({ milestones, className = '' }: MilestoneTimel
 
   return (
     <div className={`space-y-4 ${className}`}>
-      {milestones.map((milestone, index) => {
+      {milestones.map((milestone) => {
         // Map available statuses to Gantt visualization states
         const isCompleted = milestone.status === 'completed'
         const isCurrent = milestone.status === 'current'

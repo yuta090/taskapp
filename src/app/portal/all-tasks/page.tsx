@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalAllTasksClient } from './PortalAllTasksClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalAllTasksPage() {
   const supabase = await createClient()
@@ -12,8 +13,8 @@ export default async function PortalAllTasksPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -54,21 +55,21 @@ export default async function PortalAllTasksPage() {
 
   // milestones, tasks, actionCount を並列取得
   const [milestonesResult, tasksResult, actionCountResult] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('milestones')
       .select('id, name, due_date, order_key')
       .eq('space_id', spaceId)
       .order('order_key', { ascending: true }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, status, ball, due_date, type, decision_state, created_at, description, milestone_id')
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false })
       .limit(100),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
       .eq('space_id', spaceId)

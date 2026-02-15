@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Key, Plus, Trash, Copy, Check, Eye, EyeSlash, Warning } from '@phosphor-icons/react'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface ApiKey {
   id: string
@@ -78,8 +79,8 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       }
 
       // Check org owner
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: orgMember } = await (supabase as any)
+       
+      const { data: orgMember } = await (supabase as SupabaseClient)
         .from('org_memberships')
         .select('role')
         .eq('org_id' as never, orgId as never)
@@ -92,8 +93,8 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       }
 
       // Check space admin
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: spaceMember } = await (supabase as any)
+       
+      const { data: spaceMember } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .select('role')
         .eq('space_id' as never, spaceId as never)

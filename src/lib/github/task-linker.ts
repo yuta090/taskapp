@@ -1,6 +1,5 @@
 // タスクID自動検出とPR紐付け
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseClient = any
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // タスクID検出パターン: #TP-001, TP-001, [TP-001]
 // 単語境界を使用して誤検出を防止（例: HTTP-001 を TP-001 と誤認しない）

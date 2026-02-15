@@ -28,11 +28,11 @@ export function MilestoneGroupHeader({
 
   return (
     <div
-      className="flex items-center gap-2 px-2 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors select-none border-b border-slate-100"
+      className="flex items-center gap-2 px-2 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors select-none border-b border-gray-100"
       onClick={onToggle}
     >
       {/* Collapse toggle */}
-      <div className="text-slate-400 w-4 flex justify-center">
+      <div className="text-gray-400 w-4 flex justify-center">
         {isCollapsed ? (
           <CaretRight weight="bold" className="text-[10px]" />
         ) : (
@@ -41,19 +41,19 @@ export function MilestoneGroupHeader({
       </div>
 
       {/* Milestone name - bold */}
-      <span className="text-[13px] font-semibold text-slate-800 tracking-tight">
+      <span className="text-[13px] font-semibold text-gray-800 tracking-tight">
         {milestone?.name || 'マイルストーン未設定'}
       </span>
 
       {/* Due date - right after title */}
       {formattedDueDate && (
-        <span className="text-xs text-slate-400 tabular-nums">
+        <span className="text-xs text-gray-400 tabular-nums">
           {formattedDueDate}
         </span>
       )}
 
       {/* Task count */}
-      <span className="text-xs text-slate-400 tabular-nums">
+      <span className="text-xs text-gray-400 tabular-nums">
         ({taskCount})
       </span>
 

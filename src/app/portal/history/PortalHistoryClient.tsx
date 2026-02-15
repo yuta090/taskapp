@@ -150,7 +150,7 @@ export function PortalHistoryClient({
                             {item.taskTitle}
                           </span>
                           {item.taskType === 'spec' && (
-                            <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                            <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
                               仕様
                             </span>
                           )}
@@ -215,7 +215,7 @@ export function PortalHistoryClient({
                           {task.title}
                         </span>
                         {task.type === 'spec' && (
-                          <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded shrink-0">
+                          <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded shrink-0">
                             仕様
                           </span>
                         )}

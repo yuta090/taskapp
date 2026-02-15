@@ -20,10 +20,10 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
     fetchMilestones,
   } = useMilestones({ spaceId })
 
-  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>('')
   const [initialized, setInitialized] = useState(false)
 
-  // Initialize: fetch milestones, auto-select first valid one
+  // Initialize: fetch milestones
   useEffect(() => {
     let cancelled = false
     const init = async () => {
@@ -34,9 +34,8 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
     return () => { cancelled = true }
   }, [fetchMilestones])
 
-  // Derive auto-selected milestone: first with dates, only if user hasn't selected one
-  const effectiveMilestoneId = selectedMilestoneId
-    ?? (initialized ? milestones.find((ms) => ms.start_date || ms.due_date)?.id ?? null : null)
+  // "" means project-wide (null milestoneId), otherwise specific milestone
+  const effectiveMilestoneId = selectedMilestoneId === '' ? null : selectedMilestoneId
 
   const { data, loading: burndownLoading, error, refetch } = useBurndown({
     spaceId,
@@ -45,12 +44,12 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
 
   // Fetch burndown when effective milestone changes
   useEffect(() => {
-    if (effectiveMilestoneId) {
+    if (initialized) {
       refetch()
     }
-  }, [effectiveMilestoneId, refetch])
+  }, [effectiveMilestoneId, initialized, refetch])
 
-  const handleSelectMilestone = useCallback((id: string | null) => {
+  const handleSelectMilestone = useCallback((id: string) => {
     setSelectedMilestoneId(id)
   }, [])
 
@@ -75,9 +74,9 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
     : undefined
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200">
+      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
         <div className="flex items-center gap-2">
           <ChartLine className="text-lg text-gray-500" />
           <Breadcrumb items={breadcrumbItems} />
@@ -91,7 +90,7 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
       <div className="flex-1 p-4 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="flex items-center gap-2 text-slate-500">
+            <div className="flex items-center gap-2 text-gray-500">
               <Spinner className="w-5 h-5 animate-spin" />
               <span className="text-sm">読み込み中...</span>
             </div>
@@ -101,19 +100,15 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
             {/* Controls */}
             <BurndownControls
               milestones={milestones}
-              selectedMilestoneId={effectiveMilestoneId}
+              selectedMilestoneId={selectedMilestoneId}
               onSelectMilestone={handleSelectMilestone}
               summary={summary}
             />
 
             {/* Chart */}
-            {!effectiveMilestoneId ? (
-              <div className="flex items-center justify-center h-64 text-sm text-slate-500">
-                マイルストーンを選択してください
-              </div>
-            ) : burndownLoading ? (
+            {burndownLoading ? (
               <div className="flex items-center justify-center h-64">
-                <div className="flex items-center gap-2 text-slate-500">
+                <div className="flex items-center gap-2 text-gray-500">
                   <Spinner className="w-5 h-5 animate-spin" />
                   <span className="text-sm">チャートを計算中...</span>
                 </div>
@@ -124,14 +119,14 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
                   <p className="text-sm text-red-600 mb-2">{error.message}</p>
                   <button
                     onClick={refetch}
-                    className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
                   >
                     再試行
                   </button>
                 </div>
               </div>
             ) : data ? (
-              <div className="bg-white rounded-lg border border-slate-200 p-4">
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <BurndownChart data={data} />
               </div>
             ) : null}

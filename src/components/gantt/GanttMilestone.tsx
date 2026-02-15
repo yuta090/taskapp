@@ -4,15 +4,24 @@ import { useState, useMemo } from 'react'
 import { GANTT_CONFIG } from '@/lib/gantt/constants'
 import { dateToX, getDaysDiff } from '@/lib/gantt/dateUtils'
 import type { Milestone } from '@/types/database'
+import type { RiskAssessment } from '@/lib/risk/calculateRisk'
 
 interface GanttMilestoneProps {
   milestone: Milestone
   startDate: Date
   dayWidth: number
   chartHeight: number
+  risk?: RiskAssessment
 }
 
 type UrgencyLevel = 'normal' | 'warning' | 'urgent' | 'past'
+
+const RISK_BADGE = {
+  high: { bg: '#FEE2E2', text: '#DC2626', border: '#FECACA', label: '高' },
+  medium: { bg: '#FEF3C7', text: '#D97706', border: '#FDE68A', label: '中' },
+  low: { bg: '#DCFCE7', text: '#16A34A', border: '#BBF7D0', label: '低' },
+  none: { bg: '#F1F5F9', text: '#64748B', border: '#E2E8F0', label: '-' },
+} as const
 
 function getUrgencyLevel(daysUntil: number): UrgencyLevel {
   if (daysUntil < 0) return 'past'
@@ -50,11 +59,40 @@ function getUrgencyColors(level: UrgencyLevel): { line: string; bg: string; text
   }
 }
 
+function formatRiskTooltipLines(risk: RiskAssessment): string[] {
+  if (risk.insufficientData && risk.velocity === 0 && risk.remainingTasks > 0) {
+    return [
+      `残タスク: ${risk.remainingTasks}件`,
+      'データ不足: 直近の完了タスクなし',
+      risk.clientBlockedTasks > 0 ? `顧客待ち: ${risk.clientBlockedTasks}件` : '',
+    ].filter(Boolean)
+  }
+
+  if (risk.allClientBlocked) {
+    return [
+      `残タスク: ${risk.remainingTasks}件 (全て顧客待ち)`,
+      '顧客依存: リスク評価不可',
+    ]
+  }
+
+  const lines = [
+    `残タスク: ${risk.remainingTasks}件`,
+    `ペース: ${risk.velocity.toFixed(1)}件/日`,
+    `必要日数: ${risk.requiredDays === Infinity ? '-' : Math.ceil(risk.requiredDays) + '日'}`,
+    `残日数: ${risk.availableDays}日`,
+  ]
+  if (risk.clientBlockedTasks > 0) {
+    lines.push(`顧客待ち: ${risk.clientBlockedTasks}件`)
+  }
+  return lines
+}
+
 export function GanttMilestone({
   milestone,
   startDate,
   dayWidth,
   chartHeight,
+  risk,
 }: GanttMilestoneProps) {
   const [isHovering, setIsHovering] = useState(false)
 
@@ -104,9 +142,22 @@ export function GanttMilestone({
 
   // Estimate label width based on text length
   const labelText = milestone.name.length > 10
-    ? milestone.name.slice(0, 10) + '…'
+    ? milestone.name.slice(0, 10) + '...'
     : milestone.name
   const labelWidth = Math.max(labelText.length * 8 + 60, 100)
+
+  // Risk badge dimensions
+  const showRiskBadge = risk && risk.level !== 'none' && risk.remainingTasks > 0
+  const badgeWidth = 28
+  const badgeHeight = 14
+  const badgeX = x + labelWidth / 2 + 4
+  const badgeY = (labelHeight - badgeHeight) / 2
+
+  // Tooltip lines for risk
+  const riskTooltipLines = risk && risk.remainingTasks > 0 ? formatRiskTooltipLines(risk) : []
+  const tooltipLineCount = 2 + riskTooltipLines.length + (riskTooltipLines.length > 0 ? 1 : 0)
+  const tooltipHeight = Math.max(44, tooltipLineCount * 16 + 12)
+  const tooltipWidth = Math.max(180, 220)
 
   return (
     <g
@@ -173,6 +224,33 @@ export function GanttMilestone({
         {labelText} ({daysLabel})
       </text>
 
+      {/* Risk badge - displayed next to milestone label */}
+      {showRiskBadge && (
+        <g>
+          <rect
+            x={badgeX}
+            y={badgeY}
+            width={badgeWidth}
+            height={badgeHeight}
+            rx={3}
+            fill={RISK_BADGE[risk.level].bg}
+            stroke={RISK_BADGE[risk.level].border}
+            strokeWidth={1}
+          />
+          <text
+            x={badgeX + badgeWidth / 2}
+            y={badgeY + badgeHeight / 2 + 3.5}
+            fontSize={9}
+            fontWeight={700}
+            fill={RISK_BADGE[risk.level].text}
+            textAnchor="middle"
+            style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
+          >
+            {risk.insufficientData ? '?' : RISK_BADGE[risk.level].label}
+          </text>
+        </g>
+      )}
+
       {/* Range line from start_date to due_date */}
       {rangeBar && (
         <line
@@ -205,14 +283,14 @@ export function GanttMilestone({
         />
       </g>
 
-      {/* Hover tooltip with full details */}
+      {/* Hover tooltip with full details including risk */}
       {isHovering && (
         <g>
           <rect
-            x={x - 90}
+            x={x - tooltipWidth / 2}
             y={labelHeight + diamondSize + 10}
-            width={180}
-            height={44}
+            width={tooltipWidth}
+            height={tooltipHeight}
             rx={6}
             fill="#1E293B"
             opacity={0.95}
@@ -236,8 +314,36 @@ export function GanttMilestone({
             textAnchor="middle"
             style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
           >
-            {dateLabel} • {daysLabel}
+            {dateLabel} | {daysLabel}
           </text>
+
+          {/* Risk details in tooltip */}
+          {riskTooltipLines.length > 0 && (
+            <>
+              {/* Separator line */}
+              <line
+                x1={x - tooltipWidth / 2 + 12}
+                y1={labelHeight + diamondSize + 52}
+                x2={x + tooltipWidth / 2 - 12}
+                y2={labelHeight + diamondSize + 52}
+                stroke="#334155"
+                strokeWidth={0.5}
+              />
+              {riskTooltipLines.map((line, i) => (
+                <text
+                  key={i}
+                  x={x}
+                  y={labelHeight + diamondSize + 66 + i * 14}
+                  fontSize={10}
+                  fill="#CBD5E1"
+                  textAnchor="middle"
+                  style={{ fontFamily: GANTT_CONFIG.FONT.FAMILY }}
+                >
+                  {line}
+                </text>
+              ))}
+            </>
+          )}
         </g>
       )}
     </g>

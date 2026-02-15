@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { sendInviteEmail } from '@/lib/email'
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // UUID v4 format validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ユーザーが組織の owner または admin であることを確認
-    const { data: orgMembership } = await (supabase as any)
+    const { data: orgMembership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('user_id', user.id)
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     // スペースへのアクセス権限を確認
-    const { data: spaceMembership } = await (supabase as any)
+    const { data: spaceMembership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('role')
       .eq('user_id', user.id)
@@ -84,12 +85,12 @@ export async function POST(request: NextRequest) {
 
     // 組織名とスペース名を取得
     const [orgResult, spaceResult] = await Promise.all([
-      (supabase as any)
+      (supabase as SupabaseClient)
         .from('organizations')
         .select('name')
         .eq('id', org_id)
         .single(),
-      (supabase as any)
+      (supabase as SupabaseClient)
         .from('spaces')
         .select('name')
         .eq('id', space_id)
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
     const spaceName = spaceResult.data?.name || 'プロジェクト'
 
     // RPC で招待作成（制限チェック含む）
-    const { data, error } = await (supabase as any).rpc('rpc_create_invite', {
+    const { data, error } = await (supabase as SupabaseClient).rpc('rpc_create_invite', {
       p_org_id: org_id,
       p_space_id: space_id,
       p_email: normalizedEmail,

@@ -12,8 +12,7 @@ export default async function PortalMeetingsPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+  const { data: memberships } = await supabase
     .from('space_memberships')
     .select(`
       space_id,
@@ -41,11 +40,10 @@ export default async function PortalMeetingsPage() {
     )
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const projects = memberships.map((m: any) => ({
+  const projects = memberships.map((m: { space_id: string; spaces?: { name?: string; org_id?: string; organizations?: { name?: string } } }) => ({
     id: m.space_id,
     name: m.spaces?.name || 'プロジェクト',
-    orgId: m.spaces?.org_id,
+    orgId: m.spaces?.org_id || '',
     orgName: m.spaces?.organizations?.name || '組織',
   }))
 
@@ -53,9 +51,8 @@ export default async function PortalMeetingsPage() {
   const spaceId = currentProject.id
 
   // meetings と actionCount を並列取得（spaceId 確定後）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [meetingsResult, actionCountResult] = await Promise.all([
-    (supabase as any)
+    supabase
       .from('meetings')
       .select(`
         id,
@@ -72,7 +69,7 @@ export default async function PortalMeetingsPage() {
       .in('status', ['ended', 'in_progress'])
       .order('held_at', { ascending: false })
       .limit(50),
-    (supabase as any)
+    supabase
       .from('tasks')
       .select('id', { count: 'exact', head: true })
       .eq('space_id', spaceId)
@@ -87,11 +84,10 @@ export default async function PortalMeetingsPage() {
   const meetings = meetingsResult.data
   const actionCount = actionCountResult.count
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const formattedMeetings = (meetings || []).map((m: any) => ({
+  const formattedMeetings = (meetings || []).map((m: { id: string; title: string; held_at: string | null; status: string; minutes_md: string | null; summary_subject: string | null; summary_body: string | null; started_at: string | null; ended_at: string | null }) => ({
     id: m.id,
     title: m.title,
-    heldAt: m.held_at,
+    heldAt: m.held_at || '',
     status: m.status,
     minutesMd: m.minutes_md,
     summarySubject: m.summary_subject,

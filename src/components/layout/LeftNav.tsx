@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -8,6 +8,8 @@ import {
   Target,
   PencilSimpleLine,
   CaretDown,
+  CaretLeft,
+  CaretRight,
   Planet,
   Copy,
   ChatCircleText,
@@ -27,33 +29,44 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { createClient } from '@/lib/supabase/client'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 
+const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
+
 interface NavItemProps {
   href: string
   icon: React.ReactNode
   label: string
   badge?: number
   active?: boolean
+  collapsed?: boolean
 }
 
-function NavItem({ href, icon, label, badge, active }: NavItemProps) {
+function NavItem({ href, icon, label, badge, active, collapsed }: NavItemProps) {
   return (
     <Link
       href={href}
       prefetch={false}
-      className={`px-2 py-2 rounded cursor-pointer flex items-center gap-2.5 group transition-colors ${
+      className={`px-2 py-2 rounded cursor-pointer flex items-center group transition-colors relative ${
+        collapsed ? 'justify-center' : 'gap-2.5'
+      } ${
         active
           ? 'text-gray-900 bg-gray-200/60 font-medium'
           : 'text-gray-600 hover:bg-gray-200/50'
       }`}
+      title={collapsed ? label : undefined}
     >
-      <span className="text-xl 2xl:text-2xl text-gray-500 group-hover:text-gray-900">
+      <span className="text-xl 2xl:text-2xl text-gray-500 group-hover:text-gray-900 flex-shrink-0">
         {icon}
       </span>
-      <span className="truncate text-sm 2xl:text-base">{label}</span>
-      {badge !== undefined && badge > 0 && (
+      {!collapsed && (
+        <span className="truncate text-sm 2xl:text-base">{label}</span>
+      )}
+      {!collapsed && badge !== undefined && badge > 0 && (
         <span className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-white">
           {badge}
         </span>
+      )}
+      {collapsed && badge !== undefined && badge > 0 && (
+        <span className="absolute top-0.5 right-1 w-2 h-2 bg-gray-900 rounded-full" />
       )}
     </Link>
   )
@@ -64,26 +77,30 @@ interface SubNavItemProps {
   icon: React.ReactNode
   label: string
   active?: boolean
+  collapsed?: boolean
 }
 
-function SubNavItem({ href, icon, label, active }: SubNavItemProps) {
+function SubNavItem({ href, icon, label, active, collapsed }: SubNavItemProps) {
   return (
     <Link
       href={href}
       prefetch={false}
-      className={`px-2 py-1.5 rounded cursor-pointer flex items-center gap-2 text-xs 2xl:text-sm ${
+      className={`px-2 py-1.5 rounded cursor-pointer flex items-center transition-colors ${
+        collapsed ? 'justify-center' : 'gap-2 text-xs 2xl:text-sm'
+      } ${
         active
           ? 'text-gray-900 bg-gray-200/60'
           : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
       }`}
+      title={collapsed ? label : undefined}
     >
-      <span className="text-base 2xl:text-lg">{icon}</span>
-      <span>{label}</span>
+      <span className={collapsed ? 'text-lg 2xl:text-xl' : 'text-base 2xl:text-lg'}>{icon}</span>
+      {!collapsed && <span>{label}</span>}
     </Link>
   )
 }
 
-function UserMenu() {
+function UserMenu({ collapsed }: { collapsed?: boolean }) {
   const { user, loading } = useCurrentUser()
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
@@ -96,12 +113,14 @@ function UserMenu() {
 
   if (loading) {
     return (
-      <div className="px-3 py-3 pb-4 border-t border-gray-200">
-        <div className="flex items-center gap-2 px-2 py-2">
-          <div className="w-7 h-7 rounded-full bg-gray-200 animate-pulse" />
-          <div className="flex-1">
-            <div className="h-3 w-20 bg-gray-200 rounded animate-pulse" />
-          </div>
+      <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200`}>
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2`}>
+          <div className="w-7 h-7 rounded-full bg-gray-200 animate-pulse flex-shrink-0" />
+          {!collapsed && (
+            <div className="flex-1">
+              <div className="h-3 w-20 bg-gray-200 rounded animate-pulse" />
+            </div>
+          )}
         </div>
       </div>
     )
@@ -109,13 +128,14 @@ function UserMenu() {
 
   if (!user) {
     return (
-      <div className="px-3 py-3 pb-4 border-t border-gray-200">
+      <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200`}>
         <Link
           href="/login"
-          className="flex items-center gap-2 px-2 py-2 rounded hover:bg-gray-200/60 text-gray-600 transition-colors"
+          className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2 rounded hover:bg-gray-200/60 text-gray-600 transition-colors`}
+          title={collapsed ? 'ログイン' : undefined}
         >
-          <User className="text-lg" />
-          <span className="text-sm">ログイン</span>
+          <User className="text-lg flex-shrink-0" />
+          {!collapsed && <span className="text-sm">ログイン</span>}
         </Link>
       </div>
     )
@@ -125,33 +145,39 @@ function UserMenu() {
   const userInitial = userName.charAt(0).toUpperCase()
 
   return (
-    <div className="px-3 py-3 pb-4 border-t border-gray-200 relative">
+    <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200 relative`}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-gray-200/60 transition-colors group"
+        className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2 rounded hover:bg-gray-200/60 transition-colors group`}
+        title={collapsed ? userName : undefined}
       >
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium shadow-sm">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium shadow-sm flex-shrink-0">
           {userInitial}
         </div>
-        <div className="flex-1 text-left min-w-0">
-          <div className="text-sm font-medium text-gray-900 truncate">{userName}</div>
-          <div className="text-[10px] text-gray-500 truncate">{user.email}</div>
-        </div>
-        <CaretUp
-          className={`text-gray-400 text-xs transition-transform ${isOpen ? '' : 'rotate-180'}`}
-          weight="bold"
-        />
+        {!collapsed && (
+          <>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-sm font-medium text-gray-900 truncate">{userName}</div>
+              <div className="text-[10px] text-gray-500 truncate">{user.email}</div>
+            </div>
+            <CaretUp
+              className={`text-gray-400 text-xs transition-transform ${isOpen ? '' : 'rotate-180'}`}
+              weight="bold"
+            />
+          </>
+        )}
       </button>
 
-      {/* Dropdown menu */}
       {isOpen && (
         <>
           <div
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
+          <div className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+            collapsed ? 'left-0 w-48' : 'left-3 right-3'
+          }`}>
             <Link
               href="/settings/account"
               onClick={() => setIsOpen(false)}
@@ -195,17 +221,50 @@ function UserMenu() {
 export function LeftNav() {
   const pathname = usePathname()
   const router = useRouter()
+  const [collapsed, setCollapsed] = useState(false)
 
   const fallbackOrgId = '00000000-0000-0000-0000-000000000001'
   const fallbackSpaceId = '00000000-0000-0000-0000-000000000010'
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
   const orgId = match?.[1] ?? fallbackOrgId
   const spaceId = match?.[2] ?? fallbackSpaceId
-  const hasProjectRoute = !!match // true when orgId comes from URL, not fallback
-  const { count: inboxCount } = useUnreadNotificationCount()
+  const hasProjectRoute = !!match
+  const { pendingCount: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
+
+  // Restore collapsed state from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing with external storage (localStorage)
+    if (saved === 'true') setCollapsed(true)
+  }, [])
+
+  // Keyboard shortcut: Cmd/Ctrl + \
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault()
+        setCollapsed(prev => {
+          const next = !prev
+          localStorage.setItem(STORAGE_KEY, String(next))
+          return next
+        })
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed(prev => {
+      const next = !prev
+      localStorage.setItem(STORAGE_KEY, String(next))
+      return next
+    })
+  }, [])
+
   const handleQuickCreate = () => {
     router.push(`${projectBasePath}?create=1`)
   }
@@ -219,39 +278,50 @@ export function LeftNav() {
   }
 
   return (
-    <aside className="w-[240px] 2xl:w-[280px] bg-[#F7F8F9] border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20">
+    <aside
+      className={`${
+        collapsed ? 'w-16' : 'w-[240px] 2xl:w-[280px]'
+      } bg-[#F7F8F9] border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
+    >
       {/* Workspace + Quick Create */}
-      <div className="h-12 flex items-center px-3 gap-2 mt-1">
+      <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1`}>
         <button
           type="button"
           onClick={handleWorkspaceClick}
           data-testid="leftnav-workspace"
-          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-200/60 cursor-pointer flex-1 transition-colors group relative"
+          className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded hover:bg-gray-200/60 cursor-pointer transition-colors group relative`}
+          title={collapsed ? '株式会社アトラス' : undefined}
         >
-          <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-orange-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-sm">
+          <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-orange-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-sm flex-shrink-0">
             TA
           </div>
-          <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
-            株式会社アトラス
-          </span>
-          <CaretDown
-            weight="bold"
-            className="text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600"
-          />
+          {!collapsed && (
+            <>
+              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
+                株式会社アトラス
+              </span>
+              <CaretDown
+                weight="bold"
+                className="text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600"
+              />
+            </>
+          )}
         </button>
-        <button
-          type="button"
-          onClick={handleQuickCreate}
-          data-testid="leftnav-quick-create"
-          className="p-1.5 2xl:p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 rounded transition-colors"
-          title="新規作成 (C)"
-        >
-          <PencilSimpleLine className="text-xl 2xl:text-2xl" weight="bold" />
-        </button>
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={handleQuickCreate}
+            data-testid="leftnav-quick-create"
+            className="p-1.5 2xl:p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-200/60 rounded transition-colors"
+            title="新規作成 (C)"
+          >
+            <PencilSimpleLine className="text-xl 2xl:text-2xl" weight="bold" />
+          </button>
+        )}
       </div>
 
       {/* Nav Items */}
-      <div className="flex-1 overflow-y-auto px-2 space-y-6 pt-2 hide-scrollbar">
+      <div className={`flex-1 overflow-y-auto ${collapsed ? 'px-1.5' : 'px-2'} space-y-6 pt-2 hide-scrollbar`}>
         {/* Personal */}
         <div className="space-y-0.5">
           <NavItem
@@ -260,92 +330,130 @@ export function LeftNav() {
             label="受信トレイ"
             badge={inboxCount}
             active={pathname === '/inbox'}
+            collapsed={collapsed}
           />
           <NavItem
             href="/my"
             icon={<Target />}
-            label="自分の課題"
+            label="マイタスク"
             active={pathname === '/my'}
+            collapsed={collapsed}
           />
         </div>
 
         {/* Team / Project */}
         <div>
-          <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5 flex items-center justify-between">
-            <span>チーム</span>
-            {hasProjectRoute && (
-              <button
-                type="button"
-                onClick={() => setIsSpaceCreateOpen(true)}
-                className="p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors"
-                title="新しいプロジェクト"
-              >
-                <Plus className="text-sm" weight="bold" />
-              </button>
-            )}
-          </div>
+          {!collapsed && (
+            <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5 flex items-center justify-between">
+              <span>チーム</span>
+              {hasProjectRoute && (
+                <button
+                  type="button"
+                  onClick={() => setIsSpaceCreateOpen(true)}
+                  className="p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors"
+                  title="新しいプロジェクト"
+                >
+                  <Plus className="text-sm" weight="bold" />
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="space-y-0.5">
             {/* Project root */}
             <Link
               href={projectBasePath}
               prefetch={false}
-              className="px-2 py-2 text-gray-600 hover:bg-gray-200/50 rounded cursor-pointer flex items-center gap-2.5 group"
+              className={`px-2 py-2 text-gray-600 hover:bg-gray-200/50 rounded cursor-pointer flex items-center ${
+                collapsed ? 'justify-center' : 'gap-2.5'
+              } group`}
+              title={collapsed ? 'Webリニューアル' : undefined}
             >
-              <div className="w-5 h-5 2xl:w-6 2xl:h-6 rounded bg-indigo-600 text-white flex items-center justify-center text-xs 2xl:text-sm shadow-sm">
+              <div className="w-5 h-5 2xl:w-6 2xl:h-6 rounded bg-indigo-600 text-white flex items-center justify-center text-xs 2xl:text-sm shadow-sm flex-shrink-0">
                 <Planet weight="fill" />
               </div>
-              <span className="truncate text-sm 2xl:text-base">Webリニューアル</span>
-              <CaretDown
-                weight="fill"
-                className="text-[10px] 2xl:text-xs ml-auto text-gray-400"
-              />
+              {!collapsed && (
+                <>
+                  <span className="truncate text-sm 2xl:text-base">Webリニューアル</span>
+                  <CaretDown
+                    weight="fill"
+                    className="text-[10px] 2xl:text-xs ml-auto text-gray-400"
+                  />
+                </>
+              )}
             </Link>
 
             {/* Project sub-nav */}
-            <div className="pl-2 mt-0.5 space-y-0.5 border-l border-gray-200 ml-4">
+            <div className={collapsed ? 'space-y-0.5' : 'pl-2 mt-0.5 space-y-0.5 border-l border-gray-200 ml-4'}>
               <SubNavItem
                 href={projectBasePath}
                 icon={<Copy />}
-                label="課題"
+                label="タスク"
                 active={pathname === projectBasePath}
+                collapsed={collapsed}
               />
               <SubNavItem
                 href={`${projectBasePath}?filter=client_wait`}
                 icon={<ChatCircleText />}
                 label="確認待ち"
+                collapsed={collapsed}
               />
               <SubNavItem
                 href={`${projectBasePath}/meetings`}
                 icon={<Notebook />}
                 label="議事録"
                 active={pathname.includes('/meetings')}
+                collapsed={collapsed}
               />
               <SubNavItem
                 href={`${projectBasePath}/wiki`}
                 icon={<BookOpen />}
                 label="Wiki"
                 active={pathname.includes('/wiki')}
+                collapsed={collapsed}
               />
               <SubNavItem
                 href={`${projectBasePath}/views/gantt`}
                 icon={<SquaresFour />}
                 label="ガントチャート"
                 active={pathname.includes('/views')}
+                collapsed={collapsed}
               />
               <SubNavItem
                 href={`${projectBasePath}/settings`}
                 icon={<Gear />}
                 label="設定"
                 active={pathname.includes('/settings')}
+                collapsed={collapsed}
               />
             </div>
           </div>
         </div>
       </div>
 
+      {/* Collapse toggle - fixed above user menu */}
+      <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-1`}>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className={`flex items-center ${
+            collapsed ? 'justify-center w-full' : 'gap-2'
+          } px-2 py-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors w-full`}
+          title={collapsed ? 'サイドバーを展開 (⌘\\)' : undefined}
+        >
+          {collapsed ? (
+            <CaretRight className="text-lg" weight="bold" />
+          ) : (
+            <>
+              <CaretLeft className="text-lg" weight="bold" />
+              <span className="text-xs text-gray-400">折りたたむ</span>
+            </>
+          )}
+        </button>
+      </div>
+
       {/* User Menu at bottom */}
-      <UserMenu />
+      <UserMenu collapsed={collapsed} />
 
       {/* Space Create Sheet */}
       <SpaceCreateSheet

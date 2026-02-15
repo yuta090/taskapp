@@ -7,11 +7,10 @@ import {
   Spinner,
   Trash,
   PencilSimple,
-  Check,
-  X,
   Eye,
   EyeSlash,
 } from '@phosphor-icons/react'
+import Image from 'next/image'
 import { useTaskComments, type CommentWithProfile } from '@/lib/hooks/useTaskComments'
 import type { CommentVisibility } from '@/types/database'
 
@@ -87,10 +86,13 @@ function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: Comm
       <div className="flex items-start gap-2">
         {/* Avatar */}
         {comment.actor_avatar_url ? (
-          <img
+          <Image
             src={comment.actor_avatar_url}
             alt=""
+            width={28}
+            height={28}
             className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+            unoptimized
           />
         ) : (
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium flex-shrink-0">

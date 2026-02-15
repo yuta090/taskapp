@@ -9,7 +9,6 @@ import {
   Check,
   ArrowCounterClockwise,
   ChatCircle,
-  PaperPlaneTilt,
 } from '@phosphor-icons/react'
 
 interface Task {
@@ -65,13 +64,13 @@ function formatDateTime(date: string): string {
 function getStatusLabel(status?: string): { label: string; color: string } {
   if (!status) return { label: '不明', color: 'bg-gray-100 text-gray-700' }
   const statusMap: Record<string, { label: string; color: string }> = {
-    considering: { label: '確認待ち', color: 'bg-amber-100 text-amber-700' },
-    open: { label: '対応待ち', color: 'bg-blue-100 text-blue-700' },
-    in_progress: { label: '進行中', color: 'bg-purple-100 text-purple-700' },
-    todo: { label: 'Todo', color: 'bg-gray-100 text-gray-700' },
-    done: { label: '完了', color: 'bg-green-100 text-green-700' },
+    considering: { label: '確認待ち', color: 'bg-gray-100 text-gray-600' },
+    open: { label: '対応待ち', color: 'bg-blue-50 text-blue-600' },
+    in_progress: { label: '進行中', color: 'bg-blue-50 text-blue-600' },
+    todo: { label: 'Todo', color: 'bg-gray-100 text-gray-600' },
+    done: { label: '完了', color: 'bg-green-50 text-green-600' },
   }
-  return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-700' }
+  return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-600' }
 }
 
 export function PortalTaskInspector({
@@ -86,6 +85,7 @@ export function PortalTaskInspector({
 
   // Reset state when task changes to prevent comment from persisting across tasks
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional state reset when task.id changes
     setComment('')
     setActiveAction(null)
     setIsSubmitting(false)
@@ -120,7 +120,7 @@ export function PortalTaskInspector({
             {statusInfo.label}
           </span>
           {task.type === 'spec' && (
-            <span className="px-2 py-0.5 text-xs font-medium rounded bg-violet-100 text-violet-700">
+            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-600">
               仕様
             </span>
           )}

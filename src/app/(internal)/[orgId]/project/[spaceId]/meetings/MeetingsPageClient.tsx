@@ -49,7 +49,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     fetchProposals,
     fetchProposalDetail,
     createProposal,
-    cancelProposal,
     confirmSlot,
   } = useSchedulingProposals({ orgId, spaceId })
 
@@ -151,6 +150,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
 
     if (!selectedProposalId) {
       setInspector(null)
+      // Reset detail when no proposal selected — intentional state sync
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProposalDetail(null)
       return
     }
@@ -211,7 +212,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   ]
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
       <header className="h-12 border-b border-gray-100 flex items-center px-5 flex-shrink-0">
         <div className="flex items-center gap-2">

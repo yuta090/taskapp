@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { constructWebhookEvent } from '@/lib/stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Webhookはbodyをrawで受け取る必要がある
 export const runtime = 'nodejs'
@@ -87,7 +88,7 @@ async function handleCheckoutCompleted(
   }
 
   // org_billingを更新
-  await (supabase as any)
+  await (supabase as SupabaseClient)
     .from('org_billing')
     .upsert({
       org_id: orgId,
@@ -136,7 +137,7 @@ async function handleSubscriptionUpdate(
   const currentPeriodEnd = (subscription as unknown as { current_period_end?: number }).current_period_end
   const cancelAtPeriodEnd = (subscription as unknown as { cancel_at_period_end?: boolean }).cancel_at_period_end
 
-  await (supabase as any)
+  await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
       plan_id: planId || undefined,
@@ -163,7 +164,7 @@ async function handleSubscriptionDeleted(
   }
 
   // Freeプランに戻す
-  await (supabase as any)
+  await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
       plan_id: 'free',
@@ -189,7 +190,7 @@ async function handlePaymentFailed(
   }
 
   // サブスクリプションIDから組織を特定してステータス更新
-  await (supabase as any)
+  await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
       status: 'past_due',

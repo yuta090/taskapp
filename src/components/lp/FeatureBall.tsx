@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { User, PaperPlaneTilt, ArrowRight, ArrowLeft, Clock, CheckCircle } from '@phosphor-icons/react'
+import { ArrowRight, ArrowLeft, Clock, CheckCircle } from '@phosphor-icons/react'
 import { SkewSeparator } from './Separators'
 import { useState, useEffect } from 'react'
 

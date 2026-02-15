@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@phosphor-icons/react'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface Milestone {
   id: string
@@ -41,18 +42,23 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
     setLoading(true)
     setError(null)
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error: err } = await (supabase as any)
+
+      const { data, error: pgErr } = await (supabase as SupabaseClient)
         .from('milestones')
         .select('id, name, start_date, due_date, order_key')
         .eq('space_id' as never, spaceId as never)
         .order('order_key' as never, { ascending: true })
 
-      if (err) throw err
+      if (pgErr) {
+        console.error('Milestone fetch error:', pgErr.message, `(code: ${pgErr.code})`)
+        setError(`マイルストーンの取得に失敗しました: ${pgErr.message}`)
+        return
+      }
       setMilestones(data || [])
     } catch (err) {
       console.error('Failed to fetch milestones:', err)
-      setError('マイルストーンの取得に失敗しました')
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`マイルストーンの取得に失敗しました: ${msg}`)
     } finally {
       setLoading(false)
     }
@@ -71,8 +77,8 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
     setDateError(null)
     setCreating(true)
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any)
+       
+      const { error: err } = await (supabase as SupabaseClient)
         .from('milestones')
         .insert({
           space_id: spaceId,
@@ -98,8 +104,8 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
   const handleDelete = async (id: string) => {
     if (!confirm('このマイルストーンを削除しますか？')) return
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any)
+       
+      const { error: err } = await (supabase as SupabaseClient)
         .from('milestones')
         .delete()
         .eq('id' as never, id as never)
@@ -136,8 +142,8 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
     }
     setEditDateError(null)
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: err } = await (supabase as any)
+       
+      const { error: err } = await (supabase as SupabaseClient)
         .from('milestones')
         .update({
           name: editName.trim(),

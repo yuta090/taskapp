@@ -48,16 +48,15 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
 
       if (reviewsError) throw reviewsError
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawReviews = (reviewsData || []) as any[]
+      const rawReviews = (reviewsData || []) as Array<Record<string, unknown>>
 
       // review_approvals をパースし、reviews からは除去
       const reviewsWithRelations: ReviewWithRelations[] = rawReviews.map(
         (r) => {
-          const { review_approvals, ...reviewFields } = r
+          const { review_approvals, task, ...reviewFields } = r
           return {
-            ...reviewFields,
-            task: r.task as Task | undefined,
+            ...(reviewFields as unknown as Review),
+            task: task as Task | undefined,
             approvals: (Array.isArray(review_approvals) ? review_approvals : []) as ReviewApproval[],
           }
         }

@@ -1,4 +1,5 @@
 import { GeneralSettings } from './GeneralSettings'
+import { PresetSettings } from './PresetSettings'
 import { MilestonesSettings } from './MilestonesSettings'
 import { MembersSettings } from './MembersSettings'
 import { ApiSettings } from './ApiSettings'
@@ -31,6 +32,11 @@ export default async function SettingsPage({ params }: PageProps) {
         {/* General settings section */}
         <section className="bg-white border border-gray-200 rounded-xl p-6">
           <GeneralSettings spaceId={spaceId} />
+        </section>
+
+        {/* Preset / Initial setup section */}
+        <section className="bg-white border border-gray-200 rounded-xl p-6">
+          <PresetSettings orgId={orgId} spaceId={spaceId} />
         </section>
 
         {/* Milestones section */}

@@ -1,8 +1,8 @@
 # バーンダウンチャート & マイルストーン開始日 仕様書
 
 > **Version**: 1.5
-> **Last Updated**: 2026-02-14
-> **Status**: 設計中（Codex Plan Reviewer レビュー5回反映済み）
+> **Last Updated**: 2026-02-20
+> **Status**: 実装済み（Codex Code Reviewer 3回 → APPROVE）
 
 ---
 
