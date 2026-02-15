@@ -594,7 +594,7 @@ export function TaskInspector({
             <TreeStructure className="text-sm" />
             親タスク
           </label>
-          {onUpdate && parentTasks.length > 0 ? (
+          {onUpdate ? (
             <select
               value={task.parent_task_id || ''}
               onChange={(e) => onUpdate?.({ parentTaskId: e.target.value || null })}

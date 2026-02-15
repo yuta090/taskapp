@@ -48,9 +48,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
   const [reviewStatuses, setReviewStatuses] = useState<Record<string, 'open' | 'approved' | 'changes_requested'>>({})
-  // Carry-over state for consecutive task creates (UX rule: ball/owners persist)
-  const [lastBall, setLastBall] = useState<BallSide>('internal')
-  const [lastClientOwnerIds, setLastClientOwnerIds] = useState<string[]>([])
+  // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
+  const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
+  const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
+  const lastBall = lastBallBySpace[spaceId] ?? 'internal'
+  const lastClientOwnerIds = lastClientOwnersBySpace[spaceId] ?? []
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
@@ -405,10 +407,6 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   const handleCreateSubmit = async (data: TaskCreateData) => {
     try {
-      // Persist ball/owners for next consecutive create
-      setLastBall(data.ball)
-      setLastClientOwnerIds(data.clientOwnerIds)
-
       const created = await createTask({
         title: data.title,
         description: data.description,
@@ -425,6 +423,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         milestoneId: data.milestoneId,
         parentTaskId: data.parentTaskId,
       })
+      // Persist ball/owners for next consecutive create (only on success, scoped to space)
+      setLastBallBySpace((prev) => ({ ...prev, [spaceId]: data.ball }))
+      setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: data.clientOwnerIds }))
       syncUrlWithState(false, created.id, activeFilter)
     } catch {
       alert('タスクの作成に失敗しました')
