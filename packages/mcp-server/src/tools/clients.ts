@@ -214,11 +214,19 @@ export async function clientGet(
 
   if (membershipError) throw new Error('クライアントが見つかりません: ' + membershipError.message)
 
-  // Get space memberships
+  // Get space memberships (org_id でフィルタして cross-org 漏洩を防止)
+  const { data: orgSpaces } = await supabase
+    .from('spaces')
+    .select('id')
+    .eq('org_id', orgId)
+
+  const orgSpaceIds = (orgSpaces || []).map((s: { id: string }) => s.id)
+
   const { data: spaces, error: spacesError } = await supabase
     .from('space_memberships')
     .select('*')
     .eq('user_id', params.userId)
+    .in('space_id', orgSpaceIds.length > 0 ? orgSpaceIds : ['__none__'])
 
   if (spacesError) throw new Error('スペース情報の取得に失敗しました: ' + spacesError.message)
 
@@ -308,8 +316,9 @@ export async function clientInviteList(
 export async function clientInviteResend(
   params: z.infer<typeof clientInviteResendSchema>
 ): Promise<ClientInvite> {
-  await checkAuthOrg('write', 'client_invite_resend')
+  const { ctx } = await checkAuthOrg('write', 'client_invite_resend')
   const supabase = getSupabaseClient()
+  const orgId = ctx.orgId
 
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + params.expiresInDays)
@@ -323,6 +332,7 @@ export async function clientInviteResend(
       expires_at: expiresAt.toISOString(),
     })
     .eq('id', params.inviteId)
+    .eq('org_id', orgId)
     .select('*')
     .single()
 

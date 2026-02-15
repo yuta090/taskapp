@@ -73,6 +73,11 @@ export const config = loadConfig()
 export async function initializeAuth(): Promise<void> {
   const apiKey = process.env.TASKAPP_API_KEY
   if (!apiKey) {
+    // 本番環境で API キー未設定は致命的エラー
+    if (process.env.NODE_ENV === 'production') {
+      console.error('FATAL: TASKAPP_API_KEY is required in production')
+      process.exit(1)
+    }
     console.error('WARNING: TASKAPP_API_KEY not set, using static config (dev mode)')
     return
   }

@@ -29,10 +29,15 @@ export async function checkAuth(spaceId, action, toolName, resourceType, resourc
  */
 export async function checkAuthOrg(action, toolName) {
     const ctx = getAuthContext();
+    // scope チェック: org-level ツールは org または dev-key のみ許可
+    // user/space スコープのキーでは org-wide 操作を禁止
+    if (ctx.scope !== 'org' && ctx.keyId !== 'dev-key') {
+        throw new Error(`権限エラー: Org-level tool "${toolName}" requires scope=org (current: ${ctx.scope})`);
+    }
     if (!ctx.allowedActions.includes(action)) {
         throw new Error(`権限エラー: Action "${action}" not allowed for this API key`);
     }
-    // 監査ログ（fire-and-forget）
+    // 監査ログ（fire-and-forget、操作の成否は呼び出し元で管理）
     void logUsage({ ctx, spaceId: '', action, toolName, success: true });
     return { ctx };
 }
