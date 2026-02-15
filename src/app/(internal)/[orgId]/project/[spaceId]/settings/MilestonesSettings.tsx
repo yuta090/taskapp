@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 
 interface Milestone {
   id: string
@@ -95,7 +96,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       await fetchMilestones()
     } catch (err) {
       console.error('Failed to create milestone:', err)
-      alert('マイルストーンの作成に失敗しました')
+      toast.error('マイルストーンの作成に失敗しました')
     } finally {
       setCreating(false)
     }
@@ -114,7 +115,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       await fetchMilestones()
     } catch (err) {
       console.error('Failed to delete milestone:', err)
-      alert('マイルストーンの削除に失敗しました')
+      toast.error('マイルストーンの削除に失敗しました')
     }
   }
 
@@ -157,7 +158,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       await fetchMilestones()
     } catch (err) {
       console.error('Failed to update milestone:', err)
-      alert('マイルストーンの更新に失敗しました')
+      toast.error('マイルストーンの更新に失敗しました')
     }
   }
 

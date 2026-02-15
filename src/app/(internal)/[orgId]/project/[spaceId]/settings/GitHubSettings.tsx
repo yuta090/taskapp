@@ -10,6 +10,7 @@ import {
   useUnlinkRepoFromSpace,
 } from '@/lib/hooks'
 import { getGitHubInstallUrl, isGitHubConfigured } from '@/lib/github/config'
+import { toast } from 'sonner'
 
 interface GitHubSettingsProps {
   orgId: string
@@ -44,7 +45,7 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
       setSelectedRepoId('')
     } catch (err) {
       console.error('Failed to link repository:', err)
-      alert('リポジトリの連携に失敗しました')
+      toast.error('リポジトリの連携に失敗しました')
     }
   }
 
@@ -58,7 +59,7 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
       })
     } catch (err) {
       console.error('Failed to unlink repository:', err)
-      alert('連携の解除に失敗しました')
+      toast.error('連携の解除に失敗しました')
     }
   }
 
