@@ -439,6 +439,162 @@ export function TaskCreateSheet({
             </div>
           )}
 
+          {/* Ball selector - placed early for "who acts next" decision */}
+          <div>
+            <label className="text-xs font-medium text-gray-500">ボール</label>
+            <div className="mt-1 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setBall('internal')}
+                data-testid="task-create-ball-internal"
+                className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  ball === 'internal'
+                    ? 'bg-gray-100 border-gray-300 font-medium'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                社内
+              </button>
+              <button
+                type="button"
+                onClick={() => setBall('client')}
+                data-testid="task-create-ball-client"
+                className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  ball === 'client'
+                    ? 'bg-amber-50 border-amber-300 font-medium text-amber-700'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <span className="flex items-center justify-center gap-1">
+                  <ArrowRight weight="bold" className="text-xs" />
+                  外部
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Client owners (required when ball=client) */}
+          {ball === 'client' && (
+            <div className="p-3 bg-amber-50 rounded-lg">
+              <label className="text-xs font-medium text-amber-600">
+                外部担当者（必須）
+              </label>
+              <div className="mt-2 flex items-center gap-2">
+                <User className="text-amber-500" />
+                <span className="text-sm text-amber-700">
+                  {clientOwnerIds.length > 0
+                    ? `${clientOwnerIds.length}名選択中`
+                    : '担当者を選択してください'}
+                </span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {membersLoading && (
+                  <div className="text-xs text-amber-600">読み込み中...</div>
+                )}
+                {membersError && (
+                  <div className="text-xs text-amber-600">{membersError}</div>
+                )}
+                {!membersLoading && !membersError && clientMembers.length === 0 && (
+                  <div className="text-xs text-amber-600">
+                    外部担当者が見つかりません
+                  </div>
+                )}
+                {!membersLoading && clientMembers.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {clientMembers.map((member) => {
+                      const isSelected = clientOwnerIds.includes(member.id)
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => toggleClientOwner(member.id)}
+                          data-testid={`task-create-client-owner-${member.id}`}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            isSelected
+                              ? 'bg-amber-100 border-amber-300 text-amber-700 font-medium'
+                              : 'border-amber-200 text-amber-700 hover:bg-amber-100'
+                          }`}
+                          title={member.displayName}
+                        >
+                          {member.displayName}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Internal owners (optional, shown when ball=internal) */}
+          {ball === 'internal' && internalMembers.length > 0 && (
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <label className="text-xs font-medium text-gray-600">
+                社内担当者（任意）
+              </label>
+              <div className="mt-2 flex items-center gap-2">
+                <User className="text-gray-500" />
+                <span className="text-sm text-gray-700">
+                  {internalOwnerIds.length > 0
+                    ? `${internalOwnerIds.length}名選択中`
+                    : '担当者を選択（任意）'}
+                </span>
+              </div>
+              <div className="mt-3">
+                <div className="flex flex-wrap gap-2">
+                  {internalMembers.map((member) => {
+                    const isSelected = internalOwnerIds.includes(member.id)
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => toggleInternalOwner(member.id)}
+                        data-testid={`task-create-internal-owner-${member.id}`}
+                        className={`px-2 py-1 text-xs rounded border transition-colors ${
+                          isSelected
+                            ? 'bg-gray-200 border-gray-400 text-gray-700 font-medium'
+                            : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title={member.displayName}
+                      >
+                        {member.displayName}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Client Scope toggle */}
+          <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className={`text-lg ${clientScope === 'deliverable' ? 'opacity-100' : 'opacity-30'}`}>👁</span>
+              <div>
+                <span className="text-sm font-medium text-gray-700">外部に公開</span>
+                <p className="text-xs text-gray-500">
+                  {clientScope === 'deliverable'
+                    ? '外部ポータルに表示されます'
+                    : '内部作業として非表示'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
+              data-testid="task-create-client-scope-toggle"
+              className={`relative w-11 h-6 rounded-full transition-colors ${
+                clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
           {/* Due date, Assignee, Milestone row */}
           <div className="grid grid-cols-3 gap-3">
             {/* Due date */}
@@ -583,162 +739,6 @@ export function TaskCreateSheet({
                   </option>
                 ))}
               </select>
-            </div>
-          )}
-
-          {/* Ball selector */}
-          <div>
-            <label className="text-xs font-medium text-gray-500">ボール</label>
-            <div className="mt-1 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setBall('internal')}
-                data-testid="task-create-ball-internal"
-                className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-colors ${
-                  ball === 'internal'
-                    ? 'bg-gray-100 border-gray-300 font-medium'
-                    : 'border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                社内
-              </button>
-              <button
-                type="button"
-                onClick={() => setBall('client')}
-                data-testid="task-create-ball-client"
-                className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-colors ${
-                  ball === 'client'
-                    ? 'bg-amber-50 border-amber-300 font-medium text-amber-700'
-                    : 'border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <span className="flex items-center justify-center gap-1">
-                  <ArrowRight weight="bold" className="text-xs" />
-                  外部
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Client Scope toggle */}
-          <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center gap-2">
-              <span className={`text-lg ${clientScope === 'deliverable' ? 'opacity-100' : 'opacity-30'}`}>👁</span>
-              <div>
-                <span className="text-sm font-medium text-gray-700">外部に公開</span>
-                <p className="text-xs text-gray-500">
-                  {clientScope === 'deliverable'
-                    ? '外部ポータルに表示されます'
-                    : '内部作業として非表示'}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
-              data-testid="task-create-client-scope-toggle"
-              className={`relative w-11 h-6 rounded-full transition-colors ${
-                clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                  clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Client owners (required when ball=client) */}
-          {ball === 'client' && (
-            <div className="p-3 bg-amber-50 rounded-lg">
-              <label className="text-xs font-medium text-amber-600">
-                外部担当者（必須）
-              </label>
-              <div className="mt-2 flex items-center gap-2">
-                <User className="text-amber-500" />
-                <span className="text-sm text-amber-700">
-                  {clientOwnerIds.length > 0
-                    ? `${clientOwnerIds.length}名選択中`
-                    : '担当者を選択してください'}
-                </span>
-              </div>
-              <div className="mt-3 space-y-2">
-                {membersLoading && (
-                  <div className="text-xs text-amber-600">読み込み中...</div>
-                )}
-                {membersError && (
-                  <div className="text-xs text-amber-600">{membersError}</div>
-                )}
-                {!membersLoading && !membersError && clientMembers.length === 0 && (
-                  <div className="text-xs text-amber-600">
-                    外部担当者が見つかりません
-                  </div>
-                )}
-                {!membersLoading && clientMembers.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {clientMembers.map((member) => {
-                      const isSelected = clientOwnerIds.includes(member.id)
-                      return (
-                        <button
-                          key={member.id}
-                          type="button"
-                          onClick={() => toggleClientOwner(member.id)}
-                          data-testid={`task-create-client-owner-${member.id}`}
-                          className={`px-2 py-1 text-xs rounded border transition-colors ${
-                            isSelected
-                              ? 'bg-amber-100 border-amber-300 text-amber-700 font-medium'
-                              : 'border-amber-200 text-amber-700 hover:bg-amber-100'
-                          }`}
-                          title={member.displayName}
-                        >
-                          {member.displayName}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Internal owners (optional, shown when ball=internal) */}
-          {ball === 'internal' && internalMembers.length > 0 && (
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <label className="text-xs font-medium text-gray-600">
-                社内担当者（任意）
-              </label>
-              <div className="mt-2 flex items-center gap-2">
-                <User className="text-gray-500" />
-                <span className="text-sm text-gray-700">
-                  {internalOwnerIds.length > 0
-                    ? `${internalOwnerIds.length}名選択中`
-                    : '担当者を選択（任意）'}
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className="flex flex-wrap gap-2">
-                  {internalMembers.map((member) => {
-                    const isSelected = internalOwnerIds.includes(member.id)
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        onClick={() => toggleInternalOwner(member.id)}
-                        data-testid={`task-create-internal-owner-${member.id}`}
-                        className={`px-2 py-1 text-xs rounded border transition-colors ${
-                          isSelected
-                            ? 'bg-gray-200 border-gray-400 text-gray-700 font-medium'
-                            : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={member.displayName}
-                      >
-                        {member.displayName}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
             </div>
           )}
 
