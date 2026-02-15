@@ -115,6 +115,16 @@
 |-------|---------|--------|
 | Phase 1 | 通知分類（actionable/informational）+ 要対応バッジ + タイプ別アクションパネル | ✅ |
 
+### Settings UX Redesign (設定画面リデザイン)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | サイドバーナビゲーション（5カテゴリ分類） | ✅ |
+| Phase 2 | sonner toast通知（alert()廃止・14箇所置換） | ✅ |
+| Phase 3 | 接続ステータスバッジ（connected/disconnected/warning） | ✅ |
+| Phase 4 | セットアップバナー（3ステップウィザード） | ✅ |
+| Phase 5 | 設定検索（`/` / `Cmd+K` ショートカット） | ✅ |
+
 ### Planned (計画中)
 
 | Feature | Priority | Notes |
