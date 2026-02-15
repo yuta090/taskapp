@@ -3,6 +3,7 @@ export { PortalLayout } from './PortalLayout'
 export { PortalShell, usePortalInspector } from './PortalShell'
 export { PortalLeftNav } from './PortalLeftNav'
 export { PortalTaskInspector } from './PortalTaskInspector'
+export { PortalOnboardingWalkthrough } from './PortalOnboardingWalkthrough'
 
 // Re-export UI components
 export * from './ui'

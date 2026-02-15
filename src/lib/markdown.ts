@@ -3,9 +3,19 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkRehype from 'remark-rehype'
 import rehypeSlug from 'rehype-slug'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
 import fs from 'fs/promises'
 import path from 'path'
+
+/** Extended sanitize schema: default + id attributes (for rehype-slug anchors) */
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'id', 'className'],
+  },
+}
 
 const MANUAL_DIR = path.join(process.cwd(), 'docs', 'manual')
 
@@ -51,9 +61,10 @@ export async function getManualPage(slugParts: string[]): Promise<{
   const result = await unified()
     .use(remarkParse)
     .use(remarkGfm)
-    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(remarkRehype)
     .use(rehypeSlug)
-    .use(rehypeStringify, { allowDangerousHtml: true })
+    .use(rehypeSanitize, sanitizeSchema)
+    .use(rehypeStringify)
     .process(raw)
 
   let html = String(result)

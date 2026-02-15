@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import type { Notification, Json } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -61,23 +62,18 @@ export function useNotifications(): UseNotificationsState {
   if (!supabaseRef.current) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  // ユーザーIDキャッシュ（auth.getUser()の重複呼び出し回避）
-  const userIdRef = useRef<string | null>(null)
-
-  // 認証状態変更時にキャッシュ無効化（logout/relogin対策）
+  // 認証状態変更時にグローバルキャッシュ無効化（logout/relogin対策）
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      userIdRef.current = null
+      invalidateCachedUser()
     })
     return () => subscription.unsubscribe()
   }, [supabase])
 
-  /** キャッシュ付きでユーザーIDを取得 */
+  /** グローバルキャッシュ付きでユーザーIDを取得 */
   const getUserId = useCallback(async (): Promise<string | null> => {
-    if (userIdRef.current) return userIdRef.current
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    const { user, error: userError } = await getCachedUser(supabase)
     if (userError || !user) return null
-    userIdRef.current = user.id
     return user.id
   }, [supabase])
 

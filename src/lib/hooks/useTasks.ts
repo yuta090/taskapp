@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
+import { getCachedUser, getCachedUserId } from '@/lib/supabase/cached-auth'
 import type {
   Task,
   TaskOwner,
@@ -207,10 +208,10 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       try {
         // Get authenticated user, or use demo user in development
         let userId: string
-        const { data: authData, error: authError } =
-          await supabase.auth.getUser()
+        const { user: authUser, error: authError } =
+          await getCachedUser(supabase)
 
-        if (authError || !authData?.user) {
+        if (authError || !authUser) {
           // Use demo user ID for development/testing
           const demoUserId = process.env.NEXT_PUBLIC_DEMO_USER_ID
           if (process.env.NODE_ENV === 'development' && demoUserId) {
@@ -219,7 +220,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
             throw new Error('ログインが必要です')
           }
         } else {
-          userId = authData.user.id
+          userId = authUser.id
         }
 
         const { data: created, error: createError } = await (supabase as SupabaseClient)
@@ -402,8 +403,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
         // Fire-and-forget audit logs
         if (prevTask) {
-          const { data: authData } = await supabase.auth.getUser()
-          const actorId = authData?.user?.id ?? 'unknown'
+          const actorId = (await getCachedUserId(supabase)) ?? 'unknown'
 
           // Status change audit log
           if (input.status !== undefined && prevTask.status !== input.status) {
@@ -492,8 +492,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
         // Fire-and-forget audit log
         if (removedTask) {
-          const { data: authData } = await supabase.auth.getUser()
-          const actorId = authData?.user?.id ?? 'unknown'
+          const actorId = (await getCachedUserId(supabase)) ?? 'unknown'
 
           void createAuditLog({
             supabase,
