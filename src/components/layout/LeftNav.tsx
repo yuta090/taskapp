@@ -265,14 +265,35 @@ export function LeftNav() {
     })
   }, [])
 
-  const handleQuickCreate = () => {
+  const handleQuickCreate = useCallback(() => {
     if (hasProjectRoute) {
       router.push(`${projectBasePath}?create=1`)
     } else {
       // Outside project context: open global create on My Tasks page
       router.push('/my?create=1')
     }
-  }
+  }, [hasProjectRoute, projectBasePath, router])
+
+  // Global keyboard shortcut: C to open task creation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip during IME composition or key repeat
+      if (e.isComposing || e.repeat) return
+      // Skip when typing in input fields, textareas, selects, or contentEditable
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if ((e.target as HTMLElement)?.isContentEditable) return
+      // Skip when modifier keys are held (allow Cmd+C, Ctrl+C, etc.)
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault()
+        handleQuickCreate()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleQuickCreate])
 
   const handleWorkspaceClick = () => {
     router.push(projectBasePath)
