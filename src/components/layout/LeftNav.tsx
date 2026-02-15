@@ -17,17 +17,18 @@ import {
   BookOpen,
   SquaresFour,
   Gear,
-  SignOut,
   User,
   GearSix,
   CaretUp,
-  Key,
   Plus,
+  Sliders,
+  Bell,
 } from '@phosphor-icons/react'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import { createClient } from '@/lib/supabase/client'
+import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
+import { OrgMenu } from '@/components/layout/OrgMenu'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
 
@@ -100,16 +101,28 @@ function SubNavItem({ href, icon, label, active, collapsed }: SubNavItemProps) {
   )
 }
 
-function UserMenu({ collapsed }: { collapsed?: boolean }) {
-  const { user, loading } = useCurrentUser()
-  const router = useRouter()
-  const [isOpen, setIsOpen] = useState(false)
+interface UserMenuProps {
+  collapsed?: boolean
+  isOpen: boolean
+  onToggle: () => void
+  onClose: () => void
+}
 
-  const handleLogout = useCallback(async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-  }, [router])
+function UserMenu({ collapsed, isOpen, onToggle, onClose }: UserMenuProps) {
+  const { user, loading } = useCurrentUser()
+
+  // Escape key handler
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
 
   if (loading) {
     return (
@@ -148,11 +161,13 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
     <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200 relative`}>
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
         className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2 rounded hover:bg-gray-200/60 transition-colors group`}
         title={collapsed ? userName : undefined}
       >
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium shadow-sm flex-shrink-0">
+        <div className="w-7 h-7 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-medium flex-shrink-0">
           {userInitial}
         </div>
         {!collapsed && (
@@ -173,44 +188,53 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
         <>
           <div
             className="fixed inset-0 z-40"
-            onClick={() => setIsOpen(false)}
+            onClick={onClose}
+            aria-hidden="true"
           />
-          <div className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
-            collapsed ? 'left-0 w-48' : 'left-3 right-3'
-          }`}>
+          <div
+            role="menu"
+            aria-orientation="vertical"
+            className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-popover py-1.5 z-50 ${
+              collapsed ? 'left-0 w-48' : 'left-3 right-3'
+            }`}
+          >
             <Link
               href="/settings/account"
-              onClick={() => setIsOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={onClose}
+              role="menuitem"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <GearSix className="text-base text-gray-500" />
               アカウント設定
             </Link>
             <Link
-              href="/settings/api-keys"
-              onClick={() => setIsOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              href="/settings/preferences"
+              onClick={onClose}
+              role="menuitem"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              <Key className="text-base text-gray-500" />
-              APIキー管理
+              <Sliders className="text-base text-gray-500" />
+              環境設定
             </Link>
             <Link
+              href="/settings/notifications"
+              onClick={onClose}
+              role="menuitem"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Bell className="text-base text-gray-500" />
+              通知設定
+            </Link>
+            <hr className="my-1.5 border-gray-100" role="separator" />
+            <Link
               href="/docs/manual/internal"
-              onClick={() => setIsOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={onClose}
+              role="menuitem"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <BookOpen className="text-base text-gray-500" />
               マニュアル
             </Link>
-            <hr className="my-1 border-gray-100" />
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <SignOut className="text-base" />
-              ログアウト
-            </button>
           </div>
         </>
       )}
@@ -222,6 +246,8 @@ export function LeftNav() {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
+  const [isOrgMenuOpen, setIsOrgMenuOpen] = useState(false)
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
 
   const fallbackOrgId = '00000000-0000-0000-0000-000000000001'
   const fallbackSpaceId = '00000000-0000-0000-0000-000000000010'
@@ -231,8 +257,10 @@ export function LeftNav() {
   const hasProjectRoute = !!match
   const { pendingCount: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
+  const { orgName } = useCurrentOrg()
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
+  const displayOrgName = orgName ?? '株式会社アトラス'
 
   // Restore collapsed state from localStorage
   useEffect(() => {
@@ -269,9 +297,22 @@ export function LeftNav() {
     router.push(`${projectBasePath}?create=1`)
   }
 
-  const handleWorkspaceClick = () => {
-    router.push(projectBasePath)
-  }
+  const toggleOrgMenu = useCallback(() => {
+    setIsOrgMenuOpen(prev => {
+      if (!prev) setIsUserMenuOpen(false)
+      return !prev
+    })
+  }, [])
+
+  const toggleUserMenu = useCallback(() => {
+    setIsUserMenuOpen(prev => {
+      if (!prev) setIsOrgMenuOpen(false)
+      return !prev
+    })
+  }, [])
+
+  const closeOrgMenu = useCallback(() => setIsOrgMenuOpen(false), [])
+  const closeUserMenu = useCallback(() => setIsUserMenuOpen(false), [])
 
   const handleSpaceCreated = (newSpaceId: string) => {
     router.push(`/${orgId}/project/${newSpaceId}`)
@@ -284,25 +325,29 @@ export function LeftNav() {
       } bg-[#F7F8F9] border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
     >
       {/* Workspace + Quick Create */}
-      <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1`}>
+      <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>
         <button
           type="button"
-          onClick={handleWorkspaceClick}
+          onClick={toggleOrgMenu}
           data-testid="leftnav-workspace"
+          aria-expanded={isOrgMenuOpen}
+          aria-haspopup="menu"
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded hover:bg-gray-200/60 cursor-pointer transition-colors group relative`}
-          title={collapsed ? '株式会社アトラス' : undefined}
+          title={collapsed ? displayOrgName : undefined}
         >
           <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-orange-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-sm flex-shrink-0">
-            TA
+            {displayOrgName.slice(0, 2).toUpperCase()}
           </div>
           {!collapsed && (
             <>
               <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
-                株式会社アトラス
+                {displayOrgName}
               </span>
               <CaretDown
                 weight="bold"
-                className="text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600"
+                className={`text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600 transition-transform ${
+                  isOrgMenuOpen ? 'rotate-180' : ''
+                }`}
               />
             </>
           )}
@@ -318,6 +363,11 @@ export function LeftNav() {
             <PencilSimpleLine className="text-xl 2xl:text-2xl" weight="bold" />
           </button>
         )}
+        <OrgMenu
+          isOpen={isOrgMenuOpen}
+          onClose={closeOrgMenu}
+          collapsed={collapsed}
+        />
       </div>
 
       {/* Nav Items */}
@@ -453,7 +503,12 @@ export function LeftNav() {
       </div>
 
       {/* User Menu at bottom */}
-      <UserMenu collapsed={collapsed} />
+      <UserMenu
+        collapsed={collapsed}
+        isOpen={isUserMenuOpen}
+        onToggle={toggleUserMenu}
+        onClose={closeUserMenu}
+      />
 
       {/* Space Create Sheet */}
       <SpaceCreateSheet
