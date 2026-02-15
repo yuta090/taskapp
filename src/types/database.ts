@@ -307,6 +307,7 @@ export interface Database {
           org_id: string
           space_id: string
           milestone_id: string | null
+          parent_task_id: string | null
           title: string
           description: string | null
           status: TaskStatus
@@ -329,6 +330,7 @@ export interface Database {
           org_id: string
           space_id: string
           milestone_id?: string | null
+          parent_task_id?: string | null
           title: string
           description?: string | null
           status?: TaskStatus
@@ -351,6 +353,7 @@ export interface Database {
           org_id?: string
           space_id?: string
           milestone_id?: string | null
+          parent_task_id?: string | null
           title?: string
           description?: string | null
           status?: TaskStatus

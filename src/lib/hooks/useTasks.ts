@@ -34,6 +34,7 @@ export interface CreateTaskInput {
   dueDate?: string
   assigneeId?: string
   milestoneId?: string
+  parentTaskId?: string
 }
 
 export interface UpdateTaskInput {
@@ -45,6 +46,7 @@ export interface UpdateTaskInput {
   dueDate?: string | null
   assigneeId?: string | null
   milestoneId?: string | null
+  parentTaskId?: string | null
 }
 
 interface UseTasksReturn {
@@ -62,6 +64,50 @@ interface UseTasksReturn {
     clientOwnerIds: string[],
     internalOwnerIds: string[]
   ) => Promise<void>
+}
+
+/**
+ * Validate parent_task_id assignment for 1-level hierarchy constraint.
+ * Throws if the assignment would violate nesting rules.
+ */
+function validateParentTask(
+  parentTaskId: string | null | undefined,
+  currentTaskId: string | undefined,
+  tasks: Task[],
+  spaceId: string
+): void {
+  if (!parentTaskId) return
+
+  // Self-reference check
+  if (currentTaskId && parentTaskId === currentTaskId) {
+    throw new Error('タスクを自分自身の親に設定することはできません')
+  }
+
+  const parentTask = tasks.find((t) => t.id === parentTaskId)
+
+  // Parent must exist in the current task list
+  if (!parentTask) {
+    // Parent may be in a different fetch — skip client-side check, DB trigger will catch it
+    return
+  }
+
+  // Parent must be in the same space
+  if (parentTask.space_id !== spaceId) {
+    throw new Error('親タスクは同じスペース内である必要があります')
+  }
+
+  // Parent must not itself be a child (no deep nesting)
+  if (parentTask.parent_task_id) {
+    throw new Error('子タスクを親に設定することはできません（階層は1段階まで）')
+  }
+
+  // Current task must not already be a parent of other tasks
+  if (currentTaskId) {
+    const hasChildren = tasks.some((t) => t.parent_task_id === currentTaskId)
+    if (hasChildren) {
+      throw new Error('子タスクを持つタスクを別タスクの子にすることはできません')
+    }
+  }
 }
 
 export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
@@ -125,6 +171,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const createTask = useCallback(
     async (task: CreateTaskInput) => {
+      // Validate parent task assignment before proceeding
+      validateParentTask(task.parentTaskId, undefined, tasks, spaceId)
+
       const now = new Date().toISOString()
       const tempId = crypto.randomUUID()
       const status = task.type === 'spec' ? 'considering' : 'backlog'
@@ -137,8 +186,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         status,
         priority: null,
         assignee_id: task.assigneeId ?? null,
+        start_date: null,
         due_date: task.dueDate ?? null,
         milestone_id: task.milestoneId ?? null,
+        parent_task_id: task.parentTaskId ?? null,
+        actual_hours: null,
         ball: task.ball,
         origin: task.origin,
         type: task.type,
@@ -188,6 +240,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               due_date: task.dueDate ?? null,
               assignee_id: task.assigneeId ?? null,
               milestone_id: task.milestoneId ?? null,
+              parent_task_id: task.parentTaskId ?? null,
               created_by: userId,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } as any
@@ -277,11 +330,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [orgId, spaceId, supabase]
+    [orgId, spaceId, supabase, tasks]
   )
 
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput): Promise<void> => {
+      // Validate parent task assignment if being changed
+      if (input.parentTaskId !== undefined) {
+        validateParentTask(input.parentTaskId, taskId, tasks, spaceId)
+      }
+
       // Capture only the specific task for targeted rollback (avoids stale closure)
       let prevTask: Task | undefined
 
@@ -300,6 +358,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
               assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
               milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
+              parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
               updated_at: new Date().toISOString(),
             }
           }
@@ -317,6 +376,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
+        if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: updateError } = await (supabase as any)
@@ -397,7 +457,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase, orgId, spaceId]
+    [supabase, orgId, spaceId, tasks]
   )
 
   const deleteTask = useCallback(
