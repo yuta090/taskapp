@@ -25,17 +25,13 @@ export function useBurndown({
   const fetchIdRef = useRef(0)
 
   const refetch = useCallback(async () => {
-    if (!milestoneId) {
-      setData(null)
-      return
-    }
-
     const currentFetchId = ++fetchIdRef.current
     setLoading(true)
     setError(null)
 
     try {
-      const params = new URLSearchParams({ spaceId, milestoneId })
+      const params = new URLSearchParams({ spaceId })
+      if (milestoneId) params.set('milestoneId', milestoneId)
       const res = await fetch(`/api/burndown?${params.toString()}`)
 
       if (currentFetchId !== fetchIdRef.current) return

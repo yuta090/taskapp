@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { ArrowLeft, User, Camera, Check, CircleNotch, Key, CaretRight } from '@phosphor-icons/react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function AccountSettingsPage() {
   const { user, loading: userLoading } = useCurrentUser()
@@ -29,7 +31,7 @@ export default function AccountSettingsPage() {
     const fetchProfile = async () => {
       setLoading(true)
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await (supabase as SupabaseClient)
           .from('profiles')
           .select('display_name, avatar_url')
           .eq('id', user.id)
@@ -66,7 +68,7 @@ export default function AccountSettingsPage() {
 
     try {
       // Use upsert to handle both new and existing profiles
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (supabase as SupabaseClient)
         .from('profiles')
         .upsert({
           id: user.id,
@@ -157,10 +159,13 @@ export default function AccountSettingsPage() {
           <div className="flex items-center gap-6">
             <div className="relative">
               {avatarUrl ? (
-                <img
+                <Image
                   src={avatarUrl}
                   alt="Avatar"
+                  width={80}
+                  height={80}
                   className="w-20 h-20 rounded-full object-cover"
+                  unoptimized
                 />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-2xl font-bold">

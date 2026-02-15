@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface UseRealtimeResponsesOptions {

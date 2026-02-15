@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import type {
   SchedulingProposal,
   ProposalSlot,
@@ -72,19 +71,12 @@ interface UseSchedulingProposalsReturn {
   confirmSlot: (proposalId: string, slotId: string) => Promise<{ meetingId: string }>
 }
 
-const PROPOSALS_LIMIT = 50
-
 export function useSchedulingProposals({
-  orgId,
   spaceId,
 }: UseSchedulingProposalsOptions): UseSchedulingProposalsReturn {
   const [proposals, setProposals] = useState<ProposalWithDetails[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
-
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
-  const supabase = supabaseRef.current
 
   const fetchIdRef = useRef(0)
 

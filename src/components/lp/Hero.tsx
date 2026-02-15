@@ -9,16 +9,17 @@ import Link from 'next/link'
 
 import { AuroraBackground } from '@/components/ui/aurora-background'
 
+const heroImages = [
+  "/img/lp/hero_dev_ai.webp",
+  "/img/lp/hero_client_ai.webp"
+]
+const heroCaptions = [
+  "普段使うAIからタスク操作",
+  "自動でホウレンソウが完了！"
+]
+
 export function Hero() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
-  const heroImages = [
-    "/img/lp/hero_dev_ai.webp",
-    "/img/lp/hero_client_ai.webp"
-  ]
-  const heroCaptions = [
-    "普段使うAIからタスク操作",
-    "自動でホウレンソウが完了！"
-  ]
 
   useEffect(() => {
     const timer = setInterval(() => {

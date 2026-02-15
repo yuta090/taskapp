@@ -3,8 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Notification, Json } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface NotificationWithPayload extends Omit<Notification, 'payload'> {
+  /** Set when user completes an action (approve, start work, etc.) — distinct from read_at */
+  actioned_at?: string | null
+  /** Joined from spaces table */
+  space_name?: string | null
   payload: {
     title?: string
     message?: string
@@ -41,8 +46,10 @@ export interface UseNotificationsState {
   error: string | null
   fetchNotifications: () => Promise<void>
   markAsRead: (notificationId: string) => Promise<void>
+  markAsActioned: (notificationId: string) => Promise<void>
   markAllAsRead: () => Promise<void>
 }
+
 
 export function useNotifications(): UseNotificationsState {
   const [notifications, setNotifications] = useState<NotificationWithPayload[]>([])
@@ -85,10 +92,10 @@ export function useNotifications(): UseNotificationsState {
         return
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error: fetchError } = await (supabase as any)
+       
+      const { data, error: fetchError } = await (supabase as SupabaseClient)
         .from('notifications')
-        .select('*')
+        .select('*, spaces(name)')
         .eq('to_user_id', userId)
         .eq('channel', 'in_app')
         .order('created_at', { ascending: false })
@@ -98,7 +105,13 @@ export function useNotifications(): UseNotificationsState {
         throw fetchError
       }
 
-      setNotifications(data || [])
+      // Flatten joined space name into space_name field
+      setNotifications(
+        (data || []).map((n: NotificationWithPayload & { spaces?: { name: string } | null }) => ({
+          ...n,
+          space_name: n.spaces?.name ?? null,
+        }))
+      )
       setError(null)
     } catch (err) {
       console.error('Failed to fetch notifications:', err)
@@ -111,8 +124,8 @@ export function useNotifications(): UseNotificationsState {
 
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: updateError } = await (supabase as any)
+       
+      const { error: updateError } = await (supabase as SupabaseClient)
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
         .eq('id', notificationId)
@@ -134,13 +147,38 @@ export function useNotifications(): UseNotificationsState {
     }
   }, [supabase])
 
+  /** Mark notification as actioned (also marks as read). Called after successful action completion. */
+  const markAsActioned = useCallback(async (notificationId: string) => {
+    const now = new Date().toISOString()
+    try {
+      const { error: updateError } = await (supabase as SupabaseClient)
+        .from('notifications')
+        .update({ read_at: now, actioned_at: now })
+        .eq('id', notificationId)
+
+      if (updateError) {
+        throw updateError
+      }
+
+      setNotifications(prev =>
+        prev.map(n =>
+          n.id === notificationId
+            ? { ...n, read_at: now, actioned_at: now }
+            : n
+        )
+      )
+    } catch (err) {
+      console.error('Failed to mark notification as actioned:', err)
+    }
+  }, [supabase])
+
   const markAllAsRead = useCallback(async () => {
     try {
       const userId = await getUserId()
       if (!userId) return
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: updateError } = await (supabase as any)
+       
+      const { error: updateError } = await (supabase as SupabaseClient)
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
         .eq('to_user_id', userId)
@@ -174,6 +212,7 @@ export function useNotifications(): UseNotificationsState {
     error,
     fetchNotifications,
     markAsRead,
+    markAsActioned,
     markAllAsRead,
   }
 }

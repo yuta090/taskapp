@@ -165,7 +165,7 @@ export function PortalTaskDetailClient({
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 {task.type === 'spec' && (
-                  <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                  <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
                     仕様
                   </span>
                 )}

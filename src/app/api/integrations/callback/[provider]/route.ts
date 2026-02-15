@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'crypto'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 import { createClient } from '@/lib/supabase/server'
 import { exchangeCodeForTokens } from '@/lib/google-calendar/client'
 import { exchangeZoomCode } from '@/lib/zoom/client'
@@ -8,10 +9,10 @@ import { exchangeTeamsCode } from '@/lib/teams/client'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
-function getSupabaseAdmin() {
+let _supabaseAdmin: SupabaseClient<Database> | null = null
+function getSupabaseAdmin(): SupabaseClient<Database> {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
+    _supabaseAdmin = createSupabaseClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
@@ -150,7 +151,7 @@ async function handleGoogleCalendarCallback(
     const tokens = await exchangeCodeForTokens(code)
 
     // DB保存（upsert: provider + owner_type + owner_id でユニーク）
-    const { error: upsertError } = await (getSupabaseAdmin() as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('integration_connections')
       .upsert(
         {
@@ -165,7 +166,7 @@ async function handleGoogleCalendarCallback(
           status: 'active',
           last_refreshed_at: new Date().toISOString(),
           metadata: {},
-        } as any,
+        },
         { onConflict: 'provider,owner_type,owner_id' },
       )
 
@@ -177,7 +178,7 @@ async function handleGoogleCalendarCallback(
     }
 
     // Find any space for this org to redirect to settings
-    const { data: space } = await (getSupabaseAdmin() as any)
+    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
       .from('spaces')
       .select('id')
       .eq('org_id', orgId)
@@ -185,7 +186,7 @@ async function handleGoogleCalendarCallback(
       .single()
 
     const redirectPath = space
-      ? `${appUrl}/${orgId}/project/${space.id}/settings?integration=google_calendar&status=connected`
+      ? `${appUrl}/${orgId}/project/${(space as { id: string }).id}/settings?integration=google_calendar&status=connected`
       : `${appUrl}?integration=google_calendar&status=connected`
 
     return NextResponse.redirect(redirectPath)
@@ -206,7 +207,7 @@ async function handleZoomCallback(
   try {
     const tokens = await exchangeZoomCode(code)
 
-    const { error: upsertError } = await (getSupabaseAdmin() as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('integration_connections')
       .upsert(
         {
@@ -221,7 +222,7 @@ async function handleZoomCallback(
           status: 'active',
           last_refreshed_at: new Date().toISOString(),
           metadata: {},
-        } as any,
+        },
         { onConflict: 'provider,owner_type,owner_id' },
       )
 
@@ -232,7 +233,7 @@ async function handleZoomCallback(
       )
     }
 
-    const { data: space } = await (getSupabaseAdmin() as any)
+    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
       .from('spaces')
       .select('id')
       .eq('org_id', orgId)
@@ -240,7 +241,7 @@ async function handleZoomCallback(
       .single()
 
     const redirectPath = space
-      ? `${appUrl}/${orgId}/project/${space.id}/settings?integration=zoom&status=connected`
+      ? `${appUrl}/${orgId}/project/${(space as { id: string }).id}/settings?integration=zoom&status=connected`
       : `${appUrl}?integration=zoom&status=connected`
 
     return NextResponse.redirect(redirectPath)
@@ -261,7 +262,7 @@ async function handleTeamsCallback(
   try {
     const tokens = await exchangeTeamsCode(code)
 
-    const { error: upsertError } = await (getSupabaseAdmin() as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('integration_connections')
       .upsert(
         {
@@ -276,7 +277,7 @@ async function handleTeamsCallback(
           status: 'active',
           last_refreshed_at: new Date().toISOString(),
           metadata: {},
-        } as any,
+        },
         { onConflict: 'provider,owner_type,owner_id' },
       )
 
@@ -287,7 +288,7 @@ async function handleTeamsCallback(
       )
     }
 
-    const { data: space } = await (getSupabaseAdmin() as any)
+    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
       .from('spaces')
       .select('id')
       .eq('org_id', orgId)
@@ -295,7 +296,7 @@ async function handleTeamsCallback(
       .single()
 
     const redirectPath = space
-      ? `${appUrl}/${orgId}/project/${space.id}/settings?integration=teams&status=connected`
+      ? `${appUrl}/${orgId}/project/${(space as { id: string }).id}/settings?integration=teams&status=connected`
       : `${appUrl}?integration=teams&status=connected`
 
     return NextResponse.redirect(redirectPath)

@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Users, Plus, Trash, Crown, UserCircle, CircleNotch, Warning } from '@phosphor-icons/react'
+import Image from 'next/image'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface Member {
   userId: string
@@ -33,6 +35,7 @@ const ROLE_OPTIONS = [
 
 const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client'])
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,14 +67,14 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       setCurrentUserId(user.id)
 
       // Use RPC to get members with profiles
-      const { data, error: fetchError } = await (supabase as any)
+      const { data, error: fetchError } = await (supabase as SupabaseClient)
         .rpc('rpc_get_space_members', { p_space_id: spaceId })
 
       if (fetchError) throw fetchError
 
       // Get membership dates (separate query for join dates)
       // Note: If this fails due to RLS, we still show members without dates
-      const { data: membershipData, error: membershipError } = await (supabase as any)
+      const { data: membershipData, error: membershipError } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .select('user_id, role, created_at')
         .eq('space_id', spaceId)
@@ -81,10 +84,10 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       }
 
       const membershipMap = new Map<string, { user_id: string; role: string; created_at: string }>(
-        (membershipData || []).map((m: any) => [m.user_id, m])
+        (membershipData || []).map((m: { user_id: string; role: string; created_at: string }) => [m.user_id, m] as const)
       )
 
-      const memberList: Member[] = (data || []).map((m: any) => {
+      const memberList: Member[] = (data || []).map((m: { user_id: string; display_name: string | null; avatar_url: string | null; role: string }) => {
         const membership = membershipMap.get(m.user_id)
         return {
           userId: m.user_id,
@@ -125,7 +128,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     try {
       // Note: Security relies on RLS policy on space_memberships table
       // TODO: Consider moving to RPC with explicit admin check for defense in depth
-      const { error } = await (supabase as any)
+      const { error } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .update({ role: newRole })
         .eq('space_id', spaceId)
@@ -148,7 +151,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     if (!confirm('このメンバーをプロジェクトから削除しますか？')) return
 
     try {
-      const { error } = await (supabase as any)
+      const { error } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .delete()
         .eq('space_id', spaceId)
@@ -241,10 +244,13 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
             >
               {/* Avatar */}
               {member.avatarUrl ? (
-                <img
+                <Image
                   src={member.avatarUrl}
                   alt=""
+                  width={32}
+                  height={32}
                   className="w-8 h-8 rounded-full object-cover"
+                  unoptimized
                 />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium">
@@ -290,7 +296,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                     member.role === 'admin'
                       ? 'bg-amber-100 text-amber-700'
                       : member.role === 'client'
-                      ? 'bg-purple-100 text-purple-700'
+                      ? 'bg-amber-50 text-amber-600'
                       : 'bg-gray-100 text-gray-700'
                   }`}
                 >

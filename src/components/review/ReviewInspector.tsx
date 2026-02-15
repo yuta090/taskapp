@@ -94,7 +94,7 @@ export function ReviewInspector({
                 ? '承認済み'
                 : review.status === 'changes_requested'
                 ? '差し戻し'
-                : 'レビュー待ち'}
+                : '承認待ち'}
             </span>
           </div>
         </div>

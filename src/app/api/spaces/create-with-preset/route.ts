@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
 import type { PresetGenre } from '@/lib/presets'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * POST /api/spaces/create-with-preset
@@ -60,8 +61,8 @@ export async function POST(request: NextRequest) {
   }))
 
   // 5. Call RPC for atomic creation (space + membership + milestones + wiki)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rpcResult, error: rpcError } = await (supabase as any).rpc(
+   
+  const { data: rpcResult, error: rpcError } = await (supabase as SupabaseClient).rpc(
     'rpc_create_space_with_preset',
     {
       p_org_id: orgId,
@@ -95,8 +96,8 @@ export async function POST(request: NextRequest) {
   if (genre !== 'blank' && preset.wikiPages.some(p => p.isHome)) {
     try {
       // Fetch all created pages to identify home + spec pages
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: allPages } = await (supabase as any)
+       
+      const { data: allPages } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .select('id, title, tags')
         .eq('space_id', spaceId)
@@ -112,8 +113,8 @@ export async function POST(request: NextRequest) {
       if (homePreset && homePage && specPages.length > 0) {
         const homeBody = homePreset.generateBody(orgId, spaceId, specPages)
         // Update by specific page ID to avoid multi-row updates
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any)
+         
+        await (supabase as SupabaseClient)
           .from('wiki_pages')
           .update({ body: homeBody })
           .eq('id', homePage.id)

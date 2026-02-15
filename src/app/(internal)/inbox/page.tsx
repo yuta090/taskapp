@@ -14,39 +14,36 @@ import {
   Eye,
 } from '@phosphor-icons/react'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
+import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
 
-function getNotificationIcon(type: string, urgent?: boolean) {
-  if (urgent) {
-    return <Warning className="text-red-500" weight="fill" />
-  }
-
+// Icons are monochrome — color is applied by row state, not icon type.
+// Shape conveys notification type; color conveys read/unread state.
+function getNotificationIcon(type: string) {
   switch (type) {
     case 'review_request':
-      return <Eye className="text-blue-500" />
+      return <Eye />
     case 'client_question':
     case 'client_feedback':
-      return <ChatCircleText className="text-amber-500" />
-    case 'task_assigned':
-    case 'ball_passed':
-      return <ArrowRight className="text-indigo-500" />
-    case 'due_date_reminder':
-      return <Warning className="text-orange-500" />
-    case 'meeting_reminder':
-    case 'meeting_scheduled':
-      return <Calendar className="text-green-500" />
-    case 'meeting_ended':
-      return <CheckCircle className="text-blue-500" weight="fill" />
-    case 'task_completed':
-      return <CheckCircle className="text-green-500" weight="fill" />
     case 'confirmation_request':
     case 'urgent_confirmation':
-      return <ChatCircleText className="text-amber-500" />
+      return <ChatCircleText />
+    case 'task_assigned':
+    case 'ball_passed':
+      return <ArrowRight />
+    case 'due_date_reminder':
+      return <Warning />
+    case 'meeting_reminder':
+    case 'meeting_scheduled':
+      return <Calendar />
+    case 'meeting_ended':
+    case 'task_completed':
+      return <CheckCircle weight="fill" />
     case 'spec_decision_needed':
-      return <Bell className="text-purple-500" />
+      return <Bell />
     default:
-      return <Bell className="text-gray-500" />
+      return <Bell />
   }
 }
 
@@ -76,43 +73,72 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
   const isUnread = notification.read_at === null
   const payload = notification.payload
   const isUrgent = payload.urgent === true
+  const isActionable = isActionableNotification(notification.type)
+  const isActioned = notification.actioned_at != null
+
+  // Row background: selected > default
+  const rowClass = isSelected ? 'bg-blue-50/60' : ''
+
+  // Left border: only 2 states — urgent (red) and selected (blue). Everything else transparent.
+  const borderClass = isUrgent && isUnread
+    ? 'border-l-2 border-l-red-500'
+    : isSelected
+      ? 'border-l-2 border-l-blue-500'
+      : 'border-l-2 border-l-transparent'
+
+  // Single badge per row. Priority: 緊急 > 要対応 > 対応済み
+  const badge = isUrgent && isUnread
+    ? <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded font-medium flex-shrink-0">緊急</span>
+    : isActionable && !isActioned
+      ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
+          isUnread ? 'bg-amber-50 text-amber-600' : 'bg-amber-50/60 text-amber-500'
+        }`}>要対応</span>
+      : isActioned
+        ? <span className="text-[10px] text-gray-400 flex-shrink-0">対応済み</span>
+        : null
 
   return (
     <div
-      className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${
-        isSelected ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
-      } ${isUnread && !isSelected ? 'bg-blue-50/30' : ''} ${
-        isUrgent ? 'border-l-2 border-l-red-500' : ''
-      }`}
+      role="button"
+      tabIndex={0}
+      className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${rowClass} ${borderClass}`}
       onClick={onClick}
+      onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
     >
       <div className="flex items-start gap-3">
-        {/* Icon */}
-        <div className="mt-0.5 text-lg">
-          {getNotificationIcon(notification.type, isUrgent)}
+        {/* Icon — monochrome, dimmed when read */}
+        <div className={`mt-0.5 text-lg flex-shrink-0 ${isUnread ? 'text-gray-500' : 'text-gray-300'}`}>
+          {getNotificationIcon(notification.type)}
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-sm ${isUnread ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
+            <span
+              className={`text-sm truncate ${
+                isUnread ? 'font-medium text-gray-900' : 'text-gray-500'
+              }`}
+            >
               {payload.title || '通知'}
             </span>
-            {isUnread && (
-              <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-            )}
+            {badge}
           </div>
-          <p className="text-sm text-gray-600 mt-0.5 line-clamp-1">
+          <p className={`text-sm mt-0.5 line-clamp-1 ${isUnread ? 'text-gray-600' : 'text-gray-400'}`}>
             {payload.message}
           </p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs mt-1 text-gray-400 truncate">
             {formatTimeAgo(notification.created_at)}
             {payload.from_user_name && ` · ${payload.from_user_name}`}
+            {notification.space_name && ` · ${notification.space_name}`}
           </p>
         </div>
 
-        {/* Arrow indicator */}
-        <ArrowRight className="text-gray-300 text-sm mt-2 flex-shrink-0" />
+        {/* Unread dot — fixed-width slot to prevent layout shift */}
+        <span className="w-2 flex-shrink-0 mt-2 flex justify-center">
+          {isUnread && (
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+          )}
+        </span>
       </div>
     </div>
   )
@@ -121,7 +147,7 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
 function InboxPageContent() {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
-  const { notifications, loading, error, markAsRead, markAllAsRead } = useNotifications()
+  const { notifications, loading, error, markAsRead, markAsActioned, markAllAsRead } = useNotifications()
 
   const selectedId = searchParams.get('id')
   const unreadCount = notifications.filter(n => n.read_at === null).length
@@ -172,6 +198,7 @@ function InboxPageContent() {
           notification={selectedNotification}
           onClose={handleCloseInspector}
           onMarkAsRead={markAsRead}
+          onMarkAsActioned={markAsActioned}
           onNavigate={navigateNotification}
           hasPrev={selectedIndex > 0}
           hasNext={selectedIndex < notifications.length - 1}
@@ -187,6 +214,7 @@ function InboxPageContent() {
     setInspector,
     handleCloseInspector,
     markAsRead,
+    markAsActioned,
     navigateNotification,
   ])
 
@@ -241,7 +269,7 @@ function InboxPageContent() {
   }, [selectedIndex, notifications, selectedNotification, navigateNotification, selectNotification, handleCloseInspector])
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
       <header className="h-12 border-b border-gray-100 flex items-center px-5 flex-shrink-0">
         <h1 className="text-sm font-medium text-gray-900 flex items-center gap-2">

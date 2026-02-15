@@ -38,6 +38,7 @@ export function PortalHeader({
   currentProject,
   projects = [],
   onProjectChange,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   userName,
 }: PortalHeaderProps) {
   const pathname = usePathname()
@@ -58,6 +59,7 @@ export function PortalHeader({
 
   // Close mobile menu on route change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- close menu on navigation
     setIsMobileMenuOpen(false)
   }, [pathname])
 

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Token format validation (basic alphanumeric check)
 const TOKEN_REGEX = /^[a-zA-Z0-9_-]{20,100}$/
@@ -21,7 +22,7 @@ export async function GET(
 
     const supabase = await createClient()
 
-    const { data, error } = await (supabase as any).rpc('rpc_validate_invite', {
+    const { data, error } = await (supabase as SupabaseClient).rpc('rpc_validate_invite', {
       p_token: token,
     })
 

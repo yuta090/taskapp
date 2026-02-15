@@ -150,7 +150,6 @@ export function formatDateLabel(
 ): string {
   const day = date.getDate()
   const month = date.getMonth() + 1
-  const weekday = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()]
 
   switch (viewMode) {
     case 'day':

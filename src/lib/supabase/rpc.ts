@@ -53,12 +53,12 @@ async function callRpc<T>(
   fnName: string,
   params: Record<string, unknown>
 ): Promise<T> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await client.rpc(fnName as any, params as any)
+  const { data, error } = await (client as SupabaseClient).rpc(fnName, params as Record<string, unknown>)
 
   if (error) {
-    console.error(`RPC ${fnName} failed:`, error)
-    throw new Error(error.message || `RPC ${fnName} failed`)
+    const msg = error.message || error.details || error.hint || `RPC ${fnName} failed`
+    console.error(`RPC ${fnName} failed:`, { message: msg, code: error.code, details: error.details, hint: error.hint })
+    throw new Error(msg)
   }
 
   return data as T

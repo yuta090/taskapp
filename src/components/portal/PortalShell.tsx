@@ -72,6 +72,7 @@ export function PortalShell({
 
     if (resolvedInspector) {
       // Opening: render first, then animate in after browser paint
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- animation state management
       setShouldRender(true)
       // Double rAF ensures browser has painted the initial state
       animationRef.current = requestAnimationFrame(() => {

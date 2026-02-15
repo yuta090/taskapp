@@ -58,7 +58,7 @@ export class ZoomProvider implements VideoConferenceProvider {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       )
 
-      const { data: conn } = await (supabaseAdmin as any)
+      const { data: conn } = await supabaseAdmin
         .from('integration_connections')
         .select('*')
         .eq('provider', 'zoom')
@@ -80,14 +80,14 @@ export class ZoomProvider implements VideoConferenceProvider {
 
       const refreshed = await refreshZoomToken(conn.refresh_token)
 
-      await (supabaseAdmin as any)
+      await supabaseAdmin
         .from('integration_connections')
         .update({
           access_token: refreshed.accessToken,
           refresh_token: refreshed.refreshToken ?? conn.refresh_token,
           token_expires_at: refreshed.expiresAt.toISOString(),
           last_refreshed_at: new Date().toISOString(),
-        } as any)
+        })
         .eq('id', conn.id)
 
       return refreshed.accessToken
@@ -198,6 +198,7 @@ export class ZoomProvider implements VideoConferenceProvider {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async cancelMeeting(externalMeetingId: string, _createdByUserId?: string): Promise<void> {
     const accessToken = await this.getAccessToken()
 

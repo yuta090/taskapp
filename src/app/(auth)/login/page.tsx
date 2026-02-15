@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const DEMO_ACCOUNTS = [
   { email: 'demo@example.com', password: 'demo1234', name: '田中 太郎', label: '内部PM', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border-indigo-200' },
@@ -41,7 +42,7 @@ export default function LoginPage() {
 
       if (data.user) {
         // ユーザーのロールを取得してリダイレクト先を決定
-        const { data: membership } = await (supabase as any)
+        const { data: membership } = await (supabase as SupabaseClient)
           .from('org_memberships')
           .select('org_id, role')
           .eq('user_id', data.user.id)
@@ -53,7 +54,7 @@ export default function LoginPage() {
           router.push('/portal')
         } else if (membership) {
           // 最初のスペースを取得
-          const { data: space } = await (supabase as any)
+          const { data: space } = await (supabase as SupabaseClient)
             .from('spaces')
             .select('id')
             .eq('org_id', membership.org_id)
@@ -96,7 +97,7 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        const { data: membership } = await (supabase as any)
+        const { data: membership } = await (supabase as SupabaseClient)
           .from('org_memberships')
           .select('org_id, role')
           .eq('user_id', data.user.id)
@@ -107,7 +108,7 @@ export default function LoginPage() {
         if (membership?.role === 'client') {
           router.push('/portal')
         } else if (membership) {
-          const { data: space } = await (supabase as any)
+          const { data: space } = await (supabase as SupabaseClient)
             .from('spaces')
             .select('id')
             .eq('org_id', membership.org_id)

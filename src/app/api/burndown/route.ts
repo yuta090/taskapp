@@ -7,11 +7,12 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const spaceId = searchParams.get('spaceId')
-  const milestoneId = searchParams.get('milestoneId')
+  const rawMilestoneId = searchParams.get('milestoneId')
+  const milestoneId = rawMilestoneId && rawMilestoneId.trim() !== '' ? rawMilestoneId.trim() : null
 
-  if (!spaceId || !milestoneId) {
+  if (!spaceId) {
     return NextResponse.json(
-      { error: 'spaceId and milestoneId are required' },
+      { error: 'spaceId is required' },
       { status: 400 }
     )
   }
@@ -30,8 +31,16 @@ export async function GET(request: NextRequest) {
     const data = await computeBurndown(supabase, spaceId, milestoneId)
     return NextResponse.json(data)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal server error'
-    const status = message.includes('設定してください') ? 400 : 500
-    return NextResponse.json({ error: message }, { status })
+    const message = err instanceof Error ? err.message : ''
+    // Known user-facing errors (400)
+    if (message.includes('設定してください') || message.includes('not found')) {
+      return NextResponse.json({ error: message }, { status: 400 })
+    }
+    // Internal errors: log details, return generic message
+    console.error('[Burndown API]', err)
+    return NextResponse.json(
+      { error: 'バーンダウンデータの取得に失敗しました' },
+      { status: 500 }
+    )
   }
 }

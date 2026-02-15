@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { videoConferenceRegistry } from '@/lib/video-conference'
 import type { VideoConferenceProviderName } from '@/lib/video-conference'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -33,8 +34,7 @@ export async function POST(
     }
 
     // Authorization: creator or admin
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: proposal } = await (supabase as any)
+    const { data: proposal } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .select('id, space_id, created_by, video_provider, title, duration_minutes')
       .eq('id', proposalId)
@@ -45,8 +45,7 @@ export async function POST(
     }
 
     if (proposal.created_by !== user.id) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: adminMembership } = await (supabase as any)
+      const { data: adminMembership } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .select('id')
         .eq('space_id', proposal.space_id)
@@ -60,8 +59,7 @@ export async function POST(
     }
 
     // Call RPC for atomic confirmation
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: result, error: rpcError } = await (supabase as any)
+    const { data: result, error: rpcError } = await (supabase as SupabaseClient)
       .rpc('rpc_confirm_proposal_slot', {
         p_proposal_id: proposalId,
         p_slot_id: slotId,
@@ -91,18 +89,24 @@ export async function POST(
       if (provider && provider.isConfigured()) {
         try {
           // 参加者情報を取得（respondents → profiles join）
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data: respondents } = await (supabase as any)
+          const { data: respondents } = await (supabase as SupabaseClient)
             .from('proposal_respondents')
             .select('user_id, profiles!inner(display_name, email)')
             .eq('proposal_id', proposalId)
 
-          const participants = (respondents || [])
-            .filter((r: any) => r.profiles?.email)
-            .map((r: any) => ({
-              email: r.profiles.email,
-              name: r.profiles.display_name || '',
-            }))
+          type RespondentRow = { user_id: string; profiles: { display_name: string | null; email: string | null }[] }
+          const participants = (respondents as RespondentRow[] || [])
+            .filter((r) => {
+              const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
+              return profile?.email
+            })
+            .map((r) => {
+              const profile = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
+              return {
+                email: profile!.email as string,
+                name: profile!.display_name || '',
+              }
+            })
 
           const videoResult = await provider.createMeeting({
             title: proposal.title,
@@ -117,25 +121,23 @@ export async function POST(
           externalMeetingId = videoResult.externalMeetingId
 
           // proposals テーブルにビデオ会議情報を保存
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase as any)
+          await (supabase as SupabaseClient)
             .from('scheduling_proposals')
             .update({
               meeting_url: meetingUrl,
               external_meeting_id: externalMeetingId,
-            } as any)
+            })
             .eq('id', proposalId)
 
           // meetings テーブルにもビデオ会議情報を保存
           if (result.meeting_id) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (supabase as any)
+            await (supabase as SupabaseClient)
               .from('meetings')
               .update({
                 meeting_url: meetingUrl,
                 external_meeting_id: externalMeetingId,
                 video_provider: proposal.video_provider,
-              } as any)
+              })
               .eq('id', result.meeting_id)
           }
         } catch (videoError) {

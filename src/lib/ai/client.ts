@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { SLACK_CONFIG } from '@/lib/slack/config'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 let _supabaseAdmin: ReturnType<typeof createClient> | null = null
 function getSupabaseAdmin() {
@@ -34,8 +35,7 @@ interface AiConfig {
  * Fetch and decrypt the org's AI configuration from DB
  */
 async function getAiConfig(orgId: string): Promise<{ provider: string; model: string; apiKey: string }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: config, error } = await (getSupabaseAdmin() as any)
+  const { data: config, error } = await (getSupabaseAdmin() as SupabaseClient)
     .from('org_ai_config')
     .select('provider, model, api_key_encrypted, enabled')
     .eq('org_id', orgId)
@@ -52,7 +52,7 @@ async function getAiConfig(orgId: string): Promise<{ provider: string; model: st
   }
 
   // Decrypt the API key using the same RPC as Slack tokens
-  const { data: apiKey, error: decryptError } = await (getSupabaseAdmin() as any)
+  const { data: apiKey, error: decryptError } = await (getSupabaseAdmin() as SupabaseClient)
     .rpc('decrypt_slack_token', {
       encrypted: api_key_encrypted,
       secret: SLACK_CONFIG.clientSecret,

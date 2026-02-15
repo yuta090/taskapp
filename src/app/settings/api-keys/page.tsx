@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   ArrowLeft,
   Key,
@@ -16,9 +16,8 @@ import {
   Square,
 } from '@phosphor-icons/react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import { useUserSpaces, UserSpace } from '@/lib/hooks/useUserSpaces'
+import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
 interface ApiKey {
   id: string
@@ -71,8 +70,6 @@ export default function ApiKeysSettingsPage() {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
-
-  const supabase = useMemo(() => createClient(), [])
 
   const fetchApiKeys = useCallback(async () => {
     if (!user) return

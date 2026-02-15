@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 let _supabaseAdmin: ReturnType<typeof createClient> | null = null
 function getSupabaseAdmin() {
@@ -35,16 +35,15 @@ export async function buildMentionContext(
   orgId: string,
 ): Promise<SlackMentionContext> {
   // Fetch space, tasks, and memberships in parallel
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   const [spaceResult, tasksResult, membershipsResult] = await Promise.all([
-    (getSupabaseAdmin() as any)
+    (getSupabaseAdmin() as SupabaseClient)
       .from('spaces')
       .select('name')
       .eq('id', spaceId)
       .eq('org_id', orgId)
       .single(),
 
-    (getSupabaseAdmin() as any)
+    (getSupabaseAdmin() as SupabaseClient)
       .from('tasks')
       .select('id, title, status, ball, assignee_id, due_date')
       .eq('space_id', spaceId)
@@ -52,12 +51,11 @@ export async function buildMentionContext(
       .order('updated_at', { ascending: false })
       .limit(20),
 
-    (getSupabaseAdmin() as any)
+    (getSupabaseAdmin() as SupabaseClient)
       .from('space_memberships')
       .select('user_id')
       .eq('space_id', spaceId),
   ])
-  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   const spaceName = spaceResult.data?.name ?? 'Unknown'
   const tasks = tasksResult.data ?? []
@@ -73,7 +71,7 @@ export async function buildMentionContext(
   // Fetch all profile names in one query
   const profileMap = new Map<string, string>()
   if (allUserIds.length > 0) {
-    const { data: profiles } = await (getSupabaseAdmin() as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { data: profiles } = await (getSupabaseAdmin() as SupabaseClient)
       .from('profiles')
       .select('id, display_name')
       .in('id', allUserIds)

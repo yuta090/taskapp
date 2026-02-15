@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // UUID v4 format validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     // org_id が指定されていない場合はユーザーの所属組織を取得
     if (!orgId) {
-      const { data: membership } = await (supabase as any)
+      const { data: membership } = await (supabase as SupabaseClient)
         .from('org_memberships')
         .select('org_id')
         .eq('user_id', user.id)
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
       orgId = membership.org_id
     } else {
       // org_id が指定された場合、ユーザーがその組織のメンバーか確認
-      const { data: membership } = await (supabase as any)
+      const { data: membership } = await (supabase as SupabaseClient)
         .from('org_memberships')
         .select('org_id, role')
         .eq('user_id', user.id)
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     }
 
     // RPC で制限情報を取得
-    const { data, error } = await (supabase as any).rpc('rpc_check_org_limits', {
+    const { data, error } = await (supabase as SupabaseClient).rpc('rpc_check_org_limits', {
       p_org_id: orgId,
     })
 

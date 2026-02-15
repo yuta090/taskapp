@@ -44,6 +44,7 @@ export function PortalSchedulingClient({
   currentProject,
   projects,
   actionCount,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   userId,
 }: PortalSchedulingClientProps) {
   const [proposals, setProposals] = useState<PortalProposal[]>([])

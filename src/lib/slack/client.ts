@@ -1,5 +1,5 @@
-import { WebClient } from '@slack/web-api'
-import { createClient } from '@supabase/supabase-js'
+import { WebClient, type KnownBlock, type Block } from '@slack/web-api'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { SLACK_CONFIG } from './config'
 
 let _supabaseAdmin: ReturnType<typeof createClient> | null = null
@@ -28,7 +28,7 @@ export async function getSlackClientForOrg(orgId: string): Promise<WebClient> {
   }
 
   // DBからトークン取得・復号化
-  const { data: workspace, error } = await (getSupabaseAdmin() as any)
+  const { data: workspace, error } = await (getSupabaseAdmin() as SupabaseClient)
     .from('slack_workspaces')
     .select('bot_token_encrypted')
     .eq('org_id', orgId)
@@ -40,7 +40,7 @@ export async function getSlackClientForOrg(orgId: string): Promise<WebClient> {
   }
 
   // pgcrypto復号化（SLACK_CLIENT_SECRETをキーとして使用）
-  const { data: decrypted, error: decryptError } = await (getSupabaseAdmin() as any)
+  const { data: decrypted, error: decryptError } = await (getSupabaseAdmin() as SupabaseClient)
     .rpc('decrypt_slack_token', {
       encrypted: workspace.bot_token_encrypted,
       secret: SLACK_CONFIG.clientSecret,
@@ -83,8 +83,7 @@ export async function postSlackMessage(
   const result = await client.chat.postMessage({
     channel: channelId,
     text,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    blocks: blocks as any,
+    blocks: blocks as (KnownBlock | Block)[],
     thread_ts: threadTs,
   })
 

@@ -32,8 +32,8 @@ const activityConfig = {
   },
   milestone: {
     icon: Flag,
-    iconColor: 'text-purple-500',
-    bgColor: 'bg-purple-100',
+    iconColor: 'text-gray-500',
+    bgColor: 'bg-gray-100',
   },
   notification: {
     icon: Bell,

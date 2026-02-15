@@ -2,9 +2,9 @@
 
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { Clock, ChatCircleDots, Calculator } from '@phosphor-icons/react'
+import { Clock, ChatCircleDots, Calculator, type IconProps } from '@phosphor-icons/react'
 
-function ProblemCard({ icon: Icon, title, desc, delay, rotation, baloon }: any) {
+function ProblemCard({ icon: Icon, title, desc, delay, rotation, baloon }: { icon: React.ComponentType<IconProps>; title: string; desc: string; delay: number; rotation: number; baloon: string }) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 50, rotate: rotation }}

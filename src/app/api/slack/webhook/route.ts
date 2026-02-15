@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 import { verifySlackRequest } from '@/lib/slack/verify'
 import { postSlackMessage } from '@/lib/slack/client'
 import { callLlm } from '@/lib/ai/client'
@@ -8,10 +9,10 @@ import { buildSystemPrompt } from '@/lib/ai/prompt'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
-function getSupabaseAdmin() {
+let _supabaseAdmin: SupabaseClient<Database> | null = null
+function getSupabaseAdmin(): SupabaseClient<Database> {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createClient(
+    _supabaseAdmin = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

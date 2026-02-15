@@ -4,7 +4,7 @@ const STATUS_LABELS: Record<string, string> = {
   backlog: '未着手',
   todo: 'ToDo',
   in_progress: '進行中',
-  in_review: 'レビュー中',
+  in_review: '承認確認中',
   done: '完了',
   considering: '検討中',
   decided: '決定済み',

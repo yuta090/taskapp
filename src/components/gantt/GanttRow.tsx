@@ -125,9 +125,9 @@ export const GanttRow = memo(function GanttRow({
   )
 
   // Snap to nearest day boundary
-  const snapToGrid = (x: number): number => {
+  const snapToGrid = useCallback((x: number): number => {
     return Math.round(x / dayWidth) * dayWidth
-  }
+  }, [dayWidth])
 
   // Global mouse move and up handlers
   useEffect(() => {
@@ -151,7 +151,7 @@ export const GanttRow = memo(function GanttRow({
       }
     }
 
-    const handleMouseUp = (e: MouseEvent) => {
+    const handleMouseUp = () => {
       // Mark that we just finished dragging to prevent click from firing
       justFinishedDragRef.current = true
       // Reset the flag after a short delay (after click event would fire)
@@ -189,7 +189,7 @@ export const GanttRow = memo(function GanttRow({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [dragState, dragPreview, barPosition, onDateChange, task.id, startDate, dayWidth])
+  }, [dragState, dragPreview, barPosition, onDateChange, task.id, startDate, dayWidth, snapToGrid])
 
   // Use preview position if dragging, otherwise use calculated position
   const displayPosition = dragPreview || barPosition
@@ -218,7 +218,7 @@ export const GanttRow = memo(function GanttRow({
         width={totalWidth}
         height={GANTT_CONFIG.ROW_HEIGHT}
         fill={isSelected ? '#F1F5F9' : 'transparent'}
-        className="hover:fill-slate-50"
+        className="hover:fill-gray-50"
       />
 
       {/* Weekend backgrounds */}

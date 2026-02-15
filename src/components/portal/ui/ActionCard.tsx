@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { CaretRight, PaperPlaneTilt } from '@phosphor-icons/react'
 
 interface ActionCardProps {
   id: string
@@ -22,6 +21,7 @@ export function ActionCard({
   title,
   dueDate,
   isOverdue = false,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   waitingDays,
   type = 'task',
   selected = false,
@@ -109,7 +109,7 @@ export function ActionCard({
             {title}
           </h3>
           {type === 'spec' && (
-            <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-600 rounded">
+            <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded">
               SPEC
             </span>
           )}

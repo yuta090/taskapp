@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Image from 'next/image'
-import { CheckCircle, ShieldCheck, CurrencyJpy } from '@phosphor-icons/react'
+import { CurrencyJpy } from '@phosphor-icons/react'
 
 export function FeaturePortal() {
     return (

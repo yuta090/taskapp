@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getGoogleOAuthUrl, isGoogleCalendarFullyConfigured } from '@/lib/google-calendar/config'
 import { getZoomOAuthUrl, isZoomOAuthConfigured } from '@/lib/zoom/config'
 import { getTeamsOAuthUrl, isTeamsOAuthConfigured } from '@/lib/teams/config'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -53,7 +54,7 @@ export async function GET(
     }
 
     // org membership チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('org_id', orgId)

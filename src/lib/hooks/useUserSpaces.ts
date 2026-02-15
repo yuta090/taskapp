@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { useCurrentUser } from './useCurrentUser'
 
 export interface UserSpace {
@@ -37,7 +38,7 @@ export function useUserSpaces() {
 
     try {
       // ユーザーのスペースメンバーシップを取得
-      const { data: memberships, error: memberError } = await (supabase as any)
+      const { data: memberships, error: memberError } = await (supabase as SupabaseClient)
         .from('space_memberships')
         .select(`
           role,
@@ -59,13 +60,16 @@ export function useUserSpaces() {
 
       if (memberError) throw memberError
 
-      const userSpaces: UserSpace[] = (memberships || []).map((m: any) => ({
-        id: m.spaces.id,
-        name: m.spaces.name,
-        orgId: m.spaces.org_id,
-        orgName: m.spaces.organizations?.name || 'Unknown',
-        role: m.role,
-      }))
+      const userSpaces = (memberships || []).map((m: Record<string, unknown>) => {
+        const spaces = m.spaces as { id: string; name: string; org_id: string; organizations?: { name: string } | null } | null
+        return {
+          id: spaces?.id || '',
+          name: spaces?.name || '',
+          orgId: spaces?.org_id || '',
+          orgName: (spaces?.organizations as { name?: string } | null)?.name || 'Unknown',
+          role: m.role as UserSpace['role'],
+        }
+      }) as UserSpace[]
 
       setSpaces(userSpaces)
     } catch (err) {

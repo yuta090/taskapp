@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getInstallationRepositories } from '@/lib/github'
 import { verifySignedState } from '@/lib/github/config'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null
-function getSupabaseAdmin() {
+// Untyped client — github_installations/github_repositories are not in Database types
+let _supabaseAdmin: SupabaseClient | null = null
+function getSupabaseAdmin(): SupabaseClient {
   if (!_supabaseAdmin) {
     _supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +24,6 @@ function getSupabaseAdmin() {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const installationId = searchParams.get('installation_id')
-  const setupAction = searchParams.get('setup_action') // install | update
   const state = searchParams.get('state')
 
   if (!installationId) {
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     const accountType = firstRepo.owner.type as 'Organization' | 'User'
 
     // 既存のインストールを確認
-    const { data: existingInstall } = await (getSupabaseAdmin() as any)
+    const { data: existingInstall } = await getSupabaseAdmin()
       .from('github_installations')
       .select('id')
       .eq('org_id', orgId)
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
 
     if (existingInstall) {
       // 更新
-      await (getSupabaseAdmin() as any)
+      await getSupabaseAdmin()
         .from('github_installations')
         .update({
           account_login: accountLogin,
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
     } else {
       // システムユーザーとして作成（created_by は後で更新可能）
       // 注: 実際には認証されたユーザーのIDを使用すべき
-      const { error: installError } = await (getSupabaseAdmin() as any)
+      const { error: installError } = await getSupabaseAdmin()
         .from('github_installations')
         .insert({
           org_id: orgId,
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
       is_private: repo.private,
     }))
 
-    const { error: repoError } = await (getSupabaseAdmin() as any)
+    const { error: repoError } = await getSupabaseAdmin()
       .from('github_repositories')
       .upsert(repoRecords, { onConflict: 'org_id,repo_id' })
 

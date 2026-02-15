@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // UUID v4 format validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -75,6 +76,7 @@ function escapeCSV(value: string | null | undefined): string {
 
 // タスクデータから指定カラムの値を取得
 function getTaskValue(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   task: any,
   column: string,
   profileMap: Map<string, string>,
@@ -100,9 +102,9 @@ function getTaskValue(
     case 'origin':
       return escapeCSV(task.origin)
     case 'assignee':
-      return escapeCSV(profileMap.get(task.assignee_id) || '')
+      return escapeCSV(task.assignee_id ? profileMap.get(task.assignee_id) || '' : '')
     case 'milestone':
-      return escapeCSV(milestoneMap.get(task.milestone_id) || '')
+      return escapeCSV(task.milestone_id ? milestoneMap.get(task.milestone_id) || '' : '')
     case 'spec_path':
       return escapeCSV(task.spec_path)
     case 'decision_state':
@@ -142,7 +144,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ユーザーが内部メンバー（owner/admin/member）か確認（clientロールは除外）
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('id, role')
       .eq('user_id', user.id)
@@ -170,7 +172,7 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      const { data: template } = await (supabase as any)
+      const { data: template } = await (supabase as SupabaseClient)
         .from('export_templates')
         .select('headers, columns')
         .eq('id', templateId)
@@ -188,7 +190,7 @@ export async function GET(request: NextRequest) {
     }
     // 2. テンプレートIDがない場合、デフォルトテンプレートを探す
     else if (!customHeaders && !customColumns) {
-      const { data: defaultTemplate } = await (supabase as any)
+      const { data: defaultTemplate } = await (supabase as SupabaseClient)
         .from('export_templates')
         .select('headers, columns')
         .eq('space_id', spaceId)
@@ -227,7 +229,7 @@ export async function GET(request: NextRequest) {
     }
 
     // タスク取得
-    const { data: tasks, error: tasksError } = await (supabase as any)
+    const { data: tasks, error: tasksError } = await (supabase as SupabaseClient)
       .from('tasks')
       .select(`
         id,
@@ -260,6 +262,7 @@ export async function GET(request: NextRequest) {
     // 担当者IDを収集（必要なプロファイルのみ取得）
     const assigneeIds = [...new Set(
       (tasks || [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((t: any) => t.assignee_id)
         .filter((id: string | null) => id !== null)
     )]
@@ -267,28 +270,28 @@ export async function GET(request: NextRequest) {
     // プロファイル取得（担当者名解決用、display_nameのみ使用しメール非公開）
     let profileMap = new Map<string, string>()
     if (assigneeIds.length > 0) {
-      const { data: profiles } = await (supabase as any)
+      const { data: profiles } = await (supabase as SupabaseClient)
         .from('profiles')
         .select('id, display_name')
         .in('id', assigneeIds)
 
       profileMap = new Map<string, string>(
-        (profiles || []).map((p: any) => [p.id, p.display_name || ''])
+        (profiles || []).map((p: { id: string; display_name: string | null }) => [p.id, p.display_name || ''])
       )
     }
 
     // マイルストーン取得（名前解決用）
-    const { data: milestones } = await (supabase as any)
+    const { data: milestones } = await (supabase as SupabaseClient)
       .from('milestones')
       .select('id, title')
       .eq('space_id', spaceId)
 
     const milestoneMap = new Map<string, string>(
-      (milestones || []).map((m: any) => [m.id, m.title])
+      (milestones || []).map((m: { id: string; title: string }) => [m.id, m.title])
     )
 
     // スペース名取得（ファイル名用）
-    const { data: space } = await (supabase as any)
+    const { data: space } = await (supabase as SupabaseClient)
       .from('spaces')
       .select('name')
       .eq('id', spaceId)
@@ -300,6 +303,7 @@ export async function GET(request: NextRequest) {
     const headerRow = columns.map(col => escapeCSV(headers[col] || col)).join(',')
 
     // CSV行生成
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (tasks || []).map((task: any) =>
       columns.map(col => getTaskValue(task, col, profileMap, milestoneMap)).join(',')
     )

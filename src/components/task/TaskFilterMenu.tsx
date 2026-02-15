@@ -57,7 +57,7 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'backlog', label: 'バックログ' },
   { value: 'todo', label: 'Todo' },
   { value: 'in_progress', label: '進行中' },
-  { value: 'in_review', label: 'レビュー中' },
+  { value: 'in_review', label: '承認確認中' },
   { value: 'done', label: '完了' },
   { value: 'considering', label: '検討中' },
 ]

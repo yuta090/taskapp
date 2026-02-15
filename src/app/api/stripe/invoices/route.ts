@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getStripe } from '@/lib/stripe'
 import { getStripeServerConfigStatus } from '@/lib/stripe/config'
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface InvoiceItem {
   id: string
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     // org_idが指定されていない場合、ユーザーのプライマリ組織を取得
     if (!orgId) {
-      const { data: primaryMembership, error: primaryError } = await (supabase as any)
+      const { data: primaryMembership, error: primaryError } = await (supabase as SupabaseClient)
         .from('org_memberships')
         .select('org_id')
         .eq('user_id', user.id)
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ユーザーが組織のオーナーであることを確認（請求情報はオーナーのみ閲覧可能）
-    const { data: membership, error: membershipError } = await (supabase as any)
+    const { data: membership, error: membershipError } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('user_id', user.id)
@@ -100,7 +101,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 組織のstripe_customer_idを取得
-    const { data: billing } = await (supabase as any)
+    const { data: billing } = await (supabase as SupabaseClient)
       .from('org_billing')
       .select('stripe_customer_id')
       .eq('org_id', orgId)

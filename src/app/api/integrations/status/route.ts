@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { revokeToken } from '@/lib/integrations'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -18,7 +19,7 @@ export async function GET() {
     }
 
     // ユーザー自身の接続を取得
-    const { data: connections, error } = await (supabase as any)
+    const { data: connections, error } = await (supabase as SupabaseClient)
       .from('integration_connections')
       .select('id, provider, owner_type, owner_id, org_id, scopes, metadata, status, token_expires_at, last_refreshed_at, created_at, updated_at')
       .eq('owner_type', 'user')
@@ -72,7 +73,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Verify ownership: ensure this connection belongs to the current user
-    const { data: connection } = await (supabase as any)
+    const { data: connection } = await (supabase as SupabaseClient)
       .from('integration_connections')
       .select('id, owner_type, owner_id')
       .eq('id', connectionId)

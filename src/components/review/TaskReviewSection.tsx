@@ -19,6 +19,7 @@ interface TaskReviewSectionProps {
   taskId: string
   spaceId: string
   orgId: string
+  taskStatus?: string
   readOnly?: boolean
   onReviewChange?: (taskId: string, status: string | null) => void
 }
@@ -31,6 +32,7 @@ interface ReviewData {
 export function TaskReviewSection({
   taskId,
   spaceId,
+  taskStatus,
   readOnly = false,
   onReviewChange,
 }: TaskReviewSectionProps) {
@@ -67,8 +69,7 @@ export function TaskReviewSection({
       }
       if (error) throw error
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = data as any
+      const raw = data as Record<string, unknown> & { review_approvals?: unknown[] }
       const { review_approvals, ...reviewFields } = raw
       setReviewData({
         review: reviewFields as Review,
@@ -89,6 +90,13 @@ export function TaskReviewSection({
   useEffect(() => {
     void fetchReview()
   }, [fetchReview])
+
+  // Auto-expand reviewer picker when status is in_review and no review exists
+  useEffect(() => {
+    if (!loading && taskStatus === 'in_review' && !reviewData && !readOnly) {
+      setShowReviewerPicker(true)
+    }
+  }, [loading, taskStatus, reviewData, readOnly])
 
   // Open review
   const handleOpenReview = useCallback(async () => {
@@ -162,26 +170,30 @@ export function TaskReviewSection({
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 text-xs text-gray-400">
           <Eye className="text-sm" />
-          <span>レビュー</span>
+          <span>承認フロー</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="px-4 py-3 space-y-3">
+    <div className={`py-3 space-y-3 rounded-lg transition-colors ${
+      taskStatus === 'in_review' && !reviewData && !loading
+        ? 'bg-gray-50 ring-1 ring-gray-200 px-3'
+        : 'px-4'
+    }`}>
       {/* Section header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
           <Eye className="text-sm" />
-          <span>レビュー</span>
+          <span>承認フロー</span>
         </div>
         {!readOnly && !reviewData && !showReviewerPicker && (
           <button
             onClick={() => setShowReviewerPicker(true)}
-            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
           >
-            レビュー依頼
+            承認を依頼
           </button>
         )}
         {!readOnly && reviewData && reviewData.review.status !== 'open' && (
@@ -193,9 +205,9 @@ export function TaskReviewSection({
               )
               setShowReviewerPicker(true)
             }}
-            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
           >
-            再レビュー
+            再依頼
           </button>
         )}
       </div>
@@ -203,7 +215,7 @@ export function TaskReviewSection({
       {/* Reviewer picker */}
       {showReviewerPicker && (
         <div className="space-y-2 p-3 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-500">レビュアーを選択</p>
+          <p className="text-xs text-gray-500">承認者を選択</p>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {internalMembers
               .filter((m) => m.id !== user?.id)
@@ -215,7 +227,7 @@ export function TaskReviewSection({
                     onClick={() => toggleReviewer(member.id)}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors ${
                       isSelected
-                        ? 'bg-blue-100 text-blue-700'
+                        ? 'bg-gray-200 text-gray-900'
                         : 'hover:bg-gray-100 text-gray-700'
                     }`}
                   >
@@ -224,7 +236,7 @@ export function TaskReviewSection({
                     {isSelected && (
                       <CheckCircle
                         weight="fill"
-                        className="ml-auto text-blue-600 flex-shrink-0"
+                        className="ml-auto text-gray-600 flex-shrink-0"
                       />
                     )}
                   </button>
@@ -249,7 +261,7 @@ export function TaskReviewSection({
             <button
               onClick={handleOpenReview}
               disabled={selectedReviewerIds.length === 0 || submitting}
-              className="flex-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="flex-1 px-3 py-1.5 text-xs bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50 transition-colors"
             >
               {submitting ? '送信中...' : '依頼する'}
             </button>
@@ -282,7 +294,7 @@ export function TaskReviewSection({
                 ? '承認済み'
                 : reviewData.review.status === 'changes_requested'
                 ? '差し戻し'
-                : 'レビュー待ち'}
+                : '承認待ち'}
             </span>
           </div>
 

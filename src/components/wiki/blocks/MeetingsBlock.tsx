@@ -4,6 +4,7 @@ import { createReactBlockSpec } from '@blocknote/react'
 import { useState, useEffect } from 'react'
 import { Notebook, ArrowRight, CalendarBlank, Circle } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Props stored in block JSON
 const meetingsBlockConfig = {
@@ -35,8 +36,8 @@ function MeetingsBlockComponent({ block, editor }: { block: { props: { orgId: st
     const fetchMeetings = async () => {
       try {
         const supabase = createClient()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data } = await (supabase as any)
+         
+        const { data } = await (supabase as SupabaseClient)
           .from('meetings')
           .select('id, title, held_at, status')
           .eq('org_id', orgId)

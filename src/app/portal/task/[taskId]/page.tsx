@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalTaskDetailClient } from './PortalTaskDetailClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface PageProps {
   params: Promise<{ taskId: string }>
@@ -17,8 +18,8 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
   }
 
   // Get task details
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: task, error } = await (supabase as any)
+   
+  const { data: task, error } = await (supabase as SupabaseClient)
     .from('tasks')
     .select(`
       id,
@@ -52,8 +53,8 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
 
   // Verify user has client access to this task's space
   // Note: Return notFound() instead of redirect to prevent task ID probing
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: membership } = await (supabase as any)
+   
+  const { data: membership } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select('id, role')
     .eq('space_id', task.space_id)
@@ -66,8 +67,8 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
   }
 
   // Get task comments (client-visible only)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: comments } = await (supabase as any)
+   
+  const { data: comments } = await (supabase as SupabaseClient)
     .from('task_comments')
     .select(`
       id,
@@ -85,8 +86,8 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     .order('created_at', { ascending: true })
 
   // Get client's other projects for the header
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,

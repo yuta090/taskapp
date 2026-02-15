@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -55,7 +56,7 @@ export default function SignupPage() {
       }
 
       // 2. 組織とbilling作成 (RPC)
-      const { data: orgData, error: orgError } = await (supabase as any).rpc(
+      const { error: orgError } = await (supabase as SupabaseClient).rpc(
         'rpc_create_org_with_billing',
         {
           p_org_name: orgName,

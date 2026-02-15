@@ -89,7 +89,6 @@ describe('POST /api/stripe/portal', () => {
 
     const request = createRequest({ org_id: '123e4567-e89b-12d3-a456-426614174000' })
     const response = await POST(request)
-    const data = await response.json()
 
     expect(response.status).toBe(403)
   })

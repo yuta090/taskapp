@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { WikiPage, WikiPageVersion, WikiPagePublication } from '@/types/database'
+import type { WikiPage, WikiPageVersion } from '@/types/database'
 import {
   DEFAULT_WIKI_TITLE,
   DEFAULT_WIKI_TAGS,
@@ -10,6 +10,7 @@ import {
   SPEC_TEMPLATES,
 } from '@/lib/wiki/defaultTemplate'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface UseWikiPagesOptions {
   orgId: string
@@ -55,8 +56,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
     try {
       // Fetch pages WITHOUT body for performance (body fetched on demand)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error: fetchError } = await (supabase as any)
+       
+      const { data, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
         .eq('org_id', orgId)
@@ -76,8 +77,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
         // Check if space was created with a preset — if so, skip auto-creation
         // preset_genre=NULL → legacy space (auto-create), non-NULL → preset applied or blank
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data: spaceData } = await (supabase as any)
+           
+          const { data: spaceData } = await (supabase as SupabaseClient)
             .from('spaces')
             .select('preset_genre')
             .eq('id', spaceId)
@@ -112,8 +113,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
             updated_by: userId,
           }))
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data: specData } = await (supabase as any)
+           
+          const { data: specData } = await (supabase as SupabaseClient)
             .from('wiki_pages')
             .insert(specRows)
             .select('id, title')
@@ -125,8 +126,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
           // 2. Create home page with auto-links to spec pages
           const defaultBody = generateDefaultWikiBody(orgId, spaceId, specPages)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data: homeData, error: homeErr } = await (supabase as any)
+           
+          const { data: homeData, error: homeErr } = await (supabase as SupabaseClient)
             .from('wiki_pages')
             .insert({
               org_id: orgId,
@@ -142,8 +143,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
           if (!homeErr && homeData) {
             // Re-fetch all pages to get complete list
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data: allPages } = await (supabase as any)
+             
+            const { data: allPages } = await (supabase as SupabaseClient)
               .from('wiki_pages')
               .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
               .eq('org_id', orgId)
@@ -170,8 +171,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
   const fetchPage = useCallback(async (pageId: string): Promise<WikiPage | null> => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error: fetchError } = await (supabase as any)
+       
+      const { data, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .select('*')
         .eq('id', pageId)
@@ -215,8 +216,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
     setPages(prev => [optimisticPage, ...prev])
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: created, error: createError } = await (supabase as any)
+       
+      const { data: created, error: createError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .insert({
           org_id: orgId,
@@ -268,8 +269,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       if (input.body !== undefined) updateData.body = input.body
       if (input.tags !== undefined) updateData.tags = input.tags
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: updateError } = await (supabase as any)
+       
+      const { error: updateError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .update(updateData)
         .eq('id', pageId)
@@ -289,8 +290,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
         const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
         if (userId) {
           const currentPage = prevPages.find(p => p.id === pageId)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase as any)
+           
+          await (supabase as SupabaseClient)
             .from('wiki_page_versions')
             .insert({
               org_id: orgId,
@@ -312,8 +313,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
     setPages(prev => prev.filter(p => p.id !== pageId))
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: deleteError } = await (supabase as any)
+       
+      const { error: deleteError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
         .delete()
         .eq('id', pageId)
@@ -329,8 +330,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
   const fetchVersions = useCallback(async (pageId: string): Promise<WikiPageVersion[]> => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error: fetchError } = await (supabase as any)
+       
+      const { data, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_page_versions')
         .select('*')
         .eq('page_id', pageId)
@@ -353,8 +354,8 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       const page = await fetchPage(pageId)
       if (!page) throw new Error('Page not found')
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: pubError } = await (supabase as any)
+       
+      const { error: pubError } = await (supabase as SupabaseClient)
         .from('wiki_page_publications')
         .insert({
           org_id: orgId,

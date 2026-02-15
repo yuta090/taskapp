@@ -8,7 +8,6 @@ vi.mock('@phosphor-icons/react', () => ({
   CalendarBlank: () => <span data-testid="icon-calendar" />,
   CaretLeft: () => <span data-testid="icon-caret-left" />,
   CaretRight: () => <span data-testid="icon-caret-right" />,
-  CaretDown: () => <span data-testid="icon-caret-down" />,
   MagnifyingGlassMinus: () => <span data-testid="icon-zoom-out" />,
   MagnifyingGlassPlus: () => <span data-testid="icon-zoom-in" />,
   ListBullets: () => <span data-testid="icon-list-bullets" />,
@@ -25,6 +24,7 @@ const mockTasks: Task[] = [
     status: 'in_progress',
     priority: 1,
     assignee_id: null,
+    start_date: null,
     due_date: '2024-02-15',
     milestone_id: null,
     ball: 'client',
@@ -32,10 +32,9 @@ const mockTasks: Task[] = [
     type: 'task',
     spec_path: null,
     decision_state: null,
-    parent_task_id: null,
-    start_date: null,
     client_scope: 'internal',
     actual_hours: null,
+    parent_task_id: null,
     created_at: '2024-01-15',
     updated_at: '2024-01-15',
   },
@@ -48,6 +47,7 @@ const mockTasks: Task[] = [
     status: 'backlog',
     priority: 2,
     assignee_id: null,
+    start_date: null,
     due_date: '2024-03-01',
     milestone_id: null,
     ball: 'internal',
@@ -55,10 +55,9 @@ const mockTasks: Task[] = [
     type: 'task',
     spec_path: null,
     decision_state: null,
-    parent_task_id: null,
-    start_date: null,
     client_scope: 'internal',
     actual_hours: null,
+    parent_task_id: null,
     created_at: '2024-01-20',
     updated_at: '2024-01-20',
   },
@@ -71,6 +70,7 @@ const mockTasks: Task[] = [
     status: 'done',
     priority: null,
     assignee_id: null,
+    start_date: null,
     due_date: '2024-01-31',
     milestone_id: null,
     ball: 'internal',
@@ -78,10 +78,9 @@ const mockTasks: Task[] = [
     type: 'task',
     spec_path: null,
     decision_state: null,
-    parent_task_id: null,
-    start_date: null,
     client_scope: 'internal',
     actual_hours: null,
+    parent_task_id: null,
     created_at: '2024-01-10',
     updated_at: '2024-01-30',
   },
@@ -130,7 +129,7 @@ describe('GanttChart', () => {
   it('should render legend', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    expect(screen.getByText('外部確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
     expect(screen.getByText('社内対応中')).toBeInTheDocument()
     expect(screen.getByText('マイルストーン')).toBeInTheDocument()
   })

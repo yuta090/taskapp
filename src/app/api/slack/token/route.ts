@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { WebClient } from '@slack/web-api'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { SLACK_CONFIG } from '@/lib/slack/config'
 import { invalidateSlackClientCache } from '@/lib/slack/client'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
-function getSupabaseAdmin() {
+let _supabaseAdmin: SupabaseClient | null = null
+function getSupabaseAdmin(): SupabaseClient {
   if (!_supabaseAdmin) {
     _supabaseAdmin = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // org owner権限チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('org_id', orgId)
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // トークンを暗号化
-    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as any)
+    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
       .rpc('encrypt_slack_token', {
         token: botToken,
         secret: SLACK_CONFIG.clientSecret,
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     // DB保存（upsert）
-    const { error: upsertError } = await (getSupabaseAdmin() as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('slack_workspaces')
       .upsert(
         {
@@ -163,7 +163,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // org owner権限チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('org_id', orgId)
@@ -178,7 +178,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // workspace削除（cascade で space_slack_channels も削除される）
-    const { error } = await (getSupabaseAdmin() as any)
+    const { error } = await (getSupabaseAdmin() as SupabaseClient)
       .from('slack_workspaces')
       .delete()
       .eq('org_id', orgId)

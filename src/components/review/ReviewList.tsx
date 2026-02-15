@@ -30,7 +30,7 @@ export function ReviewList({ reviews, selectedId, onSelect }: ReviewListProps) {
     return (
       <div className="text-center py-10 text-gray-400">
         <Clock className="text-4xl mx-auto mb-2 opacity-50" />
-        <p className="text-sm">レビュー待ちの項目はありません</p>
+        <p className="text-sm">承認待ちの項目はありません</p>
       </div>
     )
   }
@@ -82,7 +82,7 @@ export function ReviewList({ reviews, selectedId, onSelect }: ReviewListProps) {
                 ? '承認済'
                 : review.status === 'changes_requested'
                 ? '差し戻し'
-                : 'レビュー中'}
+                : '承認待ち'}
             </span>
           </div>
         </div>

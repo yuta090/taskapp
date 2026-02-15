@@ -52,6 +52,7 @@ export function MeetingCreateSheet({
       const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
         .toISOString()
         .slice(0, 16)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- form state reset on sheet open
       setHeldAt(localDateTime)
       // Reset form
       setTitle(`新規会議 ${now.toLocaleDateString('ja-JP')}`)

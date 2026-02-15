@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalWikiClient } from './PortalWikiClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalWikiPage() {
   const supabase = await createClient()
@@ -12,8 +13,8 @@ export default async function PortalWikiPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -54,8 +55,8 @@ export default async function PortalWikiPage() {
 
   // wikiPages と actionCount を並列取得
   const [wikiResult, actionCountResult] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('wiki_page_publications')
       .select(`
         id,
@@ -71,8 +72,8 @@ export default async function PortalWikiPage() {
       .eq('milestone_publications.is_published', true)
       .in('wiki_pages.space_id', clientSpaceIds)
       .order('published_at', { ascending: false }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
       .eq('space_id', currentProject.id)

@@ -19,6 +19,7 @@ import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
+import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
 
 interface TasksPageClientProps {
@@ -47,15 +48,19 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
   const [reviewStatuses, setReviewStatuses] = useState<Record<string, 'open' | 'approved' | 'changes_requested'>>({})
+  // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
+  const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
+  const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
+  const lastBall = lastBallBySpace[spaceId] ?? 'internal'
+  const lastClientOwnerIds = lastClientOwnersBySpace[spaceId] ?? []
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
-  // Create milestone map for quick lookup
-  const milestoneMap = useMemo(() => {
-    const map = new Map<string, Milestone>()
-    milestones.forEach((m) => map.set(m.id, m))
-    return map
-  }, [milestones])
+  // Eligible parent tasks for subtask creation
+  const parentTaskOptions = useMemo(
+    () => getEligibleParents(tasks).map((t) => ({ id: t.id, title: t.title })),
+    [tasks]
+  )
 
   // Create unique owners list for filter (with display names from profiles)
   const uniqueOwners = useMemo(() => {
@@ -120,6 +125,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   useEffect(() => {
     void fetchTasks()
     void fetchMilestones()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch stores results in state
     void fetchReviewStatuses()
   }, [fetchTasks, fetchMilestones, fetchReviewStatuses])
 
@@ -261,17 +267,17 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   }, [tasks, selectedTaskId])
 
   const handlePassBall = useCallback(
-    async (taskId: string, ball: BallSide) => {
+    async (taskId: string, ball: BallSide, overrideClientOwnerIds?: string[], overrideInternalOwnerIds?: string[]) => {
       const taskOwners = owners[taskId] || []
-      const clientOwnerIds = taskOwners
+      const clientOwnerIds = overrideClientOwnerIds ?? taskOwners
         .filter((owner) => owner.side === 'client')
         .map((owner) => owner.user_id)
-      const internalOwnerIds = taskOwners
+      const internalOwnerIds = overrideInternalOwnerIds ?? taskOwners
         .filter((owner) => owner.side === 'internal')
         .map((owner) => owner.user_id)
 
+      // バリデーションはTaskInspector側で処理済み（フォールバック用のみ残す）
       if (ball === 'client' && clientOwnerIds.length === 0) {
-        alert('外部担当者を指定してください')
         return
       }
 
@@ -289,6 +295,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       dueDate?: string | null
       milestoneId?: string | null
       assigneeId?: string | null
+      actualHours?: number | null
     }) => {
       await updateTask(taskId, updates)
     },
@@ -340,15 +347,23 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       return
     }
 
+    const childTasks = tasks.filter((t) => t.parent_task_id === selectedTask.id)
+    const parentTasks = getEligibleParents(tasks, selectedTask.id).map((t) => ({
+      id: t.id,
+      title: t.title,
+    }))
+
     setInspector(
       <TaskInspector
         task={selectedTask}
         spaceId={spaceId}
         owners={owners[selectedTask.id] || []}
+        parentTasks={parentTasks}
+        childTasks={childTasks}
         onClose={() => {
           syncUrlWithState(isCreateOpen, null, activeFilter)
         }}
-        onPassBall={(ball) => handlePassBall(selectedTask.id, ball)}
+        onPassBall={(ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds)}
         onUpdate={(updates) => handleUpdateTask(selectedTask.id, updates)}
         onDelete={() => handleDeleteTask(selectedTask.id)}
         onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
@@ -362,7 +377,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         onReviewChange={handleReviewChange}
       />
     )
-  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId])
+  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -374,13 +389,15 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   // Stable refs for handleTaskSelect to keep callback identity stable across selection changes
   const selectedTaskIdRef = useRef(selectedTaskId)
-  selectedTaskIdRef.current = selectedTaskId
   const syncUrlRef = useRef(syncUrlWithState)
-  syncUrlRef.current = syncUrlWithState
   const isCreateOpenRef = useRef(isCreateOpen)
-  isCreateOpenRef.current = isCreateOpen
   const activeFilterRef = useRef(activeFilter)
-  activeFilterRef.current = activeFilter
+  useEffect(() => {
+    selectedTaskIdRef.current = selectedTaskId
+    syncUrlRef.current = syncUrlWithState
+    isCreateOpenRef.current = isCreateOpen
+    activeFilterRef.current = activeFilter
+  }, [selectedTaskId, syncUrlWithState, isCreateOpen, activeFilter])
 
   const handleTaskSelect = useCallback((taskId: string) => {
     // Toggle: clicking same task closes inspector
@@ -404,7 +421,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         dueDate: data.dueDate,
         assigneeId: data.assigneeId,
         milestoneId: data.milestoneId,
+        parentTaskId: data.parentTaskId,
       })
+      // Persist ball/owners for next consecutive create (only on success, scoped to space)
+      setLastBallBySpace((prev) => ({ ...prev, [spaceId]: data.ball }))
+      setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: data.clientOwnerIds }))
       syncUrlWithState(false, created.id, activeFilter)
     } catch {
       alert('タスクの作成に失敗しました')
@@ -439,11 +460,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: 'Webリニューアル', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? '確認待ち' : '課題' },
+    { label: activeFilter === 'client_wait' ? '確認待ち' : 'タスク' },
   ]
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}
@@ -573,7 +594,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         setShowSortMenu(false)
                       }}
                       className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50 transition-colors ${
-                        sortKey === option.key ? 'text-blue-600 font-medium' : 'text-gray-700'
+                        sortKey === option.key ? 'text-gray-900 font-medium' : 'text-gray-700'
                       }`}
                     >
                       {option.label}
@@ -644,9 +665,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
       <TaskCreateSheet
         spaceId={spaceId}
+        orgId={orgId}
         isOpen={isCreateOpen}
         onClose={handleCreateClose}
         onSubmit={handleCreateSubmit}
+        defaultBall={lastBall}
+        defaultClientOwnerIds={lastClientOwnerIds}
+        parentTasks={parentTaskOptions}
       />
     </div>
   )

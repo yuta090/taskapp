@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { listSlackChannels } from '@/lib/slack'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     }
 
     // org membership チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('org_id', orgId)
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     // admin/editor権限チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('role')
       .eq('space_id', spaceId)
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Space の org_id を取得
-    const { data: space } = await (supabase as any)
+    const { data: space } = await (supabase as SupabaseClient)
       .from('spaces')
       .select('org_id')
       .eq('id', spaceId)
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Slack workspace を取得（OAuth/手動入力で作成済みであること）
-    const { data: workspace } = await (supabase as any)
+    const { data: workspace } = await (supabase as SupabaseClient)
       .from('slack_workspaces')
       .select('id')
       .eq('org_id', space.org_id)
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert チャンネル紐付け（space_id UNIQUE）
-    const { data: channel, error: chError } = await (supabase as any)
+    const { data: channel, error: chError } = await (supabase as SupabaseClient)
       .from('space_slack_channels')
       .upsert(
         {
@@ -163,7 +164,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // admin/editor権限チェック
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select('role')
       .eq('space_id', spaceId)
@@ -174,7 +175,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { error } = await (supabase as any)
+    const { error } = await (supabase as SupabaseClient)
       .from('space_slack_channels')
       .delete()
       .eq('space_id', spaceId)

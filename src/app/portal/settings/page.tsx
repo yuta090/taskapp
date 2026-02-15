@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalSettingsClient } from './PortalSettingsClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalSettingsPage() {
   const supabase = await createClient()
@@ -12,8 +13,8 @@ export default async function PortalSettingsPage() {
   }
 
   // Get client's spaces
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: memberships } = await (supabase as any)
+   
+  const { data: memberships } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -54,14 +55,14 @@ export default async function PortalSettingsPage() {
 
   // profile と actionCount を並列取得
   const [profileResult, actionCountResult] = await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('profiles')
       .select('id, display_name, email, avatar_url')
       .eq('id', user.id)
       .single(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact', head: true })
       .eq('space_id', spaceId)

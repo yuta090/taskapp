@@ -32,13 +32,13 @@ export const GANTT_CONFIG = {
 
     // Timeline
     TODAY: '#EF4444',       // Red-500
-    WEEKEND: '#F8FAFC',     // Slate-50
-    GRID_LINE: '#E2E8F0',   // Slate-200
-    HEADER_BG: '#F8FAFC',   // Slate-50
+    WEEKEND: '#F9FAFB',     // Gray-50
+    GRID_LINE: '#E5E7EB',   // Gray-200
+    HEADER_BG: '#F9FAFB',   // Gray-50
 
     // Milestones - urgency based colors
-    MILESTONE: '#8B5CF6',        // Violet-500 - normal (8+ days)
-    MILESTONE_BG: '#EDE9FE',     // Violet-100
+    MILESTONE: '#60A5FA',        // Blue-400 - normal (8+ days)
+    MILESTONE_BG: '#EFF6FF',     // Blue-50
     MILESTONE_WARN: '#F59E0B',   // Amber-500 - warning (4-7 days)
     MILESTONE_WARN_BG: '#FEF3C7', // Amber-100
     MILESTONE_URGENT: '#EF4444', // Red-500 - urgent (0-3 days)
@@ -51,9 +51,9 @@ export const GANTT_CONFIG = {
     PARENT_BAR_BG: '#E0E7FF',    // Indigo-100
 
     // Text
-    TEXT_PRIMARY: '#0F172A',   // Slate-900
-    TEXT_SECONDARY: '#64748B', // Slate-500
-    TEXT_MUTED: '#94A3B8',     // Slate-400
+    TEXT_PRIMARY: '#111827',   // Gray-900
+    TEXT_SECONDARY: '#6B7280', // Gray-500
+    TEXT_MUTED: '#9CA3AF',     // Gray-400
   },
 
   // Typography

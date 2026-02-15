@@ -10,7 +10,6 @@ import { FreeBusyOverlay } from './FreeBusyOverlay'
 import { AvailableSlotsSuggest } from './AvailableSlotsSuggest'
 import { useSpaceVideoProvider } from '@/lib/hooks/useSpaceVideoProvider'
 import type { CreateProposalInput } from '@/lib/hooks/useSchedulingProposals'
-import type { SpaceMember } from '@/lib/hooks/useSpaceMembers'
 
 type VideoProvider = 'google_meet' | 'zoom' | 'teams'
 
@@ -49,7 +48,7 @@ export function ProposalCreateSheet({
   const [description, setDescription] = useState('')
   const [durationMinutes, setDurationMinutes] = useState(60)
   const [slots, setSlots] = useState<SlotDraft[]>(() =>
-    Array.from({ length: 3 }, (_, i) => ({
+    Array.from({ length: 3 }, () => ({
       id: crypto.randomUUID(),
       startAt: '',
     }))
@@ -127,7 +126,7 @@ export function ProposalCreateSheet({
       setTimeout(() => titleRef.current?.focus(), 100)
     }
     prevIsOpenRef.current = isOpen
-  }, [isOpen])
+  }, [isOpen, spaceDefaultProvider])
 
   // Escape key handler
   useEffect(() => {

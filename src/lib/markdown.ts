@@ -69,7 +69,7 @@ function rewriteLinks(html: string, currentSlugParts: string[], isIndex: boolean
   return html.replace(
     /href="(\.\.?\/[^"]+)"/g,
     (_match, relativeHref: string) => {
-      let cleaned = relativeHref
+      const cleaned = relativeHref
         .replace(/\.md$/, '')
         .replace(/\/index$/, '')
         .replace(/\/$/, '')

@@ -75,7 +75,7 @@ interface DashboardData {
     reason: string
     nextMilestone?: {
       name: string
-      date: string
+      date: string | null
     }
   }
   alert: {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { getValidToken } from '@/lib/integrations'
 import { queryFreeBusy } from '@/lib/google-calendar'
@@ -9,10 +10,10 @@ import type { IntegrationConnection } from '@/lib/integrations/types'
 
 export const runtime = 'nodejs'
 
-let _supabaseAdmin: ReturnType<typeof createSupabaseClient> | null = null
-function getSupabaseAdmin() {
+let _supabaseAdmin: SupabaseClient<Database> | null = null
+function getSupabaseAdmin(): SupabaseClient<Database> {
   if (!_supabaseAdmin) {
-    _supabaseAdmin = createSupabaseClient(
+    _supabaseAdmin = createSupabaseClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Batch fetch all active google_calendar connections for the requested users
-  const { data: connections } = await (getSupabaseAdmin() as any)
+  const { data: connections } = await (getSupabaseAdmin() as SupabaseClient)
     .from('integration_connections')
     .select('*')
     .eq('provider', 'google_calendar')

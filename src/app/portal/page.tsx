@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalDashboardClient } from './PortalDashboardClient'
 import type { HealthStatus, MilestoneStatus } from '@/components/portal'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // AT-010: Client dashboard with bento grid layout
 // - Modern dashboard with progress ring, milestones, activities
@@ -18,8 +19,8 @@ export default async function PortalDashboardPage() {
   }
 
   // クライアントの最初のスペースを取得（後続クエリの前提条件）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: membership } = await (supabase as any)
+   
+  const { data: membership } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select(`
       space_id,
@@ -47,10 +48,8 @@ export default async function PortalDashboardPage() {
   }
 
   const spaceId = membership.space_id
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const spaceName = (membership.spaces as any)?.name || 'プロジェクト'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orgId = (membership.spaces as any)?.org_id || ''
+  const spaceName = (membership.spaces as { name?: string })?.name || 'プロジェクト'
+  const orgId = (membership.spaces as { org_id?: string })?.org_id || ''
 
   // spaceId取得後、全クエリを並列実行
   const [
@@ -65,8 +64,8 @@ export default async function PortalDashboardPage() {
     approvalsResult,
   ] = await Promise.all([
     // 1. ball=client + considering (HIGHEST priority)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, description, status, ball, due_date, type, decision_state, created_at')
       .eq('space_id', spaceId)
@@ -75,8 +74,8 @@ export default async function PortalDashboardPage() {
       .order('due_date', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false }),
     // 2. ball=client + other active statuses
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, description, status, ball, due_date, type, decision_state, created_at')
       .eq('space_id', spaceId)
@@ -85,44 +84,44 @@ export default async function PortalDashboardPage() {
       .order('due_date', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false }),
     // 3. ball=internal tasks count
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact' })
       .eq('space_id', spaceId)
       .eq('ball', 'internal')
       .in('status', ['open', 'in_progress']),
     // 4. Completed tasks count
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact' })
       .eq('space_id', spaceId)
       .eq('status', 'done'),
     // 5. Total tasks count
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id', { count: 'exact' })
       .eq('space_id', spaceId),
     // 6. Milestones
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('milestones')
       .select('id, name, status, due_date')
       .eq('space_id', spaceId)
       .order('due_date', { ascending: true }),
     // 7. Recent notifications
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('notifications')
       .select('id, type, payload, created_at')
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false })
       .limit(10),
     // 8. Recently completed tasks
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, updated_at')
       .eq('space_id', spaceId)
@@ -130,8 +129,8 @@ export default async function PortalDashboardPage() {
       .order('updated_at', { ascending: false })
       .limit(5),
     // 9. Review approvals
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+     
+    (supabase as SupabaseClient)
       .from('review_approvals')
       .select(`
         id,
@@ -256,12 +255,16 @@ export default async function PortalDashboardPage() {
     .slice(0, 10)
 
   // Format approvals (simplified - may need adjustment based on actual table structure)
-  const approvals = (recentApprovals || []).map((a: { id: string; created_at: string; reviews?: { tasks?: { title: string } } }) => ({
-    id: a.id,
-    taskTitle: a.reviews?.tasks?.title || 'タスク',
-    approvedAt: a.created_at,
-    comment: undefined,
-  }))
+  const approvals = (recentApprovals || []).map((a: Record<string, unknown>) => {
+    const reviews = a.reviews as Array<{ tasks?: Array<{ title?: string }> }> | undefined
+    const taskTitle = reviews?.[0]?.tasks?.[0]?.title || 'タスク'
+    return {
+      id: a.id as string,
+      taskTitle,
+      approvedAt: a.created_at as string,
+      comment: undefined,
+    }
+  })
 
   // Waiting message
   const waitingMessage = allClientTasks.length === 0
@@ -293,7 +296,7 @@ export default async function PortalDashboardPage() {
       completedCount: completedCount || 0,
       totalCount: totalCount || 0,
       deadline: milestones.length > 0
-        ? milestones.reduce((latest: { dueDate: string | null }, m: { dueDate: string | null }) =>
+        ? milestones.reduce((latest, m) =>
             (m.dueDate && (!latest.dueDate || m.dueDate > latest.dueDate)) ? m : latest
           ).dueDate
         : null,

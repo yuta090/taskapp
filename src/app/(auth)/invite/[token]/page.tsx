@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, useCallback, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
   valid: boolean
@@ -34,37 +35,7 @@ export default function InviteAcceptPage({
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
 
-  useEffect(() => {
-    async function loadInvite() {
-      const supabase = createClient()
-
-      // 現在のセッションを確認
-      const { data: { session } } = await supabase.auth.getSession()
-      setIsLoggedIn(!!session)
-
-      // 招待情報を取得
-      const { data, error } = await (supabase as any).rpc('rpc_validate_invite', {
-        p_token: token,
-      })
-
-      if (error) {
-        setInviteInfo({ valid: false, error: 'トークンが無効です' } as InviteInfo)
-      } else {
-        setInviteInfo(data)
-
-        // ログイン済みの場合は自動で受諾
-        if (session && data.valid) {
-          await acceptInvite(session.user.id)
-        }
-      }
-
-      setCheckingAuth(false)
-    }
-
-    loadInvite()
-  }, [token])
-
-  async function acceptInvite(userId?: string) {
+  const acceptInvite = useCallback(async (userId?: string) => {
     setLoading(true)
     setError('')
 
@@ -100,7 +71,7 @@ export default function InviteAcceptPage({
       }
 
       // 招待を受諾
-      const { error: acceptError } = await (supabase as any).rpc('rpc_accept_invite', {
+      const { error: acceptError } = await (supabase as SupabaseClient).rpc('rpc_accept_invite', {
         p_token: token,
         p_user_id: userId,
       })
@@ -118,7 +89,37 @@ export default function InviteAcceptPage({
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }
+  }, [password, inviteInfo, token, router])
+
+  useEffect(() => {
+    async function loadInvite() {
+      const supabase = createClient()
+
+      // 現在のセッションを確認
+      const { data: { session } } = await supabase.auth.getSession()
+      setIsLoggedIn(!!session)
+
+      // 招待情報を取得
+      const { data, error } = await (supabase as SupabaseClient).rpc('rpc_validate_invite', {
+        p_token: token,
+      })
+
+      if (error) {
+        setInviteInfo({ valid: false, error: 'トークンが無効です' } as InviteInfo)
+      } else {
+        setInviteInfo(data)
+
+        // ログイン済みの場合は自動で受諾
+        if (session && data.valid) {
+          await acceptInvite(session.user.id)
+        }
+      }
+
+      setCheckingAuth(false)
+    }
+
+    loadInvite()
+  }, [token, acceptInvite])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

@@ -8,6 +8,7 @@ import type {
   TaskCommentInsert,
   CommentVisibility,
 } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface UseTaskCommentsOptions {
   orgId: string
@@ -102,8 +103,8 @@ export function useTaskComments({
       // Fetch profile info for actors
       const actorIds = [...new Set(commentsList.map((c) => c.actor_id))]
       if (actorIds.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: profilesData } = await (supabase as any)
+         
+        const { data: profilesData } = await (supabase as SupabaseClient)
           .from('profiles')
           .select('id, display_name, avatar_url')
           .in('id', actorIds)
@@ -186,8 +187,8 @@ export function useTaskComments({
           reply_to_id: input.replyToId || null,
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: created, error: createError } = await (supabase as any)
+         
+        const { data: created, error: createError } = await (supabase as SupabaseClient)
           .from('task_comments')
           .insert(insertData)
           .select('*')
@@ -244,8 +245,8 @@ export function useTaskComments({
       )
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: updateError } = await (supabase as any)
+         
+        const { error: updateError } = await (supabase as SupabaseClient)
           .from('task_comments')
           .update({ body: input.body })
           .eq('id', commentId)
@@ -283,8 +284,8 @@ export function useTaskComments({
       })
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: deleteError } = await (supabase as any)
+         
+        const { error: deleteError } = await (supabase as SupabaseClient)
           .from('task_comments')
           .update({ deleted_at: new Date().toISOString() })
           .eq('id', commentId)

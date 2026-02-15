@@ -23,9 +23,9 @@ export function useSlackWorkspace(orgId: string | undefined) {
         .select('id, team_id, team_name, app_id, token_obtained_at')
         .eq('org_id', orgId)
         .not('bot_token_encrypted', 'is', null)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') throw error
+      if (error) throw error
       return data
     },
     enabled: !!orgId && slackEnabled,
@@ -47,9 +47,9 @@ export function useSlackChannel(spaceId: string | undefined) {
         .from('space_slack_channels')
         .select('*')
         .eq('space_id', spaceId)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') throw error
+      if (error) throw error
       return data
     },
     enabled: !!spaceId && slackEnabled,

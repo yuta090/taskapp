@@ -42,7 +42,6 @@ export function ProposalInspector({
     responsesBySlot,
     respondents,
     myRespondentId,
-    loading: responsesLoading,
     fetchResponses,
     submitResponses,
     isSlotConfirmable,

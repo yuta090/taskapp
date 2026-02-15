@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SlotResponseType } from '@/types/database'
 
@@ -81,7 +81,7 @@ export function useProposalResponses({
       // Build respondents list
       const respondentsList: ProposalRespondentWithProfile[] = (
         proposal.proposal_respondents || []
-      ).map((r: any) => ({
+      ).map((r: { id: string; user_id: string; side: string; is_required: boolean; displayName?: string; display_name?: string; avatarUrl?: string; avatar_url?: string | null }) => ({
         id: r.id,
         userId: r.user_id,
         side: r.side,
@@ -101,7 +101,7 @@ export function useProposalResponses({
       // Build responses by slot
       const bySlot: Record<string, SlotResponseWithUser[]> = {}
       for (const slot of proposal.proposal_slots || []) {
-        bySlot[slot.id] = (slot.responses || slot.slot_responses || []).map((sr: any) => ({
+        bySlot[slot.id] = (slot.responses || slot.slot_responses || []).map((sr: { id: string; slot_id: string; respondent_id: string; userId?: string; user_id?: string; displayName?: string; display_name?: string; side?: string; response: string; responded_at: string }) => ({
           id: sr.id,
           slotId: sr.slot_id,
           respondentId: sr.respondent_id,

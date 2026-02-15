@@ -95,9 +95,9 @@ export function BurndownChart({ data }: BurndownChartProps) {
     }
   }, [data, padding, innerWidth, innerHeight])
 
-  if (snapshots.length === 0) {
+  if (data.totalTasks === 0 || snapshots.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 text-sm text-slate-500">
+      <div className="flex items-center justify-center h-64 text-sm text-gray-500">
         タスクがありません
       </div>
     )

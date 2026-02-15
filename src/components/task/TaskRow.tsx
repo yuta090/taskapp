@@ -34,8 +34,8 @@ function isOverdue(dateStr: string | null): boolean {
 const STATUS_OPTIONS: { value: TaskStatus; label: string; icon: React.ReactNode }[] = [
   { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-300" /> },
   { value: 'todo', label: 'Todo', icon: <Circle className="text-gray-400" /> },
-  { value: 'in_progress', label: '進行中', icon: <Circle weight="fill" className="text-blue-500" /> },
-  { value: 'in_review', label: 'レビュー中', icon: <Circle weight="fill" className="text-purple-500" /> },
+  { value: 'in_progress', label: '進行中', icon: <Circle weight="fill" className="text-blue-400" /> },
+  { value: 'in_review', label: '承認確認中', icon: <Circle weight="fill" className="text-amber-400" /> },
   { value: 'done', label: '完了', icon: <CheckCircle weight="fill" className="text-green-500" /> },
 ]
 
@@ -44,16 +44,28 @@ function getStatusIcon(status: TaskStatus) {
     case 'done':
       return <CheckCircle weight="fill" className="text-green-500" />
     case 'in_progress':
-      return <Circle weight="fill" className="text-blue-500" />
+      return <Circle weight="fill" className="text-blue-400" />
     case 'in_review':
-      return <Circle weight="fill" className="text-purple-500" />
+      return <Circle weight="fill" className="text-amber-400" />
     case 'considering':
-      return <Circle weight="duotone" className="text-amber-500" />
+      return <Circle weight="duotone" className="text-gray-400" />
     case 'todo':
       return <Circle className="text-gray-400" />
     default:
       return <Circle className="text-gray-300" />
   }
+}
+
+function getStatusLabel(status: TaskStatus): string {
+  const labels: Record<string, string> = {
+    backlog: 'バックログ',
+    todo: 'Todo',
+    in_progress: '進行中',
+    in_review: '承認確認中',
+    considering: '検討中',
+    done: '完了',
+  }
+  return labels[status] || status
 }
 
 interface StatusDropdownProps {
@@ -95,7 +107,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
         type="button"
         onClick={handleClick}
         className={`text-lg transition-transform ${onStatusChange ? 'hover:scale-110 cursor-pointer' : ''}`}
-        title={onStatusChange ? 'ステータスを変更' : undefined}
+        aria-label={getStatusLabel(status)}
       >
         {getStatusIcon(status)}
       </button>
@@ -111,7 +123,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
                 handleSelect(option.value)
               }}
               className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors ${
-                status === option.value ? 'bg-blue-50' : ''
+                status === option.value ? 'bg-gray-100' : ''
               }`}
             >
               <span className="text-base">{option.icon}</span>
@@ -168,7 +180,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           }}
           className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all ${
             task.status === 'done'
-              ? 'bg-blue-500 border-blue-500 text-white'
+              ? 'bg-gray-900 border-gray-900 text-white'
               : 'border-gray-300 hover:border-gray-400 text-transparent hover:text-gray-400'
           }`}
           title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
@@ -196,7 +208,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
         {/* Spec task badge */}
         {task.type === 'spec' && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 font-medium">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
             SPEC
           </span>
         )}
@@ -206,10 +218,8 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               task.decision_state === 'implemented'
-                ? 'bg-green-100 text-green-600'
-                : task.decision_state === 'decided'
-                ? 'bg-blue-100 text-blue-600'
-                : 'bg-amber-100 text-amber-600'
+                ? 'bg-green-50 text-green-600'
+                : 'bg-gray-100 text-gray-500'
             }`}
           >
             {task.decision_state === 'implemented'
@@ -225,17 +235,17 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               reviewStatus === 'approved'
-                ? 'bg-green-100 text-green-600'
+                ? 'bg-green-50 text-green-600'
                 : reviewStatus === 'changes_requested'
-                ? 'bg-red-100 text-red-600'
-                : 'bg-violet-100 text-violet-600'
+                ? 'bg-red-50 text-red-600'
+                : 'bg-amber-50 text-amber-600'
             }`}
           >
             {reviewStatus === 'approved'
               ? '承認済'
               : reviewStatus === 'changes_requested'
               ? '差戻'
-              : 'レビュー中'}
+              : '承認待ち'}
           </span>
         )}
       </div>
@@ -244,12 +254,26 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       {formattedDueDate && (
         <div
           className={`flex-shrink-0 flex items-center gap-1 text-[11px] ${
-            overdue ? 'text-red-500' : 'text-slate-500'
+            overdue ? 'text-red-500' : 'text-gray-500'
           }`}
         >
           <CalendarBlank className="text-[12px]" />
           <span>{formattedDueDate}</span>
         </div>
+      )}
+
+      {/* Quick review action for in_review tasks without review */}
+      {task.status === 'in_review' && !reviewStatus && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClick?.(task.id)
+          }}
+          className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+        >
+          承認を依頼
+        </button>
       )}
 
       {/* Ball indicator */}

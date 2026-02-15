@@ -21,11 +21,6 @@ export async function createInstallationOctokit(installationId: number): Promise
 
 // App用のOctokitインスタンスを作成（JWT認証）
 export function createAppOctokit(): Octokit {
-  const auth = createAppAuth({
-    appId: GITHUB_CONFIG.appId,
-    privateKey: GITHUB_CONFIG.privateKey,
-  })
-
   return new Octokit({
     authStrategy: createAppAuth,
     auth: {

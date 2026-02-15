@@ -40,13 +40,13 @@ interface PortalAllTasksClientProps {
 
 function getStatusInfo(status: string): { label: string; color: string; icon: React.ElementType } {
   const statusMap: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-    done: { label: '完了', color: 'text-green-600', icon: CheckCircle },
-    in_progress: { label: '進行中', color: 'text-blue-600', icon: Clock },
-    considering: { label: '確認待ち', color: 'text-amber-600', icon: Circle },
-    open: { label: 'オープン', color: 'text-gray-600', icon: Circle },
-    todo: { label: 'Todo', color: 'text-gray-500', icon: Circle },
+    done: { label: '完了', color: 'text-green-500', icon: CheckCircle },
+    in_progress: { label: '進行中', color: 'text-blue-400', icon: Clock },
+    considering: { label: '確認待ち', color: 'text-gray-400', icon: Circle },
+    open: { label: 'オープン', color: 'text-gray-500', icon: Circle },
+    todo: { label: 'Todo', color: 'text-gray-400', icon: Circle },
   }
-  return statusMap[status] || { label: status, color: 'text-gray-500', icon: Circle }
+  return statusMap[status] || { label: status, color: 'text-gray-400', icon: Circle }
 }
 
 function formatDate(date: string): string {
@@ -91,7 +91,6 @@ export function PortalAllTasksClient({
 
   // Group tasks by milestone
   const groupedTasks = useMemo(() => {
-    const milestoneMap = new Map(milestones.map(m => [m.id, m]))
     const groups: { milestone: Milestone | null; tasks: Task[] }[] = []
 
     // Create groups for each milestone
@@ -260,7 +259,7 @@ export function PortalAllTasksClient({
                                     {task.title}
                                   </span>
                                   {task.type === 'spec' && (
-                                    <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded shrink-0">
+                                    <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded shrink-0">
                                       仕様
                                     </span>
                                   )}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface SpaceMember {
   id: string          // user_id
@@ -46,12 +47,12 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
       }
 
       // Use RPC to get space members with profiles (avoids FK/relationship issues)
-      const { data, error: fetchError } = await (supabase as any)
+      const { data, error: fetchError } = await (supabase as SupabaseClient)
         .rpc('rpc_get_space_members', { p_space_id: spaceId })
 
       if (fetchError) throw fetchError
 
-      const memberList: SpaceMember[] = (data || []).map((m: any) => ({
+      const memberList: SpaceMember[] = (data || []).map((m: { user_id: string; display_name: string | null; avatar_url: string | null; role: string }) => ({
         id: m.user_id,
         displayName: m.display_name || m.user_id.slice(0, 8) + '...',
         avatarUrl: m.avatar_url || null,
@@ -124,7 +125,7 @@ export function useUserName(userId: string | null): {
     const fetchName = async () => {
       setLoading(true)
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await (supabase as SupabaseClient)
           .from('profiles')
           .select('display_name')
           .eq('id', userId)

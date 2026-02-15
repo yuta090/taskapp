@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { SLACK_CONFIG } from '@/lib/slack/config'
 
@@ -37,8 +37,7 @@ export async function GET(request: NextRequest) {
     }
 
     // org_ai_configを取得（RLSでowner制限）
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { data, error } = await (supabase as SupabaseClient)
       .from('org_ai_config')
       .select('id, org_id, provider, model, enabled, api_key_encrypted, created_at, updated_at')
       .eq('org_id', orgId)
@@ -57,7 +56,7 @@ export async function GET(request: NextRequest) {
     // ここでは復号化してプレフィックスだけ返す
     let keyPrefix = ''
     try {
-      const { data: decrypted } = await (getSupabaseAdmin() as any)
+      const { data: decrypted } = await (getSupabaseAdmin() as SupabaseClient)
         .rpc('decrypt_slack_token', {
           encrypted: data.api_key_encrypted,
           secret: SLACK_CONFIG.clientSecret,
@@ -134,8 +133,7 @@ export async function POST(request: NextRequest) {
     }
 
     // org owner権限チェック
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('org_id', orgId)
@@ -150,7 +148,7 @@ export async function POST(request: NextRequest) {
     }
 
     // APIキーを暗号化
-    const { data: encryptedKey, error: encryptError } = await (getSupabaseAdmin() as any)
+    const { data: encryptedKey, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
       .rpc('encrypt_slack_token', {
         token: apiKey,
         secret: SLACK_CONFIG.clientSecret,
@@ -165,8 +163,7 @@ export async function POST(request: NextRequest) {
     }
 
     // DB保存（upsert）
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: upsertError } = await (getSupabaseAdmin() as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('org_ai_config')
       .upsert(
         {
@@ -227,8 +224,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // org owner権限チェック
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: membership } = await (supabase as any)
+    const { data: membership } = await (supabase as SupabaseClient)
       .from('org_memberships')
       .select('role')
       .eq('org_id', orgId)
@@ -242,8 +238,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (getSupabaseAdmin() as any)
+    const { error } = await (getSupabaseAdmin() as SupabaseClient)
       .from('org_ai_config')
       .delete()
       .eq('org_id', orgId)

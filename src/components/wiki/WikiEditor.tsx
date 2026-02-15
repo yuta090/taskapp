@@ -46,8 +46,7 @@ export function WikiEditor({ initialContent, onChange, editable = true, orgId, s
       [{
         type: 'meetingsList',
         props: { orgId, spaceId, limit: '5' },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }] as any,
+      }] as Parameters<typeof editor.insertBlocks>[0],
       editor.getTextCursorPosition().block,
       'after'
     )

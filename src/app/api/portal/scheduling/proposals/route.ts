@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // GET: ポータルクライアント向け — 自分がrespondentの提案一覧
 export async function GET(request: NextRequest) {
@@ -14,8 +15,7 @@ export async function GET(request: NextRequest) {
     const spaceId = searchParams.get('spaceId')
 
     // Verify user has at least one client membership (portal access guard)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const membershipQuery = (supabase as any)
+    const membershipQuery = supabase
       .from('space_memberships')
       .select('id, role, space_id')
       .eq('user_id', user.id)
@@ -32,8 +32,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch proposals where user is a respondent
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: respondentRecords, error: respError } = await (supabase as any)
+    const { data: respondentRecords, error: respError } = await (supabase as SupabaseClient)
       .from('proposal_respondents')
       .select('proposal_id')
       .eq('user_id', user.id)
@@ -49,8 +48,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ proposals: [] })
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query = (supabase as any)
+    let query = supabase
       .from('scheduling_proposals')
       .select(`
         *,
@@ -74,14 +72,13 @@ export async function GET(request: NextRequest) {
     // Check which proposals the user has responded to
     // Collect my respondent IDs from all proposals
     const myRespondentIds = (proposals || [])
-      .flatMap((p: any) => p.proposal_respondents || [])
-      .filter((pr: any) => pr.user_id === user.id)
-      .map((pr: any) => pr.id)
+      .flatMap((p: { proposal_respondents?: Array<{ id: string; user_id: string }> }) => p.proposal_respondents || [])
+      .filter((pr: { user_id: string }) => pr.user_id === user.id)
+      .map((pr: { id: string }) => pr.id)
 
     let myResponses: Array<{ slot_id: string }> = []
     if (myRespondentIds.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
+      const { data } = await (supabase as SupabaseClient)
         .from('slot_responses')
         .select('slot_id, respondent_id')
         .in('respondent_id', myRespondentIds)
@@ -90,9 +87,9 @@ export async function GET(request: NextRequest) {
 
     const respondedSlotIds = new Set((myResponses || []).map((r: { slot_id: string }) => r.slot_id))
 
-    const result = (proposals || []).map((p: any) => {
+    const result = (proposals || []).map((p: { id: string; status: string; proposal_respondents?: Array<{ id: string; user_id: string }>; proposal_slots?: Array<{ id: string }> }) => {
       const myRespondent = (p.proposal_respondents || []).find(
-        (r: { user_id: string }) => r.user_id === user.id
+        (r: { id: string; user_id: string }) => r.user_id === user.id
       )
       const totalSlots = (p.proposal_slots || []).length
       const answeredSlots = (p.proposal_slots || []).filter(

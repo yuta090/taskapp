@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { verifySignedState, exchangeCodeForToken } from '@/lib/slack/oauth'
 import { SLACK_CONFIG } from '@/lib/slack/config'
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     }
 
     // トークンを暗号化
-    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as any)
+    const { data: encryptedToken, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
       .rpc('encrypt_slack_token', {
         token: tokenResponse.access_token,
         secret: SLACK_CONFIG.clientSecret,
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     }
 
     // DB保存（upsert: org_id + team_id でユニーク）
-    const { error: upsertError } = await (getSupabaseAdmin() as any)
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('slack_workspaces')
       .upsert(
         {

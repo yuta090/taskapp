@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar, TreeStructure } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
 import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
@@ -119,8 +120,8 @@ export function TaskCreateSheet({
     let active = true
     const fetchMilestones = async () => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const supabaseAny = supabase as any
+         
+        const supabaseAny = supabase as SupabaseClient
 
         // Fetch milestones
         const { data: msData } = await supabaseAny
@@ -181,8 +182,8 @@ export function TaskCreateSheet({
     if (!newMilestoneName.trim()) return
     setMilestoneCreating(true)
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const supabaseAny = supabase as any
+       
+      const supabaseAny = supabase as SupabaseClient
       const { data, error } = await supabaseAny
         .from('milestones')
         .insert({
@@ -385,7 +386,7 @@ export function TaskCreateSheet({
               data-testid="task-create-type-spec"
               className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                 type === 'spec'
-                  ? 'bg-purple-100 border-purple-300 font-medium text-purple-700'
+                  ? 'bg-gray-100 border-gray-300 font-medium text-gray-700'
                   : 'border-gray-200 hover:bg-gray-50'
               }`}
             >
@@ -395,9 +396,9 @@ export function TaskCreateSheet({
 
           {/* Spec fields */}
           {type === 'spec' && (
-            <div className="space-y-3 p-3 bg-purple-50 rounded-lg">
+            <div className="space-y-3 p-3 bg-gray-50 rounded-lg">
               <div>
-                <label className="text-xs font-medium text-purple-600">
+                <label className="text-xs font-medium text-gray-600">
                   仕様ファイルパス
                 </label>
                 <input
@@ -406,11 +407,11 @@ export function TaskCreateSheet({
                   onChange={(e) => setSpecPath(e.target.value)}
                   placeholder="/spec/xxx.md#anchor"
                   data-testid="task-create-spec-path"
-                  className="mt-1 w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-purple-600">
+                <label className="text-xs font-medium text-gray-600">
                   決定状態
                 </label>
                 <div className="mt-1 flex gap-2">
@@ -422,8 +423,8 @@ export function TaskCreateSheet({
                       data-testid={`task-create-decision-${state}`}
                       className={`px-2 py-1 text-xs rounded border transition-colors ${
                         decisionState === state
-                          ? 'bg-purple-100 border-purple-300 font-medium'
-                          : 'border-purple-200 hover:bg-purple-50'
+                          ? 'bg-gray-100 border-gray-300 font-medium'
+                          : 'border-gray-200 hover:bg-gray-50'
                       }`}
                     >
                       {state === 'considering'
