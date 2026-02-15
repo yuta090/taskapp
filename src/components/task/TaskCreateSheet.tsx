@@ -1,12 +1,18 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar, TreeStructure } from '@phosphor-icons/react'
+import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar, TreeStructure, Folder } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
 import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
+
+interface SpaceOption {
+  id: string
+  name: string
+  orgId: string
+}
 
 interface TaskCreateSheetProps {
   spaceId: string
@@ -14,13 +20,15 @@ interface TaskCreateSheetProps {
   spaceName?: string
   isOpen: boolean
   onClose: () => void
-  onSubmit: (task: TaskCreateData) => void
+  onSubmit: (task: TaskCreateData & { spaceId?: string; orgId?: string }) => void
   defaultBall?: BallSide
   defaultClientOwnerIds?: string[]
   /** Available parent tasks for subtask creation */
   parentTasks?: { id: string; title: string }[]
   /** Pre-selected parent task ID (e.g. when creating from parent context) */
   defaultParentTaskId?: string
+  /** Available spaces for global create (when spaceId is empty) */
+  spaces?: SpaceOption[]
 }
 
 export interface TaskCreateData {
@@ -51,7 +59,18 @@ export function TaskCreateSheet({
   defaultClientOwnerIds = [],
   parentTasks = [],
   defaultParentTaskId,
+  spaces = [],
 }: TaskCreateSheetProps) {
+  // Global create mode: spaceId is empty, user must select a space
+  const isGlobalCreate = !spaceId && spaces.length > 0
+  const [selectedSpaceId, setSelectedSpaceId] = useState('')
+  const effectiveSpaceId = isGlobalCreate ? selectedSpaceId : spaceId
+  const effectiveOrgId = isGlobalCreate
+    ? spaces.find((s) => s.id === selectedSpaceId)?.orgId || ''
+    : orgId || ''
+  const effectiveSpaceName = isGlobalCreate
+    ? spaces.find((s) => s.id === selectedSpaceId)?.name || ''
+    : spaceName || ''
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState<TaskType>('task')
@@ -74,8 +93,8 @@ export function TaskCreateSheet({
 
   // Estimation assist hook
   const estimation = useEstimationAssist({
-    spaceId,
-    orgId: orgId || '',
+    spaceId: effectiveSpaceId,
+    orgId: effectiveOrgId,
   })
 
   // Use hook for members with display names
@@ -85,7 +104,7 @@ export function TaskCreateSheet({
     internalMembers,
     loading: membersLoading,
     error: membersError,
-  } = useSpaceMembers(isOpen ? spaceId : null)
+  } = useSpaceMembers(isOpen && effectiveSpaceId ? effectiveSpaceId : null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const milestonePopoverRef = useRef<HTMLDivElement>(null)
@@ -96,13 +115,20 @@ export function TaskCreateSheet({
   useEffect(() => {
     // Only reset when sheet transitions from closed to open
     if (isOpen && !prevIsOpenRef.current) {
-      inputRef.current?.focus()
+      if (!isGlobalCreate) {
+        inputRef.current?.focus()
+      }
       // Carry over previous client owners (UI Rules)
       setClientOwnerIds(defaultClientOwnerIds)
       setBall(defaultBall)
+      // In global create mode, preserve selectedSpaceId between creates
+      // Only clear if the previously selected space is no longer available
+      if (isGlobalCreate && selectedSpaceId && !spaces.some((s) => s.id === selectedSpaceId)) {
+        setSelectedSpaceId('')
+      }
     }
     prevIsOpenRef.current = isOpen
-  }, [isOpen, defaultBall, defaultClientOwnerIds])
+  }, [isOpen, defaultBall, defaultClientOwnerIds, isGlobalCreate, selectedSpaceId, spaces])
 
   // Handle Escape key
   useEffect(() => {
@@ -117,19 +143,22 @@ export function TaskCreateSheet({
 
   // Fetch milestones only (members come from useSpaceMembers hook)
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen || !effectiveSpaceId) {
+      setMilestones([])
+      return
+    }
 
     let active = true
     const fetchMilestones = async () => {
       try {
-         
+
         const supabaseAny = supabase as SupabaseClient
 
         // Fetch milestones
         const { data: msData } = await supabaseAny
           .from('milestones')
           .select('id, name')
-          .eq('space_id' as never, spaceId as never)
+          .eq('space_id' as never, effectiveSpaceId as never)
           .order('order_key' as never, { ascending: true })
 
         if (active) {
@@ -145,7 +174,7 @@ export function TaskCreateSheet({
     return () => {
       active = false
     }
-  }, [isOpen, spaceId, supabase])
+  }, [isOpen, effectiveSpaceId, supabase])
 
   const toggleClientOwner = (ownerId: string) => {
     setClientOwnerIds((prev) =>
@@ -189,7 +218,7 @@ export function TaskCreateSheet({
       const { data, error } = await supabaseAny
         .from('milestones')
         .insert({
-          space_id: spaceId,
+          space_id: effectiveSpaceId,
           name: newMilestoneName.trim(),
           due_date: newMilestoneDue || null,
           order_key: Date.now(),
@@ -216,6 +245,12 @@ export function TaskCreateSheet({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
+
+    // Validate: space must be selected in global create mode
+    if (isGlobalCreate && !selectedSpaceId) {
+      alert('プロジェクトを選択してください')
+      return
+    }
 
     // Validate: spec tasks need spec_path
     if (type === 'spec' && !specPath) {
@@ -249,6 +284,7 @@ export function TaskCreateSheet({
       assigneeId: assigneeId || undefined,
       milestoneId: milestoneId || undefined,
       parentTaskId: parentTaskId || undefined,
+      ...(isGlobalCreate ? { spaceId: selectedSpaceId, orgId: effectiveOrgId } : {}),
     })
 
     // Reset form
@@ -264,6 +300,7 @@ export function TaskCreateSheet({
     estimation.clear()
     setEstimationExpanded(false)
     // Keep ball and clientOwnerIds for next creation
+    // Keep selectedSpaceId for consecutive creates in global mode
   }
 
   if (!isOpen) return null
@@ -285,9 +322,9 @@ export function TaskCreateSheet({
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-medium text-gray-900">新規タスク</h2>
-            {spaceName && (
+            {effectiveSpaceName && (
               <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                {spaceName}
+                {effectiveSpaceName}
               </span>
             )}
           </div>
@@ -302,6 +339,39 @@ export function TaskCreateSheet({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* Space selector (global create mode) */}
+          {isGlobalCreate && (
+            <div>
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <Folder className="text-sm" />
+                プロジェクト
+              </label>
+              <select
+                value={selectedSpaceId}
+                onChange={(e) => {
+                  setSelectedSpaceId(e.target.value)
+                  // Reset space-dependent fields when space changes
+                  setMilestoneId('')
+                  setAssigneeId('')
+                  setParentTaskId('')
+                  setInternalOwnerIds([])
+                  setClientOwnerIds([])
+                  estimation.clear()
+                }}
+                data-testid="task-create-space"
+                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                autoFocus
+              >
+                <option value="">プロジェクトを選択...</option>
+                {spaces.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Title */}
           <div>
             <input
@@ -310,16 +380,17 @@ export function TaskCreateSheet({
               value={title}
               onChange={(e) => {
                 setTitle(e.target.value)
-                if (orgId) estimation.search(e.target.value)
+                if (effectiveOrgId) estimation.search(e.target.value)
               }}
               placeholder="タスクタイトルを入力..."
               data-testid="task-create-title"
-              className="w-full px-3 py-2 text-base border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isGlobalCreate && !selectedSpaceId}
+              className="w-full px-3 py-2 text-base border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
             />
           </div>
 
           {/* Estimation Assist */}
-          {orgId && estimation.result && (
+          {effectiveOrgId && estimation.result && (
             <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
               <button
                 type="button"
@@ -371,7 +442,7 @@ export function TaskCreateSheet({
               )}
             </div>
           )}
-          {orgId && estimation.loading && (
+          {effectiveOrgId && estimation.loading && (
             <div className="text-xs text-gray-400 px-1">類似タスクを検索中...</div>
           )}
 
@@ -774,7 +845,7 @@ export function TaskCreateSheet({
             </button>
             <button
               type="submit"
-              disabled={!title.trim()}
+              disabled={!title.trim() || (isGlobalCreate && !selectedSpaceId)}
               data-testid="task-create-submit"
               className="px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >

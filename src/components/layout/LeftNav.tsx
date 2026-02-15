@@ -266,7 +266,12 @@ export function LeftNav() {
   }, [])
 
   const handleQuickCreate = () => {
-    router.push(`${projectBasePath}?create=1`)
+    if (hasProjectRoute) {
+      router.push(`${projectBasePath}?create=1`)
+    } else {
+      // Outside project context: open global create on My Tasks page
+      router.push('/my?create=1')
+    }
   }
 
   const handleWorkspaceClick = () => {

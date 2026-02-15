@@ -1,11 +1,19 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X } from '@phosphor-icons/react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
+import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
+
+const TaskCreateSheet = dynamic(
+  () => import('@/components/task/TaskCreateSheet').then((m) => ({ default: m.TaskCreateSheet })),
+  { ssr: false }
+)
 
 // Development mode fallback user ID
 const DEV_USER_ID = '0124bcca-7c66-406c-b1ae-2be8dac241c5'
@@ -109,7 +117,119 @@ export default function MyTasksPage() {
   const [filters, setFilters] = useState<FilterState>(() => loadFilterState())
   const [showFilters, setShowFilters] = useState(false)
 
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const isCreateOpen = searchParams.get('create') !== null
   const supabase = useMemo(() => createClient(), [])
+
+  // Space options for global create
+  const spaceOptions = useMemo(
+    () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: (s as Record<string, string>).org_id || '' })),
+    [spaces]
+  )
+
+  const handleCreateOpen = useCallback(() => {
+    router.push('/my?create=1')
+  }, [router])
+
+  const handleCreateClose = useCallback(() => {
+    router.push('/my')
+  }, [router])
+
+  const handleCreateSubmit = useCallback(
+    async (data: TaskCreateData & { spaceId?: string; orgId?: string }) => {
+      const targetSpaceId = data.spaceId
+      if (!targetSpaceId) return
+
+      // Validate against known spaces to prevent mismatched spaceId/orgId
+      const targetSpace = spaces.find((s) => s.id === targetSpaceId)
+      if (!targetSpace) return
+      const targetOrgId = (targetSpace as Record<string, string>).org_id || ''
+      if (!targetOrgId) return
+
+      try {
+        // Get authenticated user
+        let uid: string
+        const { data: authData, error: authError } = await supabase.auth.getUser()
+        if (authError || !authData?.user) {
+          const demoUserId = process.env.NEXT_PUBLIC_DEMO_USER_ID
+          if (typeof window !== 'undefined' && window.location.hostname === 'localhost' && demoUserId) {
+            uid = demoUserId
+          } else {
+            throw new Error('ログインが必要です')
+          }
+        } else {
+          uid = authData.user.id
+        }
+
+        const status = data.type === 'spec' ? 'considering' : 'backlog'
+
+        const { data: created, error: createError } = await (supabase as SupabaseClient)
+          .from('tasks')
+          .insert({
+            org_id: targetOrgId,
+            space_id: targetSpaceId,
+            title: data.title,
+            description: data.description ?? '',
+            status,
+            ball: data.ball,
+            origin: data.origin,
+            type: data.type,
+            spec_path: data.type === 'spec' ? data.specPath ?? null : null,
+            decision_state: data.type === 'spec' ? data.decisionState ?? null : null,
+            client_scope: data.clientScope ?? 'internal',
+            due_date: data.dueDate ?? null,
+            assignee_id: data.assigneeId ?? null,
+            milestone_id: data.milestoneId ?? null,
+            parent_task_id: data.parentTaskId ?? null,
+            created_by: uid,
+          } as Record<string, unknown>)
+          .select('*')
+          .single()
+
+        if (createError) throw createError
+
+        const createdTask = created as Task
+
+        // Insert task owners
+        const ownerRows = [
+          ...data.clientOwnerIds.map((ownerId) => ({
+            org_id: targetOrgId,
+            space_id: targetSpaceId,
+            task_id: createdTask.id,
+            side: 'client' as const,
+            user_id: ownerId,
+          })),
+          ...data.internalOwnerIds.map((ownerId) => ({
+            org_id: targetOrgId,
+            space_id: targetSpaceId,
+            task_id: createdTask.id,
+            side: 'internal' as const,
+            user_id: ownerId,
+          })),
+        ]
+
+        if (ownerRows.length > 0) {
+          const { error: ownerError } = await (supabase as SupabaseClient)
+            .from('task_owners')
+            .insert(ownerRows as Record<string, unknown>[])
+          if (ownerError) {
+            console.error('Failed to insert task owners:', ownerError)
+            // Task created but owners failed - still add to list but warn
+          }
+        }
+
+        // If the created task is assigned to the current user, add to the list
+        if (createdTask.assignee_id === userId || createdTask.assignee_id === DEV_USER_ID) {
+          setTasks((prev) => [createdTask, ...prev])
+        }
+      } catch (err) {
+        console.error('Failed to create task:', err)
+        alert('タスクの作成に失敗しました')
+      }
+    },
+    [supabase, userId, spaces]
+  )
 
   const updateFilters = useCallback((updates: Partial<FilterState>) => {
     setFilters(prev => {
@@ -323,6 +443,17 @@ export default function MyTasksPage() {
         </span>
 
         <div className="flex-1" />
+
+        {/* Create button */}
+        <button
+          onClick={handleCreateOpen}
+          data-testid="my-tasks-create"
+          className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors mr-1"
+          title="新規タスク"
+        >
+          <Plus weight="bold" className="text-sm" />
+          作成
+        </button>
 
         {/* Filter toggle */}
         <button
@@ -559,6 +690,15 @@ export default function MyTasksPage() {
           )}
         </div>
       </div>
+
+      {/* Task Create Sheet (global create with space selector) */}
+      <TaskCreateSheet
+        spaceId=""
+        isOpen={isCreateOpen}
+        onClose={handleCreateClose}
+        onSubmit={handleCreateSubmit}
+        spaces={spaceOptions}
+      />
     </div>
   )
 }

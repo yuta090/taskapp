@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -27,8 +27,12 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
   const [error, setError] = useState<string | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
+  // Race condition guard: only accept results from the latest request
+  const requestIdRef = useRef(0)
 
   const fetchMembers = useCallback(async () => {
+    const currentRequestId = ++requestIdRef.current
+
     if (!spaceId) {
       setMembers([])
       setLoading(false)
@@ -41,6 +45,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
+        if (currentRequestId !== requestIdRef.current) return
         setMembers([])
         setError('ログインが必要です')
         return
@@ -50,6 +55,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
       const { data, error: fetchError } = await (supabase as SupabaseClient)
         .rpc('rpc_get_space_members', { p_space_id: spaceId })
 
+      if (currentRequestId !== requestIdRef.current) return
       if (fetchError) throw fetchError
 
       const memberList: SpaceMember[] = (data || []).map((m: { user_id: string; display_name: string | null; avatar_url: string | null; role: string }) => ({
@@ -61,10 +67,13 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
 
       setMembers(memberList)
     } catch (err) {
+      if (currentRequestId !== requestIdRef.current) return
       console.error('Failed to fetch space members:', err)
       setError('メンバー情報の取得に失敗しました')
     } finally {
-      setLoading(false)
+      if (currentRequestId === requestIdRef.current) {
+        setLoading(false)
+      }
     }
   }, [spaceId, supabase])
 
