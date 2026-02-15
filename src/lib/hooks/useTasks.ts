@@ -66,6 +66,50 @@ interface UseTasksReturn {
   ) => Promise<void>
 }
 
+/**
+ * Validate parent_task_id assignment for 1-level hierarchy constraint.
+ * Throws if the assignment would violate nesting rules.
+ */
+function validateParentTask(
+  parentTaskId: string | null | undefined,
+  currentTaskId: string | undefined,
+  tasks: Task[],
+  spaceId: string
+): void {
+  if (!parentTaskId) return
+
+  // Self-reference check
+  if (currentTaskId && parentTaskId === currentTaskId) {
+    throw new Error('タスクを自分自身の親に設定することはできません')
+  }
+
+  const parentTask = tasks.find((t) => t.id === parentTaskId)
+
+  // Parent must exist in the current task list
+  if (!parentTask) {
+    // Parent may be in a different fetch — skip client-side check, DB trigger will catch it
+    return
+  }
+
+  // Parent must be in the same space
+  if (parentTask.space_id !== spaceId) {
+    throw new Error('親タスクは同じスペース内である必要があります')
+  }
+
+  // Parent must not itself be a child (no deep nesting)
+  if (parentTask.parent_task_id) {
+    throw new Error('子タスクを親に設定することはできません（階層は1段階まで）')
+  }
+
+  // Current task must not already be a parent of other tasks
+  if (currentTaskId) {
+    const hasChildren = tasks.some((t) => t.parent_task_id === currentTaskId)
+    if (hasChildren) {
+      throw new Error('子タスクを持つタスクを別タスクの子にすることはできません')
+    }
+  }
+}
+
 export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
   const [tasks, setTasks] = useState<Task[]>([])
   const [owners, setOwners] = useState<Record<string, TaskOwner[]>>({})
@@ -127,6 +171,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const createTask = useCallback(
     async (task: CreateTaskInput) => {
+      // Validate parent task assignment before proceeding
+      validateParentTask(task.parentTaskId, undefined, tasks, spaceId)
+
       const now = new Date().toISOString()
       const tempId = crypto.randomUUID()
       const status = task.type === 'spec' ? 'considering' : 'backlog'
@@ -283,11 +330,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [orgId, spaceId, supabase]
+    [orgId, spaceId, supabase, tasks]
   )
 
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput): Promise<void> => {
+      // Validate parent task assignment if being changed
+      if (input.parentTaskId !== undefined) {
+        validateParentTask(input.parentTaskId, taskId, tasks, spaceId)
+      }
+
       // Capture only the specific task for targeted rollback (avoids stale closure)
       let prevTask: Task | undefined
 
@@ -405,7 +457,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         throw err
       }
     },
-    [supabase, orgId, spaceId]
+    [supabase, orgId, spaceId, tasks]
   )
 
   const deleteTask = useCallback(

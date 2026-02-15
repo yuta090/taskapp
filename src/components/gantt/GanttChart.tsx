@@ -93,6 +93,8 @@ export function GanttChart({
   const totalWidth = dates.length * dayWidth
 
   // Group tasks by milestone (using tree structure)
+  // Child tasks are grouped under the same milestone as their parent to avoid
+  // orphaned children when parent and child have different milestone_ids.
   const taskGroups: TaskGroup[] = useMemo(() => {
     if (!groupByMilestone) {
       return [{ milestone: null, tasks }]
@@ -102,10 +104,23 @@ export function GanttChart({
     const milestoneMap = new Map<string, Milestone>()
     milestones.forEach((m) => milestoneMap.set(m.id, m))
 
-    // Group tasks by milestone_id
+    // Build a lookup for parent task milestone_id
+    const taskById = new Map<string, Task>()
+    tasks.forEach((t) => taskById.set(t.id, t))
+
+    // Resolve effective milestone: child inherits parent's milestone for grouping
+    const getEffectiveMilestoneId = (task: Task): string | null => {
+      if (task.parent_task_id) {
+        const parent = taskById.get(task.parent_task_id)
+        if (parent) return parent.milestone_id || null
+      }
+      return task.milestone_id || null
+    }
+
+    // Group tasks by effective milestone_id
     const tasksByMilestone = new Map<string | null, Task[]>()
     tasks.forEach((task) => {
-      const key = task.milestone_id || null
+      const key = getEffectiveMilestoneId(task)
       if (!tasksByMilestone.has(key)) {
         tasksByMilestone.set(key, [])
       }

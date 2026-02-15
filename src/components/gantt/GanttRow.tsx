@@ -77,7 +77,8 @@ export const GanttRow = memo(function GanttRow({
 
     if (end) {
       const endX = dateToX(end, startDate, dayWidth)
-      return { x: 0, width: Math.max(endX, 4) }
+      // Position at the end date rather than stretching from x=0
+      return { x: Math.max(endX - dayWidth, 0), width: dayWidth }
     }
 
     return null

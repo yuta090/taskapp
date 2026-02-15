@@ -76,12 +76,13 @@ export function buildTaskTree(tasks: Task[]): TaskTreeNode[] {
 }
 
 /**
- * Compute the summary date range for a parent task from its children.
+ * Compute the summary date range for a parent task from its children only.
  * Returns the min start_date and max due_date across all children.
- * If the parent has its own dates and no children, uses the parent's dates.
+ * Parent's own dates are intentionally excluded — the summary bar
+ * represents the aggregate child range, not the parent's own schedule.
  */
 function computeSummaryDates(
-  parent: Task,
+  _parent: Task,
   children: Task[]
 ): { summaryStart: string | null; summaryEnd: string | null } {
   if (children.length === 0) {
@@ -90,10 +91,6 @@ function computeSummaryDates(
 
   let minStart: string | null = null
   let maxEnd: string | null = null
-
-  // Include parent's own dates if set
-  if (parent.start_date) minStart = parent.start_date
-  if (parent.due_date) maxEnd = parent.due_date
 
   children.forEach((child) => {
     const childStart = child.start_date
