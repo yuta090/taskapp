@@ -11,6 +11,7 @@ import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/dat
 interface TaskCreateSheetProps {
   spaceId: string
   orgId?: string
+  spaceName?: string
   isOpen: boolean
   onClose: () => void
   onSubmit: (task: TaskCreateData) => void
@@ -42,6 +43,7 @@ export interface TaskCreateData {
 export function TaskCreateSheet({
   spaceId,
   orgId,
+  spaceName,
   isOpen,
   onClose,
   onSubmit,
@@ -281,7 +283,14 @@ export function TaskCreateSheet({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          <h2 className="text-sm font-medium text-gray-900">新規タスク</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-medium text-gray-900">新規タスク</h2>
+            {spaceName && (
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                {spaceName}
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
             data-testid="task-create-close"
