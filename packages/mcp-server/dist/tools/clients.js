@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config } from '../config.js';
+import { checkAuth, checkAuthOrg } from '../auth/helpers.js';
 import crypto from 'crypto';
 // Schemas
 export const clientInviteCreateSchema = z.object({
@@ -44,6 +45,7 @@ function generateToken() {
 }
 // Tool implementations
 export async function clientInviteCreate(params) {
+    await checkAuth(params.spaceId, 'write', 'client_invite_create', 'invite');
     const supabase = getSupabaseClient();
     const orgId = config.orgId;
     const actorId = config.actorId;
@@ -68,6 +70,7 @@ export async function clientInviteCreate(params) {
     return data;
 }
 export async function clientInviteBulkCreate(params) {
+    await checkAuth(params.spaceId, 'bulk', 'client_invite_bulk_create', 'invite');
     const supabase = getSupabaseClient();
     const orgId = config.orgId;
     const actorId = config.actorId;
@@ -95,8 +98,9 @@ export async function clientInviteBulkCreate(params) {
     };
 }
 export async function clientList(params) {
+    const { ctx } = await checkAuthOrg('read', 'client_list');
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
+    const orgId = ctx.orgId;
     // Get org members with role='client'
     const membersQuery = supabase
         .from('org_memberships')
@@ -131,8 +135,9 @@ export async function clientList(params) {
     };
 }
 export async function clientGet(params) {
+    const { ctx } = await checkAuthOrg('read', 'client_get');
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
+    const orgId = ctx.orgId;
     // Get org membership
     const { data: membership, error: membershipError } = await supabase
         .from('org_memberships')
@@ -155,6 +160,7 @@ export async function clientGet(params) {
     };
 }
 export async function clientUpdate(params) {
+    await checkAuth(params.spaceId, 'write', 'client_update', 'client', params.userId);
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
         .from('space_memberships')
@@ -168,6 +174,7 @@ export async function clientUpdate(params) {
     return data;
 }
 export async function clientAddToSpace(params) {
+    await checkAuth(params.spaceId, 'write', 'client_add_to_space', 'client', params.userId);
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
         .from('space_memberships')
@@ -183,8 +190,9 @@ export async function clientAddToSpace(params) {
     return data;
 }
 export async function clientInviteList(params) {
+    const { ctx } = await checkAuthOrg('read', 'client_invite_list');
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
+    const orgId = ctx.orgId;
     let query = supabase
         .from('invites')
         .select('*')
@@ -213,6 +221,7 @@ export async function clientInviteList(params) {
     return (data || []);
 }
 export async function clientInviteResend(params) {
+    await checkAuthOrg('write', 'client_invite_resend');
     const supabase = getSupabaseClient();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + params.expiresInDays);

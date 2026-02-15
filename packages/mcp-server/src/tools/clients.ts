@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config } from '../config.js'
+import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 import crypto from 'crypto'
 
 // Types
@@ -86,6 +87,7 @@ function generateToken(): string {
 export async function clientInviteCreate(
   params: z.infer<typeof clientInviteCreateSchema>
 ): Promise<ClientInvite> {
+  await checkAuth(params.spaceId, 'write', 'client_invite_create', 'invite')
   const supabase = getSupabaseClient()
   const orgId = config.orgId
   const actorId = config.actorId
@@ -116,6 +118,7 @@ export async function clientInviteCreate(
 export async function clientInviteBulkCreate(
   params: z.infer<typeof clientInviteBulkCreateSchema>
 ): Promise<{ created: number; failed: string[]; invites: ClientInvite[] }> {
+  await checkAuth(params.spaceId, 'bulk', 'client_invite_bulk_create', 'invite')
   const supabase = getSupabaseClient()
   const orgId = config.orgId
   const actorId = config.actorId
@@ -150,8 +153,9 @@ export async function clientInviteBulkCreate(
 export async function clientList(
   params: z.infer<typeof clientListSchema>
 ): Promise<{ members: OrgMembership[]; pendingInvites: ClientInvite[] }> {
+  const { ctx } = await checkAuthOrg('read', 'client_list')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = ctx.orgId
 
   // Get org members with role='client'
   const membersQuery = supabase
@@ -196,8 +200,9 @@ export async function clientList(
 export async function clientGet(
   params: z.infer<typeof clientGetSchema>
 ): Promise<{ membership: OrgMembership; spaces: SpaceMembership[] }> {
+  const { ctx } = await checkAuthOrg('read', 'client_get')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = ctx.orgId
 
   // Get org membership
   const { data: membership, error: membershipError } = await supabase
@@ -226,6 +231,7 @@ export async function clientGet(
 export async function clientUpdate(
   params: z.infer<typeof clientUpdateSchema>
 ): Promise<SpaceMembership> {
+  await checkAuth(params.spaceId, 'write', 'client_update', 'client', params.userId)
   const supabase = getSupabaseClient()
 
   const { data, error } = await supabase
@@ -243,6 +249,7 @@ export async function clientUpdate(
 export async function clientAddToSpace(
   params: z.infer<typeof clientAddToSpaceSchema>
 ): Promise<SpaceMembership> {
+  await checkAuth(params.spaceId, 'write', 'client_add_to_space', 'client', params.userId)
   const supabase = getSupabaseClient()
 
   const { data, error } = await supabase
@@ -262,8 +269,9 @@ export async function clientAddToSpace(
 export async function clientInviteList(
   params: z.infer<typeof clientInviteListSchema>
 ): Promise<ClientInvite[]> {
+  const { ctx } = await checkAuthOrg('read', 'client_invite_list')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = ctx.orgId
 
   let query = supabase
     .from('invites')
@@ -300,6 +308,7 @@ export async function clientInviteList(
 export async function clientInviteResend(
   params: z.infer<typeof clientInviteResendSchema>
 ): Promise<ClientInvite> {
+  await checkAuthOrg('write', 'client_invite_resend')
   const supabase = getSupabaseClient()
 
   const expiresAt = new Date()

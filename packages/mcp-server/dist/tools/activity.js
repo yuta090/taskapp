@@ -1,8 +1,18 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config } from '../config.js';
+import { checkAuth, checkAuthOrg } from '../auth/helpers.js';
+// Helper: get orgId from spaceId
+async function getOrgId(spaceId) {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
+    if (error || !data)
+        throw new Error('スペースが見つかりません');
+    return data.org_id;
+}
 // Schemas
 export const activityLogSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     entityTable: z.string().describe('対象テーブル名 (tasks, milestones, etc.)'),
     entityId: z.string().uuid().describe('対象レコードのUUID'),
     action: z.string().describe('アクション (insert, update, delete, etc.)'),
@@ -19,6 +29,7 @@ export const activityLogSchema = z.object({
     payload: z.record(z.unknown()).optional().describe('追加メタ情報'),
 });
 export const activitySearchSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     entityTable: z.string().optional().describe('テーブル名でフィルタ'),
     entityId: z.string().uuid().optional().describe('エンティティIDでフィルタ'),
     actorId: z.string().uuid().optional().describe('アクターIDでフィルタ'),
@@ -35,9 +46,9 @@ export const activityEntityHistorySchema = z.object({
 });
 // Tool implementations
 export async function activityLog(params) {
+    await checkAuth(params.spaceId, 'write', 'activity_log', 'activity', params.entityId);
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
+    const orgId = await getOrgId(params.spaceId);
     const { data, error } = await supabase
         .from('activity_log')
         .insert({
@@ -57,7 +68,7 @@ export async function activityLog(params) {
         after_data: params.afterData || null,
         payload: params.payload || {},
         organization_id: orgId,
-        space_id: spaceId,
+        space_id: params.spaceId,
     })
         .select('id')
         .single();
@@ -66,46 +77,40 @@ export async function activityLog(params) {
     return { id: data.id };
 }
 export async function activitySearch(params) {
+    await checkAuth(params.spaceId, 'read', 'activity_search', 'activity');
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
+    const orgId = await getOrgId(params.spaceId);
     let query = supabase
         .from('activity_log')
         .select('*')
         .eq('organization_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .eq('is_deleted', false)
         .order('occurred_at', { ascending: false })
         .limit(params.limit);
-    if (params.entityTable) {
+    if (params.entityTable)
         query = query.eq('entity_table', params.entityTable);
-    }
-    if (params.entityId) {
+    if (params.entityId)
         query = query.eq('entity_id', params.entityId);
-    }
-    if (params.actorId) {
+    if (params.actorId)
         query = query.eq('actor_id', params.actorId);
-    }
-    if (params.action) {
+    if (params.action)
         query = query.eq('action', params.action);
-    }
-    if (params.sessionId) {
+    if (params.sessionId)
         query = query.eq('session_id', params.sessionId);
-    }
-    if (params.from) {
+    if (params.from)
         query = query.gte('occurred_at', params.from);
-    }
-    if (params.to) {
+    if (params.to)
         query = query.lte('occurred_at', params.to);
-    }
     const { data, error } = await query;
     if (error)
         throw new Error('アクティビティログの検索に失敗しました: ' + error.message);
     return (data || []);
 }
 export async function activityEntityHistory(params) {
+    const { ctx } = await checkAuthOrg('read', 'activity_entity_history');
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
+    const orgId = ctx.orgId;
     const { data, error } = await supabase
         .from('activity_log')
         .select('*')

@@ -1,65 +1,80 @@
 import { z } from 'zod';
 import { WikiPage, WikiPageVersion } from '../supabase/client.js';
 declare const wikiListSchema: z.ZodObject<{
-    spaceId: z.ZodOptional<z.ZodString>;
+    spaceId: z.ZodString;
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     limit: number;
-    spaceId?: string | undefined;
 }, {
-    spaceId?: string | undefined;
+    spaceId: string;
     limit?: number | undefined;
 }>;
 declare const wikiGetSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     pageId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     pageId: string;
 }, {
+    spaceId: string;
     pageId: string;
 }>;
 declare const wikiCreateSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     title: z.ZodString;
     body: z.ZodOptional<z.ZodString>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     title: string;
     body?: string | undefined;
     tags?: string[] | undefined;
 }, {
+    spaceId: string;
     title: string;
     body?: string | undefined;
     tags?: string[] | undefined;
 }>;
 declare const wikiUpdateSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     pageId: z.ZodString;
     title: z.ZodOptional<z.ZodString>;
     body: z.ZodOptional<z.ZodString>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     pageId: string;
     title?: string | undefined;
     body?: string | undefined;
     tags?: string[] | undefined;
 }, {
+    spaceId: string;
     pageId: string;
     title?: string | undefined;
     body?: string | undefined;
     tags?: string[] | undefined;
 }>;
 declare const wikiDeleteSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     pageId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     pageId: string;
 }, {
+    spaceId: string;
     pageId: string;
 }>;
 declare const wikiVersionsSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     pageId: z.ZodString;
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     limit: number;
     pageId: string;
 }, {
+    spaceId: string;
     pageId: string;
     limit?: number | undefined;
 }>;
@@ -75,13 +90,13 @@ export declare const wikiTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
-        spaceId: z.ZodOptional<z.ZodString>;
+        spaceId: z.ZodString;
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         limit: number;
-        spaceId?: string | undefined;
     }, {
-        spaceId?: string | undefined;
+        spaceId: string;
         limit?: number | undefined;
     }>;
     handler: typeof wikiList;
@@ -89,10 +104,13 @@ export declare const wikiTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         pageId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         pageId: string;
     }, {
+        spaceId: string;
         pageId: string;
     }>;
     handler: typeof wikiGet;
@@ -100,14 +118,17 @@ export declare const wikiTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         title: z.ZodString;
         body: z.ZodOptional<z.ZodString>;
         tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         title: string;
         body?: string | undefined;
         tags?: string[] | undefined;
     }, {
+        spaceId: string;
         title: string;
         body?: string | undefined;
         tags?: string[] | undefined;
@@ -117,16 +138,19 @@ export declare const wikiTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         pageId: z.ZodString;
         title: z.ZodOptional<z.ZodString>;
         body: z.ZodOptional<z.ZodString>;
         tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         pageId: string;
         title?: string | undefined;
         body?: string | undefined;
         tags?: string[] | undefined;
     }, {
+        spaceId: string;
         pageId: string;
         title?: string | undefined;
         body?: string | undefined;
@@ -137,10 +161,13 @@ export declare const wikiTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         pageId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         pageId: string;
     }, {
+        spaceId: string;
         pageId: string;
     }>;
     handler: typeof wikiDelete;
@@ -148,12 +175,15 @@ export declare const wikiTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         pageId: z.ZodString;
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         limit: number;
         pageId: string;
     }, {
+        spaceId: string;
         pageId: string;
         limit?: number | undefined;
     }>;

@@ -1,9 +1,18 @@
 import { z } from 'zod'
 import { getSupabaseClient, Task, TaskOwner } from '../supabase/client.js'
-import { config } from '../config.js'
+import { checkAuth } from '../auth/helpers.js'
+
+// Helper: get orgId from spaceId
+async function getOrgId(spaceId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
+  if (error || !data) throw new Error('スペースが見つかりません')
+  return data.org_id
+}
 
 // Schemas
 export const ballPassSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
   ball: z.enum(['client', 'internal']).describe('新しいボール所有者'),
   clientOwnerIds: z.array(z.string().uuid()).default([]).describe('クライアント側担当者UUID配列'),
@@ -12,41 +21,38 @@ export const ballPassSchema = z.object({
 })
 
 export const ballQuerySchema = z.object({
-  spaceId: z.string().uuid().optional().describe('スペースUUID'),
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   ball: z.enum(['client', 'internal']).describe('検索するボール側'),
   includeOwners: z.boolean().default(false).describe('担当者情報を含めるか'),
   limit: z.number().min(1).max(100).default(50).describe('取得件数'),
 })
 
 export const dashboardGetSchema = z.object({
-  spaceId: z.string().uuid().optional().describe('スペースUUID'),
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
 })
 
 // Tool implementations
 export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<{ ok: boolean; task: Task }> {
+  await checkAuth(params.spaceId, 'write', 'ball_pass', 'task', params.taskId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Validate: ball=client requires client owners
   if (params.ball === 'client' && params.clientOwnerIds.length === 0) {
     throw new Error('ball=clientの場合はclientOwnerIdsが必須です')
   }
 
-  // Pre-validate: verify task belongs to current tenant before RPC
   const { data: existingTask, error: checkError } = await supabase
     .from('tasks')
     .select('id')
     .eq('id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (checkError || !existingTask) {
     throw new Error('タスクが見つかりません')
   }
 
-  // Call RPC function
   const { error } = await supabase.rpc('rpc_pass_ball', {
     p_task_id: params.taskId,
     p_ball: params.ball,
@@ -58,13 +64,12 @@ export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<
 
   if (error) throw new Error('ボール移動に失敗しました')
 
-  // Fetch updated task with org/space scoping
   const { data: task, error: taskError } = await supabase
     .from('tasks')
     .select('*')
     .eq('id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (taskError) throw new Error('タスクが見つかりません')
@@ -73,16 +78,15 @@ export async function ballPass(params: z.infer<typeof ballPassSchema>): Promise<
 }
 
 export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promise<{ tasks: Task[]; owners?: Record<string, TaskOwner[]> }> {
+  await checkAuth(params.spaceId, 'read', 'ball_query', 'task')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = params.spaceId || config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Enforce org/space scoping for security
   const { data: tasks, error: tasksError } = await supabase
     .from('tasks')
     .select('*')
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .eq('ball', params.ball)
     .order('created_at', { ascending: false })
     .limit(params.limit)
@@ -95,17 +99,15 @@ export async function ballQuery(params: z.infer<typeof ballQuerySchema>): Promis
 
   if (params.includeOwners && tasks && tasks.length > 0) {
     const taskIds = tasks.map((t: Task) => t.id)
-    // Enforce org/space scoping for security
     const { data: owners, error: ownersError } = await supabase
       .from('task_owners')
       .select('*')
       .in('task_id', taskIds)
       .eq('org_id', orgId)
-      .eq('space_id', spaceId)
+      .eq('space_id', params.spaceId)
 
     if (ownersError) throw new Error('担当者の取得に失敗しました')
 
-    // Group by task_id
     const ownersByTask: Record<string, TaskOwner[]> = {}
     for (const owner of (owners || []) as TaskOwner[]) {
       if (!ownersByTask[owner.task_id]) {
@@ -132,24 +134,22 @@ export interface DashboardData {
 }
 
 export async function dashboardGet(params: z.infer<typeof dashboardGetSchema>): Promise<DashboardData> {
+  await checkAuth(params.spaceId, 'read', 'dashboard_get', 'task')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = params.spaceId || config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Get tasks with limited fields for performance (org/space scoped)
   const { data: allTasks, error } = await supabase
     .from('tasks')
     .select('id, title, status, ball, created_at')
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .order('created_at', { ascending: false })
-    .limit(500) // Limit to prevent DoS
+    .limit(500)
 
   if (error) throw new Error('ダッシュボード情報の取得に失敗しました')
 
   const tasks = (allTasks || []) as Task[]
 
-  // Calculate stats
   const stats: DashboardData = {
     totalTasks: tasks.length,
     ballClient: tasks.filter((t) => t.ball === 'client').length,

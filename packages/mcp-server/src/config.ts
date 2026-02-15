@@ -1,5 +1,7 @@
 import { config as dotenvConfig } from 'dotenv'
 import type { AuthContext, ActionType } from './auth/authorize.js'
+import { createAuthContext } from './auth/authorize.js'
+import { getSupabaseClient } from './supabase/client.js'
 
 dotenvConfig()
 
@@ -62,6 +64,43 @@ export function loadConfig(): McpServerConfig {
 }
 
 export const config = loadConfig()
+
+/**
+ * ランタイムAPIキー検証
+ * TASKAPP_API_KEY が設定されている場合、DB側の rpc_validate_api_key で検証し
+ * 認証コンテキストを動的に設定する
+ */
+export async function initializeAuth(): Promise<void> {
+  const apiKey = process.env.TASKAPP_API_KEY
+  if (!apiKey) {
+    console.error('WARNING: TASKAPP_API_KEY not set, using static config (dev mode)')
+    return
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey })
+
+  if (error || !data || (data as Record<string, unknown>[]).length === 0) {
+    console.error('FATAL: API key validation failed:', error?.message || 'key not found/expired')
+    process.exit(1)
+  }
+
+  const row = (data as Record<string, unknown>[])[0]
+
+  config.authContext = createAuthContext({
+    key_id: row.key_id as string,
+    user_id: (row.user_id as string) || null,
+    org_id: row.org_id as string,
+    scope: row.scope as string,
+    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
+    allowed_actions: (row.allowed_actions as string[]) || ['read'],
+  })
+  config.orgId = row.org_id as string
+  if (row.space_id) config.spaceId = row.space_id as string
+  if (row.user_id) config.actorId = row.user_id as string
+
+  console.error(`Auth initialized: scope=${row.scope}, org=${row.org_id}`)
+}
 
 /**
  * 認証コンテキストを取得

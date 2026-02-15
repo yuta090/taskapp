@@ -1,18 +1,21 @@
 import { z } from 'zod';
 import { Task, TaskOwner } from '../supabase/client.js';
 export declare const ballPassSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     taskId: z.ZodString;
     ball: z.ZodEnum<["client", "internal"]>;
     clientOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     internalOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     reason: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     ball: "client" | "internal";
     clientOwnerIds: string[];
     internalOwnerIds: string[];
     taskId: string;
     reason?: string | undefined;
 }, {
+    spaceId: string;
     ball: "client" | "internal";
     taskId: string;
     reason?: string | undefined;
@@ -20,27 +23,27 @@ export declare const ballPassSchema: z.ZodObject<{
     internalOwnerIds?: string[] | undefined;
 }>;
 export declare const ballQuerySchema: z.ZodObject<{
-    spaceId: z.ZodOptional<z.ZodString>;
+    spaceId: z.ZodString;
     ball: z.ZodEnum<["client", "internal"]>;
     includeOwners: z.ZodDefault<z.ZodBoolean>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     ball: "client" | "internal";
     limit: number;
     includeOwners: boolean;
-    spaceId?: string | undefined;
 }, {
+    spaceId: string;
     ball: "client" | "internal";
-    spaceId?: string | undefined;
     limit?: number | undefined;
     includeOwners?: boolean | undefined;
 }>;
 export declare const dashboardGetSchema: z.ZodObject<{
-    spaceId: z.ZodOptional<z.ZodString>;
+    spaceId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
-    spaceId?: string | undefined;
+    spaceId: string;
 }, {
-    spaceId?: string | undefined;
+    spaceId: string;
 }>;
 export declare function ballPass(params: z.infer<typeof ballPassSchema>): Promise<{
     ok: boolean;
@@ -66,18 +69,21 @@ export declare const ballTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         taskId: z.ZodString;
         ball: z.ZodEnum<["client", "internal"]>;
         clientOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         internalOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         reason: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         ball: "client" | "internal";
         clientOwnerIds: string[];
         internalOwnerIds: string[];
         taskId: string;
         reason?: string | undefined;
     }, {
+        spaceId: string;
         ball: "client" | "internal";
         taskId: string;
         reason?: string | undefined;
@@ -89,18 +95,18 @@ export declare const ballTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
-        spaceId: z.ZodOptional<z.ZodString>;
+        spaceId: z.ZodString;
         ball: z.ZodEnum<["client", "internal"]>;
         includeOwners: z.ZodDefault<z.ZodBoolean>;
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         ball: "client" | "internal";
         limit: number;
         includeOwners: boolean;
-        spaceId?: string | undefined;
     }, {
+        spaceId: string;
         ball: "client" | "internal";
-        spaceId?: string | undefined;
         limit?: number | undefined;
         includeOwners?: boolean | undefined;
     }>;
@@ -109,11 +115,11 @@ export declare const ballTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
-        spaceId: z.ZodOptional<z.ZodString>;
+        spaceId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
-        spaceId?: string | undefined;
+        spaceId: string;
     }, {
-        spaceId?: string | undefined;
+        spaceId: string;
     }>;
     handler: typeof dashboardGet;
 })[];

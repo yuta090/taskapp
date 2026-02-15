@@ -1,29 +1,38 @@
 import { z } from 'zod';
 import { Meeting } from '../supabase/client.js';
 declare const minutesGetSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     meetingId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     meetingId: string;
 }, {
+    spaceId: string;
     meetingId: string;
 }>;
 declare const minutesUpdateSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     meetingId: z.ZodString;
     minutesMd: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     meetingId: string;
     minutesMd: string;
 }, {
+    spaceId: string;
     meetingId: string;
     minutesMd: string;
 }>;
 declare const minutesAppendSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     meetingId: z.ZodString;
     content: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     meetingId: string;
     content: string;
 }, {
+    spaceId: string;
     meetingId: string;
     content: string;
 }>;
@@ -39,10 +48,13 @@ export declare const minutesTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         meetingId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         meetingId: string;
     }, {
+        spaceId: string;
         meetingId: string;
     }>;
     handler: typeof minutesGet;
@@ -50,12 +62,15 @@ export declare const minutesTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         meetingId: z.ZodString;
         minutesMd: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         meetingId: string;
         minutesMd: string;
     }, {
+        spaceId: string;
         meetingId: string;
         minutesMd: string;
     }>;
@@ -64,12 +79,15 @@ export declare const minutesTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         meetingId: z.ZodString;
         content: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         meetingId: string;
         content: string;
     }, {
+        spaceId: string;
         meetingId: string;
         content: string;
     }>;

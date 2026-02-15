@@ -56,6 +56,10 @@ export declare const taskUpdateSchema: z.ZodObject<{
     assigneeId: z.ZodOptional<z.ZodString>;
     priority: z.ZodOptional<z.ZodNumber>;
     clientScope: z.ZodOptional<z.ZodEnum<["deliverable", "internal"]>>;
+    startDate: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+    parentTaskId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+    actualHours: z.ZodNullable<z.ZodOptional<z.ZodNumber>>;
+    milestoneId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     taskId: string;
@@ -65,7 +69,11 @@ export declare const taskUpdateSchema: z.ZodObject<{
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
+    milestoneId?: string | null | undefined;
     priority?: number | undefined;
+    startDate?: string | null | undefined;
+    parentTaskId?: string | null | undefined;
+    actualHours?: number | null | undefined;
 }, {
     spaceId: string;
     taskId: string;
@@ -75,7 +83,11 @@ export declare const taskUpdateSchema: z.ZodObject<{
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
+    milestoneId?: string | null | undefined;
     priority?: number | undefined;
+    startDate?: string | null | undefined;
+    parentTaskId?: string | null | undefined;
+    actualHours?: number | null | undefined;
 }>;
 export declare const taskListSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -164,6 +176,23 @@ export declare function taskListMy(params: z.infer<typeof taskListMySchema>): Pr
     spaceName: string;
     tasks: Task[];
 }[]>;
+export declare const taskStaleSchema: z.ZodObject<{
+    spaceId: z.ZodString;
+    staleDays: z.ZodDefault<z.ZodNumber>;
+    ball: z.ZodOptional<z.ZodEnum<["client", "internal"]>>;
+    limit: z.ZodDefault<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    spaceId: string;
+    limit: number;
+    staleDays: number;
+    ball?: "client" | "internal" | undefined;
+}, {
+    spaceId: string;
+    ball?: "client" | "internal" | undefined;
+    limit?: number | undefined;
+    staleDays?: number | undefined;
+}>;
+export declare function taskStale(params: z.infer<typeof taskStaleSchema>): Promise<Task[]>;
 export declare const taskTools: ({
     name: string;
     description: string;
@@ -227,6 +256,10 @@ export declare const taskTools: ({
         assigneeId: z.ZodOptional<z.ZodString>;
         priority: z.ZodOptional<z.ZodNumber>;
         clientScope: z.ZodOptional<z.ZodEnum<["deliverable", "internal"]>>;
+        startDate: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+        parentTaskId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+        actualHours: z.ZodNullable<z.ZodOptional<z.ZodNumber>>;
+        milestoneId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         taskId: string;
@@ -236,7 +269,11 @@ export declare const taskTools: ({
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
+        milestoneId?: string | null | undefined;
         priority?: number | undefined;
+        startDate?: string | null | undefined;
+        parentTaskId?: string | null | undefined;
+        actualHours?: number | null | undefined;
     }, {
         spaceId: string;
         taskId: string;
@@ -246,7 +283,11 @@ export declare const taskTools: ({
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
+        milestoneId?: string | null | undefined;
         priority?: number | undefined;
+        startDate?: string | null | undefined;
+        parentTaskId?: string | null | undefined;
+        actualHours?: number | null | undefined;
     }>;
     handler: typeof taskUpdate;
 } | {
@@ -329,5 +370,25 @@ export declare const taskTools: ({
         limit?: number | undefined;
     }>;
     handler: typeof taskListMy;
+} | {
+    name: string;
+    description: string;
+    inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
+        staleDays: z.ZodDefault<z.ZodNumber>;
+        ball: z.ZodOptional<z.ZodEnum<["client", "internal"]>>;
+        limit: z.ZodDefault<z.ZodNumber>;
+    }, "strip", z.ZodTypeAny, {
+        spaceId: string;
+        limit: number;
+        staleDays: number;
+        ball?: "client" | "internal" | undefined;
+    }, {
+        spaceId: string;
+        ball?: "client" | "internal" | undefined;
+        limit?: number | undefined;
+        staleDays?: number | undefined;
+    }>;
+    handler: typeof taskStale;
 })[];
 //# sourceMappingURL=tasks.d.ts.map
