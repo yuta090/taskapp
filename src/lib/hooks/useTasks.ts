@@ -198,7 +198,6 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
         client_scope: task.clientScope ?? 'internal',
-        actual_hours: null,
         created_at: now,
         updated_at: now,
       }

@@ -29,6 +29,7 @@
 | **Project Presets** | `spec/PRESET_SYSTEM_SPEC.md` | ジャンル別プリセット（Wiki+マイルストーン自動生成） |
 | **Internal Ops** | `spec/INTERNAL_OPS_SPEC.md` | クライアント不在時の内部運用対応（レビューUI・ラベル抽象化） |
 | **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2） |
+| **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
 
 ### Prototypes
 
