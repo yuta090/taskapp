@@ -1,7 +1,7 @@
 # TaskApp Specification Index
 
-> **Last Updated**: 2026-02-12
-> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング機能 Phase 1-4 完了)
+> **Last Updated**: 2026-02-15
+> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング機能 Phase 1-4 完了、サブタスク階層対応)
 
 このファイルは現行仕様の一覧です。古いバージョンは `docs/archive/` を参照。
 
@@ -26,6 +26,7 @@
 | **Auth/Invite/Billing** | `spec/AUTH_INVITE_BILLING_SPEC.md` | 認証・招待・課金仕様 |
 | **Assignee/Owner** | `spec/ASSIGNEE_OWNER_SPEC.md` | 担当者・オーナー仕様 |
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
+| **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層・ガントチャート連携仕様 |
 
 ### Prototypes
 
