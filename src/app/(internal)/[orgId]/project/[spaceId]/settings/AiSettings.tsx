@@ -9,6 +9,7 @@ import {
   Key,
 } from '@phosphor-icons/react'
 import { useAiConfig, useSaveAiConfig, useDeleteAiConfig } from '@/lib/hooks/useAiConfig'
+import { toast } from 'sonner'
 
 interface AiSettingsProps {
   orgId: string
@@ -86,7 +87,7 @@ export function AiSettings({ orgId }: AiSettingsProps) {
       await deleteConfig.mutateAsync(orgId)
     } catch (err) {
       console.error('Failed to delete AI config:', err)
-      alert('AI設定の削除に失敗しました')
+      toast.error('AI設定の削除に失敗しました')
     }
   }
 

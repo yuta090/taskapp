@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Key, Plus, Trash, Copy, Check, Eye, EyeSlash, Warning } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 
 interface ApiKey {
   id: string
@@ -185,7 +186,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to create API key:', err)
-      alert('APIキーの作成に失敗しました')
+      toast.error('APIキーの作成に失敗しました')
     } finally {
       setCreating(false)
     }
@@ -201,7 +202,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to delete API key:', err)
-      alert('APIキーの削除に失敗しました')
+      toast.error('APIキーの削除に失敗しました')
     }
   }
 

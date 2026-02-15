@@ -1,4 +1,6 @@
 import type { Metadata } from 'next'
+import { Toaster } from 'sonner'
+import { PreferencesProviderWrapper } from '@/components/providers/PreferencesProviderWrapper'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -14,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="ja" className="antialiased">
       <body className="font-sans">
-        {children}
+        <PreferencesProviderWrapper>
+          {children}
+          <Toaster position="bottom-right" richColors closeButton duration={3000} />
+        </PreferencesProviderWrapper>
       </body>
     </html>
   )

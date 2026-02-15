@@ -22,6 +22,7 @@ import {
   useUpdateNotifyToggles,
 } from '@/lib/hooks/useSlack'
 import { isSlackConfigured } from '@/lib/slack/config'
+import { toast } from 'sonner'
 
 interface SlackSettingsProps {
   orgId: string
@@ -78,7 +79,7 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
       await disconnectSlack.mutateAsync(orgId)
     } catch (err) {
       console.error('Failed to disconnect Slack:', err)
-      alert('連携の解除に失敗しました')
+      toast.error('連携の解除に失敗しました')
     }
   }
 
@@ -97,7 +98,7 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
       setSelectedChannelId('')
     } catch (err) {
       console.error('Failed to link channel:', err)
-      alert('チャンネルの連携に失敗しました')
+      toast.error('チャンネルの連携に失敗しました')
     }
   }
 
@@ -108,7 +109,7 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
       await unlinkChannel.mutateAsync(spaceId)
     } catch (err) {
       console.error('Failed to unlink channel:', err)
-      alert('連携の解除に失敗しました')
+      toast.error('連携の解除に失敗しました')
     }
   }
 
