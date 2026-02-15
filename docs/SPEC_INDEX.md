@@ -14,7 +14,7 @@
 | Document | Version | Path | Description |
 |----------|---------|------|-------------|
 | **API Spec** | v0.4 | `api/API_SPEC_v0.4.md` | RPC・認証・招待・課金API |
-| **DDL** | v0.3 + v0.4 | `db/DDL_v0.3.sql` + `db/DDL_v0.4_comments.sql` | DBスキーマ（v0.4はコメント機能追加） |
+| **DDL** | v0.3〜v0.6 | `db/DDL_v0.3.sql` 〜 `db/DDL_v0.6_subtasks.sql` | DBスキーマ（v0.6はサブタスク階層追加） |
 | **UI Rules** | current | `spec/UI_RULES_AND_SCREENS.md` | 3ペイン、Amber-500、UIルール |
 | **Review Spec** | current | `spec/REVIEW_SPEC.md` | 受け入れテスト AT-001〜AT-012 |
 | **Decisions** | v5 | `notes/DECISIONS_v5.md` | 設計判断の記録 |

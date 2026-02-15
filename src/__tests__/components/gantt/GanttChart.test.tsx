@@ -8,6 +8,7 @@ vi.mock('@phosphor-icons/react', () => ({
   CalendarBlank: () => <span data-testid="icon-calendar" />,
   CaretLeft: () => <span data-testid="icon-caret-left" />,
   CaretRight: () => <span data-testid="icon-caret-right" />,
+  CaretDown: () => <span data-testid="icon-caret-down" />,
   MagnifyingGlassMinus: () => <span data-testid="icon-zoom-out" />,
   MagnifyingGlassPlus: () => <span data-testid="icon-zoom-in" />,
   ListBullets: () => <span data-testid="icon-list-bullets" />,
@@ -31,6 +32,10 @@ const mockTasks: Task[] = [
     type: 'task',
     spec_path: null,
     decision_state: null,
+    parent_task_id: null,
+    start_date: null,
+    client_scope: 'internal',
+    actual_hours: null,
     created_at: '2024-01-15',
     updated_at: '2024-01-15',
   },
@@ -50,6 +55,10 @@ const mockTasks: Task[] = [
     type: 'task',
     spec_path: null,
     decision_state: null,
+    parent_task_id: null,
+    start_date: null,
+    client_scope: 'internal',
+    actual_hours: null,
     created_at: '2024-01-20',
     updated_at: '2024-01-20',
   },
@@ -69,6 +78,10 @@ const mockTasks: Task[] = [
     type: 'task',
     spec_path: null,
     decision_state: null,
+    parent_task_id: null,
+    start_date: null,
+    client_scope: 'internal',
+    actual_hours: null,
     created_at: '2024-01-10',
     updated_at: '2024-01-30',
   },
@@ -80,6 +93,7 @@ const mockMilestones: Milestone[] = [
     org_id: 'org-1',
     space_id: 'space-1',
     name: 'Phase 1 Release',
+    start_date: null,
     due_date: '2024-02-28',
     order_key: 1,
     created_at: '2024-01-01',
@@ -116,7 +130,7 @@ describe('GanttChart', () => {
   it('should render legend', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('外部確認待ち')).toBeInTheDocument()
     expect(screen.getByText('社内対応中')).toBeInTheDocument()
     expect(screen.getByText('マイルストーン')).toBeInTheDocument()
   })

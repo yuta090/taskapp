@@ -34,6 +34,7 @@ export interface CreateTaskInput {
   dueDate?: string
   assigneeId?: string
   milestoneId?: string
+  parentTaskId?: string
 }
 
 export interface UpdateTaskInput {
@@ -45,6 +46,7 @@ export interface UpdateTaskInput {
   dueDate?: string | null
   assigneeId?: string | null
   milestoneId?: string | null
+  parentTaskId?: string | null
 }
 
 interface UseTasksReturn {
@@ -137,8 +139,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         status,
         priority: null,
         assignee_id: task.assigneeId ?? null,
+        start_date: null,
         due_date: task.dueDate ?? null,
         milestone_id: task.milestoneId ?? null,
+        parent_task_id: task.parentTaskId ?? null,
+        actual_hours: null,
         ball: task.ball,
         origin: task.origin,
         type: task.type,
@@ -188,6 +193,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               due_date: task.dueDate ?? null,
               assignee_id: task.assigneeId ?? null,
               milestone_id: task.milestoneId ?? null,
+              parent_task_id: task.parentTaskId ?? null,
               created_by: userId,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } as any
@@ -300,6 +306,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
               assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
               milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
+              parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
               updated_at: new Date().toISOString(),
             }
           }
@@ -317,6 +324,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
+        if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: updateError } = await (supabase as any)

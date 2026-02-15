@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar } from '@phosphor-icons/react'
+import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar, TreeStructure } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
@@ -15,6 +15,10 @@ interface TaskCreateSheetProps {
   onSubmit: (task: TaskCreateData) => void
   defaultBall?: BallSide
   defaultClientOwnerIds?: string[]
+  /** Available parent tasks for subtask creation */
+  parentTasks?: { id: string; title: string }[]
+  /** Pre-selected parent task ID (e.g. when creating from parent context) */
+  defaultParentTaskId?: string
 }
 
 export interface TaskCreateData {
@@ -31,6 +35,7 @@ export interface TaskCreateData {
   dueDate?: string
   assigneeId?: string
   milestoneId?: string
+  parentTaskId?: string
 }
 
 export function TaskCreateSheet({
@@ -41,6 +46,8 @@ export function TaskCreateSheet({
   onSubmit,
   defaultBall = 'internal',
   defaultClientOwnerIds = [],
+  parentTasks = [],
+  defaultParentTaskId,
 }: TaskCreateSheetProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -54,6 +61,7 @@ export function TaskCreateSheet({
   const [dueDate, setDueDate] = useState('')
   const [assigneeId, setAssigneeId] = useState('')
   const [milestoneId, setMilestoneId] = useState('')
+  const [parentTaskId, setParentTaskId] = useState(defaultParentTaskId || '')
   const [milestones, setMilestones] = useState<{ id: string; name: string }[]>([])
   const [showMilestonePopover, setShowMilestonePopover] = useState(false)
   const [newMilestoneName, setNewMilestoneName] = useState('')
@@ -237,6 +245,7 @@ export function TaskCreateSheet({
       dueDate: dueDate || undefined,
       assigneeId: assigneeId || undefined,
       milestoneId: milestoneId || undefined,
+      parentTaskId: parentTaskId || undefined,
     })
 
     // Reset form
@@ -247,6 +256,7 @@ export function TaskCreateSheet({
     setDueDate('')
     setAssigneeId('')
     setMilestoneId('')
+    setParentTaskId('')
     setInternalOwnerIds([])
     estimation.clear()
     setEstimationExpanded(false)
@@ -551,6 +561,29 @@ export function TaskCreateSheet({
               )}
             </div>
           </div>
+
+          {/* Parent task */}
+          {parentTasks.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <TreeStructure className="text-sm" />
+                親タスク
+              </label>
+              <select
+                value={parentTaskId}
+                onChange={(e) => setParentTaskId(e.target.value)}
+                data-testid="task-create-parent"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">なし（トップレベル）</option>
+                {parentTasks.map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {pt.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Ball selector */}
           <div>

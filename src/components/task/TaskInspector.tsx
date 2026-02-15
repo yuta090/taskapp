@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, TreeStructure } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -27,12 +27,17 @@ interface TaskInspectorProps {
     dueDate?: string | null
     milestoneId?: string | null
     assigneeId?: string | null
+    parentTaskId?: string | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
   /** AT-009: Spec task state transition */
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
   onReviewChange?: (taskId: string, status: string | null) => void
+  /** Available parent tasks for parent selection */
+  parentTasks?: { id: string; title: string }[]
+  /** Child tasks of this task */
+  childTasks?: Task[]
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -55,6 +60,8 @@ export function TaskInspector({
   onUpdateOwners,
   onSetSpecState,
   onReviewChange,
+  parentTasks = [],
+  childTasks = [],
 }: TaskInspectorProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(task.title)
@@ -416,6 +423,65 @@ export function TaskInspector({
             </div>
           )}
         </div>
+
+        {/* Parent Task */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+            <TreeStructure className="text-sm" />
+            親タスク
+          </label>
+          {onUpdate && parentTasks.length > 0 ? (
+            <select
+              value={task.parent_task_id || ''}
+              onChange={(e) => onUpdate?.({ parentTaskId: e.target.value || null })}
+              data-testid="task-inspector-parent"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">なし</option>
+              {parentTasks.map((pt) => (
+                <option key={pt.id} value={pt.id}>
+                  {pt.title}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-sm text-gray-700">
+              {task.parent_task_id
+                ? parentTasks.find((pt) => pt.id === task.parent_task_id)?.title || task.parent_task_id
+                : 'なし'}
+            </div>
+          )}
+        </div>
+
+        {/* Child Tasks */}
+        {childTasks.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <TreeStructure className="text-sm" />
+              子タスク
+              <span className="text-[10px] text-gray-400 ml-1">({childTasks.length}件)</span>
+            </label>
+            <div className="space-y-1">
+              {childTasks.map((child) => (
+                <div
+                  key={child.id}
+                  className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded text-sm"
+                >
+                  <div
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{
+                      backgroundColor:
+                        child.ball === 'client' ? '#F59E0B' : '#3B82F6',
+                    }}
+                  />
+                  <span className={`flex-1 truncate ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                    {child.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Assignee */}
         <div className="space-y-2">
