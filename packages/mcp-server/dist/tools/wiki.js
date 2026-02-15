@@ -151,37 +151,37 @@ export async function wikiVersions(params) {
 export const wikiTools = [
     {
         name: 'wiki_list',
-        description: 'Wikiページ一覧を取得します。タイトル・タグ情報のみ（本文は含まない）。',
+        description: 'Wiki一覧取得(タイトル・タグのみ、本文除く)',
         inputSchema: wikiListSchema,
         handler: wikiList,
     },
     {
         name: 'wiki_get',
-        description: 'Wikiページの詳細（本文含む）を取得します。',
+        description: 'Wikiページ詳細取得(本文含む)',
         inputSchema: wikiGetSchema,
         handler: wikiGet,
     },
     {
         name: 'wiki_create',
-        description: '新しいWikiページを作成します。',
+        description: 'Wikiページ新規作成',
         inputSchema: wikiCreateSchema,
         handler: wikiCreate,
     },
     {
         name: 'wiki_update',
-        description: 'Wikiページを更新します。本文変更時はバージョン履歴も自動保存。',
+        description: 'Wikiページ更新。本文変更時バージョン自動保存',
         inputSchema: wikiUpdateSchema,
         handler: wikiUpdate,
     },
     {
         name: 'wiki_delete',
-        description: 'Wikiページを削除します。',
+        description: '【破壊的】Wikiページ削除',
         inputSchema: wikiDeleteSchema,
         handler: wikiDelete,
     },
     {
         name: 'wiki_versions',
-        description: 'Wikiページのバージョン履歴を取得します。',
+        description: 'Wikiバージョン履歴取得',
         inputSchema: wikiVersionsSchema,
         handler: wikiVersions,
     },

@@ -26,6 +26,7 @@ npm run lint     # Run ESLint
 | DDL | v0.3〜v0.6 | `docs/db/DDL_v0.3.sql` 〜 `DDL_v0.6_subtasks.sql` |
 | UI Rules | current | `docs/spec/UI_RULES_AND_SCREENS.md` |
 | Review Spec | current | `docs/spec/REVIEW_SPEC.md` |
+| MCP Governance | v1.0 | `docs/spec/MCP_TOOL_GOVERNANCE.md` |
 | Subtask | v1.0 | `docs/spec/SUBTASK_HIERARCHY_SPEC.md` |
 
 ## UI Rules (Violations = Bugs)
@@ -50,13 +51,22 @@ type = 'task' | 'spec'           # spec requires spec_path + decision_state
 src/
 ├── app/
 │   ├── (internal)/[orgId]/project/[spaceId]/  # Tasks, Meetings
+│   │   └── views/
+│   │       ├── gantt/                         # ガントチャート
+│   │       └── burndown/                      # バーンダウンチャート
+│   ├── api/burndown/route.ts                  # バーンダウン集計API
 │   └── portal/[token]/                        # Client portal
 ├── components/
 │   ├── task/          # TaskRow, TaskInspector, TaskCreateSheet
-│   └── meeting/       # MeetingRow, MeetingInspector
+│   ├── meeting/       # MeetingRow, MeetingInspector
+│   ├── notification/  # NotificationInspector (タイプ別アクションパネル)
+│   ├── burndown/      # BurndownChart, BurndownControls, BurndownTooltip
+│   └── shared/        # ViewsTabNav (Gantt↔Burndown切替)
 ├── lib/
 │   ├── supabase/rpc.ts    # RPC wrappers
-│   ├── hooks/             # useTasks, useMeetings, etc.
+│   ├── hooks/             # useTasks, useMeetings, useBurndown, etc.
+│   ├── notifications/     # classify.ts (通知分類), types.ts
+│   ├── burndown/          # computeBurndown (集計ロジック), constants
 │   └── minutes-parser.ts  # AT-005 議事録パーサー
 └── types/database.ts      # Type definitions
 ```

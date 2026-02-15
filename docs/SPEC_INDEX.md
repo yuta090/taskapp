@@ -27,6 +27,7 @@
 | **Assignee/Owner** | `spec/ASSIGNEE_OWNER_SPEC.md` | 担当者・オーナー仕様 |
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
 | **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層・ガントチャート連携仕様 |
+| **Native App Migration** | `spec/NATIVE_APP_MIGRATION_SPEC.md` | モノレポ移行・React Native (Expo) ネイティブアプリ仕様 |
 
 ### Prototypes
 
@@ -78,6 +79,16 @@
 | Phase 2 | Google Calendar連携 (FreeBusy + OAuth) | ✅ |
 | Phase 3 | ビデオ会議連携 (Google Meet / Zoom / Teams) | ✅ |
 | Phase 4 | Realtime + pg_cron リマインダー + 期限切れ自動処理 | ✅ |
+
+### Native App (ネイティブアプリ)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 0 | モノレポ基盤 (Turborepo + pnpm) | 計画中 |
+| Phase 1 | 共有パッケージ切り出し (@taskapp/shared) | 計画中 |
+| Phase 2 | Mobile アプリ基盤 (Expo + 認証 + タスク一覧) | 計画中 |
+| Phase 3 | 機能拡充 (会議・通知・日程調整) | 計画中 |
+| Phase 4 | ストア申請 (TestFlight / Play Console) | 計画中 |
 
 ### Planned (計画中)
 

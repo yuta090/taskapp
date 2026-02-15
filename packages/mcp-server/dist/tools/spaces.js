@@ -87,25 +87,25 @@ export async function spaceGet(params) {
 export const spaceTools = [
     {
         name: 'space_create',
-        description: 'プロジェクト（スペース）を新規作成します。',
+        description: 'プロジェクト新規作成',
         inputSchema: spaceCreateSchema,
         handler: spaceCreate,
     },
     {
         name: 'space_update',
-        description: 'プロジェクト名を更新します。',
+        description: 'プロジェクト名更新',
         inputSchema: spaceUpdateSchema,
         handler: spaceUpdate,
     },
     {
         name: 'space_list',
-        description: 'プロジェクト一覧を取得します。typeでフィルタ可能です。',
+        description: 'プロジェクト一覧取得。typeフィルタ可',
         inputSchema: spaceListSchema,
         handler: spaceList,
     },
     {
         name: 'space_get',
-        description: 'プロジェクトの詳細を取得します。',
+        description: 'プロジェクト詳細取得',
         inputSchema: spaceGetSchema,
         handler: spaceGet,
     },

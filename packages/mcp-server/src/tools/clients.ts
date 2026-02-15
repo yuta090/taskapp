@@ -154,7 +154,7 @@ export async function clientList(
   const orgId = config.orgId
 
   // Get org members with role='client'
-  let membersQuery = supabase
+  const membersQuery = supabase
     .from('org_memberships')
     .select('*')
     .eq('org_id', orgId)
@@ -325,49 +325,49 @@ export async function clientInviteResend(
 export const clientTools = [
   {
     name: 'client_invite_create',
-    description: 'クライアントを招待します。メールアドレスとスペースを指定して招待リンクを発行します。',
+    description: 'クライアント招待作成。email+spaceId指定',
     inputSchema: clientInviteCreateSchema,
     handler: clientInviteCreate,
   },
   {
     name: 'client_invite_bulk_create',
-    description: '複数のクライアントを一括招待します。最大50件まで同時に招待できます。',
+    description: 'クライアント一括招待(最大50件)',
     inputSchema: clientInviteBulkCreateSchema,
     handler: clientInviteBulkCreate,
   },
   {
     name: 'client_list',
-    description: 'クライアント一覧を取得します。オプションで未承諾の招待も含めて表示できます。',
+    description: 'クライアント一覧取得。招待含む/除外可',
     inputSchema: clientListSchema,
     handler: clientList,
   },
   {
     name: 'client_get',
-    description: 'クライアントの詳細情報を取得します。参加しているスペース情報も含まれます。',
+    description: 'クライアント詳細取得+参加スペース情報',
     inputSchema: clientGetSchema,
     handler: clientGet,
   },
   {
     name: 'client_update',
-    description: 'クライアントのスペースでのロールを更新します。',
+    description: 'クライアントのスペースロール更新',
     inputSchema: clientUpdateSchema,
     handler: clientUpdate,
   },
   {
     name: 'client_add_to_space',
-    description: '既存のクライアントを別のスペース（プロジェクト）に追加します。',
+    description: 'クライアントを別スペースに追加',
     inputSchema: clientAddToSpaceSchema,
     handler: clientAddToSpace,
   },
   {
     name: 'client_invite_list',
-    description: 'クライアント招待の一覧を取得します。ステータス（pending/accepted/expired/all）でフィルタできます。',
+    description: '招待一覧取得。pending/accepted/expired/allフィルタ',
     inputSchema: clientInviteListSchema,
     handler: clientInviteList,
   },
   {
     name: 'client_invite_resend',
-    description: '期限切れまたは未承諾の招待を再送します。新しいトークンと有効期限で更新されます。',
+    description: '招待再送。新トークン+有効期限で更新',
     inputSchema: clientInviteResendSchema,
     handler: clientInviteResend,
   },
