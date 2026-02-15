@@ -74,7 +74,7 @@ export async function meetingStart(params) {
     if (checkError || !existingMeeting) {
         throw new Error('会議が見つかりません');
     }
-    const { data, error } = await supabase.rpc('rpc_meeting_start', {
+    const { error } = await supabase.rpc('rpc_meeting_start', {
         p_meeting_id: params.meetingId,
     });
     if (error)
@@ -182,31 +182,31 @@ export async function meetingGet(params) {
 export const meetingTools = [
     {
         name: 'meeting_create',
-        description: '新しい会議を作成します。',
+        description: '会議新規作成',
         inputSchema: meetingCreateSchema,
         handler: meetingCreate,
     },
     {
         name: 'meeting_start',
-        description: '会議を開始します（planned → in_progress）。RPCを使用。',
+        description: '会議開始(planned→in_progress)',
         inputSchema: meetingStartSchema,
         handler: meetingStart,
     },
     {
         name: 'meeting_end',
-        description: '会議を終了します。自動サマリー生成付き。',
+        description: '会議終了+自動サマリー生成',
         inputSchema: meetingEndSchema,
         handler: meetingEnd,
     },
     {
         name: 'meeting_list',
-        description: '会議一覧を取得します。statusでフィルタ可能。',
+        description: '会議一覧取得。statusフィルタ可',
         inputSchema: meetingListSchema,
         handler: meetingList,
     },
     {
         name: 'meeting_get',
-        description: '会議の詳細と参加者を取得します。',
+        description: '会議詳細+参加者取得',
         inputSchema: meetingGetSchema,
         handler: meetingGet,
     },

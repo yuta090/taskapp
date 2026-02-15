@@ -163,19 +163,19 @@ export async function activityEntityHistory(params: z.infer<typeof activityEntit
 export const activityTools = [
   {
     name: 'activity_log',
-    description: 'アクティビティログを記録します。AIの操作履歴を追跡可能にします。',
+    description: 'アクティビティログ記録(AI操作追跡)',
     inputSchema: activityLogSchema,
     handler: activityLog,
   },
   {
     name: 'activity_search',
-    description: 'アクティビティログを検索します。テーブル、アクター、アクション、期間等でフィルタ可能。',
+    description: 'アクティビティログ検索。table/actor/action/期間フィルタ可',
     inputSchema: activitySearchSchema,
     handler: activitySearch,
   },
   {
     name: 'activity_entity_history',
-    description: '特定エンティティの変更履歴を取得します。デバッグ・トラブルシューティング用。',
+    description: 'エンティティ変更履歴取得(デバッグ用)',
     inputSchema: activityEntityHistorySchema,
     handler: activityEntityHistory,
   },

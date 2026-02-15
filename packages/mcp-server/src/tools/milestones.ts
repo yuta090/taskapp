@@ -143,31 +143,31 @@ export async function milestoneDelete(params: z.infer<typeof milestoneDeleteSche
 export const milestoneTools = [
   {
     name: 'milestone_create',
-    description: 'マイルストーンを新規作成します。',
+    description: 'マイルストーン新規作成',
     inputSchema: milestoneCreateSchema,
     handler: milestoneCreate,
   },
   {
     name: 'milestone_update',
-    description: 'マイルストーンを更新します。指定したフィールドのみ更新されます。',
+    description: 'マイルストーン部分更新',
     inputSchema: milestoneUpdateSchema,
     handler: milestoneUpdate,
   },
   {
     name: 'milestone_list',
-    description: 'マイルストーン一覧を取得します。order_key順でソートされます。',
+    description: 'マイルストーン一覧取得(order_key順)',
     inputSchema: milestoneListSchema,
     handler: milestoneList,
   },
   {
     name: 'milestone_get',
-    description: 'マイルストーンの詳細を取得します。',
+    description: 'マイルストーン詳細取得',
     inputSchema: milestoneGetSchema,
     handler: milestoneGet,
   },
   {
     name: 'milestone_delete',
-    description: 'マイルストーンを削除します。このマイルストーンに紐づくタスクのmilestone_idはnullになります。',
+    description: '【破壊的】マイルストーン削除。紐づくタスクのmilestone_id→null',
     inputSchema: milestoneDeleteSchema,
     handler: milestoneDelete,
   },

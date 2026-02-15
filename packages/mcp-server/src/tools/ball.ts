@@ -171,19 +171,19 @@ export async function dashboardGet(params: z.infer<typeof dashboardGetSchema>): 
 export const ballTools = [
   {
     name: 'ball_pass',
-    description: 'タスクのボール所有権を移動します。ball=clientの場合はclientOwnerIdsが必須です。RPCを使用してアトミックに更新されます。',
+    description: 'ボール所有権移動。ball=client時clientOwnerIds必須',
     inputSchema: ballPassSchema,
     handler: ballPass,
   },
   {
     name: 'ball_query',
-    description: 'ボール所有者でタスクをフィルタして取得します。includeOwners=trueで担当者情報も取得できます。',
+    description: 'ボール側でタスクフィルタ取得。includeOwnersで担当者含む',
     inputSchema: ballQuerySchema,
     handler: ballQuery,
   },
   {
     name: 'dashboard_get',
-    description: 'ダッシュボード情報を取得します。タスク統計、クライアント待ちタスク、最近のタスクなどを含みます。',
+    description: 'ダッシュボード取得。統計・client待ち・最新タスク',
     inputSchema: dashboardGetSchema,
     handler: dashboardGet,
   },

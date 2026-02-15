@@ -121,19 +121,19 @@ export async function minutesAppend(params: z.infer<typeof minutesAppendSchema>)
 export const minutesTools = [
   {
     name: 'minutes_get',
-    description: '会議の議事録（minutes_md）を取得します。',
+    description: '議事録取得(minutes_md)',
     inputSchema: minutesGetSchema,
     handler: minutesGet,
   },
   {
     name: 'minutes_update',
-    description: '会議の議事録を上書き更新します。',
+    description: '議事録上書き更新',
     inputSchema: minutesUpdateSchema,
     handler: minutesUpdate,
   },
   {
     name: 'minutes_append',
-    description: '会議の議事録に内容を追記します。既存内容の末尾に追加。',
+    description: '議事録末尾追記',
     inputSchema: minutesAppendSchema,
     handler: minutesAppend,
   },

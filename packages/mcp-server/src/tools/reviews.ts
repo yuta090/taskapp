@@ -69,7 +69,7 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
     throw new Error('タスクが見つかりません')
   }
 
-  const { data, error } = await supabase.rpc('rpc_review_open', {
+  const { error } = await supabase.rpc('rpc_review_open', {
     p_task_id: params.taskId,
     p_reviewer_ids: params.reviewerIds,
     p_meeting_id: null,
@@ -140,7 +140,7 @@ export async function reviewBlock(params: z.infer<typeof reviewBlockSchema>): Pr
     throw new Error('タスクが見つかりません')
   }
 
-  const { data, error } = await supabase.rpc('rpc_review_block', {
+  const { error } = await supabase.rpc('rpc_review_block', {
     p_task_id: params.taskId,
     p_blocked_reason: params.reason,
     p_meeting_id: null,
@@ -213,31 +213,31 @@ export async function reviewGet(params: z.infer<typeof reviewGetSchema>): Promis
 export const reviewTools = [
   {
     name: 'review_open',
-    description: 'タスクのレビューを開始します。レビュアーを1人以上指定必須。',
+    description: 'レビュー開始。レビュアー1名以上必須',
     inputSchema: reviewOpenSchema,
     handler: reviewOpen,
   },
   {
     name: 'review_approve',
-    description: 'レビューを承認します。全員承認で自動クローズ。',
+    description: 'レビュー承認。全員承認で自動クローズ',
     inputSchema: reviewApproveSchema,
     handler: reviewApprove,
   },
   {
     name: 'review_block',
-    description: 'レビューをブロック（変更リクエスト）します。理由必須。',
+    description: 'レビューブロック(変更要求)。理由必須',
     inputSchema: reviewBlockSchema,
     handler: reviewBlock,
   },
   {
     name: 'review_list',
-    description: 'レビュー一覧を取得します。statusでフィルタ可能。',
+    description: 'レビュー一覧取得。statusフィルタ可',
     inputSchema: reviewListSchema,
     handler: reviewList,
   },
   {
     name: 'review_get',
-    description: 'タスクのレビュー詳細と各レビュアーの承認状態を取得します。',
+    description: 'レビュー詳細+各レビュアー承認状態取得',
     inputSchema: reviewGetSchema,
     handler: reviewGet,
   },

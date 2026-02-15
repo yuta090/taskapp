@@ -338,37 +338,37 @@ export async function taskListMy(params) {
 export const taskTools = [
     {
         name: 'task_create',
-        description: 'タスクを新規作成します。spaceIdは必須です。ball=clientの場合はclientOwnerIdsが必須です。type=specの場合はspecPathが必須です。',
+        description: 'タスク新規作成。ball=client時clientOwnerIds必須、type=spec時specPath必須',
         inputSchema: taskCreateSchema,
         handler: taskCreate,
     },
     {
         name: 'task_update',
-        description: 'タスクを更新します。spaceIdは必須です。指定したフィールドのみ更新されます。',
+        description: 'タスク部分更新。指定フィールドのみ更新',
         inputSchema: taskUpdateSchema,
         handler: taskUpdate,
     },
     {
         name: 'task_list',
-        description: 'スペース内のタスク一覧を取得します。spaceIdは必須です。ball, status, typeでフィルタ可能です。',
+        description: 'タスク一覧取得。ball/status/type/clientScopeフィルタ可',
         inputSchema: taskListSchema,
         handler: taskList,
     },
     {
         name: 'task_get',
-        description: 'タスクの詳細と担当者を取得します。spaceIdは必須です。',
+        description: 'タスク詳細+担当者取得',
         inputSchema: taskGetSchema,
         handler: taskGet,
     },
     {
         name: 'task_delete',
-        description: '【破壊的操作】タスクを削除します。デフォルトはdryRun=trueで影響確認のみ。削除実行にはconfirmTokenが必要です。',
+        description: '【破壊的】タスク削除。dryRun=true(既定)で確認、実行時confirmToken必要',
         inputSchema: taskDeleteSchema,
         handler: taskDelete,
     },
     {
         name: 'task_list_my',
-        description: '【横断】自分が所属する全スペースのタスクを一括取得します。scope=userのAPIキーが必要です。',
+        description: '【横断】全スペースのタスク一括取得。scope=user APIキー必要',
         inputSchema: taskListMySchema,
         handler: taskListMy,
     },
