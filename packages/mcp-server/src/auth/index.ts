@@ -7,3 +7,5 @@ export {
   type AuthorizeResult,
   type ActionType,
 } from './authorize.js'
+
+export { checkAuth, checkAuthOrg } from './helpers.js'

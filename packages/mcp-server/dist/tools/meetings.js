@@ -1,37 +1,49 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
-import { config } from '../config.js';
+import { checkAuth } from '../auth/helpers.js';
+// Helper: get orgId from spaceId
+async function getOrgId(spaceId) {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
+    if (error || !data)
+        throw new Error('スペースが見つかりません');
+    return data.org_id;
+}
 // Schemas
 export const meetingCreateSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     title: z.string().min(1).describe('会議タイトル'),
     heldAt: z.string().optional().describe('開催日時 (ISO8601)'),
     notes: z.string().optional().describe('事前メモ'),
     participantIds: z.array(z.string().uuid()).default([]).describe('参加者UUID配列'),
 });
 export const meetingStartSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().uuid().describe('会議UUID'),
 });
 export const meetingEndSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().uuid().describe('会議UUID'),
 });
 export const meetingListSchema = z.object({
-    spaceId: z.string().uuid().optional().describe('スペースUUID'),
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     status: z.enum(['planned', 'in_progress', 'ended']).optional().describe('ステータスでフィルタ'),
     limit: z.number().min(1).max(100).default(20).describe('取得件数'),
 });
 export const meetingGetSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().uuid().describe('会議UUID'),
 });
 // Tool implementations
 export async function meetingCreate(params) {
+    await checkAuth(params.spaceId, 'write', 'meeting_create', 'meeting');
     const supabase = getSupabaseClient();
-    const spaceId = config.spaceId;
-    const orgId = config.orgId;
+    const orgId = await getOrgId(params.spaceId);
     const { data: meeting, error } = await supabase
         .from('meetings')
         .insert({
         org_id: orgId,
-        space_id: spaceId,
+        space_id: params.spaceId,
         title: params.title,
         held_at: params.heldAt || null,
         notes: params.notes || null,
@@ -41,11 +53,10 @@ export async function meetingCreate(params) {
         .single();
     if (error)
         throw new Error('会議の作成に失敗しました');
-    // Add participants
     if (params.participantIds.length > 0) {
         const participantRows = params.participantIds.map((userId) => ({
             org_id: orgId,
-            space_id: spaceId,
+            space_id: params.spaceId,
             meeting_id: meeting.id,
             user_id: userId,
             side: 'internal',
@@ -60,16 +71,15 @@ export async function meetingCreate(params) {
     return meeting;
 }
 export async function meetingStart(params) {
+    await checkAuth(params.spaceId, 'write', 'meeting_start', 'meeting', params.meetingId);
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
-    // Pre-validate: verify meeting belongs to current tenant before RPC
+    const orgId = await getOrgId(params.spaceId);
     const { data: existingMeeting, error: checkError } = await supabase
         .from('meetings')
         .select('id')
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .single();
     if (checkError || !existingMeeting) {
         throw new Error('会議が見つかりません');
@@ -79,29 +89,27 @@ export async function meetingStart(params) {
     });
     if (error)
         throw new Error('会議の開始に失敗しました');
-    // Fetch updated meeting with org/space scoping
     const { data: meeting, error: meetingError } = await supabase
         .from('meetings')
         .select('*')
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .single();
     if (meetingError)
         throw new Error('会議が見つかりません');
     return { ok: true, meeting: meeting };
 }
 export async function meetingEnd(params) {
+    await checkAuth(params.spaceId, 'write', 'meeting_end', 'meeting', params.meetingId);
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
-    // Pre-validate: verify meeting belongs to current tenant before RPC
+    const orgId = await getOrgId(params.spaceId);
     const { data: existingMeeting, error: checkError } = await supabase
         .from('meetings')
         .select('id')
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .single();
     if (checkError || !existingMeeting) {
         throw new Error('会議が見つかりません');
@@ -111,13 +119,12 @@ export async function meetingEnd(params) {
     });
     if (error)
         throw new Error('会議の終了に失敗しました');
-    // Fetch updated meeting with org/space scoping
     const { data: meeting, error: meetingError } = await supabase
         .from('meetings')
         .select('*')
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .single();
     if (meetingError)
         throw new Error('会議が見つかりません');
@@ -132,15 +139,14 @@ export async function meetingEnd(params) {
     };
 }
 export async function meetingList(params) {
+    await checkAuth(params.spaceId, 'read', 'meeting_list', 'meeting');
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = params.spaceId || config.spaceId;
-    // Enforce org/space scoping
+    const orgId = await getOrgId(params.spaceId);
     let query = supabase
         .from('meetings')
         .select('*')
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .order('held_at', { ascending: false, nullsFirst: false })
         .limit(params.limit);
     if (params.status) {
@@ -152,16 +158,15 @@ export async function meetingList(params) {
     return (data || []);
 }
 export async function meetingGet(params) {
+    await checkAuth(params.spaceId, 'read', 'meeting_get', 'meeting', params.meetingId);
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
-    // Enforce org/space scoping
+    const orgId = await getOrgId(params.spaceId);
     const { data: meeting, error: meetingError } = await supabase
         .from('meetings')
         .select('*')
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .single();
     if (meetingError)
         throw new Error('会議が見つかりません');
@@ -170,7 +175,7 @@ export async function meetingGet(params) {
         .select('user_id, side')
         .eq('meeting_id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId);
+        .eq('space_id', params.spaceId);
     if (participantsError)
         throw new Error('参加者の取得に失敗しました');
     return {

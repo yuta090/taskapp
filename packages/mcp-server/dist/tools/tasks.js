@@ -30,6 +30,10 @@ export const taskUpdateSchema = z.object({
     assigneeId: z.string().uuid().optional().describe('新しい担当者'),
     priority: z.number().min(0).max(3).optional().describe('優先度 (0-3)'),
     clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性: deliverable=ポータルに表示, internal=非表示'),
+    startDate: z.string().optional().nullable().describe('開始日 (YYYY-MM-DD)'),
+    parentTaskId: z.string().uuid().optional().nullable().describe('親タスクUUID（1階層のみ）'),
+    actualHours: z.number().min(0).optional().nullable().describe('実績工数'),
+    milestoneId: z.string().uuid().optional().nullable().describe('マイルストーンUUID'),
 });
 export const taskListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -172,6 +176,14 @@ export async function taskUpdate(params) {
         updateData.priority = params.priority;
     if (params.clientScope !== undefined)
         updateData.client_scope = params.clientScope;
+    if (params.startDate !== undefined)
+        updateData.start_date = params.startDate;
+    if (params.parentTaskId !== undefined)
+        updateData.parent_task_id = params.parentTaskId;
+    if (params.actualHours !== undefined)
+        updateData.actual_hours = params.actualHours;
+    if (params.milestoneId !== undefined)
+        updateData.milestone_id = params.milestoneId;
     if (Object.keys(updateData).length === 0) {
         throw new Error('更新するフィールドがありません');
     }
@@ -334,6 +346,35 @@ export async function taskListMy(params) {
     }
     return results;
 }
+// ── task_stale ───────────────────────────────────────────
+export const taskStaleSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
+    staleDays: z.number().min(1).max(90).default(7).describe('更新がない日数の閾値'),
+    ball: z.enum(['client', 'internal']).optional().describe('ボールでフィルタ'),
+    limit: z.number().min(1).max(100).default(50).describe('取得件数'),
+});
+export async function taskStale(params) {
+    await checkAuth(params.spaceId, 'read', 'task_stale');
+    const supabase = getSupabaseClient();
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - params.staleDays);
+    const cutoffIso = cutoff.toISOString();
+    let query = supabase
+        .from('tasks')
+        .select('*')
+        .eq('space_id', params.spaceId)
+        .neq('status', 'done')
+        .lt('updated_at', cutoffIso)
+        .order('updated_at', { ascending: true })
+        .limit(params.limit);
+    if (params.ball) {
+        query = query.eq('ball', params.ball);
+    }
+    const { data, error } = await query;
+    if (error)
+        throw new Error('滞留タスクの取得に失敗しました');
+    return (data || []);
+}
 // Tool definitions for MCP
 export const taskTools = [
     {
@@ -371,6 +412,12 @@ export const taskTools = [
         description: '【横断】全スペースのタスク一括取得。scope=user APIキー必要',
         inputSchema: taskListMySchema,
         handler: taskListMy,
+    },
+    {
+        name: 'task_stale',
+        description: '滞留タスク検出。staleDays日以上更新なし＋未完了のタスクを返す',
+        inputSchema: taskStaleSchema,
+        handler: taskStale,
     },
 ];
 //# sourceMappingURL=tasks.js.map

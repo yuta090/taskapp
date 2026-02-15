@@ -226,6 +226,22 @@ export async function schedulingRespond(params: z.infer<typeof schedulingRespond
     throw new Error('この提案の回答者として登録されていません')
   }
 
+  // slotId が当該 proposal に属するか検証（cross-proposal 汚染防止）
+  const submittedSlotIds = params.responses.map((r) => r.slotId)
+  const { data: validSlots, error: slotCheckError } = await supabase
+    .from('proposal_slots')
+    .select('id')
+    .eq('proposal_id', params.proposalId)
+    .in('id', submittedSlotIds)
+
+  if (slotCheckError) throw new Error('スロット検証に失敗しました')
+
+  const validSlotIds = new Set((validSlots || []).map((s: { id: string }) => s.id))
+  const invalidSlotIds = submittedSlotIds.filter((id) => !validSlotIds.has(id))
+  if (invalidSlotIds.length > 0) {
+    throw new Error(`無効なスロットID: ${invalidSlotIds.join(', ')}（この提案に属していません）`)
+  }
+
   // Batch upsert all responses at once
   const now = new Date().toISOString()
   const rows = params.responses.map((resp) => ({

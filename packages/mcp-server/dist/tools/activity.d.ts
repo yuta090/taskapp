@@ -26,6 +26,7 @@ export interface ActivityLog {
     is_deleted: boolean;
 }
 export declare const activityLogSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     entityTable: z.ZodString;
     entityId: z.ZodString;
     action: z.ZodString;
@@ -41,6 +42,7 @@ export declare const activityLogSchema: z.ZodObject<{
     afterData: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     payload: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     action: string;
     status: "error" | "ok" | "warning";
     entityTable: string;
@@ -56,6 +58,7 @@ export declare const activityLogSchema: z.ZodObject<{
     afterData?: Record<string, unknown> | undefined;
     payload?: Record<string, unknown> | undefined;
 }, {
+    spaceId: string;
     action: string;
     entityTable: string;
     entityId: string;
@@ -72,6 +75,7 @@ export declare const activityLogSchema: z.ZodObject<{
     payload?: Record<string, unknown> | undefined;
 }>;
 export declare const activitySearchSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     entityTable: z.ZodOptional<z.ZodString>;
     entityId: z.ZodOptional<z.ZodString>;
     actorId: z.ZodOptional<z.ZodString>;
@@ -81,6 +85,7 @@ export declare const activitySearchSchema: z.ZodObject<{
     sessionId: z.ZodOptional<z.ZodString>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     limit: number;
     action?: string | undefined;
     entityTable?: string | undefined;
@@ -90,6 +95,7 @@ export declare const activitySearchSchema: z.ZodObject<{
     from?: string | undefined;
     to?: string | undefined;
 }, {
+    spaceId: string;
     action?: string | undefined;
     limit?: number | undefined;
     entityTable?: string | undefined;
@@ -121,6 +127,7 @@ export declare const activityTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         entityTable: z.ZodString;
         entityId: z.ZodString;
         action: z.ZodString;
@@ -136,6 +143,7 @@ export declare const activityTools: ({
         afterData: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
         payload: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         action: string;
         status: "error" | "ok" | "warning";
         entityTable: string;
@@ -151,6 +159,7 @@ export declare const activityTools: ({
         afterData?: Record<string, unknown> | undefined;
         payload?: Record<string, unknown> | undefined;
     }, {
+        spaceId: string;
         action: string;
         entityTable: string;
         entityId: string;
@@ -171,6 +180,7 @@ export declare const activityTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         entityTable: z.ZodOptional<z.ZodString>;
         entityId: z.ZodOptional<z.ZodString>;
         actorId: z.ZodOptional<z.ZodString>;
@@ -180,6 +190,7 @@ export declare const activityTools: ({
         sessionId: z.ZodOptional<z.ZodString>;
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         limit: number;
         action?: string | undefined;
         entityTable?: string | undefined;
@@ -189,6 +200,7 @@ export declare const activityTools: ({
         from?: string | undefined;
         to?: string | undefined;
     }, {
+        spaceId: string;
         action?: string | undefined;
         limit?: number | undefined;
         entityTable?: string | undefined;

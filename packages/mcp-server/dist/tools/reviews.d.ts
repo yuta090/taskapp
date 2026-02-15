@@ -20,50 +20,62 @@ export interface ReviewApproval {
     updated_at: string;
 }
 export declare const reviewOpenSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     taskId: z.ZodString;
     reviewerIds: z.ZodArray<z.ZodString, "many">;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     taskId: string;
     reviewerIds: string[];
 }, {
+    spaceId: string;
     taskId: string;
     reviewerIds: string[];
 }>;
 export declare const reviewApproveSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     taskId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     taskId: string;
 }, {
+    spaceId: string;
     taskId: string;
 }>;
 export declare const reviewBlockSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     taskId: z.ZodString;
     reason: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     reason: string;
     taskId: string;
 }, {
+    spaceId: string;
     reason: string;
     taskId: string;
 }>;
 export declare const reviewListSchema: z.ZodObject<{
-    spaceId: z.ZodOptional<z.ZodString>;
+    spaceId: z.ZodString;
     status: z.ZodOptional<z.ZodEnum<["open", "approved", "changes_requested"]>>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     limit: number;
-    spaceId?: string | undefined;
     status?: "open" | "approved" | "changes_requested" | undefined;
 }, {
-    spaceId?: string | undefined;
+    spaceId: string;
     status?: "open" | "approved" | "changes_requested" | undefined;
     limit?: number | undefined;
 }>;
 export declare const reviewGetSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     taskId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     taskId: string;
 }, {
+    spaceId: string;
     taskId: string;
 }>;
 export declare function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Promise<{
@@ -86,12 +98,15 @@ export declare const reviewTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         taskId: z.ZodString;
         reviewerIds: z.ZodArray<z.ZodString, "many">;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         taskId: string;
         reviewerIds: string[];
     }, {
+        spaceId: string;
         taskId: string;
         reviewerIds: string[];
     }>;
@@ -100,10 +115,13 @@ export declare const reviewTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         taskId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         taskId: string;
     }, {
+        spaceId: string;
         taskId: string;
     }>;
     handler: typeof reviewApprove;
@@ -111,12 +129,15 @@ export declare const reviewTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         taskId: z.ZodString;
         reason: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         reason: string;
         taskId: string;
     }, {
+        spaceId: string;
         reason: string;
         taskId: string;
     }>;
@@ -125,15 +146,15 @@ export declare const reviewTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
-        spaceId: z.ZodOptional<z.ZodString>;
+        spaceId: z.ZodString;
         status: z.ZodOptional<z.ZodEnum<["open", "approved", "changes_requested"]>>;
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         limit: number;
-        spaceId?: string | undefined;
         status?: "open" | "approved" | "changes_requested" | undefined;
     }, {
-        spaceId?: string | undefined;
+        spaceId: string;
         status?: "open" | "approved" | "changes_requested" | undefined;
         limit?: number | undefined;
     }>;
@@ -142,10 +163,13 @@ export declare const reviewTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         taskId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         taskId: string;
     }, {
+        spaceId: string;
         taskId: string;
     }>;
     handler: typeof reviewGet;

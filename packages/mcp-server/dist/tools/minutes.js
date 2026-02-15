@@ -1,23 +1,31 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
-import { config } from '../config.js';
+import { checkAuth } from '../auth/helpers.js';
 // ── Schemas ──────────────────────────────────────────────
 const minutesGetSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().describe('会議ID'),
 });
 const minutesUpdateSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().describe('会議ID'),
     minutesMd: z.string().describe('議事録本文（Markdown）'),
 });
 const minutesAppendSchema = z.object({
+    spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     meetingId: z.string().describe('会議ID'),
     content: z.string().describe('追記する内容（Markdown）'),
 });
 // ── Helpers ──────────────────────────────────────────────
-async function getMeetingScoped(meetingId) {
+async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
+    const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single();
+    if (error || !data)
+        throw new Error('スペースが見つかりません');
+    return data.org_id;
+}
+async function getMeetingScoped(meetingId, spaceId, orgId) {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
         .from('meetings')
         .select('*')
@@ -31,7 +39,9 @@ async function getMeetingScoped(meetingId) {
 }
 // ── Handlers ─────────────────────────────────────────────
 export async function minutesGet(params) {
-    const meeting = await getMeetingScoped(params.meetingId);
+    await checkAuth(params.spaceId, 'read', 'minutes_get', 'meeting', params.meetingId);
+    const orgId = await getOrgId(params.spaceId);
+    const meeting = await getMeetingScoped(params.meetingId, params.spaceId, orgId);
     return {
         meeting_id: meeting.id,
         title: meeting.title,
@@ -40,17 +50,17 @@ export async function minutesGet(params) {
     };
 }
 export async function minutesUpdate(params) {
+    await checkAuth(params.spaceId, 'write', 'minutes_update', 'meeting', params.meetingId);
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
+    const orgId = await getOrgId(params.spaceId);
     // Verify meeting exists and belongs to org/space
-    await getMeetingScoped(params.meetingId);
+    await getMeetingScoped(params.meetingId, params.spaceId, orgId);
     const { data, error } = await supabase
         .from('meetings')
         .update({ minutes_md: params.minutesMd })
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .select('*')
         .single();
     if (error)
@@ -58,11 +68,11 @@ export async function minutesUpdate(params) {
     return data;
 }
 export async function minutesAppend(params) {
+    await checkAuth(params.spaceId, 'write', 'minutes_append', 'meeting', params.meetingId);
     const supabase = getSupabaseClient();
-    const orgId = config.orgId;
-    const spaceId = config.spaceId;
+    const orgId = await getOrgId(params.spaceId);
     // Verify meeting exists and belongs to org/space
-    const meeting = await getMeetingScoped(params.meetingId);
+    const meeting = await getMeetingScoped(params.meetingId, params.spaceId, orgId);
     // Atomic append using DB-side concatenation via rpc to avoid lost-update race.
     // Falls back to read-then-write if rpc is unavailable.
     let updated;
@@ -70,7 +80,7 @@ export async function minutesAppend(params) {
         const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_minutes_append', {
             p_meeting_id: params.meetingId,
             p_org_id: orgId,
-            p_space_id: spaceId,
+            p_space_id: params.spaceId,
             p_content: params.content,
         });
         if (!rpcError && rpcResult) {
@@ -91,7 +101,7 @@ export async function minutesAppend(params) {
         .update({ minutes_md: updated })
         .eq('id', params.meetingId)
         .eq('org_id', orgId)
-        .eq('space_id', spaceId)
+        .eq('space_id', params.spaceId)
         .select('*')
         .single();
     if (error)

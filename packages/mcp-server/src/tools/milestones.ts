@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
-import { config } from '../config.js'
+import { checkAuth } from '../auth/helpers.js'
 
 // Milestone type
 export interface Milestone {
@@ -14,13 +14,23 @@ export interface Milestone {
   updated_at: string
 }
 
+// Helper: get orgId from spaceId
+async function getOrgId(spaceId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
+  if (error || !data) throw new Error('スペースが見つかりません')
+  return data.org_id
+}
+
 // Schemas
 export const milestoneCreateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   name: z.string().min(1).describe('マイルストーン名'),
   dueDate: z.string().optional().describe('期限日 (YYYY-MM-DD)'),
 })
 
 export const milestoneUpdateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   milestoneId: z.string().uuid().describe('マイルストーンUUID'),
   name: z.string().min(1).optional().describe('新しいマイルストーン名'),
   dueDate: z.string().optional().describe('新しい期限日 (YYYY-MM-DD、空文字で削除)'),
@@ -28,28 +38,30 @@ export const milestoneUpdateSchema = z.object({
 })
 
 export const milestoneListSchema = z.object({
-  spaceId: z.string().uuid().optional().describe('スペースUUID (省略時はデフォルト)'),
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
 })
 
 export const milestoneGetSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   milestoneId: z.string().uuid().describe('マイルストーンUUID'),
 })
 
 export const milestoneDeleteSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   milestoneId: z.string().uuid().describe('削除するマイルストーンのUUID'),
 })
 
 // Tool implementations
 export async function milestoneCreate(params: z.infer<typeof milestoneCreateSchema>): Promise<Milestone> {
+  await checkAuth(params.spaceId, 'write', 'milestone_create', 'milestone')
   const supabase = getSupabaseClient()
-  const spaceId = config.spaceId
-  const orgId = config.orgId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('milestones')
     .insert({
       org_id: orgId,
-      space_id: spaceId,
+      space_id: params.spaceId,
       name: params.name,
       due_date: params.dueDate || null,
       order_key: Math.floor(Date.now() / 1000),
@@ -62,9 +74,9 @@ export async function milestoneCreate(params: z.infer<typeof milestoneCreateSche
 }
 
 export async function milestoneUpdate(params: z.infer<typeof milestoneUpdateSchema>): Promise<Milestone> {
+  await checkAuth(params.spaceId, 'write', 'milestone_update', 'milestone', params.milestoneId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const updateData: Record<string, unknown> = {}
   if (params.name !== undefined) updateData.name = params.name
@@ -82,7 +94,7 @@ export async function milestoneUpdate(params: z.infer<typeof milestoneUpdateSche
     .update(updateData)
     .eq('id', params.milestoneId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .select('*')
     .single()
 
@@ -91,15 +103,15 @@ export async function milestoneUpdate(params: z.infer<typeof milestoneUpdateSche
 }
 
 export async function milestoneList(params: z.infer<typeof milestoneListSchema>): Promise<Milestone[]> {
+  await checkAuth(params.spaceId, 'read', 'milestone_list', 'milestone')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = params.spaceId || config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('milestones')
     .select('*')
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .order('order_key', { ascending: true })
 
   if (error) throw new Error('マイルストーン一覧の取得に失敗しました: ' + error.message)
@@ -107,16 +119,16 @@ export async function milestoneList(params: z.infer<typeof milestoneListSchema>)
 }
 
 export async function milestoneGet(params: z.infer<typeof milestoneGetSchema>): Promise<Milestone> {
+  await checkAuth(params.spaceId, 'read', 'milestone_get', 'milestone', params.milestoneId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('milestones')
     .select('*')
     .eq('id', params.milestoneId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (error) throw new Error('マイルストーンが見つかりません: ' + error.message)
@@ -124,16 +136,16 @@ export async function milestoneGet(params: z.infer<typeof milestoneGetSchema>): 
 }
 
 export async function milestoneDelete(params: z.infer<typeof milestoneDeleteSchema>): Promise<{ success: boolean; milestoneId: string }> {
+  await checkAuth(params.spaceId, 'delete', 'milestone_delete', 'milestone', params.milestoneId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { error } = await supabase
     .from('milestones')
     .delete()
     .eq('id', params.milestoneId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
 
   if (error) throw new Error('マイルストーンの削除に失敗しました: ' + error.message)
   return { success: true, milestoneId: params.milestoneId }

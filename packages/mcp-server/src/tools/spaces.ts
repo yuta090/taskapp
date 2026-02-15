@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getSupabaseClient, Space } from '../supabase/client.js'
 import { config } from '../config.js'
+import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 
 // Schemas
 export const spaceCreateSchema = z.object({
@@ -23,8 +24,9 @@ export const spaceGetSchema = z.object({
 
 // Tool implementations
 export async function spaceCreate(params: z.infer<typeof spaceCreateSchema>): Promise<Space> {
+  const { ctx } = await checkAuthOrg('write', 'space_create')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = ctx.orgId
 
   const { data, error } = await supabase
     .from('spaces')
@@ -42,8 +44,12 @@ export async function spaceCreate(params: z.infer<typeof spaceCreateSchema>): Pr
 }
 
 export async function spaceUpdate(params: z.infer<typeof spaceUpdateSchema>): Promise<Space> {
+  await checkAuth(params.spaceId, 'write', 'space_update', 'space', params.spaceId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+
+  const { data: spaceRow, error: spaceError } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single()
+  if (spaceError || !spaceRow) throw new Error('スペースが見つかりません')
+  const orgId = spaceRow.org_id
 
   const updateData: Record<string, unknown> = {}
   if (params.name !== undefined) updateData.name = params.name
@@ -65,8 +71,9 @@ export async function spaceUpdate(params: z.infer<typeof spaceUpdateSchema>): Pr
 }
 
 export async function spaceList(params: z.infer<typeof spaceListSchema>): Promise<Space[]> {
+  const { ctx } = await checkAuthOrg('read', 'space_list')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = ctx.orgId
 
   let query = supabase
     .from('spaces')
@@ -85,8 +92,12 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
 }
 
 export async function spaceGet(params: z.infer<typeof spaceGetSchema>): Promise<Space> {
+  await checkAuth(params.spaceId, 'read', 'space_get', 'space', params.spaceId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+
+  const { data: spaceRow, error: spaceError } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single()
+  if (spaceError || !spaceRow) throw new Error('スペースが見つかりません')
+  const orgId = spaceRow.org_id
 
   const { data, error } = await supabase
     .from('spaces')
