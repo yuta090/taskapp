@@ -1,7 +1,7 @@
 # TaskApp Specification Index
 
-> **Last Updated**: 2026-02-20
-> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング Phase 1-4 完了、プリセットシステム実装済み（9ジャンル）、内部運用対応済み、バーンダウンチャート実装済み)
+> **Last Updated**: 2026-02-23
+> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング Phase 1-4 完了、プリセットシステム実装済み（9ジャンル）、内部運用対応済み、バーンダウンチャート実装済み、completed_at 追跡実装済み)
 
 このファイルは現行仕様の一覧です。古いバージョンは `docs/archive/` を参照。
 
@@ -14,7 +14,7 @@
 | Document | Version | Path | Description |
 |----------|---------|------|-------------|
 | **API Spec** | v0.4 | `api/API_SPEC_v0.4.md` | RPC・認証・招待・課金API |
-| **DDL** | v0.3 + v0.4 | `db/DDL_v0.3.sql` + `db/DDL_v0.4_comments.sql` | DBスキーマ（v0.4はコメント機能追加） |
+| **DDL** | v0.3〜v0.7 | `db/DDL_v0.3.sql` 〜 `db/DDL_v0.7_completed_at.sql` | DBスキーマ（差分DDL） |
 | **UI Rules** | current | `spec/UI_RULES_AND_SCREENS.md` | 3ペイン、Amber-500、UIルール |
 | **Review Spec** | current | `spec/REVIEW_SPEC.md` | 受け入れテスト AT-001〜AT-012 |
 | **Decisions** | v5 | `notes/DECISIONS_v5.md` | 設計判断の記録 |
@@ -28,7 +28,7 @@
 | **Scheduling** | `spec/SCHEDULING_SPEC.md` | 日程調整・ビデオ会議・Google Calendar連携 (Phase 1-4) |
 | **Project Presets** | `spec/PRESET_SYSTEM_SPEC.md` | ジャンル別プリセット（Wiki+マイルストーン自動生成） |
 | **Internal Ops** | `spec/INTERNAL_OPS_SPEC.md` | クライアント不在時の内部運用対応（レビューUI・ラベル抽象化） |
-| **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2） |
+| **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2.5） |
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
 
 ### Prototypes
@@ -108,6 +108,7 @@
 | Phase 1 | マイルストーン start_date 追加 (DB + 型 + Hook + UI + Gantt) | ✅ |
 | Phase 1.5 | 監査ログ整備 (useTasks に4イベント追加) | ✅ |
 | Phase 2 | バーンダウンチャート (API + 集計ロジック + SVG + ページ) | ✅ |
+| Phase 2.5 | completed_at 追跡 (DB トリガー + 型 + UI + 既存コンシューマー修正) | ✅ |
 
 ### Actionable Inbox (受信トレイアクション対応)
 
