@@ -2,6 +2,7 @@
 
 import {
   ReactNode,
+  Suspense,
   createContext,
   useContext,
   useMemo,
@@ -70,7 +71,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <InspectorProvider>
       <div className="flex h-screen w-full overflow-hidden bg-white text-gray-900">
         {/* 1) Left Nav - Fixed 240px */}
-        <LeftNav />
+        <Suspense fallback={<div className="w-60 flex-shrink-0 bg-white border-r border-gray-100" />}>
+          <LeftNav />
+        </Suspense>
 
         {/* 2) Center area - Main + Inspector grouped together */}
         <div className="flex-1 min-h-0 flex justify-center bg-gray-50/50">
