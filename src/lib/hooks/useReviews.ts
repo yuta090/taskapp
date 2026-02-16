@@ -34,7 +34,7 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
 
   const queryKey = useMemo(() => ['reviews', spaceId] as const, [spaceId])
 
-  const { data, isLoading, error: queryError } = useQuery<ReviewWithRelations[]>({
+  const { data, isPending, error: queryError } = useQuery<ReviewWithRelations[]>({
     queryKey,
     queryFn: async (): Promise<ReviewWithRelations[]> => {
       // 1クエリで reviews + tasks + approvals を取得（ネストselect）
@@ -98,7 +98,7 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
 
   return {
     reviews,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError instanceof Error ? queryError : null,
     fetchReviews,
     openReview,

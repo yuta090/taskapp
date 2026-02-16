@@ -31,7 +31,7 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
 
   const queryKey = useMemo(() => ['unreadCount', activeOrgId] as const, [activeOrgId])
 
-  const { data, isLoading, error: queryError } = useQuery<CountQueryData>({
+  const { data, isPending, error: queryError } = useQuery<CountQueryData>({
     queryKey,
     queryFn: async (): Promise<CountQueryData> => {
       // Get current user
@@ -87,7 +87,7 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
   return {
     count: data?.count ?? 0,
     pendingCount: data?.pendingCount ?? 0,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError ? (queryError instanceof Error ? queryError.message : '通知件数の取得に失敗しました') : null,
     refresh,
   }

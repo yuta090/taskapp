@@ -75,7 +75,7 @@ export function useTaskComments({
 
   const queryKey = useMemo(() => ['taskComments', taskId] as const, [taskId])
 
-  const { data, isLoading, error: queryError } = useQuery<CommentWithProfile[]>({
+  const { data, isPending, error: queryError } = useQuery<CommentWithProfile[]>({
     queryKey,
     queryFn: async (): Promise<CommentWithProfile[]> => {
       // Build query
@@ -304,7 +304,7 @@ export function useTaskComments({
 
   return {
     comments,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError instanceof Error ? queryError : null,
     fetchComments,
     createComment,

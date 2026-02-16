@@ -134,7 +134,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const queryKey = ['tasks', orgId, spaceId] as const
 
-  const { data, isLoading, error: queryError } = useQuery<TasksQueryData>({
+  const { data, isPending, error: queryError } = useQuery<TasksQueryData>({
     queryKey,
     queryFn: async (): Promise<TasksQueryData> => {
       // tasks + task_owners を取得（ネストselect）
@@ -675,7 +675,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
     tasks,
     owners,
     reviewStatuses,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError,
     fetchTasks,
     createTask,

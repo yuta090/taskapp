@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useContext, memo } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Tray,
@@ -251,6 +251,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
 
 export const LeftNav = memo(function LeftNav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const { activeOrgId, activeOrgName, orgs, switchOrg } = useContext(ActiveOrgContext)
@@ -522,13 +523,14 @@ export const LeftNav = memo(function LeftNav() {
                 href={projectBasePath}
                 icon={<Copy />}
                 label="タスク"
-                active={pathname === projectBasePath}
+                active={pathname === projectBasePath && searchParams.get('filter') !== 'client_wait'}
                 collapsed={collapsed}
               />
               <SubNavItem
                 href={`${projectBasePath}?filter=client_wait`}
                 icon={<ChatCircleText />}
                 label="確認待ち"
+                active={pathname === projectBasePath && searchParams.get('filter') === 'client_wait'}
                 collapsed={collapsed}
               />
               <SubNavItem

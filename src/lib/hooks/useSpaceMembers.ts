@@ -32,7 +32,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
 
   const queryKey = ['spaceMembers', spaceId] as const
 
-  const { data: members = [], isLoading, error: queryError } = useQuery<SpaceMember[]>({
+  const { data: members = [], isPending, error: queryError } = useQuery<SpaceMember[]>({
     queryKey,
     queryFn: async (): Promise<SpaceMember[]> => {
       if (!spaceId) return []
@@ -90,7 +90,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     members,
     clientMembers,
     internalMembers,
-    loading: isLoading,
+    loading: isPending && !members,
     error: errorMessage,
     refetch,
     getMemberName,
@@ -108,7 +108,7 @@ export function useUserName(userId: string | null): {
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  const { data: name = '', isLoading } = useQuery<string>({
+  const { data: name = '', isPending } = useQuery<string>({
     queryKey: ['userName', userId],
     queryFn: async (): Promise<string> => {
       if (!userId) return ''
@@ -126,5 +126,5 @@ export function useUserName(userId: string | null): {
     enabled: !!userId,
   })
 
-  return { name, loading: isLoading }
+  return { name, loading: isPending && !name }
 }
