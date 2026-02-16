@@ -3,11 +3,16 @@
 import { QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client'
-import { get, set, del } from 'idb-keyval'
-import { useState, useEffect, useRef } from 'react'
+import { get, set, del, keys } from 'idb-keyval'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-const IDB_KEY = 'taskapp-query-cache'
+const IDB_KEY_PREFIX = 'taskapp-query-cache'
+
+/** Build user-scoped IDB key */
+function idbKey(userId: string | null): string {
+  return userId ? `${IDB_KEY_PREFIX}:${userId}` : IDB_KEY_PREFIX
+}
 
 function makeQueryClient() {
   return new QueryClient({
@@ -16,37 +21,49 @@ function makeQueryClient() {
         staleTime: 30_000,
         gcTime: 1000 * 60 * 60 * 24, // 24 hours — keep cache for persistence
         refetchOnWindowFocus: false,
-        retry: 1, // デフォルト3回→1回に抑制（エラー時の余計なリクエスト防止）
+        retry: 1,
       },
     },
   })
 }
 
-function makeIdbPersister(): Persister {
+function makeIdbPersister(getUserId: () => string | null): Persister {
   return {
     persistClient: async (client: PersistedClient) => {
-      await set(IDB_KEY, client)
+      const key = idbKey(getUserId())
+      await set(key, client)
     },
     restoreClient: async () => {
-      return await get<PersistedClient>(IDB_KEY)
+      const key = idbKey(getUserId())
+      return await get<PersistedClient>(key)
     },
     removeClient: async () => {
-      await del(IDB_KEY)
+      const key = idbKey(getUserId())
+      await del(key)
     },
   }
 }
 
-/** Clear persisted query cache (call on logout) */
+/** Clear all persisted query caches (call on logout) */
 export async function clearQueryCache() {
-  await del(IDB_KEY)
+  const allKeys = await keys()
+  const cacheKeys = allKeys.filter(
+    (k) => typeof k === 'string' && k.startsWith(IDB_KEY_PREFIX)
+  )
+  await Promise.all(cacheKeys.map((k) => del(k)))
 }
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(makeQueryClient)
-  const [persister] = useState(makeIdbPersister)
-
-  // Track current user ID to detect identity changes (user switch without explicit sign-out)
   const currentUserIdRef = useRef<string | null>(null)
+  // eslint-disable-next-line react-hooks/refs -- getter only reads .current in async persister callbacks, not during render
+  const [persister] = useState(() => makeIdbPersister(() => currentUserIdRef.current))
+
+  // Clear all user-scoped caches
+  const clearAllCaches = useCallback(() => {
+    queryClient.clear()
+    void clearQueryCache()
+  }, [queryClient])
 
   // Clear cache on auth state change (user switch / logout / identity change)
   useEffect(() => {
@@ -54,26 +71,31 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         currentUserIdRef.current = null
-        queryClient.clear()
-        void del(IDB_KEY)
+        clearAllCaches()
         return
       }
 
-      // On SIGNED_IN or INITIAL_SESSION, check if user identity changed
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         const newUserId = session?.user?.id ?? null
         const prevUserId = currentUserIdRef.current
+
+        // On INITIAL_SESSION: if cache exists but user is different (or null), clear it
+        if (event === 'INITIAL_SESSION' && !prevUserId && newUserId) {
+          // First session load — set user ID, persister will use scoped key
+          currentUserIdRef.current = newUserId
+          return
+        }
+
         currentUserIdRef.current = newUserId
 
-        // If we had a previous user and the new user is different, clear stale cache
+        // User identity changed — clear stale cache from previous user
         if (prevUserId && newUserId && prevUserId !== newUserId) {
-          queryClient.clear()
-          void del(IDB_KEY)
+          clearAllCaches()
         }
       }
     })
     return () => subscription.unsubscribe()
-  }, [queryClient])
+  }, [queryClient, clearAllCaches])
 
   return (
     <PersistQueryClientProvider

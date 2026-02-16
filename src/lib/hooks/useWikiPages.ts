@@ -74,8 +74,6 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
       // Auto-create default pages on first access when wiki is empty
       if (fetchedPages.length === 0 && !defaultCreatedRef.current) {
-        defaultCreatedRef.current = true
-
         // Check if space was created with a preset
         try {
           const { data: spaceData } = await (supabase as SupabaseClient)
@@ -85,15 +83,18 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
             .eq('org_id', orgId)
             .single()
           if (spaceData?.preset_genre != null) {
+            defaultCreatedRef.current = true
             return { pages: [], autoCreatedPageId: null }
           }
         } catch {
+          // Fail-closed: skip auto-creation if preset check fails (retryable on next query)
           return { pages: [], autoCreatedPageId: null }
         }
 
         try {
           const { data: authData } = await supabase.auth.getUser()
-          const userId = authData?.user?.id || process.env.NEXT_PUBLIC_DEMO_USER_ID
+          const demoUserId = process.env.NEXT_PUBLIC_DEMO_USER_ID
+          const userId = authData?.user?.id || (process.env.NODE_ENV === 'development' ? demoUserId : null)
           if (!userId) return { pages: [], autoCreatedPageId: null }
 
           // 1. Create spec pages
@@ -134,6 +135,7 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
             .single()
 
           if (!homeErr && homeData) {
+            defaultCreatedRef.current = true
             const { data: allPages } = await (supabase as SupabaseClient)
               .from('wiki_pages')
               .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
@@ -147,7 +149,7 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
             }
           }
         } catch {
-          // Default page creation is non-critical
+          // Default page creation failed — leave ref false so retry is possible on next query
         }
       }
 
