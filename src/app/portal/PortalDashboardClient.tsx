@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle, Warning, Clock } from '@phosphor-icons/react'
+import { CheckCircle, Warning, Clock, Users } from '@phosphor-icons/react'
 import {
   PortalShell,
   PortalTaskInspector,
@@ -11,7 +11,6 @@ import {
   ProgressSection,
   MilestoneTimeline,
   ActivityFeed,
-  type HealthStatus,
   type MilestoneStatus,
 } from '@/components/portal'
 import { BentoCard } from '@/components/portal/dashboard/BentoCard'
@@ -71,11 +70,10 @@ interface Approval {
 
 interface DashboardData {
   health: {
-    status: HealthStatus
-    reason: string
     nextMilestone?: {
       name: string
       date: string | null
+      overdueDays?: number
     }
   }
   alert: {
@@ -241,36 +239,59 @@ export function PortalDashboardClient({
 
             {/* 2. KEY METRICS ROW (3 cards) */}
 
-            {/* Health Status */}
+            {/* Team Activity - チーム側の対応状況 */}
             <MetricCard
-              label="現在のステータス"
-              status={dashboardData.health.status}
+              label="チーム対応中"
+              status={dashboardData.ballOwnership.teamCount > 0 ? 'on_track' : 'default'}
               value={
-                <span className={`text-xl ${dashboardData.health.status === 'on_track' ? 'text-emerald-600' :
-                    dashboardData.health.status === 'at_risk' ? 'text-amber-600' : 'text-rose-600'
-                  }`}>
-                  {dashboardData.health.status === 'on_track' ? '順調に進行中' :
-                    dashboardData.health.status === 'at_risk' ? '注意が必要' : '要対応'}
-                </span>
+                dashboardData.ballOwnership.teamCount > 0 ? (
+                  <span className="text-emerald-600">{dashboardData.ballOwnership.teamCount}件を対応中</span>
+                ) : (
+                  <span className="text-gray-500">対応待ちなし</span>
+                )
               }
               trend={{
-                text: dashboardData.health.reason
+                text: dashboardData.ballOwnership.teamCount > 0
+                  ? 'チームが作業を進めています'
+                  : 'チーム側のタスクはありません'
               }}
-              icon={
-                dashboardData.health.status === 'on_track' ? <CheckCircle weight="duotone" className="text-emerald-500" /> :
-                  <Warning weight="duotone" className={dashboardData.health.status === 'at_risk' ? 'text-amber-500' : 'text-rose-500'} />
-              }
+              icon={<Users weight="duotone" className={dashboardData.ballOwnership.teamCount > 0 ? 'text-emerald-500' : 'text-gray-400'} />}
             />
 
-            {/* Next Delivery */}
-            <MetricCard
-              label="次回納品予定"
-              value={dashboardData.health.nextMilestone?.date ? new Date(dashboardData.health.nextMilestone.date).toLocaleDateString('ja-JP') : '未定'}
-              trend={{
-                text: dashboardData.health.nextMilestone?.name || 'フェーズ未定'
-              }}
-              icon={<Clock weight="duotone" />}
-            />
+            {/* Next Delivery - 期限超過時に赤表示 */}
+            {(() => {
+              const ms = dashboardData.health.nextMilestone
+              const overdueDays = ms?.overdueDays || 0
+              const isOverdue = overdueDays > 0
+              const dateStr = ms?.date
+                ? new Date(ms.date + 'T00:00:00').toLocaleDateString('ja-JP')
+                : '未定'
+
+              return (
+                <MetricCard
+                  label="次回納品予定"
+                  status={isOverdue ? 'needs_attention' : 'default'}
+                  value={
+                    isOverdue ? (
+                      <span className="text-rose-600">
+                        {dateStr}
+                        <span className="text-base ml-1.5">({overdueDays}日超過)</span>
+                      </span>
+                    ) : dateStr
+                  }
+                  trend={{
+                    text: isOverdue
+                      ? `${ms?.name || 'マイルストーン'} — 未完了タスクの対応が必要です`
+                      : ms?.name || 'フェーズ未定'
+                  }}
+                  icon={
+                    isOverdue
+                      ? <Warning weight="duotone" className="text-rose-500" />
+                      : <Clock weight="duotone" />
+                  }
+                />
+              )
+            })()}
 
             {/* Action Required - What client needs to do */}
             <MetricCard
