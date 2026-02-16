@@ -11,6 +11,7 @@ import {
   ProgressSection,
   MilestoneTimeline,
   ActivityFeed,
+  type HealthStatus,
   type MilestoneStatus,
 } from '@/components/portal'
 import { BentoCard } from '@/components/portal/dashboard/BentoCard'
@@ -70,6 +71,8 @@ interface Approval {
 
 interface DashboardData {
   health: {
+    status: HealthStatus
+    reason: string
     nextMilestone?: {
       name: string
       date: string | null
@@ -239,26 +242,28 @@ export function PortalDashboardClient({
 
             {/* 2. KEY METRICS ROW (3 cards) */}
 
-            {/* Team Activity - チーム側の対応状況 */}
+            {/* 現在のステータス (左) */}
             <MetricCard
-              label="チーム対応中"
-              status={dashboardData.ballOwnership.teamCount > 0 ? 'on_track' : 'default'}
+              label="現在のステータス"
+              status={dashboardData.health.status}
               value={
-                dashboardData.ballOwnership.teamCount > 0 ? (
-                  <span className="text-emerald-600">{dashboardData.ballOwnership.teamCount}件を対応中</span>
-                ) : (
-                  <span className="text-gray-500">対応待ちなし</span>
-                )
+                <span className={`text-xl ${dashboardData.health.status === 'on_track' ? 'text-emerald-600' :
+                    dashboardData.health.status === 'at_risk' ? 'text-amber-600' : 'text-rose-600'
+                  }`}>
+                  {dashboardData.health.status === 'on_track' ? '順調に進行中' :
+                    dashboardData.health.status === 'at_risk' ? '注意が必要' : '要対応'}
+                </span>
               }
               trend={{
-                text: dashboardData.ballOwnership.teamCount > 0
-                  ? 'チームが作業を進めています'
-                  : 'チーム側のタスクはありません'
+                text: dashboardData.health.reason
               }}
-              icon={<Users weight="duotone" className={dashboardData.ballOwnership.teamCount > 0 ? 'text-emerald-500' : 'text-gray-400'} />}
+              icon={
+                dashboardData.health.status === 'on_track' ? <CheckCircle weight="duotone" className="text-emerald-500" /> :
+                  <Warning weight="duotone" className={dashboardData.health.status === 'at_risk' ? 'text-amber-500' : 'text-rose-500'} />
+              }
             />
 
-            {/* Next Delivery - 期限超過時に赤表示 */}
+            {/* 次回納品予定 (中央) - 期限超過時に赤表示 */}
             {(() => {
               const ms = dashboardData.health.nextMilestone
               const overdueDays = ms?.overdueDays || 0
@@ -293,32 +298,34 @@ export function PortalDashboardClient({
               )
             })()}
 
-            {/* Action Required - What client needs to do */}
-            <MetricCard
-              label="要アクション"
-              status={dashboardData.alert.overdueCount > 0 ? 'needs_attention' : dashboardData.totalActionCount > 0 ? 'at_risk' : 'on_track'}
-              value={
-                dashboardData.alert.overdueCount > 0 ? (
-                  <span className="text-rose-600">{dashboardData.alert.overdueCount}件が期限超過</span>
-                ) : dashboardData.totalActionCount > 0 ? (
-                  <span className="text-amber-600">{dashboardData.totalActionCount}件の確認待ち</span>
-                ) : (
-                  <span className="text-emerald-600">対応完了！</span>
-                )
-              }
-              trend={{
-                text: dashboardData.alert.overdueCount > 0
-                  ? '対応いただくと遅延が解消します'
-                  : dashboardData.totalActionCount > 0
-                    ? `次の期限: ${dashboardData.alert.nextDueDate ? new Date(dashboardData.alert.nextDueDate).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }) : '未定'}`
-                    : '現在確認待ちはありません'
-              }}
-              icon={
-                dashboardData.alert.overdueCount > 0 ? <Warning weight="duotone" className="text-rose-500" /> :
-                dashboardData.totalActionCount > 0 ? <Clock weight="duotone" className="text-amber-500" /> :
-                <CheckCircle weight="duotone" className="text-emerald-500" />
-              }
-            />
+            {/* チーム対応中 (右) - X/Y件表示 */}
+            {(() => {
+              const { teamCount, clientCount } = dashboardData.ballOwnership
+              const activeTotal = teamCount + clientCount
+
+              return (
+                <MetricCard
+                  label="チーム対応中"
+                  status={teamCount > 0 ? 'on_track' : 'default'}
+                  value={
+                    activeTotal > 0 ? (
+                      <span className="text-emerald-600">
+                        {teamCount}
+                        <span className="text-base text-gray-400 font-medium ml-0.5">/ {activeTotal}件</span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-500">タスクなし</span>
+                    )
+                  }
+                  trend={{
+                    text: activeTotal > 0
+                      ? `残り${clientCount}件があなたの確認待ちです`
+                      : 'アクティブなタスクはありません'
+                  }}
+                  icon={<Users weight="duotone" className={teamCount > 0 ? 'text-emerald-500' : 'text-gray-400'} />}
+                />
+              )
+            })()}
 
             {/* 3. PRIMARY ACTION LIST (spans 3 cols) */}
             <div className="lg:col-span-3 lg:row-span-2 md:col-span-2">

@@ -23,6 +23,7 @@ const authRequiredPrefixes = [
 const protectedPatterns = [
   /^\/inbox/,
   /^\/my/,
+  /^\/settings/,
   /^\/[0-9a-f-]+\/project/,  // /:orgId/project/...
 ]
 

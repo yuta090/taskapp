@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalDashboardClient } from './PortalDashboardClient'
-import type { MilestoneStatus } from '@/components/portal'
+import type { HealthStatus, MilestoneStatus } from '@/components/portal'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // AT-010: Client dashboard with bento grid layout
@@ -181,6 +181,18 @@ export default async function PortalDashboardPage() {
     t.due_date && t.due_date < todayJST
   ).length
 
+  // Determine health status
+  let healthStatus: HealthStatus = 'on_track'
+  let healthReason = '全タスクが予定通りに進行中です'
+
+  if (overdueCount > 0) {
+    healthStatus = 'needs_attention'
+    healthReason = `${overdueCount}件のタスクが期限を過ぎています`
+  } else if (allClientTasks.length > 5) {
+    healthStatus = 'at_risk'
+    healthReason = '確認待ちタスクが多くなっています'
+  }
+
   // JST today as UTC epoch for day-diff calculations
   const [todayY, todayM, todayD] = todayJST.split('-').map(Number)
   const todayUTCMs = Date.UTC(todayY, todayM - 1, todayD)
@@ -290,6 +302,8 @@ export default async function PortalDashboardPage() {
   // Build dashboard data
   const dashboardData = {
     health: {
+      status: healthStatus,
+      reason: healthReason,
       nextMilestone: nextMilestone ? {
         name: nextMilestone.name,
         date: nextMilestone.dueDate,
