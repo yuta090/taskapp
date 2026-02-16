@@ -42,12 +42,14 @@ interface NavItemProps {
   badge?: number
   active?: boolean
   collapsed?: boolean
+  onNavigate?: (href: string) => void
 }
 
-function NavItem({ href, icon, label, badge, active, collapsed }: NavItemProps) {
+function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: NavItemProps) {
   return (
     <Link
       href={href}
+      onClick={() => onNavigate?.(href)}
       className={`px-2 py-2 rounded cursor-pointer flex items-center group transition-colors relative ${
         collapsed ? 'justify-center' : 'gap-2.5'
       } ${
@@ -81,12 +83,14 @@ interface SubNavItemProps {
   label: string
   active?: boolean
   collapsed?: boolean
+  onNavigate?: (href: string) => void
 }
 
-function SubNavItem({ href, icon, label, active, collapsed }: SubNavItemProps) {
+function SubNavItem({ href, icon, label, active, collapsed, onNavigate }: SubNavItemProps) {
   return (
     <Link
       href={href}
+      onClick={() => onNavigate?.(href)}
       className={`px-2 py-1.5 rounded cursor-pointer flex items-center transition-colors ${
         collapsed ? 'justify-center' : 'gap-2 text-xs 2xl:text-sm'
       } ${
@@ -264,6 +268,19 @@ export const LeftNav = memo(function LeftNav() {
   const hasProjectRoute = !!match
   const { pendingCount: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
+
+  // ── Optimistic Navigation: クリック時に即座にアクティブ状態を切り替える ──
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+
+  // 実際のナビゲーション完了時にリセット
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing optimistic state with actual navigation
+  useEffect(() => { setPendingHref(null) }, [pathname, searchParams])
+
+  /** pendingHrefがセットされている場合はそちらで判定、なければ従来のactive判定 */
+  const isActive = useCallback((href: string, defaultActive: boolean) => {
+    if (pendingHref !== null) return href === pendingHref
+    return defaultActive
+  }, [pendingHref])
 
   // 組織名のイニシャル（最初の2文字）
   const orgInitial = activeOrgName
@@ -464,15 +481,17 @@ export const LeftNav = memo(function LeftNav() {
             icon={<Tray />}
             label="受信トレイ"
             badge={inboxCount}
-            active={pathname === '/inbox'}
+            active={isActive('/inbox', pathname === '/inbox')}
             collapsed={collapsed}
+            onNavigate={setPendingHref}
           />
           <NavItem
             href="/my"
             icon={<Target />}
             label="マイタスク"
-            active={pathname === '/my'}
+            active={isActive('/my', pathname === '/my')}
             collapsed={collapsed}
+            onNavigate={setPendingHref}
           />
         </div>
 
@@ -523,43 +542,49 @@ export const LeftNav = memo(function LeftNav() {
                 href={projectBasePath}
                 icon={<Copy />}
                 label="タスク"
-                active={pathname === projectBasePath && searchParams.get('filter') !== 'client_wait'}
+                active={isActive(projectBasePath, pathname === projectBasePath && searchParams.get('filter') !== 'client_wait')}
                 collapsed={collapsed}
+                onNavigate={setPendingHref}
               />
               <SubNavItem
                 href={`${projectBasePath}?filter=client_wait`}
                 icon={<ChatCircleText />}
                 label="確認待ち"
-                active={pathname === projectBasePath && searchParams.get('filter') === 'client_wait'}
+                active={isActive(`${projectBasePath}?filter=client_wait`, pathname === projectBasePath && searchParams.get('filter') === 'client_wait')}
                 collapsed={collapsed}
+                onNavigate={setPendingHref}
               />
               <SubNavItem
                 href={`${projectBasePath}/meetings`}
                 icon={<Notebook />}
                 label="議事録"
-                active={pathname.includes('/meetings')}
+                active={isActive(`${projectBasePath}/meetings`, pathname.includes('/meetings'))}
                 collapsed={collapsed}
+                onNavigate={setPendingHref}
               />
               <SubNavItem
                 href={`${projectBasePath}/wiki`}
                 icon={<BookOpen />}
                 label="Wiki"
-                active={pathname.includes('/wiki')}
+                active={isActive(`${projectBasePath}/wiki`, pathname.includes('/wiki'))}
                 collapsed={collapsed}
+                onNavigate={setPendingHref}
               />
               <SubNavItem
                 href={`${projectBasePath}/views/gantt`}
                 icon={<SquaresFour />}
                 label="ガントチャート"
-                active={pathname.includes('/views')}
+                active={isActive(`${projectBasePath}/views/gantt`, pathname.includes('/views'))}
                 collapsed={collapsed}
+                onNavigate={setPendingHref}
               />
               <SubNavItem
                 href={`${projectBasePath}/settings`}
                 icon={<Gear />}
                 label="設定"
-                active={pathname.includes('/settings')}
+                active={isActive(`${projectBasePath}/settings`, pathname.includes('/settings'))}
                 collapsed={collapsed}
+                onNavigate={setPendingHref}
               />
             </div>
           </div>

@@ -20,7 +20,7 @@ function makeQueryClient() {
       queries: {
         staleTime: 30_000,
         gcTime: 1000 * 60 * 60 * 24, // 24 hours — keep cache for persistence
-        refetchOnWindowFocus: false,
+        refetchOnWindowFocus: true,
         retry: 1,
       },
     },
