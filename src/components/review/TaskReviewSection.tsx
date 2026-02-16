@@ -60,14 +60,15 @@ export function TaskReviewSection({
         .from('reviews')
         .select('*, review_approvals(*)')
         .eq('task_id' as never, taskId as never)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code === 'PGRST116') {
+      if (error) throw error
+
+      if (!data) {
         // No review found
         setReviewData(null)
         return { ok: true, status: null }
       }
-      if (error) throw error
 
       const raw = data as Record<string, unknown> & { review_approvals?: unknown[] }
       const { review_approvals, ...reviewFields } = raw
