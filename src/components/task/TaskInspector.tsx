@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -71,6 +71,9 @@ export function TaskInspector({
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [editDescription, setEditDescription] = useState(task.description || '')
   const [isDeleting, setIsDeleting] = useState(false)
+  const [showSaved, setShowSaved] = useState(false)
+  const [showComments, setShowComments] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // AT-009: Spec task 2-click workflow state
   const [specConfirmClickTime, setSpecConfirmClickTime] = useState<number | null>(null)
@@ -148,6 +151,20 @@ export function TaskInspector({
     setEditingOwners(true)
   }
 
+  // Show brief "saved" indicator
+  const flashSaved = () => {
+    setShowSaved(true)
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000)
+  }
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    }
+  }, [])
+
   const handleTitleSave = async () => {
     if (!editTitle.trim() || editTitle === task.title) {
       setEditTitle(task.title)
@@ -156,6 +173,7 @@ export function TaskInspector({
     }
     await onUpdate?.({ title: editTitle.trim() })
     setIsEditingTitle(false)
+    flashSaved()
   }
 
   const handleDescriptionSave = async () => {
@@ -166,11 +184,13 @@ export function TaskInspector({
     }
     await onUpdate?.({ description: newDesc })
     setIsEditingDescription(false)
+    flashSaved()
   }
 
   const handleStatusChange = async (status: TaskStatus) => {
     if (status !== task.status) {
       await onUpdate?.({ status })
+      flashSaved()
     }
   }
 
@@ -178,6 +198,7 @@ export function TaskInspector({
     const startDate = dateStr || null
     if (startDate !== task.start_date) {
       await onUpdate?.({ startDate })
+      flashSaved()
     }
   }
 
@@ -185,6 +206,7 @@ export function TaskInspector({
     const dueDate = dateStr || null
     if (dueDate !== task.due_date) {
       await onUpdate?.({ dueDate })
+      flashSaved()
     }
   }
 
@@ -193,6 +215,7 @@ export function TaskInspector({
     if (hours !== null && isNaN(hours)) return
     if (hours !== task.actual_hours) {
       await onUpdate?.({ actualHours: hours })
+      flashSaved()
     }
   }
 
@@ -200,6 +223,7 @@ export function TaskInspector({
     const newMilestoneId = milestoneId || null
     if (newMilestoneId !== task.milestone_id) {
       await onUpdate?.({ milestoneId: newMilestoneId })
+      flashSaved()
     }
   }
 
@@ -207,6 +231,7 @@ export function TaskInspector({
     const newAssigneeId = assigneeId || null
     if (newAssigneeId !== task.assignee_id) {
       await onUpdate?.({ assigneeId: newAssigneeId })
+      flashSaved()
     }
   }
 
@@ -314,9 +339,19 @@ export function TaskInspector({
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
-        <h2 className="text-sm font-medium text-gray-900 truncate">
-          タスク詳細
-        </h2>
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-medium text-gray-900 truncate">
+            タスク詳細
+          </h2>
+          {showSaved ? (
+            <span className="flex items-center gap-1 text-xs text-green-600 animate-in fade-in duration-200 flex-shrink-0">
+              <Check className="text-xs" weight="bold" />
+              保存しました
+            </span>
+          ) : onUpdate ? (
+            <span className="text-[10px] text-gray-400 flex-shrink-0">自動保存</span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-1">
           {onDelete && (
             <button
@@ -598,7 +633,7 @@ export function TaskInspector({
           {onUpdate ? (
             <select
               value={task.parent_task_id || ''}
-              onChange={(e) => onUpdate?.({ parentTaskId: e.target.value || null })}
+              onChange={(e) => { onUpdate?.({ parentTaskId: e.target.value || null }); flashSaved() }}
               data-testid="task-inspector-parent"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
@@ -1180,15 +1215,28 @@ export function TaskInspector({
         {/* Slack */}
         <SlackPostButton taskId={task.id} spaceId={spaceId} />
 
-        {/* Comments */}
-        <TaskComments
-          orgId={task.org_id}
-          spaceId={spaceId}
-          taskId={task.id}
-          currentUserId={currentUserId}
-          clientOnly={false}
-          canSetVisibility={isInternalMember}
-        />
+        {/* Comments (collapsed by default) */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowComments(!showComments)}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors w-full"
+          >
+            <ChatCircleText className="text-sm" />
+            <span>コメント</span>
+            {showComments ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
+          </button>
+          {showComments && (
+            <TaskComments
+              orgId={task.org_id}
+              spaceId={spaceId}
+              taskId={task.id}
+              currentUserId={currentUserId}
+              clientOnly={false}
+              canSetVisibility={isInternalMember}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
