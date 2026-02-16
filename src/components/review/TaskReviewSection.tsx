@@ -45,7 +45,7 @@ export function TaskReviewSection({
   const [blockReason, setBlockReason] = useState('')
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
   const { user } = useCurrentUser()

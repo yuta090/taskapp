@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useContext } from 'react'
+import { useCallback, useContext, useMemo, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { ACTIONABLE_TYPES_ARRAY } from '@/lib/notifications/classify'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -14,28 +15,31 @@ export interface UnreadNotificationCountState {
   refresh: () => void
 }
 
+interface CountQueryData {
+  count: number
+  pendingCount: number
+}
+
 export function useUnreadNotificationCount(): UnreadNotificationCountState {
-  const [count, setCount] = useState(0)
-  const [pendingCount, setPendingCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
 
-  const fetchCount = async (signal?: AbortSignal, orgId?: string | null) => {
-    try {
-      const supabase = createClient()
+  // Supabase client を useRef で安定化
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
+  const queryKey = useMemo(() => ['unreadCount', activeOrgId] as const, [activeOrgId])
+
+  const { data, isLoading, error: queryError } = useQuery<CountQueryData>({
+    queryKey,
+    queryFn: async (): Promise<CountQueryData> => {
       // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser()
 
       if (userError || !user) {
-        setCount(0)
-        setPendingCount(0)
-        setLoading(false)
-        return
+        return { count: 0, pendingCount: 0 }
       }
-
-      if (signal?.aborted) return
 
       // Build base queries with optional org filter
       let unreadQuery = (supabase as SupabaseClient)
@@ -53,9 +57,9 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
         .is('actioned_at', null)
         .in('type', ACTIONABLE_TYPES_ARRAY)
 
-      if (orgId) {
-        unreadQuery = unreadQuery.eq('org_id', orgId)
-        pendingQuery = pendingQuery.eq('org_id', orgId)
+      if (activeOrgId) {
+        unreadQuery = unreadQuery.eq('org_id', activeOrgId)
+        pendingQuery = pendingQuery.eq('org_id', activeOrgId)
       }
 
       // Parallel: unread count + actionable-not-actioned count
@@ -64,51 +68,27 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
         pendingQuery,
       ])
 
-      if (signal?.aborted) return
-
       if (unreadResult.error) throw unreadResult.error
       if (pendingResult.error) throw pendingResult.error
 
-      const unread = unreadResult.count ?? 0
-      const actionableNotActioned = pendingResult.count ?? 0
-      setCount(unread)
-      setPendingCount(actionableNotActioned)
-      setError(null)
-    } catch {
-      if (!signal?.aborted) {
-        setError('通知件数の取得に失敗しました')
-        setCount(0)
-        setPendingCount(0)
+      return {
+        count: unreadResult.count ?? 0,
+        pendingCount: pendingResult.count ?? 0,
       }
-    } finally {
-      if (!signal?.aborted) {
-        setLoading(false)
-      }
-    }
-  }
+    },
+    staleTime: 30_000,
+    enabled: !orgLoading,
+  })
 
-  useEffect(() => {
-    // org解決前はフェッチしない（cross-org leak防止）
-    if (orgLoading) return
-
-    const controller = new AbortController()
-    fetchCount(controller.signal, activeOrgId)
-
-    return () => {
-      controller.abort()
-    }
-  }, [activeOrgId, orgLoading])
-
-  const refresh = () => {
-    setLoading(true)
-    fetchCount(undefined, activeOrgId)
-  }
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, queryKey])
 
   return {
-    count,
-    pendingCount,
-    loading,
-    error,
+    count: data?.count ?? 0,
+    pendingCount: data?.pendingCount ?? 0,
+    loading: isLoading,
+    error: queryError ? (queryError instanceof Error ? queryError.message : '通知件数の取得に失敗しました') : null,
     refresh,
   }
 }

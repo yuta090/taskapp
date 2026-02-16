@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useRef, useCallback, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
@@ -52,9 +53,12 @@ export interface UpdateTaskInput {
   actualHours?: number | null
 }
 
+type ReviewStatus = 'open' | 'approved' | 'changes_requested'
+
 interface UseTasksReturn {
   tasks: Task[]
   owners: Record<string, TaskOwner[]>
+  reviewStatuses: Record<string, ReviewStatus>
   loading: boolean
   error: Error | null
   fetchTasks: () => Promise<void>
@@ -67,6 +71,13 @@ interface UseTasksReturn {
     clientOwnerIds: string[],
     internalOwnerIds: string[]
   ) => Promise<void>
+  handleReviewChange: (taskId: string, status: string | null) => void
+}
+
+interface TasksQueryData {
+  tasks: Task[]
+  owners: Record<string, TaskOwner[]>
+  reviewStatuses: Record<string, ReviewStatus>
 }
 
 /**
@@ -114,29 +125,22 @@ function validateParentTask(
 }
 
 export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [owners, setOwners] = useState<Record<string, TaskOwner[]>>({})
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const queryClient = useQueryClient()
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  // フェッチのレース条件対策用カウンター
-  const fetchIdRef = useRef(0)
+  const queryKey = ['tasks', orgId, spaceId] as const
 
-  const fetchTasks = useCallback(async () => {
-    const currentFetchId = ++fetchIdRef.current
-    setLoading(true)
-    setError(null)
-
-    try {
-      // 1クエリで tasks + task_owners を取得（ネストselect）
+  const { data, isLoading, error: queryError } = useQuery<TasksQueryData>({
+    queryKey,
+    queryFn: async (): Promise<TasksQueryData> => {
+      // 1クエリで tasks + task_owners + reviews を取得（ネストselect）
       const { data: tasksData, error: tasksError } = await (supabase as SupabaseClient)
         .from('tasks')
-        .select('*, task_owners (*)')
+        .select('*, task_owners (*), reviews (task_id, status)')
         .eq('org_id' as never, orgId as never)
         .eq('space_id' as never, spaceId as never)
         .order('created_at', { ascending: false })
@@ -144,32 +148,35 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
       if (tasksError) throw tasksError
 
-      // レース条件: 古いリクエストの結果を無視
-      if (currentFetchId !== fetchIdRef.current) return
+      const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[]; reviews?: Array<{ task_id: string; status: string }> }>
 
-      const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }>
-
-      // task_owners をグルーピングし、tasks からは除去
+      // task_owners + reviews をグルーピングし、tasks からは除去
       const ownersByTask: Record<string, TaskOwner[]> = {}
+      const reviewsByTask: Record<string, ReviewStatus> = {}
       const cleanTasks: Task[] = rawTasks.map((t) => {
-        const { task_owners, ...taskFields } = t
+        const { task_owners, reviews, ...taskFields } = t
         if (Array.isArray(task_owners)) {
           ownersByTask[t.id] = task_owners as TaskOwner[]
+        }
+        if (Array.isArray(reviews) && reviews.length > 0) {
+          reviewsByTask[t.id] = reviews[0].status as ReviewStatus
         }
         return taskFields as unknown as Task
       })
 
-      setTasks(cleanTasks)
-      setOwners(ownersByTask)
-    } catch (err) {
-      if (currentFetchId !== fetchIdRef.current) return
-      setError(err instanceof Error ? err : new Error('Failed to fetch tasks'))
-    } finally {
-      if (currentFetchId === fetchIdRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [orgId, spaceId, supabase])
+      return { tasks: cleanTasks, owners: ownersByTask, reviewStatuses: reviewsByTask }
+    },
+    staleTime: 30_000,
+    enabled: !!orgId && !!spaceId,
+  })
+
+  const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks])
+  const owners = useMemo(() => data?.owners ?? {}, [data?.owners])
+  const reviewStatuses = useMemo(() => data?.reviewStatuses ?? {}, [data?.reviewStatuses])
+
+  const fetchTasks = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['tasks', orgId, spaceId] })
+  }, [queryClient, orgId, spaceId])
 
   const createTask = useCallback(
     async (task: CreateTaskInput) => {
@@ -204,7 +211,12 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         updated_at: now,
       }
 
-      setTasks((prev) => [optimisticTask, ...prev])
+      // Optimistic update
+      queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => ({
+        tasks: [optimisticTask, ...(old?.tasks ?? [])],
+        owners: old?.owners ?? {},
+        reviewStatuses: old?.reviewStatuses ?? {},
+      }))
 
       try {
         // Get authenticated user, or use demo user in development
@@ -254,9 +266,12 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
         const createdTask = created as Task
 
-        setTasks((prev) =>
-          prev.map((t) => (t.id === tempId ? createdTask : t))
-        )
+        // Replace optimistic task with real one
+        queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => ({
+          tasks: (old?.tasks ?? []).map((t) => (t.id === tempId ? createdTask : t)),
+          owners: old?.owners ?? {},
+          reviewStatuses: old?.reviewStatuses ?? {},
+        }))
 
         const ownerRows = [
           ...task.clientOwnerIds.map((ownerId) => ({
@@ -281,8 +296,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
             .insert(ownerRows as Record<string, unknown>[])
           if (ownerError) throw ownerError
 
-          // owners をローカルstate に反映（insertデータから構築）
-          const now = new Date().toISOString()
+          // owners をローカルcacheに反映（insertデータから構築）
+          const ownerNow = new Date().toISOString()
           const localOwners: TaskOwner[] = ownerRows.map((row) => ({
             id: crypto.randomUUID(),
             org_id: row.org_id,
@@ -290,11 +305,12 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
             task_id: row.task_id,
             side: row.side,
             user_id: row.user_id,
-            created_at: now,
+            created_at: ownerNow,
           }))
-          setOwners((prev) => ({
-            ...prev,
-            [createdTask.id]: localOwners,
+          queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => ({
+            tasks: old?.tasks ?? [],
+            owners: { ...(old?.owners ?? {}), [createdTask.id]: localOwners },
+            reviewStatuses: old?.reviewStatuses ?? {},
           }))
         }
 
@@ -324,14 +340,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
         return createdTask
       } catch (err) {
-        setTasks((prev) => prev.filter((t) => t.id !== tempId))
-        setError(
-          err instanceof Error ? err : new Error('Failed to create task')
-        )
+        // Rollback: remove optimistic task
+        queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => ({
+          tasks: (old?.tasks ?? []).filter((t) => t.id !== tempId),
+          owners: old?.owners ?? {},
+          reviewStatuses: old?.reviewStatuses ?? {},
+        }))
         throw err
       }
     },
-    [orgId, spaceId, supabase, tasks]
+    [orgId, spaceId, supabase, tasks, queryClient]
   )
 
   const updateTask = useCallback(
@@ -341,38 +359,43 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         validateParentTask(input.parentTaskId, taskId, tasks, spaceId)
       }
 
-      // Capture only the specific task for targeted rollback (avoids stale closure)
-      let prevTask: Task | undefined
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<TasksQueryData>(['tasks', orgId, spaceId])
+      const prevTask = previousData?.tasks.find((t) => t.id === taskId)
 
       // Optimistic update
-      setTasks((prev) =>
-        prev.map((t) => {
-          if (t.id === taskId) {
-            prevTask = t
-            const newStatus = input.status ?? t.status
-            return {
-              ...t,
-              title: input.title ?? t.title,
-              description: input.description !== undefined ? input.description : t.description,
-              status: newStatus,
-              priority: input.priority !== undefined ? input.priority : t.priority,
-              start_date: input.startDate !== undefined ? input.startDate : t.start_date,
-              due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
-              assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
-              milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
-              parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
-              actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
-              completed_at: newStatus === 'done' && t.status !== 'done'
-                ? new Date().toISOString()
-                : newStatus !== 'done' && t.status === 'done'
-                  ? null
-                  : t.completed_at,
-              updated_at: new Date().toISOString(),
+      queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
+        if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
+        return {
+          tasks: old.tasks.map((t) => {
+            if (t.id === taskId) {
+              const newStatus = input.status ?? t.status
+              return {
+                ...t,
+                title: input.title ?? t.title,
+                description: input.description !== undefined ? input.description : t.description,
+                status: newStatus,
+                priority: input.priority !== undefined ? input.priority : t.priority,
+                start_date: input.startDate !== undefined ? input.startDate : t.start_date,
+                due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
+                assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
+                milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
+                parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
+                actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
+                completed_at: newStatus === 'done' && t.status !== 'done'
+                  ? new Date().toISOString()
+                  : newStatus !== 'done' && t.status === 'done'
+                    ? null
+                    : t.completed_at,
+                updated_at: new Date().toISOString(),
+              }
             }
-          }
-          return t
-        })
-      )
+            return t
+          }),
+          owners: old.owners,
+          reviewStatuses: old.reviewStatuses,
+        }
+      })
 
       try {
         const updateData: Record<string, unknown> = {}
@@ -387,7 +410,6 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
         if (input.actualHours !== undefined) updateData.actual_hours = input.actualHours
 
-         
         const { error: updateError } = await (supabase as SupabaseClient)
           .from('tasks')
           .update(updateData)
@@ -486,39 +508,37 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           }
         }
       } catch (err) {
-        // Targeted rollback — only revert the specific task, preserving other concurrent mutations
-        if (prevTask) {
-          setTasks((prev) => prev.map((t) => (t.id === taskId ? prevTask! : t)))
+        // Targeted rollback — restore previous cache data
+        if (previousData) {
+          queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], previousData)
         }
-        setError(err instanceof Error ? err : new Error('Failed to update task'))
         throw err
       }
     },
-    [supabase, orgId, spaceId, tasks]
+    [supabase, orgId, spaceId, tasks, queryClient]
   )
 
   const deleteTask = useCallback(
     async (taskId: string): Promise<void> => {
-      // Capture specific item for targeted rollback (avoids stale closure)
-      let removedTask: Task | undefined
-      let removedIndex = -1
-      let removedOwners: TaskOwner[] | undefined
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<TasksQueryData>(['tasks', orgId, spaceId])
+      const removedTask = previousData?.tasks.find((t) => t.id === taskId)
 
       // Optimistic update
-      setTasks((prev) => {
-        removedIndex = prev.findIndex((t) => t.id === taskId)
-        if (removedIndex !== -1) removedTask = prev[removedIndex]
-        return prev.filter((t) => t.id !== taskId)
-      })
-      setOwners((prev) => {
-        removedOwners = prev[taskId]
-        const next = { ...prev }
-        delete next[taskId]
-        return next
+      queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
+        if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
+        const nextOwners = { ...old.owners }
+        delete nextOwners[taskId]
+        const nextReviews = { ...old.reviewStatuses }
+        delete nextReviews[taskId]
+        return {
+          tasks: old.tasks.filter((t) => t.id !== taskId),
+          owners: nextOwners,
+          reviewStatuses: nextReviews,
+        }
       })
 
       try {
-         
         const { error: deleteError } = await (supabase as SupabaseClient)
           .from('tasks')
           .delete()
@@ -547,22 +567,14 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           })
         }
       } catch (err) {
-        // Targeted rollback — re-insert at original position, preserving other concurrent mutations
-        if (removedTask) {
-          setTasks((prev) => {
-            const next = [...prev]
-            next.splice(removedIndex, 0, removedTask!)
-            return next
-          })
+        // Rollback — restore previous cache data
+        if (previousData) {
+          queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], previousData)
         }
-        if (removedOwners) {
-          setOwners((prev) => ({ ...prev, [taskId]: removedOwners! }))
-        }
-        setError(err instanceof Error ? err : new Error('Failed to delete task'))
         throw err
       }
     },
-    [supabase, orgId, spaceId]
+    [supabase, orgId, spaceId, queryClient]
   )
 
   const passBall = useCallback(
@@ -572,10 +584,18 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       clientOwnerIds: string[],
       internalOwnerIds: string[]
     ) => {
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<TasksQueryData>(['tasks', orgId, spaceId])
+
       // Optimistic update
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, ball } : t))
-      )
+      queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
+        if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
+        return {
+          tasks: old.tasks.map((t) => (t.id === taskId ? { ...t, ball } : t)),
+          owners: old.owners,
+          reviewStatuses: old.reviewStatuses,
+        }
+      })
 
       try {
         await rpc.passBall(supabase, {
@@ -600,28 +620,58 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           .eq('task_id' as never, taskId as never)
         if (ownerFetchError) {
           // owner取得失敗時はフルリフレッシュにフォールバック
-          await fetchTasks()
+          await queryClient.invalidateQueries({ queryKey: ['tasks', orgId, spaceId] })
         } else if (newOwners) {
-          setOwners((prev) => ({ ...prev, [taskId]: newOwners as TaskOwner[] }))
+          queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
+            if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
+            return {
+              tasks: old.tasks,
+              owners: { ...old.owners, [taskId]: newOwners as TaskOwner[] },
+              reviewStatuses: old.reviewStatuses,
+            }
+          })
         }
       } catch (err) {
-        // エラー時のみ全件再取得
-        await fetchTasks()
+        // エラー時はキャッシュを復元してから再フェッチ
+        if (previousData) {
+          queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], previousData)
+        }
+        await queryClient.invalidateQueries({ queryKey: ['tasks', orgId, spaceId] })
         throw err
       }
     },
-    [supabase, fetchTasks, spaceId]
+    [supabase, queryClient, orgId, spaceId]
   )
+
+  // Optimistic update for review status badge
+  const handleReviewChange = useCallback((taskId: string, status: string | null) => {
+    queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
+      if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
+      const nextReviews = { ...old.reviewStatuses }
+      if (!status) {
+        delete nextReviews[taskId]
+      } else {
+        nextReviews[taskId] = status as ReviewStatus
+      }
+      return {
+        tasks: old.tasks,
+        owners: old.owners,
+        reviewStatuses: nextReviews,
+      }
+    })
+  }, [queryClient, orgId, spaceId])
 
   return {
     tasks,
     owners,
-    loading,
-    error,
+    reviewStatuses,
+    loading: isLoading,
+    error: queryError,
     fetchTasks,
     createTask,
     updateTask,
     deleteTask,
     passBall,
+    handleReviewChange,
   }
 }

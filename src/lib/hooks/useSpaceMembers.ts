@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useRef, useMemo, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
 
 export interface SpaceMember {
   id: string          // user_id
@@ -22,64 +24,40 @@ interface UseSpaceMembersResult {
 }
 
 export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
-  const [members, setMembers] = useState<SpaceMember[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
-  const supabase = useMemo(() => createClient(), [])
-  // Race condition guard: only accept results from the latest request
-  const requestIdRef = useRef(0)
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
-  const fetchMembers = useCallback(async () => {
-    const currentRequestId = ++requestIdRef.current
+  const queryKey = ['spaceMembers', spaceId] as const
 
-    if (!spaceId) {
-      setMembers([])
-      setLoading(false)
-      return
-    }
+  const { data: members = [], isLoading, error: queryError } = useQuery<SpaceMember[]>({
+    queryKey,
+    queryFn: async (): Promise<SpaceMember[]> => {
+      if (!spaceId) return []
 
-    setLoading(true)
-    setError(null)
-
-    try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      const { user, error: userError } = await getCachedUser(supabase)
       if (userError || !user) {
-        if (currentRequestId !== requestIdRef.current) return
-        setMembers([])
-        setError('ログインが必要です')
-        return
+        throw new Error('ログインが必要です')
       }
 
       // Use RPC to get space members with profiles (avoids FK/relationship issues)
       const { data, error: fetchError } = await (supabase as SupabaseClient)
         .rpc('rpc_get_space_members', { p_space_id: spaceId })
 
-      if (currentRequestId !== requestIdRef.current) return
       if (fetchError) throw fetchError
 
-      const memberList: SpaceMember[] = (data || []).map((m: { user_id: string; display_name: string | null; avatar_url: string | null; role: string }) => ({
+      return (data || []).map((m: { user_id: string; display_name: string | null; avatar_url: string | null; role: string }) => ({
         id: m.user_id,
         displayName: m.display_name || m.user_id.slice(0, 8) + '...',
         avatarUrl: m.avatar_url || null,
         role: m.role,
       }))
-
-      setMembers(memberList)
-    } catch (err) {
-      if (currentRequestId !== requestIdRef.current) return
-      console.error('Failed to fetch space members:', err)
-      setError('メンバー情報の取得に失敗しました')
-    } finally {
-      if (currentRequestId === requestIdRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [spaceId, supabase])
-
-  useEffect(() => {
-    void fetchMembers()
-  }, [fetchMembers])
+    },
+    staleTime: 30_000,
+    enabled: !!spaceId,
+  })
 
   // Filter by role (DB uses: admin, editor, viewer, client)
   const clientMembers = useMemo(
@@ -101,13 +79,20 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     [members]
   )
 
+  const refetch = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['spaceMembers', spaceId] })
+  }, [queryClient, spaceId])
+
+  // Convert Error to string for backward compatibility
+  const errorMessage = queryError ? (queryError instanceof Error ? queryError.message : 'メンバー情報の取得に失敗しました') : null
+
   return {
     members,
     clientMembers,
     internalMembers,
-    loading,
-    error,
-    refetch: fetchMembers,
+    loading: isLoading,
+    error: errorMessage,
+    refetch,
     getMemberName,
   }
 }
@@ -119,38 +104,27 @@ export function useUserName(userId: string | null): {
   name: string
   loading: boolean
 } {
-  const [name, setName] = useState<string>('')
-  const [loading, setLoading] = useState(true)
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
-  const supabase = useMemo(() => createClient(), [])
+  const { data: name = '', isLoading } = useQuery<string>({
+    queryKey: ['userName', userId],
+    queryFn: async (): Promise<string> => {
+      if (!userId) return ''
 
-  useEffect(() => {
-    if (!userId) {
-      setName('')
-      setLoading(false)
-      return
-    }
+      const { data, error } = await (supabase as SupabaseClient)
+        .from('profiles')
+        .select('display_name')
+        .eq('id', userId)
+        .single()
 
-    const fetchName = async () => {
-      setLoading(true)
-      try {
-        const { data, error } = await (supabase as SupabaseClient)
-          .from('profiles')
-          .select('display_name')
-          .eq('id', userId)
-          .single()
+      if (error) throw error
+      return data?.display_name || userId.slice(0, 8) + '...'
+    },
+    staleTime: 30_000,
+    enabled: !!userId,
+  })
 
-        if (error) throw error
-        setName(data?.display_name || userId.slice(0, 8) + '...')
-      } catch {
-        setName(userId.slice(0, 8) + '...')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    void fetchName()
-  }, [userId, supabase])
-
-  return { name, loading }
+  return { name, loading: isLoading }
 }

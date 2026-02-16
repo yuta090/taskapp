@@ -57,7 +57,7 @@ export function useProposalResponses({
   const [error, setError] = useState<Error | null>(null)
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
   const fetchResponses = useCallback(async () => {

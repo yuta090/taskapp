@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import type { Review, ReviewApproval, Task } from '@/types/database'
@@ -25,19 +26,17 @@ interface UseReviewsReturn {
 }
 
 export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
-  const [reviews, setReviews] = useState<ReviewWithRelations[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const queryClient = useQueryClient()
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  const fetchReviews = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const queryKey = useMemo(() => ['reviews', spaceId] as const, [spaceId])
 
-    try {
+  const { data, isLoading, error: queryError } = useQuery<ReviewWithRelations[]>({
+    queryKey,
+    queryFn: async (): Promise<ReviewWithRelations[]> => {
       // 1クエリで reviews + tasks + approvals を取得（ネストselect）
       const { data: reviewsData, error: reviewsError } = await supabase
         .from('reviews')
@@ -51,7 +50,7 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
       const rawReviews = (reviewsData || []) as Array<Record<string, unknown>>
 
       // review_approvals をパースし、reviews からは除去
-      const reviewsWithRelations: ReviewWithRelations[] = rawReviews.map(
+      return rawReviews.map(
         (r) => {
           const { review_approvals, task, ...reviewFields } = r
           return {
@@ -61,16 +60,16 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
           }
         }
       )
+    },
+    staleTime: 30_000,
+    enabled: !!spaceId,
+  })
 
-      setReviews(reviewsWithRelations)
-    } catch (err) {
-      setError(
-        err instanceof Error ? err : new Error('Failed to fetch reviews')
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [spaceId, supabase])
+  const reviews = data ?? []
+
+  const fetchReviews = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, queryKey])
 
   const openReview = useCallback(
     async (taskId: string, reviewerIds: string[]) => {
@@ -99,8 +98,8 @@ export function useReviews({ spaceId }: UseReviewsOptions): UseReviewsReturn {
 
   return {
     reviews,
-    loading,
-    error,
+    loading: isLoading,
+    error: queryError instanceof Error ? queryError : null,
     fetchReviews,
     openReview,
     approveReview,

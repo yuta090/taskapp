@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useCallback, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BurndownData } from '@/lib/burndown/computeBurndown'
 
 interface UseBurndownOptions {
@@ -19,39 +20,36 @@ export function useBurndown({
   spaceId,
   milestoneId,
 }: UseBurndownOptions): UseBurndownReturn {
-  const [data, setData] = useState<BurndownData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
-  const fetchIdRef = useRef(0)
+  const queryClient = useQueryClient()
 
-  const refetch = useCallback(async () => {
-    const currentFetchId = ++fetchIdRef.current
-    setLoading(true)
-    setError(null)
+  const queryKey = useMemo(() => ['burndown', spaceId, milestoneId] as const, [spaceId, milestoneId])
 
-    try {
+  const { data, isLoading, error: queryError } = useQuery<BurndownData>({
+    queryKey,
+    queryFn: async (): Promise<BurndownData> => {
       const params = new URLSearchParams({ spaceId })
       if (milestoneId) params.set('milestoneId', milestoneId)
       const res = await fetch(`/api/burndown?${params.toString()}`)
 
-      if (currentFetchId !== fetchIdRef.current) return
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: 'Request failed' }))
-        throw new Error(body.error || `HTTP ${res.status}`)
+        throw new Error((body as { error?: string }).error || `HTTP ${res.status}`)
       }
 
-      const json = await res.json()
-      setData(json as BurndownData)
-    } catch (err) {
-      if (currentFetchId !== fetchIdRef.current) return
-      setError(err instanceof Error ? err : new Error('Failed to fetch burndown data'))
-    } finally {
-      if (currentFetchId === fetchIdRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [spaceId, milestoneId])
+      return (await res.json()) as BurndownData
+    },
+    staleTime: 30_000,
+    enabled: !!milestoneId,
+  })
 
-  return { data, loading, error, refetch }
+  const refetch = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, queryKey])
+
+  return {
+    data: data ?? null,
+    loading: isLoading,
+    error: queryError instanceof Error ? queryError : null,
+    refetch,
+  }
 }

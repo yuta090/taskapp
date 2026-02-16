@@ -33,7 +33,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
   // C2 fix: reset all state on spaceId change, check localStorage correctly
