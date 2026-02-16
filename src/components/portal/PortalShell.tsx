@@ -99,10 +99,9 @@ export function PortalShell({
 
   return (
     <InspectorContext.Provider value={contextValue}>
-      <div className="flex h-screen w-full overflow-hidden bg-gray-100 text-gray-900 relative selection:bg-indigo-500/30 font-sans">
+      <div className="flex h-screen w-full overflow-hidden bg-gray-100 text-gray-900 selection:bg-indigo-500/30 font-sans">
 
         {/* 1) Left Nav - Fixed 240px */}
-        {/* Note: PortalLeftNav might need internal updates for glassmorphism, but rendering it here is fine. */}
         <PortalLeftNav
           currentProject={currentProject}
           projects={projects}

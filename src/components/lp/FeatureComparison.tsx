@@ -1,9 +1,9 @@
 'use client'
 
 import React from 'react'
-import { Check, X, Minus, Info } from '@phosphor-icons/react'
-import { delay, motion } from 'framer-motion'
-import { Tooltip } from '@/components/ui/Tooltip' // 仮のTooltipコンポーネント
+import { Check, Minus } from '@phosphor-icons/react'
+import { motion } from 'framer-motion'
+
 
 export function FeatureComparison() {
     const features = [
