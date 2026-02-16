@@ -126,6 +126,14 @@
 | Phase 4 | セットアップバナー（3ステップウィザード） | ✅ |
 | Phase 5 | 設定検索（`/` / `Cmd+K` ショートカット） | ✅ |
 
+### Pre-Mortem Analysis (プリモーテム分析)
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **プリモーテム分析レポート** | `PRE_MORTEM_REPORT.md` | 7チーム42件の課題・失敗シナリオ・ロードマップ |
+| **失敗確率20%以下達成計画** | `FAILURE_MITIGATION_PLAN.md` | 実施済み施策・コスト試算・料金戦略・損益分岐点 |
+| **DBインデックス提案** | `db/DDL_v0.7_performance_indexes.sql` | パフォーマンス用複合インデックス10本 |
+
 ### Planned (計画中)
 
 | Feature | Priority | Notes |

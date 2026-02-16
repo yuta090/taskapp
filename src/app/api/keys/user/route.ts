@@ -170,8 +170,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 // GET /api/keys/user - List current user's API keys
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {

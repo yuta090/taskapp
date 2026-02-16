@@ -5,8 +5,8 @@ import { ActiveOrgProvider } from '@/lib/org/ActiveOrgProvider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'TaskApp',
-  description: 'Client-facing project management with ball ownership',
+  title: 'AgentPM - つくることに、集中できる',
+  description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',
 }
 
 export default function RootLayout({
