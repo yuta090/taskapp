@@ -248,6 +248,29 @@ export default async function PortalDashboardPage() {
     })
   const nextMilestone = upcomingMilestones[0]
 
+  // Current phase task progress (done / total for the current milestone)
+  let currentPhaseProgress = { completedCount: 0, totalCount: 0, phaseName: '' }
+  if (nextMilestone) {
+    const [phaseCompletedResult, phaseTotalResult] = await Promise.all([
+      (supabase as SupabaseClient)
+        .from('tasks')
+        .select('id', { count: 'exact' })
+        .eq('space_id', spaceId)
+        .eq('milestone_id', nextMilestone.id)
+        .eq('status', 'done'),
+      (supabase as SupabaseClient)
+        .from('tasks')
+        .select('id', { count: 'exact' })
+        .eq('space_id', spaceId)
+        .eq('milestone_id', nextMilestone.id),
+    ])
+    currentPhaseProgress = {
+      completedCount: phaseCompletedResult.count || 0,
+      totalCount: phaseTotalResult.count || 0,
+      phaseName: nextMilestone.name,
+    }
+  }
+
   // Calculate milestone overdue (JST-safe: use YYYY-MM-DD string comparison + UTC day diff)
   let milestoneOverdueDays = 0
   if (nextMilestone?.dueDate && todayJST > nextMilestone.dueDate) {
@@ -331,6 +354,7 @@ export default async function PortalDashboardPage() {
       clientCount: allClientTasks.length,
       teamCount: internalCount || 0,
     },
+    currentPhaseProgress,
     activities,
     approvals,
   }

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle, Warning, Clock, Users } from '@phosphor-icons/react'
+import { CheckCircle, Warning, Clock } from '@phosphor-icons/react'
 import {
   PortalShell,
   PortalTaskInspector,
@@ -96,6 +96,11 @@ interface DashboardData {
   ballOwnership: {
     clientCount: number
     teamCount: number
+  }
+  currentPhaseProgress: {
+    completedCount: number
+    totalCount: number
+    phaseName: string
   }
   activities: Activity[]
   approvals: Approval[]
@@ -302,31 +307,31 @@ export function PortalDashboardClient({
               )
             })()}
 
-            {/* チーム対応中 (右) - X/Y件表示 */}
+            {/* ご依頼の進捗 (右) - 現在フェーズの完了数/全数 */}
             {(() => {
-              const { teamCount, clientCount } = dashboardData.ballOwnership
-              const activeTotal = teamCount + clientCount
+              const { completedCount: phaseCompleted, totalCount: phaseTotal, phaseName } = dashboardData.currentPhaseProgress
+              const hasPhase = phaseTotal > 0
 
               return (
                 <MetricCard
-                  label="チーム対応中"
-                  status={teamCount > 0 ? 'on_track' : 'default'}
+                  label="ご依頼の進捗"
+                  status={hasPhase && phaseCompleted === phaseTotal ? 'on_track' : 'default'}
                   value={
-                    activeTotal > 0 ? (
-                      <span className="text-emerald-600">
-                        {teamCount}
-                        <span className="text-base text-gray-400 font-medium ml-0.5">/ {activeTotal}件</span>
+                    hasPhase ? (
+                      <span className="text-gray-900">
+                        {phaseCompleted}
+                        <span className="text-base text-gray-400 font-medium ml-0.5">/ {phaseTotal}件が完了</span>
                       </span>
                     ) : (
-                      <span className="text-gray-500">タスクなし</span>
+                      <span className="text-gray-500">フェーズ未設定</span>
                     )
                   }
                   trend={{
-                    text: activeTotal > 0
-                      ? `残り${clientCount}件があなたの確認待ちです`
-                      : 'アクティブなタスクはありません'
+                    text: hasPhase
+                      ? phaseName
+                      : 'マイルストーンが設定されていません'
                   }}
-                  icon={<Users weight="duotone" className={teamCount > 0 ? 'text-emerald-500' : 'text-gray-400'} />}
+                  icon={<CheckCircle weight="duotone" className={hasPhase && phaseCompleted === phaseTotal ? 'text-emerald-500' : 'text-indigo-400'} />}
                 />
               )
             })()}
