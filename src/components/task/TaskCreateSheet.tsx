@@ -822,7 +822,7 @@ export function TaskCreateSheet({
                 <div className="flex items-center gap-2">
                   <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-blue-500' : 'text-gray-300'}`} />
                   <div>
-                    <span className="text-sm font-medium text-gray-700">ポータル公開</span>
+                    <span className="text-sm font-medium text-gray-700">クライアントに公開</span>
                     <p className="text-xs text-gray-500">
                       {clientScope === 'deliverable'
                         ? 'クライアントのポータルに表示されます'
