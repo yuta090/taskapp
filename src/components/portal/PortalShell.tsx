@@ -99,14 +99,7 @@ export function PortalShell({
 
   return (
     <InspectorContext.Provider value={contextValue}>
-      <div className="flex h-screen w-full overflow-hidden bg-[#F0F4F8] text-gray-900 relative selection:bg-indigo-500/30 font-sans">
-
-        {/* Aurora Background Layer */}
-        <div className="fixed inset-0 z-0 pointer-events-none opacity-60">
-          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-purple-300 rounded-full blur-[120px] mix-blend-multiply filter animate-pulse-slow"></div>
-          <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-300 rounded-full blur-[120px] mix-blend-multiply filter animate-pulse-slow animation-delay-2000"></div>
-          <div className="absolute bottom-[-20%] left-[20%] w-[50%] h-[50%] bg-blue-200 rounded-full blur-[120px] mix-blend-multiply filter animate-pulse-slow animation-delay-4000"></div>
-        </div>
+      <div className="flex h-screen w-full overflow-hidden bg-gray-100 text-gray-900 relative selection:bg-indigo-500/30 font-sans">
 
         {/* 1) Left Nav - Fixed 240px */}
         {/* Note: PortalLeftNav might need internal updates for glassmorphism, but rendering it here is fine. */}
@@ -117,10 +110,10 @@ export function PortalShell({
         />
 
         {/* 2) Center area - Main + Inspector grouped together */}
-        <div className="flex-1 min-h-0 flex justify-center bg-transparent z-10">
+        <div className="flex-1 min-h-0 flex justify-center">
           <div className="flex h-full min-h-0 w-full max-w-[1720px] lg:px-6 lg:py-4">
             {/* Main Content */}
-            <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-transparent relative z-0">
+            <main className="flex-1 min-w-0 min-h-0 flex flex-col">
               {children}
             </main>
 
