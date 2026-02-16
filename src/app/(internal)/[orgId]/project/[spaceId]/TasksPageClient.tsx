@@ -317,9 +317,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       const task = tasks.find((t) => t.id === taskId)
       if (!task) throw new Error('Task not found')
 
-      // Validation: spec_path is required for decided/implemented
-      if (decisionState !== 'considering' && !task.spec_path) {
-        throw new Error('仕様ファイルパス（spec_path）が設定されていません')
+      // Validation: wiki_page_id or spec_path is required for decided/implemented
+      if (decisionState !== 'considering' && !task.wiki_page_id && !task.spec_path) {
+        throw new Error('仕様書のWikiページが紐付けられていません')
       }
 
       const supabase = createClient()
@@ -406,6 +406,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         origin: data.origin,
         clientScope: data.clientScope,
         specPath: data.specPath,
+        wikiPageId: data.wikiPageId,
         decisionState: data.decisionState,
         clientOwnerIds: data.clientOwnerIds,
         internalOwnerIds: data.internalOwnerIds,

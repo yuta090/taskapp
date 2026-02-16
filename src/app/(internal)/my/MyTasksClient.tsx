@@ -187,6 +187,7 @@ export default function MyTasksClient() {
             origin: data.origin,
             type: data.type,
             spec_path: data.type === 'spec' ? data.specPath ?? null : null,
+            wiki_page_id: data.type === 'spec' ? data.wikiPageId ?? null : null,
             decision_state: data.type === 'spec' ? data.decisionState ?? null : null,
             client_scope: data.clientScope ?? 'internal',
             due_date: data.dueDate ?? null,

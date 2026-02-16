@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
 import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
@@ -841,11 +842,19 @@ export function TaskInspector({
         {task.type === 'spec' && (
           <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
             <label className="text-xs font-medium text-gray-500">
-              仕様タスク
+              仕様書連携
             </label>
 
-            {/* Spec Path */}
-            {task.spec_path ? (
+            {/* Wiki Page Link or legacy spec_path */}
+            {task.wiki_page_id ? (
+              <a
+                href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+              >
+                <LinkIcon className="text-blue-400" />
+                Wikiページを開く
+              </a>
+            ) : task.spec_path ? (
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <LinkIcon className="text-gray-400" />
                 <a
@@ -859,7 +868,7 @@ export function TaskInspector({
               </div>
             ) : (
               <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                spec_path が設定されていません
+                仕様書が紐付けられていません
               </div>
             )}
 
@@ -870,6 +879,8 @@ export function TaskInspector({
                   className={`text-xs px-2 py-1 rounded font-medium ${
                     task.decision_state === 'implemented'
                       ? 'bg-green-50 text-green-600'
+                      : task.decision_state === 'decided'
+                      ? 'bg-blue-50 text-blue-600'
                       : 'bg-gray-100 text-gray-600'
                   }`}
                 >
@@ -889,26 +900,35 @@ export function TaskInspector({
                 {(!specConfirmClickTime || specConfirmTaskId !== task.id) && (
                   <button
                     onClick={() => {
-                      if (task.spec_path) {
-                        // Validate URL scheme for security (allow only http/https)
+                      if (task.wiki_page_id) {
+                        // Navigate to wiki page within app
+                        window.open(
+                          `/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`,
+                          '_blank',
+                          'noopener,noreferrer'
+                        )
+                        setSpecConfirmClickTime(Date.now())
+                        setSpecConfirmTaskId(task.id)
+                      } else if (task.spec_path) {
+                        // Legacy: open external URL
                         try {
                           const url = new URL(task.spec_path)
                           if (!['http:', 'https:'].includes(url.protocol)) {
-                            alert('無効なURLスキームです')
+                            toast.error('無効なURLスキームです')
                             return
                           }
                           window.open(task.spec_path, '_blank', 'noopener,noreferrer')
                           setSpecConfirmClickTime(Date.now())
                           setSpecConfirmTaskId(task.id)
                         } catch {
-                          alert('無効なURLです')
+                          toast.error('無効なURLです')
                         }
                       }
                     }}
-                    disabled={!task.spec_path}
+                    disabled={!task.wiki_page_id && !task.spec_path}
                     data-testid="spec-confirm-open"
                     className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
-                      task.spec_path
+                      (task.wiki_page_id || task.spec_path)
                         ? 'bg-gray-900 text-white hover:bg-gray-800'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
@@ -932,7 +952,7 @@ export function TaskInspector({
                         const elapsed = Date.now() - specConfirmClickTime
                         const tenMinutes = 10 * 60 * 1000
                         if (elapsed > tenMinutes) {
-                          alert('10分を超えました。再度「仕様を確認する」を押してください。')
+                          toast.error('10分を超えました。再度「仕様を確認する」を押してください。')
                           setSpecConfirmClickTime(null)
                           setSpecConfirmTaskId(null)
                           return
@@ -943,7 +963,7 @@ export function TaskInspector({
                           setSpecConfirmClickTime(null)
                           setSpecConfirmTaskId(null)
                         } catch (err) {
-                          alert(err instanceof Error ? err.message : '状態の更新に失敗しました')
+                          toast.error(err instanceof Error ? err.message : '状態の更新に失敗しました')
                         } finally {
                           setIsSettingSpecState(false)
                         }
@@ -973,23 +993,23 @@ export function TaskInspector({
               <div className="pt-2 border-t border-gray-200">
                 <button
                   onClick={async () => {
-                    if (!task.spec_path) {
-                      alert('spec_path が設定されていません')
+                    if (!task.wiki_page_id && !task.spec_path) {
+                      toast.error('仕様書が紐付けられていません')
                       return
                     }
                     setIsSettingSpecState(true)
                     try {
                       await onSetSpecState('decided')
                     } catch (err) {
-                      alert(err instanceof Error ? err.message : '状態の更新に失敗しました')
+                      toast.error(err instanceof Error ? err.message : '状態の更新に失敗しました')
                     } finally {
                       setIsSettingSpecState(false)
                     }
                   }}
-                  disabled={!task.spec_path || isSettingSpecState}
+                  disabled={(!task.wiki_page_id && !task.spec_path) || isSettingSpecState}
                   data-testid="spec-mark-decided"
                   className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
-                    task.spec_path && !isSettingSpecState
+                    (task.wiki_page_id || task.spec_path) && !isSettingSpecState
                       ? 'bg-gray-900 text-white hover:bg-gray-800'
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}

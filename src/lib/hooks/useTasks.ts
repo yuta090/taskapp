@@ -33,6 +33,7 @@ export interface CreateTaskInput {
   origin: BallSide
   clientScope?: ClientScope
   specPath?: string
+  wikiPageId?: string
   decisionState?: DecisionState
   clientOwnerIds: string[]
   internalOwnerIds: string[]
@@ -174,6 +175,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         origin: task.origin,
         type: task.type,
         spec_path: task.type === 'spec' ? task.specPath ?? null : null,
+        wiki_page_id: task.type === 'spec' ? task.wikiPageId ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
         client_scope: task.clientScope ?? 'internal',
         created_at: now,
@@ -218,6 +220,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               origin: task.origin,
               type: task.type,
               spec_path: task.type === 'spec' ? task.specPath ?? null : null,
+              wiki_page_id: task.type === 'spec' ? task.wikiPageId ?? null : null,
               decision_state:
                 task.type === 'spec' ? task.decisionState ?? null : null,
               client_scope: task.clientScope ?? 'internal',

@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, Link as LinkIcon } from '@phosphor-icons/react'
+import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, FileText } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
 import { toast } from 'sonner'
 import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
@@ -40,6 +41,7 @@ export interface TaskCreateData {
   origin: BallSide
   clientScope: ClientScope
   specPath?: string
+  wikiPageId?: string
   decisionState?: DecisionState
   clientOwnerIds: string[]
   internalOwnerIds: string[]
@@ -76,7 +78,7 @@ export function TaskCreateSheet({
   const [description, setDescription] = useState('')
   const [ball, setBall] = useState<BallSide>(defaultBall)
   const [clientScope, setClientScope] = useState<ClientScope>('internal')
-  const [specPath, setSpecPath] = useState('')
+  const [wikiPageId, setWikiPageId] = useState('')
   const [decisionState, setDecisionState] = useState<DecisionState>('considering')
   const [clientOwnerIds, setClientOwnerIds] = useState<string[]>(defaultClientOwnerIds)
   const [internalOwnerIds, setInternalOwnerIds] = useState<string[]>([])
@@ -99,6 +101,16 @@ export function TaskCreateSheet({
     spaceId: effectiveSpaceId,
     orgId: effectiveOrgId,
   })
+
+  // Wiki pages for spec link selector
+  const { pages: wikiPages } = useWikiPages({
+    orgId: effectiveOrgId,
+    spaceId: effectiveSpaceId,
+  })
+  const specWikiPages = useMemo(
+    () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
+    [wikiPages]
+  )
 
   // Use hook for members with display names
   const {
@@ -261,8 +273,8 @@ export function TaskCreateSheet({
       return
     }
 
-    // Auto-determine type based on specPath
-    const effectiveType: TaskType = specPath.trim() ? 'spec' : 'task'
+    // Auto-determine type based on wikiPageId
+    const effectiveType: TaskType = wikiPageId ? 'spec' : 'task'
 
     setIsSubmitting(true)
     try {
@@ -273,7 +285,7 @@ export function TaskCreateSheet({
         ball,
         origin: 'internal', // Always internal when creating
         clientScope,
-        specPath: effectiveType === 'spec' ? specPath.trim() : undefined,
+        wikiPageId: effectiveType === 'spec' ? wikiPageId : undefined,
         decisionState: effectiveType === 'spec' ? decisionState : undefined,
         clientOwnerIds,
         internalOwnerIds,
@@ -287,7 +299,7 @@ export function TaskCreateSheet({
       // Reset form only on success
       setTitle('')
       setDescription('')
-      setSpecPath('')
+      setWikiPageId('')
       setDueDate('')
       setAssigneeId('')
       setMilestoneId('')
@@ -556,7 +568,7 @@ export function TaskCreateSheet({
             {showAdvanced ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
             <span>詳細オプション</span>
             {/* Show count of configured advanced options */}
-            {!showAdvanced && (specPath || dueDate || assigneeId || milestoneId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0) && (
+            {!showAdvanced && (wikiPageId || dueDate || assigneeId || milestoneId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0) && (
               <span className="text-xs text-blue-500 ml-1">設定済み</span>
             )}
           </button>
@@ -564,27 +576,41 @@ export function TaskCreateSheet({
           {/* === EXPANDED MODE: Advanced options === */}
           {showAdvanced && (
             <div className="space-y-4 pl-1 border-l-2 border-gray-100 ml-1">
-              {/* Spec link (optional) */}
+              {/* Wiki spec page selector (optional) */}
               <div className="pl-3">
                 <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                  <LinkIcon className="text-sm" />
-                  仕様リンク（任意）
+                  <FileText className="text-sm" />
+                  仕様書を紐付け（任意）
                 </label>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  仕様書へのリンクを入力すると、決定→実装フローで管理できます
+                  Wikiの仕様書ページを選択すると、決定→実装フローで管理できます
                 </p>
-                <input
-                  type="text"
-                  value={specPath}
-                  onChange={(e) => setSpecPath(e.target.value)}
-                  placeholder="例: Notion URL、Google Docs URL、ファイルパスなど"
-                  data-testid="task-create-spec-path"
-                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                {specWikiPages.length > 0 ? (
+                  <select
+                    value={wikiPageId}
+                    onChange={(e) => setWikiPageId(e.target.value)}
+                    data-testid="task-create-wiki-page"
+                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">紐付けなし</option>
+                    {specWikiPages.map((page) => (
+                      <option key={page.id} value={page.id}>
+                        {page.title}
+                        {page.tags?.filter((t) => t !== '仕様書').length > 0
+                          ? ` (${page.tags.filter((t) => t !== '仕様書').join(', ')})`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-400 py-2">
+                    仕様書タグのついたWikiページがありません。Wikiで仕様書を作成してください。
+                  </p>
+                )}
               </div>
 
-              {/* Decision state (shown only when spec link is provided) */}
-              {specPath.trim() && (
+              {/* Decision state (shown only when wiki page is selected) */}
+              {wikiPageId && (
                 <div className="pl-3">
                   <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
                   <div className="mt-1 flex gap-2">
