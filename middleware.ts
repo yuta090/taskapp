@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constants'
+import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
 // 認証不要のパス
 const publicPaths = [
@@ -8,6 +10,7 @@ const publicPaths = [
   '/reset',
   '/invite',
   '/api/auth',
+  '/auth/callback',
   '/docs',
 ]
 
@@ -20,8 +23,16 @@ const authRequiredPrefixes = [
 const protectedPatterns = [
   /^\/inbox/,
   /^\/my/,
+  /^\/settings/,
   /^\/[0-9a-f-]+\/project/,  // /:orgId/project/...
 ]
+
+/** redirect レスポンスに activeOrgId cookie を付与 */
+function redirectWithOrgCookie(url: URL, orgId: string): NextResponse {
+  const redirectResponse = NextResponse.redirect(url)
+  redirectResponse.cookies.set(ACTIVE_ORG_COOKIE, orgId, ACTIVE_ORG_COOKIE_OPTIONS)
+  return redirectResponse
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -35,13 +46,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('[middleware] Missing Supabase env vars')
+    return NextResponse.next()
+  }
+
+  try {
+
   let response = NextResponse.next({
     request,
   })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
@@ -82,33 +103,67 @@ export async function middleware(request: NextRequest) {
 
   // 認証済みユーザーがログイン/サインアップページにアクセスした場合
   if (user && (pathname === '/login' || pathname === '/signup')) {
-    // ユーザーのロールを確認してリダイレクト先を決定
-    const { data: membership } = await supabase
-      .from('org_memberships')
-      .select('org_id, role')
-      .eq('user_id', user.id)
+    const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+    const membership = await resolveActiveOrg(supabase, user.id, cookieOrgId)
+
+    if (!membership) {
+      return NextResponse.redirect(new URL('/inbox', request.url))
+    }
+
+    if (membership.role === 'client') {
+      return redirectWithOrgCookie(new URL('/portal', request.url), membership.org_id)
+    }
+
+    const { data: space } = await supabase
+      .from('spaces')
+      .select('id')
+      .eq('org_id', membership.org_id)
+      .eq('type', 'project')
       .limit(1)
       .single()
 
-    if (membership?.role === 'client') {
-      return NextResponse.redirect(new URL('/portal', request.url))
-    } else if (membership) {
-      const { data: space } = await supabase
+    if (space) {
+      return redirectWithOrgCookie(
+        new URL(`/${membership.org_id}/project/${space.id}`, request.url),
+        membership.org_id
+      )
+    }
+
+    return redirectWithOrgCookie(new URL('/inbox', request.url), membership.org_id)
+  }
+
+  // /onboarding ガード
+  if (pathname === '/onboarding') {
+    if (!user) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+    // activeOrgId cookie を考慮してメンバーシップ検証
+    const onboardCookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+    const onboardMembership = await resolveActiveOrg(supabase, user.id, onboardCookieOrgId)
+
+    if (onboardMembership) {
+      if (onboardMembership.role === 'client') {
+        return redirectWithOrgCookie(new URL('/portal', request.url), onboardMembership.org_id)
+      }
+      const { data: onboardSpace } = await supabase
         .from('spaces')
         .select('id')
-        .eq('org_id', membership.org_id)
+        .eq('org_id', onboardMembership.org_id)
         .eq('type', 'project')
+        .order('created_at', { ascending: true })
         .limit(1)
         .single()
 
-      if (space) {
-        return NextResponse.redirect(
-          new URL(`/${membership.org_id}/project/${space.id}`, request.url)
+      if (onboardSpace) {
+        return redirectWithOrgCookie(
+          new URL(`/${onboardMembership.org_id}/project/${onboardSpace.id}`, request.url),
+          onboardMembership.org_id
         )
       }
+      return redirectWithOrgCookie(new URL('/inbox', request.url), onboardMembership.org_id)
     }
-
-    return NextResponse.redirect(new URL('/inbox', request.url))
+    // membership無し → onboardingを表示（正常フロー）
+    return response
   }
 
   // 未認証ユーザーが保護されたパスにアクセスした場合
@@ -123,7 +178,24 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
+  // プロジェクトルート (/:orgId/project/...) の場合、URL の orgId を cookie に同期
+  if (user) {
+    const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
+    if (projectMatch) {
+      const pathOrgId = projectMatch[1]
+      const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+      if (pathOrgId !== cookieOrgId) {
+        response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
+      }
+    }
+  }
+
   return response
+
+  } catch (error) {
+    console.error('[middleware] Unhandled error:', error)
+    return NextResponse.next()
+  }
 }
 
 export const config = {

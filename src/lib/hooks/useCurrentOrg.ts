@@ -1,10 +1,23 @@
-// TODO: Stub file - implement actual current org hook
-export function useCurrentOrg() {
+'use client'
+
+import { useContext } from 'react'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
+
+export interface CurrentOrgState {
+  orgId: string | null
+  orgName: string | null
+  role: string | null
+  loading: boolean
+  error: null
+}
+
+export function useCurrentOrg(): CurrentOrgState {
+  const ctx = useContext(ActiveOrgContext)
   return {
-    orgId: null as string | null,
-    orgName: null as string | null,
-    role: null as string | null,
-    loading: false,
+    orgId: ctx.activeOrgId,
+    orgName: ctx.activeOrgName,
+    role: ctx.activeOrgRole,
+    loading: ctx.loading,
     error: null,
   }
 }

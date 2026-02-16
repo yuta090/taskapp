@@ -1,6 +1,6 @@
 'use client'
 
-import { CaretDown, CaretRight } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, Check } from '@phosphor-icons/react'
 import type { Milestone } from '@/types/database'
 
 interface MilestoneGroupHeaderProps {
@@ -56,6 +56,14 @@ export function MilestoneGroupHeader({
       <span className="text-xs text-gray-400 tabular-nums">
         ({taskCount})
       </span>
+
+      {/* Completion badge */}
+      {milestone?.completed_at && (
+        <span className="flex items-center gap-0.5 text-[11px] text-green-600 font-medium">
+          <Check weight="bold" className="text-[10px]" />
+          完了
+        </span>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

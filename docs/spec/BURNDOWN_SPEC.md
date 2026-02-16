@@ -1,8 +1,8 @@
 # バーンダウンチャート & マイルストーン開始日 仕様書
 
-> **Version**: 1.5
-> **Last Updated**: 2026-02-20
-> **Status**: 実装済み（Codex Code Reviewer 3回 → APPROVE）
+> **Version**: 1.6
+> **Last Updated**: 2026-02-23
+> **Status**: 実装済み（Codex Code Reviewer 3回 → APPROVE、completed_at 追跡追加）
 
 ---
 
@@ -726,6 +726,106 @@ interface BurndownControlsProps {
 完了: +2
 追加: +1
 ```
+
+---
+
+## Phase 2.5: タスク・マイルストーン完了日時追跡 (`completed_at`)
+
+> **実装済み**: 2026-02-23
+> **DDL**: `docs/db/DDL_v0.7_completed_at.sql`
+> **マイグレーション**: `supabase/migrations/20260223_000_completed_at_tracking.sql`
+
+### 背景
+
+バーンダウンチャートの velocity 計算やリスク分析で、タスクの完了日時が必要だが `completed_at` カラムが存在せず `updated_at` で代用していた。完了後の編集（actual_hours 入力等）で `updated_at` が更新されるため不正確だった。
+
+また、マイルストーンの予定日 (`due_date`) に対し、実際に全タスクが完了した日時を保持する仕組みがなかった。
+
+### データモデル変更
+
+#### tasks テーブル
+
+```sql
+ALTER TABLE tasks ADD COLUMN completed_at timestamptz NULL;
+-- Auto-managed by trigger: set when status → 'done', cleared when leaving 'done'
+```
+
+#### milestones テーブル
+
+```sql
+ALTER TABLE milestones ADD COLUMN completed_at timestamptz NULL;
+-- Auto-managed by trigger: set when all tasks are 'done' (count > 0),
+-- cleared when any task leaves 'done' or milestone becomes empty
+```
+
+#### 型定義 (`src/types/database.ts`)
+
+```typescript
+// tasks.Row / milestones.Row に追加
+completed_at: string | null
+
+// tasks.Insert / milestones.Insert に追加
+completed_at?: string | null
+
+// tasks.Update / milestones.Update に追加
+completed_at?: string | null
+```
+
+### DBトリガー設計
+
+| トリガー | テーブル | タイミング | 動作 |
+|---------|---------|----------|------|
+| `trg_task_completed_at` | tasks | BEFORE UPDATE | `done` → `completed_at = now()`、`done` 以外 → `NULL` |
+| `trg_task_completed_at_insert` | tasks | BEFORE INSERT | `status='done'` で作成時 → `completed_at = now()` |
+| `trg_check_milestone_completion` | tasks | AFTER INSERT/UPDATE/DELETE | ヘルパー関数で所属マイルストーンを再チェック |
+
+#### マイルストーン完了判定ロジック (`check_and_update_milestone`)
+
+```
+入力: milestone_id
+  ↓
+タスク数カウント: total, done_count
+  ↓
+  ├─ total = 0 → completed_at = NULL (0タスクのMSは自動完了しない)
+  ├─ total = done_count AND completed_at IS NULL → completed_at = now()
+  ├─ total ≠ done_count AND completed_at IS NOT NULL → completed_at = NULL
+  └─ それ以外 → 変更なし (冪等)
+```
+
+**エッジケース対応**:
+
+| ケース | 動作 |
+|--------|------|
+| タスクを `done` に変更 | `tasks.completed_at = now()`、マイルストーン再チェック |
+| タスクを `done` → `in_progress` に戻す | `tasks.completed_at = NULL`、`milestones.completed_at = NULL` |
+| タスクのマイルストーンを変更 | 旧・新の両方のマイルストーンを再チェック |
+| マイルストーンからタスクを全削除 | `milestones.completed_at = NULL` |
+| 2タスク同時に `done` 更新 | 各トリガーが `count()` で判定するため最終的に正しく収束 |
+
+### 改修対象ファイル
+
+| ファイル | 改修内容 |
+|---------|----------|
+| `src/types/database.ts` | tasks/milestones に `completed_at` 追加 |
+| `src/lib/hooks/useTasks.ts` | 楽観更新に `completed_at` 追加 + `milestone.completed` 監査ログ発行 |
+| `src/lib/hooks/useMilestones.ts` | 楽観更新に `completed_at: null` 追加、`useMemo` → `useRef` 修正 |
+| `src/lib/risk/calculateRisk.ts` | velocity計算で `completed_at` を使用（`updated_at` フォールバック付き） |
+| `src/lib/estimation/findSimilarTasks.ts` | 完了日に `completed_at` を使用 |
+| `src/app/portal/page.tsx` | phantom `milestones.status` → `completed_at` ベースに修正 |
+| `src/app/portal/history/page.tsx` | 完了タスク表示で `completed_at` を使用 |
+| `src/components/task/MilestoneGroupHeader.tsx` | 完了マイルストーンに緑チェック + 「完了」バッジ |
+| `src/components/task/TaskInspector.tsx` | `status='done'` 時に完了日を表示 |
+| `src/app/.../settings/MilestonesSettings.tsx` | 設定画面に完了バッジ表示 |
+
+### 監査ログ連携
+
+タスクが `done` になった際、所属マイルストーンの `completed_at` を確認し、セットされていれば `milestone.completed` 監査ログを fire-and-forget で発行する。イベント定義は `src/lib/audit.ts` に既存。
+
+### バックフィル
+
+マイグレーション時に既存データをバックフィル:
+- `tasks`: `status='done'` のレコードに `completed_at = updated_at` をセット
+- `milestones`: 全タスクが `done` のマイルストーンに `completed_at = max(tasks.updated_at)` をセット
 
 ---
 

@@ -48,7 +48,7 @@ export async function findSimilarTasks(
   // Search for completed tasks with actual_hours in the same space
   const { data: tasks, error } = await sb
     .from('tasks')
-    .select('id, title, actual_hours, updated_at')
+    .select('id, title, actual_hours, completed_at, updated_at')
     .eq('space_id' as never, spaceId as never)
     .eq('org_id' as never, orgId as never)
     .eq('status' as never, 'done' as never)
@@ -82,15 +82,15 @@ export async function findSimilarTasks(
 
   // Build similar tasks with client wait days
   const similarTasks: SimilarTask[] = tasks.map(
-    (task: { id: string; title: string; actual_hours: number; updated_at: string }) => {
+    (task: { id: string; title: string; actual_hours: number; completed_at: string | null; updated_at: string }) => {
       const events = eventsByTask.get(task.id) || []
-      // Pass task's updated_at as completion time to avoid counting beyond completion
-      const clientWaitDays = calculateClientWaitDays(events, task.updated_at)
+      const completionTime = task.completed_at ?? task.updated_at
+      const clientWaitDays = calculateClientWaitDays(events, completionTime)
       return {
         id: task.id,
         title: task.title,
         actual_hours: task.actual_hours,
-        completed_at: task.updated_at,
+        completed_at: task.completed_at ?? task.updated_at,
         client_wait_days: clientWaitDays,
       }
     }

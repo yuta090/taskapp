@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
+import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter()
   const [orgName, setOrgName] = useState('')
   const [email, setEmail] = useState('')
@@ -104,7 +104,7 @@ export default function SignupPage() {
           </p>
           <Link
             href="/login"
-            className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+            className="text-sm text-amber-600 hover:text-amber-700 font-medium"
           >
             ログインページへ
           </Link>
@@ -120,12 +120,26 @@ export default function SignupPage() {
       footer={
         <>
           すでにアカウントをお持ちの方は{' '}
-          <Link href="/login" className="text-indigo-600 hover:text-indigo-700 font-medium">
+          <Link href="/login" className="text-amber-600 hover:text-amber-700 font-medium">
             ログイン
           </Link>
         </>
       }
     >
+      {/* Google Signup (top, more prominent) */}
+      <div className="mb-4">
+        <GoogleSignInButton label="Googleで登録" />
+      </div>
+
+      <div className="relative my-4">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-gray-200" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-white px-2 text-gray-500">またはメールで登録</span>
+        </div>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
@@ -192,5 +206,13 @@ export default function SignupPage() {
         </div>
       </form>
     </AuthCard>
+  )
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
   )
 }

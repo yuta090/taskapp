@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Milestone } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -37,7 +37,9 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const supabase = useMemo(() => createClient(), [])
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   const fetchMilestones = useCallback(async () => {
     setLoading(true)
@@ -75,6 +77,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         start_date: input.startDate ?? null,
         due_date: input.dueDate ?? null,
         order_key: orderKey,
+        completed_at: null,
         created_at: now,
         updated_at: now,
       }

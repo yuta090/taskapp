@@ -322,6 +322,7 @@ export interface Database {
           decision_state: DecisionState | null
           client_scope: ClientScope
           actual_hours: number | null
+          completed_at: string | null
           created_at: string
           updated_at: string
         }
@@ -345,6 +346,7 @@ export interface Database {
           decision_state?: DecisionState | null
           client_scope?: ClientScope
           actual_hours?: number | null
+          completed_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -368,6 +370,7 @@ export interface Database {
           decision_state?: DecisionState | null
           client_scope?: ClientScope
           actual_hours?: number | null
+          completed_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -708,6 +711,7 @@ export interface Database {
           start_date: string | null
           due_date: string | null
           order_key: number
+          completed_at: string | null
           created_at: string
           updated_at: string
         }
@@ -719,6 +723,7 @@ export interface Database {
           start_date?: string | null
           due_date?: string | null
           order_key?: number
+          completed_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -730,6 +735,7 @@ export interface Database {
           start_date?: string | null
           due_date?: string | null
           order_key?: number
+          completed_at?: string | null
           created_at?: string
           updated_at?: string
         }
