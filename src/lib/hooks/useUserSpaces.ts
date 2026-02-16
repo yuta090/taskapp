@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useCurrentUser } from './useCurrentUser'
@@ -17,26 +18,20 @@ export interface UserSpace {
  * ユーザーが所属する全スペースを取得するフック
  */
 export function useUserSpaces() {
+  const queryClient = useQueryClient()
   const { user, loading: userLoading } = useCurrentUser()
-  const [spaces, setSpaces] = useState<UserSpace[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  const supabase = useMemo(() => createClient(), [])
-  const requestIdRef = useRef(0)
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
-  const fetchSpaces = useCallback(async () => {
-    if (!user) {
-      setSpaces([])
-      setLoading(false)
-      return
-    }
+  const queryKey = useMemo(() => ['userSpaces', user?.id] as const, [user?.id])
 
-    const currentRequestId = ++requestIdRef.current
-    setLoading(true)
-    setError(null)
+  const { data, isLoading, error: queryError } = useQuery<UserSpace[]>({
+    queryKey,
+    queryFn: async (): Promise<UserSpace[]> => {
+      if (!user) return []
 
-    try {
       // ユーザーのスペースメンバーシップを取得
       const { data: memberships, error: memberError } = await (supabase as SupabaseClient)
         .from('space_memberships')
@@ -55,12 +50,9 @@ export function useUserSpaces() {
         `)
         .eq('user_id', user.id)
 
-      // 古いリクエストの結果は無視
-      if (currentRequestId !== requestIdRef.current) return
-
       if (memberError) throw memberError
 
-      const userSpaces = (memberships || []).map((m: Record<string, unknown>) => {
+      return (memberships || []).map((m: Record<string, unknown>) => {
         const spaces = m.spaces as { id: string; name: string; org_id: string; organizations?: { name: string } | null } | null
         return {
           id: spaces?.id || '',
@@ -70,30 +62,19 @@ export function useUserSpaces() {
           role: m.role as UserSpace['role'],
         }
       }) as UserSpace[]
+    },
+    staleTime: 30_000,
+    enabled: !!user,
+  })
 
-      setSpaces(userSpaces)
-    } catch (err) {
-      console.error('Failed to fetch user spaces:', err)
-      if (currentRequestId === requestIdRef.current) {
-        setError('スペースの取得に失敗しました')
-      }
-    } finally {
-      if (currentRequestId === requestIdRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [user, supabase])
-
-  useEffect(() => {
-    if (!userLoading) {
-      void fetchSpaces()
-    }
-  }, [userLoading, fetchSpaces])
+  const refetch = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, queryKey])
 
   return {
-    spaces,
-    loading: userLoading || loading,
-    error,
-    refetch: fetchSpaces,
+    spaces: data ?? [],
+    loading: userLoading || isLoading,
+    error: queryError ? (queryError instanceof Error ? queryError.message : 'スペースの取得に失敗しました') : null,
+    refetch,
   }
 }

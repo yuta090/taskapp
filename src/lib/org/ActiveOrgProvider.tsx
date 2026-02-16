@@ -35,14 +35,18 @@ export const ActiveOrgContext = createContext<ActiveOrgContextValue>(defaultValu
 export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: userLoading } = useCurrentUser()
   const [orgs, setOrgs] = useState<OrgEntry[]>([])
-  const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+
+  // Read cookie synchronously on mount for instant initial render
+  const cookieOrgId = useRef(getActiveOrgId()).current
+  const [activeOrgId, setActiveOrgIdState] = useState<string | null>(cookieOrgId)
+  // If cookie has a cached orgId, children can render immediately without waiting
+  const [loading, setLoading] = useState(!cookieOrgId)
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  // Fetch all orgs user belongs to
+  // Fetch orgs and verify membership in background
   useEffect(() => {
     if (userLoading) return
     if (!user) {
@@ -84,14 +88,15 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
 
         setOrgs(orgList)
 
-        // Determine active org
-        const cookieOrgId = getActiveOrgId()
-        const validCookie = cookieOrgId && orgList.some(o => o.orgId === cookieOrgId)
+        // Validate cookie value against actual membership
+        const currentOrgId = cookieOrgId
+        const validCookie = currentOrgId && orgList.some(o => o.orgId === currentOrgId)
 
         if (validCookie) {
-          setActiveOrgIdState(cookieOrgId)
+          // Cookie org is valid — keep the already-set activeOrgId
+          setActiveOrgIdState(currentOrgId)
         } else {
-          // Default to first org
+          // Cookie was stale or missing — fall back to first org
           const firstOrg = orgList[0]
           setActiveOrgIdState(firstOrg.orgId)
           setActiveOrgId(firstOrg.orgId)
@@ -104,7 +109,7 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
     }
 
     void fetchOrgs()
-  }, [user, userLoading, supabase])
+  }, [user, userLoading, supabase, cookieOrgId])
 
   const switchOrg = useCallback((orgId: string) => {
     const target = orgs.find(o => o.orgId === orgId)

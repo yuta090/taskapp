@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useRef, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import type { Milestone } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Milestone } from '@/types/database'
 
 interface UseMilestonesOptions {
   spaceId: string
@@ -33,34 +34,35 @@ interface UseMilestonesReturn {
 }
 
 export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesReturn {
-  const [milestones, setMilestones] = useState<Milestone[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const queryClient = useQueryClient()
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  const fetchMilestones = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const queryKey = ['milestones', spaceId] as const
 
-    try {
-       
-      const { data, error: err } = await (supabase as SupabaseClient)
+  const { data, isLoading, error: queryError } = useQuery<Milestone[]>({
+    queryKey,
+    queryFn: async (): Promise<Milestone[]> => {
+      const { data: milestonesData, error: err } = await (supabase as SupabaseClient)
         .from('milestones')
         .select('*')
         .eq('space_id' as never, spaceId as never)
         .order('order_key' as never, { ascending: true })
 
       if (err) throw err
-      setMilestones((data || []) as Milestone[])
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch milestones'))
-    } finally {
-      setLoading(false)
-    }
-  }, [spaceId, supabase])
+      return (milestonesData || []) as Milestone[]
+    },
+    staleTime: 30_000,
+    enabled: !!spaceId,
+  })
+
+  const milestones = data ?? []
+
+  const fetchMilestones = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['milestones', spaceId] })
+  }, [queryClient, spaceId])
 
   const createMilestone = useCallback(
     async (input: CreateMilestoneInput): Promise<Milestone> => {
@@ -82,11 +84,13 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         updated_at: now,
       }
 
-      setMilestones((prev) => [...prev, optimisticMilestone])
+      queryClient.setQueryData<Milestone[]>(['milestones', spaceId], (old) => [
+        ...(old ?? []),
+        optimisticMilestone,
+      ])
 
       try {
-         
-        const { data, error: err } = await (supabase as SupabaseClient)
+        const { data: created, error: err } = await (supabase as SupabaseClient)
           .from('milestones')
           .insert({
             space_id: spaceId,
@@ -100,29 +104,31 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
 
         if (err) throw err
 
-        const created = data as Milestone
-        setMilestones((prev) =>
-          prev.map((m) => (m.id === tempId ? created : m))
+        const createdMilestone = created as Milestone
+        queryClient.setQueryData<Milestone[]>(['milestones', spaceId], (old) =>
+          (old ?? []).map((m) => (m.id === tempId ? createdMilestone : m))
         )
 
-        return created
+        return createdMilestone
       } catch (err) {
         // Revert optimistic update
-        setMilestones((prev) => prev.filter((m) => m.id !== tempId))
+        queryClient.setQueryData<Milestone[]>(['milestones', spaceId], (old) =>
+          (old ?? []).filter((m) => m.id !== tempId)
+        )
         throw err instanceof Error ? err : new Error('Failed to create milestone')
       }
     },
-    [spaceId, supabase]
+    [spaceId, supabase, queryClient]
   )
 
   const updateMilestone = useCallback(
     async (id: string, input: UpdateMilestoneInput): Promise<void> => {
-      // Store previous state for rollback
-      const prevMilestones = milestones
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<Milestone[]>(['milestones', spaceId])
 
       // Optimistic update
-      setMilestones((prev) =>
-        prev.map((m) =>
+      queryClient.setQueryData<Milestone[]>(['milestones', spaceId], (old) =>
+        (old ?? []).map((m) =>
           m.id === id
             ? {
                 ...m,
@@ -143,7 +149,6 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.orderKey !== undefined) updateData.order_key = input.orderKey
 
-         
         const { error: err } = await (supabase as SupabaseClient)
           .from('milestones')
           .update(updateData)
@@ -152,23 +157,26 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         if (err) throw err
       } catch (err) {
         // Revert optimistic update
-        setMilestones(prevMilestones)
+        if (previousData) {
+          queryClient.setQueryData<Milestone[]>(['milestones', spaceId], previousData)
+        }
         throw err instanceof Error ? err : new Error('Failed to update milestone')
       }
     },
-    [milestones, supabase]
+    [supabase, spaceId, queryClient]
   )
 
   const deleteMilestone = useCallback(
     async (id: string): Promise<void> => {
-      // Store previous state for rollback
-      const prevMilestones = milestones
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<Milestone[]>(['milestones', spaceId])
 
       // Optimistic update
-      setMilestones((prev) => prev.filter((m) => m.id !== id))
+      queryClient.setQueryData<Milestone[]>(['milestones', spaceId], (old) =>
+        (old ?? []).filter((m) => m.id !== id)
+      )
 
       try {
-         
         const { error: err } = await (supabase as SupabaseClient)
           .from('milestones')
           .delete()
@@ -177,17 +185,19 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
         if (err) throw err
       } catch (err) {
         // Revert optimistic update
-        setMilestones(prevMilestones)
+        if (previousData) {
+          queryClient.setQueryData<Milestone[]>(['milestones', spaceId], previousData)
+        }
         throw err instanceof Error ? err : new Error('Failed to delete milestone')
       }
     },
-    [milestones, supabase]
+    [supabase, spaceId, queryClient]
   )
 
   return {
     milestones,
-    loading,
-    error,
+    loading: isLoading,
+    error: queryError,
     fetchMilestones,
     createMilestone,
     updateMilestone,

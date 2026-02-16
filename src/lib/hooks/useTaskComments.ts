@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useMemo, useRef, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { fireNotification } from '@/lib/slack/notify'
 import type {
@@ -54,13 +55,11 @@ export function useTaskComments({
   taskId,
   clientOnly = false,
 }: UseTaskCommentsOptions): UseTaskCommentsReturn {
-  const [comments, setComments] = useState<CommentWithProfile[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const queryClient = useQueryClient()
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
   // ユーザーIDキャッシュ（auth.getUser()の重複呼び出し回避）
@@ -74,11 +73,11 @@ export function useTaskComments({
     return () => subscription.unsubscribe()
   }, [supabase])
 
-  const fetchComments = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const queryKey = useMemo(() => ['taskComments', taskId] as const, [taskId])
 
-    try {
+  const { data, isLoading, error: queryError } = useQuery<CommentWithProfile[]>({
+    queryKey,
+    queryFn: async (): Promise<CommentWithProfile[]> => {
       // Build query
       let query = supabase
         .from('task_comments')
@@ -103,7 +102,6 @@ export function useTaskComments({
       // Fetch profile info for actors
       const actorIds = [...new Set(commentsList.map((c) => c.actor_id))]
       if (actorIds.length > 0) {
-         
         const { data: profilesData } = await (supabase as SupabaseClient)
           .from('profiles')
           .select('id, display_name, avatar_url')
@@ -116,7 +114,7 @@ export function useTaskComments({
           ])
         )
 
-        const commentsWithProfile: CommentWithProfile[] = commentsList.map((c) => {
+        return commentsList.map((c) => {
           const profile = profileMap.get(c.actor_id)
           return {
             ...c,
@@ -124,17 +122,19 @@ export function useTaskComments({
             actor_avatar_url: profile?.avatar_url || null,
           }
         })
-
-        setComments(commentsWithProfile)
-      } else {
-        setComments(commentsList)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch comments'))
-    } finally {
-      setLoading(false)
-    }
-  }, [orgId, spaceId, taskId, clientOnly, supabase])
+
+      return commentsList
+    },
+    staleTime: 30_000,
+    enabled: !!taskId,
+  })
+
+  const comments = data ?? []
+
+  const fetchComments = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, queryKey])
 
   const createComment = useCallback(
     async (input: CreateCommentInput): Promise<TaskComment> => {
@@ -171,12 +171,12 @@ export function useTaskComments({
         actor_avatar_url: null,
       }
 
-      setComments((prev) => [...prev, optimisticComment])
+      // Optimistic update
+      queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
+        [...(old ?? []), optimisticComment]
+      )
 
       try {
-        // If clientOnly mode, always use 'client' visibility
-        const visibility = clientOnly ? 'client' : (input.visibility || 'client')
-
         const insertData: TaskCommentInsert = {
           org_id: orgId,
           space_id: spaceId,
@@ -187,7 +187,6 @@ export function useTaskComments({
           reply_to_id: input.replyToId || null,
         }
 
-         
         const { data: created, error: createError } = await (supabase as SupabaseClient)
           .from('task_comments')
           .insert(insertData)
@@ -199,8 +198,8 @@ export function useTaskComments({
         const createdComment = created as TaskComment
 
         // Replace optimistic with real
-        setComments((prev) =>
-          prev.map((c) =>
+        queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
+          (old ?? []).map((c) =>
             c.id === tempId
               ? { ...createdComment, actor_name: optimisticComment.actor_name, actor_avatar_url: optimisticComment.actor_avatar_url }
               : c
@@ -220,32 +219,30 @@ export function useTaskComments({
         return createdComment
       } catch (err) {
         // Revert optimistic update
-        setComments((prev) => prev.filter((c) => c.id !== tempId))
-        setError(err instanceof Error ? err : new Error('Failed to create comment'))
+        queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
+          (old ?? []).filter((c) => c.id !== tempId)
+        )
         throw err
       }
     },
-    [orgId, spaceId, taskId, clientOnly, supabase]
+    [orgId, spaceId, taskId, clientOnly, supabase, queryClient, queryKey]
   )
 
   const updateComment = useCallback(
     async (commentId: string, input: UpdateCommentInput): Promise<void> => {
-      // Store previous body for per-item rollback (avoid stale snapshot issues)
-      let prevBody: string | undefined
+      // Store previous for rollback
+      const prevComments = queryClient.getQueryData<CommentWithProfile[]>(queryKey)
 
       // Optimistic update
-      setComments((prev) =>
-        prev.map((c) => {
-          if (c.id === commentId) {
-            prevBody = c.body
-            return { ...c, body: input.body, updated_at: new Date().toISOString() }
-          }
-          return c
-        })
+      queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
+        (old ?? []).map((c) =>
+          c.id === commentId
+            ? { ...c, body: input.body, updated_at: new Date().toISOString() }
+            : c
+        )
       )
 
       try {
-         
         const { error: updateError } = await (supabase as SupabaseClient)
           .from('task_comments')
           .update({ body: input.body })
@@ -253,38 +250,27 @@ export function useTaskComments({
 
         if (updateError) throw updateError
       } catch (err) {
-        // Revert optimistic update (per-item rollback)
-        if (prevBody !== undefined) {
-          setComments((prev) =>
-            prev.map((c) =>
-              c.id === commentId ? { ...c, body: prevBody! } : c
-            )
-          )
+        // Revert optimistic update
+        if (prevComments) {
+          queryClient.setQueryData<CommentWithProfile[]>(queryKey, prevComments)
         }
-        setError(err instanceof Error ? err : new Error('Failed to update comment'))
         throw err
       }
     },
-    [supabase]
+    [supabase, queryClient, queryKey]
   )
 
   const softDeleteComment = useCallback(
     async (commentId: string): Promise<void> => {
-      // Store removed comment for per-item rollback (avoid stale snapshot issues)
-      let removedComment: CommentWithProfile | undefined
-      let removedIndex = -1
+      // Store previous for rollback
+      const prevComments = queryClient.getQueryData<CommentWithProfile[]>(queryKey)
 
       // Optimistic update - remove from list
-      setComments((prev) => {
-        removedIndex = prev.findIndex((c) => c.id === commentId)
-        if (removedIndex !== -1) {
-          removedComment = prev[removedIndex]
-        }
-        return prev.filter((c) => c.id !== commentId)
-      })
+      queryClient.setQueryData<CommentWithProfile[]>(queryKey, (old) =>
+        (old ?? []).filter((c) => c.id !== commentId)
+      )
 
       try {
-         
         const { error: deleteError } = await (supabase as SupabaseClient)
           .from('task_comments')
           .update({ deleted_at: new Date().toISOString() })
@@ -292,30 +278,21 @@ export function useTaskComments({
 
         if (deleteError) throw deleteError
       } catch (err) {
-        // Revert optimistic update (per-item rollback)
-        if (removedComment) {
-          setComments((prev) => {
-            const newComments = [...prev]
-            // Insert back at original position or end
-            const insertIndex = removedIndex >= 0 && removedIndex <= newComments.length
-              ? removedIndex
-              : newComments.length
-            newComments.splice(insertIndex, 0, removedComment!)
-            return newComments
-          })
+        // Revert optimistic update
+        if (prevComments) {
+          queryClient.setQueryData<CommentWithProfile[]>(queryKey, prevComments)
         }
-        setError(err instanceof Error ? err : new Error('Failed to delete comment'))
         throw err
       }
     },
-    [supabase]
+    [supabase, queryClient, queryKey]
   )
 
   const canEdit = useCallback(
     (comment: TaskComment, currentUserId: string): boolean => {
       // Must be author
       if (comment.actor_id !== currentUserId) return false
-      // Must be deleted
+      // Must not be deleted
       if (comment.deleted_at) return false
       // Must be within 24h
       const createdAt = new Date(comment.created_at).getTime()
@@ -327,8 +304,8 @@ export function useTaskComments({
 
   return {
     comments,
-    loading,
-    error,
+    loading: isLoading,
+    error: queryError instanceof Error ? queryError : null,
     fetchComments,
     createComment,
     updateComment,

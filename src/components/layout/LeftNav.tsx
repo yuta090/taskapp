@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useContext } from 'react'
+import { useState, useEffect, useCallback, useContext, memo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -48,7 +48,6 @@ function NavItem({ href, icon, label, badge, active, collapsed }: NavItemProps) 
   return (
     <Link
       href={href}
-      prefetch={false}
       className={`px-2 py-2 rounded cursor-pointer flex items-center group transition-colors relative ${
         collapsed ? 'justify-center' : 'gap-2.5'
       } ${
@@ -88,7 +87,6 @@ function SubNavItem({ href, icon, label, active, collapsed }: SubNavItemProps) {
   return (
     <Link
       href={href}
-      prefetch={false}
       className={`px-2 py-1.5 rounded cursor-pointer flex items-center transition-colors ${
         collapsed ? 'justify-center' : 'gap-2 text-xs 2xl:text-sm'
       } ${
@@ -251,7 +249,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
   )
 }
 
-export function LeftNav() {
+export const LeftNav = memo(function LeftNav() {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
@@ -499,7 +497,6 @@ export function LeftNav() {
             {/* Project root */}
             <Link
               href={projectBasePath}
-              prefetch={false}
               className={`px-2 py-2 text-gray-600 hover:bg-gray-200/50 rounded cursor-pointer flex items-center ${
                 collapsed ? 'justify-center' : 'gap-2.5'
               } group`}
@@ -600,4 +597,4 @@ export function LeftNav() {
       />
     </aside>
   )
-}
+})

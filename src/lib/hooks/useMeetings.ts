@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useRef, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
@@ -67,6 +68,11 @@ const MEETING_LIST_COLUMNS = `
   meeting_participants (*)
 ` as const
 
+interface MeetingsQueryData {
+  meetings: Meeting[]
+  participants: Record<string, MeetingParticipant[]>
+}
+
 interface UseMeetingsReturn {
   meetings: Meeting[]
   participants: Record<string, MeetingParticipant[]>
@@ -94,27 +100,18 @@ export function useMeetings({
   orgId,
   spaceId,
 }: UseMeetingsOptions): UseMeetingsReturn {
-  const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [participants, setParticipants] = useState<
-    Record<string, MeetingParticipant[]>
-  >({})
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const queryClient = useQueryClient()
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  // フェッチのレース条件対策用カウンター
-  const fetchIdRef = useRef(0)
+  const queryKey = ['meetings', spaceId] as const
 
-  const fetchMeetings = useCallback(async () => {
-    const currentFetchId = ++fetchIdRef.current
-    setLoading(true)
-    setError(null)
-
-    try {
+  const { data, isLoading, error: queryError } = useQuery<MeetingsQueryData>({
+    queryKey,
+    queryFn: async (): Promise<MeetingsQueryData> => {
       // 1クエリで meetings + participants を取得（ネストselect）
       const { data: meetingsData, error: meetingsError } = await supabase
         .from('meetings')
@@ -124,9 +121,6 @@ export function useMeetings({
         .limit(MEETINGS_LIMIT)
 
       if (meetingsError) throw meetingsError
-
-      // レース条件: 古いリクエストの結果を無視
-      if (currentFetchId !== fetchIdRef.current) return
 
       const rawMeetings = (meetingsData || []) as Array<Record<string, unknown> & { id: string; meeting_participants?: unknown[] }>
 
@@ -140,47 +134,47 @@ export function useMeetings({
         return meetingFields as unknown as Meeting
       })
 
-      setMeetings(cleanMeetings)
-      setParticipants(participantsByMeeting)
-    } catch (err) {
-      if (currentFetchId !== fetchIdRef.current) return
-      setError(
-        err instanceof Error ? err : new Error('Failed to fetch meetings')
-      )
-    } finally {
-      if (currentFetchId === fetchIdRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [spaceId, supabase])
+      return { meetings: cleanMeetings, participants: participantsByMeeting }
+    },
+    staleTime: 30_000,
+    enabled: !!spaceId,
+  })
 
-  /** 選択された会議の詳細をオンデマンドで取得し、ローカルstateも更新 */
+  const meetings = data?.meetings ?? []
+  const participants = data?.participants ?? {}
+
+  const fetchMeetings = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['meetings', spaceId] })
+  }, [queryClient, spaceId])
+
+  /** 選択された会議の詳細をオンデマンドで取得し、ローカルcacheも更新 */
   const fetchMeetingDetail = useCallback(
     async (meetingId: string): Promise<Meeting | null> => {
       try {
-        const { data, error: fetchError } = await supabase
+        const { data: detailData, error: fetchError } = await supabase
           .from('meetings')
           .select('*')
           .eq('id' as never, meetingId as never)
           .single()
 
         if (fetchError) throw fetchError
-        const fullMeeting = data as Meeting
+        const fullMeeting = detailData as Meeting
 
-        // ローカルstateを更新
-        setMeetings((prev) =>
-          prev.map((m) => (m.id === meetingId ? fullMeeting : m))
-        )
+        // ローカルcacheを更新
+        queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+          if (!old) return { meetings: [fullMeeting], participants: {} }
+          return {
+            meetings: old.meetings.map((m) => (m.id === meetingId ? fullMeeting : m)),
+            participants: old.participants,
+          }
+        })
 
         return fullMeeting
       } catch (err) {
-        setError(
-          err instanceof Error ? err : new Error('Failed to fetch meeting detail')
-        )
-        return null
+        throw err instanceof Error ? err : new Error('Failed to fetch meeting detail')
       }
     },
-    [supabase]
+    [supabase, queryClient, spaceId]
   )
 
   const createMeeting = useCallback(
@@ -205,7 +199,10 @@ export function useMeetings({
         updated_at: now,
       }
 
-      setMeetings((prev) => [optimisticMeeting, ...prev])
+      queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => ({
+        meetings: [optimisticMeeting, ...(old?.meetings ?? [])],
+        participants: old?.participants ?? {},
+      }))
 
       try {
         const { user: authUser, error: authError } =
@@ -255,81 +252,106 @@ export function useMeetings({
             .select('*')
           if (participantError) throw participantError
 
-          // 参加者もオプティミスティック更新
+          // 参加者もキャッシュ更新
           if (insertedParticipants) {
-            setParticipants((prev) => ({
-              ...prev,
-              [createdMeeting.id]: insertedParticipants as MeetingParticipant[],
+            queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => ({
+              meetings: old?.meetings ?? [],
+              participants: {
+                ...(old?.participants ?? {}),
+                [createdMeeting.id]: insertedParticipants as MeetingParticipant[],
+              },
             }))
           }
         }
 
-        // オプティミスティック更新: tempId → 実際のIDに差し替え
-        setMeetings((prev) =>
-          prev.map((m) => (m.id === tempId ? createdMeeting : m))
-        )
+        // オプティミスティック更新: tempId -> 実際のIDに差し替え
+        queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => ({
+          meetings: (old?.meetings ?? []).map((m) => (m.id === tempId ? createdMeeting : m)),
+          participants: old?.participants ?? {},
+        }))
 
         return createdMeeting
       } catch (err) {
-        setMeetings((prev) => prev.filter((m) => m.id !== tempId))
-        setError(
-          err instanceof Error ? err : new Error('Failed to create meeting')
-        )
+        queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => ({
+          meetings: (old?.meetings ?? []).filter((m) => m.id !== tempId),
+          participants: old?.participants ?? {},
+        }))
         throw err
       }
     },
-    [orgId, spaceId, supabase]
+    [orgId, spaceId, supabase, queryClient]
   )
 
   const startMeeting = useCallback(
     async (meetingId: string) => {
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<MeetingsQueryData>(['meetings', spaceId])
+
       // Optimistic update
-      setMeetings((prev) =>
-        prev.map((m) =>
-          m.id === meetingId
-            ? { ...m, status: 'in_progress' as const, started_at: new Date().toISOString() }
-            : m
-        )
-      )
+      queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+        if (!old) return { meetings: [], participants: {} }
+        return {
+          meetings: old.meetings.map((m) =>
+            m.id === meetingId
+              ? { ...m, status: 'in_progress' as const, started_at: new Date().toISOString() }
+              : m
+          ),
+          participants: old.participants,
+        }
+      })
 
       try {
         await rpc.meetingStart(supabase, { meetingId })
       } catch (err) {
-        // エラー時のみ最新データを再取得
-        await fetchMeetings()
+        // エラー時はキャッシュ復元 + 再フェッチ
+        if (previousData) {
+          queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], previousData)
+        }
+        await queryClient.invalidateQueries({ queryKey: ['meetings', spaceId] })
         throw err
       }
     },
-    [supabase, fetchMeetings]
+    [supabase, queryClient, spaceId]
   )
 
   const endMeeting = useCallback(
     async (meetingId: string) => {
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<MeetingsQueryData>(['meetings', spaceId])
+
       // Optimistic update
-      setMeetings((prev) =>
-        prev.map((m) =>
-          m.id === meetingId
-            ? { ...m, status: 'ended' as const, ended_at: new Date().toISOString() }
-            : m
-        )
-      )
+      queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+        if (!old) return { meetings: [], participants: {} }
+        return {
+          meetings: old.meetings.map((m) =>
+            m.id === meetingId
+              ? { ...m, status: 'ended' as const, ended_at: new Date().toISOString() }
+              : m
+          ),
+          participants: old.participants,
+        }
+      })
 
       try {
         const result = await rpc.meetingEnd(supabase, { meetingId })
 
         // サーバー応答で summary を更新
-        setMeetings((prev) =>
-          prev.map((m) =>
-            m.id === meetingId
-              ? {
-                  ...m,
-                  status: 'ended' as const,
-                  summary_subject: result.summary_subject,
-                  summary_body: result.summary_body,
-                }
-              : m
-          )
-        )
+        queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+          if (!old) return { meetings: [], participants: {} }
+          return {
+            meetings: old.meetings.map((m) =>
+              m.id === meetingId
+                ? {
+                    ...m,
+                    status: 'ended' as const,
+                    summary_subject: result.summary_subject,
+                    summary_body: result.summary_body,
+                  }
+                : m
+            ),
+            participants: old.participants,
+          }
+        })
 
         return {
           summary_subject: result.summary_subject,
@@ -337,12 +359,15 @@ export function useMeetings({
           counts: result.counts,
         }
       } catch (err) {
-        // エラー時のみ最新データを再取得
-        await fetchMeetings()
+        // エラー時はキャッシュ復元 + 再フェッチ
+        if (previousData) {
+          queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], previousData)
+        }
+        await queryClient.invalidateQueries({ queryKey: ['meetings', spaceId] })
         throw err
       }
     },
-    [supabase, fetchMeetings]
+    [supabase, queryClient, spaceId]
   )
 
   // AT-005: Parse meeting minutes and create SPEC tasks
@@ -354,14 +379,18 @@ export function useMeetings({
           minutesMd,
         })
 
-        // Update local meeting with new minutes
-        setMeetings((prev) =>
-          prev.map((m) =>
-            m.id === meetingId
-              ? { ...m, minutes_md: result.updated_minutes }
-              : m
-          )
-        )
+        // Update local cache with new minutes
+        queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+          if (!old) return { meetings: [], participants: {} }
+          return {
+            meetings: old.meetings.map((m) =>
+              m.id === meetingId
+                ? { ...m, minutes_md: result.updated_minutes }
+                : m
+            ),
+            participants: old.participants,
+          }
+        })
 
         return {
           createdCount: result.created_count,
@@ -375,13 +404,10 @@ export function useMeetings({
           updatedMinutes: result.updated_minutes,
         }
       } catch (err) {
-        setError(
-          err instanceof Error ? err : new Error('Failed to parse minutes')
-        )
-        throw err
+        throw err instanceof Error ? err : new Error('Failed to parse minutes')
       }
     },
-    [supabase]
+    [supabase, queryClient, spaceId]
   )
 
   // AT-005: Preview minutes parsing without creating tasks
@@ -409,10 +435,7 @@ export function useMeetings({
           })),
         }
       } catch (err) {
-        setError(
-          err instanceof Error ? err : new Error('Failed to preview minutes')
-        )
-        throw err
+        throw err instanceof Error ? err : new Error('Failed to preview minutes')
       }
     },
     [supabase]
@@ -421,8 +444,8 @@ export function useMeetings({
   return {
     meetings,
     participants,
-    loading,
-    error,
+    loading: isLoading,
+    error: queryError,
     fetchMeetings,
     fetchMeetingDetail,
     createMeeting,

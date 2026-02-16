@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useContext } from 'react'
+import { useEffect, useCallback, useRef, useContext, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import type { Notification, Json } from '@/types/database'
@@ -54,49 +55,35 @@ export interface UseNotificationsState {
 
 
 export function useNotifications(): UseNotificationsState {
-  const [notifications, setNotifications] = useState<NotificationWithPayload[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
+
+  const queryKey = useMemo(() => ['notifications', activeOrgId] as const, [activeOrgId])
 
   // 認証状態変更時にグローバルキャッシュ無効化（logout/relogin対策）
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
       invalidateCachedUser()
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] })
     })
     return () => subscription.unsubscribe()
-  }, [supabase])
+  }, [supabase, queryClient])
 
-  /** グローバルキャッシュ付きでユーザーIDを取得 */
-  const getUserId = useCallback(async (): Promise<string | null> => {
-    const { user, error: userError } = await getCachedUser(supabase)
-    if (userError || !user) return null
-    return user.id
-  }, [supabase])
-
-  const fetchNotifications = useCallback(async () => {
-    // org解決前はフェッチしない（cross-org leak防止）
-    if (orgLoading) return
-
-    try {
-      setLoading(true)
-
-      const userId = await getUserId()
-      if (!userId) {
-        setNotifications([])
-        setLoading(false)
-        return
-      }
+  const { data, isLoading, error: queryError } = useQuery<NotificationWithPayload[]>({
+    queryKey,
+    queryFn: async (): Promise<NotificationWithPayload[]> => {
+      const { user, error: userError } = await getCachedUser(supabase)
+      if (userError || !user) return []
 
       let query = (supabase as SupabaseClient)
         .from('notifications')
         .select('*, spaces(name)')
-        .eq('to_user_id', userId)
+        .eq('to_user_id', user.id)
         .eq('channel', 'in_app')
         .order('created_at', { ascending: false })
         .limit(50)
@@ -105,44 +92,38 @@ export function useNotifications(): UseNotificationsState {
         query = query.eq('org_id', activeOrgId)
       }
 
-      const { data, error: fetchError } = await query
+      const { data: fetchData, error: fetchError } = await query
 
-      if (fetchError) {
-        throw fetchError
-      }
+      if (fetchError) throw fetchError
 
       // Flatten joined space name into space_name field
-      setNotifications(
-        (data || []).map((n: NotificationWithPayload & { spaces?: { name: string } | null }) => ({
-          ...n,
-          space_name: n.spaces?.name ?? null,
-        }))
-      )
-      setError(null)
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err)
-      setError('通知の取得に失敗しました')
-      setNotifications([])
-    } finally {
-      setLoading(false)
-    }
-  }, [supabase, getUserId, activeOrgId, orgLoading])
+      return (fetchData || []).map((n: NotificationWithPayload & { spaces?: { name: string } | null }) => ({
+        ...n,
+        space_name: n.spaces?.name ?? null,
+      }))
+    },
+    staleTime: 30_000,
+    enabled: !orgLoading,
+  })
+
+  const notifications = data ?? []
+
+  const fetchNotifications = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, queryKey])
 
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
-       
       const { error: updateError } = await (supabase as SupabaseClient)
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
         .eq('id', notificationId)
 
-      if (updateError) {
-        throw updateError
-      }
+      if (updateError) throw updateError
 
-      // Update local state
-      setNotifications(prev =>
-        prev.map(n =>
+      // Optimistic update in cache
+      queryClient.setQueryData<NotificationWithPayload[]>(queryKey, (old) =>
+        (old ?? []).map(n =>
           n.id === notificationId
             ? { ...n, read_at: new Date().toISOString() }
             : n
@@ -151,7 +132,7 @@ export function useNotifications(): UseNotificationsState {
     } catch (err) {
       console.error('Failed to mark notification as read:', err)
     }
-  }, [supabase])
+  }, [supabase, queryClient, queryKey])
 
   /** Mark notification as actioned (also marks as read). Called after successful action completion. */
   const markAsActioned = useCallback(async (notificationId: string) => {
@@ -162,12 +143,10 @@ export function useNotifications(): UseNotificationsState {
         .update({ read_at: now, actioned_at: now })
         .eq('id', notificationId)
 
-      if (updateError) {
-        throw updateError
-      }
+      if (updateError) throw updateError
 
-      setNotifications(prev =>
-        prev.map(n =>
+      queryClient.setQueryData<NotificationWithPayload[]>(queryKey, (old) =>
+        (old ?? []).map(n =>
           n.id === notificationId
             ? { ...n, read_at: now, actioned_at: now }
             : n
@@ -176,17 +155,17 @@ export function useNotifications(): UseNotificationsState {
     } catch (err) {
       console.error('Failed to mark notification as actioned:', err)
     }
-  }, [supabase])
+  }, [supabase, queryClient, queryKey])
 
   const markAllAsRead = useCallback(async () => {
     try {
-      const userId = await getUserId()
-      if (!userId) return
+      const { user, error: userError } = await getCachedUser(supabase)
+      if (userError || !user) return
 
       let query = (supabase as SupabaseClient)
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
-        .eq('to_user_id', userId)
+        .eq('to_user_id', user.id)
         .eq('channel', 'in_app')
         .is('read_at', null)
 
@@ -196,13 +175,11 @@ export function useNotifications(): UseNotificationsState {
 
       const { error: updateError } = await query
 
-      if (updateError) {
-        throw updateError
-      }
+      if (updateError) throw updateError
 
-      // Update local state
-      setNotifications(prev =>
-        prev.map(n =>
+      // Optimistic update in cache
+      queryClient.setQueryData<NotificationWithPayload[]>(queryKey, (old) =>
+        (old ?? []).map(n =>
           n.read_at === null
             ? { ...n, read_at: new Date().toISOString() }
             : n
@@ -211,16 +188,12 @@ export function useNotifications(): UseNotificationsState {
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err)
     }
-  }, [supabase, getUserId, activeOrgId])
-
-  useEffect(() => {
-    fetchNotifications()
-  }, [fetchNotifications])
+  }, [supabase, activeOrgId, queryClient, queryKey])
 
   return {
     notifications,
-    loading,
-    error,
+    loading: isLoading,
+    error: queryError ? (queryError instanceof Error ? queryError.message : '通知の取得に失敗しました') : null,
     fetchNotifications,
     markAsRead,
     markAsActioned,
