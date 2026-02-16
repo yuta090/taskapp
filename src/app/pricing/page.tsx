@@ -6,15 +6,6 @@ import { FeatureComparison } from '@/components/lp/FeatureComparison'
 import { motion } from 'framer-motion'
 import { Check, X, Sparkle, Buildings, User } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { Metadata } from 'next'
-
-// Client components cannot export metadata directly if they are client components.
-// We should conceptually separate metadata if needed, but for now we follow the structure.
-// If this file is a page, Next.js App Router allows exporting metadata from a server component wrapper,
-// or we can move 'use client' down. However, for simplicity and recovery, we'll keep it as 'use client'
-// and omission of metadata export in the same file if it causes issues, or assume the user handles SEO elsewhere.
-// But usually page.tsx with 'use client' cannot export metadata. 
-// Let's make this a client component for functionality.
 
 export default function PricingPage() {
     const [isAnnual, setIsAnnual] = useState(true)

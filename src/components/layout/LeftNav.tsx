@@ -24,6 +24,8 @@ import {
   Key,
   Plus,
   Check,
+  Sliders,
+  Bell,
 } from '@phosphor-icons/react'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -113,6 +115,19 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
     router.push('/login')
   }, [router])
 
+  // Escape key handler
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen])
+
   if (loading) {
     return (
       <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200`}>
@@ -187,6 +202,22 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
             >
               <GearSix className="text-base text-gray-500" />
               アカウント設定
+            </Link>
+            <Link
+              href="/settings/preferences"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Sliders className="text-base text-gray-500" />
+              環境設定
+            </Link>
+            <Link
+              href="/settings/notifications"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Bell className="text-base text-gray-500" />
+              通知設定
             </Link>
             <Link
               href="/settings/api-keys"
@@ -276,9 +307,35 @@ export function LeftNav() {
     })
   }, [])
 
-  const handleQuickCreate = () => {
-    router.push(`${projectBasePath}?create=1`)
-  }
+  const handleQuickCreate = useCallback(() => {
+    if (hasProjectRoute) {
+      router.push(`${projectBasePath}?create=1`)
+    } else {
+      // Outside project context: open global create on My Tasks page
+      router.push('/my?create=1')
+    }
+  }, [hasProjectRoute, projectBasePath, router])
+
+  // Global keyboard shortcut: C to open task creation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip during IME composition or key repeat
+      if (e.isComposing || e.repeat) return
+      // Skip when typing in input fields, textareas, selects, or contentEditable
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if ((e.target as HTMLElement)?.isContentEditable) return
+      // Skip when modifier keys are held (allow Cmd+C, Ctrl+C, etc.)
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault()
+        handleQuickCreate()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleQuickCreate])
 
   const handleSpaceCreated = (newSpaceId: string) => {
     router.push(`/${orgId}/project/${newSpaceId}`)

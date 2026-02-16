@@ -29,20 +29,28 @@ export function LPHeader() {
         </nav>
 
         {/* Right side: Login + Signup */}
-        <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
-          >
-            ログイン
-          </Link>
-          <Link
-            href="/signup"
-            className="px-4 py-2 bg-amber-500 text-white text-sm font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center gap-1"
-          >
-            無料で始める
-            <ArrowRight weight="bold" size={14} />
-          </Link>
+        <div className="flex items-center gap-6">
+          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
+            <Link href="/pricing" className="hover:text-amber-600 transition-colors">
+              料金プラン
+            </Link>
+          </nav>
+          <div className="h-4 w-px bg-slate-200 hidden md:block"></div>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              ログイン
+            </Link>
+            <Link
+              href="/signup"
+              className="px-4 py-2 bg-amber-500 text-white text-sm font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center gap-1"
+            >
+              無料で始める
+              <ArrowRight weight="bold" size={14} />
+            </Link>
+          </div>
         </div>
       </div>
     </header>
