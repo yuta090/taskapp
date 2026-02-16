@@ -1,8 +1,5 @@
-import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/server'
-import { prefetchMilestones } from '@/lib/supabase/prefetch'
+import { Suspense } from 'react'
 import { BurndownPageClient } from './BurndownPageClient'
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface Props {
   params: Promise<{
@@ -13,18 +10,9 @@ interface Props {
 
 export default async function BurndownPage({ params }: Props) {
   const { orgId, spaceId } = await params
-  const queryClient = new QueryClient()
-
-  try {
-    const supabase = await createClient() as unknown as SupabaseClient
-    await prefetchMilestones(queryClient, supabase, spaceId)
-  } catch {
-    // Prefetch failure is non-critical
-  }
-
   return (
-    <HydrationBoundary state={dehydrate(queryClient)}>
+    <Suspense fallback={<div className="flex-1" />}>
       <BurndownPageClient orgId={orgId} spaceId={spaceId} />
-    </HydrationBoundary>
+    </Suspense>
   )
 }

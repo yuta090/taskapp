@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { getCachedUser } from '@/lib/supabase/cached-auth'
+import { fetchMeetingsQuery } from '@/lib/supabase/queries'
+import type { MeetingsQueryData } from '@/lib/supabase/queries'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 
 interface UseMeetingsOptions {
@@ -50,28 +52,7 @@ interface MinutesPreviewResult {
   }>
 }
 
-/** 一覧表示用の軽量カラム（minutes_md を除外して転送量を削減） */
-const MEETING_LIST_COLUMNS = `
-  id,
-  org_id,
-  space_id,
-  title,
-  held_at,
-  notes,
-  status,
-  started_at,
-  ended_at,
-  summary_subject,
-  summary_body,
-  created_at,
-  updated_at,
-  meeting_participants (*)
-` as const
-
-interface MeetingsQueryData {
-  meetings: Meeting[]
-  participants: Record<string, MeetingParticipant[]>
-}
+// MEETING_LIST_COLUMNS and MeetingsQueryData are imported from @/lib/supabase/queries
 
 interface UseMeetingsReturn {
   meetings: Meeting[]
@@ -94,8 +75,6 @@ interface UseMeetingsReturn {
   previewMinutes: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
 }
 
-const MEETINGS_LIMIT = 50
-
 export function useMeetings({
   orgId,
   spaceId,
@@ -111,32 +90,7 @@ export function useMeetings({
 
   const { data, isPending, error: queryError } = useQuery<MeetingsQueryData>({
     queryKey,
-    queryFn: async (): Promise<MeetingsQueryData> => {
-      // 1クエリで meetings + participants を取得（ネストselect）
-      const { data: meetingsData, error: meetingsError } = await supabase
-        .from('meetings')
-        .select(MEETING_LIST_COLUMNS)
-        .eq('space_id' as never, spaceId as never)
-        .order('held_at', { ascending: false })
-        .limit(MEETINGS_LIMIT)
-
-      if (meetingsError) throw meetingsError
-
-      const rawMeetings = (meetingsData || []) as Array<Record<string, unknown> & { id: string; meeting_participants?: unknown[] }>
-
-      // participants をグルーピングし、meetings からは除去
-      const participantsByMeeting: Record<string, MeetingParticipant[]> = {}
-      const cleanMeetings: Meeting[] = rawMeetings.map((m) => {
-        const { meeting_participants, ...meetingFields } = m
-        if (Array.isArray(meeting_participants)) {
-          participantsByMeeting[m.id] = meeting_participants as MeetingParticipant[]
-        }
-        return meetingFields as unknown as Meeting
-      })
-
-      return { meetings: cleanMeetings, participants: participantsByMeeting }
-    },
-    staleTime: 30_000,
+    queryFn: () => fetchMeetingsQuery(supabase as SupabaseClient, spaceId),
     enabled: !!spaceId,
   })
 

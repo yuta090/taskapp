@@ -8,6 +8,8 @@ import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { getCachedUser, getCachedUserId } from '@/lib/supabase/cached-auth'
+import { fetchTasksQuery } from '@/lib/supabase/queries'
+import type { TasksQueryData, ReviewStatus } from '@/lib/supabase/queries'
 import type {
   Task,
   TaskOwner,
@@ -53,7 +55,8 @@ export interface UpdateTaskInput {
   actualHours?: number | null
 }
 
-type ReviewStatus = 'open' | 'approved' | 'changes_requested'
+// ReviewStatus and TasksQueryData are imported from @/lib/supabase/queries
+export type { TasksQueryData }
 
 interface UseTasksReturn {
   tasks: Task[]
@@ -74,11 +77,7 @@ interface UseTasksReturn {
   handleReviewChange: (taskId: string, status: string | null) => void
 }
 
-interface TasksQueryData {
-  tasks: Task[]
-  owners: Record<string, TaskOwner[]>
-  reviewStatuses: Record<string, ReviewStatus>
-}
+// TasksQueryData is imported from @/lib/supabase/queries
 
 /**
  * Validate parent_task_id assignment for 1-level hierarchy constraint.
@@ -136,50 +135,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const { data, isPending, error: queryError } = useQuery<TasksQueryData>({
     queryKey,
-    queryFn: async (): Promise<TasksQueryData> => {
-      // tasks + task_owners を取得（ネストselect）
-      const { data: tasksData, error: tasksError } = await (supabase as SupabaseClient)
-        .from('tasks')
-        .select('*, task_owners (*)')
-        .eq('org_id' as never, orgId as never)
-        .eq('space_id' as never, spaceId as never)
-        .order('created_at', { ascending: false })
-        .limit(50)
-
-      if (tasksError) throw tasksError
-
-      // review statuses を別クエリで取得（FK/RLS問題を回避）
-      const { data: reviewsData, error: reviewsError } = await (supabase as SupabaseClient)
-        .from('reviews')
-        .select('task_id, status')
-        .eq('space_id' as never, spaceId as never)
-      if (reviewsError) {
-        console.warn('[useTasks] reviews query failed:', reviewsError.message)
-      }
-
-      const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }>
-
-      // task_owners をグルーピングし、tasks からは除去
-      const ownersByTask: Record<string, TaskOwner[]> = {}
-      const cleanTasks: Task[] = rawTasks.map((t) => {
-        const { task_owners, ...taskFields } = t
-        if (Array.isArray(task_owners)) {
-          ownersByTask[t.id] = task_owners as TaskOwner[]
-        }
-        return taskFields as unknown as Task
-      })
-
-      // reviews をマップ化
-      const reviewsByTask: Record<string, ReviewStatus> = {}
-      if (Array.isArray(reviewsData)) {
-        for (const r of reviewsData as Array<{ task_id: string; status: string }>) {
-          reviewsByTask[r.task_id] = r.status as ReviewStatus
-        }
-      }
-
-      return { tasks: cleanTasks, owners: ownersByTask, reviewStatuses: reviewsByTask }
-    },
-    staleTime: 30_000,
+    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId),
     enabled: !!orgId && !!spaceId,
   })
 

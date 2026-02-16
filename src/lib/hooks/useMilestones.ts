@@ -4,6 +4,7 @@ import { useRef, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { fetchMilestonesQuery } from '@/lib/supabase/queries'
 import type { Milestone } from '@/types/database'
 
 interface UseMilestonesOptions {
@@ -44,17 +45,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
 
   const { data, isPending, error: queryError } = useQuery<Milestone[]>({
     queryKey,
-    queryFn: async (): Promise<Milestone[]> => {
-      const { data: milestonesData, error: err } = await (supabase as SupabaseClient)
-        .from('milestones')
-        .select('*')
-        .eq('space_id' as never, spaceId as never)
-        .order('order_key' as never, { ascending: true })
-
-      if (err) throw err
-      return (milestonesData || []) as Milestone[]
-    },
-    staleTime: 30_000,
+    queryFn: () => fetchMilestonesQuery(supabase as SupabaseClient, spaceId),
     enabled: !!spaceId,
   })
 
