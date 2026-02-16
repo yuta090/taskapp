@@ -53,6 +53,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
   const lastBall = lastBallBySpace[spaceId] ?? 'internal'
   const lastClientOwnerIds = lastClientOwnersBySpace[spaceId] ?? []
+  const [spaceName, setSpaceName] = useState<string>('')
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
@@ -128,6 +129,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch stores results in state
     void fetchReviewStatuses()
   }, [fetchTasks, fetchMilestones, fetchReviewStatuses])
+
+  // Fetch space name with race condition + unmount guard
+  useEffect(() => {
+    let active = true
+    setSpaceName('') // eslint-disable-line react-hooks/set-state-in-effect -- reset before async fetch
+    void (async () => {
+      const supabase = createClient()
+      const { data } = await supabase.from('spaces').select('name').eq('id' as never, spaceId as never).single()
+      if (active && data) setSpaceName((data as Record<string, string>).name)
+    })()
+    return () => { active = false }
+  }, [spaceId])
 
   useEffect(() => {
     return () => {
@@ -459,7 +472,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   // Breadcrumb items
   const breadcrumbItems = [
-    { label: 'Webリニューアル', href: projectBasePath },
+    { label: spaceName || 'プロジェクト', href: projectBasePath },
     { label: activeFilter === 'client_wait' ? '確認待ち' : 'タスク' },
   ]
 
@@ -666,6 +679,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       <TaskCreateSheet
         spaceId={spaceId}
         orgId={orgId}
+        spaceName={spaceName}
         isOpen={isCreateOpen}
         onClose={handleCreateClose}
         onSubmit={handleCreateSubmit}
