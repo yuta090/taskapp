@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 
 interface UseMeetingsOptions {
@@ -207,10 +208,10 @@ export function useMeetings({
       setMeetings((prev) => [optimisticMeeting, ...prev])
 
       try {
-        const { data: authData, error: authError } =
-          await supabase.auth.getUser()
+        const { user: authUser, error: authError } =
+          await getCachedUser(supabase)
         if (authError) throw authError
-        if (!authData?.user) {
+        if (!authUser) {
           throw new Error('ログインが必要です')
         }
 
@@ -222,7 +223,7 @@ export function useMeetings({
             title: meeting.title,
             held_at: heldAt,
             status: 'planned',
-            created_by: authData.user.id,
+            created_by: authUser.id,
           })
           .select('*')
           .single()
@@ -237,13 +238,13 @@ export function useMeetings({
             meeting_id: createdMeeting.id,
             user_id: userId,
             side: 'client' as const,
-            created_by: authData.user.id,
+            created_by: authUser.id,
           })),
           ...meeting.internalParticipantIds.map((userId) => ({
             meeting_id: createdMeeting.id,
             user_id: userId,
             side: 'internal' as const,
-            created_by: authData.user.id,
+            created_by: authUser.id,
           })),
         ]
 
