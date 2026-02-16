@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye } from '@phosphor-icons/react'
+import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, Link as LinkIcon } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -74,7 +74,6 @@ export function TaskCreateSheet({
     : spaceName || ''
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [type, setType] = useState<TaskType>('task')
   const [ball, setBall] = useState<BallSide>(defaultBall)
   const [clientScope, setClientScope] = useState<ClientScope>('internal')
   const [specPath, setSpecPath] = useState('')
@@ -93,6 +92,7 @@ export function TaskCreateSheet({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [estimationExpanded, setEstimationExpanded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showPortalPreview, setShowPortalPreview] = useState(false)
 
   // Estimation assist hook
   const estimation = useEstimationAssist({
@@ -255,34 +255,26 @@ export function TaskCreateSheet({
       return
     }
 
-    // Validate: spec tasks need spec_path
-    if (type === 'spec' && !specPath) {
-      toast.error('仕様タスクには spec_path が必要です')
-      return
-    }
-
-    if (type === 'spec' && (!specPath.includes('/spec/') || !specPath.includes('#'))) {
-      toast.error('仕様タスクの spec_path は /spec/...#... の形式で入力してください')
-      return
-    }
-
     // Validate: ball=client needs client owner
     if (ball === 'client' && clientOwnerIds.length === 0) {
       toast.error('外部にボールを渡す場合は外部担当者を指定してください')
       return
     }
 
+    // Auto-determine type based on specPath
+    const effectiveType: TaskType = specPath.trim() ? 'spec' : 'task'
+
     setIsSubmitting(true)
     try {
       await onSubmit({
         title: title.trim(),
         description: description.trim() || undefined,
-        type,
+        type: effectiveType,
         ball,
         origin: 'internal', // Always internal when creating
         clientScope,
-        specPath: type === 'spec' ? specPath : undefined,
-        decisionState: type === 'spec' ? decisionState : undefined,
+        specPath: effectiveType === 'spec' ? specPath.trim() : undefined,
+        decisionState: effectiveType === 'spec' ? decisionState : undefined,
         clientOwnerIds,
         internalOwnerIds,
         dueDate: dueDate || undefined,
@@ -295,7 +287,6 @@ export function TaskCreateSheet({
       // Reset form only on success
       setTitle('')
       setDescription('')
-      setType('task')
       setSpecPath('')
       setDueDate('')
       setAssigneeId('')
@@ -565,7 +556,7 @@ export function TaskCreateSheet({
             {showAdvanced ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
             <span>詳細オプション</span>
             {/* Show count of configured advanced options */}
-            {!showAdvanced && (type !== 'task' || dueDate || assigneeId || milestoneId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0) && (
+            {!showAdvanced && (specPath || dueDate || assigneeId || milestoneId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0) && (
               <span className="text-xs text-blue-500 ml-1">設定済み</span>
             )}
           </button>
@@ -573,81 +564,49 @@ export function TaskCreateSheet({
           {/* === EXPANDED MODE: Advanced options === */}
           {showAdvanced && (
             <div className="space-y-4 pl-1 border-l-2 border-gray-100 ml-1">
-              {/* Type selector */}
+              {/* Spec link (optional) */}
               <div className="pl-3">
-                <label className="text-xs font-medium text-gray-500">タイプ</label>
-                <div className="mt-1 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setType('task')}
-                    data-testid="task-create-type-task"
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                      type === 'task'
-                        ? 'bg-gray-100 border-gray-300 font-medium'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    通常タスク
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setType('spec')}
-                    data-testid="task-create-type-spec"
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                      type === 'spec'
-                        ? 'bg-gray-100 border-gray-300 font-medium text-gray-700'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    仕様タスク
-                  </button>
-                </div>
-                {type === 'spec' && (
-                  <p className="mt-1 text-xs text-gray-400">仕様書に紐づくタスク。決定→実装のフローで進めます</p>
-                )}
+                <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                  <LinkIcon className="text-sm" />
+                  仕様リンク（任意）
+                </label>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  仕様書へのリンクを入力すると、決定→実装フローで管理できます
+                </p>
+                <input
+                  type="text"
+                  value={specPath}
+                  onChange={(e) => setSpecPath(e.target.value)}
+                  placeholder="例: Notion URL、Google Docs URL、ファイルパスなど"
+                  data-testid="task-create-spec-path"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
 
-              {/* Spec fields */}
-              {type === 'spec' && (
-                <div className="space-y-3 p-3 ml-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">
-                      仕様ファイルパス <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={specPath}
-                      onChange={(e) => setSpecPath(e.target.value)}
-                      placeholder="/spec/payment/refund.md#api-contract"
-                      data-testid="task-create-spec-path"
-                      className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">
-                      決定状態
-                    </label>
-                    <div className="mt-1 flex gap-2">
-                      {(['considering', 'decided', 'implemented'] as const).map((state) => (
-                        <button
-                          key={state}
-                          type="button"
-                          onClick={() => setDecisionState(state)}
-                          data-testid={`task-create-decision-${state}`}
-                          className={`px-2 py-1 text-xs rounded border transition-colors ${
-                            decisionState === state
-                              ? 'bg-gray-100 border-gray-300 font-medium'
-                              : 'border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >
-                          {state === 'considering'
-                            ? '検討中'
-                            : state === 'decided'
-                            ? '決定'
-                            : '実装済'}
-                        </button>
-                      ))}
-                    </div>
+              {/* Decision state (shown only when spec link is provided) */}
+              {specPath.trim() && (
+                <div className="pl-3">
+                  <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
+                  <div className="mt-1 flex gap-2">
+                    {(['considering', 'decided', 'implemented'] as const).map((state) => (
+                      <button
+                        key={state}
+                        type="button"
+                        onClick={() => setDecisionState(state)}
+                        data-testid={`task-create-decision-${state}`}
+                        className={`px-2 py-1 text-xs rounded border transition-colors ${
+                          decisionState === state
+                            ? 'bg-gray-100 border-gray-300 font-medium'
+                            : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        {state === 'considering'
+                          ? '検討中'
+                          : state === 'decided'
+                          ? '決定'
+                          : '実装済'}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
@@ -818,32 +777,89 @@ export function TaskCreateSheet({
               </div>
 
               {/* Client Scope toggle */}
-              <div className="flex items-center justify-between py-2 px-3 ml-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-blue-500' : 'text-gray-300'}`} />
-                  <div>
-                    <span className="text-sm font-medium text-gray-700">クライアントに公開</span>
-                    <p className="text-xs text-gray-500">
-                      {clientScope === 'deliverable'
-                        ? 'クライアントのポータルに表示されます'
-                        : '内部作業として非表示'}
+              <div className="relative ml-3">
+                <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-blue-500' : 'text-gray-300'}`} />
+                    <div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-medium text-gray-700">クライアントに公開</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowPortalPreview(!showPortalPreview)}
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                          aria-label="ポータル表示のプレビュー"
+                        >
+                          <Info className="text-sm" />
+                        </button>
+                      </div>
+                      {clientScope === 'deliverable' && (
+                        <p className="text-xs text-gray-500">
+                          クライアントのダッシュボードに表示されます
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
+                    data-testid="task-create-client-scope-toggle"
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                      clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                        clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Portal preview tooltip */}
+                {showPortalPreview && (
+                  <div className="absolute z-50 top-full mt-2 left-0 right-0 bg-white rounded-lg shadow-lg border border-gray-200 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-gray-700">クライアントポータルのイメージ</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPortalPreview(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="text-xs" />
+                      </button>
+                    </div>
+                    {/* Mini portal mockup */}
+                    <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                      {/* Mock header */}
+                      <div className="bg-white px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+                        <div className="w-4 h-4 rounded bg-blue-500" />
+                        <span className="text-[10px] font-medium text-gray-700">クライアントポータル</span>
+                      </div>
+                      {/* Mock task list */}
+                      <div className="p-2 space-y-1.5">
+                        <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border-2 border-green-400" />
+                          <span className="text-[10px] text-gray-600">完了済みタスク</span>
+                          <span className="ml-auto text-[9px] text-green-600 bg-green-50 px-1 rounded">完了</span>
+                        </div>
+                        <div className="bg-blue-50 rounded px-2 py-1.5 border border-blue-200 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border-2 border-blue-400" />
+                          <span className="text-[10px] text-blue-700 font-medium">このタスク ← 公開される</span>
+                          <span className="ml-auto text-[9px] text-blue-600 bg-blue-100 px-1 rounded">進行中</span>
+                        </div>
+                        <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border-2 border-amber-400" />
+                          <span className="text-[10px] text-gray-600">確認待ちタスク</span>
+                          <span className="ml-auto text-[9px] text-amber-600 bg-amber-50 px-1 rounded">確認待ち</span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-gray-400 leading-relaxed">
+                      ONにすると、クライアントはポータル画面でこのタスクの進捗・ステータスを確認できます。社内メモや非公開タスクは表示されません。
                     </p>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
-                  data-testid="task-create-client-scope-toggle"
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
-                    clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                      clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                )}
               </div>
 
               {/* Parent task */}
