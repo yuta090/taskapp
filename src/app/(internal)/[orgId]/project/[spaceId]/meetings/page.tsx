@@ -1,5 +1,6 @@
 import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/server'
+import { prefetchMeetings } from '@/lib/supabase/prefetch'
 import { MeetingsPageClient } from './MeetingsPageClient'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -16,19 +17,7 @@ export default async function MeetingsPage({ params }: Props) {
 
   try {
     const supabase = await createClient() as unknown as SupabaseClient
-    await queryClient.prefetchQuery({
-      queryKey: ['meetings', spaceId],
-      queryFn: async () => {
-        const { data, error } = await supabase
-          .from('meetings')
-          .select('id, org_id, space_id, title, held_at, notes, status, started_at, ended_at, created_at, updated_at, created_by, updated_by, meeting_participants (*)')
-          .eq('space_id', spaceId)
-          .order('held_at', { ascending: false })
-          .limit(50)
-        if (error) throw error
-        return data ?? []
-      },
-    })
+    await prefetchMeetings(queryClient, supabase, spaceId)
   } catch {
     // Prefetch failure is non-critical
   }

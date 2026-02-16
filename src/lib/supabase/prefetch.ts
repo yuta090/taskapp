@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Task, Milestone } from '@/types/database'
+import type { Task, Milestone, Meeting, MeetingParticipant } from '@/types/database'
 
 type TaskOwner = { id: string; task_id: string; user_id: string; role: string }
 type ReviewStatus = string
@@ -102,6 +102,55 @@ export async function prefetchSpaceName(
         .eq('id', spaceId)
         .single()
       return (data as { name: string } | null)?.name ?? ''
+    },
+  })
+}
+
+/** Columns matching MEETING_LIST_COLUMNS in useMeetings hook */
+const MEETING_LIST_COLUMNS = `
+  id, org_id, space_id, title, held_at, notes, status,
+  started_at, ended_at, summary_subject, summary_body,
+  created_at, updated_at,
+  meeting_participants (*)
+` as const
+
+interface MeetingsQueryData {
+  meetings: Meeting[]
+  participants: Record<string, MeetingParticipant[]>
+}
+
+/**
+ * Prefetch meetings + participants for a space.
+ * Must match queryKey/data shape of useMeetings hook exactly.
+ */
+export async function prefetchMeetings(
+  queryClient: QueryClient,
+  supabase: SupabaseClient,
+  spaceId: string
+) {
+  await queryClient.prefetchQuery<MeetingsQueryData>({
+    queryKey: ['meetings', spaceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('meetings')
+        .select(MEETING_LIST_COLUMNS)
+        .eq('space_id', spaceId)
+        .order('held_at', { ascending: false })
+        .limit(50)
+
+      if (error) throw error
+
+      const rawMeetings = (data || []) as Array<Record<string, unknown> & { id: string; meeting_participants?: unknown[] }>
+      const participantsByMeeting: Record<string, MeetingParticipant[]> = {}
+      const cleanMeetings: Meeting[] = rawMeetings.map((m) => {
+        const { meeting_participants, ...meetingFields } = m
+        if (Array.isArray(meeting_participants)) {
+          participantsByMeeting[m.id] = meeting_participants as MeetingParticipant[]
+        }
+        return meetingFields as unknown as Meeting
+      })
+
+      return { meetings: cleanMeetings, participants: participantsByMeeting }
     },
   })
 }

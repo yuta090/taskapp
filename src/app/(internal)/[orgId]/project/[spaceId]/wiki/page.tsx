@@ -18,6 +18,8 @@ export default async function WikiPage({ params }: Props) {
   try {
     const supabase = await createClient() as unknown as SupabaseClient
     await Promise.all([
+      // Only prefetch wiki pages if pages exist.
+      // When empty, skip prefetch so the client hook's auto-create logic can run.
       queryClient.prefetchQuery({
         queryKey: ['wikiPages', orgId, spaceId],
         queryFn: async () => {
@@ -28,13 +30,16 @@ export default async function WikiPage({ params }: Props) {
             .eq('space_id', spaceId)
             .order('updated_at', { ascending: false })
           if (error) throw error
-          return { pages: data ?? [], autoCreatedPageId: null }
+          const pages = data ?? []
+          // If no pages exist, throw to skip caching — let client hook handle auto-creation
+          if (pages.length === 0) throw new Error('empty-wiki-skip-prefetch')
+          return { pages, autoCreatedPageId: null }
         },
       }),
       prefetchMilestones(queryClient, supabase, spaceId),
     ])
   } catch {
-    // Prefetch failure is non-critical
+    // Prefetch failure is non-critical — client hooks will re-fetch (and auto-create if needed)
   }
 
   return (
