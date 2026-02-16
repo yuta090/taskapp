@@ -144,11 +144,6 @@ export function calculateMilestoneRisk(
 /**
  * Calculate velocity: completed tasks per day over the last N days.
  *
- * Uses updated_at as a proxy for completion time. This is an approximation:
- * if actual_hours is edited on a completed task, its updated_at changes,
- * which could inflate velocity. A dedicated completed_at column would be
- * more accurate but requires a schema change.
- *
  * @param tasks - All tasks in the space
  * @param days - Lookback window in days (default: 14)
  * @returns Average tasks completed per day
@@ -162,9 +157,9 @@ export function calculateVelocity(tasks: Task[], days: number = 14): number {
 
   const completedInWindow = tasks.filter((t) => {
     if (t.status !== 'done') return false
-    if (!t.updated_at) return false
-    const updatedAt = new Date(t.updated_at)
-    return updatedAt >= cutoff
+    const completedDate = t.completed_at ?? t.updated_at
+    if (!completedDate) return false
+    return new Date(completedDate) >= cutoff
   })
 
   return completedInWindow.length / days

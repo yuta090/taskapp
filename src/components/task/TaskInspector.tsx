@@ -1049,6 +1049,18 @@ export function TaskInspector({
           )}
         </div>
 
+        {/* Completed At (shown when task is done) */}
+        {task.status === 'done' && task.completed_at && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500">完了日</label>
+            <div className="text-sm text-gray-700">
+              {new Date(task.completed_at).toLocaleDateString('ja-JP', {
+                year: 'numeric', month: 'long', day: 'numeric',
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Actual Hours (shown when task is done) */}
         {task.status === 'done' && (
           <div className="space-y-2">

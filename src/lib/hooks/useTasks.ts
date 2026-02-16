@@ -192,6 +192,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         milestone_id: task.milestoneId ?? null,
         parent_task_id: task.parentTaskId ?? null,
         actual_hours: null,
+        completed_at: null,
         ball: task.ball,
         origin: task.origin,
         type: task.type,
@@ -347,11 +348,12 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         prev.map((t) => {
           if (t.id === taskId) {
             prevTask = t
+            const newStatus = input.status ?? t.status
             return {
               ...t,
               title: input.title ?? t.title,
               description: input.description !== undefined ? input.description : t.description,
-              status: input.status ?? t.status,
+              status: newStatus,
               priority: input.priority !== undefined ? input.priority : t.priority,
               start_date: input.startDate !== undefined ? input.startDate : t.start_date,
               due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
@@ -359,6 +361,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
               parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
               actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
+              completed_at: newStatus === 'done' && t.status !== 'done'
+                ? new Date().toISOString()
+                : newStatus !== 'done' && t.status === 'done'
+                  ? null
+                  : t.completed_at,
               updated_at: new Date().toISOString(),
             }
           }
@@ -426,6 +433,35 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
                 milestone_id: input.milestoneId !== undefined ? input.milestoneId : prevTask.milestone_id,
               },
             })
+          }
+
+          // Milestone completion audit log (fire-and-forget)
+          if (input.status === 'done' && prevTask.status !== 'done' && prevTask.milestone_id) {
+            void (async () => {
+              try {
+                const { data: msData } = await (supabase as SupabaseClient)
+                  .from('milestones')
+                  .select('id, name, completed_at')
+                  .eq('id' as never, prevTask.milestone_id as never)
+                  .single()
+                if (msData?.completed_at) {
+                  void createAuditLog({
+                    supabase,
+                    orgId,
+                    spaceId,
+                    actorId,
+                    actorRole: 'member',
+                    eventType: 'milestone.completed',
+                    targetType: 'milestone',
+                    targetId: msData.id,
+                    summary: generateAuditSummary('milestone.completed', { name: msData.name }),
+                    dataAfter: { completed_at: msData.completed_at },
+                  })
+                }
+              } catch {
+                // Best-effort: don't block task update on milestone audit failure
+              }
+            })()
           }
 
           // Milestone reassignment audit log
