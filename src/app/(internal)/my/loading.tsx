@@ -1,18 +1,33 @@
+import { Target, FunnelSimple, SortAscending } from '@phosphor-icons/react/dist/ssr'
 import { SkeletonLine, SkeletonBlock, SkeletonCircle } from '@/components/shared/Skeleton'
 
 export default function Loading() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {/* Real header */}
       <header className="h-12 border-b border-gray-100 flex items-center px-5 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <SkeletonCircle className="w-5 h-5" />
-          <SkeletonLine className="w-20" />
-          <SkeletonLine className="w-8 h-2.5" />
-        </div>
+        <h1 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+          <Target className="text-lg text-gray-500" />
+          マイタスク
+        </h1>
+        <span className="ml-2 text-xs text-gray-400">
+          <SkeletonLine className="w-8 inline-block" />
+        </span>
+        <div className="flex-1" />
+        {/* Filter button */}
+        <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-500 rounded">
+          <FunnelSimple className="text-sm" />
+          フィルター
+        </span>
+        {/* Sort button */}
+        <span className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 rounded ml-1">
+          <SortAscending className="text-sm" />
+          期限
+        </span>
       </header>
+      {/* Content skeleton — task groups only */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="py-4 space-y-6">
-          {/* Two project groups */}
           {Array.from({ length: 2 }).map((_, gi) => (
             <div key={gi}>
               {/* Project header */}

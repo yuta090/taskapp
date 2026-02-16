@@ -1,33 +1,52 @@
+import { SquaresFour, ChartLine } from '@phosphor-icons/react/dist/ssr'
 import { SkeletonLine, SkeletonBlock } from '@/components/shared/Skeleton'
 
 export default function Loading() {
-  const barWidths = ['w-2/5', 'w-3/5', 'w-1/4', 'w-1/2', 'w-2/3', 'w-1/3', 'w-3/4', 'w-2/5']
-  const barOffsets = ['ml-[10%]', 'ml-[20%]', 'ml-[5%]', 'ml-[30%]', 'ml-[15%]', 'ml-[40%]', 'ml-[10%]', 'ml-[25%]']
-
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Tab nav skeleton */}
-      <div className="h-10 border-b border-gray-200 flex items-center gap-4 px-4 flex-shrink-0">
-        <SkeletonBlock className="w-16 h-6 rounded" />
-        <SkeletonBlock className="w-20 h-6 rounded" />
-      </div>
-      {/* Gantt grid */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left: task names */}
-        <div className="w-64 border-r border-gray-200 flex-shrink-0">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-10 flex items-center px-3 border-b border-gray-100">
-              <SkeletonLine className={i % 2 === 0 ? 'w-3/4' : 'w-1/2'} />
-            </div>
-          ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      {/* Real header */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <SquaresFour className="text-lg text-gray-500" />
+          <SkeletonLine className="w-24" />
         </div>
-        {/* Right: timeline bars */}
-        <div className="flex-1">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-10 flex items-center border-b border-gray-100 px-2">
-              <SkeletonBlock className={`h-5 rounded ${barWidths[i]} ${barOffsets[i]}`} />
-            </div>
-          ))}
+      </div>
+
+      {/* Real tab nav (ViewsTabNav replica) */}
+      <div className="flex items-center gap-1 px-4 pt-2 bg-white border-b border-gray-200" aria-hidden="true">
+        <span className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-900 bg-gray-50 border border-gray-200 border-b-transparent -mb-px rounded-t">
+          <SquaresFour className="w-3.5 h-3.5" />
+          ガントチャート
+        </span>
+        <span className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-500">
+          <ChartLine className="w-3.5 h-3.5" />
+          バーンダウン
+        </span>
+      </div>
+
+      {/* Content skeleton — gantt grid only */}
+      <div className="flex-1 p-4 overflow-hidden">
+        <div className="flex h-full rounded-lg border border-gray-200 bg-white overflow-hidden">
+          {/* Left sidebar — task names */}
+          <div className="w-[200px] border-r border-gray-200 flex-shrink-0">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100">
+                <SkeletonLine className={`${i % 2 === 0 ? 'w-3/4' : 'w-1/2'}`} />
+              </div>
+            ))}
+          </div>
+          {/* Right side — timeline placeholder */}
+          <div className="flex-1 relative">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center h-[38px] border-b border-gray-100 px-4">
+                <SkeletonBlock
+                  className={`h-5 rounded ${
+                    i % 3 === 0 ? 'w-1/3 ml-[10%]' : i % 3 === 1 ? 'w-1/4 ml-[20%]' : 'w-2/5 ml-[5%]'
+                  }`}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
