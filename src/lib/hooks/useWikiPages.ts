@@ -80,7 +80,7 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
            
           const { data: spaceData } = await (supabase as SupabaseClient)
             .from('spaces')
-            .select('preset_genre')
+            .select('*')
             .eq('id', spaceId)
             .eq('org_id', orgId)
             .single()

@@ -28,7 +28,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
       const sb = supabaseRef.current as any
 
       const [spaceRes, wikiRes, msRes] = await Promise.all([
-        sb.from('spaces').select('preset_genre').eq('id', spaceId).single(),
+        sb.from('spaces').select('*').eq('id', spaceId).single(),
         sb.from('wiki_pages').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
         sb.from('milestones').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
       ])
@@ -63,7 +63,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = supabaseRef.current as any
     Promise.all([
-      sb.from('spaces').select('preset_genre').eq('id', spaceId).single(),
+      sb.from('spaces').select('*').eq('id', spaceId).single(),
       sb.from('wiki_pages').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
       sb.from('milestones').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
     ]).then(([spaceRes, wikiRes, msRes]: [
