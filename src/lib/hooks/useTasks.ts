@@ -137,10 +137,10 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
   const { data, isLoading, error: queryError } = useQuery<TasksQueryData>({
     queryKey,
     queryFn: async (): Promise<TasksQueryData> => {
-      // 1クエリで tasks + task_owners + reviews を取得（ネストselect）
+      // tasks + task_owners を取得（ネストselect）
       const { data: tasksData, error: tasksError } = await (supabase as SupabaseClient)
         .from('tasks')
-        .select('*, task_owners (*), reviews (task_id, status)')
+        .select('*, task_owners (*)')
         .eq('org_id' as never, orgId as never)
         .eq('space_id' as never, spaceId as never)
         .order('created_at', { ascending: false })
@@ -148,21 +148,31 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
       if (tasksError) throw tasksError
 
-      const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[]; reviews?: Array<{ task_id: string; status: string }> }>
+      // review statuses を別クエリで取得（FK/RLS問題を回避）
+      const { data: reviewsData } = await (supabase as SupabaseClient)
+        .from('reviews')
+        .select('task_id, status')
+        .eq('space_id' as never, spaceId as never)
 
-      // task_owners + reviews をグルーピングし、tasks からは除去
+      const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }>
+
+      // task_owners をグルーピングし、tasks からは除去
       const ownersByTask: Record<string, TaskOwner[]> = {}
-      const reviewsByTask: Record<string, ReviewStatus> = {}
       const cleanTasks: Task[] = rawTasks.map((t) => {
-        const { task_owners, reviews, ...taskFields } = t
+        const { task_owners, ...taskFields } = t
         if (Array.isArray(task_owners)) {
           ownersByTask[t.id] = task_owners as TaskOwner[]
         }
-        if (Array.isArray(reviews) && reviews.length > 0) {
-          reviewsByTask[t.id] = reviews[0].status as ReviewStatus
-        }
         return taskFields as unknown as Task
       })
+
+      // reviews をマップ化
+      const reviewsByTask: Record<string, ReviewStatus> = {}
+      if (Array.isArray(reviewsData)) {
+        for (const r of reviewsData as Array<{ task_id: string; status: string }>) {
+          reviewsByTask[r.task_id] = r.status as ReviewStatus
+        }
+      }
 
       return { tasks: cleanTasks, owners: ownersByTask, reviewStatuses: reviewsByTask }
     },

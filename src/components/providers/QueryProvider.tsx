@@ -16,6 +16,7 @@ function makeQueryClient() {
         staleTime: 30_000,
         gcTime: 1000 * 60 * 60 * 24, // 24 hours — keep cache for persistence
         refetchOnWindowFocus: false,
+        retry: 1, // デフォルト3回→1回に抑制（エラー時の余計なリクエスト防止）
       },
     },
   })
