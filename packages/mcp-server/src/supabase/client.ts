@@ -33,6 +33,9 @@ export interface Task {
   spec_path: string | null
   decision_state: 'considering' | 'decided' | 'implemented' | null
   client_scope: 'deliverable' | 'internal'
+  parent_task_id: string | null
+  start_date: string | null
+  actual_hours: number | null
   created_at: string
   updated_at: string
 }

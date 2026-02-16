@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
+import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -15,11 +15,19 @@ const DEMO_ACCOUNTS = [
   { email: 'client2@client.com', password: 'client2345', name: '高橋 美咲', label: 'クライアント承認者', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200' },
 ]
 
-export default function LoginPage() {
+const AUTH_ERRORS: Record<string, string> = {
+  auth_callback_failed: 'Google認証に失敗しました。もう一度お試しください。',
+  auth_cancelled: 'Google認証がキャンセルされました。',
+}
+
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirect = searchParams.get('redirect')
+  const errorFromUrl = searchParams.get('error')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(errorFromUrl ? AUTH_ERRORS[errorFromUrl] || '' : '')
   const [loading, setLoading] = useState(false)
   const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
 
@@ -139,7 +147,7 @@ export default function LoginPage() {
       footer={
         <>
           アカウントをお持ちでない方は{' '}
-          <Link href="/signup" className="text-indigo-600 hover:text-indigo-700 font-medium">
+          <Link href="/signup" className="text-amber-600 hover:text-amber-700 font-medium">
             新規登録
           </Link>
         </>
@@ -186,6 +194,22 @@ export default function LoginPage() {
         </AuthButton>
       </form>
 
+      {/* Google Login */}
+      <div className="mt-4">
+        <div className="relative my-4">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-200" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-white px-2 text-gray-500">または</span>
+          </div>
+        </div>
+        <GoogleSignInButton
+          label="Googleでログイン"
+          redirectTo={redirect || undefined}
+        />
+      </div>
+
       {/* Demo Accounts Section */}
       <div className="mt-6 pt-6 border-t border-gray-200">
         <div className="text-xs text-gray-500 mb-3 text-center">テスト用デモアカウント</div>
@@ -214,5 +238,13 @@ export default function LoginPage() {
         </div>
       </div>
     </AuthCard>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

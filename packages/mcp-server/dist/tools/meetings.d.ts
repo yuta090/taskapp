@@ -1,53 +1,65 @@
 import { z } from 'zod';
 import { Meeting } from '../supabase/client.js';
 export declare const meetingCreateSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     title: z.ZodString;
     heldAt: z.ZodOptional<z.ZodString>;
     notes: z.ZodOptional<z.ZodString>;
     participantIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     title: string;
     participantIds: string[];
     heldAt?: string | undefined;
     notes?: string | undefined;
 }, {
+    spaceId: string;
     title: string;
     heldAt?: string | undefined;
     notes?: string | undefined;
     participantIds?: string[] | undefined;
 }>;
 export declare const meetingStartSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     meetingId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     meetingId: string;
 }, {
+    spaceId: string;
     meetingId: string;
 }>;
 export declare const meetingEndSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     meetingId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     meetingId: string;
 }, {
+    spaceId: string;
     meetingId: string;
 }>;
 export declare const meetingListSchema: z.ZodObject<{
-    spaceId: z.ZodOptional<z.ZodString>;
+    spaceId: z.ZodString;
     status: z.ZodOptional<z.ZodEnum<["planned", "in_progress", "ended"]>>;
     limit: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     limit: number;
-    spaceId?: string | undefined;
     status?: "in_progress" | "planned" | "ended" | undefined;
 }, {
-    spaceId?: string | undefined;
+    spaceId: string;
     status?: "in_progress" | "planned" | "ended" | undefined;
     limit?: number | undefined;
 }>;
 export declare const meetingGetSchema: z.ZodObject<{
+    spaceId: z.ZodString;
     meetingId: z.ZodString;
 }, "strip", z.ZodTypeAny, {
+    spaceId: string;
     meetingId: string;
 }, {
+    spaceId: string;
     meetingId: string;
 }>;
 export declare function meetingCreate(params: z.infer<typeof meetingCreateSchema>): Promise<Meeting>;
@@ -81,16 +93,19 @@ export declare const meetingTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         title: z.ZodString;
         heldAt: z.ZodOptional<z.ZodString>;
         notes: z.ZodOptional<z.ZodString>;
         participantIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         title: string;
         participantIds: string[];
         heldAt?: string | undefined;
         notes?: string | undefined;
     }, {
+        spaceId: string;
         title: string;
         heldAt?: string | undefined;
         notes?: string | undefined;
@@ -101,10 +116,13 @@ export declare const meetingTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         meetingId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         meetingId: string;
     }, {
+        spaceId: string;
         meetingId: string;
     }>;
     handler: typeof meetingStart;
@@ -112,15 +130,15 @@ export declare const meetingTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
-        spaceId: z.ZodOptional<z.ZodString>;
+        spaceId: z.ZodString;
         status: z.ZodOptional<z.ZodEnum<["planned", "in_progress", "ended"]>>;
         limit: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         limit: number;
-        spaceId?: string | undefined;
         status?: "in_progress" | "planned" | "ended" | undefined;
     }, {
-        spaceId?: string | undefined;
+        spaceId: string;
         status?: "in_progress" | "planned" | "ended" | undefined;
         limit?: number | undefined;
     }>;
@@ -129,10 +147,13 @@ export declare const meetingTools: ({
     name: string;
     description: string;
     inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
         meetingId: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        spaceId: string;
         meetingId: string;
     }, {
+        spaceId: string;
         meetingId: string;
     }>;
     handler: typeof meetingGet;

@@ -1,15 +1,5 @@
-import { GeneralSettings } from './GeneralSettings'
-import { PresetSettings } from './PresetSettings'
-import { MilestonesSettings } from './MilestonesSettings'
-import { MembersSettings } from './MembersSettings'
-import { ApiSettings } from './ApiSettings'
-import { GitHubSettings } from './GitHubSettings'
-import { SlackSettings } from './SlackSettings'
-import { AiSettings } from './AiSettings'
-import { GoogleCalendarSettings } from './GoogleCalendarSettings'
-import { VideoConferenceSettings } from './VideoConferenceSettings'
-import { ExportSettings } from './ExportSettings'
 import { SettingsHeader } from './SettingsHeader'
+import { SettingsLayout } from './SettingsLayout'
 
 interface PageProps {
   params: Promise<{
@@ -24,68 +14,7 @@ export default async function SettingsPage({ params }: PageProps) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <SettingsHeader orgId={orgId} spaceId={spaceId} />
-      <div className="flex-1 overflow-y-auto">
-        <div className="content-wrap py-6">
-
-      {/* Settings sections */}
-      <div className="space-y-8">
-        {/* General settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <GeneralSettings spaceId={spaceId} />
-        </section>
-
-        {/* Preset / Initial setup section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <PresetSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* Milestones section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <MilestonesSettings spaceId={spaceId} />
-        </section>
-
-        {/* Members section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <MembersSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* GitHub Settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <GitHubSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* Slack Settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <SlackSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* AI Settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <AiSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* Google Calendar Settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <GoogleCalendarSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* Video Conference Settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <VideoConferenceSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* API Settings section (admin only) */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <ApiSettings orgId={orgId} spaceId={spaceId} />
-        </section>
-
-        {/* Export Settings section */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6">
-          <ExportSettings spaceId={spaceId} />
-        </section>
-      </div>
-        </div>
-      </div>
+      <SettingsLayout orgId={orgId} spaceId={spaceId} />
     </div>
   )
 }

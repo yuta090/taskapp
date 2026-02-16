@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
-import { config } from '../config.js'
+import { checkAuth } from '../auth/helpers.js'
 
 // Types
 export interface Review {
@@ -25,44 +25,55 @@ export interface ReviewApproval {
   updated_at: string
 }
 
+// Helper: get orgId from spaceId
+async function getOrgId(spaceId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
+  if (error || !data) throw new Error('スペースが見つかりません')
+  return data.org_id
+}
+
 // Schemas
 export const reviewOpenSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
   reviewerIds: z.array(z.string().uuid()).min(1).describe('レビュアーUUID配列（1人以上必須）'),
 })
 
 export const reviewApproveSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
 })
 
 export const reviewBlockSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
   reason: z.string().min(1).describe('ブロック理由'),
 })
 
 export const reviewListSchema = z.object({
-  spaceId: z.string().uuid().optional().describe('スペースUUID'),
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   status: z.enum(['open', 'approved', 'changes_requested']).optional().describe('ステータスでフィルタ'),
   limit: z.number().min(1).max(100).default(20).describe('取得件数'),
 })
 
 export const reviewGetSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   taskId: z.string().uuid().describe('タスクUUID'),
 })
 
 // Tool implementations
 export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Promise<{ ok: boolean; review: Review }> {
+  await checkAuth(params.spaceId, 'write', 'review_open', 'review', params.taskId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Pre-validate: verify task belongs to current tenant before RPC
   const { data: existingTask, error: checkError } = await supabase
     .from('tasks')
     .select('id')
     .eq('id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (checkError || !existingTask) {
@@ -77,13 +88,12 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
 
   if (error) throw new Error('レビューの開始に失敗しました')
 
-  // Fetch the review with org/space scoping
   const { data: review, error: reviewError } = await supabase
     .from('reviews')
     .select('*')
     .eq('task_id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (reviewError) throw new Error('レビューが見つかりません')
@@ -92,17 +102,16 @@ export async function reviewOpen(params: z.infer<typeof reviewOpenSchema>): Prom
 }
 
 export async function reviewApprove(params: z.infer<typeof reviewApproveSchema>): Promise<{ ok: boolean; allApproved: boolean }> {
+  await checkAuth(params.spaceId, 'write', 'review_approve', 'review', params.taskId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Pre-validate: verify task belongs to current tenant before RPC
   const { data: existingTask, error: checkError } = await supabase
     .from('tasks')
     .select('id')
     .eq('id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (checkError || !existingTask) {
@@ -123,17 +132,16 @@ export async function reviewApprove(params: z.infer<typeof reviewApproveSchema>)
 }
 
 export async function reviewBlock(params: z.infer<typeof reviewBlockSchema>): Promise<{ ok: boolean }> {
+  await checkAuth(params.spaceId, 'write', 'review_block', 'review', params.taskId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Pre-validate: verify task belongs to current tenant before RPC
   const { data: existingTask, error: checkError } = await supabase
     .from('tasks')
     .select('id')
     .eq('id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (checkError || !existingTask) {
@@ -152,16 +160,15 @@ export async function reviewBlock(params: z.infer<typeof reviewBlockSchema>): Pr
 }
 
 export async function reviewList(params: z.infer<typeof reviewListSchema>): Promise<Review[]> {
+  await checkAuth(params.spaceId, 'read', 'review_list', 'review')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = params.spaceId || config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Enforce org/space scoping
   let query = supabase
     .from('reviews')
     .select('*')
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .order('created_at', { ascending: false })
     .limit(params.limit)
 
@@ -176,17 +183,16 @@ export async function reviewList(params: z.infer<typeof reviewListSchema>): Prom
 }
 
 export async function reviewGet(params: z.infer<typeof reviewGetSchema>): Promise<{ review: Review | null; approvals: ReviewApproval[] }> {
+  await checkAuth(params.spaceId, 'read', 'review_get', 'review', params.taskId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
-  // Enforce org/space scoping
   const { data: review, error: reviewError } = await supabase
     .from('reviews')
     .select('*')
     .eq('task_id', params.taskId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .maybeSingle()
 
   if (reviewError) throw new Error('レビューの取得に失敗しました')

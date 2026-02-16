@@ -152,16 +152,16 @@ export declare const schedulingSuggestSchema: z.ZodObject<{
     businessHourEnd: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
+    startDate: string;
     durationMinutes: number;
     userIds: string[];
-    startDate: string;
     endDate: string;
     businessHourStart: number;
     businessHourEnd: number;
 }, {
     spaceId: string;
-    userIds: string[];
     startDate: string;
+    userIds: string[];
     endDate: string;
     durationMinutes?: number | undefined;
     businessHourStart?: number | undefined;
@@ -463,16 +463,16 @@ export declare const schedulingTools: ({
         businessHourEnd: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
+        startDate: string;
         durationMinutes: number;
         userIds: string[];
-        startDate: string;
         endDate: string;
         businessHourStart: number;
         businessHourEnd: number;
     }, {
         spaceId: string;
-        userIds: string[];
         startDate: string;
+        userIds: string[];
         endDate: string;
         durationMinutes?: number | undefined;
         businessHourStart?: number | undefined;

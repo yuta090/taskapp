@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useContext } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ACTIONABLE_TYPES_ARRAY } from '@/lib/notifications/classify'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
 export interface UnreadNotificationCountState {
   count: number          // 純粋な未読数
@@ -18,8 +19,9 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
   const [pendingCount, setPendingCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
 
-  const fetchCount = async (signal?: AbortSignal) => {
+  const fetchCount = async (signal?: AbortSignal, orgId?: string | null) => {
     try {
       const supabase = createClient()
 
@@ -35,23 +37,31 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
 
       if (signal?.aborted) return
 
+      // Build base queries with optional org filter
+      let unreadQuery = (supabase as SupabaseClient)
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('to_user_id', user.id)
+        .eq('channel', 'in_app')
+        .is('read_at', null)
+
+      let pendingQuery = (supabase as SupabaseClient)
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('to_user_id', user.id)
+        .eq('channel', 'in_app')
+        .is('actioned_at', null)
+        .in('type', ACTIONABLE_TYPES_ARRAY)
+
+      if (orgId) {
+        unreadQuery = unreadQuery.eq('org_id', orgId)
+        pendingQuery = pendingQuery.eq('org_id', orgId)
+      }
+
       // Parallel: unread count + actionable-not-actioned count
       const [unreadResult, pendingResult] = await Promise.all([
-        (supabase as SupabaseClient)
-          .from('notifications')
-          .select('*', { count: 'exact', head: true })
-          .eq('to_user_id', user.id)
-          .eq('channel', 'in_app')
-          .is('read_at', null),
-
-        // 「要対応」バッジと一致する数: アクション可能 + 未対応（read/unread問わず）
-        (supabase as SupabaseClient)
-          .from('notifications')
-          .select('*', { count: 'exact', head: true })
-          .eq('to_user_id', user.id)
-          .eq('channel', 'in_app')
-          .is('actioned_at', null)
-          .in('type', ACTIONABLE_TYPES_ARRAY),
+        unreadQuery,
+        pendingQuery,
       ])
 
       if (signal?.aborted) return
@@ -78,17 +88,20 @@ export function useUnreadNotificationCount(): UnreadNotificationCountState {
   }
 
   useEffect(() => {
+    // org解決前はフェッチしない（cross-org leak防止）
+    if (orgLoading) return
+
     const controller = new AbortController()
-    fetchCount(controller.signal)
+    fetchCount(controller.signal, activeOrgId)
 
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [activeOrgId, orgLoading])
 
   const refresh = () => {
     setLoading(true)
-    fetchCount()
+    fetchCount(undefined, activeOrgId)
   }
 
   return {

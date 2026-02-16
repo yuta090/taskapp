@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Users, Plus, Trash, Crown, UserCircle, CircleNotch, Warning } from '@phosphor-icons/react'
 import Image from 'next/image'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 
 interface Member {
   userId: string
@@ -121,7 +122,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     // Validate role on client side (DB should also have constraint)
     if (!VALID_ROLES.has(newRole)) {
       console.error('Invalid role:', newRole)
-      alert('無効な役割です')
+      toast.error('無効な役割です')
       return
     }
 
@@ -142,7 +143,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       )
     } catch (err) {
       console.error('Failed to update role:', err)
-      alert('役割の変更に失敗しました')
+      toast.error('役割の変更に失敗しました')
     }
   }
 
@@ -163,7 +164,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       setMembers((prev) => prev.filter((m) => m.userId !== userId))
     } catch (err) {
       console.error('Failed to remove member:', err)
-      alert('メンバーの削除に失敗しました')
+      toast.error('メンバーの削除に失敗しました')
     }
   }
 

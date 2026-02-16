@@ -108,7 +108,7 @@ export default async function PortalDashboardPage() {
      
     (supabase as SupabaseClient)
       .from('milestones')
-      .select('id, name, status, due_date')
+      .select('id, name, completed_at, due_date')
       .eq('space_id', spaceId)
       .order('due_date', { ascending: true }),
     // 7. Recent notifications
@@ -123,7 +123,7 @@ export default async function PortalDashboardPage() {
      
     (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, title, updated_at')
+      .select('id, title, completed_at, updated_at')
       .eq('space_id', spaceId)
       .eq('status', 'done')
       .order('updated_at', { ascending: false })
@@ -175,10 +175,10 @@ export default async function PortalDashboardPage() {
   const otherTasks = otherClientTasks || []
   const allClientTasks = [...priorityTasks, ...otherTasks]
 
-  // Calculate overdue
-  const now = new Date()
+  // Calculate overdue (JST-safe: compare YYYY-MM-DD strings in Asia/Tokyo)
+  const todayJST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(new Date())
   const overdueCount = allClientTasks.filter((t: { due_date: string | null }) =>
-    t.due_date && new Date(t.due_date) < now
+    t.due_date && t.due_date < todayJST
   ).length
 
   // Determine health status
@@ -193,32 +193,46 @@ export default async function PortalDashboardPage() {
     healthReason = '確認待ちタスクが多くなっています'
   }
 
-  // Format tasks for client component
-  const actionTasks = allClientTasks.slice(0, 10).map((task: { id: string; title: string; description: string; due_date: string | null; type: string; status: string; created_at: string }) => ({
-    id: task.id,
-    title: task.title,
-    description: task.description,
-    dueDate: task.due_date,
-    isOverdue: task.due_date ? new Date(task.due_date) < now : false,
-    waitingDays: task.due_date
-      ? Math.max(0, Math.floor((now.getTime() - new Date(task.due_date).getTime()) / (1000 * 60 * 60 * 24)))
-      : undefined,
-    type: (task.type as 'task' | 'spec') || 'task',
-    status: task.status,
-    createdAt: task.created_at,
-  }))
+  // JST today as UTC epoch for day-diff calculations
+  const [todayY, todayM, todayD] = todayJST.split('-').map(Number)
+  const todayUTCMs = Date.UTC(todayY, todayM - 1, todayD)
 
-  // Format milestones - map DB status to UI status
-  const mapMilestoneStatus = (dbStatus: string): MilestoneStatus => {
-    if (dbStatus === 'completed' || dbStatus === 'done') return 'completed'
-    if (dbStatus === 'in_progress' || dbStatus === 'current') return 'current'
-    return 'upcoming' // backlog, etc
+  // Format tasks for client component
+  const actionTasks = allClientTasks.slice(0, 10).map((task: { id: string; title: string; description: string; due_date: string | null; type: string; status: string; created_at: string }) => {
+    const isOverdue = task.due_date ? task.due_date < todayJST : false
+    let waitingDays: number | undefined
+    if (task.due_date && isOverdue) {
+      const [dy, dm, dd] = task.due_date.split('-').map(Number)
+      waitingDays = Math.floor((todayUTCMs - Date.UTC(dy, dm - 1, dd)) / (1000 * 60 * 60 * 24))
+    }
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      dueDate: task.due_date,
+      isOverdue,
+      waitingDays,
+      type: (task.type as 'task' | 'spec') || 'task',
+      status: task.status,
+      createdAt: task.created_at,
+    }
+  })
+
+  // Format milestones - derive status from completed_at
+  const mapMilestoneStatus = (m: { completed_at: string | null; due_date: string | null }): MilestoneStatus => {
+    if (m.completed_at) return 'completed'
+    if (m.due_date) {
+      const now = new Date()
+      const due = new Date(m.due_date)
+      if (due >= now) return 'current'
+    }
+    return 'upcoming'
   }
 
-  const milestones = (milestonesData || []).map((m: { id: string; name: string; status: string; due_date: string | null }) => ({
+  const milestones = (milestonesData || []).map((m: { id: string; name: string; completed_at: string | null; due_date: string | null }) => ({
     id: m.id,
     name: m.name,
-    status: mapMilestoneStatus(m.status),
+    status: mapMilestoneStatus(m),
     dueDate: m.due_date,
   }))
 
@@ -234,6 +248,16 @@ export default async function PortalDashboardPage() {
     })
   const nextMilestone = upcomingMilestones[0]
 
+  // Calculate milestone overdue (JST-safe: use YYYY-MM-DD string comparison + UTC day diff)
+  let milestoneOverdueDays = 0
+  if (nextMilestone?.dueDate && todayJST > nextMilestone.dueDate) {
+    const [ty, tm, td] = todayJST.split('-').map(Number)
+    const [my, mm, md] = nextMilestone.dueDate.split('-').map(Number)
+    const todayMs = Date.UTC(ty, tm - 1, td)
+    const milestoneMs = Date.UTC(my, mm - 1, md)
+    milestoneOverdueDays = Math.floor((todayMs - milestoneMs) / (1000 * 60 * 60 * 24))
+  }
+
   // Format activities from notifications and completed tasks
   const notificationActivities = (recentNotifications || []).map((n: { id: string; type: string; payload: { message?: string }; created_at: string }) => ({
     id: n.id,
@@ -242,11 +266,11 @@ export default async function PortalDashboardPage() {
     timestamp: n.created_at,
   }))
 
-  const completedActivities = (recentCompletedTasks || []).map((t: { id: string; title: string; updated_at: string }) => ({
+  const completedActivities = (recentCompletedTasks || []).map((t: { id: string; title: string; completed_at: string | null; updated_at: string }) => ({
     id: `completed-${t.id}`,
     type: 'task_completed' as const,
     message: `「${t.title}」が完了しました`,
-    timestamp: t.updated_at,
+    timestamp: t.completed_at || t.updated_at,
   }))
 
   // Combine and sort by timestamp
@@ -283,6 +307,7 @@ export default async function PortalDashboardPage() {
       nextMilestone: nextMilestone ? {
         name: nextMilestone.name,
         date: nextMilestone.dueDate,
+        overdueDays: milestoneOverdueDays,
       } : undefined,
     },
     alert: {

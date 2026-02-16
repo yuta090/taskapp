@@ -4,12 +4,14 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 
 interface Milestone {
   id: string
   name: string
   start_date: string | null
   due_date: string | null
+  completed_at: string | null
   order_key: number
 }
 
@@ -45,7 +47,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
 
       const { data, error: pgErr } = await (supabase as SupabaseClient)
         .from('milestones')
-        .select('id, name, start_date, due_date, order_key')
+        .select('id, name, start_date, due_date, completed_at, order_key')
         .eq('space_id' as never, spaceId as never)
         .order('order_key' as never, { ascending: true })
 
@@ -95,7 +97,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       await fetchMilestones()
     } catch (err) {
       console.error('Failed to create milestone:', err)
-      alert('マイルストーンの作成に失敗しました')
+      toast.error('マイルストーンの作成に失敗しました')
     } finally {
       setCreating(false)
     }
@@ -114,7 +116,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       await fetchMilestones()
     } catch (err) {
       console.error('Failed to delete milestone:', err)
-      alert('マイルストーンの削除に失敗しました')
+      toast.error('マイルストーンの削除に失敗しました')
     }
   }
 
@@ -157,7 +159,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       await fetchMilestones()
     } catch (err) {
       console.error('Failed to update milestone:', err)
-      alert('マイルストーンの更新に失敗しました')
+      toast.error('マイルストーンの更新に失敗しました')
     }
   }
 
@@ -244,8 +246,15 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
                 // View mode
                 <>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900">
-                      {ms.name}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900">
+                        {ms.name}
+                      </span>
+                      {ms.completed_at && (
+                        <span className="text-[11px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded font-medium">
+                          完了
+                        </span>
+                      )}
                     </div>
                     {(ms.start_date || ms.due_date) && (
                       <div className="text-xs text-gray-500">

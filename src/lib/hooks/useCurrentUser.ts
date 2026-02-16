@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import type { User } from '@supabase/supabase-js'
 
 export interface CurrentUserState {
@@ -20,13 +21,13 @@ export function useCurrentUser(): CurrentUserState {
 
     const fetchUser = async () => {
       try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        const { user: fetchedUser, error: userError } = await getCachedUser(supabase)
 
         if (userError) {
           throw userError
         }
 
-        setUser(user)
+        setUser(fetchedUser)
         setError(null)
       } catch (err) {
         console.error('Failed to fetch user:', err)
@@ -39,8 +40,9 @@ export function useCurrentUser(): CurrentUserState {
 
     fetchUser()
 
-    // Listen for auth changes
+    // Listen for auth changes — invalidate cache on logout/login
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      invalidateCachedUser()
       setUser(session?.user ?? null)
     })
 

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getSupabaseClient } from '../supabase/client.js'
 import { config } from '../config.js'
+import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
 
 // ActivityLog type
 export interface ActivityLog {
@@ -30,8 +31,17 @@ export interface ActivityLog {
   is_deleted: boolean
 }
 
+// Helper: get orgId from spaceId
+async function getOrgId(spaceId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
+  if (error || !data) throw new Error('スペースが見つかりません')
+  return data.org_id
+}
+
 // Schemas
 export const activityLogSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   entityTable: z.string().describe('対象テーブル名 (tasks, milestones, etc.)'),
   entityId: z.string().uuid().describe('対象レコードのUUID'),
   action: z.string().describe('アクション (insert, update, delete, etc.)'),
@@ -49,6 +59,7 @@ export const activityLogSchema = z.object({
 })
 
 export const activitySearchSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   entityTable: z.string().optional().describe('テーブル名でフィルタ'),
   entityId: z.string().uuid().optional().describe('エンティティIDでフィルタ'),
   actorId: z.string().uuid().optional().describe('アクターIDでフィルタ'),
@@ -67,9 +78,9 @@ export const activityEntityHistorySchema = z.object({
 
 // Tool implementations
 export async function activityLog(params: z.infer<typeof activityLogSchema>): Promise<{ id: string }> {
+  await checkAuth(params.spaceId, 'write', 'activity_log', 'activity', params.entityId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('activity_log')
@@ -90,7 +101,7 @@ export async function activityLog(params: z.infer<typeof activityLogSchema>): Pr
       after_data: params.afterData || null,
       payload: params.payload || {},
       organization_id: orgId,
-      space_id: spaceId,
+      space_id: params.spaceId,
     })
     .select('id')
     .single()
@@ -100,40 +111,26 @@ export async function activityLog(params: z.infer<typeof activityLogSchema>): Pr
 }
 
 export async function activitySearch(params: z.infer<typeof activitySearchSchema>): Promise<ActivityLog[]> {
+  await checkAuth(params.spaceId, 'read', 'activity_search', 'activity')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   let query = supabase
     .from('activity_log')
     .select('*')
     .eq('organization_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .eq('is_deleted', false)
     .order('occurred_at', { ascending: false })
     .limit(params.limit)
 
-  if (params.entityTable) {
-    query = query.eq('entity_table', params.entityTable)
-  }
-  if (params.entityId) {
-    query = query.eq('entity_id', params.entityId)
-  }
-  if (params.actorId) {
-    query = query.eq('actor_id', params.actorId)
-  }
-  if (params.action) {
-    query = query.eq('action', params.action)
-  }
-  if (params.sessionId) {
-    query = query.eq('session_id', params.sessionId)
-  }
-  if (params.from) {
-    query = query.gte('occurred_at', params.from)
-  }
-  if (params.to) {
-    query = query.lte('occurred_at', params.to)
-  }
+  if (params.entityTable) query = query.eq('entity_table', params.entityTable)
+  if (params.entityId) query = query.eq('entity_id', params.entityId)
+  if (params.actorId) query = query.eq('actor_id', params.actorId)
+  if (params.action) query = query.eq('action', params.action)
+  if (params.sessionId) query = query.eq('session_id', params.sessionId)
+  if (params.from) query = query.gte('occurred_at', params.from)
+  if (params.to) query = query.lte('occurred_at', params.to)
 
   const { data, error } = await query
 
@@ -142,8 +139,9 @@ export async function activitySearch(params: z.infer<typeof activitySearchSchema
 }
 
 export async function activityEntityHistory(params: z.infer<typeof activityEntityHistorySchema>): Promise<ActivityLog[]> {
+  const { ctx } = await checkAuthOrg('read', 'activity_entity_history')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = ctx.orgId
 
   const { data, error } = await supabase
     .from('activity_log')

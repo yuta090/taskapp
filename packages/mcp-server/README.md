@@ -1,130 +1,66 @@
 # @taskapp/mcp-server
 
-TaskApp用のMCP (Model Context Protocol) サーバー。Claude CodeなどのAIツールからTaskAppを直接操作可能にします。
+TaskApp用のMCP (Model Context Protocol) サーバー。Claude DesktopやClaude CodeなどのAIツールからTaskAppを直接操作可能にします。
 
-## インストール
+- 57ツール・11モジュール
+- APIキーによるランタイム認証
+- space/org レベルの細粒度認可
+- 操作監査ログ自動記録
+
+## 前提条件
+
+- Node.js 18+
+- Supabase プロジェクト (migration `20240207_001_mcp_authorization.sql` 適用済み)
+- APIキー (`rpc_validate_api_key` で検証)
+
+## セットアップ
 
 ```bash
 cd packages/mcp-server
+cp .env.example .env
+# .env を編集して SUPABASE_URL, SUPABASE_SERVICE_KEY, TASKAPP_API_KEY を設定
 npm install
 npm run build
 ```
 
-## 環境変数
+## Claude Desktop設定
 
-```bash
-# 必須
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=your-service-role-key
-
-# オプション（デフォルト値あり）
-TASKAPP_ORG_ID=00000000-0000-0000-0000-000000000001
-TASKAPP_SPACE_ID=00000000-0000-0000-0000-000000000010
-TASKAPP_ACTOR_ID=00000000-0000-0000-0000-000000000099
-```
-
-## Claude Code設定
-
-`~/.claude/mcp.json` に以下を追加:
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "taskapp": {
       "command": "node",
-      "args": ["/path/to/taskapp/packages/mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/packages/mcp-server/dist/index.js"],
       "env": {
-        "SUPABASE_URL": "https://your-project.supabase.co",
-        "SUPABASE_SERVICE_KEY": "your-service-role-key",
-        "TASKAPP_SPACE_ID": "your-space-id"
+        "SUPABASE_URL": "https://xxx.supabase.co",
+        "SUPABASE_SERVICE_KEY": "eyJ...",
+        "TASKAPP_API_KEY": "tsk_xxx"
       }
     }
   }
 }
 ```
 
-## 利用可能なツール
+## 認証
 
-### タスク管理
+### 本番 (推奨): APIキー認証
 
-| ツール | 説明 |
-|--------|------|
-| `task_create` | タスク作成（spec対応、オーナー設定） |
-| `task_update` | タスク更新 |
-| `task_list` | タスク一覧（フィルタ対応） |
-| `task_get` | タスク詳細+担当者取得 |
+`TASKAPP_API_KEY` 環境変数にAPIキーを設定すると、起動時に `rpc_validate_api_key` で検証し、org/space/action スコープを自動設定します。
 
-### ボール管理
+### 開発: 静的config
 
-| ツール | 説明 |
-|--------|------|
-| `ball_pass` | ボール所有権移動 |
-| `ball_query` | ボール側でフィルタ取得 |
-| `dashboard_get` | ダッシュボード統計 |
+`TASKAPP_API_KEY` 未設定時は静的configにフォールバック (認可チェックなし)。
 
-### ミーティング
+## 全ツール一覧 (57)
 
-| ツール | 説明 |
-|--------|------|
-| `meeting_create` | 会議作成 |
-| `meeting_start` | 会議開始 |
-| `meeting_end` | 会議終了（サマリー自動生成） |
-| `meeting_list` | 会議一覧 |
-| `meeting_get` | 会議詳細+参加者 |
-
-### レビュー
-
-| ツール | 説明 |
-|--------|------|
-| `review_open` | レビュー開始 |
-| `review_approve` | レビュー承認 |
-| `review_block` | レビューブロック |
-| `review_list` | レビュー一覧 |
-| `review_get` | レビュー詳細+承認状態 |
-
-## 使用例
-
-### タスク作成
-```
-「TaskAppで新しいタスクを作成して。タイトルは'ログイン機能実装'、ボールは社内」
-```
-
-### ボール移動
-```
-「タスクID xxx のボールをクライアントに移動して。理由は'確認依頼'」
-```
-
-### ダッシュボード確認
-```
-「現在のプロジェクト状況を教えて」
-```
+### タスク管理 (7), ボール (3), ミーティング (5), レビュー (5), マイルストーン (5), スペース (4), アクティビティ (3), クライアント (8), Wiki (6), 議事録 (3), スケジューリング (8)
 
 ## 開発
 
 ```bash
-# 開発モード（ウォッチ）
-npm run dev
-
-# ビルド
-npm run build
-
-# テスト
-npm test
-```
-
-## アーキテクチャ
-
-```
-src/
-├── index.ts          # エントリーポイント
-├── server.ts         # MCPサーバー設定
-├── config.ts         # 環境設定
-├── tools/
-│   ├── index.ts      # ツール登録
-│   ├── tasks.ts      # タスクCRUD
-│   ├── ball.ts       # ボール管理
-│   ├── meetings.ts   # ミーティング
-│   └── reviews.ts    # レビュー
-└── supabase/
-    └── client.ts     # Supabaseクライアント
+npm run dev      # TypeScript ウォッチモード
+npm run build    # ビルド
+npm test         # テスト (vitest)
 ```

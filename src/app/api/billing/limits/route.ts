@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
+import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
 // UUID v4 format validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -27,25 +29,20 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // org_id が指定されていない場合はユーザーの所属組織を取得
+    // org_id が指定されていない場合、cookie → 最初の組織の順でフォールバック
     if (!orgId) {
-      const { data: membership } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .single()
+      const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+      const resolved = await resolveActiveOrg(supabase as SupabaseClient, user.id, cookieOrgId)
 
-      if (!membership) {
+      if (!resolved) {
         return NextResponse.json(
           { error: 'No organization found' },
           { status: 404 }
         )
       }
 
-      orgId = membership.org_id
-    } else {
+      orgId = resolved.org_id
+    } else if (searchParams.has('org_id')) {
       // org_id が指定された場合、ユーザーがその組織のメンバーか確認
       const { data: membership } = await (supabase as SupabaseClient)
         .from('org_memberships')

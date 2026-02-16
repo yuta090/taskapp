@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useContext } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import type { Notification, Json } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
 export interface NotificationWithPayload extends Omit<Notification, 'payload'> {
   /** Set when user completes an action (approve, start work, etc.) — distinct from read_at */
@@ -55,33 +57,32 @@ export function useNotifications(): UseNotificationsState {
   const [notifications, setNotifications] = useState<NotificationWithPayload[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (!supabaseRef.current) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  // ユーザーIDキャッシュ（auth.getUser()の重複呼び出し回避）
-  const userIdRef = useRef<string | null>(null)
-
-  // 認証状態変更時にキャッシュ無効化（logout/relogin対策）
+  // 認証状態変更時にグローバルキャッシュ無効化（logout/relogin対策）
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      userIdRef.current = null
+      invalidateCachedUser()
     })
     return () => subscription.unsubscribe()
   }, [supabase])
 
-  /** キャッシュ付きでユーザーIDを取得 */
+  /** グローバルキャッシュ付きでユーザーIDを取得 */
   const getUserId = useCallback(async (): Promise<string | null> => {
-    if (userIdRef.current) return userIdRef.current
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    const { user, error: userError } = await getCachedUser(supabase)
     if (userError || !user) return null
-    userIdRef.current = user.id
     return user.id
   }, [supabase])
 
   const fetchNotifications = useCallback(async () => {
+    // org解決前はフェッチしない（cross-org leak防止）
+    if (orgLoading) return
+
     try {
       setLoading(true)
 
@@ -92,14 +93,19 @@ export function useNotifications(): UseNotificationsState {
         return
       }
 
-       
-      const { data, error: fetchError } = await (supabase as SupabaseClient)
+      let query = (supabase as SupabaseClient)
         .from('notifications')
         .select('*, spaces(name)')
         .eq('to_user_id', userId)
         .eq('channel', 'in_app')
         .order('created_at', { ascending: false })
         .limit(50)
+
+      if (activeOrgId) {
+        query = query.eq('org_id', activeOrgId)
+      }
+
+      const { data, error: fetchError } = await query
 
       if (fetchError) {
         throw fetchError
@@ -120,7 +126,7 @@ export function useNotifications(): UseNotificationsState {
     } finally {
       setLoading(false)
     }
-  }, [supabase, getUserId])
+  }, [supabase, getUserId, activeOrgId, orgLoading])
 
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
@@ -177,13 +183,18 @@ export function useNotifications(): UseNotificationsState {
       const userId = await getUserId()
       if (!userId) return
 
-       
-      const { error: updateError } = await (supabase as SupabaseClient)
+      let query = (supabase as SupabaseClient)
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
         .eq('to_user_id', userId)
         .eq('channel', 'in_app')
         .is('read_at', null)
+
+      if (activeOrgId) {
+        query = query.eq('org_id', activeOrgId)
+      }
+
+      const { error: updateError } = await query
 
       if (updateError) {
         throw updateError
@@ -200,7 +211,7 @@ export function useNotifications(): UseNotificationsState {
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err)
     }
-  }, [supabase, getUserId])
+  }, [supabase, getUserId, activeOrgId])
 
   useEffect(() => {
     fetchNotifications()

@@ -1,25 +1,38 @@
 import { z } from 'zod'
 import { getSupabaseClient, WikiPage, WikiPageVersion } from '../supabase/client.js'
 import { config } from '../config.js'
+import { checkAuth } from '../auth/helpers.js'
+
+// ── Helpers ──────────────────────────────────────────────
+
+async function getOrgId(spaceId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.from('spaces').select('org_id').eq('id', spaceId).single()
+  if (error || !data) throw new Error('スペースが見つかりません')
+  return data.org_id
+}
 
 // ── Schemas ──────────────────────────────────────────────
 
 const wikiListSchema = z.object({
-  spaceId: z.string().optional().describe('スペースID（省略時はデフォルト）'),
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   limit: z.number().int().positive().max(200).default(50).describe('取得件数上限'),
 })
 
 const wikiGetSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
 })
 
 const wikiCreateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   title: z.string().describe('ページタイトル'),
   body: z.string().optional().describe('ページ本文（Markdown）'),
   tags: z.array(z.string()).optional().describe('タグ配列'),
 })
 
 const wikiUpdateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
   title: z.string().optional().describe('タイトル'),
   body: z.string().optional().describe('本文（Markdown）'),
@@ -27,10 +40,12 @@ const wikiUpdateSchema = z.object({
 })
 
 const wikiDeleteSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
 })
 
 const wikiVersionsSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
   limit: z.number().int().positive().max(100).default(20).describe('取得件数上限'),
 })
@@ -38,15 +53,15 @@ const wikiVersionsSchema = z.object({
 // ── Handlers ─────────────────────────────────────────────
 
 export async function wikiList(params: z.infer<typeof wikiListSchema>): Promise<WikiPage[]> {
+  await checkAuth(params.spaceId, 'read', 'wiki_list', 'wiki')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = params.spaceId || config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('wiki_pages')
     .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .order('updated_at', { ascending: false })
     .limit(params.limit)
 
@@ -55,16 +70,16 @@ export async function wikiList(params: z.infer<typeof wikiListSchema>): Promise<
 }
 
 export async function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<WikiPage> {
+  await checkAuth(params.spaceId, 'read', 'wiki_get', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('wiki_pages')
     .select('*')
     .eq('id', params.pageId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .single()
 
   if (error) throw new Error('Wikiページが見つかりません')
@@ -72,16 +87,16 @@ export async function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<Wi
 }
 
 export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Promise<WikiPage> {
+  await checkAuth(params.spaceId, 'write', 'wiki_create', 'wiki')
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
   const actorId = config.actorId
 
   const { data, error } = await supabase
     .from('wiki_pages')
     .insert({
       org_id: orgId,
-      space_id: spaceId,
+      space_id: params.spaceId,
       title: params.title,
       body: params.body || '',
       tags: params.tags || [],
@@ -96,9 +111,9 @@ export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Prom
 }
 
 export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage> {
+  await checkAuth(params.spaceId, 'write', 'wiki_update', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
   const actorId = config.actorId
 
   // Build update payload
@@ -112,7 +127,7 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
     .update(updateData)
     .eq('id', params.pageId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
     .select('*')
     .single()
 
@@ -137,24 +152,25 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
 }
 
 export async function wikiDelete(params: z.infer<typeof wikiDeleteSchema>): Promise<{ ok: true }> {
+  await checkAuth(params.spaceId, 'delete', 'wiki_delete', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
-  const spaceId = config.spaceId
+  const orgId = await getOrgId(params.spaceId)
 
   const { error } = await supabase
     .from('wiki_pages')
     .delete()
     .eq('id', params.pageId)
     .eq('org_id', orgId)
-    .eq('space_id', spaceId)
+    .eq('space_id', params.spaceId)
 
   if (error) throw new Error('Wikiページの削除に失敗しました')
   return { ok: true }
 }
 
 export async function wikiVersions(params: z.infer<typeof wikiVersionsSchema>): Promise<WikiPageVersion[]> {
+  await checkAuth(params.spaceId, 'read', 'wiki_versions', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
-  const orgId = config.orgId
+  const orgId = await getOrgId(params.spaceId)
 
   const { data, error } = await supabase
     .from('wiki_page_versions')

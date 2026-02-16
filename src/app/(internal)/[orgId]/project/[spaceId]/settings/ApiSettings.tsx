@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Key, Plus, Trash, Copy, Check, Eye, EyeSlash, Warning } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 
 interface ApiKey {
   id: string
@@ -162,7 +163,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       const keyHash = await hashKey(rawKey)
       const keyPrefix = rawKey.substring(0, 12) + '...'
 
-      // Use API route to bypass RLS
+      // Use API route to bypass RLS (userId is extracted from session server-side)
       const response = await fetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -172,7 +173,6 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
           name: newKeyName.trim(),
           keyHash,
           keyPrefix,
-          userId,
         }),
       })
 
@@ -185,7 +185,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to create API key:', err)
-      alert('APIキーの作成に失敗しました')
+      toast.error('APIキーの作成に失敗しました')
     } finally {
       setCreating(false)
     }
@@ -194,14 +194,14 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
   const handleDelete = async (id: string) => {
     if (!confirm('このAPIキーを削除しますか？この操作は取り消せません。')) return
     try {
-      const response = await fetch(`/api/keys?id=${id}`, { method: 'DELETE' })
+      const response = await fetch(`/api/keys?id=${id}&orgId=${orgId}`, { method: 'DELETE' })
       const result = await response.json()
 
       if (!response.ok) throw new Error(result.error)
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to delete API key:', err)
-      alert('APIキーの削除に失敗しました')
+      toast.error('APIキーの削除に失敗しました')
     }
   }
 

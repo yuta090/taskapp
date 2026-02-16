@@ -16,8 +16,8 @@ export function AuthCard({ title, description, children, footer }: AuthCardProps
         {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">TA</span>
+            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-sm">T</span>
             </div>
             <span className="text-xl font-bold text-gray-900">TaskApp</span>
           </Link>

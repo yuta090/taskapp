@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useContext } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 
 const TaskCreateSheet = dynamic(
@@ -120,7 +121,8 @@ export default function MyTasksPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const isCreateOpen = searchParams.get('create') !== null
-  const supabase = useMemo(() => createClient(), [])
+  const supabase = useMemo(() => createClient() as SupabaseClient, [])
+  const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
 
   // Space options for global create
   const spaceOptions = useMemo(
@@ -269,21 +271,36 @@ export default function MyTasksPage() {
   }, [supabase, tasks])
 
   useEffect(() => {
+    // org解決前はフェッチしない（cross-org leak防止）
+    if (orgLoading) return
+
     async function fetchData(uid: string) {
       setUserId(uid)
 
+      let tasksQuery = supabase
+        .from('tasks')
+        .select('*')
+        .eq('assignee_id', uid)
+
+      let spacesQuery = supabase
+        .from('spaces')
+        .select('*')
+
+      let milestonesQuery = supabase
+        .from('milestones')
+        .select('*')
+        .order('due_date', { ascending: true, nullsFirst: false })
+
+      if (activeOrgId) {
+        tasksQuery = tasksQuery.eq('org_id', activeOrgId)
+        spacesQuery = spacesQuery.eq('org_id', activeOrgId)
+        milestonesQuery = milestonesQuery.eq('org_id', activeOrgId)
+      }
+
       const [tasksRes, spacesRes, milestonesRes] = await Promise.all([
-        supabase
-          .from('tasks')
-          .select('*')
-          .eq('assignee_id', uid),
-        supabase
-          .from('spaces')
-          .select('*'),
-        supabase
-          .from('milestones')
-          .select('*')
-          .order('due_date', { ascending: true, nullsFirst: false })
+        tasksQuery,
+        spacesQuery,
+        milestonesQuery,
       ])
 
       if (tasksRes.error) {
@@ -313,7 +330,7 @@ export default function MyTasksPage() {
     }
 
     initAuth()
-  }, [supabase])
+  }, [supabase, activeOrgId, orgLoading])
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
