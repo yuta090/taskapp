@@ -109,7 +109,7 @@ export function useMeetings({
 
   const queryKey = ['meetings', spaceId] as const
 
-  const { data, isLoading, error: queryError } = useQuery<MeetingsQueryData>({
+  const { data, isPending, error: queryError } = useQuery<MeetingsQueryData>({
     queryKey,
     queryFn: async (): Promise<MeetingsQueryData> => {
       // 1クエリで meetings + participants を取得（ネストselect）
@@ -444,7 +444,7 @@ export function useMeetings({
   return {
     meetings,
     participants,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError,
     fetchMeetings,
     fetchMeetingDetail,

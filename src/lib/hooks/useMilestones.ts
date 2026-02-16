@@ -42,7 +42,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
 
   const queryKey = ['milestones', spaceId] as const
 
-  const { data, isLoading, error: queryError } = useQuery<Milestone[]>({
+  const { data, isPending, error: queryError } = useQuery<Milestone[]>({
     queryKey,
     queryFn: async (): Promise<Milestone[]> => {
       const { data: milestonesData, error: err } = await (supabase as SupabaseClient)
@@ -196,7 +196,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
 
   return {
     milestones,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError,
     fetchMilestones,
     createMilestone,

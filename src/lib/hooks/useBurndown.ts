@@ -24,7 +24,7 @@ export function useBurndown({
 
   const queryKey = useMemo(() => ['burndown', spaceId, milestoneId] as const, [spaceId, milestoneId])
 
-  const { data, isLoading, error: queryError } = useQuery<BurndownData>({
+  const { data, isPending, error: queryError } = useQuery<BurndownData>({
     queryKey,
     queryFn: async (): Promise<BurndownData> => {
       const params = new URLSearchParams({ spaceId })
@@ -48,7 +48,7 @@ export function useBurndown({
 
   return {
     data: data ?? null,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError instanceof Error ? queryError : null,
     refetch,
   }

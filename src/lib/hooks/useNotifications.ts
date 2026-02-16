@@ -74,7 +74,7 @@ export function useNotifications(): UseNotificationsState {
     return () => subscription.unsubscribe()
   }, [supabase, queryClient])
 
-  const { data, isLoading, error: queryError } = useQuery<NotificationWithPayload[]>({
+  const { data, isPending, error: queryError } = useQuery<NotificationWithPayload[]>({
     queryKey,
     queryFn: async (): Promise<NotificationWithPayload[]> => {
       const { user, error: userError } = await getCachedUser(supabase)
@@ -192,7 +192,7 @@ export function useNotifications(): UseNotificationsState {
 
   return {
     notifications,
-    loading: isLoading,
+    loading: isPending && !data,
     error: queryError ? (queryError instanceof Error ? queryError.message : '通知の取得に失敗しました') : null,
     fetchNotifications,
     markAsRead,
