@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useContext } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -17,18 +17,21 @@ import {
   BookOpen,
   SquaresFour,
   Gear,
+  SignOut,
   User,
   GearSix,
   CaretUp,
+  Key,
   Plus,
+  Check,
   Sliders,
   Bell,
 } from '@phosphor-icons/react'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
+import { createClient } from '@/lib/supabase/client'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
-import { OrgMenu } from '@/components/layout/OrgMenu'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
 
@@ -101,15 +104,16 @@ function SubNavItem({ href, icon, label, active, collapsed }: SubNavItemProps) {
   )
 }
 
-interface UserMenuProps {
-  collapsed?: boolean
-  isOpen: boolean
-  onToggle: () => void
-  onClose: () => void
-}
-
-function UserMenu({ collapsed, isOpen, onToggle, onClose }: UserMenuProps) {
+function UserMenu({ collapsed }: { collapsed?: boolean }) {
   const { user, loading } = useCurrentUser()
+  const router = useRouter()
+  const [isOpen, setIsOpen] = useState(false)
+
+  const handleLogout = useCallback(async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }, [router])
 
   // Escape key handler
   useEffect(() => {
@@ -117,12 +121,12 @@ function UserMenu({ collapsed, isOpen, onToggle, onClose }: UserMenuProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        setIsOpen(false)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   if (loading) {
     return (
@@ -161,13 +165,11 @@ function UserMenu({ collapsed, isOpen, onToggle, onClose }: UserMenuProps) {
     <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200 relative`}>
       <button
         type="button"
-        onClick={onToggle}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
+        onClick={() => setIsOpen(!isOpen)}
         className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2 rounded hover:bg-gray-200/60 transition-colors group`}
         title={collapsed ? userName : undefined}
       >
-        <div className="w-7 h-7 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-medium flex-shrink-0">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium shadow-sm flex-shrink-0">
           {userInitial}
         </div>
         {!collapsed && (
@@ -188,53 +190,60 @@ function UserMenu({ collapsed, isOpen, onToggle, onClose }: UserMenuProps) {
         <>
           <div
             className="fixed inset-0 z-40"
-            onClick={onClose}
-            aria-hidden="true"
+            onClick={() => setIsOpen(false)}
           />
-          <div
-            role="menu"
-            aria-orientation="vertical"
-            className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-popover py-1.5 z-50 ${
-              collapsed ? 'left-0 w-48' : 'left-3 right-3'
-            }`}
-          >
+          <div className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+            collapsed ? 'left-0 w-48' : 'left-3 right-3'
+          }`}>
             <Link
               href="/settings/account"
-              onClick={onClose}
-              role="menuitem"
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <GearSix className="text-base text-gray-500" />
               アカウント設定
             </Link>
             <Link
               href="/settings/preferences"
-              onClick={onClose}
-              role="menuitem"
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <Sliders className="text-base text-gray-500" />
               環境設定
             </Link>
             <Link
               href="/settings/notifications"
-              onClick={onClose}
-              role="menuitem"
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <Bell className="text-base text-gray-500" />
               通知設定
             </Link>
-            <hr className="my-1.5 border-gray-100" role="separator" />
+            <Link
+              href="/settings/api-keys"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Key className="text-base text-gray-500" />
+              APIキー管理
+            </Link>
             <Link
               href="/docs/manual/internal"
-              onClick={onClose}
-              role="menuitem"
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <BookOpen className="text-base text-gray-500" />
               マニュアル
             </Link>
+            <hr className="my-1 border-gray-100" />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <SignOut className="text-base" />
+              ログアウト
+            </button>
           </div>
         </>
       )}
@@ -246,21 +255,26 @@ export function LeftNav() {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
-  const [isOrgMenuOpen, setIsOrgMenuOpen] = useState(false)
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const { activeOrgId, activeOrgName, orgs, switchOrg } = useContext(ActiveOrgContext)
+  const [isOrgSwitcherOpen, setIsOrgSwitcherOpen] = useState(false)
 
-  const fallbackOrgId = '00000000-0000-0000-0000-000000000001'
   const fallbackSpaceId = '00000000-0000-0000-0000-000000000010'
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
-  const orgId = match?.[1] ?? fallbackOrgId
+  const orgId = match?.[1] ?? activeOrgId ?? ''
   const spaceId = match?.[2] ?? fallbackSpaceId
   const hasProjectRoute = !!match
   const { pendingCount: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
-  const { orgName } = useCurrentOrg()
+
+  // 組織名のイニシャル（最初の2文字）
+  const orgInitial = activeOrgName
+    ? activeOrgName.length <= 2
+      ? activeOrgName
+      : activeOrgName.slice(0, 2)
+    : '--'
+  const orgDisplayName = activeOrgName ?? '組織未設定'
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
-  const displayOrgName = orgName ?? '株式会社アトラス'
 
   // Restore collapsed state from localStorage
   useEffect(() => {
@@ -297,23 +311,6 @@ export function LeftNav() {
     router.push(`${projectBasePath}?create=1`)
   }
 
-  const toggleOrgMenu = useCallback(() => {
-    setIsOrgMenuOpen(prev => {
-      if (!prev) setIsUserMenuOpen(false)
-      return !prev
-    })
-  }, [])
-
-  const toggleUserMenu = useCallback(() => {
-    setIsUserMenuOpen(prev => {
-      if (!prev) setIsOrgMenuOpen(false)
-      return !prev
-    })
-  }, [])
-
-  const closeOrgMenu = useCallback(() => setIsOrgMenuOpen(false), [])
-  const closeUserMenu = useCallback(() => setIsUserMenuOpen(false), [])
-
   const handleSpaceCreated = (newSpaceId: string) => {
     router.push(`/${orgId}/project/${newSpaceId}`)
   }
@@ -328,26 +325,22 @@ export function LeftNav() {
       <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>
         <button
           type="button"
-          onClick={toggleOrgMenu}
+          onClick={() => setIsOrgSwitcherOpen(!isOrgSwitcherOpen)}
           data-testid="leftnav-workspace"
-          aria-expanded={isOrgMenuOpen}
-          aria-haspopup="menu"
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded hover:bg-gray-200/60 cursor-pointer transition-colors group relative`}
-          title={collapsed ? displayOrgName : undefined}
+          title={collapsed ? orgDisplayName : undefined}
         >
           <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-orange-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-sm flex-shrink-0">
-            {displayOrgName.slice(0, 2).toUpperCase()}
+            {orgInitial}
           </div>
           {!collapsed && (
             <>
-              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
-                {displayOrgName}
+              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base max-w-[130px]">
+                {orgDisplayName}
               </span>
               <CaretDown
                 weight="bold"
-                className={`text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600 transition-transform ${
-                  isOrgMenuOpen ? 'rotate-180' : ''
-                }`}
+                className={`text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600 transition-transform ${isOrgSwitcherOpen ? 'rotate-180' : ''}`}
               />
             </>
           )}
@@ -363,11 +356,78 @@ export function LeftNav() {
             <PencilSimpleLine className="text-xl 2xl:text-2xl" weight="bold" />
           </button>
         )}
-        <OrgMenu
-          isOpen={isOrgMenuOpen}
-          onClose={closeOrgMenu}
-          collapsed={collapsed}
-        />
+
+        {/* Org Menu Dropdown */}
+        {isOrgSwitcherOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setIsOrgSwitcherOpen(false)}
+            />
+            <div className={`absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+              collapsed ? 'left-0 w-56' : 'left-3 right-3'
+            }`}>
+              {/* Org switcher (multi-org only) */}
+              {orgs.length > 1 && (
+                <>
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                    組織を切替
+                  </div>
+                  {orgs.map(org => (
+                    <button
+                      key={org.orgId}
+                      type="button"
+                      onClick={() => {
+                        switchOrg(org.orgId)
+                        setIsOrgSwitcherOpen(false)
+                        router.push('/inbox')
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
+                        org.orgId === activeOrgId
+                          ? 'text-gray-900 bg-gray-50'
+                          : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                        {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
+                      </div>
+                      <span className="truncate flex-1 text-left">{org.orgName}</span>
+                      {org.orgId === activeOrgId && (
+                        <Check className="text-gray-900 text-sm flex-shrink-0" weight="bold" />
+                      )}
+                    </button>
+                  ))}
+                  <hr className="my-1 border-gray-100" />
+                </>
+              )}
+              {/* Org settings links */}
+              <Link
+                href="/settings/organization"
+                onClick={() => setIsOrgSwitcherOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Gear className="text-base text-gray-500" />
+                組織設定
+              </Link>
+              <Link
+                href="/settings/members"
+                onClick={() => setIsOrgSwitcherOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <User className="text-base text-gray-500" />
+                メンバー管理
+              </Link>
+              <Link
+                href="/settings/billing"
+                onClick={() => setIsOrgSwitcherOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Key className="text-base text-gray-500" />
+                プランと請求
+              </Link>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Nav Items */}
@@ -503,12 +563,7 @@ export function LeftNav() {
       </div>
 
       {/* User Menu at bottom */}
-      <UserMenu
-        collapsed={collapsed}
-        isOpen={isUserMenuOpen}
-        onToggle={toggleUserMenu}
-        onClose={closeUserMenu}
-      />
+      <UserMenu collapsed={collapsed} />
 
       {/* Space Create Sheet */}
       <SpaceCreateSheet

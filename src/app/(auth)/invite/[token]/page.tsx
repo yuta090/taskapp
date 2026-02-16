@@ -130,7 +130,7 @@ export default function InviteAcceptPage({
     return (
       <AuthCard title="確認中...">
         <div className="flex justify-center py-8">
-          <svg className="animate-spin h-8 w-8 text-indigo-600" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-amber-500" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
@@ -153,7 +153,7 @@ export default function InviteAcceptPage({
           </div>
           <Link
             href="/login"
-            className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+            className="text-sm text-amber-600 hover:text-amber-700 font-medium"
           >
             ログインページへ
           </Link>
@@ -167,7 +167,7 @@ export default function InviteAcceptPage({
     return (
       <AuthCard title="参加処理中...">
         <div className="flex justify-center py-8">
-          <svg className="animate-spin h-8 w-8 text-indigo-600" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-amber-500" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
@@ -183,7 +183,7 @@ export default function InviteAcceptPage({
         inviteInfo.is_existing_user && !isLoggedIn ? (
           <>
             すでにアカウントをお持ちの方は{' '}
-            <Link href={`/login?redirect=/invite/${token}`} className="text-indigo-600 hover:text-indigo-700 font-medium">
+            <Link href={`/login?redirect=/invite/${token}`} className="text-amber-600 hover:text-amber-700 font-medium">
               ログイン
             </Link>
           </>

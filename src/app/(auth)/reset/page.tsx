@@ -54,7 +54,7 @@ export default function ResetPage() {
           </p>
           <Link
             href="/login"
-            className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+            className="text-sm text-amber-600 hover:text-amber-700 font-medium"
           >
             ログインページへ戻る
           </Link>

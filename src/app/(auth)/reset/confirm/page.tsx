@@ -65,7 +65,7 @@ export default function ResetConfirmPage() {
     return (
       <AuthCard title="確認中...">
         <div className="flex justify-center py-8">
-          <svg className="animate-spin h-8 w-8 text-indigo-600" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-amber-500" viewBox="0 0 24 24">
             <circle
               className="opacity-25"
               cx="12"
@@ -100,7 +100,7 @@ export default function ResetConfirmPage() {
           </div>
           <Link
             href="/reset"
-            className="inline-block px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+            className="inline-block px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600"
           >
             再度リセットを申請
           </Link>

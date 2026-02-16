@@ -10,8 +10,8 @@ export function AuthButton({ loading, children, className = '', disabled, ...pro
     <button
       className={`
         w-full py-2.5 px-4 rounded-lg text-sm font-medium
-        bg-indigo-600 text-white
-        hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2
+        bg-amber-500 text-white
+        hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2
         disabled:opacity-50 disabled:cursor-not-allowed
         transition-colors
         ${className}

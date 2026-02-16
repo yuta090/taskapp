@@ -78,7 +78,7 @@ export default async function PortalHistoryPage() {
      
     (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, title, type, status, updated_at')
+      .select('id, title, type, status, completed_at, updated_at')
       .eq('space_id', spaceId)
       .eq('status', 'done')
       .order('updated_at', { ascending: false })
@@ -105,7 +105,7 @@ export default async function PortalHistoryPage() {
     id: task.id,
     title: task.title,
     type: task.type as 'task' | 'spec',
-    completedAt: task.updated_at,
+    completedAt: task.completed_at || task.updated_at,
   }))
 
   return (
