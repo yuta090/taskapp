@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Toaster } from 'sonner'
 import { PreferencesProviderWrapper } from '@/components/providers/PreferencesProviderWrapper'
+import { ActiveOrgProvider } from '@/lib/org/ActiveOrgProvider'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -17,8 +18,10 @@ export default function RootLayout({
     <html lang="ja" className="antialiased">
       <body className="font-sans">
         <PreferencesProviderWrapper>
-          {children}
-          <Toaster position="bottom-right" richColors closeButton duration={3000} />
+          <ActiveOrgProvider>
+            {children}
+            <Toaster position="bottom-right" richColors closeButton duration={3000} />
+          </ActiveOrgProvider>
         </PreferencesProviderWrapper>
       </body>
     </html>

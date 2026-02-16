@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constants'
+import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
 // 認証不要のパス
 const publicPaths = [
@@ -27,11 +29,7 @@ const protectedPatterns = [
 /** redirect レスポンスに activeOrgId cookie を付与 */
 function redirectWithOrgCookie(url: URL, orgId: string): NextResponse {
   const redirectResponse = NextResponse.redirect(url)
-  redirectResponse.cookies.set('taskapp:activeOrgId', orgId, {
-    path: '/',
-    sameSite: 'lax',
-    maxAge: 31536000,
-  })
+  redirectResponse.cookies.set(ACTIVE_ORG_COOKIE, orgId, ACTIVE_ORG_COOKIE_OPTIONS)
   return redirectResponse
 }
 
@@ -104,31 +102,8 @@ export async function middleware(request: NextRequest) {
 
   // 認証済みユーザーがログイン/サインアップページにアクセスした場合
   if (user && (pathname === '/login' || pathname === '/signup')) {
-    // activeOrgId cookie を読み取り、有効なメンバーシップを特定
-    const activeOrgId = request.cookies.get('taskapp:activeOrgId')?.value
-    let membership: { org_id: string; role: string } | null = null
-
-    if (activeOrgId) {
-      const { data } = await supabase
-        .from('org_memberships')
-        .select('org_id, role')
-        .eq('user_id', user.id)
-        .eq('org_id', activeOrgId)
-        .single()
-      if (data) membership = data
-    }
-
-    // cookie が無効 or 未設定 → 最初の組織にフォールバック
-    if (!membership) {
-      const { data } = await supabase
-        .from('org_memberships')
-        .select('org_id, role')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .single()
-      membership = data
-    }
+    const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+    const membership = await resolveActiveOrg(supabase, user.id, cookieOrgId)
 
     if (!membership) {
       return NextResponse.redirect(new URL('/inbox', request.url))
@@ -162,33 +137,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
     // activeOrgId cookie を考慮してメンバーシップ検証
-    const onboardActiveOrgId = request.cookies.get('taskapp:activeOrgId')?.value
-    let onboardMembership: { org_id: string; role: string } | null = null
-
-    if (onboardActiveOrgId) {
-      const { data } = await supabase
-        .from('org_memberships')
-        .select('org_id, role')
-        .eq('user_id', user.id)
-        .eq('org_id', onboardActiveOrgId)
-        .maybeSingle()
-      if (data) onboardMembership = data
-    }
-
-    if (!onboardMembership) {
-      const { data, error: onboardError } = await supabase
-        .from('org_memberships')
-        .select('org_id, role')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle()
-
-      if (onboardError) {
-        return response
-      }
-      onboardMembership = data
-    }
+    const onboardCookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+    const onboardMembership = await resolveActiveOrg(supabase, user.id, onboardCookieOrgId)
 
     if (onboardMembership) {
       if (onboardMembership.role === 'client') {
@@ -232,13 +182,9 @@ export async function middleware(request: NextRequest) {
     const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
     if (projectMatch) {
       const pathOrgId = projectMatch[1]
-      const cookieOrgId = request.cookies.get('taskapp:activeOrgId')?.value
+      const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
       if (pathOrgId !== cookieOrgId) {
-        response.cookies.set('taskapp:activeOrgId', pathOrgId, {
-          path: '/',
-          sameSite: 'lax',
-          maxAge: 31536000,
-        })
+        response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
       }
     }
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useContext } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -23,11 +23,13 @@ import {
   CaretUp,
   Key,
   Plus,
+  Check,
 } from '@phosphor-icons/react'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { createClient } from '@/lib/supabase/client'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
 
@@ -222,15 +224,24 @@ export function LeftNav() {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
+  const { activeOrgId, activeOrgName, orgs, switchOrg } = useContext(ActiveOrgContext)
+  const [isOrgSwitcherOpen, setIsOrgSwitcherOpen] = useState(false)
 
-  const fallbackOrgId = '00000000-0000-0000-0000-000000000001'
   const fallbackSpaceId = '00000000-0000-0000-0000-000000000010'
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
-  const orgId = match?.[1] ?? fallbackOrgId
+  const orgId = match?.[1] ?? activeOrgId ?? ''
   const spaceId = match?.[2] ?? fallbackSpaceId
   const hasProjectRoute = !!match
   const { pendingCount: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
+
+  // 組織名のイニシャル（最初の2文字）
+  const orgInitial = activeOrgName
+    ? activeOrgName.length <= 2
+      ? activeOrgName
+      : activeOrgName.slice(0, 2)
+    : '--'
+  const orgDisplayName = activeOrgName ?? '組織未設定'
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
@@ -284,25 +295,25 @@ export function LeftNav() {
       } bg-[#F7F8F9] border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
     >
       {/* Workspace + Quick Create */}
-      <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1`}>
+      <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>
         <button
           type="button"
-          onClick={handleWorkspaceClick}
+          onClick={orgs.length > 1 ? () => setIsOrgSwitcherOpen(!isOrgSwitcherOpen) : handleWorkspaceClick}
           data-testid="leftnav-workspace"
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded hover:bg-gray-200/60 cursor-pointer transition-colors group relative`}
-          title={collapsed ? '株式会社アトラス' : undefined}
+          title={collapsed ? orgDisplayName : undefined}
         >
           <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-orange-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-sm flex-shrink-0">
-            TA
+            {orgInitial}
           </div>
           {!collapsed && (
             <>
-              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
-                株式会社アトラス
+              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base max-w-[130px]">
+                {orgDisplayName}
               </span>
               <CaretDown
                 weight="bold"
-                className="text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600"
+                className={`text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600 transition-transform ${isOrgSwitcherOpen ? 'rotate-180' : ''}`}
               />
             </>
           )}
@@ -317,6 +328,48 @@ export function LeftNav() {
           >
             <PencilSimpleLine className="text-xl 2xl:text-2xl" weight="bold" />
           </button>
+        )}
+
+        {/* Org Switcher Dropdown */}
+        {isOrgSwitcherOpen && orgs.length > 1 && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setIsOrgSwitcherOpen(false)}
+            />
+            <div className={`absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+              collapsed ? 'left-0 w-56' : 'left-3 right-3'
+            }`}>
+              <div className="px-3 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                組織を切替
+              </div>
+              {orgs.map(org => (
+                <button
+                  key={org.orgId}
+                  type="button"
+                  onClick={() => {
+                    switchOrg(org.orgId)
+                    setIsOrgSwitcherOpen(false)
+                    // 新組織のinboxに遷移（プロジェクトはmiddlewareが解決）
+                    router.push('/inbox')
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
+                    org.orgId === activeOrgId
+                      ? 'text-gray-900 bg-gray-50'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                    {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
+                  </div>
+                  <span className="truncate flex-1 text-left">{org.orgName}</span>
+                  {org.orgId === activeOrgId && (
+                    <Check className="text-gray-900 text-sm flex-shrink-0" weight="bold" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
