@@ -1,5 +1,5 @@
+import { Suspense, use } from 'react'
 import { WikiPageClient } from './WikiPageClient'
-import { use } from 'react'
 
 interface Props {
   params: Promise<{
@@ -10,5 +10,9 @@ interface Props {
 
 export default function WikiPage({ params }: Props) {
   const { orgId, spaceId } = use(params)
-  return <WikiPageClient orgId={orgId} spaceId={spaceId} />
+  return (
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-gray-400">読み込み中...</div>}>
+      <WikiPageClient orgId={orgId} spaceId={spaceId} />
+    </Suspense>
+  )
 }
