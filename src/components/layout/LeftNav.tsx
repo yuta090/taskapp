@@ -280,10 +280,6 @@ export function LeftNav() {
     router.push(`${projectBasePath}?create=1`)
   }
 
-  const handleWorkspaceClick = () => {
-    router.push(projectBasePath)
-  }
-
   const handleSpaceCreated = (newSpaceId: string) => {
     router.push(`/${orgId}/project/${newSpaceId}`)
   }
@@ -298,7 +294,7 @@ export function LeftNav() {
       <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>
         <button
           type="button"
-          onClick={orgs.length > 1 ? () => setIsOrgSwitcherOpen(!isOrgSwitcherOpen) : handleWorkspaceClick}
+          onClick={() => setIsOrgSwitcherOpen(!isOrgSwitcherOpen)}
           data-testid="leftnav-workspace"
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded hover:bg-gray-200/60 cursor-pointer transition-colors group relative`}
           title={collapsed ? orgDisplayName : undefined}
@@ -330,8 +326,8 @@ export function LeftNav() {
           </button>
         )}
 
-        {/* Org Switcher Dropdown */}
-        {isOrgSwitcherOpen && orgs.length > 1 && (
+        {/* Org Menu Dropdown */}
+        {isOrgSwitcherOpen && (
           <>
             <div
               className="fixed inset-0 z-40"
@@ -340,34 +336,64 @@ export function LeftNav() {
             <div className={`absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
               collapsed ? 'left-0 w-56' : 'left-3 right-3'
             }`}>
-              <div className="px-3 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-                組織を切替
-              </div>
-              {orgs.map(org => (
-                <button
-                  key={org.orgId}
-                  type="button"
-                  onClick={() => {
-                    switchOrg(org.orgId)
-                    setIsOrgSwitcherOpen(false)
-                    // 新組織のinboxに遷移（プロジェクトはmiddlewareが解決）
-                    router.push('/inbox')
-                  }}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
-                    org.orgId === activeOrgId
-                      ? 'text-gray-900 bg-gray-50'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                    {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
+              {/* Org switcher (multi-org only) */}
+              {orgs.length > 1 && (
+                <>
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                    組織を切替
                   </div>
-                  <span className="truncate flex-1 text-left">{org.orgName}</span>
-                  {org.orgId === activeOrgId && (
-                    <Check className="text-gray-900 text-sm flex-shrink-0" weight="bold" />
-                  )}
-                </button>
-              ))}
+                  {orgs.map(org => (
+                    <button
+                      key={org.orgId}
+                      type="button"
+                      onClick={() => {
+                        switchOrg(org.orgId)
+                        setIsOrgSwitcherOpen(false)
+                        router.push('/inbox')
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
+                        org.orgId === activeOrgId
+                          ? 'text-gray-900 bg-gray-50'
+                          : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                        {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
+                      </div>
+                      <span className="truncate flex-1 text-left">{org.orgName}</span>
+                      {org.orgId === activeOrgId && (
+                        <Check className="text-gray-900 text-sm flex-shrink-0" weight="bold" />
+                      )}
+                    </button>
+                  ))}
+                  <hr className="my-1 border-gray-100" />
+                </>
+              )}
+              {/* Org settings links */}
+              <Link
+                href="/settings/organization"
+                onClick={() => setIsOrgSwitcherOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Gear className="text-base text-gray-500" />
+                組織設定
+              </Link>
+              <Link
+                href="/settings/members"
+                onClick={() => setIsOrgSwitcherOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <User className="text-base text-gray-500" />
+                メンバー管理
+              </Link>
+              <Link
+                href="/settings/billing"
+                onClick={() => setIsOrgSwitcherOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Key className="text-base text-gray-500" />
+                プランと請求
+              </Link>
             </div>
           </>
         )}
