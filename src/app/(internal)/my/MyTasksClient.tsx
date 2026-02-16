@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback, useContext } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
@@ -235,7 +236,7 @@ export default function MyTasksClient() {
         }
       } catch (err) {
         console.error('Failed to create task:', err)
-        alert('タスクの作成に失敗しました')
+        toast.error('タスクの作成に失敗しました')
       }
     },
     [supabase, userId, spaces]

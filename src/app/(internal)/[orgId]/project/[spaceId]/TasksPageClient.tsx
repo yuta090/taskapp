@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, X } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb } from '@/components/shared'
 import { useInspector } from '@/components/layout'
@@ -20,6 +21,7 @@ const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet'
   loading: () => <div className="p-6 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />)}</div>,
 })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
+import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
 import { TaskFilterMenu, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
@@ -416,8 +418,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       setLastBallBySpace((prev) => ({ ...prev, [spaceId]: data.ball }))
       setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: data.clientOwnerIds }))
       syncUrlWithState(false, created.id, activeFilter)
+      toast.success('タスクを作成しました', {
+        description: 'ボール・関係者の設定は次回作成時に保持されます',
+        action: {
+          label: 'リセット',
+          onClick: () => {
+            setLastBallBySpace((prev) => ({ ...prev, [spaceId]: 'internal' }))
+            setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: [] }))
+          },
+        },
+      })
     } catch {
-      alert('タスクの作成に失敗しました')
+      toast.error('タスクの作成に失敗しました')
     }
   }
 
@@ -454,6 +466,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      <InternalOnboardingWalkthrough />
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}
