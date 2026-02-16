@@ -207,10 +207,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           userId = authUser.id
         }
 
-        const { data: created, error: createError } = await (supabase as SupabaseClient)
-          .from('tasks')
-          .insert(
-            {
+        const insertData: Record<string, unknown> = {
               org_id: orgId,
               space_id: spaceId,
               title: task.title,
@@ -220,7 +217,6 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               origin: task.origin,
               type: task.type,
               spec_path: task.type === 'spec' ? task.specPath ?? null : null,
-              wiki_page_id: task.type === 'spec' ? task.wikiPageId ?? null : null,
               decision_state:
                 task.type === 'spec' ? task.decisionState ?? null : null,
               client_scope: task.clientScope ?? 'internal',
@@ -229,8 +225,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
               milestone_id: task.milestoneId ?? null,
               parent_task_id: task.parentTaskId ?? null,
               created_by: userId,
-            } as Record<string, unknown>
-          )
+        }
+        // wiki_page_id column may not exist yet (migration pending)
+        const wikiPageId = task.type === 'spec' ? task.wikiPageId : undefined
+        if (wikiPageId) {
+          insertData.wiki_page_id = wikiPageId
+        }
+
+        const { data: created, error: createError } = await (supabase as SupabaseClient)
+          .from('tasks')
+          .insert(insertData)
           .select('*')
           .single()
 

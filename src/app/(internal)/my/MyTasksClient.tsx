@@ -175,9 +175,7 @@ export default function MyTasksClient() {
 
         const status = data.type === 'spec' ? 'considering' : 'backlog'
 
-        const { data: created, error: createError } = await (supabase as SupabaseClient)
-          .from('tasks')
-          .insert({
+        const myInsertData: Record<string, unknown> = {
             org_id: targetOrgId,
             space_id: targetSpaceId,
             title: data.title,
@@ -187,7 +185,6 @@ export default function MyTasksClient() {
             origin: data.origin,
             type: data.type,
             spec_path: data.type === 'spec' ? data.specPath ?? null : null,
-            wiki_page_id: data.type === 'spec' ? data.wikiPageId ?? null : null,
             decision_state: data.type === 'spec' ? data.decisionState ?? null : null,
             client_scope: data.clientScope ?? 'internal',
             due_date: data.dueDate ?? null,
@@ -195,7 +192,16 @@ export default function MyTasksClient() {
             milestone_id: data.milestoneId ?? null,
             parent_task_id: data.parentTaskId ?? null,
             created_by: uid,
-          } as Record<string, unknown>)
+        }
+        // wiki_page_id column may not exist yet (migration pending)
+        const myWikiPageId = data.type === 'spec' ? data.wikiPageId : undefined
+        if (myWikiPageId) {
+          myInsertData.wiki_page_id = myWikiPageId
+        }
+
+        const { data: created, error: createError } = await (supabase as SupabaseClient)
+          .from('tasks')
+          .insert(myInsertData)
           .select('*')
           .single()
 

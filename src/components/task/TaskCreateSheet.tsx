@@ -399,7 +399,7 @@ export function TaskCreateSheet({
                 if (effectiveOrgId) estimation.search(e.target.value)
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !showAdvanced && title.trim()) {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !showAdvanced && title.trim()) {
                   e.preventDefault()
                   handleSubmit(e as unknown as React.FormEvent)
                 }
