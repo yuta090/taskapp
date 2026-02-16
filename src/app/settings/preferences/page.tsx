@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useSyncExternalStore } from 'react'
+import { useState, useEffect, useSyncExternalStore } from 'react'
 import { ArrowLeft, Sun, Moon, Desktop, Globe, Clock, SidebarSimple } from '@phosphor-icons/react'
 import Link from 'next/link'
 
@@ -47,8 +47,12 @@ function loadPreferences(): Preferences {
 const emptySubscribe = () => () => {}
 
 export default function PreferencesSettingsPage() {
-  const [prefs, setPrefs] = useState<Preferences>(loadPreferences)
+  const [prefs, setPrefs] = useState<Preferences>({ theme: 'light', language: 'ja', timezone: 'Asia/Tokyo', sidebarCollapsed: false })
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false)
+
+  // Sync with localStorage after hydration (cannot read during SSR)
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing with external storage (localStorage)
+  useEffect(() => { setPrefs(loadPreferences()) }, [])
 
   const { theme, language, timezone, sidebarCollapsed } = prefs
 

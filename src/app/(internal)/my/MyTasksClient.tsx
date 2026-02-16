@@ -114,9 +114,17 @@ export default function MyTasksClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
-  const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(() => loadCollapsedState())
-  const [filters, setFilters] = useState<FilterState>(() => loadFilterState())
+  const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
+  const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const [showFilters, setShowFilters] = useState(false)
+
+  // Restore persisted state from localStorage after hydration
+  useEffect(() => {
+    const savedCollapsed = loadCollapsedState()
+    if (savedCollapsed.size > 0) setCollapsedMilestones(savedCollapsed)
+    const savedFilters = loadFilterState()
+    if (JSON.stringify(savedFilters) !== JSON.stringify(defaultFilters)) setFilters(savedFilters)
+  }, [])
 
   const searchParams = useSearchParams()
   const router = useRouter()
