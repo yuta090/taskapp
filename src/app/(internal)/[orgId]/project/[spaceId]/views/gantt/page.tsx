@@ -1,5 +1,8 @@
-import { Suspense, use } from 'react'
+import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query'
+import { createClient } from '@/lib/supabase/server'
+import { prefetchTasks, prefetchMilestones } from '@/lib/supabase/prefetch'
 import { GanttPageClient } from './GanttPageClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface Props {
   params: Promise<{
@@ -8,11 +11,23 @@ interface Props {
   }>
 }
 
-export default function GanttPage({ params }: Props) {
-  const { orgId, spaceId } = use(params)
+export default async function GanttPage({ params }: Props) {
+  const { orgId, spaceId } = await params
+  const queryClient = new QueryClient()
+
+  try {
+    const supabase = await createClient() as unknown as SupabaseClient
+    await Promise.all([
+      prefetchTasks(queryClient, supabase, orgId, spaceId),
+      prefetchMilestones(queryClient, supabase, spaceId),
+    ])
+  } catch {
+    // Prefetch failure is non-critical
+  }
+
   return (
-    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-gray-400">読み込み中...</div>}>
+    <HydrationBoundary state={dehydrate(queryClient)}>
       <GanttPageClient orgId={orgId} spaceId={spaceId} />
-    </Suspense>
+    </HydrationBoundary>
   )
 }

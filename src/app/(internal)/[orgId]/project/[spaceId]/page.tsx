@@ -1,5 +1,8 @@
-import { Suspense, use } from 'react'
+import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query'
+import { createClient } from '@/lib/supabase/server'
+import { prefetchTasks, prefetchMilestones, prefetchSpaceName } from '@/lib/supabase/prefetch'
 import { TasksPageClient } from './TasksPageClient'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface Props {
   params: Promise<{
@@ -8,11 +11,24 @@ interface Props {
   }>
 }
 
-export default function TasksPage({ params }: Props) {
-  const { orgId, spaceId } = use(params)
+export default async function TasksPage({ params }: Props) {
+  const { orgId, spaceId } = await params
+  const queryClient = new QueryClient()
+
+  try {
+    const supabase = await createClient() as unknown as SupabaseClient
+    await Promise.all([
+      prefetchTasks(queryClient, supabase, orgId, spaceId),
+      prefetchMilestones(queryClient, supabase, spaceId),
+      prefetchSpaceName(queryClient, supabase, spaceId),
+    ])
+  } catch {
+    // Prefetch failure is non-critical — client hooks will re-fetch
+  }
+
   return (
-    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-gray-400">読み込み中...</div>}>
+    <HydrationBoundary state={dehydrate(queryClient)}>
       <TasksPageClient orgId={orgId} spaceId={spaceId} />
-    </Suspense>
+    </HydrationBoundary>
   )
 }
