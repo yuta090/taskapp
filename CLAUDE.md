@@ -84,6 +84,17 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 const dateStr = formatDateToLocalString(date)
 ```
 
+## Git Branch Rules (厳守)
+
+- **`main` への直接プッシュは禁止** — いかなる場合もプルリクエスト経由のみ
+- **`develop` への直接プッシュ・PRは問題ない** — 通常の作業ブランチとして使用
+- **`develop` → `main`** はプルリクエスト必須（直接マージ禁止）
+- プッシュ・プルリクは `develop` ブランチに対して行うこと
+
+```
+develop (作業・プッシュ先) → (PR) → main
+```
+
 ## Environment Setup
 
 ```bash
