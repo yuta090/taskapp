@@ -149,10 +149,13 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       if (tasksError) throw tasksError
 
       // review statuses を別クエリで取得（FK/RLS問題を回避）
-      const { data: reviewsData } = await (supabase as SupabaseClient)
+      const { data: reviewsData, error: reviewsError } = await (supabase as SupabaseClient)
         .from('reviews')
         .select('task_id, status')
         .eq('space_id' as never, spaceId as never)
+      if (reviewsError) {
+        console.warn('[useTasks] reviews query failed:', reviewsError.message)
+      }
 
       const rawTasks = (tasksData || []) as Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }>
 

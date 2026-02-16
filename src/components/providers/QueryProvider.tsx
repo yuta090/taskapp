@@ -4,7 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client'
 import { get, set, del } from 'idb-keyval'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const IDB_KEY = 'taskapp-query-cache'
@@ -45,14 +45,31 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(makeQueryClient)
   const [persister] = useState(makeIdbPersister)
 
-  // Clear cache on auth state change (user switch / logout)
+  // Track current user ID to detect identity changes (user switch without explicit sign-out)
+  const currentUserIdRef = useRef<string | null>(null)
+
+  // Clear cache on auth state change (user switch / logout / identity change)
   useEffect(() => {
     const supabase = createClient()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        // Clear in-memory cache and persisted IndexedDB
+        currentUserIdRef.current = null
         queryClient.clear()
         void del(IDB_KEY)
+        return
+      }
+
+      // On SIGNED_IN or INITIAL_SESSION, check if user identity changed
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        const newUserId = session?.user?.id ?? null
+        const prevUserId = currentUserIdRef.current
+        currentUserIdRef.current = newUserId
+
+        // If we had a previous user and the new user is different, clear stale cache
+        if (prevUserId && newUserId && prevUserId !== newUserId) {
+          queryClient.clear()
+          void del(IDB_KEY)
+        }
       }
     })
     return () => subscription.unsubscribe()

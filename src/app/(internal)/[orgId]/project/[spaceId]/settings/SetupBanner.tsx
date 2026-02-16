@@ -57,7 +57,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sb = supabase as any
         const [spaceRes, memberRes, msRes] = await Promise.all([
-          sb.from('spaces').select('preset_genre').eq('id', spaceId).single(),
+          sb.from('spaces').select('*').eq('id', spaceId).single(),
           sb.from('space_memberships').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
           sb.from('milestones').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
         ])
