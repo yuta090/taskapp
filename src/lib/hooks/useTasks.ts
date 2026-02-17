@@ -54,6 +54,7 @@ export interface UpdateTaskInput {
   milestoneId?: string | null
   parentTaskId?: string | null
   actualHours?: number | null
+  wikiPageId?: string | null
 }
 
 // ReviewStatus and TasksQueryData are imported from @/lib/supabase/queries
@@ -358,6 +359,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
                 milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
                 parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
                 actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
+                wiki_page_id: input.wikiPageId !== undefined ? input.wikiPageId : t.wiki_page_id,
+                type: input.wikiPageId !== undefined ? (input.wikiPageId ? 'spec' : 'task') : t.type,
+                decision_state: input.wikiPageId !== undefined
+                  ? (input.wikiPageId ? (t.decision_state ?? 'considering') : null)
+                  : t.decision_state,
                 completed_at: newStatus === 'done' && t.status !== 'done'
                   ? new Date().toISOString()
                   : newStatus !== 'done' && t.status === 'done'
@@ -385,6 +391,19 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
         if (input.actualHours !== undefined) updateData.actual_hours = input.actualHours
+        if (input.wikiPageId !== undefined) {
+          updateData.wiki_page_id = input.wikiPageId
+          updateData.type = input.wikiPageId ? 'spec' : 'task'
+          if (input.wikiPageId) {
+            // Set decision_state to 'considering' if not already set
+            const currentTask = previousData?.tasks.find((t) => t.id === taskId)
+            if (!currentTask?.decision_state) {
+              updateData.decision_state = 'considering'
+            }
+          } else {
+            updateData.decision_state = null
+          }
+        }
 
         const { error: updateError } = await (supabase as SupabaseClient)
           .from('tasks')

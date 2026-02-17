@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { toast } from 'sonner'
@@ -31,6 +32,7 @@ interface TaskInspectorProps {
     assigneeId?: string | null
     parentTaskId?: string | null
     actualHours?: number | null
+    wikiPageId?: string | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
@@ -92,6 +94,13 @@ export function TaskInspector({
 
   // Milestone data
   const [milestones, setMilestones] = useState<Milestone[]>([])
+
+  // Wiki pages for spec link
+  const { pages: wikiPages } = useWikiPages({ orgId: task.org_id, spaceId })
+  const specWikiPages = useMemo(
+    () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
+    [wikiPages]
+  )
 
   // Space members with display names
   const { members, clientMembers, internalMembers, getMemberName, loading: membersLoading } = useSpaceMembers(spaceId)
@@ -231,6 +240,14 @@ export function TaskInspector({
     const newAssigneeId = assigneeId || null
     if (newAssigneeId !== task.assignee_id) {
       await onUpdate?.({ assigneeId: newAssigneeId })
+      flashSaved()
+    }
+  }
+
+  const handleWikiPageChange = async (wikiPageId: string) => {
+    const newWikiPageId = wikiPageId || null
+    if (newWikiPageId !== task.wiki_page_id) {
+      await onUpdate?.({ wikiPageId: newWikiPageId })
       flashSaved()
     }
   }
@@ -873,39 +890,91 @@ export function TaskInspector({
         )}
 
 
-        {/* Spec Task Info - AT-009: 2-click workflow */}
-        {task.type === 'spec' && (
-          <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <label className="text-xs font-medium text-gray-500">
-              仕様書連携
-            </label>
+        {/* Spec / Wiki Link — shown for all tasks */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+            <FileText className="text-sm" />
+            仕様書連携
+          </label>
+          {onUpdate ? (
+            <div className="space-y-3">
+              {/* Wiki page selector */}
+              {specWikiPages.length > 0 ? (
+                <select
+                  value={task.wiki_page_id || ''}
+                  onChange={(e) => handleWikiPageChange(e.target.value)}
+                  data-testid="task-inspector-wiki-page"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">紐付けなし</option>
+                  {specWikiPages.map((page) => (
+                    <option key={page.id} value={page.id}>
+                      {page.title}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-gray-400 py-1">
+                  仕様書タグのWikiページがありません
+                </p>
+              )}
 
-            {/* Wiki Page Link or legacy spec_path */}
-            {task.wiki_page_id ? (
-              <a
-                href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
-                className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
-              >
-                <LinkIcon className="text-blue-400" />
-                Wikiページを開く
-              </a>
-            ) : task.spec_path ? (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <LinkIcon className="text-gray-400" />
+              {/* Wiki page link (when linked) */}
+              {task.wiki_page_id && (
+                <a
+                  href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <LinkIcon className="text-blue-400" />
+                  Wikiページを開く
+                </a>
+              )}
+
+              {/* Legacy spec_path fallback */}
+              {!task.wiki_page_id && task.spec_path && (
+                <div className="flex items-center gap-2 text-sm text-gray-700">
+                  <LinkIcon className="text-gray-400" />
+                  <a
+                    href={task.spec_path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-600 hover:underline truncate"
+                  >
+                    {task.spec_path}
+                  </a>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              {task.wiki_page_id ? (
+                <a
+                  href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <LinkIcon className="text-blue-400" />
+                  Wikiページを開く
+                </a>
+              ) : task.spec_path ? (
                 <a
                   href={task.spec_path}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-600 hover:underline truncate"
+                  className="text-sm text-gray-600 hover:underline truncate"
                 >
                   {task.spec_path}
                 </a>
-              </div>
-            ) : (
-              <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                仕様書が紐付けられていません
-              </div>
-            )}
+              ) : (
+                <div className="text-sm text-gray-400">未設定</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Spec workflow (decision state + 2-click) — only when spec task */}
+        {task.type === 'spec' && (
+          <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
 
             {/* Decision State Badge */}
             {task.decision_state && (
@@ -931,12 +1000,10 @@ export function TaskInspector({
             {/* AT-009: 2-click workflow for decided → implemented */}
             {onSetSpecState && task.decision_state === 'decided' && (
               <div className="pt-2 space-y-2 border-t border-gray-200">
-                {/* Step 1: Open spec to confirm */}
                 {(!specConfirmClickTime || specConfirmTaskId !== task.id) && (
                   <button
                     onClick={() => {
                       if (task.wiki_page_id) {
-                        // Navigate to wiki page within app
                         window.open(
                           `/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`,
                           '_blank',
@@ -945,7 +1012,6 @@ export function TaskInspector({
                         setSpecConfirmClickTime(Date.now())
                         setSpecConfirmTaskId(task.id)
                       } else if (task.spec_path) {
-                        // Legacy: open external URL
                         try {
                           const url = new URL(task.spec_path)
                           if (!['http:', 'https:'].includes(url.protocol)) {
@@ -972,15 +1038,12 @@ export function TaskInspector({
                   </button>
                 )}
 
-                {/* Step 2: Mark as implemented (within 10 minutes) */}
                 {specConfirmClickTime && specConfirmTaskId === task.id && (
                   <>
                     <div className="text-xs text-gray-600">
                       仕様を確認しました。実装が完了したら下のボタンを押してください。
                       <br />
-                      <span className="text-gray-500">
-                        (10分以内に完了してください)
-                      </span>
+                      <span className="text-gray-500">(10分以内に完了してください)</span>
                     </div>
                     <button
                       onClick={async () => {

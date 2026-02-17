@@ -287,6 +287,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       milestoneId?: string | null
       assigneeId?: string | null
       actualHours?: number | null
+      wikiPageId?: string | null
     }) => {
       await updateTask(taskId, updates)
     },
