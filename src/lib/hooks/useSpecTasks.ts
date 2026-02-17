@@ -64,8 +64,8 @@ export function useSpecTasks({
         throw new Error('Task not found')
       }
 
-      if (state !== 'considering' && !task.spec_path) {
-        throw new Error('仕様ファイルパス（spec_path）が設定されていません')
+      if (state !== 'considering' && !task.wiki_page_id && !task.spec_path) {
+        throw new Error('仕様書（Wikiページまたはspec_path）が設定されていません')
       }
 
       // Optimistic update
