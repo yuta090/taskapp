@@ -53,7 +53,7 @@ function NavItem({ href, icon, label, badge, active, collapsed }: NavItemProps) 
         <span className="truncate text-sm 2xl:text-base">{label}</span>
       )}
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-sm">
+        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-sm">
           {badge}
         </span>
       )}
