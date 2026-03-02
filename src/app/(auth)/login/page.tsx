@@ -80,7 +80,8 @@ function LoginForm() {
           router.push('/inbox')
         }
       }
-    } catch {
+    } catch (err) {
+      console.error('Login error:', err)
       setError('ログイン中にエラーが発生しました')
     } finally {
       setLoading(false)
@@ -134,7 +135,8 @@ function LoginForm() {
           router.push('/inbox')
         }
       }
-    } catch {
+    } catch (err) {
+      console.error('Quick login error:', err)
       setError('ログイン中にエラーが発生しました')
     } finally {
       setQuickLoginLoading(null)
