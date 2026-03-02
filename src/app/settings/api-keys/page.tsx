@@ -542,10 +542,11 @@ agentpm login
               </h4>
               <p className="text-xs text-gray-500 mb-2">
                 AIがCLIの使い方を理解するためのスキルファイルをダウンロードします。
+                <code className="text-gray-600">~/.claude/skills/</code> に配置するとグローバル（全プロジェクト共通）で使えます。
               </p>
               <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
-{`mkdir -p .claude/skills
-curl -o .claude/skills/agentpm.md ${typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'}/skills/agentpm.md`}
+{`mkdir -p ~/.claude/skills
+curl -o ~/.claude/skills/agentpm.md ${typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'}/skills/agentpm.md`}
               </pre>
             </div>
 
