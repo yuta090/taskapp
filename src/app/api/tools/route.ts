@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Dispatch to MCP handler
-    const { dispatchTool } = await import('agentpm-core/dist/dispatch.js')
+    const { dispatchTool } = await import('../../../../packages/mcp-server/dist/dispatch.js')
     const result = await dispatchTool(apiKey, tool, (params || {}) as Record<string, unknown>)
 
     return NextResponse.json(result)
