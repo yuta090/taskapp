@@ -112,7 +112,7 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
     }
 
     void fetchOrgs()
-  }, [user, userLoading, supabase, cookieOrgId])
+  }, [user, userLoading, cookieOrgId])
 
   const switchOrg = useCallback((orgId: string) => {
     const target = orgs.find(o => o.orgId === orgId)
