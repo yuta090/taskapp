@@ -5,6 +5,11 @@ let supabaseInstance: SupabaseClient | null = null
 
 export function getSupabaseClient(): SupabaseClient {
   if (!supabaseInstance) {
+    if (!config.supabaseUrl || !config.supabaseServiceKey) {
+      throw new Error(
+        'Supabase not configured. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_KEY (or SUPABASE_SERVICE_ROLE_KEY)',
+      )
+    }
     supabaseInstance = createClient(config.supabaseUrl, config.supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
