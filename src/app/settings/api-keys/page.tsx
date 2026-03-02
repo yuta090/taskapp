@@ -513,19 +513,61 @@ export default function ApiKeysSettingsPage() {
           )}
         </div>
 
-        {/* Usage instructions */}
-        <div className="bg-gray-50 rounded-lg p-4 text-sm">
-          <h4 className="font-medium text-gray-700 mb-2">使用方法</h4>
-          <p className="text-gray-600 mb-2">
-            発行したAPIキーを環境変数に設定してください:
-          </p>
-          <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
-            {`TASKAPP_API_KEY=<発行したAPIキー>
-TASKAPP_API_URL=${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api`}
-          </pre>
-          <p className="text-xs text-gray-500 mt-2">
-            ※ スペースIDは自動的にAPIキーに紐付けられているため、個別設定は不要です
-          </p>
+        {/* Setup instructions */}
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h3 className="font-medium text-gray-900">セットアップ</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              AIエージェント (Claude Code等) からAgentPMを操作するための設定
+            </p>
+          </div>
+
+          <div className="p-4 space-y-5">
+            {/* Step 1: CLI Install */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                Step 1: CLI インストール
+              </h4>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
+{`npm install -g @uzukko/agentpm
+agentpm login
+# APIキーを貼り付けてEnter`}
+              </pre>
+            </div>
+
+            {/* Step 2: Skill Install */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                Step 2: Claude Code スキル登録
+              </h4>
+              <p className="text-xs text-gray-500 mb-2">
+                AIがCLIの使い方を理解するためのスキルファイルをダウンロードします。
+              </p>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
+{`mkdir -p .claude/skills
+curl -o .claude/skills/agentpm.md ${typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'}/skills/agentpm.md`}
+              </pre>
+            </div>
+
+            {/* Quick reference */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                よく使うコマンド
+              </h4>
+              <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
+{`agentpm space list --json          # プロジェクト一覧
+agentpm task list --json           # タスク一覧
+agentpm dashboard --json           # ダッシュボード
+agentpm task create --json \\
+  --title "タスク名" \\
+  --space-id <uuid>                # タスク作成`}
+              </pre>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              MCPサーバーは段階的に廃止予定です。CLI + スキルへの移行を推奨します。
+            </p>
+          </div>
         </div>
       </main>
     </div>
