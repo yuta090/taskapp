@@ -1,3 +1,5 @@
+import { QueryProvider } from '@/components/providers/QueryProvider'
+
 export const dynamic = 'force-dynamic'
 
 export default function SettingsLayout({
@@ -5,5 +7,5 @@ export default function SettingsLayout({
 }: {
   children: React.ReactNode
 }) {
-  return children
+  return <QueryProvider>{children}</QueryProvider>
 }
