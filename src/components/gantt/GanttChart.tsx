@@ -184,6 +184,7 @@ export function GanttChart({
                 : 'hover:bg-gray-100 text-gray-600'
             }`}
             title={groupByMilestone ? 'フラット表示' : 'マイルストーン別'}
+            aria-label={groupByMilestone ? 'フラット表示にする' : 'マイルストーン別にする'}
           >
             {groupByMilestone ? (
               <Rows className="w-4 h-4" />
@@ -200,6 +201,7 @@ export function GanttChart({
             disabled={viewMode === 'month'}
             className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="縮小"
+            aria-label="縮小"
           >
             <MagnifyingGlassMinus className="w-4 h-4 text-gray-600" />
           </button>
@@ -213,6 +215,7 @@ export function GanttChart({
             disabled={viewMode === 'day'}
             className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="拡大"
+            aria-label="拡大"
           >
             <MagnifyingGlassPlus className="w-4 h-4 text-gray-600" />
           </button>

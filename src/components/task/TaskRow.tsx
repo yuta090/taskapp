@@ -107,7 +107,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
         type="button"
         onClick={handleClick}
         className={`text-lg transition-transform ${onStatusChange ? 'hover:scale-110 cursor-pointer' : ''}`}
-        aria-label={getStatusLabel(status)}
+        aria-label={`ステータスを変更（現在: ${getStatusLabel(status)}）`}
       >
         {getStatusIcon(status)}
       </button>
@@ -184,6 +184,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
               : 'border-gray-300 hover:border-gray-400 text-transparent hover:text-gray-400'
           }`}
           title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
+          aria-label={task.status === 'done' ? '未完了に戻す' : '完了にする'}
         >
           <Check weight="bold" className="w-full h-full" />
         </button>
@@ -286,6 +287,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         <button
           data-testid="task-row-actions"
           className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"
+          aria-label="タスクアクション"
         >
           <DotsThree weight="bold" />
         </button>
