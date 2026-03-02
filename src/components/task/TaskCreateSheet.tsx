@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, FileText } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -145,16 +146,7 @@ export function TaskCreateSheet({
     prevIsOpenRef.current = isOpen
   }, [isOpen, defaultBall, defaultClientOwnerIds, isGlobalCreate, selectedSpaceId, spaces])
 
-  // Handle Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose, skipAutoFocus: true })
 
   // Fetch milestones only (members come from useSpaceMembers hook)
   useEffect(() => {
@@ -318,7 +310,7 @@ export function TaskCreateSheet({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30"
