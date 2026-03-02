@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
 import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
@@ -30,6 +32,7 @@ interface TaskInspectorProps {
     assigneeId?: string | null
     parentTaskId?: string | null
     actualHours?: number | null
+    wikiPageId?: string | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
@@ -70,6 +73,9 @@ export function TaskInspector({
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [editDescription, setEditDescription] = useState(task.description || '')
   const [isDeleting, setIsDeleting] = useState(false)
+  const [showSaved, setShowSaved] = useState(false)
+  const [showComments, setShowComments] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // AT-009: Spec task 2-click workflow state
   const [specConfirmClickTime, setSpecConfirmClickTime] = useState<number | null>(null)
@@ -88,6 +94,13 @@ export function TaskInspector({
 
   // Milestone data
   const [milestones, setMilestones] = useState<Milestone[]>([])
+
+  // Wiki pages for spec link
+  const { pages: wikiPages } = useWikiPages({ orgId: task.org_id, spaceId })
+  const specWikiPages = useMemo(
+    () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
+    [wikiPages]
+  )
 
   // Space members with display names
   const { members, clientMembers, internalMembers, getMemberName, loading: membersLoading } = useSpaceMembers(spaceId)
@@ -147,6 +160,20 @@ export function TaskInspector({
     setEditingOwners(true)
   }
 
+  // Show brief "saved" indicator
+  const flashSaved = () => {
+    setShowSaved(true)
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000)
+  }
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    }
+  }, [])
+
   const handleTitleSave = async () => {
     if (!editTitle.trim() || editTitle === task.title) {
       setEditTitle(task.title)
@@ -155,6 +182,7 @@ export function TaskInspector({
     }
     await onUpdate?.({ title: editTitle.trim() })
     setIsEditingTitle(false)
+    flashSaved()
   }
 
   const handleDescriptionSave = async () => {
@@ -165,11 +193,13 @@ export function TaskInspector({
     }
     await onUpdate?.({ description: newDesc })
     setIsEditingDescription(false)
+    flashSaved()
   }
 
   const handleStatusChange = async (status: TaskStatus) => {
     if (status !== task.status) {
       await onUpdate?.({ status })
+      flashSaved()
     }
   }
 
@@ -177,6 +207,7 @@ export function TaskInspector({
     const startDate = dateStr || null
     if (startDate !== task.start_date) {
       await onUpdate?.({ startDate })
+      flashSaved()
     }
   }
 
@@ -184,6 +215,7 @@ export function TaskInspector({
     const dueDate = dateStr || null
     if (dueDate !== task.due_date) {
       await onUpdate?.({ dueDate })
+      flashSaved()
     }
   }
 
@@ -192,6 +224,7 @@ export function TaskInspector({
     if (hours !== null && isNaN(hours)) return
     if (hours !== task.actual_hours) {
       await onUpdate?.({ actualHours: hours })
+      flashSaved()
     }
   }
 
@@ -199,6 +232,7 @@ export function TaskInspector({
     const newMilestoneId = milestoneId || null
     if (newMilestoneId !== task.milestone_id) {
       await onUpdate?.({ milestoneId: newMilestoneId })
+      flashSaved()
     }
   }
 
@@ -206,6 +240,15 @@ export function TaskInspector({
     const newAssigneeId = assigneeId || null
     if (newAssigneeId !== task.assignee_id) {
       await onUpdate?.({ assigneeId: newAssigneeId })
+      flashSaved()
+    }
+  }
+
+  const handleWikiPageChange = async (wikiPageId: string) => {
+    const newWikiPageId = wikiPageId || null
+    if (newWikiPageId !== task.wiki_page_id) {
+      await onUpdate?.({ wikiPageId: newWikiPageId })
+      flashSaved()
     }
   }
 
@@ -313,9 +356,19 @@ export function TaskInspector({
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
-        <h2 className="text-sm font-medium text-gray-900 truncate">
-          タスク詳細
-        </h2>
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-medium text-gray-900 truncate">
+            タスク詳細
+          </h2>
+          {showSaved ? (
+            <span className="flex items-center gap-1 text-xs text-green-600 animate-in fade-in duration-200 flex-shrink-0">
+              <Check className="text-xs" weight="bold" />
+              保存しました
+            </span>
+          ) : onUpdate ? (
+            <span className="text-[10px] text-gray-400 flex-shrink-0">自動保存</span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-1">
           {onDelete && (
             <button
@@ -597,7 +650,7 @@ export function TaskInspector({
           {onUpdate ? (
             <select
               value={task.parent_task_id || ''}
-              onChange={(e) => onUpdate?.({ parentTaskId: e.target.value || null })}
+              onChange={(e) => { onUpdate?.({ parentTaskId: e.target.value || null }); flashSaved() }}
               data-testid="task-inspector-parent"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
@@ -837,31 +890,91 @@ export function TaskInspector({
         )}
 
 
-        {/* Spec Task Info - AT-009: 2-click workflow */}
-        {task.type === 'spec' && (
-          <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <label className="text-xs font-medium text-gray-500">
-              仕様タスク
-            </label>
+        {/* Spec / Wiki Link — shown for all tasks */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+            <FileText className="text-sm" />
+            仕様書連携
+          </label>
+          {onUpdate ? (
+            <div className="space-y-3">
+              {/* Wiki page selector */}
+              {specWikiPages.length > 0 ? (
+                <select
+                  value={task.wiki_page_id || ''}
+                  onChange={(e) => handleWikiPageChange(e.target.value)}
+                  data-testid="task-inspector-wiki-page"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">紐付けなし</option>
+                  {specWikiPages.map((page) => (
+                    <option key={page.id} value={page.id}>
+                      {page.title}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-gray-400 py-1">
+                  仕様書タグのWikiページがありません
+                </p>
+              )}
 
-            {/* Spec Path */}
-            {task.spec_path ? (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <LinkIcon className="text-gray-400" />
+              {/* Wiki page link (when linked) */}
+              {task.wiki_page_id && (
+                <a
+                  href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <LinkIcon className="text-blue-400" />
+                  Wikiページを開く
+                </a>
+              )}
+
+              {/* Legacy spec_path fallback */}
+              {!task.wiki_page_id && task.spec_path && (
+                <div className="flex items-center gap-2 text-sm text-gray-700">
+                  <LinkIcon className="text-gray-400" />
+                  <a
+                    href={task.spec_path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-600 hover:underline truncate"
+                  >
+                    {task.spec_path}
+                  </a>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              {task.wiki_page_id ? (
+                <a
+                  href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <LinkIcon className="text-blue-400" />
+                  Wikiページを開く
+                </a>
+              ) : task.spec_path ? (
                 <a
                   href={task.spec_path}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-600 hover:underline truncate"
+                  className="text-sm text-gray-600 hover:underline truncate"
                 >
                   {task.spec_path}
                 </a>
-              </div>
-            ) : (
-              <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                spec_path が設定されていません
-              </div>
-            )}
+              ) : (
+                <div className="text-sm text-gray-400">未設定</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Spec workflow (decision state + 2-click) — only when spec task */}
+        {task.type === 'spec' && (
+          <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
 
             {/* Decision State Badge */}
             {task.decision_state && (
@@ -870,6 +983,8 @@ export function TaskInspector({
                   className={`text-xs px-2 py-1 rounded font-medium ${
                     task.decision_state === 'implemented'
                       ? 'bg-green-50 text-green-600'
+                      : task.decision_state === 'decided'
+                      ? 'bg-blue-50 text-blue-600'
                       : 'bg-gray-100 text-gray-600'
                   }`}
                 >
@@ -885,30 +1000,36 @@ export function TaskInspector({
             {/* AT-009: 2-click workflow for decided → implemented */}
             {onSetSpecState && task.decision_state === 'decided' && (
               <div className="pt-2 space-y-2 border-t border-gray-200">
-                {/* Step 1: Open spec to confirm */}
                 {(!specConfirmClickTime || specConfirmTaskId !== task.id) && (
                   <button
                     onClick={() => {
-                      if (task.spec_path) {
-                        // Validate URL scheme for security (allow only http/https)
+                      if (task.wiki_page_id) {
+                        window.open(
+                          `/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`,
+                          '_blank',
+                          'noopener,noreferrer'
+                        )
+                        setSpecConfirmClickTime(Date.now())
+                        setSpecConfirmTaskId(task.id)
+                      } else if (task.spec_path) {
                         try {
                           const url = new URL(task.spec_path)
                           if (!['http:', 'https:'].includes(url.protocol)) {
-                            alert('無効なURLスキームです')
+                            toast.error('無効なURLスキームです')
                             return
                           }
                           window.open(task.spec_path, '_blank', 'noopener,noreferrer')
                           setSpecConfirmClickTime(Date.now())
                           setSpecConfirmTaskId(task.id)
                         } catch {
-                          alert('無効なURLです')
+                          toast.error('無効なURLです')
                         }
                       }
                     }}
-                    disabled={!task.spec_path}
+                    disabled={!task.wiki_page_id && !task.spec_path}
                     data-testid="spec-confirm-open"
                     className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
-                      task.spec_path
+                      (task.wiki_page_id || task.spec_path)
                         ? 'bg-gray-900 text-white hover:bg-gray-800'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
@@ -917,22 +1038,19 @@ export function TaskInspector({
                   </button>
                 )}
 
-                {/* Step 2: Mark as implemented (within 10 minutes) */}
                 {specConfirmClickTime && specConfirmTaskId === task.id && (
                   <>
                     <div className="text-xs text-gray-600">
                       仕様を確認しました。実装が完了したら下のボタンを押してください。
                       <br />
-                      <span className="text-gray-500">
-                        (10分以内に完了してください)
-                      </span>
+                      <span className="text-gray-500">(10分以内に完了してください)</span>
                     </div>
                     <button
                       onClick={async () => {
                         const elapsed = Date.now() - specConfirmClickTime
                         const tenMinutes = 10 * 60 * 1000
                         if (elapsed > tenMinutes) {
-                          alert('10分を超えました。再度「仕様を確認する」を押してください。')
+                          toast.error('10分を超えました。再度「仕様を確認する」を押してください。')
                           setSpecConfirmClickTime(null)
                           setSpecConfirmTaskId(null)
                           return
@@ -943,7 +1061,7 @@ export function TaskInspector({
                           setSpecConfirmClickTime(null)
                           setSpecConfirmTaskId(null)
                         } catch (err) {
-                          alert(err instanceof Error ? err.message : '状態の更新に失敗しました')
+                          toast.error(err instanceof Error ? err.message : '状態の更新に失敗しました')
                         } finally {
                           setIsSettingSpecState(false)
                         }
@@ -973,23 +1091,23 @@ export function TaskInspector({
               <div className="pt-2 border-t border-gray-200">
                 <button
                   onClick={async () => {
-                    if (!task.spec_path) {
-                      alert('spec_path が設定されていません')
+                    if (!task.wiki_page_id && !task.spec_path) {
+                      toast.error('仕様書が紐付けられていません')
                       return
                     }
                     setIsSettingSpecState(true)
                     try {
                       await onSetSpecState('decided')
                     } catch (err) {
-                      alert(err instanceof Error ? err.message : '状態の更新に失敗しました')
+                      toast.error(err instanceof Error ? err.message : '状態の更新に失敗しました')
                     } finally {
                       setIsSettingSpecState(false)
                     }
                   }}
-                  disabled={!task.spec_path || isSettingSpecState}
+                  disabled={(!task.wiki_page_id && !task.spec_path) || isSettingSpecState}
                   data-testid="spec-mark-decided"
                   className={`w-full px-3 py-2 text-sm rounded-lg transition-colors ${
-                    task.spec_path && !isSettingSpecState
+                    (task.wiki_page_id || task.spec_path) && !isSettingSpecState
                       ? 'bg-gray-900 text-white hover:bg-gray-800'
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
@@ -1160,15 +1278,28 @@ export function TaskInspector({
         {/* Slack */}
         <SlackPostButton taskId={task.id} spaceId={spaceId} />
 
-        {/* Comments */}
-        <TaskComments
-          orgId={task.org_id}
-          spaceId={spaceId}
-          taskId={task.id}
-          currentUserId={currentUserId}
-          clientOnly={false}
-          canSetVisibility={isInternalMember}
-        />
+        {/* Comments (collapsed by default) */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowComments(!showComments)}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors w-full"
+          >
+            <ChatCircleText className="text-sm" />
+            <span>コメント</span>
+            {showComments ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
+          </button>
+          {showComments && (
+            <TaskComments
+              orgId={task.org_id}
+              spaceId={spaceId}
+              taskId={task.id}
+              currentUserId={currentUserId}
+              clientOnly={false}
+              canSetVisibility={isInternalMember}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

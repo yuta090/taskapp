@@ -35,7 +35,6 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     participants,
     loading,
     error,
-    fetchMeetings,
     fetchMeetingDetail,
     createMeeting,
     startMeeting,
@@ -56,15 +55,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   const selectedMeetingId = searchParams.get('meeting')
   const selectedProposalId = searchParams.get('proposal')
 
-  useEffect(() => {
-    void fetchMeetings()
-  }, [fetchMeetings])
-
-  useEffect(() => {
-    if (activeTab === 'scheduling') {
-      void fetchProposals()
-    }
-  }, [activeTab, fetchProposals])
+  // useQuery auto-fetches meetings — no manual useEffect needed
+  // Proposals are fetched via useSchedulingProposals auto-fetch
 
   useEffect(() => {
     return () => {

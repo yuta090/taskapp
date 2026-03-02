@@ -92,13 +92,53 @@ export async function middleware(request: NextRequest) {
   // 認証が必要なプレフィックスのチェック
   const needsAuth = authRequiredPrefixes.some(prefix => pathname.startsWith(prefix))
 
-  // 認証不要のパスではgetUser()をスキップ（DB往復を削減）
-  // ただし login/signup はリダイレクト判定のためgetUser()必要
+  // 認証不要のパスではセッションチェックをスキップ
+  // ただし login/signup はリダイレクト判定のため検証が必要
   if (isPublicPath && !isProtectedPath && !needsAuth && pathname !== '/login' && pathname !== '/signup') {
     return response
   }
 
-  // セッションをリフレッシュ
+  // ── 高速パス: login/signup/onboarding 以外 ──
+  // getSession() はJWT読み込み（ネットワーク不要、~1ms）※期限切れ時のみrefreshで往復あり
+  // getUser() はSupabase Auth APIへ毎回往復（50-200ms）
+  //
+  // セキュリティモデル:
+  // - middlewareはルーティング層（認証済みか否かでページ振り分け）
+  // - 実際のセキュリティ境界はSupabase RLS（全データクエリでtoken検証）
+  // - cookieはhttpOnly + SameSite + Secureで保護（クライアントJSで改竄不可）
+  // - 仮にsessionが不正でも、RLSがデータアクセスをブロック
+  const needsServerVerification = pathname === '/login' || pathname === '/signup' || pathname.startsWith('/onboarding')
+
+  if (!needsServerVerification) {
+    const { data: { session } } = await supabase.auth.getSession()
+
+    // 未認証ユーザーが保護されたパスにアクセスした場合
+    if (!session && (isProtectedPath || needsAuth)) {
+      if (pathname === '/portal') {
+        return NextResponse.redirect(new URL('/login', request.url))
+      }
+      const redirectUrl = new URL('/login', request.url)
+      redirectUrl.searchParams.set('redirect', pathname)
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    // プロジェクトルート (/:orgId/project/...) の場合、URL の orgId を cookie に同期
+    if (session) {
+      const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
+      if (projectMatch) {
+        const pathOrgId = projectMatch[1]
+        const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+        if (pathOrgId !== cookieOrgId) {
+          response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
+        }
+      }
+    }
+
+    return response
+  }
+
+  // ── 検証パス: login/signup/onboarding のみ getUser() を使用 ──
+  // サーバー検証が必要（リダイレクト先の決定に verified user ID が必要）
   const { data: { user } } = await supabase.auth.getUser()
 
   // 認証済みユーザーがログイン/サインアップページにアクセスした場合
@@ -137,7 +177,6 @@ export async function middleware(request: NextRequest) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
-    // activeOrgId cookie を考慮してメンバーシップ検証
     const onboardCookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
     const onboardMembership = await resolveActiveOrg(supabase, user.id, onboardCookieOrgId)
 
@@ -162,32 +201,14 @@ export async function middleware(request: NextRequest) {
       }
       return redirectWithOrgCookie(new URL('/inbox', request.url), onboardMembership.org_id)
     }
-    // membership無し → onboardingを表示（正常フロー）
     return response
   }
 
-  // 未認証ユーザーが保護されたパスにアクセスした場合
+  // 未認証で保護パスにいる場合（onboardingは上で処理済み）
   if (!user && isProtectedPath) {
     const redirectUrl = new URL('/login', request.url)
     redirectUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(redirectUrl)
-  }
-
-  // /portal（認証済みクライアントダッシュボード）へのアクセス
-  if (pathname === '/portal' && !user) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  // プロジェクトルート (/:orgId/project/...) の場合、URL の orgId を cookie に同期
-  if (user) {
-    const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
-    if (projectMatch) {
-      const pathOrgId = projectMatch[1]
-      const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
-      if (pathOrgId !== cookieOrgId) {
-        response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
-      }
-    }
   }
 
   return response

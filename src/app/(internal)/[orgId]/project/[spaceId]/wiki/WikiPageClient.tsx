@@ -10,7 +10,7 @@ import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
-import { createClient } from '@/lib/supabase/client'
+import { useMilestones } from '@/lib/hooks/useMilestones'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 
 interface WikiPageClientProps {
@@ -28,12 +28,11 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
-  const [milestonesEmpty, setMilestonesEmpty] = useState<boolean | null>(null)
-  const supabaseRef = useRef(createClient())
 
   const {
     pages,
     loading,
+    autoCreatedPageId,
     fetchPages,
     createPage,
     updatePage,
@@ -41,6 +40,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     fetchPage,
     fetchVersions,
   } = useWikiPages({ orgId, spaceId })
+  const { milestones } = useMilestones({ spaceId })
+  const milestonesEmpty = pages.length === 0 ? milestones.length === 0 : null
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`
   const selectedPageId = searchParams.get('page')
@@ -61,35 +62,17 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     [router, projectBasePath, searchParams]
   )
 
+  // Auto-navigate to default page when it's first created
+  const autoNavigatedRef = useRef(false)
   useEffect(() => {
-    const init = async () => {
-      const defaultPageId = await fetchPages()
-      // Auto-navigate to default page when it's first created
-      if (defaultPageId && !selectedPageId) {
-        updateQuery({ page: defaultPageId })
-      }
+    if (autoCreatedPageId && !selectedPageId && !autoNavigatedRef.current) {
+      autoNavigatedRef.current = true
+      updateQuery({ page: autoCreatedPageId })
     }
-    void init()
-  }, [fetchPages, updateQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoCreatedPageId, selectedPageId, updateQuery])
 
-  // Check if milestones are empty (for template CTA visibility)
-  useEffect(() => {
-    if (pages.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset CTA state when pages exist
-      setMilestonesEmpty(null)
-      setShowPresetApplicator(false)
-      return
-    }
-    const checkMilestones = async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { count } = await (supabaseRef.current as any)
-        .from('milestones')
-        .select('id', { count: 'exact', head: true })
-        .eq('space_id', spaceId)
-      setMilestonesEmpty(count === 0)
-    }
-    void checkMilestones()
-  }, [pages.length, spaceId])
+  // Reset preset applicator when pages exist
+  const effectiveShowPresetApplicator = showPresetApplicator && pages.length === 0
 
   // Cleanup inspector on unmount
   useEffect(() => {
@@ -282,7 +265,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
             {/* Template apply CTA — only when both wiki and milestones are empty */}
             {milestonesEmpty === true && (
-              showPresetApplicator ? (
+              effectiveShowPresetApplicator ? (
                 <div className="w-full max-w-lg text-left">
                   <PresetApplicator
                     spaceId={spaceId}

@@ -1,5 +1,5 @@
+import { Suspense } from 'react'
 import { WikiPageClient } from './WikiPageClient'
-import { use } from 'react'
 
 interface Props {
   params: Promise<{
@@ -8,7 +8,11 @@ interface Props {
   }>
 }
 
-export default function WikiPage({ params }: Props) {
-  const { orgId, spaceId } = use(params)
-  return <WikiPageClient orgId={orgId} spaceId={spaceId} />
+export default async function WikiPage({ params }: Props) {
+  const { orgId, spaceId } = await params
+  return (
+    <Suspense fallback={<div className="flex-1" />}>
+      <WikiPageClient orgId={orgId} spaceId={spaceId} />
+    </Suspense>
+  )
 }

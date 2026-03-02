@@ -1,5 +1,5 @@
+import { Suspense } from 'react'
 import { TasksPageClient } from './TasksPageClient'
-import { use } from 'react'
 
 interface Props {
   params: Promise<{
@@ -8,7 +8,11 @@ interface Props {
   }>
 }
 
-export default function TasksPage({ params }: Props) {
-  const { orgId, spaceId } = use(params)
-  return <TasksPageClient orgId={orgId} spaceId={spaceId} />
+export default async function TasksPage({ params }: Props) {
+  const { orgId, spaceId } = await params
+  return (
+    <Suspense fallback={<div className="flex-1" />}>
+      <TasksPageClient orgId={orgId} spaceId={spaceId} />
+    </Suspense>
+  )
 }

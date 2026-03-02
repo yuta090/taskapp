@@ -1,5 +1,5 @@
+import { Suspense } from 'react'
 import { MeetingsPageClient } from './MeetingsPageClient'
-import { use } from 'react'
 
 interface Props {
   params: Promise<{
@@ -8,7 +8,11 @@ interface Props {
   }>
 }
 
-export default function MeetingsPage({ params }: Props) {
-  const { orgId, spaceId } = use(params)
-  return <MeetingsPageClient orgId={orgId} spaceId={spaceId} />
+export default async function MeetingsPage({ params }: Props) {
+  const { orgId, spaceId } = await params
+  return (
+    <Suspense fallback={<div className="flex-1" />}>
+      <MeetingsPageClient orgId={orgId} spaceId={spaceId} />
+    </Suspense>
+  )
 }

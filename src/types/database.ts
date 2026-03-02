@@ -319,6 +319,7 @@ export interface Database {
           origin: BallSide
           type: TaskType
           spec_path: string | null
+          wiki_page_id: string | null
           decision_state: DecisionState | null
           client_scope: ClientScope
           actual_hours: number | null
@@ -343,6 +344,7 @@ export interface Database {
           origin?: BallSide
           type?: TaskType
           spec_path?: string | null
+          wiki_page_id?: string | null
           decision_state?: DecisionState | null
           client_scope?: ClientScope
           actual_hours?: number | null
@@ -367,6 +369,7 @@ export interface Database {
           origin?: BallSide
           type?: TaskType
           spec_path?: string | null
+          wiki_page_id?: string | null
           decision_state?: DecisionState | null
           client_scope?: ClientScope
           actual_hours?: number | null

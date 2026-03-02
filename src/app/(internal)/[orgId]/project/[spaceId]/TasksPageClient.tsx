@@ -3,16 +3,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { useQuery } from '@tanstack/react-query'
 import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, X } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb } from '@/components/shared'
 import { useInspector } from '@/components/layout'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 
-const TaskInspector = dynamic(() => import('@/components/task/TaskInspector').then(mod => ({ default: mod.TaskInspector })), { ssr: false })
-const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet').then(mod => ({ default: mod.TaskCreateSheet })), { ssr: false })
+const TaskInspector = dynamic(() => import('@/components/task/TaskInspector').then(mod => ({ default: mod.TaskInspector })), {
+  ssr: false,
+  loading: () => <div className="p-6 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />)}</div>,
+})
+const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet').then(mod => ({ default: mod.TaskCreateSheet })), {
+  ssr: false,
+  loading: () => <div className="p-6 space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />)}</div>,
+})
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
+import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
 import { TaskFilterMenu, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
@@ -20,6 +29,7 @@ import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
 
 interface TasksPageClientProps {
@@ -38,22 +48,39 @@ interface TaskGroup {
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
-  const { tasks, owners, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall } =
+  const { tasks, owners, reviewStatuses, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } =
     useTasks({ orgId, spaceId })
-  const { milestones, fetchMilestones } = useMilestones({ spaceId })
+  const { milestones } = useMilestones({ spaceId })
   const { getMemberName } = useSpaceMembers(spaceId)
 
   const [sortKey, setSortKey] = useState<SortKey>('milestone')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
-  const [reviewStatuses, setReviewStatuses] = useState<Record<string, 'open' | 'approved' | 'changes_requested'>>({})
   // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
   const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
   const lastBall = lastBallBySpace[spaceId] ?? 'internal'
   const lastClientOwnerIds = lastClientOwnersBySpace[spaceId] ?? []
-  const [spaceName, setSpaceName] = useState<string>('')
+
+  // Supabase client for space name query
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+
+  const { data: spaceNameData } = useQuery<string>({
+    queryKey: ['spaceName', spaceId],
+    queryFn: async (): Promise<string> => {
+      const { data } = await (supabaseRef.current! as SupabaseClient)
+        .from('spaces')
+        .select('name')
+        .eq('id', spaceId)
+        .single()
+      return (data as { name: string } | null)?.name ?? ''
+    },
+    staleTime: 30_000,
+    enabled: !!spaceId,
+  })
+  const spaceName = spaceNameData ?? ''
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
@@ -91,56 +118,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return 'active'
   }, [searchParams])
 
-  // Fetch review statuses for badge display
-  const fetchReviewStatuses = useCallback(async () => {
-    try {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('reviews')
-        .select('task_id, status')
-        .eq('space_id' as never, spaceId as never)
-      if (data) {
-        const map: Record<string, 'open' | 'approved' | 'changes_requested'> = {}
-        data.forEach((r: { task_id: string; status: string }) => {
-          map[r.task_id] = r.status as 'open' | 'approved' | 'changes_requested'
-        })
-        setReviewStatuses(map)
-      }
-    } catch {
-      // Silently fail - review badges are non-critical
-    }
-  }, [spaceId])
-
-  // Optimistic update for review status badge (called from TaskReviewSection via TaskInspector)
-  const handleReviewChange = useCallback((taskId: string, status: string | null) => {
-    setReviewStatuses((prev) => {
-      if (!status) {
-        const next = { ...prev }
-        delete next[taskId]
-        return next
-      }
-      return { ...prev, [taskId]: status as 'open' | 'approved' | 'changes_requested' }
-    })
-  }, [])
-
-  useEffect(() => {
-    void fetchTasks()
-    void fetchMilestones()
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch stores results in state
-    void fetchReviewStatuses()
-  }, [fetchTasks, fetchMilestones, fetchReviewStatuses])
-
-  // Fetch space name with race condition + unmount guard
-  useEffect(() => {
-    let active = true
-    setSpaceName('') // eslint-disable-line react-hooks/set-state-in-effect -- reset before async fetch
-    void (async () => {
-      const supabase = createClient()
-      const { data } = await supabase.from('spaces').select('name').eq('id' as never, spaceId as never).single()
-      if (active && data) setSpaceName((data as Record<string, string>).name)
-    })()
-    return () => { active = false }
-  }, [spaceId])
+  // useQuery auto-fetches tasks, milestones, and spaceName — no manual useEffect needed
 
   useEffect(() => {
     return () => {
@@ -309,6 +287,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       milestoneId?: string | null
       assigneeId?: string | null
       actualHours?: number | null
+      wikiPageId?: string | null
     }) => {
       await updateTask(taskId, updates)
     },
@@ -339,9 +318,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       const task = tasks.find((t) => t.id === taskId)
       if (!task) throw new Error('Task not found')
 
-      // Validation: spec_path is required for decided/implemented
-      if (decisionState !== 'considering' && !task.spec_path) {
-        throw new Error('仕様ファイルパス（spec_path）が設定されていません')
+      // Validation: wiki_page_id or spec_path is required for decided/implemented
+      if (decisionState !== 'considering' && !task.wiki_page_id && !task.spec_path) {
+        throw new Error('仕様書のWikiページが紐付けられていません')
       }
 
       const supabase = createClient()
@@ -428,6 +407,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         origin: data.origin,
         clientScope: data.clientScope,
         specPath: data.specPath,
+        wikiPageId: data.wikiPageId,
         decisionState: data.decisionState,
         clientOwnerIds: data.clientOwnerIds,
         internalOwnerIds: data.internalOwnerIds,
@@ -440,8 +420,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       setLastBallBySpace((prev) => ({ ...prev, [spaceId]: data.ball }))
       setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: data.clientOwnerIds }))
       syncUrlWithState(false, created.id, activeFilter)
+      toast.success('タスクを作成しました', {
+        description: 'ボール・関係者の設定は次回作成時に保持されます',
+        action: {
+          label: 'リセット',
+          onClick: () => {
+            setLastBallBySpace((prev) => ({ ...prev, [spaceId]: 'internal' }))
+            setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: [] }))
+          },
+        },
+      })
     } catch {
-      alert('タスクの作成に失敗しました')
+      toast.error('タスクの作成に失敗しました')
     }
   }
 
@@ -478,6 +468,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      <InternalOnboardingWalkthrough />
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}

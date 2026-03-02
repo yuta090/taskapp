@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, ChartBar, TreeStructure, Folder } from '@phosphor-icons/react'
+import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, FileText } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useEstimationAssist } from '@/lib/hooks/useEstimationAssist'
+import { toast } from 'sonner'
 import type { TaskType, BallSide, DecisionState, ClientScope } from '@/types/database'
 
 interface SpaceOption {
@@ -20,7 +22,7 @@ interface TaskCreateSheetProps {
   spaceName?: string
   isOpen: boolean
   onClose: () => void
-  onSubmit: (task: TaskCreateData & { spaceId?: string; orgId?: string }) => void
+  onSubmit: (task: TaskCreateData & { spaceId?: string; orgId?: string }) => void | Promise<unknown>
   defaultBall?: BallSide
   defaultClientOwnerIds?: string[]
   /** Available parent tasks for subtask creation */
@@ -39,6 +41,7 @@ export interface TaskCreateData {
   origin: BallSide
   clientScope: ClientScope
   specPath?: string
+  wikiPageId?: string
   decisionState?: DecisionState
   clientOwnerIds: string[]
   internalOwnerIds: string[]
@@ -73,10 +76,9 @@ export function TaskCreateSheet({
     : spaceName || ''
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [type, setType] = useState<TaskType>('task')
   const [ball, setBall] = useState<BallSide>(defaultBall)
   const [clientScope, setClientScope] = useState<ClientScope>('internal')
-  const [specPath, setSpecPath] = useState('')
+  const [wikiPageId, setWikiPageId] = useState('')
   const [decisionState, setDecisionState] = useState<DecisionState>('considering')
   const [clientOwnerIds, setClientOwnerIds] = useState<string[]>(defaultClientOwnerIds)
   const [internalOwnerIds, setInternalOwnerIds] = useState<string[]>([])
@@ -89,13 +91,26 @@ export function TaskCreateSheet({
   const [newMilestoneName, setNewMilestoneName] = useState('')
   const [newMilestoneDue, setNewMilestoneDue] = useState('')
   const [milestoneCreating, setMilestoneCreating] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [estimationExpanded, setEstimationExpanded] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showPortalPreview, setShowPortalPreview] = useState(false)
 
   // Estimation assist hook
   const estimation = useEstimationAssist({
     spaceId: effectiveSpaceId,
     orgId: effectiveOrgId,
   })
+
+  // Wiki pages for spec link selector
+  const { pages: wikiPages } = useWikiPages({
+    orgId: effectiveOrgId,
+    spaceId: effectiveSpaceId,
+  })
+  const specWikiPages = useMemo(
+    () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
+    [wikiPages]
+  )
 
   // Use hook for members with display names
   const {
@@ -236,71 +251,68 @@ export function TaskCreateSheet({
       setNewMilestoneDue('')
     } catch (err) {
       console.error('Failed to create milestone:', err)
-      alert('マイルストーンの作成に失敗しました')
+      toast.error('マイルストーンの作成に失敗しました')
     } finally {
       setMilestoneCreating(false)
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim() || isSubmitting) return
 
     // Validate: space must be selected in global create mode
     if (isGlobalCreate && !selectedSpaceId) {
-      alert('プロジェクトを選択してください')
-      return
-    }
-
-    // Validate: spec tasks need spec_path
-    if (type === 'spec' && !specPath) {
-      alert('仕様タスクには spec_path が必要です')
-      return
-    }
-
-    if (type === 'spec' && (!specPath.includes('/spec/') || !specPath.includes('#'))) {
-      alert('仕様タスクの spec_path は /spec/...#... の形式で入力してください')
+      toast.error('プロジェクトを選択してください')
       return
     }
 
     // Validate: ball=client needs client owner
     if (ball === 'client' && clientOwnerIds.length === 0) {
-      alert('外部にボールを渡す場合は外部担当者を指定してください')
+      toast.error('外部にボールを渡す場合は外部担当者を指定してください')
       return
     }
 
-    onSubmit({
-      title: title.trim(),
-      description: description.trim() || undefined,
-      type,
-      ball,
-      origin: 'internal', // Always internal when creating
-      clientScope,
-      specPath: type === 'spec' ? specPath : undefined,
-      decisionState: type === 'spec' ? decisionState : undefined,
-      clientOwnerIds,
-      internalOwnerIds,
-      dueDate: dueDate || undefined,
-      assigneeId: assigneeId || undefined,
-      milestoneId: milestoneId || undefined,
-      parentTaskId: parentTaskId || undefined,
-      ...(isGlobalCreate ? { spaceId: selectedSpaceId, orgId: effectiveOrgId } : {}),
-    })
+    // Auto-determine type based on wikiPageId
+    const effectiveType: TaskType = wikiPageId ? 'spec' : 'task'
 
-    // Reset form
-    setTitle('')
-    setDescription('')
-    setType('task')
-    setSpecPath('')
-    setDueDate('')
-    setAssigneeId('')
-    setMilestoneId('')
-    setParentTaskId('')
-    setInternalOwnerIds([])
-    estimation.clear()
-    setEstimationExpanded(false)
-    // Keep ball and clientOwnerIds for next creation
-    // Keep selectedSpaceId for consecutive creates in global mode
+    setIsSubmitting(true)
+    try {
+      await onSubmit({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        type: effectiveType,
+        ball,
+        origin: 'internal', // Always internal when creating
+        clientScope,
+        wikiPageId: effectiveType === 'spec' ? wikiPageId : undefined,
+        decisionState: effectiveType === 'spec' ? decisionState : undefined,
+        clientOwnerIds,
+        internalOwnerIds,
+        dueDate: dueDate || undefined,
+        assigneeId: assigneeId || undefined,
+        milestoneId: milestoneId || undefined,
+        parentTaskId: parentTaskId || undefined,
+        ...(isGlobalCreate ? { spaceId: selectedSpaceId, orgId: effectiveOrgId } : {}),
+      })
+
+      // Reset form only on success
+      setTitle('')
+      setDescription('')
+      setWikiPageId('')
+      setDueDate('')
+      setAssigneeId('')
+      setMilestoneId('')
+      setParentTaskId('')
+      setInternalOwnerIds([])
+      estimation.clear()
+      setEstimationExpanded(false)
+      setShowAdvanced(false)
+      // Keep ball and clientOwnerIds for next creation
+      // Keep selectedSpaceId for consecutive creates in global mode
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (!isOpen) return null
@@ -339,6 +351,8 @@ export function TaskCreateSheet({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* === COMPACT MODE: Always visible === */}
+
           {/* Space selector (global create mode) */}
           {isGlobalCreate && (
             <div>
@@ -350,7 +364,6 @@ export function TaskCreateSheet({
                 value={selectedSpaceId}
                 onChange={(e) => {
                   setSelectedSpaceId(e.target.value)
-                  // Reset space-dependent fields when space changes
                   setMilestoneId('')
                   setAssigneeId('')
                   setParentTaskId('')
@@ -374,6 +387,9 @@ export function TaskCreateSheet({
 
           {/* Title */}
           <div>
+            <label className="text-xs font-medium text-gray-500">
+              タイトル <span className="text-red-400">*</span>
+            </label>
             <input
               ref={inputRef}
               type="text"
@@ -382,32 +398,41 @@ export function TaskCreateSheet({
                 setTitle(e.target.value)
                 if (effectiveOrgId) estimation.search(e.target.value)
               }}
-              placeholder="タスクタイトルを入力..."
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !showAdvanced && title.trim()) {
+                  e.preventDefault()
+                  handleSubmit(e as unknown as React.FormEvent)
+                }
+              }}
+              placeholder="タスクタイトルを入力してEnterで作成..."
               data-testid="task-create-title"
               disabled={isGlobalCreate && !selectedSpaceId}
-              className="w-full px-3 py-2 text-base border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
+              className="mt-1 w-full px-3 py-2 text-base border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
             />
           </div>
 
-          {/* Estimation Assist */}
+          {/* Estimation Assist — non-intrusive compact display */}
           {effectiveOrgId && estimation.result && (
-            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <div>
               <button
                 type="button"
                 onClick={() => setEstimationExpanded(!estimationExpanded)}
-                className="flex items-center gap-1.5 text-xs font-medium text-blue-700 w-full"
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 transition-colors"
               >
                 <ChartBar className="text-sm" />
                 <span>
-                  過去の類似タスク ({estimation.result.similarTasks.length}件)
+                  類似タスク {estimation.result.similarTasks.length}件
+                  {estimation.result.avgHours !== null && (
+                    <span className="text-blue-500 ml-1">(平均 {estimation.result.avgHours}h)</span>
+                  )}
                 </span>
                 {estimationExpanded
-                  ? <CaretDown className="text-xs ml-auto" />
-                  : <CaretRight className="text-xs ml-auto" />
+                  ? <CaretUp className="text-xs" />
+                  : <CaretDown className="text-xs" />
                 }
               </button>
               {estimationExpanded && (
-                <div className="mt-2 space-y-1.5">
+                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-1.5">
                   {estimation.result.similarTasks.map((t) => (
                     <div
                       key={t.id}
@@ -424,7 +449,6 @@ export function TaskCreateSheet({
                       </span>
                     </div>
                   ))}
-                  {/* Average summary */}
                   <div className="flex items-center justify-between text-xs font-medium text-blue-800 border-t border-blue-200 pt-1.5 mt-1.5">
                     <span>平均</span>
                     <span>
@@ -446,80 +470,7 @@ export function TaskCreateSheet({
             <div className="text-xs text-gray-400 px-1">類似タスクを検索中...</div>
           )}
 
-          {/* Type selector */}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setType('task')}
-              data-testid="task-create-type-task"
-              className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                type === 'task'
-                  ? 'bg-gray-100 border-gray-300 font-medium'
-                  : 'border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              通常タスク
-            </button>
-            <button
-              type="button"
-              onClick={() => setType('spec')}
-              data-testid="task-create-type-spec"
-              className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                type === 'spec'
-                  ? 'bg-gray-100 border-gray-300 font-medium text-gray-700'
-                  : 'border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              仕様タスク
-            </button>
-          </div>
-
-          {/* Spec fields */}
-          {type === 'spec' && (
-            <div className="space-y-3 p-3 bg-gray-50 rounded-lg">
-              <div>
-                <label className="text-xs font-medium text-gray-600">
-                  仕様ファイルパス
-                </label>
-                <input
-                  type="text"
-                  value={specPath}
-                  onChange={(e) => setSpecPath(e.target.value)}
-                  placeholder="/spec/xxx.md#anchor"
-                  data-testid="task-create-spec-path"
-                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">
-                  決定状態
-                </label>
-                <div className="mt-1 flex gap-2">
-                  {(['considering', 'decided', 'implemented'] as const).map((state) => (
-                    <button
-                      key={state}
-                      type="button"
-                      onClick={() => setDecisionState(state)}
-                      data-testid={`task-create-decision-${state}`}
-                      className={`px-2 py-1 text-xs rounded border transition-colors ${
-                        decisionState === state
-                          ? 'bg-gray-100 border-gray-300 font-medium'
-                          : 'border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      {state === 'considering'
-                        ? '検討中'
-                        : state === 'decided'
-                        ? '決定'
-                        : '実装済'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Ball selector - placed early for "who acts next" decision */}
+          {/* Ball selector */}
           <div>
             <label className="text-xs font-medium text-gray-500">ボール</label>
             <div className="mt-1 flex gap-2">
@@ -551,14 +502,16 @@ export function TaskCreateSheet({
                 </span>
               </button>
             </div>
+            <p className="mt-1 text-xs text-gray-400">次にアクションを取る側を選択</p>
           </div>
 
-          {/* Client owners (required when ball=client) */}
+          {/* Client owners (required when ball=client) — always visible in compact mode */}
           {ball === 'client' && (
             <div className="p-3 bg-amber-50 rounded-lg">
               <label className="text-xs font-medium text-amber-600">
-                外部担当者（必須）
+                関係者・外部 <span className="text-amber-500">（必須）</span>
               </label>
+              <p className="text-xs text-amber-500 mt-0.5">対応するクライアント側メンバー</p>
               <div className="mt-2 flex items-center gap-2">
                 <User className="text-amber-500" />
                 <span className="text-sm text-amber-700">
@@ -606,232 +559,370 @@ export function TaskCreateSheet({
             </div>
           )}
 
-          {/* Internal owners (optional, shown when ball=internal) */}
-          {ball === 'internal' && internalMembers.length > 0 && (
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <label className="text-xs font-medium text-gray-600">
-                社内担当者（任意）
-              </label>
-              <div className="mt-2 flex items-center gap-2">
-                <User className="text-gray-500" />
-                <span className="text-sm text-gray-700">
-                  {internalOwnerIds.length > 0
-                    ? `${internalOwnerIds.length}名選択中`
-                    : '担当者を選択（任意）'}
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className="flex flex-wrap gap-2">
-                  {internalMembers.map((member) => {
-                    const isSelected = internalOwnerIds.includes(member.id)
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        onClick={() => toggleInternalOwner(member.id)}
-                        data-testid={`task-create-internal-owner-${member.id}`}
-                        className={`px-2 py-1 text-xs rounded border transition-colors ${
-                          isSelected
-                            ? 'bg-gray-200 border-gray-400 text-gray-700 font-medium'
-                            : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-                        }`}
-                        title={member.displayName}
-                      >
-                        {member.displayName}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
+          {/* === ADVANCED TOGGLE === */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors w-full"
+          >
+            {showAdvanced ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
+            <span>詳細オプション</span>
+            {/* Show count of configured advanced options */}
+            {!showAdvanced && (wikiPageId || dueDate || assigneeId || milestoneId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0) && (
+              <span className="text-xs text-blue-500 ml-1">設定済み</span>
+            )}
+          </button>
 
-          {/* Client Scope toggle */}
-          <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center gap-2">
-              <span className={`text-lg ${clientScope === 'deliverable' ? 'opacity-100' : 'opacity-30'}`}>👁</span>
-              <div>
-                <span className="text-sm font-medium text-gray-700">外部に公開</span>
-                <p className="text-xs text-gray-500">
-                  {clientScope === 'deliverable'
-                    ? '外部ポータルに表示されます'
-                    : '内部作業として非表示'}
+          {/* === EXPANDED MODE: Advanced options === */}
+          {showAdvanced && (
+            <div className="space-y-4 pl-1 border-l-2 border-gray-100 ml-1">
+              {/* Wiki spec page selector (optional) */}
+              <div className="pl-3">
+                <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                  <FileText className="text-sm" />
+                  仕様書を紐付け（任意）
+                </label>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Wikiの仕様書ページを選択すると、決定→実装フローで管理できます
                 </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
-              data-testid="task-create-client-scope-toggle"
-              className={`relative w-11 h-6 rounded-full transition-colors ${
-                clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                  clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Due date, Assignee, Milestone row */}
-          <div className="grid grid-cols-3 gap-3">
-            {/* Due date */}
-            <div>
-              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                <Calendar className="text-sm" />
-                期限
-              </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                data-testid="task-create-due-date"
-                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Assignee */}
-            <div>
-              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                <User className="text-sm" />
-                担当者
-              </label>
-              <select
-                value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
-                data-testid="task-create-assignee"
-                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                disabled={membersLoading}
-              >
-                <option value="">{membersLoading ? '読み込み中...' : '未設定'}</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Milestone */}
-            <div className="relative">
-              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                <Flag className="text-sm" />
-                マイルストーン
-              </label>
-              <div className="mt-1 flex gap-1">
-                <select
-                  value={milestoneId}
-                  onChange={(e) => setMilestoneId(e.target.value)}
-                  data-testid="task-create-milestone"
-                  className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="">未設定</option>
-                  {milestones.map((ms) => (
-                    <option key={ms.id} value={ms.id}>
-                      {ms.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowMilestonePopover(true)}
-                  data-testid="task-create-milestone-add"
-                  className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
-                  title="新規マイルストーンを作成"
-                >
-                  <Plus className="text-sm" weight="bold" />
-                </button>
+                {specWikiPages.length > 0 ? (
+                  <select
+                    value={wikiPageId}
+                    onChange={(e) => setWikiPageId(e.target.value)}
+                    data-testid="task-create-wiki-page"
+                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">紐付けなし</option>
+                    {specWikiPages.map((page) => (
+                      <option key={page.id} value={page.id}>
+                        {page.title}
+                        {page.tags?.filter((t) => t !== '仕様書').length > 0
+                          ? ` (${page.tags.filter((t) => t !== '仕様書').join(', ')})`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-400 py-2">
+                    仕様書タグのついたWikiページがありません。Wikiで仕様書を作成してください。
+                  </p>
+                )}
               </div>
 
-              {/* Milestone creation popover */}
-              {showMilestonePopover && (
-                <div
-                  ref={milestonePopoverRef}
-                  className="absolute z-50 top-full mt-1 right-0 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
-                >
-                  <div className="text-xs font-medium text-gray-700 mb-2">
-                    新規マイルストーン
+              {/* Decision state (shown only when wiki page is selected) */}
+              {wikiPageId && (
+                <div className="pl-3">
+                  <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
+                  <div className="mt-1 flex gap-2">
+                    {(['considering', 'decided', 'implemented'] as const).map((state) => (
+                      <button
+                        key={state}
+                        type="button"
+                        onClick={() => setDecisionState(state)}
+                        data-testid={`task-create-decision-${state}`}
+                        className={`px-2 py-1 text-xs rounded border transition-colors ${
+                          decisionState === state
+                            ? 'bg-gray-100 border-gray-300 font-medium'
+                            : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        {state === 'considering'
+                          ? '検討中'
+                          : state === 'decided'
+                          ? '決定'
+                          : '実装済'}
+                      </button>
+                    ))}
                   </div>
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={newMilestoneName}
-                      onChange={(e) => setNewMilestoneName(e.target.value)}
-                      placeholder="マイルストーン名"
-                      data-testid="milestone-create-name"
-                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      autoFocus
-                    />
-                    <input
-                      type="date"
-                      value={newMilestoneDue}
-                      onChange={(e) => setNewMilestoneDue(e.target.value)}
-                      data-testid="milestone-create-due"
-                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <div className="flex justify-end gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMilestonePopover(false)
-                          setNewMilestoneName('')
-                          setNewMilestoneDue('')
-                        }}
-                        className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCreateMilestone}
-                        disabled={!newMilestoneName.trim() || milestoneCreating}
-                        data-testid="milestone-create-submit"
-                        className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition-colors"
-                      >
-                        {milestoneCreating ? '作成中...' : '作成'}
-                      </button>
+                </div>
+              )}
+
+              {/* Internal owners (optional, shown when ball=internal) */}
+              {ball === 'internal' && internalMembers.length > 0 && (
+                <div className="p-3 ml-3 bg-gray-50 rounded-lg">
+                  <label className="text-xs font-medium text-gray-600">
+                    関係者・社内（任意）
+                  </label>
+                  <p className="text-xs text-gray-400 mt-0.5">このタスクに関わる社内メンバー。複数選択可</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <User className="text-gray-500" />
+                    <span className="text-sm text-gray-700">
+                      {internalOwnerIds.length > 0
+                        ? `${internalOwnerIds.length}名選択中`
+                        : '担当者を選択（任意）'}
+                    </span>
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex flex-wrap gap-2">
+                      {internalMembers.map((member) => {
+                        const isSelected = internalOwnerIds.includes(member.id)
+                        return (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() => toggleInternalOwner(member.id)}
+                            data-testid={`task-create-internal-owner-${member.id}`}
+                            className={`px-2 py-1 text-xs rounded border transition-colors ${
+                              isSelected
+                                ? 'bg-gray-200 border-gray-400 text-gray-700 font-medium'
+                                : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                            }`}
+                            title={member.displayName}
+                          >
+                            {member.displayName}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Parent task */}
-          {parentTasks.length > 0 && (
-            <div>
-              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                <TreeStructure className="text-sm" />
-                親タスク
-              </label>
-              <select
-                value={parentTaskId}
-                onChange={(e) => setParentTaskId(e.target.value)}
-                data-testid="task-create-parent"
-                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">なし（トップレベル）</option>
-                {parentTasks.map((pt) => (
-                  <option key={pt.id} value={pt.id}>
-                    {pt.title}
-                  </option>
-                ))}
-              </select>
+              {/* Due date, Assignee, Milestone row */}
+              <div className="grid grid-cols-3 gap-3 pl-3">
+                {/* Due date */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                    <Calendar className="text-sm" />
+                    期限
+                  </label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    data-testid="task-create-due-date"
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Assignee */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                    <User className="text-sm" />
+                    実行担当者
+                  </label>
+                  <select
+                    value={assigneeId}
+                    onChange={(e) => setAssigneeId(e.target.value)}
+                    data-testid="task-create-assignee"
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    disabled={membersLoading}
+                  >
+                    <option value="">{membersLoading ? '読み込み中...' : '未設定'}</option>
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Milestone */}
+                <div className="relative">
+                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                    <Flag className="text-sm" />
+                    マイルストーン
+                  </label>
+                  <div className="mt-1 flex gap-1">
+                    <select
+                      value={milestoneId}
+                      onChange={(e) => setMilestoneId(e.target.value)}
+                      data-testid="task-create-milestone"
+                      className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">未設定</option>
+                      {milestones.map((ms) => (
+                        <option key={ms.id} value={ms.id}>
+                          {ms.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowMilestonePopover(true)}
+                      data-testid="task-create-milestone-add"
+                      className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
+                      title="新規マイルストーンを作成"
+                    >
+                      <Plus className="text-sm" weight="bold" />
+                    </button>
+                  </div>
+
+                  {/* Milestone creation popover */}
+                  {showMilestonePopover && (
+                    <div
+                      ref={milestonePopoverRef}
+                      className="absolute z-50 top-full mt-1 right-0 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
+                    >
+                      <div className="text-xs font-medium text-gray-700 mb-2">
+                        新規マイルストーン
+                      </div>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={newMilestoneName}
+                          onChange={(e) => setNewMilestoneName(e.target.value)}
+                          placeholder="マイルストーン名"
+                          data-testid="milestone-create-name"
+                          className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                        <input
+                          type="date"
+                          value={newMilestoneDue}
+                          onChange={(e) => setNewMilestoneDue(e.target.value)}
+                          data-testid="milestone-create-due"
+                          className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMilestonePopover(false)
+                              setNewMilestoneName('')
+                              setNewMilestoneDue('')
+                            }}
+                            className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCreateMilestone}
+                            disabled={!newMilestoneName.trim() || milestoneCreating}
+                            data-testid="milestone-create-submit"
+                            className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition-colors"
+                          >
+                            {milestoneCreating ? '作成中...' : '作成'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Client Scope toggle */}
+              <div className="relative ml-3">
+                <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-blue-500' : 'text-gray-300'}`} />
+                    <div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-medium text-gray-700">クライアントに公開</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowPortalPreview(!showPortalPreview)}
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                          aria-label="ポータル表示のプレビュー"
+                        >
+                          <Info className="text-sm" />
+                        </button>
+                      </div>
+                      {clientScope === 'deliverable' && (
+                        <p className="text-xs text-gray-500">
+                          クライアントのダッシュボードに表示されます
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
+                    data-testid="task-create-client-scope-toggle"
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                      clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                        clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Portal preview tooltip */}
+                {showPortalPreview && (
+                  <div className="absolute z-50 top-full mt-2 left-0 right-0 bg-white rounded-lg shadow-lg border border-gray-200 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-gray-700">クライアントポータルのイメージ</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPortalPreview(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="text-xs" />
+                      </button>
+                    </div>
+                    {/* Mini portal mockup */}
+                    <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                      {/* Mock header */}
+                      <div className="bg-white px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+                        <div className="w-4 h-4 rounded bg-blue-500" />
+                        <span className="text-[10px] font-medium text-gray-700">クライアントポータル</span>
+                      </div>
+                      {/* Mock task list */}
+                      <div className="p-2 space-y-1.5">
+                        <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border-2 border-green-400" />
+                          <span className="text-[10px] text-gray-600">完了済みタスク</span>
+                          <span className="ml-auto text-[9px] text-green-600 bg-green-50 px-1 rounded">完了</span>
+                        </div>
+                        <div className="bg-blue-50 rounded px-2 py-1.5 border border-blue-200 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border-2 border-blue-400" />
+                          <span className="text-[10px] text-blue-700 font-medium">このタスク ← 公開される</span>
+                          <span className="ml-auto text-[9px] text-blue-600 bg-blue-100 px-1 rounded">進行中</span>
+                        </div>
+                        <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border-2 border-amber-400" />
+                          <span className="text-[10px] text-gray-600">確認待ちタスク</span>
+                          <span className="ml-auto text-[9px] text-amber-600 bg-amber-50 px-1 rounded">確認待ち</span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-gray-400 leading-relaxed">
+                      ONにすると、クライアントはポータル画面でこのタスクの進捗・ステータスを確認できます。社内メモや非公開タスクは表示されません。
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Parent task */}
+              {parentTasks.length > 0 && (
+                <div className="pl-3">
+                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                    <TreeStructure className="text-sm" />
+                    親タスク
+                  </label>
+                  <select
+                    value={parentTaskId}
+                    onChange={(e) => setParentTaskId(e.target.value)}
+                    data-testid="task-create-parent"
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">なし（トップレベル）</option>
+                    {parentTasks.map((pt) => (
+                      <option key={pt.id} value={pt.id}>
+                        {pt.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Description */}
+              <div className="pl-3">
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="説明（任意）"
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
             </div>
           )}
-
-          {/* Description */}
-          <div>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="説明（任意）"
-              rows={3}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
-          </div>
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
@@ -845,11 +936,11 @@ export function TaskCreateSheet({
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || (isGlobalCreate && !selectedSpaceId)}
+              disabled={!title.trim() || (isGlobalCreate && !selectedSpaceId) || isSubmitting}
               data-testid="task-create-submit"
               className="px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
-              作成
+              {isSubmitting ? '作成中...' : '作成'}
             </button>
           </div>
         </form>

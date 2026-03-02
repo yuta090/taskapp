@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { ChartLine, Spinner } from '@phosphor-icons/react'
 import { Breadcrumb } from '@/components/shared'
 import { BurndownChart, BurndownControls } from '@/components/burndown'
@@ -17,22 +17,11 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
   const {
     milestones,
     loading: milestonesLoading,
-    fetchMilestones,
   } = useMilestones({ spaceId })
 
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>('')
-  const [initialized, setInitialized] = useState(false)
 
-  // Initialize: fetch milestones
-  useEffect(() => {
-    let cancelled = false
-    const init = async () => {
-      await fetchMilestones()
-      if (!cancelled) setInitialized(true)
-    }
-    init()
-    return () => { cancelled = true }
-  }, [fetchMilestones])
+  // useQuery auto-fetches milestones — no manual useEffect needed
 
   // "" means project-wide (null milestoneId), otherwise specific milestone
   const effectiveMilestoneId = selectedMilestoneId === '' ? null : selectedMilestoneId
@@ -42,18 +31,13 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
     milestoneId: effectiveMilestoneId,
   })
 
-  // Fetch burndown when effective milestone changes
-  useEffect(() => {
-    if (initialized) {
-      refetch()
-    }
-  }, [effectiveMilestoneId, initialized, refetch])
+  // useQuery auto-fetches burndown when milestoneId changes — no manual useEffect needed
 
   const handleSelectMilestone = useCallback((id: string) => {
     setSelectedMilestoneId(id)
   }, [])
 
-  const loading = !initialized || milestonesLoading
+  const loading = milestonesLoading
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
   const breadcrumbItems = [

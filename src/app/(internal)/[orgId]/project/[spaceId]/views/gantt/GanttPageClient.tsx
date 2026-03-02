@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { SquaresFour, Spinner } from '@phosphor-icons/react'
 import { Breadcrumb, ViewsTabNav } from '@/components/shared'
@@ -36,7 +36,6 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
 
-  const [initialized, setInitialized] = useState(false)
   const [updateLog, setUpdateLog] = useState<Array<{
     id: string
     taskId: string
@@ -49,13 +48,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   const projectBasePath = `/${orgId}/project/${spaceId}/views/gantt`
 
-  useEffect(() => {
-    const init = async () => {
-      await Promise.all([fetchTasks(), fetchMilestones()])
-      setInitialized(true)
-    }
-    init()
-  }, [fetchTasks, fetchMilestones])
+  // useQuery auto-fetches tasks and milestones — no manual useEffect needed
 
   useEffect(() => {
     return () => {
@@ -215,7 +208,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     [tasks, updateTask]
   )
 
-  const loading = !initialized || tasksLoading || milestonesLoading
+  const loading = tasksLoading || milestonesLoading
   const error = tasksError || milestonesError
 
   const projectListPath = `/${orgId}/project/${spaceId}`
