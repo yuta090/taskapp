@@ -266,7 +266,7 @@ export const LeftNav = memo(function LeftNav() {
   const orgId = match?.[1] ?? activeOrgId ?? ''
   const spaceId = match?.[2] ?? fallbackSpaceId
   const hasProjectRoute = !!match
-  const { pendingCount: inboxCount } = useUnreadNotificationCount()
+  const { count: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
 
   // ── Optimistic Navigation: クリック時に即座にアクティブ状態を切り替える ──
