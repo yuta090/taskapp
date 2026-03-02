@@ -626,9 +626,6 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <div className="text-center text-gray-400 py-20">
               <Copy className="text-4xl mx-auto mb-3 opacity-50" />
               <p className="text-sm">タスクはありません</p>
-              <p className="text-xs mt-1 text-gray-300">
-                org: {orgId} / space: {spaceId}
-              </p>
             </div>
           )}
           {!loading && !error && filteredTasks.length > 0 && (

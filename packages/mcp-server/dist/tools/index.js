@@ -10,7 +10,7 @@ import { clientTools } from './clients.js';
 import { wikiTools } from './wiki.js';
 import { minutesTools } from './minutes.js';
 import { schedulingTools } from './scheduling.js';
-const allTools = [...taskTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools];
+export const allTools = [...taskTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools];
 export function registerTools(server) {
     // List available tools
     server.setRequestHandler(ListToolsRequestSchema, async () => {

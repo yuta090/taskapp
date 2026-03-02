@@ -16,6 +16,11 @@ export declare const config: McpServerConfig;
  */
 export declare function initializeAuth(): Promise<void>;
 /**
+ * 外部から API key を渡して認証コンテキストを設定する
+ * HTTP API ルートから呼ばれる。process.exit せず throw する。
+ */
+export declare function initializeAuthWithApiKey(apiKey: string): Promise<void>;
+/**
  * 認証コンテキストを取得
  * 設定されていない場合はデフォルトの全権限コンテキストを返す（開発用）
  */

@@ -24,6 +24,14 @@ function getEnvOrThrow(key: string): string {
   return value
 }
 
+function getEnvWithFallback(primary: string, fallback: string): string {
+  const value = process.env[primary] || process.env[fallback]
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${primary} (or ${fallback})`)
+  }
+  return value
+}
+
 function getEnvOrDefault(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue
 }
@@ -54,8 +62,8 @@ export function loadConfig(): McpServerConfig {
   }
 
   return {
-    supabaseUrl: getEnvOrThrow('SUPABASE_URL'),
-    supabaseServiceKey: getEnvOrThrow('SUPABASE_SERVICE_KEY'),
+    supabaseUrl: getEnvWithFallback('SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'),
+    supabaseServiceKey: getEnvWithFallback('SUPABASE_SERVICE_KEY', 'SUPABASE_SERVICE_ROLE_KEY'),
     orgId: getEnvOrDefault('TASKAPP_ORG_ID', '00000000-0000-0000-0000-000000000001'),
     spaceId: getEnvOrDefault('TASKAPP_SPACE_ID', '00000000-0000-0000-0000-000000000010'),
     actorId: getEnvOrDefault('TASKAPP_ACTOR_ID', '00000000-0000-0000-0000-000000000099'),
@@ -105,6 +113,33 @@ export async function initializeAuth(): Promise<void> {
   if (row.user_id) config.actorId = row.user_id as string
 
   console.error(`Auth initialized: scope=${row.scope}, org=${row.org_id}`)
+}
+
+/**
+ * 外部から API key を渡して認証コンテキストを設定する
+ * HTTP API ルートから呼ばれる。process.exit せず throw する。
+ */
+export async function initializeAuthWithApiKey(apiKey: string): Promise<void> {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase.rpc('rpc_validate_api_key', { p_api_key: apiKey })
+
+  if (error || !data || (data as Record<string, unknown>[]).length === 0) {
+    throw new Error('Invalid or expired API key')
+  }
+
+  const row = (data as Record<string, unknown>[])[0]
+
+  config.authContext = createAuthContext({
+    key_id: row.key_id as string,
+    user_id: (row.user_id as string) || null,
+    org_id: row.org_id as string,
+    scope: row.scope as string,
+    allowed_space_ids: (row.allowed_space_ids as string[]) || null,
+    allowed_actions: (row.allowed_actions as string[]) || ['read'],
+  })
+  config.orgId = row.org_id as string
+  if (row.space_id) config.spaceId = row.space_id as string
+  if (row.user_id) config.actorId = row.user_id as string
 }
 
 /**

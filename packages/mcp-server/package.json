@@ -1,9 +1,13 @@
 {
-  "name": "@taskapp/mcp-server",
+  "name": "agentpm-core",
   "version": "0.1.0",
   "description": "MCP Server for TaskApp - AI-first task management",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./dist/*": "./dist/*"
+  },
   "bin": {
     "taskapp-mcp": "./bin/taskapp-mcp.js"
   },
@@ -34,5 +38,8 @@
     "task-management",
     "claude"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT"
 }
