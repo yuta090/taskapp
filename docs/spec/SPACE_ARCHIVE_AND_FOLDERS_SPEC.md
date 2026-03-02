@@ -191,7 +191,7 @@ CREATE POLICY "org admins can manage space_groups"
   );
 
 -- spaces にグループ参照を追加
-ALTER TABLE spaces ADD COLUMN IF NOT EXISTS group_id uuid NULL REFERENCES space_groups(id) ON SET NULL;
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS group_id uuid NULL REFERENCES space_groups(id) ON DELETE SET NULL;
 ALTER TABLE spaces ADD COLUMN IF NOT EXISTS sort_order int NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_spaces_group ON spaces (group_id, sort_order);

@@ -75,10 +75,12 @@ export function useSpaceGroups(orgId: string) {
 
   const deleteGroup = useCallback(async (groupId: string) => {
     // スペースのgroup_idをnullにリセット（ON DELETE SET NULLもあるが明示的に）
-    await supabase
+    const { error: resetError } = await supabase
       .from('spaces')
       .update({ group_id: null })
       .eq('group_id', groupId)
+
+    if (resetError) throw resetError
 
     const { error } = await supabase
       .from('space_groups')
@@ -93,13 +95,16 @@ export function useSpaceGroups(orgId: string) {
   }, [supabase, invalidate, queryClient])
 
   const reorderGroups = useCallback(async (orderedIds: string[]) => {
-    const updates = orderedIds.map((id, index) =>
-      supabase
-        .from('space_groups')
-        .update({ sort_order: index })
-        .eq('id', id)
+    const results = await Promise.all(
+      orderedIds.map((id, index) =>
+        supabase
+          .from('space_groups')
+          .update({ sort_order: index })
+          .eq('id', id)
+      )
     )
-    await Promise.all(updates)
+    const failed = results.find((r) => r.error)
+    if (failed?.error) throw failed.error
     await invalidate()
   }, [supabase, invalidate])
 

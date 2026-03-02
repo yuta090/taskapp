@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useContext, memo } from 'react'
+import { useState, useEffect, useCallback, useContext, useMemo, memo } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -639,21 +639,24 @@ export const LeftNav = memo(function LeftNav() {
     })
   }, [])
 
-  // スペースの分類（allSpaces + orgId で安定化）
-  const activeSpaces = allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null)
-  const archivedSpaces = allSpaces.filter((s) => s.orgId === orgId && s.archivedAt !== null)
+  // スペースの分類（useMemo で安定化）
+  const { activeSpaces, archivedSpaces, groupedSpaces, ungroupedSpaces } = useMemo(() => {
+    const active = allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null)
+    const archived = allSpaces.filter((s) => s.orgId === orgId && s.archivedAt !== null)
 
-  // グループごとにスペースを分類
-  const groupedSpaces = new Map<string | null, UserSpace[]>()
-  for (const space of activeSpaces) {
-    const key = space.groupId
-    if (!groupedSpaces.has(key)) groupedSpaces.set(key, [])
-    groupedSpaces.get(key)!.push(space)
-  }
-  for (const [, spaces] of groupedSpaces) {
-    spaces.sort((a, b) => a.sortOrder - b.sortOrder)
-  }
-  const ungroupedSpaces = groupedSpaces.get(null) ?? []
+    const grouped = new Map<string | null, UserSpace[]>()
+    for (const space of active) {
+      const key = space.groupId
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(space)
+    }
+    for (const [, spaces] of grouped) {
+      spaces.sort((a, b) => a.sortOrder - b.sortOrder)
+    }
+    const ungrouped = grouped.get(null) ?? []
+
+    return { activeSpaces: active, archivedSpaces: archived, groupedSpaces: grouped, ungroupedSpaces: ungrouped }
+  }, [allSpaces, orgId])
 
   // ── Optimistic Navigation: クリック時に即座にアクティブ状態を切り替える ──
   const [pendingHref, setPendingHref] = useState<string | null>(null)
@@ -947,7 +950,6 @@ export const LeftNav = memo(function LeftNav() {
             {/* グループごとのスペース */}
             {groups.map((group, groupIndex) => {
               const spacesInGroup = groupedSpaces.get(group.id) ?? []
-              if (spacesInGroup.length === 0) return null
               const isGroupCollapsed = collapsedGroups.has(group.id)
 
               return (
@@ -990,21 +992,27 @@ export const LeftNav = memo(function LeftNav() {
                   )}
                   {!isGroupCollapsed && (
                     <div className="space-y-0.5">
-                      {spacesInGroup.map((space) => (
-                        <SpaceNavItem
-                          key={space.id}
-                          space={space}
-                          orgId={orgId}
-                          isExpanded={space.id === spaceId}
-                          pathname={pathname}
-                          searchParams={searchParams}
-                          collapsed={collapsed}
-                          isActive={isActive}
-                          onNavigate={setPendingHref}
-                          groups={groups}
-                          onMoveToGroup={moveSpaceToGroup}
-                        />
-                      ))}
+                      {spacesInGroup.length === 0 && !collapsed ? (
+                        <div className="px-4 py-1.5 text-[11px] text-gray-300 italic">
+                          プロジェクトなし
+                        </div>
+                      ) : (
+                        spacesInGroup.map((space) => (
+                          <SpaceNavItem
+                            key={space.id}
+                            space={space}
+                            orgId={orgId}
+                            isExpanded={space.id === spaceId}
+                            pathname={pathname}
+                            searchParams={searchParams}
+                            collapsed={collapsed}
+                            isActive={isActive}
+                            onNavigate={setPendingHref}
+                            groups={groups}
+                            onMoveToGroup={moveSpaceToGroup}
+                          />
+                        ))
+                      )}
                     </div>
                   )}
                 </div>
