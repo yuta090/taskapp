@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 import { X, Calendar, Users, WarningCircle } from '@phosphor-icons/react'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { AmberBadge } from '@/components/shared'
@@ -63,16 +64,7 @@ export function MeetingCreateSheet({
     prevIsOpenRef.current = isOpen
   }, [isOpen])
 
-  // Handle Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose, skipAutoFocus: true })
 
   const toggleClientParticipant = (userId: string) => {
     setClientParticipantIds((prev) =>
@@ -108,7 +100,7 @@ export function MeetingCreateSheet({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30"
