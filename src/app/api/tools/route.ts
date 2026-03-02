@@ -78,8 +78,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Unknown errors - don't leak internal details
-    console.error('POST /api/tools error:', error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    // DEBUG: Return actual error for diagnosis (remove before production)
+    const msg = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack?.split('\n').slice(0, 5) : undefined
+    console.error('POST /api/tools error:', msg)
+    return NextResponse.json({ error: msg, stack }, { status: 500 })
   }
 }
