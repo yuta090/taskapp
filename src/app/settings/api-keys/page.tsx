@@ -71,6 +71,9 @@ export default function ApiKeysSettingsPage() {
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
 
+  // Code block copy
+  const [copiedBlock, setCopiedBlock] = useState<string | null>(null)
+
   const fetchApiKeys = useCallback(async () => {
     if (!user) return
 
@@ -528,11 +531,23 @@ export default function ApiKeysSettingsPage() {
               <h4 className="text-sm font-medium text-gray-700 mb-2">
                 Step 1: CLI インストール
               </h4>
-              <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
+              <div className="relative group">
+                <pre className="bg-gray-900 text-gray-100 p-3 pr-10 rounded-lg text-xs overflow-x-auto">
 {`npm install -g @uzukko/agentpm
-agentpm login
-# APIキーを貼り付けてEnter`}
-              </pre>
+agentpm login`}
+                </pre>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText('npm install -g @uzukko/agentpm\nagentpm login')
+                    setCopiedBlock('cli')
+                    setTimeout(() => setCopiedBlock(null), 2000)
+                  }}
+                  className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="コピー"
+                >
+                  {copiedBlock === 'cli' ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
             </div>
 
             {/* Step 2: Skill Install */}
@@ -543,37 +558,31 @@ agentpm login
               <p className="text-xs text-gray-500 mb-2">
                 AIがCLIの使い方を理解するためのスキルファイルをダウンロードします。
               </p>
-              <div className="space-y-2">
-                <div>
-                  <span className="text-xs font-medium text-gray-600">全プロジェクト共通（グローバル）:</span>
-                  <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto mt-1">
-{`mkdir -p ~/.claude/skills
-curl -o ~/.claude/skills/agentpm.md ${typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'}/skills/agentpm.md`}
-                  </pre>
-                </div>
-                <div>
-                  <span className="text-xs font-medium text-gray-600">特定プロジェクトのみ（プロジェクトルートで実行）:</span>
-                  <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto mt-1">
-{`mkdir -p .claude/skills
-curl -o .claude/skills/agentpm.md ${typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'}/skills/agentpm.md`}
-                  </pre>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick reference */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">
-                よく使うコマンド
-              </h4>
-              <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
-{`agentpm space list --json          # プロジェクト一覧
-agentpm task list --json           # タスク一覧
-agentpm dashboard --json           # ダッシュボード
-agentpm task create --json \\
-  --title "タスク名" \\
-  --space-id <uuid>                # タスク作成`}
-              </pre>
+              {(() => {
+                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'
+                const cmd = `mkdir -p ~/.claude/skills\ncurl -o ~/.claude/skills/agentpm.md ${origin}/skills/agentpm.md`
+                return (
+                  <div className="relative group">
+                    <pre className="bg-gray-900 text-gray-100 p-3 pr-10 rounded-lg text-xs overflow-x-auto">
+                      {cmd}
+                    </pre>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(cmd)
+                        setCopiedBlock('skill')
+                        setTimeout(() => setCopiedBlock(null), 2000)
+                      }}
+                      className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="コピー"
+                    >
+                      {copiedBlock === 'skill' ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                )
+              })()}
+              <p className="text-xs text-gray-400 mt-1.5">
+                特定プロジェクトのみで使う場合は <code className="text-gray-500">~</code> を外して <code className="text-gray-500">.claude/skills/</code> に配置してください。
+              </p>
             </div>
 
             <p className="text-xs text-gray-500">
