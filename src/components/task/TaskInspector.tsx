@@ -361,7 +361,7 @@ export function TaskInspector({
             タスク詳細
           </h2>
           {showSaved ? (
-            <span className="flex items-center gap-1 text-xs text-green-600 animate-in fade-in duration-200 flex-shrink-0">
+            <span aria-live="polite" className="flex items-center gap-1 text-xs text-green-600 animate-in fade-in duration-200 flex-shrink-0">
               <Check className="text-xs" weight="bold" />
               保存しました
             </span>
