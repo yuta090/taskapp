@@ -1,9 +1,13 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Pencil, Check, X } from '@phosphor-icons/react'
+import { Pencil, Check, X, Archive, ArrowCounterClockwise } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useSpaceArchive } from '@/lib/hooks/useSpaceArchive'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 interface GeneralSettingsProps {
   spaceId: string
@@ -16,6 +20,12 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [archiving, setArchiving] = useState(false)
+  const { isArchived, archive, unarchive } = useSpaceArchive(spaceId)
+  const { members } = useSpaceMembers(spaceId)
+  const { user } = useCurrentUser()
+  const currentMember = members.find((m) => m.id === user?.id)
+  const isAdmin = currentMember?.role === 'admin'
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -138,6 +148,64 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
           <div className="text-sm text-red-500">{error}</div>
         )}
       </div>
+
+      {/* 危険ゾーン (admin のみ表示) */}
+      {isAdmin && <div className="mt-8 pt-6 border-t border-red-100">
+        <h3 className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-3">
+          危険ゾーン
+        </h3>
+        {isArchived ? (
+          <div>
+            <p className="text-xs text-gray-500 mb-3">
+              このプロジェクトはアーカイブされています。解除するとサイドバーの一覧に再表示されます。
+            </p>
+            <button
+              type="button"
+              disabled={archiving}
+              onClick={async () => {
+                setArchiving(true)
+                try {
+                  await unarchive()
+                  toast.success('アーカイブを解除しました')
+                } catch {
+                  toast.error('アーカイブ解除に失敗しました')
+                } finally {
+                  setArchiving(false)
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <ArrowCounterClockwise className="text-base" weight="bold" />
+              {archiving ? '解除中...' : 'アーカイブを解除する'}
+            </button>
+          </div>
+        ) : (
+          <div>
+            <p className="text-xs text-gray-500 mb-3">
+              このプロジェクトをアーカイブすると、サイドバーの一覧から非表示になります。データは削除されず、いつでも復元できます。
+            </p>
+            <button
+              type="button"
+              disabled={archiving}
+              onClick={async () => {
+                setArchiving(true)
+                try {
+                  await archive()
+                  toast.success('アーカイブしました')
+                } catch {
+                  toast.error('アーカイブに失敗しました')
+                } finally {
+                  setArchiving(false)
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Archive className="text-base" weight="bold" />
+              {archiving ? 'アーカイブ中...' : 'アーカイブする'}
+            </button>
+          </div>
+        )}
+      </div>}
     </div>
   )
 }

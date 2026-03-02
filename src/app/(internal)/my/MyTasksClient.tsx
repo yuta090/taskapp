@@ -135,7 +135,7 @@ export default function MyTasksClient() {
 
   // Space options for global create
   const spaceOptions = useMemo(
-    () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: (s as Record<string, string>).org_id || '' })),
+    () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: (s as unknown as Record<string, string>).org_id || '' })),
     [spaces]
   )
 
@@ -155,7 +155,7 @@ export default function MyTasksClient() {
       // Validate against known spaces to prevent mismatched spaceId/orgId
       const targetSpace = spaces.find((s) => s.id === targetSpaceId)
       if (!targetSpace) return
-      const targetOrgId = (targetSpace as Record<string, string>).org_id || ''
+      const targetOrgId = (targetSpace as unknown as Record<string, string>).org_id || ''
       if (!targetOrgId) return
 
       try {
