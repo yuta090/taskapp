@@ -50,6 +50,7 @@ export function MeetingInspector({
           onClick={onClose}
           data-testid="meeting-inspector-close"
           className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+          aria-label="会議詳細を閉じる"
         >
           <X className="text-lg" />
         </button>

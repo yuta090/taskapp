@@ -71,15 +71,29 @@ export async function spaceUpdate(params: z.infer<typeof spaceUpdateSchema>): Pr
 }
 
 export async function spaceList(params: z.infer<typeof spaceListSchema>): Promise<Space[]> {
-  const { ctx } = await checkAuthOrg('read', 'space_list')
+  const ctx = (await import('../config.js')).getAuthContext()
+
+  // scope=user: allowed_space_ids でフィルタして返す
+  // scope=org: 全スペース返す
+  if (ctx.scope !== 'org' && ctx.scope !== 'user' && ctx.keyId !== 'dev-key') {
+    throw new Error(`権限エラー: Tool "space_list" requires scope=org or scope=user (current: ${ctx.scope})`)
+  }
+  if (!ctx.allowedActions.includes('read')) {
+    throw new Error('権限エラー: Action "read" not allowed for this API key')
+  }
+
   const supabase = getSupabaseClient()
-  const orgId = ctx.orgId
 
   let query = supabase
     .from('spaces')
     .select('*')
-    .eq('org_id', orgId)
+    .eq('org_id', ctx.orgId)
     .order('created_at', { ascending: false })
+
+  // scope=user: 許可されたスペースのみ
+  if (ctx.scope === 'user' && ctx.allowedSpaceIds && ctx.allowedSpaceIds.length > 0) {
+    query = query.in('id', ctx.allowedSpaceIds)
+  }
 
   if (params.type) {
     query = query.eq('type', params.type)

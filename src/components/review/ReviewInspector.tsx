@@ -51,6 +51,7 @@ export function ReviewInspector({
         <button
           onClick={onClose}
           className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+          aria-label="レビュー詳細を閉じる"
         >
           <X className="text-lg" />
         </button>

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Toaster } from 'sonner'
 import { PreferencesProviderWrapper } from '@/components/providers/PreferencesProviderWrapper'
 import { ActiveOrgProvider } from '@/lib/org/ActiveOrgProvider'
+import { SkipLink } from '@/components/shared/SkipLink'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -17,6 +18,7 @@ export default function RootLayout({
   return (
     <html lang="ja" className="antialiased" suppressHydrationWarning>
       <body className="font-sans">
+        <SkipLink />
         <PreferencesProviderWrapper>
           <ActiveOrgProvider>
             {children}
