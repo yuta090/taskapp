@@ -115,7 +115,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait') {
       return filterParam
     }
-    return 'active'
+    return 'all'
   }, [searchParams])
 
   // useQuery auto-fetches tasks, milestones, and spaceName — no manual useEffect needed
