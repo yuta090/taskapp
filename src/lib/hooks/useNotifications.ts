@@ -129,6 +129,9 @@ export function useNotifications(): UseNotificationsState {
             : n
         )
       )
+
+      // Refresh badge count in LeftNav
+      void queryClient.invalidateQueries({ queryKey: ['unreadCount'] })
     } catch (err) {
       console.error('Failed to mark notification as read:', err)
     }
@@ -152,6 +155,9 @@ export function useNotifications(): UseNotificationsState {
             : n
         )
       )
+
+      // Refresh badge count in LeftNav
+      void queryClient.invalidateQueries({ queryKey: ['unreadCount'] })
     } catch (err) {
       console.error('Failed to mark notification as actioned:', err)
     }
@@ -185,6 +191,9 @@ export function useNotifications(): UseNotificationsState {
             : n
         )
       )
+
+      // Refresh badge count in LeftNav
+      void queryClient.invalidateQueries({ queryKey: ['unreadCount'] })
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err)
     }

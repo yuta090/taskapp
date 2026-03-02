@@ -136,7 +136,7 @@ export function NotificationInspector({
   const [taskLoading, setTaskLoading] = useState(false)
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
-  // Whether the current user has a review_approval record for this task
+  // Whether the current user has a pending review_approval record for this task
   const [hasReviewRecord, setHasReviewRecord] = useState(false)
 
   // Action panel state
@@ -224,7 +224,7 @@ export function NotificationInspector({
           setTask(data)
         }
 
-        // For review_request: check if current user has a review_approval record
+        // For review_request: check if current user has a PENDING review_approval record
         if (notification.type === 'review_request' && !cancelled) {
           const { data: userData } = await supabase.auth.getUser()
           if (userData?.user && !cancelled) {
@@ -233,6 +233,7 @@ export function NotificationInspector({
               .select('id, review_id!inner(task_id)')
               .eq('review_id.task_id', taskId)
               .eq('reviewer_id', userData.user.id)
+              .eq('state', 'pending')
               .limit(1)
 
             if (!cancelled) {
@@ -339,6 +340,7 @@ export function NotificationInspector({
     setActionError(null)
     try {
       await rpc.reviewApprove(supabase, { taskId })
+      setHasReviewRecord(false)
       setActionCompleted('approved')
       scheduleAdvance()
     } catch (err: unknown) {
@@ -356,6 +358,7 @@ export function NotificationInspector({
     setActionError(null)
     try {
       await rpc.reviewBlock(supabase, { taskId, blockedReason: blockReason.trim() })
+      setHasReviewRecord(false)
       setActionCompleted('blocked')
       scheduleAdvance()
     } catch (err: unknown) {
@@ -405,7 +408,12 @@ export function NotificationInspector({
     // All action panels use unified container: bg-gray-50 + border-gray-200
     // Color is reserved for CTA buttons only (green=approve, red=reject, blue=primary action)
 
-    // Review request: Approve / Block (only if review record exists for current user)
+    // Already actioned — no action panel needed
+    if (notification.actioned_at && !actionCompleted) {
+      return null
+    }
+
+    // Review request: Approve / Block (only if pending review record exists for current user)
     if (notification.type === 'review_request' && taskId && hasReviewRecord) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
