@@ -79,7 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex-1 min-h-0 flex justify-center bg-gray-50/50">
           <div className="flex h-full min-h-0 w-full max-w-[1600px]">
             {/* Main Content */}
-            <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-white relative z-0">
+            <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-white relative z-0">
               {children}
             </main>
 
