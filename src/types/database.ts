@@ -146,6 +146,10 @@ export interface Database {
           name: string
           owner_user_id: string | null
           preset_genre: string | null
+          archived_at: string | null
+          archived_by: string | null
+          group_id: string | null
+          sort_order: number
           created_at: string
         }
         Insert: {
@@ -155,6 +159,10 @@ export interface Database {
           name: string
           owner_user_id?: string | null
           preset_genre?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
+          group_id?: string | null
+          sort_order?: number
           created_at?: string
         }
         Update: {
@@ -164,6 +172,33 @@ export interface Database {
           name?: string
           owner_user_id?: string | null
           preset_genre?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
+          group_id?: string | null
+          sort_order?: number
+          created_at?: string
+        }
+      }
+      space_groups: {
+        Row: {
+          id: string
+          org_id: string
+          name: string
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          name: string
+          sort_order?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          name?: string
+          sort_order?: number
           created_at?: string
         }
       }
@@ -1136,3 +1171,6 @@ export type ProposalRespondent = Tables['proposal_respondents']['Row']
 export type ProposalRespondentInsert = Tables['proposal_respondents']['Insert']
 export type SlotResponse = Tables['slot_responses']['Row']
 export type SlotResponseInsert = Tables['slot_responses']['Insert']
+export type SpaceGroup = Tables['space_groups']['Row']
+export type SpaceGroupInsert = Tables['space_groups']['Insert']
+export type SpaceGroupUpdate = Tables['space_groups']['Update']
