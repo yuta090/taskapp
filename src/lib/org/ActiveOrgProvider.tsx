@@ -39,8 +39,9 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (supabaseRef.current == null) supabaseRef.current = createClient()
-  const supabase = supabaseRef.current
+  if (typeof window !== 'undefined' && supabaseRef.current == null) {
+    supabaseRef.current = createClient()
+  }
 
   // Fetch all orgs user belongs to
   useEffect(() => {
@@ -51,6 +52,8 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
       return
     }
+    const supabase = supabaseRef.current
+    if (!supabase) return
 
     const fetchOrgs = async () => {
       try {
@@ -104,7 +107,7 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
     }
 
     void fetchOrgs()
-  }, [user, userLoading, supabase])
+  }, [user, userLoading])
 
   const switchOrg = useCallback((orgId: string) => {
     const target = orgs.find(o => o.orgId === orgId)
