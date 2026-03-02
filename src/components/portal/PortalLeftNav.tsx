@@ -390,6 +390,7 @@ export function PortalLeftNav({
             collapsed ? 'justify-center w-full' : 'gap-2'
           } px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white/50 transition-colors w-full`}
           title={collapsed ? 'サイドバーを展開 (⌘\\)' : undefined}
+          aria-label={collapsed ? 'サイドバーを展開' : 'サイドバーを折りたたむ'}
         >
           {collapsed ? (
             <CaretRight className="text-lg" weight="bold" />

@@ -605,6 +605,7 @@ export function NotificationInspector({
             disabled={!hasPrev}
             className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             title="前の通知"
+            aria-label="前の通知"
           >
             <CaretUp className="text-gray-500" />
           </button>
@@ -614,6 +615,7 @@ export function NotificationInspector({
             disabled={!hasNext}
             className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             title="次の通知"
+            aria-label="次の通知"
           >
             <CaretDown className="text-gray-500" />
           </button>
@@ -624,6 +626,7 @@ export function NotificationInspector({
           onClick={onClose}
           className="p-1 rounded hover:bg-gray-100"
           title="閉じる"
+          aria-label="閉じる"
         >
           <X className="text-gray-500" />
         </button>
