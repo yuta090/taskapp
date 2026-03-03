@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus } from '@phosphor-icons/react'
+import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -726,6 +726,34 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   const currentSortLabel = sortOptions.find((o) => o.key === sortKey)?.label || ''
 
+  // Filter presets
+  const PRESETS_KEY = `taskapp:filter-presets:${spaceId}`
+  const [filterPresets, setFilterPresets] = useState<{ name: string; filters: TaskFilters }[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]')
+    } catch { return [] }
+  })
+  const [showPresetMenu, setShowPresetMenu] = useState(false)
+
+  const savePreset = useCallback((name: string) => {
+    const newPresets = [...filterPresets, { name, filters: advancedFilters }]
+    setFilterPresets(newPresets)
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(newPresets))
+    toast.success(`フィルター「${name}」を保存しました`)
+  }, [filterPresets, advancedFilters, PRESETS_KEY])
+
+  const loadPreset = useCallback((filters: TaskFilters) => {
+    setAdvancedFilters(filters)
+    setShowPresetMenu(false)
+  }, [])
+
+  const deletePreset = useCallback((index: number) => {
+    const newPresets = filterPresets.filter((_, i) => i !== index)
+    setFilterPresets(newPresets)
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(newPresets))
+  }, [filterPresets, PRESETS_KEY])
+
   // Breadcrumb items
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: projectBasePath },
@@ -829,6 +857,61 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               owners={uniqueOwners}
             />
           )}
+
+          {/* Filter presets */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowPresetMenu(!showPresetMenu)}
+              className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              title="フィルタープリセット"
+            >
+              <BookmarkSimple className="text-sm" />
+            </button>
+            {showPresetMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowPresetMenu(false)} />
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[180px]">
+                  {filterPresets.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-gray-400">保存済みプリセットなし</div>
+                  )}
+                  {filterPresets.map((preset, i) => (
+                    <div key={i} className="flex items-center gap-1 px-1">
+                      <button
+                        type="button"
+                        onClick={() => loadPreset(preset.filters)}
+                        className="flex-1 text-left px-2 py-1.5 text-xs hover:bg-gray-50 rounded transition-colors truncate"
+                      >
+                        {preset.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deletePreset(i)}
+                        className="p-1 text-gray-300 hover:text-red-500 rounded transition-colors flex-shrink-0"
+                      >
+                        <Trash className="text-xs" />
+                      </button>
+                    </div>
+                  ))}
+                  {hasAdvancedFilters && (
+                    <>
+                      <hr className="my-1 border-gray-100" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const name = prompt('プリセット名を入力')
+                          if (name) { savePreset(name); setShowPresetMenu(false) }
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 transition-colors"
+                      >
+                        + 現在のフィルターを保存
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Search */}
           <div className="relative flex items-center">
