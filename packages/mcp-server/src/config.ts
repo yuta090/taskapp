@@ -25,11 +25,7 @@ function getEnvOrThrow(key: string): string {
 }
 
 function getEnvWithFallback(primary: string, fallback: string): string {
-  const value = process.env[primary] || process.env[fallback]
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${primary} (or ${fallback})`)
-  }
-  return value
+  return process.env[primary] || process.env[fallback] || ''
 }
 
 function getEnvOrDefault(key: string, defaultValue: string): string {

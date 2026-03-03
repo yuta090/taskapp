@@ -57,7 +57,7 @@ export function GoogleCalendarSettings({ orgId }: GoogleCalendarSettingsProps) {
       {loading ? (
         <div className="p-4 text-sm text-gray-500">読み込み中...</div>
       ) : error ? (
-        <div className="p-4 text-sm text-red-600 bg-red-50 rounded-lg">
+        <div className="p-4 text-sm text-red-700 bg-red-50 rounded-lg">
           {error.message}
         </div>
       ) : connected && googleConnection ? (

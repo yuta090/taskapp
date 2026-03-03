@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 import { X, Calendar, Users, WarningCircle } from '@phosphor-icons/react'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { AmberBadge } from '@/components/shared'
@@ -9,7 +10,7 @@ interface MeetingCreateSheetProps {
   spaceId: string
   isOpen: boolean
   onClose: () => void
-  onSubmit: (meeting: MeetingCreateData) => void
+  onSubmit: (meeting: MeetingCreateData) => void | Promise<void>
 }
 
 export interface MeetingCreateData {
@@ -32,6 +33,7 @@ export function MeetingCreateSheet({
   const [clientParticipantIds, setClientParticipantIds] = useState<string[]>([])
   const [internalParticipantIds, setInternalParticipantIds] = useState<string[]>([])
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const {
     clientMembers,
@@ -63,16 +65,7 @@ export function MeetingCreateSheet({
     prevIsOpenRef.current = isOpen
   }, [isOpen])
 
-  // Handle Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose, skipAutoFocus: true })
 
   const toggleClientParticipant = (userId: string) => {
     setClientParticipantIds((prev) =>
@@ -91,34 +84,37 @@ export function MeetingCreateSheet({
     )
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
-
-    onSubmit({
-      title: title.trim(),
-      heldAt: heldAt ? new Date(heldAt).toISOString() : undefined,
-      clientParticipantIds,
-      internalParticipantIds,
-    })
-
-    onClose()
+    if (!title.trim() || isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSubmit({
+        title: title.trim(),
+        heldAt: heldAt ? new Date(heldAt).toISOString() : undefined,
+        clientParticipantIds,
+        internalParticipantIds,
+      })
+      onClose()
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-black/30 animate-backdrop-in"
         onClick={onClose}
       />
 
       {/* Sheet */}
       <div
         data-testid="meeting-create-sheet"
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl"
+        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl animate-dialog-in"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -276,11 +272,11 @@ export function MeetingCreateSheet({
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || membersLoading}
+              disabled={!title.trim() || membersLoading || isSubmitting}
               data-testid="meeting-create-submit"
               className="px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
-              作成
+              {isSubmitting ? '作成中...' : '作成'}
             </button>
           </div>
         </form>

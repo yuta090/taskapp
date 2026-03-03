@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText } from '@phosphor-icons/react'
-import { AmberBadge } from '@/components/shared'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple } from '@phosphor-icons/react'
+import { AmberBadge, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
@@ -21,7 +21,7 @@ interface TaskInspectorProps {
   spaceId: string
   owners?: TaskOwner[]
   onClose: () => void
-  onPassBall?: (ball: 'client' | 'internal', clientOwnerIds?: string[], internalOwnerIds?: string[]) => void
+  onPassBall?: (ball: 'client' | 'internal', clientOwnerIds?: string[], internalOwnerIds?: string[]) => void | Promise<void>
   onUpdate?: (updates: {
     title?: string
     description?: string | null
@@ -35,6 +35,7 @@ interface TaskInspectorProps {
     wikiPageId?: string | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
+  onDuplicate?: () => void
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
   /** AT-009: Spec task state transition */
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
@@ -62,17 +63,20 @@ export function TaskInspector({
   onPassBall,
   onUpdate,
   onDelete,
+  onDuplicate,
   onUpdateOwners,
   onSetSpecState,
   onReviewChange,
   parentTasks = [],
   childTasks = [],
 }: TaskInspectorProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(task.title)
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [editDescription, setEditDescription] = useState(task.description || '')
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isSavingOwners, setIsSavingOwners] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -253,7 +257,7 @@ export function TaskInspector({
   }
 
   // FR-ASN-003: ボール切り替え時のハンドラー（ペンディング状態対応）
-  const handleBallChange = (newBall: 'client' | 'internal') => {
+  const handleBallChange = async (newBall: 'client' | 'internal') => {
     if (newBall === 'client') {
       // 外部メンバーがスペースに存在しない場合
       if (clientMembers.length === 0) {
@@ -291,9 +295,11 @@ export function TaskInspector({
         const assignee = clientMembers.find((m) => m.id === task.assignee_id)
           || members.find((m) => m.id === task.assignee_id)
         const assigneeName = assignee?.displayName || '現在の担当者'
-        const confirmed = confirm(
-          `担当者「${assigneeName}」は社内メンバーではありません。\nボールを社内に切り替えると、担当者の変更が必要になる場合があります。\n\n切り替えますか？`
-        )
+        const confirmed = await confirm({
+          title: 'ボール切り替え',
+          message: `担当者「${assigneeName}」は社内メンバーではありません。ボールを社内に切り替えると、担当者の変更が必要になる場合があります。`,
+          confirmLabel: '切り替える',
+        })
         if (!confirmed) return
       }
     }
@@ -317,22 +323,28 @@ export function TaskInspector({
   }
 
   const handleSaveOwners = async () => {
-    if (pendingBallChange === 'client') {
-      // ボール切替時: 外部担当者必須バリデーション
-      if (selectedClientOwners.length === 0) {
-        setOwnerValidationError('外部担当者を1人以上選択してください')
+    if (isSavingOwners) return
+    setIsSavingOwners(true)
+    try {
+      if (pendingBallChange === 'client') {
+        // ボール切替時: 外部担当者必須バリデーション
+        if (selectedClientOwners.length === 0) {
+          setOwnerValidationError('外部担当者を1人以上選択してください')
+          return
+        }
+        // ボール切替 + オーナー更新を一括実行
+        await onPassBall?.('client', selectedClientOwners, selectedInternalOwners)
+        setPendingBallChange(null)
+        setOwnerValidationError(null)
+        setEditingOwners(false)
         return
       }
-      // ボール切替 + オーナー更新を一括実行
-      onPassBall?.('client', selectedClientOwners, selectedInternalOwners)
-      setPendingBallChange(null)
-      setOwnerValidationError(null)
+      // 通常のオーナー更新
+      await onUpdateOwners?.(selectedClientOwners, selectedInternalOwners)
       setEditingOwners(false)
-      return
+    } finally {
+      setIsSavingOwners(false)
     }
-    // 通常のオーナー更新
-    await onUpdateOwners?.(selectedClientOwners, selectedInternalOwners)
-    setEditingOwners(false)
   }
 
   const handleCancelPendingBall = () => {
@@ -342,7 +354,13 @@ export function TaskInspector({
   }
 
   const handleDelete = async () => {
-    if (!confirm('このタスクを削除しますか？')) return
+    const ok = await confirm({
+      title: 'タスクを削除',
+      message: 'このタスクを削除しますか？この操作は取り消せません。',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
     setIsDeleting(true)
     try {
       await onDelete?.()
@@ -354,6 +372,7 @@ export function TaskInspector({
 
   return (
     <div className="h-full flex flex-col bg-white">
+      {ConfirmDialog}
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -361,7 +380,7 @@ export function TaskInspector({
             タスク詳細
           </h2>
           {showSaved ? (
-            <span className="flex items-center gap-1 text-xs text-green-600 animate-in fade-in duration-200 flex-shrink-0">
+            <span aria-live="polite" className="flex items-center gap-1 text-xs text-green-600 animate-in fade-in duration-200 flex-shrink-0">
               <Check className="text-xs" weight="bold" />
               保存しました
             </span>
@@ -370,6 +389,15 @@ export function TaskInspector({
           ) : null}
         </div>
         <div className="flex items-center gap-1">
+          {onDuplicate && (
+            <button
+              onClick={onDuplicate}
+              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+              title="タスクを複製"
+            >
+              <CopySimple className="text-lg" />
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={handleDelete}
@@ -510,7 +538,7 @@ export function TaskInspector({
             <div ref={pendingOwnerRef} className="mt-2 p-3 bg-amber-50/60 rounded-lg border border-amber-200 space-y-3">
               {/* バリデーションエラー */}
               {ownerValidationError && (
-                <p className="text-xs text-red-600 bg-red-50 px-2 py-1.5 rounded border border-red-200">
+                <p className="text-xs text-red-700 bg-red-50 px-2 py-1.5 rounded border border-red-200">
                   {ownerValidationError}
                 </p>
               )}
@@ -581,9 +609,10 @@ export function TaskInspector({
                 </button>
                 <button
                   onClick={handleSaveOwners}
-                  className="px-4 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded transition-colors"
+                  disabled={isSavingOwners}
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition-colors"
                 >
-                  外部に渡す
+                  {isSavingOwners ? '処理中...' : '外部に渡す'}
                 </button>
               </div>
             </div>
@@ -596,7 +625,7 @@ export function TaskInspector({
               onClick={() => setOwnerValidationError(null)}
               className="w-full text-left"
             >
-              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200 flex items-center justify-between">
+              <p className="text-xs text-red-700 bg-red-50 px-3 py-2 rounded-lg border border-red-200 flex items-center justify-between">
                 <span>{ownerValidationError}</span>
                 <X className="text-sm flex-shrink-0 text-red-400" />
               </p>
@@ -691,9 +720,9 @@ export function TaskInspector({
                         child.ball === 'client' ? '#F59E0B' : '#3B82F6',
                     }}
                   />
-                  <span className={`flex-1 truncate ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                  <TruncatedText className={`flex-1 ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                     {child.title}
-                  </span>
+                  </TruncatedText>
                 </div>
               ))}
             </div>
@@ -843,9 +872,10 @@ export function TaskInspector({
                 </button>
                 <button
                   onClick={handleSaveOwners}
-                  className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 rounded"
+                  disabled={isSavingOwners}
+                  className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded"
                 >
-                  保存
+                  {isSavingOwners ? '保存中...' : '保存'}
                 </button>
               </div>
             </div>
@@ -982,9 +1012,9 @@ export function TaskInspector({
                 <span
                   className={`text-xs px-2 py-1 rounded font-medium ${
                     task.decision_state === 'implemented'
-                      ? 'bg-green-50 text-green-600'
+                      ? 'bg-green-50 text-green-700'
                       : task.decision_state === 'decided'
-                      ? 'bg-blue-50 text-blue-600'
+                      ? 'bg-blue-50 text-blue-700'
                       : 'bg-gray-100 text-gray-600'
                   }`}
                 >

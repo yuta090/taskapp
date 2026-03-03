@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 import {
   X,
   ArrowLeft,
@@ -80,14 +81,16 @@ export function SpaceCreateSheet({ isOpen, onClose, orgId, onCreated }: SpaceCre
     }
   }, [name, selectedGenre, orgId, isSubmitting, handleClose, onCreated])
 
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose: handleClose })
+
   if (!isOpen) return null
 
   const selectedPreset: PresetDefinition | null = selectedGenre ? getPreset(selectedGenre) : null
 
   return (
-    <>
+    <div ref={focusTrapRef} className="fixed inset-0 z-40">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 z-40" onClick={handleClose} />
+      <div className="absolute inset-0 bg-black/20" onClick={handleClose} />
 
       {/* Sheet */}
       <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 animate-in slide-in-from-bottom duration-200">
@@ -198,6 +201,6 @@ export function SpaceCreateSheet({ isOpen, onClose, orgId, onCreated }: SpaceCre
           )}
         </div>
       </div>
-    </>
+    </div>
   )
 }

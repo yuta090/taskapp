@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useContext, memo } from 'react'
+import { useState, useEffect, useCallback, useContext, useMemo, memo } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -26,14 +26,41 @@ import {
   Check,
   Sliders,
   Bell,
+  DotsThree,
+  Pencil,
+  Trash,
+  FolderSimple,
+  ArrowUp,
+  ArrowDown,
 } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+import type { UserSpace } from '@/lib/hooks/useUserSpaces'
+import { useSpaceGroups } from '@/lib/hooks/useSpaceGroups'
+import type { SpaceGroupItem } from '@/lib/hooks/useSpaceGroups'
 import { createClient } from '@/lib/supabase/client'
+import { TruncatedText } from '@/components/shared'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
+const GROUP_COLLAPSED_KEY = 'taskapp:sidebar:group-collapsed'
+
+/** localStorage からグループ折畳状態を復元 */
+function getCollapsedGroups(): Set<string> {
+  try {
+    const saved = localStorage.getItem(GROUP_COLLAPSED_KEY)
+    return saved ? new Set(JSON.parse(saved)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsedGroups(groups: Set<string>) {
+  localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify([...groups]))
+}
 
 interface NavItemProps {
   href: string
@@ -63,10 +90,10 @@ function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: Na
         {icon}
       </span>
       {!collapsed && (
-        <span className="truncate text-sm 2xl:text-base">{label}</span>
+        <TruncatedText className="text-sm 2xl:text-base">{label}</TruncatedText>
       )}
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-white">
+        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-white">
           {badge}
         </span>
       )}
@@ -253,6 +280,321 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
   )
 }
 
+/** グループヘッダー（リネーム・削除・並替メニュー付き） */
+function SpaceGroupHeader({
+  group,
+  isCollapsed,
+  onToggle,
+  onRename,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
+}: {
+  group: SpaceGroupItem
+  isCollapsed: boolean
+  onToggle: () => void
+  onRename: (name: string) => void
+  onDelete: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  isFirst: boolean
+  isLast: boolean
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameName, setRenameName] = useState(group.name)
+
+  return (
+    <div className="flex items-center group/header">
+      {renaming ? (
+        <div className="flex-1 flex items-center gap-1 px-1">
+          <input
+            type="text"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && renameName.trim()) {
+                onRename(renameName.trim())
+                setRenaming(false)
+              }
+              if (e.key === 'Escape') {
+                setRenameName(group.name)
+                setRenaming(false)
+              }
+            }}
+            onBlur={() => {
+              if (renameName.trim() && renameName.trim() !== group.name) {
+                onRename(renameName.trim())
+              }
+              setRenaming(false)
+            }}
+            className="flex-1 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            autoFocus
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 px-2 py-1 text-[11px] font-medium text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors"
+        >
+          {isCollapsed ? (
+            <CaretRight weight="bold" className="text-[9px]" />
+          ) : (
+            <CaretDown weight="bold" className="text-[9px]" />
+          )}
+          <span className="truncate">{group.name}</span>
+        </button>
+      )}
+
+      {!renaming && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="p-0.5 rounded text-gray-300 hover:text-gray-500 opacity-0 group-hover/header:opacity-100 transition-opacity"
+          >
+            <DotsThree weight="bold" className="text-sm" />
+          </button>
+
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-36">
+                <button
+                  type="button"
+                  onClick={() => { setRenaming(true); setMenuOpen(false) }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                >
+                  <Pencil className="text-sm text-gray-400" />
+                  名前を変更
+                </button>
+                {!isFirst && (
+                  <button
+                    type="button"
+                    onClick={() => { onMoveUp(); setMenuOpen(false) }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                  >
+                    <ArrowUp className="text-sm text-gray-400" />
+                    上に移動
+                  </button>
+                )}
+                {!isLast && (
+                  <button
+                    type="button"
+                    onClick={() => { onMoveDown(); setMenuOpen(false) }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                  >
+                    <ArrowDown className="text-sm text-gray-400" />
+                    下に移動
+                  </button>
+                )}
+                <hr className="my-1 border-gray-100" />
+                <button
+                  type="button"
+                  onClick={() => { onDelete(); setMenuOpen(false) }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                >
+                  <Trash className="text-sm" />
+                  削除
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** スペースのグループ移動メニュー */
+function SpaceMoveMenu({
+  groups,
+  currentGroupId,
+  onMove,
+}: {
+  groups: SpaceGroupItem[]
+  currentGroupId: string | null
+  onMove: (groupId: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(!open) }}
+        className="p-0.5 rounded text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
+        title="グループを変更"
+      >
+        <FolderSimple className="text-sm" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-40">
+            <div className="px-3 py-1 text-[10px] font-medium text-gray-400 uppercase">
+              グループ変更
+            </div>
+            <button
+              type="button"
+              onClick={() => { onMove(null); setOpen(false) }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 ${
+                currentGroupId === null ? 'text-gray-900 font-medium' : 'text-gray-600'
+              }`}
+            >
+              なし
+              {currentGroupId === null && <Check className="text-xs ml-auto" weight="bold" />}
+            </button>
+            {groups.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => { onMove(g.id); setOpen(false) }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 ${
+                  currentGroupId === g.id ? 'text-gray-900 font-medium' : 'text-gray-600'
+                }`}
+              >
+                <span className="truncate">{g.name}</span>
+                {currentGroupId === g.id && <Check className="text-xs ml-auto" weight="bold" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** 個別スペースのナビゲーションアイテム（展開可能） */
+function SpaceNavItem({
+  space,
+  orgId,
+  isExpanded,
+  pathname,
+  searchParams,
+  collapsed,
+  isActive,
+  onNavigate,
+  isArchived,
+  groups,
+  onMoveToGroup,
+}: {
+  space: UserSpace
+  orgId: string
+  isExpanded: boolean
+  pathname: string
+  searchParams: ReturnType<typeof useSearchParams>
+  collapsed: boolean
+  isActive: (href: string, defaultActive: boolean) => boolean
+  onNavigate?: (href: string) => void
+  isArchived?: boolean
+  groups?: SpaceGroupItem[]
+  onMoveToGroup?: (spaceId: string, groupId: string | null) => void
+}) {
+  const basePath = `/${orgId}/project/${space.id}`
+
+  return (
+    <div>
+      {/* Space root */}
+      <div className="flex items-center group">
+        <Link
+          href={basePath}
+          onClick={() => onNavigate?.(basePath)}
+          className={`flex-1 min-w-0 px-2 py-2 rounded cursor-pointer flex items-center ${
+            collapsed ? 'justify-center' : 'gap-2.5'
+          } transition-colors ${
+            isArchived ? 'opacity-50' : ''
+          } ${
+            isExpanded
+              ? 'text-gray-900 bg-gray-200/60'
+              : 'text-gray-600 hover:bg-gray-200/50'
+          }`}
+          title={collapsed ? space.name : undefined}
+        >
+          <div className="w-5 h-5 2xl:w-6 2xl:h-6 rounded bg-indigo-600 text-white flex items-center justify-center text-xs 2xl:text-sm shadow-sm flex-shrink-0">
+            <Planet weight="fill" />
+          </div>
+          {!collapsed && (
+            <>
+              <TruncatedText className="text-sm 2xl:text-base">{space.name}</TruncatedText>
+              {isExpanded ? (
+                <CaretDown weight="fill" className="text-[10px] 2xl:text-xs ml-auto text-gray-400" />
+              ) : (
+                <CaretRight weight="fill" className="text-[10px] 2xl:text-xs ml-auto text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              )}
+            </>
+          )}
+        </Link>
+        {!collapsed && groups && groups.length > 0 && onMoveToGroup && (
+          <SpaceMoveMenu
+            groups={groups}
+            currentGroupId={space.groupId}
+            onMove={(groupId) => onMoveToGroup(space.id, groupId)}
+          />
+        )}
+      </div>
+
+      {/* Sub-nav（展開時のみ） */}
+      {isExpanded && (
+        <div className={collapsed ? 'space-y-0.5' : 'pl-2 mt-0.5 space-y-0.5 border-l border-gray-200 ml-4'}>
+          <SubNavItem
+            href={basePath}
+            icon={<Copy />}
+            label="タスク"
+            active={isActive(basePath, pathname === basePath && searchParams.get('filter') !== 'client_wait')}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}?filter=client_wait`}
+            icon={<ChatCircleText />}
+            label="確認待ち"
+            active={isActive(`${basePath}?filter=client_wait`, pathname === basePath && searchParams.get('filter') === 'client_wait')}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}/meetings`}
+            icon={<Notebook />}
+            label="議事録"
+            active={isActive(`${basePath}/meetings`, pathname.includes(`/project/${space.id}/meetings`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}/wiki`}
+            icon={<BookOpen />}
+            label="Wiki"
+            active={isActive(`${basePath}/wiki`, pathname.includes(`/project/${space.id}/wiki`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}/views/gantt`}
+            icon={<SquaresFour />}
+            label="ガントチャート"
+            active={isActive(`${basePath}/views/gantt`, pathname.includes(`/project/${space.id}/views`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}/settings`}
+            icon={<Gear />}
+            label="設定"
+            active={isActive(`${basePath}/settings`, pathname.includes(`/project/${space.id}/settings`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const LeftNav = memo(function LeftNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -261,13 +603,61 @@ export const LeftNav = memo(function LeftNav() {
   const { activeOrgId, activeOrgName, orgs, switchOrg } = useContext(ActiveOrgContext)
   const [isOrgSwitcherOpen, setIsOrgSwitcherOpen] = useState(false)
 
-  const fallbackSpaceId = '00000000-0000-0000-0000-000000000010'
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
   const orgId = match?.[1] ?? activeOrgId ?? ''
-  const spaceId = match?.[2] ?? fallbackSpaceId
+  const spaceId = match?.[2] ?? undefined
   const hasProjectRoute = !!match
-  const { pendingCount: inboxCount } = useUnreadNotificationCount()
+  const { count: inboxCount } = useUnreadNotificationCount()
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
+
+  // 動的スペースリスト（アーカイブ含む）
+  const { spaces: allSpaces } = useUserSpaces({ includeArchived: true })
+  const [showArchived, setShowArchived] = useState(false)
+
+  // グループ管理
+  const {
+    groups,
+    createGroup,
+    renameGroup,
+    deleteGroup,
+    reorderGroups,
+    moveSpaceToGroup,
+  } = useSpaceGroups(orgId)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => getCollapsedGroups())
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+
+  const toggleGroup = useCallback((groupId: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(groupId)) {
+        next.delete(groupId)
+      } else {
+        next.add(groupId)
+      }
+      saveCollapsedGroups(next)
+      return next
+    })
+  }, [])
+
+  // スペースの分類（useMemo で安定化）
+  const { activeSpaces, archivedSpaces, groupedSpaces, ungroupedSpaces } = useMemo(() => {
+    const active = allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null)
+    const archived = allSpaces.filter((s) => s.orgId === orgId && s.archivedAt !== null)
+
+    const grouped = new Map<string | null, UserSpace[]>()
+    for (const space of active) {
+      const key = space.groupId
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(space)
+    }
+    for (const [, spaces] of grouped) {
+      spaces.sort((a, b) => a.sortOrder - b.sortOrder)
+    }
+    const ungrouped = grouped.get(null) ?? []
+
+    return { activeSpaces: active, archivedSpaces: archived, groupedSpaces: grouped, ungroupedSpaces: ungrouped }
+  }, [allSpaces, orgId])
 
   // ── Optimistic Navigation: クリック時に即座にアクティブ状態を切り替える ──
   const [pendingHref, setPendingHref] = useState<string | null>(null)
@@ -290,7 +680,9 @@ export const LeftNav = memo(function LeftNav() {
     : '--'
   const orgDisplayName = activeOrgName ?? '組織未設定'
 
-  const projectBasePath = `/${orgId}/project/${spaceId}`
+  // spaceId はURLから取得、なければ最初のアクティブスペース
+  const effectiveSpaceId = spaceId ?? activeSpaces[0]?.id
+  const projectBasePath = effectiveSpaceId ? `/${orgId}/project/${effectiveSpaceId}` : null
 
   // Restore collapsed state from localStorage
   useEffect(() => {
@@ -324,7 +716,7 @@ export const LeftNav = memo(function LeftNav() {
   }, [])
 
   const handleQuickCreate = useCallback(() => {
-    if (hasProjectRoute) {
+    if (hasProjectRoute && projectBasePath) {
       router.push(`${projectBasePath}?create=1`)
     } else {
       // Outside project context: open global create on My Tasks page
@@ -377,9 +769,9 @@ export const LeftNav = memo(function LeftNav() {
           </div>
           {!collapsed && (
             <>
-              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base max-w-[130px]">
+              <TruncatedText className="font-medium text-gray-900 text-sm 2xl:text-base max-w-[130px]">
                 {orgDisplayName}
-              </span>
+              </TruncatedText>
               <CaretDown
                 weight="bold"
                 className={`text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600 transition-transform ${isOrgSwitcherOpen ? 'rotate-180' : ''}`}
@@ -433,7 +825,7 @@ export const LeftNav = memo(function LeftNav() {
                       <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
                         {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
                       </div>
-                      <span className="truncate flex-1 text-left">{org.orgName}</span>
+                      <TruncatedText className="flex-1 text-left">{org.orgName}</TruncatedText>
                       {org.orgId === activeOrgId && (
                         <Check className="text-gray-900 text-sm flex-shrink-0" weight="bold" />
                       )}
@@ -500,7 +892,15 @@ export const LeftNav = memo(function LeftNav() {
           {!collapsed && (
             <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5 flex items-center justify-between">
               <span>チーム</span>
-              {hasProjectRoute && (
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingGroup(true)}
+                  className="p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors"
+                  title="新しいグループ"
+                >
+                  <FolderSimple className="text-sm" weight="bold" />
+                </button>
                 <button
                   type="button"
                   onClick={() => setIsSpaceCreateOpen(true)}
@@ -509,84 +909,201 @@ export const LeftNav = memo(function LeftNav() {
                 >
                   <Plus className="text-sm" weight="bold" />
                 </button>
-              )}
+              </div>
             </div>
           )}
 
-          <div className="space-y-0.5">
-            {/* Project root */}
-            <Link
-              href={projectBasePath}
-              className={`px-2 py-2 text-gray-600 hover:bg-gray-200/50 rounded cursor-pointer flex items-center ${
-                collapsed ? 'justify-center' : 'gap-2.5'
-              } group`}
-              title={collapsed ? 'Webリニューアル' : undefined}
-            >
-              <div className="w-5 h-5 2xl:w-6 2xl:h-6 rounded bg-indigo-600 text-white flex items-center justify-center text-xs 2xl:text-sm shadow-sm flex-shrink-0">
-                <Planet weight="fill" />
-              </div>
-              {!collapsed && (
-                <>
-                  <span className="truncate text-sm 2xl:text-base">Webリニューアル</span>
-                  <CaretDown
-                    weight="fill"
-                    className="text-[10px] 2xl:text-xs ml-auto text-gray-400"
-                  />
-                </>
-              )}
-            </Link>
-
-            {/* Project sub-nav */}
-            <div className={collapsed ? 'space-y-0.5' : 'pl-2 mt-0.5 space-y-0.5 border-l border-gray-200 ml-4'}>
-              <SubNavItem
-                href={projectBasePath}
-                icon={<Copy />}
-                label="タスク"
-                active={isActive(projectBasePath, pathname === projectBasePath && searchParams.get('filter') !== 'client_wait')}
-                collapsed={collapsed}
-                onNavigate={setPendingHref}
-              />
-              <SubNavItem
-                href={`${projectBasePath}?filter=client_wait`}
-                icon={<ChatCircleText />}
-                label="確認待ち"
-                active={isActive(`${projectBasePath}?filter=client_wait`, pathname === projectBasePath && searchParams.get('filter') === 'client_wait')}
-                collapsed={collapsed}
-                onNavigate={setPendingHref}
-              />
-              <SubNavItem
-                href={`${projectBasePath}/meetings`}
-                icon={<Notebook />}
-                label="議事録"
-                active={isActive(`${projectBasePath}/meetings`, pathname.includes('/meetings'))}
-                collapsed={collapsed}
-                onNavigate={setPendingHref}
-              />
-              <SubNavItem
-                href={`${projectBasePath}/wiki`}
-                icon={<BookOpen />}
-                label="Wiki"
-                active={isActive(`${projectBasePath}/wiki`, pathname.includes('/wiki'))}
-                collapsed={collapsed}
-                onNavigate={setPendingHref}
-              />
-              <SubNavItem
-                href={`${projectBasePath}/views/gantt`}
-                icon={<SquaresFour />}
-                label="ガントチャート"
-                active={isActive(`${projectBasePath}/views/gantt`, pathname.includes('/views'))}
-                collapsed={collapsed}
-                onNavigate={setPendingHref}
-              />
-              <SubNavItem
-                href={`${projectBasePath}/settings`}
-                icon={<Gear />}
-                label="設定"
-                active={isActive(`${projectBasePath}/settings`, pathname.includes('/settings'))}
-                collapsed={collapsed}
-                onNavigate={setPendingHref}
+          {/* グループ作成インライン入力 */}
+          {isCreatingGroup && !collapsed && (
+            <div className="px-2 mb-1">
+              <input
+                type="text"
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter' && newGroupName.trim()) {
+                    try {
+                      await createGroup(newGroupName.trim())
+                      toast.success('グループを作成しました')
+                    } catch {
+                      toast.error('グループの作成に失敗しました')
+                    }
+                    setNewGroupName('')
+                    setIsCreatingGroup(false)
+                  }
+                  if (e.key === 'Escape') {
+                    setNewGroupName('')
+                    setIsCreatingGroup(false)
+                  }
+                }}
+                onBlur={() => {
+                  setNewGroupName('')
+                  setIsCreatingGroup(false)
+                }}
+                placeholder="グループ名..."
+                className="w-full px-2 py-1 text-[11px] text-gray-700 bg-white border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                autoFocus
               />
             </div>
+          )}
+
+          <div className="space-y-1">
+            {/* グループごとのスペース */}
+            {groups.map((group, groupIndex) => {
+              const spacesInGroup = groupedSpaces.get(group.id) ?? []
+              const isGroupCollapsed = collapsedGroups.has(group.id)
+
+              return (
+                <div key={group.id}>
+                  {!collapsed && (
+                    <SpaceGroupHeader
+                      group={group}
+                      isCollapsed={isGroupCollapsed}
+                      onToggle={() => toggleGroup(group.id)}
+                      onRename={async (name) => {
+                        try {
+                          await renameGroup(group.id, name)
+                        } catch {
+                          toast.error('名前の変更に失敗しました')
+                        }
+                      }}
+                      onDelete={async () => {
+                        try {
+                          await deleteGroup(group.id)
+                          toast.success('グループを削除しました')
+                        } catch {
+                          toast.error('グループの削除に失敗しました')
+                        }
+                      }}
+                      onMoveUp={async () => {
+                        if (groupIndex === 0) return
+                        const ids = groups.map((g) => g.id)
+                        ;[ids[groupIndex - 1], ids[groupIndex]] = [ids[groupIndex], ids[groupIndex - 1]]
+                        try {
+                          await reorderGroups(ids)
+                        } catch {
+                          toast.error('並び替えに失敗しました')
+                        }
+                      }}
+                      onMoveDown={async () => {
+                        if (groupIndex === groups.length - 1) return
+                        const ids = groups.map((g) => g.id)
+                        ;[ids[groupIndex], ids[groupIndex + 1]] = [ids[groupIndex + 1], ids[groupIndex]]
+                        try {
+                          await reorderGroups(ids)
+                        } catch {
+                          toast.error('並び替えに失敗しました')
+                        }
+                      }}
+                      isFirst={groupIndex === 0}
+                      isLast={groupIndex === groups.length - 1}
+                    />
+                  )}
+                  {!isGroupCollapsed && (
+                    <div className="space-y-0.5">
+                      {spacesInGroup.length === 0 && !collapsed ? (
+                        <div className="px-4 py-1.5 text-[11px] text-gray-300 italic">
+                          プロジェクトなし
+                        </div>
+                      ) : (
+                        spacesInGroup.map((space) => (
+                          <SpaceNavItem
+                            key={space.id}
+                            space={space}
+                            orgId={orgId}
+                            isExpanded={space.id === spaceId}
+                            pathname={pathname}
+                            searchParams={searchParams}
+                            collapsed={collapsed}
+                            isActive={isActive}
+                            onNavigate={setPendingHref}
+                            groups={groups}
+                            onMoveToGroup={moveSpaceToGroup}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* 未所属スペース（グループがある場合は「その他」ヘッダ付き） */}
+            {ungroupedSpaces.length > 0 && (
+              <div>
+                {groups.length > 0 && !collapsed && (
+                  <div className="px-2 py-1 text-[11px] font-medium text-gray-400">
+                    その他
+                  </div>
+                )}
+                <div className="space-y-0.5">
+                  {ungroupedSpaces.map((space) => (
+                    <SpaceNavItem
+                      key={space.id}
+                      space={space}
+                      orgId={orgId}
+                      isExpanded={space.id === spaceId}
+                      pathname={pathname}
+                      searchParams={searchParams}
+                      collapsed={collapsed}
+                      isActive={isActive}
+                      onNavigate={setPendingHref}
+                      groups={groups}
+                      onMoveToGroup={moveSpaceToGroup}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* アーカイブ済みトグル */}
+            {archivedSpaces.length > 0 && !collapsed && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived(!showArchived)}
+                  className="w-full px-2 py-1.5 text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-1.5 transition-colors"
+                >
+                  {showArchived ? (
+                    <CaretDown weight="bold" className="text-[10px]" />
+                  ) : (
+                    <CaretRight weight="bold" className="text-[10px]" />
+                  )}
+                  アーカイブ済み ({archivedSpaces.length})
+                </button>
+                {showArchived && (
+                  <div className="space-y-0.5 mt-0.5">
+                    {archivedSpaces.map((space) => (
+                      <SpaceNavItem
+                        key={space.id}
+                        space={space}
+                        orgId={orgId}
+                        isExpanded={space.id === spaceId}
+                        pathname={pathname}
+                        searchParams={searchParams}
+                        collapsed={collapsed}
+                        isActive={isActive}
+                        onNavigate={setPendingHref}
+                        isArchived
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeSpaces.length === 0 && !collapsed && (
+              <div className="px-2 py-3 text-center">
+                <p className="text-xs text-gray-400 mb-2">プロジェクトがありません</p>
+                <button
+                  type="button"
+                  onClick={() => setIsSpaceCreateOpen(true)}
+                  className="text-xs text-indigo-500 hover:text-indigo-700 transition-colors"
+                >
+                  プロジェクトを作成
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -600,6 +1117,7 @@ export const LeftNav = memo(function LeftNav() {
             collapsed ? 'justify-center w-full' : 'gap-2'
           } px-2 py-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors w-full`}
           title={collapsed ? 'サイドバーを展開 (⌘\\)' : undefined}
+          aria-label={collapsed ? 'サイドバーを展開' : 'サイドバーを折りたたむ'}
         >
           {collapsed ? (
             <CaretRight className="text-lg" weight="bold" />

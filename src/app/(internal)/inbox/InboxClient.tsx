@@ -13,6 +13,7 @@ import {
   Check,
   Eye,
 } from '@phosphor-icons/react'
+import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
@@ -88,10 +89,10 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
 
   // Single badge per row. Priority: 緊急 > 要対応 > 対応済み
   const badge = isUrgent && isUnread
-    ? <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded font-medium flex-shrink-0">緊急</span>
+    ? <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded font-medium flex-shrink-0">緊急</span>
     : isActionable && !isActioned
       ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
-          isUnread ? 'bg-amber-50 text-amber-600' : 'bg-amber-50/60 text-amber-500'
+          isUnread ? 'bg-amber-50 text-amber-700' : 'bg-amber-50/60 text-amber-600'
         }`}>要対応</span>
       : isActioned
         ? <span className="text-[10px] text-gray-400 flex-shrink-0">対応済み</span>
@@ -114,13 +115,13 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span
-              className={`text-sm truncate ${
+            <TruncatedText
+              className={`text-sm ${
                 isUnread ? 'font-medium text-gray-900' : 'text-gray-500'
               }`}
             >
               {payload.title || '通知'}
-            </span>
+            </TruncatedText>
             {badge}
           </div>
           <p className={`text-sm mt-0.5 line-clamp-1 ${isUnread ? 'text-gray-600' : 'text-gray-400'}`}>
@@ -147,7 +148,7 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
 export default function InboxClient() {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
-  const { notifications, loading, error, markAsRead, markAsActioned, markAllAsRead } = useNotifications()
+  const { notifications, loading, error, fetchNotifications, markAsRead, markAsActioned, markAllAsRead } = useNotifications()
 
   const selectedId = searchParams.get('id')
   const unreadCount = notifications.filter(n => n.read_at === null).length
@@ -306,21 +307,12 @@ export default function InboxClient() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {loading && (
-          <div className="text-center text-gray-400 py-16">読み込み中...</div>
-        )}
+        {loading && <LoadingState />}
 
-        {error && (
-          <div className="text-center text-red-500 py-16">
-            {error}
-          </div>
-        )}
+        {error && <ErrorRetry message={error} onRetry={fetchNotifications} />}
 
         {!loading && !error && notifications.length === 0 && (
-          <div className="text-center text-gray-400 py-20">
-            <Tray className="text-4xl mx-auto mb-3 opacity-50" />
-            <p className="text-sm">通知はありません</p>
-          </div>
+          <EmptyState icon={<Tray />} message="通知はありません" />
         )}
 
         {!loading && !error && notifications.length > 0 && (

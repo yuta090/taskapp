@@ -37,7 +37,7 @@ interface NotificationInspectorProps {
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; color: string }[] = [
-  { value: 'backlog', label: 'バックログ', color: 'text-gray-300' },
+  { value: 'backlog', label: 'バックログ', color: 'text-gray-400' },
   { value: 'todo', label: 'Todo', color: 'text-gray-400' },
   { value: 'in_progress', label: '進行中', color: 'text-blue-400' },
   { value: 'in_review', label: '承認確認中', color: 'text-amber-400' },
@@ -401,7 +401,14 @@ export function NotificationInspector({
 
   // --- Render action panel based on notification type ---
   const renderActionError = () => actionError ? (
-    <p className="text-xs text-red-600 mt-2">{actionError}</p>
+    <button
+      type="button"
+      onClick={() => setActionError(null)}
+      className="w-full text-left mt-2 px-2 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+    >
+      {actionError}
+      <span className="ml-1 text-red-500">（クリックで閉じる）</span>
+    </button>
   ) : null
 
   const renderActionPanel = () => {
@@ -591,7 +598,7 @@ export function NotificationInspector({
             {getNotificationTypeLabel(notification.type)}
           </span>
           {isUrgent && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded font-medium">
+            <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded font-medium">
               緊急
             </span>
           )}
@@ -605,6 +612,7 @@ export function NotificationInspector({
             disabled={!hasPrev}
             className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             title="前の通知"
+            aria-label="前の通知"
           >
             <CaretUp className="text-gray-500" />
           </button>
@@ -614,6 +622,7 @@ export function NotificationInspector({
             disabled={!hasNext}
             className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             title="次の通知"
+            aria-label="次の通知"
           >
             <CaretDown className="text-gray-500" />
           </button>
@@ -624,6 +633,7 @@ export function NotificationInspector({
           onClick={onClose}
           className="p-1 rounded hover:bg-gray-100"
           title="閉じる"
+          aria-label="閉じる"
         >
           <X className="text-gray-500" />
         </button>

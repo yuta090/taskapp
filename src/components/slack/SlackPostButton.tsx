@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ChatCircleDots, PaperPlaneTilt } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { usePostToSlack, useSlackChannel } from '@/lib/hooks/useSlack'
 import { isSlackConfigured } from '@/lib/slack/config'
 
@@ -32,10 +33,11 @@ export function SlackPostButton({ taskId, spaceId }: SlackPostButtonProps) {
       setSuccess(true)
       setMessage('')
       setShowInput(false)
+      toast.success('Slackに投稿しました')
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
       console.error('Failed to post to Slack:', err)
-      alert('Slackへの投稿に失敗しました')
+      toast.error('Slackへの投稿に失敗しました')
     }
   }
 

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Flag, Plus, Trash, PencilSimple, Check, X, DotsSixVertical } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 
 interface Milestone {
   id: string
@@ -20,6 +21,7 @@ interface MilestonesSettingsProps {
 }
 
 export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -95,6 +97,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       setNewStartDate('')
       setNewDueDate('')
       await fetchMilestones()
+      toast.success('マイルストーンを作成しました')
     } catch (err) {
       console.error('Failed to create milestone:', err)
       toast.error('マイルストーンの作成に失敗しました')
@@ -104,9 +107,15 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このマイルストーンを削除しますか？')) return
+    const ok = await confirm({
+      title: 'マイルストーンを削除',
+      message: 'このマイルストーンを削除しますか？',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
-       
+
       const { error: err } = await (supabase as SupabaseClient)
         .from('milestones')
         .delete()
@@ -114,6 +123,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
 
       if (err) throw err
       await fetchMilestones()
+      toast.success('マイルストーンを削除しました')
     } catch (err) {
       console.error('Failed to delete milestone:', err)
       toast.error('マイルストーンの削除に失敗しました')
@@ -157,6 +167,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
       if (err) throw err
       cancelEdit()
       await fetchMilestones()
+      toast.success('マイルストーンを更新しました')
     } catch (err) {
       console.error('Failed to update milestone:', err)
       toast.error('マイルストーンの更新に失敗しました')
@@ -181,6 +192,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
 
   return (
     <div className="space-y-4">
+      {ConfirmDialog}
       <div className="flex items-center gap-2 text-gray-700">
         <Flag className="text-lg" />
         <h3 className="font-medium">マイルストーン</h3>
@@ -251,7 +263,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
                         {ms.name}
                       </span>
                       {ms.completed_at && (
-                        <span className="text-[11px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded font-medium">
+                        <span className="text-[11px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-medium">
                           完了
                         </span>
                       )}

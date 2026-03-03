@@ -53,7 +53,7 @@ function NavItem({ href, icon, label, badge, active, collapsed }: NavItemProps) 
         <span className="truncate text-sm 2xl:text-base">{label}</span>
       )}
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-sm">
+        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-sm">
           {badge}
         </span>
       )}
@@ -390,6 +390,7 @@ export function PortalLeftNav({
             collapsed ? 'justify-center w-full' : 'gap-2'
           } px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white/50 transition-colors w-full`}
           title={collapsed ? 'サイドバーを展開 (⌘\\)' : undefined}
+          aria-label={collapsed ? 'サイドバーを展開' : 'サイドバーを折りたたむ'}
         >
           {collapsed ? (
             <CaretRight className="text-lg" weight="bold" />

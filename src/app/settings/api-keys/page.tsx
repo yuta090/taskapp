@@ -16,6 +16,8 @@ import {
   Square,
 } from '@phosphor-icons/react'
 import Link from 'next/link'
+import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
@@ -53,6 +55,7 @@ async function hashKey(key: string): Promise<string> {
 }
 
 export default function ApiKeysSettingsPage() {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const { user, loading: userLoading } = useCurrentUser()
   const { spaces, loading: spacesLoading } = useUserSpaces()
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
@@ -70,6 +73,9 @@ export default function ApiKeysSettingsPage() {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
+
+  // Code block copy
+  const [copiedBlock, setCopiedBlock] = useState<string | null>(null)
 
   const fetchApiKeys = useCallback(async () => {
     if (!user) return
@@ -131,23 +137,30 @@ export default function ApiKeysSettingsPage() {
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to create API key:', err)
-      alert('APIキーの作成に失敗しました')
+      toast.error('APIキーの作成に失敗しました')
     } finally {
       setCreating(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このAPIキーを削除しますか？この操作は取り消せません。')) return
+    const ok = await confirm({
+      title: 'APIキーを削除',
+      message: 'このAPIキーを削除しますか？この操作は取り消せません。',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       const response = await fetch(`/api/keys/user?id=${id}`, { method: 'DELETE' })
       const result = await response.json()
 
       if (!response.ok) throw new Error(result.error)
       await fetchApiKeys()
+      toast.success('APIキーを削除しました')
     } catch (err) {
       console.error('Failed to delete API key:', err)
-      alert('APIキーの削除に失敗しました')
+      toast.error('APIキーの削除に失敗しました')
     }
   }
 
@@ -222,6 +235,7 @@ export default function ApiKeysSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {ConfirmDialog}
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
@@ -474,7 +488,7 @@ export default function ApiKeysSettingsPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-gray-900">{key.name}</span>
                         {!key.is_active && (
-                          <span className="text-xs text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                          <span className="text-xs text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
                             無効
                           </span>
                         )}
@@ -513,19 +527,79 @@ export default function ApiKeysSettingsPage() {
           )}
         </div>
 
-        {/* Usage instructions */}
-        <div className="bg-gray-50 rounded-lg p-4 text-sm">
-          <h4 className="font-medium text-gray-700 mb-2">使用方法</h4>
-          <p className="text-gray-600 mb-2">
-            発行したAPIキーを環境変数に設定してください:
-          </p>
-          <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
-            {`TASKAPP_API_KEY=<発行したAPIキー>
-TASKAPP_API_URL=${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api`}
-          </pre>
-          <p className="text-xs text-gray-500 mt-2">
-            ※ スペースIDは自動的にAPIキーに紐付けられているため、個別設定は不要です
-          </p>
+        {/* Setup instructions */}
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h3 className="font-medium text-gray-900">セットアップ</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              AIエージェント (Claude Code等) からAgentPMを操作するための設定
+            </p>
+          </div>
+
+          <div className="p-4 space-y-5">
+            {/* Step 1: CLI Install */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                Step 1: CLI インストール
+              </h4>
+              <div className="relative group">
+                <pre className="bg-gray-900 text-gray-100 p-3 pr-10 rounded-lg text-xs overflow-x-auto">
+{`npm install -g @uzukko/agentpm
+agentpm login`}
+                </pre>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText('npm install -g @uzukko/agentpm\nagentpm login')
+                    setCopiedBlock('cli')
+                    setTimeout(() => setCopiedBlock(null), 2000)
+                  }}
+                  className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="コピー"
+                >
+                  {copiedBlock === 'cli' ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Step 2: Skill Install */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                Step 2: Claude Code スキル登録
+              </h4>
+              <p className="text-xs text-gray-500 mb-2">
+                AIがCLIの使い方を理解するためのスキルファイルをダウンロードします。
+              </p>
+              {(() => {
+                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'
+                const cmd = `mkdir -p ~/.claude/skills\ncurl -o ~/.claude/skills/agentpm.md ${origin}/skills/agentpm.md`
+                return (
+                  <div className="relative group">
+                    <pre className="bg-gray-900 text-gray-100 p-3 pr-10 rounded-lg text-xs overflow-x-auto">
+                      {cmd}
+                    </pre>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(cmd)
+                        setCopiedBlock('skill')
+                        setTimeout(() => setCopiedBlock(null), 2000)
+                      }}
+                      className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="コピー"
+                    >
+                      {copiedBlock === 'skill' ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                )
+              })()}
+              <p className="text-xs text-gray-400 mt-1.5">
+                特定プロジェクトのみで使う場合は <code className="text-gray-500">~</code> を外して <code className="text-gray-500">.claude/skills/</code> に配置してください。
+              </p>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              MCPサーバーは段階的に廃止予定です。CLI + スキルへの移行を推奨します。
+            </p>
+          </div>
         </div>
       </main>
     </div>

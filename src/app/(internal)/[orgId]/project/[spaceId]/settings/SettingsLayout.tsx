@@ -307,7 +307,7 @@ export function SettingsLayout({ orgId, spaceId }: SettingsLayoutProps) {
                 {category.label}
               </span>
               {category.id === 'integrations' && attentionCount > 0 && !searchQuery && (
-                <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full">
                   {attentionCount}
                 </span>
               )}

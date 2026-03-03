@@ -6,8 +6,10 @@ import type { Milestone } from '@/types/database'
 interface MilestoneGroupHeaderProps {
   milestone: Milestone | null
   taskCount: number
+  doneCount?: number
   isCollapsed?: boolean
   onToggle?: () => void
+  label?: string
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -21,14 +23,17 @@ function formatDate(dateStr: string | null): string | null {
 export function MilestoneGroupHeader({
   milestone,
   taskCount,
+  doneCount = 0,
   isCollapsed = false,
   onToggle,
+  label,
 }: MilestoneGroupHeaderProps) {
+  const progressPercent = taskCount > 0 ? Math.round((doneCount / taskCount) * 100) : 0
   const formattedDueDate = milestone?.due_date ? formatDate(milestone.due_date) : null
 
   return (
     <div
-      className="flex items-center gap-2 px-2 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors select-none border-b border-gray-100"
+      className="sticky top-0 z-10 bg-white flex items-center gap-2 px-2 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors select-none border-b border-gray-100"
       onClick={onToggle}
     >
       {/* Collapse toggle */}
@@ -42,7 +47,7 @@ export function MilestoneGroupHeader({
 
       {/* Milestone name - bold */}
       <span className="text-[13px] font-semibold text-gray-800 tracking-tight">
-        {milestone?.name || 'マイルストーン未設定'}
+        {label || milestone?.name || 'マイルストーン未設定'}
       </span>
 
       {/* Due date - right after title */}
@@ -63,6 +68,23 @@ export function MilestoneGroupHeader({
           <Check weight="bold" className="text-[10px]" />
           完了
         </span>
+      )}
+
+      {/* Progress bar */}
+      {taskCount > 0 && (
+        <div className="flex items-center gap-1.5 ml-1">
+          <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                progressPercent === 100 ? 'bg-green-500' : 'bg-blue-400'
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-gray-400 tabular-nums w-7 text-right">
+            {progressPercent}%
+          </span>
+        </div>
       )}
 
       {/* Spacer */}

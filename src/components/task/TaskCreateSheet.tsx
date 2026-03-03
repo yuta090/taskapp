@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
+import { useFormDraft } from '@/lib/hooks/useFormDraft'
 import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, FileText } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -25,6 +27,8 @@ interface TaskCreateSheetProps {
   onSubmit: (task: TaskCreateData & { spaceId?: string; orgId?: string }) => void | Promise<unknown>
   defaultBall?: BallSide
   defaultClientOwnerIds?: string[]
+  defaultTitle?: string
+  defaultDescription?: string
   /** Available parent tasks for subtask creation */
   parentTasks?: { id: string; title: string }[]
   /** Pre-selected parent task ID (e.g. when creating from parent context) */
@@ -51,6 +55,22 @@ export interface TaskCreateData {
   parentTaskId?: string
 }
 
+interface TaskFormDraft {
+  title: string
+  description: string
+  ball: BallSide
+  clientScope: ClientScope
+  dueDate: string
+  assigneeId: string
+  milestoneId: string
+  parentTaskId: string
+  internalOwnerIds: string[]
+  clientOwnerIds: string[]
+  wikiPageId: string
+  selectedSpaceId: string
+  showAdvanced: boolean
+}
+
 export function TaskCreateSheet({
   spaceId,
   orgId,
@@ -60,6 +80,8 @@ export function TaskCreateSheet({
   onSubmit,
   defaultBall = 'internal',
   defaultClientOwnerIds = [],
+  defaultTitle = '',
+  defaultDescription = '',
   parentTasks = [],
   defaultParentTaskId,
   spaces = [],
@@ -74,8 +96,8 @@ export function TaskCreateSheet({
   const effectiveSpaceName = isGlobalCreate
     ? spaces.find((s) => s.id === selectedSpaceId)?.name || ''
     : spaceName || ''
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
+  const [title, setTitle] = useState(defaultTitle)
+  const [description, setDescription] = useState(defaultDescription)
   const [ball, setBall] = useState<BallSide>(defaultBall)
   const [clientScope, setClientScope] = useState<ClientScope>('internal')
   const [wikiPageId, setWikiPageId] = useState('')
@@ -95,6 +117,13 @@ export function TaskCreateSheet({
   const [estimationExpanded, setEstimationExpanded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showPortalPreview, setShowPortalPreview] = useState(false)
+
+  // Draft auto-save
+  const draftKey = isGlobalCreate ? 'task_create_global' : `task_create_${spaceId}`
+  const { draft, restored, save: saveDraft, clear: clearDraft } = useFormDraft<TaskFormDraft>({
+    key: draftKey,
+    enabled: isOpen,
+  })
 
   // Estimation assist hook
   const estimation = useEstimationAssist({
@@ -133,7 +162,9 @@ export function TaskCreateSheet({
       if (!isGlobalCreate) {
         inputRef.current?.focus()
       }
-      // Carry over previous client owners (UI Rules)
+      // Set defaults (including duplicate data)
+      setTitle(defaultTitle)
+      setDescription(defaultDescription)
       setClientOwnerIds(defaultClientOwnerIds)
       setBall(defaultBall)
       // In global create mode, preserve selectedSpaceId between creates
@@ -143,18 +174,47 @@ export function TaskCreateSheet({
       }
     }
     prevIsOpenRef.current = isOpen
-  }, [isOpen, defaultBall, defaultClientOwnerIds, isGlobalCreate, selectedSpaceId, spaces])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, defaultBall, defaultClientOwnerIds, defaultTitle, defaultDescription, isGlobalCreate, selectedSpaceId, spaces])
 
-  // Handle Escape key
+  // Restore draft (runs after the open-transition effect, overriding defaults)
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose()
-      }
+    if (restored && draft) {
+      if (draft.title) setTitle(draft.title)
+      if (draft.description) setDescription(draft.description)
+      if (draft.ball) setBall(draft.ball)
+      if (draft.clientScope) setClientScope(draft.clientScope)
+      if (draft.dueDate) setDueDate(draft.dueDate)
+      if (draft.assigneeId) setAssigneeId(draft.assigneeId)
+      if (draft.milestoneId) setMilestoneId(draft.milestoneId)
+      if (draft.parentTaskId) setParentTaskId(draft.parentTaskId)
+      if (draft.internalOwnerIds?.length) setInternalOwnerIds(draft.internalOwnerIds)
+      if (draft.clientOwnerIds?.length) setClientOwnerIds(draft.clientOwnerIds)
+      if (draft.wikiPageId) setWikiPageId(draft.wikiPageId)
+      if (draft.selectedSpaceId && isGlobalCreate) setSelectedSpaceId(draft.selectedSpaceId)
+      if (draft.showAdvanced) setShowAdvanced(true)
+      toast.info('下書きを復元しました', { duration: 2000 })
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restored])
+
+  // Auto-save draft on field changes
+  const saveDraftData = useCallback(() => {
+    if (!title && !description && !dueDate && !assigneeId) return // Don't save empty drafts
+    saveDraft({
+      title, description, ball, clientScope, dueDate,
+      assigneeId, milestoneId, parentTaskId, internalOwnerIds,
+      clientOwnerIds, wikiPageId, selectedSpaceId, showAdvanced,
+    })
+  }, [title, description, ball, clientScope, dueDate, assigneeId,
+      milestoneId, parentTaskId, internalOwnerIds, clientOwnerIds,
+      wikiPageId, selectedSpaceId, showAdvanced, saveDraft])
+
+  useEffect(() => {
+    if (isOpen) saveDraftData()
+  }, [isOpen, saveDraftData])
+
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose, skipAutoFocus: true })
 
   // Fetch milestones only (members come from useSpaceMembers hook)
   useEffect(() => {
@@ -297,6 +357,7 @@ export function TaskCreateSheet({
       })
 
       // Reset form only on success
+      clearDraft()
       setTitle('')
       setDescription('')
       setWikiPageId('')
@@ -318,17 +379,17 @@ export function TaskCreateSheet({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-black/30 animate-backdrop-in"
         onClick={onClose}
       />
 
       {/* Sheet */}
       <div
         data-testid="task-create-sheet"
-        className="relative w-full max-w-2xl bg-white rounded-xl shadow-xl"
+        className="relative w-full max-w-2xl bg-white rounded-xl shadow-xl animate-dialog-in"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -867,17 +928,17 @@ export function TaskCreateSheet({
                         <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-green-400" />
                           <span className="text-[10px] text-gray-600">完了済みタスク</span>
-                          <span className="ml-auto text-[9px] text-green-600 bg-green-50 px-1 rounded">完了</span>
+                          <span className="ml-auto text-[9px] text-green-700 bg-green-50 px-1 rounded">完了</span>
                         </div>
                         <div className="bg-blue-50 rounded px-2 py-1.5 border border-blue-200 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-blue-400" />
                           <span className="text-[10px] text-blue-700 font-medium">このタスク ← 公開される</span>
-                          <span className="ml-auto text-[9px] text-blue-600 bg-blue-100 px-1 rounded">進行中</span>
+                          <span className="ml-auto text-[9px] text-blue-700 bg-blue-100 px-1 rounded">進行中</span>
                         </div>
                         <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-amber-400" />
                           <span className="text-[10px] text-gray-600">確認待ちタスク</span>
-                          <span className="ml-auto text-[9px] text-amber-600 bg-amber-50 px-1 rounded">確認待ち</span>
+                          <span className="ml-auto text-[9px] text-amber-700 bg-amber-50 px-1 rounded">確認待ち</span>
                         </div>
                       </div>
                     </div>

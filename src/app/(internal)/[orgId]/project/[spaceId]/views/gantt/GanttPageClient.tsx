@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { SquaresFour, Spinner } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { Breadcrumb, ViewsTabNav } from '@/components/shared'
 import { GanttChart } from '@/components/gantt'
 import { useInspector } from '@/components/layout'
@@ -90,7 +91,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         .map((owner) => owner.user_id)
 
       if (ball === 'client' && clientOwnerIds.length === 0) {
-        alert('クライアント担当者を指定してください')
+        toast.error('クライアント担当者を指定してください')
         return
       }
 

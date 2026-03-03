@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 3. Dispatch to MCP handler
-    const { dispatchTool } = await import('../../../../packages/mcp-server/dist/dispatch.js')
+    // 3. Dispatch to MCP handler (dynamic import to avoid build-time env var check)
+    const { dispatchTool } = await import('agentpm-core/dist/dispatch.js')
     const result = await dispatchTool(apiKey, tool, (params || {}) as Record<string, unknown>)
 
     return NextResponse.json(result)
@@ -78,8 +78,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Unknown errors - don't leak internal details
-    console.error('POST /api/tools error:', error instanceof Error ? error.message : String(error))
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    // DEBUG: Return actual error for diagnosis (remove before production)
+    const msg = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack?.split('\n').slice(0, 5) : undefined
+    console.error('POST /api/tools error:', msg)
+    return NextResponse.json({ error: msg, stack }, { status: 500 })
   }
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { Tag } from '@phosphor-icons/react'
+import { TruncatedText } from '@/components/shared'
 import type { WikiPage } from '@/types/database'
 
 interface WikiPageRowProps {
@@ -35,9 +36,9 @@ export function WikiPageRow({ page, isSelected, onClick }: WikiPageRowProps) {
       }`}
     >
       <div className="flex-1 min-w-0">
-        <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
+        <TruncatedText as="h3" className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
           {page.title}
-        </h3>
+        </TruncatedText>
         <div className="flex items-center gap-2 mt-1">
           {page.tags.length > 0 && (
             <div className="flex items-center gap-1">

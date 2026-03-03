@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Notebook, CalendarCheck } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
+import { toast } from 'sonner'
 import { Breadcrumb } from '@/components/shared'
 import { MeetingRow } from '@/components/meeting/MeetingRow'
 import { MeetingInspector } from '@/components/meeting/MeetingInspector'
@@ -122,14 +123,14 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
           try {
             await startMeeting(selectedMeeting.id)
           } catch {
-            alert('会議の開始に失敗しました')
+            toast.error('会議の開始に失敗しました')
           }
         }}
         onEnd={async () => {
           try {
             await endMeeting(selectedMeeting.id)
           } catch {
-            alert('会議の終了に失敗しました')
+            toast.error('会議の終了に失敗しました')
           }
         }}
       />
@@ -182,8 +183,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       setIsCreateSheetOpen(false)
       updateQuery({ meeting: created.id })
     } catch (err) {
-      const message = err instanceof Error ? err.message : '会議の作成に失敗しました'
-      alert(message)
+      toast.error(err instanceof Error ? err.message : '会議の作成に失敗しました')
     }
   }
 
@@ -193,8 +193,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
       setIsProposalCreateOpen(false)
       updateQuery({ proposal: created.id })
     } catch (err) {
-      const message = err instanceof Error ? err.message : '日程調整の作成に失敗しました'
-      alert(message)
+      toast.error(err instanceof Error ? err.message : '日程調整の作成に失敗しました')
     }
   }
 

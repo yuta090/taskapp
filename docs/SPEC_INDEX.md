@@ -14,7 +14,7 @@
 | Document | Version | Path | Description |
 |----------|---------|------|-------------|
 | **API Spec** | v0.4 | `api/API_SPEC_v0.4.md` | RPC・認証・招待・課金API |
-| **DDL** | v0.3〜v0.7 | `db/DDL_v0.3.sql` 〜 `db/DDL_v0.7_completed_at.sql` | DBスキーマ（差分DDL） |
+| **DDL** | v0.3〜v0.8 | `db/DDL_v0.3.sql` 〜 `db/DDL_v0.8_space_archive.sql` | DBスキーマ（差分DDL） |
 | **UI Rules** | current | `spec/UI_RULES_AND_SCREENS.md` | 3ペイン、Amber-500、UIルール |
 | **Review Spec** | current | `spec/REVIEW_SPEC.md` | 受け入れテスト AT-001〜AT-012 |
 | **Decisions** | v5 | `notes/DECISIONS_v5.md` | 設計判断の記録 |
@@ -30,6 +30,7 @@
 | **Internal Ops** | `spec/INTERNAL_OPS_SPEC.md` | クライアント不在時の内部運用対応（レビューUI・ラベル抽象化） |
 | **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2.5） |
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
+| **Space Archive & Folders** | `spec/SPACE_ARCHIVE_AND_FOLDERS_SPEC.md` | スペースアーカイブ・フォルダグループ |
 
 ### Prototypes
 
@@ -133,6 +134,13 @@
 | **プリモーテム分析レポート** | `PRE_MORTEM_REPORT.md` | 7チーム42件の課題・失敗シナリオ・ロードマップ |
 | **失敗確率20%以下達成計画** | `FAILURE_MITIGATION_PLAN.md` | 実施済み施策・コスト試算・料金戦略・損益分岐点 |
 | **DBインデックス提案** | `db/DDL_v0.7_performance_indexes.sql` | パフォーマンス用複合インデックス10本 |
+
+### Space Archive & Folders (スペース管理)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase A | スペースアーカイブ (DB + Hook + LeftNav動的化 + 設定UI) | ✅ |
+| Phase B | スペースフォルダ (DB + Hook + グループアコーディオン + 管理UI) | ✅ |
 
 ### Planned (計画中)
 

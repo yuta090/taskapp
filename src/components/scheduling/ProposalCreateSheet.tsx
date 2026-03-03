@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 import { X, Plus, Trash, Users, CalendarBlank } from '@phosphor-icons/react'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -128,16 +129,7 @@ export function ProposalCreateSheet({
     prevIsOpenRef.current = isOpen
   }, [isOpen, spaceDefaultProvider])
 
-  // Escape key handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose, skipAutoFocus: true })
 
   const addSlot = useCallback(() => {
     if (slots.length >= MAX_SLOTS) return
@@ -288,17 +280,17 @@ export function ProposalCreateSheet({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-black/30 animate-backdrop-in"
         onClick={onClose}
         data-testid="proposal-create-backdrop"
       />
 
       {/* Sheet */}
       <div
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl max-h-[90vh] flex flex-col"
+        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl max-h-[90vh] flex flex-col animate-dialog-in"
         data-testid="proposal-create-sheet"
       >
         {/* Header */}
@@ -567,7 +559,7 @@ export function ProposalCreateSheet({
 
           {/* Validation error */}
           {validationError && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {validationError}
             </div>
           )}

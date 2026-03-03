@@ -6,6 +6,7 @@ import { Users, Plus, Trash, Crown, UserCircle, CircleNotch, Warning } from '@ph
 import Image from 'next/image'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 
 interface Member {
   userId: string
@@ -38,6 +39,7 @@ const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client'])
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -141,6 +143,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       setMembers((prev) =>
         prev.map((m) => (m.userId === userId ? { ...m, role: newRole } : m))
       )
+      toast.success('役割を変更しました')
     } catch (err) {
       console.error('Failed to update role:', err)
       toast.error('役割の変更に失敗しました')
@@ -149,7 +152,13 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
   const handleRemoveMember = async (userId: string) => {
     if (!isAdmin || userId === currentUserId) return
-    if (!confirm('このメンバーをプロジェクトから削除しますか？')) return
+    const ok = await confirm({
+      title: 'メンバーを削除',
+      message: 'このメンバーをプロジェクトから削除しますか？',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       const { error } = await (supabase as SupabaseClient)
@@ -162,6 +171,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
       // Update local state
       setMembers((prev) => prev.filter((m) => m.userId !== userId))
+      toast.success('メンバーを削除しました')
     } catch (err) {
       console.error('Failed to remove member:', err)
       toast.error('メンバーの削除に失敗しました')
@@ -221,6 +231,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
   return (
     <div className="space-y-4">
+      {ConfirmDialog}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-gray-700">
           <Users className="text-lg" />
@@ -297,7 +308,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                     member.role === 'admin'
                       ? 'bg-amber-100 text-amber-700'
                       : member.role === 'client'
-                      ? 'bg-amber-50 text-amber-600'
+                      ? 'bg-amber-50 text-amber-700'
                       : 'bg-gray-100 text-gray-700'
                   }`}
                 >

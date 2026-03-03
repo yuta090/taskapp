@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 
@@ -114,6 +115,7 @@ export default function MyTasksClient() {
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
   const [userId, setUserId] = useState<string | null>(null)
   const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
@@ -135,7 +137,7 @@ export default function MyTasksClient() {
 
   // Space options for global create
   const spaceOptions = useMemo(
-    () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: (s as Record<string, string>).org_id || '' })),
+    () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: s.org_id || '' })),
     [spaces]
   )
 
@@ -155,7 +157,7 @@ export default function MyTasksClient() {
       // Validate against known spaces to prevent mismatched spaceId/orgId
       const targetSpace = spaces.find((s) => s.id === targetSpaceId)
       if (!targetSpace) return
-      const targetOrgId = (targetSpace as Record<string, string>).org_id || ''
+      const targetOrgId = targetSpace.org_id || ''
       if (!targetOrgId) return
 
       try {
@@ -346,7 +348,13 @@ export default function MyTasksClient() {
     }
 
     initAuth()
-  }, [supabase, activeOrgId, orgLoading])
+  }, [supabase, activeOrgId, orgLoading, retryKey])
+
+  const handleRetry = useCallback(() => {
+    setError(null)
+    setLoading(true)
+    setRetryKey((k) => k + 1)
+  }, [])
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
@@ -493,7 +501,7 @@ export default function MyTasksClient() {
           onClick={() => setShowFilters(!showFilters)}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
             showFilters || hasActiveFilters
-              ? 'bg-blue-50 text-blue-600'
+              ? 'bg-blue-50 text-blue-700'
               : 'text-gray-500 hover:bg-gray-100'
           }`}
         >
@@ -591,36 +599,24 @@ export default function MyTasksClient() {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="py-4">
-          {loading && (
-            <div className="text-center text-gray-400 py-16">読み込み中...</div>
-          )}
-          {error && (
-            <div className="text-center text-red-500 py-16">
-              {error.message}
-            </div>
-          )}
+          {loading && <LoadingState />}
+          {error && <ErrorRetry message={error.message} onRetry={handleRetry} />}
           {!loading && !error && tasks.length === 0 && (
-            <div className="text-center text-gray-400 py-20">
-              <Target className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">担当しているタスクはありません</p>
-              {userId && (
-                <p className="text-xs mt-1 text-gray-300">
-                  User: {userId.slice(0, 8)}...
-                </p>
-              )}
-            </div>
+            <EmptyState icon={<Target />} message="担当しているタスクはありません" />
           )}
           {!loading && !error && tasks.length > 0 && filteredTasks.length === 0 && (
-            <div className="text-center text-gray-400 py-20">
-              <FunnelSimple className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">条件に一致するタスクがありません</p>
-              <button
-                onClick={resetFilters}
-                className="mt-3 text-xs text-blue-500 hover:underline"
-              >
-                フィルターをリセット
-              </button>
-            </div>
+            <EmptyState
+              icon={<FunnelSimple />}
+              message="条件に一致するタスクがありません"
+              action={
+                <button
+                  onClick={resetFilters}
+                  className="text-xs text-blue-500 hover:underline"
+                >
+                  フィルターをリセット
+                </button>
+              }
+            />
           )}
           {!loading && !error && filteredTasks.length > 0 && (
             <div className="space-y-6">

@@ -84,7 +84,7 @@ export function FeaturePortal() {
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
                                         <span className="text-slate-800 font-bold">3. フロントエンド実装</span>
-                                        <span className="text-amber-600 text-xs bg-amber-50 px-2 py-0.5 rounded animate-pulse">● 進行中</span>
+                                        <span className="text-amber-700 text-xs bg-amber-50 px-2 py-0.5 rounded animate-pulse">● 進行中</span>
                                     </div>
                                     <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
                                         <div className="bg-amber-500 w-[60%] h-full rounded-full shadow-[0_0_10px_rgba(245,158,11,0.5)]" />

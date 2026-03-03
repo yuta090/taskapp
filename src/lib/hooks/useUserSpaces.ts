@@ -12,12 +12,20 @@ export interface UserSpace {
   orgId: string
   orgName: string
   role: 'admin' | 'editor' | 'viewer' | 'client'
+  archivedAt: string | null
+  groupId: string | null
+  sortOrder: number
+}
+
+interface UseUserSpacesOptions {
+  includeArchived?: boolean
 }
 
 /**
  * ユーザーが所属する全スペースを取得するフック
  */
-export function useUserSpaces() {
+export function useUserSpaces(options?: UseUserSpacesOptions) {
+  const { includeArchived = false } = options ?? {}
   const queryClient = useQueryClient()
   const { user, loading: userLoading } = useCurrentUser()
 
@@ -25,7 +33,10 @@ export function useUserSpaces() {
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  const queryKey = useMemo(() => ['userSpaces', user?.id] as const, [user?.id])
+  const queryKey = useMemo(
+    () => ['userSpaces', user?.id, includeArchived] as const,
+    [user?.id, includeArchived],
+  )
 
   const { data, isLoading, error: queryError } = useQuery<UserSpace[]>({
     queryKey,
@@ -42,6 +53,9 @@ export function useUserSpaces() {
             id,
             name,
             org_id,
+            archived_at,
+            group_id,
+            sort_order,
             organizations (
               id,
               name
@@ -52,24 +66,40 @@ export function useUserSpaces() {
 
       if (memberError) throw memberError
 
-      return (memberships || []).map((m: Record<string, unknown>) => {
-        const spaces = m.spaces as { id: string; name: string; org_id: string; organizations?: { name: string } | null } | null
+      const mapped = (memberships || []).map((m: Record<string, unknown>) => {
+        const space = m.spaces as {
+          id: string
+          name: string
+          org_id: string
+          archived_at: string | null
+          group_id: string | null
+          sort_order: number
+          organizations?: { name: string } | null
+        } | null
         return {
-          id: spaces?.id || '',
-          name: spaces?.name || '',
-          orgId: spaces?.org_id || '',
-          orgName: (spaces?.organizations as { name?: string } | null)?.name || 'Unknown',
+          id: space?.id || '',
+          name: space?.name || '',
+          orgId: space?.org_id || '',
+          orgName: (space?.organizations as { name?: string } | null)?.name || 'Unknown',
           role: m.role as UserSpace['role'],
+          archivedAt: space?.archived_at ?? null,
+          groupId: space?.group_id ?? null,
+          sortOrder: space?.sort_order ?? 0,
         }
       }) as UserSpace[]
+
+      if (!includeArchived) {
+        return mapped.filter((s) => s.archivedAt === null)
+      }
+      return mapped
     },
     staleTime: 30_000,
     enabled: !!user,
   })
 
   const refetch = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey })
-  }, [queryClient, queryKey])
+    await queryClient.invalidateQueries({ queryKey: ['userSpaces'] })
+  }, [queryClient])
 
   return {
     spaces: data ?? [],

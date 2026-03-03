@@ -156,7 +156,10 @@ export function PortalHeader({
           {/* Right: Help + User Menu */}
           <div className="flex items-center gap-2">
             {/* Help (Desktop) */}
-            <button className="hidden md:flex items-center justify-center w-9 h-9 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+            <button
+              className="hidden md:flex items-center justify-center w-9 h-9 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="ヘルプ"
+            >
               <Question className="w-5 h-5" />
             </button>
 
@@ -175,6 +178,7 @@ export function PortalHeader({
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="md:hidden flex items-center justify-center w-9 h-9 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label={isMobileMenuOpen ? 'メニューを閉じる' : 'メニューを開く'}
             >
               {isMobileMenuOpen ? (
                 <X className="w-5 h-5" />

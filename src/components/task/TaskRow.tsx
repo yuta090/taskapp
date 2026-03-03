@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
-import { AmberDot } from '@/components/shared'
+import { AmberDot, TruncatedText } from '@/components/shared'
 import type { Task, BallSide, TaskStatus } from '@/types/database'
 
 interface TaskRowProps {
@@ -12,6 +12,12 @@ interface TaskRowProps {
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
   reviewStatus?: 'open' | 'approved' | 'changes_requested'
+  assigneeName?: string | null
+  isNew?: boolean
+  bulkMode?: boolean
+  isChecked?: boolean
+  onCheckChange?: (taskId: string, checked: boolean) => void
+  onContextMenu?: (taskId: string, x: number, y: number) => void
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -32,7 +38,7 @@ function isOverdue(dateStr: string | null): boolean {
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; icon: React.ReactNode }[] = [
-  { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-300" /> },
+  { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-400" /> },
   { value: 'todo', label: 'Todo', icon: <Circle className="text-gray-400" /> },
   { value: 'in_progress', label: '進行中', icon: <Circle weight="fill" className="text-blue-400" /> },
   { value: 'in_review', label: '承認確認中', icon: <Circle weight="fill" className="text-amber-400" /> },
@@ -52,7 +58,7 @@ function getStatusIcon(status: TaskStatus) {
     case 'todo':
       return <Circle className="text-gray-400" />
     default:
-      return <Circle className="text-gray-300" />
+      return <Circle className="text-gray-400" />
   }
 }
 
@@ -107,7 +113,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
         type="button"
         onClick={handleClick}
         className={`text-lg transition-transform ${onStatusChange ? 'hover:scale-110 cursor-pointer' : ''}`}
-        aria-label={getStatusLabel(status)}
+        aria-label={`ステータスを変更（現在: ${getStatusLabel(status)}）`}
       >
         {getStatusIcon(status)}
       </button>
@@ -139,7 +145,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
 function BallIndicator({ ball }: { ball: BallSide }) {
   if (ball === 'client') {
     return (
-      <span className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+      <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
         <ArrowRight weight="bold" className="text-xs" />
         外部確認待ち
       </span>
@@ -148,7 +154,7 @@ function BallIndicator({ ball }: { ball: BallSide }) {
   return null
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
@@ -160,16 +166,51 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
     onClick?.(task.id)
   }, [onClick, task.id])
 
+  const handleCheck = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onCheckChange?.(task.id, !isChecked)
+  }, [onCheckChange, task.id, isChecked])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (onContextMenu) {
+      e.preventDefault()
+      onContextMenu(task.id, e.clientX, e.clientY)
+    }
+  }, [onContextMenu, task.id])
+
   return (
     <div
-      className={`task-row row-h flex items-center gap-3 cursor-pointer transition-colors ${
-        isSelected
-          ? 'bg-blue-50 border-l-2 border-l-blue-500'
-          : 'hover:bg-gray-50'
+      onContextMenu={handleContextMenu}
+      className={`task-row group row-h flex items-center gap-3 cursor-pointer transition-colors ${
+        isChecked
+          ? 'bg-blue-50/60'
+          : isSelected
+            ? 'bg-blue-50 border-l-2 border-l-blue-500'
+            : isNew
+              ? 'bg-green-50/40 border-l-2 border-l-green-400'
+              : 'hover:bg-gray-50'
       }`}
       style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
       onClick={handleClick}
     >
+      {/* Bulk selection checkbox */}
+      {onCheckChange && (
+        <button
+          type="button"
+          onClick={handleCheck}
+          className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all ${
+            bulkMode ? '' : 'opacity-0 group-hover:opacity-100'
+          } ${
+            isChecked
+              ? 'bg-blue-500 border-blue-500 text-white'
+              : 'border-gray-300 hover:border-gray-400'
+          }`}
+          aria-label={isChecked ? '選択解除' : '選択'}
+        >
+          {isChecked && <Check weight="bold" className="w-full h-full" />}
+        </button>
+      )}
+
       {/* Quick done checkbox - Left side like Linear */}
       {onStatusChange && (
         <button
@@ -184,6 +225,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
               : 'border-gray-300 hover:border-gray-400 text-transparent hover:text-gray-400'
           }`}
           title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
+          aria-label={task.status === 'done' ? '未完了に戻す' : '完了にする'}
         >
           <Check weight="bold" className="w-full h-full" />
         </button>
@@ -199,9 +241,9 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
       {/* Title + indicators */}
       <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className={`truncate ${task.status === 'done' ? 'text-gray-400 line-through' : ''}`}>
+        <TruncatedText className={task.status === 'done' ? 'text-gray-400 line-through' : ''}>
           {task.title}
-        </span>
+        </TruncatedText>
 
         {/* Client visible indicator */}
         {task.ball === 'client' && <AmberDot />}
@@ -218,7 +260,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               task.decision_state === 'implemented'
-                ? 'bg-green-50 text-green-600'
+                ? 'bg-green-50 text-green-700'
                 : 'bg-gray-100 text-gray-500'
             }`}
           >
@@ -235,10 +277,10 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               reviewStatus === 'approved'
-                ? 'bg-green-50 text-green-600'
+                ? 'bg-green-50 text-green-700'
                 : reviewStatus === 'changes_requested'
-                ? 'bg-red-50 text-red-600'
-                : 'bg-amber-50 text-amber-600'
+                ? 'bg-red-50 text-red-700'
+                : 'bg-amber-50 text-amber-700'
             }`}
           >
             {reviewStatus === 'approved'
@@ -276,6 +318,16 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         </button>
       )}
 
+      {/* Assignee avatar */}
+      {assigneeName && (
+        <div
+          className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px] font-medium"
+          title={assigneeName}
+        >
+          {assigneeName.charAt(0)}
+        </div>
+      )}
+
       {/* Ball indicator */}
       <div className="flex-shrink-0 row-meta">
         <BallIndicator ball={task.ball} />
@@ -286,6 +338,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         <button
           data-testid="task-row-actions"
           className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"
+          aria-label="タスクアクション"
         >
           <DotsThree weight="bold" />
         </button>

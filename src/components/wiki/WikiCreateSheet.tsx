@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { X } from '@phosphor-icons/react'
+import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 
 interface WikiCreateSheetProps {
   isOpen: boolean
@@ -14,6 +15,8 @@ export function WikiCreateSheet({ isOpen, onClose, onSubmit }: WikiCreateSheetPr
   const [tagInput, setTagInput] = useState('')
   const [tags, setTags] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose })
 
   if (!isOpen) return null
 
@@ -47,9 +50,9 @@ export function WikiCreateSheet({ isOpen, onClose, onSubmit }: WikiCreateSheetPr
   }
 
   return (
-    <>
+    <div ref={focusTrapRef} className="fixed inset-0 z-40">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
 
       {/* Sheet */}
       <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 animate-in slide-in-from-bottom duration-200">
@@ -127,6 +130,6 @@ export function WikiCreateSheet({ isOpen, onClose, onSubmit }: WikiCreateSheetPr
           </form>
         </div>
       </div>
-    </>
+    </div>
   )
 }

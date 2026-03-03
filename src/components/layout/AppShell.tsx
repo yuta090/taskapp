@@ -9,6 +9,8 @@ import {
   useState,
 } from 'react'
 import { LeftNav } from './LeftNav'
+import { useShortcutsHelp } from '@/components/shared/KeyboardShortcutsHelp'
+import { useCommandPalette } from '@/components/shared/CommandPalette'
 
 interface InspectorContextValue {
   inspector: ReactNode | null
@@ -66,6 +68,17 @@ function InspectorPane() {
  * - Inspector must resize Main, never overlay
  * - Inspector width: 400px (1920px+: 440px, 2560px+: 480px)
  */
+function GlobalShortcuts() {
+  const { ShortcutsHelp } = useShortcutsHelp()
+  const { CommandPalette } = useCommandPalette()
+  return (
+    <>
+      {ShortcutsHelp}
+      {CommandPalette}
+    </>
+  )
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <InspectorProvider>
@@ -79,7 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex-1 min-h-0 flex justify-center bg-gray-50/50">
           <div className="flex h-full min-h-0 w-full max-w-[1600px]">
             {/* Main Content */}
-            <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-white relative z-0">
+            <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-white relative z-0">
               {children}
             </main>
 
@@ -88,6 +101,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </div>
+
+      <GlobalShortcuts />
     </InspectorProvider>
   )
 }

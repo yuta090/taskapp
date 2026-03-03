@@ -23,6 +23,7 @@ import {
 } from '@/lib/hooks/useSlack'
 import { isSlackConfigured } from '@/lib/slack/config'
 import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 
 interface SlackSettingsProps {
   orgId: string
@@ -30,6 +31,7 @@ interface SlackSettingsProps {
 }
 
 export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [selectedChannelId, setSelectedChannelId] = useState('')
   const [showManualInput, setShowManualInput] = useState(false)
   const [botToken, setBotToken] = useState('')
@@ -73,10 +75,17 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
   }
 
   const handleDisconnect = async () => {
-    if (!confirm('Slack連携を解除しますか？\nすべてのプロジェクトのチャンネル紐付けも解除されます。')) return
+    const ok = await confirm({
+      title: 'Slack連携を解除',
+      message: 'Slack連携を解除しますか？すべてのプロジェクトのチャンネル紐付けも解除されます。',
+      confirmLabel: '解除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       await disconnectSlack.mutateAsync(orgId)
+      toast.success('Slack連携を解除しました')
     } catch (err) {
       console.error('Failed to disconnect Slack:', err)
       toast.error('連携の解除に失敗しました')
@@ -96,6 +105,7 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
         channelName: channel.name,
       })
       setSelectedChannelId('')
+      toast.success(`#${channel.name} を連携しました`)
     } catch (err) {
       console.error('Failed to link channel:', err)
       toast.error('チャンネルの連携に失敗しました')
@@ -103,10 +113,17 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
   }
 
   const handleUnlink = async () => {
-    if (!confirm('このSlackチャンネルの連携を解除しますか？')) return
+    const ok = await confirm({
+      title: 'チャンネル連携を解除',
+      message: 'このSlackチャンネルの連携を解除しますか？',
+      confirmLabel: '解除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       await unlinkChannel.mutateAsync(spaceId)
+      toast.success('チャンネル連携を解除しました')
     } catch (err) {
       console.error('Failed to unlink channel:', err)
       toast.error('連携の解除に失敗しました')
@@ -209,6 +226,7 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
   // === State 2 & 3: ワークスペース連携済み ===
   return (
     <div className="space-y-4">
+      {ConfirmDialog}
       <div className="flex items-center gap-2 text-gray-700">
         <ChatCircleDots className="text-lg" weight="bold" />
         <h3 className="font-medium">Slack連携</h3>
