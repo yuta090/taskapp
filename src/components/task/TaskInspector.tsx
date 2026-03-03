@@ -21,7 +21,7 @@ interface TaskInspectorProps {
   spaceId: string
   owners?: TaskOwner[]
   onClose: () => void
-  onPassBall?: (ball: 'client' | 'internal', clientOwnerIds?: string[], internalOwnerIds?: string[]) => void
+  onPassBall?: (ball: 'client' | 'internal', clientOwnerIds?: string[], internalOwnerIds?: string[]) => void | Promise<void>
   onUpdate?: (updates: {
     title?: string
     description?: string | null
@@ -73,6 +73,7 @@ export function TaskInspector({
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [editDescription, setEditDescription] = useState(task.description || '')
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isSavingOwners, setIsSavingOwners] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -317,22 +318,28 @@ export function TaskInspector({
   }
 
   const handleSaveOwners = async () => {
-    if (pendingBallChange === 'client') {
-      // ボール切替時: 外部担当者必須バリデーション
-      if (selectedClientOwners.length === 0) {
-        setOwnerValidationError('外部担当者を1人以上選択してください')
+    if (isSavingOwners) return
+    setIsSavingOwners(true)
+    try {
+      if (pendingBallChange === 'client') {
+        // ボール切替時: 外部担当者必須バリデーション
+        if (selectedClientOwners.length === 0) {
+          setOwnerValidationError('外部担当者を1人以上選択してください')
+          return
+        }
+        // ボール切替 + オーナー更新を一括実行
+        await onPassBall?.('client', selectedClientOwners, selectedInternalOwners)
+        setPendingBallChange(null)
+        setOwnerValidationError(null)
+        setEditingOwners(false)
         return
       }
-      // ボール切替 + オーナー更新を一括実行
-      onPassBall?.('client', selectedClientOwners, selectedInternalOwners)
-      setPendingBallChange(null)
-      setOwnerValidationError(null)
+      // 通常のオーナー更新
+      await onUpdateOwners?.(selectedClientOwners, selectedInternalOwners)
       setEditingOwners(false)
-      return
+    } finally {
+      setIsSavingOwners(false)
     }
-    // 通常のオーナー更新
-    await onUpdateOwners?.(selectedClientOwners, selectedInternalOwners)
-    setEditingOwners(false)
   }
 
   const handleCancelPendingBall = () => {
@@ -581,9 +588,10 @@ export function TaskInspector({
                 </button>
                 <button
                   onClick={handleSaveOwners}
-                  className="px-4 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded transition-colors"
+                  disabled={isSavingOwners}
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition-colors"
                 >
-                  外部に渡す
+                  {isSavingOwners ? '処理中...' : '外部に渡す'}
                 </button>
               </div>
             </div>
@@ -843,9 +851,10 @@ export function TaskInspector({
                 </button>
                 <button
                   onClick={handleSaveOwners}
-                  className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 rounded"
+                  disabled={isSavingOwners}
+                  className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded"
                 >
-                  保存
+                  {isSavingOwners ? '保存中...' : '保存'}
                 </button>
               </div>
             </div>

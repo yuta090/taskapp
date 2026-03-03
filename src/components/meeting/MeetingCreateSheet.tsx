@@ -10,7 +10,7 @@ interface MeetingCreateSheetProps {
   spaceId: string
   isOpen: boolean
   onClose: () => void
-  onSubmit: (meeting: MeetingCreateData) => void
+  onSubmit: (meeting: MeetingCreateData) => void | Promise<void>
 }
 
 export interface MeetingCreateData {
@@ -33,6 +33,7 @@ export function MeetingCreateSheet({
   const [clientParticipantIds, setClientParticipantIds] = useState<string[]>([])
   const [internalParticipantIds, setInternalParticipantIds] = useState<string[]>([])
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const {
     clientMembers,
@@ -83,18 +84,21 @@ export function MeetingCreateSheet({
     )
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
-
-    onSubmit({
-      title: title.trim(),
-      heldAt: heldAt ? new Date(heldAt).toISOString() : undefined,
-      clientParticipantIds,
-      internalParticipantIds,
-    })
-
-    onClose()
+    if (!title.trim() || isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onSubmit({
+        title: title.trim(),
+        heldAt: heldAt ? new Date(heldAt).toISOString() : undefined,
+        clientParticipantIds,
+        internalParticipantIds,
+      })
+      onClose()
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (!isOpen) return null
@@ -268,11 +272,11 @@ export function MeetingCreateSheet({
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || membersLoading}
+              disabled={!title.trim() || membersLoading || isSubmitting}
               data-testid="meeting-create-submit"
               className="px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
-              作成
+              {isSubmitting ? '作成中...' : '作成'}
             </button>
           </div>
         </form>

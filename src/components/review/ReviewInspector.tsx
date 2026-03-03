@@ -16,8 +16,8 @@ interface ReviewInspectorProps {
   task?: Task
   approvals?: ReviewApproval[]
   onClose: () => void
-  onApprove?: () => void
-  onBlock?: (reason: string) => void
+  onApprove?: () => void | Promise<void>
+  onBlock?: (reason: string) => void | Promise<void>
 }
 
 export function ReviewInspector({
@@ -30,15 +30,32 @@ export function ReviewInspector({
 }: ReviewInspectorProps) {
   const [blockReason, setBlockReason] = useState('')
   const [showBlockForm, setShowBlockForm] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleBlock = () => {
+  const handleApprove = async () => {
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onApprove?.()
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleBlock = async () => {
     if (!blockReason.trim()) {
       alert('差し戻し理由を入力してください')
       return
     }
-    onBlock?.(blockReason.trim())
-    setBlockReason('')
-    setShowBlockForm(false)
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onBlock?.(blockReason.trim())
+      setBlockReason('')
+      setShowBlockForm(false)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -164,15 +181,17 @@ export function ReviewInspector({
             {!showBlockForm ? (
               <>
                 <button
-                  onClick={onApprove}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  onClick={handleApprove}
+                  disabled={isSubmitting}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   <CheckCircle weight="bold" />
-                  承認する
+                  {isSubmitting ? '処理中...' : '承認する'}
                 </button>
                 <button
                   onClick={() => setShowBlockForm(true)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                  disabled={isSubmitting}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 disabled:border-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
                   <XCircle weight="bold" />
                   差し戻す
@@ -196,9 +215,10 @@ export function ReviewInspector({
                   </button>
                   <button
                     onClick={handleBlock}
-                    className="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    disabled={isSubmitting}
+                    className="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                   >
-                    差し戻す
+                    {isSubmitting ? '処理中...' : '差し戻す'}
                   </button>
                 </div>
               </div>
