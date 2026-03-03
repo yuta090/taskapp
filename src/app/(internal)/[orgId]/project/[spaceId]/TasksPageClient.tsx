@@ -39,11 +39,12 @@ interface TasksPageClientProps {
 }
 
 type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait'
-type SortKey = 'milestone' | 'due_date' | 'created_at'
+type SortKey = 'milestone' | 'due_date' | 'created_at' | 'assignee' | 'status'
 
 interface TaskGroup {
   milestone: Milestone | null
   tasks: Task[]
+  label?: string
 }
 
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
@@ -207,22 +208,63 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return result
   }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
 
+  const STATUS_LABELS: Record<string, string> = {
+    backlog: '未着手', todo: 'ToDo', in_progress: '進行中',
+    in_review: '承認確認中', considering: '検討中', done: '完了',
+  }
+  const STATUS_ORDER: string[] = ['in_progress', 'todo', 'in_review', 'backlog', 'considering', 'done']
+
   // Group and sort tasks
   const taskGroups: TaskGroup[] = useMemo(() => {
-    if (sortKey !== 'milestone') {
+    if (sortKey === 'due_date' || sortKey === 'created_at') {
       // Flat list sorted by due_date or created_at
       const sorted = [...filteredTasks].sort((a, b) => {
         if (sortKey === 'due_date') {
-          // Tasks without due_date go to the end
           if (!a.due_date && !b.due_date) return 0
           if (!a.due_date) return 1
           if (!b.due_date) return -1
           return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
         }
-        // created_at
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       })
       return [{ milestone: null, tasks: sorted }]
+    }
+
+    if (sortKey === 'assignee') {
+      const byAssignee = new Map<string, Task[]>()
+      filteredTasks.forEach((task) => {
+        const key = task.assignee_id || '__unassigned__'
+        if (!byAssignee.has(key)) byAssignee.set(key, [])
+        byAssignee.get(key)!.push(task)
+      })
+      const groups: TaskGroup[] = []
+      byAssignee.forEach((groupTasks, key) => {
+        const label = key === '__unassigned__' ? '未割り当て' : getMemberName(key)
+        groups.push({ milestone: null, tasks: groupTasks, label })
+      })
+      // Put 未割り当て last
+      groups.sort((a, b) => {
+        if (a.label === '未割り当て') return 1
+        if (b.label === '未割り当て') return -1
+        return (a.label || '').localeCompare(b.label || '')
+      })
+      return groups
+    }
+
+    if (sortKey === 'status') {
+      const byStatus = new Map<string, Task[]>()
+      filteredTasks.forEach((task) => {
+        if (!byStatus.has(task.status)) byStatus.set(task.status, [])
+        byStatus.get(task.status)!.push(task)
+      })
+      const groups: TaskGroup[] = []
+      STATUS_ORDER.forEach((status) => {
+        const groupTasks = byStatus.get(status)
+        if (groupTasks && groupTasks.length > 0) {
+          groups.push({ milestone: null, tasks: groupTasks, label: STATUS_LABELS[status] || status })
+        }
+      })
+      return groups
     }
 
     // Group by milestone
@@ -265,7 +307,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     }
 
     return groups
-  }, [filteredTasks, milestones, sortKey])
+  }, [filteredTasks, milestones, sortKey, getMemberName])
 
   const selectedTask: Task | null = useMemo(() => {
     if (!selectedTaskId) return null
@@ -592,6 +634,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   const sortOptions: { key: SortKey; label: string }[] = [
     { key: 'milestone', label: 'マイルストーン別' },
+    { key: 'assignee', label: '担当者別' },
+    { key: 'status', label: 'ステータス別' },
     { key: 'due_date', label: '期限日順' },
     { key: 'created_at', label: '作成日順' },
   ]
@@ -789,20 +833,21 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           )}
           {!loading && !error && filteredTasks.length > 0 && (
             <div className="border-t border-gray-100">
-              {taskGroups.map((group) => {
-                const groupKey = group.milestone?.id || '__none__'
+              {taskGroups.map((group, groupIndex) => {
+                const groupKey = group.milestone?.id || group.label || '__none__'
                 const isCollapsed = collapsedGroups.has(groupKey)
-                const showHeader = sortKey === 'milestone'
+                const showHeader = sortKey === 'milestone' || sortKey === 'assignee' || sortKey === 'status'
 
                 return (
-                  <div key={groupKey}>
+                  <div key={`${sortKey}-${groupIndex}`}>
                     {showHeader && (
                       <MilestoneGroupHeader
                         milestone={group.milestone}
                         taskCount={group.tasks.length}
                         doneCount={group.tasks.filter((t) => t.status === 'done').length}
                         isCollapsed={isCollapsed}
-                        onToggle={() => handleToggleGroup(group.milestone?.id || null)}
+                        onToggle={() => handleToggleGroup(group.milestone?.id || group.label || null)}
+                        label={group.label}
                       />
                     )}
                     {!isCollapsed && group.tasks.map((task) => (

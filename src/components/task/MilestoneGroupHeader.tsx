@@ -9,6 +9,7 @@ interface MilestoneGroupHeaderProps {
   doneCount?: number
   isCollapsed?: boolean
   onToggle?: () => void
+  label?: string
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -25,6 +26,7 @@ export function MilestoneGroupHeader({
   doneCount = 0,
   isCollapsed = false,
   onToggle,
+  label,
 }: MilestoneGroupHeaderProps) {
   const progressPercent = taskCount > 0 ? Math.round((doneCount / taskCount) * 100) : 0
   const formattedDueDate = milestone?.due_date ? formatDate(milestone.due_date) : null
@@ -45,7 +47,7 @@ export function MilestoneGroupHeader({
 
       {/* Milestone name - bold */}
       <span className="text-[13px] font-semibold text-gray-800 tracking-tight">
-        {milestone?.name || 'マイルストーン未設定'}
+        {label || milestone?.name || 'マイルストーン未設定'}
       </span>
 
       {/* Due date - right after title */}
