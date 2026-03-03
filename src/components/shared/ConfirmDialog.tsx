@@ -87,12 +87,12 @@ function ConfirmDialogUI({
 
   return (
     <div ref={setRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
+      <div className="absolute inset-0 bg-black/30 animate-backdrop-in" onClick={onCancel} />
       <div
         role="alertdialog"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        className="relative w-full max-w-sm bg-white rounded-xl shadow-xl p-5"
+        className="relative w-full max-w-sm bg-white rounded-xl shadow-xl p-5 animate-dialog-in"
       >
         <div className="flex items-start gap-3">
           <WarningCircle

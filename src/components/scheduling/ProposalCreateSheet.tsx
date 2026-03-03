@@ -283,14 +283,14 @@ export function ProposalCreateSheet({
     <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-black/30 animate-backdrop-in"
         onClick={onClose}
         data-testid="proposal-create-backdrop"
       />
 
       {/* Sheet */}
       <div
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl max-h-[90vh] flex flex-col"
+        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl max-h-[90vh] flex flex-col animate-dialog-in"
         data-testid="proposal-create-sheet"
       >
         {/* Header */}
