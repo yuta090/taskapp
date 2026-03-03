@@ -472,6 +472,109 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
   )
 }
 
+// Active filter chips component
+interface ActiveFilterChipsProps {
+  filters: TaskFilters
+  onFiltersChange: (filters: TaskFilters) => void
+  milestones?: { id: string; name: string }[]
+  owners?: { user_id: string; display_name: string | null }[]
+}
+
+export function ActiveFilterChips({
+  filters,
+  onFiltersChange,
+  milestones = [],
+  owners = [],
+}: ActiveFilterChipsProps) {
+  const chips: { label: string; onRemove: () => void }[] = []
+
+  if (filters.status.length > 0) {
+    const labels = filters.status.map((v) => STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v)
+    chips.push({
+      label: `ステータス: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, status: [] }),
+    })
+  }
+  if (filters.ball.length > 0) {
+    const labels = filters.ball.map((v) => BALL_OPTIONS.find((o) => o.value === v)?.label ?? v)
+    chips.push({
+      label: `ボール: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, ball: [] }),
+    })
+  }
+  if (filters.type.length > 0) {
+    const labels = filters.type.map((v) => TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v)
+    chips.push({
+      label: `タイプ: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, type: [] }),
+    })
+  }
+  if (filters.assigneeId.length > 0) {
+    const labels = filters.assigneeId.map((v) => {
+      if (v === null) return '未割り当て'
+      return owners.find((o) => o.user_id === v)?.display_name ?? v.slice(0, 8)
+    })
+    chips.push({
+      label: `担当者: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, assigneeId: [] }),
+    })
+  }
+  if (filters.milestoneId.length > 0) {
+    const labels = filters.milestoneId.map((v) => {
+      if (v === null) return 'なし'
+      return milestones.find((m) => m.id === v)?.name ?? v.slice(0, 8)
+    })
+    chips.push({
+      label: `MS: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, milestoneId: [] }),
+    })
+  }
+  if (filters.priority.length > 0) {
+    const labels = filters.priority.map((v) => PRIORITY_OPTIONS.find((o) => o.value === v)?.label ?? String(v))
+    chips.push({
+      label: `優先度: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, priority: [] }),
+    })
+  }
+  if (filters.dueDateRange !== 'all') {
+    const label = DUE_DATE_OPTIONS.find((o) => o.value === filters.dueDateRange)?.label ?? filters.dueDateRange
+    chips.push({
+      label: `期限: ${label}`,
+      onRemove: () => onFiltersChange({ ...filters, dueDateRange: 'all' }),
+    })
+  }
+  if (filters.decisionState.length > 0) {
+    const labels = filters.decisionState.map((v) => DECISION_STATE_OPTIONS.find((o) => o.value === v)?.label ?? String(v))
+    chips.push({
+      label: `仕様: ${labels.join(', ')}`,
+      onRemove: () => onFiltersChange({ ...filters, decisionState: [] }),
+    })
+  }
+
+  if (chips.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {chips.map((chip) => (
+        <span
+          key={chip.label}
+          className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-md"
+        >
+          {chip.label}
+          <button
+            type="button"
+            onClick={chip.onRemove}
+            className="ml-0.5 hover:text-blue-900 transition-colors"
+            aria-label={`${chip.label} フィルターを解除`}
+          >
+            <X className="text-xs" />
+          </button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // Helper function to filter tasks based on filters
 export function applyTaskFilters<T extends {
   status: TaskStatus

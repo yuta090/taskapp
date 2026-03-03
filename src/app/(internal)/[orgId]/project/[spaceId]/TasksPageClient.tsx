@@ -22,7 +22,7 @@ const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet'
 })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
-import { TaskFilterMenu, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
+import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -556,16 +556,12 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
           {/* Active filters display */}
           {hasAdvancedFilters && (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setAdvancedFilters(defaultFilters)}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-red-500 transition-colors"
-                title="フィルターをクリア"
-              >
-                <X className="text-sm" />
-              </button>
-            </div>
+            <ActiveFilterChips
+              filters={advancedFilters}
+              onFiltersChange={setAdvancedFilters}
+              milestones={milestones}
+              owners={uniqueOwners}
+            />
           )}
 
           {/* Divider */}
