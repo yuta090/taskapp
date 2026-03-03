@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { LeftNav } from './LeftNav'
 import { useShortcutsHelp } from '@/components/shared/KeyboardShortcutsHelp'
+import { useCommandPalette } from '@/components/shared/CommandPalette'
 
 interface InspectorContextValue {
   inspector: ReactNode | null
@@ -69,7 +70,13 @@ function InspectorPane() {
  */
 function GlobalShortcuts() {
   const { ShortcutsHelp } = useShortcutsHelp()
-  return ShortcutsHelp
+  const { CommandPalette } = useCommandPalette()
+  return (
+    <>
+      {ShortcutsHelp}
+      {CommandPalette}
+    </>
+  )
 }
 
 export function AppShell({ children }: { children: ReactNode }) {

@@ -6,6 +6,7 @@ import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
 
 const SHORTCUTS = [
+  { keys: ['⌘K'], description: 'コマンドパレット' },
   { keys: ['N'], description: '新規タスク作成' },
   { keys: ['/'], description: 'タスク検索にフォーカス' },
   { keys: ['↑', '↓'], description: 'タスク間を移動' },
