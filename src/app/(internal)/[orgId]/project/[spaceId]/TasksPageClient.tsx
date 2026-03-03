@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
@@ -31,6 +31,7 @@ import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BallSide, Task, TaskStatus, Milestone, DecisionState } from '@/types/database'
 
 interface TasksPageClientProps {
@@ -46,6 +47,13 @@ interface TaskGroup {
   tasks: Task[]
   label?: string
 }
+
+type VirtualRow =
+  | { type: 'header'; group: TaskGroup; groupKey: string }
+  | { type: 'task'; task: Task; indent: boolean }
+  | { type: 'inline'; milestoneId: string | null; indent: boolean; groupKey: string }
+
+const ROW_HEIGHT = 40
 
 function InlineTaskInput({ indent, onSubmit }: { indent: boolean; onSubmit: (title: string) => void }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -508,18 +516,63 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     { key: '/', handler: handleFocusSearch },
   ])
 
-  // Flat visible task IDs for keyboard navigation (respects grouping + collapsed)
-  const flatVisibleTaskIds = useMemo(() => {
-    const ids: string[] = []
+  // Flat virtual rows for virtualized rendering
+  const virtualRows: VirtualRow[] = useMemo(() => {
+    const rows: VirtualRow[] = []
+    const showHeader = sortKey === 'milestone' || sortKey === 'assignee' || sortKey === 'status'
     for (const group of taskGroups) {
-      const groupKey = group.milestone?.id || '__none__'
-      if (collapsedGroups.has(groupKey)) continue
-      for (const task of group.tasks) {
-        ids.push(task.id)
+      const groupKey = group.milestone?.id || group.label || '__none__'
+      const isCollapsed = collapsedGroups.has(groupKey)
+      if (showHeader) {
+        rows.push({ type: 'header', group, groupKey })
+      }
+      if (!isCollapsed) {
+        for (const task of group.tasks) {
+          rows.push({ type: 'task', task, indent: showHeader })
+        }
+        rows.push({ type: 'inline', milestoneId: group.milestone?.id || null, indent: showHeader, groupKey })
       }
     }
-    return ids
-  }, [taskGroups, collapsedGroups])
+    return rows
+  }, [taskGroups, collapsedGroups, sortKey])
+
+  // Flat visible task IDs for keyboard navigation (respects grouping + collapsed)
+  const flatVisibleTaskIds = useMemo(() => {
+    return virtualRows
+      .filter((r): r is VirtualRow & { type: 'task' } => r.type === 'task')
+      .map((r) => r.task.id)
+  }, [virtualRows])
+
+  // Map taskId → virtual row index for scroll-to
+  const taskIdToVirtualIndex = useMemo(() => {
+    const map = new Map<string, number>()
+    virtualRows.forEach((row, i) => {
+      if (row.type === 'task') map.set(row.task.id, i)
+    })
+    return map
+  }, [virtualRows])
+
+  // Scroll container ref
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  const virtualizer = useVirtualizer({
+    count: virtualRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+    getItemKey: (index) => {
+      const row = virtualRows[index]
+      if (row.type === 'header') return `h-${row.groupKey}`
+      if (row.type === 'task') return row.task.id
+      return `i-${row.groupKey}`
+    },
+  })
+
+  // Stable ref for virtualizer to use in keyboard handler
+  const virtualizerRef = useRef(virtualizer)
+  virtualizerRef.current = virtualizer
+  const taskIdToVirtualIndexRef = useRef(taskIdToVirtualIndex)
+  taskIdToVirtualIndexRef.current = taskIdToVirtualIndex
 
   // ↑↓ keyboard navigation for task list
   useEffect(() => {
@@ -541,6 +594,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       const nextId = flatVisibleTaskIds[nextIndex]
       if (nextId && nextId !== selectedTaskId) {
         syncUrlWithState(isCreateOpen, nextId, activeFilter)
+        // Scroll virtual list to the selected task
+        const vIndex = taskIdToVirtualIndexRef.current.get(nextId)
+        if (vIndex !== undefined) {
+          virtualizerRef.current.scrollToIndex(vIndex, { align: 'auto' })
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -979,11 +1037,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="content-wrap py-4">
-          {loading && <LoadingState />}
-          {error && <ErrorRetry onRetry={fetchTasks} />}
-          {!loading && !error && filteredTasks.length === 0 && (
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        {loading && <div className="content-wrap py-4"><LoadingState /></div>}
+        {error && <div className="content-wrap py-4"><ErrorRetry onRetry={fetchTasks} /></div>}
+        {!loading && !error && filteredTasks.length === 0 && (
+          <div className="content-wrap py-4">
             <EmptyState
               icon={searchQuery ? <MagnifyingGlass /> : <Copy />}
               message={searchQuery ? `「${searchQuery}」に一致するタスクはありません` : 'タスクはありません'}
@@ -997,56 +1055,70 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                 </button>
               ) : undefined}
             />
-          )}
-          {!loading && !error && filteredTasks.length > 0 && (
-            <div className="border-t border-gray-100">
-              {taskGroups.map((group, groupIndex) => {
-                const groupKey = group.milestone?.id || group.label || '__none__'
-                const isCollapsed = collapsedGroups.has(groupKey)
-                const showHeader = sortKey === 'milestone' || sortKey === 'assignee' || sortKey === 'status'
-
-                return (
-                  <div key={`${sortKey}-${groupIndex}`}>
-                    {showHeader && (
-                      <MilestoneGroupHeader
-                        milestone={group.milestone}
-                        taskCount={group.tasks.length}
-                        doneCount={group.tasks.filter((t) => t.status === 'done').length}
-                        isCollapsed={isCollapsed}
-                        onToggle={() => handleToggleGroup(group.milestone?.id || group.label || null)}
-                        label={group.label}
-                      />
-                    )}
-                    {!isCollapsed && group.tasks.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        isSelected={task.id === selectedTaskId}
-                        onClick={handleTaskSelect}
-                        indent={showHeader}
-                        onStatusChange={handleStatusChange}
-                        reviewStatus={reviewStatuses[task.id]}
-                        assigneeName={task.assignee_id ? getMemberName(task.assignee_id) : null}
-                        isNew={recentTaskIds.has(task.id)}
-                        bulkMode={bulkMode}
-                        isChecked={selectedTaskIds.has(task.id)}
-                        onCheckChange={handleCheckChange}
-                        onContextMenu={handleContextMenu}
-                      />
-                    ))}
-                    {/* Inline task creation */}
-                    {!isCollapsed && (
-                      <InlineTaskInput
-                        indent={showHeader}
-                        onSubmit={(title) => handleInlineCreate(title, group.milestone?.id)}
-                      />
-                    )}
-                  </div>
+          </div>
+        )}
+        {!loading && !error && filteredTasks.length > 0 && (
+          <div
+            className="border-t border-gray-100"
+            style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+          >
+            {virtualizer.getVirtualItems().map((vItem) => {
+              const row = virtualRows[vItem.index]
+              let content: ReactElement
+              if (row.type === 'header') {
+                content = (
+                  <MilestoneGroupHeader
+                    milestone={row.group.milestone}
+                    taskCount={row.group.tasks.length}
+                    doneCount={row.group.tasks.filter((t) => t.status === 'done').length}
+                    isCollapsed={collapsedGroups.has(row.groupKey)}
+                    onToggle={() => handleToggleGroup(row.group.milestone?.id || row.group.label || null)}
+                    label={row.group.label}
+                  />
                 )
-              })}
-            </div>
-          )}
-        </div>
+              } else if (row.type === 'task') {
+                content = (
+                  <TaskRow
+                    task={row.task}
+                    isSelected={row.task.id === selectedTaskId}
+                    onClick={handleTaskSelect}
+                    indent={row.indent}
+                    onStatusChange={handleStatusChange}
+                    reviewStatus={reviewStatuses[row.task.id]}
+                    assigneeName={row.task.assignee_id ? getMemberName(row.task.assignee_id) : null}
+                    isNew={recentTaskIds.has(row.task.id)}
+                    bulkMode={bulkMode}
+                    isChecked={selectedTaskIds.has(row.task.id)}
+                    onCheckChange={handleCheckChange}
+                    onContextMenu={handleContextMenu}
+                  />
+                )
+              } else {
+                content = (
+                  <InlineTaskInput
+                    indent={row.indent}
+                    onSubmit={(title) => handleInlineCreate(title, row.milestoneId)}
+                  />
+                )
+              }
+              return (
+                <div
+                  key={vItem.key}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: vItem.size,
+                    transform: `translateY(${vItem.start}px)`,
+                  }}
+                >
+                  {content}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Context menu */}
