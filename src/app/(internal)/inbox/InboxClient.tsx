@@ -13,7 +13,7 @@ import {
   Check,
   Eye,
 } from '@phosphor-icons/react'
-import { ErrorRetry } from '@/components/shared'
+import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
@@ -307,19 +307,12 @@ export default function InboxClient() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {loading && (
-          <div className="text-center text-gray-400 py-16">読み込み中...</div>
-        )}
+        {loading && <LoadingState />}
 
-        {error && (
-          <ErrorRetry message={error} onRetry={fetchNotifications} />
-        )}
+        {error && <ErrorRetry message={error} onRetry={fetchNotifications} />}
 
         {!loading && !error && notifications.length === 0 && (
-          <div className="text-center text-gray-400 py-20">
-            <Tray className="text-4xl mx-auto mb-3 opacity-50" />
-            <p className="text-sm">通知はありません</p>
-          </div>
+          <EmptyState icon={<Tray />} message="通知はありません" />
         )}
 
         {!loading && !error && notifications.length > 0 && (

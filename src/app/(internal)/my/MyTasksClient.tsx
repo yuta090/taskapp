@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ErrorRetry } from '@/components/shared'
+import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 
@@ -599,34 +599,24 @@ export default function MyTasksClient() {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="py-4">
-          {loading && (
-            <div className="text-center text-gray-400 py-16">読み込み中...</div>
-          )}
-          {error && (
-            <ErrorRetry message={error.message} onRetry={handleRetry} />
-          )}
+          {loading && <LoadingState />}
+          {error && <ErrorRetry message={error.message} onRetry={handleRetry} />}
           {!loading && !error && tasks.length === 0 && (
-            <div className="text-center text-gray-400 py-20">
-              <Target className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">担当しているタスクはありません</p>
-              {userId && (
-                <p className="text-xs mt-1 text-gray-300">
-                  User: {userId.slice(0, 8)}...
-                </p>
-              )}
-            </div>
+            <EmptyState icon={<Target />} message="担当しているタスクはありません" />
           )}
           {!loading && !error && tasks.length > 0 && filteredTasks.length === 0 && (
-            <div className="text-center text-gray-400 py-20">
-              <FunnelSimple className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">条件に一致するタスクがありません</p>
-              <button
-                onClick={resetFilters}
-                className="mt-3 text-xs text-blue-500 hover:underline"
-              >
-                フィルターをリセット
-              </button>
-            </div>
+            <EmptyState
+              icon={<FunnelSimple />}
+              message="条件に一致するタスクがありません"
+              action={
+                <button
+                  onClick={resetFilters}
+                  className="text-xs text-blue-500 hover:underline"
+                >
+                  フィルターをリセット
+                </button>
+              }
+            />
           )}
           {!loading && !error && filteredTasks.length > 0 && (
             <div className="space-y-6">

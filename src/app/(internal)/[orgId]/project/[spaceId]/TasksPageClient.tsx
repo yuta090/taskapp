@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { Breadcrumb, ErrorRetry } from '@/components/shared'
+import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { useInspector } from '@/components/layout'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
@@ -610,17 +610,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="content-wrap py-4">
-          {loading && (
-            <div className="text-center text-gray-400 py-16">読み込み中...</div>
-          )}
-          {error && (
-            <ErrorRetry onRetry={fetchTasks} />
-          )}
+          {loading && <LoadingState />}
+          {error && <ErrorRetry onRetry={fetchTasks} />}
           {!loading && !error && filteredTasks.length === 0 && (
-            <div className="text-center text-gray-400 py-20">
-              <Copy className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">タスクはありません</p>
-            </div>
+            <EmptyState icon={<Copy />} message="タスクはありません" />
           )}
           {!loading && !error && filteredTasks.length > 0 && (
             <div className="border-t border-gray-100">
