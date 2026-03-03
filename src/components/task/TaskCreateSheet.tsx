@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useFocusTrap } from '@/lib/hooks/useFocusTrap'
+import { useFormDraft } from '@/lib/hooks/useFormDraft'
 import { X, ArrowRight, User, Calendar, Flag, Plus, CaretDown, CaretRight, CaretUp, ChartBar, TreeStructure, Folder, Eye, Info, FileText } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -52,6 +53,22 @@ export interface TaskCreateData {
   parentTaskId?: string
 }
 
+interface TaskFormDraft {
+  title: string
+  description: string
+  ball: BallSide
+  clientScope: ClientScope
+  dueDate: string
+  assigneeId: string
+  milestoneId: string
+  parentTaskId: string
+  internalOwnerIds: string[]
+  clientOwnerIds: string[]
+  wikiPageId: string
+  selectedSpaceId: string
+  showAdvanced: boolean
+}
+
 export function TaskCreateSheet({
   spaceId,
   orgId,
@@ -96,6 +113,13 @@ export function TaskCreateSheet({
   const [estimationExpanded, setEstimationExpanded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showPortalPreview, setShowPortalPreview] = useState(false)
+
+  // Draft auto-save
+  const draftKey = isGlobalCreate ? 'task_create_global' : `task_create_${spaceId}`
+  const { draft, restored, save: saveDraft, clear: clearDraft } = useFormDraft<TaskFormDraft>({
+    key: draftKey,
+    enabled: isOpen,
+  })
 
   // Estimation assist hook
   const estimation = useEstimationAssist({
@@ -145,6 +169,43 @@ export function TaskCreateSheet({
     }
     prevIsOpenRef.current = isOpen
   }, [isOpen, defaultBall, defaultClientOwnerIds, isGlobalCreate, selectedSpaceId, spaces])
+
+  // Restore draft (runs after the open-transition effect, overriding defaults)
+  useEffect(() => {
+    if (restored && draft) {
+      if (draft.title) setTitle(draft.title)
+      if (draft.description) setDescription(draft.description)
+      if (draft.ball) setBall(draft.ball)
+      if (draft.clientScope) setClientScope(draft.clientScope)
+      if (draft.dueDate) setDueDate(draft.dueDate)
+      if (draft.assigneeId) setAssigneeId(draft.assigneeId)
+      if (draft.milestoneId) setMilestoneId(draft.milestoneId)
+      if (draft.parentTaskId) setParentTaskId(draft.parentTaskId)
+      if (draft.internalOwnerIds?.length) setInternalOwnerIds(draft.internalOwnerIds)
+      if (draft.clientOwnerIds?.length) setClientOwnerIds(draft.clientOwnerIds)
+      if (draft.wikiPageId) setWikiPageId(draft.wikiPageId)
+      if (draft.selectedSpaceId && isGlobalCreate) setSelectedSpaceId(draft.selectedSpaceId)
+      if (draft.showAdvanced) setShowAdvanced(true)
+      toast.info('下書きを復元しました', { duration: 2000 })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restored])
+
+  // Auto-save draft on field changes
+  const saveDraftData = useCallback(() => {
+    if (!title && !description && !dueDate && !assigneeId) return // Don't save empty drafts
+    saveDraft({
+      title, description, ball, clientScope, dueDate,
+      assigneeId, milestoneId, parentTaskId, internalOwnerIds,
+      clientOwnerIds, wikiPageId, selectedSpaceId, showAdvanced,
+    })
+  }, [title, description, ball, clientScope, dueDate, assigneeId,
+      milestoneId, parentTaskId, internalOwnerIds, clientOwnerIds,
+      wikiPageId, selectedSpaceId, showAdvanced, saveDraft])
+
+  useEffect(() => {
+    if (isOpen) saveDraftData()
+  }, [isOpen, saveDraftData])
 
   const focusTrapRef = useFocusTrap<HTMLDivElement>({ enabled: isOpen, onClose, skipAutoFocus: true })
 
@@ -289,6 +350,7 @@ export function TaskCreateSheet({
       })
 
       // Reset form only on success
+      clearDraft()
       setTitle('')
       setDescription('')
       setWikiPageId('')
