@@ -13,7 +13,7 @@ import {
   Check,
   Eye,
 } from '@phosphor-icons/react'
-import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
+import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
@@ -115,13 +115,13 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span
-              className={`text-sm truncate ${
+            <TruncatedText
+              className={`text-sm ${
                 isUnread ? 'font-medium text-gray-900' : 'text-gray-500'
               }`}
             >
               {payload.title || '通知'}
-            </span>
+            </TruncatedText>
             {badge}
           </div>
           <p className={`text-sm mt-0.5 line-clamp-1 ${isUnread ? 'text-gray-600' : 'text-gray-400'}`}>

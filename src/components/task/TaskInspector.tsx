@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText } from '@phosphor-icons/react'
-import { AmberBadge, useConfirmDialog } from '@/components/shared'
+import { AmberBadge, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
@@ -709,9 +709,9 @@ export function TaskInspector({
                         child.ball === 'client' ? '#F59E0B' : '#3B82F6',
                     }}
                   />
-                  <span className={`flex-1 truncate ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                  <TruncatedText className={`flex-1 ${child.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                     {child.title}
-                  </span>
+                  </TruncatedText>
                 </div>
               ))}
             </div>

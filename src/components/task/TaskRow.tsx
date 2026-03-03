@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
-import { AmberDot } from '@/components/shared'
+import { AmberDot, TruncatedText } from '@/components/shared'
 import type { Task, BallSide, TaskStatus } from '@/types/database'
 
 interface TaskRowProps {
@@ -200,9 +200,9 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
       {/* Title + indicators */}
       <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className={`truncate ${task.status === 'done' ? 'text-gray-400 line-through' : ''}`}>
+        <TruncatedText className={task.status === 'done' ? 'text-gray-400 line-through' : ''}>
           {task.title}
-        </span>
+        </TruncatedText>
 
         {/* Client visible indicator */}
         {task.ball === 'client' && <AmberDot />}

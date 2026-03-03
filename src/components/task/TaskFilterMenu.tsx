@@ -14,6 +14,7 @@ import {
   ArrowRight,
   FileText,
 } from '@phosphor-icons/react'
+import { TruncatedText } from '@/components/shared'
 import type { TaskStatus, BallSide, TaskType, DecisionState, Milestone } from '@/types/database'
 
 // Filter value types
@@ -300,7 +301,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
                 }`}>
                   {filters.milestoneId.includes(milestone.id) && <Check weight="bold" className="text-xs" />}
                 </span>
-                <span className="truncate">{milestone.name}</span>
+                <TruncatedText>{milestone.name}</TruncatedText>
               </button>
             ))}
           </div>

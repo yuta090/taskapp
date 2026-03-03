@@ -1,6 +1,7 @@
 'use client'
 
 import { Calendar, Play, CheckCircle, Clock } from '@phosphor-icons/react'
+import { TruncatedText } from '@/components/shared'
 import type { Meeting, MeetingStatus } from '@/types/database'
 
 interface MeetingRowProps {
@@ -52,7 +53,7 @@ export function MeetingRow({ meeting, isSelected, onClick }: MeetingRowProps) {
 
       {/* Title + Date */}
       <div className="flex-1 min-w-0 flex items-center gap-3">
-        <span className="truncate font-medium">{meeting.title}</span>
+        <TruncatedText className="font-medium">{meeting.title}</TruncatedText>
         {meeting.held_at && (
           <span className="text-xs text-gray-400">
             {new Date(meeting.held_at).toLocaleDateString('ja-JP', {

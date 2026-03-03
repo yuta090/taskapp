@@ -41,6 +41,7 @@ import type { UserSpace } from '@/lib/hooks/useUserSpaces'
 import { useSpaceGroups } from '@/lib/hooks/useSpaceGroups'
 import type { SpaceGroupItem } from '@/lib/hooks/useSpaceGroups'
 import { createClient } from '@/lib/supabase/client'
+import { TruncatedText } from '@/components/shared'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
@@ -89,7 +90,7 @@ function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: Na
         {icon}
       </span>
       {!collapsed && (
-        <span className="truncate text-sm 2xl:text-base">{label}</span>
+        <TruncatedText className="text-sm 2xl:text-base">{label}</TruncatedText>
       )}
       {!collapsed && badge !== undefined && badge > 0 && (
         <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-white">
@@ -519,7 +520,7 @@ function SpaceNavItem({
           </div>
           {!collapsed && (
             <>
-              <span className="truncate text-sm 2xl:text-base">{space.name}</span>
+              <TruncatedText className="text-sm 2xl:text-base">{space.name}</TruncatedText>
               {isExpanded ? (
                 <CaretDown weight="fill" className="text-[10px] 2xl:text-xs ml-auto text-gray-400" />
               ) : (
@@ -768,9 +769,9 @@ export const LeftNav = memo(function LeftNav() {
           </div>
           {!collapsed && (
             <>
-              <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base max-w-[130px]">
+              <TruncatedText className="font-medium text-gray-900 text-sm 2xl:text-base max-w-[130px]">
                 {orgDisplayName}
-              </span>
+              </TruncatedText>
               <CaretDown
                 weight="bold"
                 className={`text-gray-400 text-[10px] 2xl:text-xs group-hover:text-gray-600 transition-transform ${isOrgSwitcherOpen ? 'rotate-180' : ''}`}
@@ -824,7 +825,7 @@ export const LeftNav = memo(function LeftNav() {
                       <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
                         {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
                       </div>
-                      <span className="truncate flex-1 text-left">{org.orgName}</span>
+                      <TruncatedText className="flex-1 text-left">{org.orgName}</TruncatedText>
                       {org.orgId === activeOrgId && (
                         <Check className="text-gray-900 text-sm flex-shrink-0" weight="bold" />
                       )}
