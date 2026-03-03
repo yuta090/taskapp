@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, X } from '@phosphor-icons/react'
+import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { Breadcrumb } from '@/components/shared'
+import { Breadcrumb, ErrorRetry } from '@/components/shared'
 import { useInspector } from '@/components/layout'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
@@ -614,9 +614,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <div className="text-center text-gray-400 py-16">読み込み中...</div>
           )}
           {error && (
-            <div className="text-center text-red-500 py-16">
-              読み込みに失敗しました
-            </div>
+            <ErrorRetry onRetry={fetchTasks} />
           )}
           {!loading && !error && filteredTasks.length === 0 && (
             <div className="text-center text-gray-400 py-20">

@@ -401,7 +401,14 @@ export function NotificationInspector({
 
   // --- Render action panel based on notification type ---
   const renderActionError = () => actionError ? (
-    <p className="text-xs text-red-600 mt-2">{actionError}</p>
+    <button
+      type="button"
+      onClick={() => setActionError(null)}
+      className="w-full text-left mt-2 px-2 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+    >
+      {actionError}
+      <span className="ml-1 text-red-500">（クリックで閉じる）</span>
+    </button>
   ) : null
 
   const renderActionPanel = () => {

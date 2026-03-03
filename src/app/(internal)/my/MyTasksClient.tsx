@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ErrorRetry } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 
@@ -114,6 +115,7 @@ export default function MyTasksClient() {
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
   const [userId, setUserId] = useState<string | null>(null)
   const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
@@ -346,7 +348,13 @@ export default function MyTasksClient() {
     }
 
     initAuth()
-  }, [supabase, activeOrgId, orgLoading])
+  }, [supabase, activeOrgId, orgLoading, retryKey])
+
+  const handleRetry = useCallback(() => {
+    setError(null)
+    setLoading(true)
+    setRetryKey((k) => k + 1)
+  }, [])
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
@@ -595,9 +603,7 @@ export default function MyTasksClient() {
             <div className="text-center text-gray-400 py-16">読み込み中...</div>
           )}
           {error && (
-            <div className="text-center text-red-500 py-16">
-              {error.message}
-            </div>
+            <ErrorRetry message={error.message} onRetry={handleRetry} />
           )}
           {!loading && !error && tasks.length === 0 && (
             <div className="text-center text-gray-400 py-20">

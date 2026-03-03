@@ -13,6 +13,7 @@ import {
   Check,
   Eye,
 } from '@phosphor-icons/react'
+import { ErrorRetry } from '@/components/shared'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
@@ -147,7 +148,7 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
 export default function InboxClient() {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
-  const { notifications, loading, error, markAsRead, markAsActioned, markAllAsRead } = useNotifications()
+  const { notifications, loading, error, fetchNotifications, markAsRead, markAsActioned, markAllAsRead } = useNotifications()
 
   const selectedId = searchParams.get('id')
   const unreadCount = notifications.filter(n => n.read_at === null).length
@@ -311,9 +312,7 @@ export default function InboxClient() {
         )}
 
         {error && (
-          <div className="text-center text-red-500 py-16">
-            {error}
-          </div>
+          <ErrorRetry message={error} onRetry={fetchNotifications} />
         )}
 
         {!loading && !error && notifications.length === 0 && (
