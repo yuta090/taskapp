@@ -746,6 +746,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                       <MilestoneGroupHeader
                         milestone={group.milestone}
                         taskCount={group.tasks.length}
+                        doneCount={group.tasks.filter((t) => t.status === 'done').length}
                         isCollapsed={isCollapsed}
                         onToggle={() => handleToggleGroup(group.milestone?.id || null)}
                       />
