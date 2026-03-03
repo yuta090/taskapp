@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { LeftNav } from './LeftNav'
+import { useShortcutsHelp } from '@/components/shared/KeyboardShortcutsHelp'
 
 interface InspectorContextValue {
   inspector: ReactNode | null
@@ -66,6 +67,11 @@ function InspectorPane() {
  * - Inspector must resize Main, never overlay
  * - Inspector width: 400px (1920px+: 440px, 2560px+: 480px)
  */
+function GlobalShortcuts() {
+  const { ShortcutsHelp } = useShortcutsHelp()
+  return ShortcutsHelp
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <InspectorProvider>
@@ -88,6 +94,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </div>
+
+      <GlobalShortcuts />
     </InspectorProvider>
   )
 }

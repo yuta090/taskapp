@@ -8,6 +8,7 @@ import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown } from '@phosph
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
+import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
 import { useInspector } from '@/components/layout'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
@@ -378,6 +379,15 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const handleCreateClose = useCallback(() => {
     syncUrlWithState(false, selectedTaskId, activeFilter)
   }, [syncUrlWithState, selectedTaskId, activeFilter])
+
+  const handleCreateOpen = useCallback(() => {
+    syncUrlWithState(true, selectedTaskId, activeFilter)
+  }, [syncUrlWithState, selectedTaskId, activeFilter])
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts([
+    { key: 'n', handler: handleCreateOpen },
+  ])
 
   // Stable refs for handleTaskSelect to keep callback identity stable across selection changes
   const selectedTaskIdRef = useRef(selectedTaskId)
