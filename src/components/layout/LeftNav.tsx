@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useContext, useMemo, memo } from 'react'
+import { useState, useEffect, useCallback, useContext, useMemo, memo, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -291,6 +291,8 @@ function SpaceGroupHeader({
   onMoveDown,
   isFirst,
   isLast,
+  ungroupedSpaces,
+  onAddSpace,
 }: {
   group: SpaceGroupItem
   isCollapsed: boolean
@@ -301,10 +303,22 @@ function SpaceGroupHeader({
   onMoveDown: () => void
   isFirst: boolean
   isLast: boolean
+  ungroupedSpaces?: UserSpace[]
+  onAddSpace?: (spaceId: string) => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameName, setRenameName] = useState(group.name)
+  const menuBtnRef = useRef<HTMLButtonElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+
+  const openMenu = useCallback(() => {
+    if (menuBtnRef.current) {
+      const rect = menuBtnRef.current.getBoundingClientRect()
+      setMenuPos({ top: rect.bottom + 2, right: window.innerWidth - rect.right })
+    }
+    setMenuOpen(true)
+  }, [])
 
   return (
     <div className="flex items-center group/header">
@@ -350,19 +364,23 @@ function SpaceGroupHeader({
       )}
 
       {!renaming && (
-        <div className="relative">
+        <div>
           <button
+            ref={menuBtnRef}
             type="button"
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="p-0.5 rounded text-gray-300 hover:text-gray-500 opacity-0 group-hover/header:opacity-100 transition-opacity"
+            onClick={() => menuOpen ? setMenuOpen(false) : openMenu()}
+            className="p-0.5 rounded text-gray-300 hover:text-gray-500 opacity-0 group-hover/header:opacity-100 focus:opacity-100 transition-opacity"
           >
             <DotsThree weight="bold" className="text-sm" />
           </button>
 
-          {menuOpen && (
+          {menuOpen && menuPos && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-36">
+              <div
+                className="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-44"
+                style={{ top: menuPos.top, right: menuPos.right }}
+              >
                 <button
                   type="button"
                   onClick={() => { setRenaming(true); setMenuOpen(false) }}
@@ -371,6 +389,25 @@ function SpaceGroupHeader({
                   <Pencil className="text-sm text-gray-400" />
                   名前を変更
                 </button>
+                {ungroupedSpaces && ungroupedSpaces.length > 0 && onAddSpace && (
+                  <>
+                    <div className="px-3 py-1 text-[10px] font-medium text-gray-400 mt-1">
+                      プロジェクトを追加
+                    </div>
+                    {ungroupedSpaces.map((space) => (
+                      <button
+                        key={space.id}
+                        type="button"
+                        onClick={() => { onAddSpace(space.id); setMenuOpen(false) }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                      >
+                        <Planet weight="fill" className="text-sm text-indigo-500" />
+                        <span className="truncate">{space.name}</span>
+                      </button>
+                    ))}
+                    <hr className="my-1 border-gray-100" />
+                  </>
+                )}
                 {!isFirst && (
                   <button
                     type="button"
@@ -420,22 +457,38 @@ function SpaceMoveMenu({
   onMove: (groupId: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+
+  const openMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      setMenuPos({ top: rect.bottom + 2, right: window.innerWidth - rect.right })
+    }
+    setOpen(true)
+  }, [])
 
   return (
-    <div className="relative">
+    <div>
       <button
+        ref={btnRef}
         type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(!open) }}
+        onClick={open ? () => setOpen(false) : openMenu}
         className="p-0.5 rounded text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
         title="グループを変更"
       >
         <FolderSimple className="text-sm" />
       </button>
 
-      {open && (
+      {open && menuPos && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-40">
+          <div
+            className="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-40"
+            style={{ top: menuPos.top, right: menuPos.right }}
+          >
             <div className="px-3 py-1 text-[10px] font-medium text-gray-400 uppercase">
               グループ変更
             </div>
@@ -997,6 +1050,15 @@ export const LeftNav = memo(function LeftNav() {
                       }}
                       isFirst={groupIndex === 0}
                       isLast={groupIndex === groups.length - 1}
+                      ungroupedSpaces={ungroupedSpaces}
+                      onAddSpace={async (spaceId) => {
+                        try {
+                          await moveSpaceToGroup(spaceId, group.id)
+                          toast.success('プロジェクトを追加しました')
+                        } catch {
+                          toast.error('プロジェクトの追加に失敗しました')
+                        }
+                      }}
                     />
                   )}
                   {!isGroupCollapsed && (
