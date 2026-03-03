@@ -9,6 +9,7 @@ import {
   User,
   ChatText,
 } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import type { Review, ReviewApproval, Task } from '@/types/database'
 
 interface ReviewInspectorProps {
@@ -44,7 +45,7 @@ export function ReviewInspector({
 
   const handleBlock = async () => {
     if (!blockReason.trim()) {
-      alert('差し戻し理由を入力してください')
+      toast.error('差し戻し理由を入力してください')
       return
     }
     if (isSubmitting) return

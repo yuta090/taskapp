@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { GithubLogo, Plus, X } from '@phosphor-icons/react'
+import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 import { useTaskGitHubLinks, useSpacePullRequests, useManualLinkPR, useUnlinkPR } from '@/lib/hooks'
 import { isGitHubConfigured } from '@/lib/github/config'
 import { PRBadge } from './PRBadge'
@@ -14,6 +16,7 @@ interface TaskPRListProps {
 }
 
 export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRListProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [showLinkDialog, setShowLinkDialog] = useState(false)
   const [selectedPRId, setSelectedPRId] = useState<string>('')
 
@@ -47,18 +50,24 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
       setShowLinkDialog(false)
     } catch (err) {
       console.error('Failed to link PR:', err)
-      alert('PRの紐付けに失敗しました')
+      toast.error('PRの紐付けに失敗しました')
     }
   }
 
   const handleUnlink = async (linkId: string) => {
-    if (!confirm('このPRの紐付けを解除しますか？')) return
+    const ok = await confirm({
+      title: 'PR紐付けを解除',
+      message: 'このPRの紐付けを解除しますか？',
+      confirmLabel: '解除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       await unlinkPR.mutateAsync({ linkId, taskId })
     } catch (err) {
       console.error('Failed to unlink PR:', err)
-      alert('紐付けの解除に失敗しました')
+      toast.error('紐付けの解除に失敗しました')
     }
   }
 
@@ -81,6 +90,7 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
 
   return (
     <div className="space-y-2">
+      {ConfirmDialog}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
           <GithubLogo />

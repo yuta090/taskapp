@@ -16,6 +16,8 @@ import {
   Square,
 } from '@phosphor-icons/react'
 import Link from 'next/link'
+import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
@@ -53,6 +55,7 @@ async function hashKey(key: string): Promise<string> {
 }
 
 export default function ApiKeysSettingsPage() {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const { user, loading: userLoading } = useCurrentUser()
   const { spaces, loading: spacesLoading } = useUserSpaces()
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
@@ -134,14 +137,20 @@ export default function ApiKeysSettingsPage() {
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to create API key:', err)
-      alert('APIキーの作成に失敗しました')
+      toast.error('APIキーの作成に失敗しました')
     } finally {
       setCreating(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このAPIキーを削除しますか？この操作は取り消せません。')) return
+    const ok = await confirm({
+      title: 'APIキーを削除',
+      message: 'このAPIキーを削除しますか？この操作は取り消せません。',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       const response = await fetch(`/api/keys/user?id=${id}`, { method: 'DELETE' })
       const result = await response.json()
@@ -150,7 +159,7 @@ export default function ApiKeysSettingsPage() {
       await fetchApiKeys()
     } catch (err) {
       console.error('Failed to delete API key:', err)
-      alert('APIキーの削除に失敗しました')
+      toast.error('APIキーの削除に失敗しました')
     }
   }
 
@@ -225,6 +234,7 @@ export default function ApiKeysSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {ConfirmDialog}
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">

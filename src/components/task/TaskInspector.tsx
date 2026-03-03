@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText } from '@phosphor-icons/react'
-import { AmberBadge } from '@/components/shared'
+import { AmberBadge, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
@@ -68,6 +68,7 @@ export function TaskInspector({
   parentTasks = [],
   childTasks = [],
 }: TaskInspectorProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(task.title)
   const [isEditingDescription, setIsEditingDescription] = useState(false)
@@ -254,7 +255,7 @@ export function TaskInspector({
   }
 
   // FR-ASN-003: ボール切り替え時のハンドラー（ペンディング状態対応）
-  const handleBallChange = (newBall: 'client' | 'internal') => {
+  const handleBallChange = async (newBall: 'client' | 'internal') => {
     if (newBall === 'client') {
       // 外部メンバーがスペースに存在しない場合
       if (clientMembers.length === 0) {
@@ -292,9 +293,11 @@ export function TaskInspector({
         const assignee = clientMembers.find((m) => m.id === task.assignee_id)
           || members.find((m) => m.id === task.assignee_id)
         const assigneeName = assignee?.displayName || '現在の担当者'
-        const confirmed = confirm(
-          `担当者「${assigneeName}」は社内メンバーではありません。\nボールを社内に切り替えると、担当者の変更が必要になる場合があります。\n\n切り替えますか？`
-        )
+        const confirmed = await confirm({
+          title: 'ボール切り替え',
+          message: `担当者「${assigneeName}」は社内メンバーではありません。ボールを社内に切り替えると、担当者の変更が必要になる場合があります。`,
+          confirmLabel: '切り替える',
+        })
         if (!confirmed) return
       }
     }
@@ -349,7 +352,13 @@ export function TaskInspector({
   }
 
   const handleDelete = async () => {
-    if (!confirm('このタスクを削除しますか？')) return
+    const ok = await confirm({
+      title: 'タスクを削除',
+      message: 'このタスクを削除しますか？この操作は取り消せません。',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
     setIsDeleting(true)
     try {
       await onDelete?.()
@@ -361,6 +370,7 @@ export function TaskInspector({
 
   return (
     <div className="h-full flex flex-col bg-white">
+      {ConfirmDialog}
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">

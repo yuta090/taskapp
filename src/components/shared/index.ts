@@ -1,5 +1,6 @@
 export { AmberBadge, AmberDot } from './AmberBadge'
 export { Breadcrumb, type BreadcrumbItem } from './Breadcrumb'
+export { useConfirmDialog } from './ConfirmDialog'
 export { EmptyState } from './EmptyState'
 export { ErrorRetry } from './ErrorRetry'
 export { LoadingState } from './LoadingState'

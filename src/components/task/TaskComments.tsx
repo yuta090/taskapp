@@ -11,6 +11,7 @@ import {
   EyeSlash,
 } from '@phosphor-icons/react'
 import Image from 'next/image'
+import { useConfirmDialog } from '@/components/shared'
 import { useTaskComments, type CommentWithProfile } from '@/lib/hooks/useTaskComments'
 import type { CommentVisibility } from '@/types/database'
 
@@ -50,6 +51,7 @@ interface CommentItemProps {
 }
 
 function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: CommentItemProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditing, setIsEditing] = useState(false)
   const [editBody, setEditBody] = useState(comment.body)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -72,7 +74,13 @@ function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: Comm
   }
 
   const handleDelete = async () => {
-    if (!confirm('このコメントを削除しますか？')) return
+    const ok = await confirm({
+      title: 'コメントを削除',
+      message: 'このコメントを削除しますか？',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
     setIsDeleting(true)
     try {
       await onDelete(comment.id)
@@ -83,6 +91,7 @@ function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: Comm
 
   return (
     <div className={`group py-3 ${isDeleting ? 'opacity-50' : ''}`}>
+      {ConfirmDialog}
       <div className="flex items-start gap-2">
         {/* Avatar */}
         {comment.actor_avatar_url ? (
