@@ -113,6 +113,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [duplicateSource, setDuplicateSource] = useState<Task | null>(null)
   const [recentTaskIds, setRecentTaskIds] = useState<Set<string>>(new Set())
+  const [contextMenu, setContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null)
   // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
   const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
@@ -628,6 +629,15 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     updateTask(taskId, { status })
   }, [updateTask])
 
+  // Context menu handlers
+  const handleContextMenu = useCallback((taskId: string, x: number, y: number) => {
+    setContextMenu({ taskId, x, y })
+  }, [])
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null)
+  }, [])
+
   // Inline task creation
   const handleInlineCreate = useCallback(async (title: string, milestoneId?: string | null) => {
     if (!title.trim()) return
@@ -938,6 +948,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         bulkMode={bulkMode}
                         isChecked={selectedTaskIds.has(task.id)}
                         onCheckChange={handleCheckChange}
+                        onContextMenu={handleContextMenu}
                       />
                     ))}
                     {/* Inline task creation */}
@@ -954,6 +965,52 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           )}
         </div>
       </div>
+
+      {/* Context menu */}
+      {contextMenu && (() => {
+        const ctxTask = tasks.find((t) => t.id === contextMenu.taskId)
+        if (!ctxTask) return null
+        return (
+          <>
+            <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
+            <div
+              className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px] animate-dialog-in"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            >
+              <button
+                type="button"
+                onClick={() => { handleStatusChange(ctxTask.id, ctxTask.status === 'done' ? 'todo' : 'done'); closeContextMenu() }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors text-left"
+              >
+                {ctxTask.status === 'done' ? (
+                  <><Circle className="text-gray-400" /> 未完了に戻す</>
+                ) : (
+                  <><CheckCircle weight="fill" className="text-green-500" /> 完了にする</>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateSource(ctxTask)
+                  syncUrlWithState(true, null, activeFilter)
+                  closeContextMenu()
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors text-left"
+              >
+                <Copy className="text-gray-400" /> 複製
+              </button>
+              <hr className="my-1 border-gray-100" />
+              <button
+                type="button"
+                onClick={async () => { await handleDeleteTask(ctxTask.id); closeContextMenu() }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+              >
+                削除
+              </button>
+            </div>
+          </>
+        )
+      })()}
 
       {/* Bulk action toolbar */}
       {bulkMode && (

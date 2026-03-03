@@ -17,6 +17,7 @@ interface TaskRowProps {
   bulkMode?: boolean
   isChecked?: boolean
   onCheckChange?: (taskId: string, checked: boolean) => void
+  onContextMenu?: (taskId: string, x: number, y: number) => void
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -153,7 +154,7 @@ function BallIndicator({ ball }: { ball: BallSide }) {
   return null
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
@@ -170,8 +171,16 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
     onCheckChange?.(task.id, !isChecked)
   }, [onCheckChange, task.id, isChecked])
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (onContextMenu) {
+      e.preventDefault()
+      onContextMenu(task.id, e.clientX, e.clientY)
+    }
+  }, [onContextMenu, task.id])
+
   return (
     <div
+      onContextMenu={handleContextMenu}
       className={`task-row group row-h flex items-center gap-3 cursor-pointer transition-colors ${
         isChecked
           ? 'bg-blue-50/60'
