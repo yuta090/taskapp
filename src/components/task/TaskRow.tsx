@@ -12,6 +12,9 @@ interface TaskRowProps {
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
   reviewStatus?: 'open' | 'approved' | 'changes_requested'
+  bulkMode?: boolean
+  isChecked?: boolean
+  onCheckChange?: (taskId: string, checked: boolean) => void
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -148,7 +151,7 @@ function BallIndicator({ ball }: { ball: BallSide }) {
   return null
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, bulkMode = false, isChecked = false, onCheckChange }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
@@ -160,16 +163,41 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
     onClick?.(task.id)
   }, [onClick, task.id])
 
+  const handleCheck = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onCheckChange?.(task.id, !isChecked)
+  }, [onCheckChange, task.id, isChecked])
+
   return (
     <div
-      className={`task-row row-h flex items-center gap-3 cursor-pointer transition-colors ${
-        isSelected
-          ? 'bg-blue-50 border-l-2 border-l-blue-500'
-          : 'hover:bg-gray-50'
+      className={`task-row group row-h flex items-center gap-3 cursor-pointer transition-colors ${
+        isChecked
+          ? 'bg-blue-50/60'
+          : isSelected
+            ? 'bg-blue-50 border-l-2 border-l-blue-500'
+            : 'hover:bg-gray-50'
       }`}
       style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
       onClick={handleClick}
     >
+      {/* Bulk selection checkbox */}
+      {onCheckChange && (
+        <button
+          type="button"
+          onClick={handleCheck}
+          className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all ${
+            bulkMode ? '' : 'opacity-0 group-hover:opacity-100'
+          } ${
+            isChecked
+              ? 'bg-blue-500 border-blue-500 text-white'
+              : 'border-gray-300 hover:border-gray-400'
+          }`}
+          aria-label={isChecked ? '選択解除' : '選択'}
+        >
+          {isChecked && <Check weight="bold" className="w-full h-full" />}
+        </button>
+      )}
+
       {/* Quick done checkbox - Left side like Linear */}
       {onStatusChange && (
         <button

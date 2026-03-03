@@ -9,7 +9,7 @@ const SHORTCUTS = [
   { keys: ['N'], description: '新規タスク作成' },
   { keys: ['/'], description: 'タスク検索にフォーカス' },
   { keys: ['?'], description: 'ショートカット一覧' },
-  { keys: ['Esc'], description: 'パネルを閉じる' },
+  { keys: ['Esc'], description: 'パネルを閉じる / 選択解除' },
 ]
 
 export function useShortcutsHelp() {

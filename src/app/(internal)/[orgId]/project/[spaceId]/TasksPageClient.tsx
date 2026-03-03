@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon } from '@phosphor-icons/react'
+import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -59,6 +59,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
   const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
@@ -385,6 +386,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
+    setSelectedTaskIds(new Set())
   }, [syncUrlWithState, isCreateOpen, selectedTaskId])
 
   const handleCreateClose = useCallback(() => {
@@ -479,6 +481,60 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const handleStatusChange = useCallback((taskId: string, status: TaskStatus) => {
     updateTask(taskId, { status })
   }, [updateTask])
+
+  // Bulk selection handlers
+  const bulkMode = selectedTaskIds.size > 0
+
+  const handleCheckChange = useCallback((taskId: string, checked: boolean) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(taskId)
+      } else {
+        next.delete(taskId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedTaskIds(new Set())
+  }, [])
+
+  const handleBulkStatusChange = useCallback(async (status: TaskStatus) => {
+    const ids = Array.from(selectedTaskIds)
+    await Promise.all(ids.map((id) => updateTask(id, { status })))
+    setSelectedTaskIds(new Set())
+    toast.success(`${ids.length}件のステータスを変更しました`)
+  }, [selectedTaskIds, updateTask])
+
+  const handleBulkBallChange = useCallback(async (ball: BallSide) => {
+    const ids = Array.from(selectedTaskIds)
+    if (ball === 'client') {
+      const noClientOwner = ids.filter((id) => {
+        const taskOwners = owners[id] || []
+        return taskOwners.filter((o) => o.side === 'client').length === 0
+      })
+      if (noClientOwner.length > 0) {
+        toast.error(`クライアント担当者が未設定のタスクが${noClientOwner.length}件あります`)
+        return
+      }
+    }
+    await Promise.all(ids.map((id) => passBall(id, ball, owners[id]?.filter(o => o.side === 'client').map(o => o.user_id) || [], owners[id]?.filter(o => o.side === 'internal').map(o => o.user_id) || [])))
+    setSelectedTaskIds(new Set())
+    toast.success(`${ids.length}件のボールを変更しました`)
+  }, [selectedTaskIds, passBall, owners])
+
+  // Clear selection on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedTaskIds.size > 0) {
+        setSelectedTaskIds(new Set())
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedTaskIds.size])
 
   const sortOptions: { key: SortKey; label: string }[] = [
     { key: 'milestone', label: 'マイルストーン別' },
@@ -703,6 +759,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         indent={showHeader}
                         onStatusChange={handleStatusChange}
                         reviewStatus={reviewStatuses[task.id]}
+                        bulkMode={bulkMode}
+                        isChecked={selectedTaskIds.has(task.id)}
+                        onCheckChange={handleCheckChange}
                       />
                     ))}
                   </div>
@@ -712,6 +771,84 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           )}
         </div>
       </div>
+
+      {/* Bulk action toolbar */}
+      {bulkMode && (
+        <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-5 py-2 flex items-center gap-3 animate-slide-down">
+          <span className="text-xs font-medium text-gray-700">
+            {selectedTaskIds.size}件選択
+          </span>
+
+          <div className="h-4 w-px bg-gray-300" />
+
+          {/* Bulk status change */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => handleBulkStatusChange('todo')}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              title="Todoに変更"
+            >
+              <Circle className="text-sm text-gray-400" />
+              Todo
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkStatusChange('in_progress')}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              title="進行中に変更"
+            >
+              <Circle weight="fill" className="text-sm text-blue-400" />
+              進行中
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkStatusChange('done')}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              title="完了に変更"
+            >
+              <CheckCircle weight="fill" className="text-sm text-green-500" />
+              完了
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-gray-300" />
+
+          {/* Bulk ball change */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => handleBulkBallChange('internal')}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              title="ボールを社内に"
+            >
+              <ArrowRight weight="bold" className="text-xs text-blue-500" />
+              社内
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkBallChange('client')}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 rounded border border-transparent hover:border-amber-200 transition-colors"
+              title="ボールをクライアントに"
+            >
+              <ArrowRight weight="bold" className="text-xs text-amber-500" />
+              クライアント
+            </button>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Deselect */}
+          <button
+            type="button"
+            onClick={handleDeselectAll}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
+          >
+            <XIcon className="text-xs" />
+            選択解除
+          </button>
+        </div>
+      )}
 
       <TaskCreateSheet
         spaceId={spaceId}
