@@ -760,6 +760,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         indent={showHeader}
                         onStatusChange={handleStatusChange}
                         reviewStatus={reviewStatuses[task.id]}
+                        assigneeName={task.assignee_id ? getMemberName(task.assignee_id) : null}
                         bulkMode={bulkMode}
                         isChecked={selectedTaskIds.has(task.id)}
                         onCheckChange={handleCheckChange}

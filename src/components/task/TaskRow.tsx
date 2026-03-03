@@ -12,6 +12,7 @@ interface TaskRowProps {
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
   reviewStatus?: 'open' | 'approved' | 'changes_requested'
+  assigneeName?: string | null
   bulkMode?: boolean
   isChecked?: boolean
   onCheckChange?: (taskId: string, checked: boolean) => void
@@ -151,7 +152,7 @@ function BallIndicator({ ball }: { ball: BallSide }) {
   return null
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, bulkMode = false, isChecked = false, onCheckChange }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, bulkMode = false, isChecked = false, onCheckChange }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
@@ -303,6 +304,16 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         >
           承認を依頼
         </button>
+      )}
+
+      {/* Assignee avatar */}
+      {assigneeName && (
+        <div
+          className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px] font-medium"
+          title={assigneeName}
+        >
+          {assigneeName.charAt(0)}
+        </div>
       )}
 
       {/* Ball indicator */}
