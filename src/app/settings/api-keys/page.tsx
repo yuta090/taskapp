@@ -477,7 +477,7 @@ export default function ApiKeysSettingsPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-gray-900">{key.name}</span>
                         {!key.is_active && (
-                          <span className="text-xs text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                          <span className="text-xs text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
                             無効
                           </span>
                         )}

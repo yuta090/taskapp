@@ -37,7 +37,7 @@ interface NotificationInspectorProps {
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; color: string }[] = [
-  { value: 'backlog', label: 'バックログ', color: 'text-gray-300' },
+  { value: 'backlog', label: 'バックログ', color: 'text-gray-400' },
   { value: 'todo', label: 'Todo', color: 'text-gray-400' },
   { value: 'in_progress', label: '進行中', color: 'text-blue-400' },
   { value: 'in_review', label: '承認確認中', color: 'text-amber-400' },
@@ -591,7 +591,7 @@ export function NotificationInspector({
             {getNotificationTypeLabel(notification.type)}
           </span>
           {isUrgent && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded font-medium">
+            <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded font-medium">
               緊急
             </span>
           )}

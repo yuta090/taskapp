@@ -277,7 +277,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       <div className="flex items-center gap-2 text-gray-700">
         <Key className="text-lg" />
         <h3 className="font-medium">API設定</h3>
-        <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">管理者限定</span>
+        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded">管理者限定</span>
       </div>
 
       <p className="text-sm text-gray-500">

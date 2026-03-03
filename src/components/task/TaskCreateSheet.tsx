@@ -859,17 +859,17 @@ export function TaskCreateSheet({
                         <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-green-400" />
                           <span className="text-[10px] text-gray-600">完了済みタスク</span>
-                          <span className="ml-auto text-[9px] text-green-600 bg-green-50 px-1 rounded">完了</span>
+                          <span className="ml-auto text-[9px] text-green-700 bg-green-50 px-1 rounded">完了</span>
                         </div>
                         <div className="bg-blue-50 rounded px-2 py-1.5 border border-blue-200 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-blue-400" />
                           <span className="text-[10px] text-blue-700 font-medium">このタスク ← 公開される</span>
-                          <span className="ml-auto text-[9px] text-blue-600 bg-blue-100 px-1 rounded">進行中</span>
+                          <span className="ml-auto text-[9px] text-blue-700 bg-blue-100 px-1 rounded">進行中</span>
                         </div>
                         <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-amber-400" />
                           <span className="text-[10px] text-gray-600">確認待ちタスク</span>
-                          <span className="ml-auto text-[9px] text-amber-600 bg-amber-50 px-1 rounded">確認待ち</span>
+                          <span className="ml-auto text-[9px] text-amber-700 bg-amber-50 px-1 rounded">確認待ち</span>
                         </div>
                       </div>
                     </div>

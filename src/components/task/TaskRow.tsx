@@ -32,7 +32,7 @@ function isOverdue(dateStr: string | null): boolean {
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; icon: React.ReactNode }[] = [
-  { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-300" /> },
+  { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-400" /> },
   { value: 'todo', label: 'Todo', icon: <Circle className="text-gray-400" /> },
   { value: 'in_progress', label: '進行中', icon: <Circle weight="fill" className="text-blue-400" /> },
   { value: 'in_review', label: '承認確認中', icon: <Circle weight="fill" className="text-amber-400" /> },
@@ -52,7 +52,7 @@ function getStatusIcon(status: TaskStatus) {
     case 'todo':
       return <Circle className="text-gray-400" />
     default:
-      return <Circle className="text-gray-300" />
+      return <Circle className="text-gray-400" />
   }
 }
 
@@ -139,7 +139,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
 function BallIndicator({ ball }: { ball: BallSide }) {
   if (ball === 'client') {
     return (
-      <span className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+      <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
         <ArrowRight weight="bold" className="text-xs" />
         外部確認待ち
       </span>
@@ -219,7 +219,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               task.decision_state === 'implemented'
-                ? 'bg-green-50 text-green-600'
+                ? 'bg-green-50 text-green-700'
                 : 'bg-gray-100 text-gray-500'
             }`}
           >
@@ -236,10 +236,10 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               reviewStatus === 'approved'
-                ? 'bg-green-50 text-green-600'
+                ? 'bg-green-50 text-green-700'
                 : reviewStatus === 'changes_requested'
-                ? 'bg-red-50 text-red-600'
-                : 'bg-amber-50 text-amber-600'
+                ? 'bg-red-50 text-red-700'
+                : 'bg-amber-50 text-amber-700'
             }`}
           >
             {reviewStatus === 'approved'

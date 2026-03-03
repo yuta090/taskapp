@@ -65,10 +65,10 @@ function getStatusLabel(status?: string): { label: string; color: string } {
   if (!status) return { label: '不明', color: 'bg-gray-100 text-gray-700' }
   const statusMap: Record<string, { label: string; color: string }> = {
     considering: { label: '確認待ち', color: 'bg-gray-100 text-gray-600' },
-    open: { label: '対応待ち', color: 'bg-blue-50 text-blue-600' },
-    in_progress: { label: '進行中', color: 'bg-blue-50 text-blue-600' },
+    open: { label: '対応待ち', color: 'bg-blue-50 text-blue-700' },
+    in_progress: { label: '進行中', color: 'bg-blue-50 text-blue-700' },
     todo: { label: 'Todo', color: 'bg-gray-100 text-gray-600' },
-    done: { label: '完了', color: 'bg-green-50 text-green-600' },
+    done: { label: '完了', color: 'bg-green-50 text-green-700' },
   }
   return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-600' }
 }
