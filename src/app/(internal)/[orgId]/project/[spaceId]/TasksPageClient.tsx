@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown } from '@phosphor-icons/react'
+import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -58,6 +58,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
+  const [searchQuery, setSearchQuery] = useState('')
   // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
   const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
@@ -190,8 +191,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       result = applyTaskFilters(result, advancedFilters)
     }
 
+    // Then apply search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      result = result.filter(
+        (task) =>
+          task.title.toLowerCase().includes(q) ||
+          (task.description && task.description.toLowerCase().includes(q))
+      )
+    }
+
     return result
-  }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters])
+  }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
 
   // Group and sort tasks
   const taskGroups: TaskGroup[] = useMemo(() => {
@@ -384,9 +395,16 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     syncUrlWithState(true, selectedTaskId, activeFilter)
   }, [syncUrlWithState, selectedTaskId, activeFilter])
 
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFocusSearch = useCallback(() => {
+    searchInputRef.current?.focus()
+  }, [])
+
   // Keyboard shortcuts
   useKeyboardShortcuts([
     { key: 'n', handler: handleCreateOpen },
+    { key: '/', handler: handleFocusSearch },
   ])
 
   // Stable refs for handleTaskSelect to keep callback identity stable across selection changes
@@ -574,6 +592,28 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             />
           )}
 
+          {/* Search */}
+          <div className="relative flex items-center">
+            <MagnifyingGlass className="absolute left-2 text-sm text-gray-400 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="検索... (/)"
+              className="w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:w-56 transition-all bg-white placeholder-gray-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 text-gray-400 hover:text-gray-600"
+              >
+                <XIcon className="text-xs" />
+              </button>
+            )}
+          </div>
+
           {/* Divider */}
           <div className="h-4 w-px bg-gray-200" />
 
@@ -623,7 +663,19 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           {loading && <LoadingState />}
           {error && <ErrorRetry onRetry={fetchTasks} />}
           {!loading && !error && filteredTasks.length === 0 && (
-            <EmptyState icon={<Copy />} message="タスクはありません" />
+            <EmptyState
+              icon={searchQuery ? <MagnifyingGlass /> : <Copy />}
+              message={searchQuery ? `「${searchQuery}」に一致するタスクはありません` : 'タスクはありません'}
+              action={searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  検索をクリア
+                </button>
+              ) : undefined}
+            />
           )}
           {!loading && !error && filteredTasks.length > 0 && (
             <div className="border-t border-gray-100">
