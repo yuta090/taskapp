@@ -92,7 +92,7 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
     ? <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded font-medium flex-shrink-0">緊急</span>
     : isActionable && !isActioned
       ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
-          isUnread ? 'bg-amber-50 text-amber-700' : 'bg-amber-50/60 text-amber-500'
+          isUnread ? 'bg-amber-50 text-amber-700' : 'bg-amber-50/60 text-amber-600'
         }`}>要対応</span>
       : isActioned
         ? <span className="text-[10px] text-gray-400 flex-shrink-0">対応済み</span>
