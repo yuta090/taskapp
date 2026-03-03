@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight } from '@phosphor-icons/react'
+import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -45,6 +45,56 @@ interface TaskGroup {
   milestone: Milestone | null
   tasks: Task[]
   label?: string
+}
+
+function InlineTaskInput({ indent, onSubmit }: { indent: boolean; onSubmit: (title: string) => void }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleSubmit = () => {
+    if (value.trim()) {
+      onSubmit(value.trim())
+      setValue('')
+    }
+    setIsEditing(false)
+  }
+
+  if (!isEditing) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setIsEditing(true); setTimeout(() => inputRef.current?.focus(), 0) }}
+        className="w-full row-h flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
+        style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
+      >
+        <Plus className="text-sm" />
+        タスクを追加
+      </button>
+    )
+  }
+
+  return (
+    <div
+      className="row-h flex items-center gap-2"
+      style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
+    >
+      <Plus className="text-sm text-gray-400 flex-shrink-0" />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); handleSubmit() }
+          if (e.key === 'Escape') { setValue(''); setIsEditing(false) }
+        }}
+        onBlur={handleSubmit}
+        placeholder="タスク名を入力してEnter"
+        className="flex-1 text-sm bg-transparent outline-none placeholder-gray-300"
+      />
+    </div>
+  )
 }
 
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
@@ -578,6 +628,30 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     updateTask(taskId, { status })
   }, [updateTask])
 
+  // Inline task creation
+  const handleInlineCreate = useCallback(async (title: string, milestoneId?: string | null) => {
+    if (!title.trim()) return
+    try {
+      const created = await createTask({
+        title: title.trim(),
+        type: 'task',
+        ball: lastBall,
+        origin: 'internal',
+        clientScope: 'internal',
+        clientOwnerIds: lastClientOwnerIds,
+        internalOwnerIds: [],
+        milestoneId: milestoneId || undefined,
+      })
+      setRecentTaskIds((prev) => new Set(prev).add(created.id))
+      setTimeout(() => {
+        setRecentTaskIds((prev) => { const next = new Set(prev); next.delete(created.id); return next })
+      }, 5000)
+      toast.success('タスクを作成しました')
+    } catch {
+      toast.error('タスクの作成に失敗しました')
+    }
+  }, [createTask, lastBall, lastClientOwnerIds])
+
   // Bulk selection handlers
   const bulkMode = selectedTaskIds.size > 0
 
@@ -866,6 +940,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         onCheckChange={handleCheckChange}
                       />
                     ))}
+                    {/* Inline task creation */}
+                    {!isCollapsed && (
+                      <InlineTaskInput
+                        indent={showHeader}
+                        onSubmit={(title) => handleInlineCreate(title, group.milestone?.id)}
+                      />
+                    )}
                   </div>
                 )
               })}
