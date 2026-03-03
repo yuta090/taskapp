@@ -206,7 +206,7 @@ function PortalProposalCard({
               回答済み
             </span>
           ) : isConfirmed ? (
-            <span className="inline-flex items-center px-2.5 py-1 text-xs text-green-600 bg-green-50 border border-green-200 rounded-full">
+            <span className="inline-flex items-center px-2.5 py-1 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full">
               確定
             </span>
           ) : null}

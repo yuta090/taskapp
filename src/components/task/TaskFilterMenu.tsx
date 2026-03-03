@@ -336,7 +336,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
                 type="button"
                 onClick={() => setSingleFilter('dueDateRange', option.value)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors ${
-                  filters.dueDateRange === option.value ? 'bg-blue-50 text-blue-600' : ''
+                  filters.dueDateRange === option.value ? 'bg-blue-50 text-blue-700' : ''
                 }`}
               >
                 <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -400,7 +400,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
         onClick={handleToggle}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border ${
           activeFilterCount > 0
-            ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
+            ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
             : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-white'
         }`}
       >

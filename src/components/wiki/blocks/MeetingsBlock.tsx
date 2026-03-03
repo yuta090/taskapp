@@ -124,8 +124,8 @@ function MeetingsBlockComponent({ block, editor }: { block: { props: { orgId: st
                   {formatDate(meeting.held_at)}
                 </span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                  meeting.status === 'ended' ? 'bg-green-50 text-green-600' :
-                  meeting.status === 'in_progress' ? 'bg-amber-50 text-amber-600' :
+                  meeting.status === 'ended' ? 'bg-green-50 text-green-700' :
+                  meeting.status === 'in_progress' ? 'bg-amber-50 text-amber-700' :
                   'bg-gray-100 text-gray-500'
                 }`}>
                   {statusLabel(meeting.status)}

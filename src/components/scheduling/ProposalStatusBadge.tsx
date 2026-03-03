@@ -21,7 +21,7 @@ const STATUS_CONFIG: Record<ProposalStatus, { label: string; className: string }
   },
   expired: {
     label: '期限切れ',
-    className: 'bg-red-50 text-red-600 border-red-200',
+    className: 'bg-red-50 text-red-700 border-red-200',
   },
 }
 

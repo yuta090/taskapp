@@ -251,7 +251,7 @@ export function MilestonesSettings({ spaceId }: MilestonesSettingsProps) {
                         {ms.name}
                       </span>
                       {ms.completed_at && (
-                        <span className="text-[11px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded font-medium">
+                        <span className="text-[11px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-medium">
                           完了
                         </span>
                       )}

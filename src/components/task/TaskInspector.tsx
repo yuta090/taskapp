@@ -510,7 +510,7 @@ export function TaskInspector({
             <div ref={pendingOwnerRef} className="mt-2 p-3 bg-amber-50/60 rounded-lg border border-amber-200 space-y-3">
               {/* バリデーションエラー */}
               {ownerValidationError && (
-                <p className="text-xs text-red-600 bg-red-50 px-2 py-1.5 rounded border border-red-200">
+                <p className="text-xs text-red-700 bg-red-50 px-2 py-1.5 rounded border border-red-200">
                   {ownerValidationError}
                 </p>
               )}
@@ -596,7 +596,7 @@ export function TaskInspector({
               onClick={() => setOwnerValidationError(null)}
               className="w-full text-left"
             >
-              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200 flex items-center justify-between">
+              <p className="text-xs text-red-700 bg-red-50 px-3 py-2 rounded-lg border border-red-200 flex items-center justify-between">
                 <span>{ownerValidationError}</span>
                 <X className="text-sm flex-shrink-0 text-red-400" />
               </p>
@@ -982,9 +982,9 @@ export function TaskInspector({
                 <span
                   className={`text-xs px-2 py-1 rounded font-medium ${
                     task.decision_state === 'implemented'
-                      ? 'bg-green-50 text-green-600'
+                      ? 'bg-green-50 text-green-700'
                       : task.decision_state === 'decided'
-                      ? 'bg-blue-50 text-blue-600'
+                      ? 'bg-blue-50 text-blue-700'
                       : 'bg-gray-100 text-gray-600'
                   }`}
                 >

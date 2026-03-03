@@ -127,7 +127,7 @@ export function WikiPageInspector({
             onClick={handleDelete}
             className={`p-1.5 rounded transition-colors ${
               isDeleting
-                ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                ? 'text-red-700 bg-red-50 hover:bg-red-100'
                 : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
             }`}
             title={isDeleting ? 'もう一度クリックで削除' : '削除'}

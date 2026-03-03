@@ -297,7 +297,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                     member.role === 'admin'
                       ? 'bg-amber-100 text-amber-700'
                       : member.role === 'client'
-                      ? 'bg-amber-50 text-amber-600'
+                      ? 'bg-amber-50 text-amber-700'
                       : 'bg-gray-100 text-gray-700'
                   }`}
                 >

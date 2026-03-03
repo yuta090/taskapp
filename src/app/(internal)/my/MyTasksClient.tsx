@@ -493,7 +493,7 @@ export default function MyTasksClient() {
           onClick={() => setShowFilters(!showFilters)}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
             showFilters || hasActiveFilters
-              ? 'bg-blue-50 text-blue-600'
+              ? 'bg-blue-50 text-blue-700'
               : 'text-gray-500 hover:bg-gray-100'
           }`}
         >
