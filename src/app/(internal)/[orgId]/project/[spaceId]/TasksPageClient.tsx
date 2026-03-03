@@ -61,6 +61,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [duplicateSource, setDuplicateSource] = useState<Task | null>(null)
+  const [recentTaskIds, setRecentTaskIds] = useState<Set<string>>(new Set())
   // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
   const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
@@ -494,6 +495,15 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       setLastBallBySpace((prev) => ({ ...prev, [spaceId]: data.ball }))
       setLastClientOwnersBySpace((prev) => ({ ...prev, [spaceId]: data.clientOwnerIds }))
       syncUrlWithState(false, created.id, activeFilter)
+      // Highlight new task briefly
+      setRecentTaskIds((prev) => new Set(prev).add(created.id))
+      setTimeout(() => {
+        setRecentTaskIds((prev) => {
+          const next = new Set(prev)
+          next.delete(created.id)
+          return next
+        })
+      }, 5000)
       toast.success('タスクを作成しました', {
         description: 'ボール・関係者の設定は次回作成時に保持されます',
         action: {
@@ -805,6 +815,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                         onStatusChange={handleStatusChange}
                         reviewStatus={reviewStatuses[task.id]}
                         assigneeName={task.assignee_id ? getMemberName(task.assignee_id) : null}
+                        isNew={recentTaskIds.has(task.id)}
                         bulkMode={bulkMode}
                         isChecked={selectedTaskIds.has(task.id)}
                         onCheckChange={handleCheckChange}

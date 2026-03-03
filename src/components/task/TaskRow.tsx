@@ -13,6 +13,7 @@ interface TaskRowProps {
   onStatusChange?: (taskId: string, status: TaskStatus) => void
   reviewStatus?: 'open' | 'approved' | 'changes_requested'
   assigneeName?: string | null
+  isNew?: boolean
   bulkMode?: boolean
   isChecked?: boolean
   onCheckChange?: (taskId: string, checked: boolean) => void
@@ -152,7 +153,7 @@ function BallIndicator({ ball }: { ball: BallSide }) {
   return null
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, bulkMode = false, isChecked = false, onCheckChange }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
 
@@ -176,7 +177,9 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           ? 'bg-blue-50/60'
           : isSelected
             ? 'bg-blue-50 border-l-2 border-l-blue-500'
-            : 'hover:bg-gray-50'
+            : isNew
+              ? 'bg-green-50/40 border-l-2 border-l-green-400'
+              : 'hover:bg-gray-50'
       }`}
       style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
       onClick={handleClick}
