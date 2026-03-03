@@ -978,13 +978,21 @@ export const LeftNav = memo(function LeftNav() {
                         if (groupIndex === 0) return
                         const ids = groups.map((g) => g.id)
                         ;[ids[groupIndex - 1], ids[groupIndex]] = [ids[groupIndex], ids[groupIndex - 1]]
-                        await reorderGroups(ids)
+                        try {
+                          await reorderGroups(ids)
+                        } catch {
+                          toast.error('並び替えに失敗しました')
+                        }
                       }}
                       onMoveDown={async () => {
                         if (groupIndex === groups.length - 1) return
                         const ids = groups.map((g) => g.id)
                         ;[ids[groupIndex], ids[groupIndex + 1]] = [ids[groupIndex + 1], ids[groupIndex]]
-                        await reorderGroups(ids)
+                        try {
+                          await reorderGroups(ids)
+                        } catch {
+                          toast.error('並び替えに失敗しました')
+                        }
                       }}
                       isFirst={groupIndex === 0}
                       isLast={groupIndex === groups.length - 1}

@@ -25,7 +25,7 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
   const { members } = useSpaceMembers(spaceId)
   const { user } = useCurrentUser()
   const currentMember = members.find((m) => m.id === user?.id)
-  const isAdmin = currentMember?.role === 'admin'
+  const isAdmin = currentMember?.role === 'admin' || currentMember?.role === 'owner'
 
   const supabase = useMemo(() => createClient(), [])
 
