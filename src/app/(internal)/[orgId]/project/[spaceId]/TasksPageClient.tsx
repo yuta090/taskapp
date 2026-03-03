@@ -409,6 +409,45 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     { key: '/', handler: handleFocusSearch },
   ])
 
+  // Flat visible task IDs for keyboard navigation (respects grouping + collapsed)
+  const flatVisibleTaskIds = useMemo(() => {
+    const ids: string[] = []
+    for (const group of taskGroups) {
+      const groupKey = group.milestone?.id || '__none__'
+      if (collapsedGroups.has(groupKey)) continue
+      for (const task of group.tasks) {
+        ids.push(task.id)
+      }
+    }
+    return ids
+  }, [taskGroups, collapsedGroups])
+
+  // ↑↓ keyboard navigation for task list
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'j' && e.key !== 'k') return
+      if (flatVisibleTaskIds.length === 0) return
+
+      e.preventDefault()
+      const currentIndex = selectedTaskId ? flatVisibleTaskIds.indexOf(selectedTaskId) : -1
+      let nextIndex: number
+
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        nextIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, flatVisibleTaskIds.length - 1)
+      } else {
+        nextIndex = currentIndex <= 0 ? 0 : currentIndex - 1
+      }
+
+      const nextId = flatVisibleTaskIds[nextIndex]
+      if (nextId && nextId !== selectedTaskId) {
+        syncUrlWithState(isCreateOpen, nextId, activeFilter)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [flatVisibleTaskIds, selectedTaskId, syncUrlWithState, isCreateOpen, activeFilter])
+
   // Stable refs for handleTaskSelect to keep callback identity stable across selection changes
   const selectedTaskIdRef = useRef(selectedTaskId)
   const syncUrlRef = useRef(syncUrlWithState)

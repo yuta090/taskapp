@@ -8,6 +8,8 @@ import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
 const SHORTCUTS = [
   { keys: ['N'], description: '新規タスク作成' },
   { keys: ['/'], description: 'タスク検索にフォーカス' },
+  { keys: ['↑', '↓'], description: 'タスク間を移動' },
+  { keys: ['J', 'K'], description: 'タスク間を移動（Vim風）' },
   { keys: ['?'], description: 'ショートカット一覧' },
   { keys: ['Esc'], description: 'パネルを閉じる / 選択解除' },
 ]
