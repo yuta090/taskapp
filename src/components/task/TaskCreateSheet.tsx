@@ -27,6 +27,8 @@ interface TaskCreateSheetProps {
   onSubmit: (task: TaskCreateData & { spaceId?: string; orgId?: string }) => void | Promise<unknown>
   defaultBall?: BallSide
   defaultClientOwnerIds?: string[]
+  defaultTitle?: string
+  defaultDescription?: string
   /** Available parent tasks for subtask creation */
   parentTasks?: { id: string; title: string }[]
   /** Pre-selected parent task ID (e.g. when creating from parent context) */
@@ -78,6 +80,8 @@ export function TaskCreateSheet({
   onSubmit,
   defaultBall = 'internal',
   defaultClientOwnerIds = [],
+  defaultTitle = '',
+  defaultDescription = '',
   parentTasks = [],
   defaultParentTaskId,
   spaces = [],
@@ -92,8 +96,8 @@ export function TaskCreateSheet({
   const effectiveSpaceName = isGlobalCreate
     ? spaces.find((s) => s.id === selectedSpaceId)?.name || ''
     : spaceName || ''
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
+  const [title, setTitle] = useState(defaultTitle)
+  const [description, setDescription] = useState(defaultDescription)
   const [ball, setBall] = useState<BallSide>(defaultBall)
   const [clientScope, setClientScope] = useState<ClientScope>('internal')
   const [wikiPageId, setWikiPageId] = useState('')
@@ -158,7 +162,9 @@ export function TaskCreateSheet({
       if (!isGlobalCreate) {
         inputRef.current?.focus()
       }
-      // Carry over previous client owners (UI Rules)
+      // Set defaults (including duplicate data)
+      setTitle(defaultTitle)
+      setDescription(defaultDescription)
       setClientOwnerIds(defaultClientOwnerIds)
       setBall(defaultBall)
       // In global create mode, preserve selectedSpaceId between creates
@@ -168,7 +174,8 @@ export function TaskCreateSheet({
       }
     }
     prevIsOpenRef.current = isOpen
-  }, [isOpen, defaultBall, defaultClientOwnerIds, isGlobalCreate, selectedSpaceId, spaces])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, defaultBall, defaultClientOwnerIds, defaultTitle, defaultDescription, isGlobalCreate, selectedSpaceId, spaces])
 
   // Restore draft (runs after the open-transition effect, overriding defaults)
   useEffect(() => {

@@ -60,6 +60,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const [advancedFilters, setAdvancedFilters] = useState<TaskFilters>(defaultFilters)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [duplicateSource, setDuplicateSource] = useState<Task | null>(null)
   // Carry-over state for consecutive task creates (UX rule: ball/owners persist per space)
   const [lastBallBySpace, setLastBallBySpace] = useState<Record<string, BallSide>>({})
   const [lastClientOwnersBySpace, setLastClientOwnersBySpace] = useState<Record<string, string[]>>({})
@@ -371,6 +372,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         onPassBall={(ball, clientOwnerIds, internalOwnerIds) => handlePassBall(selectedTask.id, ball, clientOwnerIds, internalOwnerIds)}
         onUpdate={(updates) => handleUpdateTask(selectedTask.id, updates)}
         onDelete={() => handleDeleteTask(selectedTask.id)}
+        onDuplicate={() => {
+          setDuplicateSource(selectedTask)
+          syncUrlWithState(true, null, activeFilter)
+        }}
         onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
           handleUpdateOwners(selectedTask.id, clientOwnerIds, internalOwnerIds)
         }
@@ -896,10 +901,12 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         orgId={orgId}
         spaceName={spaceName}
         isOpen={isCreateOpen}
-        onClose={handleCreateClose}
+        onClose={() => { handleCreateClose(); setDuplicateSource(null) }}
         onSubmit={handleCreateSubmit}
-        defaultBall={lastBall}
+        defaultBall={duplicateSource ? duplicateSource.ball : lastBall}
         defaultClientOwnerIds={lastClientOwnerIds}
+        defaultTitle={duplicateSource ? `${duplicateSource.title}（コピー）` : ''}
+        defaultDescription={duplicateSource?.description || ''}
         parentTasks={parentTaskOptions}
       />
     </div>

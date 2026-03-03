@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple } from '@phosphor-icons/react'
 import { AmberBadge, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -35,6 +35,7 @@ interface TaskInspectorProps {
     wikiPageId?: string | null
   }) => Promise<void>
   onDelete?: () => Promise<void>
+  onDuplicate?: () => void
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
   /** AT-009: Spec task state transition */
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
@@ -62,6 +63,7 @@ export function TaskInspector({
   onPassBall,
   onUpdate,
   onDelete,
+  onDuplicate,
   onUpdateOwners,
   onSetSpecState,
   onReviewChange,
@@ -387,6 +389,15 @@ export function TaskInspector({
           ) : null}
         </div>
         <div className="flex items-center gap-1">
+          {onDuplicate && (
+            <button
+              onClick={onDuplicate}
+              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+              title="タスクを複製"
+            >
+              <CopySimple className="text-lg" />
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={handleDelete}
