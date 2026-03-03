@@ -33,6 +33,7 @@ export function SlackPostButton({ taskId, spaceId }: SlackPostButtonProps) {
       setSuccess(true)
       setMessage('')
       setShowInput(false)
+      toast.success('Slackに投稿しました')
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
       console.error('Failed to post to Slack:', err)

@@ -48,6 +48,7 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
       })
       setSelectedPRId('')
       setShowLinkDialog(false)
+      toast.success('PRを紐付けました')
     } catch (err) {
       console.error('Failed to link PR:', err)
       toast.error('PRの紐付けに失敗しました')
@@ -65,6 +66,7 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
 
     try {
       await unlinkPR.mutateAsync({ linkId, taskId })
+      toast.success('PRの紐付けを解除しました')
     } catch (err) {
       console.error('Failed to unlink PR:', err)
       toast.error('紐付けの解除に失敗しました')

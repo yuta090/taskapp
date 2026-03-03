@@ -11,6 +11,7 @@ import {
 } from '@/lib/hooks'
 import { getGitHubInstallUrl, isGitHubConfigured } from '@/lib/github/config'
 import { toast } from 'sonner'
+import { useConfirmDialog } from '@/components/shared'
 
 interface GitHubSettingsProps {
   orgId: string
@@ -18,6 +19,7 @@ interface GitHubSettingsProps {
 }
 
 export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const [selectedRepoId, setSelectedRepoId] = useState<string>('')
 
   // Hooks
@@ -43,6 +45,7 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
         githubRepoId: selectedRepoId,
       })
       setSelectedRepoId('')
+      toast.success('リポジトリを連携しました')
     } catch (err) {
       console.error('Failed to link repository:', err)
       toast.error('リポジトリの連携に失敗しました')
@@ -50,13 +53,20 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
   }
 
   const handleUnlinkRepo = async (linkId: string) => {
-    if (!confirm('このリポジトリの連携を解除しますか？')) return
+    const ok = await confirm({
+      title: 'リポジトリ連携を解除',
+      message: 'このリポジトリの連携を解除しますか？',
+      confirmLabel: '解除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       await unlinkRepo.mutateAsync({
         linkId,
         spaceId,
       })
+      toast.success('リポジトリの連携を解除しました')
     } catch (err) {
       console.error('Failed to unlink repository:', err)
       toast.error('連携の解除に失敗しました')
@@ -87,6 +97,7 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
 
   return (
     <div className="space-y-4">
+      {ConfirmDialog}
       <div className="flex items-center gap-2 text-gray-700">
         <GithubLogo className="text-lg" weight="bold" />
         <h3 className="font-medium">GitHub連携</h3>

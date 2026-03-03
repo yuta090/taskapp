@@ -191,7 +191,19 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
                 setArchiving(true)
                 try {
                   await archive()
-                  toast.success('アーカイブしました')
+                  toast.success('アーカイブしました', {
+                    action: {
+                      label: '元に戻す',
+                      onClick: async () => {
+                        try {
+                          await unarchive()
+                          toast.success('アーカイブを解除しました')
+                        } catch {
+                          toast.error('アーカイブ解除に失敗しました')
+                        }
+                      },
+                    },
+                  })
                 } catch {
                   toast.error('アーカイブに失敗しました')
                 } finally {

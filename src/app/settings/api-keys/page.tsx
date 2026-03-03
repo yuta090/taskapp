@@ -157,6 +157,7 @@ export default function ApiKeysSettingsPage() {
 
       if (!response.ok) throw new Error(result.error)
       await fetchApiKeys()
+      toast.success('APIキーを削除しました')
     } catch (err) {
       console.error('Failed to delete API key:', err)
       toast.error('APIキーの削除に失敗しました')
