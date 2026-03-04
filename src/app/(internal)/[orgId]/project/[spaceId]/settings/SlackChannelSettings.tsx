@@ -6,10 +6,7 @@ import {
   Trash,
   CheckCircle,
   Link as LinkIcon,
-  CaretDown,
-  Key,
-  PlugsConnected,
-  Warning,
+  ArrowRight,
 } from '@phosphor-icons/react'
 import {
   useSlackWorkspace,
@@ -17,87 +14,35 @@ import {
   useSlackChannelList,
   useLinkSlackChannel,
   useUnlinkSlackChannel,
-  useSaveSlackToken,
-  useDisconnectSlack,
   useUpdateNotifyToggles,
 } from '@/lib/hooks/useSlack'
 import { isSlackConfigured } from '@/lib/slack/config'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
+import Link from 'next/link'
 
-interface SlackSettingsProps {
+interface SlackChannelSettingsProps {
   orgId: string
   spaceId: string
 }
 
-export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
+export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [selectedChannelId, setSelectedChannelId] = useState('')
-  const [showManualInput, setShowManualInput] = useState(false)
-  const [botToken, setBotToken] = useState('')
-  const [tokenError, setTokenError] = useState('')
 
   const { data: workspace, isLoading: loadingWorkspace } = useSlackWorkspace(orgId)
   const { data: linkedChannel, isLoading: loadingLinked } = useSlackChannel(spaceId)
   const { data: channels = [], isLoading: loadingChannels } = useSlackChannelList(orgId)
   const linkChannel = useLinkSlackChannel()
   const unlinkChannel = useUnlinkSlackChannel()
-  const saveToken = useSaveSlackToken()
-  const disconnectSlack = useDisconnectSlack()
   const updateToggles = useUpdateNotifyToggles()
 
   const isConfigured = isSlackConfigured()
 
-  const handleOAuth = () => {
-    window.location.href = `/api/slack/authorize?orgId=${orgId}&spaceId=${spaceId}`
-  }
-
-  const handleManualSave = async () => {
-    setTokenError('')
-
-    if (!botToken.trim()) {
-      setTokenError('Bot Tokenを入力してください')
-      return
-    }
-
-    if (!botToken.startsWith('xoxb-')) {
-      setTokenError('Bot Tokenは xoxb- で始まる必要があります')
-      return
-    }
-
-    try {
-      await saveToken.mutateAsync({ orgId, botToken: botToken.trim() })
-      setBotToken('')
-      setShowManualInput(false)
-    } catch (err) {
-      setTokenError(err instanceof Error ? err.message : 'トークンの保存に失敗しました')
-    }
-  }
-
-  const handleDisconnect = async () => {
-    const ok = await confirm({
-      title: 'Slack連携を解除',
-      message: 'Slack連携を解除しますか？すべてのプロジェクトのチャンネル紐付けも解除されます。',
-      confirmLabel: '解除',
-      variant: 'danger',
-    })
-    if (!ok) return
-
-    try {
-      await disconnectSlack.mutateAsync(orgId)
-      toast.success('Slack連携を解除しました')
-    } catch (err) {
-      console.error('Failed to disconnect Slack:', err)
-      toast.error('連携の解除に失敗しました')
-    }
-  }
-
   const handleLink = async () => {
     if (!selectedChannelId) return
-
     const channel = channels.find(c => c.id === selectedChannelId)
     if (!channel) return
-
     try {
       await linkChannel.mutateAsync({
         spaceId,
@@ -106,8 +51,7 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
       })
       setSelectedChannelId('')
       toast.success(`#${channel.name} を連携しました`)
-    } catch (err) {
-      console.error('Failed to link channel:', err)
+    } catch {
       toast.error('チャンネルの連携に失敗しました')
     }
   }
@@ -120,17 +64,14 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
       variant: 'danger',
     })
     if (!ok) return
-
     try {
       await unlinkChannel.mutateAsync(spaceId)
       toast.success('チャンネル連携を解除しました')
-    } catch (err) {
-      console.error('Failed to unlink channel:', err)
+    } catch {
       toast.error('連携の解除に失敗しました')
     }
   }
 
-  // Slack機能自体が無効
   if (!isConfigured) {
     return (
       <div className="space-y-4">
@@ -149,81 +90,6 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
 
   const isLoading = loadingWorkspace || loadingLinked || loadingChannels
 
-  // === State 1: ワークスペース未連携 ===
-  if (!isLoading && !workspace) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 text-gray-700">
-          <ChatCircleDots className="text-lg" weight="bold" />
-          <h3 className="font-medium">Slack連携</h3>
-        </div>
-
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            Slackワークスペースを連携して、タスク情報を共有できます。
-          </p>
-
-          {/* OAuth ボタン */}
-          <button
-            onClick={handleOAuth}
-            className="flex items-center gap-2 w-full px-4 py-3 text-sm font-medium text-white bg-[#4A154B] hover:bg-[#611f64] rounded-lg transition-colors"
-          >
-            <PlugsConnected weight="bold" />
-            Slackと連携する
-          </button>
-
-          {/* 手動入力（折りたたみ） */}
-          <div className="border border-gray-200 rounded-lg">
-            <button
-              onClick={() => setShowManualInput(!showManualInput)}
-              className="flex items-center justify-between w-full px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"
-            >
-              <span className="flex items-center gap-2">
-                <Key weight="bold" />
-                手動でBot Tokenを入力
-              </span>
-              <CaretDown
-                className={`transition-transform ${showManualInput ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {showManualInput && (
-              <div className="px-4 pb-4 space-y-3">
-                <p className="text-xs text-gray-500">
-                  Slack App の OAuth & Permissions から Bot User OAuth Token をコピーしてください。
-                </p>
-                <input
-                  type="password"
-                  value={botToken}
-                  onChange={(e) => {
-                    setBotToken(e.target.value)
-                    setTokenError('')
-                  }}
-                  placeholder="xoxb-..."
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                />
-                {tokenError && (
-                  <p className="flex items-center gap-1 text-xs text-red-600">
-                    <Warning weight="bold" />
-                    {tokenError}
-                  </p>
-                )}
-                <button
-                  onClick={handleManualSave}
-                  disabled={!botToken.trim() || saveToken.isPending}
-                  className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
-                >
-                  {saveToken.isPending ? '検証中...' : 'トークンを保存'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // === State 2 & 3: ワークスペース連携済み ===
   return (
     <div className="space-y-4">
       {ConfirmDialog}
@@ -234,24 +100,27 @@ export function SlackSettings({ orgId, spaceId }: SlackSettingsProps) {
 
       {isLoading ? (
         <div className="p-4 text-sm text-gray-500">読み込み中...</div>
+      ) : !workspace ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+          <p className="text-sm text-amber-800">
+            Slackワークスペースが組織に連携されていません。
+          </p>
+          <Link
+            href="/settings/org-integrations"
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+          >
+            組織設定で連携する
+            <ArrowRight className="text-xs" />
+          </Link>
+        </div>
       ) : (
         <div className="space-y-4">
-          {/* ワークスペース情報 */}
-          <div className="flex items-center justify-between bg-green-50 rounded-lg px-4 py-3">
-            <div className="flex items-center gap-2 text-sm">
-              <CheckCircle className="text-green-600" weight="fill" />
-              <span className="text-gray-700">
-                <strong>{workspace?.team_name}</strong> と連携中
-              </span>
-            </div>
-            <button
-              onClick={handleDisconnect}
-              disabled={disconnectSlack.isPending}
-              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-              title="連携を解除"
-            >
-              <Trash className="text-sm" />
-            </button>
+          {/* ワークスペース情報 (簡潔) */}
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle className="text-green-500" weight="fill" />
+            <span className="text-gray-600">
+              <strong>{workspace.team_name}</strong> と連携中
+            </span>
           </div>
 
           {/* チャンネル紐付け */}

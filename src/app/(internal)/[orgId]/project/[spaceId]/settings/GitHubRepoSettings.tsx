@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { GithubLogo, Link as LinkIcon, Trash, Plus, ArrowSquareOut, CheckCircle } from '@phosphor-icons/react'
+import { GithubLogo, Link as LinkIcon, Trash, Plus, ArrowSquareOut, CheckCircle, ArrowRight } from '@phosphor-icons/react'
 import {
   useGitHubInstallation,
   useGitHubRepositories,
@@ -9,45 +9,38 @@ import {
   useLinkRepoToSpace,
   useUnlinkRepoFromSpace,
 } from '@/lib/hooks'
-import { getGitHubInstallUrl, isGitHubConfigured } from '@/lib/github/config'
+import { isGitHubConfigured } from '@/lib/github/config'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
+import Link from 'next/link'
 
-interface GitHubSettingsProps {
+interface GitHubRepoSettingsProps {
   orgId: string
   spaceId: string
 }
 
-export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
+export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [selectedRepoId, setSelectedRepoId] = useState<string>('')
 
-  // Hooks
   const { data: installation, isLoading: loadingInstallation } = useGitHubInstallation(orgId)
   const { data: repositories = [], isLoading: loadingRepos } = useGitHubRepositories(orgId)
   const { data: linkedRepos = [], isLoading: loadingLinked } = useSpaceGitHubRepos(spaceId)
   const linkRepo = useLinkRepoToSpace()
   const unlinkRepo = useUnlinkRepoFromSpace()
 
-  // GitHub App が設定されているか確認
   const isConfigured = isGitHubConfigured()
 
-  // 未連携のリポジトリをフィルタ
   const linkedRepoIds = linkedRepos.map(lr => lr.github_repo_id)
   const availableRepos = repositories.filter(r => !linkedRepoIds.includes(r.id))
 
   const handleLinkRepo = async () => {
     if (!selectedRepoId) return
-
     try {
-      await linkRepo.mutateAsync({
-        spaceId,
-        githubRepoId: selectedRepoId,
-      })
+      await linkRepo.mutateAsync({ spaceId, githubRepoId: selectedRepoId })
       setSelectedRepoId('')
       toast.success('リポジトリを連携しました')
-    } catch (err) {
-      console.error('Failed to link repository:', err)
+    } catch {
       toast.error('リポジトリの連携に失敗しました')
     }
   }
@@ -60,20 +53,14 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
       variant: 'danger',
     })
     if (!ok) return
-
     try {
-      await unlinkRepo.mutateAsync({
-        linkId,
-        spaceId,
-      })
+      await unlinkRepo.mutateAsync({ linkId, spaceId })
       toast.success('リポジトリの連携を解除しました')
-    } catch (err) {
-      console.error('Failed to unlink repository:', err)
+    } catch {
       toast.error('連携の解除に失敗しました')
     }
   }
 
-  // GitHub App 未設定
   if (!isConfigured) {
     return (
       <div className="space-y-4">
@@ -84,9 +71,6 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
         <div className="bg-gray-50 rounded-lg p-4">
           <p className="text-sm text-gray-600">
             GitHub連携を利用するには、環境変数の設定が必要です。
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            詳しくはドキュメントを参照してください。
           </p>
         </div>
       </div>
@@ -106,38 +90,25 @@ export function GitHubSettings({ orgId, spaceId }: GitHubSettingsProps) {
       {isLoading ? (
         <div className="p-4 text-sm text-gray-500">読み込み中...</div>
       ) : !installation ? (
-        // GitHub App 未インストール
-        <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-          <p className="text-sm text-gray-600">
-            GitHubと連携して、PRとタスクを自動で紐付けできます。
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+          <p className="text-sm text-amber-800">
+            GitHubアプリが組織にインストールされていません。
           </p>
-          <a
-            href={getGitHubInstallUrl(orgId, `/settings/integrations/github`)}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
+          <Link
+            href="/settings/org-integrations"
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
           >
-            <GithubLogo className="text-lg" />
-            GitHubと連携する
-            <ArrowSquareOut className="text-sm" />
-          </a>
+            組織設定で連携する
+            <ArrowRight className="text-xs" />
+          </Link>
         </div>
       ) : (
-        // GitHub App インストール済み
         <div className="space-y-4">
-          {/* 連携ステータス */}
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle className="text-green-500" weight="fill" />
             <span className="text-gray-600">
               <strong>{installation.account_login}</strong> と連携中
             </span>
-            <a
-              href={`https://github.com/settings/installations`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline ml-2"
-            >
-              設定を変更
-              <ArrowSquareOut className="inline ml-0.5 text-xs" />
-            </a>
           </div>
 
           {/* 連携済みリポジトリ */}

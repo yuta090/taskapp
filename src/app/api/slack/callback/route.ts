@@ -41,11 +41,7 @@ export async function GET(request: NextRequest) {
 
     // ユーザーがキャンセルした場合
     if (slackError) {
-      const stateData = state ? verifySignedState(state) : null
-      const redirect = stateData
-        ? `${appUrl}/${stateData.orgId}/project/${stateData.spaceId}/settings?slack=cancelled`
-        : `${appUrl}?slack=cancelled`
-      return NextResponse.redirect(redirect)
+      return NextResponse.redirect(`${appUrl}/settings/org-integrations?slack=cancelled`)
     }
 
     if (!code || !state) {
@@ -58,7 +54,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${appUrl}?error=invalid_state`)
     }
 
-    const { orgId, spaceId } = stateData
+    const { orgId } = stateData
 
     // コード→トークン交換
     const tokenResponse = await exchangeCodeForToken(code)
@@ -66,7 +62,7 @@ export async function GET(request: NextRequest) {
     if (!tokenResponse.ok || !tokenResponse.access_token) {
       console.error('Slack token exchange failed:', tokenResponse.error)
       return NextResponse.redirect(
-        `${appUrl}/${orgId}/project/${spaceId}/settings?slack=error&message=${encodeURIComponent(tokenResponse.error || 'token_exchange_failed')}`,
+        `${appUrl}/settings/org-integrations?slack=error&message=${encodeURIComponent(tokenResponse.error || 'token_exchange_failed')}`,
       )
     }
 
@@ -80,7 +76,7 @@ export async function GET(request: NextRequest) {
     if (encryptError || !encryptedToken) {
       console.error('Token encryption failed:', encryptError)
       return NextResponse.redirect(
-        `${appUrl}/${orgId}/project/${spaceId}/settings?slack=error&message=encryption_failed`,
+        `${appUrl}/settings/org-integrations?slack=error&message=encryption_failed`,
       )
     }
 
@@ -106,16 +102,16 @@ export async function GET(request: NextRequest) {
     if (upsertError) {
       console.error('Workspace save failed:', upsertError)
       return NextResponse.redirect(
-        `${appUrl}/${orgId}/project/${spaceId}/settings?slack=error&message=save_failed`,
+        `${appUrl}/settings/org-integrations?slack=error&message=save_failed`,
       )
     }
 
     // キャッシュを無効化
     invalidateSlackClientCache(orgId)
 
-    // 成功 → 設定画面にリダイレクト
+    // 成功 → 組織設定画面にリダイレクト
     return NextResponse.redirect(
-      `${appUrl}/${orgId}/project/${spaceId}/settings?slack=connected`,
+      `${appUrl}/settings/org-integrations?slack=connected`,
     )
   } catch (err) {
     console.error('Slack callback error:', err)
