@@ -12,6 +12,7 @@ const publicPaths = [
   '/api/auth',
   '/auth/callback',
   '/docs',
+  '/admin/login',
 ]
 
 // 認証が必要なパス（portalは独自のauth checkを持つが、middleware でセッションリフレッシュ必要）
@@ -25,6 +26,7 @@ const protectedPatterns = [
   /^\/my/,
   /^\/settings/,
   /^\/[0-9a-f-]+\/project/,  // /:orgId/project/...
+  /^\/admin(?!\/login)/,     // /admin/* except /admin/login
 ]
 
 /** redirect レスポンスに activeOrgId cookie を付与 */

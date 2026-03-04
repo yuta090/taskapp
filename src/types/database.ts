@@ -95,6 +95,32 @@ export type VideoProvider = 'zoom' | 'google_meet' | 'teams'
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          id: string
+          display_name: string
+          avatar_url: string | null
+          is_superadmin: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          display_name?: string
+          avatar_url?: string | null
+          is_superadmin?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          display_name?: string
+          avatar_url?: string | null
+          is_superadmin?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
       organizations: {
         Row: {
           id: string
@@ -1133,6 +1159,7 @@ export interface Database {
 
 // Utility types for easier access
 export type Tables = Database['public']['Tables']
+export type Profile = Tables['profiles']['Row']
 export type Organization = Tables['organizations']['Row']
 export type OrgMembership = Tables['org_memberships']['Row']
 export type Space = Tables['spaces']['Row']
