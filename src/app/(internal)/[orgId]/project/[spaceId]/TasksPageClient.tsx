@@ -637,6 +637,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         decisionState: data.decisionState,
         clientOwnerIds: data.clientOwnerIds,
         internalOwnerIds: data.internalOwnerIds,
+        startDate: data.startDate,
         dueDate: data.dueDate,
         assigneeId: data.assigneeId,
         milestoneId: data.milestoneId,

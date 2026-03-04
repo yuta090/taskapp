@@ -49,6 +49,7 @@ export interface TaskCreateData {
   decisionState?: DecisionState
   clientOwnerIds: string[]
   internalOwnerIds: string[]
+  startDate?: string
   dueDate?: string
   assigneeId?: string
   milestoneId?: string
@@ -60,6 +61,7 @@ interface TaskFormDraft {
   description: string
   ball: BallSide
   clientScope: ClientScope
+  startDate: string
   dueDate: string
   assigneeId: string
   milestoneId: string
@@ -104,6 +106,7 @@ export function TaskCreateSheet({
   const [decisionState, setDecisionState] = useState<DecisionState>('considering')
   const [clientOwnerIds, setClientOwnerIds] = useState<string[]>(defaultClientOwnerIds)
   const [internalOwnerIds, setInternalOwnerIds] = useState<string[]>([])
+  const [startDate, setStartDate] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [assigneeId, setAssigneeId] = useState('')
   const [milestoneId, setMilestoneId] = useState('')
@@ -184,6 +187,7 @@ export function TaskCreateSheet({
       if (draft.description) setDescription(draft.description)
       if (draft.ball) setBall(draft.ball)
       if (draft.clientScope) setClientScope(draft.clientScope)
+      if (draft.startDate) setStartDate(draft.startDate)
       if (draft.dueDate) setDueDate(draft.dueDate)
       if (draft.assigneeId) setAssigneeId(draft.assigneeId)
       if (draft.milestoneId) setMilestoneId(draft.milestoneId)
@@ -200,13 +204,13 @@ export function TaskCreateSheet({
 
   // Auto-save draft on field changes
   const saveDraftData = useCallback(() => {
-    if (!title && !description && !dueDate && !assigneeId) return // Don't save empty drafts
+    if (!title && !description && !dueDate && !startDate && !assigneeId) return // Don't save empty drafts
     saveDraft({
-      title, description, ball, clientScope, dueDate,
+      title, description, ball, clientScope, startDate, dueDate,
       assigneeId, milestoneId, parentTaskId, internalOwnerIds,
       clientOwnerIds, wikiPageId, selectedSpaceId, showAdvanced,
     })
-  }, [title, description, ball, clientScope, dueDate, assigneeId,
+  }, [title, description, ball, clientScope, startDate, dueDate, assigneeId,
       milestoneId, parentTaskId, internalOwnerIds, clientOwnerIds,
       wikiPageId, selectedSpaceId, showAdvanced, saveDraft])
 
@@ -349,6 +353,7 @@ export function TaskCreateSheet({
         decisionState: effectiveType === 'spec' ? decisionState : undefined,
         clientOwnerIds,
         internalOwnerIds,
+        startDate: startDate || undefined,
         dueDate: dueDate || undefined,
         assigneeId: assigneeId || undefined,
         milestoneId: milestoneId || undefined,
@@ -361,6 +366,7 @@ export function TaskCreateSheet({
       setTitle('')
       setDescription('')
       setWikiPageId('')
+      setStartDate('')
       setDueDate('')
       setAssigneeId('')
       setMilestoneId('')
@@ -620,6 +626,145 @@ export function TaskCreateSheet({
             </div>
           )}
 
+          {/* Assignee + Milestone row */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Assignee */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <User className="text-sm" />
+                担当者
+              </label>
+              <select
+                value={assigneeId}
+                onChange={(e) => setAssigneeId(e.target.value)}
+                data-testid="task-create-assignee"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                disabled={membersLoading}
+              >
+                <option value="">{membersLoading ? '読み込み中...' : '未設定'}</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.displayName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Milestone */}
+            <div className="relative">
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <Flag className="text-sm" />
+                マイルストーン
+              </label>
+              <div className="mt-1 flex gap-1">
+                <select
+                  value={milestoneId}
+                  onChange={(e) => setMilestoneId(e.target.value)}
+                  data-testid="task-create-milestone"
+                  className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">未設定</option>
+                  {milestones.map((ms) => (
+                    <option key={ms.id} value={ms.id}>
+                      {ms.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowMilestonePopover(true)}
+                  data-testid="task-create-milestone-add"
+                  className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
+                  title="新規マイルストーンを作成"
+                >
+                  <Plus className="text-sm" weight="bold" />
+                </button>
+              </div>
+
+              {/* Milestone creation popover */}
+              {showMilestonePopover && (
+                <div
+                  ref={milestonePopoverRef}
+                  className="absolute z-50 top-full mt-1 right-0 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
+                >
+                  <div className="text-xs font-medium text-gray-700 mb-2">
+                    新規マイルストーン
+                  </div>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={newMilestoneName}
+                      onChange={(e) => setNewMilestoneName(e.target.value)}
+                      placeholder="マイルストーン名"
+                      data-testid="milestone-create-name"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    <input
+                      type="date"
+                      value={newMilestoneDue}
+                      onChange={(e) => setNewMilestoneDue(e.target.value)}
+                      data-testid="milestone-create-due"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMilestonePopover(false)
+                          setNewMilestoneName('')
+                          setNewMilestoneDue('')
+                        }}
+                        className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateMilestone}
+                        disabled={!newMilestoneName.trim() || milestoneCreating}
+                        data-testid="milestone-create-submit"
+                        className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition-colors"
+                      >
+                        {milestoneCreating ? '作成中...' : '作成'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Start date + Due date row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <Calendar className="text-sm" />
+                開始日
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                data-testid="task-create-start-date"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <Calendar className="text-sm" />
+                期限
+              </label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                data-testid="task-create-due-date"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
           {/* === ADVANCED TOGGLE === */}
           <button
             type="button"
@@ -629,7 +774,7 @@ export function TaskCreateSheet({
             {showAdvanced ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
             <span>詳細オプション</span>
             {/* Show count of configured advanced options */}
-            {!showAdvanced && (wikiPageId || dueDate || assigneeId || milestoneId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0) && (
+            {!showAdvanced && (wikiPageId || description || clientScope === 'deliverable' || internalOwnerIds.length > 0 || parentTaskId) && (
               <span className="text-xs text-blue-500 ml-1">設定済み</span>
             )}
           </button>
@@ -637,66 +782,16 @@ export function TaskCreateSheet({
           {/* === EXPANDED MODE: Advanced options === */}
           {showAdvanced && (
             <div className="space-y-4 pl-1 border-l-2 border-gray-100 ml-1">
-              {/* Wiki spec page selector (optional) */}
+              {/* Description — most commonly used */}
               <div className="pl-3">
-                <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                  <FileText className="text-sm" />
-                  仕様書を紐付け（任意）
-                </label>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Wikiの仕様書ページを選択すると、決定→実装フローで管理できます
-                </p>
-                {specWikiPages.length > 0 ? (
-                  <select
-                    value={wikiPageId}
-                    onChange={(e) => setWikiPageId(e.target.value)}
-                    data-testid="task-create-wiki-page"
-                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="">紐付けなし</option>
-                    {specWikiPages.map((page) => (
-                      <option key={page.id} value={page.id}>
-                        {page.title}
-                        {page.tags?.filter((t) => t !== '仕様書').length > 0
-                          ? ` (${page.tags.filter((t) => t !== '仕様書').join(', ')})`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="mt-1 text-xs text-gray-400 py-2">
-                    仕様書タグのついたWikiページがありません。Wikiで仕様書を作成してください。
-                  </p>
-                )}
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="説明（任意）"
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
               </div>
-
-              {/* Decision state (shown only when wiki page is selected) */}
-              {wikiPageId && (
-                <div className="pl-3">
-                  <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
-                  <div className="mt-1 flex gap-2">
-                    {(['considering', 'decided', 'implemented'] as const).map((state) => (
-                      <button
-                        key={state}
-                        type="button"
-                        onClick={() => setDecisionState(state)}
-                        data-testid={`task-create-decision-${state}`}
-                        className={`px-2 py-1 text-xs rounded border transition-colors ${
-                          decisionState === state
-                            ? 'bg-gray-100 border-gray-300 font-medium'
-                            : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                      >
-                        {state === 'considering'
-                          ? '検討中'
-                          : state === 'decided'
-                          ? '決定'
-                          : '実装済'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Internal owners (optional, shown when ball=internal) */}
               {ball === 'internal' && internalMembers.length > 0 && (
@@ -738,130 +833,6 @@ export function TaskCreateSheet({
                   </div>
                 </div>
               )}
-
-              {/* Due date, Assignee, Milestone row */}
-              <div className="grid grid-cols-3 gap-3 pl-3">
-                {/* Due date */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                    <Calendar className="text-sm" />
-                    期限
-                  </label>
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    data-testid="task-create-due-date"
-                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* Assignee */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                    <User className="text-sm" />
-                    実行担当者
-                  </label>
-                  <select
-                    value={assigneeId}
-                    onChange={(e) => setAssigneeId(e.target.value)}
-                    data-testid="task-create-assignee"
-                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    disabled={membersLoading}
-                  >
-                    <option value="">{membersLoading ? '読み込み中...' : '未設定'}</option>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Milestone */}
-                <div className="relative">
-                  <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                    <Flag className="text-sm" />
-                    マイルストーン
-                  </label>
-                  <div className="mt-1 flex gap-1">
-                    <select
-                      value={milestoneId}
-                      onChange={(e) => setMilestoneId(e.target.value)}
-                      data-testid="task-create-milestone"
-                      className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                      <option value="">未設定</option>
-                      {milestones.map((ms) => (
-                        <option key={ms.id} value={ms.id}>
-                          {ms.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setShowMilestonePopover(true)}
-                      data-testid="task-create-milestone-add"
-                      className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
-                      title="新規マイルストーンを作成"
-                    >
-                      <Plus className="text-sm" weight="bold" />
-                    </button>
-                  </div>
-
-                  {/* Milestone creation popover */}
-                  {showMilestonePopover && (
-                    <div
-                      ref={milestonePopoverRef}
-                      className="absolute z-50 top-full mt-1 right-0 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
-                    >
-                      <div className="text-xs font-medium text-gray-700 mb-2">
-                        新規マイルストーン
-                      </div>
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={newMilestoneName}
-                          onChange={(e) => setNewMilestoneName(e.target.value)}
-                          placeholder="マイルストーン名"
-                          data-testid="milestone-create-name"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          autoFocus
-                        />
-                        <input
-                          type="date"
-                          value={newMilestoneDue}
-                          onChange={(e) => setNewMilestoneDue(e.target.value)}
-                          data-testid="milestone-create-due"
-                          className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <div className="flex justify-end gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowMilestonePopover(false)
-                              setNewMilestoneName('')
-                              setNewMilestoneDue('')
-                            }}
-                            className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                          >
-                            キャンセル
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleCreateMilestone}
-                            disabled={!newMilestoneName.trim() || milestoneCreating}
-                            data-testid="milestone-create-submit"
-                            className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition-colors"
-                          >
-                            {milestoneCreating ? '作成中...' : '作成'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
 
               {/* Client Scope toggle */}
               <div className="relative ml-3">
@@ -972,16 +943,66 @@ export function TaskCreateSheet({
                 </div>
               )}
 
-              {/* Description */}
+              {/* Wiki spec page selector — rarely used, kept at bottom */}
               <div className="pl-3">
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="説明（任意）"
-                  rows={3}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
+                <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                  <FileText className="text-sm" />
+                  仕様書を紐付け（任意）
+                </label>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Wikiの仕様書ページを紐付けると、検討中→決定→実装済みの進捗を管理できます
+                </p>
+                {specWikiPages.length > 0 ? (
+                  <select
+                    value={wikiPageId}
+                    onChange={(e) => setWikiPageId(e.target.value)}
+                    data-testid="task-create-wiki-page"
+                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">紐付けなし</option>
+                    {specWikiPages.map((page) => (
+                      <option key={page.id} value={page.id}>
+                        {page.title}
+                        {page.tags?.filter((t) => t !== '仕様書').length > 0
+                          ? ` (${page.tags.filter((t) => t !== '仕様書').join(', ')})`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-400 py-2">
+                    仕様書タグのついたWikiページがありません。Wikiで仕様書を作成してください。
+                  </p>
+                )}
               </div>
+
+              {/* Decision state (shown only when wiki page is selected) */}
+              {wikiPageId && (
+                <div className="pl-3">
+                  <label className="text-xs font-medium text-gray-500">仕様ステータス</label>
+                  <div className="mt-1 flex gap-2">
+                    {(['considering', 'decided', 'implemented'] as const).map((state) => (
+                      <button
+                        key={state}
+                        type="button"
+                        onClick={() => setDecisionState(state)}
+                        data-testid={`task-create-decision-${state}`}
+                        className={`px-2 py-1 text-xs rounded border transition-colors ${
+                          decisionState === state
+                            ? 'bg-gray-100 border-gray-300 font-medium'
+                            : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        {state === 'considering'
+                          ? '検討中'
+                          : state === 'decided'
+                          ? '決定'
+                          : '実装済'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

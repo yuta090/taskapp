@@ -189,6 +189,7 @@ export default function MyTasksClient() {
             spec_path: data.type === 'spec' ? data.specPath ?? null : null,
             decision_state: data.type === 'spec' ? data.decisionState ?? null : null,
             client_scope: data.clientScope ?? 'internal',
+            start_date: data.startDate ?? null,
             due_date: data.dueDate ?? null,
             assignee_id: data.assigneeId ?? null,
             milestone_id: data.milestoneId ?? null,
