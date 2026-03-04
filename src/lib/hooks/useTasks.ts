@@ -37,6 +37,7 @@ export interface CreateTaskInput {
   decisionState?: DecisionState
   clientOwnerIds: string[]
   internalOwnerIds: string[]
+  startDate?: string
   dueDate?: string
   assigneeId?: string
   milestoneId?: string
@@ -166,7 +167,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         status,
         priority: null,
         assignee_id: task.assigneeId ?? null,
-        start_date: null,
+        start_date: task.startDate ?? null,
         due_date: task.dueDate ?? null,
         milestone_id: task.milestoneId ?? null,
         parent_task_id: task.parentTaskId ?? null,
