@@ -170,8 +170,12 @@ export default function OrgIntegrationsPage() {
 
   const handleAiDelete = async () => {
     if (!orgId) return
-    if (!confirm) return
-    const ok = window.confirm('AI設定を削除しますか？\nSlackでのAIメンション機能が無効になります。')
+    const ok = await confirm({
+      title: 'AI設定を削除',
+      message: 'AI設定を削除しますか？SlackでのAIメンション機能が無効になります。',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
     if (!ok) return
     try {
       await deleteAiConfig.mutateAsync(orgId)

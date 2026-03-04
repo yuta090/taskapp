@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { VideoCamera, Info, ArrowRight } from '@phosphor-icons/react'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { IntegrationStatusBadge } from '@/components/integrations'
@@ -32,7 +32,9 @@ export function VideoProviderSettings({ orgId, spaceId }: VideoProviderSettingsP
   const isTeamsEnabled = process.env.NEXT_PUBLIC_TEAMS_ENABLED === 'true'
   const isGoogleCalConnected = isConnected('google_calendar')
 
-  const supabase = useMemo(() => createClient(), [])
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   useEffect(() => {
     let cancelled = false
