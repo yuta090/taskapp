@@ -25,10 +25,10 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('orgId')
-    const spaceId = searchParams.get('spaceId')
+    const spaceId = searchParams.get('spaceId') ?? undefined
 
-    if (!orgId || !spaceId) {
-      return NextResponse.json({ error: 'orgId and spaceId are required' }, { status: 400 })
+    if (!orgId) {
+      return NextResponse.json({ error: 'orgId is required' }, { status: 400 })
     }
 
     // org owner権限チェック

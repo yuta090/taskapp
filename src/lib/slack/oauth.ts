@@ -12,8 +12,8 @@ const SLACK_TOKEN_URL = 'https://slack.com/api/oauth.v2.access'
 /**
  * OAuth state を HMAC 署名付きで生成（CSRF防止）
  */
-export function createSignedState(orgId: string, spaceId: string): string {
-  const payload = JSON.stringify({ orgId, spaceId, ts: Date.now() })
+export function createSignedState(orgId: string, spaceId?: string): string {
+  const payload = JSON.stringify({ orgId, ...(spaceId && { spaceId }), ts: Date.now() })
   const signature = createHmac('sha256', SLACK_OAUTH_CONFIG.stateSecret)
     .update(payload)
     .digest('hex')
@@ -24,7 +24,7 @@ export function createSignedState(orgId: string, spaceId: string): string {
 /**
  * OAuth state の署名を検証（15分有効期限）
  */
-export function verifySignedState(state: string): { orgId: string; spaceId: string } | null {
+export function verifySignedState(state: string): { orgId: string; spaceId?: string } | null {
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'))
     const { payload, signature } = decoded
@@ -55,7 +55,7 @@ export function verifySignedState(state: string): { orgId: string; spaceId: stri
 
     return {
       orgId: parsedPayload.orgId,
-      spaceId: parsedPayload.spaceId,
+      ...(parsedPayload.spaceId && { spaceId: parsedPayload.spaceId }),
     }
   } catch (e) {
     console.error('Failed to verify Slack OAuth state:', e)
@@ -66,7 +66,7 @@ export function verifySignedState(state: string): { orgId: string; spaceId: stri
 /**
  * Slack OAuth 認証URLを生成
  */
-export function getSlackOAuthUrl(orgId: string, spaceId: string): string {
+export function getSlackOAuthUrl(orgId: string, spaceId?: string): string {
   const state = createSignedState(orgId, spaceId)
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/slack/callback`
   const scopes = ['chat:write', 'channels:read', 'groups:read'].join(',')

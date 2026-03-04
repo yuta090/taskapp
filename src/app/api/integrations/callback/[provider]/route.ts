@@ -177,23 +177,13 @@ async function handleGoogleCalendarCallback(
       )
     }
 
-    // Find any space for this org to redirect to settings
-    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('spaces')
-      .select('id')
-      .eq('org_id', orgId)
-      .limit(1)
-      .single()
-
-    const redirectPath = space
-      ? `${appUrl}/${orgId}/project/${(space as { id: string }).id}/settings?integration=google_calendar&status=connected`
-      : `${appUrl}?integration=google_calendar&status=connected`
-
-    return NextResponse.redirect(redirectPath)
+    return NextResponse.redirect(
+      `${appUrl}/settings/integrations?integration=google_calendar&status=connected`,
+    )
   } catch (err) {
     console.error('Google Calendar callback error:', err)
     return NextResponse.redirect(
-      `${appUrl}?integration=google_calendar&status=error&message=token_exchange_failed`,
+      `${appUrl}/settings/integrations?integration=google_calendar&status=error&message=token_exchange_failed`,
     )
   }
 }
@@ -229,26 +219,17 @@ async function handleZoomCallback(
     if (upsertError) {
       console.error('Zoom integration connection save failed:', upsertError)
       return NextResponse.redirect(
-        `${appUrl}?integration=zoom&status=error&message=save_failed`,
+        `${appUrl}/settings/integrations?integration=zoom&status=error&message=save_failed`,
       )
     }
 
-    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('spaces')
-      .select('id')
-      .eq('org_id', orgId)
-      .limit(1)
-      .single()
-
-    const redirectPath = space
-      ? `${appUrl}/${orgId}/project/${(space as { id: string }).id}/settings?integration=zoom&status=connected`
-      : `${appUrl}?integration=zoom&status=connected`
-
-    return NextResponse.redirect(redirectPath)
+    return NextResponse.redirect(
+      `${appUrl}/settings/integrations?integration=zoom&status=connected`,
+    )
   } catch (err) {
     console.error('Zoom callback error:', err)
     return NextResponse.redirect(
-      `${appUrl}?integration=zoom&status=error&message=token_exchange_failed`,
+      `${appUrl}/settings/integrations?integration=zoom&status=error&message=token_exchange_failed`,
     )
   }
 }
@@ -284,26 +265,17 @@ async function handleTeamsCallback(
     if (upsertError) {
       console.error('Teams integration connection save failed:', upsertError)
       return NextResponse.redirect(
-        `${appUrl}?integration=teams&status=error&message=save_failed`,
+        `${appUrl}/settings/integrations?integration=teams&status=error&message=save_failed`,
       )
     }
 
-    const { data: space } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('spaces')
-      .select('id')
-      .eq('org_id', orgId)
-      .limit(1)
-      .single()
-
-    const redirectPath = space
-      ? `${appUrl}/${orgId}/project/${(space as { id: string }).id}/settings?integration=teams&status=connected`
-      : `${appUrl}?integration=teams&status=connected`
-
-    return NextResponse.redirect(redirectPath)
+    return NextResponse.redirect(
+      `${appUrl}/settings/integrations?integration=teams&status=connected`,
+    )
   } catch (err) {
     console.error('Teams callback error:', err)
     return NextResponse.redirect(
-      `${appUrl}?integration=teams&status=error&message=token_exchange_failed`,
+      `${appUrl}/settings/integrations?integration=teams&status=error&message=token_exchange_failed`,
     )
   }
 }

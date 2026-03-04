@@ -2,15 +2,12 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
-  Gear,
   FolderSimple,
   UsersThree,
   Flag,
   GithubLogo,
   ChatCircleDots,
-  Calendar,
   VideoCamera,
-  Brain,
   Key,
   Export,
   MagnifyingGlass,
@@ -23,11 +20,9 @@ import { GeneralSettings } from './GeneralSettings'
 import { PresetSettings } from './PresetSettings'
 import { MilestonesSettings } from './MilestonesSettings'
 import { MembersSettings } from './MembersSettings'
-import { GitHubSettings } from './GitHubSettings'
-import { SlackSettings } from './SlackSettings'
-import { AiSettings } from './AiSettings'
-import { GoogleCalendarSettings } from './GoogleCalendarSettings'
-import { VideoConferenceSettings } from './VideoConferenceSettings'
+import { GitHubRepoSettings } from './GitHubRepoSettings'
+import { SlackChannelSettings } from './SlackChannelSettings'
+import { VideoProviderSettings } from './VideoProviderSettings'
 import { ApiSettings } from './ApiSettings'
 import { ExportSettings } from './ExportSettings'
 import { SetupBanner } from './SetupBanner'
@@ -71,14 +66,8 @@ const categories: SettingCategory[] = [
     items: [
       { id: 'github', label: 'GitHub', icon: GithubLogo, keywords: ['リポジトリ', 'PR', 'プルリクエスト', 'repository'] },
       { id: 'slack', label: 'Slack', icon: ChatCircleDots, keywords: ['通知', 'チャンネル', 'channel', 'notification'] },
-      { id: 'google-calendar', label: 'Google Calendar', icon: Calendar, keywords: ['カレンダー', '空き時間', 'free', 'busy'] },
       { id: 'video-conference', label: 'ビデオ会議', icon: VideoCamera, keywords: ['Zoom', 'Teams', 'Meet', 'ミーティング', 'meeting'] },
     ],
-  },
-  {
-    id: 'automation',
-    label: 'AI・自動化',
-    items: [{ id: 'ai', label: 'AI設定', icon: Brain, keywords: ['OpenAI', 'Anthropic', 'LLM', 'モデル', 'API key'] }],
   },
   {
     id: 'security',
@@ -119,7 +108,7 @@ function useIntegrationStatuses(
   orgId: string,
   integrationData: { isConnected: (provider: IntegrationProvider) => boolean; connections: IntegrationConnectionSafe[] },
 ): Record<SettingSectionId, ConnectionStatus> {
-  const { isConnected, connections } = integrationData
+  const { isConnected } = integrationData
   const { data: githubInstallation } = useGitHubInstallation(orgId)
   const { data: slackWorkspace } = useSlackWorkspace(orgId)
 
@@ -130,47 +119,21 @@ function useIntegrationStatuses(
       members: 'none',
       github: 'none',
       slack: 'none',
-      'google-calendar': 'none',
       'video-conference': 'none',
-      ai: 'none',
       api: 'none',
       export: 'none',
     }
 
     base.github = githubInstallation ? 'connected' : 'disconnected'
     base.slack = slackWorkspace ? 'connected' : 'disconnected'
-    base['google-calendar'] = isConnected('google_calendar') ? 'connected' : 'disconnected'
 
     const hasZoom = isConnected('zoom')
     const hasTeams = isConnected('teams')
-    const hasMeet = isConnected('google_meet')
+    const hasMeet = isConnected('google_meet') || isConnected('google_calendar')
     base['video-conference'] = hasZoom || hasTeams || hasMeet ? 'connected' : 'disconnected'
 
-    // Check for expiring tokens — only active connections (C3 fix)
-    const now = new Date()
-    const warningThreshold = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    for (const conn of connections) {
-      if (conn.status !== 'active') continue
-      if (conn.token_expires_at) {
-        const expiresAt = new Date(conn.token_expires_at)
-        if (expiresAt < now) {
-          if (conn.provider === 'google_calendar') base['google-calendar'] = 'warning'
-          if (conn.provider === 'zoom' || conn.provider === 'teams' || conn.provider === 'google_meet')
-            base['video-conference'] = 'warning'
-        } else if (expiresAt < warningThreshold) {
-          if (conn.provider === 'google_calendar' && base['google-calendar'] !== 'warning')
-            base['google-calendar'] = 'warning'
-          if (
-            (conn.provider === 'zoom' || conn.provider === 'teams' || conn.provider === 'google_meet') &&
-            base['video-conference'] !== 'warning'
-          )
-            base['video-conference'] = 'warning'
-        }
-      }
-    }
-
     return base
-  }, [githubInstallation, slackWorkspace, isConnected, connections])
+  }, [githubInstallation, slackWorkspace, isConnected])
 }
 
 /* ─── Section renderer (C1 fix: PresetSettings embedded in general) ─── */
@@ -198,15 +161,11 @@ function SettingsSection({
     case 'members':
       return <MembersSettings orgId={orgId} spaceId={spaceId} />
     case 'github':
-      return <GitHubSettings orgId={orgId} spaceId={spaceId} />
+      return <GitHubRepoSettings orgId={orgId} spaceId={spaceId} />
     case 'slack':
-      return <SlackSettings orgId={orgId} spaceId={spaceId} />
-    case 'google-calendar':
-      return <GoogleCalendarSettings orgId={orgId} spaceId={spaceId} />
+      return <SlackChannelSettings orgId={orgId} spaceId={spaceId} />
     case 'video-conference':
-      return <VideoConferenceSettings orgId={orgId} spaceId={spaceId} />
-    case 'ai':
-      return <AiSettings orgId={orgId} spaceId={spaceId} />
+      return <VideoProviderSettings orgId={orgId} spaceId={spaceId} />
     case 'api':
       return <ApiSettings orgId={orgId} spaceId={spaceId} />
     case 'export':
@@ -231,7 +190,7 @@ export function SettingsLayout({ orgId, spaceId }: SettingsLayoutProps) {
 
   // Count items needing attention in integrations category
   const attentionCount = useMemo(() => {
-    const integrationIds: SettingSectionId[] = ['github', 'slack', 'google-calendar', 'video-conference']
+    const integrationIds: SettingSectionId[] = ['github', 'slack', 'video-conference']
     return integrationIds.filter(
       (id) => statuses[id] === 'warning' || statuses[id] === 'disconnected'
     ).length

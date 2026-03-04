@@ -7,6 +7,7 @@ import {
   GearSix,
   Users,
   CreditCard,
+  PlugsConnected,
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
@@ -74,6 +75,15 @@ export function OrgMenu({ isOpen, onClose, collapsed }: OrgMenuProps) {
         >
           <Users className="text-base text-gray-500" />
           メンバー管理
+        </Link>
+        <Link
+          href="/settings/org-integrations"
+          onClick={onClose}
+          role="menuitem"
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <PlugsConnected className="text-base text-gray-500" />
+          外部連携
         </Link>
         <Link
           href="/settings/billing"

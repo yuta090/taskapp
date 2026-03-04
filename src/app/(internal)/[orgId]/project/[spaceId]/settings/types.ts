@@ -4,9 +4,7 @@ export type SettingSectionId =
   | 'members'
   | 'github'
   | 'slack'
-  | 'google-calendar'
   | 'video-conference'
-  | 'ai'
   | 'api'
   | 'export'
 

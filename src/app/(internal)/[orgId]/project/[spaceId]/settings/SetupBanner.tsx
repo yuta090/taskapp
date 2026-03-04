@@ -8,6 +8,8 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
+import { useSlackWorkspace } from '@/lib/hooks/useSlack'
 import type { SettingSectionId } from './types'
 
 interface SetupStep {
@@ -26,6 +28,8 @@ interface SetupBannerProps {
 }
 
 export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount }: SetupBannerProps) {
+  const { data: githubInstallation } = useGitHubInstallation(orgId)
+  const { data: slackWorkspace } = useSlackWorkspace(orgId)
   const [dismissed, setDismissed] = useState(false)
   const [memberCount, setMemberCount] = useState<number | null>(null)
   const [milestoneCount, setMilestoneCount] = useState<number | null>(null)
@@ -86,7 +90,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
     if (loading) return []
     const hasMembers = (memberCount ?? 0) > 1
     const hasMilestones = (milestoneCount ?? 0) > 0
-    const hasIntegration = activeConnectionCount > 0
+    const hasIntegration = activeConnectionCount > 0 || !!githubInstallation || !!slackWorkspace
     const hasPreset = !!presetGenre && presetGenre !== 'blank'
 
     return [
@@ -112,7 +116,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
         completed: hasIntegration,
       },
     ]
-  }, [loading, memberCount, milestoneCount, activeConnectionCount, presetGenre])
+  }, [loading, memberCount, milestoneCount, activeConnectionCount, githubInstallation, slackWorkspace, presetGenre])
 
   const completedCount = steps.filter((s) => s.completed).length
   const allDone = steps.length > 0 && completedCount === steps.length

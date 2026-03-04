@@ -32,6 +32,7 @@ import {
   FolderSimple,
   ArrowUp,
   ArrowDown,
+  PlugsConnected,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
@@ -247,6 +248,14 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
             >
               <Bell className="text-base text-gray-500" />
               通知設定
+            </Link>
+            <Link
+              href="/settings/integrations"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <PlugsConnected className="text-base text-gray-500" />
+              外部連携
             </Link>
             <Link
               href="/settings/api-keys"
