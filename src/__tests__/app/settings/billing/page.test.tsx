@@ -190,7 +190,10 @@ describe('BillingSettingsPage', () => {
     })
 
     // Restore window.location
-    window.location = originalLocation
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: originalLocation,
+    })
   })
 
   it('should show payment method section', () => {

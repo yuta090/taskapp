@@ -116,13 +116,6 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
     )
   }, [items, query])
 
-  // Reset selected index when filtered results change
-  const filteredLen = filtered.length
-  useEffect(() => {
-    setSelectedIndex(0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on filter change only
-  }, [filteredLen])
-
   // Scroll selected item into view
   useEffect(() => {
     const el = listRef.current?.querySelector(`[data-index="${selectedIndex}"]`)
@@ -180,7 +173,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setQuery(e.target.value); setSelectedIndex(0) }}
             placeholder="ページやプロジェクトを検索..."
             className="flex-1 text-sm text-gray-900 placeholder:text-gray-400 outline-none bg-transparent"
           />

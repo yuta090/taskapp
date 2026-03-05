@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Check, Minus } from '@phosphor-icons/react'
-import { motion } from 'framer-motion'
+import Link from 'next/link'
 
 
 export function FeatureComparison() {
@@ -167,7 +167,7 @@ export function FeatureComparison() {
                                         <td className="p-4 pt-8 pb-3 bg-amber-50/30 border-x border-amber-100/50"></td>
                                         <td className="p-4 pt-8 pb-3 bg-slate-50/80"></td>
                                     </tr>
-                                    {section.items.map((item, i) => (
+                                    {section.items.map((item) => (
                                         <tr key={item.name} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors group">
                                             <td className="p-4 py-5">
                                                 <div className="flex flex-col">
@@ -203,10 +203,10 @@ export function FeatureComparison() {
                 </div>
 
                 <div className="mt-8 text-center">
-                    <a href="/signup" className="inline-flex items-center gap-2 text-amber-600 font-bold hover:text-amber-700 hover:underline transition-colors">
+                    <Link href="/signup" className="inline-flex items-center gap-2 text-amber-600 font-bold hover:text-amber-700 hover:underline transition-colors">
                         すべての機能を確認する
                         <Check size={16} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </section>
