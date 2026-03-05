@@ -228,16 +228,19 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
           <Breadcrumb items={breadcrumbItems} />
         </div>
 
-        {/* Update log indicator */}
-        {updateLog.length > 0 && (
-          <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {updateLog.length > 0 ? (
             <span className="text-xs text-gray-500">
               最終更新: {updateLog[0].taskTitle.slice(0, 15)}
               {updateLog[0].taskTitle.length > 15 ? '...' : ''} の
               {updateLog[0].field === 'end' ? '期限' : '開始'}日
             </span>
-          </div>
-        )}
+          ) : (
+            <span className="text-xs text-gray-400">
+              バーをドラッグして日付を変更できます
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Views Tab Nav */}

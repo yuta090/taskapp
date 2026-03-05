@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import {
   CaretDown,
   List,
@@ -13,6 +14,7 @@ import {
   Question,
   SignOut,
 } from '@phosphor-icons/react'
+import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 
 interface Project {
   id: string
@@ -42,6 +44,7 @@ export function PortalHeader({
   userName,
 }: PortalHeaderProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const projectMenuRef = useRef<HTMLDivElement>(null)
@@ -157,8 +160,14 @@ export function PortalHeader({
           <div className="flex items-center gap-2">
             {/* Help (Desktop) */}
             <button
+              onClick={() => {
+                resetPortalOnboarding()
+                router.push('/portal')
+                router.refresh()
+              }}
               className="hidden md:flex items-center justify-center w-9 h-9 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
               aria-label="ヘルプ"
+              title="使い方ガイドを再表示"
             >
               <Question className="w-5 h-5" />
             </button>
@@ -215,9 +224,16 @@ export function PortalHeader({
               )
             })}
             <hr className="my-2 border-gray-200" />
-            <button className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors w-full">
+            <button
+              onClick={() => {
+                resetPortalOnboarding()
+                router.push('/portal')
+                router.refresh()
+              }}
+              className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors w-full"
+            >
               <Question className="w-5 h-5" />
-              ヘルプ
+              使い方ガイドを再表示
             </button>
             <form action="/api/auth/logout" method="POST">
               <button
