@@ -116,10 +116,12 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
     )
   }, [items, query])
 
-  // Reset selected index when query changes
+  // Reset selected index when filtered results change
+  const filteredLen = filtered.length
   useEffect(() => {
     setSelectedIndex(0)
-  }, [query])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on filter change only
+  }, [filteredLen])
 
   // Scroll selected item into view
   useEffect(() => {

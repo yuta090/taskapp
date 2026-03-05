@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useSyncExternalStore } from 'react'
 
 const DRAFT_PREFIX = 'taskapp_draft_'
 const DEBOUNCE_MS = 500
@@ -12,6 +12,21 @@ interface UseFormDraftOptions {
   enabled: boolean
 }
 
+/** Read draft from localStorage (returns null on failure) */
+function readDraft<T>(storageKey: string): T | null {
+  try {
+    const raw = localStorage.getItem(storageKey)
+    return raw ? (JSON.parse(raw) as T) : null
+  } catch {
+    return null
+  }
+}
+
+// Trivial external store for SSR — always returns true on server
+const subscribe = () => () => {}
+const getSnapshot = () => true
+const getServerSnapshot = () => false
+
 /**
  * フォーム下書きの自動保存フック
  *
@@ -22,32 +37,16 @@ interface UseFormDraftOptions {
 export function useFormDraft<T>(options: UseFormDraftOptions) {
   const { key, enabled } = options
   const storageKey = DRAFT_PREFIX + key
-  const [draft, setDraft] = useState<T | null>(null)
-  const [restored, setRestored] = useState(false)
+  const isMounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+
+  // Lazy initial state — reads localStorage once on first render (client only)
+  const [draft, setDraft] = useState<T | null>(() => {
+    if (!isMounted || !enabled) return null
+    return readDraft<T>(storageKey)
+  })
+
+  const restored = isMounted && enabled && draft !== null
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Restore draft when enabled transitions to true
-  useEffect(() => {
-    if (!enabled) {
-      setRestored(false)
-      return
-    }
-
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (raw) {
-        const parsed = JSON.parse(raw) as T
-        setDraft(parsed)
-        setRestored(true)
-      } else {
-        setDraft(null)
-        setRestored(false)
-      }
-    } catch {
-      setDraft(null)
-      setRestored(false)
-    }
-  }, [enabled, storageKey])
 
   const save = useCallback(
     (data: T) => {
@@ -72,15 +71,7 @@ export function useFormDraft<T>(options: UseFormDraftOptions) {
       // ignore
     }
     setDraft(null)
-    setRestored(false)
   }, [storageKey])
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [])
 
   return { draft, restored, save, clear }
 }

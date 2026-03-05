@@ -44,3 +44,6 @@ next-env.d.ts
 
 # packages node_modules
 packages/*/node_modules/
+
+# old node_modules backup
+node_modules_old/
