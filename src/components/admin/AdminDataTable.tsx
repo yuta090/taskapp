@@ -133,12 +133,15 @@ function generateCSV<T extends Record<string, unknown>>(
   columns: ColumnDef<T>[],
   rows: T[],
 ): string {
+  const FORMULA_CHARS = /^[\s\u0000-\u0020]*[=+\-@\t\r]/
   const escape = (v: unknown): string => {
     const str = v == null ? '' : String(v)
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-      return `"${str.replace(/"/g, '""')}"`
+    // Neutralize formula injection: prefix with apostrophe (standard spreadsheet defense)
+    const safe = FORMULA_CHARS.test(str) ? `'${str}` : str
+    if (safe.includes(',') || safe.includes('"') || safe.includes('\n')) {
+      return `"${safe.replace(/"/g, '""')}"`
     }
-    return str
+    return safe
   }
 
   const header = columns.map((c) => escape(c.label)).join(',')
