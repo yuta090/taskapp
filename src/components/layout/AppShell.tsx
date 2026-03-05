@@ -5,12 +5,16 @@ import {
   Suspense,
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react'
+import { usePathname } from 'next/navigation'
 import { LeftNav } from './LeftNav'
 import { useShortcutsHelp } from '@/components/shared/KeyboardShortcutsHelp'
 import { useCommandPalette } from '@/components/shared/CommandPalette'
+
+const LAST_PATH_KEY = 'taskapp:lastPath'
 
 interface InspectorContextValue {
   inspector: ReactNode | null
@@ -79,6 +83,16 @@ function GlobalShortcuts() {
   )
 }
 
+function LastPathRecorder() {
+  const pathname = usePathname()
+  useEffect(() => {
+    if (pathname) {
+      localStorage.setItem(LAST_PATH_KEY, pathname)
+    }
+  }, [pathname])
+  return null
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <InspectorProvider>
@@ -103,6 +117,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <GlobalShortcuts />
+      <LastPathRecorder />
     </InspectorProvider>
   )
 }
