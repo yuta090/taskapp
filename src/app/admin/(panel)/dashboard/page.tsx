@@ -99,7 +99,7 @@ async function fetchRecentActivity(): Promise<AuditLogRow[]> {
     actor_profile: { display_name: string | null; email: string | null } | null
   }
 
-  return ((data as RawRow[] | null) ?? []).map((row) => ({
+  return (((data as unknown) as RawRow[] | null) ?? []).map((row) => ({
     id: row.id,
     event_type: row.event_type,
     summary: row.summary,
