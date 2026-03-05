@@ -4,13 +4,13 @@ import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constant
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
 // 認証不要のパス（ホワイトリスト — ここに無いページは全て認証必須）
+// NOTE: /api は静的ファイルスキップで除外済みのためここに不要
 const publicPaths = [
   '/',
   '/login',
   '/signup',
   '/reset',
   '/invite',
-  '/api/auth',
   '/auth/callback',
   '/docs',
   '/admin/login',
@@ -19,6 +19,14 @@ const publicPaths = [
   '/privacy',
   '/terms',
 ]
+
+/** セグメント境界を考慮したパスマッチ（/privacy が /privacy-policy にマッチしない） */
+function isPublicPathMatch(pathname: string): boolean {
+  return publicPaths.some(path => {
+    if (path === '/') return pathname === '/'
+    return pathname === path || pathname.startsWith(path + '/')
+  })
+}
 
 /** redirect レスポンスに activeOrgId cookie を付与 */
 function redirectWithOrgCookie(url: URL, orgId: string): NextResponse {
@@ -77,15 +85,13 @@ export async function middleware(request: NextRequest) {
   )
 
   // ホワイトリスト方式: publicPaths に含まれないパスは全て認証必須
-  const isPublicPath = publicPaths.some(path =>
-    path === '/' ? pathname === '/' : pathname.startsWith(path)
-  )
+  const isPublic = isPublicPathMatch(pathname)
 
   // login/signup は認証済みユーザーのリダイレクト判定が必要なので別扱い
   const needsServerVerification = pathname === '/login' || pathname === '/signup' || pathname.startsWith('/onboarding')
 
   // 公開パス（login/signup/onboarding 以外）はセッションチェック不要
-  if (isPublicPath && !needsServerVerification) {
+  if (isPublic && !needsServerVerification) {
     return response
   }
 
@@ -196,10 +202,7 @@ export async function middleware(request: NextRequest) {
   } catch (error) {
     console.error('[middleware] Unhandled error:', error)
     // エラー時は安全側に倒す: 保護パスなら /login にリダイレクト
-    const isPublic = publicPaths.some(path =>
-      path === '/' ? pathname === '/' : pathname.startsWith(path)
-    )
-    if (!isPublic) {
+    if (!isPublicPathMatch(pathname)) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
     return NextResponse.next()
