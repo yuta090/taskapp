@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { ArrowRight } from '@phosphor-icons/react'
+import Link from 'next/link'
 
 export function LPFooter() {
     return (
@@ -38,9 +39,9 @@ export function LPFooter() {
 
                     <div className="mt-12 flex flex-col items-center gap-6">
                         <div className="flex gap-6 text-sm text-slate-500">
-                            <a href="/terms" className="hover:text-slate-300 transition-colors">利用規約</a>
-                            <a href="/privacy" className="hover:text-slate-300 transition-colors">プライバシーポリシー</a>
-                            <a href="/pricing" className="hover:text-slate-300 transition-colors">料金プラン</a>
+                            <Link href="/terms" className="hover:text-slate-300 transition-colors">利用規約</Link>
+                            <Link href="/privacy" className="hover:text-slate-300 transition-colors">プライバシーポリシー</Link>
+                            <Link href="/pricing" className="hover:text-slate-300 transition-colors">料金プラン</Link>
                         </div>
                         <p className="text-sm text-slate-600">
                             © 2026 Sorekara Inc. All rights reserved.

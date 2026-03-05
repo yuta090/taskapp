@@ -177,7 +177,6 @@ export function TaskCreateSheet({
       }
     }
     prevIsOpenRef.current = isOpen
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, defaultBall, defaultClientOwnerIds, defaultTitle, defaultDescription, isGlobalCreate, selectedSpaceId, spaces])
 
   // Restore draft (runs after the open-transition effect, overriding defaults)
@@ -199,7 +198,6 @@ export function TaskCreateSheet({
       if (draft.showAdvanced) setShowAdvanced(true)
       toast.info('下書きを復元しました', { duration: 2000 })
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restored])
 
   // Auto-save draft on field changes

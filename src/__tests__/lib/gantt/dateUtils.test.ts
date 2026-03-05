@@ -93,6 +93,8 @@ describe('dateUtils', () => {
           client_scope: 'internal',
           actual_hours: null,
           parent_task_id: null,
+          wiki_page_id: null,
+          completed_at: null,
           created_at: '2024-01-01',
           updated_at: '2024-01-01',
         },
@@ -131,6 +133,8 @@ describe('dateUtils', () => {
           client_scope: 'internal',
           actual_hours: null,
           parent_task_id: null,
+          wiki_page_id: null,
+          completed_at: null,
           created_at: '2020-01-01', // created_at should NOT affect range
           updated_at: '2020-01-01',
         },
@@ -152,6 +156,7 @@ describe('dateUtils', () => {
           start_date: null,
           due_date: '2024-12-31',
           order_key: 1,
+          completed_at: null,
           created_at: '2024-01-01',
           updated_at: '2024-01-01',
         },
@@ -287,6 +292,8 @@ describe('dateUtils', () => {
         client_scope: 'internal',
         actual_hours: null,
         parent_task_id: null,
+        wiki_page_id: null,
+        completed_at: null,
         created_at: '',
         updated_at: '',
       }
@@ -316,6 +323,8 @@ describe('dateUtils', () => {
         client_scope: 'internal',
         actual_hours: null,
         parent_task_id: null,
+        wiki_page_id: null,
+        completed_at: null,
         created_at: '2024-01-05',
         updated_at: '2024-01-05',
       }
@@ -348,6 +357,8 @@ describe('dateUtils', () => {
         client_scope: 'internal',
         actual_hours: null,
         parent_task_id: null,
+        wiki_page_id: null,
+        completed_at: null,
         created_at: '2024-01-05',
         updated_at: '2024-01-05',
       }
