@@ -188,6 +188,7 @@ export default function BillingPageClient({ initialData }: Props) {
         onPageSizeChange={handlePageSizeChange}
         searchValue={search}
         onSearchChange={handleSearchChange}
+        searchPlaceholder="組織名・プラン・ステータスで検索..."
         loading={false}
         emptyMessage="課金データがありません"
         tableName="billing"
