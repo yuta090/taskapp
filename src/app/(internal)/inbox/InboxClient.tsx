@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Tray,
@@ -12,12 +12,119 @@ import {
   ArrowRight,
   Check,
   Eye,
+  CaretDown,
+  Funnel,
 } from '@phosphor-icons/react'
 import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
+
+// ── Filter types & constants ──
+
+type ReadFilter = 'all' | 'unread' | 'read'
+type ActionFilter = 'all' | 'actionable' | 'actioned'
+
+const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyArray<string> }> = [
+  { label: 'レビュー依頼', types: ['review_request'] },
+  { label: 'クライアント連絡', types: ['client_question', 'client_feedback'] },
+  { label: '確認依頼', types: ['confirmation_request', 'urgent_confirmation'] },
+  { label: 'タスク割り当て', types: ['task_assigned', 'ball_passed'] },
+  { label: '期限リマインド', types: ['due_date_reminder'] },
+  { label: '会議関連', types: ['meeting_reminder', 'meeting_scheduled', 'meeting_ended'] },
+  { label: 'タスク完了', types: ['task_completed'] },
+  { label: '仕様決定', types: ['spec_decision_needed'] },
+]
+
+// ── Type filter dropdown ──
+
+function TypeFilterDropdown({
+  selectedTypes,
+  onChange,
+}: {
+  selectedTypes: ReadonlySet<string>
+  onChange: (types: ReadonlySet<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [open])
+
+  const hasFilter = selectedTypes.size > 0
+
+  const toggleGroup = (types: ReadonlyArray<string>) => {
+    const next = new Set(selectedTypes)
+    const allSelected = types.every(t => next.has(t))
+    if (allSelected) {
+      types.forEach(t => next.delete(t))
+    } else {
+      types.forEach(t => next.add(t))
+    }
+    onChange(next)
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={`px-2 py-1 text-[11px] rounded-md transition-colors border flex items-center gap-1 ${
+          hasFilter
+            ? 'border-blue-200 bg-blue-50 text-blue-700'
+            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+        }`}
+      >
+        <Funnel className="text-xs" />
+        種別{hasFilter ? `(${selectedTypes.size})` : ''}
+        <CaretDown className="text-xs" />
+      </button>
+
+      {open && (
+        <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+          {NOTIFICATION_TYPE_GROUPS.map(group => {
+            const allSelected = group.types.every(t => selectedTypes.has(t))
+            return (
+              <label
+                key={group.label}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => toggleGroup(group.types)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                {group.label}
+              </label>
+            )
+          })}
+          {hasFilter && (
+            <div className="border-t border-gray-100 mt-1 pt-1">
+              <button
+                type="button"
+                onClick={() => onChange(new Set())}
+                className="w-full text-left px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50"
+              >
+                クリア
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Icons are monochrome — color is applied by row state, not icon type.
 // Shape conveys notification type; color conveys read/unread state.
@@ -153,15 +260,43 @@ export default function InboxClient() {
   const selectedId = searchParams.get('id')
   const unreadCount = notifications.filter(n => n.read_at === null).length
 
-  // Find selected notification and its index
+  // ── Filter state ──
+  const [readFilter, setReadFilter] = useState<ReadFilter>('all')
+  const [actionFilter, setActionFilter] = useState<ActionFilter>('all')
+  const [typeFilter, setTypeFilter] = useState<ReadonlySet<string>>(new Set())
+
+  const hasActiveFilters = readFilter !== 'all' || actionFilter !== 'all' || typeFilter.size > 0
+
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(n => {
+      // Read status filter
+      if (readFilter === 'unread' && n.read_at !== null) return false
+      if (readFilter === 'read' && n.read_at === null) return false
+
+      // Actionable filter
+      if (actionFilter === 'actionable') {
+        if (!isActionableNotification(n.type) || n.actioned_at != null) return false
+      }
+      if (actionFilter === 'actioned') {
+        if (n.actioned_at == null) return false
+      }
+
+      // Type filter
+      if (typeFilter.size > 0 && !typeFilter.has(n.type)) return false
+
+      return true
+    })
+  }, [notifications, readFilter, actionFilter, typeFilter])
+
+  // Find selected notification and its index within the filtered list
   const { selectedNotification, selectedIndex } = useMemo(() => {
     if (!selectedId) return { selectedNotification: null, selectedIndex: -1 }
-    const index = notifications.findIndex(n => n.id === selectedId)
+    const index = filteredNotifications.findIndex(n => n.id === selectedId)
     return {
-      selectedNotification: index >= 0 ? notifications[index] : null,
+      selectedNotification: index >= 0 ? filteredNotifications[index] : null,
       selectedIndex: index,
     }
-  }, [selectedId, notifications])
+  }, [selectedId, filteredNotifications])
 
   // Update URL without navigation
   const selectNotification = useCallback((id: string | null) => {
@@ -176,10 +311,10 @@ export default function InboxClient() {
     if (selectedIndex < 0) return
 
     const newIndex = direction === 'prev' ? selectedIndex - 1 : selectedIndex + 1
-    if (newIndex >= 0 && newIndex < notifications.length) {
-      selectNotification(notifications[newIndex].id)
+    if (newIndex >= 0 && newIndex < filteredNotifications.length) {
+      selectNotification(filteredNotifications[newIndex].id)
     }
-  }, [selectedIndex, notifications, selectNotification])
+  }, [selectedIndex, filteredNotifications, selectNotification])
 
   // Handle notification click
   const handleNotificationClick = useCallback((notification: NotificationWithPayload) => {
@@ -202,7 +337,7 @@ export default function InboxClient() {
           onMarkAsActioned={markAsActioned}
           onNavigate={navigateNotification}
           hasPrev={selectedIndex > 0}
-          hasNext={selectedIndex < notifications.length - 1}
+          hasNext={selectedIndex < filteredNotifications.length - 1}
         />
       )
     } else {
@@ -211,7 +346,7 @@ export default function InboxClient() {
   }, [
     selectedNotification,
     selectedIndex,
-    notifications.length,
+    filteredNotifications.length,
     setInspector,
     handleCloseInspector,
     markAsRead,
@@ -239,17 +374,17 @@ export default function InboxClient() {
           e.preventDefault()
           if (selectedIndex > 0) {
             navigateNotification('prev')
-          } else if (selectedIndex < 0 && notifications.length > 0) {
-            selectNotification(notifications[0].id)
+          } else if (selectedIndex < 0 && filteredNotifications.length > 0) {
+            selectNotification(filteredNotifications[0].id)
           }
           break
         case 'ArrowDown':
         case 'j':
           e.preventDefault()
-          if (selectedIndex >= 0 && selectedIndex < notifications.length - 1) {
+          if (selectedIndex >= 0 && selectedIndex < filteredNotifications.length - 1) {
             navigateNotification('next')
-          } else if (selectedIndex < 0 && notifications.length > 0) {
-            selectNotification(notifications[0].id)
+          } else if (selectedIndex < 0 && filteredNotifications.length > 0) {
+            selectNotification(filteredNotifications[0].id)
           }
           break
         case 'Escape':
@@ -267,7 +402,7 @@ export default function InboxClient() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedIndex, notifications, selectedNotification, navigateNotification, selectNotification, handleCloseInspector])
+  }, [selectedIndex, filteredNotifications, selectedNotification, navigateNotification, selectNotification, handleCloseInspector])
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -305,6 +440,73 @@ export default function InboxClient() {
         )}
       </header>
 
+      {/* Filter bar */}
+      <div className="border-b border-gray-100 px-5 py-2 flex items-center gap-2 flex-shrink-0 flex-wrap">
+        {/* Read status filter */}
+        {([
+          ['all', 'すべて'],
+          ['unread', '未読のみ'],
+          ['read', '既読のみ'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setReadFilter(value)}
+            className={`px-2 py-1 text-[11px] rounded-md transition-colors border ${
+              readFilter === value
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+
+        <span className="w-px h-4 bg-gray-200" />
+
+        {/* Actionable filter */}
+        {([
+          ['all', 'すべて'],
+          ['actionable', '要対応'],
+          ['actioned', '対応済み'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setActionFilter(value)}
+            className={`px-2 py-1 text-[11px] rounded-md transition-colors border ${
+              actionFilter === value
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+
+        <span className="w-px h-4 bg-gray-200" />
+
+        {/* Type filter dropdown */}
+        <TypeFilterDropdown
+          selectedTypes={typeFilter}
+          onChange={setTypeFilter}
+        />
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={() => {
+              setReadFilter('all')
+              setActionFilter('all')
+              setTypeFilter(new Set())
+            }}
+            className="px-2 py-1 text-[11px] rounded-md transition-colors text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+          >
+            リセット
+          </button>
+        )}
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {loading && <LoadingState />}
@@ -315,9 +517,13 @@ export default function InboxClient() {
           <EmptyState icon={<Tray />} message="通知はありません" />
         )}
 
-        {!loading && !error && notifications.length > 0 && (
+        {!loading && !error && notifications.length > 0 && filteredNotifications.length === 0 && (
+          <EmptyState icon={<Funnel />} message="フィルター条件に一致する通知はありません" />
+        )}
+
+        {!loading && !error && filteredNotifications.length > 0 && (
           <div>
-            {notifications.map(notification => (
+            {filteredNotifications.map(notification => (
               <NotificationItem
                 key={notification.id}
                 notification={notification}

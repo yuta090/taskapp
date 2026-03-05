@@ -317,7 +317,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
             <div className="mt-6 flex justify-end">
               <button
                 onClick={closeNewKeyModal}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 閉じる
               </button>
@@ -383,7 +383,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
           <button
             onClick={handleCreate}
             disabled={!newKeyName.trim() || creating}
-            className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+            className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
           >
             <Plus className="text-sm" />
             {creating ? '作成中...' : '発行'}

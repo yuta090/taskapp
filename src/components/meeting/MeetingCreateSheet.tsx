@@ -274,7 +274,7 @@ export function MeetingCreateSheet({
               type="submit"
               disabled={!title.trim() || membersLoading || isSubmitting}
               data-testid="meeting-create-submit"
-              className="px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+              className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
               {isSubmitting ? '作成中...' : '作成'}
             </button>

@@ -835,7 +835,7 @@ export function NotificationInspector({
             type="button"
             onClick={handleQuickComplete}
             disabled={statusUpdating}
-            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 rounded-md transition-colors"
+            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-md transition-colors"
           >
             <CheckCircle weight="fill" className="text-base" />
             <span>完了にして次へ</span>

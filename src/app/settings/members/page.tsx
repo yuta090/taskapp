@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowLeft, CircleNotch, Users, Crown, Trash, Plus, Warning } from '@phosphor-icons/react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { ArrowLeft, CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass } from '@phosphor-icons/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -38,6 +38,10 @@ export default function MembersSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Filter state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
+
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
@@ -49,6 +53,24 @@ export default function MembersSettingsPage() {
   const supabase = supabaseRef.current
 
   const isOwner = role === 'owner'
+
+  const isFiltering = searchQuery !== '' || roleFilter !== ''
+
+  const filteredMembers = useMemo(() => {
+    let result = members
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        m =>
+          m.display_name.toLowerCase().includes(q) ||
+          (m.email && m.email.toLowerCase().includes(q))
+      )
+    }
+    if (roleFilter) {
+      result = result.filter(m => m.role === roleFilter)
+    }
+    return result
+  }, [members, searchQuery, roleFilter])
 
   const fetchMembers = useCallback(async () => {
     if (!orgId) return
@@ -220,9 +242,50 @@ export default function MembersSettingsPage() {
               <Users className="w-4 h-4" />
               <span className="text-sm font-medium">メンバー</span>
               <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                {members.length}人
+                {isFiltering
+                  ? `${filteredMembers.length}/${members.length}人`
+                  : `${members.length}人`}
               </span>
             </div>
+          </div>
+
+          {/* Filter bar */}
+          <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
+            {/* Search input */}
+            <div className="relative flex-1">
+              <MagnifyingGlass className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="名前・メールで検索"
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            {/* Role pills */}
+            <button
+              onClick={() => setRoleFilter('')}
+              className={`px-2 py-1 text-[11px] rounded-md border ${
+                roleFilter === ''
+                  ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              すべて
+            </button>
+            {ORG_ROLE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setRoleFilter(roleFilter === opt.value ? '' : opt.value)}
+                className={`px-2 py-1 text-[11px] rounded-md border ${
+                  roleFilter === opt.value
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
           <div className="divide-y divide-gray-100">
@@ -230,8 +293,12 @@ export default function MembersSettingsPage() {
               <div className="p-6 text-center text-sm text-gray-500">
                 メンバーが見つかりませんでした
               </div>
+            ) : filteredMembers.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                条件に一致するメンバーがいません
+              </div>
             ) : (
-              members.map(member => {
+              filteredMembers.map(member => {
                 const initial = member.display_name.charAt(0).toUpperCase()
                 const isCurrentUser = member.user_id === user?.id
 
@@ -355,7 +422,7 @@ export default function MembersSettingsPage() {
               <button
                 onClick={handleInvite}
                 disabled={!inviteEmail.trim() || inviting}
-                className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 {inviting ? '送信中...' : '招待'}

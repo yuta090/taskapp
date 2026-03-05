@@ -89,10 +89,12 @@ const dateStr = formatDateToLocalString(date)
 - **`main` への直接プッシュは禁止** — いかなる場合もプルリクエスト経由のみ
 - **`develop` への直接プッシュ・PRは問題ない** — 通常の作業ブランチとして使用
 - **`develop` → `main`** はプルリクエスト必須（直接マージ禁止）
-- プッシュ・プルリクは `develop` ブランチに対して行うこと
+- **デフォルトのプッシュ先は `develop`** — 「プッシュして」と言われたら `develop` にプッシュする
+- **デフォルトのPR先は `develop`** — 「PRを作って」と言われたら `--base develop` でPRを作成する
+- `main` へのPRは明示的に指示された場合のみ
 
 ```
-develop (作業・プッシュ先) → (PR) → main
+feature branch → (push/PR) → develop → (PR) → main
 ```
 
 ## Environment Setup

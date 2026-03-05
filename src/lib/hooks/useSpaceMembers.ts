@@ -57,6 +57,11 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     },
     staleTime: 30_000,
     enabled: !!spaceId,
+    retry: (count, err) => {
+      // Don't retry auth errors
+      if (err instanceof Error && err.message === 'ログインが必要です') return false
+      return count < 1
+    },
   })
 
   // Filter by role (DB uses: admin, editor, viewer, client)

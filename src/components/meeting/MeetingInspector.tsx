@@ -194,7 +194,7 @@ export function MeetingInspector({
                 <button
                   onClick={onEnd}
                   data-testid="meeting-inspector-end"
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Stop weight="fill" />
                   会議を終了

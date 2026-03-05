@@ -183,7 +183,7 @@ export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) 
                 <button
                   onClick={handleLinkRepo}
                   disabled={!selectedRepoId || linkRepo.isPending}
-                  className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+                  className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
                 >
                   <Plus className="text-sm" />
                   {linkRepo.isPending ? '追加中...' : '追加'}
