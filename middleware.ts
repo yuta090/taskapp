@@ -3,8 +3,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constants'
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
-// 認証不要のパス
+// 認証不要のパス（ホワイトリスト — ここに無いページは全て認証必須）
 const publicPaths = [
+  '/',
   '/login',
   '/signup',
   '/reset',
@@ -13,20 +14,10 @@ const publicPaths = [
   '/auth/callback',
   '/docs',
   '/admin/login',
-]
-
-// 認証が必要なパス（portalは独自のauth checkを持つが、middleware でセッションリフレッシュ必要）
-const authRequiredPrefixes = [
-  '/portal',
-]
-
-// 認証が必要なパス（これ以外はpublic）
-const protectedPatterns = [
-  /^\/inbox/,
-  /^\/my/,
-  /^\/settings/,
-  /^\/[0-9a-f-]+\/project/,  // /:orgId/project/...
-  /^\/admin(?!\/login)/,     // /admin/* except /admin/login
+  '/contact',
+  '/pricing',
+  '/privacy',
+  '/terms',
 ]
 
 /** redirect レスポンスに activeOrgId cookie を付与 */
@@ -85,18 +76,16 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // 公開パスのチェック
-  const isPublicPath = pathname === '/' || publicPaths.some(path => pathname.startsWith(path))
+  // ホワイトリスト方式: publicPaths に含まれないパスは全て認証必須
+  const isPublicPath = publicPaths.some(path =>
+    path === '/' ? pathname === '/' : pathname.startsWith(path)
+  )
 
-  // 保護されたパスのチェック
-  const isProtectedPath = protectedPatterns.some(pattern => pattern.test(pathname))
+  // login/signup は認証済みユーザーのリダイレクト判定が必要なので別扱い
+  const needsServerVerification = pathname === '/login' || pathname === '/signup' || pathname.startsWith('/onboarding')
 
-  // 認証が必要なプレフィックスのチェック
-  const needsAuth = authRequiredPrefixes.some(prefix => pathname.startsWith(prefix))
-
-  // 認証不要のパスではセッションチェックをスキップ
-  // ただし login/signup はリダイレクト判定のため検証が必要
-  if (isPublicPath && !isProtectedPath && !needsAuth && pathname !== '/login' && pathname !== '/signup') {
+  // 公開パス（login/signup/onboarding 以外）はセッションチェック不要
+  if (isPublicPath && !needsServerVerification) {
     return response
   }
 
@@ -109,13 +98,11 @@ export async function middleware(request: NextRequest) {
   // - 実際のセキュリティ境界はSupabase RLS（全データクエリでtoken検証）
   // - cookieはhttpOnly + SameSite + Secureで保護（クライアントJSで改竄不可）
   // - 仮にsessionが不正でも、RLSがデータアクセスをブロック
-  const needsServerVerification = pathname === '/login' || pathname === '/signup' || pathname.startsWith('/onboarding')
-
   if (!needsServerVerification) {
     const { data: { session } } = await supabase.auth.getSession()
 
-    // 未認証ユーザーが保護されたパスにアクセスした場合
-    if (!session && (isProtectedPath || needsAuth)) {
+    // 未認証 → /login にリダイレクト
+    if (!session) {
       if (pathname === '/portal') {
         return NextResponse.redirect(new URL('/login', request.url))
       }
@@ -125,14 +112,12 @@ export async function middleware(request: NextRequest) {
     }
 
     // プロジェクトルート (/:orgId/project/...) の場合、URL の orgId を cookie に同期
-    if (session) {
-      const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
-      if (projectMatch) {
-        const pathOrgId = projectMatch[1]
-        const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
-        if (pathOrgId !== cookieOrgId) {
-          response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
-        }
+    const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
+    if (projectMatch) {
+      const pathOrgId = projectMatch[1]
+      const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
+      if (pathOrgId !== cookieOrgId) {
+        response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
       }
     }
 
@@ -206,17 +191,17 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
-  // 未認証で保護パスにいる場合（onboardingは上で処理済み）
-  if (!user && isProtectedPath) {
-    const redirectUrl = new URL('/login', request.url)
-    redirectUrl.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(redirectUrl)
-  }
-
   return response
 
   } catch (error) {
     console.error('[middleware] Unhandled error:', error)
+    // エラー時は安全側に倒す: 保護パスなら /login にリダイレクト
+    const isPublic = publicPaths.some(path =>
+      path === '/' ? pathname === '/' : pathname.startsWith(path)
+    )
+    if (!isPublic) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
     return NextResponse.next()
   }
 }
