@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type {
   SchedulingProposal,
   ProposalSlot,
@@ -87,7 +87,7 @@ export function useSchedulingProposals({
 
     try {
       const response = await fetch(
-        `/api/scheduling/proposals?spaceId=${spaceId}`
+        `/api/scheduling/proposals?spaceId=${encodeURIComponent(spaceId)}`
       )
       if (!response.ok) {
         throw new Error('Failed to fetch proposals')
@@ -115,6 +115,13 @@ export function useSchedulingProposals({
       }
     }
   }, [spaceId])
+
+  // Auto-fetch proposals on mount (and when spaceId changes via fetchProposals dep)
+  useEffect(() => {
+    if (spaceId) {
+      void fetchProposals()
+    }
+  }, [spaceId, fetchProposals])
 
   const fetchProposalDetail = useCallback(
     async (id: string): Promise<ProposalDetail | null> => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   ArrowLeft,
   Key,
@@ -14,6 +14,7 @@ import {
   CircleNotch,
   CheckSquare,
   Square,
+  MagnifyingGlass,
 } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -76,6 +77,20 @@ export default function ApiKeysSettingsPage() {
 
   // Code block copy
   const [copiedBlock, setCopiedBlock] = useState<string | null>(null)
+
+
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredKeys = useMemo(() => {
+    return apiKeys.filter((key) => {
+      if (statusFilter === 'active' && !key.is_active) return false
+      if (statusFilter === 'inactive' && key.is_active) return false
+      if (searchQuery.trim() && !key.name.toLowerCase().includes(searchQuery.trim().toLowerCase())) return false
+      return true
+    })
+  }, [apiKeys, statusFilter, searchQuery])
 
   const fetchApiKeys = useCallback(async () => {
     if (!user) return
@@ -300,7 +315,7 @@ export default function ApiKeysSettingsPage() {
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={closeNewKeyModal}
-                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                   閉じる
                 </button>
@@ -470,6 +485,44 @@ export default function ApiKeysSettingsPage() {
             </h3>
           </div>
 
+          {/* Filter bar */}
+          {!loading && apiKeys.length > 0 && (
+            <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
+              {/* Search */}
+              <div className="relative flex-1 max-w-xs">
+                <MagnifyingGlass className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                  placeholder="キー名で検索"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+              {/* Status pills */}
+              <div className="flex items-center gap-1">
+                {([
+                  { value: 'all', label: 'All' },
+                  { value: 'active', label: '有効' },
+                  { value: 'inactive', label: '無効' },
+                ] as const).map((pill) => (
+                  <button
+                    key={pill.value}
+                    type="button"
+                    onClick={() => setStatusFilter(pill.value)}
+                    className={`px-2 py-1 text-[11px] rounded-md border transition-colors ${
+                      statusFilter === pill.value
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {pill.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="px-4 py-8 text-center text-sm text-gray-500">
               読み込み中...
@@ -478,9 +531,13 @@ export default function ApiKeysSettingsPage() {
             <div className="px-4 py-8 text-center text-sm text-gray-500">
               APIキーはまだ作成されていません
             </div>
+          ) : filteredKeys.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-gray-500">
+              フィルター条件に一致するキーはありません
+            </div>
           ) : (
             <div className="divide-y divide-gray-100">
-              {apiKeys.map((key) => (
+              {filteredKeys.map((key) => (
                 <div key={key.id} className="px-4 py-3 hover:bg-gray-50">
                   <div className="flex items-start gap-3">
                     <Key className="text-gray-400 mt-0.5" />

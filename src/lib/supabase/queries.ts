@@ -53,7 +53,9 @@ export async function fetchTasksQuery(
     supabase
       .from('reviews')
       .select('task_id, status')
-      .eq('space_id', spaceId),
+      .eq('org_id', orgId)
+      .eq('space_id', spaceId)
+      .order('created_at', { ascending: false }),
   ])
 
   if (tasksResult.error) throw tasksResult.error
@@ -76,8 +78,11 @@ export async function fetchTasksQuery(
 
   const reviewsByTask: Record<string, ReviewStatus> = {}
   if (Array.isArray(reviewsResult.data)) {
+    // Results are ordered by created_at DESC — first occurrence per task_id is the latest
     for (const r of reviewsResult.data as Array<{ task_id: string; status: string }>) {
-      reviewsByTask[r.task_id] = r.status as ReviewStatus
+      if (!(r.task_id in reviewsByTask)) {
+        reviewsByTask[r.task_id] = r.status as ReviewStatus
+      }
     }
   }
 

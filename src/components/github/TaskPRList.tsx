@@ -183,7 +183,7 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
             <button
               onClick={handleLink}
               disabled={!selectedPRId || linkPR.isPending}
-              className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded"
+              className="px-2 py-1 text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded"
             >
               {linkPR.isPending ? '紐付け中...' : '紐付け'}
             </button>

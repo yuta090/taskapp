@@ -262,7 +262,7 @@ export default function OrgIntegrationsPage() {
                 {isOwner && (
                   <a
                     href={getGitHubInstallUrl(orgId, '/settings/org-integrations')}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
                   >
                     <GithubLogo className="text-lg" />
                     GitHubと連携する

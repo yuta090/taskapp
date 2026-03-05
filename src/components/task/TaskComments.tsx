@@ -153,7 +153,7 @@ function CommentItem({ comment, currentUserId, canEdit, onEdit, onDelete }: Comm
                 <button
                   onClick={handleSave}
                   disabled={isSaving || !editBody.trim()}
-                  className="px-2 py-1 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 rounded"
+                  className="px-2 py-1 text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 rounded"
                 >
                   {isSaving ? <Spinner className="animate-spin" /> : '保存'}
                 </button>
@@ -379,7 +379,7 @@ export function TaskComments({
             type="button"
             onClick={handleSend}
             disabled={!newComment.trim() || isSending}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
           >
             {isSending ? (
               <Spinner className="animate-spin" />

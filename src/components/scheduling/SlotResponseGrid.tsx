@@ -436,7 +436,7 @@ export function SlotResponseGrid({
             className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-colors ${
               isSubmitting || !hasUnsavedChanges
                 ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                : 'bg-gray-900 text-white hover:bg-gray-800'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
             data-testid="submit-responses"
           >

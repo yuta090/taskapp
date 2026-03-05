@@ -6,6 +6,7 @@ import type { Persister, PersistedClient } from '@tanstack/react-query-persist-c
 import { get, set, del, keys } from 'idb-keyval'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 
 const IDB_KEY_PREFIX = 'taskapp-query-cache'
 
@@ -69,13 +70,16 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Always invalidate auth cache on ANY auth state change
+      invalidateCachedUser()
+
       if (event === 'SIGNED_OUT') {
         currentUserIdRef.current = null
         clearAllCaches()
         return
       }
 
-      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
         const newUserId = session?.user?.id ?? null
         const prevUserId = currentUserIdRef.current
 
