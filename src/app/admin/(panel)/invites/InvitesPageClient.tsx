@@ -146,6 +146,7 @@ export default function InvitesPageClient({ initialData }: Props) {
         onPageSizeChange={handlePageSizeChange}
         searchValue={search}
         onSearchChange={handleSearchChange}
+        searchPlaceholder="メール・組織名・スペース名で検索..."
         loading={false}
         emptyMessage="招待がありません"
         tableName="invites"

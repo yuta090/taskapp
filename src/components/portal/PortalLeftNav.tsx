@@ -19,8 +19,10 @@ import {
   SignOut,
   User,
   Planet,
+  Lifebuoy,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 
 const STORAGE_KEY = 'taskapp:sidebar:portal:collapsed'
 
@@ -167,6 +169,19 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
               <BookOpen className="text-base text-gray-500" />
               ご利用ガイド
             </Link>
+            <button
+              type="button"
+              onClick={() => {
+                resetPortalOnboarding()
+                setIsOpen(false)
+                router.push('/portal')
+                router.refresh()
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Lifebuoy className="text-base text-gray-500" />
+              使い方ガイドを再表示
+            </button>
             <hr className="my-1 border-gray-100" />
             <button
               type="button"

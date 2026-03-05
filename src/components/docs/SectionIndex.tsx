@@ -12,6 +12,10 @@ import {
   Wrench,
   ListBullets,
   Question,
+  SquaresFour,
+  Target,
+  Tray,
+  UserGear,
 } from '@phosphor-icons/react/dist/ssr'
 import { CategoryCard } from './CategoryCard'
 
@@ -22,12 +26,16 @@ interface SectionIndexProps {
 
 const internalCards = [
   { href: '/docs/manual/internal/getting-started', icon: <Rocket size={20} />, title: 'はじめに・初期設定', description: 'アカウント作成・権限設定' },
+  { href: '/docs/manual/internal/dashboard', icon: <SquaresFour size={20} />, title: 'ダッシュボード', description: 'KPI・リスク・フォローアップ' },
+  { href: '/docs/manual/internal/my-tasks', icon: <Target size={20} />, title: 'マイタスク', description: '全プロジェクト横断の担当タスク' },
+  { href: '/docs/manual/internal/inbox', icon: <Tray size={20} />, title: '受信トレイ', description: '通知確認・アクション実行' },
   { href: '/docs/manual/internal/tasks', icon: <CheckSquare size={20} />, title: 'タスク管理', description: '作成・編集・ボール管理' },
   { href: '/docs/manual/internal/meetings', icon: <VideoCamera size={20} />, title: '会議管理', description: '議事録・決定事項・タスク生成' },
   { href: '/docs/manual/internal/wiki', icon: <BookOpen size={20} />, title: 'Wiki・仕様管理', description: 'ページ作成・カスタムブロック' },
   { href: '/docs/manual/internal/reviews', icon: <Stamp size={20} />, title: 'レビュー・承認', description: '承認フロー・監査証跡' },
   { href: '/docs/manual/internal/scheduling', icon: <CalendarBlank size={20} />, title: '日程調整', description: '提案・確定・GCal連携' },
   { href: '/docs/manual/internal/settings', icon: <GearSix size={20} />, title: 'プロジェクト設定', description: 'メンバー・連携・通知' },
+  { href: '/docs/manual/internal/user-settings', icon: <UserGear size={20} />, title: 'ユーザー・組織設定', description: 'アカウント・課金・外部連携' },
   { href: '/docs/manual/internal/mcp-guide', icon: <Robot size={20} />, title: 'MCP（AI連携）', description: 'ツール一覧・会話例' },
   { href: '/docs/manual/internal/notifications', icon: <Bell size={20} />, title: '通知ガイド', description: 'チャネル別設定・受信者' },
   { href: '/docs/manual/internal/troubleshooting', icon: <Wrench size={20} />, title: 'トラブルシューティング', description: 'よくある問題と対処法' },

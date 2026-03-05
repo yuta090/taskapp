@@ -130,7 +130,8 @@ export function PortalSlotResponseForm({
       await onSubmit(proposal.id, responseArray)
       setSubmitted(true)
     } catch (err) {
-      alert(err instanceof Error ? err.message : '送信に失敗しました')
+      const { toast: toastFn } = await import('sonner')
+      toastFn.error(err instanceof Error ? err.message : '送信に失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -275,7 +276,7 @@ export function PortalSlotResponseForm({
                 disabled={!allAnswered || submitting}
                 className={`w-full py-3 text-sm font-medium rounded-xl transition-colors ${
                   allAnswered && !submitting
-                    ? 'bg-gray-900 text-white hover:bg-gray-800'
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-100 text-gray-300 cursor-not-allowed'
                 }`}
                 data-testid="portal-submit-responses"

@@ -109,7 +109,7 @@ export function ActionCard({
             {title}
           </h3>
           {type === 'spec' && (
-            <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded">
+            <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded" title="仕様書の確認・承認が必要なタスクです">
               SPEC
             </span>
           )}
@@ -185,7 +185,7 @@ export function ActionCard({
             <button
               onClick={handleRequestChanges}
               disabled={disabled || !comment.trim()}
-              className="px-3 py-1.5 text-xs font-bold text-white bg-gray-900 rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               送信
             </button>

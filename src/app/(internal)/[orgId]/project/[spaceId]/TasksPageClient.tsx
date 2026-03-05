@@ -1054,7 +1054,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                 >
                   検索をクリア
                 </button>
-              ) : undefined}
+              ) : (
+                <p className="text-xs text-gray-400">
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] font-mono">N</kbd> キーで最初のタスクを作成しましょう
+                </p>
+              )}
             />
           </div>
         )}

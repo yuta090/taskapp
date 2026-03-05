@@ -108,26 +108,29 @@ export function PortalSettingsClient({
               </div>
             </div>
             <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between opacity-60">
                 <div>
                   <p className="text-sm font-medium text-gray-900">メール通知</p>
                   <p className="text-xs text-gray-500">新しいタスクや更新をメールで受け取る</p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" defaultChecked className="sr-only peer" />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                <label className="relative inline-flex items-center">
+                  <input type="checkbox" defaultChecked disabled className="sr-only peer" />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between opacity-60">
                 <div>
                   <p className="text-sm font-medium text-gray-900">期限リマインダー</p>
                   <p className="text-xs text-gray-500">期限が近いタスクを事前に通知</p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" defaultChecked className="sr-only peer" />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                <label className="relative inline-flex items-center">
+                  <input type="checkbox" defaultChecked disabled className="sr-only peer" />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
               </div>
+              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                通知設定のカスタマイズ機能は近日公開予定です。現在はデフォルト設定（すべての通知を受信）で動作しています。
+              </p>
             </div>
           </div>
 

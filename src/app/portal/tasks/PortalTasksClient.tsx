@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { PortalShell, ActionCard, PortalTaskInspector } from '@/components/portal'
 
 interface Project {
@@ -79,7 +80,7 @@ export function PortalTasksClient({
         // Revert: show task again
         setTaskState(taskId, null)
         if (response.status === 409) {
-          alert('タスクの状態が変更されました。ページを再読み込みします。')
+          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
         }
         startTransition(() => router.refresh())
         return
@@ -112,9 +113,9 @@ export function PortalTasksClient({
         setTaskState(taskId, null)
         const error = await response.json()
         if (response.status === 409) {
-          alert('タスクの状態が変更されました。ページを再読み込みします。')
+          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
         } else if (response.status === 400 && error.error?.includes('Comment')) {
-          alert('コメントを入力してください。')
+          toast.error('コメントを入力してください。')
         }
         startTransition(() => router.refresh())
         return
@@ -163,7 +164,7 @@ export function PortalTasksClient({
           <div>
             <h1 className="text-2xl font-bold text-gray-900">要対応タスク</h1>
             <p className="mt-1 text-sm text-gray-600">
-              確認・承認が必要なタスクの一覧です
+              確認・承認が必要なタスクの一覧です。「要確認」はすぐにアクションが必要、「対応待ち」はチームが準備中です。
             </p>
           </div>
 

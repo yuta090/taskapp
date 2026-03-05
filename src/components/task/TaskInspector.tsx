@@ -591,7 +591,7 @@ export function TaskInspector({
 
           {/* Ball */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500">ボール</label>
+            <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアントの確認待ち">ボール</label>
             <div className="flex gap-1.5">
               <button
                 onClick={() => handleBallChange('internal')}

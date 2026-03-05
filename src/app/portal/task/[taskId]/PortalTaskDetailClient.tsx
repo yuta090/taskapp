@@ -13,6 +13,7 @@ import {
   FileText,
   Checks,
 } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { PortalLayout } from '@/components/portal'
 
 interface Project {
@@ -119,7 +120,7 @@ export function PortalTaskDetailClient({
 
   const handleRequestChanges = async () => {
     if (!comment.trim()) {
-      alert('修正内容を入力してください')
+      toast.error('修正内容を入力してください')
       return
     }
 
