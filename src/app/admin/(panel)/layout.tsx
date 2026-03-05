@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,15 @@ async function verifySuperadmin() {
   return user
 }
 
+async function fetchUnreadNotificationCount(): Promise<number> {
+  const admin = createAdminClient()
+  const { count } = await admin
+    .from('notifications')
+    .select('*', { count: 'exact', head: true })
+    .is('read_at', null)
+  return count ?? 0
+}
+
 export default async function AdminPanelLayout({
   children,
 }: {
@@ -33,9 +43,11 @@ export default async function AdminPanelLayout({
     redirect('/admin/login')
   }
 
+  const unreadCount = await fetchUnreadNotificationCount()
+
   return (
     <div className="flex h-screen bg-gray-50">
-      <AdminSidebar />
+      <AdminSidebar unreadCount={unreadCount} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>
