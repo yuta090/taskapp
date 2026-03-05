@@ -87,6 +87,16 @@ function markOnboarded(): void {
   }
 }
 
+/** Clear onboarding flag so the walkthrough shows again on next mount. */
+export function resetPortalOnboarding(): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(ONBOARDING_KEY)
+  } catch {
+    // localStorage unavailable
+  }
+}
+
 export function PortalOnboardingWalkthrough() {
   const [isOpen, setIsOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
@@ -265,7 +275,7 @@ export function PortalOnboardingWalkthrough() {
             className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg transition-colors ${
               isLast
                 ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                : 'bg-gray-900 hover:bg-gray-800 text-white'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
           >
             {isLast ? (

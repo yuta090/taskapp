@@ -29,10 +29,10 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const ROLE_OPTIONS = [
-  { value: 'admin', label: '管理者' },
-  { value: 'editor', label: '編集者' },
-  { value: 'viewer', label: '閲覧者' },
-  { value: 'client', label: 'クライアント' },
+  { value: 'admin', label: '管理者', desc: '全機能にアクセス可能。メンバー管理・設定変更ができます' },
+  { value: 'editor', label: '編集者', desc: 'タスクの作成・編集・ボール操作ができます' },
+  { value: 'viewer', label: '閲覧者', desc: 'タスクの閲覧とコメントのみ。編集はできません' },
+  { value: 'client', label: 'クライアント', desc: 'ポータルからタスクの確認・承認を行います' },
 ]
 
 const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client'])
@@ -361,7 +361,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                 className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div className="w-32">
+            <div className="w-40">
               <label className="text-xs text-gray-500">役割</label>
               <select
                 value={inviteRole}
@@ -374,11 +374,14 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-[10px] text-gray-400 leading-tight">
+                {ROLE_OPTIONS.find((o) => o.value === inviteRole)?.desc}
+              </p>
             </div>
             <button
               onClick={handleInvite}
               disabled={!inviteEmail.trim() || inviting}
-              className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+              className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
               <Plus className="w-4 h-4" />
               {inviting ? '送信中...' : '招待'}

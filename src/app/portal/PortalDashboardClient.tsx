@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle, Warning, Clock } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import {
   PortalShell,
   PortalTaskInspector,
@@ -139,15 +140,15 @@ export function PortalDashboardClient({
 
         const errorMessage = errorData.error || 'エラーが発生しました'
         if (response.status === 409) {
-          alert(errorMessage)
+          toast.error(errorMessage)
           router.refresh()
         } else if (response.status === 403) {
-          alert('このタスクへのアクセス権限がありません')
+          toast.error('このタスクへのアクセス権限がありません')
         } else if (response.status === 401) {
-          alert('セッションが切れました。再ログインしてください。')
+          toast.error('セッションが切れました。再ログインしてください。')
           router.push('/login')
         } else {
-          alert(errorMessage)
+          toast.error(errorMessage)
         }
         return
       }
@@ -156,7 +157,7 @@ export function PortalDashboardClient({
       router.refresh()
     } catch (error) {
       console.error('Approve failed:', error)
-      alert('ネットワークエラーが発生しました')
+      toast.error('ネットワークエラーが発生しました。しばらくしてから再試行してください。')
     }
   }
 
@@ -172,10 +173,10 @@ export function PortalDashboardClient({
         const error = await response.json()
         console.error('Request changes error:', error)
         if (response.status === 409) {
-          alert('タスクの状態が変更されました。ページを再読み込みしてください。')
+          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
           router.refresh()
         } else if (response.status === 400 && error.error?.includes('Comment')) {
-          alert('コメントを入力してください。')
+          toast.error('コメントを入力してください。')
         }
         return
       }

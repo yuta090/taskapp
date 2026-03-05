@@ -302,6 +302,20 @@ export function BurndownChart({ data }: BurndownChartProps) {
         />
       ))}
 
+      {/* Legend */}
+      <g transform={`translate(${chartWidth - padding.right - 180}, ${padding.top})`}>
+        <line x1={0} y1={6} x2={20} y2={6} stroke={BURNDOWN_CONFIG.COLORS.IDEAL_LINE} strokeWidth={2} strokeDasharray="6 4" opacity={0.7} />
+        <text x={26} y={10} fontSize={11} fill={BURNDOWN_CONFIG.COLORS.AXIS_TEXT}>理想ペース</text>
+        <line x1={0} y1={24} x2={20} y2={24} stroke={BURNDOWN_CONFIG.COLORS.ACTUAL_LINE} strokeWidth={2.5} />
+        <text x={26} y={28} fontSize={11} fill={BURNDOWN_CONFIG.COLORS.AXIS_TEXT}>実績</text>
+        {todayX !== null && (
+          <>
+            <line x1={0} y1={42} x2={20} y2={42} stroke={BURNDOWN_CONFIG.COLORS.TODAY} strokeWidth={1.5} strokeDasharray="4 3" opacity={0.6} />
+            <text x={26} y={46} fontSize={11} fill={BURNDOWN_CONFIG.COLORS.AXIS_TEXT}>今日</text>
+          </>
+        )}
+      </g>
+
       {/* Tooltip */}
       {hoveredIndex !== null && actualPoints[hoveredIndex] && (
         <BurndownTooltip
