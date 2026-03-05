@@ -35,19 +35,25 @@ export default function OnboardingPage() {
         if (membership.role === 'client') {
           router.replace('/portal')
         } else {
-          const { data: space } = await (supabase as SupabaseClient)
-            .from('spaces')
-            .select('id')
-            .eq('org_id', membership.org_id)
-            .eq('type', 'project')
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single()
-
-          if (space) {
-            router.replace(`/${membership.org_id}/project/${space.id}`)
+          // 最後にアクセスしたページがあればそこに復帰
+          const lastPath = localStorage.getItem('taskapp:lastPath')
+          if (lastPath && lastPath.startsWith('/')) {
+            router.replace(lastPath)
           } else {
-            router.replace('/inbox')
+            const { data: space } = await (supabase as SupabaseClient)
+              .from('spaces')
+              .select('id')
+              .eq('org_id', membership.org_id)
+              .eq('type', 'project')
+              .order('created_at', { ascending: true })
+              .limit(1)
+              .single()
+
+            if (space) {
+              router.replace(`/${membership.org_id}/project/${space.id}`)
+            } else {
+              router.replace('/inbox')
+            }
           }
         }
         return

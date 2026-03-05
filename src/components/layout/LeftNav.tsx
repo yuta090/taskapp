@@ -33,6 +33,7 @@ import {
   ArrowUp,
   ArrowDown,
   PlugsConnected,
+  ChartBar,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
@@ -603,6 +604,14 @@ function SpaceNavItem({
       {/* Sub-nav（展開時のみ） */}
       {isExpanded && (
         <div className={collapsed ? 'space-y-0.5' : 'pl-2 mt-0.5 space-y-0.5 border-l border-gray-200 ml-4'}>
+          <SubNavItem
+            href={`${basePath}/dashboard`}
+            icon={<ChartBar />}
+            label="ダッシュボード"
+            active={isActive(`${basePath}/dashboard`, pathname.includes(`/project/${space.id}/dashboard`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
           <SubNavItem
             href={basePath}
             icon={<Copy />}
