@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
-import { AdminDataTable, type ColumnDef } from '@/components/admin/AdminDataTable'
+import { AdminDataTable, type ColumnDef, matchesSearch, getNestedValue, compareValues } from '@/components/admin/AdminDataTable'
 import { isAllowedTable, TABLE_LABELS, type AllowedTable } from '@/lib/admin/table-config'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -18,15 +18,27 @@ export default function AdminTableDetailPage() {
   const params = useParams()
   const tableName = params.tableName as string
 
-  const [data, setData] = useState<Row[]>([])
+  const [allRows, setAllRows] = useState<Row[]>([])
   const [columns, setColumns] = useState<ColumnDef<Row>[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null)
+
+  const handleSortChange = useCallback((key: string, dir: 'asc' | 'desc' | null) => {
+    setSortKey(key)
+    setSortDir(dir)
+  }, [])
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearch(value)
+    setPage(1)
+  }, [])
 
   const handlePageChange = useCallback((newPage: number) => {
-    setLoading(true)
     setPage(newPage)
   }, [])
 
@@ -36,20 +48,25 @@ export default function AdminTableDetailPage() {
     async function load() {
       if (!isAllowedTable(tableName)) return
 
+      setLoading(true)
       const supabase = createClient()
-      const from = (page - 1) * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
 
-      const { data: rows, count, error } = await (supabase as SupabaseClient)
+      const { data: rows, count, error: queryError } = await (supabase as SupabaseClient)
         .from(tableName)
         .select('*', { count: 'exact' })
-        .range(from, to)
         .order('created_at', { ascending: false })
+        .limit(1000)
 
       if (cancelled) return
 
-      if (!error && rows) {
-        setData(rows as Row[])
+      if (queryError) {
+        setError(queryError.message)
+        setLoading(false)
+        return
+      }
+
+      if (rows) {
+        setAllRows(rows as Row[])
         setTotal(count ?? 0)
 
         if (rows.length > 0) {
@@ -57,6 +74,7 @@ export default function AdminTableDetailPage() {
           setColumns(keys.map((key) => ({
             key,
             label: key,
+            sortable: true,
             width: key === 'id' ? '280px' : undefined,
           })))
         }
@@ -68,7 +86,30 @@ export default function AdminTableDetailPage() {
     load()
 
     return () => { cancelled = true }
-  }, [tableName, page])
+  }, [tableName])
+
+  const filtered = useMemo(() => {
+    const query = search.trim()
+    if (!query) return allRows
+    return allRows.filter((r) => matchesSearch(r, query))
+  }, [allRows, search])
+
+  const sorted = useMemo(() => {
+    if (!sortKey || !sortDir) return filtered
+    const arr = [...filtered]
+    arr.sort((a, b) => {
+      const va = getNestedValue(a, sortKey)
+      const vb = getNestedValue(b, sortKey)
+      const cmp = compareValues(va, vb)
+      return sortDir === 'desc' ? -cmp : cmp
+    })
+    return arr
+  }, [filtered, sortKey, sortDir])
+
+  const paged = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return sorted.slice(start, start + PAGE_SIZE)
+  }, [sorted, page])
 
   if (!isAllowedTable(tableName)) {
     return (
@@ -97,16 +138,26 @@ export default function AdminTableDetailPage() {
         description={`${tableName} / ${total} 行`}
       />
 
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <AdminDataTable
         columns={columns}
-        data={data}
-        total={total}
+        data={paged}
+        total={sorted.length}
         page={page}
         pageSize={PAGE_SIZE}
         onPageChange={handlePageChange}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={handleSearchChange}
         loading={loading}
+        sortKey={sortKey}
+        sortDirection={sortDir}
+        onSortChange={handleSortChange}
+        allData={sorted}
       />
     </div>
   )

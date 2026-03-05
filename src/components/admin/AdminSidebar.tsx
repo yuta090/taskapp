@@ -39,7 +39,11 @@ const NAV_ITEMS = [
   { label: 'デザインシステム', icon: PaintBrush, href: '/admin/design-system' },
 ]
 
-export function AdminSidebar() {
+interface AdminSidebarProps {
+  unreadCount?: number
+}
+
+export function AdminSidebar({ unreadCount }: AdminSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -78,6 +82,11 @@ export function AdminSidebar() {
             >
               <Icon size={18} weight={isActive ? 'fill' : 'regular'} />
               {item.label}
+              {item.label === '通知' && unreadCount != null && unreadCount > 0 && (
+                <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </Link>
           )
         })}
