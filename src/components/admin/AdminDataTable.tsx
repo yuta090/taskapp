@@ -102,7 +102,7 @@ function formatAutoValue(value: unknown): React.ReactNode {
   return str
 }
 
-export function getNestedValue(obj: Record<string, unknown>, key: string): unknown {
+export function getNestedValue<T extends object>(obj: T, key: string): unknown {
   return key.split('.').reduce<unknown>((acc, k) => {
     if (acc != null && typeof acc === 'object') return (acc as Record<string, unknown>)[k]
     return undefined
@@ -120,7 +120,7 @@ export function compareValues(a: unknown, b: unknown): number {
   return String(a).localeCompare(String(b), 'ja-JP', { sensitivity: 'base' })
 }
 
-export function matchesSearch(row: Record<string, unknown>, query: string): boolean {
+export function matchesSearch<T extends object>(row: T, query: string): boolean {
   const lower = query.toLowerCase()
   for (const val of Object.values(row)) {
     if (typeof val === 'string' && val.toLowerCase().includes(lower)) return true
@@ -129,16 +129,19 @@ export function matchesSearch(row: Record<string, unknown>, query: string): bool
   return false
 }
 
-function generateCSV<T extends Record<string, unknown>>(
+function generateCSV<T extends object>(
   columns: ColumnDef<T>[],
   rows: T[],
 ): string {
+  const FORMULA_CHARS = /^[\s\u0000-\u0020]*[=+\-@\t\r]/
   const escape = (v: unknown): string => {
     const str = v == null ? '' : String(v)
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-      return `"${str.replace(/"/g, '""')}"`
+    // Neutralize formula injection for spreadsheet applications
+    const safe = FORMULA_CHARS.test(str) ? `\t${str}` : str
+    if (safe.includes(',') || safe.includes('"') || safe.includes('\n') || safe.includes('\t')) {
+      return `"${safe.replace(/"/g, '""')}"`
     }
-    return str
+    return safe
   }
 
   const header = columns.map((c) => escape(c.label)).join(',')
@@ -161,7 +164,7 @@ function downloadCSV(csv: string, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
-export function AdminDataTable<T extends Record<string, unknown>>({
+export function AdminDataTable<T extends object>({
   columns,
   data,
   total,
