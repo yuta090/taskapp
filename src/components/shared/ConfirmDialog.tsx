@@ -77,7 +77,7 @@ function ConfirmDialogUI({
   // Auto-focus confirm button on mount
   const setRef = useCallback(
     (node: HTMLDivElement | null) => {
-      (focusTrapRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+      Object.assign(focusTrapRef, { current: node })
       if (node) {
         confirmRef.current?.focus()
       }
