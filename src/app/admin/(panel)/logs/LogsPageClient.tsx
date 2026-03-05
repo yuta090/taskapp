@@ -251,6 +251,7 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
           onPageSizeChange={handleAuditPageSizeChange}
           searchValue={auditSearch}
           onSearchChange={handleAuditSearchChange}
+          searchPlaceholder="イベント種別・概要で検索..."
           loading={false}
           emptyMessage="ログがありません"
           tableName="audit_logs"
@@ -275,6 +276,7 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
         onPageSizeChange={handleEventPageSizeChange}
         searchValue={eventSearch}
         onSearchChange={handleEventSearchChange}
+        searchPlaceholder="アクション・タスクIDで検索..."
         loading={false}
         emptyMessage="イベントがありません"
         tableName="task_events"

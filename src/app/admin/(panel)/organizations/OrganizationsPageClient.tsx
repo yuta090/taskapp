@@ -161,6 +161,7 @@ export default function OrganizationsPageClient({ initialData }: Props) {
         onPageSizeChange={handlePageSizeChange}
         searchValue={search}
         onSearchChange={handleSearchChange}
+        searchPlaceholder="組織名・プランで検索..."
         loading={false}
         tableName="organizations"
         emptyMessage="組織が見つかりません"

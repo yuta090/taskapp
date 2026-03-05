@@ -178,6 +178,7 @@ export default function UsersPageClient({ initialData }: Props) {
         onPageSizeChange={handlePageSizeChange}
         searchValue={search}
         onSearchChange={handleSearchChange}
+        searchPlaceholder="名前・メールで検索..."
         loading={false}
         tableName="users"
         emptyMessage="ユーザーが見つかりません"

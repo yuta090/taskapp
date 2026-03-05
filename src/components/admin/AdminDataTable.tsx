@@ -31,6 +31,7 @@ interface AdminDataTableProps<T> {
   onPageSizeChange?: (size: number) => void
   searchValue?: string
   onSearchChange?: (value: string) => void
+  searchPlaceholder?: string
   loading?: boolean
   emptyMessage?: string
   tableName?: string
@@ -174,6 +175,7 @@ export function AdminDataTable<T extends Record<string, unknown>>({
   onPageSizeChange,
   searchValue,
   onSearchChange,
+  searchPlaceholder = '検索...',
   loading,
   emptyMessage = 'データがありません',
   tableName,
@@ -235,7 +237,7 @@ export function AdminDataTable<T extends Record<string, unknown>>({
               type="text"
               value={searchValue ?? ''}
               onChange={handleSearchInput}
-              placeholder="検索..."
+              placeholder={searchPlaceholder}
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>

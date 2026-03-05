@@ -146,6 +146,7 @@ export default function SpacesPageClient({ initialData }: Props) {
         onPageSizeChange={handlePageSizeChange}
         searchValue={search}
         onSearchChange={handleSearchChange}
+        searchPlaceholder="スペース名・組織名で検索..."
         loading={false}
         tableName="spaces"
         emptyMessage="スペースが見つかりません"
