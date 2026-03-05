@@ -1,7 +1,7 @@
 # TaskApp Specification Index
 
-> **Last Updated**: 2026-02-23
-> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング Phase 1-4 完了、プリセットシステム実装済み（9ジャンル）、内部運用対応済み、バーンダウンチャート実装済み、completed_at 追跡実装済み)
+> **Last Updated**: 2026-03-05
+> **Status**: Production Ready (AT-001〜AT-012 実装済み、スケジューリング Phase 1-4 完了、プリセットシステム実装済み（9ジャンル）、内部運用対応済み、バーンダウンチャート実装済み、completed_at 追跡実装済み、GitHub/Slack連携実装済み、管理パネル実装済み)
 
 このファイルは現行仕様の一覧です。古いバージョンは `docs/archive/` を参照。
 
@@ -31,6 +31,17 @@
 | **Burndown Chart** | `spec/BURNDOWN_SPEC.md` | バーンダウンチャート & マイルストーン開始日（Phase 1-2.5） |
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
 | **Space Archive & Folders** | `spec/SPACE_ARCHIVE_AND_FOLDERS_SPEC.md` | スペースアーカイブ・フォルダグループ |
+| **GitHub Integration** | `spec/GITHUB_INTEGRATION_SPEC.md` | GitHub App連携・PR追跡・Webhook |
+| **Slack Integration** | `spec/SLACK_INTEGRATION_SPEC.md` | Slack Bot通知・コマンド・OAuth |
+| **Admin Panel** | `spec/ADMIN_PANEL_SPEC.md` | スーパー管理者運用パネル（17ページ） |
+| **Notification & Inbox** | `spec/NOTIFICATION_INBOX_SPEC.md` | 通知分類・アクション受信トレイ |
+| **Settings UX** | `spec/SETTINGS_UX_SPEC.md` | 設定画面リデザイン（Phase 1-5） |
+| **AI Estimation & Risk** | `spec/AI_ESTIMATION_RISK_SPEC.md` | AI見積もり支援・リスク予測 |
+| **Task Export & API Keys** | `spec/TASK_EXPORT_API_KEYS_SPEC.md` | CSVエクスポート・APIキー・MCPツール |
+| **UX Features** | `spec/UX_FEATURES_SPEC.md` | キーボードショートカット・コマンドパレット・オンボーディング |
+| **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層（1レベル） |
+| **MCP Tool Governance** | `spec/MCP_TOOL_GOVERNANCE.md` | MCPツール4ティアアクセス制御 |
+| **CLI Spec** | `spec/CLI_SPEC.md` | AgentPM CLI仕様 |
 
 ### Prototypes
 
@@ -38,6 +49,16 @@
 |----------|------|-------------|
 | **v29 (Base)** | `prototypes/TaskApp_MasterPrototype_v29.html` | 最新ベースプロトタイプ |
 | **v29 Variants** | `prototypes/TaskApp_MasterPrototype_v29_*.html` | 機能別バリアント |
+
+### Other Documents
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Slack Setup** | `SLACK_SETUP.md` | Slack連携セットアップガイド |
+| **GitHub Milestone Design** | `design/GITHUB_MILESTONE_INTEGRATION.md` | GitHubマイルストーン連携設計 |
+| **UX Improvements** | `ux/*.md` | UX改善ドキュメント（20件） |
+| **LP Design** | `LP_DESIGN_SPEC.md` | ランディングページデザイン仕様 |
+| **Strong Points** | `STRONG_POINTS.md` | 製品強み・差別化ポイント |
 
 ### Templates
 
@@ -142,13 +163,41 @@
 | Phase A | スペースアーカイブ (DB + Hook + LeftNav動的化 + 設定UI) | ✅ |
 | Phase B | スペースフォルダ (DB + Hook + グループアコーディオン + 管理UI) | ✅ |
 
+### GitHub Integration (GitHub連携)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | GitHub App Webhook + PR同期 + リポジトリ連携 | ✅ |
+| Phase 2 | タスク-PRリンク（手動・自動） | ✅ |
+| Phase 3 | GitHubマイルストーン連携（PR merge→タスク完了） | 計画中 |
+
+### Slack Integration (Slack連携)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | OAuth2 + Bot通知 + チャンネル連携 | ✅ |
+| Phase 2 | スラッシュコマンド + インタラクション | ✅ |
+| Phase 3 | モーダルUI + ユーザーマッピング | ✅ |
+
+### Admin Panel (管理パネル)
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Phase 1 | ダッシュボード + ユーザー/組織/スペース管理 | ✅ |
+| Phase 2 | 課金・招待・ログ・通知管理 | ✅ |
+| Phase 3 | DBテーブルビューア + デザインシステムプレビュー | ✅ |
+
 ### Planned (計画中)
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| GitHub連携 | Medium | Issue/PR自動リンク |
 | Stripe課金 | Medium | Pro/Enterpriseプラン |
-| MCP Server | Low | Claude Code連携 |
+| ネイティブアプリ | Medium | React Native (Expo) — `NATIVE_APP_MIGRATION_SPEC.md` |
+| モバイルレスポンシブ | Medium | ポータル最適化 — `MOBILE_RESPONSIVE_SPEC.md` |
+| ポータルUX改善 | Medium | alert→toast, トークン延長 — `PORTAL_UX_FIXES_SPEC.md` |
+| Sentry監視 | Low | エラーモニタリング — `SENTRY_MONITORING_SPEC.md` |
+| バックアップ/DR | Low | ヘルスチェック + PITR — `BACKUP_DR_SPEC.md` |
+| 課金実装 | Medium | 制限 + Freeプラン — `BILLING_IMPLEMENTATION_SPEC.md` |
 
 ---
 
@@ -184,6 +233,10 @@ decision_state = 'considering' | 'decided' | 'implemented'
 | `rpc_create_space_with_preset` | プリセット付きSpace原子的作成 |
 | `rpc_review_open` | レビュー依頼（承認維持 + セキュリティ検証） |
 | `GET /api/burndown` | バーンダウンチャート日次集計API |
+| `GET /api/export/tasks` | タスクCSVエクスポート |
+| `POST /api/tools` | MCP ツールAPI（Bearer Token認証） |
+| `POST /api/github/webhook` | GitHub Webhook受信 |
+| `POST /api/slack/notify` | Slack通知送信 |
 
 ---
 
