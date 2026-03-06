@@ -209,6 +209,28 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     [tasks, updateTask]
   )
 
+  // Parent-child assignment via drag-and-drop
+  const handleParentChange = useCallback(
+    async (taskId: string, parentTaskId: string | null) => {
+      const task = tasks.find((t) => t.id === taskId)
+      if (!task) return
+
+      const parentTask = parentTaskId ? tasks.find((t) => t.id === parentTaskId) : null
+      const actionLabel = parentTaskId
+        ? `「${task.title}」を「${parentTask?.title || ''}」の子タスクに設定`
+        : `「${task.title}」の親タスク紐づけを解除`
+
+      try {
+        await updateTask(taskId, { parentTaskId })
+        toast.success(actionLabel)
+      } catch (err) {
+        console.error('[ガントチャート] 親子設定に失敗:', err)
+        toast.error('親子タスクの設定に失敗しました')
+      }
+    },
+    [tasks, updateTask]
+  )
+
   const loading = tasksLoading || milestonesLoading
   const error = tasksError || milestonesError
 
@@ -279,6 +301,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
             selectedTaskId={selectedTaskId}
             onTaskClick={handleTaskClick}
             onDateChange={handleDateChange}
+            onParentChange={handleParentChange}
           />
         )}
       </div>

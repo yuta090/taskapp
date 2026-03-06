@@ -8,6 +8,16 @@ import {
   ListBullets,
   Rows,
 } from '@phosphor-icons/react'
+import {
+  DndContext,
+  DragOverlay,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core'
 import { GANTT_CONFIG, VIEW_MODE_CONFIG, type ViewMode } from '@/lib/gantt/constants'
 import {
   calcDateRange,
@@ -15,9 +25,11 @@ import {
   isToday,
   dateToX,
 } from '@/lib/gantt/dateUtils'
+import { getEligibleParents, isParentTask } from '@/lib/gantt/treeUtils'
 import { GanttHeader } from './GanttHeader'
 import { GanttRow } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
+import { DraggableTaskRow, DroppableTaskRow } from './GanttDndRow'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskAssessment } from '@/lib/risk/calculateRisk'
 
@@ -28,6 +40,7 @@ interface GanttChartProps {
   selectedTaskId?: string
   onTaskClick?: (taskId: string) => void
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
+  onParentChange?: (taskId: string, parentTaskId: string | null) => void
 }
 
 interface TaskGroup {
@@ -42,11 +55,75 @@ export function GanttChart({
   selectedTaskId,
   onTaskClick,
   onDateChange,
+  onParentChange,
 }: GanttChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [groupByMilestone, setGroupByMilestone] = useState(true)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
+
+  // DnD state
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [overTaskId, setOverTaskId] = useState<string | null>(null)
+
+  // Eligible drop targets for the currently dragged task
+  const eligibleParentIds = useMemo(() => {
+    if (!activeTaskId) return new Set<string>()
+    const eligible = getEligibleParents(tasks, activeTaskId)
+    // Also exclude tasks that are already children (they can't become parents)
+    // And exclude the task itself
+    const ids = new Set(eligible.map((t) => t.id))
+    // Remove tasks that already have this task as parent (can't drop on own children)
+    tasks.forEach((t) => {
+      if (t.parent_task_id === activeTaskId) {
+        ids.delete(t.id)
+      }
+    })
+    return ids
+  }, [activeTaskId, tasks])
+
+  // DnD sensors - require 8px movement to start drag (avoids accidental drags)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  )
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const taskId = event.active.id as string
+    setActiveTaskId(taskId)
+  }, [])
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const overId = event.over?.id as string | undefined
+    setOverTaskId(overId ?? null)
+  }, [])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const draggedTaskId = event.active.id as string
+      const droppedOnId = event.over?.id as string | undefined
+
+      if (droppedOnId && onParentChange && eligibleParentIds.has(droppedOnId)) {
+        onParentChange(draggedTaskId, droppedOnId)
+      }
+
+      setActiveTaskId(null)
+      setOverTaskId(null)
+    },
+    [onParentChange, eligibleParentIds]
+  )
+
+  const handleDragCancel = useCallback(() => {
+    setActiveTaskId(null)
+    setOverTaskId(null)
+  }, [])
+
+  // Active task for drag overlay
+  const activeTask = useMemo(() => {
+    if (!activeTaskId) return null
+    return tasks.find((t) => t.id === activeTaskId) ?? null
+  }, [activeTaskId, tasks])
 
   // Calculate date range
   const { start: startDate, end: endDate } = useMemo(
@@ -155,6 +232,16 @@ export function GanttChart({
       currentRowIndex++
     })
   })
+
+  // Check if a task can be dragged (cannot drag if it's a parent with children)
+  const canDragTask = useCallback(
+    (taskId: string): boolean => {
+      if (!onParentChange) return false
+      // A parent task (has children) cannot become a child
+      return !isParentTask(taskId, tasks)
+    },
+    [tasks, onParentChange]
+  )
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -268,136 +355,166 @@ export function GanttChart({
 
       {/* Chart body - scrollable */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div
-          ref={sidebarRef}
-          className="flex-shrink-0 border-r bg-white overflow-y-auto overflow-x-hidden"
-          style={{
-            width: GANTT_CONFIG.SIDEBAR_WIDTH,
-            borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
-          }}
+        {/* Sidebar with DnD */}
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
         >
-          {rowData.map((row) => {
-            if (row.type === 'header') {
-              return (
-                <div
-                  key={`header-${row.milestone?.id || 'none'}`}
-                  className="flex items-center px-3 bg-gray-50 border-b font-medium"
-                  style={{
-                    height: GANTT_CONFIG.ROW_HEIGHT,
-                    borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
-                  }}
-                >
+          <div
+            ref={sidebarRef}
+            className="flex-shrink-0 border-r bg-white overflow-y-auto overflow-x-hidden"
+            style={{
+              width: GANTT_CONFIG.SIDEBAR_WIDTH,
+              borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
+            }}
+          >
+            {rowData.map((row) => {
+              if (row.type === 'header') {
+                return (
                   <div
-                    className="w-2 h-2 rotate-45 mr-2 flex-shrink-0"
+                    key={`header-${row.milestone?.id || 'none'}`}
+                    className="flex items-center px-3 bg-gray-50 border-b font-medium"
                     style={{
-                      backgroundColor: row.milestone
-                        ? GANTT_CONFIG.COLORS.MILESTONE
-                        : GANTT_CONFIG.COLORS.TEXT_MUTED,
-                    }}
-                  />
-                  <span
-                    className="text-xs truncate flex-1"
-                    style={{
-                      color: row.milestone
-                        ? GANTT_CONFIG.COLORS.MILESTONE
-                        : GANTT_CONFIG.COLORS.TEXT_SECONDARY,
+                      height: GANTT_CONFIG.ROW_HEIGHT,
+                      borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
                     }}
                   >
-                    {row.milestone?.name || 'マイルストーン未設定'}
-                  </span>
-                  {/* Risk badge in sidebar */}
-                  {row.milestone && riskForecasts?.get(row.milestone.id) && (() => {
-                    const risk = riskForecasts.get(row.milestone!.id)!
-                    if (risk.level === 'none' || risk.remainingTasks === 0) return null
-                    const badgeColors = {
-                      high: { bg: '#FEE2E2', text: '#DC2626' },
-                      medium: { bg: '#FEF3C7', text: '#D97706' },
-                      low: { bg: '#DCFCE7', text: '#16A34A' },
-                    } as const
-                    const c = badgeColors[risk.level as keyof typeof badgeColors]
-                    if (!c) return null
-                    return (
-                      <span
-                        className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0"
-                        style={{ backgroundColor: c.bg, color: c.text }}
-                        title={risk.insufficientData
-                          ? `残${risk.remainingTasks}件 / データ不足`
-                          : `残${risk.remainingTasks}件 / ${risk.velocity.toFixed(1)}件/日`}
-                      >
-                        {risk.insufficientData ? '?' : risk.level === 'high' ? '高' : risk.level === 'medium' ? '中' : '低'}
-                      </span>
-                    )
-                  })()}
-                </div>
+                    <div
+                      className="w-2 h-2 rotate-45 mr-2 flex-shrink-0"
+                      style={{
+                        backgroundColor: row.milestone
+                          ? GANTT_CONFIG.COLORS.MILESTONE
+                          : GANTT_CONFIG.COLORS.TEXT_MUTED,
+                      }}
+                    />
+                    <span
+                      className="text-xs truncate flex-1"
+                      style={{
+                        color: row.milestone
+                          ? GANTT_CONFIG.COLORS.MILESTONE
+                          : GANTT_CONFIG.COLORS.TEXT_SECONDARY,
+                      }}
+                    >
+                      {row.milestone?.name || 'マイルストーン未設定'}
+                    </span>
+                    {/* Risk badge in sidebar */}
+                    {row.milestone && riskForecasts?.get(row.milestone.id) && (() => {
+                      const risk = riskForecasts.get(row.milestone!.id)!
+                      if (risk.level === 'none' || risk.remainingTasks === 0) return null
+                      const badgeColors = {
+                        high: { bg: '#FEE2E2', text: '#DC2626' },
+                        medium: { bg: '#FEF3C7', text: '#D97706' },
+                        low: { bg: '#DCFCE7', text: '#16A34A' },
+                      } as const
+                      const c = badgeColors[risk.level as keyof typeof badgeColors]
+                      if (!c) return null
+                      return (
+                        <span
+                          className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0"
+                          style={{ backgroundColor: c.bg, color: c.text }}
+                          title={risk.insufficientData
+                            ? `残${risk.remainingTasks}件 / データ不足`
+                            : `残${risk.remainingTasks}件 / ${risk.velocity.toFixed(1)}件/日`}
+                        >
+                          {risk.insufficientData ? '?' : risk.level === 'high' ? '高' : risk.level === 'medium' ? '中' : '低'}
+                        </span>
+                      )
+                    })()}
+                  </div>
+                )
+              }
+
+              const task = row.task!
+              const isSelected = task.id === selectedTaskId
+              const statusColors = getStatusBadge(task.status)
+              const isDraggable = canDragTask(task.id)
+              const isDropTarget = activeTaskId !== null && eligibleParentIds.has(task.id)
+              const isOverThis = overTaskId === task.id && isDropTarget
+              const isBeingDragged = activeTaskId === task.id
+
+              if (isDraggable || isDropTarget) {
+                return (
+                  <DraggableTaskRow
+                    key={task.id}
+                    task={task}
+                    isSelected={isSelected}
+                    statusColors={statusColors}
+                    statusLabel={statusLabels[task.status] || task.status}
+                    onClick={() => onTaskClick?.(task.id)}
+                    isDraggable={isDraggable}
+                    isDropTarget={isDropTarget}
+                    isOverThis={isOverThis}
+                    isBeingDragged={isBeingDragged}
+                    groupByMilestone={groupByMilestone}
+                    hasParent={!!task.parent_task_id}
+                    onRemoveParent={
+                      task.parent_task_id && onParentChange
+                        ? () => onParentChange(task.id, null)
+                        : undefined
+                    }
+                  />
+                )
+              }
+
+              // Non-interactive rows (e.g., parent tasks that aren't drop targets)
+              return (
+                <DroppableTaskRow
+                  key={task.id}
+                  task={task}
+                  isSelected={isSelected}
+                  statusColors={statusColors}
+                  statusLabel={statusLabels[task.status] || task.status}
+                  onClick={() => onTaskClick?.(task.id)}
+                  isDropTarget={false}
+                  isOverThis={false}
+                  groupByMilestone={groupByMilestone}
+                  hasParent={!!task.parent_task_id}
+                />
               )
-            }
+            })}
 
-            const task = row.task!
-            const isSelected = task.id === selectedTaskId
-            const statusColors = getStatusBadge(task.status)
-
-            return (
+            {tasks.length === 0 && (
               <div
-                key={task.id}
-                onClick={() => onTaskClick?.(task.id)}
-                className="flex items-center gap-2 px-3 cursor-pointer transition-colors hover:bg-gray-50"
+                className="flex items-center justify-center text-gray-400"
                 style={{
-                  height: GANTT_CONFIG.ROW_HEIGHT,
-                  backgroundColor: isSelected ? '#F1F5F9' : undefined,
-                  borderBottom: `0.5px solid ${GANTT_CONFIG.COLORS.GRID_LINE}`,
-                  paddingLeft: groupByMilestone ? 24 : 12,
+                  height: GANTT_CONFIG.ROW_HEIGHT * 3,
+                  fontSize: GANTT_CONFIG.FONT.SIZE_SM,
                 }}
               >
-                {/* Ball indicator */}
+                タスクがありません
+              </div>
+            )}
+          </div>
+
+          {/* Drag overlay */}
+          <DragOverlay dropAnimation={null}>
+            {activeTask && (
+              <div
+                className="flex items-center gap-2 px-3 bg-white border border-blue-300 rounded shadow-lg opacity-90"
+                style={{
+                  height: GANTT_CONFIG.ROW_HEIGHT,
+                  width: GANTT_CONFIG.SIDEBAR_WIDTH - 16,
+                }}
+              >
                 <div
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{
                     backgroundColor:
-                      task.ball === 'client'
+                      activeTask.ball === 'client'
                         ? GANTT_CONFIG.COLORS.CLIENT
                         : GANTT_CONFIG.COLORS.INTERNAL,
                   }}
-                  title={task.ball === 'client' ? '外部' : '社内'}
                 />
-
-                {/* Task title */}
-                <span
-                  className="flex-1 truncate text-gray-900"
-                  style={{
-                    fontSize: GANTT_CONFIG.FONT.SIZE_SM,
-                    fontWeight: isSelected ? 500 : 400,
-                  }}
-                >
-                  {task.title}
-                </span>
-
-                {/* Status badge */}
-                <span
-                  className="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0"
-                  style={{
-                    backgroundColor: statusColors.bg,
-                    color: statusColors.text,
-                  }}
-                >
-                  {statusLabels[task.status] || task.status}
+                <span className="flex-1 truncate text-gray-900" style={{ fontSize: GANTT_CONFIG.FONT.SIZE_SM }}>
+                  {activeTask.title}
                 </span>
               </div>
-            )
-          })}
-
-          {tasks.length === 0 && (
-            <div
-              className="flex items-center justify-center text-gray-400"
-              style={{
-                height: GANTT_CONFIG.ROW_HEIGHT * 3,
-                fontSize: GANTT_CONFIG.FONT.SIZE_SM,
-              }}
-            >
-              タスクがありません
-            </div>
-          )}
-        </div>
+            )}
+          </DragOverlay>
+        </DndContext>
 
         {/* Scrollable chart */}
         <div
