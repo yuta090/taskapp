@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle, Warning, Clock } from '@phosphor-icons/react'
+import { CheckCircle, Warning, Clock, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import {
   PortalShell,
@@ -16,6 +16,7 @@ import {
   type HealthStatus,
   type MilestoneStatus,
 } from '@/components/portal'
+import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { BentoCard } from '@/components/portal/dashboard/BentoCard'
 import { MetricCard } from '@/components/portal/dashboard/MetricCard'
 
@@ -120,6 +121,7 @@ export function PortalDashboardClient({
 }: PortalDashboardClientProps) {
   const router = useRouter()
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
   const handleApprove = async (taskId: string, comment: string) => {
     try {
@@ -235,6 +237,14 @@ export function PortalDashboardClient({
                 プロジェクトの全体進捗と、あなたの確認が必要な項目です。
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setRequestSheetOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 shadow-sm transition-colors"
+            >
+              <Plus className="text-lg" weight="bold" />
+              リクエストを送る
+            </button>
           </div>
 
           {/* BENTO GRID LAYOUT */}
@@ -404,6 +414,11 @@ export function PortalDashboardClient({
 
         </div>
       </div>
+      <PortalRequestSheet
+        isOpen={requestSheetOpen}
+        onClose={() => setRequestSheetOpen(false)}
+        onSuccess={() => router.refresh()}
+      />
     </PortalShell>
   )
 }
