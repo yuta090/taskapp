@@ -266,12 +266,12 @@ export function PortalLeftNav({
         collapsed ? 'w-16' : 'w-[240px] 2xl:w-[280px]'
       } bg-white/60 backdrop-blur-xl border-r border-white/40 flex flex-col flex-shrink-0 select-none z-20 shadow-sm transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
     >
-      {/* Logo + Project Switcher */}
+      {/* Logo + Project Switcher + Request Button */}
       <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>
         <button
           type="button"
           onClick={() => showProjectSwitcher && setProjectMenuOpen(!projectMenuOpen)}
-          className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded transition-colors group ${
+          className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded transition-colors group flex-1 min-w-0 ${
             showProjectSwitcher ? 'hover:bg-white/50 cursor-pointer' : 'cursor-default'
           }`}
           title={collapsed ? (currentProject?.name || 'TaskApp') : undefined}
@@ -294,6 +294,17 @@ export function PortalLeftNav({
               )}
             </>
           )}
+        </button>
+
+        {/* Request button (same position as internal create button) */}
+        <button
+          type="button"
+          onClick={() => setRequestSheetOpen(true)}
+          className="p-1.5 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+          title="リクエストを送る"
+          aria-label="リクエストを送る"
+        >
+          <PaperPlaneTilt className="text-lg 2xl:text-xl" />
         </button>
 
         {/* Project Dropdown */}
@@ -399,20 +410,6 @@ export function PortalLeftNav({
           </div>
         </div>
 
-        {/* Request Button */}
-        <div className={`${collapsed ? 'px-1.5' : 'px-2'} pt-2`}>
-          <button
-            type="button"
-            onClick={() => setRequestSheetOpen(true)}
-            className={`w-full flex items-center ${
-              collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
-            } rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors`}
-            title={collapsed ? 'リクエストを送る' : undefined}
-          >
-            <PaperPlaneTilt className={collapsed ? 'text-lg' : 'text-base'} weight="bold" />
-            {!collapsed && 'リクエストを送る'}
-          </button>
-        </div>
       </div>
 
       {/* Collapse toggle - fixed above user menu */}
