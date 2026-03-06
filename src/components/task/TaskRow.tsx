@@ -248,6 +248,20 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         {/* Client visible indicator */}
         {task.ball === 'client' && <AmberDot />}
 
+        {/* Client origin badge */}
+        {task.origin === 'client' && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+            task.title.startsWith('[BUG]')
+              ? 'bg-red-50 text-red-700'
+              : task.title.startsWith('[Q&A]')
+              ? 'bg-blue-50 text-blue-700'
+              : 'bg-purple-50 text-purple-700'
+          }`}>
+            {task.title.startsWith('[BUG]') ? 'バグ報告' :
+             task.title.startsWith('[Q&A]') ? '質問' : 'クライアント'}
+          </span>
+        )}
+
         {/* Spec task badge */}
         {task.type === 'spec' && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
