@@ -20,9 +20,11 @@ import {
   User,
   Planet,
   Lifebuoy,
+  PaperPlaneTilt,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
+import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 
 const STORAGE_KEY = 'taskapp:sidebar:portal:collapsed'
 
@@ -220,8 +222,10 @@ export function PortalLeftNav({
   actionCount = 0,
 }: PortalLeftNavProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
   const showProjectSwitcher = projects.length > 1
 
@@ -394,6 +398,21 @@ export function PortalLeftNav({
             />
           </div>
         </div>
+
+        {/* Request Button */}
+        <div className={`${collapsed ? 'px-1.5' : 'px-2'} pt-2`}>
+          <button
+            type="button"
+            onClick={() => setRequestSheetOpen(true)}
+            className={`w-full flex items-center ${
+              collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+            } rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors`}
+            title={collapsed ? 'リクエストを送る' : undefined}
+          >
+            <PaperPlaneTilt className={collapsed ? 'text-lg' : 'text-base'} weight="bold" />
+            {!collapsed && 'リクエストを送る'}
+          </button>
+        </div>
       </div>
 
       {/* Collapse toggle - fixed above user menu */}
@@ -420,6 +439,13 @@ export function PortalLeftNav({
 
       {/* User Menu at bottom */}
       <UserMenu collapsed={collapsed} />
+
+      {/* Request Sheet */}
+      <PortalRequestSheet
+        isOpen={requestSheetOpen}
+        onClose={() => setRequestSheetOpen(false)}
+        onSuccess={() => router.refresh()}
+      />
     </aside>
   )
 }
