@@ -4,14 +4,26 @@ import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const MAX_TITLE_LENGTH = 200
+const MAX_FIELD_LENGTH = 2000
 const MAX_DESCRIPTION_LENGTH = 5000
 const VALID_CATEGORIES = ['bug', 'feature', 'question'] as const
+const VALID_FREQUENCIES = ['every_time', 'sometimes', 'once'] as const
 type RequestCategory = (typeof VALID_CATEGORIES)[number]
+type BugFrequency = (typeof VALID_FREQUENCIES)[number]
+
+interface BugDetails {
+  screen: string
+  steps: string
+  actual: string
+  expected: string
+  frequency: BugFrequency
+}
 
 interface RequestBody {
   title: string
   category: RequestCategory
   description?: string
+  bugDetails?: BugDetails
 }
 
 /**
@@ -52,6 +64,35 @@ function categoryLabel(category: RequestCategory): string {
   }
 }
 
+const FREQUENCY_LABELS: Record<BugFrequency, string> = {
+  every_time: '毎回',
+  sometimes: 'ときどき',
+  once: '1回だけ',
+}
+
+/** Build structured description for bug reports */
+function buildBugDescription(
+  bugDetails: BugDetails,
+  userAgent: string,
+  note?: string,
+): string {
+  const sections = [
+    `## 発生画面\n${bugDetails.screen}`,
+    `## 再現手順\n${bugDetails.steps}`,
+    `## 実際の動作\n${bugDetails.actual}`,
+    `## 期待する動作\n${bugDetails.expected}`,
+    `## 発生頻度\n${FREQUENCY_LABELS[bugDetails.frequency]}`,
+  ]
+
+  if (note) {
+    sections.push(`## 補足\n${note}`)
+  }
+
+  sections.push(`## 環境情報\n\`${userAgent}\``)
+
+  return sections.join('\n\n')
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -62,9 +103,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body: RequestBody = await request.json()
-    const { title, category, description } = body
+    const { title, category, description, bugDetails } = body
 
-    // Validation
+    // Validation: common fields
     if (!title || title.trim().length === 0) {
       return NextResponse.json(
         { error: 'タイトルは必須です' },
@@ -86,6 +127,51 @@ export async function POST(request: NextRequest) {
     if (description && description.length > MAX_DESCRIPTION_LENGTH) {
       return NextResponse.json(
         { error: `説明は${MAX_DESCRIPTION_LENGTH}文字以内にしてください` },
+        { status: 400 }
+      )
+    }
+
+    // Validation: bug-specific fields
+    if (category === 'bug') {
+      if (!bugDetails) {
+        return NextResponse.json(
+          { error: 'バグの詳細情報が必要です' },
+          { status: 400 }
+        )
+      }
+      const requiredBugFields: { key: keyof BugDetails; label: string }[] = [
+        { key: 'screen', label: '発生した画面' },
+        { key: 'steps', label: '再現手順' },
+        { key: 'actual', label: '実際に起きたこと' },
+        { key: 'expected', label: '期待する動作' },
+      ]
+      for (const field of requiredBugFields) {
+        const val = bugDetails[field.key]
+        if (typeof val !== 'string' || val.trim().length === 0) {
+          return NextResponse.json(
+            { error: `${field.label}は必須です` },
+            { status: 400 }
+          )
+        }
+        if (val.length > MAX_FIELD_LENGTH) {
+          return NextResponse.json(
+            { error: `${field.label}は${MAX_FIELD_LENGTH}文字以内にしてください` },
+            { status: 400 }
+          )
+        }
+      }
+      if (!bugDetails.frequency || !VALID_FREQUENCIES.includes(bugDetails.frequency)) {
+        return NextResponse.json(
+          { error: '発生頻度を選択してください' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Validation: feature/question requires description
+    if (category !== 'bug' && (!description || description.trim().length === 0)) {
+      return NextResponse.json(
+        { error: category === 'feature' ? '機能の内容を入力してください' : '質問内容を入力してください' },
         { status: 400 }
       )
     }
@@ -116,6 +202,16 @@ export async function POST(request: NextRequest) {
     const spaces = membership.spaces as unknown as { org_id: string }
     const orgId = spaces.org_id
 
+    // Build description
+    const userAgent = request.headers.get('user-agent') || 'unknown'
+    let taskDescription: string | null
+
+    if (category === 'bug' && bugDetails) {
+      taskDescription = buildBugDescription(bugDetails, userAgent, description?.trim())
+    } else {
+      taskDescription = description?.trim() || null
+    }
+
     // Create the task with origin=client, ball=internal
     const label = categoryLabel(category)
     const taskTitle = `[${label}] ${title.trim()}`
@@ -127,7 +223,7 @@ export async function POST(request: NextRequest) {
         org_id: orgId,
         space_id: spaceId,
         title: taskTitle,
-        description: description?.trim() || null,
+        description: taskDescription,
         status: 'open',
         ball: 'internal',
         origin: 'client',

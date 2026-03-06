@@ -5,6 +5,15 @@ import { X, Bug, Lightbulb, Question, PaperPlaneTilt } from '@phosphor-icons/rea
 import { toast } from 'sonner'
 
 type RequestCategory = 'bug' | 'feature' | 'question'
+type BugFrequency = 'every_time' | 'sometimes' | 'once'
+
+interface BugDetails {
+  screen: string
+  steps: string
+  actual: string
+  expected: string
+  frequency: BugFrequency
+}
 
 interface PortalRequestSheetProps {
   isOpen: boolean
@@ -33,18 +42,34 @@ const CATEGORIES: { value: RequestCategory; label: string; icon: React.ReactNode
   },
 ]
 
+const FREQUENCY_OPTIONS: { value: BugFrequency; label: string }[] = [
+  { value: 'every_time', label: '毎回' },
+  { value: 'sometimes', label: 'ときどき' },
+  { value: 'once', label: '1回だけ' },
+]
+
+const INITIAL_BUG_DETAILS: BugDetails = {
+  screen: '',
+  steps: '',
+  actual: '',
+  expected: '',
+  frequency: 'every_time',
+}
+
 export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequestSheetProps) {
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState<RequestCategory>('feature')
   const [description, setDescription] = useState('')
+  const [bugDetails, setBugDetails] = useState<BugDetails>(INITIAL_BUG_DETAILS)
   const [submitting, setSubmitting] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
 
+  const isBug = category === 'bug'
+
   // Focus title input on open
   useEffect(() => {
     if (isOpen) {
-      // Small delay for animation
       const timer = setTimeout(() => titleRef.current?.focus(), 150)
       return () => clearTimeout(timer)
     }
@@ -64,7 +89,32 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
     setTitle('')
     setCategory('feature')
     setDescription('')
+    setBugDetails(INITIAL_BUG_DETAILS)
   }, [])
+
+  const updateBugField = useCallback(<K extends keyof BugDetails>(key: K, value: BugDetails[K]) => {
+    setBugDetails(prev => ({ ...prev, [key]: value }))
+  }, [])
+
+  const validateBugFields = (): boolean => {
+    if (!bugDetails.screen.trim()) {
+      toast.error('発生した画面を入力してください')
+      return false
+    }
+    if (!bugDetails.steps.trim()) {
+      toast.error('再現手順を入力してください')
+      return false
+    }
+    if (!bugDetails.actual.trim()) {
+      toast.error('実際に起きたことを入力してください')
+      return false
+    }
+    if (!bugDetails.expected.trim()) {
+      toast.error('期待する動作を入力してください')
+      return false
+    }
+    return true
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -76,6 +126,8 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
       return
     }
 
+    if (isBug && !validateBugFields()) return
+
     setSubmitting(true)
     try {
       const response = await fetch('/api/portal/requests', {
@@ -85,6 +137,15 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
           title: trimmedTitle,
           category,
           description: description.trim() || undefined,
+          ...(isBug ? {
+            bugDetails: {
+              screen: bugDetails.screen.trim(),
+              steps: bugDetails.steps.trim(),
+              actual: bugDetails.actual.trim(),
+              expected: bugDetails.expected.trim(),
+              frequency: bugDetails.frequency,
+            },
+          } : {}),
         }),
       })
 
@@ -109,6 +170,15 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
       setSubmitting(false)
     }
   }
+
+  const canSubmit = title.trim().length > 0 && (
+    !isBug || (
+      bugDetails.screen.trim().length > 0 &&
+      bugDetails.steps.trim().length > 0 &&
+      bugDetails.actual.trim().length > 0 &&
+      bugDetails.expected.trim().length > 0
+    )
+  )
 
   if (!isOpen) return null
 
@@ -184,7 +254,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
               onChange={(e) => setTitle(e.target.value)}
               maxLength={200}
               placeholder={
-                category === 'bug' ? '例: ログイン画面でボタンが反応しない' :
+                isBug ? '例: ログイン画面でボタンが反応しない' :
                 category === 'feature' ? '例: CSVエクスポート機能がほしい' :
                 '例: 納品物の確認フローについて'
               }
@@ -192,21 +262,120 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
             />
           </div>
 
-          {/* Description */}
+          {/* Bug-specific fields */}
+          {isBug && (
+            <div className="space-y-4 p-4 bg-red-50/50 rounded-xl border border-red-100">
+              <p className="text-xs font-medium text-red-700">
+                バグの詳細（すべて必須）
+              </p>
+
+              {/* Screen */}
+              <div>
+                <label htmlFor="bug-screen" className="block text-xs font-medium text-gray-700 mb-1">
+                  どの画面で起きましたか？ <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="bug-screen"
+                  type="text"
+                  value={bugDetails.screen}
+                  onChange={(e) => updateBugField('screen', e.target.value)}
+                  maxLength={200}
+                  placeholder="例: タスク一覧 / ダッシュボード / 設定画面"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+                />
+              </div>
+
+              {/* Steps */}
+              <div>
+                <label htmlFor="bug-steps" className="block text-xs font-medium text-gray-700 mb-1">
+                  何をしたら起きましたか？（手順） <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="bug-steps"
+                  value={bugDetails.steps}
+                  onChange={(e) => updateBugField('steps', e.target.value)}
+                  maxLength={2000}
+                  rows={3}
+                  placeholder={'1. ○○ページを開く\n2. △△ボタンをクリック\n3. エラーが表示される'}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+                />
+              </div>
+
+              {/* Actual */}
+              <div>
+                <label htmlFor="bug-actual" className="block text-xs font-medium text-gray-700 mb-1">
+                  実際に起きたこと <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="bug-actual"
+                  value={bugDetails.actual}
+                  onChange={(e) => updateBugField('actual', e.target.value)}
+                  maxLength={2000}
+                  rows={2}
+                  placeholder="例: 保存ボタンを押した後、画面が真っ白になった"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+                />
+              </div>
+
+              {/* Expected */}
+              <div>
+                <label htmlFor="bug-expected" className="block text-xs font-medium text-gray-700 mb-1">
+                  本来どうなる想定でしたか？ <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="bug-expected"
+                  value={bugDetails.expected}
+                  onChange={(e) => updateBugField('expected', e.target.value)}
+                  maxLength={2000}
+                  rows={2}
+                  placeholder="例: 保存完了のメッセージが出て、内容が更新される"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+                />
+              </div>
+
+              {/* Frequency */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">
+                  どのくらいの頻度で起きますか？ <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-2">
+                  {FREQUENCY_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => updateBugField('frequency', opt.value)}
+                      className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                        bugDetails.frequency === opt.value
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                          : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Description (for feature/question, or optional note for bug) */}
           <div>
             <label htmlFor="request-description" className="block text-sm font-medium text-gray-700 mb-1.5">
-              詳細（任意）
+              {isBug ? '補足メモ（任意）' : category === 'feature' ? 'ほしい機能の内容' : '質問内容'}
+              {!isBug && <span className="text-red-500 ml-0.5">*</span>}
             </label>
             <textarea
               id="request-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={5000}
-              rows={5}
+              rows={isBug ? 3 : 5}
               placeholder={
-                category === 'bug'
-                  ? '再現手順や発生状況を教えてください\n例:\n1. ○○ページを開く\n2. △△ボタンをクリック\n3. エラーが表示される'
-                  : '詳しい内容やご要望をお書きください'
+                isBug
+                  ? 'その他、気づいたことがあればご記入ください'
+                  : category === 'feature'
+                    ? '例: 月次報告用にタスク一覧をCSVでダウンロードしたい'
+                    : '例: クライアント側で担当者を追加できますか？'
               }
               className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
             />
@@ -230,7 +399,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
           <button
             type="submit"
             onClick={handleSubmit}
-            disabled={submitting || !title.trim()}
+            disabled={submitting || !canSubmit}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <PaperPlaneTilt className="text-lg" weight="bold" />
