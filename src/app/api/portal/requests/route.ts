@@ -30,7 +30,7 @@ interface RequestBody {
  * Fire-and-forget server-side notification.
  */
 function fireServerNotification(
-  request: NextRequest,
+  _request: NextRequest,
   params: {
     event: string
     taskId: string
@@ -42,8 +42,10 @@ function fireServerNotification(
   const secret = process.env.INTERNAL_NOTIFY_SECRET
   if (!secret) return
 
-  const origin = request.nextUrl.origin
-  fetch(`${origin}/api/slack/notify`, {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+  if (!appUrl) return
+  const baseUrl = appUrl.startsWith('http') ? appUrl : `https://${appUrl}`
+  fetch(`${baseUrl}/api/slack/notify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -177,7 +179,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the user's client membership (space + org)
-    const { data: membership } = await (supabase as SupabaseClient)
+    const { data: membership, error: membershipError } = await (supabase as SupabaseClient)
       .from('space_memberships')
       .select(`
         space_id,
@@ -190,6 +192,15 @@ export async function POST(request: NextRequest) {
       .eq('role', 'client')
       .limit(1)
       .single()
+
+    if (membershipError && membershipError.code !== 'PGRST116') {
+      // PGRST116 = no rows found (permission issue), other codes = DB error
+      console.error('[portal-request] Membership query error:', membershipError)
+      return NextResponse.json(
+        { error: 'サーバーエラーが発生しました' },
+        { status: 500 }
+      )
+    }
 
     if (!membership) {
       return NextResponse.json(
