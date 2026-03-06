@@ -39,7 +39,7 @@ interface TasksPageClientProps {
   spaceId: string
 }
 
-type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait'
+type FilterKey = 'all' | 'active' | 'backlog' | 'client_wait' | 'client_origin'
 type SortKey = 'milestone' | 'due_date' | 'created_at' | 'assignee' | 'status'
 
 interface TaskGroup {
@@ -177,7 +177,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const selectedTaskId = searchParams.get('task')
   const activeFilter: FilterKey = useMemo(() => {
     const filterParam = searchParams.get('filter')
-    if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait') {
+    if (filterParam === 'all' || filterParam === 'active' || filterParam === 'backlog' || filterParam === 'client_wait' || filterParam === 'client_origin') {
       return filterParam
     }
     return 'all'
@@ -244,6 +244,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         break
       case 'client_wait':
         result = tasks.filter((task) => task.ball === 'client')
+        break
+      case 'client_origin':
+        result = tasks.filter((task) => task.origin === 'client')
         break
       default:
         result = tasks
@@ -816,7 +819,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? '確認待ち' : 'タスク' },
+    { label: activeFilter === 'client_wait' ? '確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
   ]
 
   return (
@@ -829,6 +832,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           <div className="flex items-center gap-2">
             {activeFilter === 'client_wait' ? (
               <ChatCircleText className="text-lg text-amber-500" />
+            ) : activeFilter === 'client_origin' ? (
+              <ChatCircleText className="text-lg text-blue-500" />
             ) : (
               <Copy className="text-lg text-gray-500" />
             )}
@@ -896,6 +901,18 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               }`}
             >
               確認待ち
+            </button>
+            <button
+              type="button"
+              data-testid="tasks-filter-client-origin"
+              onClick={() => handleFilterChange('client_origin')}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
+                activeFilter === 'client_origin'
+                  ? 'text-blue-700 bg-blue-50 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              クライアント起案
             </button>
           </div>
 
