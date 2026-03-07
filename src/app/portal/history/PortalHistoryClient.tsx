@@ -1,9 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp } from '@phosphor-icons/react'
-import { PortalLayout } from '@/components/portal'
+import { PortalShell } from '@/components/portal'
 
 interface Project {
   id: string
@@ -61,24 +60,19 @@ export function PortalHistoryClient({
   history,
   completedTasks,
 }: PortalHistoryClientProps) {
-  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'actions' | 'completed'>('actions')
   const [showAll, setShowAll] = useState(false)
-
-  const handleProjectChange = () => {
-    router.refresh()
-  }
 
   const displayedHistory = showAll ? history : history.slice(0, 10)
   const displayedCompleted = showAll ? completedTasks : completedTasks.slice(0, 10)
 
   return (
-    <PortalLayout
+    <PortalShell
       currentProject={currentProject}
       projects={projects}
-      onProjectChange={handleProjectChange}
     >
-      <div className="space-y-6">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-4xl mx-auto space-y-6">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">履歴</h1>
@@ -251,6 +245,7 @@ export function PortalHistoryClient({
           </div>
         )}
       </div>
-    </PortalLayout>
+      </div>
+    </PortalShell>
   )
 }

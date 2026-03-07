@@ -42,8 +42,8 @@ function getStatusInfo(status: string): { label: string; color: string; icon: Re
   const statusMap: Record<string, { label: string; color: string; icon: React.ElementType }> = {
     done: { label: '完了', color: 'text-green-500', icon: CheckCircle },
     in_progress: { label: '進行中', color: 'text-blue-400', icon: Clock },
-    considering: { label: '確認待ち', color: 'text-gray-400', icon: Circle },
-    open: { label: 'オープン', color: 'text-gray-500', icon: Circle },
+    considering: { label: '要確認', color: 'text-amber-500', icon: Circle },
+    open: { label: '未着手', color: 'text-gray-500', icon: Circle },
     todo: { label: 'Todo', color: 'text-gray-400', icon: Circle },
   }
   return statusMap[status] || { label: status, color: 'text-gray-400', icon: Circle }
@@ -265,7 +265,7 @@ export function PortalAllTasksClient({
                                   )}
                                   {task.ball === 'client' && task.status !== 'done' && (
                                     <span className="px-1.5 py-0.5 text-xs bg-amber-100 text-amber-700 rounded shrink-0">
-                                      要対応
+                                      要確認
                                     </span>
                                   )}
                                 </div>
