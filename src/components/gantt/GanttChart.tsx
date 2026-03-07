@@ -182,6 +182,9 @@ export function GanttChart({
     const ids = new Set<string>()
     if (linkDrag.mode === 'child') {
       // Source wants to become a child => target must be eligible parent
+      // Also check: source must not already be a parent (1-level hierarchy)
+      if (isParentTask(linkDrag.sourceTaskId, tasks)) return ids
+
       const eligible = getEligibleParents(tasks, linkDrag.sourceTaskId)
       eligible.forEach((t) => ids.add(t.id))
       // Remove tasks that already have this task as parent
@@ -190,6 +193,10 @@ export function GanttChart({
       })
     } else {
       // Source wants to become a parent => target must be non-parent (can become child)
+      // Also check: source must not already be a child (1-level hierarchy)
+      const sourceTask = tasks.find((t) => t.id === linkDrag.sourceTaskId)
+      if (sourceTask?.parent_task_id) return ids // source is already a child, can't be parent
+
       tasks.forEach((t) => {
         if (t.id === linkDrag.sourceTaskId) return
         if (isParentTask(t.id, tasks)) return // already a parent
@@ -271,18 +278,26 @@ export function GanttChart({
       setHoverTaskId(hoveredId)
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       const currentDrag = linkDragRef.current
-      const currentTarget = hoverTaskIdRef.current
       const eligibleIds = eligibleTargetIdsRef.current
 
-      if (currentDrag && currentTarget && onParentChange && eligibleIds.has(currentTarget)) {
+      // Re-compute target from final mouse position (more reliable than cached hoverTaskId)
+      let finalTarget: string | null = null
+      const svgPoint = toSvgPoint(e.clientX, e.clientY)
+      if (svgPoint) {
+        const rowIndex = Math.floor(svgPoint.y / GANTT_CONFIG.ROW_HEIGHT)
+        const row = rowIndex >= 0 ? rowDataRef.current[rowIndex] : undefined
+        finalTarget = row?.type === 'task' && row.task ? row.task.id : null
+      }
+
+      if (currentDrag && finalTarget && onParentChange && eligibleIds.has(finalTarget)) {
         if (currentDrag.mode === 'child') {
           // Source becomes child of target
-          onParentChange(currentDrag.sourceTaskId, currentTarget)
+          onParentChange(currentDrag.sourceTaskId, finalTarget)
         } else {
           // Target becomes child of source
-          onParentChange(currentTarget, currentDrag.sourceTaskId)
+          onParentChange(finalTarget, currentDrag.sourceTaskId)
         }
       }
 

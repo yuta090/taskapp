@@ -39,7 +39,14 @@ export function useAgencyMode(spaceId: string | null) {
         .eq('id', spaceId!)
         .single()
 
-      if (error) throw error
+      // Columns may not exist yet (migration not applied) — return defaults
+      if (error) {
+        return {
+          agency_mode: false,
+          default_margin_rate: null,
+          vendor_settings: DEFAULT_VENDOR_SETTINGS,
+        }
+      }
       return {
         agency_mode: data?.agency_mode ?? false,
         default_margin_rate: data?.default_margin_rate ?? null,
