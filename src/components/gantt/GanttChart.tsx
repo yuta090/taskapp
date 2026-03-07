@@ -16,7 +16,7 @@ import {
   isToday,
   dateToX,
 } from '@/lib/gantt/dateUtils'
-import { getEligibleParents, isParentTask } from '@/lib/gantt/treeUtils'
+import { getDescendantIds, getAncestorIds, buildTaskTree } from '@/lib/gantt/treeUtils'
 import { GanttHeader } from './GanttHeader'
 import { GanttRow } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
@@ -117,9 +117,17 @@ export function GanttChart({
     return groups
   }, [tasks, milestones, groupByMilestone])
 
-  // Build row data array (memoized to avoid rebuild on every render)
+  // Build global tree for depth and ordering (accounts for cross-milestone parent-child)
+  const globalTreeDepthMap = useMemo(() => {
+    const treeNodes = buildTaskTree(tasks)
+    const depthMap = new Map<string, number>()
+    treeNodes.forEach((node) => depthMap.set(node.task.id, node.depth))
+    return depthMap
+  }, [tasks])
+
+  // Build row data array with tree ordering and depth (memoized)
   const rowData = useMemo(() => {
-    const rows: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; rowIndex: number }> = []
+    const rows: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; depth?: number; rowIndex: number }> = []
     let idx = 0
 
     taskGroups.forEach((group) => {
@@ -127,14 +135,17 @@ export function GanttChart({
         rows.push({ type: 'header', milestone: group.milestone, rowIndex: idx })
         idx++
       }
-      group.tasks.forEach((task) => {
-        rows.push({ type: 'task', task, rowIndex: idx })
+      // Use buildTaskTree for ordering within each group, but use global depth
+      const treeNodes = buildTaskTree(group.tasks)
+      treeNodes.forEach((node) => {
+        const globalDepth = globalTreeDepthMap.get(node.task.id) ?? node.depth
+        rows.push({ type: 'task', task: node.task, depth: globalDepth, rowIndex: idx })
         idx++
       })
     })
 
     return rows
-  }, [taskGroups, groupByMilestone])
+  }, [taskGroups, groupByMilestone, globalTreeDepthMap])
 
   const totalRows = rowData.length
   const chartHeight = totalRows * GANTT_CONFIG.ROW_HEIGHT
@@ -175,33 +186,27 @@ export function GanttChart({
 
   // ----- Link drag logic -----
 
-  // Eligible targets for current link drag
+  // Eligible targets for current link drag (multi-level hierarchy)
   const eligibleTargetIds = useMemo(() => {
     if (!linkDrag) return new Set<string>()
 
     const ids = new Set<string>()
     if (linkDrag.mode === 'child') {
-      // Source wants to become a child => target must be eligible parent
-      // Also check: source must not already be a parent (1-level hierarchy)
-      if (isParentTask(linkDrag.sourceTaskId, tasks)) return ids
-
-      const eligible = getEligibleParents(tasks, linkDrag.sourceTaskId)
-      eligible.forEach((t) => ids.add(t.id))
-      // Remove tasks that already have this task as parent
-      tasks.forEach((t) => {
-        if (t.parent_task_id === linkDrag.sourceTaskId) ids.delete(t.id)
-      })
-    } else {
-      // Source wants to become a parent => target must be non-parent (can become child)
-      // Also check: source must not already be a child (1-level hierarchy)
-      const sourceTask = tasks.find((t) => t.id === linkDrag.sourceTaskId)
-      if (sourceTask?.parent_task_id) return ids // source is already a child, can't be parent
-
+      // Source wants to become a child of target
+      // Exclude: source itself + source's descendants (would create a cycle)
+      const descendantIds = getDescendantIds(linkDrag.sourceTaskId, tasks)
       tasks.forEach((t) => {
         if (t.id === linkDrag.sourceTaskId) return
-        // Target must not already be a parent (1-level: no grandchildren)
-        if (isParentTask(t.id, tasks)) return
-        // Target CAN already have a parent — we just re-assign it
+        if (descendantIds.has(t.id)) return
+        ids.add(t.id)
+      })
+    } else {
+      // Source wants to become parent of target (target becomes child)
+      // Exclude: source itself + source's ancestors (would create a cycle)
+      const ancestorIds = getAncestorIds(linkDrag.sourceTaskId, tasks)
+      tasks.forEach((t) => {
+        if (t.id === linkDrag.sourceTaskId) return
+        if (ancestorIds.has(t.id)) return
         ids.add(t.id)
       })
     }
@@ -508,6 +513,9 @@ export function GanttChart({
             const isSelected = task.id === selectedTaskId
             const statusColors = getStatusBadge(task.status)
             const hasParent = !!task.parent_task_id
+            const depth = row.depth || 0
+            const basePadding = groupByMilestone ? 21 : 9
+            const depthIndent = depth * 16
 
             return (
               <div
@@ -518,9 +526,7 @@ export function GanttChart({
                   height: GANTT_CONFIG.ROW_HEIGHT,
                   backgroundColor: isSelected ? '#F1F5F9' : undefined,
                   borderBottom: `0.5px solid ${GANTT_CONFIG.COLORS.GRID_LINE}`,
-                  paddingLeft: hasParent
-                    ? (groupByMilestone ? 28 : 16)
-                    : (groupByMilestone ? 21 : 9),
+                  paddingLeft: basePadding + depthIndent,
                   paddingRight: 12,
                 }}
               >

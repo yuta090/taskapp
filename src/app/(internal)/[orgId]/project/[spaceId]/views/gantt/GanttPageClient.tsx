@@ -11,6 +11,7 @@ import { TaskInspector } from '@/components/task/TaskInspector'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
+import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { BallSide, TaskStatus } from '@/types/database'
 
 interface GanttPageClientProps {
@@ -138,9 +139,8 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
   // Compute parentTasks & childTasks for TaskInspector
   const parentTaskOptions = useMemo(() => {
     if (!selectedTask) return []
-    // Eligible parents: top-level tasks (no parent themselves), excluding the selected task
-    return tasks
-      .filter((t) => t.id !== selectedTask.id && !t.parent_task_id)
+    // Eligible parents: all tasks except self and descendants (multi-level)
+    return getEligibleParents(tasks, selectedTask.id)
       .map((t) => ({ id: t.id, title: t.title }))
   }, [tasks, selectedTask])
 
