@@ -73,14 +73,15 @@ export default async function PortalDashboardPage() {
       .eq('status', 'considering')
       .order('due_date', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false }),
-    // 2. ball=client + other active statuses
-     
+    // 2. ball=client + other active statuses (including todo/backlog for estimate-pending tasks)
+
     (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, description, status, ball, due_date, type, decision_state, created_at, estimated_cost, estimate_status')
       .eq('space_id', spaceId)
       .eq('ball', 'client')
-      .in('status', ['open', 'in_progress'])
+      .neq('status', 'considering')
+      .neq('status', 'done')
       .order('due_date', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false }),
     // 3. ball=internal tasks count

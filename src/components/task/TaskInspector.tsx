@@ -265,6 +265,11 @@ export function TaskInspector({
       toast.error('見積もり金額を入力してください')
       return
     }
+    // 状態遷移ガード: approved→pending は禁止 (rejected→pending のみ許可)
+    if (task.estimate_status === 'approved') {
+      toast.error('承認済みの見積もりは変更できません')
+      return
+    }
     // クライアントメンバーがいなければボール渡し不可
     if (clientMembers.length === 0) {
       toast.error('クライアントメンバーが未設定のため、見積もりを送付できません')
@@ -272,12 +277,20 @@ export function TaskInspector({
     }
     setIsSendingEstimate(true)
     try {
-      await onUpdate?.({ estimatedCost: cost, estimateStatus: 'pending' })
-      // ボールをクライアントに渡す
+      // ボール渡し先を先に決定
       const clientOwnerIds = clientOwners.length > 0
         ? clientOwners.map(o => o.user_id)
         : [clientMembers[0].id]
-      await onPassBall?.('client', clientOwnerIds)
+      // 見積もり保存
+      await onUpdate?.({ estimatedCost: cost, estimateStatus: 'pending' })
+      try {
+        // ボールをクライアントに渡す
+        await onPassBall?.('client', clientOwnerIds)
+      } catch {
+        // ボール渡し失敗 → 見積もりステータスをロールバック
+        await onUpdate?.({ estimateStatus: task.estimate_status === 'rejected' ? 'rejected' : 'none' })
+        throw new Error('ボール渡しに失敗しました')
+      }
       toast.success('見積もりを送付しました')
     } catch {
       toast.error('見積もり送付に失敗しました')
@@ -977,8 +990,8 @@ export function TaskInspector({
               </div>
             )}
 
-            {/* Input + Send (visible when editable & not pending) */}
-            {onUpdate && task.estimate_status !== 'pending' && (
+            {/* Input + Send (visible when editable, not pending, not approved) */}
+            {onUpdate && task.estimate_status !== 'pending' && task.estimate_status !== 'approved' && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-500">¥</span>

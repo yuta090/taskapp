@@ -136,8 +136,8 @@ export function ActionCard({
             </span>
           )}
 
-          {/* Action buttons - visible on hover */}
-          {!showInput && (
+          {/* Action buttons - visible on hover (hidden for estimate-pending: must use inspector) */}
+          {!showInput && estimateStatus !== 'pending' && (
             <div className={`flex items-center gap-2 ${
               showInput ? '' : 'sm:opacity-0 sm:group-hover:opacity-100'
             } transition-opacity`}>

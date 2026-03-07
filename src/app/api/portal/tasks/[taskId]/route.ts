@@ -149,6 +149,15 @@ export async function POST(
       )
     }
 
+    // Block regular approve/request_changes when estimate is pending
+    // Client must use estimate_approve/estimate_reject instead
+    if ((action === 'approve' || action === 'request_changes') && task.estimate_status === 'pending') {
+      return NextResponse.json(
+        { error: '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。' },
+        { status: 409 }
+      )
+    }
+
     const now = new Date().toISOString()
     // Safe trimmed comment for use in request_changes branch
     const trimmedComment = comment?.trim() || ''
@@ -269,6 +278,18 @@ export async function POST(
       const { error: commentError } = await commentPromise
       if (commentError) {
         console.error('Failed to create estimate reject comment:', commentError)
+        // Attempt to revert estimate status (conditional to avoid clobbering newer state)
+        await (supabase as SupabaseClient)
+          .from('tasks')
+          .update({ estimate_status: 'pending', ball: 'client', updated_at: now })
+          .eq('id', taskId)
+          .eq('estimate_status', 'rejected')
+          .eq('updated_at', now)
+
+        return NextResponse.json(
+          { error: 'コメントの保存に失敗しました。もう一度お試しください。' },
+          { status: 500 }
+        )
       }
 
       return NextResponse.json({
