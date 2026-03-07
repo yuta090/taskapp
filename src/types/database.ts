@@ -37,6 +37,9 @@ export type DecisionState = 'considering' | 'decided' | 'implemented'
 // Client scope for portal visibility
 export type ClientScope = 'deliverable' | 'internal'
 
+// Estimate status
+export type EstimateStatus = 'none' | 'pending' | 'approved' | 'rejected'
+
 // Meeting status
 export type MeetingStatus = 'planned' | 'in_progress' | 'ended'
 
@@ -384,6 +387,8 @@ export interface Database {
           decision_state: DecisionState | null
           client_scope: ClientScope
           actual_hours: number | null
+          estimated_cost: number | null
+          estimate_status: EstimateStatus
           completed_at: string | null
           created_at: string
           updated_at: string
@@ -409,6 +414,8 @@ export interface Database {
           decision_state?: DecisionState | null
           client_scope?: ClientScope
           actual_hours?: number | null
+          estimated_cost?: number | null
+          estimate_status?: EstimateStatus
           completed_at?: string | null
           created_at?: string
           updated_at?: string
@@ -434,6 +441,8 @@ export interface Database {
           decision_state?: DecisionState | null
           client_scope?: ClientScope
           actual_hours?: number | null
+          estimated_cost?: number | null
+          estimate_status?: EstimateStatus
           completed_at?: string | null
           created_at?: string
           updated_at?: string

@@ -10,6 +10,8 @@ interface Task {
   isOverdue?: boolean
   waitingDays?: number
   type?: 'task' | 'spec'
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface ActionSectionProps {
@@ -65,6 +67,8 @@ export function ActionSection({
                 isOverdue={task.isOverdue}
                 waitingDays={task.waitingDays}
                 type={task.type}
+                estimatedCost={task.estimatedCost}
+                estimateStatus={task.estimateStatus}
                 selected={selectedTaskId === task.id}
                 onApprove={onApprove}
                 onRequestChanges={onRequestChanges}

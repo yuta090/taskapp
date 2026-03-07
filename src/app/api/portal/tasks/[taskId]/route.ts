@@ -34,7 +34,7 @@ function fireServerNotification(
 }
 
 interface TaskActionBody {
-  action: 'approve' | 'request_changes'
+  action: 'approve' | 'request_changes' | 'estimate_approve' | 'estimate_reject'
   comment?: string
 }
 
@@ -60,15 +60,15 @@ export async function POST(
     const body: TaskActionBody = await request.json()
     const { action, comment } = body
 
-    if (!action || !['approve', 'request_changes'].includes(action)) {
+    if (!action || !['approve', 'request_changes', 'estimate_approve', 'estimate_reject'].includes(action)) {
       return NextResponse.json(
         { error: '無効なアクションです' },
         { status: 400 }
       )
     }
 
-    // Server-side validation: request_changes requires a comment
-    if (action === 'request_changes') {
+    // Server-side validation: request_changes and estimate_reject require a comment
+    if (action === 'request_changes' || action === 'estimate_reject') {
       if (!comment || comment.trim().length === 0) {
         return NextResponse.json(
           { error: '修正依頼にはコメントが必要です' },
@@ -95,7 +95,7 @@ export async function POST(
      
     const taskPromise = (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, org_id, space_id, title, status, ball, type')
+      .select('id, org_id, space_id, title, status, ball, type, estimated_cost, estimate_status')
       .eq('id', taskId)
       .single()
 
@@ -141,9 +141,142 @@ export async function POST(
       )
     }
 
+    // Validate estimate actions: task must have pending estimate
+    if ((action === 'estimate_approve' || action === 'estimate_reject') && task.estimate_status !== 'pending') {
+      return NextResponse.json(
+        { error: '見積もりが確認待ち状態ではありません' },
+        { status: 409 }
+      )
+    }
+
     const now = new Date().toISOString()
     // Safe trimmed comment for use in request_changes branch
     const trimmedComment = comment?.trim() || ''
+
+    if (action === 'estimate_approve') {
+      // Approve estimate: set estimate_status to approved, ball to internal
+      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
+        .from('tasks')
+        .update({
+          estimate_status: 'approved',
+          ball: 'internal',
+          updated_at: now,
+        })
+        .eq('id', taskId)
+        .eq('ball', 'client')
+        .eq('estimate_status', 'pending')
+        .select('id')
+        .single()
+
+      if (updateError || !updatedTask) {
+        return NextResponse.json(
+          { error: 'タスクの状態が変更されました。ページを再読み込みしてください。' },
+          { status: 409 }
+        )
+      }
+
+      createAuditLog({
+        supabase,
+        orgId: task.org_id,
+        spaceId: task.space_id,
+        actorId: user.id,
+        actorRole: 'client',
+        eventType: 'estimate.approved',
+        targetType: 'task',
+        targetId: taskId,
+        summary: generateAuditSummary('estimate.approved', { title: task.title }),
+        dataBefore: { estimate_status: 'pending' },
+        dataAfter: { estimate_status: 'approved' },
+        metadata: { estimated_cost: task.estimated_cost, comment: trimmedComment || null },
+        visibility: 'client',
+      }).catch(err => console.error('Audit log failed (estimate_approve):', err))
+
+      fireServerNotification(request, {
+        event: 'estimate_approved',
+        taskId,
+        spaceId: task.space_id,
+        actorId: user.id,
+        changes: { estimatedCost: String(task.estimated_cost) },
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: '見積もりを承認しました',
+        taskId,
+      })
+    }
+
+    if (action === 'estimate_reject') {
+      // Reject estimate: set estimate_status to rejected, ball to internal
+      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
+        .from('tasks')
+        .update({
+          estimate_status: 'rejected',
+          ball: 'internal',
+          updated_at: now,
+        })
+        .eq('id', taskId)
+        .eq('ball', 'client')
+        .eq('estimate_status', 'pending')
+        .select('id')
+        .single()
+
+      if (updateError || !updatedTask) {
+        return NextResponse.json(
+          { error: 'タスクの状態が変更されました。ページを再読み込みしてください。' },
+          { status: 409 }
+        )
+      }
+
+      // Insert comment
+      const commentPromise = (supabase as SupabaseClient)
+        .from('task_comments')
+        .insert({
+          org_id: task.org_id,
+          space_id: task.space_id,
+          task_id: taskId,
+          actor_id: user.id,
+          body: trimmedComment,
+          visibility: 'client',
+          created_at: now,
+          updated_at: now,
+        })
+
+      createAuditLog({
+        supabase,
+        orgId: task.org_id,
+        spaceId: task.space_id,
+        actorId: user.id,
+        actorRole: 'client',
+        eventType: 'estimate.rejected',
+        targetType: 'task',
+        targetId: taskId,
+        summary: generateAuditSummary('estimate.rejected', { title: task.title }),
+        dataBefore: { estimate_status: 'pending' },
+        dataAfter: { estimate_status: 'rejected' },
+        metadata: { estimated_cost: task.estimated_cost, comment: trimmedComment },
+        visibility: 'client',
+      }).catch(err => console.error('Audit log failed (estimate_reject):', err))
+
+      fireServerNotification(request, {
+        event: 'estimate_rejected',
+        taskId,
+        spaceId: task.space_id,
+        actorId: user.id,
+        changes: { estimatedCost: String(task.estimated_cost) },
+      })
+
+      const { error: commentError } = await commentPromise
+      if (commentError) {
+        console.error('Failed to create estimate reject comment:', commentError)
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: '再見積もりを依頼しました',
+        taskId,
+      })
+    }
 
     if (action === 'approve') {
       // Update task status to done and transfer ball to internal

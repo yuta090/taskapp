@@ -67,7 +67,7 @@ export default async function PortalDashboardPage() {
      
     (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, title, description, status, ball, due_date, type, decision_state, created_at')
+      .select('id, title, description, status, ball, due_date, type, decision_state, created_at, estimated_cost, estimate_status')
       .eq('space_id', spaceId)
       .eq('ball', 'client')
       .eq('status', 'considering')
@@ -77,7 +77,7 @@ export default async function PortalDashboardPage() {
      
     (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, title, description, status, ball, due_date, type, decision_state, created_at')
+      .select('id, title, description, status, ball, due_date, type, decision_state, created_at, estimated_cost, estimate_status')
       .eq('space_id', spaceId)
       .eq('ball', 'client')
       .in('status', ['open', 'in_progress'])
@@ -198,7 +198,7 @@ export default async function PortalDashboardPage() {
   const todayUTCMs = Date.UTC(todayY, todayM - 1, todayD)
 
   // Format tasks for client component
-  const actionTasks = allClientTasks.slice(0, 10).map((task: { id: string; title: string; description: string; due_date: string | null; type: string; status: string; created_at: string }) => {
+  const actionTasks = allClientTasks.slice(0, 10).map((task: { id: string; title: string; description: string; due_date: string | null; type: string; status: string; created_at: string; estimated_cost?: number | null; estimate_status?: string | null }) => {
     const isOverdue = task.due_date ? task.due_date < todayJST : false
     let waitingDays: number | undefined
     if (task.due_date && isOverdue) {
@@ -215,6 +215,8 @@ export default async function PortalDashboardPage() {
       type: (task.type as 'task' | 'spec') || 'task',
       status: task.status,
       createdAt: task.created_at,
+      estimatedCost: task.estimated_cost ?? null,
+      estimateStatus: (task.estimate_status || 'none') as 'none' | 'pending' | 'approved' | 'rejected',
     }
   })
 

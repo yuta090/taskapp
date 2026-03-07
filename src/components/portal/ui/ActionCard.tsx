@@ -9,6 +9,8 @@ interface ActionCardProps {
   isOverdue?: boolean
   waitingDays?: number
   type?: 'task' | 'spec'
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
   selected?: boolean
   processing?: boolean
   onApprove?: (id: string, comment: string) => Promise<void>
@@ -24,6 +26,8 @@ export function ActionCard({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   waitingDays,
   type = 'task',
+  estimatedCost,
+  estimateStatus = 'none',
   selected = false,
   processing = false,
   onApprove,
@@ -111,6 +115,11 @@ export function ActionCard({
           {type === 'spec' && (
             <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded" title="仕様書の確認・承認が必要なタスクです">
               SPEC
+            </span>
+          )}
+          {estimateStatus === 'pending' && estimatedCost != null && (
+            <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded">
+              見積もり ¥{estimatedCost.toLocaleString()}
             </span>
           )}
         </div>
