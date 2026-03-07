@@ -46,7 +46,7 @@ import { TornPaperSeparator, PixelSeparator } from './Separators'
 
 export function Problem() {
     return (
-        <section className="py-32 bg-slate-50 relative overflow-hidden">
+        <section className="py-20 bg-slate-50 relative overflow-hidden">
             <TornPaperSeparator position="top" color="fill-white" />
 
             {/* Background Patterns */}
@@ -60,11 +60,12 @@ export function Problem() {
                     viewport={{ once: true }}
                     className="text-center max-w-2xl mx-auto mb-20 relative"
                 >
-                    <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-6 leading-[1.15]">
+                    <span className="text-xs font-bold tracking-[0.2em] uppercase text-rose-400 mb-3 block">Problem</span>
+                    <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-6 leading-[1.15]">
                         「つくる時間」より、<br />
                         <span className="text-rose-500">調整する時間</span>の方が長くないですか？
                     </h2>
-                    <p className="text-lg text-slate-600">
+                    <p className="text-base text-slate-600">
                         プロジェクトを進める人は、常に3つの役割を同時にこなしています。<br />
                         その結果、一番大事な「つくる」が犠牲になっています。
                     </p>

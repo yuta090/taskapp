@@ -3,6 +3,7 @@ export type SettingSectionId =
   | 'milestones'
   | 'members'
   | 'portal'
+  | 'agency'
   | 'github'
   | 'slack'
   | 'video-conference'

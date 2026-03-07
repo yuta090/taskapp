@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react'
 
 export function FeatureBall() {
     return (
-        <section className="pt-48 pb-24 bg-slate-900 text-white relative overflow-hidden">
+        <section className="pt-32 pb-20 bg-slate-900 text-white relative overflow-hidden">
             <SkewSeparator position="top" color="fill-white" />
 
             {/* Background Pattern */}
@@ -16,12 +16,12 @@ export function FeatureBall() {
 
             <div className="container mx-auto px-6 relative z-10">
                 <div className="text-center max-w-4xl mx-auto mb-16">
-
-                    <h2 className="text-3xl lg:text-5xl font-bold mb-6 leading-[1.15]">
+                    <div className="text-amber-500 font-bold tracking-wider uppercase mb-4 text-sm">Feature 02</div>
+                    <h2 className="text-3xl lg:text-4xl font-bold mb-6 leading-[1.15]">
                         誰の担当か、<br />
                         もう聞かなくていい。
                     </h2>
-                    <p className="text-lg text-slate-400 font-medium leading-relaxed">
+                    <p className="text-base text-slate-400 font-medium leading-relaxed">
                         すべてのタスクは「ボール」を持っています。<br className="hidden md:block" />
                         「クライアント確認待ち」ならボールは相手に。「修正作業中」ならボールは自分に。<br className="hidden md:block" />
                         責任の所在が常に明確なため、余計な進捗確認が不要になります。

@@ -32,7 +32,7 @@ const testimonials = [
 
 export function Testimonials() {
     return (
-        <section className="py-24 bg-white border-t border-slate-100">
+        <section className="py-20 bg-slate-50 border-t border-slate-100">
             <div className="container mx-auto px-6">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -40,6 +40,7 @@ export function Testimonials() {
                     viewport={{ once: true }}
                     className="text-center mb-16"
                 >
+                    <span className="text-xs font-bold tracking-[0.2em] uppercase text-amber-500 mb-3 block">Voice</span>
                     <h2 className="text-3xl font-bold text-slate-900 mb-4">導入チームの声</h2>
                     <p className="text-slate-500">AgentPMを使っているチームからのフィードバック</p>
                 </motion.div>

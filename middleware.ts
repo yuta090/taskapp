@@ -144,6 +144,18 @@ export async function middleware(request: NextRequest) {
     }
 
     if (membership.role === 'client') {
+      // Check if user is actually a vendor at the space level
+      const { data: vendorMembership } = await supabase
+        .from('space_memberships')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('role', 'vendor')
+        .limit(1)
+        .maybeSingle()
+
+      if (vendorMembership) {
+        return redirectWithOrgCookie(new URL('/vendor-portal', request.url), membership.org_id)
+      }
       return redirectWithOrgCookie(new URL('/portal', request.url), membership.org_id)
     }
 
@@ -175,6 +187,18 @@ export async function middleware(request: NextRequest) {
 
     if (onboardMembership) {
       if (onboardMembership.role === 'client') {
+        // Check if user is actually a vendor at the space level
+        const { data: onboardVendorMem } = await supabase
+          .from('space_memberships')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('role', 'vendor')
+          .limit(1)
+          .maybeSingle()
+
+        if (onboardVendorMem) {
+          return redirectWithOrgCookie(new URL('/vendor-portal', request.url), onboardMembership.org_id)
+        }
         return redirectWithOrgCookie(new URL('/portal', request.url), onboardMembership.org_id)
       }
       const { data: onboardSpace } = await supabase

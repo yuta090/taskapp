@@ -63,6 +63,7 @@ export function GanttChart({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const chartBodyRef = useRef<HTMLDivElement>(null)
+  const chartSvgRef = useRef<SVGSVGElement>(null)
 
   // Link drag state
   const [linkDrag, setLinkDrag] = useState<LinkDragState | null>(null)
@@ -137,6 +138,11 @@ export function GanttChart({
 
   const totalRows = rowData.length
   const chartHeight = totalRows * GANTT_CONFIG.ROW_HEIGHT
+  const rowDataRef = useRef(rowData)
+
+  useEffect(() => {
+    rowDataRef.current = rowData
+  }, [rowData])
 
   // Today line position
   const todayIndex = dates.findIndex((d) => isToday(d))
@@ -194,6 +200,11 @@ export function GanttChart({
 
     return ids
   }, [linkDrag, tasks])
+  const eligibleTargetIdsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    eligibleTargetIdsRef.current = eligibleTargetIds
+  }, [eligibleTargetIds])
 
   const handleLinkDragStart = useCallback(
     (taskId: string, mode: 'child' | 'parent', startX: number, startY: number) => {
@@ -216,25 +227,45 @@ export function GanttChart({
   useEffect(() => {
     if (!isLinkDragging) return
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const container = chartBodyRef.current
-      if (!container) return
+    const toSvgPoint = (clientX: number, clientY: number) => {
+      const svg = chartSvgRef.current
+      if (svg) {
+        const ctm = svg.getScreenCTM()
+        if (ctm) {
+          const point = svg.createSVGPoint()
+          point.x = clientX
+          point.y = clientY
+          const transformed = point.matrixTransform(ctm.inverse())
+          return { x: transformed.x, y: transformed.y }
+        }
+      }
 
+      const container = chartBodyRef.current
+      if (!container) return null
       const rect = container.getBoundingClientRect()
-      const svgX = e.clientX - rect.left + container.scrollLeft
-      const svgY = e.clientY - rect.top + container.scrollTop
+      return {
+        x: clientX - rect.left + container.scrollLeft,
+        y: clientY - rect.top + container.scrollTop,
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const currentDrag = linkDragRef.current
+      if (!currentDrag) return
+      const svgPoint = toSvgPoint(e.clientX, e.clientY)
+      if (!svgPoint) return
 
       const newState: LinkDragState = {
-        ...linkDragRef.current!,
-        currentX: svgX,
-        currentY: svgY,
+        ...currentDrag,
+        currentX: svgPoint.x,
+        currentY: svgPoint.y,
       }
       linkDragRef.current = newState
       setLinkDrag(newState)
 
       // Determine which task row the cursor is over
-      const hoverRowIndex = Math.floor(svgY / GANTT_CONFIG.ROW_HEIGHT)
-      const hoveredRow = rowData[hoverRowIndex]
+      const hoverRowIndex = Math.floor(svgPoint.y / GANTT_CONFIG.ROW_HEIGHT)
+      const hoveredRow = hoverRowIndex >= 0 ? rowDataRef.current[hoverRowIndex] : undefined
       const hoveredId = hoveredRow?.type === 'task' && hoveredRow.task ? hoveredRow.task.id : null
       hoverTaskIdRef.current = hoveredId
       setHoverTaskId(hoveredId)
@@ -243,8 +274,9 @@ export function GanttChart({
     const handleMouseUp = () => {
       const currentDrag = linkDragRef.current
       const currentTarget = hoverTaskIdRef.current
+      const eligibleIds = eligibleTargetIdsRef.current
 
-      if (currentDrag && currentTarget && onParentChange && eligibleTargetIds.has(currentTarget)) {
+      if (currentDrag && currentTarget && onParentChange && eligibleIds.has(currentTarget)) {
         if (currentDrag.mode === 'child') {
           // Source becomes child of target
           onParentChange(currentDrag.sourceTaskId, currentTarget)
@@ -267,7 +299,7 @@ export function GanttChart({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isLinkDragging, onParentChange, eligibleTargetIds, rowData])
+  }, [isLinkDragging, onParentChange])
 
   // Compute link highlight per task
   const getLinkHighlight = useCallback(
@@ -559,6 +591,7 @@ export function GanttChart({
         >
           <div style={{ width: totalWidth, minHeight: '100%' }}>
             <svg
+              ref={chartSvgRef}
               width={totalWidth}
               height={Math.max(chartHeight, 200)}
               className="block"

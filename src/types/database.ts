@@ -23,10 +23,10 @@ export type TaskStatus =
   | 'considering'
 
 // Ball ownership
-export type BallSide = 'client' | 'internal'
+export type BallSide = 'client' | 'internal' | 'agency' | 'vendor'
 
 // Comment visibility
-export type CommentVisibility = 'client' | 'internal'
+export type CommentVisibility = 'client' | 'internal' | 'vendor' | 'agency_only'
 
 // Task type
 export type TaskType = 'task' | 'spec'
@@ -75,10 +75,10 @@ export type EvidenceType = 'meeting' | 'chat' | 'email' | 'call' | 'other'
 export type OrgRole = 'owner' | 'member' | 'client'
 
 // Space membership role
-export type SpaceRole = 'admin' | 'editor' | 'viewer' | 'client'
+export type SpaceRole = 'admin' | 'editor' | 'viewer' | 'client' | 'vendor'
 
 // Invite role
-export type InviteRole = 'client' | 'member'
+export type InviteRole = 'client' | 'member' | 'vendor'
 
 // Billing status
 export type BillingStatus = 'active' | 'trialing' | 'past_due' | 'canceled'
@@ -188,6 +188,12 @@ export interface Database {
             wiki: boolean
             history: boolean
           }
+          agency_mode: boolean
+          default_margin_rate: number | null
+          vendor_settings: {
+            show_client_name: boolean
+            allow_client_comments: boolean
+          }
           created_at: string
         }
         Insert: {
@@ -210,6 +216,12 @@ export interface Database {
             wiki: boolean
             history: boolean
           }
+          agency_mode?: boolean
+          default_margin_rate?: number | null
+          vendor_settings?: {
+            show_client_name: boolean
+            allow_client_comments: boolean
+          }
           created_at?: string
         }
         Update: {
@@ -231,6 +243,12 @@ export interface Database {
             meetings: boolean
             wiki: boolean
             history: boolean
+          }
+          agency_mode?: boolean
+          default_margin_rate?: number | null
+          vendor_settings?: {
+            show_client_name: boolean
+            allow_client_comments: boolean
           }
           created_at?: string
         }
@@ -504,6 +522,57 @@ export interface Database {
           created_at?: string
         }
       }
+      task_pricing: {
+        Row: {
+          id: string
+          org_id: string
+          space_id: string
+          task_id: string
+          cost_hours: number | null
+          cost_unit_price: number | null
+          cost_total: number | null
+          sell_mode: 'margin' | 'fixed'
+          margin_rate: number | null
+          sell_total: number | null
+          vendor_submitted_at: string | null
+          agency_approved_at: string | null
+          client_approved_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          space_id: string
+          task_id: string
+          cost_hours?: number | null
+          cost_unit_price?: number | null
+          sell_mode?: 'margin' | 'fixed'
+          margin_rate?: number | null
+          sell_total?: number | null
+          vendor_submitted_at?: string | null
+          agency_approved_at?: string | null
+          client_approved_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          space_id?: string
+          task_id?: string
+          cost_hours?: number | null
+          cost_unit_price?: number | null
+          sell_mode?: 'margin' | 'fixed'
+          margin_rate?: number | null
+          sell_total?: number | null
+          vendor_submitted_at?: string | null
+          agency_approved_at?: string | null
+          client_approved_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
       task_events: {
         Row: {
           id: string
@@ -759,6 +828,55 @@ export interface Database {
           payload?: Json
           created_at?: string
           read_at?: string | null
+        }
+      }
+      announcements: {
+        Row: {
+          id: string
+          org_id: string | null
+          title: string
+          body: string
+          category: 'info' | 'feature' | 'maintenance' | 'important'
+          published: boolean
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id?: string | null
+          title: string
+          body?: string
+          category?: 'info' | 'feature' | 'maintenance' | 'important'
+          published?: boolean
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string | null
+          title?: string
+          body?: string
+          category?: 'info' | 'feature' | 'maintenance' | 'important'
+          published?: boolean
+          created_by?: string | null
+          created_at?: string
+        }
+      }
+      announcement_reads: {
+        Row: {
+          announcement_id: string
+          user_id: string
+          read_at: string
+        }
+        Insert: {
+          announcement_id: string
+          user_id: string
+          read_at?: string
+        }
+        Update: {
+          announcement_id?: string
+          user_id?: string
+          read_at?: string
         }
       }
       api_keys: {
@@ -1207,6 +1325,9 @@ export type Task = Tables['tasks']['Row']
 export type TaskInsert = Tables['tasks']['Insert']
 export type TaskUpdate = Tables['tasks']['Update']
 export type TaskOwner = Tables['task_owners']['Row']
+export type TaskPricingRow = Tables['task_pricing']['Row']
+export type TaskPricingInsert = Tables['task_pricing']['Insert']
+export type TaskPricingUpdate = Tables['task_pricing']['Update']
 export type TaskEvent = Tables['task_events']['Row']
 export type TaskComment = Tables['task_comments']['Row']
 export type TaskCommentInsert = Tables['task_comments']['Insert']
@@ -1216,6 +1337,9 @@ export type MeetingParticipant = Tables['meeting_participants']['Row']
 export type Review = Tables['reviews']['Row']
 export type ReviewApproval = Tables['review_approvals']['Row']
 export type Notification = Tables['notifications']['Row']
+export type AnnouncementRow = Tables['announcements']['Row']
+export type AnnouncementInsert = Tables['announcements']['Insert']
+export type AnnouncementReadRow = Tables['announcement_reads']['Row']
 export type ApiKey = Tables['api_keys']['Row']
 export type Milestone = Tables['milestones']['Row']
 export type MilestoneInsert = Tables['milestones']['Insert']

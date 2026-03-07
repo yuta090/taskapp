@@ -157,7 +157,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   // Create unique owners list for filter (with display names from profiles)
   const uniqueOwners = useMemo(() => {
-    const ownerMap = new Map<string, { user_id: string; display_name: string | null; side: 'client' | 'internal' }>()
+    const ownerMap = new Map<string, { user_id: string; display_name: string | null; side: BallSide }>()
     Object.values(owners).forEach((taskOwners) => {
       taskOwners.forEach((owner) => {
         if (!ownerMap.has(owner.user_id)) {

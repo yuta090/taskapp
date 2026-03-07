@@ -13,10 +13,13 @@ export function Workflow() {
     ]
 
     return (
-        <section className="py-24 bg-white border-t border-slate-100">
+        <section className="py-20 bg-white border-t border-slate-100">
             <div className="container mx-auto px-6">
                 <div className="text-center mb-16">
-                    <h2 className="text-3xl font-bold text-slate-900">ベストプラクティスを組み込んだワークフロー</h2>
+                    <h2 className="text-3xl font-bold text-slate-900 pb-4 relative inline-block">
+                        ベストプラクティスを組み込んだワークフロー
+                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-0.5 bg-amber-500 rounded-full" />
+                    </h2>
                     <p className="text-slate-500 mt-4">迷わない。止まらない。スムーズなアウトプット。</p>
                     <div className="mt-12 max-w-3xl mx-auto">
                         <Image src="/img/lp/feature_workflow_iso.png" alt="ワークフローパイプライン" width={768} height={480} className="w-full h-auto object-contain" />

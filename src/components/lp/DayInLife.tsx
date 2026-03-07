@@ -6,12 +6,12 @@ import { Sun, SunHorizon, MoonStars } from '@phosphor-icons/react'
 
 export function DayInLife() {
     return (
-        <section className="py-32 bg-slate-900 text-white overflow-hidden relative">
+        <section className="py-20 bg-slate-900 text-white overflow-hidden relative">
             {/* Ambient Background */}
             <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 pointer-events-none"></div>
 
             <div className="container mx-auto px-6 relative z-10 max-w-4xl">
-                <h2 className="text-4xl font-bold text-center mb-20 text-white">
+                <h2 className="text-3xl font-bold text-center mb-16 text-white">
                     AgentPMがある<br />
                     <span className="text-amber-500">プロジェクト担当者の1日</span>
                 </h2>

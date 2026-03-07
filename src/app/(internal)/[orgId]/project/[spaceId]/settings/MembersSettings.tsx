@@ -26,6 +26,7 @@ const ROLE_LABELS: Record<string, string> = {
   editor: '編集者',
   viewer: '閲覧者',
   client: 'クライアント',
+  vendor: 'ベンダー',
 }
 
 const ROLE_OPTIONS = [
@@ -33,9 +34,10 @@ const ROLE_OPTIONS = [
   { value: 'editor', label: '編集者', desc: 'タスクの作成・編集・ボール操作ができます' },
   { value: 'viewer', label: '閲覧者', desc: 'タスクの閲覧とコメントのみ。編集はできません' },
   { value: 'client', label: 'クライアント', desc: 'ポータルからタスクの確認・承認を行います' },
+  { value: 'vendor', label: 'ベンダー', desc: '制作会社。ベンダーポータルから進捗報告・見積もり提出を行います（代理店モード時のみ）' },
 ]
 
-const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client'])
+const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client', 'vendor'])
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
@@ -309,6 +311,8 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                       ? 'bg-amber-100 text-amber-700'
                       : member.role === 'client'
                       ? 'bg-amber-50 text-amber-700'
+                      : member.role === 'vendor'
+                      ? 'bg-indigo-50 text-indigo-700'
                       : 'bg-gray-100 text-gray-700'
                   }`}
                 >
