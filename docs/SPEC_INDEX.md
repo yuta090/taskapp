@@ -34,6 +34,7 @@
 | **GitHub Integration** | `spec/GITHUB_INTEGRATION_SPEC.md` | GitHub App連携・PR追跡・Webhook |
 | **Slack Integration** | `spec/SLACK_INTEGRATION_SPEC.md` | Slack Bot通知・コマンド・OAuth |
 | **Admin Panel** | `spec/ADMIN_PANEL_SPEC.md` | スーパー管理者運用パネル（17ページ） |
+| **Estimate Workflow** | `spec/ESTIMATE_WORKFLOW_SPEC.md` | 見積もりワークフロー（金額提示→承認/再見積もり） |
 | **Notification & Inbox** | `spec/NOTIFICATION_INBOX_SPEC.md` | 通知分類・アクション受信トレイ |
 | **Settings UX** | `spec/SETTINGS_UX_SPEC.md` | 設定画面リデザイン（Phase 1-5） |
 | **AI Estimation & Risk** | `spec/AI_ESTIMATION_RISK_SPEC.md` | AI見積もり支援・リスク予測 |

@@ -9,6 +9,7 @@ import {
   Check,
   ArrowCounterClockwise,
   ChatCircle,
+  CurrencyJpy,
 } from '@phosphor-icons/react'
 
 interface Task {
@@ -22,6 +23,8 @@ interface Task {
   type?: 'task' | 'spec'
   createdAt?: string
   comments?: Comment[]
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface Comment {
@@ -39,6 +42,8 @@ interface PortalTaskInspectorProps {
   onClose: () => void
   onApprove?: (taskId: string, comment: string) => Promise<void>
   onRequestChanges?: (taskId: string, comment: string) => Promise<void>
+  onEstimateApprove?: (taskId: string, comment: string) => Promise<void>
+  onEstimateReject?: (taskId: string, comment: string) => Promise<void>
 }
 
 function formatDate(date: string): string {
@@ -78,6 +83,8 @@ export function PortalTaskInspector({
   onClose,
   onApprove,
   onRequestChanges,
+  onEstimateApprove,
+  onEstimateReject,
 }: PortalTaskInspectorProps) {
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -92,8 +99,11 @@ export function PortalTaskInspector({
   }, [task.id])
 
   const statusInfo = getStatusLabel(task.status)
+  const isEstimatePending = task.estimateStatus === 'pending' && task.estimatedCost != null
   // ball='client' のタスクは全て承認/修正依頼可能
-  const showActions = onApprove || onRequestChanges
+  const showActions = isEstimatePending
+    ? (onEstimateApprove || onEstimateReject)
+    : (onApprove || onRequestChanges)
 
   const handleApprove = () => {
     if (!onApprove || isSubmitting) return
@@ -109,6 +119,20 @@ export function PortalTaskInspector({
     setActiveAction('request_changes')
     // Fire and forget — parent handles optimistic removal
     onRequestChanges(task.id, comment)
+  }
+
+  const handleEstimateApprove = () => {
+    if (!onEstimateApprove || isSubmitting) return
+    setIsSubmitting(true)
+    setActiveAction('approve')
+    onEstimateApprove(task.id, comment)
+  }
+
+  const handleEstimateReject = () => {
+    if (!onEstimateReject || isSubmitting || !comment.trim()) return
+    setIsSubmitting(true)
+    setActiveAction('request_changes')
+    onEstimateReject(task.id, comment)
   }
 
   return (
@@ -145,6 +169,19 @@ export function PortalTaskInspector({
           )}
         </div>
 
+        {/* Estimate Banner — shown when estimate is pending */}
+        {isEstimatePending && (
+          <div className="px-4 py-3 border-b border-amber-200 bg-amber-50/80">
+            <div className="flex items-center gap-2 mb-1">
+              <CurrencyJpy className="w-4 h-4 text-amber-600" />
+              <span className="text-xs font-medium text-amber-700">見積もり確認</span>
+            </div>
+            <div className="text-2xl font-bold text-gray-900 tracking-tight">
+              ¥{task.estimatedCost!.toLocaleString()}
+            </div>
+          </div>
+        )}
+
         {/* Action Panel - description直下に配置 */}
         {showActions && (
           <div className="px-4 py-4 border-b border-gray-100 bg-gray-50/50">
@@ -153,45 +190,84 @@ export function PortalTaskInspector({
               <textarea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="コメントを入力（修正依頼時は必須）"
+                placeholder={isEstimatePending
+                  ? 'コメントを入力（再見積もり依頼時は必須）'
+                  : 'コメントを入力（修正依頼時は必須）'}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white"
                 rows={2}
                 disabled={isSubmitting}
               />
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={handleApprove}
-                disabled={isSubmitting}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {activeAction === 'approve' && isSubmitting ? (
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Check className="w-4 h-4" weight="bold" />
+            {/* Action Buttons — estimate vs regular */}
+            {isEstimatePending ? (
+              <>
+                <div className="flex gap-2 mt-6">
+                  <button
+                    onClick={handleEstimateApprove}
+                    disabled={isSubmitting}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {activeAction === 'approve' && isSubmitting ? (
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" weight="bold" />
+                    )}
+                    見積もり承認
+                  </button>
+                  <button
+                    onClick={handleEstimateReject}
+                    disabled={isSubmitting || !comment.trim()}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {activeAction === 'request_changes' && isSubmitting ? (
+                      <span className="w-4 h-4 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                    ) : (
+                      <ArrowCounterClockwise className="w-4 h-4" weight="bold" />
+                    )}
+                    再見積もり依頼
+                  </button>
+                </div>
+                {!comment.trim() && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    ※ 再見積もり依頼にはコメントが必要です
+                  </p>
                 )}
-                承認
-              </button>
-              <button
-                onClick={handleRequestChanges}
-                disabled={isSubmitting || !comment.trim()}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {activeAction === 'request_changes' && isSubmitting ? (
-                  <span className="w-4 h-4 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
-                ) : (
-                  <ArrowCounterClockwise className="w-4 h-4" weight="bold" />
+              </>
+            ) : (
+              <>
+                <div className="flex gap-2 mt-6">
+                  <button
+                    onClick={handleApprove}
+                    disabled={isSubmitting}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {activeAction === 'approve' && isSubmitting ? (
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" weight="bold" />
+                    )}
+                    承認
+                  </button>
+                  <button
+                    onClick={handleRequestChanges}
+                    disabled={isSubmitting || !comment.trim()}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {activeAction === 'request_changes' && isSubmitting ? (
+                      <span className="w-4 h-4 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                    ) : (
+                      <ArrowCounterClockwise className="w-4 h-4" weight="bold" />
+                    )}
+                    修正依頼
+                  </button>
+                </div>
+                {!comment.trim() && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    ※ 修正依頼にはコメントが必要です
+                  </p>
                 )}
-                修正依頼
-              </button>
-            </div>
-
-            {!comment.trim() && (
-              <p className="text-xs text-gray-400 mt-2">
-                ※ 修正依頼にはコメントが必要です
-              </p>
+              </>
             )}
           </div>
         )}
