@@ -85,8 +85,11 @@ export function PortalWikiClient({
             </div>
           ) : wikiPages.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
-              <BookOpen className="text-4xl text-gray-300 mx-auto mb-3" />
+              <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">公開されたWikiページはまだありません</p>
+              <p className="text-sm text-gray-400 mt-1">
+                チームがWikiページを公開すると、ここに表示されます
+              </p>
             </div>
           ) : (
             <div className="space-y-3">

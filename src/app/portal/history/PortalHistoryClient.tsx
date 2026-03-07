@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp } from '@phosphor-icons/react'
+import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp, ClipboardText } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 
 interface Project {
@@ -120,8 +120,11 @@ export function PortalHistoryClient({
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             {history.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="text-gray-400 text-4xl mb-3">📋</div>
+                <ClipboardText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">アクション履歴はまだありません</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  タスクの承認・修正依頼を行うと、ここに記録されます
+                </p>
               </div>
             ) : (
               <>
@@ -192,8 +195,11 @@ export function PortalHistoryClient({
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             {completedTasks.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="text-gray-400 text-4xl mb-3">✓</div>
+                <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">完了したタスクはまだありません</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  タスクが完了すると、ここに表示されます
+                </p>
               </div>
             ) : (
               <>

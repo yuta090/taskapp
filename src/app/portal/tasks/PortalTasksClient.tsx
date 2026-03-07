@@ -3,6 +3,7 @@
 import { useState, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { CheckCircle } from '@phosphor-icons/react'
 import { PortalShell, ActionCard, PortalTaskInspector } from '@/components/portal'
 
 interface Project {
@@ -114,8 +115,8 @@ export function PortalTasksClient({
         const error = await response.json()
         if (response.status === 409) {
           toast.error('タスクの状態が変更されました。ページを再読み込みします。')
-        } else if (response.status === 400 && error.error?.includes('Comment')) {
-          toast.error('コメントを入力してください。')
+        } else if (response.status === 400) {
+          toast.error(error.error || 'コメントを入力してください。')
         }
         startTransition(() => router.refresh())
         return
@@ -193,8 +194,11 @@ export function PortalTasksClient({
           {/* Task List */}
           {visibleTasks.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
-              <div className="text-gray-400 text-4xl mb-3">✓</div>
+              <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">確認が必要なタスクはありません</p>
+              <p className="text-sm text-gray-400 mt-1">
+                チームから確認依頼があると、ここに表示されます
+              </p>
             </div>
           ) : (
             <div className="space-y-6">

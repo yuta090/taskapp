@@ -190,6 +190,9 @@ export function PortalAllTasksClient({
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <ListChecks className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">タスクはありません</p>
+              <p className="text-sm text-gray-400 mt-1">
+                タスクが作成されると、ここに表示されます
+              </p>
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

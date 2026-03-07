@@ -119,9 +119,12 @@ export function PortalSchedulingClient({
         )}
 
         {!loading && proposals.length === 0 && (
-          <div className="text-center text-gray-400 py-20">
-            <CalendarBlank className="w-10 h-10 mx-auto mb-3 opacity-50" />
-            <p className="text-sm">日程調整はありません</p>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <CalendarBlank className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-600">日程調整はありません</p>
+            <p className="text-sm text-gray-400 mt-1">
+              日程調整の依頼があると、ここに表示されます
+            </p>
           </div>
         )}
 

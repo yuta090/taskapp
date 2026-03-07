@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const { data: clientMemberships } = await membershipQuery
 
     if (!clientMemberships || clientMemberships.length === 0) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      return NextResponse.json({ error: 'アクセス権限がありません' }, { status: 403 })
     }
 
     // Fetch proposals where user is a respondent
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     if (respError) {
       console.error('Fetch respondent records error:', respError)
-      return NextResponse.json({ error: 'Failed to fetch proposals' }, { status: 500 })
+      return NextResponse.json({ error: '日程調整の取得に失敗しました' }, { status: 500 })
     }
 
     const proposalIds = (respondentRecords || []).map((r: { proposal_id: string }) => r.proposal_id)
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     if (proposalsError) {
       console.error('Fetch proposals error:', proposalsError)
-      return NextResponse.json({ error: 'Failed to fetch proposals' }, { status: 500 })
+      return NextResponse.json({ error: '日程調整の取得に失敗しました' }, { status: 500 })
     }
 
     // Check which proposals the user has responded to
@@ -108,6 +108,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ proposals: result })
   } catch (error) {
     console.error('Portal proposals error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 })
   }
 }

@@ -62,10 +62,20 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
   const [description, setDescription] = useState('')
   const [bugDetails, setBugDetails] = useState<BugDetails>(INITIAL_BUG_DETAILS)
   const [submitting, setSubmitting] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const titleRef = useRef<HTMLInputElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
 
   const isBug = category === 'bug'
+
+  const clearFieldError = useCallback((field: string) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }, [])
 
   // Focus title input on open
   useEffect(() => {
@@ -90,27 +100,33 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
     setCategory('feature')
     setDescription('')
     setBugDetails(INITIAL_BUG_DETAILS)
+    setFieldErrors({})
   }, [])
 
   const updateBugField = useCallback(<K extends keyof BugDetails>(key: K, value: BugDetails[K]) => {
     setBugDetails(prev => ({ ...prev, [key]: value }))
   }, [])
 
-  const validateBugFields = (): boolean => {
-    if (!bugDetails.screen.trim()) {
-      toast.error('発生した画面を入力してください')
-      return false
+  const validate = (): boolean => {
+    const errors: Record<string, string> = {}
+
+    if (!title.trim()) {
+      errors.title = 'タイトルを入力してください'
     }
-    if (!bugDetails.steps.trim()) {
-      toast.error('再現手順を入力してください')
-      return false
+
+    if (isBug) {
+      if (!bugDetails.screen.trim()) errors.screen = '発生した画面を入力してください'
+      if (!bugDetails.steps.trim()) errors.steps = '再現手順を入力してください'
+      if (!bugDetails.actual.trim()) errors.actual = '実際に起きたことを入力してください'
+      if (!bugDetails.expected.trim()) errors.expected = '期待する動作を入力してください'
+    } else if (!description.trim()) {
+      errors.description = category === 'feature' ? '機能の内容を入力してください' : '質問内容を入力してください'
     }
-    if (!bugDetails.actual.trim()) {
-      toast.error('実際に起きたことを入力してください')
-      return false
-    }
-    if (!bugDetails.expected.trim()) {
-      toast.error('期待する動作を入力してください')
+
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      // Focus first errored field
+      if (errors.title) titleRef.current?.focus()
       return false
     }
     return true
@@ -119,14 +135,9 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    const trimmedTitle = title.trim()
-    if (!trimmedTitle) {
-      toast.error('タイトルを入力してください')
-      titleRef.current?.focus()
-      return
-    }
+    if (!validate()) return
 
-    if (isBug && !validateBugFields()) return
+    const trimmedTitle = title.trim()
 
     setSubmitting(true)
     try {
@@ -172,12 +183,12 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
   }
 
   const canSubmit = title.trim().length > 0 && (
-    !isBug || (
+    isBug ? (
       bugDetails.screen.trim().length > 0 &&
       bugDetails.steps.trim().length > 0 &&
       bugDetails.actual.trim().length > 0 &&
       bugDetails.expected.trim().length > 0
-    )
+    ) : description.trim().length > 0
   )
 
   if (!isOpen) return null
@@ -251,15 +262,22 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
               id="request-title"
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => { setTitle(e.target.value); clearFieldError('title') }}
               maxLength={200}
               placeholder={
                 isBug ? '例: ログイン画面でボタンが反応しない' :
                 category === 'feature' ? '例: CSVエクスポート機能がほしい' :
                 '例: 納品物の確認フローについて'
               }
-              className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow ${
+                fieldErrors.title
+                  ? 'border-red-400 focus:ring-red-500/20 focus:border-red-500'
+                  : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+              }`}
             />
+            {fieldErrors.title && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.title}</p>
+            )}
           </div>
 
           {/* Bug-specific fields */}
@@ -278,11 +296,14 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
                   id="bug-screen"
                   type="text"
                   value={bugDetails.screen}
-                  onChange={(e) => updateBugField('screen', e.target.value)}
+                  onChange={(e) => { updateBugField('screen', e.target.value); clearFieldError('screen') }}
                   maxLength={200}
                   placeholder="例: タスク一覧 / ダッシュボード / 設定画面"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow ${
+                    fieldErrors.screen ? 'border-red-400 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+                  }`}
                 />
+                {fieldErrors.screen && <p className="mt-1 text-xs text-red-600">{fieldErrors.screen}</p>}
               </div>
 
               {/* Steps */}
@@ -293,12 +314,15 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
                 <textarea
                   id="bug-steps"
                   value={bugDetails.steps}
-                  onChange={(e) => updateBugField('steps', e.target.value)}
+                  onChange={(e) => { updateBugField('steps', e.target.value); clearFieldError('steps') }}
                   maxLength={2000}
                   rows={3}
                   placeholder={'1. ○○ページを開く\n2. △△ボタンをクリック\n3. エラーが表示される'}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow resize-none ${
+                    fieldErrors.steps ? 'border-red-400 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+                  }`}
                 />
+                {fieldErrors.steps && <p className="mt-1 text-xs text-red-600">{fieldErrors.steps}</p>}
               </div>
 
               {/* Actual */}
@@ -309,12 +333,15 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
                 <textarea
                   id="bug-actual"
                   value={bugDetails.actual}
-                  onChange={(e) => updateBugField('actual', e.target.value)}
+                  onChange={(e) => { updateBugField('actual', e.target.value); clearFieldError('actual') }}
                   maxLength={2000}
                   rows={2}
                   placeholder="例: 保存ボタンを押した後、画面が真っ白になった"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow resize-none ${
+                    fieldErrors.actual ? 'border-red-400 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+                  }`}
                 />
+                {fieldErrors.actual && <p className="mt-1 text-xs text-red-600">{fieldErrors.actual}</p>}
               </div>
 
               {/* Expected */}
@@ -325,12 +352,15 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
                 <textarea
                   id="bug-expected"
                   value={bugDetails.expected}
-                  onChange={(e) => updateBugField('expected', e.target.value)}
+                  onChange={(e) => { updateBugField('expected', e.target.value); clearFieldError('expected') }}
                   maxLength={2000}
                   rows={2}
                   placeholder="例: 保存完了のメッセージが出て、内容が更新される"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow resize-none ${
+                    fieldErrors.expected ? 'border-red-400 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+                  }`}
                 />
+                {fieldErrors.expected && <p className="mt-1 text-xs text-red-600">{fieldErrors.expected}</p>}
               </div>
 
               {/* Frequency */}
@@ -367,7 +397,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
             <textarea
               id="request-description"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { setDescription(e.target.value); clearFieldError('description') }}
               maxLength={5000}
               rows={isBug ? 3 : 5}
               placeholder={
@@ -377,8 +407,15 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
                     ? '例: 月次報告用にタスク一覧をCSVでダウンロードしたい'
                     : '例: クライアント側で担当者を追加できますか？'
               }
-              className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none"
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow resize-none ${
+                fieldErrors.description
+                  ? 'border-red-400 focus:ring-red-500/20 focus:border-red-500'
+                  : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+              }`}
             />
+            {fieldErrors.description && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.description}</p>
+            )}
             {description.length > 0 && (
               <p className="mt-1 text-xs text-gray-400 text-right">
                 {description.length} / 5,000

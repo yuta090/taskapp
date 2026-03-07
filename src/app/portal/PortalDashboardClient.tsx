@@ -177,8 +177,8 @@ export function PortalDashboardClient({
         if (response.status === 409) {
           toast.error('タスクの状態が変更されました。ページを再読み込みします。')
           router.refresh()
-        } else if (response.status === 400 && error.error?.includes('Comment')) {
-          toast.error('コメントを入力してください。')
+        } else if (response.status === 400) {
+          toast.error(error.error || 'コメントを入力してください。')
         }
         return
       }
