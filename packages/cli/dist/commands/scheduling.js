@@ -72,7 +72,7 @@ export function registerSchedulingCommands(program) {
                 console.error('Error: scheduling respond requires --stdin with JSON responses.');
                 process.exit(1);
             }
-            const result = await callTool('respond_scheduling_proposal', rawParams);
+            const result = await callTool('respond_to_proposal', rawParams);
             output(result, program.opts().json);
         }
         catch (e) {
@@ -87,7 +87,7 @@ export function registerSchedulingCommands(program) {
         .requiredOption('--slot-id <uuid>', 'Slot UUID to confirm')
         .action(async (opts) => {
         try {
-            const result = await callTool('confirm_scheduling_proposal', {
+            const result = await callTool('confirm_proposal_slot', {
                 spaceId: resolveSpaceId(opts),
                 proposalId: opts.proposalId,
                 slotId: opts.slotId,
@@ -126,7 +126,7 @@ export function registerSchedulingCommands(program) {
         .requiredOption('--proposal-id <uuid>', 'Proposal UUID')
         .action(async (opts) => {
         try {
-            const result = await callTool('get_scheduling_responses', {
+            const result = await callTool('get_proposal_responses', {
                 spaceId: resolveSpaceId(opts),
                 proposalId: opts.proposalId,
             });
@@ -148,7 +148,7 @@ export function registerSchedulingCommands(program) {
         .option('--business-hour-end <n>', 'Business end hour', '18')
         .action(async (opts) => {
         try {
-            const result = await callTool('suggest_scheduling_slots', {
+            const result = await callTool('suggest_available_slots', {
                 spaceId: resolveSpaceId(opts),
                 userIds: opts.userIds,
                 startDate: opts.startDate,
@@ -170,7 +170,7 @@ export function registerSchedulingCommands(program) {
         .requiredOption('--proposal-id <uuid>', 'Proposal UUID')
         .action(async (opts) => {
         try {
-            const result = await callTool('send_scheduling_reminder', {
+            const result = await callTool('send_proposal_reminder', {
                 spaceId: resolveSpaceId(opts),
                 proposalId: opts.proposalId,
             });
