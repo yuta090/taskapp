@@ -414,12 +414,31 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           }
         }
 
-        const { error: updateError } = await (supabase as SupabaseClient)
+        const { data: updatedRows, error: updateError } = await (supabase as SupabaseClient)
           .from('tasks')
           .update(updateData)
           .eq('id', taskId)
+          .select('id, parent_task_id')
 
         if (updateError) throw updateError
+
+        // Verify the update actually affected a row (RLS can silently block updates)
+        if (!updatedRows || updatedRows.length === 0) {
+          throw new Error('タスクの更新が反映されませんでした（権限不足の可能性）')
+        }
+
+        // Verify parent-child update persisted
+        if (input.parentTaskId !== undefined) {
+          const { data: verifyRow } = await (supabase as SupabaseClient)
+            .from('tasks')
+            .select('id, parent_task_id')
+            .eq('id', taskId)
+            .single()
+
+          if (verifyRow && String(verifyRow.parent_task_id) !== String(input.parentTaskId)) {
+            throw new Error(`DB保存失敗: 送信=${input.parentTaskId}, DB値=${verifyRow.parent_task_id}`)
+          }
+        }
 
         // Fire-and-forget notification on status change
         if (input.status !== undefined && prevTask && prevTask.status !== input.status) {

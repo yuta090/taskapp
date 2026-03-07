@@ -199,8 +199,9 @@ export function GanttChart({
 
       tasks.forEach((t) => {
         if (t.id === linkDrag.sourceTaskId) return
-        if (isParentTask(t.id, tasks)) return // already a parent
-        if (t.parent_task_id) return // already a child
+        // Target must not already be a parent (1-level: no grandchildren)
+        if (isParentTask(t.id, tasks)) return
+        // Target CAN already have a parent — we just re-assign it
         ids.add(t.id)
       })
     }
@@ -650,6 +651,47 @@ export function GanttChart({
                     onLinkDragStart={onParentChange ? handleLinkDragStart : undefined}
                     linkHighlight={getLinkHighlight(task.id)}
                   />
+                )
+              })}
+
+              {/* Parent-child connection lines */}
+              {rowData.map((row) => {
+                if (row.type !== 'task' || !row.task?.parent_task_id) return null
+                const childTask = row.task
+                const parentRow = rowData.find(
+                  (r) => r.type === 'task' && r.task?.id === childTask.parent_task_id
+                )
+                if (!parentRow || !parentRow.task) return null
+
+                const parentEnd = parentRow.task.due_date
+                const childStart = childTask.start_date || childTask.created_at
+
+                if (!parentEnd || !childStart) return null
+
+                const parentEndX = dateToX(new Date(parentEnd), startDate, dayWidth)
+                const childStartX = dateToX(new Date(childStart), startDate, dayWidth)
+                const parentY = parentRow.rowIndex * GANTT_CONFIG.ROW_HEIGHT + GANTT_CONFIG.ROW_HEIGHT / 2
+                const childY = row.rowIndex * GANTT_CONFIG.ROW_HEIGHT + GANTT_CONFIG.ROW_HEIGHT / 2
+
+                // Draw an L-shaped connector from parent bar end to child bar start
+                const midX = (parentEndX + childStartX) / 2
+                return (
+                  <g key={`link-${childTask.id}`} style={{ pointerEvents: 'none' }}>
+                    <path
+                      d={`M ${parentEndX} ${parentY} L ${midX} ${parentY} L ${midX} ${childY} L ${childStartX} ${childY}`}
+                      fill="none"
+                      stroke="#94A3B8"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                      opacity={0.6}
+                    />
+                    {/* Arrow at child end */}
+                    <polygon
+                      points={`${childStartX},${childY} ${childStartX - 5},${childY - 3} ${childStartX - 5},${childY + 3}`}
+                      fill="#94A3B8"
+                      opacity={0.6}
+                    />
+                  </g>
                 )
               })}
 

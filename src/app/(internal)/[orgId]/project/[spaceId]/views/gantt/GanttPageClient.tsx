@@ -135,6 +135,20 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     [deleteTask, syncUrlWithState]
   )
 
+  // Compute parentTasks & childTasks for TaskInspector
+  const parentTaskOptions = useMemo(() => {
+    if (!selectedTask) return []
+    // Eligible parents: top-level tasks (no parent themselves), excluding the selected task
+    return tasks
+      .filter((t) => t.id !== selectedTask.id && !t.parent_task_id)
+      .map((t) => ({ id: t.id, title: t.title }))
+  }, [tasks, selectedTask])
+
+  const childTasksOfSelected = useMemo(() => {
+    if (!selectedTask) return []
+    return tasks.filter((t) => t.parent_task_id === selectedTask.id)
+  }, [tasks, selectedTask])
+
   // Set inspector when task is selected
   useEffect(() => {
     if (!selectedTask) {
@@ -147,6 +161,8 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         task={selectedTask}
         spaceId={spaceId}
         owners={owners[selectedTask.id] || []}
+        parentTasks={parentTaskOptions}
+        childTasks={childTasksOfSelected}
         onClose={() => {
           syncUrlWithState(null)
         }}
@@ -158,7 +174,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         }
       />
     )
-  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId])
+  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
 
   // Stable refs for handleTaskClick to avoid recreating on every selection change
   const selectedTaskIdRef = useRef(selectedTaskId)
@@ -252,7 +268,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         toast.success(actionLabel)
       } catch (err) {
         console.error('[ガントチャート] 親子設定に失敗:', err)
-        toast.error('親子タスクの設定に失敗しました')
+        toast.error(`親子タスクの設定に失敗しました: ${err instanceof Error ? err.message : String(err)}`)
       }
     },
     [tasks, updateTask]
