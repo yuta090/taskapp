@@ -13,6 +13,7 @@ import { usePathname } from 'next/navigation'
 import { LeftNav } from './LeftNav'
 import { useShortcutsHelp } from '@/components/shared/KeyboardShortcutsHelp'
 import { useCommandPalette } from '@/components/shared/CommandPalette'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 
 const LAST_PATH_KEY = 'taskapp:lastPath'
 
@@ -107,6 +108,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex h-full min-h-0 w-full max-w-[1600px]">
             {/* Main Content */}
             <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-white relative z-0">
+              {/* Top bar with announcement bell */}
+              <div className="flex items-center justify-end px-4 py-1.5 flex-shrink-0">
+                <AnnouncementBell />
+              </div>
               {children}
             </main>
 
