@@ -42,6 +42,8 @@
 | **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層（1レベル） |
 | **MCP Tool Governance** | `spec/MCP_TOOL_GOVERNANCE.md` | MCPツール4ティアアクセス制御 |
 | **CLI Spec** | `spec/CLI_SPEC.md` | AgentPM CLI仕様 |
+| **CLI Dynamic Manifest** | `spec/CLI_DYNAMIC_MANIFEST_SPEC.md` | CLI動的マニフェスト（JSON駆動コマンド登録） |
+| **Estimate Workflow** | `spec/ESTIMATE_WORKFLOW_SPEC.md` | 見積もりワークフロー（送信→承認/再見積もり） |
 
 ### Prototypes
 
