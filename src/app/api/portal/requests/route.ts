@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const MAX_TITLE_LENGTH = 200
@@ -212,6 +213,14 @@ export async function POST(request: NextRequest) {
     const spaceId = membership.space_id
     const spaces = membership.spaces as unknown as { org_id: string }
     const orgId = spaces.org_id
+
+    // Check if requests section is enabled for this space
+    if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'requests'))) {
+      return NextResponse.json(
+        { error: 'リクエスト送信は現在無効になっています' },
+        { status: 403 }
+      )
+    }
 
     // Build description
     const userAgent = request.headers.get('user-agent') || 'unknown'
