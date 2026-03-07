@@ -1,9 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp } from '@phosphor-icons/react'
-import { PortalLayout } from '@/components/portal'
+import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp, ClipboardText } from '@phosphor-icons/react'
+import { PortalShell } from '@/components/portal'
 
 interface Project {
   id: string
@@ -61,24 +60,19 @@ export function PortalHistoryClient({
   history,
   completedTasks,
 }: PortalHistoryClientProps) {
-  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'actions' | 'completed'>('actions')
   const [showAll, setShowAll] = useState(false)
-
-  const handleProjectChange = () => {
-    router.refresh()
-  }
 
   const displayedHistory = showAll ? history : history.slice(0, 10)
   const displayedCompleted = showAll ? completedTasks : completedTasks.slice(0, 10)
 
   return (
-    <PortalLayout
+    <PortalShell
       currentProject={currentProject}
       projects={projects}
-      onProjectChange={handleProjectChange}
     >
-      <div className="space-y-6">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-4xl mx-auto space-y-6">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">履歴</h1>
@@ -126,8 +120,11 @@ export function PortalHistoryClient({
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             {history.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="text-gray-400 text-4xl mb-3">📋</div>
+                <ClipboardText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">アクション履歴はまだありません</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  タスクの承認・修正依頼を行うと、ここに記録されます
+                </p>
               </div>
             ) : (
               <>
@@ -198,8 +195,11 @@ export function PortalHistoryClient({
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             {completedTasks.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="text-gray-400 text-4xl mb-3">✓</div>
+                <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">完了したタスクはまだありません</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  タスクが完了すると、ここに表示されます
+                </p>
               </div>
             ) : (
               <>
@@ -251,6 +251,7 @@ export function PortalHistoryClient({
           </div>
         )}
       </div>
-    </PortalLayout>
+      </div>
+    </PortalShell>
   )
 }

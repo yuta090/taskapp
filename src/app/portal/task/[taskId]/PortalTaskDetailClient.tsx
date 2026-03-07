@@ -14,7 +14,7 @@ import {
   Checks,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { PortalLayout } from '@/components/portal'
+import { PortalShell } from '@/components/portal'
 
 interface Project {
   id: string
@@ -73,18 +73,10 @@ function formatDateTime(date: string): string {
   })
 }
 
-const statusLabels: Record<string, string> = {
-  open: '未着手',
-  in_progress: '進行中',
-  todo: 'TODO',
-  considering: '検討中',
-  done: '完了',
-}
+import { PORTAL_STATUS_LABELS, PORTAL_BALL_LABELS } from '@/components/portal/labels'
 
-const ballLabels: Record<string, string> = {
-  client: 'お客様',
-  internal: '開発チーム',
-}
+const statusLabels = PORTAL_STATUS_LABELS
+const ballLabels = PORTAL_BALL_LABELS
 
 export function PortalTaskDetailClient({
   currentProject,
@@ -95,10 +87,6 @@ export function PortalTaskDetailClient({
   const router = useRouter()
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const handleProjectChange = () => {
-    router.refresh()
-  }
 
   const handleApprove = async () => {
     setIsSubmitting(true)
@@ -145,12 +133,12 @@ export function PortalTaskDetailClient({
   const canTakeAction = isClientBall && task.status !== 'done'
 
   return (
-    <PortalLayout
+    <PortalShell
       currentProject={currentProject}
       projects={projects}
-      onProjectChange={handleProjectChange}
     >
-      <div className="space-y-6">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-4xl mx-auto space-y-6">
         {/* Back link */}
         <Link
           href="/portal/tasks"
@@ -315,6 +303,7 @@ export function PortalTaskDetailClient({
           <span>更新: {formatDateTime(task.updatedAt)}</span>
         </div>
       </div>
-    </PortalLayout>
+      </div>
+    </PortalShell>
   )
 }

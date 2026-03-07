@@ -64,8 +64,8 @@ function formatDateTime(date: string): string {
 function getStatusLabel(status?: string): { label: string; color: string } {
   if (!status) return { label: '不明', color: 'bg-gray-100 text-gray-700' }
   const statusMap: Record<string, { label: string; color: string }> = {
-    considering: { label: '確認待ち', color: 'bg-gray-100 text-gray-600' },
-    open: { label: '対応待ち', color: 'bg-blue-50 text-blue-700' },
+    considering: { label: '要確認', color: 'bg-amber-50 text-amber-700' },
+    open: { label: '未着手', color: 'bg-gray-100 text-gray-600' },
     in_progress: { label: '進行中', color: 'bg-blue-50 text-blue-700' },
     todo: { label: 'Todo', color: 'bg-gray-100 text-gray-600' },
     done: { label: '完了', color: 'bg-green-50 text-green-700' },

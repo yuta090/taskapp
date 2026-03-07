@@ -3,6 +3,7 @@
 import { useState, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { CheckCircle } from '@phosphor-icons/react'
 import { PortalShell, ActionCard, PortalTaskInspector } from '@/components/portal'
 
 interface Project {
@@ -114,8 +115,8 @@ export function PortalTasksClient({
         const error = await response.json()
         if (response.status === 409) {
           toast.error('タスクの状態が変更されました。ページを再読み込みします。')
-        } else if (response.status === 400 && error.error?.includes('Comment')) {
-          toast.error('コメントを入力してください。')
+        } else if (response.status === 400) {
+          toast.error(error.error || 'コメントを入力してください。')
         }
         startTransition(() => router.refresh())
         return
@@ -164,7 +165,7 @@ export function PortalTasksClient({
           <div>
             <h1 className="text-2xl font-bold text-gray-900">要対応タスク</h1>
             <p className="mt-1 text-sm text-gray-600">
-              確認・承認が必要なタスクの一覧です。「要確認」はすぐにアクションが必要、「対応待ち」はチームが準備中です。
+              確認・承認が必要なタスクの一覧です。「要確認」はすぐにアクションが必要、「チーム対応中」はチームが準備中です。
             </p>
           </div>
 
@@ -186,15 +187,18 @@ export function PortalTasksClient({
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-bold text-gray-600">{otherTasks.length}</div>
-              <div className="text-sm text-gray-500">対応待ち</div>
+              <div className="text-sm text-gray-500">チーム対応中</div>
             </div>
           </div>
 
           {/* Task List */}
           {visibleTasks.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
-              <div className="text-gray-400 text-4xl mb-3">✓</div>
+              <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">確認が必要なタスクはありません</p>
+              <p className="text-sm text-gray-400 mt-1">
+                チームから確認依頼があると、ここに表示されます
+              </p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -231,7 +235,7 @@ export function PortalTasksClient({
                 <div>
                   <h2 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-gray-400"></span>
-                    対応待ち ({otherTasks.length}件)
+                    チーム対応中 ({otherTasks.length}件)
                   </h2>
                   <div className="space-y-3">
                     {otherTasks.map((task) => (
