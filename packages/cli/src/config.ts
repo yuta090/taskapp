@@ -11,6 +11,17 @@ interface CliConfig {
   defaultSpaceId?: string
 }
 
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConfigError'
+  }
+}
+
+// Store resolved config for getApiConfig()
+let _resolvedApiUrl = ''
+let _resolvedApiKey = ''
+
 export function getConfigPath(): string {
   return CONFIG_PATH
 }
@@ -33,10 +44,11 @@ export function loadCliConfig(cliOpts: {
   const apiKey = cliOpts.apiKey || process.env.TASKAPP_API_KEY || fileConfig.apiKey
 
   if (!apiUrl || !apiKey) {
-    console.error('Error: Not configured. Run: agentpm login')
-    process.exit(1)
+    throw new ConfigError('Not configured. Run: agentpm login')
   }
 
+  _resolvedApiUrl = apiUrl
+  _resolvedApiKey = apiKey
   setApiConfig(apiUrl, apiKey)
 
   // Set space ID for resolveSpaceId
@@ -44,6 +56,10 @@ export function loadCliConfig(cliOpts: {
   if (spaceId) {
     process.env.TASKAPP_SPACE_ID = spaceId
   }
+}
+
+export function getApiConfig(): { apiUrl: string; apiKey: string } {
+  return { apiUrl: _resolvedApiUrl, apiKey: _resolvedApiKey }
 }
 
 export function resolveSpaceId(opts: { spaceId?: string }): string {
