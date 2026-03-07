@@ -14,6 +14,9 @@ interface GanttRowProps {
   onClick?: (taskId: string) => void
   isSelected?: boolean
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
+  onBarMove?: (taskId: string, newStart: string, newEnd: string) => void
+  onLinkDragStart?: (taskId: string, mode: 'child' | 'parent', startX: number, startY: number) => void
+  linkHighlight?: { type: 'eligible' | 'over'; mode: 'child' | 'parent' } | null
   /** Parent task with summary bar */
   isParent?: boolean
   /** Summary start date (auto-computed from children) */
@@ -31,18 +34,22 @@ export const GanttRow = memo(function GanttRow({
   onClick,
   isSelected,
   onDateChange,
+  onBarMove,
+  onLinkDragStart,
+  linkHighlight,
   isParent,
   summaryStart,
   summaryEnd,
 }: GanttRowProps) {
   const [isHovering, setIsHovering] = useState(false)
   const [dragState, setDragState] = useState<{
-    edge: 'start' | 'end'
+    edge: 'start' | 'end' | 'move'
     startX: number
     originalX: number
     originalWidth: number
   } | null>(null)
   const [dragPreview, setDragPreview] = useState<{ x: number; width: number } | null>(null)
+  const dragPreviewRef = useRef<{ x: number; width: number } | null>(null)
   const justFinishedDragRef = useRef(false)
 
   const dates = useMemo(
@@ -77,7 +84,6 @@ export const GanttRow = memo(function GanttRow({
 
     if (end) {
       const endX = dateToX(end, startDate, dayWidth)
-      // Position at the end date rather than stretching from x=0
       return { x: Math.max(endX - dayWidth, 0), width: dayWidth }
     }
 
@@ -106,22 +112,44 @@ export const GanttRow = memo(function GanttRow({
     }
   }, [dragState])
 
-  // Handle resize start
+  // Handle resize start (start/end edge)
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, edge: 'start' | 'end') => {
       e.stopPropagation()
       e.preventDefault()
       if (!barPosition || !onDateChange) return
 
+      const preview = { x: barPosition.x, width: barPosition.width }
       setDragState({
         edge,
         startX: e.clientX,
         originalX: barPosition.x,
         originalWidth: barPosition.width,
       })
-      setDragPreview({ x: barPosition.x, width: barPosition.width })
+      setDragPreview(preview)
+      dragPreviewRef.current = preview
     },
     [barPosition, onDateChange]
+  )
+
+  // Handle bar move start (middle area)
+  const handleMoveMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+      if (!barPosition || !onBarMove) return
+
+      const preview = { x: barPosition.x, width: barPosition.width }
+      setDragState({
+        edge: 'move',
+        startX: e.clientX,
+        originalX: barPosition.x,
+        originalWidth: barPosition.width,
+      })
+      setDragPreview(preview)
+      dragPreviewRef.current = preview
+    },
+    [barPosition, onBarMove]
   )
 
   // Snap to nearest day boundary
@@ -129,56 +157,83 @@ export const GanttRow = memo(function GanttRow({
     return Math.round(x / dayWidth) * dayWidth
   }, [dayWidth])
 
-  // Global mouse move and up handlers
+  // Derived state: must be declared before useMemo/useEffect that reference them
+  const displayPosition = dragPreview || barPosition
+  const isDragging = dragState !== null
+
+  // Tooltip text (uses state-based dragPreview, safe for render)
+  const tooltipText = useMemo((): string => {
+    if (isDragging && dragPreview) {
+      if (dragState?.edge === 'move') {
+        const s = xToDate(dragPreview.x, startDate, dayWidth).toLocaleDateString('ja-JP')
+        const e = xToDate(dragPreview.x + dragPreview.width, startDate, dayWidth).toLocaleDateString('ja-JP')
+        return `${s} ~ ${e}`
+      }
+      if (dragState?.edge === 'start') {
+        return `開始: ${xToDate(dragPreview.x, startDate, dayWidth).toLocaleDateString('ja-JP')}`
+      }
+      if (dragState?.edge === 'end') {
+        return `期限: ${xToDate(dragPreview.x + dragPreview.width, startDate, dayWidth).toLocaleDateString('ja-JP')}`
+      }
+    }
+    return task.title.length > 18 ? task.title.slice(0, 18) + '...' : task.title
+  }, [isDragging, dragPreview, dragState?.edge, startDate, dayWidth, task.title])
+
+  // Global mouse move and up handlers for resize/move drag
   useEffect(() => {
     if (!dragState || !barPosition) return
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaX = e.clientX - dragState.startX
+      let newPreview: { x: number; width: number }
 
-      if (dragState.edge === 'end') {
-        // Dragging end: change width, snap to grid
+      if (dragState.edge === 'move') {
+        const snappedX = snapToGrid(dragState.originalX + deltaX)
+        newPreview = { x: snappedX, width: dragState.originalWidth }
+      } else if (dragState.edge === 'end') {
         const rawWidth = dragState.originalWidth + deltaX
         const snappedEndX = snapToGrid(dragState.originalX + rawWidth)
         const newWidth = Math.max(snappedEndX - dragState.originalX, dayWidth)
-        setDragPreview({ x: dragState.originalX, width: newWidth })
+        newPreview = { x: dragState.originalX, width: newWidth }
       } else {
-        // Dragging start: change x and width inversely, snap to grid
         const rawX = dragState.originalX + deltaX
         const snappedX = snapToGrid(rawX)
         const newWidth = Math.max(dragState.originalX + dragState.originalWidth - snappedX, dayWidth)
-        setDragPreview({ x: snappedX, width: newWidth })
+        newPreview = { x: snappedX, width: newWidth }
       }
+
+      dragPreviewRef.current = newPreview
+      setDragPreview(newPreview)
     }
 
     const handleMouseUp = () => {
-      // Mark that we just finished dragging to prevent click from firing
       justFinishedDragRef.current = true
-      // Reset the flag after a short delay (after click event would fire)
-      setTimeout(() => {
-        justFinishedDragRef.current = false
-      }, 0)
+      setTimeout(() => { justFinishedDragRef.current = false }, 0)
 
-      if (!dragPreview || !onDateChange) {
+      const preview = dragPreviewRef.current
+      if (!preview) {
         setDragState(null)
         setDragPreview(null)
+        dragPreviewRef.current = null
         return
       }
 
-      // Calculate new date based on drag position (using local timezone)
-      if (dragState.edge === 'end') {
-        const endX = dragPreview.x + dragPreview.width
+      if (dragState.edge === 'move' && onBarMove) {
+        const newStart = xToDate(preview.x, startDate, dayWidth)
+        const newEnd = xToDate(preview.x + preview.width, startDate, dayWidth)
+        onBarMove(task.id, formatDateToLocalString(newStart), formatDateToLocalString(newEnd))
+      } else if (dragState.edge === 'end' && onDateChange) {
+        const endX = preview.x + preview.width
         const newDate = xToDate(endX, startDate, dayWidth)
-        const dateStr = formatDateToLocalString(newDate)
-        onDateChange(task.id, 'end', dateStr)
-      } else {
-        const newDate = xToDate(dragPreview.x, startDate, dayWidth)
-        const dateStr = formatDateToLocalString(newDate)
-        onDateChange(task.id, 'start', dateStr)
+        onDateChange(task.id, 'end', formatDateToLocalString(newDate))
+      } else if (dragState.edge === 'start' && onDateChange) {
+        const newDate = xToDate(preview.x, startDate, dayWidth)
+        onDateChange(task.id, 'start', formatDateToLocalString(newDate))
       }
 
       setDragState(null)
       setDragPreview(null)
+      dragPreviewRef.current = null
       setIsHovering(false)
     }
 
@@ -189,19 +244,31 @@ export const GanttRow = memo(function GanttRow({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [dragState, dragPreview, barPosition, onDateChange, task.id, startDate, dayWidth, snapToGrid])
-
-  // Use preview position if dragging, otherwise use calculated position
-  const displayPosition = dragPreview || barPosition
-  const isDragging = dragState !== null
+  }, [dragState, barPosition, onDateChange, onBarMove, task.id, startDate, dayWidth, snapToGrid])
 
   // Handle click - skip if we just finished dragging
   const handleClick = useCallback(() => {
-    if (justFinishedDragRef.current) {
-      return
-    }
+    if (justFinishedDragRef.current) return
     onClick?.(task.id)
   }, [onClick, task.id])
+
+  // Link handle mouse down
+  const handleLinkMouseDown = useCallback(
+    (e: React.MouseEvent, mode: 'child' | 'parent') => {
+      e.stopPropagation()
+      e.preventDefault()
+      if (!onLinkDragStart || !barPosition) return
+
+      // Get SVG coordinate for the handle center
+      const handleX = mode === 'child'
+        ? barPosition.x - 8
+        : barPosition.x + barPosition.width + 8
+      const handleY = y + GANTT_CONFIG.ROW_HEIGHT / 2
+
+      onLinkDragStart(task.id, mode, handleX, handleY)
+    },
+    [onLinkDragStart, barPosition, task.id, y]
+  )
 
   return (
     <g
@@ -220,6 +287,28 @@ export const GanttRow = memo(function GanttRow({
         fill={isSelected ? '#F1F5F9' : 'transparent'}
         className="hover:fill-gray-50"
       />
+
+      {/* Link highlight: row-wide glow for eligible targets */}
+      {linkHighlight && linkHighlight.type === 'eligible' && (
+        <rect
+          x={0}
+          y={y}
+          width={totalWidth}
+          height={GANTT_CONFIG.ROW_HEIGHT}
+          fill={linkHighlight.mode === 'child' ? '#EEF2FF' : '#ECFDF5'}
+          opacity={0.4}
+        />
+      )}
+      {linkHighlight && linkHighlight.type === 'over' && (
+        <rect
+          x={0}
+          y={y}
+          width={totalWidth}
+          height={GANTT_CONFIG.ROW_HEIGHT}
+          fill={linkHighlight.mode === 'child' ? '#C7D2FE' : '#A7F3D0'}
+          opacity={0.5}
+        />
+      )}
 
       {/* Weekend backgrounds */}
       {dates.map((date, i) => {
@@ -265,7 +354,6 @@ export const GanttRow = memo(function GanttRow({
       {/* Parent summary bar (thin bar showing child date range) */}
       {isParent && summaryBarPosition && (
         <g onMouseEnter={handleBarMouseEnter} onMouseLeave={handleBarMouseLeave}>
-          {/* Summary bar background */}
           <rect
             x={summaryBarPosition.x}
             y={y + GANTT_CONFIG.ROW_HEIGHT / 2 - 3}
@@ -275,7 +363,6 @@ export const GanttRow = memo(function GanttRow({
             fill={GANTT_CONFIG.COLORS.PARENT_BAR}
             opacity={0.7}
           />
-          {/* Start cap */}
           <rect
             x={summaryBarPosition.x}
             y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
@@ -285,7 +372,6 @@ export const GanttRow = memo(function GanttRow({
             fill={GANTT_CONFIG.COLORS.PARENT_BAR}
             opacity={0.9}
           />
-          {/* End cap */}
           <rect
             x={summaryBarPosition.x + summaryBarPosition.width - 3}
             y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
@@ -295,8 +381,6 @@ export const GanttRow = memo(function GanttRow({
             fill={GANTT_CONFIG.COLORS.PARENT_BAR}
             opacity={0.9}
           />
-
-          {/* Summary tooltip on hover */}
           {isHovering && (
             <g>
               <rect
@@ -324,7 +408,7 @@ export const GanttRow = memo(function GanttRow({
         </g>
       )}
 
-      {/* Task bar (for non-parent tasks, or parent's own bar if it has dates) */}
+      {/* Task bar */}
       {!isParent && displayPosition && (
         <g
           onMouseEnter={handleBarMouseEnter}
@@ -341,6 +425,21 @@ export const GanttRow = memo(function GanttRow({
             opacity={0.05}
           />
 
+          {/* Bar glow when link-highlighted */}
+          {linkHighlight && linkHighlight.type === 'over' && (
+            <rect
+              x={displayPosition.x - 2}
+              y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING - 2}
+              width={displayPosition.width + 4}
+              height={GANTT_CONFIG.BAR_HEIGHT + 4}
+              rx={GANTT_CONFIG.RADIUS.SM + 2}
+              fill="none"
+              stroke={linkHighlight.mode === 'child' ? '#6366F1' : '#10B981'}
+              strokeWidth={2}
+              opacity={0.8}
+            />
+          )}
+
           {/* Bar */}
           <rect
             x={displayPosition.x}
@@ -352,7 +451,9 @@ export const GanttRow = memo(function GanttRow({
             className="transition-all duration-150"
             style={{
               filter: isSelected ? 'brightness(0.9)' : undefined,
-              cursor: isDragging ? 'ew-resize' : 'pointer',
+              cursor: isDragging
+                ? (dragState?.edge === 'move' ? 'grabbing' : 'ew-resize')
+                : 'pointer',
               opacity: isDragging ? 0.8 : 1,
             }}
           />
@@ -381,56 +482,118 @@ export const GanttRow = memo(function GanttRow({
             />
           )}
 
-          {/* Resize handles - hit areas always present for immediate cursor change */}
-          {onDateChange && (
+          {/* Resize & move handles */}
+          {(onDateChange || onBarMove) && (
             <>
               {/* Left resize handle (start date) - hit area */}
-              <rect
-                x={displayPosition.x - 4}
-                y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
-                width={12}
-                height={GANTT_CONFIG.BAR_HEIGHT}
-                fill="transparent"
-                style={{ cursor: 'ew-resize' }}
-                onMouseDown={(e) => handleResizeMouseDown(e, 'start')}
-              />
-              {/* Left handle visual indicator - only on hover */}
-              {(isHovering || isDragging) && (
+              {onDateChange && (
+                <>
+                  <rect
+                    x={displayPosition.x - 4}
+                    y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
+                    width={12}
+                    height={GANTT_CONFIG.BAR_HEIGHT}
+                    fill="transparent"
+                    style={{ cursor: 'ew-resize' }}
+                    onMouseDown={(e) => handleResizeMouseDown(e, 'start')}
+                  />
+                  {(isHovering || isDragging) && (
+                    <rect
+                      x={displayPosition.x + 2}
+                      y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
+                      width={3}
+                      height={GANTT_CONFIG.BAR_HEIGHT - 8}
+                      rx={1}
+                      fill="white"
+                      opacity={0.9}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Middle move handle - transparent hit area between resize handles */}
+              {onBarMove && displayPosition.width > 24 && (
                 <rect
-                  x={displayPosition.x + 2}
-                  y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
-                  width={3}
-                  height={GANTT_CONFIG.BAR_HEIGHT - 8}
-                  rx={1}
-                  fill="white"
-                  opacity={0.9}
-                  style={{ pointerEvents: 'none' }}
+                  x={displayPosition.x + 12}
+                  y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
+                  width={Math.max(displayPosition.width - 24, 0)}
+                  height={GANTT_CONFIG.BAR_HEIGHT}
+                  fill="transparent"
+                  style={{ cursor: isDragging && dragState?.edge === 'move' ? 'grabbing' : 'grab' }}
+                  onMouseDown={handleMoveMouseDown}
                 />
               )}
 
               {/* Right resize handle (end date) - hit area */}
-              <rect
-                x={displayPosition.x + displayPosition.width - 8}
-                y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
-                width={12}
-                height={GANTT_CONFIG.BAR_HEIGHT}
-                fill="transparent"
-                style={{ cursor: 'ew-resize' }}
-                onMouseDown={(e) => handleResizeMouseDown(e, 'end')}
-              />
-              {/* Right handle visual indicator - only on hover */}
-              {(isHovering || isDragging) && (
-                <rect
-                  x={displayPosition.x + displayPosition.width - 5}
-                  y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
-                  width={3}
-                  height={GANTT_CONFIG.BAR_HEIGHT - 8}
-                  rx={1}
-                  fill="white"
-                  opacity={0.9}
-                  style={{ pointerEvents: 'none' }}
-                />
+              {onDateChange && (
+                <>
+                  <rect
+                    x={displayPosition.x + displayPosition.width - 8}
+                    y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
+                    width={12}
+                    height={GANTT_CONFIG.BAR_HEIGHT}
+                    fill="transparent"
+                    style={{ cursor: 'ew-resize' }}
+                    onMouseDown={(e) => handleResizeMouseDown(e, 'end')}
+                  />
+                  {(isHovering || isDragging) && (
+                    <rect
+                      x={displayPosition.x + displayPosition.width - 5}
+                      y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
+                      width={3}
+                      height={GANTT_CONFIG.BAR_HEIGHT - 8}
+                      rx={1}
+                      fill="white"
+                      opacity={0.9}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  )}
+                </>
               )}
+            </>
+          )}
+
+          {/* Link handles - shown on hover, not during drag */}
+          {isHovering && !isDragging && onLinkDragStart && (
+            <>
+              {/* Left handle: child mode (indigo) */}
+              <circle
+                cx={displayPosition.x - 8}
+                cy={y + GANTT_CONFIG.ROW_HEIGHT / 2}
+                r={5}
+                fill="#6366F1"
+                opacity={0.8}
+                style={{ cursor: 'crosshair' }}
+              />
+              {/* Left handle hit area */}
+              <circle
+                cx={displayPosition.x - 8}
+                cy={y + GANTT_CONFIG.ROW_HEIGHT / 2}
+                r={10}
+                fill="transparent"
+                style={{ cursor: 'crosshair' }}
+                onMouseDown={(e) => handleLinkMouseDown(e, 'child')}
+              />
+
+              {/* Right handle: parent mode (green) */}
+              <circle
+                cx={displayPosition.x + displayPosition.width + 8}
+                cy={y + GANTT_CONFIG.ROW_HEIGHT / 2}
+                r={5}
+                fill="#10B981"
+                opacity={0.8}
+                style={{ cursor: 'crosshair' }}
+              />
+              {/* Right handle hit area */}
+              <circle
+                cx={displayPosition.x + displayPosition.width + 8}
+                cy={y + GANTT_CONFIG.ROW_HEIGHT / 2}
+                r={10}
+                fill="transparent"
+                style={{ cursor: 'crosshair' }}
+                onMouseDown={(e) => handleLinkMouseDown(e, 'parent')}
+              />
             </>
           )}
 
@@ -453,13 +616,7 @@ export const GanttRow = memo(function GanttRow({
                 fill="white"
                 style={{ fontFamily: 'inherit' }}
               >
-                {isDragging && dragState?.edge === 'start' && dragPreview
-                  ? `開始: ${xToDate(dragPreview.x, startDate, dayWidth).toLocaleDateString('ja-JP')}`
-                  : isDragging && dragState?.edge === 'end' && dragPreview
-                  ? `期限: ${xToDate(dragPreview.x + dragPreview.width, startDate, dayWidth).toLocaleDateString('ja-JP')}`
-                  : task.title.length > 18
-                  ? task.title.slice(0, 18) + '...'
-                  : task.title}
+                {tooltipText}
               </text>
             </g>
           )}

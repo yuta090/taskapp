@@ -209,6 +209,33 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     [tasks, updateTask]
   )
 
+  // Atomic bar move: updates both start and end dates in a single mutation
+  const handleBarMove = useCallback(
+    async (taskId: string, newStart: string, newEnd: string) => {
+      const task = tasks.find((t) => t.id === taskId)
+      if (!task) return
+
+      const logEntry = {
+        id: crypto.randomUUID(),
+        taskId,
+        taskTitle: task.title,
+        field: 'start' as const,
+        oldValue: task.start_date,
+        newValue: newStart,
+        timestamp: new Date(),
+      }
+      setUpdateLog((prev) => [logEntry, ...prev].slice(0, 50))
+
+      try {
+        await updateTask(taskId, { startDate: newStart, dueDate: newEnd })
+      } catch (err) {
+        console.error('[ガントチャート] バー移動の保存に失敗しました:', err)
+        setUpdateLog((prev) => prev.filter((e) => e.id !== logEntry.id))
+      }
+    },
+    [tasks, updateTask]
+  )
+
   // Parent-child assignment via drag-and-drop
   const handleParentChange = useCallback(
     async (taskId: string, parentTaskId: string | null) => {
@@ -301,6 +328,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
             selectedTaskId={selectedTaskId}
             onTaskClick={handleTaskClick}
             onDateChange={handleDateChange}
+            onBarMove={handleBarMove}
             onParentChange={handleParentChange}
           />
         )}
