@@ -57,7 +57,7 @@ export default async function PortalTasksPage() {
    
   const { data: clientTasks } = await (supabase as SupabaseClient)
     .from('tasks')
-    .select('id, title, status, ball, due_date, type, decision_state, created_at, description')
+    .select('id, title, status, ball, due_date, type, decision_state, created_at, description, estimated_cost, estimate_status')
     .eq('space_id', spaceId)
     .eq('ball', 'client')
     .neq('status', 'done')
@@ -80,6 +80,8 @@ export default async function PortalTasksPage() {
       isOverdue,
       waitingDays,
       type: task.type as 'task' | 'spec',
+      estimatedCost: task.estimated_cost as number | null,
+      estimateStatus: (task.estimate_status || 'none') as 'none' | 'pending' | 'approved' | 'rejected',
     }
   })
 

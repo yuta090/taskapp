@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple } from '@phosphor-icons/react'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy } from '@phosphor-icons/react'
 import { AmberBadge, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -33,6 +33,8 @@ interface TaskInspectorProps {
     parentTaskId?: string | null
     actualHours?: number | null
     wikiPageId?: string | null
+    estimatedCost?: number | null
+    estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onDuplicate?: () => void
@@ -80,6 +82,8 @@ export function TaskInspector({
   const [showSaved, setShowSaved] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
+  const [estimateInput, setEstimateInput] = useState('')
+  const [isSendingEstimate, setIsSendingEstimate] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // AT-009: Spec task 2-click workflow state
@@ -95,6 +99,8 @@ export function TaskInspector({
     setPendingBallChange(null)
     setOwnerValidationError(null)
     setEditingOwners(false)
+    setEstimateInput(task.estimated_cost != null ? String(task.estimated_cost) : '')
+    setIsSendingEstimate(false)
     // Progressive disclosure: 詳細設定に値があれば展開
     const hasDetails = !!(
       task.parent_task_id ||
@@ -250,6 +256,46 @@ export function TaskInspector({
     if (hours !== task.actual_hours) {
       await onUpdate?.({ actualHours: hours })
       flashSaved()
+    }
+  }
+
+  const handleSendEstimate = async () => {
+    const cost = estimateInput === '' ? null : parseInt(estimateInput, 10)
+    if (cost === null || isNaN(cost) || cost <= 0) {
+      toast.error('見積もり金額を入力してください')
+      return
+    }
+    // 状態遷移ガード: approved→pending は禁止 (rejected→pending のみ許可)
+    if (task.estimate_status === 'approved') {
+      toast.error('承認済みの見積もりは変更できません')
+      return
+    }
+    // クライアントメンバーがいなければボール渡し不可
+    if (clientMembers.length === 0) {
+      toast.error('クライアントメンバーが未設定のため、見積もりを送付できません')
+      return
+    }
+    setIsSendingEstimate(true)
+    try {
+      // ボール渡し先を先に決定
+      const clientOwnerIds = clientOwners.length > 0
+        ? clientOwners.map(o => o.user_id)
+        : [clientMembers[0].id]
+      // 見積もり保存
+      await onUpdate?.({ estimatedCost: cost, estimateStatus: 'pending' })
+      try {
+        // ボールをクライアントに渡す
+        await onPassBall?.('client', clientOwnerIds)
+      } catch {
+        // ボール渡し失敗 → 見積もりステータスをロールバック
+        await onUpdate?.({ estimateStatus: task.estimate_status === 'rejected' ? 'rejected' : 'none' })
+        throw new Error('ボール渡しに失敗しました')
+      }
+      toast.success('見積もりを送付しました')
+    } catch {
+      toast.error('見積もり送付に失敗しました')
+    } finally {
+      setIsSendingEstimate(false)
     }
   }
 
@@ -898,6 +944,84 @@ export function TaskInspector({
               </div>
             ) : (
               <div className="text-sm text-gray-400">未入力</div>
+            )}
+          </div>
+        )}
+
+        {/* Estimate Section */}
+        {task.status !== 'done' && task.client_scope === 'deliverable' && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <CurrencyJpy className="text-sm" />
+              見積もり
+            </label>
+
+            {/* Status indicator */}
+            {task.estimate_status === 'pending' && (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 border border-amber-200 rounded-lg">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                <span className="text-xs font-medium text-amber-700">クライアント確認中</span>
+                {task.estimated_cost != null && (
+                  <span className="ml-auto text-xs font-semibold text-amber-800">
+                    ¥{task.estimated_cost.toLocaleString()}
+                  </span>
+                )}
+              </div>
+            )}
+            {task.estimate_status === 'approved' && (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-lg">
+                <Check className="w-3.5 h-3.5 text-green-600" weight="bold" />
+                <span className="text-xs font-medium text-green-700">承認済み</span>
+                {task.estimated_cost != null && (
+                  <span className="ml-auto text-xs font-semibold text-green-800">
+                    ¥{task.estimated_cost.toLocaleString()}
+                  </span>
+                )}
+              </div>
+            )}
+            {task.estimate_status === 'rejected' && (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 rounded-lg">
+                <span className="text-xs font-medium text-red-700">再見積もり依頼</span>
+                {task.estimated_cost != null && (
+                  <span className="ml-auto text-xs font-semibold text-red-800 line-through">
+                    ¥{task.estimated_cost.toLocaleString()}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Input + Send (visible when editable, not pending, not approved) */}
+            {onUpdate && task.estimate_status !== 'pending' && task.estimate_status !== 'approved' && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">¥</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={estimateInput}
+                    onChange={(e) => setEstimateInput(e.target.value)}
+                    placeholder="100,000"
+                    data-testid="task-inspector-estimated-cost"
+                    className="w-32 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                {onPassBall && (
+                  <button
+                    type="button"
+                    onClick={handleSendEstimate}
+                    disabled={isSendingEstimate || !estimateInput || parseInt(estimateInput, 10) <= 0}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSendingEstimate ? (
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <ArrowRight className="w-4 h-4" />
+                    )}
+                    見積もりを送付
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

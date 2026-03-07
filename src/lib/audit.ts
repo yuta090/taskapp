@@ -21,6 +21,9 @@ export type AuditEventType =
   // 承認関連
   | 'approval.approved'
   | 'approval.changes_requested'
+  // 見積もり関連
+  | 'estimate.approved'
+  | 'estimate.rejected'
   // マイルストーン関連
   | 'milestone.created'
   | 'milestone.updated'
@@ -160,6 +163,8 @@ export function getDefaultVisibility(eventType: AuditEventType): AuditVisibility
     'task.ball_moved',
     'approval.approved',
     'approval.changes_requested',
+    'estimate.approved',
+    'estimate.rejected',
     'milestone.created',
     'milestone.updated',
     'milestone.completed',
@@ -195,6 +200,9 @@ export function generateAuditSummary(
     // 承認
     'approval.approved': targetName ? `「${targetName}」を承認しました` : 'タスクを承認しました',
     'approval.changes_requested': targetName ? `「${targetName}」に修正を依頼しました` : '修正を依頼しました',
+    // 見積もり
+    'estimate.approved': targetName ? `「${targetName}」の見積もりを承認しました` : '見積もりを承認しました',
+    'estimate.rejected': targetName ? `「${targetName}」の再見積もりを依頼しました` : '再見積もりを依頼しました',
     // マイルストーン
     'milestone.created': targetName ? `マイルストーン「${targetName}」を作成しました` : 'マイルストーンを作成しました',
     'milestone.updated': targetName ? `マイルストーン「${targetName}」を更新しました` : 'マイルストーンを更新しました',

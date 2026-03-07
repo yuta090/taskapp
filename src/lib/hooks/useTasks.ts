@@ -56,6 +56,8 @@ export interface UpdateTaskInput {
   parentTaskId?: string | null
   actualHours?: number | null
   wikiPageId?: string | null
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 // ReviewStatus and TasksQueryData are imported from @/lib/supabase/queries
@@ -172,6 +174,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         milestone_id: task.milestoneId ?? null,
         parent_task_id: task.parentTaskId ?? null,
         actual_hours: null,
+        estimated_cost: null,
+        estimate_status: 'none',
         completed_at: null,
         ball: task.ball,
         origin: task.origin,
@@ -360,6 +364,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
                 milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
                 parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
                 actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
+                estimated_cost: input.estimatedCost !== undefined ? input.estimatedCost : t.estimated_cost,
+                estimate_status: input.estimateStatus !== undefined ? input.estimateStatus : t.estimate_status,
                 wiki_page_id: input.wikiPageId !== undefined ? input.wikiPageId : t.wiki_page_id,
                 type: input.wikiPageId !== undefined ? (input.wikiPageId ? 'spec' : 'task') : t.type,
                 decision_state: input.wikiPageId !== undefined
@@ -392,6 +398,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
         if (input.actualHours !== undefined) updateData.actual_hours = input.actualHours
+        if (input.estimatedCost !== undefined) updateData.estimated_cost = input.estimatedCost
+        if (input.estimateStatus !== undefined) updateData.estimate_status = input.estimateStatus
         if (input.wikiPageId !== undefined) {
           updateData.wiki_page_id = input.wikiPageId
           updateData.type = input.wikiPageId ? 'spec' : 'task'

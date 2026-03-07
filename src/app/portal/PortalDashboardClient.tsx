@@ -48,6 +48,8 @@ interface Task {
   status?: string
   createdAt?: string
   comments?: Comment[]
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface Milestone {
@@ -190,6 +192,48 @@ export function PortalDashboardClient({
     }
   }
 
+  const handleEstimateApprove = async (taskId: string, comment: string) => {
+    try {
+      const response = await fetch(`/api/portal/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'estimate_approve', comment }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(errorData.error || 'エラーが発生しました')
+        if (response.status === 409) router.refresh()
+        return
+      }
+      setSelectedTask(null)
+      router.refresh()
+    } catch (error) {
+      console.error('Estimate approve failed:', error)
+      toast.error('ネットワークエラーが発生しました')
+    }
+  }
+
+  const handleEstimateReject = async (taskId: string, comment: string) => {
+    try {
+      const response = await fetch(`/api/portal/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'estimate_reject', comment }),
+      })
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        toast.error(error.error || 'エラーが発生しました')
+        if (response.status === 409) router.refresh()
+        return
+      }
+      setSelectedTask(null)
+      router.refresh()
+    } catch (error) {
+      console.error('Estimate reject failed:', error)
+      toast.error('ネットワークエラーが発生しました')
+    }
+  }
+
   const handleViewDetail = (taskId: string) => {
     // Toggle: if same task is clicked, close inspector
     if (selectedTask?.id === taskId) {
@@ -211,6 +255,8 @@ export function PortalDashboardClient({
       onClose={() => setSelectedTask(null)}
       onApprove={handleApprove}
       onRequestChanges={handleRequestChanges}
+      onEstimateApprove={handleEstimateApprove}
+      onEstimateReject={handleEstimateReject}
     />
   ) : null
 

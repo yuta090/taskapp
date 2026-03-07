@@ -23,6 +23,8 @@ interface Task {
   waitingDays?: number
   type?: 'task' | 'spec'
   createdAt?: string
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface PortalTasksClientProps {
@@ -131,6 +133,63 @@ export function PortalTasksClient({
     }
   }, [router, taskStates])
 
+  const handleEstimateApprove = useCallback(async (taskId: string, comment: string) => {
+    if (taskStates.get(taskId) === 'processing') return
+    setTaskState(taskId, 'processing')
+    setSelectedTask(null)
+    try {
+      const response = await fetch(`/api/portal/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'estimate_approve', comment }),
+      })
+      if (!response.ok) {
+        setTaskState(taskId, null)
+        if (response.status === 409) {
+          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
+        }
+        startTransition(() => router.refresh())
+        return
+      }
+      setTaskState(taskId, 'done')
+      startTransition(() => router.refresh())
+    } catch (error) {
+      console.error('Estimate approve failed:', error)
+      setTaskState(taskId, null)
+      startTransition(() => router.refresh())
+    }
+  }, [router, taskStates])
+
+  const handleEstimateReject = useCallback(async (taskId: string, comment: string) => {
+    if (taskStates.get(taskId) === 'processing') return
+    setTaskState(taskId, 'processing')
+    setSelectedTask(null)
+    try {
+      const response = await fetch(`/api/portal/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'estimate_reject', comment }),
+      })
+      if (!response.ok) {
+        setTaskState(taskId, null)
+        const error = await response.json()
+        if (response.status === 409) {
+          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
+        } else if (response.status === 400) {
+          toast.error(error.error || 'コメントを入力してください。')
+        }
+        startTransition(() => router.refresh())
+        return
+      }
+      setTaskState(taskId, 'done')
+      startTransition(() => router.refresh())
+    } catch (error) {
+      console.error('Estimate reject failed:', error)
+      setTaskState(taskId, null)
+      startTransition(() => router.refresh())
+    }
+  }, [router, taskStates])
+
   const handleSelectTask = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId)
     if (task) {
@@ -149,6 +208,8 @@ export function PortalTasksClient({
       onClose={() => setSelectedTask(null)}
       onApprove={handleApprove}
       onRequestChanges={handleRequestChanges}
+      onEstimateApprove={handleEstimateApprove}
+      onEstimateReject={handleEstimateReject}
     />
   ) : null
 
@@ -219,6 +280,8 @@ export function PortalTasksClient({
                         isOverdue={task.isOverdue}
                         waitingDays={task.waitingDays}
                         type={task.type}
+                        estimatedCost={task.estimatedCost}
+                        estimateStatus={task.estimateStatus}
                         selected={selectedTask?.id === task.id}
                         processing={taskStates.get(task.id) === 'processing'}
                         onApprove={handleApprove}
@@ -247,6 +310,8 @@ export function PortalTasksClient({
                         isOverdue={task.isOverdue}
                         waitingDays={task.waitingDays}
                         type={task.type}
+                        estimatedCost={task.estimatedCost}
+                        estimateStatus={task.estimateStatus}
                         selected={selectedTask?.id === task.id}
                         processing={taskStates.get(task.id) === 'processing'}
                         onApprove={handleApprove}
