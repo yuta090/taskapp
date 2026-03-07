@@ -4,26 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DEFAULT_PORTAL_SECTIONS } from '@/lib/portal/types'
+import type { PortalVisibleSections } from '@/lib/portal/types'
 
-export interface PortalVisibleSections {
-  tasks: boolean
-  requests: boolean
-  all_tasks: boolean
-  files: boolean
-  meetings: boolean
-  wiki: boolean
-  history: boolean
-}
-
-const DEFAULT_SECTIONS: PortalVisibleSections = {
-  tasks: true,
-  requests: true,
-  all_tasks: true,
-  files: true,
-  meetings: true,
-  wiki: false,
-  history: true,
-}
+// Re-export for consumers that already import from here
+export type { PortalVisibleSections } from '@/lib/portal/types'
 
 // ---------- Admin side: manage settings ----------
 
@@ -46,7 +31,7 @@ export function usePortalVisibility(spaceId: string | null) {
         .single()
 
       if (error) throw error
-      return { ...DEFAULT_SECTIONS, ...(data?.portal_visible_sections as Partial<PortalVisibleSections>) }
+      return { ...DEFAULT_PORTAL_SECTIONS, ...(data?.portal_visible_sections as Partial<PortalVisibleSections>) }
     },
   })
 
@@ -76,7 +61,7 @@ export function usePortalVisibility(spaceId: string | null) {
   })
 
   return {
-    sections: query.data ?? DEFAULT_SECTIONS,
+    sections: query.data ?? DEFAULT_PORTAL_SECTIONS,
     loading: query.isLoading,
     updateSections: mutation.mutateAsync,
   }
@@ -101,12 +86,12 @@ export function usePortalVisibilityForPortal(spaceId: string | null) {
         .single()
 
       if (error) throw error
-      return { ...DEFAULT_SECTIONS, ...(data?.portal_visible_sections as Partial<PortalVisibleSections>) }
+      return { ...DEFAULT_PORTAL_SECTIONS, ...(data?.portal_visible_sections as Partial<PortalVisibleSections>) }
     },
   })
 
   return {
-    sections: query.data ?? DEFAULT_SECTIONS,
+    sections: query.data ?? DEFAULT_PORTAL_SECTIONS,
     loading: query.isLoading,
   }
 }
