@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalMeetingsClient } from './PortalMeetingsClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalMeetingsPage() {
   const supabase = await createClient()
@@ -49,6 +51,10 @@ export default async function PortalMeetingsPage() {
 
   const currentProject = projects[0]
   const spaceId = currentProject.id
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'meetings'))) {
+    redirect('/portal')
+  }
 
   // meetings と actionCount を並列取得（spaceId 確定後）
   const [meetingsResult, actionCountResult] = await Promise.all([

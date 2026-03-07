@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalFilesClient } from './PortalFilesClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalFilesPage() {
@@ -52,6 +53,10 @@ export default async function PortalFilesPage() {
 
   const currentProject = projects[0]
   const spaceId = currentProject.id
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'files'))) {
+    redirect('/portal')
+  }
 
   // Get files (placeholder - would need a files table)
   const files: { id: string; name: string; type: string; size: number; createdAt: string }[] = []

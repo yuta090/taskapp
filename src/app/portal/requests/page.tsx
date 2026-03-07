@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalRequestsClient } from './PortalRequestsClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalRequestsPage() {
@@ -51,6 +52,10 @@ export default async function PortalRequestsPage() {
 
   const currentProject = projects[0]
   const spaceId = currentProject.id
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'requests'))) {
+    redirect('/portal')
+  }
 
   // Fetch tasks submitted by client (origin='client') and action count in parallel
   const [requestsResult, actionCountResult] = await Promise.all([

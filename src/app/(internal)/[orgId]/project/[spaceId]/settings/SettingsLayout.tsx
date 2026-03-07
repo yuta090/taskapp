@@ -11,6 +11,7 @@ import {
   Key,
   Export,
   MagnifyingGlass,
+  Browser,
 } from '@phosphor-icons/react'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
@@ -20,6 +21,7 @@ import { GeneralSettings } from './GeneralSettings'
 import { PresetSettings } from './PresetSettings'
 import { MilestonesSettings } from './MilestonesSettings'
 import { MembersSettings } from './MembersSettings'
+import { PortalSettings } from './PortalSettings'
 import { GitHubRepoSettings } from './GitHubRepoSettings'
 import { SlackChannelSettings } from './SlackChannelSettings'
 import { VideoProviderSettings } from './VideoProviderSettings'
@@ -58,6 +60,7 @@ const categories: SettingCategory[] = [
       { id: 'general', label: '基本設定', icon: FolderSimple, keywords: ['プロジェクト名', '名前', 'name', 'general', 'プリセット', 'テンプレート', 'preset'] },
       { id: 'milestones', label: 'マイルストーン', icon: Flag, keywords: ['期日', 'スケジュール', 'deadline', 'milestone'] },
       { id: 'members', label: 'メンバー', icon: UsersThree, keywords: ['招待', 'ロール', '権限', 'invite', 'role', 'member'] },
+      { id: 'portal', label: 'ポータル表示', icon: Browser, keywords: ['ポータル', 'portal', 'クライアント', '表示', '非表示', '公開'] },
     ],
   },
   {
@@ -117,6 +120,7 @@ function useIntegrationStatuses(
       general: 'none',
       milestones: 'none',
       members: 'none',
+      portal: 'none',
       github: 'none',
       slack: 'none',
       'video-conference': 'none',
@@ -160,6 +164,8 @@ function SettingsSection({
       return <MilestonesSettings spaceId={spaceId} />
     case 'members':
       return <MembersSettings orgId={orgId} spaceId={spaceId} />
+    case 'portal':
+      return <PortalSettings spaceId={spaceId} />
     case 'github':
       return <GitHubRepoSettings orgId={orgId} spaceId={spaceId} />
     case 'slack':
