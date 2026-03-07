@@ -366,6 +366,13 @@ export function PortalLeftNav({
               collapsed={collapsed}
             />
             <SubNavItem
+              href="/portal/requests"
+              icon={<PaperPlaneTilt />}
+              label="送信リクエスト"
+              active={pathname === '/portal/requests'}
+              collapsed={collapsed}
+            />
+            <SubNavItem
               href="/portal/all-tasks"
               icon={<ListChecks />}
               label="タスク一覧"
