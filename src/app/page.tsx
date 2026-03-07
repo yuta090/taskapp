@@ -6,7 +6,11 @@ import { FeatureTerminal } from '@/components/lp/FeatureTerminal'
 import { FeatureBall } from '@/components/lp/FeatureBall'
 import { FeaturePortal } from '@/components/lp/FeaturePortal'
 import { DayInLife } from '@/components/lp/DayInLife'
+import { Workflow } from '@/components/lp/Workflow'
 import { Features } from '@/components/lp/Features'
+import { FeatureComparison } from '@/components/lp/FeatureComparison'
+import { Testimonials } from '@/components/lp/Testimonials'
+import { FAQ } from '@/components/lp/FAQ'
 import { LPFooter } from '@/components/lp/Footer'
 
 export default function Home() {
@@ -20,7 +24,11 @@ export default function Home() {
       <FeatureBall />
       <FeaturePortal />
       <DayInLife />
+      <Workflow />
       <Features />
+      <FeatureComparison />
+      <Testimonials />
+      <FAQ />
       <LPFooter />
     </main>
   )

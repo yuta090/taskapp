@@ -3,8 +3,8 @@ import { LPHeader } from '@/components/lp/Header'
 import { LPFooter } from '@/components/lp/Footer'
 
 export const metadata: Metadata = {
-    title: 'お問い合わせ - TaskApp',
-    description: 'TaskAppへのお問い合わせはこちらから。',
+    title: 'お問い合わせ - AgentPM',
+    description: 'AgentPMへのお問い合わせはこちらから。',
 }
 
 export default function ContactPage() {

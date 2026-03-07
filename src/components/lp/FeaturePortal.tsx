@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion'
 import Image from 'next/image'
 import { CurrencyJpy } from '@phosphor-icons/react'
+import Link from 'next/link'
 
 export function FeaturePortal() {
     return (
@@ -14,7 +15,7 @@ export function FeaturePortal() {
                         initial={{ opacity: 0, x: -50 }}
                         whileInView={{ opacity: 1, x: 0 }}
                         viewport={{ once: true }}
-                        className="relative h-[600px] flex items-center justify-center -ml-10 lg:ml-0"
+                        className="relative h-[600px] flex items-center justify-center ml-0"
                     >
                         {/* Background Decoration */}
                         <div className="absolute inset-0 bg-gradient-to-tr from-blue-100 to-indigo-50 rounded-full scale-90 opacity-50 blur-3xl" />
@@ -108,9 +109,9 @@ export function FeaturePortal() {
                                         <div className="text-sm font-bold text-slate-800">追加機能見積もり (¥120,000)</div>
                                     </div>
                                 </div>
-                                <button className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-lg shadow-rose-200 transition-colors">
+                                <span className="bg-rose-500 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-lg shadow-rose-200 pointer-events-none select-none">
                                     確認する
-                                </button>
+                                </span>
                             </div>
 
                         </motion.div>
@@ -136,10 +137,10 @@ export function FeaturePortal() {
                             「今どうなってるの？」と聞かれる前に、答えが見えています。
                         </p>
 
-                        <button className="text-amber-600 font-bold hover:text-amber-700 flex items-center gap-2 group">
+                        <Link href="/contact" className="text-amber-600 font-bold hover:text-amber-700 flex items-center gap-2 group">
                             ポータル画面のデモを見る
                             <span className="group-hover:translate-x-1 transition-transform">→</span>
-                        </button>
+                        </Link>
                     </motion.div>
                 </div>
             </div>

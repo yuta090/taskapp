@@ -90,7 +90,7 @@ function BallAnimationDemo() {
 
                     <div className="flex flex-col items-center text-center">
                         <div className="w-20 h-20 mb-4 rounded-full bg-slate-700 overflow-hidden border-2 border-slate-600 relative">
-                            <Image src="/img/lp/feature_ball_client.png" alt="Client" fill className="object-cover" sizes="80px" />
+                            <Image src="/img/lp/feature_ball_client.png" alt="クライアント" fill className="object-cover" sizes="80px" />
                         </div>
                         <div className={`font-bold text-lg mb-1 ${ballOwner === 'client' ? 'text-green-400' : 'text-slate-500'}`}>クライアント</div>
                         <div className="text-xs text-slate-500 font-mono">CLIENT</div>
@@ -161,7 +161,7 @@ function BallAnimationDemo() {
 
                     <div className="flex flex-col items-center text-center">
                         <div className="w-32 h-20 mb-4 rounded-xl bg-slate-700 overflow-hidden border-2 border-slate-600 relative">
-                            <Image src="/img/lp/scene_team_group.png" alt="Developer Team" fill className="object-cover" sizes="128px" />
+                            <Image src="/img/lp/scene_team_group.png" alt="開発チーム" fill className="object-cover" sizes="128px" />
                         </div>
                         <div className={`font-bold text-lg mb-1 ${ballOwner === 'developer' ? 'text-amber-400' : 'text-slate-500'}`}>開発チーム</div>
                         <div className="text-xs text-slate-500 font-mono">SPECIALISTS</div>

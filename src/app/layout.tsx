@@ -8,6 +8,17 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'AgentPM - つくることに、集中できる',
   description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',
+  openGraph: {
+    title: 'AgentPM - つくることに、集中できる',
+    description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',
+    locale: 'ja_JP',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AgentPM - つくることに、集中できる',
+    description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',
+  },
 }
 
 export default function RootLayout({

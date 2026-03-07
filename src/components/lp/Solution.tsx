@@ -39,7 +39,7 @@ export function Solution() {
                     </h2>
                     <p className="text-lg text-slate-600">
                         あなたは本当に必要なことだけに集中。<br />
-                        管理・報告・調整はTaskAppとAIが引き受けます。
+                        管理・報告・調整はAgentPMとAIが引き受けます。
                     </p>
                 </motion.div>
 
@@ -145,7 +145,7 @@ export function Solution() {
                                         <Robot size={28} weight="fill" />
                                     </div>
                                     <div>
-                                        <h3 className="text-2xl font-bold text-slate-900">TaskApp + AI</h3>
+                                        <h3 className="text-2xl font-bold text-slate-900">AgentPM + AI</h3>
                                         <p className="text-amber-600 font-bold">自動化で手間ゼロ</p>
                                     </div>
                                 </div>
