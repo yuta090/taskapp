@@ -12,6 +12,7 @@ vi.mock('@phosphor-icons/react', () => ({
   MagnifyingGlassPlus: () => <span data-testid="icon-zoom-in" />,
   ListBullets: () => <span data-testid="icon-list-bullets" />,
   Rows: () => <span data-testid="icon-rows" />,
+  LinkBreak: () => <span data-testid="icon-link-break" />,
 }))
 
 const mockTasks: Task[] = [

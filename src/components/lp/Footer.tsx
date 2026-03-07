@@ -17,7 +17,7 @@ const legalLinks = [
 ]
 
 const companyLinks = [
-    { href: '/company', label: '会社概要' },
+    { href: 'https://skara.co.jp', label: '会社概要' },
 ]
 
 export function LPFooter() {
@@ -44,16 +44,15 @@ export function LPFooter() {
                     </p>
 
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <Link href="/signup">
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
+                        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                            <Link
+                                href="/signup"
                                 className="px-10 py-5 bg-amber-500 text-white rounded-xl font-bold text-xl shadow-2xl shadow-amber-500/20 flex items-center justify-center gap-2"
                             >
                                 無料で始める
                                 <ArrowRight weight="bold" />
-                            </motion.button>
-                        </Link>
+                            </Link>
+                        </motion.div>
                     </div>
                 </motion.div>
             </div>

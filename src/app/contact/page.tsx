@@ -17,7 +17,7 @@ export default function ContactPage() {
                 <h1 className="text-3xl font-bold mb-6">お問い合わせ</h1>
                 <p className="text-slate-600 mb-8">
                     現在、お問い合わせフォームを準備中です。<br />
-                    お急ぎの場合は <a href="mailto:support@taskapp.com" className="text-amber-600 hover:underline">support@taskapp.com</a> までご連絡ください。
+                    お急ぎの場合は <a href="mailto:support@agentpm.jp" className="text-amber-600 hover:underline">support@agentpm.jp</a> までご連絡ください。
                 </p>
                 <div className="bg-slate-50 p-8 rounded-2xl border border-slate-200">
                     <p className="text-sm text-slate-500">Form Placeholder</p>

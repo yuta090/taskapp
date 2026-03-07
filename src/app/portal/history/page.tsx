@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalHistoryClient } from './PortalHistoryClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalHistoryPage() {
@@ -52,6 +53,10 @@ export default async function PortalHistoryPage() {
 
   const currentProject = projects[0]
   const spaceId = currentProject.id
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'history'))) {
+    redirect('/portal')
+  }
 
   // audit_logs と completed tasks を並列取得
   const [auditResult, completedResult] = await Promise.all([

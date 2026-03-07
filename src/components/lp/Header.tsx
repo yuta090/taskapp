@@ -68,6 +68,8 @@ export function LPHeader() {
               className="md:hidden p-2 text-slate-700 hover:text-slate-900"
               onClick={() => setMobileOpen(true)}
               aria-label="メニューを開く"
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-nav-drawer"
             >
               <List size={24} weight="bold" />
             </button>
@@ -83,7 +85,9 @@ export function LPHeader() {
 
           {/* Drawer */}
           <nav
+            id="mobile-nav-drawer"
             role="dialog"
+            aria-modal="true"
             aria-label="メニュー"
             className="absolute right-0 top-0 h-full w-72 bg-white shadow-2xl flex flex-col"
           >

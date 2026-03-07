@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalWikiClient } from './PortalWikiClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalWikiPage() {
@@ -52,6 +53,10 @@ export default async function PortalWikiPage() {
 
   const currentProject = projects[0]
   const clientSpaceIds = projects.map((p: { id: string }) => p.id)
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, currentProject.id, 'wiki'))) {
+    redirect('/portal')
+  }
 
   // wikiPages と actionCount を並列取得
   const [wikiResult, actionCountResult] = await Promise.all([

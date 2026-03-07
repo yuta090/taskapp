@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalAllTasksClient } from './PortalAllTasksClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalAllTasksPage() {
@@ -52,6 +53,10 @@ export default async function PortalAllTasksPage() {
 
   const currentProject = projects[0]
   const spaceId = currentProject.id
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'all_tasks'))) {
+    redirect('/portal')
+  }
 
   // milestones, tasks, actionCount を並列取得
   const [milestonesResult, tasksResult, actionCountResult] = await Promise.all([

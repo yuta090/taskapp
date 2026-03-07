@@ -1,23 +1,14 @@
 'use client'
 
-import { useMemo, useState, useRef, useCallback } from 'react'
+import { useMemo, useState, useRef, useCallback, useEffect } from 'react'
 import {
   CalendarBlank,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   ListBullets,
   Rows,
+  LinkBreak,
 } from '@phosphor-icons/react'
-import {
-  DndContext,
-  DragOverlay,
-  useSensor,
-  useSensors,
-  PointerSensor,
-  type DragStartEvent,
-  type DragEndEvent,
-  type DragOverEvent,
-} from '@dnd-kit/core'
 import { GANTT_CONFIG, VIEW_MODE_CONFIG, type ViewMode } from '@/lib/gantt/constants'
 import {
   calcDateRange,
@@ -29,7 +20,6 @@ import { getEligibleParents, isParentTask } from '@/lib/gantt/treeUtils'
 import { GanttHeader } from './GanttHeader'
 import { GanttRow } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
-import { DraggableTaskRow, DroppableTaskRow } from './GanttDndRow'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskAssessment } from '@/lib/risk/calculateRisk'
 
@@ -40,12 +30,22 @@ interface GanttChartProps {
   selectedTaskId?: string
   onTaskClick?: (taskId: string) => void
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
+  onBarMove?: (taskId: string, newStart: string, newEnd: string) => void
   onParentChange?: (taskId: string, parentTaskId: string | null) => void
 }
 
 interface TaskGroup {
   milestone: Milestone | null
   tasks: Task[]
+}
+
+interface LinkDragState {
+  sourceTaskId: string
+  mode: 'child' | 'parent'
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
 }
 
 export function GanttChart({
@@ -55,75 +55,20 @@ export function GanttChart({
   selectedTaskId,
   onTaskClick,
   onDateChange,
+  onBarMove,
   onParentChange,
 }: GanttChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [groupByMilestone, setGroupByMilestone] = useState(true)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const chartBodyRef = useRef<HTMLDivElement>(null)
 
-  // DnD state
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
-  const [overTaskId, setOverTaskId] = useState<string | null>(null)
-
-  // Eligible drop targets for the currently dragged task
-  const eligibleParentIds = useMemo(() => {
-    if (!activeTaskId) return new Set<string>()
-    const eligible = getEligibleParents(tasks, activeTaskId)
-    // Also exclude tasks that are already children (they can't become parents)
-    // And exclude the task itself
-    const ids = new Set(eligible.map((t) => t.id))
-    // Remove tasks that already have this task as parent (can't drop on own children)
-    tasks.forEach((t) => {
-      if (t.parent_task_id === activeTaskId) {
-        ids.delete(t.id)
-      }
-    })
-    return ids
-  }, [activeTaskId, tasks])
-
-  // DnD sensors - require 5px movement to start drag (avoids accidental drags)
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    })
-  )
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    const taskId = event.active.id as string
-    setActiveTaskId(taskId)
-  }, [])
-
-  const handleDragOver = useCallback((event: DragOverEvent) => {
-    const overId = event.over?.id as string | undefined
-    setOverTaskId(overId ?? null)
-  }, [])
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const draggedTaskId = event.active.id as string
-      const droppedOnId = event.over?.id as string | undefined
-
-      if (droppedOnId && onParentChange && eligibleParentIds.has(droppedOnId)) {
-        onParentChange(draggedTaskId, droppedOnId)
-      }
-
-      setActiveTaskId(null)
-      setOverTaskId(null)
-    },
-    [onParentChange, eligibleParentIds]
-  )
-
-  const handleDragCancel = useCallback(() => {
-    setActiveTaskId(null)
-    setOverTaskId(null)
-  }, [])
-
-  // Active task for drag overlay
-  const activeTask = useMemo(() => {
-    if (!activeTaskId) return null
-    return tasks.find((t) => t.id === activeTaskId) ?? null
-  }, [activeTaskId, tasks])
+  // Link drag state
+  const [linkDrag, setLinkDrag] = useState<LinkDragState | null>(null)
+  const linkDragRef = useRef<LinkDragState | null>(null)
+  const [hoverTaskId, setHoverTaskId] = useState<string | null>(null)
+  const hoverTaskIdRef = useRef<string | null>(null)
 
   // Calculate date range
   const { start: startDate, end: endDate } = useMemo(
@@ -146,10 +91,6 @@ export function GanttChart({
     }
 
     const groups: TaskGroup[] = []
-    const milestoneMap = new Map<string, Milestone>()
-    milestones.forEach((m) => milestoneMap.set(m.id, m))
-
-    // Group tasks by milestone_id
     const tasksByMilestone = new Map<string | null, Task[]>()
     tasks.forEach((task) => {
       const key = task.milestone_id || null
@@ -159,10 +100,7 @@ export function GanttChart({
       tasksByMilestone.get(key)!.push(task)
     })
 
-    // Sort milestones by order_key
     const sortedMilestones = [...milestones].sort((a, b) => a.order_key - b.order_key)
-
-    // Add milestone groups
     sortedMilestones.forEach((milestone) => {
       const milestoneTasks = tasksByMilestone.get(milestone.id) || []
       if (milestoneTasks.length > 0) {
@@ -170,7 +108,6 @@ export function GanttChart({
       }
     })
 
-    // Add tasks without milestone
     const noMilestoneTasks = tasksByMilestone.get(null) || []
     if (noMilestoneTasks.length > 0) {
       groups.push({ milestone: null, tasks: noMilestoneTasks })
@@ -179,16 +116,31 @@ export function GanttChart({
     return groups
   }, [tasks, milestones, groupByMilestone])
 
-  // Calculate total rows including group headers
-  const totalRows = useMemo(() => {
-    if (!groupByMilestone) return tasks.length
-    return taskGroups.reduce((sum, group) => sum + group.tasks.length + 1, 0) // +1 for header
-  }, [taskGroups, groupByMilestone, tasks.length])
+  // Build row data array (memoized to avoid rebuild on every render)
+  const rowData = useMemo(() => {
+    const rows: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; rowIndex: number }> = []
+    let idx = 0
 
+    taskGroups.forEach((group) => {
+      if (groupByMilestone) {
+        rows.push({ type: 'header', milestone: group.milestone, rowIndex: idx })
+        idx++
+      }
+      group.tasks.forEach((task) => {
+        rows.push({ type: 'task', task, rowIndex: idx })
+        idx++
+      })
+    })
+
+    return rows
+  }, [taskGroups, groupByMilestone])
+
+  const totalRows = rowData.length
   const chartHeight = totalRows * GANTT_CONFIG.ROW_HEIGHT
 
-  // Find today's position for scroll
+  // Today line position
   const todayIndex = dates.findIndex((d) => isToday(d))
+  const todayX = todayIndex >= 0 ? dateToX(new Date(), startDate, dayWidth) : null
 
   const scrollToToday = () => {
     if (scrollContainerRef.current && todayIndex >= 0) {
@@ -215,32 +167,122 @@ export function GanttChart({
     }
   }
 
-  // Today line position
-  const todayX = todayIndex >= 0 ? dateToX(new Date(), startDate, dayWidth) : null
+  // ----- Link drag logic -----
 
-  // Build row index map
-  let currentRowIndex = 0
-  const rowData: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; rowIndex: number }> = []
+  // Eligible targets for current link drag
+  const eligibleTargetIds = useMemo(() => {
+    if (!linkDrag) return new Set<string>()
 
-  taskGroups.forEach((group) => {
-    if (groupByMilestone) {
-      rowData.push({ type: 'header', milestone: group.milestone, rowIndex: currentRowIndex })
-      currentRowIndex++
+    const ids = new Set<string>()
+    if (linkDrag.mode === 'child') {
+      // Source wants to become a child => target must be eligible parent
+      const eligible = getEligibleParents(tasks, linkDrag.sourceTaskId)
+      eligible.forEach((t) => ids.add(t.id))
+      // Remove tasks that already have this task as parent
+      tasks.forEach((t) => {
+        if (t.parent_task_id === linkDrag.sourceTaskId) ids.delete(t.id)
+      })
+    } else {
+      // Source wants to become a parent => target must be non-parent (can become child)
+      tasks.forEach((t) => {
+        if (t.id === linkDrag.sourceTaskId) return
+        if (isParentTask(t.id, tasks)) return // already a parent
+        if (t.parent_task_id) return // already a child
+        ids.add(t.id)
+      })
     }
-    group.tasks.forEach((task) => {
-      rowData.push({ type: 'task', task, rowIndex: currentRowIndex })
-      currentRowIndex++
-    })
-  })
 
-  // Check if a task can be dragged (cannot drag if it's a parent with children)
-  const canDragTask = useCallback(
-    (taskId: string): boolean => {
-      if (!onParentChange) return false
-      // A parent task (has children) cannot become a child
-      return !isParentTask(taskId, tasks)
+    return ids
+  }, [linkDrag, tasks])
+
+  const handleLinkDragStart = useCallback(
+    (taskId: string, mode: 'child' | 'parent', startX: number, startY: number) => {
+      const state: LinkDragState = {
+        sourceTaskId: taskId,
+        mode,
+        startX,
+        startY,
+        currentX: startX,
+        currentY: startY,
+      }
+      linkDragRef.current = state
+      setLinkDrag(state)
     },
-    [tasks, onParentChange]
+    []
+  )
+
+  // Global mouse handlers for link drag
+  const isLinkDragging = linkDrag !== null
+  useEffect(() => {
+    if (!isLinkDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const container = chartBodyRef.current
+      if (!container) return
+
+      const rect = container.getBoundingClientRect()
+      const svgX = e.clientX - rect.left + container.scrollLeft
+      const svgY = e.clientY - rect.top + container.scrollTop
+
+      const newState: LinkDragState = {
+        ...linkDragRef.current!,
+        currentX: svgX,
+        currentY: svgY,
+      }
+      linkDragRef.current = newState
+      setLinkDrag(newState)
+
+      // Determine which task row the cursor is over
+      const hoverRowIndex = Math.floor(svgY / GANTT_CONFIG.ROW_HEIGHT)
+      const hoveredRow = rowData[hoverRowIndex]
+      const hoveredId = hoveredRow?.type === 'task' && hoveredRow.task ? hoveredRow.task.id : null
+      hoverTaskIdRef.current = hoveredId
+      setHoverTaskId(hoveredId)
+    }
+
+    const handleMouseUp = () => {
+      const currentDrag = linkDragRef.current
+      const currentTarget = hoverTaskIdRef.current
+
+      if (currentDrag && currentTarget && onParentChange && eligibleTargetIds.has(currentTarget)) {
+        if (currentDrag.mode === 'child') {
+          // Source becomes child of target
+          onParentChange(currentDrag.sourceTaskId, currentTarget)
+        } else {
+          // Target becomes child of source
+          onParentChange(currentTarget, currentDrag.sourceTaskId)
+        }
+      }
+
+      linkDragRef.current = null
+      hoverTaskIdRef.current = null
+      setLinkDrag(null)
+      setHoverTaskId(null)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isLinkDragging, onParentChange, eligibleTargetIds, rowData])
+
+  // Compute link highlight per task
+  const getLinkHighlight = useCallback(
+    (taskId: string) => {
+      if (!linkDrag) return null
+      if (taskId === linkDrag.sourceTaskId) return null
+      if (!eligibleTargetIds.has(taskId)) return null
+
+      const isOver = hoverTaskId === taskId
+      return {
+        type: isOver ? 'over' as const : 'eligible' as const,
+        mode: linkDrag.mode,
+      }
+    },
+    [linkDrag, eligibleTargetIds, hoverTaskId]
   )
 
   return (
@@ -262,7 +304,6 @@ export function GanttChart({
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Group by milestone toggle */}
           <button
             onClick={() => setGroupByMilestone(!groupByMilestone)}
             className={`p-1.5 rounded transition-colors ${
@@ -282,7 +323,6 @@ export function GanttChart({
 
           <div className="w-px h-4 bg-gray-200 mx-1" />
 
-          {/* Zoom controls */}
           <button
             onClick={() => cycleViewMode('out')}
             disabled={viewMode === 'month'}
@@ -309,7 +349,6 @@ export function GanttChart({
 
           <div className="w-px h-4 bg-gray-200 mx-2" />
 
-          {/* Today button */}
           <button
             onClick={scrollToToday}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
@@ -322,7 +361,6 @@ export function GanttChart({
 
       {/* Chart area - header row */}
       <div className="flex flex-shrink-0" style={{ height: GANTT_CONFIG.HEADER_HEIGHT }}>
-        {/* Sidebar header */}
         <div
           className="flex-shrink-0 border-r border-b flex items-end px-3 pb-1"
           style={{
@@ -334,7 +372,6 @@ export function GanttChart({
           <span className="text-xs font-medium text-gray-500">タスク名</span>
         </div>
 
-        {/* Date header */}
         <div className="flex-1 overflow-hidden">
           <div
             ref={scrollContainerRef}
@@ -355,183 +392,172 @@ export function GanttChart({
 
       {/* Chart body - scrollable */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar with DnD */}
-        <DndContext
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-          onDragCancel={handleDragCancel}
+        {/* Sidebar (plain divs, no DnD) */}
+        <div
+          ref={sidebarRef}
+          className="flex-shrink-0 border-r bg-white overflow-y-auto overflow-x-hidden"
+          style={{
+            width: GANTT_CONFIG.SIDEBAR_WIDTH,
+            borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
+          }}
         >
-          <div
-            ref={sidebarRef}
-            className="flex-shrink-0 border-r bg-white overflow-y-auto overflow-x-hidden"
-            style={{
-              width: GANTT_CONFIG.SIDEBAR_WIDTH,
-              borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
-            }}
-          >
-            {rowData.map((row) => {
-              if (row.type === 'header') {
-                return (
+          {rowData.map((row) => {
+            if (row.type === 'header') {
+              return (
+                <div
+                  key={`header-${row.milestone?.id || 'none'}`}
+                  className="flex items-center px-3 bg-gray-50 border-b font-medium"
+                  style={{
+                    height: GANTT_CONFIG.ROW_HEIGHT,
+                    borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
+                  }}
+                >
                   <div
-                    key={`header-${row.milestone?.id || 'none'}`}
-                    className="flex items-center px-3 bg-gray-50 border-b font-medium"
+                    className="w-2 h-2 rotate-45 mr-2 flex-shrink-0"
                     style={{
-                      height: GANTT_CONFIG.ROW_HEIGHT,
-                      borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
+                      backgroundColor: row.milestone
+                        ? GANTT_CONFIG.COLORS.MILESTONE
+                        : GANTT_CONFIG.COLORS.TEXT_MUTED,
+                    }}
+                  />
+                  <span
+                    className="text-xs truncate flex-1"
+                    style={{
+                      color: row.milestone
+                        ? GANTT_CONFIG.COLORS.MILESTONE
+                        : GANTT_CONFIG.COLORS.TEXT_SECONDARY,
                     }}
                   >
-                    <div
-                      className="w-2 h-2 rotate-45 mr-2 flex-shrink-0"
-                      style={{
-                        backgroundColor: row.milestone
-                          ? GANTT_CONFIG.COLORS.MILESTONE
-                          : GANTT_CONFIG.COLORS.TEXT_MUTED,
-                      }}
-                    />
-                    <span
-                      className="text-xs truncate flex-1"
-                      style={{
-                        color: row.milestone
-                          ? GANTT_CONFIG.COLORS.MILESTONE
-                          : GANTT_CONFIG.COLORS.TEXT_SECONDARY,
-                      }}
-                    >
-                      {row.milestone?.name || 'マイルストーン未設定'}
-                    </span>
-                    {/* Risk badge in sidebar */}
-                    {row.milestone && riskForecasts?.get(row.milestone.id) && (() => {
-                      const risk = riskForecasts.get(row.milestone!.id)!
-                      if (risk.level === 'none' || risk.remainingTasks === 0) return null
-                      const badgeColors = {
-                        high: { bg: '#FEE2E2', text: '#DC2626' },
-                        medium: { bg: '#FEF3C7', text: '#D97706' },
-                        low: { bg: '#DCFCE7', text: '#16A34A' },
-                      } as const
-                      const c = badgeColors[risk.level as keyof typeof badgeColors]
-                      if (!c) return null
-                      return (
-                        <span
-                          className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0"
-                          style={{ backgroundColor: c.bg, color: c.text }}
-                          title={risk.insufficientData
-                            ? `残${risk.remainingTasks}件 / データ不足`
-                            : `残${risk.remainingTasks}件 / ${risk.velocity.toFixed(1)}件/日`}
-                        >
-                          {risk.insufficientData ? '?' : risk.level === 'high' ? '高' : risk.level === 'medium' ? '中' : '低'}
-                        </span>
-                      )
-                    })()}
-                  </div>
-                )
-              }
-
-              const task = row.task!
-              const isSelected = task.id === selectedTaskId
-              const statusColors = getStatusBadge(task.status)
-              const isDraggable = canDragTask(task.id)
-              const isDropTarget = activeTaskId !== null && eligibleParentIds.has(task.id)
-              const isOverThis = overTaskId === task.id && isDropTarget
-              const isBeingDragged = activeTaskId === task.id
-
-              if (isDraggable || isDropTarget) {
-                return (
-                  <DraggableTaskRow
-                    key={task.id}
-                    task={task}
-                    isSelected={isSelected}
-                    statusColors={statusColors}
-                    statusLabel={statusLabels[task.status] || task.status}
-                    onClick={() => onTaskClick?.(task.id)}
-                    isDraggable={isDraggable}
-                    isDropTarget={isDropTarget}
-                    isOverThis={isOverThis}
-                    isBeingDragged={isBeingDragged}
-                    groupByMilestone={groupByMilestone}
-                    hasParent={!!task.parent_task_id}
-                    onRemoveParent={
-                      task.parent_task_id && onParentChange
-                        ? () => onParentChange(task.id, null)
-                        : undefined
-                    }
-                  />
-                )
-              }
-
-              // Non-interactive rows (e.g., parent tasks that aren't drop targets)
-              return (
-                <DroppableTaskRow
-                  key={task.id}
-                  task={task}
-                  isSelected={isSelected}
-                  statusColors={statusColors}
-                  statusLabel={statusLabels[task.status] || task.status}
-                  onClick={() => onTaskClick?.(task.id)}
-                  isDropTarget={false}
-                  isOverThis={false}
-                  groupByMilestone={groupByMilestone}
-                  hasParent={!!task.parent_task_id}
-                />
+                    {row.milestone?.name || 'マイルストーン未設定'}
+                  </span>
+                  {row.milestone && riskForecasts?.get(row.milestone.id) && (() => {
+                    const risk = riskForecasts.get(row.milestone!.id)!
+                    if (risk.level === 'none' || risk.remainingTasks === 0) return null
+                    const badgeColors = {
+                      high: { bg: '#FEE2E2', text: '#DC2626' },
+                      medium: { bg: '#FEF3C7', text: '#D97706' },
+                      low: { bg: '#DCFCE7', text: '#16A34A' },
+                    } as const
+                    const c = badgeColors[risk.level as keyof typeof badgeColors]
+                    if (!c) return null
+                    return (
+                      <span
+                        className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold flex-shrink-0"
+                        style={{ backgroundColor: c.bg, color: c.text }}
+                        title={risk.insufficientData
+                          ? `残${risk.remainingTasks}件 / データ不足`
+                          : `残${risk.remainingTasks}件 / ${risk.velocity.toFixed(1)}件/日`}
+                      >
+                        {risk.insufficientData ? '?' : risk.level === 'high' ? '高' : risk.level === 'medium' ? '中' : '低'}
+                      </span>
+                    )
+                  })()}
+                </div>
               )
-            })}
+            }
 
-            {tasks.length === 0 && (
-              <div
-                className="flex items-center justify-center text-gray-400"
-                style={{
-                  height: GANTT_CONFIG.ROW_HEIGHT * 3,
-                  fontSize: GANTT_CONFIG.FONT.SIZE_SM,
-                }}
-              >
-                タスクがありません
-              </div>
-            )}
-          </div>
+            const task = row.task!
+            const isSelected = task.id === selectedTaskId
+            const statusColors = getStatusBadge(task.status)
+            const hasParent = !!task.parent_task_id
 
-          {/* Drag overlay */}
-          <DragOverlay dropAnimation={null}>
-            {activeTask && (
+            return (
               <div
-                className="flex items-center gap-2 px-3 bg-white border border-blue-300 rounded shadow-lg opacity-90"
+                key={task.id}
+                onClick={() => onTaskClick?.(task.id)}
+                className="flex items-center gap-2 cursor-pointer transition-colors hover:bg-gray-50 group"
                 style={{
                   height: GANTT_CONFIG.ROW_HEIGHT,
-                  width: GANTT_CONFIG.SIDEBAR_WIDTH - 16,
+                  backgroundColor: isSelected ? '#F1F5F9' : undefined,
+                  borderBottom: `0.5px solid ${GANTT_CONFIG.COLORS.GRID_LINE}`,
+                  paddingLeft: hasParent
+                    ? (groupByMilestone ? 28 : 16)
+                    : (groupByMilestone ? 21 : 9),
+                  paddingRight: 12,
                 }}
               >
+                {/* Ball indicator */}
                 <div
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{
                     backgroundColor:
-                      activeTask.ball === 'client'
+                      task.ball === 'client'
                         ? GANTT_CONFIG.COLORS.CLIENT
                         : GANTT_CONFIG.COLORS.INTERNAL,
                   }}
+                  title={task.ball === 'client' ? '外部' : '社内'}
                 />
-                <span className="flex-1 truncate text-gray-900" style={{ fontSize: GANTT_CONFIG.FONT.SIZE_SM }}>
-                  {activeTask.title}
+
+                {hasParent && (
+                  <span className="text-gray-300 text-[10px] flex-shrink-0">└</span>
+                )}
+
+                <span
+                  className="flex-1 truncate text-gray-900"
+                  style={{
+                    fontSize: GANTT_CONFIG.FONT.SIZE_SM,
+                    fontWeight: isSelected ? 500 : 400,
+                  }}
+                >
+                  {task.title}
+                </span>
+
+                {/* Remove parent button */}
+                {hasParent && onParentChange && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onParentChange(task.id, null)
+                    }}
+                    className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                    title="親タスクの紐づけを解除"
+                    aria-label="親タスクの紐づけを解除"
+                  >
+                    <LinkBreak className="w-3 h-3 text-gray-400" />
+                  </button>
+                )}
+
+                {/* Status badge */}
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0"
+                  style={{
+                    backgroundColor: statusColors.bg,
+                    color: statusColors.text,
+                  }}
+                >
+                  {statusLabels[task.status] || task.status}
                 </span>
               </div>
-            )}
-          </DragOverlay>
-        </DndContext>
+            )
+          })}
+
+          {tasks.length === 0 && (
+            <div
+              className="flex items-center justify-center text-gray-400"
+              style={{
+                height: GANTT_CONFIG.ROW_HEIGHT * 3,
+                fontSize: GANTT_CONFIG.FONT.SIZE_SM,
+              }}
+            >
+              タスクがありません
+            </div>
+          )}
+        </div>
 
         {/* Scrollable chart */}
         <div
+          ref={chartBodyRef}
           className="flex-1 overflow-auto"
           onScroll={(e) => {
-            // Sync horizontal scroll with header
             if (scrollContainerRef.current) {
               scrollContainerRef.current.scrollLeft = e.currentTarget.scrollLeft
             }
-            // Sync vertical scroll with sidebar
             if (sidebarRef.current) {
               sidebarRef.current.scrollTop = e.currentTarget.scrollTop
             }
           }}
         >
           <div style={{ width: totalWidth, minHeight: '100%' }}>
-            {/* Chart body */}
             <svg
               width={totalWidth}
               height={Math.max(chartHeight, 200)}
@@ -540,7 +566,6 @@ export function GanttChart({
               {/* Render rows */}
               {rowData.map((row) => {
                 if (row.type === 'header') {
-                  // Milestone header row
                   return (
                     <g key={`header-${row.milestone?.id || 'none'}`}>
                       <rect
@@ -574,6 +599,9 @@ export function GanttChart({
                     onClick={onTaskClick}
                     isSelected={task.id === selectedTaskId}
                     onDateChange={onDateChange}
+                    onBarMove={onBarMove}
+                    onLinkDragStart={onParentChange ? handleLinkDragStart : undefined}
+                    linkHighlight={getLinkHighlight(task.id)}
                   />
                 )
               })}
@@ -607,6 +635,50 @@ export function GanttChart({
                     r={4}
                     fill={GANTT_CONFIG.COLORS.TODAY}
                   />
+                </g>
+              )}
+
+              {/* SVG overlay: link drag connection line */}
+              {linkDrag && (
+                <g style={{ pointerEvents: 'none' }}>
+                  {/* Dashed connection line */}
+                  <line
+                    x1={linkDrag.startX}
+                    y1={linkDrag.startY}
+                    x2={linkDrag.currentX}
+                    y2={linkDrag.currentY}
+                    stroke={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    opacity={0.7}
+                  />
+                  {/* Source dot */}
+                  <circle
+                    cx={linkDrag.startX}
+                    cy={linkDrag.startY}
+                    r={4}
+                    fill={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                  />
+                  {/* Cursor dot */}
+                  <circle
+                    cx={linkDrag.currentX}
+                    cy={linkDrag.currentY}
+                    r={4}
+                    fill={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    opacity={0.6}
+                  />
+                  {/* Hint text */}
+                  <text
+                    x={linkDrag.currentX + 12}
+                    y={linkDrag.currentY - 8}
+                    fontSize={11}
+                    fill={linkDrag.mode === 'child' ? '#6366F1' : '#10B981'}
+                    fontWeight={600}
+                  >
+                    {hoverTaskId && eligibleTargetIds.has(hoverTaskId)
+                      ? (linkDrag.mode === 'child' ? '子にする' : '親にする')
+                      : (linkDrag.mode === 'child' ? '親タスクへドロップ' : '子タスクへドロップ')}
+                  </text>
                 </g>
               )}
             </svg>
@@ -662,7 +734,6 @@ export function GanttChart({
   )
 }
 
-// Status badge color helper
 function getStatusBadge(status: string): { bg: string; text: string } {
   const colors: Record<string, { bg: string; text: string }> = {
     backlog: { bg: '#F3F4F6', text: '#6B7280' },

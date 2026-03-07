@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalTasksClient } from './PortalTasksClient'
+import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default async function PortalTasksPage() {
@@ -52,6 +53,10 @@ export default async function PortalTasksPage() {
 
   const currentProject = projects[0]
   const spaceId = currentProject.id
+
+  if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'tasks'))) {
+    redirect('/portal')
+  }
 
   // タスク取得（ball=client, done除外）- memberships取得後に即実行
    

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -25,6 +25,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
+import { usePortalVisibilityForPortal, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
 
 const STORAGE_KEY = 'taskapp:sidebar:portal:collapsed'
 
@@ -227,6 +228,21 @@ export function PortalLeftNav({
   const [collapsed, setCollapsed] = useState(false)
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
+  const { sections } = usePortalVisibilityForPortal(currentProject?.id ?? null)
+
+  const visibleNavItems = useMemo(() => {
+    const items: { key: keyof PortalVisibleSections; href: string; icon: React.ReactNode; label: string; badge?: number }[] = [
+      { key: 'tasks', href: '/portal/tasks', icon: <Lightning />, label: '要対応', badge: actionCount },
+      { key: 'requests', href: '/portal/requests', icon: <PaperPlaneTilt />, label: '送信リクエスト' },
+      { key: 'all_tasks', href: '/portal/all-tasks', icon: <ListChecks />, label: 'タスク一覧' },
+      { key: 'files', href: '/portal/files', icon: <Folder />, label: 'ファイル' },
+      { key: 'meetings', href: '/portal/meetings', icon: <NotePencil />, label: '議事録' },
+      { key: 'wiki', href: '/portal/wiki', icon: <BookOpen />, label: 'Wiki' },
+      { key: 'history', href: '/portal/history', icon: <CheckSquare />, label: '承認履歴' },
+    ]
+    return items.filter((item) => sections[item.key])
+  }, [sections, actionCount])
+
   const showProjectSwitcher = projects.length > 1
 
   // Restore collapsed state from localStorage
@@ -297,15 +313,17 @@ export function PortalLeftNav({
         </button>
 
         {/* Request button (same position as internal create button) */}
-        <button
-          type="button"
-          onClick={() => setRequestSheetOpen(true)}
-          className="p-1.5 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
-          title="リクエストを送る"
-          aria-label="リクエストを送る"
-        >
-          <PaperPlaneTilt className="text-lg 2xl:text-xl" />
-        </button>
+        {sections.requests && (
+          <button
+            type="button"
+            onClick={() => setRequestSheetOpen(true)}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+            title="リクエストを送る"
+            aria-label="リクエストを送る"
+          >
+            <PaperPlaneTilt className="text-lg 2xl:text-xl" />
+          </button>
+        )}
 
         {/* Project Dropdown */}
         {projectMenuOpen && showProjectSwitcher && (
@@ -357,56 +375,17 @@ export function PortalLeftNav({
           )}
 
           <div className="space-y-0.5">
-            <SubNavItem
-              href="/portal/tasks"
-              icon={<Lightning />}
-              label="要対応"
-              badge={actionCount}
-              active={pathname === '/portal/tasks'}
-              collapsed={collapsed}
-            />
-            <SubNavItem
-              href="/portal/requests"
-              icon={<PaperPlaneTilt />}
-              label="送信リクエスト"
-              active={pathname === '/portal/requests'}
-              collapsed={collapsed}
-            />
-            <SubNavItem
-              href="/portal/all-tasks"
-              icon={<ListChecks />}
-              label="タスク一覧"
-              active={pathname === '/portal/all-tasks'}
-              collapsed={collapsed}
-            />
-            <SubNavItem
-              href="/portal/files"
-              icon={<Folder />}
-              label="ファイル"
-              active={pathname === '/portal/files'}
-              collapsed={collapsed}
-            />
-            <SubNavItem
-              href="/portal/meetings"
-              icon={<NotePencil />}
-              label="議事録"
-              active={pathname === '/portal/meetings'}
-              collapsed={collapsed}
-            />
-            <SubNavItem
-              href="/portal/wiki"
-              icon={<BookOpen />}
-              label="Wiki"
-              active={pathname === '/portal/wiki'}
-              collapsed={collapsed}
-            />
-            <SubNavItem
-              href="/portal/history"
-              icon={<CheckSquare />}
-              label="承認履歴"
-              active={pathname === '/portal/history'}
-              collapsed={collapsed}
-            />
+            {visibleNavItems.map((item) => (
+              <SubNavItem
+                key={item.key}
+                href={item.href}
+                icon={item.icon}
+                label={item.label}
+                badge={item.badge}
+                active={pathname === item.href}
+                collapsed={collapsed}
+              />
+            ))}
             <SubNavItem
               href="/portal/settings"
               icon={<Gear />}
