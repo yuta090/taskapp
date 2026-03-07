@@ -1031,8 +1031,8 @@ export function TaskInspector({
           </div>
         )}
 
-        {/* Agency Mode: Pricing Panel */}
-        {agencyData.agency_mode && (
+        {/* Agency Mode: Pricing Panel (admin/editor only) */}
+        {agencyData.agency_mode && isInternalMember && (
           <TaskPricingPanel
             taskId={task.id}
             orgId={task.org_id}

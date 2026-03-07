@@ -616,7 +616,7 @@ export interface Database {
           task_id: string
           actor_id: string
           body: string
-          visibility: 'client' | 'internal'
+          visibility: 'client' | 'internal' | 'vendor' | 'agency_only'
           reply_to_id: string | null
           created_at: string
           updated_at: string
@@ -629,7 +629,7 @@ export interface Database {
           task_id: string
           actor_id: string
           body: string
-          visibility?: 'client' | 'internal'
+          visibility?: 'client' | 'internal' | 'vendor' | 'agency_only'
           reply_to_id?: string | null
           created_at?: string
           updated_at?: string
@@ -642,7 +642,7 @@ export interface Database {
           task_id?: string
           actor_id?: string
           body?: string
-          visibility?: 'client' | 'internal'
+          visibility?: 'client' | 'internal' | 'vendor' | 'agency_only'
           reply_to_id?: string | null
           created_at?: string
           updated_at?: string

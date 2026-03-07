@@ -144,12 +144,13 @@ export async function middleware(request: NextRequest) {
     }
 
     if (membership.role === 'client') {
-      // Check if user is actually a vendor at the space level
+      // Check if user is a vendor in a space within this org
       const { data: vendorMembership } = await supabase
         .from('space_memberships')
-        .select('id')
+        .select('id, spaces!inner(org_id)')
         .eq('user_id', user.id)
         .eq('role', 'vendor')
+        .eq('spaces.org_id', membership.org_id)
         .limit(1)
         .maybeSingle()
 
@@ -187,12 +188,13 @@ export async function middleware(request: NextRequest) {
 
     if (onboardMembership) {
       if (onboardMembership.role === 'client') {
-        // Check if user is actually a vendor at the space level
+        // Check if user is a vendor in a space within this org
         const { data: onboardVendorMem } = await supabase
           .from('space_memberships')
-          .select('id')
+          .select('id, spaces!inner(org_id)')
           .eq('user_id', user.id)
           .eq('role', 'vendor')
+          .eq('spaces.org_id', onboardMembership.org_id)
           .limit(1)
           .maybeSingle()
 
