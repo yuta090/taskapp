@@ -34,7 +34,7 @@ export function LPFooter() {
                     viewport={{ once: true }}
                     className="max-w-3xl mx-auto"
                 >
-                    <h2 className="text-4xl lg:text-6xl font-black mb-8 tracking-tight leading-[1.15]">
+                    <h2 className="text-3xl lg:text-4xl font-black mb-8 tracking-tight leading-[1.15]">
                         「管理」のために、<br />
                         時間を使わない。
                     </h2>

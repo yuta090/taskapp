@@ -7,7 +7,7 @@ import Link from 'next/link'
 
 export function FeaturePortal() {
     return (
-        <section className="py-32 bg-slate-50 relative overflow-hidden">
+        <section className="py-20 bg-slate-50 relative overflow-hidden">
             <div className="container mx-auto px-6">
                 <div className="grid lg:grid-cols-2 gap-16 items-center">
                     {/* Visual Side (Glass Cards) */}
@@ -128,10 +128,10 @@ export function FeaturePortal() {
                         className="order-1 lg:order-2"
                     >
                         <div className="text-amber-500 font-bold tracking-wider uppercase mb-4 text-sm">Feature 03</div>
-                        <h2 className="text-4xl lg:text-5xl font-bold text-slate-900 mb-6 leading-[1.15]">
+                        <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-6 leading-[1.15]">
                             進捗が見える。<br />だから安心できる。
                         </h2>
-                        <p className="text-lg text-slate-600 mb-8 leading-relaxed">
+                        <p className="text-base text-slate-600 mb-8 leading-relaxed">
                             クライアントには、整理された専用画面を提供。<br />
                             現在のフェーズ、金額、スケジュールが一目でわかります。<br />
                             「今どうなってるの？」と聞かれる前に、答えが見えています。

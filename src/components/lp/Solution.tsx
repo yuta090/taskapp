@@ -25,7 +25,7 @@ export function Solution() {
     ]
 
     return (
-        <section className="py-24 bg-white relative overflow-hidden">
+        <section className="py-20 bg-white relative overflow-hidden">
             <div className="container mx-auto px-6">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -33,11 +33,12 @@ export function Solution() {
                     viewport={{ once: true }}
                     className="text-center max-w-3xl mx-auto mb-16"
                 >
-                    <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-6 leading-[1.15]">
+                    <span className="text-xs font-bold tracking-[0.2em] uppercase text-amber-500 mb-3 block">Solution</span>
+                    <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-6 leading-[1.15]">
                         「つくる」以外は、<br />
                         <span className="text-amber-500">AIに任せる</span>仕組みです
                     </h2>
-                    <p className="text-lg text-slate-600">
+                    <p className="text-base text-slate-600">
                         あなたは本当に必要なことだけに集中。<br />
                         管理・報告・調整はAgentPMとAIが引き受けます。
                     </p>

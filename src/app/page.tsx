@@ -12,6 +12,8 @@ import { FeatureComparison } from '@/components/lp/FeatureComparison'
 import { Testimonials } from '@/components/lp/Testimonials'
 import { FAQ } from '@/components/lp/FAQ'
 import { LPFooter } from '@/components/lp/Footer'
+import { FloatingCTA } from '@/components/lp/FloatingCTA'
+import { CTABand } from '@/components/lp/CTABand'
 
 export default function Home() {
   return (
@@ -26,10 +28,12 @@ export default function Home() {
       <DayInLife />
       <Workflow />
       <Features />
+      <CTABand />
       <FeatureComparison />
       <Testimonials />
       <FAQ />
       <LPFooter />
+      <FloatingCTA />
     </main>
   )
 }

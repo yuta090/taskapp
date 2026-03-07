@@ -177,7 +177,7 @@ export function FeatureTerminal() {
     }, [messages, isTyping])
 
     return (
-        <section className="py-32 bg-white overflow-hidden relative">
+        <section className="py-20 bg-slate-50 overflow-hidden relative">
             <div className="container mx-auto px-6">
                 <div className="grid lg:grid-cols-2 gap-16 items-center">
                     {/* Text Side - Unchanged */}
@@ -188,7 +188,7 @@ export function FeatureTerminal() {
                         className="order-2 lg:order-1"
                     >
                         <div className="text-amber-500 font-bold tracking-wider uppercase mb-4 text-sm">Feature 01</div>
-                        <h2 className="text-4xl lg:text-5xl font-bold text-slate-900 mb-6 leading-[1.15]">
+                        <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-6 leading-[1.15]">
                             AIで、<br />コマンド一つで操作。
                         </h2>
                         <p className="text-lg text-slate-600 mb-8 leading-relaxed">

@@ -119,7 +119,7 @@ export function FeatureComparison() {
     }
 
     return (
-        <section className="py-24 bg-white">
+        <section className="py-20 bg-white">
             <div className="container mx-auto px-6">
                 <div className="text-center mb-16">
                     <h2 className="text-3xl font-bold text-slate-900 mb-4">機能比較表</h2>
@@ -129,7 +129,8 @@ export function FeatureComparison() {
                     </p>
                 </div>
 
-                <div className="overflow-x-auto pb-4">
+                {/* Desktop Table */}
+                <div className="hidden lg:block overflow-x-auto pb-4">
                     <table className="w-full min-w-[900px] border-collapse">
                         <thead>
                             <tr>
@@ -200,6 +201,49 @@ export function FeatureComparison() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Mobile Cards */}
+                <div className="lg:hidden space-y-6">
+                    {[
+                        { name: 'Starter', sub: '個人・学習用', featured: false, key: 'starter' as const },
+                        { name: 'Freelance', sub: 'フリーランス', featured: true, key: 'freelance' as const },
+                        { name: 'Business', sub: 'チーム・組織', featured: false, key: 'business' as const },
+                    ].map((plan) => (
+                        <div
+                            key={plan.name}
+                            className={`rounded-2xl p-6 ${plan.featured
+                                ? 'bg-white border-2 border-amber-500 shadow-lg relative order-first'
+                                : 'bg-white border border-slate-200 shadow-sm'
+                            }`}
+                        >
+                            {plan.featured && (
+                                <span className="absolute -top-3 left-6 bg-amber-500 text-white text-[10px] font-bold px-3 py-1 rounded-full">
+                                    RECOMMENDED
+                                </span>
+                            )}
+                            <div className="mb-4 pb-3 border-b border-slate-100">
+                                <div className={`text-lg font-bold ${plan.featured ? 'text-amber-600' : 'text-slate-900'}`}>{plan.name}</div>
+                                <div className="text-xs text-slate-500">{plan.sub}</div>
+                            </div>
+                            <div className="space-y-0">
+                                {features.map((section) => (
+                                    <div key={section.category}>
+                                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">{section.category}</div>
+                                        {section.items.map((item) => {
+                                            const value = item[plan.key]
+                                            return (
+                                                <div key={item.name} className="flex items-center justify-between py-2.5 border-b border-slate-50 last:border-b-0">
+                                                    <span className="text-sm text-slate-700 pr-4">{item.name}</span>
+                                                    <span className="flex-shrink-0">{renderValue(value)}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </div>
 
                 <div className="mt-8 text-center">

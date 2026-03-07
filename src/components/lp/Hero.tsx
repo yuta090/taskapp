@@ -38,8 +38,8 @@ export function Hero() {
             <span className="text-sm font-bold text-slate-700 pl-3">開発チームのためのプロジェクト管理ツール</span>
           </div>
 
-          <h1 className="text-4xl lg:text-7xl font-black text-slate-900 leading-[1.3] lg:leading-[1.2]">
-            <span className="block text-2xl lg:text-3xl font-bold text-slate-500 mb-4">管理・報告・調整はAIへ。</span>
+          <h1 className="text-3xl lg:text-5xl font-black text-slate-900 leading-[1.3] lg:leading-[1.2]">
+            <span className="block text-lg lg:text-2xl font-bold text-slate-500 mb-4">管理・報告・調整はAIへ。</span>
             つくることに、<br />
             <span className="text-amber-500 relative inline-block">
               集中できる。
@@ -49,7 +49,7 @@ export function Hero() {
             </span>
           </h1>
 
-          <p className="text-lg text-slate-600 leading-relaxed max-w-lg font-medium">
+          <p className="text-base text-slate-600 leading-relaxed max-w-lg font-medium">
             AgentPMは、エンジニアの「つくる時間」を最大化する<br className="hidden lg:block" />
             <strong>AIネイティブのプロジェクト管理クラウド</strong>です。
           </p>
