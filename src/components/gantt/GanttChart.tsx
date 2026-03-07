@@ -82,10 +82,10 @@ export function GanttChart({
     return ids
   }, [activeTaskId, tasks])
 
-  // DnD sensors - require 8px movement to start drag (avoids accidental drags)
+  // DnD sensors - require 5px movement to start drag (avoids accidental drags)
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
+      activationConstraint: { distance: 5 },
     })
   )
 

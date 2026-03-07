@@ -89,17 +89,17 @@ export const DraggableTaskRow = memo(function DraggableTaskRow({
         opacity: isBeingDragged ? 0.4 : 1,
       }}
     >
-      {/* Drag handle */}
+      {/* Drag handle - always visible with subtle style, prominent on hover */}
       {isDraggable && (
         <button
           {...dragAttributes}
           {...dragListeners}
-          className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-grab active:cursor-grabbing transition-opacity"
+          className="flex-shrink-0 p-1 rounded opacity-30 group-hover:opacity-100 hover:!bg-indigo-50 cursor-grab active:cursor-grabbing transition-all"
           onClick={(e) => e.stopPropagation()}
           title="ドラッグして親タスクに紐づけ"
           aria-label="ドラッグして親タスクに紐づけ"
         >
-          <DotsSixVertical className="w-3.5 h-3.5 text-gray-400" />
+          <DotsSixVertical className="w-4 h-4 text-gray-500 group-hover:text-indigo-500" weight="bold" />
         </button>
       )}
 
