@@ -50,7 +50,7 @@ export function Hero() {
           </h1>
 
           <p className="text-lg text-slate-600 leading-relaxed max-w-lg font-medium">
-            TaskAppは、エンジニアの「つくる時間」を最大化する<br className="hidden lg:block" />
+            AgentPMは、エンジニアの「つくる時間」を最大化する<br className="hidden lg:block" />
             <strong>AIネイティブのプロジェクト管理クラウド</strong>です。
           </p>
 
@@ -66,16 +66,18 @@ export function Hero() {
                   <ArrowRight weight="bold" />
                 </motion.button>
               </Link>
-              <motion.button
-                whileHover={{ scale: 1.05, backgroundColor: "#f8fafc" }}
-                whileTap={{ scale: 0.95 }}
-                className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg shadow-sm flex items-center justify-center gap-2 group"
-              >
-                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                  <Play weight="fill" size={12} />
-                </div>
-                デモ動画を見る
-              </motion.button>
+              <Link href="/contact">
+                <motion.button
+                  whileHover={{ scale: 1.05, backgroundColor: "#f8fafc" }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg shadow-sm flex items-center justify-center gap-2 group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                    <Play weight="fill" size={12} />
+                  </div>
+                  デモを申し込む
+                </motion.button>
+              </Link>
             </div>
             <div className="text-xs text-slate-500 flex items-center gap-4 pl-1">
               <span>✓ クレジットカード登録不要</span>
@@ -112,7 +114,7 @@ export function Hero() {
                   <div className="relative w-full flex-1 max-h-[85%]">
                     <Image
                       src={heroImages[currentImageIndex]}
-                      alt="TaskApp Feature"
+                      alt="AgentPM の機能紹介"
                       fill
                       className="object-contain"
                       sizes="(max-width: 1024px) 100vw, 50vw"

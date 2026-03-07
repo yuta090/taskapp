@@ -4,13 +4,30 @@ import { motion } from 'framer-motion'
 import { ArrowRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 
+const productLinks = [
+    { href: '/#features', label: '機能' },
+    { href: '/pricing', label: '料金プラン' },
+    { href: '/contact', label: 'お問い合わせ' },
+]
+
+const legalLinks = [
+    { href: '/terms', label: '利用規約' },
+    { href: '/privacy', label: 'プライバシーポリシー' },
+    { href: '/tokushoho', label: '特定商取引法に基づく表記' },
+]
+
+const companyLinks = [
+    { href: '/company', label: '会社概要' },
+]
+
 export function LPFooter() {
     return (
-        <footer className="bg-slate-950 text-white py-24 relative overflow-hidden">
+        <footer className="bg-slate-950 text-white relative overflow-hidden">
             {/* Glow */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-amber-500/10 blur-[100px] pointer-events-none"></div>
 
-            <div className="container mx-auto px-6 relative z-10 text-center">
+            {/* CTA Section */}
+            <div className="container mx-auto px-6 relative z-10 text-center pt-24 pb-16">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     whileInView={{ opacity: 1, y: 0 }}
@@ -27,27 +44,88 @@ export function LPFooter() {
                     </p>
 
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            className="px-10 py-5 bg-amber-500 text-white rounded-xl font-bold text-xl shadow-2xl shadow-amber-500/20 flex items-center justify-center gap-2"
-                        >
-                            無料で始める
-                            <ArrowRight weight="bold" />
-                        </motion.button>
-                    </div>
-
-                    <div className="mt-12 flex flex-col items-center gap-6">
-                        <div className="flex gap-6 text-sm text-slate-500">
-                            <Link href="/terms" className="hover:text-slate-300 transition-colors">利用規約</Link>
-                            <Link href="/privacy" className="hover:text-slate-300 transition-colors">プライバシーポリシー</Link>
-                            <Link href="/pricing" className="hover:text-slate-300 transition-colors">料金プラン</Link>
-                        </div>
-                        <p className="text-sm text-slate-600">
-                            © 2026 Sorekara Inc. All rights reserved.
-                        </p>
+                        <Link href="/signup">
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                className="px-10 py-5 bg-amber-500 text-white rounded-xl font-bold text-xl shadow-2xl shadow-amber-500/20 flex items-center justify-center gap-2"
+                            >
+                                無料で始める
+                                <ArrowRight weight="bold" />
+                            </motion.button>
+                        </Link>
                     </div>
                 </motion.div>
+            </div>
+
+            {/* Footer Links */}
+            <div className="border-t border-slate-800">
+                <div className="container mx-auto px-6 py-12">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+                        {/* Brand */}
+                        <div className="col-span-2 md:col-span-1">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-7 h-7 bg-amber-500 rounded-md flex items-center justify-center">
+                                    <span className="text-white font-bold text-xs">A</span>
+                                </div>
+                                <span className="font-bold text-lg">AgentPM</span>
+                            </div>
+                            <p className="text-sm text-slate-500 leading-relaxed">
+                                AIネイティブの<br />プロジェクト管理クラウド
+                            </p>
+                        </div>
+
+                        {/* Product */}
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">プロダクト</h4>
+                            <ul className="space-y-2.5">
+                                {productLinks.map((link) => (
+                                    <li key={link.href}>
+                                        <Link href={link.href} className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Legal */}
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">法務</h4>
+                            <ul className="space-y-2.5">
+                                {legalLinks.map((link) => (
+                                    <li key={link.href}>
+                                        <Link href={link.href} className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Company */}
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">運営</h4>
+                            <ul className="space-y-2.5">
+                                {companyLinks.map((link) => (
+                                    <li key={link.href}>
+                                        <Link href={link.href} className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                                <li className="text-sm text-slate-500">Sorekara Inc.</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    {/* Bottom bar */}
+                    <div className="mt-12 pt-6 border-t border-slate-800 text-center">
+                        <p className="text-xs text-slate-600">
+                            &copy; 2026 Sorekara Inc. All rights reserved.
+                        </p>
+                    </div>
+                </div>
             </div>
         </footer>
     )

@@ -235,7 +235,7 @@ export function FeatureTerminal() {
                                 </div>
                                 <div className="ml-4 flex items-center gap-2 text-xs text-slate-400 font-mono">
                                     <TerminalWindow size={14} />
-                                    <span>TaskApp Agent</span>
+                                    <span>AgentPM</span>
                                 </div>
                             </div>
 

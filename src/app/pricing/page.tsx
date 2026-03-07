@@ -6,6 +6,7 @@ import { FeatureComparison } from '@/components/lp/FeatureComparison'
 import { motion } from 'framer-motion'
 import { Check, X, Sparkle, Buildings, User } from '@phosphor-icons/react'
 import { useState } from 'react'
+import Link from 'next/link'
 
 export default function PricingPage() {
     const [isAnnual, setIsAnnual] = useState(true)
@@ -173,14 +174,15 @@ export default function PricingPage() {
                                         {plan.description}
                                     </p>
 
-                                    <button
-                                        className={`w-full py-3 px-6 rounded-lg font-bold transition-all ${plan.primary
+                                    <Link
+                                        href="/signup"
+                                        className={`block w-full py-3 px-6 rounded-lg font-bold transition-all text-center ${plan.primary
                                             ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/40 transform hover:-translate-y-0.5'
                                             : 'bg-slate-100 text-slate-900 hover:bg-slate-200'
                                             }`}
                                     >
                                         {plan.cta}
-                                    </button>
+                                    </Link>
                                 </div>
 
                                 <div className="p-8 bg-slate-50 border-t border-slate-100 h-full">

@@ -12,7 +12,7 @@ export function DayInLife() {
 
             <div className="container mx-auto px-6 relative z-10 max-w-4xl">
                 <h2 className="text-4xl font-bold text-center mb-20 text-white">
-                    TaskAppがある<br />
+                    AgentPMがある<br />
                     <span className="text-amber-500">プロジェクト担当者の1日</span>
                 </h2>
 
@@ -22,7 +22,7 @@ export function DayInLife() {
                     <motion.div
                         initial={{ opacity: 0, x: -20 }}
                         whileInView={{ opacity: 1, x: 0 }}
-                        viewport={{ margin: "-100px" }}
+                        viewport={{ once: true, margin: "-100px" }}
                         className="relative md:grid md:grid-cols-[100px_1fr] md:gap-8 items-start"
                     >
                         <div className="absolute -left-[41px] md:static md:w-full md:flex md:justify-end">
@@ -44,7 +44,7 @@ export function DayInLife() {
                     <motion.div
                         initial={{ opacity: 0, x: -20 }}
                         whileInView={{ opacity: 1, x: 0 }}
-                        viewport={{ margin: "-100px" }}
+                        viewport={{ once: true, margin: "-100px" }}
                         className="relative md:grid md:grid-cols-[100px_1fr] md:gap-8 items-start"
                     >
                         <div className="absolute -left-[41px] md:static md:w-full md:flex md:justify-end">
@@ -66,7 +66,7 @@ export function DayInLife() {
                     <motion.div
                         initial={{ opacity: 0, x: -20 }}
                         whileInView={{ opacity: 1, x: 0 }}
-                        viewport={{ margin: "-100px" }}
+                        viewport={{ once: true, margin: "-100px" }}
                         className="relative md:grid md:grid-cols-[100px_1fr] md:gap-8 items-start"
                     >
                         <div className="absolute -left-[41px] md:static md:w-full md:flex md:justify-end">
@@ -82,7 +82,7 @@ export function DayInLife() {
                                 「つくる」ことに集中した、充実した一日が終わります。
                             </p>
                             <div className="mt-6 p-1 bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                                <Image src="/img/lp/scene_peaceful_evening.png" alt="Relaxing Evening" width={800} height={450} className="w-full h-auto rounded-lg" />
+                                <Image src="/img/lp/scene_peaceful_evening.png" alt="穏やかな夕方の風景" width={800} height={450} className="w-full h-auto rounded-lg" />
                             </div>
                         </div>
                     </motion.div>

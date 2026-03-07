@@ -81,7 +81,7 @@ export function Problem() {
                         <div className="relative z-10 bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 p-8 transform rotate-3 hover:rotate-0 transition-transform duration-500">
                             <Image
                                 src="/img/lp/pain_double_management.png"
-                                alt="Overwhelmed by tools: Excel, PowerPoint, and Task Apps"
+                                alt="Excel・PowerPoint・タスク管理ツールに追われるイメージ"
                                 width={448}
                                 height={336}
                                 className="w-full h-auto max-w-md mx-auto object-contain"
