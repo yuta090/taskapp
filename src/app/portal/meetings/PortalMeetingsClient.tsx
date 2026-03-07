@@ -149,6 +149,9 @@ export function PortalMeetingsClient({
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">議事録はまだありません</p>
+              <p className="text-sm text-gray-400 mt-1">
+                ミーティングの議事録が作成されると、ここに表示されます
+              </p>
             </div>
           ) : (
             <div className="space-y-3">

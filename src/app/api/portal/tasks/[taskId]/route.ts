@@ -53,7 +53,7 @@ export async function POST(
     // Verify user is authenticated
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
 
     // Parse request body
@@ -62,7 +62,7 @@ export async function POST(
 
     if (!action || !['approve', 'request_changes'].includes(action)) {
       return NextResponse.json(
-        { error: 'Invalid action. Must be "approve" or "request_changes"' },
+        { error: '無効なアクションです' },
         { status: 400 }
       )
     }
@@ -71,13 +71,13 @@ export async function POST(
     if (action === 'request_changes') {
       if (!comment || comment.trim().length === 0) {
         return NextResponse.json(
-          { error: 'Comment is required for change requests' },
+          { error: '修正依頼にはコメントが必要です' },
           { status: 400 }
         )
       }
       if (comment.length > MAX_COMMENT_LENGTH) {
         return NextResponse.json(
-          { error: `Comment must be ${MAX_COMMENT_LENGTH} characters or less` },
+          { error: `コメントは${MAX_COMMENT_LENGTH}文字以内にしてください` },
           { status: 400 }
         )
       }
@@ -86,7 +86,7 @@ export async function POST(
     // Validate comment length for approve action too (if provided)
     if (comment && comment.length > MAX_COMMENT_LENGTH) {
       return NextResponse.json(
-        { error: `Comment must be ${MAX_COMMENT_LENGTH} characters or less` },
+        { error: `コメントは${MAX_COMMENT_LENGTH}文字以内にしてください` },
         { status: 400 }
       )
     }
@@ -103,7 +103,7 @@ export async function POST(
 
     if (taskError || !task) {
       return NextResponse.json(
-        { error: 'Task not found' },
+        { error: 'タスクが見つかりません' },
         { status: 404 }
       )
     }
@@ -111,7 +111,7 @@ export async function POST(
     // Server-side validation: task must be in client's court
     if (task.ball !== 'client') {
       return NextResponse.json(
-        { error: 'This task is not currently awaiting client action' },
+        { error: 'このタスクは現在クライアントの対応待ちではありません' },
         { status: 409 }
       )
     }
@@ -119,7 +119,7 @@ export async function POST(
     // Server-side validation: task must not already be done
     if (task.status === 'done') {
       return NextResponse.json(
-        { error: 'This task is already completed' },
+        { error: 'このタスクは既に完了しています' },
         { status: 409 }
       )
     }
@@ -136,7 +136,7 @@ export async function POST(
 
     if (!membership) {
       return NextResponse.json(
-        { error: 'Access denied' },
+        { error: 'アクセス権限がありません' },
         { status: 403 }
       )
     }
@@ -166,7 +166,7 @@ export async function POST(
         // If no row was updated, it means the task state changed (race condition)
         console.error('Error approving task:', updateError || 'No rows updated')
         return NextResponse.json(
-          { error: 'Task state has changed. Please refresh and try again.' },
+          { error: 'タスクの状態が変更されました。ページを再読み込みしてください。' },
           { status: 409 }
         )
       }
@@ -199,7 +199,7 @@ export async function POST(
 
       return NextResponse.json({
         success: true,
-        message: 'Task approved successfully',
+        message: '承認しました',
         taskId,
       })
     } else {
@@ -223,7 +223,7 @@ export async function POST(
         // If no row was updated, it means the task state changed (race condition)
         console.error('Error requesting changes:', updateError || 'No rows updated')
         return NextResponse.json(
-          { error: 'Task state has changed. Please refresh and try again.' },
+          { error: 'タスクの状態が変更されました。ページを再読み込みしてください。' },
           { status: 409 }
         )
       }
@@ -285,21 +285,21 @@ export async function POST(
           .eq('updated_at', now)
 
         return NextResponse.json(
-          { error: 'Failed to save comment. Please try again.' },
+          { error: 'コメントの保存に失敗しました。もう一度お試しください。' },
           { status: 500 }
         )
       }
 
       return NextResponse.json({
         success: true,
-        message: 'Changes requested successfully',
+        message: '修正を依頼しました',
         taskId,
       })
     }
   } catch (error) {
     console.error('Portal task action error:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'サーバーエラーが発生しました' },
       { status: 500 }
     )
   }
