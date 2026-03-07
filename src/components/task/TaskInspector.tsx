@@ -7,12 +7,14 @@ import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
+import { useAgencyMode } from '@/lib/hooks/useAgencyMode'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
 import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
+import { TaskPricingPanel } from './TaskPricingPanel'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -128,6 +130,9 @@ export function TaskInspector({
 
   // FR-OWN-002: 責任者欄の表示/非表示設定
   const { shouldShowOwnerField } = useSpaceSettings(spaceId)
+
+  // Agency mode: pricing panel
+  const { data: agencyData } = useAgencyMode(spaceId)
 
   // Current user for comments
   const { user } = useCurrentUser()
@@ -1024,6 +1029,16 @@ export function TaskInspector({
               </div>
             )}
           </div>
+        )}
+
+        {/* Agency Mode: Pricing Panel */}
+        {agencyData.agency_mode && (
+          <TaskPricingPanel
+            taskId={task.id}
+            orgId={task.org_id}
+            spaceId={spaceId}
+            defaultMarginRate={agencyData.default_margin_rate}
+          />
         )}
 
         {/* ━━ Group 4: 詳細設定 (折りたたみ) ━━ */}

@@ -18,6 +18,8 @@ export const PORTAL_STATUS_LABELS: Record<string, string> = {
 export const PORTAL_BALL_LABELS: Record<string, string> = {
   client: '要確認',
   internal: 'チーム対応中',
+  agency: 'チーム対応中',
+  vendor: 'チーム対応中',
 }
 
 /** Get status label with fallback */
