@@ -40,7 +40,10 @@ function mockTask(overrides: {
     decision_state: null,
     wiki_page_id: null,
     estimated_hours: null,
-  } as Task
+    assignee_id: null,
+    estimated_cost: null,
+    estimate_status: null,
+  } as unknown as Task
 }
 
 describe('buildTaskTree', () => {

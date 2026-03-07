@@ -33,7 +33,7 @@ export const taskUpdateSchema = z.object({
   priority: z.number().min(0).max(3).optional().describe('優先度 (0-3)'),
   clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性: deliverable=ポータルに表示, internal=非表示'),
   startDate: z.string().optional().nullable().describe('開始日 (YYYY-MM-DD)'),
-  parentTaskId: z.string().uuid().optional().nullable().describe('親タスクUUID（1階層のみ）'),
+  parentTaskId: z.string().uuid().optional().nullable().describe('親タスクUUID（最大10階層）'),
   actualHours: z.number().min(0).optional().nullable().describe('実績工数'),
   milestoneId: z.string().uuid().optional().nullable().describe('マイルストーンUUID'),
 })
