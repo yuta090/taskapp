@@ -179,6 +179,15 @@ export interface Database {
           archived_by: string | null
           group_id: string | null
           sort_order: number
+          portal_visible_sections: {
+            tasks: boolean
+            requests: boolean
+            all_tasks: boolean
+            files: boolean
+            meetings: boolean
+            wiki: boolean
+            history: boolean
+          }
           created_at: string
         }
         Insert: {
@@ -192,6 +201,15 @@ export interface Database {
           archived_by?: string | null
           group_id?: string | null
           sort_order?: number
+          portal_visible_sections?: {
+            tasks: boolean
+            requests: boolean
+            all_tasks: boolean
+            files: boolean
+            meetings: boolean
+            wiki: boolean
+            history: boolean
+          }
           created_at?: string
         }
         Update: {
@@ -205,6 +223,15 @@ export interface Database {
           archived_by?: string | null
           group_id?: string | null
           sort_order?: number
+          portal_visible_sections?: {
+            tasks: boolean
+            requests: boolean
+            all_tasks: boolean
+            files: boolean
+            meetings: boolean
+            wiki: boolean
+            history: boolean
+          }
           created_at?: string
         }
       }
