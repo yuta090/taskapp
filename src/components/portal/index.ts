@@ -6,6 +6,9 @@ export { PortalTaskInspector } from './PortalTaskInspector'
 export { PortalOnboardingWalkthrough } from './PortalOnboardingWalkthrough'
 export { PortalRequestSheet } from './PortalRequestSheet'
 
+// Re-export label constants
+export { PORTAL_STATUS_LABELS, PORTAL_BALL_LABELS, getPortalStatusLabel, getPortalBallLabel } from './labels'
+
 // Re-export UI components
 export * from './ui'
 

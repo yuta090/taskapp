@@ -164,7 +164,7 @@ export function PortalTasksClient({
           <div>
             <h1 className="text-2xl font-bold text-gray-900">要対応タスク</h1>
             <p className="mt-1 text-sm text-gray-600">
-              確認・承認が必要なタスクの一覧です。「要確認」はすぐにアクションが必要、「対応待ち」はチームが準備中です。
+              確認・承認が必要なタスクの一覧です。「要確認」はすぐにアクションが必要、「チーム対応中」はチームが準備中です。
             </p>
           </div>
 
@@ -186,7 +186,7 @@ export function PortalTasksClient({
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-bold text-gray-600">{otherTasks.length}</div>
-              <div className="text-sm text-gray-500">対応待ち</div>
+              <div className="text-sm text-gray-500">チーム対応中</div>
             </div>
           </div>
 
@@ -231,7 +231,7 @@ export function PortalTasksClient({
                 <div>
                   <h2 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-gray-400"></span>
-                    対応待ち ({otherTasks.length}件)
+                    チーム対応中 ({otherTasks.length}件)
                   </h2>
                   <div className="space-y-3">
                     {otherTasks.map((task) => (
