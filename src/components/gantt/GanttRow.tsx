@@ -95,6 +95,14 @@ export const GanttRow = memo(function GanttRow({
   const displayPosition = dragPreview || barPosition
   const isDragging = dragState !== null
 
+  const handleBarMouseOver = useCallback(() => {
+    if (!isDragging) setIsHovering(true)
+  }, [isDragging])
+
+  const handleBarMouseLeave = useCallback(() => {
+    if (!isDragging) setIsHovering(false)
+  }, [isDragging])
+
   // Handle resize start (start/end edge)
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, edge: 'start' | 'end') => {
@@ -310,7 +318,7 @@ export const GanttRow = memo(function GanttRow({
 
       {/* Task bar - NO onClick (task opening is sidebar only) */}
       {!isParent && displayPosition && (
-        <g>
+        <g onMouseOver={handleBarMouseOver} onMouseLeave={handleBarMouseLeave}>
           {/* Hover hit area - extends beyond bar to cover link handle zones */}
           <rect
             x={displayPosition.x - barHitPadding}
@@ -318,8 +326,6 @@ export const GanttRow = memo(function GanttRow({
             width={displayPosition.width + barHitPadding * 2}
             height={GANTT_CONFIG.ROW_HEIGHT}
             fill="transparent"
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => { if (!isDragging) setIsHovering(false) }}
             style={{ cursor: isDragging
               ? (dragState?.edge === 'move' ? 'grabbing' : 'ew-resize')
               : 'default' }}

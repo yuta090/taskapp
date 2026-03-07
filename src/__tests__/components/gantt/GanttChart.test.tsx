@@ -143,7 +143,7 @@ describe('GanttChart', () => {
   it('should render legend', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('外部確認待ち')).toBeInTheDocument()
     expect(screen.getByText('社内対応中')).toBeInTheDocument()
     expect(screen.getByText('マイルストーン')).toBeInTheDocument()
   })
