@@ -24,6 +24,7 @@ export default async function VendorTasksPage() {
     `)
     .eq('user_id', user.id)
     .eq('role', 'vendor')
+    .eq('spaces.agency_mode', true)
     .limit(1)
     .single()
 
@@ -32,9 +33,6 @@ export default async function VendorTasksPage() {
   }
 
   const space = membership.spaces as unknown as { id: string; name: string; org_id: string; agency_mode: boolean }
-  if (!space.agency_mode) {
-    redirect('/vendor-portal')
-  }
 
   // ベンダーに見えるタスクを取得（client_scope='deliverable' + 'internal' 両方）
   const { data: tasks } = await (supabase as SupabaseClient)
