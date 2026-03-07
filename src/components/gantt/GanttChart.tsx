@@ -16,7 +16,7 @@ import {
   isToday,
   dateToX,
 } from '@/lib/gantt/dateUtils'
-import { getEligibleParents, isParentTask } from '@/lib/gantt/treeUtils'
+import { getDescendantIds, getAncestorIds, buildTaskTree } from '@/lib/gantt/treeUtils'
 import { GanttHeader } from './GanttHeader'
 import { GanttRow } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
@@ -117,9 +117,17 @@ export function GanttChart({
     return groups
   }, [tasks, milestones, groupByMilestone])
 
-  // Build row data array (memoized to avoid rebuild on every render)
+  // Build global tree for depth and ordering (accounts for cross-milestone parent-child)
+  const globalTreeDepthMap = useMemo(() => {
+    const treeNodes = buildTaskTree(tasks)
+    const depthMap = new Map<string, number>()
+    treeNodes.forEach((node) => depthMap.set(node.task.id, node.depth))
+    return depthMap
+  }, [tasks])
+
+  // Build row data array with tree ordering and depth (memoized)
   const rowData = useMemo(() => {
-    const rows: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; rowIndex: number }> = []
+    const rows: Array<{ type: 'header' | 'task'; milestone?: Milestone | null; task?: Task; depth?: number; rowIndex: number }> = []
     let idx = 0
 
     taskGroups.forEach((group) => {
@@ -127,14 +135,17 @@ export function GanttChart({
         rows.push({ type: 'header', milestone: group.milestone, rowIndex: idx })
         idx++
       }
-      group.tasks.forEach((task) => {
-        rows.push({ type: 'task', task, rowIndex: idx })
+      // Use buildTaskTree for ordering within each group, but use global depth
+      const treeNodes = buildTaskTree(group.tasks)
+      treeNodes.forEach((node) => {
+        const globalDepth = globalTreeDepthMap.get(node.task.id) ?? node.depth
+        rows.push({ type: 'task', task: node.task, depth: globalDepth, rowIndex: idx })
         idx++
       })
     })
 
     return rows
-  }, [taskGroups, groupByMilestone])
+  }, [taskGroups, groupByMilestone, globalTreeDepthMap])
 
   const totalRows = rowData.length
   const chartHeight = totalRows * GANTT_CONFIG.ROW_HEIGHT
@@ -175,25 +186,27 @@ export function GanttChart({
 
   // ----- Link drag logic -----
 
-  // Eligible targets for current link drag
+  // Eligible targets for current link drag (multi-level hierarchy)
   const eligibleTargetIds = useMemo(() => {
     if (!linkDrag) return new Set<string>()
 
     const ids = new Set<string>()
     if (linkDrag.mode === 'child') {
-      // Source wants to become a child => target must be eligible parent
-      const eligible = getEligibleParents(tasks, linkDrag.sourceTaskId)
-      eligible.forEach((t) => ids.add(t.id))
-      // Remove tasks that already have this task as parent
-      tasks.forEach((t) => {
-        if (t.parent_task_id === linkDrag.sourceTaskId) ids.delete(t.id)
-      })
-    } else {
-      // Source wants to become a parent => target must be non-parent (can become child)
+      // Source wants to become a child of target
+      // Exclude: source itself + source's descendants (would create a cycle)
+      const descendantIds = getDescendantIds(linkDrag.sourceTaskId, tasks)
       tasks.forEach((t) => {
         if (t.id === linkDrag.sourceTaskId) return
-        if (isParentTask(t.id, tasks)) return // already a parent
-        if (t.parent_task_id) return // already a child
+        if (descendantIds.has(t.id)) return
+        ids.add(t.id)
+      })
+    } else {
+      // Source wants to become parent of target (target becomes child)
+      // Exclude: source itself + source's ancestors (would create a cycle)
+      const ancestorIds = getAncestorIds(linkDrag.sourceTaskId, tasks)
+      tasks.forEach((t) => {
+        if (t.id === linkDrag.sourceTaskId) return
+        if (ancestorIds.has(t.id)) return
         ids.add(t.id)
       })
     }
@@ -271,18 +284,26 @@ export function GanttChart({
       setHoverTaskId(hoveredId)
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       const currentDrag = linkDragRef.current
-      const currentTarget = hoverTaskIdRef.current
       const eligibleIds = eligibleTargetIdsRef.current
 
-      if (currentDrag && currentTarget && onParentChange && eligibleIds.has(currentTarget)) {
+      // Re-compute target from final mouse position (more reliable than cached hoverTaskId)
+      let finalTarget: string | null = null
+      const svgPoint = toSvgPoint(e.clientX, e.clientY)
+      if (svgPoint) {
+        const rowIndex = Math.floor(svgPoint.y / GANTT_CONFIG.ROW_HEIGHT)
+        const row = rowIndex >= 0 ? rowDataRef.current[rowIndex] : undefined
+        finalTarget = row?.type === 'task' && row.task ? row.task.id : null
+      }
+
+      if (currentDrag && finalTarget && onParentChange && eligibleIds.has(finalTarget)) {
         if (currentDrag.mode === 'child') {
           // Source becomes child of target
-          onParentChange(currentDrag.sourceTaskId, currentTarget)
+          onParentChange(currentDrag.sourceTaskId, finalTarget)
         } else {
           // Target becomes child of source
-          onParentChange(currentTarget, currentDrag.sourceTaskId)
+          onParentChange(finalTarget, currentDrag.sourceTaskId)
         }
       }
 
@@ -492,6 +513,9 @@ export function GanttChart({
             const isSelected = task.id === selectedTaskId
             const statusColors = getStatusBadge(task.status)
             const hasParent = !!task.parent_task_id
+            const depth = row.depth || 0
+            const basePadding = groupByMilestone ? 21 : 9
+            const depthIndent = depth * 16
 
             return (
               <div
@@ -502,9 +526,7 @@ export function GanttChart({
                   height: GANTT_CONFIG.ROW_HEIGHT,
                   backgroundColor: isSelected ? '#F1F5F9' : undefined,
                   borderBottom: `0.5px solid ${GANTT_CONFIG.COLORS.GRID_LINE}`,
-                  paddingLeft: hasParent
-                    ? (groupByMilestone ? 28 : 16)
-                    : (groupByMilestone ? 21 : 9),
+                  paddingLeft: basePadding + depthIndent,
                   paddingRight: 12,
                 }}
               >
@@ -635,6 +657,47 @@ export function GanttChart({
                     onLinkDragStart={onParentChange ? handleLinkDragStart : undefined}
                     linkHighlight={getLinkHighlight(task.id)}
                   />
+                )
+              })}
+
+              {/* Parent-child connection lines */}
+              {rowData.map((row) => {
+                if (row.type !== 'task' || !row.task?.parent_task_id) return null
+                const childTask = row.task
+                const parentRow = rowData.find(
+                  (r) => r.type === 'task' && r.task?.id === childTask.parent_task_id
+                )
+                if (!parentRow || !parentRow.task) return null
+
+                const parentEnd = parentRow.task.due_date
+                const childStart = childTask.start_date || childTask.created_at
+
+                if (!parentEnd || !childStart) return null
+
+                const parentEndX = dateToX(new Date(parentEnd), startDate, dayWidth)
+                const childStartX = dateToX(new Date(childStart), startDate, dayWidth)
+                const parentY = parentRow.rowIndex * GANTT_CONFIG.ROW_HEIGHT + GANTT_CONFIG.ROW_HEIGHT / 2
+                const childY = row.rowIndex * GANTT_CONFIG.ROW_HEIGHT + GANTT_CONFIG.ROW_HEIGHT / 2
+
+                // Draw an L-shaped connector from parent bar end to child bar start
+                const midX = (parentEndX + childStartX) / 2
+                return (
+                  <g key={`link-${childTask.id}`} style={{ pointerEvents: 'none' }}>
+                    <path
+                      d={`M ${parentEndX} ${parentY} L ${midX} ${parentY} L ${midX} ${childY} L ${childStartX} ${childY}`}
+                      fill="none"
+                      stroke="#94A3B8"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                      opacity={0.6}
+                    />
+                    {/* Arrow at child end */}
+                    <polygon
+                      points={`${childStartX},${childY} ${childStartX - 5},${childY - 3} ${childStartX - 5},${childY + 3}`}
+                      fill="#94A3B8"
+                      opacity={0.6}
+                    />
+                  </g>
                 )
               })}
 

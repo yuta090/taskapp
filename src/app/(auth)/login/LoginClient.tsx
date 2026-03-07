@@ -8,16 +8,56 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const DEMO_ACCOUNTS = [
-  { email: 'demo@example.com', password: 'demo1234', name: '田中 太郎', label: '内部PM', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border-indigo-200' },
-  { email: 'staff1@example.com', password: 'staff1234', name: '佐藤 花子', label: 'デザイナー', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200' },
-  { email: 'staff2@example.com', password: 'staff2345', name: '山田 次郎', label: '開発者', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200' },
-  { email: 'client1@client.com', password: 'client1234', name: '鈴木 一郎', label: 'クライアントPM', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200' },
-  { email: 'client2@client.com', password: 'client2345', name: '高橋 美咲', label: 'クライアント承認者', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200' },
+  { email: 'demo@example.com', password: 'demo1234', name: '田中 太郎', label: '内部PM', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border-indigo-200', group: 'internal' as const },
+  { email: 'staff1@example.com', password: 'staff1234', name: '佐藤 花子', label: 'デザイナー', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200', group: 'internal' as const },
+  { email: 'staff2@example.com', password: 'staff2345', name: '山田 次郎', label: '開発者', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200', group: 'internal' as const },
+  { email: 'client1@client.com', password: 'client1234', name: '鈴木 一郎', label: 'クライアントPM', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200', group: 'client' as const },
+  { email: 'client2@client.com', password: 'client2345', name: '高橋 美咲', label: 'クライアント承認者', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200', group: 'client' as const },
+  { email: 'vendor1@vendor.com', password: 'vendor1234', name: '中村 健太', label: 'ベンダーDir', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 border-teal-200', group: 'vendor' as const },
+  { email: 'vendor2@vendor.com', password: 'vendor2345', name: '松本 理恵', label: 'ベンダーDes', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200', group: 'vendor' as const },
 ]
 
 const AUTH_ERRORS: Record<string, string> = {
   auth_callback_failed: 'Google認証に失敗しました。もう一度お試しください。',
   auth_cancelled: 'Google認証がキャンセルされました。',
+}
+
+async function resolveRedirect(supabase: SupabaseClient, userId: string): Promise<string> {
+  const { data: membership } = await supabase
+    .from('org_memberships')
+    .select('org_id, role')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (membership?.role === 'client') {
+    // Check if user is a vendor in any space within this org
+    const { data: vendorMem } = await supabase
+      .from('space_memberships')
+      .select('id, spaces!inner(org_id)')
+      .eq('user_id', userId)
+      .eq('role', 'vendor')
+      .eq('spaces.org_id', membership.org_id)
+      .limit(1)
+      .maybeSingle()
+    if (vendorMem) return '/vendor-portal'
+    return '/portal'
+  }
+
+  if (membership) {
+    const { data: space } = await supabase
+      .from('spaces')
+      .select('id')
+      .eq('org_id', membership.org_id)
+      .eq('type', 'project')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+    if (space) return `/${membership.org_id}/project/${space.id}`
+  }
+
+  return '/inbox'
 }
 
 export default function LoginClient() {
@@ -49,36 +89,7 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        // ユーザーのロールを取得してリダイレクト先を決定
-        const { data: membership } = await (supabase as SupabaseClient)
-          .from('org_memberships')
-          .select('org_id, role')
-          .eq('user_id', data.user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single()
-
-        if (membership?.role === 'client') {
-          router.push('/portal')
-        } else if (membership) {
-          // 最初のスペースを取得
-          const { data: space } = await (supabase as SupabaseClient)
-            .from('spaces')
-            .select('id')
-            .eq('org_id', membership.org_id)
-            .eq('type', 'project')
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single()
-
-          if (space) {
-            router.push(`/${membership.org_id}/project/${space.id}`)
-          } else {
-            router.push('/inbox')
-          }
-        } else {
-          router.push('/inbox')
-        }
+        router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -88,7 +99,6 @@ export default function LoginClient() {
   }
 
   async function handleQuickLogin(demoEmail: string, demoPassword: string) {
-    console.log('handleQuickLogin called:', demoEmail)
     setError('')
     setQuickLoginLoading(demoEmail)
 
@@ -105,34 +115,7 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        const { data: membership } = await (supabase as SupabaseClient)
-          .from('org_memberships')
-          .select('org_id, role')
-          .eq('user_id', data.user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single()
-
-        if (membership?.role === 'client') {
-          router.push('/portal')
-        } else if (membership) {
-          const { data: space } = await (supabase as SupabaseClient)
-            .from('spaces')
-            .select('id')
-            .eq('org_id', membership.org_id)
-            .eq('type', 'project')
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .single()
-
-          if (space) {
-            router.push(`/${membership.org_id}/project/${space.id}`)
-          } else {
-            router.push('/inbox')
-          }
-        } else {
-          router.push('/inbox')
-        }
+        router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
       }
     } catch {
       setError('ログイン中にエラーが発生しました')

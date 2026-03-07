@@ -85,8 +85,8 @@ interface UseTasksReturn {
 // TasksQueryData is imported from @/lib/supabase/queries
 
 /**
- * Validate parent_task_id assignment for 1-level hierarchy constraint.
- * Throws if the assignment would violate nesting rules.
+ * Validate parent_task_id assignment for multi-level hierarchy.
+ * Throws if the assignment would create a cycle or exceed max depth (10).
  */
 function validateParentTask(
   parentTaskId: string | null | undefined,
@@ -114,18 +114,63 @@ function validateParentTask(
     throw new Error('親タスクは同じスペース内である必要があります')
   }
 
-  // Parent must not itself be a child (no deep nesting)
-  if (parentTask.parent_task_id) {
-    throw new Error('子タスクを親に設定することはできません（階層は1段階まで）')
-  }
-
-  // Current task must not already be a parent of other tasks
+  // Circular reference check: walk up ancestor chain
   if (currentTaskId) {
-    const hasChildren = tasks.some((t) => t.parent_task_id === currentTaskId)
-    if (hasChildren) {
-      throw new Error('子タスクを持つタスクを別タスクの子にすることはできません')
+    const visited = new Set<string>([currentTaskId])
+    let ancestorId: string | null = parentTaskId
+    while (ancestorId) {
+      if (visited.has(ancestorId)) {
+        throw new Error('循環参照が検出されました')
+      }
+      visited.add(ancestorId)
+      const ancestor = tasks.find((t) => t.id === ancestorId)
+      ancestorId = ancestor?.parent_task_id ?? null
     }
   }
+
+  // Depth check: parentDepth + 1 + maxDescendantDepth must not exceed MAX_DEPTH
+  // Must match DB trigger check_task_parent_hierarchy (max_depth = 10)
+  const MAX_DEPTH = 10
+  const parentDepth = countAncestors(parentTaskId, tasks)
+  const maxDescendantDepth = currentTaskId
+    ? getMaxDescendantDepth(currentTaskId, tasks)
+    : 0
+  const newMaxDepth = parentDepth + 1 + maxDescendantDepth
+  if (newMaxDepth > MAX_DEPTH) {
+    throw new Error(`最大ネスト深さ（${MAX_DEPTH}階層）を超えます（移動後: ${newMaxDepth}階層）`)
+  }
+}
+
+/** Count ancestors of a task (how many levels above root) */
+function countAncestors(taskId: string, tasks: Task[]): number {
+  let count = 0
+  let currentId: string | null = taskId
+  const visited = new Set<string>()
+  while (currentId) {
+    if (visited.has(currentId)) break
+    visited.add(currentId)
+    const task = tasks.find((t) => t.id === currentId)
+    currentId = task?.parent_task_id ?? null
+    if (currentId) count++
+  }
+  return count
+}
+
+/** Get max depth of descendant subtree (self=0, direct child=1, ...) */
+function getMaxDescendantDepth(taskId: string, tasks: Task[]): number {
+  let maxDepth = 0
+  const stack: Array<{ id: string; depth: number }> = [{ id: taskId, depth: 0 }]
+  while (stack.length > 0) {
+    const { id, depth } = stack.pop()!
+    tasks.forEach((t) => {
+      if (t.parent_task_id === id) {
+        const childDepth = depth + 1
+        if (childDepth > maxDepth) maxDepth = childDepth
+        stack.push({ id: t.id, depth: childDepth })
+      }
+    })
+  }
+  return maxDepth
 }
 
 export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
@@ -414,12 +459,31 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           }
         }
 
-        const { error: updateError } = await (supabase as SupabaseClient)
+        const { data: updatedRows, error: updateError } = await (supabase as SupabaseClient)
           .from('tasks')
           .update(updateData)
           .eq('id', taskId)
+          .select('id, parent_task_id')
 
         if (updateError) throw updateError
+
+        // Verify the update actually affected a row (RLS can silently block updates)
+        if (!updatedRows || updatedRows.length === 0) {
+          throw new Error('タスクの更新が反映されませんでした（権限不足の可能性）')
+        }
+
+        // Verify parent-child update persisted
+        if (input.parentTaskId !== undefined) {
+          const { data: verifyRow } = await (supabase as SupabaseClient)
+            .from('tasks')
+            .select('id, parent_task_id')
+            .eq('id', taskId)
+            .single()
+
+          if (verifyRow && String(verifyRow.parent_task_id) !== String(input.parentTaskId)) {
+            throw new Error(`DB保存失敗: 送信=${input.parentTaskId}, DB値=${verifyRow.parent_task_id}`)
+          }
+        }
 
         // Fire-and-forget notification on status change
         if (input.status !== undefined && prevTask && prevTask.status !== input.status) {
