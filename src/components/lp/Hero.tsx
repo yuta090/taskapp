@@ -56,28 +56,26 @@ export function Hero() {
 
           <div className="flex flex-col gap-3 pt-4">
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link href="/signup">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Link
+                  href="/signup"
                   className="px-8 py-4 bg-amber-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2"
                 >
                   無料で始める
                   <ArrowRight weight="bold" />
-                </motion.button>
-              </Link>
-              <Link href="/contact">
-                <motion.button
-                  whileHover={{ scale: 1.05, backgroundColor: "#f8fafc" }}
-                  whileTap={{ scale: 0.95 }}
+                </Link>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Link
+                  href="/contact"
                   className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg shadow-sm flex items-center justify-center gap-2 group"
                 >
                   <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                     <Play weight="fill" size={12} />
                   </div>
                   デモを申し込む
-                </motion.button>
-              </Link>
+                </Link>
+              </motion.div>
             </div>
             <div className="text-xs text-slate-500 flex items-center gap-4 pl-1">
               <span>✓ クレジットカード登録不要</span>

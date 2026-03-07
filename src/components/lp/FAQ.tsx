@@ -33,6 +33,7 @@ const faqs = [
 
 function FAQItem({ q, a, index }: { q: string; a: string; index: number }) {
     const [open, setOpen] = useState(false)
+    const answerId = `faq-answer-${index}`
 
     return (
         <motion.div
@@ -45,6 +46,8 @@ function FAQItem({ q, a, index }: { q: string; a: string; index: number }) {
             <button
                 onClick={() => setOpen(!open)}
                 className="w-full flex items-center justify-between py-5 text-left gap-4 group"
+                aria-expanded={open}
+                aria-controls={answerId}
             >
                 <span className="font-bold text-slate-800 group-hover:text-amber-600 transition-colors">
                     {q}
@@ -58,6 +61,8 @@ function FAQItem({ q, a, index }: { q: string; a: string; index: number }) {
             <AnimatePresence initial={false}>
                 {open && (
                     <motion.div
+                        id={answerId}
+                        role="region"
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
