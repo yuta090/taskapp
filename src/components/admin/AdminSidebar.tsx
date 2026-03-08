@@ -19,6 +19,7 @@ import {
   TreeStructure,
   PaintBrush,
   PlugsConnected,
+  Terminal,
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { label: '分析', icon: ChartLine, href: '/admin/analytics' },
   { label: 'サイトマップ', icon: TreeStructure, href: '/admin/sitemap' },
   { label: '外部連携', icon: PlugsConnected, href: '/admin/integrations' },
+  { label: 'CLI利用統計', icon: Terminal, href: '/admin/cli-usage' },
   { label: 'デザインシステム', icon: PaintBrush, href: '/admin/design-system' },
 ]
 

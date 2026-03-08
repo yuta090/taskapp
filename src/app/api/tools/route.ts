@@ -1,6 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+/** Fire-and-forget: log CLI command usage. Never throws. */
+function logCliUsage(
+  toolName: string,
+  status: 'success' | 'error',
+  responseMs: number,
+  errorMessage?: string,
+) {
+  try {
+    // Import config to get auth context (set by dispatchTool → initializeAuthWithApiKey)
+    import('agentpm-core/dist/config.js').then(({ config }) => {
+      const ctx = config.authContext
+      if (!ctx) return
+
+      const admin = createAdminClient()
+      admin
+        .from('cli_usage_logs')
+        .insert({
+          api_key_id: ctx.keyId === 'dev-key' ? null : ctx.keyId,
+          org_id: ctx.orgId,
+          space_id: config.spaceId || null,
+          user_id: ctx.userId || null,
+          tool_name: toolName,
+          status,
+          error_message: errorMessage || null,
+          response_ms: responseMs,
+        })
+        .then(({ error }) => {
+          if (error) console.error('cli_usage_logs insert failed:', error.message)
+        })
+    }).catch(() => {
+      // config not available — skip logging
+    })
+  } catch {
+    // Never block the response
+  }
+}
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
+  let toolName = 'unknown'
+
   try {
     // 1. Extract API key
     const authHeader = request.headers.get('Authorization')
@@ -44,6 +85,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       )
     }
+    toolName = tool
 
     if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
       return NextResponse.json(
@@ -56,8 +98,15 @@ export async function POST(request: NextRequest) {
     const { dispatchTool } = await import('agentpm-core/dist/dispatch.js')
     const result = await dispatchTool(apiKey, tool, (params || {}) as Record<string, unknown>)
 
+    // 4. Log usage (fire-and-forget)
+    logCliUsage(toolName, 'success', Date.now() - startTime)
+
     return NextResponse.json(result)
   } catch (error) {
+    // Log error usage (fire-and-forget)
+    const errMsg = error instanceof Error ? error.message : String(error)
+    logCliUsage(toolName, 'error', Date.now() - startTime, errMsg)
+
     if (error instanceof Error) {
       // Auth errors
       if (error.message === 'Invalid or expired API key') {
