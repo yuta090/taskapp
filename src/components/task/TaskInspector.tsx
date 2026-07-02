@@ -11,6 +11,8 @@ import { useAgencyMode } from '@/lib/hooks/useAgencyMode'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
+import { TaskEventTimeline } from './TaskEventTimeline'
+import { ConsideringDecisionPanel } from './ConsideringDecisionPanel'
 import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
@@ -43,6 +45,8 @@ interface TaskInspectorProps {
   onUpdateOwners?: (clientOwnerIds: string[], internalOwnerIds: string[]) => Promise<void>
   /** AT-009: Spec task state transition */
   onSetSpecState?: (decisionState: DecisionState) => Promise<void>
+  /** AT-007: refetch after an out-of-meeting client decision is recorded */
+  onConsideringDecided?: () => void
   onReviewChange?: (taskId: string, status: string | null) => void
   /** Available parent tasks for parent selection */
   parentTasks?: { id: string; title: string }[]
@@ -70,6 +74,7 @@ export function TaskInspector({
   onDuplicate,
   onUpdateOwners,
   onSetSpecState,
+  onConsideringDecided,
   onReviewChange,
   parentTasks = [],
   childTasks = [],
@@ -83,6 +88,7 @@ export function TaskInspector({
   const [isSavingOwners, setIsSavingOwners] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
   const [showComments, setShowComments] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [estimateInput, setEstimateInput] = useState('')
   const [isSendingEstimate, setIsSendingEstimate] = useState(false)
@@ -1452,6 +1458,18 @@ export function TaskInspector({
                     >
                       {isSettingSpecState ? '処理中...' : '決定済みにする'}
                     </button>
+
+                    {/* AT-007: 会議外でクライアント確定として登録 */}
+                    {clientMembers.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <ConsideringDecisionPanel
+                          taskId={task.id}
+                          spaceId={spaceId}
+                          clientMembers={clientMembers}
+                          onDecided={onConsideringDecided}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1493,6 +1511,22 @@ export function TaskInspector({
               clientOnly={false}
               canSetVisibility={isInternalMember}
             />
+          )}
+        </div>
+
+        {/* History / audit trail (collapsed by default) */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors w-full"
+          >
+            <Timer className="text-sm" />
+            <span>履歴</span>
+            {showHistory ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
+          </button>
+          {showHistory && (
+            <TaskEventTimeline taskId={task.id} getMemberName={getMemberName} />
           )}
         </div>
       </div>
