@@ -18,6 +18,7 @@ const publicPaths = [
   '/pricing',
   '/privacy',
   '/terms',
+  '/portal/email-action',
 ]
 
 /** セグメント境界を考慮したパスマッチ（/privacy が /privacy-policy にマッチしない） */

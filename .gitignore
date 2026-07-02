@@ -47,3 +47,9 @@ packages/*/node_modules/
 
 # old node_modules backup
 node_modules_old/
+
+# migration適用スクリプトのローカルログ
+scripts/.migration-apply.log
+
+# supabase CLI temp
+supabase/.temp/

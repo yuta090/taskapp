@@ -48,7 +48,9 @@ vi.mock('@/lib/supabase/server', () => ({
             select: vi.fn(() => ({
               eq: vi.fn(() => ({
                 eq: vi.fn(() => ({
-                  single: vi.fn(() => Promise.resolve(membershipResponse)),
+                  neq: vi.fn(() => ({
+                    single: vi.fn(() => Promise.resolve(membershipResponse)),
+                  })),
                 })),
               })),
             })),

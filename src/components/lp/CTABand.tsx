@@ -18,7 +18,7 @@ export function CTABand() {
             まずは無料で試してみませんか？
           </h2>
           <p className="text-slate-400 mb-8">
-            14日間無料トライアル。クレジットカード登録不要。
+            クレジットカード登録不要。5分でプロジェクトが立ち上がります。
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
@@ -32,7 +32,7 @@ export function CTABand() {
               href="/contact"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white/10 text-white font-bold rounded-xl border border-white/20 hover:bg-white/20 transition-colors"
             >
-              デモを申し込む
+              3分デモ動画を見る
             </Link>
           </div>
         </motion.div>

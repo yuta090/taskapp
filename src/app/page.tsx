@@ -2,18 +2,17 @@ import { LPHeader } from '@/components/lp/Header'
 import { Hero } from '@/components/lp/Hero'
 import { Problem } from '@/components/lp/Problem'
 import { Solution } from '@/components/lp/Solution'
-import { FeatureTerminal } from '@/components/lp/FeatureTerminal'
-import { FeatureBall } from '@/components/lp/FeatureBall'
+import { FeatureAI } from '@/components/lp/FeatureAI'
 import { FeaturePortal } from '@/components/lp/FeaturePortal'
-import { DayInLife } from '@/components/lp/DayInLife'
-import { Workflow } from '@/components/lp/Workflow'
-import { Features } from '@/components/lp/Features'
-import { FeatureComparison } from '@/components/lp/FeatureComparison'
+import { FeatureBall } from '@/components/lp/FeatureBall'
+import { FeatureAgency } from '@/components/lp/FeatureAgency'
+import { CompetitorComparison } from '@/components/lp/CompetitorComparison'
+import { QuickStart } from '@/components/lp/QuickStart'
 import { Testimonials } from '@/components/lp/Testimonials'
+import { CTABand } from '@/components/lp/CTABand'
 import { FAQ } from '@/components/lp/FAQ'
 import { LPFooter } from '@/components/lp/Footer'
 import { FloatingCTA } from '@/components/lp/FloatingCTA'
-import { CTABand } from '@/components/lp/CTABand'
 
 export default function Home() {
   return (
@@ -22,15 +21,14 @@ export default function Home() {
       <Hero />
       <Problem />
       <Solution />
-      <FeatureTerminal />
-      <FeatureBall />
+      <FeatureAI />
       <FeaturePortal />
-      <DayInLife />
-      <Workflow />
-      <Features />
-      <CTABand />
-      <FeatureComparison />
+      <FeatureBall />
+      <FeatureAgency />
+      <CompetitorComparison />
+      <QuickStart />
       <Testimonials />
+      <CTABand />
       <FAQ />
       <LPFooter />
       <FloatingCTA />

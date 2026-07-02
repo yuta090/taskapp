@@ -48,6 +48,15 @@ vi.mock('@/lib/supabase/server', () => ({
             })),
           }
         }
+        if (table === 'spaces') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(() => Promise.resolve({ data: { portal_visible_sections: null }, error: null })),
+              })),
+            })),
+          }
+        }
         return {}
       }),
     })

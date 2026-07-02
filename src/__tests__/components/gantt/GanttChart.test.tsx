@@ -6,13 +6,12 @@ import type { Task, Milestone } from '@/types/database'
 // Mock Phosphor icons
 vi.mock('@phosphor-icons/react', () => ({
   CalendarBlank: () => <span data-testid="icon-calendar" />,
-  CaretLeft: () => <span data-testid="icon-caret-left" />,
-  CaretRight: () => <span data-testid="icon-caret-right" />,
   MagnifyingGlassMinus: () => <span data-testid="icon-zoom-out" />,
   MagnifyingGlassPlus: () => <span data-testid="icon-zoom-in" />,
-  ListBullets: () => <span data-testid="icon-list-bullets" />,
-  Rows: () => <span data-testid="icon-rows" />,
   LinkBreak: () => <span data-testid="icon-link-break" />,
+  FunnelSimple: () => <span data-testid="icon-funnel-simple" />,
+  SortAscending: () => <span data-testid="icon-sort-ascending" />,
+  SortDescending: () => <span data-testid="icon-sort-descending" />,
 }))
 
 const mockTasks: Task[] = [
@@ -114,16 +113,29 @@ const mockMilestones: Milestone[] = [
   },
 ]
 
+// The header task-count ("2/3 タスク") is rendered as several sibling text
+// nodes inside one <span>, so a plain getByText(string) match fails. Match
+// on the element's combined textContent instead.
+function hasText(text: string) {
+  return (_content: string, element: Element | null) => element?.textContent === text
+}
+
 describe('GanttChart', () => {
   it('should render chart header', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
     expect(screen.getByText('ガントチャート')).toBeInTheDocument()
-    expect(screen.getByText('3 タスク')).toBeInTheDocument()
+    // Default status filter is "not_done", so Task 3 (done) is excluded
+    // from the visible count: 2 shown / 3 total.
+    expect(screen.getByText(hasText('2/3 タスク'))).toBeInTheDocument()
   })
 
   it('should render task titles in sidebar', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    // Default status filter is "not_done", which hides the done task.
+    // Switch to "すべて" (all) to verify every task title renders.
+    fireEvent.click(screen.getByText('すべて'))
 
     expect(screen.getByText('Task 1 - Client')).toBeInTheDocument()
     expect(screen.getByText('Task 2 - Internal')).toBeInTheDocument()
@@ -133,10 +145,14 @@ describe('GanttChart', () => {
   it('should render status badges', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    // Status badges in sidebar - use getAllByText since legend also has "完了"
-    expect(screen.getByText('進行中')).toBeInTheDocument()
-    expect(screen.getByText('未着手')).toBeInTheDocument()
-    // Multiple "完了" texts exist (sidebar badge + legend)
+    // Show all tasks (including "done") so every status badge is present.
+    fireEvent.click(screen.getByText('すべて'))
+
+    // Status labels also appear as status-filter buttons in the toolbar,
+    // so use getAllByText to tolerate duplicates.
+    expect(screen.getAllByText('進行中').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('未着手').length).toBeGreaterThanOrEqual(1)
+    // Multiple "完了" texts exist (filter button + sidebar badge + legend)
     expect(screen.getAllByText('完了').length).toBeGreaterThanOrEqual(1)
   })
 
@@ -145,7 +161,9 @@ describe('GanttChart', () => {
 
     expect(screen.getByText('外部確認待ち')).toBeInTheDocument()
     expect(screen.getByText('社内対応中')).toBeInTheDocument()
-    expect(screen.getByText('マイルストーン')).toBeInTheDocument()
+    // "マイルストーン" also appears as the (default-active) grouping button,
+    // so use getAllByText to tolerate duplicates.
+    expect(screen.getAllByText('マイルストーン').length).toBeGreaterThanOrEqual(1)
   })
 
   it('should render zoom controls', () => {
@@ -180,7 +198,7 @@ describe('GanttChart', () => {
 
     // Multiple "タスクがありません" texts exist (sidebar + chart body)
     expect(screen.getAllByText('タスクがありません').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('0 タスク')).toBeInTheDocument()
+    expect(screen.getByText(hasText('0/0 タスク'))).toBeInTheDocument()
   })
 
   it('should highlight selected task', () => {
