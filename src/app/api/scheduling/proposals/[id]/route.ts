@@ -160,15 +160,24 @@ export async function PATCH(
       }
     }
 
-    const { error: updateError } = await (supabase as SupabaseClient)
+    const { data: updated, error: updateError } = await (supabase as SupabaseClient)
       .from('scheduling_proposals')
       .update({ status: 'cancelled' })
       .eq('id', id)
       .eq('status', 'open')
+      .select('id')
+      .maybeSingle()
 
     if (updateError) {
       console.error('Cancel proposal error:', updateError)
       return NextResponse.json({ error: 'Failed to cancel proposal' }, { status: 500 })
+    }
+
+    if (!updated) {
+      return NextResponse.json(
+        { error: 'Proposal is not open' },
+        { status: 409 }
+      )
     }
 
     return NextResponse.json({ ok: true })

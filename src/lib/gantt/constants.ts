@@ -10,7 +10,7 @@
 export const GANTT_CONFIG = {
   // Layout (4px grid)
   ROW_HEIGHT: 36,
-  HEADER_HEIGHT: 48,
+  HEADER_HEIGHT: 72,
   BAR_HEIGHT: 20,
   BAR_VERTICAL_PADDING: 8,
   SIDEBAR_WIDTH: 240,

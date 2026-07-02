@@ -124,8 +124,11 @@ export function PortalDashboardClient({
   const router = useRouter()
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
+  const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null)
 
   const handleApprove = async (taskId: string, comment: string) => {
+    if (submittingTaskId === taskId) return
+    setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
         method: 'POST',
@@ -142,17 +145,16 @@ export function PortalDashboardClient({
         }
         console.error('Approve error:', { status: response.status, ...errorData })
 
-        const errorMessage = errorData.error || 'エラーが発生しました'
         if (response.status === 409) {
-          toast.error(errorMessage)
+          toast.error('他のユーザーが先に操作しました。画面を更新します。')
           router.refresh()
         } else if (response.status === 403) {
-          toast.error('このタスクへのアクセス権限がありません')
+          toast.error('このタスクにはアクセスできません。')
         } else if (response.status === 401) {
-          toast.error('セッションが切れました。再ログインしてください。')
+          toast.error('セッションが切れました。再度アクセスしてください。')
           router.push('/login')
         } else {
-          toast.error(errorMessage)
+          toast.error('操作に失敗しました。しばらくしてからお試しください。')
         }
         return
       }
@@ -161,11 +163,15 @@ export function PortalDashboardClient({
       router.refresh()
     } catch (error) {
       console.error('Approve failed:', error)
-      toast.error('ネットワークエラーが発生しました。しばらくしてから再試行してください。')
+      toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
+    } finally {
+      setSubmittingTaskId(null)
     }
   }
 
   const handleRequestChanges = async (taskId: string, comment: string) => {
+    if (submittingTaskId === taskId) return
+    setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
         method: 'POST',
@@ -177,7 +183,7 @@ export function PortalDashboardClient({
         const error = await response.json()
         console.error('Request changes error:', error)
         if (response.status === 409) {
-          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
+          toast.error('他のユーザーが先に操作しました。画面を更新します。')
           router.refresh()
         } else if (response.status === 400) {
           toast.error(error.error || 'コメントを入力してください。')
@@ -189,10 +195,15 @@ export function PortalDashboardClient({
       router.refresh()
     } catch (error) {
       console.error('Request changes failed:', error)
+      toast.error('操作に失敗しました。しばらくしてからお試しください。')
+    } finally {
+      setSubmittingTaskId(null)
     }
   }
 
   const handleEstimateApprove = async (taskId: string, comment: string) => {
+    if (submittingTaskId === taskId) return
+    setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
         method: 'POST',
@@ -201,7 +212,7 @@ export function PortalDashboardClient({
       })
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        toast.error(errorData.error || 'エラーが発生しました')
+        toast.error(errorData.error || '操作に失敗しました。しばらくしてからお試しください。')
         if (response.status === 409) router.refresh()
         return
       }
@@ -209,11 +220,15 @@ export function PortalDashboardClient({
       router.refresh()
     } catch (error) {
       console.error('Estimate approve failed:', error)
-      toast.error('ネットワークエラーが発生しました')
+      toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
+    } finally {
+      setSubmittingTaskId(null)
     }
   }
 
   const handleEstimateReject = async (taskId: string, comment: string) => {
+    if (submittingTaskId === taskId) return
+    setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
         method: 'POST',
@@ -222,7 +237,7 @@ export function PortalDashboardClient({
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
-        toast.error(error.error || 'エラーが発生しました')
+        toast.error(error.error || '操作に失敗しました。しばらくしてからお試しください。')
         if (response.status === 409) router.refresh()
         return
       }
@@ -230,7 +245,9 @@ export function PortalDashboardClient({
       router.refresh()
     } catch (error) {
       console.error('Estimate reject failed:', error)
-      toast.error('ネットワークエラーが発生しました')
+      toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
+    } finally {
+      setSubmittingTaskId(null)
     }
   }
 

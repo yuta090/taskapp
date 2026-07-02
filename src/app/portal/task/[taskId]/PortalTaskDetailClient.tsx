@@ -89,6 +89,7 @@ export function PortalTaskDetailClient({
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleApprove = async () => {
+    if (isSubmitting) return
     setIsSubmitting(true)
     try {
       const response = await fetch(`/api/portal/tasks/${task.id}`, {
@@ -98,9 +99,21 @@ export function PortalTaskDetailClient({
       })
 
       if (response.ok) {
+        toast.success('承認しました')
         router.push('/portal')
         router.refresh()
+      } else if (response.status === 409) {
+        toast.error('他のユーザーが先に操作しました。画面を更新します。')
+        router.refresh()
+      } else if (response.status === 401) {
+        toast.error('セッションが切れました。再度アクセスしてください。')
+        router.push('/login')
+      } else {
+        toast.error('操作に失敗しました。しばらくしてからお試しください。')
       }
+    } catch (error) {
+      console.error('Approve failed:', error)
+      toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
     } finally {
       setIsSubmitting(false)
     }
@@ -108,10 +121,11 @@ export function PortalTaskDetailClient({
 
   const handleRequestChanges = async () => {
     if (!comment.trim()) {
-      toast.error('修正内容を入力してください')
+      toast.warning('修正内容を入力してください')
       return
     }
 
+    if (isSubmitting) return
     setIsSubmitting(true)
     try {
       const response = await fetch(`/api/portal/tasks/${task.id}`, {
@@ -121,9 +135,21 @@ export function PortalTaskDetailClient({
       })
 
       if (response.ok) {
+        toast.success('修正依頼を送信しました')
         router.push('/portal')
         router.refresh()
+      } else if (response.status === 409) {
+        toast.error('他のユーザーが先に操作しました。画面を更新します。')
+        router.refresh()
+      } else if (response.status === 400) {
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(errorData.error || 'コメントを入力してください。')
+      } else {
+        toast.error('操作に失敗しました。しばらくしてからお試しください。')
       }
+    } catch (error) {
+      console.error('Request changes failed:', error)
+      toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
     } finally {
       setIsSubmitting(false)
     }
@@ -264,18 +290,34 @@ export function PortalTaskDetailClient({
               <button
                 onClick={handleApprove}
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                aria-busy={isSubmitting}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Checks className="w-4 h-4" />
-                承認する
+                {isSubmitting ? (
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <Checks className="w-4 h-4" />
+                )}
+                {isSubmitting ? '承認中...' : '承認する'}
               </button>
               <button
                 onClick={handleRequestChanges}
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                aria-busy={isSubmitting}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <PaperPlaneTilt className="w-4 h-4" />
-                修正を依頼
+                {isSubmitting ? (
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <PaperPlaneTilt className="w-4 h-4" />
+                )}
+                {isSubmitting ? '送信中...' : '修正を依頼'}
               </button>
             </div>
           </div>

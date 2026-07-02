@@ -33,7 +33,7 @@ describe('LimitWarning', () => {
       <LimitWarning type="clients" remaining={0} isAtLimit={true} />
     )
 
-    expect(screen.getByText('クライアントの上限に達しました')).toBeInTheDocument()
+    expect(screen.getByText('外部の上限に達しました')).toBeInTheDocument()
     expect(screen.getByText('これ以上追加するにはプランのアップグレードが必要です')).toBeInTheDocument()
   })
 
@@ -63,7 +63,7 @@ describe('LimitWarning', () => {
 
   it('should show correct label for each type', () => {
     const types = ['projects', 'members', 'clients', 'storage'] as const
-    const labels = ['プロジェクト', 'メンバー', 'クライアント', 'ストレージ']
+    const labels = ['プロジェクト', 'メンバー', '外部', 'ストレージ']
 
     types.forEach((type, index) => {
       const { unmount } = render(

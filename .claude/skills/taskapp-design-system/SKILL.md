@@ -10,6 +10,8 @@ TaskApp の具体的なデザイントークンとコンポーネントパター
 
 完全な仕様: `docs/design/DESIGN_SYSTEM.md`
 
+> **モデル運用**: UI生成・編集中の準拠はこのスキルに従う（メインが実施）。まとまった差分の一括検査や独立したコンプライアンス監査は、決定的な検査のため `design-system-checker`（Haiku）サブエージェントに委譲してよい（違反の列挙のみ。修正判断はメイン/impl-runner）。
+
 ## Design Personality
 
 **Utility & Function** — Linear/GitHub-inspired。情報密度重視、装飾最小限、色は意味がある場合のみ。

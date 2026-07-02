@@ -11,6 +11,8 @@ import { TaskInspector } from '@/components/task/TaskInspector'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { BallSide, TaskStatus } from '@/types/database'
 
@@ -34,7 +36,16 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     loading: milestonesLoading,
     error: milestonesError,
     fetchMilestones,
+    updateMilestone,
   } = useMilestones({ spaceId })
+
+  const { user } = useCurrentUser()
+  const { members } = useSpaceMembers(spaceId)
+  const canEditMilestones = useMemo(() => {
+    if (!user) return false
+    const me = members.find((m) => m.id === user.id)
+    return me?.role === 'admin'
+  }, [user, members])
 
   const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
 
@@ -274,6 +285,19 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
     [tasks, updateTask]
   )
 
+  // Milestone date change handler
+  const handleMilestoneDateChange = useCallback(
+    async (milestoneId: string, startDate: string | null, dueDate: string | null) => {
+      try {
+        await updateMilestone(milestoneId, { startDate, dueDate })
+      } catch (err) {
+        console.error('[ガントチャート] マイルストーン日付変更に失敗:', err)
+        toast.error('マイルストーンの日付変更に失敗しました')
+      }
+    },
+    [updateMilestone]
+  )
+
   const loading = tasksLoading || milestonesLoading
   const error = tasksError || milestonesError
 
@@ -346,6 +370,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
             onDateChange={handleDateChange}
             onBarMove={handleBarMove}
             onParentChange={handleParentChange}
+            onMilestoneDateChange={canEditMilestones ? handleMilestoneDateChange : undefined}
           />
         )}
       </div>

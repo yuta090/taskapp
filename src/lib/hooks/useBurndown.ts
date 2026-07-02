@@ -39,7 +39,7 @@ export function useBurndown({
       return (await res.json()) as BurndownData
     },
     staleTime: 30_000,
-    enabled: !!milestoneId,
+    enabled: !!spaceId,
   })
 
   const refetch = useCallback(async () => {

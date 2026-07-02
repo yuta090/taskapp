@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
+import { fireApprovalEmail } from '@/lib/notifications/email-approval'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { getCachedUser, getCachedUserId } from '@/lib/supabase/cached-auth'
 import { fetchTasksQuery } from '@/lib/supabase/queries'
@@ -498,6 +499,15 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           })
         }
 
+        // 見積もりステータスがpendingに変更 & ボールがclientの場合、承認依頼メールを送信
+        if (
+          input.estimateStatus === 'pending' &&
+          prevTask?.estimate_status !== 'pending' &&
+          prevTask?.ball === 'client'
+        ) {
+          fireApprovalEmail({ taskId, spaceId })
+        }
+
         // Fire-and-forget audit logs
         if (prevTask) {
           const actorId = (await getCachedUserId(supabase)) ?? 'unknown'
@@ -680,6 +690,11 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           spaceId,
           changes: { newBall: ball },
         })
+
+        // Fire-and-forget: ボールがクライアントに移動した場合、承認依頼メールを送信
+        if (ball === 'client') {
+          fireApprovalEmail({ taskId, spaceId })
+        }
 
         // owners を再取得（passBallでowners が変わるため）
         const { data: newOwners, error: ownerFetchError } = await (supabase as SupabaseClient)

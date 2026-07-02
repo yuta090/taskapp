@@ -142,8 +142,8 @@ export default function InviteAcceptPage({
   if (!inviteInfo || !inviteInfo.valid) {
     return (
       <AuthCard
-        title="招待が無効です"
-        description={inviteInfo?.error || 'この招待リンクは無効または期限切れです。'}
+        title="招待リンクが無効です"
+        description="招待リンクの有効期限が切れたか、既に使用済みです。"
       >
         <div className="text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
@@ -151,12 +151,26 @@ export default function InviteAcceptPage({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
-          <Link
-            href="/login"
-            className="text-sm text-amber-600 hover:text-amber-700 font-medium"
-          >
-            ログインページへ
-          </Link>
+          <p className="text-sm text-gray-600 mb-4">
+            プロジェクト担当者に再招待を依頼してください。
+          </p>
+          <div className="flex flex-col gap-3">
+            <a
+              href="mailto:"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              メールで連絡する
+            </a>
+            <Link
+              href="/login"
+              className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+            >
+              ログインページへ
+            </Link>
+          </div>
         </div>
       </AuthCard>
     )

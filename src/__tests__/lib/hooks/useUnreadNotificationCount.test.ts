@@ -1,6 +1,9 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
+import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 
 // Mock Supabase client
 const mockGetUser = vi.fn()
@@ -18,11 +21,58 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
+interface QueryResult {
+  count: number | null
+  error: { message: string } | null
+}
+
+/**
+ * Builds a thenable + chainable stand-in for Supabase's PostgrestFilterBuilder.
+ * `.is(...)` is the terminal call for the "unread" query (awaited directly),
+ * while the "pending" query chains an additional `.in(...)` before awaiting.
+ * Both must resolve to the same underlying result so a single mock can serve both branches.
+ */
+function createQueryResult(result: QueryResult) {
+  const builder: {
+    then: (resolve: (value: QueryResult) => void) => void
+    eq: () => typeof builder
+    in: () => typeof builder
+  } = {
+    then: (resolve) => resolve(result),
+    eq: () => builder,
+    in: () => builder,
+  }
+  return builder
+}
+
+function createWrapper(orgValue: Partial<ActiveOrgContextValue> = {}) {
+  const value: ActiveOrgContextValue = {
+    activeOrgId: null,
+    activeOrgName: null,
+    activeOrgRole: null,
+    orgs: [],
+    switchOrg: () => {},
+    loading: false,
+    ...orgValue,
+  }
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(ActiveOrgContext.Provider, { value }, children)
+    )
+  }
+}
+
 describe('useUnreadNotificationCount', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    // Setup chain mocks
+    // Setup chain mocks: from().select().eq().eq().is()[.in()]
     mockFrom.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockEq.mockReturnValue({ eq: mockEq, is: mockIs })
@@ -35,7 +85,9 @@ describe('useUnreadNotificationCount', () => {
   it('should start with loading state', () => {
     mockGetUser.mockImplementation(() => new Promise(() => {}))
 
-    const { result } = renderHook(() => useUnreadNotificationCount())
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     expect(result.current.loading).toBe(true)
     expect(result.current.count).toBe(0)
@@ -48,7 +100,9 @@ describe('useUnreadNotificationCount', () => {
       error: null,
     })
 
-    const { result } = renderHook(() => useUnreadNotificationCount())
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -63,12 +117,11 @@ describe('useUnreadNotificationCount', () => {
       data: { user: { id: 'user-123' } },
       error: null,
     })
-    mockIs.mockResolvedValue({
-      count: 5,
-      error: null,
-    })
+    mockIs.mockReturnValue(createQueryResult({ count: 5, error: null }))
 
-    const { result } = renderHook(() => useUnreadNotificationCount())
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -83,12 +136,11 @@ describe('useUnreadNotificationCount', () => {
       data: { user: { id: 'user-123' } },
       error: null,
     })
-    mockIs.mockResolvedValue({
-      count: null,
-      error: null,
-    })
+    mockIs.mockReturnValue(createQueryResult({ count: null, error: null }))
 
-    const { result } = renderHook(() => useUnreadNotificationCount())
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -102,12 +154,13 @@ describe('useUnreadNotificationCount', () => {
       data: { user: { id: 'user-123' } },
       error: null,
     })
-    mockIs.mockResolvedValue({
-      count: null,
-      error: { message: 'Database error' },
-    })
+    mockIs.mockReturnValue(
+      createQueryResult({ count: null, error: { message: 'Database error' } })
+    )
 
-    const { result } = renderHook(() => useUnreadNotificationCount())
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -122,12 +175,11 @@ describe('useUnreadNotificationCount', () => {
       data: { user: { id: 'user-123' } },
       error: null,
     })
-    mockIs.mockResolvedValue({
-      count: 3,
-      error: null,
-    })
+    mockIs.mockReturnValue(createQueryResult({ count: 3, error: null }))
 
-    renderHook(() => useUnreadNotificationCount())
+    renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(mockFrom).toHaveBeenCalledWith('notifications')
@@ -144,12 +196,11 @@ describe('useUnreadNotificationCount', () => {
       data: { user: { id: 'user-123' } },
       error: null,
     })
-    mockIs.mockResolvedValue({
-      count: 2,
-      error: null,
-    })
+    mockIs.mockReturnValue(createQueryResult({ count: 2, error: null }))
 
-    const { result } = renderHook(() => useUnreadNotificationCount())
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
