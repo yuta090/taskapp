@@ -97,6 +97,22 @@ const dateStr = formatDateToLocalString(date)
 feature branch → (push/PR) → develop → (PR) → main
 ```
 
+## 並行作業は worktree で分離（厳守）
+
+このリポジトリでは**複数の作業ストリームが同時並行で進む**ことを前提とする（例: 機能開発とセキュリティ/RLS対応が同時に走る）。同一の作業ディレクトリ・同一ブランチを共有すると、**別ストリームのコミットが自分のフィーチャーブランチに差し込まれてPRが混在する**（過去に RLS Stage1・notify-approval Stage2 が機能PRへ混入）。これを防ぐため、**独立したストリームは必ず別の git worktree ＋ 別ブランチで作業する**。
+
+- **1ストリーム = 1 worktree = 1ブランチ = 1 PR**。ストリームをまたいでコミットしない。
+- **ブランチ命名**: 機能=`feat/*` / セキュリティ=`security/*`（RLSは`security/rls-*`）/ 修正=`fix/*`。いずれも `develop` 起点・`develop` 宛てPR。
+- **worktree の作成**:
+  ```bash
+  # セキュリティ作業を隔離する例（メイン作業ディレクトリはそのまま機能開発に使える）
+  git worktree add -b security/<topic> ../taskapp-wt-<topic> origin/develop
+  git -C ../taskapp-wt-<topic> <commit/push など>   # cd せず -C で操作すると安全
+  ```
+  worktree はリポジトリの**兄弟ディレクトリ** `../taskapp-wt-<topic>` に置く（リポジトリ内には作らない）。
+- **後片付け**: マージ後に `git worktree remove ../taskapp-wt-<topic>` で削除。放置しない。
+- **混在してしまった場合**: 別ストリームのコミットは `git worktree add` した専用ブランチへ `cherry-pick` して独立PR化し、自分のブランチは `git rebase --onto <直前> <混入コミット> <自分のブランチ>` で除去 → `git push --force-with-lease`（並行作業を巻き込まないため `--force` 単体は使わない）。
+
 ## 実装ルール（TDD必須）
 
 **実装は必ずテスト駆動開発（TDD）で行う** — Red → Green → Refactor。
