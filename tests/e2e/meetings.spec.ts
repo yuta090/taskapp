@@ -8,13 +8,14 @@ test.describe('Meetings Page', () => {
   })
 
   test('should display meetings page with header', async ({ page }) => {
-    await expect(page.locator('h1')).toContainText('議事録')
+    const breadcrumb = page.getByRole('navigation', { name: 'パンくずリスト' })
+    await expect(breadcrumb).toContainText('議事録')
   })
 
   test('should have create meeting button', async ({ page }) => {
-    const createBtn = page.getByTestId('meetings-create')
+    const createBtn = page.getByTestId('meetings-create-dropdown')
     await expect(createBtn).toBeVisible()
-    await expect(createBtn).toContainText('新規会議')
+    await expect(createBtn).toContainText('新規')
   })
 })
 

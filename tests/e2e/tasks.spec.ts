@@ -8,7 +8,8 @@ test.describe('Tasks Page', () => {
   })
 
   test('should display tasks page with header', async ({ page }) => {
-    await expect(page.locator('h1')).toContainText('課題')
+    const breadcrumb = page.getByRole('navigation', { name: 'パンくずリスト' })
+    await expect(breadcrumb).toContainText('タスク')
   })
 
   test('should have filter buttons', async ({ page }) => {
@@ -26,12 +27,12 @@ test.describe('Tasks Page', () => {
     const activeButton = page.getByTestId('tasks-filter-active')
 
     // Default: "all" is active
-    await expect(allButton).toHaveClass(/bg-gray-100/)
+    await expect(allButton).toHaveClass(/bg-white shadow-sm/)
 
     // Click active filter
     await activeButton.click()
     await expect(page).toHaveURL(/filter=active/)
-    await expect(activeButton).toHaveClass(/bg-gray-100/)
+    await expect(activeButton).toHaveClass(/bg-white shadow-sm/)
   })
 
   test('clicking "all" filter should clear filter param', async ({ page }) => {
@@ -54,7 +55,7 @@ test.describe('LeftNav', () => {
   test('should display workspace button', async ({ page }) => {
     const workspaceBtn = page.getByTestId('leftnav-workspace')
     await expect(workspaceBtn).toBeVisible()
-    await expect(workspaceBtn).toContainText('株式会社アトラス')
+    await expect(workspaceBtn).toContainText('アルカラ株式会社')
   })
 
   test('should display quick create button', async ({ page }) => {
@@ -77,7 +78,7 @@ test.describe('LeftNav', () => {
   })
 
   test('should navigate to my tasks', async ({ page }) => {
-    await page.getByRole('link', { name: '自分の課題' }).click()
+    await page.getByRole('link', { name: 'マイタスク' }).click()
     await expect(page).toHaveURL('/my')
   })
 })
@@ -132,21 +133,11 @@ test.describe('TaskCreateSheet', () => {
     await expect(sheet).not.toBeVisible({ timeout: 10000 })
   })
 
-  test('type selector should toggle between task and spec', async ({ page }) => {
-    const taskTypeBtn = page.getByTestId('task-create-type-task')
-    const specTypeBtn = page.getByTestId('task-create-type-spec')
-
-    // Default: task is selected with gray-100 background
-    await expect(taskTypeBtn).toHaveClass(/bg-gray-100/)
-
-    await specTypeBtn.click()
-    // Spec is now selected with purple-100 background
-    await expect(specTypeBtn).toHaveClass(/bg-purple-100/)
-
-    // Spec fields should appear
-    const specPathInput = page.getByTestId('task-create-spec-path')
-    await expect(specPathInput).toBeVisible()
-  })
+  // NOTE: The manual task/spec type selector was removed from the create sheet.
+  // Type is now auto-derived from whether a Wiki spec page is linked
+  // (see TaskCreateSheet.tsx: `wikiPageId ? 'spec' : 'task'`), so the former
+  // "type selector should toggle between task and spec" test is obsolete and
+  // has been removed.
 
   test('ball selector should toggle between internal and client', async ({ page }) => {
     const internalBtn = page.getByTestId('task-create-ball-internal')
