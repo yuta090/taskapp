@@ -113,6 +113,23 @@ feature branch → (push/PR) → develop → (PR) → main
 - **後片付け**: マージ後に `git worktree remove ../taskapp-wt-<topic>` で削除。放置しない。
 - **混在してしまった場合**: 別ストリームのコミットは `git worktree add` した専用ブランチへ `cherry-pick` して独立PR化し、自分のブランチは `git rebase --onto <直前> <混入コミット> <自分のブランチ>` で除去 → `git push --force-with-lease`（並行作業を巻き込まないため `--force` 単体は使わない）。
 
+### 命名の衝突回避（migration / ブランチ）— 厳守
+
+並行ストリームが**同じ名前を独立に選ぶ**とファイル/ブランチが衝突する（実例: `20260703_000_collab_notifications.sql` と `20260703_000_rls_stage0_grants.sql` が同一 `YYYYMMDD_000_` prefix で衝突）。名前は**時刻で一意化**し、**作成前に存在確認**する。
+
+- **マイグレーションのファイル名は秒まで入れる**: `YYYYMMDDHHMMSS_<topic>.sql`（例 `20260703142530_collab_notifications.sql`）。
+  - 連番方式（`YYYYMMDD_000_`, `_001_` …）は**使わない**。番号は別ストリームと必ず衝突する。
+  - 秒まで含めれば適用順序も一意に定まる。作成時は現在時刻を実際に確認して埋める（`date +%Y%m%d%H%M%S`）。
+  - 万一同秒で衝突したら末尾に `_a` `_b` を付す。
+- **ブランチ名は作成前に一意性を確認する**:
+  ```bash
+  # 既存なら別名にする。空きならそのまま作成
+  git ls-remote --exit-code origin "refs/heads/<name>" >/dev/null 2>&1 \
+    && echo "既存: 別名にする" || git worktree add -b <name> ../taskapp-wt-<topic> origin/develop
+  ```
+  - 命名は `feat/*` `security/*` `fix/*` `docs/*` を基本とし、汎用語（`feat/fix` 等）は避け**topic＋必要なら時刻**（`feat/<topic>-YYYYMMDDHHMM`）で一意化する。
+  - リモート/ローカル双方に無いことを確認してから作る。
+
 ## 実装ルール（TDD必須）
 
 **実装は必ずテスト駆動開発（TDD）で行う** — Red → Green → Refactor。
