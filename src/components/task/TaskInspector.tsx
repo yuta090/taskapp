@@ -11,6 +11,7 @@ import { useAgencyMode } from '@/lib/hooks/useAgencyMode'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
+import { TaskEventTimeline } from './TaskEventTimeline'
 import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
@@ -83,6 +84,7 @@ export function TaskInspector({
   const [isSavingOwners, setIsSavingOwners] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
   const [showComments, setShowComments] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [estimateInput, setEstimateInput] = useState('')
   const [isSendingEstimate, setIsSendingEstimate] = useState(false)
@@ -1493,6 +1495,22 @@ export function TaskInspector({
               clientOnly={false}
               canSetVisibility={isInternalMember}
             />
+          )}
+        </div>
+
+        {/* History / audit trail (collapsed by default) */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors w-full"
+          >
+            <Timer className="text-sm" />
+            <span>履歴</span>
+            {showHistory ? <CaretDown className="text-xs" /> : <CaretRight className="text-xs" />}
+          </button>
+          {showHistory && (
+            <TaskEventTimeline taskId={task.id} getMemberName={getMemberName} />
           )}
         </div>
       </div>
