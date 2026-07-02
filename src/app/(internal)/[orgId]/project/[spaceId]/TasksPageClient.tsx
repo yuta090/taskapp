@@ -489,10 +489,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             ? (decisionState) => handleSetSpecState(selectedTask.id, decisionState)
             : undefined
         }
+        onConsideringDecided={fetchTasks}
         onReviewChange={handleReviewChange}
       />
     )
-  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
