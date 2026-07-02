@@ -12,7 +12,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * - email_action_tokens を作成
  * - 承認依頼メールを送信
  *
- * 認証: ログインユーザーのセッション（内部UIから呼び出される）
+ * 認証: ログインユーザーのセッション（内部UIから呼び出される）。
+ * 呼び出し元が対象タスクの org/space の内部メンバーであることを検証してから
+ * トークン発行・メール送信を行う（他組織のタスクを指定した越権送信を防止）。
  */
 export async function POST(request: NextRequest) {
   try {
@@ -24,15 +26,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { taskId, spaceId } = body as { taskId: string; spaceId: string }
+    // spaceId は body から受け取らない（信頼できない入力）。task.space_id から導出する。
+    const { taskId } = body as { taskId: string }
 
-    if (!taskId || !spaceId) {
-      return NextResponse.json({ error: 'taskId and spaceId required' }, { status: 400 })
+    if (!taskId) {
+      return NextResponse.json({ error: 'taskId required' }, { status: 400 })
     }
 
     const admin = createAdminClient()
 
-    // タスク詳細を取得
+    // タスク詳細を取得（service_role: 存在確認のみ。認可判定には使わない）
     const { data: task, error: taskError } = await (admin as SupabaseClient)
       .from('tasks')
       .select('id, title, org_id, space_id, ball, estimate_status, estimated_cost')
@@ -42,6 +45,42 @@ export async function POST(request: NextRequest) {
     if (taskError || !task) {
       console.warn('[notify-approval] Task not found:', taskId)
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    }
+
+    // spaceId は必ず task.space_id から導出する（リクエストbody由来の値は使わない）。
+    const spaceId = task.space_id
+
+    // 認可チェック: 呼び出し元(セッション)が task の org/space の内部メンバーか確認。
+    // service_role ではなくセッション用クライアントで確認することで、
+    // admin権限に依存した認可バイパスを防ぐ。
+    const { data: spaceMembership } = await (supabase as SupabaseClient)
+      .from('space_memberships')
+      .select('role')
+      .eq('space_id', task.space_id)
+      .eq('user_id', user.id)
+      .neq('role', 'client')
+      .single()
+
+    let authorized = !!spaceMembership
+
+    if (!authorized) {
+      const { data: orgMembership } = await (supabase as SupabaseClient)
+        .from('org_memberships')
+        .select('role')
+        .eq('org_id', task.org_id)
+        .eq('user_id', user.id)
+        .neq('role', 'client')
+        .single()
+
+      authorized = !!orgMembership
+    }
+
+    if (!authorized) {
+      console.warn('[notify-approval] Forbidden: user not an internal member of task org/space', {
+        userId: user.id,
+        taskId,
+      })
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // ボールがクライアントでない場合はスキップ
