@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
+import path from 'path'
+
+const STORAGE_STATE = path.join(__dirname, 'tests/e2e/.auth/state.json')
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -7,8 +10,10 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
+  globalSetup: require.resolve('./tests/e2e/global-setup'),
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:4000',
+    storageState: STORAGE_STATE,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -20,7 +25,8 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:3000',
+    url: 'http://localhost:4000',
     reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
   },
 })
