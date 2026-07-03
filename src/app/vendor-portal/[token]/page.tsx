@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -34,6 +35,8 @@ export default function VendorInvitePage({
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  // V5: ログイン中アカウントのメールが招待メールと不一致のとき、自動承認せず警告を出す
+  const [emailMismatch, setEmailMismatch] = useState<{ invited: string; current: string } | null>(null)
 
   const acceptInvite = useCallback(async (userId?: string) => {
     setLoading(true)
@@ -105,7 +108,12 @@ export default function VendorInvitePage({
         setInviteInfo(data)
 
         if (session && data.valid) {
-          await acceptInvite(session.user.id)
+          if (shouldAutoAcceptInvite(session.user.email, data.email)) {
+            await acceptInvite(session.user.id)
+          } else {
+            // 別アカウントでログイン中: 自動承認せず、正しいアカウントを促す
+            setEmailMismatch({ invited: data.email, current: session.user.email ?? '' })
+          }
         }
       }
 
@@ -150,6 +158,36 @@ export default function VendorInvitePage({
             className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
           >
             ログインページへ
+          </Link>
+        </div>
+      </AuthCard>
+    )
+  }
+
+  // V5: 別アカウントでログイン中（招待メールと不一致）— 自動承認せず正しいアカウントを促す
+  if (emailMismatch) {
+    return (
+      <AuthCard
+        title="別のアカウントでログイン中です"
+        description="この招待はご利用中のアカウントとは別のメールアドレス宛です。誤ったアカウントへの参加を防ぐため、自動での参加を停止しました。"
+      >
+        <div className="space-y-4">
+          <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm">
+            <p className="text-gray-700">招待先: <strong className="text-amber-700">{emailMismatch.invited}</strong></p>
+            <p className="text-gray-700 mt-1">ログイン中: <strong>{emailMismatch.current}</strong></p>
+          </div>
+          <AuthButton
+            type="button"
+            onClick={async () => {
+              const supabase = createClient()
+              await supabase.auth.signOut()
+              window.location.reload()
+            }}
+          >
+            別のアカウントでログインし直す
+          </AuthButton>
+          <Link href="/vendor-portal" className="block text-center text-sm text-gray-500 hover:text-gray-700">
+            現在のアカウントのポータルに戻る
           </Link>
         </div>
       </AuthCard>
