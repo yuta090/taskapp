@@ -407,6 +407,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       assigneeId?: string | null
       actualHours?: number | null
       wikiPageId?: string | null
+      estimatedCost?: number | null
+      estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
     }) => {
       await updateTask(taskId, updates)
     },

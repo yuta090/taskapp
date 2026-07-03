@@ -17,6 +17,7 @@ import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskLevel } from '@/lib/risk/calculateRisk'
+import { buildMeetingHref } from '@/lib/navigation/meetingLinks'
 
 // -- Constants --
 
@@ -463,7 +464,7 @@ function UpcomingMeetingsSection({
             return (
               <Link
                 key={m.id}
-                href={`/${orgId}/project/${spaceId}/meetings?meetingId=${m.id}`}
+                href={buildMeetingHref(`/${orgId}/project/${spaceId}`, m.id)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors"
               >
                 <span className="text-xs text-gray-500 flex-shrink-0 w-16">
