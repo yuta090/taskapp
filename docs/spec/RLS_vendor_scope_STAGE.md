@@ -50,10 +50,11 @@ pass-ball / spec / review / task-pricing 等の RPC は RLS を迂回。各 RPC 
 3. **NULL `client_scope` = 外部（client/vendor）に非表示（fail-closed）で確定**。`= 'deliverable'` の三値論理で自然に非表示。既存 agency space の行は「本当に外注/クライアント向けのものだけ deliverable に分類、それ以外は internal」にバックフィルする（`coalesce` 既定 deliverable は禁止）。
 
 ## 5. 実装ステージ分割（migration-writer 量産・グループ別レビュー）
-- [ ] ヘルパ `app_is_space_vendor(p_space)`（SECURITY DEFINER, space_memberships 直参照）＋ org/space 整合チェック
-- [ ] `tasks` SELECT narrowing（マトリクス §2）
-- [ ] `tasks` UPDATE/DELETE narrowing ＋列書換ガード
-- [ ] `task_pricing` 可視性＋列保護（最優先）
+- [x] **Group1** ヘルパ `app_is_space_vendor` / `app_task_visible_to_caller`（`20260703_010`）
+- [x] **Group1** `tasks` SELECT/UPDATE/DELETE narrowing（マトリクス §2）— scratch DB 検証済み
+- [ ] `tasks` 列書換ガード（vendor が client_scope/ball を改変不可）
+- [x] **Group2** `task_pricing` = 内部メンバー限定（`20260703_011`）— margin/sell の read/write 漏洩を閉塞・検証済み
+- [ ] **Group2 後続**: ベンダー原価提出(cost_* のみ)／クライアント売値表示(sell_total のみ)の列限定 VIEW/RPC 専用パス
 - [ ] `task_comments`/`task_events`/`task_owners`/`reviews`/`task_relations`
 - [ ] meetings/wiki/milestones（§4-2 判断後）
 - [ ] 関連 SECURITY DEFINER RPC に可視性/書込ヘルパを内包
