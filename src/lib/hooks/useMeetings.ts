@@ -24,7 +24,7 @@ export interface CreateMeetingInput {
   internalParticipantIds: string[]
 }
 
-interface ParseMinutesResult {
+export interface ParseMinutesResult {
   createdCount: number
   createdTasks: Array<{
     taskId: string
@@ -36,7 +36,7 @@ interface ParseMinutesResult {
   updatedMinutes: string
 }
 
-interface MinutesPreviewResult {
+export interface MinutesPreviewResult {
   newSpecCount: number
   existingSpecCount: number
   newSpecs: Array<{
