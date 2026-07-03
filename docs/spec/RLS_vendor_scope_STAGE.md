@@ -44,10 +44,10 @@ pass-ball / spec / review / task-pricing 等の RPC は RLS を迂回。各 RPC 
 - **クライアントポータルの前提を要検証**: `/portal/task/[taskId]` 等 authenticated SSR 読取がある場合、client の RLS 挙動は「無影響」と仮定せず**テスト**する。
 - クエリ側 `.eq('client_scope','deliverable')` は defense-in-depth として残すが、**真の境界は RLS/RPC**。
 
-## 4. 要サインオフ（プロダクト/Fable 判断）
-1. **ベンダーから client-ball deliverable を隠す**か（推奨: 隠す＝機密性優先）。ベンダーが特定タスクに割当のとき例外可視にするなら `vendor_visible` フラグ or 割当ベース可視を別途設計。
-2. `milestones` をベンダーに見せるか（スケジュール共有 vs 戦略漏洩）。
-3. NULL `client_scope` の**バックフィル方針**（agency space の既存行を deliverable/internal に分類）。
+## 4. サインオフ（2026-07-03 確定）
+1. **ベンダーから client-ball deliverable を隠す = YES**（機密性優先）。当面は割当ベース例外なし（将来 `vendor_visible` フラグは別途検討）。
+2. **`milestones` をベンダーに見せる = YES**（スケジュール共有に必要）。→ milestones は既存の space スコープ RLS のままで可、**本ステージでの変更不要**。
+3. **NULL `client_scope` = 外部（client/vendor）に非表示（fail-closed）で確定**。`= 'deliverable'` の三値論理で自然に非表示。既存 agency space の行は「本当に外注/クライアント向けのものだけ deliverable に分類、それ以外は internal」にバックフィルする（`coalesce` 既定 deliverable は禁止）。
 
 ## 5. 実装ステージ分割（migration-writer 量産・グループ別レビュー）
 - [ ] ヘルパ `app_is_space_vendor(p_space)`（SECURITY DEFINER, space_memberships 直参照）＋ org/space 整合チェック
