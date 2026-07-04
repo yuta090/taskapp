@@ -16,6 +16,7 @@ import {
   Funnel,
 } from '@phosphor-icons/react'
 import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
+import { WARNING } from '@/lib/design/tokens'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
@@ -199,7 +200,7 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
     ? <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded font-medium flex-shrink-0">緊急</span>
     : isActionable && !isActioned
       ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
-          isUnread ? 'bg-amber-50 text-amber-700' : 'bg-amber-50/60 text-amber-600'
+          isUnread ? WARNING.badge : WARNING.badgeMuted
         }`}>要対応</span>
       : isActioned
         ? <span className="text-[10px] text-gray-400 flex-shrink-0">対応済み</span>
