@@ -22,12 +22,29 @@ function getResendClient(): Resend {
   return resendClient
 }
 
+// FROM_EMAIL 未設定警告は起動あたり一度だけ出す
+let fromEmailWarned = false
+
 function getFromEmail(): string {
-  return process.env.FROM_EMAIL || 'noreply@taskapp.example.com'
+  const fromEmail = process.env.FROM_EMAIL
+  if (!fromEmail && !fromEmailWarned) {
+    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
+    fromEmailWarned = true
+  }
+  return fromEmail || 'noreply@taskapp.example.com'
+}
+
+// 日付文字列を YYYY/M/D 形式に整形する（toISOString は使わずローカル日時を維持）
+function formatDueDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  return `${year}/${month}/${day}`
 }
 
 function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'TaskApp'
+  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
 }
 
 function getAppUrl(): string {
@@ -42,10 +59,12 @@ export interface SendApprovalEmailParams {
   orgName: string
   actionType: 'approve' | 'estimate_approve'
   estimatedCost?: number | null
+  dueDate?: string | null
+  descriptionExcerpt?: string | null
 }
 
 export async function sendApprovalEmail(params: SendApprovalEmailParams) {
-  const { to, token, taskTitle, spaceName, orgName, actionType, estimatedCost } = params
+  const { to, token, taskTitle, spaceName, orgName, actionType, estimatedCost, dueDate, descriptionExcerpt } = params
 
   const appUrl = getAppUrl()
   const appName = getAppName()
@@ -68,6 +87,8 @@ export async function sendApprovalEmail(params: SendApprovalEmailParams) {
     portalUrl,
     actionType,
     estimatedCost,
+    dueDateLabel: dueDate ? formatDueDate(dueDate) : null,
+    descriptionExcerpt: descriptionExcerpt || null,
   }
 
   // React Email コンポーネントから HTML + プレーンテキストを生成

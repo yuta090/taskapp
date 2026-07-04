@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     // タスク詳細を取得（service_role: 存在確認のみ。認可判定には使わない）
     const { data: task, error: taskError } = await (admin as SupabaseClient)
       .from('tasks')
-      .select('id, title, org_id, space_id, ball, estimate_status, estimated_cost')
+      .select('id, title, org_id, space_id, ball, estimate_status, estimated_cost, due_date, description')
       .eq('id', taskId)
       .single()
 
@@ -179,6 +179,8 @@ interface TaskData {
   space_id: string
   estimate_status: string
   estimated_cost: number | null
+  due_date: string | null
+  description: string | null
 }
 
 async function sendEmailsToUsers(
@@ -238,6 +240,8 @@ async function sendEmailsToUsers(
         orgName,
         actionType,
         estimatedCost: task.estimated_cost,
+        dueDate: task.due_date,
+        descriptionExcerpt: task.description ? task.description.slice(0, 120) : null,
       })
     } catch (err) {
       console.error(`[notify-approval] Failed to send to ${email}:`, err)
