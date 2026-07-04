@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { APPROVE_BUTTON } from '@/lib/design/tokens'
 
 interface ActionCardProps {
   id: string
@@ -153,7 +154,7 @@ export function ActionCard({
               <button
                 onClick={handleApprove}
                 disabled={disabled}
-                className="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700 rounded-md transition-all border border-indigo-100"
+                className={`px-3 py-1.5 text-xs font-bold ${APPROVE_BUTTON.soft} rounded-md transition-all border border-green-100`}
               >
                 承認
               </button>
@@ -187,7 +188,7 @@ export function ActionCard({
             <button
               onClick={handleApprove}
               disabled={disabled}
-              className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-md"
+              className="px-3 py-1.5 text-xs font-bold text-green-600 hover:bg-green-50 rounded-md"
             >
               承認
             </button>
