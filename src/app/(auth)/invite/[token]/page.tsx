@@ -35,61 +35,53 @@ export default function InviteAcceptPage({
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
 
-  const acceptInvite = useCallback(async (userId?: string) => {
+  const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
     setError('')
 
     try {
-      const supabase = createClient()
-
-      if (!userId) {
-        // 新規ユーザーの場合、まず登録
-        if (password.length < 8) {
-          setError('パスワードは8文字以上で入力してください')
-          setLoading(false)
-          return
-        }
-
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: inviteInfo!.email,
-          password,
-        })
-
-        if (authError) {
-          setError(authError.message)
-          setLoading(false)
-          return
-        }
-
-        if (!authData.user) {
-          setError('ユーザー作成に失敗しました')
-          setLoading(false)
-          return
-        }
-
-        userId = authData.user.id
-      }
-
-      // 招待を受諾
-      const { error: acceptError } = await (supabase as SupabaseClient).rpc('rpc_accept_invite', {
-        p_token: token,
-        p_user_id: userId,
-      })
-
-      if (acceptError) {
-        setError(acceptError.message)
+      if (!isAutoAccept && password.length < 8) {
+        setError('パスワードは8文字以上で入力してください')
         setLoading(false)
         return
       }
 
+      // サーバーサイドで受諾（新規ユーザー作成はサーバー側で招待メールのアドレスを使って行う）
+      const response = await fetch(`/api/invites/${token}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: isAutoAccept ? undefined : JSON.stringify({ password }),
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || 'エラーが発生しました')
+        setLoading(false)
+        return
+      }
+
+      if (!isAutoAccept) {
+        const supabase = createClient()
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: data.email,
+          password,
+        })
+
+        if (signInError) {
+          setError(signInError.message)
+          setLoading(false)
+          return
+        }
+      }
+
       // リダイレクト（内部メンバー用）
-      router.push(`/${inviteInfo!.org_id}/project/${inviteInfo!.space_id}`)
+      router.push(`/${data.org_id}/project/${data.space_id}`)
     } catch (err) {
       console.error('Accept error:', err)
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, inviteInfo, token, router])
+  }, [password, token, router])
 
   useEffect(() => {
     async function loadInvite() {
@@ -111,7 +103,7 @@ export default function InviteAcceptPage({
 
         // ログイン済みの場合は自動で受諾
         if (session && data.valid) {
-          await acceptInvite(session.user.id)
+          await acceptInvite(true)
         }
       }
 
@@ -123,7 +115,7 @@ export default function InviteAcceptPage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await acceptInvite()
+    await acceptInvite(false)
   }
 
   if (checkingAuth) {
