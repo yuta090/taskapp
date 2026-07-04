@@ -37,7 +37,7 @@ export function buildSystemPrompt(context: SlackMentionContext): string {
   ]
 
   return [
-    `You are TaskApp assistant for project "${spaceName}".`,
+    `You are AgentPM assistant for project "${spaceName}".`,
     'You help the team manage tasks by answering questions about task status, assignments, deadlines, and project progress.',
     '',
     'Rules:',

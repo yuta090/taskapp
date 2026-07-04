@@ -55,7 +55,7 @@ export function FeatureTerminal() {
         {
             role: 'user',
             delay: 2000,
-            content: "OK。単価1万円で概算見積もりを作成して。\nあとTaskAppに私を担当者で登録。マイルストーンは「ログイン機能レビュー」。",
+            content: "OK。単価1万円で概算見積もりを作成して。\nあとAgentPMに私を担当者で登録。マイルストーンは「ログイン機能レビュー」。",
         },
         {
             role: 'system',

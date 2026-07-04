@@ -2,7 +2,7 @@
 
 ## MCPとは
 
-MCP（Model Context Protocol）は、Claude Code などの AI ツールから TaskApp を直接操作するためのインターフェースです。MCP サーバーを接続すると、自然言語で指示を出すだけで、タスクの作成・更新、会議管理、レビュー操作などが可能になります。
+MCP（Model Context Protocol）は、Claude Code などの AI ツールから AgentPM を直接操作するためのインターフェースです。MCP サーバーを接続すると、自然言語で指示を出すだけで、タスクの作成・更新、会議管理、レビュー操作などが可能になります。
 
 ### メリット
 
@@ -54,7 +54,7 @@ MCP（Model Context Protocol）は、Claude Code などの AI ツールから Ta
 Claude Code で以下のように聞いてみてください:
 
 ```
-TaskAppのプロジェクト一覧を表示して
+AgentPMのプロジェクト一覧を表示して
 ```
 
 プロジェクト名の一覧が返ってくれば接続成功です。

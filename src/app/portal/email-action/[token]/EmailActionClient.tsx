@@ -85,7 +85,7 @@ export function EmailActionClient({ token }: { token: string }) {
             TA
           </div>
           <div className="text-sm text-gray-500">
-            {data?.orgName && `${data.orgName} / `}{data?.spaceName || 'TaskApp'}
+            {data?.orgName && `${data.orgName} / `}{data?.spaceName || 'AgentPM'}
           </div>
         </div>
 

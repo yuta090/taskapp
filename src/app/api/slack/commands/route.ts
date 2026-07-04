@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (channelError || !channelLink) {
     return NextResponse.json({
       response_type: 'ephemeral',
-      text: 'このチャンネルはTaskAppに連携されていません',
+      text: 'このチャンネルはAgentPMに連携されていません',
     })
   }
 
