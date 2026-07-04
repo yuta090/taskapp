@@ -197,7 +197,7 @@ export function PortalOnboardingWalkthrough() {
         style={cardPositionStyle}
       >
         {/* Top accent bar */}
-        <div className="h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-400" />
+        <div className="h-1 bg-amber-500" />
 
         {/* Close / Skip */}
         <button
@@ -288,7 +288,7 @@ export function PortalOnboardingWalkthrough() {
             className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg transition-colors ${
               isLast
                 ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
             }`}
           >
             {isLast ? (
