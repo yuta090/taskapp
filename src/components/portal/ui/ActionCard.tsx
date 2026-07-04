@@ -104,6 +104,7 @@ export function ActionCard({
             ? 'bg-gray-50 border border-gray-200'
             : 'hover:bg-gray-50/80 border border-transparent hover:border-gray-200/60'
         }`}
+      data-walkthrough="portal-action-card"
       onClick={() => !showInput && onViewDetail?.(id)}
     >
       {/* Main row: Title + Due date + Actions */}
@@ -126,7 +127,7 @@ export function ActionCard({
         </div>
 
         {/* Right: Due date (always visible) + Actions (hover) */}
-        <div className="mt-2 sm:mt-0 flex items-center gap-3 flex-shrink-0">
+        <div className="mt-2 sm:mt-0 flex items-center gap-3 flex-shrink-0" data-walkthrough="portal-action-buttons">
           {/* Due date - always visible */}
           {dueDate && (
             <span className={`inline-flex items-center gap-1.5 text-sm tabular-nums ${
