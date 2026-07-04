@@ -26,6 +26,8 @@ import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalO
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
+import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
+import { RiskSummaryBanner } from '@/components/risk/RiskSummaryBanner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
@@ -112,6 +114,21 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     useTasks({ orgId, spaceId })
   const { milestones } = useMilestones({ spaceId })
   const { getMemberName } = useSpaceMembers(spaceId)
+  const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
+
+  // リスク/期限超過サマリー (#89): ガントを開かなくても一覧先頭で気づける
+  const overdueCount = useMemo(() => {
+    const now = new Date()
+    return tasks.filter(
+      (t) => t.status !== 'done' && t.due_date && new Date(t.due_date) < now
+    ).length
+  }, [tasks])
+  const highRiskCount = useMemo(
+    () =>
+      Array.from(riskForecasts.values()).filter((r) => r.level === 'high')
+        .length,
+    [riskForecasts]
+  )
 
   const [sortKey, setSortKey] = useState<SortKey>('milestone')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -1054,6 +1071,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </div>
         </div>
       </header>
+
+      {/* リスク/期限超過サマリー (#89) */}
+      <RiskSummaryBanner
+        overdueCount={overdueCount}
+        highRiskCount={highRiskCount}
+        href={`${projectBasePath}/views/gantt`}
+      />
 
       {/* Content */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">

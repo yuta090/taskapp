@@ -31,6 +31,7 @@ import { ApiSettings } from './ApiSettings'
 import { ExportSettings } from './ExportSettings'
 import { SetupBanner } from './SetupBanner'
 import type { SettingSectionId, ConnectionStatus } from './types'
+import { WARNING } from '@/lib/design/tokens'
 
 /* ─── Types ─── */
 
@@ -92,7 +93,7 @@ const categories: SettingCategory[] = [
 const statusStyles: Record<ConnectionStatus, string> = {
   connected: 'bg-emerald-500',
   disconnected: 'bg-gray-300',
-  warning: 'bg-amber-500 animate-pulse',
+  warning: `${WARNING.dot} animate-pulse`,
   none: '',
 }
 

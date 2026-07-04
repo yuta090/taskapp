@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   X,
   Play,
@@ -10,9 +10,13 @@ import {
   FileText,
   ListChecks,
   ArrowRight,
+  CheckCircle,
+  CircleNotch,
+  ArrowSquareOut,
 } from '@phosphor-icons/react'
 import { AmberBadge } from '@/components/shared'
 import type { Meeting, MeetingParticipant } from '@/types/database'
+import type { MinutesPreviewResult, ParseMinutesResult } from '@/lib/hooks/useMeetings'
 
 interface MeetingInspectorProps {
   meeting: Meeting
@@ -20,6 +24,10 @@ interface MeetingInspectorProps {
   onClose: () => void
   onStart?: () => void
   onEnd?: () => void
+  /** AT-005/#87: 議事録から SPEC 行のタスク化候補をプレビュー（生成はしない） */
+  onPreviewMinutes?: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
+  /** AT-005/#87: 議事録の未処理 SPEC 行をタスク化して結果を返す */
+  onCreateTasks?: (meetingId: string, minutesMd: string) => Promise<ParseMinutesResult>
 }
 
 type Tab = 'info' | 'minutes' | 'decisions'
@@ -30,14 +38,73 @@ export function MeetingInspector({
   onClose,
   onStart,
   onEnd,
+  onPreviewMinutes,
+  onCreateTasks,
 }: MeetingInspectorProps) {
   const [activeTab, setActiveTab] = useState<Tab>('info')
+
+  // #87: 議事録→タスク化
+  const [preview, setPreview] = useState<MinutesPreviewResult | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createResult, setCreateResult] = useState<ParseMinutesResult | null>(null)
+  const [taskError, setTaskError] = useState<string | null>(null)
 
   const clientParticipants = participants.filter((p) => p.side === 'client')
   const internalParticipants = participants.filter((p) => p.side === 'internal')
 
   const canStart = meeting.status === 'planned'
   const canEnd = meeting.status === 'in_progress'
+
+  // 会議ごとに一度だけプレビューを走らせるためのキー（自前 setState での再実行を防ぐ）
+  const previewKeyRef = useRef<string | null>(null)
+
+  // 別会議に切り替わったらタスク化の状態をリセット
+  useEffect(() => {
+    previewKeyRef.current = null
+    setPreview(null)
+    setCreateResult(null)
+    setTaskError(null)
+  }, [meeting.id])
+
+  // 議事録タブを開いたときに一度だけタスク化候補をプレビュー
+  useEffect(() => {
+    if (activeTab !== 'minutes') return
+    if (!meeting.minutes_md || !onPreviewMinutes) return
+    if (createResult) return
+    if (previewKeyRef.current === meeting.id) return
+    previewKeyRef.current = meeting.id
+    let cancelled = false
+    setPreviewLoading(true)
+    onPreviewMinutes(meeting.id, meeting.minutes_md)
+      .then((result) => {
+        if (!cancelled) setPreview(result)
+      })
+      .catch(() => {
+        if (!cancelled) setTaskError('タスク化候補の取得に失敗しました')
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult])
+
+  const handleTaskify = async () => {
+    if (!onCreateTasks || !meeting.minutes_md) return
+    setCreating(true)
+    setTaskError(null)
+    try {
+      const result = await onCreateTasks(meeting.id, meeting.minutes_md)
+      setCreateResult(result)
+      setPreview(null)
+    } catch {
+      setTaskError('タスク化に失敗しました')
+    } finally {
+      setCreating(false)
+    }
+  }
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -207,11 +274,111 @@ export function MeetingInspector({
         {activeTab === 'minutes' && (
           <div className="space-y-4">
             {meeting.minutes_md ? (
-              <div className="prose prose-sm max-w-none">
-                <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
-                  {meeting.minutes_md}
-                </pre>
-              </div>
+              <>
+                {/* #87: 議事録→タスク化パネル */}
+                {onPreviewMinutes && (
+                  <div
+                    data-testid="minutes-task-panel"
+                    className="rounded-lg border border-gray-200 p-3 space-y-3"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                      <ListChecks className="text-sm" />
+                      決定事項のタスク化
+                    </div>
+
+                    {taskError && (
+                      <p className="text-xs text-red-600" role="alert">
+                        {taskError}
+                      </p>
+                    )}
+
+                    {createResult ? (
+                      // 作成結果
+                      <div data-testid="minutes-task-result" className="space-y-2">
+                        <div className="flex items-center gap-1.5 text-sm text-green-700">
+                          <CheckCircle weight="fill" className="text-base" />
+                          {createResult.createdCount}件のタスクを作成しました
+                        </div>
+                        <ul className="space-y-1">
+                          {createResult.createdTasks.map((t) => (
+                            <li
+                              key={t.taskId}
+                              className="text-xs text-gray-600 flex items-center gap-1"
+                            >
+                              <ArrowSquareOut className="text-gray-400 flex-shrink-0" />
+                              <span className="truncate">{t.title}</span>
+                              {t.dueDate && (
+                                <span className="text-gray-400">（{t.dueDate}）</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : previewLoading ? (
+                      <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                        <CircleNotch className="animate-spin" />
+                        候補を確認中…
+                      </div>
+                    ) : preview && preview.newSpecCount > 0 ? (
+                      <>
+                        <ul className="space-y-1.5">
+                          {preview.newSpecs.map((s) => (
+                            <li
+                              key={s.lineNumber}
+                              data-testid="minutes-task-candidate"
+                              className="flex items-start gap-1.5 text-sm text-gray-700"
+                            >
+                              <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-900" />
+                              <div className="min-w-0">
+                                <div className="truncate">{s.title}</div>
+                                <div className="truncate text-xs text-gray-400">
+                                  {s.specPath}
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                        {preview.existingSpecCount > 0 && (
+                          <p
+                            data-testid="minutes-task-existing"
+                            className="text-xs text-gray-400"
+                          >
+                            作成済み {preview.existingSpecCount}件はスキップします
+                          </p>
+                        )}
+                        <button
+                          onClick={handleTaskify}
+                          disabled={creating || !onCreateTasks}
+                          data-testid="minutes-taskify-button"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {creating ? (
+                            <CircleNotch className="animate-spin" />
+                          ) : (
+                            <ListChecks weight="fill" />
+                          )}
+                          {creating
+                            ? '作成中…'
+                            : `${preview.newSpecCount}件をタスク化`}
+                        </button>
+                      </>
+                    ) : preview ? (
+                      <p
+                        data-testid="minutes-task-empty"
+                        className="text-xs text-gray-400"
+                      >
+                        タスク化できる決定事項はありません
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="prose prose-sm max-w-none">
+                  <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+                    {meeting.minutes_md}
+                  </pre>
+                </div>
+              </>
             ) : (
               <div className="text-center py-10 text-gray-400">
                 <FileText className="text-4xl mx-auto mb-2 opacity-50" />
