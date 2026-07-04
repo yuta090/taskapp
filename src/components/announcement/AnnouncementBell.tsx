@@ -5,10 +5,10 @@ import { Bell, CheckCircle, Megaphone, Wrench, WarningCircle } from '@phosphor-i
 import { useAnnouncements, type Announcement } from '@/lib/hooks/useAnnouncements'
 
 const CATEGORY_CONFIG: Record<Announcement['category'], { icon: typeof Bell; color: string; label: string }> = {
-  info: { icon: Bell, color: 'text-blue-500', label: 'お知らせ' },
-  feature: { icon: Megaphone, color: 'text-indigo-500', label: '新機能' },
-  maintenance: { icon: Wrench, color: 'text-amber-500', label: 'メンテナンス' },
-  important: { icon: WarningCircle, color: 'text-red-500', label: '重要' },
+  info: { icon: Bell, color: 'text-blue-600', label: 'お知らせ' },
+  feature: { icon: Megaphone, color: 'text-indigo-600', label: '新機能' },
+  maintenance: { icon: Wrench, color: 'text-orange-600', label: 'メンテナンス' },
+  important: { icon: WarningCircle, color: 'text-red-600', label: '重要' },
 }
 
 function timeAgo(dateStr: string): string {
@@ -79,7 +79,7 @@ export function AnnouncementBell() {
       >
         <Bell size={20} weight={unreadCount > 0 ? 'fill' : 'regular'} />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full leading-none">
+          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold text-white bg-red-600 rounded-full leading-none">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -162,7 +162,7 @@ export function AnnouncementBell() {
                               {config.label}
                             </span>
                             {item.read_at === null && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 flex-shrink-0" />
                             )}
                           </div>
                           <p className="text-sm font-medium text-gray-900 mt-1 truncate">

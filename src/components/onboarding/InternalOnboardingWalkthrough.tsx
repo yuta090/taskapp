@@ -192,7 +192,7 @@ export function InternalOnboardingWalkthrough() {
         style={cardPositionStyle}
       >
         {/* Top accent bar */}
-        <div className="h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-500" />
+        <div className="h-1 bg-indigo-600" />
 
         {/* Close / Skip */}
         <button
@@ -219,9 +219,9 @@ export function InternalOnboardingWalkthrough() {
                 key={i}
                 className={`h-1 rounded-full transition-all duration-300 ${
                   i === currentStep
-                    ? 'w-8 bg-blue-500'
+                    ? 'w-8 bg-indigo-600'
                     : i < currentStep
-                      ? 'w-4 bg-blue-300'
+                      ? 'w-4 bg-indigo-200'
                       : 'w-4 bg-gray-200'
                 }`}
               />
@@ -280,8 +280,8 @@ export function InternalOnboardingWalkthrough() {
             onClick={handleNext}
             className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg transition-colors ${
               isLast
-                ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
             }`}
           >
             {isLast ? (
