@@ -7,7 +7,13 @@
 
 import type { Task, Milestone } from '@/types/database'
 
-export type RiskLevel = 'high' | 'medium' | 'low' | 'none'
+/**
+ * リスクレベル。
+ * - high/medium/low: 実際のペース評価
+ * - none: 残タスクなし（リスクなし）
+ * - unknown: 評価保留（velocity データ不足／期限未設定）。**赤にしない中立表示**（#89）
+ */
+export type RiskLevel = 'high' | 'medium' | 'low' | 'none' | 'unknown'
 
 export interface RiskAssessment {
   level: RiskLevel
@@ -56,25 +62,25 @@ export function calculateMilestoneRisk(
     }
   }
 
-  // No due date - cannot assess
+  // All remaining tasks are client-blocked（先に判定：ボールが顧客にある間は自社リスクではない）
+  const allClientBlocked =
+    remainingTasks.length > 0 &&
+    remainingTasks.every((t) => t.ball === 'client')
+
+  // No due date - cannot assess → 中立(unknown)
   if (!milestone.due_date) {
     return {
-      level: 'low',
+      level: 'unknown',
       ratio: 0,
       remainingTasks: remainingTasks.length,
       velocity,
       clientBlockedTasks: clientBlockedTasks.length,
       availableDays: 0,
       requiredDays: 0,
-      allClientBlocked: false,
+      allClientBlocked,
       insufficientData: true,
     }
   }
-
-  // All remaining tasks are client-blocked
-  const allClientBlocked =
-    remainingTasks.length > 0 &&
-    remainingTasks.every((t) => t.ball === 'client')
 
   // Calculate available days
   const today = new Date()
@@ -85,10 +91,40 @@ export function calculateMilestoneRisk(
     (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
   )
 
-  // No velocity data (no tasks completed in last 14 days)
-  if (velocity === 0) {
+  // 残りが全て顧客待ちなら、遅延・期限超過でも赤にしない（自社のせいにしない・ボール反映 #89）
+  if (allClientBlocked) {
+    return {
+      level: 'low',
+      ratio: availableDays > 0 ? remainingTasks.length / velocity / availableDays : Infinity,
+      remainingTasks: remainingTasks.length,
+      velocity,
+      clientBlockedTasks: clientBlockedTasks.length,
+      availableDays,
+      requiredDays: velocity > 0 ? remainingTasks.length / velocity : Infinity,
+      allClientBlocked,
+      insufficientData: false,
+    }
+  }
+
+  // Deadline already passed（社内残あり）→ 実際の期限超過は赤のまま
+  if (availableDays <= 0) {
     return {
       level: 'high',
+      ratio: Infinity,
+      remainingTasks: remainingTasks.length,
+      velocity,
+      clientBlockedTasks: clientBlockedTasks.length,
+      availableDays,
+      requiredDays: velocity > 0 ? remainingTasks.length / velocity : Infinity,
+      allClientBlocked,
+      insufficientData: false,
+    }
+  }
+
+  // No velocity data (no tasks completed in last 14 days) → データ不足は中立(unknown)。新規案件を赤にしない（#89）
+  if (velocity === 0) {
+    return {
+      level: 'unknown',
       ratio: Infinity,
       remainingTasks: remainingTasks.length,
       velocity: 0,
@@ -101,21 +137,6 @@ export function calculateMilestoneRisk(
   }
 
   const requiredDays = remainingTasks.length / velocity
-
-  // Deadline already passed
-  if (availableDays <= 0) {
-    return {
-      level: 'high',
-      ratio: Infinity,
-      remainingTasks: remainingTasks.length,
-      velocity,
-      clientBlockedTasks: clientBlockedTasks.length,
-      availableDays,
-      requiredDays,
-      allClientBlocked,
-      insufficientData: false,
-    }
-  }
 
   const ratio = requiredDays / availableDays
 
@@ -157,9 +178,11 @@ export function calculateVelocity(tasks: Task[], days: number = 14): number {
 
   const completedInWindow = tasks.filter((t) => {
     if (t.status !== 'done') return false
-    const completedDate = t.completed_at ?? t.updated_at
-    if (!completedDate) return false
-    return new Date(completedDate) >= cutoff
+    // completed_at のみを基準にする。updated_at をフォールバックにすると、
+    // 完了済みタスクの無関係な編集(コメント追加など)で updated_at が更新され、
+    // 過去の完了が窓内に誤カウントされてしまう（#89）。日付不明なら計上しない。
+    if (!t.completed_at) return false
+    return new Date(t.completed_at) >= cutoff
   })
 
   return completedInWindow.length / days

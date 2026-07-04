@@ -101,12 +101,14 @@ function riskBadge(level: RiskLevel) {
     medium: 'bg-amber-100 text-amber-700',
     low: 'bg-green-100 text-green-700',
     none: 'bg-gray-100 text-gray-500',
+    unknown: 'bg-gray-100 text-gray-500',
   }
   const labels: Record<RiskLevel, string> = {
     high: '高リスク',
     medium: '中リスク',
     low: '低リスク',
     none: '完了',
+    unknown: 'データ待ち',
   }
   return (
     <span
