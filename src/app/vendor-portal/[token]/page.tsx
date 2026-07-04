@@ -176,9 +176,9 @@ export default function VendorInvitePage({
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">TA</span>
+              <span className="text-white font-bold text-sm">A</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">TaskApp</span>
+            <span className="text-xl font-bold text-gray-900">AgentPM</span>
           </Link>
           <div className="mt-2">
             <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded">

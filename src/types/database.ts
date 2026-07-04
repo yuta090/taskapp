@@ -104,6 +104,7 @@ export interface Database {
           display_name: string
           avatar_url: string | null
           is_superadmin: boolean
+          onboarding_flags: Record<string, boolean>
           created_at: string
           updated_at: string
         }
@@ -112,6 +113,7 @@ export interface Database {
           display_name?: string
           avatar_url?: string | null
           is_superadmin?: boolean
+          onboarding_flags?: Record<string, boolean>
           created_at?: string
           updated_at?: string
         }
@@ -120,6 +122,7 @@ export interface Database {
           display_name?: string
           avatar_url?: string | null
           is_superadmin?: boolean
+          onboarding_flags?: Record<string, boolean>
           created_at?: string
           updated_at?: string
         }

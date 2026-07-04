@@ -246,7 +246,11 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         </TruncatedText>
 
         {/* Client visible indicator */}
-        {task.ball === 'client' && <AmberDot />}
+        {task.ball === 'client' && (
+          <span data-walkthrough="task-row-visibility">
+            <AmberDot />
+          </span>
+        )}
 
         {/* Client origin badge */}
         {task.origin === 'client' && (
@@ -343,7 +347,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       )}
 
       {/* Ball indicator */}
-      <div className="flex-shrink-0 row-meta">
+      <div className="flex-shrink-0 row-meta" data-walkthrough="task-row-ball">
         <BallIndicator ball={task.ball} />
       </div>
 

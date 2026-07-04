@@ -65,7 +65,7 @@ export function AdminSidebar({ unreadCount }: AdminSidebarProps) {
       <div className="px-4 py-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-xs">T</span>
+            <span className="text-white font-bold text-xs">A</span>
           </div>
           <span className="text-sm font-bold text-gray-900">Admin</span>
         </div>

@@ -19,12 +19,21 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { org_id, space_id, email, role } = body
+    const { org_id, space_id, email, role, message } = body
 
     // バリデーション
     if (!org_id || !space_id || !email || !role) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
+
+    // メッセージは任意入力・最大500文字
+    const trimmedMessage = typeof message === 'string' ? message.trim() : ''
+    if (trimmedMessage.length > 500) {
+      return NextResponse.json(
+        { error: 'Message exceeds maximum length of 500 characters' },
         { status: 400 }
       )
     }
@@ -83,8 +92,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 組織名とスペース名を取得
-    const [orgResult, spaceResult] = await Promise.all([
+    // 組織名・スペース名・招待者の表示名を取得
+    const [orgResult, spaceResult, profileResult] = await Promise.all([
       (supabase as SupabaseClient)
         .from('organizations')
         .select('name')
@@ -95,10 +104,17 @@ export async function POST(request: NextRequest) {
         .select('name')
         .eq('id', space_id)
         .single(),
+      (supabase as SupabaseClient)
+        .from('profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .single(),
     ])
 
     const orgName = orgResult.data?.name || '組織'
     const spaceName = spaceResult.data?.name || 'プロジェクト'
+    const inviterName =
+      profileResult.data?.display_name || user.user_metadata?.full_name || user.email || '管理者'
 
     // RPC で招待作成（制限チェック含む）
     const { data, error } = await (supabase as SupabaseClient).rpc('rpc_create_invite', {
@@ -120,9 +136,6 @@ export async function POST(request: NextRequest) {
     let emailSent = false
     if (data?.token && data?.expires_at) {
       try {
-        // 招待者の名前を取得（ユーザーメタデータまたはメールアドレス）
-        const inviterName = user.user_metadata?.full_name || user.email || '管理者'
-
         await sendInviteEmail({
           to: normalizedEmail,
           inviterName,
@@ -131,6 +144,7 @@ export async function POST(request: NextRequest) {
           role: role as 'client' | 'member',
           token: data.token,
           expiresAt: data.expires_at,
+          message: trimmedMessage || undefined,
         })
         emailSent = true
       } catch (emailError) {

@@ -23,6 +23,8 @@ export interface ApprovalEmailProps {
   portalUrl: string
   actionType: 'approve' | 'estimate_approve'
   estimatedCost?: number | null
+  dueDateLabel?: string | null
+  descriptionExcerpt?: string | null
 }
 
 function formatCurrency(amount: number): string {
@@ -41,6 +43,8 @@ export default function ApprovalEmail({
   portalUrl,
   actionType,
   estimatedCost,
+  dueDateLabel,
+  descriptionExcerpt,
 }: ApprovalEmailProps) {
   const isEstimate = actionType === 'estimate_approve'
   const heading = isEstimate ? '見積もりの確認' : '確認のお願い'
@@ -99,6 +103,16 @@ export default function ApprovalEmail({
                 <Text className="text-gray-400 text-[13px] m-0 mt-1">
                   {orgName} / {spaceName}
                 </Text>
+                {dueDateLabel && (
+                  <Text className="text-gray-400 text-[13px] m-0 mt-1">
+                    期限: {dueDateLabel}
+                  </Text>
+                )}
+                {descriptionExcerpt && (
+                  <Text className="text-gray-600 text-[13px] leading-[1.6] m-0 mt-2">
+                    {descriptionExcerpt}
+                  </Text>
+                )}
               </Section>
 
               {/* Estimate Amount */}
@@ -151,7 +165,7 @@ export default function ApprovalEmail({
 }
 
 ApprovalEmail.PreviewProps = {
-  appName: 'TaskApp',
+  appName: 'AgentPM',
   taskTitle: 'フロントエンド実装 - ログイン画面',
   spaceName: 'ECサイトリニューアル',
   orgName: 'クラフトテック',
