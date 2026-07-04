@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export default function OnboardingPage() {
   const router = useRouter()
   const [orgName, setOrgName] = useState('')
+  const [prefilled, setPrefilled] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
@@ -21,6 +22,13 @@ export default function OnboardingPage() {
       if (!user) {
         router.replace('/login')
         return
+      }
+
+      // signup時に登録した組織名があればプレフィル
+      const metadataOrgName = user.user_metadata?.org_name
+      if (metadataOrgName) {
+        setOrgName(metadataOrgName)
+        setPrefilled(true)
       }
 
       // 既にmembershipがある場合はスキップ
@@ -155,7 +163,11 @@ export default function OnboardingPage() {
   return (
     <AuthCard
       title="組織を作成"
-      description="あと少しで完了です。組織名を入力してください。"
+      description={
+        prefilled
+          ? '登録時の組織名を確認して開始してください。'
+          : 'あと少しで完了です。組織名を入力してください。'
+      }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (

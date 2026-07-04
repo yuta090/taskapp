@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
-import type { User } from '@supabase/supabase-js'
+import { AuthSessionMissingError, type User } from '@supabase/supabase-js'
 
 export interface CurrentUserState {
   user: User | null
@@ -30,8 +30,13 @@ export function useCurrentUser(): CurrentUserState {
         setUser(fetchedUser)
         setError(null)
       } catch (err) {
-        console.error('Failed to fetch user:', err)
-        setError('ユーザー情報の取得に失敗しました')
+        // 未ログイン時の「セッションなし」は正常系。ノイズになるためログせずエラー扱いしない。
+        if (err instanceof AuthSessionMissingError) {
+          setError(null)
+        } else {
+          console.error('Failed to fetch user:', err)
+          setError('ユーザー情報の取得に失敗しました')
+        }
         setUser(null)
       } finally {
         setLoading(false)
