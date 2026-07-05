@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
+import { updateHomePageSpecLinks } from '@/lib/presets/homeLinks'
 import type { PresetGenre } from '@/lib/presets'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * POST /api/spaces/[spaceId]/apply-preset
@@ -102,34 +104,7 @@ export async function POST(
   }
 
   // 7. Update home page with real spec page links (non-critical)
-  if (genre !== 'blank' && preset.wikiPages.some(p => p.isHome)) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: allPages } = await (supabase as any)
-        .from('wiki_pages')
-        .select('id, title, tags')
-        .eq('space_id', spaceId)
-        .eq('org_id', orgId)
-
-      const pages = (allPages || []) as { id: string; title: string; tags: string[] }[]
-      const homePage = pages.find(p => p.tags.includes('ホーム'))
-      const specPages = pages
-        .filter(p => !p.tags.includes('ホーム'))
-        .map(p => ({ id: p.id, title: p.title }))
-
-      const homePreset = preset.wikiPages.find(p => p.isHome)
-      if (homePreset && homePage && specPages.length > 0) {
-        const homeBody = homePreset.generateBody(orgId, spaceId, specPages)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any)
-          .from('wiki_pages')
-          .update({ body: homeBody })
-          .eq('id', homePage.id)
-      }
-    } catch (err) {
-      console.warn('[apply-preset] Home page spec link update failed:', err)
-    }
-  }
+  await updateHomePageSpecLinks(supabase as unknown as SupabaseClient, preset, orgId, spaceId)
 
   return NextResponse.json({
     milestonesCreated: rpcResult.milestones_created ?? 0,

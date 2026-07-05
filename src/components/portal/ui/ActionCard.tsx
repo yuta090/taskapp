@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { APPROVE_BUTTON } from '@/lib/design/tokens'
 
 interface ActionCardProps {
   id: string
@@ -103,6 +104,7 @@ export function ActionCard({
             ? 'bg-gray-50 border border-gray-200'
             : 'hover:bg-gray-50/80 border border-transparent hover:border-gray-200/60'
         }`}
+      data-walkthrough="portal-action-card"
       onClick={() => !showInput && onViewDetail?.(id)}
     >
       {/* Main row: Title + Due date + Actions */}
@@ -125,7 +127,7 @@ export function ActionCard({
         </div>
 
         {/* Right: Due date (always visible) + Actions (hover) */}
-        <div className="mt-2 sm:mt-0 flex items-center gap-3 flex-shrink-0">
+        <div className="mt-2 sm:mt-0 flex items-center gap-3 flex-shrink-0" data-walkthrough="portal-action-buttons">
           {/* Due date - always visible */}
           {dueDate && (
             <span className={`inline-flex items-center gap-1.5 text-sm tabular-nums ${
@@ -153,7 +155,7 @@ export function ActionCard({
               <button
                 onClick={handleApprove}
                 disabled={disabled}
-                className="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700 rounded-md transition-all border border-indigo-100"
+                className={`px-3 py-1.5 text-xs font-bold ${APPROVE_BUTTON.soft} rounded-md transition-all border border-green-100`}
               >
                 承認
               </button>
@@ -187,7 +189,7 @@ export function ActionCard({
             <button
               onClick={handleApprove}
               disabled={disabled}
-              className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-md"
+              className="px-3 py-1.5 text-xs font-bold text-green-600 hover:bg-green-50 rounded-md"
             >
               承認
             </button>

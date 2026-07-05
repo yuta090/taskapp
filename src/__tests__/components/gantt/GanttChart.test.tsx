@@ -159,11 +159,18 @@ describe('GanttChart', () => {
   it('should render legend', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    expect(screen.getByText('外部確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
     expect(screen.getByText('社内対応中')).toBeInTheDocument()
     // "マイルストーン" also appears as the (default-active) grouping button,
     // so use getAllByText to tolerate duplicates.
     expect(screen.getAllByText('マイルストーン').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('should use unified terminology for the in_review status filter (M-3)', () => {
+    render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    expect(screen.getByText('社内承認中')).toBeInTheDocument()
+    expect(screen.queryByText('確認中')).not.toBeInTheDocument()
   })
 
   it('should render zoom controls', () => {

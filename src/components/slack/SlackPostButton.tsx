@@ -55,7 +55,7 @@ export function SlackPostButton({ taskId, spaceId }: SlackPostButtonProps) {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="メッセージを追加（任意）"
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 resize-none"
             rows={2}
           />
           <div className="flex justify-end gap-2">
@@ -65,6 +65,7 @@ export function SlackPostButton({ taskId, spaceId }: SlackPostButtonProps) {
             >
               キャンセル
             </button>
+            {/* Slackブランドカラー（サードパーティブランドのためハードコード16進を許容する例外） */}
             <button
               onClick={handlePost}
               disabled={postToSlack.isPending}

@@ -27,7 +27,7 @@ export default async function AdminAnnouncementsPage() {
 
   // Get read counts per announcement
   const announcementIds = announcements.map((a) => a.id as string)
-  let readCounts = new Map<string, number>()
+  const readCounts = new Map<string, number>()
 
   if (announcementIds.length > 0) {
     const { data: reads } = await admin

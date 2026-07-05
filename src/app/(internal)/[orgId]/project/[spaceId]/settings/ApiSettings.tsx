@@ -281,7 +281,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       </div>
 
       <p className="text-sm text-gray-500">
-        外部ツール（Claude Code、MCPクライアント等）からTaskAppにアクセスするためのAPIキーを管理します。
+        外部ツール（Claude Code、MCPクライアント等）からAgentPMにアクセスするためのAPIキーを管理します。
       </p>
 
       {/* Newly created key modal */}

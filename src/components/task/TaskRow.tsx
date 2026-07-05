@@ -39,9 +39,9 @@ function isOverdue(dateStr: string | null): boolean {
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; icon: React.ReactNode }[] = [
   { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-400" /> },
-  { value: 'todo', label: 'Todo', icon: <Circle className="text-gray-400" /> },
+  { value: 'todo', label: '着手予定', icon: <Circle className="text-gray-400" /> },
   { value: 'in_progress', label: '進行中', icon: <Circle weight="fill" className="text-blue-400" /> },
-  { value: 'in_review', label: '承認確認中', icon: <Circle weight="fill" className="text-amber-400" /> },
+  { value: 'in_review', label: '社内承認中', icon: <Circle weight="fill" className="text-amber-400" /> },
   { value: 'done', label: '完了', icon: <CheckCircle weight="fill" className="text-green-500" /> },
 ]
 
@@ -65,9 +65,9 @@ function getStatusIcon(status: TaskStatus) {
 function getStatusLabel(status: TaskStatus): string {
   const labels: Record<string, string> = {
     backlog: 'バックログ',
-    todo: 'Todo',
+    todo: '着手予定',
     in_progress: '進行中',
-    in_review: '承認確認中',
+    in_review: '社内承認中',
     considering: '検討中',
     done: '完了',
   }
@@ -147,7 +147,7 @@ function BallIndicator({ ball }: { ball: BallSide }) {
     return (
       <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
         <ArrowRight weight="bold" className="text-xs" />
-        外部確認待ち
+        クライアント確認待ち
       </span>
     )
   }
@@ -199,7 +199,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           type="button"
           onClick={handleCheck}
           className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all ${
-            bulkMode ? '' : 'opacity-0 group-hover:opacity-100'
+            bulkMode ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
           } ${
             isChecked
               ? 'bg-blue-500 border-blue-500 text-white'
@@ -219,7 +219,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
             e.stopPropagation()
             handleStatusChange(task.status === 'done' ? 'todo' : 'done')
           }}
-          className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all ${
+          className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${
             task.status === 'done'
               ? 'bg-gray-900 border-gray-900 text-white'
               : 'border-gray-300 hover:border-gray-400 text-transparent hover:text-gray-400'
@@ -246,7 +246,11 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         </TruncatedText>
 
         {/* Client visible indicator */}
-        {task.ball === 'client' && <AmberDot />}
+        {task.ball === 'client' && (
+          <span data-walkthrough="task-row-visibility">
+            <AmberDot />
+          </span>
+        )}
 
         {/* Client origin badge */}
         {task.origin === 'client' && (
@@ -298,10 +302,10 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
             }`}
           >
             {reviewStatus === 'approved'
-              ? '承認済'
+              ? '社内承認済み'
               : reviewStatus === 'changes_requested'
               ? '差戻'
-              : '承認待ち'}
+              : '社内承認待ち'}
           </span>
         )}
       </div>
@@ -328,7 +332,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           }}
           className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
         >
-          承認を依頼
+          社内承認を依頼
         </button>
       )}
 
@@ -343,7 +347,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       )}
 
       {/* Ball indicator */}
-      <div className="flex-shrink-0 row-meta">
+      <div className="flex-shrink-0 row-meta" data-walkthrough="task-row-ball">
         <BallIndicator ball={task.ball} />
       </div>
 

@@ -16,6 +16,7 @@ export const test = base.extend({
         // localStorage unavailable (should not happen in Chromium) — ignore
       }
     }, ONBOARDING_KEYS)
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Playwright のフィクスチャ関数であり React Hook ではない
     await use(page)
   },
 })

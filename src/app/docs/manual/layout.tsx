@@ -1,8 +1,8 @@
 import { ManualSidebar } from '@/components/docs/ManualSidebar'
 
 export const metadata = {
-  title: 'マニュアル | TaskApp',
-  description: 'TaskApp のご利用マニュアル',
+  title: 'マニュアル | AgentPM',
+  description: 'AgentPM のご利用マニュアル',
 }
 
 export default function ManualLayout({

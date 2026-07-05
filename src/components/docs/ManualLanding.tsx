@@ -13,7 +13,7 @@ export function ManualLanding() {
   return (
     <div className="max-w-3xl mx-auto px-6 md:px-8 py-8 md:py-12">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">TaskApp マニュアル</h1>
+        <h1 className="text-2xl font-bold text-gray-900">AgentPM マニュアル</h1>
         <p className="text-sm text-gray-500 mt-2">
           プロジェクト管理に必要な操作方法をまとめています
         </p>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { CheckCircle, Warning, SpinnerGap, ArrowRight } from '@phosphor-icons/react'
+import { APPROVE_BUTTON } from '@/lib/design/tokens'
 
 interface TaskData {
   id: string
@@ -84,7 +85,7 @@ export function EmailActionClient({ token }: { token: string }) {
             TA
           </div>
           <div className="text-sm text-gray-500">
-            {data?.orgName && `${data.orgName} / `}{data?.spaceName || 'TaskApp'}
+            {data?.orgName && `${data.orgName} / `}{data?.spaceName || 'AgentPM'}
           </div>
         </div>
 
@@ -164,7 +165,7 @@ function ReadyView({ data, onApprove }: { data: TokenData; onApprove: () => void
       <button
         type="button"
         onClick={onApprove}
-        className="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors text-base shadow-sm"
+        className={`w-full py-3 px-4 ${APPROVE_BUTTON.solid} font-bold rounded-xl transition-colors text-base shadow-sm`}
       >
         {isEstimate ? '見積もりを承認する' : '承認する'}
       </button>

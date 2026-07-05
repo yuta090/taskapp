@@ -1,14 +1,17 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { ArrowLeft, CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass } from '@phosphor-icons/react'
+import { ArrowLeft, CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass, Copy } from '@phosphor-icons/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+
+const INVITE_MESSAGE_MAX_LENGTH = 500
 
 interface MemberRow {
   user_id: string
@@ -45,8 +48,17 @@ export default function MembersSettingsPage() {
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
+  const [inviteSpaceId, setInviteSpaceId] = useState('')
+  const [inviteNote, setInviteNote] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteMessage, setInviteMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+
+  const { spaces: userSpaces } = useUserSpaces()
+  const invitableSpaces = useMemo(
+    () => userSpaces.filter(s => s.orgId === orgId && (s.role === 'admin' || s.role === 'editor')),
+    [userSpaces, orgId]
+  )
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
@@ -118,6 +130,12 @@ export default function MembersSettingsPage() {
     void fetchMembers()
   }, [orgId, orgLoading, userLoading, fetchMembers])
 
+  useEffect(() => {
+    if (!inviteSpaceId && invitableSpaces.length > 0) {
+      setInviteSpaceId(invitableSpaces[0].id)
+    }
+  }, [invitableSpaces, inviteSpaceId])
+
   const handleRoleChange = async (userId: string, newRole: string) => {
     if (!isOwner || userId === user?.id || !orgId) return
 
@@ -168,22 +186,65 @@ export default function MembersSettingsPage() {
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !isOwner) return
+    if (!inviteEmail.trim() || !isOwner || !orgId || !inviteSpaceId) return
+    if (inviteNote.length > INVITE_MESSAGE_MAX_LENGTH) return
 
     setInviting(true)
     setInviteMessage(null)
+    setInviteLink(null)
 
     try {
-      setInviteMessage({
-        type: 'success',
-        text: `${inviteEmail} への招待メール送信機能は準備中です。直接メンバーを追加する場合は、まずユーザーにアカウント作成を依頼してください。`,
+      const response = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: orgId,
+          space_id: inviteSpaceId,
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          message: inviteNote.trim(),
+        }),
       })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setInviteMessage({ type: 'error', text: data.error || 'メンバーの招待に失敗しました' })
+        return
+      }
+
+      if (data.email_sent) {
+        setInviteMessage({
+          type: 'success',
+          text: `${inviteEmail} に招待メールを送信しました`,
+        })
+      } else {
+        const link = `${window.location.origin}${inviteRole === 'client' ? '/portal' : '/invite'}/${data.token}`
+        setInviteLink(link)
+        setInviteMessage({
+          type: 'error',
+          text: '招待リンクを作成しました（メール送信に失敗したためリンクを共有してください）',
+        })
+      }
+
       setInviteEmail('')
+      setInviteNote('')
     } catch (err: unknown) {
       console.error('Failed to invite member:', err)
       setInviteMessage({ type: 'error', text: 'メンバーの招待に失敗しました' })
     } finally {
       setInviting(false)
+    }
+  }
+
+  const handleCopyInviteLink = async () => {
+    if (!inviteLink) return
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      toast.success('招待リンクをコピーしました')
+    } catch (err: unknown) {
+      console.error('Failed to copy invite link:', err)
+      toast.error('コピーに失敗しました')
     }
   }
 
@@ -397,6 +458,24 @@ export default function MembersSettingsPage() {
               </div>
             )}
 
+            {inviteLink && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={inviteLink}
+                  className="flex-1 px-3 py-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg"
+                />
+                <button
+                  onClick={handleCopyInviteLink}
+                  className="flex items-center gap-1 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  コピー
+                </button>
+              </div>
+            )}
+
             <div className="flex items-end gap-3">
               <div className="flex-1">
                 <label className="text-xs text-gray-500">メールアドレス</label>
@@ -407,6 +486,22 @@ export default function MembersSettingsPage() {
                   placeholder="email@example.com"
                   className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+              </div>
+              <div className="w-40">
+                <label htmlFor="invite-space" className="text-xs text-gray-500">プロジェクト</label>
+                <select
+                  id="invite-space"
+                  value={inviteSpaceId}
+                  onChange={e => setInviteSpaceId(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {invitableSpaces.length === 0 && <option value="">プロジェクトがありません</option>}
+                  {invitableSpaces.map(space => (
+                    <option key={space.id} value={space.id}>
+                      {space.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="w-32">
                 <label className="text-xs text-gray-500">役割</label>
@@ -421,12 +516,30 @@ export default function MembersSettingsPage() {
               </div>
               <button
                 onClick={handleInvite}
-                disabled={!inviteEmail.trim() || inviting}
+                disabled={!inviteEmail.trim() || !inviteSpaceId || inviting || inviteNote.length > INVITE_MESSAGE_MAX_LENGTH}
                 className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 {inviting ? '送信中...' : '招待'}
               </button>
+            </div>
+
+            <div>
+              <label htmlFor="invite-message" className="text-xs text-gray-500">メッセージ（任意）</label>
+              <textarea
+                id="invite-message"
+                value={inviteNote}
+                onChange={e => setInviteNote(e.target.value)}
+                placeholder="招待に添えるひと言メッセージ"
+                rows={2}
+                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              />
+              <div className={`mt-1 text-[11px] text-right ${inviteNote.length > INVITE_MESSAGE_MAX_LENGTH ? 'text-red-600' : 'text-gray-400'}`}>
+                {inviteNote.length > INVITE_MESSAGE_MAX_LENGTH && (
+                  <span className="float-left text-red-600">{INVITE_MESSAGE_MAX_LENGTH}文字以内で入力してください</span>
+                )}
+                {inviteNote.length}/{INVITE_MESSAGE_MAX_LENGTH}
+              </div>
             </div>
           </div>
         )}

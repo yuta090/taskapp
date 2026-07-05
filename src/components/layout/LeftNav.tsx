@@ -258,7 +258,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <PlugsConnected className="text-base text-gray-500" />
-              外部連携
+              個人の外部連携
             </Link>
             <Link
               href="/settings/api-keys"
@@ -637,7 +637,7 @@ function SpaceNavItem({
           <SubNavItem
             href={`${basePath}?filter=client_wait`}
             icon={<ChatCircleText />}
-            label="確認待ち"
+            label="クライアント確認待ち"
             active={isActive(`${basePath}?filter=client_wait`, pathname === basePath && searchParams.get('filter') === 'client_wait')}
             collapsed={collapsed}
             onNavigate={onNavigate}

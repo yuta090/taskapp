@@ -41,6 +41,7 @@ $$ language sql security definer;
 -- -----------------------------------------------------------------------------
 alter table system_integration_configs enable row level security;
 
+drop policy if exists "superadmin can view system configs" on system_integration_configs;
 create policy "superadmin can view system configs"
   on system_integration_configs for select
   using (
@@ -50,6 +51,7 @@ create policy "superadmin can view system configs"
     )
   );
 
+drop policy if exists "superadmin can insert system configs" on system_integration_configs;
 create policy "superadmin can insert system configs"
   on system_integration_configs for insert
   with check (
@@ -59,6 +61,7 @@ create policy "superadmin can insert system configs"
     )
   );
 
+drop policy if exists "superadmin can update system configs" on system_integration_configs;
 create policy "superadmin can update system configs"
   on system_integration_configs for update
   using (
@@ -68,6 +71,7 @@ create policy "superadmin can update system configs"
     )
   );
 
+drop policy if exists "superadmin can delete system configs" on system_integration_configs;
 create policy "superadmin can delete system configs"
   on system_integration_configs for delete
   using (
@@ -88,6 +92,7 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists system_integration_configs_updated_at on system_integration_configs;
 create trigger system_integration_configs_updated_at
   before update on system_integration_configs
   for each row execute function update_system_integration_configs_updated_at();

@@ -12,6 +12,7 @@ import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
+import { SAVING } from '@/lib/design/tokens'
 
 interface WikiPageClientProps {
   orgId: string
@@ -204,7 +205,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           <div className="flex items-center gap-2">
             {saveStatus === 'saving' && (
               <span className="text-xs text-gray-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                <span className={`w-1.5 h-1.5 ${SAVING.dot} rounded-full animate-pulse`} />
                 保存中...
               </span>
             )}

@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase/client'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { usePortalVisibilityForPortal, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 const STORAGE_KEY = 'taskapp:sidebar:portal:collapsed'
 
@@ -229,6 +230,9 @@ export function PortalLeftNav({
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
   const { sections } = usePortalVisibilityForPortal(currentProject?.id ?? null)
+  const { user } = useCurrentUser()
+  const userName = user?.user_metadata?.name as string | undefined
+  const userEmail = user?.email
 
   const visibleNavItems = useMemo(() => {
     const items: { key: keyof PortalVisibleSections; href: string; icon: React.ReactNode; label: string; badge?: number }[] = [
@@ -290,15 +294,15 @@ export function PortalLeftNav({
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded transition-colors group flex-1 min-w-0 ${
             showProjectSwitcher ? 'hover:bg-white/50 cursor-pointer' : 'cursor-default'
           }`}
-          title={collapsed ? (currentProject?.name || 'TaskApp') : undefined}
+          title={collapsed ? (currentProject?.name || 'AgentPM') : undefined}
         >
           <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-md flex-shrink-0">
-            TA
+            A
           </div>
           {!collapsed && (
             <>
               <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
-                {currentProject?.name || 'TaskApp'}
+                {currentProject?.name || 'AgentPM'}
               </span>
               {showProjectSwitcher && (
                 <CaretDown
@@ -421,7 +425,7 @@ export function PortalLeftNav({
       </div>
 
       {/* User Menu at bottom */}
-      <UserMenu collapsed={collapsed} />
+      <UserMenu collapsed={collapsed} userName={userName} userEmail={userEmail} />
 
       {/* Request Sheet */}
       <PortalRequestSheet

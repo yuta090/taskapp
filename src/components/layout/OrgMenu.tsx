@@ -83,7 +83,7 @@ export function OrgMenu({ isOpen, onClose, collapsed }: OrgMenuProps) {
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <PlugsConnected className="text-base text-gray-500" />
-          外部連携
+          組織の外部連携
         </Link>
         <Link
           href="/settings/billing"

@@ -26,6 +26,8 @@ import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalO
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
+import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
+import { RiskSummaryBanner } from '@/components/risk/RiskSummaryBanner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
@@ -112,6 +114,21 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     useTasks({ orgId, spaceId })
   const { milestones } = useMilestones({ spaceId })
   const { getMemberName } = useSpaceMembers(spaceId)
+  const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
+
+  // リスク/期限超過サマリー (#89): ガントを開かなくても一覧先頭で気づける
+  const overdueCount = useMemo(() => {
+    const now = new Date()
+    return tasks.filter(
+      (t) => t.status !== 'done' && t.due_date && new Date(t.due_date) < now
+    ).length
+  }, [tasks])
+  const highRiskCount = useMemo(
+    () =>
+      Array.from(riskForecasts.values()).filter((r) => r.level === 'high')
+        .length,
+    [riskForecasts]
+  )
 
   const [sortKey, setSortKey] = useState<SortKey>('milestone')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -271,8 +288,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
 
   const STATUS_LABELS: Record<string, string> = {
-    backlog: '未着手', todo: 'ToDo', in_progress: '進行中',
-    in_review: '承認確認中', considering: '検討中', done: '完了',
+    backlog: '未着手', todo: '着手予定', in_progress: '進行中',
+    in_review: '社内承認中', considering: '検討中', done: '完了',
   }
   const STATUS_ORDER: string[] = ['in_progress', 'todo', 'in_review', 'backlog', 'considering', 'done']
 
@@ -820,7 +837,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? '確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
+    { label: activeFilter === 'client_wait' ? 'クライアント確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
   ]
 
   return (
@@ -901,7 +918,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              確認待ち
+              クライアント確認待ち
             </button>
             <button
               type="button"
@@ -1054,6 +1071,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </div>
         </div>
       </header>
+
+      {/* リスク/期限超過サマリー (#89) */}
+      <RiskSummaryBanner
+        overdueCount={overdueCount}
+        highRiskCount={highRiskCount}
+        href={`${projectBasePath}/views/gantt`}
+      />
 
       {/* Content */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">

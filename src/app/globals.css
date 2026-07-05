@@ -38,6 +38,14 @@
   --color-amber-500: #F59E0B;
   --color-amber-600: #D97706;
 
+  /* Orange (Warning / 要対応 / 接続異常) — amber をクライアント可視専用に保つための別トークン */
+  --color-orange-50: #FFF7ED;
+  --color-orange-100: #FFEDD5;
+  --color-orange-200: #FED7AA;
+  --color-orange-500: #F97316;
+  --color-orange-600: #EA580C;
+  --color-orange-700: #C2410C;
+
   /* Indigo (Primary) */
   --color-indigo-500: #6366F1;
   --color-indigo-600: #4F46E5;

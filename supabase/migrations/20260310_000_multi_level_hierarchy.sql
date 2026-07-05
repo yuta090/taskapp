@@ -23,6 +23,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_prevent_space_id_change ON tasks;
 CREATE TRIGGER trg_prevent_space_id_change
   BEFORE UPDATE OF space_id ON tasks
   FOR EACH ROW
@@ -85,6 +86,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Step 4: Create the trigger
+DROP TRIGGER IF EXISTS trg_check_task_parent_hierarchy ON tasks;
 CREATE TRIGGER trg_check_task_parent_hierarchy
   BEFORE INSERT OR UPDATE OF parent_task_id ON tasks
   FOR EACH ROW

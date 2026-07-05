@@ -38,49 +38,43 @@ export default function VendorInvitePage({
   // V5: ログイン中アカウントのメールが招待メールと不一致のとき、自動承認せず警告を出す
   const [emailMismatch, setEmailMismatch] = useState<{ invited: string; current: string } | null>(null)
 
-  const acceptInvite = useCallback(async (userId?: string) => {
+  const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
     setError('')
 
     try {
-      const supabase = createClient()
+      if (!isAutoAccept && password.length < 8) {
+        setError('パスワードは8文字以上で入力してください')
+        setLoading(false)
+        return
+      }
 
-      if (!userId) {
-        if (password.length < 8) {
-          setError('パスワードは8文字以上で入力してください')
-          setLoading(false)
-          return
-        }
+      // サーバーサイドで受諾（新規ユーザー作成はサーバー側で招待メールのアドレスを使って行う）
+      const response = await fetch(`/api/invites/${token}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: isAutoAccept ? undefined : JSON.stringify({ password }),
+      })
+      const data = await response.json()
 
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: inviteInfo!.email,
+      if (!response.ok) {
+        setError(data.error || 'エラーが発生しました')
+        setLoading(false)
+        return
+      }
+
+      if (!isAutoAccept) {
+        const supabase = createClient()
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: data.email,
           password,
         })
 
-        if (authError) {
-          setError(authError.message)
+        if (signInError) {
+          setError(signInError.message)
           setLoading(false)
           return
         }
-
-        if (!authData.user) {
-          setError('ユーザー作成に失敗しました')
-          setLoading(false)
-          return
-        }
-
-        userId = authData.user.id
-      }
-
-      const { error: acceptError } = await (supabase as SupabaseClient).rpc('rpc_accept_invite', {
-        p_token: token,
-        p_user_id: userId,
-      })
-
-      if (acceptError) {
-        setError(acceptError.message)
-        setLoading(false)
-        return
       }
 
       router.push('/vendor-portal')
@@ -89,7 +83,7 @@ export default function VendorInvitePage({
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, inviteInfo, token, router])
+  }, [password, token, router])
 
   useEffect(() => {
     async function loadInvite() {
@@ -109,7 +103,7 @@ export default function VendorInvitePage({
 
         if (session && data.valid) {
           if (shouldAutoAcceptInvite(session.user.email, data.email)) {
-            await acceptInvite(session.user.id)
+            await acceptInvite(true)
           } else {
             // 別アカウントでログイン中: 自動承認せず、正しいアカウントを促す
             setEmailMismatch({ invited: data.email, current: session.user.email ?? '' })
@@ -125,7 +119,7 @@ export default function VendorInvitePage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await acceptInvite()
+    await acceptInvite(false)
   }
 
   if (checkingAuth) {
@@ -214,9 +208,9 @@ export default function VendorInvitePage({
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">TA</span>
+              <span className="text-white font-bold text-sm">A</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">TaskApp</span>
+            <span className="text-xl font-bold text-gray-900">AgentPM</span>
           </Link>
           <div className="mt-2">
             <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded">

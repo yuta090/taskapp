@@ -35,9 +35,9 @@ export function MetricCard({ label, value, trend, icon, status = 'default', clas
                     )}
                 </div>
 
-                <div className="mt-2">
-                    <div className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-                        {icon && <span className="text-gray-400">{icon}</span>}
+                <div className="mt-2 min-w-0">
+                    <div className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2 min-w-0">
+                        {icon && <span className="text-gray-400 flex-shrink-0">{icon}</span>}
                         {value}
                     </div>
 

@@ -31,16 +31,16 @@ export function UsageBar({ label, used, limit, unit = '', showWarning = true }: 
   const isNearLimit = percentage >= 80
   const isAtLimit = percentage >= 100
 
-  let barColor = 'bg-indigo-500'
+  let barColor = 'bg-indigo-600'
   let textColor = 'text-gray-900'
 
   if (showWarning) {
     if (isAtLimit) {
-      barColor = 'bg-red-500'
+      barColor = 'bg-red-600'
       textColor = 'text-red-600'
     } else if (isNearLimit) {
-      barColor = 'bg-amber-500'
-      textColor = 'text-amber-600'
+      barColor = 'bg-orange-600'
+      textColor = 'text-orange-600'
     }
   }
 

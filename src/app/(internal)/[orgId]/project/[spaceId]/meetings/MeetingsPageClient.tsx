@@ -67,6 +67,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     createMeeting,
     startMeeting,
     endMeeting,
+    parseMinutes,
+    previewMinutes,
   } = useMeetings({ orgId, spaceId })
 
   const {
@@ -243,9 +245,19 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             toast.error('会議の終了に失敗しました')
           }
         }}
+        onPreviewMinutes={previewMinutes}
+        onCreateTasks={async (meetingId, minutesMd) => {
+          const result = await parseMinutes(meetingId, minutesMd)
+          if (result.createdCount > 0) {
+            toast.success(`${result.createdCount}件のタスクを作成しました`)
+          } else {
+            toast.info('タスク化できる決定事項はありませんでした')
+          }
+          return result
+        }}
       />
     )
-  }, [endMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery])
+  }, [endMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes])
 
   // ---- Proposal inspector ----
   // Reset detail when switching proposals (prevents stale data flash)
