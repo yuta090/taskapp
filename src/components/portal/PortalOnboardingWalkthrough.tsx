@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Lightning,
   Cursor,
@@ -24,8 +25,12 @@ interface WalkthroughStep {
   iconBg: string
   title: string
   description: string
-  /** CSS selector for the element to spotlight; falls back to a centered dialog if absent/unmatched. */
-  targetSelector?: string
+  /**
+   * CSS selectors for the element to spotlight, in priority order — later
+   * entries are fallbacks for states where the primary is absent (e.g. zero
+   * pending-action cards). Falls back to a centered dialog if none match.
+   */
+  targetSelectors?: readonly string[]
 }
 
 const steps: WalkthroughStep[] = [
@@ -35,7 +40,7 @@ const steps: WalkthroughStep[] = [
     iconBg: 'bg-amber-100',
     title: '確認が必要なタスク',
     description: 'ここに届いた成果物や仕様書を確認します。',
-    targetSelector: '[data-walkthrough="portal-action-section"]',
+    targetSelectors: ['[data-walkthrough="portal-action-section"]'],
   },
   {
     icon: Cursor,
@@ -43,7 +48,10 @@ const steps: WalkthroughStep[] = [
     iconBg: 'bg-indigo-100',
     title: 'クリックして詳細を見る',
     description: 'クリックすると右側に詳細説明や期限が開きます。',
-    targetSelector: '[data-walkthrough="portal-action-card"]',
+    targetSelectors: [
+      '[data-walkthrough="portal-action-card"]',
+      '[data-walkthrough="portal-action-section"]',
+    ],
   },
   {
     icon: CheckCircle,
@@ -51,7 +59,10 @@ const steps: WalkthroughStep[] = [
     iconBg: 'bg-emerald-100',
     title: '承認・修正依頼',
     description: '問題なければ承認、修正が必要なら修正依頼を選びます。',
-    targetSelector: '[data-walkthrough="portal-action-buttons"]',
+    targetSelectors: [
+      '[data-walkthrough="portal-action-buttons"]',
+      '[data-walkthrough="portal-action-section"]',
+    ],
   },
   {
     icon: RocketLaunch,
@@ -114,7 +125,7 @@ export function PortalOnboardingWalkthrough() {
   }, [currentStep])
 
   const step = steps[currentStep]
-  const targetRect = useSpotlightRect(step.targetSelector, isOpen)
+  const { rect: targetRect, matchedSelector } = useSpotlightRect(step.targetSelectors, isOpen)
   const panelRef = useRef<HTMLDivElement>(null)
   const panelStyle = usePanelPosition(panelRef, targetRect)
 
@@ -123,7 +134,7 @@ export function PortalOnboardingWalkthrough() {
   useWalkthroughDismissal({
     isOpen,
     panelRef,
-    targetSelector: step.targetSelector,
+    targetSelector: matchedSelector ?? undefined,
     onNext: handleNext,
     onPrev: handlePrev,
     onClose: handleClose,
@@ -134,7 +145,8 @@ export function PortalOnboardingWalkthrough() {
   const Icon = step.icon
   const isLast = currentStep === steps.length - 1
 
-  return (
+  // 親ペインのスタッキングコンテキストに閉じ込められないよう body 直下に出す
+  return createPortal(
     <div
       role="dialog"
       aria-labelledby="onboarding-title"
@@ -267,6 +279,7 @@ export function PortalOnboardingWalkthrough() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
