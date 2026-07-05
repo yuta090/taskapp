@@ -249,6 +249,7 @@ export async function POST(request: NextRequest) {
         origin: 'client',
         type: 'task',
         client_scope: 'deliverable',
+        created_by: user.id,
         created_at: now,
         updated_at: now,
       })
