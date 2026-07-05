@@ -147,6 +147,9 @@ export default function VendorInvitePage({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
+          <p className="text-sm text-gray-500 mb-3">
+            既に参加済みの場合はログインしてください。
+          </p>
           <Link
             href="/login"
             className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
@@ -197,6 +200,30 @@ export default function VendorInvitePage({
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
         </div>
+      </AuthCard>
+    )
+  }
+
+  // 既存ユーザーが未ログイン: パスワード検証に到達させず、ログインへ誘導する
+  if (inviteInfo.is_existing_user && !isLoggedIn) {
+    return (
+      <AuthCard title={`${inviteInfo.org_name} に招待されました`}>
+        <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+          <p className="text-sm text-indigo-800">
+            <strong>{inviteInfo.inviter_name || '管理者'}</strong> さんから
+            <br />
+            <strong>{inviteInfo.space_name}</strong> にベンダーとして招待されました。
+          </p>
+        </div>
+        <p className="mb-4 text-sm text-gray-600">
+          <strong>{inviteInfo.email}</strong> は既にアカウントをお持ちです。ログインして参加してください。
+        </p>
+        <AuthButton
+          type="button"
+          onClick={() => router.push(`/login?redirect=/vendor-portal/${token}`)}
+        >
+          ログインして参加
+        </AuthButton>
       </AuthCard>
     )
   }
@@ -265,15 +292,6 @@ export default function VendorInvitePage({
               {inviteInfo.is_existing_user ? 'ベンダーポータルに参加' : 'アカウントを作成して参加'}
             </AuthButton>
           </form>
-
-          {inviteInfo.is_existing_user && !isLoggedIn && (
-            <div className="mt-4 text-center text-sm text-gray-600">
-              すでにアカウントをお持ちの方は{' '}
-              <Link href={`/login?redirect=/vendor-portal/${token}`} className="text-indigo-600 hover:text-indigo-700 font-medium">
-                ログイン
-              </Link>
-            </div>
-          )}
         </div>
       </div>
     </div>

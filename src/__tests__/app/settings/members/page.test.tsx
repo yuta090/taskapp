@@ -126,7 +126,9 @@ describe('MembersSettingsPage invite form', () => {
       }))
     })
 
-    const call = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const call = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([url]) => url === '/api/invites'
+    )!
     const requestBody = JSON.parse(call[1].body)
     expect(requestBody).toEqual({
       org_id: 'org-123',
@@ -182,10 +184,176 @@ describe('MembersSettingsPage invite form', () => {
   })
 })
 
+describe('MembersSettingsPage pending invites section', () => {
+  function pendingInvitesFixture() {
+    return [
+      {
+        id: 'invite-1',
+        email: 'pending@example.com',
+        role: 'member',
+        space_id: 'space-1',
+        space_name: 'プロジェクトA',
+        created_at: '2026-07-01T00:00:00Z',
+        expires_at: '2026-09-29T00:00:00Z',
+      },
+    ]
+  }
+
+  function mockFetchByUrl(handlers: Record<string, () => Promise<unknown>>) {
+    return vi.fn((url: string, init?: RequestInit) => {
+      void init
+      for (const [pattern, handler] of Object.entries(handlers)) {
+        if (url.includes(pattern)) return handler()
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockUseCurrentOrg.mockReturnValue({
+      orgId: 'org-123',
+      orgName: 'Test Org',
+      role: 'owner',
+      loading: false,
+      error: null,
+    })
+
+    mockUseCurrentUser.mockReturnValue({
+      user: { id: 'user-1' },
+      loading: false,
+      error: null,
+    })
+
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({
+          data: [
+            { user_id: 'user-1', display_name: 'Owner User', email: 'owner@example.com', avatar_url: null, role: 'owner', joined_at: '2026-01-01' },
+          ],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: { ok: true }, error: null })
+    })
+  })
+
+  it('fetches and renders the pending invites list for the org owner', async () => {
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('保留中の招待')).toBeInTheDocument()
+    })
+    expect(screen.getByText('pending@example.com')).toBeInTheDocument()
+    expect(screen.getByText('プロジェクトA')).toBeInTheDocument()
+  })
+
+  it('hides the pending invites section when there are none', async () => {
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: [] }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    expect(screen.queryByText('保留中の招待')).not.toBeInTheDocument()
+  })
+
+  it('cancels a pending invite via DELETE and removes it from the list', async () => {
+    const deleteMock = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) }))
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending/invite-1': deleteMock,
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('招待を取り消す'))
+
+    await waitFor(() => {
+      expect(deleteMock).toHaveBeenCalled()
+    })
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('招待を取り消しました'))
+    expect(screen.queryByText('pending@example.com')).not.toBeInTheDocument()
+  })
+
+  it('shows an error toast and keeps the row when cancel fails', async () => {
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending/invite-1': () =>
+        Promise.resolve({ ok: false, json: () => Promise.resolve({ error: 'failed' }) }),
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('招待を取り消す'))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('招待の取り消しに失敗しました'))
+    expect(screen.getByText('pending@example.com')).toBeInTheDocument()
+  })
+
+  it('resends a pending invite via POST and shows a success toast', async () => {
+    const resendMock = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, email_sent: true, expires_at: '2026-10-05T00:00:00Z' }) })
+    )
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending/invite-1/resend': resendMock,
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('招待を再送する'))
+
+    await waitFor(() => {
+      expect(resendMock).toHaveBeenCalled()
+    })
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('招待を再送しました'))
+  })
+
+  it('shows an error toast when resend fails', async () => {
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending/invite-1/resend': () =>
+        Promise.resolve({ ok: false, json: () => Promise.resolve({ error: 'failed' }) }),
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('招待を再送する'))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('招待の再送に失敗しました'))
+  })
+})
+
 describe('MembersSettingsPage role change / removal (RPC-backed writes)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    global.fetch = vi.fn()
+    // pending invites fetch on mount (org owner); benign response keeps this
+    // describe block focused on role change/removal without console noise
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ invites: [] }) })
 
     mockUseCurrentOrg.mockReturnValue({
       orgId: 'org-123',
