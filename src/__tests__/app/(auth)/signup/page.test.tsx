@@ -69,7 +69,7 @@ describe('SignupPage', () => {
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('should call the org RPC and redirect to /inbox when a session exists', async () => {
+  it('should call the org RPC and continue to /onboarding (template step) when a session exists', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
       error: null,
@@ -88,7 +88,8 @@ describe('SignupPage', () => {
     })
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/inbox')
+      // 組織は出来たがプロジェクトが無い状態なので、テンプレート選択（Step2）へ
+      expect(mockPush).toHaveBeenCalledWith('/onboarding')
     })
   })
 
