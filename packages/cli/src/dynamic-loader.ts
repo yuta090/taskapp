@@ -76,7 +76,7 @@ function buildParams(
 
     // For negatable options (--no-xxx), Commander stores as the positive key
     // e.g., --no-dry-run → opts.dryRun = false, --no-include-invites → opts.includeInvites = false
-    let value = opts[key]
+    const value = opts[key]
 
     // Skip stdin pseudo-option (handled separately)
     if (def.param === 'stdin') continue
