@@ -10,7 +10,7 @@ interface Project {
   id: string
   name: string
   orgId: string
-  orgName: string
+  orgName?: string
 }
 
 interface PortalSchedulingClientProps {

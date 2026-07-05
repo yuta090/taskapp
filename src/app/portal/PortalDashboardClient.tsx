@@ -129,6 +129,10 @@ export function PortalDashboardClient({
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null)
 
+  // Keep in-page links pointed at the currently selected project (S6) — only
+  // needed once there is more than one, to leave the common case untouched.
+  const spaceQuery = projects.length > 1 ? `?space=${currentProject.id}` : ''
+
   const handleApprove = async (taskId: string, comment: string) => {
     if (submittingTaskId === taskId) return
     setSubmittingTaskId(taskId)
@@ -404,7 +408,7 @@ export function PortalDashboardClient({
                 className="h-full min-h-[400px]"
                 action={
                   dashboardData.totalActionCount > 6 && (
-                    <Link href="/portal/tasks" className="text-xs text-indigo-600 hover:underline">
+                    <Link href={`/portal/tasks${spaceQuery}`} className="text-xs text-indigo-600 hover:underline">
                       すべて見る &rarr;
                     </Link>
                   )

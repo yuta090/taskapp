@@ -14,9 +14,10 @@ import { PortalLeftNav } from '@/components/portal/PortalLeftNav'
  */
 
 let mockUser: { user_metadata?: { name?: string }; email?: string } | null = null
+let mockPathname = '/portal'
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/portal',
+  usePathname: () => mockPathname,
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }))
 
@@ -56,6 +57,7 @@ vi.mock('@/components/portal/PortalRequestSheet', () => ({
 describe('PortalLeftNav — user menu identity (H-3)', () => {
   beforeEach(() => {
     mockUser = null
+    mockPathname = '/portal'
   })
 
   it('shows the real display name from user_metadata.name instead of "ゲスト"', () => {
@@ -84,5 +86,62 @@ describe('PortalLeftNav — user menu identity (H-3)', () => {
     render(<PortalLeftNav currentProject={{ id: 'space-1', name: 'テストプロジェクト', orgId: 'org-1' }} />)
 
     expect(screen.getByText('ゲスト')).toBeInTheDocument()
+  })
+})
+
+/**
+ * Regression tests for S6: a client invited to multiple projects/orgs needs a
+ * way to switch between them, and the switch must persist across in-portal
+ * navigation (nav links carry ?space=) instead of always landing back on the
+ * first project.
+ */
+describe('PortalLeftNav — project switcher (S6)', () => {
+  const projectA = { id: 'space-1', name: 'プロジェクトA', orgId: 'org-1' }
+  const projectB = { id: 'space-2', name: 'プロジェクトB', orgId: 'org-2' }
+
+  beforeEach(() => {
+    mockUser = { email: 'client1@example.com' }
+    mockPathname = '/portal'
+  })
+
+  it('does not render a project dropdown when the client belongs to only one project', () => {
+    render(<PortalLeftNav currentProject={projectA} projects={[projectA]} />)
+
+    // The project name is shown, but clicking it opens no dropdown (no link rendered for it).
+    expect(screen.getByText('プロジェクトA')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('プロジェクトA'))
+    expect(screen.queryByRole('link', { name: /プロジェクトA/ })).not.toBeInTheDocument()
+  })
+
+  it('lists every project in the dropdown when the client belongs to more than one', () => {
+    render(<PortalLeftNav currentProject={projectA} projects={[projectA, projectB]} />)
+
+    fireEvent.click(screen.getByText('プロジェクトA'))
+
+    expect(screen.getByRole('link', { name: /プロジェクトB/ })).toBeInTheDocument()
+  })
+
+  it('switching projects links to the current page with ?space=<newId>, not always /portal', () => {
+    mockPathname = '/portal/all-tasks'
+    render(<PortalLeftNav currentProject={projectA} projects={[projectA, projectB]} />)
+
+    fireEvent.click(screen.getByText('プロジェクトA'))
+
+    const switchLink = screen.getByRole('link', { name: /プロジェクトB/ })
+    expect(switchLink).toHaveAttribute('href', '/portal/all-tasks?space=space-2')
+  })
+
+  it('appends ?space=<currentProject.id> to in-portal nav links when there are multiple projects', () => {
+    render(<PortalLeftNav currentProject={projectA} projects={[projectA, projectB]} />)
+
+    expect(screen.getByRole('link', { name: /ダッシュボード/ })).toHaveAttribute('href', '/portal?space=space-1')
+    expect(screen.getByRole('link', { name: /タスク一覧/ })).toHaveAttribute('href', '/portal/all-tasks?space=space-1')
+  })
+
+  it('leaves nav links unchanged (no ?space=) when there is only one project', () => {
+    render(<PortalLeftNav currentProject={projectA} projects={[projectA]} />)
+
+    expect(screen.getByRole('link', { name: /ダッシュボード/ })).toHaveAttribute('href', '/portal')
+    expect(screen.getByRole('link', { name: /タスク一覧/ })).toHaveAttribute('href', '/portal/all-tasks')
   })
 })
