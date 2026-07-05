@@ -289,9 +289,24 @@ export default async function PortalDashboardPage() {
 
   // Format activities from notifications and completed tasks (carries task_id
   // through so the feed can link to the task — see buildPortalActivities)
+  // 通知が指すタスクの生存・可視性を RLS 越しに確認し、見えないタスクは
+  // リンク化しない（削除済みタスクへの 404 デッドリンク防止）
+  const notificationRows = (recentNotifications || []) as PortalActivityNotificationRow[]
+  const notifiedTaskIds = [...new Set(
+    notificationRows.map((n) => n.payload?.task_id).filter((id): id is string => Boolean(id))
+  )]
+  let visibleTaskIds: Set<string> | undefined
+  if (notifiedTaskIds.length > 0) {
+    const { data: visibleTasks } = await (supabase as SupabaseClient)
+      .from('tasks')
+      .select('id')
+      .in('id', notifiedTaskIds)
+    visibleTaskIds = new Set(((visibleTasks || []) as Array<{ id: string }>).map((t) => t.id))
+  }
   const activities = buildPortalActivities({
-    notifications: (recentNotifications || []) as PortalActivityNotificationRow[],
+    notifications: notificationRows,
     completedTasks: (recentCompletedTasks || []) as PortalActivityCompletedTaskRow[],
+    visibleTaskIds,
   })
 
   // Format approvals (simplified - may need adjustment based on actual table structure)
