@@ -128,6 +128,20 @@ export default function OnboardingPage() {
       }
 
       setOrgId(rpcResult.org_id as string)
+
+      // ウェルカムメール送信は fire-and-forget。失敗（同期エラー含む）してもオンボーディングは止めない
+      try {
+        fetch('/api/onboarding/welcome-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orgName }),
+        }).catch((welcomeErr) => {
+          console.warn('Welcome email request failed:', welcomeErr)
+        })
+      } catch (welcomeErr) {
+        console.warn('Welcome email request failed:', welcomeErr)
+      }
+
       setStep('project')
     } catch (err) {
       console.error('Onboarding error:', err)
