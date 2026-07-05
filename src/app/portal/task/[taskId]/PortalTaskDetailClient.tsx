@@ -195,7 +195,7 @@ export function PortalTaskDetailClient({
                   {statusLabels[task.status] || task.status}
                 </span>
               </div>
-              <h1 className="text-xl font-bold text-gray-900">{task.title}</h1>
+              <h1 className="text-xl font-semibold text-gray-900">{task.title}</h1>
             </div>
           </div>
 

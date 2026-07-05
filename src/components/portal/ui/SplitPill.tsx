@@ -28,7 +28,7 @@ export function SplitPill({
         }`}
       >
         <span>{leftLabel}</span>
-        <span className="font-bold">{leftValue}</span>
+        <span className="font-medium">{leftValue}</span>
       </div>
 
       {/* Right segment */}
@@ -40,7 +40,7 @@ export function SplitPill({
         }`}
       >
         <span>{rightLabel}</span>
-        <span className="font-bold">{rightValue}</span>
+        <span className="font-medium">{rightValue}</span>
       </div>
     </div>
   )

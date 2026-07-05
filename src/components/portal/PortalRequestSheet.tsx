@@ -210,7 +210,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 id="request-sheet-title" className="text-lg font-bold text-gray-900">
+          <h2 id="request-sheet-title" className="text-lg font-semibold text-gray-900">
             リクエストを送る
           </h2>
           <button
