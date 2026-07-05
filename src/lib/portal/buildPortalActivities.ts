@@ -15,6 +15,12 @@ export interface PortalActivityCompletedTaskRow {
 export interface PortalActivityInput {
   notifications: PortalActivityNotificationRow[]
   completedTasks: PortalActivityCompletedTaskRow[]
+  /**
+   * このクライアントに現在見えるタスクIDの集合（RLS越しの select id で作る）。
+   * 渡された場合、集合に無い task_id を指す通知はリンク化しない
+   * （削除済み・非公開タスクへのデッドリンク=404 を防ぐ）。
+   */
+  visibleTaskIds?: Set<string>
 }
 
 export interface PortalActivity {
@@ -34,15 +40,18 @@ const DEFAULT_LIMIT = 10
  * link to the task instead of being plain text.
  */
 export function buildPortalActivities(
-  { notifications, completedTasks }: PortalActivityInput,
+  { notifications, completedTasks, visibleTaskIds }: PortalActivityInput,
   limit = DEFAULT_LIMIT
 ): PortalActivity[] {
+  const isLinkable = (taskId: string | undefined): taskId is string =>
+    taskId !== undefined && (visibleTaskIds === undefined || visibleTaskIds.has(taskId))
+
   const notificationActivities: PortalActivity[] = notifications.map((n) => ({
     id: n.id,
     type: 'notification',
     message: n.payload?.message || `${n.type}の通知`,
     timestamp: n.created_at,
-    taskId: n.payload?.task_id,
+    taskId: isLinkable(n.payload?.task_id) ? n.payload?.task_id : undefined,
   }))
 
   const completedActivities: PortalActivity[] = completedTasks.map((t) => ({
