@@ -23,6 +23,7 @@ const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet'
 })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
+import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
@@ -1156,6 +1157,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         highRiskCount={highRiskCount}
         href={`${projectBasePath}/views/gantt`}
       />
+
+      <SetupChecklist orgId={orgId} spaceId={spaceId} />
 
       {/* サンプルタスク一括削除バナー */}
       {sampleTaskIds.length > 0 && (
