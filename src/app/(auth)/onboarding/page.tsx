@@ -2,14 +2,22 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { SpinnerGap } from '@phosphor-icons/react'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
+import { GenrePicker } from '@/components/space/GenrePicker'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { PresetGenre } from '@/lib/presets'
+
+type Step = 'org' | 'project'
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const [step, setStep] = useState<Step>('org')
+  const [orgId, setOrgId] = useState<string | null>(null)
   const [orgName, setOrgName] = useState('')
   const [prefilled, setPrefilled] = useState(false)
+  const [projectName, setProjectName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
@@ -31,7 +39,6 @@ export default function OnboardingPage() {
         setPrefilled(true)
       }
 
-      // 既にmembershipがある場合はスキップ
       const { data: membership } = await (supabase as SupabaseClient)
         .from('org_memberships')
         .select('org_id, role')
@@ -42,29 +49,33 @@ export default function OnboardingPage() {
       if (membership) {
         if (membership.role === 'client') {
           router.replace('/portal')
-        } else {
-          // 最後にアクセスしたページがあればそこに復帰
-          const lastPath = localStorage.getItem('taskapp:lastPath')
-          if (lastPath && lastPath.startsWith('/')) {
-            router.replace(lastPath)
-          } else {
-            const { data: space } = await (supabase as SupabaseClient)
-              .from('spaces')
-              .select('id')
-              .eq('org_id', membership.org_id)
-              .eq('type', 'project')
-              .order('created_at', { ascending: true })
-              .limit(1)
-              .single()
-
-            if (space) {
-              router.replace(`/${membership.org_id}/project/${space.id}`)
-            } else {
-              router.replace('/inbox')
-            }
-          }
+          return
         }
-        return
+
+        // 最後にアクセスしたページがあればそこに復帰
+        const lastPath = localStorage.getItem('taskapp:lastPath')
+        if (lastPath && lastPath.startsWith('/')) {
+          router.replace(lastPath)
+          return
+        }
+
+        const { data: space } = await (supabase as SupabaseClient)
+          .from('spaces')
+          .select('id')
+          .eq('org_id', membership.org_id)
+          .eq('type', 'project')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+
+        if (space) {
+          router.replace(`/${membership.org_id}/project/${space.id}`)
+          return
+        }
+
+        // 組織はあるがプロジェクトが無い（作成途中で離脱した等）→ ステップ2から再開
+        setOrgId(membership.org_id)
+        setStep('project')
       }
 
       setChecking(false)
@@ -73,7 +84,7 @@ export default function OnboardingPage() {
     checkState()
   }, [router])
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleCreateOrg(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
@@ -96,11 +107,12 @@ export default function OnboardingPage() {
         .maybeSingle()
 
       if (existingMembership) {
-        router.replace('/inbox')
+        setOrgId(existingMembership.org_id)
+        setStep('project')
         return
       }
 
-      const { error: orgError } = await (supabase as SupabaseClient).rpc(
+      const { data: rpcResult, error: orgError } = await (supabase as SupabaseClient).rpc(
         'rpc_create_org_with_billing',
         {
           p_org_name: orgName,
@@ -108,40 +120,55 @@ export default function OnboardingPage() {
         }
       )
 
-      if (orgError) {
+      if (orgError || !rpcResult?.org_id) {
         console.error('Org creation error:', orgError)
         setError('組織の作成に失敗しました。もう一度お試しください。')
         return
       }
 
-      // 作成されたスペースへリダイレクト
-      const { data: membership } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single()
-
-      if (membership) {
-        const { data: space } = await (supabase as SupabaseClient)
-          .from('spaces')
-          .select('id')
-          .eq('org_id', membership.org_id)
-          .eq('type', 'project')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single()
-
-        if (space) {
-          router.push(`/${membership.org_id}/project/${space.id}`)
-          return
-        }
-      }
-
-      router.push('/inbox')
+      setOrgId(rpcResult.org_id as string)
+      setStep('project')
     } catch (err) {
       console.error('Onboarding error:', err)
       setError('エラーが発生しました')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSelectGenre(genre: PresetGenre) {
+    if (loading) return
+    setError('')
+
+    const name = projectName.trim()
+    if (!name) {
+      setError('プロジェクト名を入力してください。')
+      return
+    }
+    if (!orgId) {
+      setError('組織情報を取得できませんでした。再読み込みしてください。')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch('/api/spaces/create-with-preset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, presetGenre: genre, orgId }),
+      })
+      const data = await res.json()
+
+      if (!res.ok || !data.space?.id) {
+        console.error('Space creation error:', data.error)
+        setError('プロジェクトの作成に失敗しました。もう一度お試しください。')
+        return
+      }
+
+      router.push(`/${orgId}/project/${data.space.id}`)
+    } catch (err) {
+      console.error('Space creation error:', err)
+      setError('プロジェクトの作成に失敗しました。もう一度お試しください。')
     } finally {
       setLoading(false)
     }
@@ -160,6 +187,47 @@ export default function OnboardingPage() {
     )
   }
 
+  // ---------------------------------------------------------------------------
+  // Step 2: 最初のプロジェクト作成（テンプレート選択）
+  // ---------------------------------------------------------------------------
+  if (step === 'project') {
+    return (
+      <AuthCard
+        title="最初のプロジェクトを作成"
+        description="業種に合ったテンプレートを選ぶと、Wikiとマイルストーンが自動でセットアップされます。"
+      >
+        <div className="space-y-4">
+          {error && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <AuthInput
+            label="プロジェクト名"
+            type="text"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            placeholder="例: コーポレートサイト制作"
+            required
+          />
+
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
+              <SpinnerGap className="text-lg animate-spin" />
+              プロジェクトを作成中...
+            </div>
+          ) : (
+            <GenrePicker onSelect={handleSelectGenre} />
+          )}
+        </div>
+      </AuthCard>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 1: 組織作成
+  // ---------------------------------------------------------------------------
   return (
     <AuthCard
       title="組織を作成"
@@ -169,7 +237,7 @@ export default function OnboardingPage() {
           : 'あと少しで完了です。組織名を入力してください。'
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleCreateOrg} className="space-y-4">
         {error && (
           <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
             {error}
