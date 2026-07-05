@@ -9,6 +9,8 @@ import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useAgencyMode } from '@/lib/hooks/useAgencyMode'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useLatestClientAction } from '@/lib/hooks/useLatestClientAction'
+import { WARNING } from '@/lib/design/tokens'
 import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
 import { TaskEventTimeline } from './TaskEventTimeline'
@@ -133,6 +135,10 @@ export function TaskInspector({
 
   // Space members with display names
   const { members, clientMembers, internalMembers, getMemberName, loading: membersLoading } = useSpaceMembers(spaceId)
+
+  // H-1: derived (no new column) — surfaces "client requested changes" when the ball is back internally
+  const latestClientAction = useLatestClientAction(task.id)
+  const showChangesRequestedBadge = task.ball === 'internal' && latestClientAction === 'changes_requested'
 
   // FR-OWN-002: 責任者欄の表示/非表示設定
   const { shouldShowOwnerField } = useSpaceSettings(spaceId)
@@ -543,6 +549,13 @@ export function TaskInspector({
           {task.ball === 'client' && (
             <div className="mt-2">
               <AmberBadge>クライアント確認待ち</AmberBadge>
+            </div>
+          )}
+          {showChangesRequestedBadge && (
+            <div className="mt-2">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${WARNING.badge}`}>
+                クライアントから修正依頼
+              </span>
             </div>
           )}
         </div>

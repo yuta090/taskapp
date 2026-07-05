@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase/client'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { usePortalVisibilityForPortal, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 const STORAGE_KEY = 'taskapp:sidebar:portal:collapsed'
 
@@ -229,6 +230,9 @@ export function PortalLeftNav({
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
   const { sections } = usePortalVisibilityForPortal(currentProject?.id ?? null)
+  const { user } = useCurrentUser()
+  const userName = user?.user_metadata?.name as string | undefined
+  const userEmail = user?.email
 
   const visibleNavItems = useMemo(() => {
     const items: { key: keyof PortalVisibleSections; href: string; icon: React.ReactNode; label: string; badge?: number }[] = [
@@ -421,7 +425,7 @@ export function PortalLeftNav({
       </div>
 
       {/* User Menu at bottom */}
-      <UserMenu collapsed={collapsed} />
+      <UserMenu collapsed={collapsed} userName={userName} userEmail={userEmail} />
 
       {/* Request Sheet */}
       <PortalRequestSheet

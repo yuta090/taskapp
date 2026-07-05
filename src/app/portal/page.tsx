@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalDashboardClient } from './PortalDashboardClient'
-import type { HealthStatus, MilestoneStatus } from '@/components/portal'
+import { computeHealthStatus } from '@/lib/portal/computeHealthStatus'
+import type { MilestoneStatus } from '@/components/portal'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // AT-010: Client dashboard with bento grid layout
@@ -182,18 +183,6 @@ export default async function PortalDashboardPage() {
     t.due_date && t.due_date < todayJST
   ).length
 
-  // Determine health status
-  let healthStatus: HealthStatus = 'on_track'
-  let healthReason = '全タスクが予定通りに進行中です'
-
-  if (overdueCount > 0) {
-    healthStatus = 'needs_attention'
-    healthReason = `${overdueCount}件のタスクが期限を過ぎています`
-  } else if (allClientTasks.length > 5) {
-    healthStatus = 'at_risk'
-    healthReason = '確認待ちタスクが多くなっています'
-  }
-
   // JST today as UTC epoch for day-diff calculations
   const [todayY, todayM, todayD] = todayJST.split('-').map(Number)
   const todayUTCMs = Date.UTC(todayY, todayM - 1, todayD)
@@ -283,6 +272,15 @@ export default async function PortalDashboardPage() {
     const milestoneMs = Date.UTC(my, mm - 1, md)
     milestoneOverdueDays = Math.floor((todayMs - milestoneMs) / (1000 * 60 * 60 * 24))
   }
+
+  // Determine health status — must fold in milestone/delivery overdue days too,
+  // otherwise "現在のステータス" can contradict "次回納品予定" (H-2).
+  const { status: healthStatus, reason: healthReason } = computeHealthStatus({
+    overdueTaskCount: overdueCount,
+    totalActionTaskCount: allClientTasks.length,
+    milestoneOverdueDays,
+    milestoneName: nextMilestone?.name,
+  })
 
   // Format activities from notifications and completed tasks
   const notificationActivities = (recentNotifications || []).map((n: { id: string; type: string; payload: { message?: string }; created_at: string }) => ({
