@@ -23,6 +23,7 @@ import {
   PaperPlaneTilt,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { usePortalVisibilityForPortal, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
@@ -113,6 +114,9 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
   const [isOpen, setIsOpen] = useState(false)
 
   const handleLogout = useCallback(async () => {
+    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
+    // valid session, so it must run while the user is still logged in.
+    await cleanupPushOnLogout()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
@@ -250,6 +254,10 @@ export function PortalLeftNav({
   }, [sections, actionCount])
 
   const showProjectSwitcher = projects.length > 1
+  // Only append ?space= once there is something to disambiguate — keeps the
+  // single-project experience (the vast majority of clients) byte-for-byte
+  // identical to before this switcher existed.
+  const spaceQuery = showProjectSwitcher && currentProject?.id ? `?space=${currentProject.id}` : ''
 
   // Restore collapsed state from localStorage
   useEffect(() => {
@@ -344,7 +352,7 @@ export function PortalLeftNav({
               {projects.map((project) => (
                 <Link
                   key={project.id}
-                  href="/portal"
+                  href={`${pathname}?space=${project.id}`}
                   onClick={() => setProjectMenuOpen(false)}
                   className={`flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
                     project.id === currentProject?.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'
@@ -364,7 +372,7 @@ export function PortalLeftNav({
         {/* Dashboard */}
         <div className="space-y-0.5">
           <NavItem
-            href="/portal"
+            href={`/portal${spaceQuery}`}
             icon={<House />}
             label="ダッシュボード"
             active={pathname === '/portal'}
@@ -384,7 +392,7 @@ export function PortalLeftNav({
             {visibleNavItems.map((item) => (
               <SubNavItem
                 key={item.key}
-                href={item.href}
+                href={`${item.href}${spaceQuery}`}
                 icon={item.icon}
                 label={item.label}
                 badge={item.badge}
@@ -393,7 +401,7 @@ export function PortalLeftNav({
               />
             ))}
             <SubNavItem
-              href="/portal/settings"
+              href={`/portal/settings${spaceQuery}`}
               icon={<Gear />}
               label="設定"
               active={pathname === '/portal/settings'}

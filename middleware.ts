@@ -114,7 +114,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/login', request.url))
       }
       const redirectUrl = new URL('/login', request.url)
-      redirectUrl.searchParams.set('redirect', pathname)
+      redirectUrl.searchParams.set('redirect', pathname + request.nextUrl.search)
       return NextResponse.redirect(redirectUrl)
     }
 

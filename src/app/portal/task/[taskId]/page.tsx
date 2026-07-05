@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalTaskDetailClient } from './PortalTaskDetailClient'
+import { getClientProjects } from '@/lib/portal/getClientProjects'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface PageProps {
@@ -85,34 +86,13 @@ export default async function PortalTaskDetailPage({ params }: PageProps) {
     .is('deleted_at', null)
     .order('created_at', { ascending: true })
 
-  // Get client's other projects for the header
-   
-  const { data: memberships } = await (supabase as SupabaseClient)
-    .from('space_memberships')
-    .select(`
-      space_id,
-      spaces!inner (
-        id,
-        name,
-        org_id,
-        organizations!inner (
-          id,
-          name
-        )
-      )
-    `)
-    .eq('user_id', user.id)
-    .eq('role', 'client')
+  // Get client's other projects for the header. currentProject always follows
+  // the task's own space (not ?space=) — this page shows one specific task,
+  // so switching "current project" here means navigating to that project's
+  // portal home, not re-rendering this task under a different project.
+  const projects = await getClientProjects(supabase as SupabaseClient, user.id)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const projects = (memberships || []).map((m: any) => ({
-    id: m.space_id,
-    name: m.spaces?.name || 'プロジェクト',
-    orgId: m.spaces?.org_id,
-    orgName: m.spaces?.organizations?.name || '組織',
-  }))
-
-  const currentProject = projects.find((p: { id: string }) => p.id === task.space_id) || projects[0]
+  const currentProject = projects.find((p) => p.id === task.space_id) || projects[0]
 
   const now = new Date()
   const createdAt = new Date(task.created_at)
