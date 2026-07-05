@@ -3,6 +3,7 @@
 import { User, Envelope, Bell, Shield, CalendarCheck, Trash, Info } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
+import { useReminderPreference } from '@/lib/hooks/useReminderPreference'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
 
@@ -18,6 +19,7 @@ interface UserInfo {
   email: string
   displayName: string
   avatarUrl?: string
+  reminderEmailsEnabled?: boolean
 }
 
 interface PortalSettingsClientProps {
@@ -34,6 +36,10 @@ export function PortalSettingsClient({
   actionCount = 0,
 }: PortalSettingsClientProps) {
   const isGCalEnabled = isGoogleCalendarConfigured()
+  const { enabled: remindersEnabled, toggle: toggleReminders } = useReminderPreference(
+    user.id,
+    user.reminderEmailsEnabled ?? true
+  )
   const {
     loading: gCalLoading,
     connectGoogle,
@@ -131,6 +137,22 @@ export function PortalSettingsClient({
               <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
                 通知設定のカスタマイズ機能は近日公開予定です。現在はデフォルト設定（すべての通知を受信）で動作しています。
               </p>
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">リマインドメール</p>
+                  <p className="text-xs text-gray-500">対応待ちタスクのお知らせを受け取る</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={remindersEnabled}
+                    onChange={() => void toggleReminders()}
+                    className="sr-only peer"
+                    data-testid="portal-reminder-emails-toggle"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
             </div>
           </div>
 
