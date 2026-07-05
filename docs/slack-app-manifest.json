@@ -1,0 +1,50 @@
+{
+    "display_information": {
+        "name": "AgentPM",
+        "description": "プロジェクトのタスク・承認をSlackから確認できるAgentPM連携",
+        "background_color": "#f59e0b"
+    },
+    "features": {
+        "bot_user": {
+            "display_name": "AgentPM",
+            "always_online": true
+        },
+        "slash_commands": [
+            {
+                "command": "/agentpm",
+                "url": "https://agentpm.app/api/slack/commands",
+                "description": "タスクの確認・作成",
+                "usage_hint": "help | status | task [title]",
+                "should_escape": false
+            }
+        ]
+    },
+    "oauth_config": {
+        "redirect_urls": [
+            "https://agentpm.app/api/slack/callback"
+        ],
+        "scopes": {
+            "bot": [
+                "chat:write",
+                "channels:read",
+                "groups:read",
+                "app_mentions:read"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": {
+            "request_url": "https://agentpm.app/api/slack/webhook",
+            "bot_events": [
+                "app_mention"
+            ]
+        },
+        "interactivity": {
+            "is_enabled": true,
+            "request_url": "https://agentpm.app/api/slack/interactions"
+        },
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}
