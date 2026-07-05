@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Toaster } from 'sonner'
 import { PreferencesProviderWrapper } from '@/components/providers/PreferencesProviderWrapper'
 import { ActiveOrgProvider } from '@/lib/org/ActiveOrgProvider'
@@ -22,6 +22,12 @@ export const metadata: Metadata = {
     description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',
     images: ['/img/og/ogp.png'],
   },
+}
+
+// device-width viewport for mobile responsiveness. Zoom left enabled (no maximum-scale) for a11y.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({
