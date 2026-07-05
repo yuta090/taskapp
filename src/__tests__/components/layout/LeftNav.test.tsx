@@ -74,3 +74,28 @@ describe('LeftNav — 常設ヘルプ導線 (初回UX改善 D)', () => {
     expect(screen.getAllByText('操作ガイドを再表示')).toHaveLength(1)
   })
 })
+
+describe('LeftNav — 名称の明確化 (初回UX改善)', () => {
+  it('プロジェクト配下のサブナビは「すべてのタスク」と表記する（「タスク」単体は使わない）', () => {
+    render(<LeftNav />)
+    expect(screen.getByText('すべてのタスク')).toBeInTheDocument()
+    expect(screen.queryByText('タスク', { selector: 'span' })).not.toBeInTheDocument()
+  })
+
+  it('受信トレイ/マイタスクの上に「個人」セクション見出しを表示する', () => {
+    render(<LeftNav />)
+    expect(screen.getByText('個人')).toBeInTheDocument()
+  })
+
+  it('受信トレイ/マイタスクにはtooltip(title属性)が展開時も付与される', () => {
+    render(<LeftNav />)
+    expect(screen.getByText('受信トレイ').closest('a')).toHaveAttribute(
+      'title',
+      '承認・修正依頼・ボールの受け渡しなど、対応が必要な通知'
+    )
+    expect(screen.getByText('マイタスク').closest('a')).toHaveAttribute(
+      'title',
+      '自分が担当者になっているタスク'
+    )
+  })
+})

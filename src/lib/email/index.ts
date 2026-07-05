@@ -223,7 +223,10 @@ function generateClientInviteHtml(params: {
                   </td>
                 </tr>
               </table>
-              <p style="margin: 32px 0 0 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
+              <p style="margin: 16px 0 0 0; color: #6b7280; font-size: 14px; line-height: 1.5; text-align: center;">
+                アカウント登録は不要です。上のボタンからそのままご覧いただけます。
+              </p>
+              <p style="margin: 16px 0 0 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
                 この招待リンクは <strong>${expiresDate}</strong> まで有効です。
               </p>
             </td>
@@ -292,7 +295,8 @@ function generateMemberInviteHtml(params: {
                 ${inviterName} さんが、${orgName} の「${spaceName}」プロジェクトにあなたをメンバーとして招待しました。
               </p>
               <p style="margin: 0 0 32px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                招待を承諾すると、タスクの作成・編集・管理を行うことができます。
+                招待を承諾すると、タスクの作成・編集・管理を行うことができます。<br>
+                初めてご利用の場合は、リンク先で無料のアカウント作成をご案内します。
               </p>${messageQuote}
               <!-- CTA Button -->
               <table width="100%" cellpadding="0" cellspacing="0">
@@ -354,6 +358,8 @@ ${generateMessageQuoteText(message)}
 ポータルにアクセス:
 ${inviteUrl}
 
+アカウント登録は不要です。上のリンクからそのままご覧いただけます。
+
 この招待リンクは ${expiresDate} まで有効です。
 
 ---
@@ -379,6 +385,7 @@ ${appName} - チームへの招待
 ${inviterName} さんが、${orgName} の「${spaceName}」プロジェクトにあなたをメンバーとして招待しました。
 
 招待を承諾すると、タスクの作成・編集・管理を行うことができます。
+初めてご利用の場合は、リンク先で無料のアカウント作成をご案内します。
 ${generateMessageQuoteText(message)}
 招待を承諾する:
 ${inviteUrl}

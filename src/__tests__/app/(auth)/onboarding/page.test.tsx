@@ -30,18 +30,25 @@ const spacesChain = {
   limit: vi.fn().mockReturnThis(),
   maybeSingle: vi.fn(() => Promise.resolve(spaceResponse)),
 }
+const profilesChain = {
+  upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
+}
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: { getUser: mockGetUser },
-    from: (table: string) => (table === 'spaces' ? spacesChain : membershipChain),
+    from: (table: string) => {
+      if (table === 'spaces') return spacesChain
+      if (table === 'profiles') return profilesChain
+      return membershipChain
+    },
     rpc: mockRpc,
   }),
 }))
 
-function mockUser(metadata: Record<string, string> = {}) {
+function mockUser(metadata: Record<string, string> = {}, email?: string) {
   mockGetUser.mockResolvedValue({
-    data: { user: { id: 'user-1', user_metadata: metadata } },
+    data: { user: { id: 'user-1', email, user_metadata: metadata } },
   })
 }
 
@@ -89,7 +96,7 @@ describe('OnboardingPage — Step 1: 組織作成', () => {
   })
 
   it('組織作成に成功したらプロジェクト作成ステップ（テンプレート選択）へ進む', async () => {
-    mockUser({ org_name: '株式会社サンプル' })
+    mockUser({ full_name: '山田太郎', org_name: '株式会社サンプル' })
     mockRpc.mockResolvedValue({ data: { org_id: 'org-1', plan_id: 'free' }, error: null })
 
     render(<OnboardingPage />)
@@ -109,6 +116,91 @@ describe('OnboardingPage — Step 1: 組織作成', () => {
     // /inbox へは飛ばさない
     expect(mockPush).not.toHaveBeenCalled()
     expect(mockReplace).not.toHaveBeenCalled()
+  })
+})
+
+describe('OnboardingPage — Step 1: あなたの名前入力', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
+    profilesChain.upsert.mockResolvedValue({ data: null, error: null })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('組織名の上に「あなたの名前」入力欄が表示される', async () => {
+    mockUser()
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^あなたの名前\*?$/)).toBeInTheDocument()
+    })
+  })
+
+  it('user_metadata.full_name があればプレフィルする', async () => {
+    mockUser({ full_name: '山田太郎' })
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('山田太郎')
+    })
+  })
+
+  it('full_name も name も無ければメールのローカル部をプレフィルする', async () => {
+    mockUser({}, 'taro@example.com')
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('taro')
+    })
+  })
+
+  it('組織作成成功時にprofilesへdisplay_nameをupsertする(update ではなく upsert)', async () => {
+    mockUser({ full_name: '佐藤花子', org_name: '株式会社テスト' })
+    mockRpc.mockResolvedValue({ data: { org_id: 'org-1', plan_id: 'free' }, error: null })
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('佐藤花子')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /開始する/ }))
+
+    await waitFor(() => {
+      expect(profilesChain.upsert).toHaveBeenCalledWith(
+        { id: 'user-1', display_name: '佐藤花子' },
+        { onConflict: 'id' },
+      )
+    })
+  })
+
+  it('display_nameのupsertが失敗してもオンボーディングは継続する', async () => {
+    mockUser({ full_name: '佐藤花子', org_name: '株式会社テスト' })
+    mockRpc.mockResolvedValue({ data: { org_id: 'org-1', plan_id: 'free' }, error: null })
+    profilesChain.upsert.mockResolvedValueOnce({ data: null, error: { message: 'RLS violation' } })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('佐藤花子')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /開始する/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    expect(warnSpy).toHaveBeenCalled()
+
+    warnSpy.mockRestore()
   })
 })
 
