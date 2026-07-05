@@ -72,6 +72,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <Warning className={`${iconClass} text-orange-500`} />
     case 'meeting_reminder':
     case 'meeting_scheduled':
+    case 'scheduling_reminder':
+    case 'scheduling_proposal_expired':
       return <Calendar className={`${iconClass} text-green-500`} />
     case 'meeting_ended':
       return <CheckCircle className={`${iconClass} text-blue-500`} weight="fill" />
@@ -97,6 +99,8 @@ function getNotificationTypeLabel(type: string): string {
     case 'due_date_reminder': return '期限リマインダー'
     case 'meeting_reminder': return 'ミーティングリマインダー'
     case 'meeting_scheduled': return 'ミーティング予定'
+    case 'scheduling_reminder': return '日程調整リマインダー'
+    case 'scheduling_proposal_expired': return '日程調整期限切れ'
     case 'meeting_ended': return '会議終了'
     case 'task_completed': return 'タスク完了'
     case 'confirmation_request': return '確認依頼'
@@ -503,6 +507,22 @@ export function NotificationInspector({
 
     // Confirmation / Urgent confirmation: Link to scheduling page
     if ((notification.type === 'confirmation_request' || notification.type === 'urgent_confirmation') && payload.link) {
+      return (
+        <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <p className="text-xs text-gray-500 mb-2 font-medium">日程調整への回答が必要です</p>
+          <Link
+            href={payload.link}
+            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
+          >
+            <Calendar />
+            日程を回答する
+          </Link>
+        </div>
+      )
+    }
+
+    // Scheduling reminder / expired: Link to scheduling page
+    if ((notification.type === 'scheduling_reminder' || notification.type === 'scheduling_proposal_expired') && payload.link) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">日程調整への回答が必要です</p>

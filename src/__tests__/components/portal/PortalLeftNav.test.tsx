@@ -40,10 +40,17 @@ vi.mock('@/lib/hooks/usePortalVisibility', () => ({
   }),
 }))
 
+const { mockSignOut, mockCleanupPushOnLogout } = vi.hoisted(() => ({
+  mockSignOut: vi.fn(() => Promise.resolve()),
+  mockCleanupPushOnLogout: vi.fn(() => Promise.resolve()),
+}))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { signOut: vi.fn(() => Promise.resolve()) },
+    auth: { signOut: mockSignOut },
   }),
+}))
+vi.mock('@/lib/push/cleanupPushOnLogout', () => ({
+  cleanupPushOnLogout: mockCleanupPushOnLogout,
 }))
 
 vi.mock('@/components/portal/PortalOnboardingWalkthrough', () => ({
@@ -143,5 +150,36 @@ describe('PortalLeftNav — project switcher (S6)', () => {
 
     expect(screen.getByRole('link', { name: /ダッシュボード/ })).toHaveAttribute('href', '/portal')
     expect(screen.getByRole('link', { name: /タスク一覧/ })).toHaveAttribute('href', '/portal/all-tasks')
+  })
+})
+
+/**
+ * Regression test (S7): logging out of the portal left a stale
+ * push_subscriptions row behind because PortalLeftNav's UserMenu called
+ * supabase.auth.signOut() directly without releasing the Web Push
+ * subscription first — mirroring the fix already applied to the internal
+ * app's LeftNav.tsx / OrgMenu.tsx (see src/lib/push/cleanupPushOnLogout.ts).
+ */
+describe('PortalLeftNav — logout push cleanup (S7)', () => {
+  beforeEach(() => {
+    mockUser = { email: 'client1@example.com' }
+    mockPathname = '/portal'
+    mockCleanupPushOnLogout.mockClear()
+    mockSignOut.mockClear()
+  })
+
+  it('releases the push subscription before signing out', async () => {
+    render(<PortalLeftNav currentProject={{ id: 'space-1', name: 'テストプロジェクト', orgId: 'org-1' }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /client1/ }))
+    fireEvent.click(screen.getByRole('button', { name: /ログアウト/ }))
+
+    await Promise.resolve()
+
+    expect(mockCleanupPushOnLogout).toHaveBeenCalled()
+    expect(mockSignOut).toHaveBeenCalled()
+    expect(mockCleanupPushOnLogout.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSignOut.mock.invocationCallOrder[0]
+    )
   })
 })

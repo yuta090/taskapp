@@ -23,6 +23,7 @@ import {
   PaperPlaneTilt,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { usePortalVisibilityForPortal, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
@@ -113,6 +114,9 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
   const [isOpen, setIsOpen] = useState(false)
 
   const handleLogout = useCallback(async () => {
+    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
+    // valid session, so it must run while the user is still logged in.
+    await cleanupPushOnLogout()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')

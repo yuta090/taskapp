@@ -95,23 +95,22 @@ export function usePushNotifications(): UsePushNotificationsResult {
         keys?: { p256dh?: string; auth?: string }
       }
 
-      const supabase = supabaseRef.current as SupabaseClient
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      const { error: upsertError } = await supabase.from('push_subscriptions').upsert(
-        {
-          user_id: user?.id,
+      // Registered server-side (service_role) rather than upserted directly:
+      // push_subscriptions.endpoint is globally UNIQUE and RLS only allows a
+      // user to update their own rows, so a direct browser upsert can never
+      // take over an endpoint a different user previously subscribed from
+      // the same shared browser. /api/push/subscribe transfers ownership.
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           endpoint: json.endpoint ?? subscription.endpoint,
-          p256dh: json.keys?.p256dh,
-          auth: json.keys?.auth,
-          user_agent: navigator.userAgent,
-        },
-        { onConflict: 'endpoint' }
-      )
+          keys: { p256dh: json.keys?.p256dh, auth: json.keys?.auth },
+          userAgent: navigator.userAgent,
+        }),
+      })
 
-      if (upsertError) throw upsertError
+      if (!res.ok) throw new Error('Failed to register push subscription')
       setIsSubscribed(true)
     } catch (err) {
       console.warn('Failed to enable push notifications:', err)
