@@ -15,7 +15,7 @@ export function BentoCard({ children, className = '', title, action }: BentoCard
             {(title || action) && (
                 <div className="flex items-center justify-between mb-4">
                     {title && (
-                        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+                        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
                             {title}
                         </h3>
                     )}

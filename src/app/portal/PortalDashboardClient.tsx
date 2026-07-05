@@ -294,10 +294,10 @@ export function PortalDashboardClient({
           {/* Welcome / Header */}
           <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-3xl font-semibold text-gray-900 tracking-tight">
                 プロジェクトダッシュボード
               </h1>
-              <p className="mt-2 text-gray-600 font-medium max-w-2xl">
+              <p className="mt-2 text-gray-600 max-w-2xl">
                 プロジェクトの全体進捗と、あなたの確認が必要な項目です。
               </p>
             </div>
@@ -390,7 +390,7 @@ export function PortalDashboardClient({
                   <span className="flex items-center gap-2">
                     確認待ちのタスク
                     {dashboardData.totalActionCount > 0 && (
-                      <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold text-white bg-amber-500 rounded-full">
+                      <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium text-white bg-amber-500 rounded-full">
                         {dashboardData.totalActionCount}件
                       </span>
                     )}
