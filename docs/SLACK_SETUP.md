@@ -4,7 +4,7 @@
 
 1. https://api.slack.com/apps にアクセス
 2. **Create New App** → **From scratch** を選択
-3. App Name: `TaskApp`（任意）、Workspace: 連携先のワークスペースを選択
+3. App Name: `AgentPM`、Workspace: 連携先のワークスペースを選択
 
 ## 2. Bot Token Scopes 設定
 
@@ -24,7 +24,7 @@
 https://your-domain.com/api/slack/callback
 ```
 
-（開発環境: `http://localhost:3000/api/slack/callback`）
+（開発環境: `http://localhost:4000/api/slack/callback`）
 
 ## 4. Client ID / Client Secret 取得
 
