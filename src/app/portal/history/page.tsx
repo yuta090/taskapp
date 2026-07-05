@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalHistoryClient } from './PortalHistoryClient'
+import { getPortalHistory } from './getPortalHistory'
 import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -58,29 +59,10 @@ export default async function PortalHistoryPage() {
     redirect('/portal')
   }
 
-  // audit_logs と completed tasks を並列取得
-  const [auditResult, completedResult] = await Promise.all([
-     
-    (supabase as SupabaseClient)
-      .from('audit_logs')
-      .select(`
-        id,
-        task_id,
-        action,
-        payload,
-        created_at,
-        tasks!inner (
-          id,
-          title,
-          type
-        )
-      `)
-      .eq('space_id', spaceId)
-      .eq('actor_id', user.id)
-      .in('action', ['task_approved', 'changes_requested'])
-      .order('created_at', { ascending: false })
-      .limit(50),
-     
+  // audit_logs (2段クエリ) と completed tasks を並列取得
+  const [{ history, historyError }, completedResult] = await Promise.all([
+    getPortalHistory(supabase as SupabaseClient, spaceId, user.id),
+
     (supabase as SupabaseClient)
       .from('tasks')
       .select('id, title, type, status, completed_at, updated_at')
@@ -91,19 +73,7 @@ export default async function PortalHistoryPage() {
   ])
 
   // エラーログ（graceful degradation）
-  if (auditResult.error) console.error('[Portal History] audit query error:', auditResult.error)
   if (completedResult.error) console.error('[Portal History] completed query error:', completedResult.error)
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const history = (auditResult.data || []).map((log: any) => ({
-    id: log.id,
-    taskId: log.task_id,
-    taskTitle: log.tasks?.title || 'Unknown Task',
-    taskType: log.tasks?.type as 'task' | 'spec',
-    action: log.action as 'task_approved' | 'changes_requested',
-    comment: log.payload?.comment,
-    timestamp: log.created_at,
-  }))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const completed = (completedResult.data || []).map((task: any) => ({
@@ -118,6 +88,7 @@ export default async function PortalHistoryPage() {
       currentProject={currentProject}
       projects={projects}
       history={history}
+      historyError={historyError}
       completedTasks={completed}
     />
   )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   PlusCircle,
   ArrowsLeftRight,
@@ -12,6 +12,9 @@ import {
 } from '@phosphor-icons/react'
 import { useOnboardingFlag } from '@/lib/hooks/useOnboardingFlag'
 import { useSpotlightRect } from '@/lib/hooks/useSpotlightRect'
+import { usePanelPosition } from '@/lib/hooks/usePanelPosition'
+import { useWalkthroughDismissal } from '@/lib/hooks/useWalkthroughDismissal'
+import { WalkthroughBackdrop } from '@/components/onboarding/WalkthroughBackdrop'
 
 const ONBOARDING_KEY = 'taskapp_internal_onboarded'
 
@@ -21,7 +24,6 @@ interface WalkthroughStep {
   iconBg: string
   title: string
   description: string
-  detail?: string
   /** CSS selector for the element to spotlight; falls back to a centered dialog if absent/unmatched. */
   targetSelector?: string
 }
@@ -32,20 +34,14 @@ const steps: WalkthroughStep[] = [
     iconColor: 'text-blue-600',
     iconBg: 'bg-blue-100',
     title: 'タスク作成の流れ',
-    description:
-      'タイトルを入力してEnterで即作成。詳細は右側のインスペクターで編集できます。',
-    detail:
-      '「詳細オプション」を開くと、タスクタイプ・担当者・期限・マイルストーンなどを作成時に設定できます。まずはタイトルだけで作成し、後から詳細を追加するのがおすすめです。',
+    description: 'タイトルを入力してEnterで作成できます。詳細は後から編集可能です。',
   },
   {
     icon: ArrowsLeftRight,
     iconColor: 'text-amber-600',
     iconBg: 'bg-amber-100',
     title: 'ボールの概念',
-    description:
-      '「ボール」は次にアクションを取る側を表します。',
-    detail:
-      '「社内」= チームが作業中。「外部」= クライアントの確認待ち。ボールを「外部」にすると、クライアント側の関係者を指定する必要があります。タスクの停滞を防ぐための仕組みです。',
+    description: '次にアクションを取る側を表します。「社内」はチーム、「外部」はクライアント対応中です。',
     targetSelector: '[data-walkthrough="task-row-ball"]',
   },
   {
@@ -53,10 +49,7 @@ const steps: WalkthroughStep[] = [
     iconColor: 'text-indigo-600',
     iconBg: 'bg-indigo-100',
     title: 'クライアントに公開',
-    description:
-      '「クライアントに公開」をONにすると、クライアントのポータルにタスクが表示されます。',
-    detail:
-      '黄色いバッジがついた要素はクライアントに見えるものです。社内の作業タスクは非公開のままにして、成果物や確認事項だけを公開するのがベストプラクティスです。',
+    description: 'ONにするとクライアントのポータルにタスクが表示されます。',
     targetSelector: '[data-walkthrough="task-row-visibility"]',
   },
   {
@@ -64,10 +57,7 @@ const steps: WalkthroughStep[] = [
     iconColor: 'text-emerald-600',
     iconBg: 'bg-emerald-100',
     title: '準備完了！',
-    description:
-      'これでプロジェクト管理を始められます。',
-    detail:
-      'タスク一覧の左側でプロジェクトを切り替え、右側のインスペクターで詳細を編集。ガントチャートやバーンダウンチャートで進捗も確認できます。',
+    description: 'これでプロジェクト管理を始められます。',
   },
 ]
 
@@ -119,52 +109,40 @@ export function InternalOnboardingWalkthrough() {
     }
   }, [currentStep])
 
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose()
-      } else if (e.key === 'ArrowRight') {
-        handleNext()
-      } else if (e.key === 'ArrowLeft') {
-        handlePrev()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, handleClose, handleNext, handlePrev])
-
   const step = steps[currentStep]
   const targetRect = useSpotlightRect(step.targetSelector, isOpen)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelStyle = usePanelPosition(panelRef, targetRect)
+
+  // Esc closes, arrow keys navigate, clicking the spotlighted target
+  // advances the step, and clicking the dimmed background closes.
+  useWalkthroughDismissal({
+    isOpen,
+    panelRef,
+    targetSelector: step.targetSelector,
+    onNext: handleNext,
+    onPrev: handlePrev,
+    onClose: handleClose,
+  })
 
   if (!isOpen) return null
 
   const Icon = step.icon
   const isLast = currentStep === steps.length - 1
 
-  // Simple up/down placement: put the card on whichever side has more room,
-  // horizontally centered. Falls back to the classic centered dialog when
-  // there is no spotlight target.
-  const cardPositionStyle: React.CSSProperties | undefined = targetRect
-    ? targetRect.top < window.innerHeight / 2
-      ? { position: 'fixed', top: targetRect.bottom + 16, left: '50%', transform: 'translateX(-50%)' }
-      : { position: 'fixed', bottom: window.innerHeight - targetRect.top + 16, left: '50%', transform: 'translateX(-50%)' }
-    : undefined
-
   return (
     <div
       role="dialog"
       aria-labelledby="internal-onboarding-title"
       aria-describedby="internal-onboarding-description"
-      className={`fixed inset-0 z-[100] transition-opacity duration-200 ${
+      className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-200 ${
         targetRect ? '' : 'flex items-center justify-center p-4'
       } ${fadeIn ? 'opacity-100' : 'opacity-0'}`}
     >
-      {targetRect ? (
-        /* Spotlight ring: a transparent box around the target whose huge
-           box-shadow dims everything else, cutting out the target itself. */
+      {/* Dimmed area: blocks clicks to the UI underneath and closes the
+          tour; only the spotlight hole lets clicks reach the real target. */}
+      <WalkthroughBackdrop targetRect={targetRect} onClose={handleClose} />
+      {targetRect && (
         <div
           data-testid="walkthrough-spotlight-ring"
           className="fixed rounded-lg ring-4 ring-indigo-600 pointer-events-none transition-all duration-200"
@@ -173,23 +151,18 @@ export function InternalOnboardingWalkthrough() {
             left: targetRect.left - 8,
             width: targetRect.width + 16,
             height: targetRect.height + 16,
-            boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
           }}
-        />
-      ) : (
-        /* Backdrop */
-        <div
-          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          onClick={handleClose}
         />
       )}
 
       {/* Card */}
       <div
-        className={`${targetRect ? '' : 'relative'} w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
+        ref={panelRef}
+        data-testid="walkthrough-panel"
+        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
           fadeIn ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         }`}
-        style={cardPositionStyle}
+        style={panelStyle}
       >
         {/* Top accent bar */}
         <div className="h-1 bg-indigo-600" />
@@ -246,13 +219,6 @@ export function InternalOnboardingWalkthrough() {
           >
             {step.description}
           </p>
-
-          {/* Detail */}
-          {step.detail && (
-            <p className="mt-3 text-sm text-gray-500 leading-relaxed">
-              {step.detail}
-            </p>
-          )}
         </div>
 
         {/* Footer Actions */}

@@ -12,6 +12,7 @@ const mockCreatedTask = { id: 'task-new-001' }
 let authResponse: { data: { user: typeof mockUser | null } }
 let membershipResponse: { data: typeof mockMembership | null; error: null }
 let insertResponse: { data: typeof mockCreatedTask | null; error: null | { message: string } }
+let insertCallArgs: Record<string, unknown> | undefined
 
 // Mock audit log
 vi.mock('@/lib/audit', () => ({
@@ -41,11 +42,14 @@ vi.mock('@/lib/supabase/server', () => ({
         }
         if (table === 'tasks') {
           return {
-            insert: vi.fn(() => ({
-              select: vi.fn(() => ({
-                single: vi.fn(() => Promise.resolve(insertResponse)),
-              })),
-            })),
+            insert: vi.fn((args: Record<string, unknown>) => {
+              insertCallArgs = args
+              return {
+                select: vi.fn(() => ({
+                  single: vi.fn(() => Promise.resolve(insertResponse)),
+                })),
+              }
+            }),
           }
         }
         if (table === 'spaces') {
@@ -79,6 +83,7 @@ describe('POST /api/portal/requests', () => {
     authResponse = { data: { user: mockUser } }
     membershipResponse = { data: mockMembership, error: null }
     insertResponse = { data: mockCreatedTask, error: null }
+    insertCallArgs = undefined
   })
 
   // --- Authentication ---
@@ -308,5 +313,35 @@ describe('POST /api/portal/requests', () => {
     const data = await response.json()
     expect(response.status).toBe(500)
     expect(data.error).toContain('リクエストの送信に失敗')
+  })
+
+  // --- Regression: created_by NOT NULL constraint (23502) ---
+  // POST /api/portal/requests previously omitted `created_by` on the tasks
+  // INSERT, which violates the NOT NULL constraint on `tasks.created_by`
+  // and causes a 500 that silently drops the client's submitted request.
+  it('should set created_by to the authenticated user id on task insert', async () => {
+    const response = await POST(createRequest({
+      title: 'CSV出力機能がほしい',
+      category: 'feature',
+      description: '月次報告用にCSVダウンロードしたい',
+    }))
+    expect(response.status).toBe(200)
+    expect(insertCallArgs).toBeDefined()
+    expect(insertCallArgs?.created_by).toBe(mockUser.id)
+  })
+
+  // --- Regression: tasks_status_check constraint (23514) ---
+  // The tasks table only allows backlog/todo/in_progress/in_review/done/
+  // considering; inserting status='open' violates the CHECK constraint and
+  // 500s, silently dropping the client's request.
+  it('should insert a status allowed by the tasks_status_check constraint', async () => {
+    const allowed = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']
+    const response = await POST(createRequest({
+      title: 'CSV出力機能がほしい',
+      category: 'feature',
+      description: '月次報告用にCSVダウンロードしたい',
+    }))
+    expect(response.status).toBe(200)
+    expect(allowed).toContain(insertCallArgs?.status)
   })
 })

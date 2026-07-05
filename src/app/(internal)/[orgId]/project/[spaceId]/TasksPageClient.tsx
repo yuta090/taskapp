@@ -288,8 +288,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   }, [tasks, activeFilter, advancedFilters, hasAdvancedFilters, searchQuery])
 
   const STATUS_LABELS: Record<string, string> = {
-    backlog: '未着手', todo: 'ToDo', in_progress: '進行中',
-    in_review: '承認確認中', considering: '検討中', done: '完了',
+    backlog: '未着手', todo: '着手予定', in_progress: '進行中',
+    in_review: '社内承認中', considering: '検討中', done: '完了',
   }
   const STATUS_ORDER: string[] = ['in_progress', 'todo', 'in_review', 'backlog', 'considering', 'done']
 
@@ -837,7 +837,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Breadcrumb items
   const breadcrumbItems = [
     { label: spaceName || 'プロジェクト', href: projectBasePath },
-    { label: activeFilter === 'client_wait' ? '確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
+    { label: activeFilter === 'client_wait' ? 'クライアント確認待ち' : activeFilter === 'client_origin' ? 'クライアント起案' : 'タスク' },
   ]
 
   return (
@@ -918,7 +918,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              確認待ち
+              クライアント確認待ち
             </button>
             <button
               type="button"

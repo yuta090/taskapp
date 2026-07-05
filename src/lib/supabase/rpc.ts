@@ -350,6 +350,33 @@ export async function confirmProposalSlot(
 }
 
 // =============================================================================
+// 7.1 _create_task_notification (in-app notification helper, AT-portal-trust H-1)
+// =============================================================================
+
+export interface CreateTaskNotificationParams {
+  orgId: string
+  spaceId: string
+  toUserId: string
+  type: string
+  dedupeKey: string
+  payload: Record<string, unknown>
+}
+
+export async function createTaskNotification(
+  client: Client,
+  params: CreateTaskNotificationParams
+): Promise<void> {
+  await callRpc<void>(client, '_create_task_notification', {
+    p_org_id: params.orgId,
+    p_space_id: params.spaceId,
+    p_to_user_id: params.toUserId,
+    p_type: params.type,
+    p_dedupe_key: params.dedupeKey,
+    p_payload: params.payload,
+  })
+}
+
+// =============================================================================
 // Export all functions as a namespace
 // =============================================================================
 
@@ -366,4 +393,5 @@ export const rpc = {
   parseMeetingMinutes,
   getMinutesPreview,
   confirmProposalSlot,
+  createTaskNotification,
 }

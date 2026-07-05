@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle, Warning, Clock, Plus } from '@phosphor-icons/react'
+import { CheckCircle, Warning, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import {
   PortalShell,
@@ -19,6 +19,7 @@ import {
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { BentoCard } from '@/components/portal/dashboard/BentoCard'
 import { MetricCard } from '@/components/portal/dashboard/MetricCard'
+import { NextDeliveryMetric } from '@/components/portal/dashboard/NextDeliveryMetric'
 
 interface Project {
   id: string
@@ -347,39 +348,11 @@ export function PortalDashboardClient({
             />
 
             {/* 次回納品予定 (中央) - 期限超過時に赤表示 */}
-            {(() => {
-              const ms = dashboardData.health.nextMilestone
-              const overdueDays = ms?.overdueDays || 0
-              const isOverdue = overdueDays > 0
-              const dateStr = ms?.date
-                ? new Date(ms.date + 'T00:00:00').toLocaleDateString('ja-JP')
-                : '未定'
-
-              return (
-                <MetricCard
-                  label="次回納品予定"
-                  status={isOverdue ? 'needs_attention' : 'default'}
-                  value={
-                    isOverdue ? (
-                      <span className="text-rose-600">
-                        {dateStr}
-                        <span className="text-base ml-1.5">({overdueDays}日超過)</span>
-                      </span>
-                    ) : dateStr
-                  }
-                  trend={{
-                    text: isOverdue
-                      ? `${ms?.name || 'マイルストーン'} — 未完了タスクの対応が必要です`
-                      : ms?.name || 'フェーズ未定'
-                  }}
-                  icon={
-                    isOverdue
-                      ? <Warning weight="duotone" className="text-rose-500" />
-                      : <Clock weight="duotone" />
-                  }
-                />
-              )
-            })()}
+            <NextDeliveryMetric
+              milestoneName={dashboardData.health.nextMilestone?.name}
+              dueDate={dashboardData.health.nextMilestone?.date ?? null}
+              overdueDays={dashboardData.health.nextMilestone?.overdueDays || 0}
+            />
 
             {/* ご依頼の進捗 (右) - 現在フェーズの完了数/全数 */}
             {(() => {
