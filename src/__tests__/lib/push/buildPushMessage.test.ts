@@ -82,4 +82,38 @@ describe('buildPushMessage', () => {
     const msg = buildPushMessage(makeRow({ id: 'notif-42' }), 'internal')
     expect(msg.tag).toBe('taskapp-notif-42')
   })
+
+  // Regression: scheduling_reminder / scheduling_proposal_expired notifications
+  // have no task_id, so without this the push url fell back to /inbox or
+  // /portal — a dead end that never reaches the scheduling response screen.
+  describe('scheduling notification links', () => {
+    it('uses payload.link as the url for scheduling_reminder (internal)', () => {
+      const msg = buildPushMessage(
+        makeRow({ type: 'scheduling_reminder', payload: { link: '/org-1/project/space-1/meetings?proposal=p1' } }),
+        'internal'
+      )
+      expect(msg.url).toBe('/org-1/project/space-1/meetings?proposal=p1')
+    })
+
+    it('uses payload.link as the url for scheduling_reminder (client)', () => {
+      const msg = buildPushMessage(
+        makeRow({ type: 'scheduling_reminder', payload: { link: '/portal/scheduling' } }),
+        'client'
+      )
+      expect(msg.url).toBe('/portal/scheduling')
+    })
+
+    it('uses payload.link as the url for scheduling_proposal_expired', () => {
+      const msg = buildPushMessage(
+        makeRow({ type: 'scheduling_proposal_expired', payload: { link: '/org-1/project/space-1/meetings?proposal=p1' } }),
+        'internal'
+      )
+      expect(msg.url).toBe('/org-1/project/space-1/meetings?proposal=p1')
+    })
+
+    it('falls back to the default url when scheduling payload has no link', () => {
+      const msg = buildPushMessage(makeRow({ type: 'scheduling_reminder', payload: {} }), 'internal')
+      expect(msg.url).toBe('/inbox')
+    })
+  })
 })

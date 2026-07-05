@@ -3,7 +3,7 @@
  * 契約書チェックリスト, 確認事項一覧, 期日管理表
  */
 
-import type { PresetDefinition, PresetWikiPage } from '../index'
+import type { PresetDefinition, PresetWikiPage, PresetSampleTask } from '../index'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 
 function generateContractChecklistBody(): string {
@@ -92,6 +92,46 @@ const wikiPages: PresetWikiPage[] = [
   { title: 'プロジェクトホーム', tags: ['ホーム', 'テンプレート'], generateBody: generateHomeBody, isHome: true },
 ]
 
+const sampleTasks: PresetSampleTask[] = [
+  {
+    title: '契約書ドラフトのご確認',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nボール（担当）をクライアントに渡すと、一覧にアンバー色の「クライアント確認待ち」表示が出ます。タスクを開いてボールを社内に戻す操作を試してみてください。',
+    ball: 'client',
+    status: 'in_progress',
+    clientScope: 'deliverable',
+    milestoneName: '書類作成',
+  },
+  {
+    title: '提出書類の最終チェック',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\n期限日とマイルストーンが設定されています。ステータスを変更すると保存ボタンなしでその場に反映されます（楽観的更新）。ガントチャートでの表示も確認してみてください。',
+    ball: 'internal',
+    status: 'todo',
+    clientScope: 'internal',
+    milestoneName: '提出',
+    dueInDays: 7,
+  },
+  {
+    title: '関連資料の収集',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nまだ着手前のタスクです。ステータスのアイコンをクリックして「進行中」に変更する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '調査',
+  },
+  {
+    title: '方針検討メモの作成',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nタスクをクリックしてインスペクターを開き、担当者や説明文を編集する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '方針確定',
+  },
+]
+
 export const legalAccountingPreset: PresetDefinition = {
   genre: 'legal_accounting',
   label: '士業',
@@ -106,6 +146,7 @@ export const legalAccountingPreset: PresetDefinition = {
     { name: '提出', orderKey: 5 },
     { name: '完了', orderKey: 6 },
   ],
+  sampleTasks,
   recommendedIntegrations: ['google_calendar', 'slack'],
   defaultSettings: { ownerFieldEnabled: true },
 }

@@ -174,6 +174,34 @@ describe('POST /api/portal/email-action/[token]', () => {
       expect(global.fetch).not.toHaveBeenCalled()
       expect(tokenUpdateEqMock).not.toHaveBeenCalled()
     })
+
+    it('marks the token as used immediately after the task CAS succeeds, before the audit log and Slack notification', async () => {
+      const response = await callPost()
+      expect(response.status).toBe(200)
+
+      const tokenOrder = tokenUpdateEqMock.mock.invocationCallOrder[0]
+      const auditOrder = (createAuditLog as unknown as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0]
+      const slackOrder = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0]
+
+      expect(tokenOrder).toBeLessThan(auditOrder)
+      expect(tokenOrder).toBeLessThan(slackOrder)
+    })
+
+    it('still returns success and logs the error when marking the token as used fails', async () => {
+      tokenUpdateEqMock = vi.fn(() => Promise.resolve({ error: { message: 'DB error' } }))
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const response = await callPost()
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.success).toBe(true)
+      expect(consoleErrorSpy).toHaveBeenCalled()
+
+      consoleErrorSpy.mockRestore()
+    })
   })
 
   describe('estimate_approve', () => {

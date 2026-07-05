@@ -64,6 +64,7 @@ describe('usePushNotifications', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFrom.mockReturnValue({ upsert: mockUpsert, delete: mockDelete })
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
   })
 
   afterEach(() => {
@@ -95,7 +96,13 @@ describe('usePushNotifications', () => {
     expect(result.current.isSubscribed).toBe(false)
   })
 
-  it('enable() subscribes and upserts the subscription to push_subscriptions', async () => {
+  // Regression: enabling used to upsert push_subscriptions directly from the
+  // browser (onConflict: 'endpoint'). Since endpoint is globally UNIQUE and
+  // RLS only allows updating rows the caller owns, a second user enabling
+  // push on the same shared browser could never take over the row. Enabling
+  // now goes through the service_role-backed /api/push/subscribe route,
+  // which transfers ownership instead.
+  it('enable() subscribes and registers via /api/push/subscribe', async () => {
     stubSupportedEnvironment({ existingSubscription: null })
     const { result } = renderHook(() => usePushNotifications())
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -105,16 +112,18 @@ describe('usePushNotifications', () => {
     })
 
     expect(result.current.isSubscribed).toBe(true)
-    expect(mockFrom).toHaveBeenCalledWith('push_subscriptions')
-    expect(mockUpsert).toHaveBeenCalledWith(
+    expect(mockFrom).not.toHaveBeenCalledWith('push_subscriptions')
+    expect(mockUpsert).not.toHaveBeenCalled()
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/push/subscribe',
       expect.objectContaining({
-        user_id: 'user-1',
-        endpoint: 'https://push.example/abc',
-        p256dh: 'p256dh-value',
-        auth: 'auth-value',
-        user_agent: 'test-agent',
-      }),
-      { onConflict: 'endpoint' }
+        method: 'POST',
+        body: JSON.stringify({
+          endpoint: 'https://push.example/abc',
+          keys: { p256dh: 'p256dh-value', auth: 'auth-value' },
+          userAgent: 'test-agent',
+        }),
+      })
     )
   })
 
@@ -138,7 +147,22 @@ describe('usePushNotifications', () => {
     expect(result.current.isSubscribed).toBe(false)
     expect(result.current.error).toBeTruthy()
     expect(pushManager.subscribe).not.toHaveBeenCalled()
-    expect(mockUpsert).not.toHaveBeenCalled()
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('enable() sets an error and does not mark as subscribed when the server rejects the subscription', async () => {
+    stubSupportedEnvironment({ existingSubscription: null })
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false })
+
+    const { result } = renderHook(() => usePushNotifications())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      await result.current.enable()
+    })
+
+    expect(result.current.isSubscribed).toBe(false)
+    expect(result.current.error).toBeTruthy()
   })
 
   it('disable() unsubscribes and deletes the subscription by endpoint', async () => {

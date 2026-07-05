@@ -30,6 +30,8 @@ interface PortalShellProps {
     orgName?: string
   }[]
   actionCount?: number
+  /** Full-width strip rendered above the 3-pane layout (e.g. the preview-mode banner). Resizes the layout below it — never overlays. */
+  banner?: ReactNode
 }
 
 interface InspectorContextValue {
@@ -60,6 +62,7 @@ export function PortalShell({
   currentProject,
   projects,
   actionCount = 0,
+  banner,
 }: PortalShellProps) {
   const [inspectorNode, setInspectorNode] = useState<ReactNode | null>(null)
   const resolvedInspector = inspector ?? inspectorNode
@@ -130,96 +133,99 @@ export function PortalShell({
 
   return (
     <InspectorContext.Provider value={contextValue}>
-      <div className="flex h-screen w-full overflow-hidden bg-gray-100 text-gray-900 selection:bg-indigo-500/30 font-sans">
+      <div className="flex flex-col h-screen w-full overflow-hidden bg-gray-100 text-gray-900 selection:bg-indigo-500/30 font-sans">
+        {banner}
+        <div className="flex-1 min-h-0 flex w-full overflow-hidden">
 
-        {/* Mobile header bar */}
-        <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 bg-white/90 backdrop-blur-xl border-b border-gray-200 flex items-center px-4 gap-3">
-          <button
-            type="button"
-            onClick={() => setMobileNavOpen(true)}
-            className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100"
-            aria-label="メニューを開く"
-          >
-            <List className="text-xl" weight="bold" />
-          </button>
-          <span className="text-sm font-medium text-gray-900 truncate">
-            {currentProject?.name || 'AgentPM'}
-          </span>
-        </div>
+          {/* Mobile header bar */}
+          <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 bg-white/90 backdrop-blur-xl border-b border-gray-200 flex items-center px-4 gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100"
+              aria-label="メニューを開く"
+            >
+              <List className="text-xl" weight="bold" />
+            </button>
+            <span className="text-sm font-medium text-gray-900 truncate">
+              {currentProject?.name || 'AgentPM'}
+            </span>
+          </div>
 
-        {/* Mobile nav overlay */}
-        {mobileNavOpen && (
-          <>
-            <div
-              className="md:hidden fixed inset-0 z-40 bg-black/30"
-              onClick={closeMobileNav}
-            />
-            <div className="md:hidden fixed inset-y-0 left-0 z-50 w-[280px]" role="dialog" aria-modal="true" aria-label="ナビゲーションメニュー">
-              <div className="relative h-full">
-                <PortalLeftNav
-                  currentProject={currentProject}
-                  projects={projects}
-                  actionCount={actionCount}
-                />
-                <button
-                  type="button"
-                  onClick={closeMobileNav}
-                  className="absolute top-3 right-3 p-1 rounded-lg text-gray-500 hover:bg-gray-100 z-10"
-                  aria-label="メニューを閉じる"
-                >
-                  <X className="text-lg" />
-                </button>
+          {/* Mobile nav overlay */}
+          {mobileNavOpen && (
+            <>
+              <div
+                className="md:hidden fixed inset-0 z-40 bg-black/30"
+                onClick={closeMobileNav}
+              />
+              <div className="md:hidden fixed inset-y-0 left-0 z-50 w-[280px]" role="dialog" aria-modal="true" aria-label="ナビゲーションメニュー">
+                <div className="relative h-full">
+                  <PortalLeftNav
+                    currentProject={currentProject}
+                    projects={projects}
+                    actionCount={actionCount}
+                  />
+                  <button
+                    type="button"
+                    onClick={closeMobileNav}
+                    className="absolute top-3 right-3 p-1 rounded-lg text-gray-500 hover:bg-gray-100 z-10"
+                    aria-label="メニューを閉じる"
+                  >
+                    <X className="text-lg" />
+                  </button>
+                </div>
               </div>
+            </>
+          )}
+
+          {/* 1) Left Nav - Hidden on mobile, fixed on desktop */}
+          <div className="hidden md:flex">
+            <PortalLeftNav
+              currentProject={currentProject}
+              projects={projects}
+              actionCount={actionCount}
+            />
+          </div>
+
+          {/* 2) Center area - Main + Inspector grouped together */}
+          <div className="flex-1 min-h-0 flex justify-center pt-12 md:pt-0">
+            <div className="flex h-full min-h-0 w-full max-w-[1720px] lg:px-6 lg:py-4">
+              {/* Main Content */}
+              <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col">
+                {children}
+              </main>
+
+              {/* Inspector - Desktop: side panel, Mobile: full-screen overlay */}
+              {shouldRender && (
+                <>
+                  {/* Mobile overlay backdrop */}
+                  <div
+                    className={`md:hidden fixed inset-0 z-40 bg-black/30 transition-opacity duration-300 ${
+                      isVisible ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    onClick={handleInspectorClose}
+                  />
+                  <aside
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="詳細パネル"
+                    className={`
+                      fixed inset-0 z-50 bg-white overflow-y-auto
+                      md:static md:z-auto md:bg-white/90 md:backdrop-blur-xl md:border md:border-white/50
+                      md:shadow-2xl md:rounded-2xl md:ml-4 md:mb-4
+                      md:w-[400px] 2xl:md:w-[440px] md:flex-shrink-0
+                      transition-all duration-300 ease-out ${
+                      isVisible
+                        ? 'opacity-100 translate-x-0'
+                        : 'opacity-0 translate-x-full md:translate-x-8'
+                    }`}
+                  >
+                    {resolvedInspector}
+                  </aside>
+                </>
+              )}
             </div>
-          </>
-        )}
-
-        {/* 1) Left Nav - Hidden on mobile, fixed on desktop */}
-        <div className="hidden md:flex">
-          <PortalLeftNav
-            currentProject={currentProject}
-            projects={projects}
-            actionCount={actionCount}
-          />
-        </div>
-
-        {/* 2) Center area - Main + Inspector grouped together */}
-        <div className="flex-1 min-h-0 flex justify-center pt-12 md:pt-0">
-          <div className="flex h-full min-h-0 w-full max-w-[1720px] lg:px-6 lg:py-4">
-            {/* Main Content */}
-            <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col">
-              {children}
-            </main>
-
-            {/* Inspector - Desktop: side panel, Mobile: full-screen overlay */}
-            {shouldRender && (
-              <>
-                {/* Mobile overlay backdrop */}
-                <div
-                  className={`md:hidden fixed inset-0 z-40 bg-black/30 transition-opacity duration-300 ${
-                    isVisible ? 'opacity-100' : 'opacity-0'
-                  }`}
-                  onClick={handleInspectorClose}
-                />
-                <aside
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="詳細パネル"
-                  className={`
-                    fixed inset-0 z-50 bg-white overflow-y-auto
-                    md:static md:z-auto md:bg-white/90 md:backdrop-blur-xl md:border md:border-white/50
-                    md:shadow-2xl md:rounded-2xl md:ml-4 md:mb-4
-                    md:w-[400px] 2xl:md:w-[440px] md:flex-shrink-0
-                    transition-all duration-300 ease-out ${
-                    isVisible
-                      ? 'opacity-100 translate-x-0'
-                      : 'opacity-0 translate-x-full md:translate-x-8'
-                  }`}
-                >
-                  {resolvedInspector}
-                </aside>
-              </>
-            )}
           </div>
         </div>
       </div>

@@ -23,6 +23,8 @@ interface ActionSectionProps {
   onRequestChanges?: (id: string, comment: string) => Promise<void>
   onViewDetail?: (id: string) => void
   maxDisplay?: number
+  /** Portal preview mode: forwarded to each ActionCard to hide 承認/修正依頼. */
+  readOnly?: boolean
 }
 
 export function ActionSection({
@@ -35,6 +37,7 @@ export function ActionSection({
   onRequestChanges,
   onViewDetail,
   maxDisplay = 5,
+  readOnly = false,
 }: ActionSectionProps) {
   const displayTasks = tasks.slice(0, maxDisplay)
 
@@ -73,6 +76,7 @@ export function ActionSection({
                 onApprove={onApprove}
                 onRequestChanges={onRequestChanges}
                 onViewDetail={onViewDetail}
+                readOnly={readOnly}
               />
             </div>
           ))
