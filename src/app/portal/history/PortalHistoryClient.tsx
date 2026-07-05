@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp, ClipboardText } from '@phosphor-icons/react'
+import { CheckCircle, ArrowCounterClockwise, CaretDown, CaretUp, ClipboardText, WarningCircle } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 
 interface Project {
@@ -32,6 +32,7 @@ interface PortalHistoryClientProps {
   currentProject: Project
   projects: Project[]
   history: HistoryItem[]
+  historyError?: boolean
   completedTasks: CompletedTask[]
 }
 
@@ -58,6 +59,7 @@ export function PortalHistoryClient({
   currentProject,
   projects,
   history,
+  historyError = false,
   completedTasks,
 }: PortalHistoryClientProps) {
   const [activeTab, setActiveTab] = useState<'actions' | 'completed'>('actions')
@@ -118,7 +120,15 @@ export function PortalHistoryClient({
         {/* Content */}
         {activeTab === 'actions' ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-            {history.length === 0 ? (
+            {historyError ? (
+              <div className="p-8 text-center">
+                <WarningCircle className="w-12 h-12 text-red-300 mx-auto mb-3" />
+                <p className="text-gray-900 font-medium">履歴の読み込みに失敗しました</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  時間をおいて再度お試しください
+                </p>
+              </div>
+            ) : history.length === 0 ? (
               <div className="p-8 text-center">
                 <ClipboardText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">アクション履歴はまだありません</p>

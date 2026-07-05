@@ -162,10 +162,12 @@ export function PortalTaskInspector({
         {/* Title & Description */}
         <div className="px-4 py-4 border-b border-gray-100">
           <h2 className="text-lg font-semibold text-gray-900">{task.title}</h2>
-          {task.description && (
+          {task.description ? (
             <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">
               {task.description}
             </p>
+          ) : (
+            <p className="mt-2 text-sm text-gray-400 italic">説明はありません</p>
           )}
         </div>
 

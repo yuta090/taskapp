@@ -116,7 +116,7 @@ export function PortalRequestsClient({
           <div>
             <h1 className="text-2xl font-bold text-gray-900">送信したリクエスト</h1>
             <p className="mt-1 text-sm text-gray-600">
-              クライアントから送信されたバグ報告・機能要望・質問の一覧です。
+              あなたが送信したバグ報告・機能要望・質問の一覧です。
             </p>
           </div>
 
