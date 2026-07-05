@@ -40,7 +40,8 @@
 | **AI Estimation & Risk** | `spec/AI_ESTIMATION_RISK_SPEC.md` | AI見積もり支援・リスク予測 |
 | **Task Export & API Keys** | `spec/TASK_EXPORT_API_KEYS_SPEC.md` | CSVエクスポート・APIキー・MCPツール |
 | **UX Features** | `spec/UX_FEATURES_SPEC.md` | キーボードショートカット・コマンドパレット・オンボーディング |
-| **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層（1レベル） |
+| **Task Hierarchy** | `spec/MULTI_LEVEL_HIERARCHY_SPEC.md` | 多階層タスク（最大10階層・現行） |
+| **Subtask Hierarchy (旧)** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層（1レベル・v2.1で廃止、履歴） |
 | **Client Reminder** | `spec/CLIENT_REMINDER_SPEC.md` | クライアント滞留リマインドメール（1日3回・pg_cron） |
 | **Browser Push** | `spec/BROWSER_PUSH_SPEC.md` | ブラウザ通知（Web Push・VAPID・pg_net dispatch） |
 | **MCP Tool Governance** | `spec/MCP_TOOL_GOVERNANCE.md` | MCPツール4ティアアクセス制御 |

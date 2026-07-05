@@ -3,7 +3,11 @@
 > **Version**: 1.0
 > **Last Updated**: 2026-02-15
 > **DDL**: `docs/db/DDL_v0.6_subtasks.sql`
-> **Status**: 実装済み
+> **Status**: ⚠️ **廃止（superseded）** — 本仕様の「1段階のみ・孫禁止」は v2.1 で撤廃された
+>
+> **現行仕様は `MULTI_LEVEL_HIERARCHY_SPEC.md` v2.1（最大10階層）を参照。**
+> 実装も多階層版（`20260310_000_multi_level_hierarchy.sql` の MAX_DEPTH=10、旧1段階トリガーは DROP 済み）。
+> 本ファイルはカラム定義・サマリー集計など v2.1 が参照する基礎仕様の履歴として残す。
 
 ---
 
