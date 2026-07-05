@@ -56,12 +56,27 @@ export function useSpotlightRect(
       setMatch(NO_MATCH)
     }
 
+    // データ読込によるレイアウトシフトや、対象要素の遅延出現でも追従できるよう
+    // DOM変化を監視する。rAFでスロットルし、同一フレーム内の連続変化をまとめる。
+    let rafId: number | null = null
+    const scheduleUpdate = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        update()
+      })
+    }
+
     update()
     window.addEventListener('resize', update)
     window.addEventListener('scroll', update, true)
+    const observer = new MutationObserver(scheduleUpdate)
+    observer.observe(document.body, { childList: true, subtree: true })
     return () => {
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
+      observer.disconnect()
+      if (rafId !== null) cancelAnimationFrame(rafId)
     }
   }, [selectorKey, active])
 

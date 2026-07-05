@@ -86,9 +86,9 @@ export function GenrePicker({
               {preset.label}
             </span>
             <span className="text-[10px] text-gray-400">
-              文書 {preset.wikiPages.filter((p) => !p.isHome).length}件
-              {preset.wikiPages.some((p) => p.isHome) && '＋ホーム'} / MS{' '}
-              {preset.milestones.length}件
+              Wiki {preset.wikiPages.filter((p) => !p.isHome).length}件
+              {preset.wikiPages.some((p) => p.isHome) && '＋ホーム'}
+              ・マイルストーン {preset.milestones.length}件
             </span>
           </button>
         ))}
@@ -131,7 +131,7 @@ export function GenrePreview({ preset }: GenrePreviewProps) {
       )}
       {preset.milestones.length > 0 && (
         <div className="flex items-start gap-2">
-          <span className="text-xs text-gray-400 w-6 shrink-0">MS</span>
+          <span className="text-xs text-gray-400 w-20 shrink-0">マイルストーン</span>
           <span className="text-xs text-gray-700">
             {preset.milestones.map((m) => m.name).join(' → ')}
           </span>

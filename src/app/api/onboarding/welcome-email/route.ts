@@ -65,10 +65,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true, reason: result.reason })
     }
 
+    // upsert (not update) — the profiles row may not exist yet if the
+    // on_auth_user_created trigger hasn't run, in which case update() would
+    // silently no-op (0 rows affected).
     const { error: updateError } = await (supabase as SupabaseClient)
       .from('profiles')
-      .update({ onboarding_flags: { ...flags, welcome_email_sent: true } })
-      .eq('id', user.id)
+      .upsert(
+        { id: user.id, onboarding_flags: { ...flags, welcome_email_sent: true } },
+        { onConflict: 'id' }
+      )
 
     if (updateError) {
       console.error('[welcome-email] Failed to update onboarding flag:', updateError)

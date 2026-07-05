@@ -5,13 +5,12 @@ const mockUser = { id: 'user-1', email: 'owner@example.com' }
 
 let authResponse: { data: { user: typeof mockUser | null }; error: { message: string } | null }
 let profileSelectResponse: { data: { onboarding_flags: Record<string, boolean> } | null; error: { message: string } | null }
-let updateEqResponse: { error: { message: string } | null }
+let upsertResponse: { error: { message: string } | null }
 
 const mockSelect = vi.fn()
 const mockSelectEq = vi.fn()
 const mockSingle = vi.fn()
-const mockUpdate = vi.fn()
-const mockUpdateEq = vi.fn()
+const mockUpsert = vi.fn()
 const mockFrom = vi.fn()
 
 const sendWelcomeEmailMock = vi.fn()
@@ -48,15 +47,16 @@ describe('POST /api/onboarding/welcome-email', () => {
 
     authResponse = { data: { user: mockUser }, error: null }
     profileSelectResponse = { data: { onboarding_flags: {} }, error: null }
-    updateEqResponse = { error: null }
+    upsertResponse = { error: null }
     sendWelcomeEmailMock.mockResolvedValue({ success: true, messageId: 'msg-1' })
 
-    mockFrom.mockImplementation(() => ({ select: mockSelect, update: mockUpdate }))
+    mockFrom.mockImplementation(() => ({ select: mockSelect, upsert: mockUpsert }))
     mockSelect.mockReturnValue({ eq: mockSelectEq })
     mockSelectEq.mockReturnValue({ single: mockSingle })
     mockSingle.mockImplementation(() => Promise.resolve(profileSelectResponse))
-    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
-    mockUpdateEq.mockImplementation(() => Promise.resolve(updateEqResponse))
+    // upsert (not update) — the profiles row may not exist yet if the
+    // on_auth_user_created trigger hasn't run.
+    mockUpsert.mockImplementation(() => Promise.resolve(upsertResponse))
   })
 
   it('returns 401 when there is no authenticated user', async () => {
@@ -79,8 +79,10 @@ describe('POST /api/onboarding/welcome-email', () => {
       orgName: 'テスト組織',
       dryRun: false,
     })
-    expect(mockUpdate).toHaveBeenCalledWith({ onboarding_flags: { welcome_email_sent: true } })
-    expect(mockUpdateEq).toHaveBeenCalledWith('id', 'user-1')
+    expect(mockUpsert).toHaveBeenCalledWith(
+      { id: 'user-1', onboarding_flags: { welcome_email_sent: true } },
+      { onConflict: 'id' }
+    )
   })
 
   it('returns skipped without sending when the flag is already set', async () => {
@@ -92,7 +94,7 @@ describe('POST /api/onboarding/welcome-email', () => {
     expect(res.status).toBe(200)
     expect(body).toEqual({ skipped: true })
     expect(sendWelcomeEmailMock).not.toHaveBeenCalled()
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpsert).not.toHaveBeenCalled()
   })
 
   it('does not send or update the flag when dryRun is true', async () => {
@@ -108,7 +110,7 @@ describe('POST /api/onboarding/welcome-email', () => {
       orgName: 'テスト組織',
       dryRun: true,
     })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpsert).not.toHaveBeenCalled()
   })
 
   it('returns 200 without updating the flag when RESEND is not configured', async () => {
@@ -119,7 +121,7 @@ describe('POST /api/onboarding/welcome-email', () => {
 
     expect(res.status).toBe(200)
     expect(body.skipped).toBe(true)
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpsert).not.toHaveBeenCalled()
   })
 
   it('ignores an orgName field with the wrong type', async () => {

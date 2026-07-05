@@ -32,10 +32,12 @@ export function useReminderPreference(
 
     try {
       const supabase = supabaseRef.current as SupabaseClient
+      // upsert (not update) — the profiles row may not exist yet if the
+      // on_auth_user_created trigger hasn't run, in which case update() would
+      // silently no-op (0 rows affected).
       const { error } = await supabase
         .from('profiles')
-        .update({ reminder_emails_enabled: next })
-        .eq('id', userId)
+        .upsert({ id: userId, reminder_emails_enabled: next }, { onConflict: 'id' })
 
       if (error) throw error
     } catch (err) {
