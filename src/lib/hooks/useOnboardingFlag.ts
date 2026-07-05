@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export type OnboardingFlagKey = 'internal_walkthrough' | 'portal_walkthrough'
+export type OnboardingFlagKey = 'internal_walkthrough' | 'portal_walkthrough' | 'setup_checklist'
 
 export interface UseOnboardingFlagResult {
   /** null while still checking; true = show the walkthrough, false = already done */
