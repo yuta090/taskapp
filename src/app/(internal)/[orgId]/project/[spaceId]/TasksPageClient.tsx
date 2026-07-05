@@ -869,10 +869,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </Link>
         </div>
 
-        {/* Bottom row: Filters + Sort */}
-        <div className="h-10 flex items-center px-5 gap-4">
-          {/* Filter tabs */}
-          <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5">
+        {/* Bottom row: Filters + Sort — stacks into 2 rows on mobile (<md) */}
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 md:h-10">
+          {/* Filter tabs — horizontally scrollable on mobile */}
+          <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5 w-full md:w-auto overflow-x-auto hide-scrollbar [&>button]:shrink-0 [&>button]:whitespace-nowrap">
             <button
               type="button"
               data-testid="tasks-filter-all"
@@ -936,6 +936,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             </button>
           </div>
 
+          {/* Filter / preset / search / sort — becomes the 2nd row on mobile */}
+          <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto">
           {/* Advanced filter */}
           <TaskFilterMenu
             filters={advancedFilters}
@@ -1009,8 +1011,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             )}
           </div>
 
-          {/* Search */}
-          <div className="relative flex items-center">
+          {/* Search — full-width on mobile */}
+          <div className="relative flex items-center flex-1 md:flex-none">
             <MagnifyingGlass className="absolute left-2 text-sm text-gray-400 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -1018,7 +1020,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="検索... (/)"
-              className="w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:w-56 transition-all bg-white placeholder-gray-400"
+              className="w-full md:w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 md:focus:w-56 transition-all bg-white placeholder-gray-400"
             />
             {searchQuery && (
               <button
@@ -1032,7 +1034,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </div>
 
           {/* Divider */}
-          <div className="h-4 w-px bg-gray-200" />
+          <div className="hidden md:block h-4 w-px bg-gray-200" />
 
           {/* Sort dropdown */}
           <div className="relative">
@@ -1042,7 +1044,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors bg-white"
             >
               <SortAscending className="text-sm" />
-              <span>{currentSortLabel}</span>
+              <span className="hidden sm:inline">{currentSortLabel}</span>
               <CaretDown className="text-[10px] text-gray-400" />
             </button>
             {showSortMenu && (
@@ -1070,6 +1072,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                 </div>
               </>
             )}
+          </div>
           </div>
         </div>
       </header>
