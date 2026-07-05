@@ -417,20 +417,21 @@ export function TaskCreateSheet({
   if (!isOpen) return null
 
   return (
-    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30 animate-backdrop-in"
         onClick={onClose}
       />
 
-      {/* Sheet */}
+      {/* Sheet — bottom sheet on mobile (<md), centered dialog on desktop.
+          Height-capped with a scrollable body so long forms stay reachable. */}
       <div
         data-testid="task-create-sheet"
-        className="relative w-full max-w-2xl bg-white rounded-xl shadow-xl animate-dialog-in"
+        className="relative w-full max-w-2xl bg-white rounded-t-2xl md:rounded-xl shadow-xl animate-dialog-in flex flex-col max-h-[92dvh] md:max-h-[88vh]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-medium text-gray-900">新規タスク</h2>
             {effectiveSpaceName && (
@@ -448,8 +449,9 @@ export function TaskCreateSheet({
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        {/* Form — header/footer fixed, this body scrolls */}
+        <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           {/* === COMPACT MODE: Always visible === */}
 
           {/* Space selector (global create mode) */}
@@ -1071,8 +1073,10 @@ export function TaskCreateSheet({
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2">
+          </div>{/* /scroll body */}
+
+          {/* Actions — fixed footer (thumb-reachable on mobile) */}
+          <div className="flex-shrink-0 flex justify-end gap-2 px-4 py-3 border-t border-gray-100 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
               onClick={onClose}

@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useInspector } from '@/components/layout'
 import { TaskRow } from '@/components/task/TaskRow'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
@@ -57,6 +58,8 @@ type VirtualRow =
   | { type: 'inline'; milestoneId: string | null; indent: boolean; groupKey: string }
 
 const ROW_HEIGHT = 40
+/** Taller touch-friendly task rows on mobile (2-line layout). Headers/inline stay at ROW_HEIGHT. */
+const ROW_HEIGHT_MOBILE = 64
 
 function InlineTaskInput({ indent, onSubmit }: { indent: boolean; onSubmit: (title: string) => void }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -169,6 +172,7 @@ function SampleTaskBanner({ count, onDeleteAll }: { count: number; onDeleteAll: 
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
+  const isMobile = useIsMobile()
   const { tasks, owners, reviewStatuses, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } =
     useTasks({ orgId, spaceId })
   const { milestones } = useMilestones({ spaceId })
@@ -649,7 +653,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const virtualizer = useVirtualizer({
     count: virtualRows.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    // Task rows are taller on mobile (2-line touch layout); headers/inline stay at ROW_HEIGHT.
+    // Heights are deterministic per row type, so no measureElement/drift is needed.
+    estimateSize: (index) =>
+      isMobile && virtualRows[index]?.type === 'task' ? ROW_HEIGHT_MOBILE : ROW_HEIGHT,
     overscan: 15,
     getItemKey: (index) => {
       const row = virtualRows[index]
@@ -658,6 +665,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       return `i-${row.groupKey}`
     },
   })
+
+  // Recompute row sizes when the mobile breakpoint flips (row heights change).
+  useEffect(() => {
+    virtualizer.measure()
+  }, [isMobile, virtualizer])
 
   // Stable ref for virtualizer to use in keyboard handler
   const virtualizerRef = useRef(virtualizer)
@@ -1232,6 +1244,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     isChecked={selectedTaskIds.has(row.task.id)}
                     onCheckChange={handleCheckChange}
                     onContextMenu={handleContextMenu}
+                    isMobile={isMobile}
                   />
                 )
               } else {
@@ -1262,21 +1275,32 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         )}
       </div>
 
-      {/* Context menu */}
+      {/* Context menu — desktop: popover at cursor; mobile: bottom action sheet */}
       {contextMenu && (() => {
         const ctxTask = tasks.find((t) => t.id === contextMenu.taskId)
         if (!ctxTask) return null
+        const itemClass = isMobile
+          ? 'w-full flex items-center gap-3 px-5 py-3.5 text-base hover:bg-gray-50 active:bg-gray-100 transition-colors text-left'
+          : 'w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors text-left'
         return (
           <>
-            <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
             <div
-              className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px] animate-dialog-in"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
+              className={`fixed inset-0 z-40 ${isMobile ? 'bg-black/30' : ''}`}
+              onClick={closeContextMenu}
+            />
+            <div
+              role="menu"
+              className={
+                isMobile
+                  ? 'fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-modal border-t border-gray-200 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] animate-slide-down'
+                  : 'fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px] animate-dialog-in'
+              }
+              style={isMobile ? undefined : { left: contextMenu.x, top: contextMenu.y }}
             >
               <button
                 type="button"
                 onClick={() => { handleStatusChange(ctxTask.id, ctxTask.status === 'done' ? 'todo' : 'done'); closeContextMenu() }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors text-left"
+                className={itemClass}
               >
                 {ctxTask.status === 'done' ? (
                   <><Circle className="text-gray-400" /> 未完了に戻す</>
@@ -1291,7 +1315,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   syncUrlWithState(true, null, activeFilter)
                   closeContextMenu()
                 }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors text-left"
+                className={itemClass}
               >
                 <Copy className="text-gray-400" /> 複製
               </button>
@@ -1299,7 +1323,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               <button
                 type="button"
                 onClick={async () => { await handleDeleteTask(ctxTask.id); closeContextMenu() }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left"
+                className={itemClass.replace('hover:bg-gray-50', 'hover:bg-red-50') + ' text-red-600'}
               >
                 削除
               </button>
