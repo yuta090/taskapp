@@ -92,7 +92,8 @@ function SignupForm() {
         return
       }
 
-      router.push('/inbox')
+      // 組織は出来たがプロジェクトが無い状態 → テンプレート選択（Step2）へ
+      router.push('/onboarding')
     } catch (err) {
       console.error('Signup error:', err)
       setError('登録中にエラーが発生しました')

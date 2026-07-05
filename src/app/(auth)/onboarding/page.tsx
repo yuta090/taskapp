@@ -52,13 +52,6 @@ export default function OnboardingPage() {
           return
         }
 
-        // 最後にアクセスしたページがあればそこに復帰
-        const lastPath = localStorage.getItem('taskapp:lastPath')
-        if (lastPath && lastPath.startsWith('/')) {
-          router.replace(lastPath)
-          return
-        }
-
         const { data: space } = await (supabase as SupabaseClient)
           .from('spaces')
           .select('id')
@@ -69,6 +62,14 @@ export default function OnboardingPage() {
           .maybeSingle()
 
         if (space) {
+          // セットアップ完了済みなら、最後にアクセスした現在の組織のページに復帰。
+          // プロジェクト未作成の段階で lastPath（/inbox 等）に飛ばすと
+          // Step2 再開がスキップされるため、space 確認後にのみ使う
+          const lastPath = localStorage.getItem('taskapp:lastPath')
+          if (lastPath && lastPath.startsWith(`/${membership.org_id}/`)) {
+            router.replace(lastPath)
+            return
+          }
           router.replace(`/${membership.org_id}/project/${space.id}`)
           return
         }
