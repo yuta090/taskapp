@@ -250,6 +250,32 @@ describe('MembersSettingsPage role change / removal (RPC-backed writes)', () => 
     expect(toastError).not.toHaveBeenCalled()
   })
 
+  it('demoting a member to client sends p_role=client so the RPC can propagate the demotion to their space roles', async () => {
+    // Server-side rpc_update_org_member_role additionally cascades this to
+    // space_memberships (admin/editor/viewer -> client) to avoid an org=client
+    // x space=internal-role inconsistency. That DB-side propagation isn't
+    // exercised by this UI-level test; this only pins the RPC call contract
+    // (p_role) that the propagation relies on.
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: mockMembersList(), error: null })
+      }
+      if (fnName === 'rpc_update_org_member_role') {
+        return Promise.resolve({ data: { ok: true }, error: null })
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('Member User')).toBeInTheDocument())
+
+    fireEvent.change(getRoleSelectForMember('Member User'), { target: { value: 'client' } })
+
+    await waitFor(() => {
+      expect(mockRpc).toHaveBeenCalledWith('rpc_update_org_member_role', expect.objectContaining({ p_role: 'client' }))
+    })
+  })
+
   it('rolls back the optimistic update and shows an error toast when rpc_update_org_member_role fails (no false success)', async () => {
     mockRpc.mockImplementation((fnName: string) => {
       if (fnName === 'rpc_get_org_members') {

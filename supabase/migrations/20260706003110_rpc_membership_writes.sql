@@ -12,6 +12,14 @@
 -- 解決: SECURITY DEFINER の書込RPCを4本新設し、UI側をRPC呼び出しに切替える
 --   （UI切替は別コミットのアプリケーションコード側で対応）。
 --   1. rpc_update_org_member_role — org owner のみ実行可。最終オーナー降格ガード。
+--                                    p_role='client' への変更時は、そのorg配下の
+--                                    space_memberships のうち 'admin'/'editor'/'viewer'
+--                                    を 'client' に伝播し「org=client × space=内部ロール」
+--                                    という不整合（クライアント化後も内部アクセスが残る）
+--                                    を防ぐ（'vendor' は org=client+space=vendor が正規の
+--                                    組合せのため対象外）。RLS書込が全拒否だった旧実装では
+--                                    この不整合は書込自体が無音失敗するため露呈しなかったが、
+--                                    RPC化で書込が実効化するため本migrationで併せて塞ぐ。
 --   2. rpc_remove_org_member      — org owner のみ実行可。最終オーナー削除ガード。
 --                                    org削除時は配下spaceのspace_membershipsも連鎖削除。
 --   3. rpc_update_space_member_role — org owner または space admin が実行可。
@@ -78,6 +86,16 @@ begin
   update org_memberships
   set role = p_role
   where org_id = p_org_id and user_id = p_user_id;
+
+  -- クライアント化の伝播: org=client なのに space側に内部ロールが残る不整合を防ぐ
+  -- （'vendor' は org=client+space=vendor が正規の組合せのため対象外）
+  if p_role = 'client' then
+    update space_memberships
+    set role = 'client'
+    where user_id = p_user_id
+      and role in ('admin', 'editor', 'viewer')
+      and space_id in (select id from spaces where org_id = p_org_id);
+  end if;
 
   return jsonb_build_object('ok', true);
 end;
@@ -283,6 +301,9 @@ grant execute on function rpc_remove_space_member(uuid, uuid) to service_role;
 --      を実行でき、editor/viewer/client/vendor は Not authorized で拒否されること。
 --   5) 未認証（auth.uid() is null）で全4関数が 'Authentication required' になること。
 --   6) anon ロールに EXECUTE 権限がないこと（\df+ で確認 or REVOKE後の呼び出しが失敗）。
+--   7) org member を p_role='client' に変更すると、そのorg配下spaceで対象ユーザーが
+--      持つ 'admin'/'editor'/'viewer' の space_memberships が 'client' に伝播すること。
+--      'vendor' の space_membership は変更されず維持されること（正規の組合せのため）。
 --
 -- ロールバック（1グループでも破綻したら即実行）:
 --   drop function if exists rpc_update_org_member_role(uuid, uuid, text);
