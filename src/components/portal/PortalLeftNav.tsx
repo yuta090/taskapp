@@ -176,10 +176,12 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
             <button
               type="button"
               onClick={() => {
-                resetPortalOnboarding()
-                setIsOpen(false)
-                router.push('/portal')
-                router.refresh()
+                void (async () => {
+                  await resetPortalOnboarding()
+                  setIsOpen(false)
+                  router.push('/portal')
+                  router.refresh()
+                })()
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >

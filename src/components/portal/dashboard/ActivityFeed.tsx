@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { CaretDown, CaretUp, CheckCircle, ChatCircle, Flag, Bell } from '@phosphor-icons/react'
 
 type ActivityType = 'task_completed' | 'comment' | 'milestone' | 'notification'
@@ -11,6 +12,8 @@ interface Activity {
   message: string
   timestamp: string
   actor?: string
+  /** Task the activity is about, if any — renders the row as a link to /portal/task/[taskId] (B-3). */
+  taskId?: string
 }
 
 interface ActivityFeedProps {
@@ -75,8 +78,8 @@ export function ActivityFeed({ activities, maxDisplay = 2, className = '' }: Act
           const config = activityConfig[activity.type]
           const Icon = config.icon
 
-          return (
-            <div key={activity.id} className="flex items-start gap-2">
+          const content = (
+            <>
               <div className={`w-6 h-6 rounded-full ${config.bgColor} flex items-center justify-center shrink-0`}>
                 <Icon className={`w-3 h-3 ${config.iconColor}`} weight="fill" />
               </div>
@@ -86,6 +89,24 @@ export function ActivityFeed({ activities, maxDisplay = 2, className = '' }: Act
                   {formatTimestamp(activity.timestamp)}
                 </p>
               </div>
+            </>
+          )
+
+          if (activity.taskId) {
+            return (
+              <Link
+                key={activity.id}
+                href={`/portal/task/${activity.taskId}`}
+                className="flex items-start gap-2 -mx-2 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                {content}
+              </Link>
+            )
+          }
+
+          return (
+            <div key={activity.id} className="flex items-start gap-2">
+              {content}
             </div>
           )
         })}

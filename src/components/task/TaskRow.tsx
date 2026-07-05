@@ -3,7 +3,13 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
 import { AmberDot, TruncatedText } from '@/components/shared'
+import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import type { Task, BallSide, TaskStatus } from '@/types/database'
+
+/** Below this, "N日待ち" is not shown — a task that just passed to the client isn't stale yet. */
+const CLIENT_WAITING_DAYS_THRESHOLD = 3
+/** At/above this, the badge is emphasized in red (matches the row's overdue-date tone). */
+const CLIENT_WAITING_DAYS_URGENT = 7
 
 interface TaskRowProps {
   task: Task
@@ -18,6 +24,8 @@ interface TaskRowProps {
   isChecked?: boolean
   onCheckChange?: (taskId: string, checked: boolean) => void
   onContextMenu?: (taskId: string, x: number, y: number) => void
+  /** Injectable "current time" for the client-waiting-days badge (testing only). */
+  now?: Date
 }
 
 function formatDate(dateStr: string | null): string | null {
@@ -142,21 +150,32 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
   )
 }
 
-function BallIndicator({ ball }: { ball: BallSide }) {
-  if (ball === 'client') {
-    return (
+function BallIndicator({ ball, waitingDays }: { ball: BallSide; waitingDays?: number }) {
+  if (ball !== 'client') return null
+  return (
+    <span className="flex items-center gap-1.5">
       <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
         <ArrowRight weight="bold" className="text-xs" />
         クライアント確認待ち
       </span>
-    )
-  }
-  return null
+      {waitingDays !== undefined && waitingDays >= CLIENT_WAITING_DAYS_THRESHOLD && (
+        <span
+          className={`text-[10px] ${
+            waitingDays >= CLIENT_WAITING_DAYS_URGENT ? 'text-red-500 font-medium' : 'text-gray-500'
+          }`}
+        >
+          {waitingDays}日待ち
+        </span>
+      )}
+    </span>
+  )
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, now }: TaskRowProps) {
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
+  const clientWaitingDays =
+    task.ball === 'client' ? getClientWaitingDays(task.updated_at, now) : undefined
 
   const handleStatusChange = useCallback((newStatus: TaskStatus) => {
     onStatusChange?.(task.id, newStatus)
@@ -348,7 +367,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
       {/* Ball indicator */}
       <div className="flex-shrink-0 row-meta" data-walkthrough="task-row-ball">
-        <BallIndicator ball={task.ball} />
+        <BallIndicator ball={task.ball} waitingDays={clientWaitingDays} />
       </div>
 
       {/* Hover actions */}

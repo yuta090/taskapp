@@ -66,6 +66,8 @@ interface Activity {
   message: string
   timestamp: string
   actor?: string
+  /** Task the activity is about, if any — renders the item as a link to /portal/task/[taskId] (B-3). */
+  taskId?: string
 }
 
 interface Approval {

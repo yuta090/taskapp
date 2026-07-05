@@ -10,6 +10,8 @@ import {
   Eye,
 } from '@phosphor-icons/react'
 import { Breadcrumb, LoadingState, ErrorRetry } from '@/components/shared'
+import { buildTaskDeepLink } from '@/lib/taskLinks'
+import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useReviews } from '@/lib/hooks/useReviews'
@@ -55,7 +57,8 @@ function classifyFollowUps(tasks: Task[]): ClientFollowUp[] {
   const items: ClientFollowUp[] = []
 
   for (const task of clientTasks) {
-    const staleDays = daysBetween(new Date(task.updated_at), now)
+    // Shared with TaskRow's "N日待ち" badge (B-4) so the two views can't disagree.
+    const staleDays = getClientWaitingDays(task.updated_at, now)
     const dueDaysLeft = task.due_date
       ? daysBetween(now, new Date(task.due_date))
       : null
@@ -235,7 +238,7 @@ function FollowUpRow({
   const isUrgent = item.level === 'urgent'
   return (
     <Link
-      href={`/${orgId}/project/${spaceId}?taskId=${item.task.id}`}
+      href={buildTaskDeepLink(orgId, spaceId, item.task.id)}
       className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
         isUrgent
           ? 'bg-red-50 hover:bg-red-100'
@@ -414,7 +417,7 @@ function UpcomingDeadlinesSection({
             return (
               <Link
                 key={task.id}
-                href={`/${orgId}/project/${spaceId}?taskId=${task.id}`}
+                href={buildTaskDeepLink(orgId, spaceId, task.id)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors"
               >
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
