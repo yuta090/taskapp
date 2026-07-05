@@ -112,5 +112,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL(next, origin))
   }
 
-  return NextResponse.redirect(new URL('/inbox', origin))
+  // 組織はあるがプロジェクトが無い（作成途中で離脱）→ オンボーディングのStep2から再開
+  return NextResponse.redirect(new URL('/onboarding', origin))
 }
