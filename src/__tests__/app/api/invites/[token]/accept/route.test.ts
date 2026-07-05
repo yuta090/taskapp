@@ -34,7 +34,7 @@ let acceptRpcResponse: {
   data: { org_id: string; space_id: string; role: string } | null
   error: { message: string } | null
 }
-let authUserResponse: { data: { user: { id: string } | null } }
+let authUserResponse: { data: { user: { id: string; email?: string } | null } }
 
 const createUserMock = vi.fn(() => Promise.resolve(createUserResponse))
 const adminRpcMock = vi.fn(() => Promise.resolve(acceptRpcResponse))
@@ -209,7 +209,7 @@ describe('POST /api/invites/[token]/accept', () => {
   })
 
   it('accepts the invite for the existing session user without requiring a password', async () => {
-    authUserResponse = { data: { user: { id: 'existing-user-1' } } }
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
 
     const response = await callPost(VALID_TOKEN, {})
     const data = await response.json()
@@ -224,7 +224,7 @@ describe('POST /api/invites/[token]/accept', () => {
   })
 
   it('handles a missing request body (auto-accept path) when a session exists', async () => {
-    authUserResponse = { data: { user: { id: 'existing-user-2' } } }
+    authUserResponse = { data: { user: { id: 'existing-user-2', email: baseInvite.email } } }
 
     const response = await callPost(VALID_TOKEN)
 
@@ -235,8 +235,37 @@ describe('POST /api/invites/[token]/accept', () => {
     })
   })
 
+  it('returns 403 and does not consume the invite when the session user email does not match', async () => {
+    authUserResponse = { data: { user: { id: 'other-user', email: 'other@example.com' } } }
+
+    const response = await callPost(VALID_TOKEN)
+    const data = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(data.error).toMatch(/別のメールアドレス宛/)
+    expect(adminRpcMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 (fail closed) when the session user has no email', async () => {
+    authUserResponse = { data: { user: { id: 'no-email-user' } } }
+
+    const response = await callPost(VALID_TOKEN)
+
+    expect(response.status).toBe(403)
+    expect(adminRpcMock).not.toHaveBeenCalled()
+  })
+
+  it('matches the invite email case-insensitively', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: 'Invitee@Example.com' } } }
+
+    const response = await callPost(VALID_TOKEN)
+
+    expect(response.status).toBe(200)
+    expect(adminRpcMock).toHaveBeenCalled()
+  })
+
   it('returns 400 with the RPC error message when rpc_accept_invite fails', async () => {
-    authUserResponse = { data: { user: { id: 'existing-user-1' } } }
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
     acceptRpcResponse = { data: null, error: { message: 'Organization has reached member limit' } }
 
     const response = await callPost(VALID_TOKEN, {})
