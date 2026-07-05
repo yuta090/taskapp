@@ -31,10 +31,21 @@ export function sortSpecPagesByPreset(
     .map(p => ({ id: p.id, title: p.title }))
 }
 
+/** Bound each Supabase call so this best-effort update can't stall the route response. */
+function withTimeout<T>(promise: PromiseLike<T>, ms = 5000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Supabase call timed out after ${ms}ms`)), ms),
+    ),
+  ])
+}
+
 /**
  * Regenerate the home page body with the real spaceId and spec page links.
- * Retries once on transient failure. Never throws — returns false when the
- * update could not be applied (space itself is already created).
+ * Retries once on transient failure (including a home row not yet visible
+ * right after creation). Never throws — returns false when the update could
+ * not be applied (space itself is already created).
  */
 export async function updateHomePageSpecLinks(
   supabase: SupabaseClient,
@@ -47,16 +58,18 @@ export async function updateHomePageSpecLinks(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { data: allPages, error: selectError } = await supabase
-        .from('wiki_pages')
-        .select('id, title, tags')
-        .eq('space_id', spaceId)
-        .eq('org_id', orgId)
+      const { data: allPages, error: selectError } = await withTimeout(
+        supabase
+          .from('wiki_pages')
+          .select('id, title, tags')
+          .eq('space_id', spaceId)
+          .eq('org_id', orgId),
+      )
       if (selectError) throw selectError
 
       const pages = (allPages ?? []) as WikiPageRow[]
       const homePage = pages.find(p => p.tags.includes('ホーム'))
-      if (!homePage) return false
+      if (!homePage) throw new Error('Home page row not found (possibly not yet visible)')
 
       const specPages = sortSpecPagesByPreset(
         preset,
@@ -64,10 +77,9 @@ export async function updateHomePageSpecLinks(
       )
       const body = homePreset.generateBody(orgId, spaceId, specPages)
 
-      const { error: updateError } = await supabase
-        .from('wiki_pages')
-        .update({ body })
-        .eq('id', homePage.id)
+      const { error: updateError } = await withTimeout(
+        supabase.from('wiki_pages').update({ body }).eq('id', homePage.id),
+      )
       if (updateError) throw updateError
 
       return true
