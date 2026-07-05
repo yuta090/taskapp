@@ -13,6 +13,13 @@ import { toast } from 'sonner'
 
 const INVITE_MESSAGE_MAX_LENGTH = 500
 
+function getErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message
+  }
+  return String(err)
+}
+
 interface MemberRow {
   user_id: string
   role: string
@@ -147,17 +154,14 @@ export default function MembersSettingsPage() {
 
     try {
       const { error: updateError } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .update({ role: newRole })
-        .eq('org_id', orgId)
-        .eq('user_id', userId)
+        .rpc('rpc_update_org_member_role', { p_org_id: orgId, p_user_id: userId, p_role: newRole })
 
       if (updateError) throw updateError
       toast.success('役割を変更しました')
     } catch (err: unknown) {
       console.error('Failed to update role:', err)
       setMembers(prevMembers) // Rollback
-      toast.error('役割の変更に失敗しました')
+      toast.error(getErrorMessage(err).includes('last owner') ? '最後のオーナーの役割は変更できません' : '役割の変更に失敗しました')
     }
   }
 
@@ -171,17 +175,14 @@ export default function MembersSettingsPage() {
 
     try {
       const { error: deleteError } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .delete()
-        .eq('org_id', orgId)
-        .eq('user_id', userId)
+        .rpc('rpc_remove_org_member', { p_org_id: orgId, p_user_id: userId })
 
       if (deleteError) throw deleteError
       toast.success('メンバーを削除しました')
     } catch (err: unknown) {
       console.error('Failed to remove member:', err)
       setMembers(prevMembers) // Rollback
-      toast.error('メンバーの削除に失敗しました')
+      toast.error(getErrorMessage(err).includes('last owner') ? '最後のオーナーは削除できません' : 'メンバーの削除に失敗しました')
     }
   }
 
