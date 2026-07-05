@@ -153,3 +153,28 @@ describe('TaskCreateSheet — ball=client ⟹ client_scope=deliverable 不変条
     )
   })
 })
+
+describe('TaskCreateSheet — モバイル: 高さ制約とスクロール構造 (PR4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  it('シートは高さ制約付きのflex-colコンテナで、本文がスクロール・フッタが固定される', () => {
+    renderSheet()
+    const sheet = screen.getByTestId('task-create-sheet')
+    // 縦積み＋高さ制約（長いフォームでもビューポートに収まりスクロール）
+    expect(sheet.className).toMatch(/\bflex\b/)
+    expect(sheet.className).toMatch(/\bflex-col\b/)
+    expect(sheet.className).toMatch(/max-h-\[/)
+
+    // スクロール可能な本文が存在する
+    expect(sheet.querySelector('.overflow-y-auto')).not.toBeNull()
+
+    // 送信ボタンは固定フッタ（border-t区切り）内にあり、常に到達可能
+    const submit = screen.getByTestId('task-create-submit')
+    const footer = submit.parentElement!
+    expect(footer.className).toMatch(/border-t/)
+    expect(footer.className).toMatch(/flex-shrink-0/)
+  })
+})
