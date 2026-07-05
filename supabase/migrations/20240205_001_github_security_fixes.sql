@@ -10,6 +10,7 @@
 alter table github_webhook_events enable row level security;
 
 -- 組織オーナーのみ閲覧可能
+drop policy if exists "org owners can view webhook events" on github_webhook_events;
 create policy "org owners can view webhook events"
   on github_webhook_events for select
   using (org_id in (
@@ -31,6 +32,7 @@ drop policy if exists "org members can create task links" on task_github_links;
 drop policy if exists "link creators can delete" on task_github_links;
 
 -- Space メンバーのみ閲覧可能（タスクのSpaceに属するメンバー）
+drop policy if exists "space members can view task links" on task_github_links;
 create policy "space members can view task links"
   on task_github_links for select
   using (
@@ -42,6 +44,7 @@ create policy "space members can view task links"
   );
 
 -- Space メンバー（admin/editor）のみ作成可能
+drop policy if exists "space editors can create task links" on task_github_links;
 create policy "space editors can create task links"
   on task_github_links for insert
   with check (
@@ -54,6 +57,7 @@ create policy "space editors can create task links"
   );
 
 -- リンク作成者またはSpace管理者のみ削除可能
+drop policy if exists "link creators or space admins can delete" on task_github_links;
 create policy "link creators or space admins can delete"
   on task_github_links for delete
   using (

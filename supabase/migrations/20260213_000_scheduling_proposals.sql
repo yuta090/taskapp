@@ -55,9 +55,13 @@ create index if not exists proposal_slots_proposal_idx
   on proposal_slots(proposal_id, start_at);
 
 -- confirmed_slot_id FK (proposal_slotsテーブル作成後)
-alter table scheduling_proposals
-  add constraint fk_confirmed_slot
-  foreign key (confirmed_slot_id) references proposal_slots(id);
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'fk_confirmed_slot') then
+    alter table scheduling_proposals
+      add constraint fk_confirmed_slot
+      foreign key (confirmed_slot_id) references proposal_slots(id);
+  end if;
+end $$;
 
 -- -----------------------------------------------------------------------------
 -- 3) proposal_respondents — 回答対象者
@@ -105,12 +109,14 @@ create index if not exists slot_responses_respondent_idx
 -- scheduling_proposals
 alter table scheduling_proposals enable row level security;
 
+drop policy if exists "space members can view proposals" on scheduling_proposals;
 create policy "space members can view proposals"
   on scheduling_proposals for select
   using (space_id in (
     select sm.space_id from space_memberships sm where sm.user_id = auth.uid()
   ));
 
+drop policy if exists "internal members can create proposals" on scheduling_proposals;
 create policy "internal members can create proposals"
   on scheduling_proposals for insert
   with check (
@@ -121,6 +127,7 @@ create policy "internal members can create proposals"
     )
   );
 
+drop policy if exists "creator or admin can update proposals" on scheduling_proposals;
 create policy "creator or admin can update proposals"
   on scheduling_proposals for update
   using (
@@ -134,6 +141,7 @@ create policy "creator or admin can update proposals"
 -- proposal_slots
 alter table proposal_slots enable row level security;
 
+drop policy if exists "space members can view proposal slots" on proposal_slots;
 create policy "space members can view proposal slots"
   on proposal_slots for select
   using (proposal_id in (
@@ -143,6 +151,7 @@ create policy "space members can view proposal slots"
     )
   ));
 
+drop policy if exists "proposal creator can insert slots" on proposal_slots;
 create policy "proposal creator can insert slots"
   on proposal_slots for insert
   with check (proposal_id in (
@@ -152,6 +161,7 @@ create policy "proposal creator can insert slots"
 -- proposal_respondents
 alter table proposal_respondents enable row level security;
 
+drop policy if exists "space members can view respondents" on proposal_respondents;
 create policy "space members can view respondents"
   on proposal_respondents for select
   using (proposal_id in (
@@ -161,6 +171,7 @@ create policy "space members can view respondents"
     )
   ));
 
+drop policy if exists "proposal creator can insert respondents" on proposal_respondents;
 create policy "proposal creator can insert respondents"
   on proposal_respondents for insert
   with check (proposal_id in (
@@ -170,6 +181,7 @@ create policy "proposal creator can insert respondents"
 -- slot_responses
 alter table slot_responses enable row level security;
 
+drop policy if exists "space members can view slot responses" on slot_responses;
 create policy "space members can view slot responses"
   on slot_responses for select
   using (slot_id in (
@@ -180,12 +192,14 @@ create policy "space members can view slot responses"
     )
   ));
 
+drop policy if exists "respondents can insert own responses" on slot_responses;
 create policy "respondents can insert own responses"
   on slot_responses for insert
   with check (respondent_id in (
     select pr.id from proposal_respondents pr where pr.user_id = auth.uid()
   ));
 
+drop policy if exists "respondents can update own responses" on slot_responses;
 create policy "respondents can update own responses"
   on slot_responses for update
   using (respondent_id in (
@@ -204,6 +218,7 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists scheduling_proposals_updated_at on scheduling_proposals;
 create trigger scheduling_proposals_updated_at
   before update on scheduling_proposals
   for each row execute function update_scheduling_updated_at();
