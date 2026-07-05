@@ -114,7 +114,7 @@ export function PortalRequestsClient({
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">送信したリクエスト</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">送信したリクエスト</h1>
             <p className="mt-1 text-sm text-gray-600">
               あなたが送信したバグ報告・機能要望・質問の一覧です。
             </p>
@@ -123,15 +123,15 @@ export function PortalRequestsClient({
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-gray-900">{requests.length}</div>
+              <div className="text-2xl font-semibold text-gray-900">{requests.length}</div>
               <div className="text-sm text-gray-500">全体</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-blue-600">{activeCount}</div>
+              <div className="text-2xl font-semibold text-blue-600">{activeCount}</div>
               <div className="text-sm text-gray-500">対応中</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-green-600">{doneCount}</div>
+              <div className="text-2xl font-semibold text-green-600">{doneCount}</div>
               <div className="text-sm text-gray-500">完了</div>
             </div>
           </div>

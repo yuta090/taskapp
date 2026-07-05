@@ -41,7 +41,7 @@ export default async function PortalDashboardPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-xl font-bold text-gray-900 mb-2">アクセス権限がありません</h1>
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">アクセス権限がありません</h1>
           <p className="text-gray-600">招待リンクからアクセスしてください</p>
         </div>
       </div>

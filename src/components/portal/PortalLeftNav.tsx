@@ -296,7 +296,7 @@ export function PortalLeftNav({
           }`}
           title={collapsed ? (currentProject?.name || 'AgentPM') : undefined}
         >
-          <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-md flex-shrink-0">
+          <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-semibold shadow-md flex-shrink-0">
             A
           </div>
           {!collapsed && (

@@ -97,14 +97,14 @@ export function PortalLayout({
           {!sidebarCollapsed ? (
             <Link href="/portal" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">A</span>
+                <span className="text-white font-semibold text-sm">A</span>
               </div>
-              <span className="text-lg font-bold text-gray-900">AgentPM</span>
+              <span className="text-lg font-semibold text-gray-900">AgentPM</span>
             </Link>
           ) : (
             <Link href="/portal" className="mx-auto">
               <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">A</span>
+                <span className="text-white font-semibold text-sm">A</span>
               </div>
             </Link>
           )}
@@ -248,9 +248,9 @@ export function PortalLayout({
           <div className="flex items-center justify-between h-14 px-4">
             <Link href="/portal" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
-                <span className="text-white font-bold text-sm">A</span>
+                <span className="text-white font-semibold text-sm">A</span>
               </div>
-              <span className="text-lg font-bold text-gray-900 tracking-tight">AgentPM</span>
+              <span className="text-lg font-semibold text-gray-900 tracking-tight">AgentPM</span>
             </Link>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

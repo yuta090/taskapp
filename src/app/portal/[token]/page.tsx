@@ -175,9 +175,9 @@ export default function PortalInvitePage({
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">A</span>
+              <span className="text-white font-semibold text-sm">A</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">AgentPM</span>
+            <span className="text-xl font-semibold text-gray-900">AgentPM</span>
           </Link>
           <div className="mt-2">
             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded">
@@ -189,7 +189,7 @@ export default function PortalInvitePage({
         {/* Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="text-center mb-6">
-            <h1 className="text-xl font-bold text-gray-900">
+            <h1 className="text-xl font-semibold text-gray-900">
               {inviteInfo.org_name} に招待されました
             </h1>
           </div>

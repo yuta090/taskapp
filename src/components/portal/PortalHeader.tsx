@@ -77,9 +77,9 @@ export function PortalHeader({
             {/* Logo */}
             <Link href="/portal" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">A</span>
+                <span className="text-white font-semibold text-sm">A</span>
               </div>
-              <span className="text-lg font-bold text-gray-900 hidden sm:inline">
+              <span className="text-lg font-semibold text-gray-900 hidden sm:inline">
                 AgentPM
               </span>
             </Link>
