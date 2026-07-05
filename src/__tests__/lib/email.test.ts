@@ -124,6 +124,33 @@ describe('Email Service', () => {
   })
 })
 
+describe('sendInviteEmail — アカウント要否の明記 (初回UX改善)', () => {
+  const baseParams = {
+    to: 'recipient@example.com',
+    inviterName: 'John Doe',
+    orgName: 'Test Org',
+    spaceName: 'Test Project',
+    token: 'abc123token',
+    expiresAt: '2025-03-01T00:00:00Z',
+  }
+
+  it('クライアント向けはアカウント登録が不要である旨をHTML/textの両方に含める', async () => {
+    await sendInviteEmail({ ...baseParams, role: 'client' })
+
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.html).toContain('アカウント登録は不要です')
+    expect(callArgs.text).toContain('アカウント登録は不要です')
+  })
+
+  it('内部メンバー向けは無料のアカウント作成を案内する旨をHTML/textの両方に含める', async () => {
+    await sendInviteEmail({ ...baseParams, role: 'member' })
+
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.html).toContain('無料のアカウント作成')
+    expect(callArgs.text).toContain('無料のアカウント作成')
+  })
+})
+
 describe('escapeHtml utility', () => {
   it('should handle special characters in org names', async () => {
     await sendInviteEmail({

@@ -72,13 +72,15 @@ interface NavItemProps {
   href: string
   icon: React.ReactNode
   label: string
+  /** collapsed 時は従来どおり label が title になる。展開時にも補足説明を出したい場合に指定 */
+  tooltip?: string
   badge?: number
   active?: boolean
   collapsed?: boolean
   onNavigate?: (href: string) => void
 }
 
-function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: NavItemProps) {
+function NavItem({ href, icon, label, tooltip, badge, active, collapsed, onNavigate }: NavItemProps) {
   return (
     <Link
       href={href}
@@ -90,7 +92,7 @@ function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: Na
           ? 'text-gray-900 bg-gray-200/60 font-medium'
           : 'text-gray-600 hover:bg-gray-200/50'
       }`}
-      title={collapsed ? label : undefined}
+      title={collapsed ? label : tooltip}
     >
       <span className="text-xl 2xl:text-2xl text-gray-500 group-hover:text-gray-900 flex-shrink-0">
         {icon}
@@ -700,7 +702,7 @@ function SpaceNavItem({
           <SubNavItem
             href={basePath}
             icon={<Copy />}
-            label="タスク"
+            label="すべてのタスク"
             active={isActive(basePath, pathname === basePath && searchParams.get('filter') !== 'client_wait')}
             collapsed={collapsed}
             onNavigate={onNavigate}
@@ -1023,24 +1025,33 @@ export const LeftNav = memo(function LeftNav() {
       {/* Nav Items */}
       <div className={`flex-1 overflow-y-auto ${collapsed ? 'px-1.5' : 'px-2'} space-y-6 pt-2 hide-scrollbar`}>
         {/* Personal */}
-        <div className="space-y-0.5">
-          <NavItem
-            href="/inbox"
-            icon={<Tray />}
-            label="受信トレイ"
-            badge={inboxCount}
-            active={isActive('/inbox', pathname === '/inbox')}
-            collapsed={collapsed}
-            onNavigate={setPendingHref}
-          />
-          <NavItem
-            href="/my"
-            icon={<Target />}
-            label="マイタスク"
-            active={isActive('/my', pathname === '/my')}
-            collapsed={collapsed}
-            onNavigate={setPendingHref}
-          />
+        <div>
+          {!collapsed && (
+            <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5">
+              個人
+            </div>
+          )}
+          <div className="space-y-0.5">
+            <NavItem
+              href="/inbox"
+              icon={<Tray />}
+              label="受信トレイ"
+              tooltip="承認・修正依頼・ボールの受け渡しなど、対応が必要な通知"
+              badge={inboxCount}
+              active={isActive('/inbox', pathname === '/inbox')}
+              collapsed={collapsed}
+              onNavigate={setPendingHref}
+            />
+            <NavItem
+              href="/my"
+              icon={<Target />}
+              label="マイタスク"
+              tooltip="自分が担当者になっているタスク"
+              active={isActive('/my', pathname === '/my')}
+              collapsed={collapsed}
+              onNavigate={setPendingHref}
+            />
+          </div>
         </div>
 
         {/* Team / Project */}

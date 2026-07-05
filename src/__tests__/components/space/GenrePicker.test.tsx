@@ -13,12 +13,12 @@ describe('GenrePicker', () => {
 
   it('カードの件数表記はホームを文書数に含めない', () => {
     render(<GenrePicker onSelect={vi.fn()} />)
-    // 文書3 + ホーム / MS5 のジャンルが複数ある（デザイン制作・コンサル等）
-    expect(screen.getAllByText('文書 3件＋ホーム / MS 5件').length).toBeGreaterThan(0)
-    // 文書4 + ホーム / MS6 のジャンルも複数ある（業務システム開発・建設等）
-    expect(screen.getAllByText('文書 4件＋ホーム / MS 6件').length).toBeGreaterThan(0)
-    // 旧表記（ホーム込みカウント）が残っていない
-    expect(screen.queryByText(/^Wiki \d+件/)).not.toBeInTheDocument()
+    // Wiki3 + ホーム・マイルストーン5 のジャンルが複数ある（デザイン制作・コンサル等）
+    expect(screen.getAllByText('Wiki 3件＋ホーム・マイルストーン 5件').length).toBeGreaterThan(0)
+    // Wiki4 + ホーム・マイルストーン6 のジャンルも複数ある（業務システム開発・建設等）
+    expect(screen.getAllByText('Wiki 4件＋ホーム・マイルストーン 6件').length).toBeGreaterThan(0)
+    // 略語「MS」が初見ユーザーに読めない形で残っていない
+    expect(screen.queryByText(/\bMS\b/)).not.toBeInTheDocument()
   })
 })
 
@@ -35,6 +35,12 @@ describe('GenrePreview', () => {
     render(<GenrePreview preset={getPreset('consulting')} />)
     expect(screen.getByText(/調査レポート/)).toBeInTheDocument()
     expect(screen.getByText(/現状分析 → 課題整理 → 提案/)).toBeInTheDocument()
+  })
+
+  it('マイルストーンのラベルは略語「MS」ではなく「マイルストーン」と表記する', () => {
+    render(<GenrePreview preset={getPreset('consulting')} />)
+    expect(screen.getByText('マイルストーン')).toBeInTheDocument()
+    expect(screen.queryByText('MS')).not.toBeInTheDocument()
   })
 
   it('blankプリセットは何も表示しない', () => {

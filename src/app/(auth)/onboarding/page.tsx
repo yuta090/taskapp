@@ -16,6 +16,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<Step>('org')
   const [orgId, setOrgId] = useState<string | null>(null)
   const [orgName, setOrgName] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [prefilled, setPrefilled] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [error, setError] = useState('')
@@ -37,6 +38,13 @@ export default function OnboardingPage() {
       if (metadataOrgName) {
         setOrgName(metadataOrgName)
         setPrefilled(true)
+      }
+
+      // 表示名のプレフィル: signup時の氏名 → メールのローカル部の順で採用
+      const metadataName =
+        user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0]
+      if (metadataName) {
+        setDisplayName(metadataName)
       }
 
       const { data: membership } = await (supabase as SupabaseClient)
@@ -128,6 +136,22 @@ export default function OnboardingPage() {
       }
 
       setOrgId(rpcResult.org_id as string)
+
+      // 表示名の反映は失敗してもオンボーディングを止めない（update ではなく upsert: RLS の self-insert を通す）
+      // 空白のみの入力で既存の表示名を空文字上書きしないようガードする
+      const trimmedDisplayName = displayName.trim()
+      if (trimmedDisplayName) {
+        try {
+          const { error: profileError } = await (supabase as SupabaseClient)
+            .from('profiles')
+            .upsert({ id: user.id, display_name: trimmedDisplayName }, { onConflict: 'id' })
+          if (profileError) {
+            console.warn('Failed to save display name:', profileError)
+          }
+        } catch (profileErr) {
+          console.warn('Failed to save display name:', profileErr)
+        }
+      }
 
       // ウェルカムメール送信は fire-and-forget。失敗（同期エラー含む）してもオンボーディングは止めない
       try {
@@ -258,6 +282,15 @@ export default function OnboardingPage() {
             {error}
           </div>
         )}
+
+        <AuthInput
+          label="あなたの名前"
+          type="text"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="山田太郎"
+          required
+        />
 
         <AuthInput
           label="組織名"
