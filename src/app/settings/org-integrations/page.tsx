@@ -49,7 +49,7 @@ const AI_MODELS: Record<string, { value: string; label: string }[]> = {
 
 export default function OrgIntegrationsPage() {
   const searchParams = useSearchParams()
-  const { orgId, orgName, role, loading: orgLoading } = useCurrentOrg()
+  const { orgId, role, loading: orgLoading } = useCurrentOrg()
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const isOwner = role === 'owner'
 
@@ -207,7 +207,7 @@ export default function OrgIntegrationsPage() {
             </Link>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">組織の外部連携</h1>
-              <p className="text-sm text-gray-500">{orgName} の外部サービス設定</p>
+              <p className="text-sm text-gray-500">組織全体で使う接続（Slack・GitHub・AI）</p>
             </div>
           </div>
         </div>

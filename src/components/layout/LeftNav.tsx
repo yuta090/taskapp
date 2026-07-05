@@ -258,7 +258,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <PlugsConnected className="text-base text-gray-500" />
-              外部連携
+              個人の外部連携
             </Link>
             <Link
               href="/settings/api-keys"
