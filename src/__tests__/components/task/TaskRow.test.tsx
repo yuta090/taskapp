@@ -119,6 +119,24 @@ describe('TaskRow — クライアント待ち日数バッジ (B-4)', () => {
   })
 })
 
+describe('TaskRow — ボール/公開ツールチップ (初回UX改善 D)', () => {
+  it('ball=client のとき、ボール表示にツールチップの説明文が付く', () => {
+    render(<TaskRow task={makeTask({ ball: 'client' })} />)
+    expect(screen.getByText('次にアクションする側。外部=クライアントの対応待ち')).toBeInTheDocument()
+  })
+
+  it('ball=client のとき、公開インジケーターにツールチップの説明文が付く', () => {
+    render(<TaskRow task={makeTask({ ball: 'client' })} />)
+    expect(screen.getByText('ONでクライアントのポータルに表示されます')).toBeInTheDocument()
+  })
+
+  it('ball=internal のときはボール系ツールチップを表示しない', () => {
+    render(<TaskRow task={makeTask({ ball: 'internal' })} />)
+    expect(screen.queryByText('次にアクションする側。外部=クライアントの対応待ち')).not.toBeInTheDocument()
+    expect(screen.queryByText('ONでクライアントのポータルに表示されます')).not.toBeInTheDocument()
+  })
+})
+
 describe('TaskRow — hover アクション (M-6)', () => {
   it('一括選択チェックボックスは hover/focus 時のみ表示するクラスを持つ（非バルクモード）', () => {
     render(<TaskRow task={makeTask()} onCheckChange={vi.fn()} />)

@@ -86,3 +86,14 @@ describe('PortalLeftNav — user menu identity (H-3)', () => {
     expect(screen.getByText('ゲスト')).toBeInTheDocument()
   })
 })
+
+describe('PortalLeftNav — 使い方リンク (初回UX改善 D)', () => {
+  it('ユーザーメニューに /help/client への「使い方」リンクがある', () => {
+    mockUser = { user_metadata: { name: '鈴木 一郎' }, email: 'client1@example.com' }
+
+    render(<PortalLeftNav currentProject={{ id: 'space-1', name: 'テストプロジェクト', orgId: 'org-1' }} />)
+    fireEvent.click(screen.getByRole('button', { name: /鈴木 一郎/ }))
+
+    expect(screen.getByRole('link', { name: '使い方' })).toHaveAttribute('href', '/help/client')
+  })
+})

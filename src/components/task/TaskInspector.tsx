@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy } from '@phosphor-icons/react'
-import { AmberBadge, TruncatedText, useConfirmDialog } from '@/components/shared'
+import { AmberBadge, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
@@ -548,7 +548,9 @@ export function TaskInspector({
           )}
           {task.ball === 'client' && (
             <div className="mt-2">
-              <AmberBadge>クライアント確認待ち</AmberBadge>
+              <Tooltip content="ONでクライアントのポータルに表示されます">
+                <AmberBadge>クライアント確認待ち</AmberBadge>
+              </Tooltip>
             </div>
           )}
           {showChangesRequestedBadge && (

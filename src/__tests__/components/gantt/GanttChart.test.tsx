@@ -200,11 +200,11 @@ describe('GanttChart', () => {
     expect(onTaskClick).toHaveBeenCalledWith('task-1')
   })
 
-  it('should show empty state when no tasks', () => {
+  it('should show an educational empty state when no tasks (初回UX改善 D)', () => {
     render(<GanttChart tasks={[]} milestones={[]} />)
 
-    // Multiple "タスクがありません" texts exist (sidebar + chart body)
-    expect(screen.getAllByText('タスクがありません').length).toBeGreaterThanOrEqual(1)
+    // Multiple copies exist (sidebar + chart body)
+    expect(screen.getAllByText('期限付きタスクやマイルストーンを設定するとここに表示されます').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(hasText('0/0 タスク'))).toBeInTheDocument()
   })
 

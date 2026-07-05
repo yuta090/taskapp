@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
-import { AmberDot, TruncatedText } from '@/components/shared'
+import { AmberDot, Tooltip, TruncatedText } from '@/components/shared'
 import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import type { Task, BallSide, TaskStatus } from '@/types/database'
 
@@ -153,21 +153,23 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
 function BallIndicator({ ball, waitingDays }: { ball: BallSide; waitingDays?: number }) {
   if (ball !== 'client') return null
   return (
-    <span className="flex items-center gap-1.5">
-      <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-        <ArrowRight weight="bold" className="text-xs" />
-        クライアント確認待ち
-      </span>
-      {waitingDays !== undefined && waitingDays >= CLIENT_WAITING_DAYS_THRESHOLD && (
-        <span
-          className={`text-[10px] ${
-            waitingDays >= CLIENT_WAITING_DAYS_URGENT ? 'text-red-500 font-medium' : 'text-gray-500'
-          }`}
-        >
-          {waitingDays}日待ち
+    <Tooltip content="次にアクションする側。外部=クライアントの対応待ち">
+      <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+          <ArrowRight weight="bold" className="text-xs" />
+          クライアント確認待ち
         </span>
-      )}
-    </span>
+        {waitingDays !== undefined && waitingDays >= CLIENT_WAITING_DAYS_THRESHOLD && (
+          <span
+            className={`text-[10px] ${
+              waitingDays >= CLIENT_WAITING_DAYS_URGENT ? 'text-red-500 font-medium' : 'text-gray-500'
+            }`}
+          >
+            {waitingDays}日待ち
+          </span>
+        )}
+      </span>
+    </Tooltip>
   )
 }
 
@@ -266,9 +268,11 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
         {/* Client visible indicator */}
         {task.ball === 'client' && (
-          <span data-walkthrough="task-row-visibility">
-            <AmberDot />
-          </span>
+          <Tooltip content="ONでクライアントのポータルに表示されます">
+            <span data-walkthrough="task-row-visibility">
+              <AmberDot title="" />
+            </span>
+          </Tooltip>
         )}
 
         {/* Client origin badge */}

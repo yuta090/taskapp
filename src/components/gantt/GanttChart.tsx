@@ -788,7 +788,7 @@ export function GanttChart({
                 fontSize: GANTT_CONFIG.FONT.SIZE_SM,
               }}
             >
-              {tasks.length === 0 ? 'タスクがありません' : '条件に一致するタスクがありません'}
+              {tasks.length === 0 ? '期限付きタスクやマイルストーンを設定するとここに表示されます' : '条件に一致するタスクがありません'}
             </div>
           )}
         </div>
@@ -977,7 +977,7 @@ export function GanttChart({
             {/* Empty state */}
             {filteredTasks.length === 0 && (
               <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
-                {tasks.length === 0 ? 'タスクがありません' : '条件に一致するタスクがありません'}
+                {tasks.length === 0 ? '期限付きタスクやマイルストーンを設定するとここに表示されます' : '条件に一致するタスクがありません'}
               </div>
             )}
           </div>

@@ -23,11 +23,11 @@ export function AmberBadge({ children, className = '' }: AmberBadgeProps) {
 /**
  * Amber Dot - Simple indicator for client-visible items
  */
-export function AmberDot({ className = '' }: { className?: string }) {
+export function AmberDot({ className = '', title = '確認待ち' }: { className?: string; title?: string }) {
   return (
     <span
       className={`inline-block w-2 h-2 rounded-full bg-amber-500 ${className}`}
-      title="確認待ち"
+      title={title}
     />
   )
 }

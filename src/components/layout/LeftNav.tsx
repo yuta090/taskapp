@@ -35,6 +35,7 @@ import {
   PlugsConnected,
   ChartBar,
   Lifebuoy,
+  Question,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
@@ -276,6 +277,63 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               <BookOpen className="text-base text-gray-500" />
               マニュアル
             </Link>
+            <hr className="my-1 border-gray-100" />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <SignOut className="text-base" />
+              ログアウト
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** 左ナビ下部の常設ヘルプ導線。操作ガイド再表示・用語ガイド・使い方マニュアルへの単一の入口。 */
+function HelpMenu({ collapsed }: { collapsed?: boolean }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen])
+
+  return (
+    <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-1 relative`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        data-testid="leftnav-help-button"
+        className={`flex items-center ${
+          collapsed ? 'justify-center w-full' : 'gap-2'
+        } px-2 py-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors w-full`}
+        title={collapsed ? 'ヘルプ' : undefined}
+        aria-label="ヘルプ"
+        aria-expanded={isOpen}
+      >
+        <Question className="text-lg" weight="bold" />
+        {!collapsed && <span className="text-xs">ヘルプ</span>}
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div
+            className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+              collapsed ? 'left-0 w-56' : 'left-3 right-3'
+            }`}
+          >
             <button
               type="button"
               onClick={() => {
@@ -288,17 +346,24 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <Lifebuoy className="text-base text-gray-500" />
-              使い方ガイドを再表示
+              操作ガイドを再表示
             </button>
-            <hr className="my-1 border-gray-100" />
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            <Link
+              href="/help#glossary"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              <SignOut className="text-base" />
-              ログアウト
-            </button>
+              <BookOpen className="text-base text-gray-500" />
+              用語ガイド
+            </Link>
+            <Link
+              href="/help"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Question className="text-base text-gray-500" />
+              使い方マニュアル
+            </Link>
           </div>
         </>
       )}
@@ -1203,6 +1268,9 @@ export const LeftNav = memo(function LeftNav() {
           </div>
         </div>
       </div>
+
+      {/* Help menu - fixed above the collapse toggle */}
+      <HelpMenu collapsed={collapsed} />
 
       {/* Collapse toggle - fixed above user menu */}
       <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-1`}>
