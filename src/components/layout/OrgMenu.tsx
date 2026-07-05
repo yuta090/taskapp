@@ -11,6 +11,7 @@ import {
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
 
 interface OrgMenuProps {
   isOpen: boolean
@@ -37,6 +38,9 @@ export function OrgMenu({ isOpen, onClose, collapsed }: OrgMenuProps) {
   }, [isOpen, onClose])
 
   const handleLogout = useCallback(async () => {
+    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
+    // valid session, so it must run while the user is still logged in.
+    await cleanupPushOnLogout()
     const supabase = supabaseRef.current!
     await supabase.auth.signOut()
     router.push('/login')

@@ -5,8 +5,15 @@ export interface PushNotificationRow {
   org_id: string
   space_id: string
   type: string
-  payload: { message?: string; task_id?: string }
+  payload: { message?: string; task_id?: string; link?: string }
 }
+
+// Types whose payload carries an explicit `link` (no task_id) — the deep link
+// must come from the payload rather than the task_id-based fallback below.
+const LINK_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
+  'scheduling_reminder',
+  'scheduling_proposal_expired',
+])
 
 export type PushRecipientRole = 'client' | 'internal'
 
@@ -38,13 +45,15 @@ export function buildPushMessage(n: PushNotificationRow, role: PushRecipientRole
   const taskId = n.payload.task_id
 
   const url =
-    role === 'client'
-      ? taskId
-        ? `/portal/task/${taskId}`
-        : '/portal'
-      : taskId
-        ? buildTaskDeepLink(n.org_id, n.space_id, taskId)
-        : '/inbox'
+    LINK_PAYLOAD_TYPES.has(n.type) && n.payload.link
+      ? n.payload.link
+      : role === 'client'
+        ? taskId
+          ? `/portal/task/${taskId}`
+          : '/portal'
+        : taskId
+          ? buildTaskDeepLink(n.org_id, n.space_id, taskId)
+          : '/inbox'
 
   return { title, body, url, tag: `taskapp-${n.id}` }
 }

@@ -211,6 +211,18 @@ export async function POST(
         )
       }
 
+      // トークンを使用済みにする（タスク更新の成功直後、副作用より先に記録する。
+      // Slack通知・監査ログはベストエフォートで失敗しうるため、それらより後回しに
+      // すると一回性の記録が漏れたまま副作用のみ失敗するケースが生まれる）
+      const { error: tokenUpdateError } = await admin
+        .from('email_action_tokens')
+        .update({ used_at: now })
+        .eq('id', tokenRecord.id)
+
+      if (tokenUpdateError) {
+        console.error('[email-action] Failed to mark token as used:', tokenUpdateError)
+      }
+
       // 監査ログ
       createAuditLog({
         supabase: admin,
@@ -273,6 +285,18 @@ export async function POST(
         )
       }
 
+      // トークンを使用済みにする（タスク更新の成功直後、副作用より先に記録する。
+      // Slack通知・監査ログはベストエフォートで失敗しうるため、それらより後回しに
+      // すると一回性の記録が漏れたまま副作用のみ失敗するケースが生まれる）
+      const { error: tokenUpdateError } = await admin
+        .from('email_action_tokens')
+        .update({ used_at: now })
+        .eq('id', tokenRecord.id)
+
+      if (tokenUpdateError) {
+        console.error('[email-action] Failed to mark token as used:', tokenUpdateError)
+      }
+
       // 監査ログ
       createAuditLog({
         supabase: admin,
@@ -302,12 +326,6 @@ export async function POST(
         },
       })
     }
-
-    // トークンを使用済みにする
-    await admin
-      .from('email_action_tokens')
-      .update({ used_at: now })
-      .eq('id', tokenRecord.id)
 
     const message = tokenRecord.action_type === 'estimate_approve'
       ? '見積もりを承認しました'
