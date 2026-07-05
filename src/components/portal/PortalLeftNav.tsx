@@ -21,6 +21,7 @@ import {
   Planet,
   Lifebuoy,
   PaperPlaneTilt,
+  Question,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
@@ -168,6 +169,14 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
             >
               <User className="text-base text-gray-500" />
               プロフィール設定
+            </Link>
+            <Link
+              href="/help/client"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Question className="text-base text-gray-500" />
+              使い方
             </Link>
             <Link
               href="/docs/manual/client"

@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { LeftNav } from '@/components/layout/LeftNav'
 
 vi.mock('next/navigation', () => ({
@@ -50,5 +50,27 @@ describe('LeftNav — 用語統一 (M-1)', () => {
     render(<LeftNav />)
     expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
     expect(screen.queryByText('確認待ち')).not.toBeInTheDocument()
+  })
+})
+
+vi.mock('@/components/onboarding/InternalOnboardingWalkthrough', () => ({
+  resetInternalOnboarding: vi.fn(() => Promise.resolve()),
+}))
+
+describe('LeftNav — 常設ヘルプ導線 (初回UX改善 D)', () => {
+  it('ヘルプボタンを押すとポップオーバーに3項目が表示される', () => {
+    render(<LeftNav />)
+    fireEvent.click(screen.getByTestId('leftnav-help-button'))
+
+    expect(screen.getByText('操作ガイドを再表示')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '用語ガイド' })).toHaveAttribute('href', '/help#glossary')
+    expect(screen.getByRole('link', { name: '使い方マニュアル' })).toHaveAttribute('href', '/help')
+  })
+
+  it('「操作ガイドを再表示」の導線はヘルプメニューにのみ存在する（重複導線なし）', () => {
+    render(<LeftNav />)
+    fireEvent.click(screen.getByTestId('leftnav-help-button'))
+
+    expect(screen.getAllByText('操作ガイドを再表示')).toHaveLength(1)
   })
 })

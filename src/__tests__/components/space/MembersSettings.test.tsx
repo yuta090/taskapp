@@ -157,3 +157,128 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
     expect(screen.getByText('Editor User')).toBeInTheDocument()
   })
 })
+
+describe('MembersSettings invite form (POST /api/invites)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+
+    mockFrom.mockReturnValue({
+      select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }),
+    })
+
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_space_members') {
+        return Promise.resolve({ data: membersFixture(), error: null })
+      }
+      return Promise.resolve({ data: { ok: true }, error: null })
+    })
+
+    global.fetch = vi.fn()
+  })
+
+  it('offers only client and member as invite role choices (not admin/editor/viewer/vendor)', async () => {
+    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    const roleSelect = screen.getByLabelText('役割')
+    const optionLabels = within(roleSelect).getAllByRole('option').map(o => o.textContent)
+
+    expect(optionLabels).toEqual(['クライアント', 'メンバー'])
+  })
+
+  it('submits org_id, space_id, email, and role to /api/invites', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ token: 'tok-1', expires_at: '2026-10-01', email_sent: true }),
+    })
+
+    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText('email@example.com'), {
+      target: { value: 'invitee@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'client' } })
+    fireEvent.click(screen.getByRole('button', { name: /招待/ }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/invites', expect.objectContaining({ method: 'POST' }))
+    })
+
+    const call = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(JSON.parse(call[1].body)).toEqual({
+      org_id: 'org-1',
+      space_id: 'space-1',
+      email: 'invitee@example.com',
+      role: 'client',
+    })
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+  })
+
+  it('clears the email field and shows a success toast when the invite succeeds', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ token: 'tok-1', expires_at: '2026-10-01', email_sent: true }),
+    })
+
+    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    const emailInput = screen.getByPlaceholderText('email@example.com') as HTMLInputElement
+    fireEvent.change(emailInput, { target: { value: 'invitee@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /招待/ }))
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('invitee@example.com に招待メールを送信しました'))
+    expect(emailInput.value).toBe('')
+  })
+
+  it('shows an error toast and keeps the email field when the invite fails', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: 'Organization has reached member limit. Please upgrade your plan.' }),
+    })
+
+    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    const emailInput = screen.getByPlaceholderText('email@example.com') as HTMLInputElement
+    fireEvent.change(emailInput, { target: { value: 'invitee@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /招待/ }))
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('Organization has reached member limit. Please upgrade your plan.')
+    )
+    expect(emailInput.value).toBe('invitee@example.com')
+  })
+
+  it('disables the invite button while a request is in flight (double-submit guard)', async () => {
+    let resolveFetch!: (value: unknown) => void
+    global.fetch = vi.fn(() => new Promise(resolve => { resolveFetch = resolve }))
+
+    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText('email@example.com'), {
+      target: { value: 'invitee@example.com' },
+    })
+    const inviteButton = screen.getByRole('button', { name: /招待/ })
+    fireEvent.click(inviteButton)
+
+    await waitFor(() => expect(inviteButton).toBeDisabled())
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+
+    resolveFetch({ ok: true, json: () => Promise.resolve({ token: 'tok-1', expires_at: '2026-10-01', email_sent: true }) })
+
+    // Guard lifted after the request settles: a fresh submission is possible again
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+    fireEvent.change(screen.getByPlaceholderText('email@example.com'), {
+      target: { value: 'second@example.com' },
+    })
+    expect(inviteButton).not.toBeDisabled()
+    fireEvent.click(inviteButton)
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2))
+  })
+})

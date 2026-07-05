@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Users, Plus, Trash, Crown, UserCircle, CircleNotch, Warning } from '@phosphor-icons/react'
+import { Users, Plus, Trash, Crown, UserCircle, CircleNotch } from '@phosphor-icons/react'
 import Image from 'next/image'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
@@ -39,7 +39,13 @@ const ROLE_OPTIONS = [
 
 const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client', 'vendor'])
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// 招待時の役割は invites.role の制約 (client|member) に合わせる。
+// メンバー一覧のロール変更用 ROLE_OPTIONS（space_memberships 用）とは別物。
+const INVITE_ROLE_OPTIONS = [
+  { value: 'client', label: 'クライアント' },
+  { value: 'member', label: 'メンバー' },
+]
+
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [members, setMembers] = useState<Member[]>([])
@@ -50,9 +56,8 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('editor')
+  const [inviteRole, setInviteRole] = useState('member')
   const [inviting, setInviting] = useState(false)
-  const [inviteMessage, setInviteMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -177,23 +182,38 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !isAdmin) return
+    if (!inviteEmail.trim() || !isAdmin || inviting) return
 
     setInviting(true)
-    setInviteMessage(null)
 
     try {
-      // Check if user exists by email
-      // Note: This would typically be done through an API endpoint for security
-      // For now, we'll show a message about the invite flow
-      setInviteMessage({
-        type: 'success',
-        text: `${inviteEmail} への招待メール送信機能は準備中です。直接メンバーを追加する場合は、まずユーザーにアカウント作成を依頼してください。`,
+      const response = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: orgId,
+          space_id: spaceId,
+          email: inviteEmail.trim(),
+          role: inviteRole,
+        }),
       })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || 'メンバーの招待に失敗しました')
+        return
+      }
+
+      toast.success(
+        data.email_sent
+          ? `${inviteEmail.trim()} に招待メールを送信しました`
+          : '招待を作成しました（メール送信に失敗したため招待リンクを直接共有してください）'
+      )
       setInviteEmail('')
     } catch (err) {
       console.error('Failed to invite member:', err)
-      setInviteMessage({ type: 'error', text: 'メンバーの招待に失敗しました' })
+      toast.error('メンバーの招待に失敗しました')
     } finally {
       setInviting(false)
     }
@@ -337,23 +357,11 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
           <div className="text-xs font-medium text-gray-500">メンバーを招待</div>
 
-          {inviteMessage && (
-            <div
-              className={`p-3 rounded-lg text-sm ${
-                inviteMessage.type === 'success'
-                  ? 'bg-blue-50 border border-blue-200 text-blue-700'
-                  : 'bg-red-50 border border-red-200 text-red-700'
-              }`}
-            >
-              <Warning className="inline w-4 h-4 mr-1" />
-              {inviteMessage.text}
-            </div>
-          )}
-
           <div className="flex items-end gap-3">
             <div className="flex-1">
-              <label className="text-xs text-gray-500">メールアドレス</label>
+              <label htmlFor="space-invite-email" className="text-xs text-gray-500">メールアドレス</label>
               <input
+                id="space-invite-email"
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
@@ -362,21 +370,19 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
               />
             </div>
             <div className="w-40">
-              <label className="text-xs text-gray-500">役割</label>
+              <label htmlFor="space-invite-role" className="text-xs text-gray-500">役割</label>
               <select
+                id="space-invite-role"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value)}
                 className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                {ROLE_OPTIONS.map((opt) => (
+                {INVITE_ROLE_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-[10px] text-gray-400 leading-tight">
-                {ROLE_OPTIONS.find((o) => o.value === inviteRole)?.desc}
-              </p>
             </div>
             <button
               onClick={handleInvite}

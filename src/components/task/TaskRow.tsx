@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
-import { AmberDot, TruncatedText } from '@/components/shared'
+import { AmberDot, Tooltip, TruncatedText } from '@/components/shared'
 import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
-import type { Task, BallSide, TaskStatus } from '@/types/database'
+import type { Task, BallSide, TaskStatus, ReviewStatus } from '@/types/database'
 
 /** Below this, "N日待ち" is not shown — a task that just passed to the client isn't stale yet. */
 const CLIENT_WAITING_DAYS_THRESHOLD = 3
@@ -17,7 +17,7 @@ interface TaskRowProps {
   onClick?: (taskId: string) => void
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
-  reviewStatus?: 'open' | 'approved' | 'changes_requested'
+  reviewStatus?: ReviewStatus
   assigneeName?: string | null
   isNew?: boolean
   bulkMode?: boolean
@@ -155,25 +155,29 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
 function BallIndicator({ ball, waitingDays }: { ball: BallSide; waitingDays?: number }) {
   if (ball !== 'client') return null
   return (
-    <span className="flex items-center gap-1.5">
-      <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-        <ArrowRight weight="bold" className="text-xs" />
-        クライアント確認待ち
-      </span>
-      {waitingDays !== undefined && waitingDays >= CLIENT_WAITING_DAYS_THRESHOLD && (
-        <span
-          className={`text-[10px] ${
-            waitingDays >= CLIENT_WAITING_DAYS_URGENT ? 'text-red-500 font-medium' : 'text-gray-500'
-          }`}
-        >
-          {waitingDays}日待ち
+    <Tooltip content="次にアクションする側。外部=クライアントの対応待ち">
+      <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+          <ArrowRight weight="bold" className="text-xs" />
+          クライアント確認待ち
         </span>
-      )}
-    </span>
+        {waitingDays !== undefined && waitingDays >= CLIENT_WAITING_DAYS_THRESHOLD && (
+          <span
+            className={`text-[10px] ${
+              waitingDays >= CLIENT_WAITING_DAYS_URGENT ? 'text-red-500 font-medium' : 'text-gray-500'
+            }`}
+          >
+            {waitingDays}日待ち
+          </span>
+        )}
+      </span>
+    </Tooltip>
   )
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now }: TaskRowProps) {
+  // 取消済みレビューは「レビュー無し」と同じ扱い（バッジ非表示・再依頼クイックアクション表示）
+  const reviewStatus = rawReviewStatus === 'cancelled' ? undefined : rawReviewStatus
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
   const clientWaitingDays =
@@ -378,9 +382,11 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
         {/* Client visible indicator */}
         {task.ball === 'client' && (
-          <span data-walkthrough="task-row-visibility">
-            <AmberDot />
-          </span>
+          <Tooltip content="ONでクライアントのポータルに表示されます">
+            <span data-walkthrough="task-row-visibility">
+              <AmberDot title="" />
+            </span>
+          </Tooltip>
         )}
 
         {/* Client origin badge */}
