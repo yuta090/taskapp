@@ -110,10 +110,10 @@ export function ReviewInspector({
               }`}
             >
               {review.status === 'approved'
-                ? '承認済み'
+                ? '社内承認済み'
                 : review.status === 'changes_requested'
                 ? '差し戻し'
-                : '承認待ち'}
+                : '社内承認待ち'}
             </span>
           </div>
         </div>

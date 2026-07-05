@@ -171,7 +171,7 @@ export function TaskReviewSection({
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 text-xs text-gray-400">
           <Eye className="text-sm" />
-          <span>承認フロー</span>
+          <span>社内承認</span>
         </div>
       </div>
     )
@@ -187,14 +187,14 @@ export function TaskReviewSection({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
           <Eye className="text-sm" />
-          <span>承認フロー</span>
+          <span>社内承認</span>
         </div>
         {!readOnly && !reviewData && !showReviewerPicker && (
           <button
             onClick={() => setShowReviewerPicker(true)}
             className="text-xs text-gray-500 hover:text-gray-700 font-medium"
           >
-            承認を依頼
+            社内承認を依頼
           </button>
         )}
         {!readOnly && reviewData && reviewData.review.status !== 'open' && (
@@ -216,7 +216,10 @@ export function TaskReviewSection({
       {/* Reviewer picker */}
       {showReviewerPicker && (
         <div className="space-y-2 p-3 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-500">承認者を選択</p>
+          <p className="text-xs text-gray-500">社内承認者を選択</p>
+          <p className="text-[11px] text-gray-400">
+            クライアントへの確認依頼はボールを「外部」に切り替えてください
+          </p>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {internalMembers
               .filter((m) => m.id !== user?.id)
@@ -292,10 +295,10 @@ export function TaskReviewSection({
               }`}
             >
               {reviewData.review.status === 'approved'
-                ? '承認済み'
+                ? '社内承認済み'
                 : reviewData.review.status === 'changes_requested'
                 ? '差し戻し'
-                : '承認待ち'}
+                : '社内承認待ち'}
             </span>
           </div>
 

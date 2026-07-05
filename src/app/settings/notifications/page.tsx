@@ -234,8 +234,8 @@ export default function NotificationSettingsPage() {
 
           {/* Review Request */}
           <SettingRow
-            label="承認依頼"
-            description="承認を依頼された時"
+            label="社内承認依頼"
+            description="社内承認を依頼された時"
             enabled={settings.email_enabled && settings.email_on_review_request}
             disabled={!settings.email_enabled}
             onChange={() => handleToggle('email_on_review_request')}

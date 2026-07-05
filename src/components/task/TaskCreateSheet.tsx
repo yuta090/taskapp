@@ -120,6 +120,8 @@ export function TaskCreateSheet({
   const [estimationExpanded, setEstimationExpanded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showPortalPreview, setShowPortalPreview] = useState(false)
+  const [ownerValidationError, setOwnerValidationError] = useState(false)
+  const clientOwnerFieldRef = useRef<HTMLDivElement>(null)
 
   // Draft auto-save
   const draftKey = isGlobalCreate ? 'task_create_global' : `task_create_${spaceId}`
@@ -170,6 +172,7 @@ export function TaskCreateSheet({
       setDescription(defaultDescription)
       setClientOwnerIds(defaultClientOwnerIds)
       setBall(defaultBall)
+      setOwnerValidationError(false)
       // In global create mode, preserve selectedSpaceId between creates
       // Only clear if the previously selected space is no longer available
       if (isGlobalCreate && selectedSpaceId && !spaces.some((s) => s.id === selectedSpaceId)) {
@@ -254,11 +257,25 @@ export function TaskCreateSheet({
   }, [isOpen, effectiveSpaceId, supabase])
 
   const toggleClientOwner = (ownerId: string) => {
-    setClientOwnerIds((prev) =>
-      prev.includes(ownerId)
+    setClientOwnerIds((prev) => {
+      const next = prev.includes(ownerId)
         ? prev.filter((id) => id !== ownerId)
         : [...prev, ownerId]
-    )
+      if (next.length > 0) setOwnerValidationError(false)
+      return next
+    })
+  }
+
+  // M-2: 担当者にクライアントメンバーを選んだ場合、関係者・外部へ自動同期する
+  const handleAssigneeChange = (newAssigneeId: string) => {
+    setAssigneeId(newAssigneeId)
+    const selectedMember = members.find((m) => m.id === newAssigneeId)
+    if (selectedMember?.role === 'client') {
+      setClientOwnerIds((prev) =>
+        prev.includes(newAssigneeId) ? prev : [...prev, newAssigneeId]
+      )
+      setOwnerValidationError(false)
+    }
   }
 
   const toggleInternalOwner = (ownerId: string) => {
@@ -331,7 +348,8 @@ export function TaskCreateSheet({
 
     // Validate: ball=client needs client owner
     if (ball === 'client' && clientOwnerIds.length === 0) {
-      toast.error('外部にボールを渡す場合は外部担当者を指定してください')
+      setOwnerValidationError(true)
+      clientOwnerFieldRef.current?.focus()
       return
     }
 
@@ -572,11 +590,27 @@ export function TaskCreateSheet({
 
           {/* Client owners (required when ball=client) — always visible in compact mode */}
           {ball === 'client' && (
-            <div className="p-3 bg-amber-50 rounded-lg">
+            <div
+              ref={clientOwnerFieldRef}
+              tabIndex={-1}
+              data-testid="task-create-client-owner-field"
+              className="p-3 bg-amber-50 rounded-lg focus:outline-none"
+            >
               <label className="text-xs font-medium text-amber-600">
                 関係者・外部 <span className="text-amber-500">（必須）</span>
               </label>
-              <p className="text-xs text-amber-500 mt-0.5">対応するクライアント側メンバー</p>
+              <p className="text-xs text-amber-500 mt-0.5">
+                クライアントへの確認を依頼する相手です（担当者と自動的に同期されます）
+              </p>
+              {ownerValidationError && (
+                <p
+                  role="alert"
+                  data-testid="task-create-client-owner-error"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  クライアント側の担当者を選択してください
+                </p>
+              )}
               <div className="mt-2 flex items-center gap-2">
                 <User className="text-amber-500" />
                 <span className="text-sm text-amber-700">
@@ -634,7 +668,7 @@ export function TaskCreateSheet({
               </label>
               <select
                 value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
+                onChange={(e) => handleAssigneeChange(e.target.value)}
                 data-testid="task-create-assignee"
                 className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 disabled={membersLoading}

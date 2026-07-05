@@ -38,9 +38,9 @@ interface NotificationInspectorProps {
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; color: string }[] = [
   { value: 'backlog', label: 'バックログ', color: 'text-gray-400' },
-  { value: 'todo', label: 'Todo', color: 'text-gray-400' },
+  { value: 'todo', label: '着手予定', color: 'text-gray-400' },
   { value: 'in_progress', label: '進行中', color: 'text-blue-400' },
-  { value: 'in_review', label: '承認確認中', color: 'text-amber-400' },
+  { value: 'in_review', label: '社内承認中', color: 'text-amber-400' },
   { value: 'done', label: '完了', color: 'text-green-500' },
 ]
 
@@ -89,7 +89,7 @@ function getNotificationIcon(type: string, urgent?: boolean) {
 
 function getNotificationTypeLabel(type: string): string {
   switch (type) {
-    case 'review_request': return '承認依頼'
+    case 'review_request': return '社内承認依頼'
     case 'client_question': return '外部からの質問'
     case 'client_feedback': return '外部からのフィードバック'
     case 'task_assigned': return 'タスク割り当て'

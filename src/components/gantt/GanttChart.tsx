@@ -52,7 +52,7 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'not_done', label: '完了以外' },
   { value: 'backlog', label: '未着手' },
   { value: 'in_progress', label: '進行中' },
-  { value: 'in_review', label: '確認中' },
+  { value: 'in_review', label: '社内承認中' },
   { value: 'done', label: '完了' },
 ]
 
@@ -181,7 +181,7 @@ export function GanttChart({
         if (!byBall.has(key)) byBall.set(key, [])
         byBall.get(key)!.push(t)
       })
-      const ballLabels: Record<string, string> = { client: '外部確認待ち', internal: '社内対応中' }
+      const ballLabels: Record<string, string> = { client: 'クライアント確認待ち', internal: '社内対応中' }
       const ballColors: Record<string, string> = { client: GANTT_CONFIG.COLORS.CLIENT, internal: GANTT_CONFIG.COLORS.INTERNAL }
       for (const [ball, ts] of byBall) {
         groups.push({ label: ballLabels[ball] || ball, groupKey: ball, tasks: ts, color: ballColors[ball] })
@@ -994,7 +994,7 @@ export function GanttChart({
             className="w-3 h-3 rounded"
             style={{ backgroundColor: GANTT_CONFIG.COLORS.CLIENT }}
           />
-          <span>外部確認待ち</span>
+          <span>クライアント確認待ち</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div
@@ -1039,9 +1039,9 @@ function getStatusBadge(status: string): { bg: string; text: string } {
 
 const statusLabels: Record<string, string> = {
   backlog: '未着手',
-  todo: 'ToDo',
+  todo: '着手予定',
   in_progress: '進行中',
-  in_review: '承認確認中',
+  in_review: '社内承認中',
   done: '完了',
   considering: '検討中',
 }
