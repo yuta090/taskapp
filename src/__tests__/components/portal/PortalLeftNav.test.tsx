@@ -96,6 +96,17 @@ describe('PortalLeftNav — user menu identity (H-3)', () => {
   })
 })
 
+describe('PortalLeftNav — 使い方リンク (初回UX改善 D)', () => {
+  it('ユーザーメニューに /help/client への「使い方」リンクがある', () => {
+    mockUser = { user_metadata: { name: '鈴木 一郎' }, email: 'client1@example.com' }
+
+    render(<PortalLeftNav currentProject={{ id: 'space-1', name: 'テストプロジェクト', orgId: 'org-1' }} />)
+    fireEvent.click(screen.getByRole('button', { name: /鈴木 一郎/ }))
+
+    expect(screen.getByRole('link', { name: '使い方' })).toHaveAttribute('href', '/help/client')
+  })
+})
+
 /**
  * Regression tests for S6: a client invited to multiple projects/orgs needs a
  * way to switch between them, and the switch must persist across in-portal

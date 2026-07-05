@@ -515,7 +515,10 @@ export default function InboxClient() {
         {error && <ErrorRetry message={error} onRetry={fetchNotifications} />}
 
         {!loading && !error && notifications.length === 0 && (
-          <EmptyState icon={<Tray />} message="通知はありません" />
+          <EmptyState
+            icon={<Tray />}
+            message="クライアントの承認・修正依頼やボールの受け渡しがここに届きます。まずはタスクを作成してクライアントに公開してみましょう。"
+          />
         )}
 
         {!loading && !error && notifications.length > 0 && filteredNotifications.length === 0 && (
