@@ -61,6 +61,38 @@ describe('buildPortalActivities', () => {
     })
   })
 
+  // 再現テスト: 削除済み・非公開タスクを指す通知が /portal/task/[id] への
+  // デッドリンク(404)になっていた。visibleTaskIds を渡した場合、集合に無い
+  // task_id はリンク化しない(テキスト表示のまま)。
+  it('drops taskId for notifications pointing at tasks outside visibleTaskIds (deleted/invisible)', () => {
+    const activities = buildPortalActivities(
+      {
+        notifications: [
+          { id: 'n-dead', type: 'ball_passed', payload: { message: '削除済みタスクの通知', task_id: 'deleted-task' }, created_at: '2026-07-03T00:00:00+09:00' },
+          { id: 'n-live', type: 'ball_passed', payload: { message: '生きているタスクの通知', task_id: 'live-task' }, created_at: '2026-07-02T00:00:00+09:00' },
+        ],
+        completedTasks: [],
+        visibleTaskIds: new Set(['live-task']),
+      }
+    )
+
+    expect(activities).toHaveLength(2)
+    expect(activities.find((a) => a.id === 'n-dead')?.taskId).toBeUndefined()
+    expect(activities.find((a) => a.id === 'n-live')?.taskId).toBe('live-task')
+  })
+
+  it('keeps completed-task taskId regardless of visibleTaskIds (they come from the tasks table)', () => {
+    const activities = buildPortalActivities({
+      notifications: [],
+      completedTasks: [
+        { id: 'task-9', title: '納品物', completed_at: '2026-07-02T09:00:00+09:00', updated_at: '2026-07-02T09:00:00+09:00' },
+      ],
+      visibleTaskIds: new Set<string>(),
+    })
+
+    expect(activities[0].taskId).toBe('task-9')
+  })
+
   it('sorts combined activities by timestamp descending and caps at the given limit', () => {
     const activities = buildPortalActivities(
       {
