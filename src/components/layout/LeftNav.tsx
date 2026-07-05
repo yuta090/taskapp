@@ -637,7 +637,7 @@ function SpaceNavItem({
           <SubNavItem
             href={`${basePath}?filter=client_wait`}
             icon={<ChatCircleText />}
-            label="確認待ち"
+            label="クライアント確認待ち"
             active={isActive(`${basePath}?filter=client_wait`, pathname === basePath && searchParams.get('filter') === 'client_wait')}
             collapsed={collapsed}
             onNavigate={onNavigate}

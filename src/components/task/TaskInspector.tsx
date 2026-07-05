@@ -56,9 +56,9 @@ interface TaskInspectorProps {
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'backlog', label: '未着手' },
-  { value: 'todo', label: 'ToDo' },
+  { value: 'todo', label: '着手予定' },
   { value: 'in_progress', label: '進行中' },
-  { value: 'in_review', label: '承認確認中' },
+  { value: 'in_review', label: '社内承認中' },
   { value: 'done', label: '完了' },
   { value: 'considering', label: '検討中' },
 ]
@@ -278,7 +278,7 @@ export function TaskInspector({
     }
     // 状態遷移ガード: approved→pending は禁止 (rejected→pending のみ許可)
     if (task.estimate_status === 'approved') {
-      toast.error('承認済みの見積もりは変更できません')
+      toast.error('クライアント承認済みの見積もりは変更できません')
       return
     }
     // クライアントメンバーがいなければボール渡し不可
@@ -542,7 +542,7 @@ export function TaskInspector({
           )}
           {task.ball === 'client' && (
             <div className="mt-2">
-              <AmberBadge>確認待ち</AmberBadge>
+              <AmberBadge>クライアント確認待ち</AmberBadge>
             </div>
           )}
         </div>
@@ -648,7 +648,7 @@ export function TaskInspector({
 
           {/* Ball */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアントの確認待ち">ボール</label>
+            <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアント確認待ち">ボール</label>
             <div className="flex gap-1.5">
               <button
                 onClick={() => handleBallChange('internal')}
@@ -982,7 +982,7 @@ export function TaskInspector({
             {task.estimate_status === 'approved' && (
               <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-lg">
                 <Check className="w-3.5 h-3.5 text-green-600" weight="bold" />
-                <span className="text-xs font-medium text-green-700">承認済み</span>
+                <span className="text-xs font-medium text-green-700">クライアント承認済み</span>
                 {task.estimated_cost != null && (
                   <span className="ml-auto text-xs font-semibold text-green-800">
                     ¥{task.estimated_cost.toLocaleString()}

@@ -2,9 +2,9 @@ import type { TaskNotificationPayload, NotificationEventType } from '@/lib/notif
 
 const STATUS_LABELS: Record<string, string> = {
   backlog: '未着手',
-  todo: 'ToDo',
+  todo: '着手予定',
   in_progress: '進行中',
-  in_review: '承認確認中',
+  in_review: '社内承認中',
   done: '完了',
   considering: '検討中',
   decided: '決定済み',
@@ -61,7 +61,7 @@ export function buildTaskBlocks(
   }
   contextElements.push({ type: 'mrkdwn', text: `${spaceName}` })
   if (task.ball === 'client') {
-    contextElements.push({ type: 'mrkdwn', text: '確認待ち' })
+    contextElements.push({ type: 'mrkdwn', text: 'クライアント確認待ち' })
   }
 
   if (contextElements.length > 0) {
