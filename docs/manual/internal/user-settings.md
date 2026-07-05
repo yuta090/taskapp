@@ -116,11 +116,11 @@ URL: `/settings/members`
 
 ---
 
-## 外部連携（個人）
+## 個人の外部連携
 
 URL: `/settings/integrations`
 
-個人の外部サービス接続を管理します。
+あなた個人のアカウント接続（Google カレンダー・ビデオ会議）を管理します。Slack・GitHub・AI など組織全体の接続は「組織の外部連携」で行います。
 
 ### Google カレンダー
 
