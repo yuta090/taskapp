@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BookOpen, Plus, ArrowLeft, Sparkle } from '@phosphor-icons/react'
+import { BookOpen, Plus, ArrowLeft, Sparkle, Info } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { WikiPageRow } from '@/components/wiki/WikiPageRow'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
@@ -23,6 +24,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
+  const isMobile = useIsMobile()
+  // On mobile, opening a page shows the editor directly; the page-info inspector
+  // is opened on demand (info button) instead of auto-overlaying the editor.
+  const [showInfo, setShowInfo] = useState(false)
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false)
   const [activePage, setActivePage] = useState<WikiPage | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -95,6 +100,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     setSaveStatus('idle')
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- collapse on-demand info panel when switching pages
+    setShowInfo(false)
 
     let cancelled = false
     const load = async () => {
@@ -107,9 +114,12 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     return () => { cancelled = true }
   }, [selectedPageId, fetchPage, setInspector])
 
-  // Set inspector when active page changes
+  // Set inspector when active page changes.
+  // Desktop: inspector sits alongside the editor (auto-open).
+  // Mobile: inspector is a full-screen sheet, so only open it on demand (showInfo)
+  // to avoid it covering the editor the moment a page is opened.
   useEffect(() => {
-    if (!activePage) {
+    if (!activePage || (isMobile && !showInfo)) {
       setInspector(null)
       return
     }
@@ -137,14 +147,16 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     setInspector(
       <WikiPageInspector
         page={activePage}
-        onClose={() => updateQuery({ page: null })}
+        // Mobile: close just hides the info sheet (keeps the editor open).
+        // Desktop: close navigates back to the page list (unchanged).
+        onClose={() => (isMobile ? setShowInfo(false) : updateQuery({ page: null }))}
         onUpdate={handleUpdate}
         onDelete={handleDelete}
         onFetchVersions={fetchVersions}
         onRestoreVersion={handleRestoreVersion}
       />
     )
-  }, [activePage, setInspector, updatePage, deletePage, fetchPage, fetchVersions, updateQuery])
+  }, [activePage, isMobile, showInfo, setInspector, updatePage, deletePage, fetchPage, fetchVersions, updateQuery])
 
   const handleSelectPage = (pageId: string) => {
     updateQuery({ page: pageId })
@@ -212,6 +224,15 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             {saveStatus === 'saved' && (
               <span className="text-xs text-green-500">保存済み</span>
             )}
+            {/* Mobile: open page-info inspector on demand (desktop shows it alongside) */}
+            <button
+              type="button"
+              onClick={() => setShowInfo(true)}
+              className="md:hidden p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              aria-label="ページ情報"
+            >
+              <Info className="text-lg" />
+            </button>
           </div>
         </div>
 
