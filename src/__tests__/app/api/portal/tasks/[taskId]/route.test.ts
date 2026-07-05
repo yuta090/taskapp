@@ -223,4 +223,48 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       })
     })
   })
+
+  // S5: レビュー整合性 — DBトリガー enforce_review_gate は open/blocked の
+  // 社内承認や未決の spec decision_state を持つタスクの status→'done' を
+  // 拒否する。ポータルの approve は素の Postgres 例外をそのままクライアントに
+  // 見せず、409＋分かりやすい日本語メッセージに変換する。
+  describe('approve — 社内レビュー未完了時のトリガーエラーを409に変換する (S5)', () => {
+    it('review が open/blocked で完了できない場合、409と専用メッセージを返す', async () => {
+      updateTaskResponse = {
+        data: null,
+        error: { message: 'Cannot complete task: review is not approved' },
+      }
+
+      const response = await callPost({ action: 'approve' })
+      const body = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(body.error).toBe('社内レビューが完了していないため承認できません')
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it('spec の決定事項が未決で完了できない場合、409と専用メッセージを返す', async () => {
+      updateTaskResponse = {
+        data: null,
+        error: { message: 'Cannot complete task: spec decision is not made' },
+      }
+
+      const response = await callPost({ action: 'approve' })
+      const body = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(body.error).toBe('決定事項が未決のため承認できません')
+      expect(createTaskNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it('その他の理由で行が更新されない場合は、従来どおり汎用メッセージを返す', async () => {
+      updateTaskResponse = { data: null, error: null }
+
+      const response = await callPost({ action: 'approve' })
+      const body = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(body.error).toBe('タスクの状態が変更されました。ページを再読み込みしてください。')
+    })
+  })
 })

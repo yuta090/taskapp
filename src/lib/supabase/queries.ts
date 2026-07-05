@@ -10,7 +10,7 @@ import type { Task, TaskOwner, Milestone, Meeting, MeetingParticipant } from '@/
 
 // ── Shared data types ──
 
-export type ReviewStatus = 'open' | 'approved' | 'changes_requested'
+export type ReviewStatus = 'open' | 'approved' | 'changes_requested' | 'cancelled'
 
 export interface TasksQueryData {
   tasks: Task[]

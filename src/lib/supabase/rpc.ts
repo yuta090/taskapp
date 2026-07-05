@@ -203,6 +203,23 @@ export async function reviewBlock(
 }
 
 // =============================================================================
+// 4.5c rpc_review_cancel
+// =============================================================================
+
+export interface ReviewCancelParams {
+  reviewId: string
+}
+
+export async function reviewCancel(
+  client: Client,
+  params: ReviewCancelParams
+): Promise<RpcResult> {
+  return callRpc<RpcResult>(client, 'rpc_review_cancel', {
+    p_review_id: params.reviewId,
+  })
+}
+
+// =============================================================================
 // 4.6 rpc_meeting_start
 // =============================================================================
 
@@ -387,6 +404,7 @@ export const rpc = {
   reviewOpen,
   reviewApprove,
   reviewBlock,
+  reviewCancel,
   meetingStart,
   meetingEnd,
   generateMeetingMinutes,

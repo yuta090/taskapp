@@ -31,6 +31,11 @@ vi.mock('@/lib/supabase/cached-auth', () => ({
   getCachedUserId: vi.fn(async () => 'user-1'),
 }))
 
+const mockToastError = vi.fn()
+vi.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args) },
+}))
+
 // Chainable Supabase mock: from(table).<method>(...).<method>(...) → resolves per-table.
 const mockUpdate = vi.fn()
 const mockUpdateEq = vi.fn()
@@ -288,5 +293,200 @@ describe('useTasks — ball=client ⟹ client_scope=deliverable 不変条件', (
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ client_scope: 'internal' }))
     await waitFor(() => expect(result.current.tasks[0].client_scope).toBe('internal'))
+  })
+})
+
+// S5: レビューとタスク完了の連動。DBトリガー（enforce_review_gate）が最終防衛線
+// だが、UI側で事前にブロックしないと「optimistic更新が一瞬反映→ロールバック」
+// という体験になる上、素のPostgresエラーがそのままthrowされてしまう。
+// updateTask 側で reviewStatuses / decision_state を見て早期にエラーにする。
+describe('useTasks — レビュー整合性: status=done への変更ガード', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
+    mockUpdateEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [{ id: 't1', parent_task_id: null }], error: null }),
+    })
+
+    mockInsert.mockReturnValue({ select: mockInsertSelect })
+    mockInsertSelect.mockReturnValue({ single: mockInsertSingle })
+
+    mockTaskOwnersInsert.mockResolvedValue({ error: null })
+    mockTaskOwnersSelect.mockReturnValue({ eq: mockTaskOwnersEq })
+    mockTaskOwnersEq.mockResolvedValue({ data: [], error: null })
+
+    mockPassBall.mockResolvedValue({ ok: true })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('open な社内承認が残っている場合、done への変更を拒否しトーストを出す', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_review' })],
+      owners: {},
+      reviewStatuses: { t1: 'open' },
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await expect(
+      result.current.updateTask('t1', { status: 'done' })
+    ).rejects.toThrow()
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(result.current.tasks[0].status).toBe('in_review')
+    expect(mockToastError).toHaveBeenCalledWith(
+      expect.stringContaining('社内承認が完了するまでタスクを完了できません')
+    )
+  })
+
+  it('差し戻し中(changes_requested)の社内承認が残っている場合も、done への変更を拒否する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_review' })],
+      owners: {},
+      reviewStatuses: { t1: 'changes_requested' },
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await expect(
+      result.current.updateTask('t1', { status: 'done' })
+    ).rejects.toThrow()
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('社内承認が approved なら done への変更を許可する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_review' })],
+      owners: {},
+      reviewStatuses: { t1: 'approved' },
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { status: 'done' })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'done' }))
+  })
+
+  it('社内承認が cancelled(取消済み)なら done への変更を許可する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_review' })],
+      owners: {},
+      reviewStatuses: { t1: 'cancelled' },
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { status: 'done' })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'done' }))
+  })
+
+  it('レビューが存在しないタスクは done への変更を許可する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_progress' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { status: 'done' })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'done' }))
+  })
+
+  it('spec タスクが decision_state=considering(未決)のままだと done への変更を拒否する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_progress', type: 'spec', decision_state: 'considering' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await expect(
+      result.current.updateTask('t1', { status: 'done' })
+    ).rejects.toThrow()
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockToastError).toHaveBeenCalledWith(
+      expect.stringContaining('決定事項が未決のため完了できません')
+    )
+  })
+
+  it('spec タスクが decision_state=decided なら done への変更を許可する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_progress', type: 'spec', decision_state: 'decided' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { status: 'done' })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'done' }))
+  })
+
+  it('status 以外の更新では review/decision_state ガードを適用しない', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', status: 'in_review' })],
+      owners: {},
+      reviewStatuses: { t1: 'open' },
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { title: '新しいタイトル' })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: '新しいタイトル' }))
   })
 })

@@ -72,6 +72,22 @@ describe('TaskRow — 用語統一 (M-1, M-3)', () => {
   })
 })
 
+describe('TaskRow — 取消済みレビュー (cancelled)', () => {
+  it('reviewStatus=cancelled はレビュー無しと同様にバッジを表示しない', () => {
+    render(<TaskRow task={makeTask()} reviewStatus="cancelled" />)
+    expect(screen.queryByText('社内承認待ち')).not.toBeInTheDocument()
+    expect(screen.queryByText('社内承認済み')).not.toBeInTheDocument()
+    expect(screen.queryByText('差戻')).not.toBeInTheDocument()
+  })
+
+  it('in_review かつ reviewStatus=cancelled なら「社内承認を依頼」クイックアクションを出す', () => {
+    render(
+      <TaskRow task={makeTask({ status: 'in_review' })} reviewStatus="cancelled" onClick={vi.fn()} />
+    )
+    expect(screen.getByText('社内承認を依頼')).toBeInTheDocument()
+  })
+})
+
 describe('TaskRow — クライアント待ち日数バッジ (B-4)', () => {
   it('ball=client かつ経過3日未満のときは日数バッジを表示しない', () => {
     const now = new Date('2026-07-05T12:00:00+09:00')
