@@ -97,9 +97,9 @@ function saveFilterState(filters: FilterState) {
 
 const statusLabels: Record<StatusFilter, string> = {
   all: 'すべて',
-  todo: 'TODO',
+  todo: '着手予定',
   in_progress: '進行中',
-  in_review: '承認確認中',
+  in_review: '社内承認中',
 }
 
 const sortLabels: Record<SortField, string> = {
