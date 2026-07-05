@@ -58,7 +58,8 @@ export default async function PortalSettingsPage() {
      
     (supabase as SupabaseClient)
       .from('profiles')
-      .select('id, display_name, email, avatar_url')
+      // profiles に email 列は無い（select に含めるとクエリ全体が失敗し profile が null になる）
+      .select('id, display_name, avatar_url, reminder_emails_enabled')
       .eq('id', user.id)
       .single(),
      
@@ -85,6 +86,7 @@ export default async function PortalSettingsPage() {
         email: user.email || '',
         displayName: profile?.display_name || user.email?.split('@')[0] || '',
         avatarUrl: profile?.avatar_url,
+        reminderEmailsEnabled: profile?.reminder_emails_enabled !== false,
       }}
       actionCount={actionCountResult.count || 0}
     />
