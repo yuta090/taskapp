@@ -62,6 +62,11 @@ function generateDeliverablesBody(): string {
       { cells: [[{ type: 'text', text: '成果物', styles: { bold: true } }], [{ type: 'text', text: '担当', styles: { bold: true } }], [{ type: 'text', text: 'ステータス', styles: { bold: true } }], [{ type: 'text', text: 'リンク', styles: { bold: true } }]] },
       { cells: [[{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '制作中 / レビュー中 / 完了' }], [{ type: 'text', text: '' }]] },
     ] } },
+    { type: 'paragraph', content: [] },
+    { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: 'レビュー・フィードバックルール' }] },
+    { type: 'bulletListItem', content: [{ type: 'text', text: '修正回数: ', styles: { bold: true } }, { type: 'text', text: '（例: 初稿＋2回まで。超過分は要相談）' }] },
+    { type: 'bulletListItem', content: [{ type: 'text', text: 'フィードバック方法: ', styles: { bold: true } }, { type: 'text', text: '（Figmaコメント / タスクで依頼 等）' }] },
+    { type: 'bulletListItem', content: [{ type: 'text', text: '承認者: ', styles: { bold: true } }, { type: 'text', text: '' }] },
   ])
 }
 

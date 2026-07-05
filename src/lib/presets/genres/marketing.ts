@@ -56,6 +56,12 @@ function generateContentCalendarBody(): string {
       { cells: [[{ type: 'text', text: '公開日', styles: { bold: true } }], [{ type: 'text', text: 'タイトル', styles: { bold: true } }], [{ type: 'text', text: 'チャネル', styles: { bold: true } }], [{ type: 'text', text: 'ステータス', styles: { bold: true } }]] },
       { cells: [[{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: 'ブログ / SNS / メール' }], [{ type: 'text', text: '企画 / 制作中 / 公開済み' }]] },
     ] } },
+    { type: 'paragraph', content: [] },
+    { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: '制作フロー' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: '企画: ', styles: { bold: true } }, { type: 'text', text: 'テーマ・キーワード選定、担当アサイン' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: '制作: ', styles: { bold: true } }, { type: 'text', text: '原稿執筆・クリエイティブ作成' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: 'レビュー: ', styles: { bold: true } }, { type: 'text', text: '校正・ブランド/法務表現チェック' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: '公開: ', styles: { bold: true } }, { type: 'text', text: '配信設定・計測タグの動作確認' }] },
   ])
 }
 
