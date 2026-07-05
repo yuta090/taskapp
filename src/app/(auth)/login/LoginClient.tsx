@@ -28,6 +28,11 @@ const AUTH_ERRORS: Record<string, string> = {
   auth_cancelled: 'Google認証がキャンセルされました。',
 }
 
+/** auth/callback の next と同じバリデーション（オープンリダイレクト防止） */
+function isSafeInternalPath(path: string | null): path is string {
+  return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
+}
+
 async function resolveRedirect(supabase: SupabaseClient, userId: string): Promise<string> {
   const { data: membership } = await supabase
     .from('org_memberships')
@@ -120,7 +125,13 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されて
+        // いるのでそちらへ復帰。Google ログイン（auth/callback の next）と同じ挙動
+        if (isSafeInternalPath(redirect)) {
+          router.push(redirect)
+        } else {
+          router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        }
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -146,7 +157,11 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        if (isSafeInternalPath(redirect)) {
+          router.push(redirect)
+        } else {
+          router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        }
       }
     } catch {
       setError('ログイン中にエラーが発生しました')

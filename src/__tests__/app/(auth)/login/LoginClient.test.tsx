@@ -3,9 +3,10 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import LoginClient from '@/app/(auth)/login/LoginClient'
 
 const mockPush = vi.fn()
+let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockSearchParams,
   usePathname: () => '/login',
 }))
 
@@ -191,5 +192,62 @@ describe('LoginClient — ログイン後リダイレクト', () => {
     membershipResponse = { data: { org_id: 'org-1', role: 'client' } }
     await login()
     expect(mockPush).toHaveBeenCalledWith('/portal')
+  })
+})
+
+describe('LoginClient — redirect パラメータ（招待ログインリンク等）', () => {
+  let membershipResponse: { data: { org_id: string; role: string } | null }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSearchParams = new URLSearchParams()
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: { id: 'user-1' } },
+      error: null,
+    })
+    membershipResponse = { data: null }
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      single: vi.fn(() => Promise.resolve(membershipResponse)),
+      maybeSingle: vi.fn(() => Promise.resolve({ data: null })),
+    }))
+  })
+
+  afterEach(() => {
+    mockSearchParams = new URLSearchParams()
+  })
+
+  async function login() {
+    render(<LoginClient />)
+    fireEvent.change(screen.getByLabelText(/^メールアドレス\*?$/), {
+      target: { value: 'user@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText(/^パスワード\*?$/), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalled()
+    })
+  }
+
+  it('redirect があればパスワードログイン後にそこへ復帰（招待動線）', async () => {
+    mockSearchParams = new URLSearchParams('redirect=/invite/tok-1')
+
+    await login()
+
+    expect(mockPush).toHaveBeenCalledWith('/invite/tok-1')
+  })
+
+  it('不正な redirect（// 始まり）は無視して通常の着地判定へ', async () => {
+    mockSearchParams = new URLSearchParams('redirect=//evil.com')
+
+    await login()
+
+    expect(mockPush).toHaveBeenCalledWith('/onboarding')
   })
 })

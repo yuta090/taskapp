@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
+import { emailsMatch } from '@/lib/invite/emailMatch'
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -93,6 +94,18 @@ export async function POST(
     let created = false
 
     if (user) {
+      // V5（wrong-account join 防止）: 招待は宛先メールのアカウントにのみ紐付ける。
+      // 転送されたリンクや共用ブラウザで、別人のセッションに招待を
+      // 消費させない（vendor-portal と同じガードをこちらにも適用）
+      if (!emailsMatch(user.email, inviteRow.email)) {
+        return NextResponse.json(
+          {
+            error:
+              'この招待は別のメールアドレス宛です。招待メールの宛先アカウントでログインし直してください。',
+          },
+          { status: 403 }
+        )
+      }
       userId = user.id
     } else {
       const password = body.password
