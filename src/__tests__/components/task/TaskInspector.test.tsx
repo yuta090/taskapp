@@ -1,15 +1,21 @@
 import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TaskInspector } from '@/components/task/TaskInspector'
+import type { ComponentProps } from 'react'
 import type { Task } from '@/types/database'
 
-/**
- * Regression coverage for the ball / client-visibility tooltips added as
- * part of the first-run UX stream (D): the Inspector's "クライアント確認待ち"
- * badge doubles as the "this task is visible in the client portal" signal,
- * but previously had no explanation attached.
- */
+function renderInspector(props: ComponentProps<typeof TaskInspector>) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TaskInspector {...props} />
+    </QueryClientProvider>
+  )
+}
+
+// S4: ball='client' ⟹ client_scope='deliverable' 不変条件のUI側テスト。
 
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
@@ -18,99 +24,45 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
     internalMembers: [],
     loading: false,
     error: null,
-    refetch: vi.fn(),
     getMemberName: (id: string) => id,
   }),
 }))
 
 vi.mock('@/lib/hooks/useWikiPages', () => ({
-  useWikiPages: () => ({
-    pages: [],
-    loading: false,
-    error: null,
-    autoCreatedPageId: null,
-    fetchPages: vi.fn(),
-    createPage: vi.fn(),
-    updatePage: vi.fn(),
-    deletePage: vi.fn(),
-  }),
+  useWikiPages: () => ({ pages: [] }),
 }))
 
 vi.mock('@/lib/hooks/useSpaceSettings', () => ({
-  useSpaceSettings: () => ({
-    settings: null,
-    shouldShowOwnerField: false,
-    loading: false,
-    error: null,
-    updateOwnerFieldEnabled: vi.fn(),
-    refetch: vi.fn(),
-  }),
+  useSpaceSettings: () => ({ shouldShowOwnerField: true }),
 }))
 
 vi.mock('@/lib/hooks/useAgencyMode', () => ({
   useAgencyMode: () => ({
     data: { agency_mode: false, default_margin_rate: null, vendor_settings: { show_client_name: false, allow_client_comments: false } },
+    loading: false,
+    update: vi.fn(),
   }),
 }))
 
 vi.mock('@/lib/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: null, loading: false, error: null }),
+  useCurrentUser: () => ({ user: { id: 'u1' }, loading: false, error: null }),
 }))
 
 vi.mock('@/lib/hooks/useLatestClientAction', () => ({
   useLatestClientAction: () => null,
 }))
 
-vi.mock('@/components/task/TaskComments', () => ({
-  TaskComments: () => null,
-}))
-
-vi.mock('@/components/task/TaskEventTimeline', () => ({
-  TaskEventTimeline: () => null,
-}))
-
-vi.mock('@/components/task/ConsideringDecisionPanel', () => ({
-  ConsideringDecisionPanel: () => null,
-}))
-
-vi.mock('@/components/task/TaskPricingPanel', () => ({
-  TaskPricingPanel: () => null,
-}))
-
-vi.mock('@/components/github', () => ({
-  TaskPRList: () => null,
-}))
-
-vi.mock('@/components/slack', () => ({
-  SlackPostButton: () => null,
-}))
-
-vi.mock('@/components/review', () => ({
-  TaskReviewSection: () => null,
-}))
-
-// Chainable stand-in for `supabase.from(...).select().eq().order()` etc. —
-// TaskInspector fetches milestones directly via createClient() on mount.
-function makeChainable(result: { data: unknown; error: unknown } = { data: [], error: null }) {
-  const chainable: Record<string, unknown> = new Proxy(
-    {},
-    {
-      get(_target, prop) {
-        if (prop === 'then') {
-          return (resolve: (v: unknown) => void) => resolve(result)
-        }
-        return () => chainable
-      },
-    }
-  )
-  return chainable
-}
-
+// TaskInspector fetches milestones on mount (.from('milestones').select().eq().order()).
+// Stub the chain so it resolves cleanly instead of rejecting with "not a function".
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: vi.fn(() => Promise.resolve({ data: { user: null }, error: null })) },
-    from: vi.fn(() => makeChainable()),
-    rpc: vi.fn(),
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          order: () => Promise.resolve({ data: [], error: null }),
+        }),
+      }),
+    }),
   }),
 }))
 
@@ -123,7 +75,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parent_task_id: null,
     title: 'サンプルタスク',
     description: null,
-    status: 'todo',
+    status: 'backlog',
     priority: null,
     assignee_id: null,
     start_date: null,
@@ -139,33 +91,69 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     estimated_cost: null,
     estimate_status: 'none',
     completed_at: null,
-    created_at: '2026-01-01T00:00:00',
-    updated_at: '2026-01-01T00:00:00',
+    created_at: '2026-07-01T00:00:00',
+    updated_at: '2026-07-01T00:00:00',
     ...overrides,
-  } as Task
+  }
 }
 
-describe('TaskInspector — ボール/公開ツールチップ (初回UX改善 D)', () => {
-  it('ball=client のとき、クライアント確認待ちバッジに公開の説明ツールチップが付く', async () => {
-    render(<TaskInspector task={makeTask({ ball: 'client' })} spaceId="s1" onClose={() => {}} />)
-    expect(await screen.findByText('クライアント確認待ち')).toBeInTheDocument()
-    expect(screen.getByText('ONでクライアントのポータルに表示されます')).toBeInTheDocument()
+describe('TaskInspector — client_scope 編集と ball=client 不変条件', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('ball=internal のときは公開ツールチップを表示しない', async () => {
-    render(<TaskInspector task={makeTask({ ball: 'internal' })} spaceId="s1" onClose={() => {}} />)
-    await waitFor(() => expect(screen.getByText('ボール')).toBeInTheDocument())
-    expect(screen.queryByText('クライアント確認待ち')).not.toBeInTheDocument()
-    expect(screen.queryByText('ONでクライアントのポータルに表示されます')).not.toBeInTheDocument()
+  it('client_scope を編集すると onUpdate が clientScope を伴って呼ばれる', () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate,
+    })
+
+    fireEvent.click(screen.getByTestId('task-inspector-client-scope-toggle'))
+
+    expect(onUpdate).toHaveBeenCalledWith({ clientScope: 'deliverable' })
   })
 
-  it('ボールのラベルには次アクション側の説明が付く（既存のネイティブtitle）', async () => {
-    render(<TaskInspector task={makeTask()} spaceId="s1" onClose={() => {}} />)
-    await waitFor(() =>
-      expect(screen.getByText('ボール')).toHaveAttribute(
-        'title',
-        '次にアクションを取る側。社内=チームが作業中、外部=クライアント確認待ち'
-      )
-    )
+  it('ball=client のタスクは client_scope トグルが disabled になり、internal へ変更できない', () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    renderInspector({
+      task: makeTask({ ball: 'client', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate,
+    })
+
+    const toggle = screen.getByTestId('task-inspector-client-scope-toggle')
+    expect(toggle).toBeDisabled()
+
+    fireEvent.click(toggle)
+
+    expect(onUpdate).not.toHaveBeenCalled()
+  })
+
+  it('ball=client のタスクには自動公開の注記が表示される', () => {
+    renderInspector({
+      task: makeTask({ ball: 'client', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(
+      screen.getByText('外部ボールのタスクは自動的にクライアント公開になります')
+    ).toBeInTheDocument()
+  })
+
+  it('onUpdate が無い（読み取り専用）場合はトグルを表示せずテキストのみ表示する', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+    })
+
+    expect(screen.queryByTestId('task-inspector-client-scope-toggle')).not.toBeInTheDocument()
+    expect(screen.getByText('公開中')).toBeInTheDocument()
   })
 })

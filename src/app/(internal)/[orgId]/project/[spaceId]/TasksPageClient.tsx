@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
+import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -23,6 +23,7 @@ const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet'
 })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
+import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
@@ -108,6 +109,63 @@ function InlineTaskInput({ indent, onSubmit }: { indent: boolean; onSubmit: (tit
   )
 }
 
+/**
+ * Banner offering bulk-delete of preset-seeded sample tasks.
+ * Deliberately not a modal — confirmation happens inline within the banner
+ * itself (no fixed-overlay dialog), matching the "no modals for task actions" rule.
+ */
+function SampleTaskBanner({ count, onDeleteAll }: { count: number; onDeleteAll: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirm = async () => {
+    setDeleting(true)
+    try {
+      await onDeleteAll()
+    } finally {
+      setDeleting(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <div className="flex-shrink-0 flex items-center gap-2 px-5 py-1.5 text-xs bg-gray-50 border-b border-gray-100 text-gray-600">
+      {confirming ? (
+        <>
+          <span>{count}件のサンプルタスクを削除しますか？</span>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={deleting}
+            className="font-medium text-red-600 hover:underline disabled:opacity-50"
+          >
+            削除する
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            disabled={deleting}
+            className="text-gray-500 hover:underline disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+        </>
+      ) : (
+        <>
+          <span>サンプルタスクが含まれています</span>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="font-medium text-blue-600 hover:underline"
+          >
+            一括削除
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
@@ -130,6 +188,17 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         .length,
     [riskForecasts]
   )
+
+  // サンプルタスク一括削除バナー: プリセット同梱のis_sampleタスクが1件でもあれば表示
+  const sampleTaskIds = useMemo(
+    () => tasks.filter((t) => t.is_sample).map((t) => t.id),
+    [tasks]
+  )
+  const handleDeleteSampleTasks = useCallback(async () => {
+    const ids = sampleTaskIds
+    await Promise.all(ids.map((id) => deleteTask(id)))
+    toast.success(`${ids.length}件のサンプルタスクを削除しました`)
+  }, [sampleTaskIds, deleteTask])
 
   const [sortKey, setSortKey] = useState<SortKey>('milestone')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -860,6 +929,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </div>
           <div className="flex-1" />
           <Link
+            href={`/portal/preview/${spaceId}`}
+            data-testid="client-preview-link"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="クライアント表示プレビュー"
+          >
+            <Eye className="text-lg" />
+          </Link>
+          <Link
             href={`${projectBasePath}/settings`}
             data-testid="project-settings-link"
             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -1080,6 +1157,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         highRiskCount={highRiskCount}
         href={`${projectBasePath}/views/gantt`}
       />
+
+      <SetupChecklist orgId={orgId} spaceId={spaceId} />
+
+      {/* サンプルタスク一括削除バナー */}
+      {sampleTaskIds.length > 0 && (
+        <SampleTaskBanner count={sampleTaskIds.length} onDeleteAll={handleDeleteSampleTasks} />
+      )}
 
       {/* Content */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">

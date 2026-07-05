@@ -29,6 +29,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     estimated_cost: null,
     estimate_status: 'none',
     completed_at: null,
+    is_sample: false,
     created_at: '2026-01-01T00:00:00',
     updated_at: '2026-01-01T00:00:00',
     ...overrides,
@@ -134,6 +135,21 @@ describe('TaskRow — ボール/公開ツールチップ (初回UX改善 D)', ()
     render(<TaskRow task={makeTask({ ball: 'internal' })} />)
     expect(screen.queryByText('次にアクションする側。外部=クライアントの対応待ち')).not.toBeInTheDocument()
     expect(screen.queryByText('ONでクライアントのポータルに表示されます')).not.toBeInTheDocument()
+  })
+})
+
+describe('TaskRow — サンプルタスクバッジ', () => {
+  it('is_sample=true のとき「サンプル」バッジをグレーで表示する', () => {
+    render(<TaskRow task={makeTask({ is_sample: true })} />)
+    const badge = screen.getByText('サンプル')
+    expect(badge).toBeInTheDocument()
+    expect(badge.className).not.toContain('amber')
+    expect(badge.className).toContain('gray')
+  })
+
+  it('is_sample=false のときは「サンプル」バッジを表示しない', () => {
+    render(<TaskRow task={makeTask({ is_sample: false })} />)
+    expect(screen.queryByText('サンプル')).not.toBeInTheDocument()
   })
 })
 

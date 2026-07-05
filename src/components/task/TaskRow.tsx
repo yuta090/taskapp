@@ -296,6 +296,13 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           </span>
         )}
 
+        {/* Sample task badge (preset-seeded, not client-visible → gray, not amber) */}
+        {task.is_sample && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
+            サンプル
+          </span>
+        )}
+
         {/* Decision state for spec tasks */}
         {task.type === 'spec' && task.decision_state && (
           <span
