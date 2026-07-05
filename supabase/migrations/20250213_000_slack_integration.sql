@@ -77,12 +77,14 @@ create index if not exists slack_message_logs_task_idx
 
 alter table slack_workspaces enable row level security;
 
+drop policy if exists "org members can view slack workspaces" on slack_workspaces;
 create policy "org members can view slack workspaces"
   on slack_workspaces for select
   using (org_id in (
     select om.org_id from org_memberships om where om.user_id = auth.uid()
   ));
 
+drop policy if exists "org owners can manage slack workspaces" on slack_workspaces;
 create policy "org owners can manage slack workspaces"
   on slack_workspaces for all
   using (org_id in (
@@ -92,12 +94,14 @@ create policy "org owners can manage slack workspaces"
 
 alter table space_slack_channels enable row level security;
 
+drop policy if exists "space members can view slack channels" on space_slack_channels;
 create policy "space members can view slack channels"
   on space_slack_channels for select
   using (space_id in (
     select sm.space_id from space_memberships sm where sm.user_id = auth.uid()
   ));
 
+drop policy if exists "space admins can manage slack channels" on space_slack_channels;
 create policy "space admins can manage slack channels"
   on space_slack_channels for all
   using (space_id in (
@@ -107,6 +111,7 @@ create policy "space admins can manage slack channels"
 
 alter table slack_message_logs enable row level security;
 
+drop policy if exists "space members can view message logs" on slack_message_logs;
 create policy "space members can view message logs"
   on slack_message_logs for select
   using (space_id in (
@@ -125,10 +130,12 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists slack_workspaces_updated_at on slack_workspaces;
 create trigger slack_workspaces_updated_at
   before update on slack_workspaces
   for each row execute function update_slack_updated_at();
 
+drop trigger if exists space_slack_channels_updated_at on space_slack_channels;
 create trigger space_slack_channels_updated_at
   before update on space_slack_channels
   for each row execute function update_slack_updated_at();

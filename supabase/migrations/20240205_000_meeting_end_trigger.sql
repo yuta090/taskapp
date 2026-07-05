@@ -20,9 +20,7 @@ REVOKE ALL ON _edge_function_config FROM authenticated;
 -- Only service_role and postgres can access this table
 
 COMMENT ON TABLE _edge_function_config IS
-  'Internal config for Edge Function credentials. Only accessible to service_role. ' ||
-  'Keys: edge_function_url, service_role_key. ' ||
-  'For production, migrate to Supabase Vault.';
+  'Internal config for Edge Function credentials. Only accessible to service_role. Keys: edge_function_url, service_role_key. For production, migrate to Supabase Vault.';
 
 -- Create function to invoke Edge Function via pg_net
 CREATE OR REPLACE FUNCTION trigger_send_meeting_minutes()
