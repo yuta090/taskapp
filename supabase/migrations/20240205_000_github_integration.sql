@@ -143,12 +143,14 @@ create index if not exists github_webhook_events_received_idx
 -- github_installations
 alter table github_installations enable row level security;
 
+drop policy if exists "org members can view installations" on github_installations;
 create policy "org members can view installations"
   on github_installations for select
   using (org_id in (
     select org_id from org_memberships where user_id = auth.uid()
   ));
 
+drop policy if exists "org owners can manage installations" on github_installations;
 create policy "org owners can manage installations"
   on github_installations for all
   using (org_id in (
@@ -159,12 +161,14 @@ create policy "org owners can manage installations"
 -- github_repositories
 alter table github_repositories enable row level security;
 
+drop policy if exists "org members can view repositories" on github_repositories;
 create policy "org members can view repositories"
   on github_repositories for select
   using (org_id in (
     select org_id from org_memberships where user_id = auth.uid()
   ));
 
+drop policy if exists "org owners can manage repositories" on github_repositories;
 create policy "org owners can manage repositories"
   on github_repositories for all
   using (org_id in (
@@ -175,12 +179,14 @@ create policy "org owners can manage repositories"
 -- space_github_repos
 alter table space_github_repos enable row level security;
 
+drop policy if exists "space members can view repo links" on space_github_repos;
 create policy "space members can view repo links"
   on space_github_repos for select
   using (space_id in (
     select space_id from space_memberships where user_id = auth.uid()
   ));
 
+drop policy if exists "space admins can manage repo links" on space_github_repos;
 create policy "space admins can manage repo links"
   on space_github_repos for all
   using (space_id in (
@@ -191,6 +197,7 @@ create policy "space admins can manage repo links"
 -- github_pull_requests
 alter table github_pull_requests enable row level security;
 
+drop policy if exists "org members can view PRs" on github_pull_requests;
 create policy "org members can view PRs"
   on github_pull_requests for select
   using (org_id in (
@@ -200,18 +207,21 @@ create policy "org members can view PRs"
 -- task_github_links
 alter table task_github_links enable row level security;
 
+drop policy if exists "org members can view task links" on task_github_links;
 create policy "org members can view task links"
   on task_github_links for select
   using (org_id in (
     select org_id from org_memberships where user_id = auth.uid()
   ));
 
+drop policy if exists "org members can create task links" on task_github_links;
 create policy "org members can create task links"
   on task_github_links for insert
   with check (org_id in (
     select org_id from org_memberships where user_id = auth.uid()
   ));
 
+drop policy if exists "link creators can delete" on task_github_links;
 create policy "link creators can delete"
   on task_github_links for delete
   using (created_by = auth.uid());
@@ -231,14 +241,17 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists github_installations_updated_at on github_installations;
 create trigger github_installations_updated_at
   before update on github_installations
   for each row execute function update_github_updated_at();
 
+drop trigger if exists github_repositories_updated_at on github_repositories;
 create trigger github_repositories_updated_at
   before update on github_repositories
   for each row execute function update_github_updated_at();
 
+drop trigger if exists github_pull_requests_updated_at on github_pull_requests;
 create trigger github_pull_requests_updated_at
   before update on github_pull_requests
   for each row execute function update_github_updated_at();

@@ -39,13 +39,14 @@ create table if not exists export_templates (
 );
 
 -- インデックス
-create index export_templates_space_id_idx on export_templates(space_id);
-create unique index export_templates_space_default_idx on export_templates(space_id) where is_default = true;
+create index if not exists export_templates_space_id_idx on export_templates(space_id);
+create unique index if not exists export_templates_space_default_idx on export_templates(space_id) where is_default = true;
 
 -- RLS
 alter table export_templates enable row level security;
 
 -- ポリシー: スペースメンバーのみアクセス可能
+drop policy if exists "export_templates_select" on export_templates;
 create policy "export_templates_select" on export_templates
   for select using (
     exists (
@@ -55,6 +56,7 @@ create policy "export_templates_select" on export_templates
     )
   );
 
+drop policy if exists "export_templates_insert" on export_templates;
 create policy "export_templates_insert" on export_templates
   for insert with check (
     exists (
@@ -64,6 +66,7 @@ create policy "export_templates_insert" on export_templates
     )
   );
 
+drop policy if exists "export_templates_update" on export_templates;
 create policy "export_templates_update" on export_templates
   for update using (
     exists (
@@ -80,6 +83,7 @@ create policy "export_templates_update" on export_templates
     )
   );
 
+drop policy if exists "export_templates_delete" on export_templates;
 create policy "export_templates_delete" on export_templates
   for delete using (
     exists (
@@ -98,6 +102,7 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists export_templates_updated_at on export_templates;
 create trigger export_templates_updated_at
   before update on export_templates
   for each row execute function update_export_templates_updated_at();

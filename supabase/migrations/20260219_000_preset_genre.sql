@@ -3,13 +3,17 @@
 
 -- 1. Add preset_genre column to spaces with CHECK constraint
 ALTER TABLE spaces ADD COLUMN IF NOT EXISTS preset_genre text NULL;
-ALTER TABLE spaces ADD CONSTRAINT spaces_preset_genre_check
-  CHECK (preset_genre IS NULL OR preset_genre IN (
-    'web_development', 'system_development', 'design',
-    'consulting', 'marketing', 'event',
-    'legal_accounting', 'video_production', 'construction',
-    'blank'
-  ));
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'spaces_preset_genre_check') THEN
+    ALTER TABLE spaces ADD CONSTRAINT spaces_preset_genre_check
+      CHECK (preset_genre IS NULL OR preset_genre IN (
+        'web_development', 'system_development', 'design',
+        'consulting', 'marketing', 'event',
+        'legal_accounting', 'video_production', 'construction',
+        'blank'
+      ));
+  END IF;
+END $$;
 COMMENT ON COLUMN spaces.preset_genre IS
   'プリセットジャンル。NULL=旧来のspace（wiki自動生成あり）、blank=白紙（wiki自動生成なし）、その他=ジャンル名（作成時にコンテンツ適用済み）';
 

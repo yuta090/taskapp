@@ -60,6 +60,7 @@ CREATE INDEX IF NOT EXISTS api_key_usage_created_idx ON api_key_usage(created_at
 ALTER TABLE api_key_usage ENABLE ROW LEVEL SECURITY;
 
 -- 監査ログは組織オーナーのみ閲覧可能
+DROP POLICY IF EXISTS api_key_usage_read_policy ON api_key_usage;
 CREATE POLICY api_key_usage_read_policy ON api_key_usage
   FOR SELECT
   USING (
@@ -297,6 +298,9 @@ $$;
 -- 5) rpc_validate_api_key 関数を拡張
 -- =============================================================================
 
+-- 20240202 で定義済みの3列版から戻り型を拡張するため DROP してから作成する
+-- （CREATE OR REPLACE では戻り型を変更できない）。
+DROP FUNCTION IF EXISTS rpc_validate_api_key(text);
 CREATE OR REPLACE FUNCTION rpc_validate_api_key(p_api_key text)
 RETURNS TABLE (
   org_id uuid,

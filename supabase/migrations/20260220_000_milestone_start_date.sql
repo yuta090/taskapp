@@ -9,8 +9,12 @@
 ALTER TABLE milestones ADD COLUMN IF NOT EXISTS start_date date NULL;
 
 -- 2. バリデーション: start_date <= due_date
-ALTER TABLE milestones ADD CONSTRAINT milestones_date_order
-  CHECK (start_date IS NULL OR due_date IS NULL OR start_date <= due_date);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'milestones_date_order') THEN
+    ALTER TABLE milestones ADD CONSTRAINT milestones_date_order
+      CHECK (start_date IS NULL OR due_date IS NULL OR start_date <= due_date);
+  END IF;
+END $$;
 
 -- 3. バーンダウン集計クエリ高速化用インデックス
 CREATE INDEX IF NOT EXISTS audit_logs_burndown_idx

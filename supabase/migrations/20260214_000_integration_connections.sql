@@ -41,6 +41,7 @@ create index if not exists integration_connections_provider_status_idx
 alter table integration_connections enable row level security;
 
 -- ユーザーは自分のuser接続のみ閲覧可能
+drop policy if exists "users can view own connections" on integration_connections;
 create policy "users can view own connections"
   on integration_connections for select
   using (
@@ -53,6 +54,7 @@ create policy "users can view own connections"
   );
 
 -- ユーザーは自分のuser接続のみ作成可能
+drop policy if exists "users can insert own connections" on integration_connections;
 create policy "users can insert own connections"
   on integration_connections for insert
   with check (
@@ -65,6 +67,7 @@ create policy "users can insert own connections"
   );
 
 -- ユーザーは自分のuser接続のみ更新可能
+drop policy if exists "users can update own connections" on integration_connections;
 create policy "users can update own connections"
   on integration_connections for update
   using (
@@ -77,6 +80,7 @@ create policy "users can update own connections"
   );
 
 -- ユーザーは自分のuser接続のみ削除可能
+drop policy if exists "users can delete own connections" on integration_connections;
 create policy "users can delete own connections"
   on integration_connections for delete
   using (
@@ -100,6 +104,7 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists integration_connections_updated_at on integration_connections;
 create trigger integration_connections_updated_at
   before update on integration_connections
   for each row execute function update_integration_connections_updated_at();

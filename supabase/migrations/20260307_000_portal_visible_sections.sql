@@ -1,10 +1,12 @@
 -- Portal Visible Sections: スペース単位でポータル表示項目を制御
 -- agency_mode に関係なく全スペースで有効
 
-ALTER TABLE spaces ADD COLUMN portal_visible_sections jsonb
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS portal_visible_sections jsonb
   NOT NULL DEFAULT '{"tasks": true, "requests": true, "all_tasks": true, "files": true, "meetings": true, "wiki": false, "history": true}';
 
 -- Validate JSONB shape: all required keys must be boolean
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_portal_visible_sections') THEN
 ALTER TABLE spaces ADD CONSTRAINT chk_portal_visible_sections CHECK (
   portal_visible_sections IS NOT NULL
   AND (portal_visible_sections->>'tasks') IS NOT NULL
@@ -22,5 +24,7 @@ ALTER TABLE spaces ADD CONSTRAINT chk_portal_visible_sections CHECK (
   AND jsonb_typeof(portal_visible_sections->'wiki') = 'boolean'
   AND jsonb_typeof(portal_visible_sections->'history') = 'boolean'
 );
+  END IF;
+END $$;
 
 COMMENT ON COLUMN spaces.portal_visible_sections IS 'クライアントポータルに表示するセクションのトグル設定';

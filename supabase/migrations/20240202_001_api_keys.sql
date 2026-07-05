@@ -28,6 +28,7 @@ CREATE INDEX IF NOT EXISTS api_keys_active_idx ON api_keys(is_active) WHERE is_a
 ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 
 -- Policy: org owners and space admins can manage API keys
+DROP POLICY IF EXISTS api_keys_admin_policy ON api_keys;
 CREATE POLICY api_keys_admin_policy ON api_keys
   FOR ALL
   USING (
@@ -52,6 +53,9 @@ CREATE POLICY api_keys_admin_policy ON api_keys
 -- 2) RPC function to validate API key
 -- =============================================================================
 
+-- 戻り値の型は後続 20240207_001_mcp_authorization.sql で列追加される。
+-- CREATE OR REPLACE では戻り型を変更できないため DROP してから作成する。
+DROP FUNCTION IF EXISTS rpc_validate_api_key(text);
 CREATE OR REPLACE FUNCTION rpc_validate_api_key(p_api_key text)
 RETURNS TABLE (
   org_id uuid,
