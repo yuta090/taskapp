@@ -329,4 +329,19 @@ describe('POST /api/portal/requests', () => {
     expect(insertCallArgs).toBeDefined()
     expect(insertCallArgs?.created_by).toBe(mockUser.id)
   })
+
+  // --- Regression: tasks_status_check constraint (23514) ---
+  // The tasks table only allows backlog/todo/in_progress/in_review/done/
+  // considering; inserting status='open' violates the CHECK constraint and
+  // 500s, silently dropping the client's request.
+  it('should insert a status allowed by the tasks_status_check constraint', async () => {
+    const allowed = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']
+    const response = await POST(createRequest({
+      title: 'CSV出力機能がほしい',
+      category: 'feature',
+      description: '月次報告用にCSVダウンロードしたい',
+    }))
+    expect(response.status).toBe(200)
+    expect(allowed).toContain(insertCallArgs?.status)
+  })
 })
