@@ -89,3 +89,16 @@ describe('TasksPageClient empty state', () => {
     )
   })
 })
+
+/**
+ * ストリームC「クライアント表示プレビュー」入口: このヘッダーから
+ * /portal/preview/{spaceId} へ内部ユーザーが遷移できる控えめなリンク。
+ */
+describe('TasksPageClient client preview entry link', () => {
+  it('links to /portal/preview/{spaceId}', () => {
+    renderPage()
+
+    const link = screen.getByRole('link', { name: /クライアント表示/ })
+    expect(link).toHaveAttribute('href', '/portal/preview/space-1')
+  })
+})

@@ -55,9 +55,6 @@ export default function ResetConfirmPage() {
       }
 
       setSuccess(true)
-      setTimeout(() => {
-        router.push('/login')
-      }, 2000)
     } catch {
       setError('エラーが発生しました')
     } finally {
@@ -116,8 +113,8 @@ export default function ResetConfirmPage() {
   if (success) {
     return (
       <AuthCard
-        title="パスワードを変更しました"
-        description="新しいパスワードでログインできます。"
+        title="新しいパスワードを設定しました"
+        description="新しいパスワードでログインできる状態です。"
       >
         <div className="text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
@@ -125,9 +122,15 @@ export default function ResetConfirmPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <p className="text-sm text-gray-600">
-            ログインページにリダイレクトします...
-          </p>
+          {/* このリンクの時点で既に認証済みセッション（パスワード更新時に確立）のため
+              /login ではなく / へ進む。middlewareがロール等に応じて適切な着地先へ振り分ける */}
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            className="inline-block px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600"
+          >
+            アプリへ進む
+          </button>
         </div>
       </AuthCard>
     )

@@ -36,6 +36,7 @@ const mockTasks: Task[] = [
     actual_hours: null,
     estimated_cost: null,
     estimate_status: 'none' as const,
+    is_sample: false,
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: null,
@@ -63,6 +64,7 @@ const mockTasks: Task[] = [
     actual_hours: null,
     estimated_cost: null,
     estimate_status: 'none' as const,
+    is_sample: false,
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: null,
@@ -90,6 +92,7 @@ const mockTasks: Task[] = [
     actual_hours: null,
     estimated_cost: null,
     estimate_status: 'none' as const,
+    is_sample: false,
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: '2024-01-30',
@@ -200,11 +203,11 @@ describe('GanttChart', () => {
     expect(onTaskClick).toHaveBeenCalledWith('task-1')
   })
 
-  it('should show empty state when no tasks', () => {
+  it('should show an educational empty state when no tasks (初回UX改善 D)', () => {
     render(<GanttChart tasks={[]} milestones={[]} />)
 
-    // Multiple "タスクがありません" texts exist (sidebar + chart body)
-    expect(screen.getAllByText('タスクがありません').length).toBeGreaterThanOrEqual(1)
+    // Multiple copies exist (sidebar + chart body)
+    expect(screen.getAllByText('期限付きタスクやマイルストーンを設定するとここに表示されます').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(hasText('0/0 タスク'))).toBeInTheDocument()
   })
 

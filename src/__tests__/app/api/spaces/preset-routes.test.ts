@@ -28,6 +28,11 @@ vi.mock('@/lib/presets/homeLinks', () => ({
   updateHomePageSpecLinks: (...args: unknown[]) => mockUpdateHomeLinks(...args),
 }))
 
+const mockCreateSampleTasks = vi.fn()
+vi.mock('@/lib/presets/sampleTasks', () => ({
+  createSampleTasks: (...args: unknown[]) => mockCreateSampleTasks(...args),
+}))
+
 import { POST as createWithPreset } from '@/app/api/spaces/create-with-preset/route'
 import { POST as applyPreset } from '@/app/api/spaces/[spaceId]/apply-preset/route'
 
@@ -49,6 +54,7 @@ function loggedIn() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUpdateHomeLinks.mockResolvedValue(true)
+  mockCreateSampleTasks.mockResolvedValue(0)
 })
 
 // -- create-with-preset --------------------------------------------------
@@ -121,6 +127,41 @@ describe('POST /api/spaces/create-with-preset', () => {
     expect(preset.genre).toBe('design')
     expect(orgId).toBe(ORG_ID)
     expect(spaceId).toBe('space-9')
+  })
+
+  it('成功時はサンプルタスクを作成し、件数をレスポンスに含める', async () => {
+    loggedIn()
+    mockRpc.mockResolvedValue({
+      data: { ok: true, space_id: 'space-9', milestones_created: 5, wiki_pages_created: 4 },
+      error: null,
+    })
+    mockCreateSampleTasks.mockResolvedValue(4)
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+    const json = await res.json()
+    expect(json.sampleTasksCreated).toBe(4)
+
+    // createSampleTasks は (client, preset, orgId, realSpaceId, userId) で呼ばれる
+    expect(mockCreateSampleTasks).toHaveBeenCalledTimes(1)
+    const [, preset, orgId, spaceId, userId] = mockCreateSampleTasks.mock.calls[0]
+    expect(preset.genre).toBe('design')
+    expect(orgId).toBe(ORG_ID)
+    expect(spaceId).toBe('space-9')
+    expect(userId).toBe('user-1')
+  })
+
+  it('サンプルタスク作成が失敗（0件）でもレスポンス自体は200のまま', async () => {
+    loggedIn()
+    mockRpc.mockResolvedValue({
+      data: { ok: true, space_id: 'space-9' },
+      error: null,
+    })
+    mockCreateSampleTasks.mockResolvedValue(0)
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.sampleTasksCreated).toBe(0)
   })
 
   it('RPCへ渡すwiki_pagesにはホームが1件だけ含まれる', async () => {

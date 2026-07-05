@@ -196,4 +196,23 @@ describe('InviteAcceptPage — 受諾動線', () => {
       expect(screen.getByText('招待リンクが無効です')).toBeInTheDocument()
     })
   })
+
+  it('既存ユーザーが未ログインで開いた場合、パスワード入力に到達させずログインへ誘導する', async () => {
+    mockRpc.mockResolvedValue({ data: { ...validInvite, is_existing_user: true }, error: null })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'ログインして参加' })).toBeInTheDocument()
+    })
+
+    // パスワード検証に到達させない（手詰まりバグの再現防止）
+    expect(screen.queryByLabelText(/パスワードを設定/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'チームに参加' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ログインして参加' }))
+
+    expect(mockPush).toHaveBeenCalledWith('/login?redirect=/invite/tok-1')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
 })

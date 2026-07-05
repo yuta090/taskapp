@@ -59,6 +59,7 @@ export interface UpdateTaskInput {
   wikiPageId?: string | null
   estimatedCost?: number | null
   estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
+  clientScope?: ClientScope
 }
 
 // ReviewStatus and TasksQueryData are imported from @/lib/supabase/queries
@@ -157,6 +158,18 @@ function countAncestors(taskId: string, tasks: Task[]): number {
   return count
 }
 
+/**
+ * Enforce the invariant: ball='client' ⟹ client_scope='deliverable'.
+ * A task with ball='client' is invisible to the client under RLS
+ * (app_task_visible_to_caller) unless it is also client_scope='deliverable',
+ * which otherwise creates an unreachable "waiting on client" dead end.
+ */
+function assertBallClientScopeInvariant(ball: BallSide, clientScope: ClientScope): void {
+  if (ball === 'client' && clientScope !== 'deliverable') {
+    throw new Error('外部ボール（ball=client）のタスクはクライアント公開（client_scope=deliverable）が必須です')
+  }
+}
+
 /** Get max depth of descendant subtree (self=0, direct child=1, ...) */
 function getMaxDescendantDepth(taskId: string, tasks: Task[]): number {
   let maxDepth = 0
@@ -202,6 +215,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
     async (task: CreateTaskInput) => {
       // Validate parent task assignment before proceeding
       validateParentTask(task.parentTaskId, undefined, tasks, spaceId)
+      // Validate: ball='client' requires client_scope='deliverable'
+      assertBallClientScopeInvariant(task.ball, task.clientScope ?? 'internal')
 
       const now = new Date().toISOString()
       const tempId = crypto.randomUUID()
@@ -223,6 +238,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         estimated_cost: null,
         estimate_status: 'none',
         completed_at: null,
+        is_sample: false,
         ball: task.ball,
         origin: task.origin,
         type: task.type,
@@ -391,6 +407,13 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       const previousData = queryClient.getQueryData<TasksQueryData>(['tasks', orgId, spaceId])
       const prevTask = previousData?.tasks.find((t) => t.id === taskId)
 
+      // Validate: ball='client' requires client_scope='deliverable'.
+      // ball itself is not mutable via updateTask (only via passBall), so the
+      // task's current ball is what will remain after this update.
+      if (input.clientScope !== undefined && prevTask) {
+        assertBallClientScopeInvariant(prevTask.ball, input.clientScope)
+      }
+
       // Optimistic update
       queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
         if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
@@ -417,6 +440,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
                 decision_state: input.wikiPageId !== undefined
                   ? (input.wikiPageId ? (t.decision_state ?? 'considering') : null)
                   : t.decision_state,
+                client_scope: input.clientScope !== undefined ? input.clientScope : t.client_scope,
                 completed_at: newStatus === 'done' && t.status !== 'done'
                   ? new Date().toISOString()
                   : newStatus !== 'done' && t.status === 'done'
@@ -442,6 +466,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
         if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
+        if (input.clientScope !== undefined) updateData.client_scope = input.clientScope
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId
         if (input.actualHours !== undefined) updateData.actual_hours = input.actualHours
         if (input.estimatedCost !== undefined) updateData.estimated_cost = input.estimatedCost
@@ -664,12 +689,22 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
     ) => {
       // Capture previous state for rollback
       const previousData = queryClient.getQueryData<TasksQueryData>(['tasks', orgId, spaceId])
+      const targetTask = previousData?.tasks.find((t) => t.id === taskId)
+
+      // ball='client' へ渡す＝クライアントに見せる意思とみなし、client_scope が
+      // 'deliverable' でなければ同時に公開状態へ揃える（ball=client⇒deliverable の不変条件）。
+      // エラーにはしない — ボールを渡す操作自体が「見せる」意思表示のため。
+      const needsScopeUpdate = ball === 'client' && targetTask?.client_scope !== 'deliverable'
 
       // Optimistic update
       queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], (old) => {
         if (!old) return { tasks: [], owners: {}, reviewStatuses: {} }
         return {
-          tasks: old.tasks.map((t) => (t.id === taskId ? { ...t, ball } : t)),
+          tasks: old.tasks.map((t) =>
+            t.id === taskId
+              ? { ...t, ball, client_scope: needsScopeUpdate ? 'deliverable' : t.client_scope }
+              : t
+          ),
           owners: old.owners,
           reviewStatuses: old.reviewStatuses,
         }
@@ -682,6 +717,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
           clientOwnerIds,
           internalOwnerIds,
         })
+
+        // rpc_pass_ball / DB トリガーが未適用の環境でも不変条件を保つため、
+        // クライアント側からも明示的に client_scope を揃えておく（多層防御）。
+        if (needsScopeUpdate) {
+          const { error: scopeError } = await (supabase as SupabaseClient)
+            .from('tasks')
+            .update({ client_scope: 'deliverable' })
+            .eq('id', taskId)
+          if (scopeError) throw scopeError
+        }
 
         // Fire-and-forget Slack notification
         fireNotification({

@@ -6,6 +6,8 @@ const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   'ball_passed',
   'spec_decision_needed',
   'task_assigned',
+  'scheduling_reminder',
+  'scheduling_proposal_expired',
 ])
 
 /** Array version for Supabase .in() queries */
@@ -16,6 +18,8 @@ export const ACTIONABLE_TYPES_ARRAY = [
   'ball_passed',
   'spec_decision_needed',
   'task_assigned',
+  'scheduling_reminder',
+  'scheduling_proposal_expired',
 ]
 
 export function isActionableNotification(type: string): boolean {

@@ -157,7 +157,7 @@ export default function InviteAcceptPage({
             </svg>
           </div>
           <p className="text-sm text-gray-600 mb-4">
-            プロジェクト担当者に再招待を依頼してください。
+            プロジェクト担当者に再招待を依頼してください。既に参加済みの場合はログインしてください。
           </p>
           <div className="flex flex-col gap-3">
             <a
@@ -229,20 +229,32 @@ export default function InviteAcceptPage({
     )
   }
 
+  // 既存ユーザーが未ログイン: パスワード検証に到達させず、ログインへ誘導する
+  if (inviteInfo.is_existing_user && !isLoggedIn) {
+    return (
+      <AuthCard title={`${inviteInfo.org_name} に招待されました`}>
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <p className="text-sm text-gray-600">
+            <strong>{inviteInfo.inviter_name || '管理者'}</strong> さんから
+            <br />
+            <strong>{inviteInfo.space_name}</strong> に招待されました。
+          </p>
+        </div>
+        <p className="mb-4 text-sm text-gray-600">
+          <strong>{inviteInfo.email}</strong> は既にアカウントをお持ちです。ログインして参加してください。
+        </p>
+        <AuthButton
+          type="button"
+          onClick={() => router.push(`/login?redirect=/invite/${token}`)}
+        >
+          ログインして参加
+        </AuthButton>
+      </AuthCard>
+    )
+  }
+
   return (
-    <AuthCard
-      title={`${inviteInfo.org_name} に招待されました`}
-      footer={
-        inviteInfo.is_existing_user && !isLoggedIn ? (
-          <>
-            すでにアカウントをお持ちの方は{' '}
-            <Link href={`/login?redirect=/invite/${token}`} className="text-amber-600 hover:text-amber-700 font-medium">
-              ログイン
-            </Link>
-          </>
-        ) : null
-      }
-    >
+    <AuthCard title={`${inviteInfo.org_name} に招待されました`}>
       <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
         <p className="text-sm text-gray-600">
           <strong>{inviteInfo.inviter_name || '管理者'}</strong> さんから

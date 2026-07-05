@@ -17,6 +17,8 @@ interface ActionCardProps {
   onApprove?: (id: string, comment: string) => Promise<void>
   onRequestChanges?: (id: string, comment: string) => Promise<void>
   onViewDetail?: (id: string) => void
+  /** Portal preview mode: hides the 承認/修正依頼 actions entirely (view-only). */
+  readOnly?: boolean
 }
 
 export function ActionCard({
@@ -34,6 +36,7 @@ export function ActionCard({
   onApprove,
   onRequestChanges,
   onViewDetail,
+  readOnly = false,
 }: ActionCardProps) {
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -139,7 +142,7 @@ export function ActionCard({
           )}
 
           {/* Action buttons - visible on hover (hidden for estimate-pending: must use inspector) */}
-          {!showInput && estimateStatus !== 'pending' && (
+          {!readOnly && !showInput && estimateStatus !== 'pending' && (
             <div className={`flex items-center gap-2 ${
               showInput ? '' : 'sm:opacity-0 sm:group-hover:opacity-100'
             } transition-opacity`}>

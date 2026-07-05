@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
+import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -23,6 +23,7 @@ const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet'
 })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
+import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
@@ -108,6 +109,63 @@ function InlineTaskInput({ indent, onSubmit }: { indent: boolean; onSubmit: (tit
   )
 }
 
+/**
+ * Banner offering bulk-delete of preset-seeded sample tasks.
+ * Deliberately not a modal — confirmation happens inline within the banner
+ * itself (no fixed-overlay dialog), matching the "no modals for task actions" rule.
+ */
+function SampleTaskBanner({ count, onDeleteAll }: { count: number; onDeleteAll: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirm = async () => {
+    setDeleting(true)
+    try {
+      await onDeleteAll()
+    } finally {
+      setDeleting(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <div className="flex-shrink-0 flex items-center gap-2 px-5 py-1.5 text-xs bg-gray-50 border-b border-gray-100 text-gray-600">
+      {confirming ? (
+        <>
+          <span>{count}件のサンプルタスクを削除しますか？</span>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={deleting}
+            className="font-medium text-red-600 hover:underline disabled:opacity-50"
+          >
+            削除する
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            disabled={deleting}
+            className="text-gray-500 hover:underline disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+        </>
+      ) : (
+        <>
+          <span>サンプルタスクが含まれています</span>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="font-medium text-blue-600 hover:underline"
+          >
+            一括削除
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
@@ -130,6 +188,17 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         .length,
     [riskForecasts]
   )
+
+  // サンプルタスク一括削除バナー: プリセット同梱のis_sampleタスクが1件でもあれば表示
+  const sampleTaskIds = useMemo(
+    () => tasks.filter((t) => t.is_sample).map((t) => t.id),
+    [tasks]
+  )
+  const handleDeleteSampleTasks = useCallback(async () => {
+    const ids = sampleTaskIds
+    await Promise.all(ids.map((id) => deleteTask(id)))
+    toast.success(`${ids.length}件のサンプルタスクを削除しました`)
+  }, [sampleTaskIds, deleteTask])
 
   const [sortKey, setSortKey] = useState<SortKey>('milestone')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -860,6 +929,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </div>
           <div className="flex-1" />
           <Link
+            href={`/portal/preview/${spaceId}`}
+            data-testid="client-preview-link"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="クライアント表示プレビュー"
+          >
+            <Eye className="text-lg" />
+          </Link>
+          <Link
             href={`${projectBasePath}/settings`}
             data-testid="project-settings-link"
             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -869,10 +946,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </Link>
         </div>
 
-        {/* Bottom row: Filters + Sort */}
-        <div className="h-10 flex items-center px-5 gap-4">
-          {/* Filter tabs */}
-          <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5">
+        {/* Bottom row: Filters + Sort — stacks into 2 rows on mobile (<md) */}
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 md:h-10">
+          {/* Filter tabs — horizontally scrollable on mobile */}
+          <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5 w-full md:w-auto overflow-x-auto hide-scrollbar [&>button]:shrink-0 [&>button]:whitespace-nowrap">
             <button
               type="button"
               data-testid="tasks-filter-all"
@@ -936,6 +1013,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             </button>
           </div>
 
+          {/* Filter / preset / search / sort — becomes the 2nd row on mobile */}
+          <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto">
           {/* Advanced filter */}
           <TaskFilterMenu
             filters={advancedFilters}
@@ -1009,8 +1088,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             )}
           </div>
 
-          {/* Search */}
-          <div className="relative flex items-center">
+          {/* Search — full-width on mobile */}
+          <div className="relative flex items-center flex-1 md:flex-none">
             <MagnifyingGlass className="absolute left-2 text-sm text-gray-400 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -1018,7 +1097,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="検索... (/)"
-              className="w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:w-56 transition-all bg-white placeholder-gray-400"
+              className="w-full md:w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 md:focus:w-56 transition-all bg-white placeholder-gray-400"
             />
             {searchQuery && (
               <button
@@ -1032,7 +1111,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           </div>
 
           {/* Divider */}
-          <div className="h-4 w-px bg-gray-200" />
+          <div className="hidden md:block h-4 w-px bg-gray-200" />
 
           {/* Sort dropdown */}
           <div className="relative">
@@ -1042,7 +1121,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors bg-white"
             >
               <SortAscending className="text-sm" />
-              <span>{currentSortLabel}</span>
+              <span className="hidden sm:inline">{currentSortLabel}</span>
               <CaretDown className="text-[10px] text-gray-400" />
             </button>
             {showSortMenu && (
@@ -1071,6 +1150,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               </>
             )}
           </div>
+          </div>
         </div>
       </header>
 
@@ -1080,6 +1160,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         highRiskCount={highRiskCount}
         href={`${projectBasePath}/views/gantt`}
       />
+
+      <SetupChecklist orgId={orgId} spaceId={spaceId} />
+
+      {/* サンプルタスク一括削除バナー */}
+      {sampleTaskIds.length > 0 && (
+        <SampleTaskBanner count={sampleTaskIds.length} onDeleteAll={handleDeleteSampleTasks} />
+      )}
 
       {/* Content */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">

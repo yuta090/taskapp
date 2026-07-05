@@ -3,7 +3,7 @@
  * 調査レポート, 提案資料, 議事録テンプレート
  */
 
-import type { PresetDefinition, PresetWikiPage } from '../index'
+import type { PresetDefinition, PresetWikiPage, PresetSampleTask } from '../index'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 
 function generateResearchBody(): string {
@@ -110,6 +110,46 @@ const wikiPages: PresetWikiPage[] = [
   { title: 'プロジェクトホーム', tags: ['ホーム', 'テンプレート'], generateBody: generateHomeBody, isHome: true },
 ]
 
+const sampleTasks: PresetSampleTask[] = [
+  {
+    title: '提案資料のご確認',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nボール（担当）をクライアントに渡すと、一覧にアンバー色の「クライアント確認待ち」表示が出ます。タスクを開いてボールを社内に戻す操作を試してみてください。',
+    ball: 'client',
+    status: 'in_progress',
+    clientScope: 'deliverable',
+    milestoneName: '提案',
+  },
+  {
+    title: 'ヒアリング議事録の整理',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\n期限日とマイルストーンが設定されています。ステータスを変更すると保存ボタンなしでその場に反映されます（楽観的更新）。ガントチャートでの表示も確認してみてください。',
+    ball: 'internal',
+    status: 'todo',
+    clientScope: 'internal',
+    milestoneName: '現状分析',
+    dueInDays: 5,
+  },
+  {
+    title: '業界データの収集',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nまだ着手前のタスクです。ステータスのアイコンをクリックして「進行中」に変更する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '課題整理',
+  },
+  {
+    title: '効果測定レポートのテンプレート作成',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nタスクをクリックしてインスペクターを開き、担当者や説明文を編集する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '効果測定',
+  },
+]
+
 export const consultingPreset: PresetDefinition = {
   genre: 'consulting',
   label: 'コンサルティング',
@@ -123,6 +163,7 @@ export const consultingPreset: PresetDefinition = {
     { name: '実行支援', orderKey: 4 },
     { name: '効果測定', orderKey: 5 },
   ],
+  sampleTasks,
   recommendedIntegrations: ['google_calendar', 'slack'],
   defaultSettings: { ownerFieldEnabled: true },
 }

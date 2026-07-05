@@ -102,3 +102,54 @@ describe('TaskCreateSheet — 担当者/関係者・外部 の同期とバリデ
     )
   })
 })
+
+describe('TaskCreateSheet — ball=client ⟹ client_scope=deliverable 不変条件 (S4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  it('外部（ball=client）を選択すると client_scope が自動的に deliverable になり、トグルが disabled になる', () => {
+    renderSheet()
+
+    fireEvent.click(screen.getByTestId('task-create-ball-client'))
+    fireEvent.click(screen.getByText('詳細オプション'))
+
+    const toggle = screen.getByTestId('task-create-client-scope-toggle')
+    expect(toggle).toBeDisabled()
+    expect(toggle).toHaveClass('bg-amber-500')
+  })
+
+  it('社内（ball=internal）に戻すとトグルの操作が再び可能になる', () => {
+    renderSheet()
+
+    fireEvent.click(screen.getByTestId('task-create-ball-client'))
+    fireEvent.click(screen.getByTestId('task-create-ball-internal'))
+    fireEvent.click(screen.getByText('詳細オプション'))
+
+    const toggle = screen.getByTestId('task-create-client-scope-toggle')
+    expect(toggle).not.toBeDisabled()
+  })
+
+  it('コンパクト表示（詳細オプション未展開）でも ball=client 選択時にクライアント公開の注記が見える', () => {
+    renderSheet()
+
+    fireEvent.click(screen.getByTestId('task-create-ball-client'))
+
+    expect(screen.getByTestId('task-create-scope-auto-note')).toBeInTheDocument()
+  })
+
+  it('ball=client で作成すると onSubmit に clientScope=deliverable が渡る', async () => {
+    const onSubmit = vi.fn()
+    renderSheet(onSubmit)
+
+    fireEvent.click(screen.getByTestId('task-create-ball-client'))
+    fireEvent.change(screen.getByTestId('task-create-title'), { target: { value: '新規タスク' } })
+    fireEvent.click(screen.getByTestId('task-create-client-owner-c1'))
+    fireEvent.click(screen.getByTestId('task-create-submit'))
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ ball: 'client', clientScope: 'deliverable' })
+    )
+  })
+})

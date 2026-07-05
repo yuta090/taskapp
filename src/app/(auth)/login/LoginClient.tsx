@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
+import { getActiveOrgId } from '@/lib/org/activeOrg'
 
 function shouldShowDemoAccounts(): boolean {
   return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true'
@@ -33,45 +35,9 @@ function isSafeInternalPath(path: string | null): path is string {
   return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
 }
 
+/** ACTIVE_ORG_COOKIE から切替中のorgを読み、resolvePostLoginLanding の preferredOrgId に渡す */
 async function resolveRedirect(supabase: SupabaseClient, userId: string): Promise<string> {
-  const { data: membership } = await supabase
-    .from('org_memberships')
-    .select('org_id, role')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single()
-
-  // 組織未所属（サインアップ後にオンボーディング未完了のままログインし直した等）
-  // → /inbox の空画面ではなくオンボーディングへ誘導する
-  if (!membership) return '/onboarding'
-
-  if (membership.role === 'client') {
-    // Check if user is a vendor in any space within this org
-    const { data: vendorMem } = await supabase
-      .from('space_memberships')
-      .select('id, spaces!inner(org_id)')
-      .eq('user_id', userId)
-      .eq('role', 'vendor')
-      .eq('spaces.org_id', membership.org_id)
-      .limit(1)
-      .maybeSingle()
-    if (vendorMem) return '/vendor-portal'
-    return '/portal'
-  }
-
-  const { data: space } = await supabase
-    .from('spaces')
-    .select('id')
-    .eq('org_id', membership.org_id)
-    .eq('type', 'project')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single()
-  if (space) return `/${membership.org_id}/project/${space.id}`
-
-  // 組織はあるがプロジェクトが無い（作成途中で離脱）→ オンボーディングのStep2から再開
-  return '/onboarding'
+  return resolvePostLoginLanding(supabase, userId, { preferredOrgId: getActiveOrgId() })
 }
 
 export default function LoginClient() {
@@ -102,6 +68,8 @@ export default function LoginClient() {
       if (session?.user) {
         router.push(await resolveRedirect(supabase as SupabaseClient, session.user.id))
       }
+    } catch {
+      setError('ログイン中にエラーが発生しました')
     } finally {
       setReturningToApp(false)
     }
