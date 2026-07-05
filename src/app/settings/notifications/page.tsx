@@ -5,6 +5,7 @@ import { ArrowLeft, Bell, BellSlash, Envelope, CircleNotch, Check } from '@phosp
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
 
 interface NotificationSettings {
   email_enabled: boolean
@@ -32,6 +33,7 @@ export default function NotificationSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const push = usePushNotifications()
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -137,7 +139,7 @@ export default function NotificationSettingsPage() {
             </Link>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">通知設定</h1>
-              <p className="text-sm text-gray-500">メール通知の設定</p>
+              <p className="text-sm text-gray-500">ブラウザ通知とメール通知の設定</p>
             </div>
           </div>
         </div>
@@ -158,6 +160,55 @@ export default function NotificationSettingsPage() {
             {message.text}
           </div>
         )}
+
+        {/* Browser Push Notifications */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {push.isSubscribed ? (
+                <Bell className="w-6 h-6 text-indigo-600" />
+              ) : (
+                <BellSlash className="w-6 h-6 text-gray-400" />
+              )}
+              <div>
+                <h3 className="text-sm font-medium text-gray-900">ブラウザ通知</h3>
+                <p className="text-xs text-gray-500">
+                  ボールの受け渡しや承認依頼をこのブラウザに通知します
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={push.isSubscribed}
+              aria-label="ブラウザ通知を有効にする"
+              disabled={!push.isSupported || push.permission === 'denied' || push.loading}
+              onClick={() => void (push.isSubscribed ? push.disable() : push.enable())}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                push.isSubscribed ? 'bg-indigo-600' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  push.isSubscribed ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+          {!push.isSupported && (
+            <p className="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              このブラウザはプッシュ通知に対応していません。
+            </p>
+          )}
+          {push.isSupported && push.permission === 'denied' && (
+            <p className="mt-3 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+              ブラウザの設定で通知がブロックされています。アドレスバーのサイト設定から許可してください
+            </p>
+          )}
+          {push.error && (
+            <p className="mt-3 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{push.error}</p>
+          )}
+        </div>
 
         {/* Coming soon notice */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

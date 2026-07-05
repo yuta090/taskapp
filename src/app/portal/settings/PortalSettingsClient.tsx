@@ -4,6 +4,7 @@ import { User, Envelope, Bell, Shield, CalendarCheck, Trash, Info } from '@phosp
 import { PortalShell } from '@/components/portal'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { useReminderPreference } from '@/lib/hooks/useReminderPreference'
+import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
 
@@ -40,6 +41,7 @@ export function PortalSettingsClient({
     user.id,
     user.reminderEmailsEnabled ?? true
   )
+  const push = usePushNotifications()
   const {
     loading: gCalLoading,
     connectGoogle,
@@ -153,6 +155,35 @@ export function PortalSettingsClient({
                   <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
               </div>
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">ブラウザ通知</p>
+                  <p className="text-xs text-gray-500">
+                    タスクの確認依頼やボールの受け渡しをブラウザ通知でお知らせします（このデバイスのみ）
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={push.isSubscribed}
+                    onChange={() => void (push.isSubscribed ? push.disable() : push.enable())}
+                    disabled={!push.isSupported || push.permission === 'denied' || push.loading}
+                    className="sr-only peer"
+                    data-testid="portal-push-toggle"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
+                </label>
+              </div>
+              {push.isSupported && push.permission === 'denied' && (
+                <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                  ブラウザの設定で通知がブロックされています。アドレスバーのサイト設定から許可してください
+                </p>
+              )}
+              {!push.isSupported && (
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                  このブラウザはプッシュ通知に対応していません。
+                </p>
+              )}
             </div>
           </div>
 

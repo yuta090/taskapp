@@ -42,6 +42,7 @@
 | **UX Features** | `spec/UX_FEATURES_SPEC.md` | キーボードショートカット・コマンドパレット・オンボーディング |
 | **Subtask Hierarchy** | `spec/SUBTASK_HIERARCHY_SPEC.md` | 親子タスク階層（1レベル） |
 | **Client Reminder** | `spec/CLIENT_REMINDER_SPEC.md` | クライアント滞留リマインドメール（1日3回・pg_cron） |
+| **Browser Push** | `spec/BROWSER_PUSH_SPEC.md` | ブラウザ通知（Web Push・VAPID・pg_net dispatch） |
 | **MCP Tool Governance** | `spec/MCP_TOOL_GOVERNANCE.md` | MCPツール4ティアアクセス制御 |
 | **CLI Spec** | `spec/CLI_SPEC.md` | AgentPM CLI仕様 |
 | **CLI Dynamic Manifest** | `spec/CLI_DYNAMIC_MANIFEST_SPEC.md` | CLI動的マニフェスト（JSON駆動コマンド登録） |
