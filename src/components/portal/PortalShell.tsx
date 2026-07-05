@@ -143,7 +143,7 @@ export function PortalShell({
             <List className="text-xl" weight="bold" />
           </button>
           <span className="text-sm font-medium text-gray-900 truncate">
-            {currentProject?.name || 'TaskApp'}
+            {currentProject?.name || 'AgentPM'}
           </span>
         </div>
 

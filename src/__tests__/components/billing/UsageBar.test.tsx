@@ -25,15 +25,15 @@ describe('UsageBar', () => {
   it('should apply warning color when near limit (80%+)', () => {
     const { container } = render(<UsageBar label="テスト" used={4} limit={5} />)
 
-    // 80%以上なのでamber-500が適用されるべき
-    const progressBar = container.querySelector('[class*="bg-amber"]')
+    // 80%以上なのでorange-600が適用されるべき
+    const progressBar = container.querySelector('[class*="bg-orange"]')
     expect(progressBar).toBeInTheDocument()
   })
 
   it('should apply danger color when at limit (100%)', () => {
     const { container } = render(<UsageBar label="テスト" used={5} limit={5} />)
 
-    // 100%なのでred-500が適用されるべき
+    // 100%なのでred-600が適用されるべき
     const progressBar = container.querySelector('[class*="bg-red"]')
     expect(progressBar).toBeInTheDocument()
   })
@@ -41,7 +41,7 @@ describe('UsageBar', () => {
   it('should apply normal color when under 80%', () => {
     const { container } = render(<UsageBar label="テスト" used={2} limit={5} />)
 
-    // 40%なのでindigo-500が適用されるべき
+    // 40%なのでindigo-600が適用されるべき
     const progressBar = container.querySelector('[class*="bg-indigo"]')
     expect(progressBar).toBeInTheDocument()
   })

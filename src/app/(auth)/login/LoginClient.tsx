@@ -1,13 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const DEMO_ACCOUNTS = [
+function shouldShowDemoAccounts(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true'
+}
+
+// 本番ビルドでは NODE_ENV / NEXT_PUBLIC_* が静的置換され条件が false 定数になるため、
+// この配列（デモ資格情報）ごとデッドコード除去されバンドルに残らない
+const DEMO_ACCOUNTS = (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true') ? [
   { email: 'demo@example.com', password: 'demo1234', name: '田中 太郎', label: '内部PM', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border-indigo-200', group: 'internal' as const },
   { email: 'staff1@example.com', password: 'staff1234', name: '佐藤 花子', label: 'デザイナー', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200', group: 'internal' as const },
   { email: 'staff2@example.com', password: 'staff2345', name: '山田 次郎', label: '開発者', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200', group: 'internal' as const },
@@ -15,7 +21,7 @@ const DEMO_ACCOUNTS = [
   { email: 'client2@client.com', password: 'client2345', name: '高橋 美咲', label: 'クライアント承認者', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200', group: 'client' as const },
   { email: 'vendor1@vendor.com', password: 'vendor1234', name: '中村 健太', label: 'ベンダーDir', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 border-teal-200', group: 'vendor' as const },
   { email: 'vendor2@vendor.com', password: 'vendor2345', name: '松本 理恵', label: 'ベンダーDes', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200', group: 'vendor' as const },
-]
+] : []
 
 const AUTH_ERRORS: Record<string, string> = {
   auth_callback_failed: 'Google認証に失敗しました。もう一度お試しください。',
@@ -70,6 +76,28 @@ export default function LoginClient() {
   const [error, setError] = useState(errorFromUrl ? AUTH_ERRORS[errorFromUrl] || '' : '')
   const [loading, setLoading] = useState(false)
   const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
+  const [loggedInEmail, setLoggedInEmail] = useState<string | null>(null)
+  const [returningToApp, setReturningToApp] = useState(false)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setLoggedInEmail(session?.user?.email ?? null)
+    })
+  }, [])
+
+  async function handleReturnToApp() {
+    setReturningToApp(true)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        router.push(await resolveRedirect(supabase as SupabaseClient, session.user.id))
+      }
+    } finally {
+      setReturningToApp(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -136,6 +164,37 @@ export default function LoginClient() {
         </>
       }
     >
+      {loggedInEmail && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-center justify-between gap-3">
+          <span>{loggedInEmail} としてログイン中です</span>
+          <button
+            type="button"
+            onClick={handleReturnToApp}
+            disabled={returningToApp}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            アプリへ戻る
+          </button>
+        </div>
+      )}
+
+      {/* Google Login (top, matches signup order) */}
+      <div className="mb-4">
+        <GoogleSignInButton
+          label="Googleでログイン"
+          redirectTo={redirect || undefined}
+        />
+      </div>
+
+      <div className="relative my-4">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-gray-200" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-white px-2 text-gray-500">またはメールでログイン</span>
+        </div>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
@@ -177,23 +236,8 @@ export default function LoginClient() {
         </AuthButton>
       </form>
 
-      {/* Google Login */}
-      <div className="mt-4">
-        <div className="relative my-4">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-white px-2 text-gray-500">または</span>
-          </div>
-        </div>
-        <GoogleSignInButton
-          label="Googleでログイン"
-          redirectTo={redirect || undefined}
-        />
-      </div>
-
-      {/* Demo Accounts Section */}
+      {/* Demo Accounts Section (non-production only, unless explicitly enabled) */}
+      {shouldShowDemoAccounts() && (
       <div className="mt-6 pt-6 border-t border-gray-200">
         <div className="text-xs text-gray-500 mb-3 text-center">テスト用デモアカウント</div>
         <div className="space-y-2">
@@ -220,6 +264,7 @@ export default function LoginClient() {
           ))}
         </div>
       </div>
+      )}
     </AuthCard>
   )
 }

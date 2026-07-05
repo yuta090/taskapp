@@ -21,9 +21,9 @@ export async function generateMetadata({ params }: ManualPageProps) {
   const { slug } = await params
   const slugParts = slug ?? []
   const page = await getManualPage(slugParts)
-  if (!page) return { title: 'ページが見つかりません | TaskApp' }
+  if (!page) return { title: 'ページが見つかりません | AgentPM' }
   return {
-    title: `${page.title} | TaskApp マニュアル`,
+    title: `${page.title} | AgentPM マニュアル`,
   }
 }
 

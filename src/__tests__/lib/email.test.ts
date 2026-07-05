@@ -142,3 +142,71 @@ describe('escapeHtml utility', () => {
     expect(callArgs.html).toContain('Project &quot;Alpha&quot;')
   })
 })
+
+describe('sendInviteEmail with optional message', () => {
+  const baseParams = {
+    to: 'recipient@example.com',
+    inviterName: 'John Doe',
+    orgName: 'Test Org',
+    spaceName: 'Test Project',
+    token: 'abc123token',
+    expiresAt: '2025-03-01T00:00:00Z',
+    role: 'client' as const,
+  }
+
+  it('does not render a quote block when no message is given', async () => {
+    await sendInviteEmail({ ...baseParams })
+
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.html).not.toContain('border-left')
+  })
+
+  it('renders the message in both html and text bodies', async () => {
+    await sendInviteEmail({ ...baseParams, message: 'よろしくお願いします' })
+
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.html).toContain('よろしくお願いします')
+    expect(callArgs.html).toContain('border-left')
+    expect(callArgs.text).toContain('よろしくお願いします')
+  })
+
+  it('escapes HTML in the message', async () => {
+    await sendInviteEmail({
+      ...baseParams,
+      message: '<script>alert(1)</script>',
+    })
+
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.html).not.toContain('<script>')
+    expect(callArgs.html).toContain('&lt;script&gt;')
+  })
+})
+
+describe('FROM_EMAIL warning', () => {
+  const baseParams = {
+    to: 'recipient@example.com',
+    inviterName: 'John Doe',
+    orgName: 'Test Org',
+    spaceName: 'Test Project',
+    token: 'abc123token',
+    expiresAt: '2025-03-01T00:00:00Z',
+    role: 'client' as const,
+  }
+
+  it('warns once when FROM_EMAIL is not configured', async () => {
+    const original = process.env.FROM_EMAIL
+    delete process.env.FROM_EMAIL
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await sendInviteEmail({ ...baseParams })
+    await sendInviteEmail({ ...baseParams })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('FROM_EMAIL が未設定です')
+    )
+
+    warnSpy.mockRestore()
+    process.env.FROM_EMAIL = original
+  })
+})

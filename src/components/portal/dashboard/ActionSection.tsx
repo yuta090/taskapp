@@ -39,7 +39,7 @@ export function ActionSection({
   const displayTasks = tasks.slice(0, maxDisplay)
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col" data-walkthrough="portal-action-section">
       {/* Header Info - optional supplementary text */}
       {waitingMessage && (
         <div className="mb-4 text-xs text-gray-500 font-medium px-1">

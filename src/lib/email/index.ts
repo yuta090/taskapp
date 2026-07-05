@@ -14,12 +14,20 @@ function getResendClient(): Resend {
   return resendClient
 }
 
+// FROM_EMAIL 未設定警告は起動あたり一度だけ出す
+let fromEmailWarned = false
+
 function getFromEmail(): string {
-  return process.env.FROM_EMAIL || 'noreply@taskapp.example.com'
+  const fromEmail = process.env.FROM_EMAIL
+  if (!fromEmail && !fromEmailWarned) {
+    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
+    fromEmailWarned = true
+  }
+  return fromEmail || 'noreply@taskapp.example.com'
 }
 
 function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'TaskApp'
+  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
 }
 
 function getAppUrl(): string {
@@ -43,6 +51,11 @@ function escapeUrlForHtml(url: string): string {
   return escapeHtml(url)
 }
 
+// 改行を <br> に変換した上でエスケープする（引用メッセージ表示用）
+function escapeHtmlMultiline(text: string): string {
+  return escapeHtml(text).replace(/\n/g, '<br>')
+}
+
 export interface SendInviteEmailParams {
   to: string
   inviterName: string
@@ -51,10 +64,11 @@ export interface SendInviteEmailParams {
   role: 'client' | 'member'
   token: string
   expiresAt: string
+  message?: string
 }
 
 export async function sendInviteEmail(params: SendInviteEmailParams) {
-  const { to, inviterName, orgName, spaceName, role, token, expiresAt } = params
+  const { to, inviterName, orgName, spaceName, role, token, expiresAt, message } = params
 
   const appUrl = getAppUrl()
   const appName = getAppName()
@@ -83,6 +97,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
         spaceName,
         inviteUrl,
         expiresDate,
+        message,
       })
     : generateMemberInviteHtml({
         appName,
@@ -91,6 +106,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
         spaceName,
         inviteUrl,
         expiresDate,
+        message,
       })
 
   const text = isClient
@@ -101,6 +117,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
         spaceName,
         inviteUrl,
         expiresDate,
+        message,
       })
     : generateMemberInviteText({
         appName,
@@ -109,6 +126,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
         spaceName,
         inviteUrl,
         expiresDate,
+        message,
       })
 
   try {
@@ -133,6 +151,19 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
   }
 }
 
+// 招待メッセージの引用ブロック（HTML）
+function generateMessageQuoteHtml(message: string | undefined): string {
+  if (!message) return ''
+  return `
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px 0;">
+                <tr>
+                  <td style="border-left: 3px solid #d1d5db; padding: 12px 16px; background-color: #f9fafb;">
+                    <p style="margin: 0; color: #4b5563; font-size: 14px; line-height: 1.6;">${escapeHtmlMultiline(message)}</p>
+                  </td>
+                </tr>
+              </table>`
+}
+
 // クライアント向け招待メール HTML
 function generateClientInviteHtml(params: {
   appName: string
@@ -141,6 +172,7 @@ function generateClientInviteHtml(params: {
   spaceName: string
   inviteUrl: string
   expiresDate: string
+  message?: string
 }) {
   // XSS対策: ユーザー入力値をエスケープ
   const appName = escapeHtml(params.appName)
@@ -149,6 +181,7 @@ function generateClientInviteHtml(params: {
   const spaceName = escapeHtml(params.spaceName)
   const inviteUrl = escapeUrlForHtml(params.inviteUrl)
   const expiresDate = escapeHtml(params.expiresDate)
+  const messageQuote = generateMessageQuoteHtml(params.message)
 
   return `
 <!DOCTYPE html>
@@ -179,7 +212,7 @@ function generateClientInviteHtml(params: {
               </p>
               <p style="margin: 0 0 32px 0; color: #374151; font-size: 16px; line-height: 1.6;">
                 クライアントポータルから、タスクの確認・コメント・承認を行うことができます。
-              </p>
+              </p>${messageQuote}
               <!-- CTA Button -->
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
@@ -220,6 +253,7 @@ function generateMemberInviteHtml(params: {
   spaceName: string
   inviteUrl: string
   expiresDate: string
+  message?: string
 }) {
   // XSS対策: ユーザー入力値をエスケープ
   const appName = escapeHtml(params.appName)
@@ -228,6 +262,7 @@ function generateMemberInviteHtml(params: {
   const spaceName = escapeHtml(params.spaceName)
   const inviteUrl = escapeUrlForHtml(params.inviteUrl)
   const expiresDate = escapeHtml(params.expiresDate)
+  const messageQuote = generateMessageQuoteHtml(params.message)
 
   return `
 <!DOCTYPE html>
@@ -258,7 +293,7 @@ function generateMemberInviteHtml(params: {
               </p>
               <p style="margin: 0 0 32px 0; color: #374151; font-size: 16px; line-height: 1.6;">
                 招待を承諾すると、タスクの作成・編集・管理を行うことができます。
-              </p>
+              </p>${messageQuote}
               <!-- CTA Button -->
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
@@ -291,6 +326,12 @@ function generateMemberInviteHtml(params: {
   `.trim()
 }
 
+// 招待メッセージの引用ブロック（プレーンテキスト）
+function generateMessageQuoteText(message: string | undefined): string {
+  if (!message) return ''
+  return `\n${message}\n`
+}
+
 // クライアント向けテキスト版
 function generateClientInviteText(params: {
   appName: string
@@ -299,8 +340,9 @@ function generateClientInviteText(params: {
   spaceName: string
   inviteUrl: string
   expiresDate: string
+  message?: string
 }) {
-  const { appName, inviterName, orgName, spaceName, inviteUrl, expiresDate } = params
+  const { appName, inviterName, orgName, spaceName, inviteUrl, expiresDate, message } = params
 
   return `
 ${appName} - プロジェクトへの招待
@@ -308,7 +350,7 @@ ${appName} - プロジェクトへの招待
 ${inviterName} さんが、${orgName} の「${spaceName}」プロジェクトにあなたを招待しました。
 
 クライアントポータルから、タスクの確認・コメント・承認を行うことができます。
-
+${generateMessageQuoteText(message)}
 ポータルにアクセス:
 ${inviteUrl}
 
@@ -327,8 +369,9 @@ function generateMemberInviteText(params: {
   spaceName: string
   inviteUrl: string
   expiresDate: string
+  message?: string
 }) {
-  const { appName, inviterName, orgName, spaceName, inviteUrl, expiresDate } = params
+  const { appName, inviterName, orgName, spaceName, inviteUrl, expiresDate, message } = params
 
   return `
 ${appName} - チームへの招待
@@ -336,7 +379,7 @@ ${appName} - チームへの招待
 ${inviterName} さんが、${orgName} の「${spaceName}」プロジェクトにあなたをメンバーとして招待しました。
 
 招待を承諾すると、タスクの作成・編集・管理を行うことができます。
-
+${generateMessageQuoteText(message)}
 招待を承諾する:
 ${inviteUrl}
 

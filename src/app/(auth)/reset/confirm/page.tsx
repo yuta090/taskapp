@@ -10,6 +10,8 @@ export default function ResetConfirmPage() {
   const router = useRouter()
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [confirmPasswordError, setConfirmPasswordError] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -26,14 +28,16 @@ export default function ResetConfirmPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setPasswordError('')
+    setConfirmPasswordError('')
 
     if (password.length < 8) {
-      setError('パスワードは8文字以上で入力してください')
+      setPasswordError('パスワードは8文字以上で入力してください')
       return
     }
 
     if (password !== confirmPassword) {
-      setError('パスワードが一致しません')
+      setConfirmPasswordError('パスワードが一致しません')
       return
     }
 
@@ -149,6 +153,7 @@ export default function ResetConfirmPage() {
           placeholder="8文字以上"
           required
           autoComplete="new-password"
+          error={passwordError}
         />
 
         <AuthInput
@@ -159,6 +164,7 @@ export default function ResetConfirmPage() {
           placeholder="もう一度入力"
           required
           autoComplete="new-password"
+          error={confirmPasswordError}
         />
 
         <AuthButton type="submit" loading={loading}>

@@ -59,9 +59,9 @@ export default function AdminLoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">T</span>
+              <span className="text-white font-bold text-sm">A</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">TaskApp Admin</span>
+            <span className="text-xl font-bold text-gray-900">AgentPM Admin</span>
           </div>
         </div>
 

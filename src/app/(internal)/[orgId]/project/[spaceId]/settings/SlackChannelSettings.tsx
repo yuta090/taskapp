@@ -215,7 +215,7 @@ export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsPro
                 </div>
               </div>
               <p className="text-xs text-gray-500">
-                Botを先にチャンネルに招待してください: <code className="bg-gray-100 px-1 rounded">/invite @TaskApp</code>
+                Botを先にチャンネルに招待してください: <code className="bg-gray-100 px-1 rounded">/invite @AgentPM</code>
               </p>
             </div>
           )}

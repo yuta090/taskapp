@@ -61,7 +61,7 @@ export function ManualSidebar() {
           className="text-base font-bold text-gray-900 hover:text-indigo-600 transition-colors"
           onClick={() => setMobileOpen(false)}
         >
-          TaskApp マニュアル
+          AgentPM マニュアル
         </Link>
       </div>
 

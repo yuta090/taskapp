@@ -56,7 +56,7 @@ export async function getManualPage(slugParts: string[]): Promise<{
   const raw = await fs.readFile(filePath, 'utf-8')
 
   const titleMatch = raw.match(/^#\s+(.+)$/m)
-  const title = titleMatch ? titleMatch[1] : 'TaskApp マニュアル'
+  const title = titleMatch ? titleMatch[1] : 'AgentPM マニュアル'
 
   const result = await unified()
     .use(remarkParse)
