@@ -7,6 +7,7 @@ import {
   type PortalActivityNotificationRow,
   type PortalActivityCompletedTaskRow,
 } from '@/lib/portal/buildPortalActivities'
+import { getClientProjects, resolveCurrentProject } from '@/lib/portal/getClientProjects'
 import type { MilestoneStatus } from '@/components/portal'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -15,7 +16,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // - ball=client tasks appear first (considering, pending review)
 // - Sorted by due_date ASC (null last)
 
-export default async function PortalDashboardPage() {
+interface PageProps {
+  searchParams: Promise<{ space?: string | string[] }>
+}
+
+export default async function PortalDashboardPage({ searchParams }: PageProps) {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -24,24 +29,12 @@ export default async function PortalDashboardPage() {
     redirect('/login')
   }
 
-  // クライアントの最初のスペースを取得（後続クエリの前提条件）
-   
-  const { data: membership } = await (supabase as SupabaseClient)
-    .from('space_memberships')
-    .select(`
-      space_id,
-      spaces!inner (
-        id,
-        name,
-        org_id
-      )
-    `)
-    .eq('user_id', user.id)
-    .eq('role', 'client')
-    .limit(1)
-    .single()
+  // クライアントが所属する全プロジェクトを取得し、?space= で選択されたものを解決する
+  const { space } = await searchParams
+  const projects = await getClientProjects(supabase as SupabaseClient, user.id)
+  const currentProject = resolveCurrentProject(projects, space)
 
-  if (!membership) {
+  if (!currentProject) {
     // クライアントとしてのスペースがない場合
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -53,9 +46,7 @@ export default async function PortalDashboardPage() {
     )
   }
 
-  const spaceId = membership.space_id
-  const spaceName = (membership.spaces as { name?: string })?.name || 'プロジェクト'
-  const orgId = (membership.spaces as { org_id?: string })?.org_id || ''
+  const spaceId = currentProject.id
 
   // spaceId取得後、全クエリを並列実行
   const [
@@ -366,16 +357,6 @@ export default async function PortalDashboardPage() {
     activities,
     approvals,
   }
-
-  // Build project info
-  const currentProject = {
-    id: spaceId,
-    name: spaceName,
-    orgId: orgId,
-  }
-
-  // For now, only the current project (TODO: fetch all client projects)
-  const projects = [currentProject]
 
   return (
     <PortalDashboardClient

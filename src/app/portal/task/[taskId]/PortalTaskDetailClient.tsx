@@ -165,9 +165,10 @@ export function PortalTaskDetailClient({
     >
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto space-y-6">
-        {/* Back link */}
+        {/* Back link — carries ?space= so it returns to this task's own
+            project's list, not whichever project happens to be first (S6) */}
         <Link
-          href="/portal/tasks"
+          href={projects.length > 1 ? `/portal/tasks?space=${currentProject.id}` : '/portal/tasks'}
           className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
         >
           <ArrowLeft className="w-4 h-4" />
