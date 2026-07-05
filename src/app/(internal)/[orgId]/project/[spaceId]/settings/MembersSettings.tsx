@@ -130,24 +130,21 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       return
     }
 
+    const prevMembers = members
+    // Optimistic update
+    setMembers((prev) =>
+      prev.map((m) => (m.userId === userId ? { ...m, role: newRole } : m))
+    )
+
     try {
-      // Note: Security relies on RLS policy on space_memberships table
-      // TODO: Consider moving to RPC with explicit admin check for defense in depth
       const { error } = await (supabase as SupabaseClient)
-        .from('space_memberships')
-        .update({ role: newRole })
-        .eq('space_id', spaceId)
-        .eq('user_id', userId)
+        .rpc('rpc_update_space_member_role', { p_space_id: spaceId, p_user_id: userId, p_role: newRole })
 
       if (error) throw error
-
-      // Update local state
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === userId ? { ...m, role: newRole } : m))
-      )
       toast.success('役割を変更しました')
     } catch (err) {
       console.error('Failed to update role:', err)
+      setMembers(prevMembers) // Rollback
       toast.error('役割の変更に失敗しました')
     }
   }
@@ -162,20 +159,19 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     })
     if (!ok) return
 
+    const prevMembers = members
+    // Optimistic update
+    setMembers((prev) => prev.filter((m) => m.userId !== userId))
+
     try {
       const { error } = await (supabase as SupabaseClient)
-        .from('space_memberships')
-        .delete()
-        .eq('space_id', spaceId)
-        .eq('user_id', userId)
+        .rpc('rpc_remove_space_member', { p_space_id: spaceId, p_user_id: userId })
 
       if (error) throw error
-
-      // Update local state
-      setMembers((prev) => prev.filter((m) => m.userId !== userId))
       toast.success('メンバーを削除しました')
     } catch (err) {
       console.error('Failed to remove member:', err)
+      setMembers(prevMembers) // Rollback
       toast.error('メンバーの削除に失敗しました')
     }
   }
