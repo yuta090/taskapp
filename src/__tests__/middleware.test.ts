@@ -197,4 +197,14 @@ describe('middleware — 保護パスの未認証ガード（回帰）', () => {
 
     expect(redirectPath(response)).toBeNull()
   })
+
+  it('未認証で保護パス（クエリ付き）にアクセスすると redirect にクエリ文字列も保持する', async () => {
+    const response = await middleware(makeRequest('/inbox?task=123&foo=bar'))
+
+    const location = response.headers.get('location')
+    expect(location).not.toBeNull()
+    const url = new URL(location!)
+    expect(url.pathname).toBe('/login')
+    expect(url.searchParams.get('redirect')).toBe('/inbox?task=123&foo=bar')
+  })
 })
