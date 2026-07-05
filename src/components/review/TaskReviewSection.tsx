@@ -8,11 +8,13 @@ import {
   User,
   ChatText,
   Eye,
+  Prohibit,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useConfirmDialog } from '@/components/shared'
 import type { Review, ReviewApproval } from '@/types/database'
 
 interface TaskReviewSectionProps {
@@ -49,7 +51,8 @@ export function TaskReviewSection({
   const supabase = supabaseRef.current
 
   const { user } = useCurrentUser()
-  const { internalMembers, getMemberName } = useSpaceMembers(spaceId)
+  const { members, internalMembers, getMemberName } = useSpaceMembers(spaceId)
+  const { confirm, ConfirmDialog } = useConfirmDialog()
 
   // Fetch review for this task.
   // Returns { ok: true, status } on success, { ok: false } on failure.
@@ -92,9 +95,11 @@ export function TaskReviewSection({
     void fetchReview()
   }, [fetchReview])
 
-  // Auto-expand reviewer picker when status is in_review and no review exists
+  // Auto-expand reviewer picker when status is in_review and no active
+  // review exists (a cancelled review counts as "no review" — S5).
   useEffect(() => {
-    if (!loading && taskStatus === 'in_review' && !reviewData && !readOnly) {
+    const hasNoActiveReview = !reviewData || reviewData.review.status === 'cancelled'
+    if (!loading && taskStatus === 'in_review' && hasNoActiveReview && !readOnly) {
       setShowReviewerPicker(true)
     }
   }, [loading, taskStatus, reviewData, readOnly])
@@ -153,6 +158,29 @@ export function TaskReviewSection({
     }
   }, [taskId, blockReason, supabase, fetchReview, onReviewChange])
 
+  // Cancel (S5: レビュアー離脱等で詰んだレビューの復旧導線)
+  const handleCancelReview = useCallback(async () => {
+    if (!reviewData) return
+    const confirmed = await confirm({
+      title: 'レビューを取り消す',
+      message: 'この社内承認依頼を取り消しますか？取り消し後は改めて依頼し直せます。',
+      confirmLabel: '取り消す',
+      variant: 'danger',
+    })
+    if (!confirmed) return
+
+    setSubmitting(true)
+    try {
+      await rpc.reviewCancel(supabase, { reviewId: reviewData.review.id })
+      const result = await fetchReview()
+      if (result.ok) onReviewChange?.(taskId, result.status)
+    } catch (err) {
+      console.error('Failed to cancel review:', err)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [reviewData, confirm, supabase, fetchReview, onReviewChange, taskId])
+
   const toggleReviewer = (userId: string) => {
     setSelectedReviewerIds((prev) =>
       prev.includes(userId)
@@ -165,6 +193,16 @@ export function TaskReviewSection({
     reviewData?.approvals.some(
       (a) => a.reviewer_id === user?.id && a.state === 'pending'
     ) ?? false
+
+  // status='cancelled' は「レビュー未作成」と同等に扱う（依頼導線を復活させる）。
+  const hasActiveReview = reviewData != null && reviewData.review.status !== 'cancelled'
+
+  const isSpaceAdmin = members.some((m) => m.id === user?.id && m.role === 'admin')
+  const canCancelReview =
+    hasActiveReview &&
+    !readOnly &&
+    (reviewData!.review.status === 'open' || reviewData!.review.status === 'changes_requested') &&
+    (reviewData!.review.created_by === user?.id || isSpaceAdmin)
 
   if (loading) {
     return (
@@ -179,17 +217,18 @@ export function TaskReviewSection({
 
   return (
     <div className={`py-3 space-y-3 rounded-lg transition-colors ${
-      taskStatus === 'in_review' && !reviewData && !loading
+      taskStatus === 'in_review' && !hasActiveReview && !loading
         ? 'bg-gray-50 ring-1 ring-gray-200 px-3'
         : 'px-4'
     }`}>
+      {ConfirmDialog}
       {/* Section header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
           <Eye className="text-sm" />
           <span>社内承認</span>
         </div>
-        {!readOnly && !reviewData && !showReviewerPicker && (
+        {!readOnly && !hasActiveReview && !showReviewerPicker && (
           <button
             onClick={() => setShowReviewerPicker(true)}
             className="text-xs text-gray-500 hover:text-gray-700 font-medium"
@@ -197,12 +236,12 @@ export function TaskReviewSection({
             社内承認を依頼
           </button>
         )}
-        {!readOnly && reviewData && reviewData.review.status !== 'open' && (
+        {!readOnly && hasActiveReview && reviewData!.review.status !== 'open' && (
           <button
             onClick={() => {
               // Pre-select existing reviewers for re-review
               setSelectedReviewerIds(
-                reviewData.approvals.map((a) => a.reviewer_id)
+                reviewData!.approvals.map((a) => a.reviewer_id)
               )
               setShowReviewerPicker(true)
             }}
@@ -274,7 +313,7 @@ export function TaskReviewSection({
       )}
 
       {/* Review status display */}
-      {reviewData && !showReviewerPicker && (
+      {reviewData && reviewData.review.status !== 'cancelled' && !showReviewerPicker && (
         <div className="space-y-2">
           {/* Status badge */}
           <div className="flex items-center gap-1.5">
@@ -353,6 +392,20 @@ export function TaskReviewSection({
                     <p className="text-red-700">{a.blocked_reason}</p>
                   </div>
                 ))}
+            </div>
+          )}
+
+          {/* Cancel review (S5: 依頼者 or space admin が詰んだレビューを取り消す) */}
+          {canCancelReview && (
+            <div className="pt-1">
+              <button
+                onClick={handleCancelReview}
+                disabled={submitting}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-red-600 disabled:opacity-50 transition-colors"
+              >
+                <Prohibit className="text-xs" />
+                レビューを取り消す
+              </button>
             </div>
           )}
 

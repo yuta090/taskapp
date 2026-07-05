@@ -44,7 +44,7 @@ export type EstimateStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type MeetingStatus = 'planned' | 'in_progress' | 'ended'
 
 // Review status
-export type ReviewStatus = 'open' | 'approved' | 'changes_requested'
+export type ReviewStatus = 'open' | 'approved' | 'changes_requested' | 'cancelled'
 
 // Review approval state
 export type ApprovalState = 'pending' | 'approved' | 'blocked'

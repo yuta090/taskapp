@@ -4,6 +4,7 @@ import { useRef, useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toast } from 'sonner'
 import { rpc } from '@/lib/supabase/rpc'
 import { fireNotification } from '@/lib/slack/notify'
 import { fireApprovalEmail } from '@/lib/notifications/email-approval'
@@ -167,6 +168,30 @@ function countAncestors(taskId: string, tasks: Task[]): number {
 function assertBallClientScopeInvariant(ball: BallSide, clientScope: ClientScope): void {
   if (ball === 'client' && clientScope !== 'deliverable') {
     throw new Error('外部ボール（ball=client）のタスクはクライアント公開（client_scope=deliverable）が必須です')
+  }
+}
+
+/**
+ * Enforce: a task cannot move to status='done' while (a) it has a named
+ * review that is not yet approved/cancelled, or (b) it is a spec task whose
+ * decision is still 'considering' (未決). The DB trigger enforce_review_gate
+ * is the final line of defense (cannot be bypassed from any client), but
+ * checking here first avoids a flash of optimistic UI + rollback and shows
+ * a clear toast instead of a raw Postgres error.
+ */
+function assertReviewCompletionGate(
+  reviewStatus: ReviewStatus | undefined,
+  task: Pick<Task, 'type' | 'decision_state'>
+): void {
+  if (reviewStatus === 'open' || reviewStatus === 'changes_requested') {
+    const message = '社内承認が完了するまでタスクを完了できません'
+    toast.error(message)
+    throw new Error(message)
+  }
+  if (task.type === 'spec' && task.decision_state === 'considering') {
+    const message = '決定事項が未決のため完了できません'
+    toast.error(message)
+    throw new Error(message)
   }
 }
 
@@ -411,6 +436,12 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
       // task's current ball is what will remain after this update.
       if (input.clientScope !== undefined && prevTask) {
         assertBallClientScopeInvariant(prevTask.ball, input.clientScope)
+      }
+
+      // Validate: cannot complete a task with an open/unapproved review, or
+      // a spec task whose decision is still undecided (REVIEW_SPEC / S5).
+      if (input.status === 'done' && prevTask) {
+        assertReviewCompletionGate(previousData?.reviewStatuses[taskId], prevTask)
       }
 
       // Optimistic update
