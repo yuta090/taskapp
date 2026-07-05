@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
         space_id: spaceId,
         title: taskTitle,
         description: taskDescription,
-        status: 'open',
+        status: 'todo',
         ball: 'internal',
         origin: 'client',
         type: 'task',
