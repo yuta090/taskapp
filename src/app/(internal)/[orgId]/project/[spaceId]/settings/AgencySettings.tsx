@@ -52,6 +52,7 @@ export function AgencySettings({ spaceId }: AgencySettingsProps) {
 
   useEffect(() => {
     if (data.default_margin_rate != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- サーバから届いた設定値をフォーム入力の初期値に同期する
       setMarginInput(String(data.default_margin_rate))
     }
   }, [data.default_margin_rate])
