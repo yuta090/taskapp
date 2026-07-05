@@ -37,7 +37,11 @@ async function resolveRedirect(supabase: SupabaseClient, userId: string): Promis
     .limit(1)
     .single()
 
-  if (membership?.role === 'client') {
+  // 組織未所属（サインアップ後にオンボーディング未完了のままログインし直した等）
+  // → /inbox の空画面ではなくオンボーディングへ誘導する
+  if (!membership) return '/onboarding'
+
+  if (membership.role === 'client') {
     // Check if user is a vendor in any space within this org
     const { data: vendorMem } = await supabase
       .from('space_memberships')
@@ -51,19 +55,18 @@ async function resolveRedirect(supabase: SupabaseClient, userId: string): Promis
     return '/portal'
   }
 
-  if (membership) {
-    const { data: space } = await supabase
-      .from('spaces')
-      .select('id')
-      .eq('org_id', membership.org_id)
-      .eq('type', 'project')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single()
-    if (space) return `/${membership.org_id}/project/${space.id}`
-  }
+  const { data: space } = await supabase
+    .from('spaces')
+    .select('id')
+    .eq('org_id', membership.org_id)
+    .eq('type', 'project')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single()
+  if (space) return `/${membership.org_id}/project/${space.id}`
 
-  return '/inbox'
+  // 組織はあるがプロジェクトが無い（作成途中で離脱）→ オンボーディングのStep2から再開
+  return '/onboarding'
 }
 
 export default function LoginClient() {

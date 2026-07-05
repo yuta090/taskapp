@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import LoginClient from '@/app/(auth)/login/LoginClient'
 
 const mockPush = vi.fn()
@@ -103,5 +103,93 @@ describe('LoginClient', () => {
 
     // Form should remain usable for switching accounts
     expect(screen.getByLabelText(/^メールアドレス\*?$/)).toBeInTheDocument()
+  })
+})
+
+describe('LoginClient — ログイン後リダイレクト', () => {
+  let membershipResponse: { data: { org_id: string; role: string } | null }
+  let spaceResponse: { data: { id: string } | null }
+  let vendorResponse: { data: { id: string } | null }
+
+  // テーブルごとにチェーンを分ける（org_memberships / spaces / space_memberships）
+  function setupTableMocks() {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'spaces') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          order: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          single: vi.fn(() => Promise.resolve(spaceResponse)),
+        }
+      }
+      if (table === 'space_memberships') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          maybeSingle: vi.fn(() => Promise.resolve(vendorResponse)),
+        }
+      }
+      return {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        single: vi.fn(() => Promise.resolve(membershipResponse)),
+      }
+    })
+  }
+
+  async function login() {
+    render(<LoginClient />)
+    fireEvent.change(screen.getByLabelText(/^メールアドレス\*?$/), {
+      target: { value: 'user@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText(/^パスワード\*?$/), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalled()
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: { id: 'user-1' } },
+      error: null,
+    })
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
+    vendorResponse = { data: null }
+    setupTableMocks()
+  })
+
+  it('組織未所属なら /onboarding へ（/inbox の空画面に落とさない）', async () => {
+    await login()
+    expect(mockPush).toHaveBeenCalledWith('/onboarding')
+  })
+
+  it('組織はあるがプロジェクトが無ければ /onboarding へ（Step2から再開）', async () => {
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: null }
+    await login()
+    expect(mockPush).toHaveBeenCalledWith('/onboarding')
+  })
+
+  it('組織もプロジェクトもあれば最初のプロジェクトへ', async () => {
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: { id: 'space-1' } }
+    await login()
+    expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-1')
+  })
+
+  it('clientロールは /portal へ', async () => {
+    membershipResponse = { data: { org_id: 'org-1', role: 'client' } }
+    await login()
+    expect(mockPush).toHaveBeenCalledWith('/portal')
   })
 })
