@@ -29,14 +29,14 @@ export function BurndownControls({
     : 0
 
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4">
       {/* Milestone selector */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
+        <div className="relative w-full md:w-auto">
           <select
             value={selectedMilestoneId}
             onChange={(e) => onSelectMilestone(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            className="w-full md:w-auto appearance-none pl-3 pr-8 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           >
             <option value="">プロジェクト全体</option>
             {validMilestones.map((ms) => (
