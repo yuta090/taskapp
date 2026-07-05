@@ -32,6 +32,14 @@ export const ICON_MAP: Record<string, React.ReactNode> = {
   HardHat: <HardHat weight="duotone" />,
 }
 
+/** recommendedIntegrations のキー → 表示ラベル */
+const INTEGRATION_LABELS: Record<string, string> = {
+  github: 'GitHub',
+  slack: 'Slack',
+  google_calendar: 'Googleカレンダー',
+  video_conference: 'ビデオ会議',
+}
+
 // ---------------------------------------------------------------------------
 // GenrePicker — card grid for selecting a preset genre
 // ---------------------------------------------------------------------------
@@ -78,7 +86,8 @@ export function GenrePicker({
               {preset.label}
             </span>
             <span className="text-[10px] text-gray-400">
-              Wiki {preset.wikiPages.length}件 / MS{' '}
+              文書 {preset.wikiPages.filter((p) => !p.isHome).length}件
+              {preset.wikiPages.some((p) => p.isHome) && '＋ホーム'} / MS{' '}
               {preset.milestones.length}件
             </span>
           </button>
@@ -125,6 +134,16 @@ export function GenrePreview({ preset }: GenrePreviewProps) {
           <span className="text-xs text-gray-400 w-6 shrink-0">MS</span>
           <span className="text-xs text-gray-700">
             {preset.milestones.map((m) => m.name).join(' → ')}
+          </span>
+        </div>
+      )}
+      {preset.recommendedIntegrations.length > 0 && (
+        <div className="flex items-start gap-2">
+          <span className="text-xs text-gray-400 w-6 shrink-0">連携</span>
+          <span className="text-xs text-gray-700">
+            推奨: {preset.recommendedIntegrations
+              .map((key) => INTEGRATION_LABELS[key] ?? key)
+              .join(', ')}
           </span>
         </div>
       )}

@@ -9,7 +9,11 @@ import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 // Reuse DB設計書 from existing templates
 import { SPEC_TEMPLATES } from '@/lib/wiki/defaultTemplate'
 
-const dbTemplate = SPEC_TEMPLATES.find(s => s.title === 'DB設計書')!
+const foundDbTemplate = SPEC_TEMPLATES.find(s => s.title === 'DB設計書')
+if (!foundDbTemplate) {
+  throw new Error('SPEC_TEMPLATES に「DB設計書」が見つかりません。defaultTemplate.ts のタイトル変更を確認してください')
+}
+const dbTemplate = foundDbTemplate
 
 function generateRequirementsBody(): string {
   return JSON.stringify([
@@ -77,7 +81,7 @@ function generateHomeBody(orgId: string, spaceId: string, specPages?: SpecPageRe
         type: 'bulletListItem',
         content: [{ type: 'link', href: `${wikiPath}?page=${spec.id}`, content: [{ type: 'text', text: spec.title }] }],
       }))
-    : [{ type: 'bulletListItem', content: [{ type: 'text', text: '（仕様書ページが生成されませんでした）' }] }]
+    : [{ type: 'bulletListItem', content: [{ type: 'text', text: '（ドキュメントリンク未設定）' }] }]
 
   return JSON.stringify([
     { type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'プロジェクト概要' }] },

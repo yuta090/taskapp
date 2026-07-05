@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
+import { updateHomePageSpecLinks } from '@/lib/presets/homeLinks'
 import type { PresetGenre } from '@/lib/presets'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -92,38 +93,10 @@ export async function POST(request: NextRequest) {
 
   const spaceId = rpcResult.space_id as string
 
-  // 6. Update home page with real spec page links (non-critical)
-  if (genre !== 'blank' && preset.wikiPages.some(p => p.isHome)) {
-    try {
-      // Fetch all created pages to identify home + spec pages
-       
-      const { data: allPages } = await (supabase as SupabaseClient)
-        .from('wiki_pages')
-        .select('id, title, tags')
-        .eq('space_id', spaceId)
-        .eq('org_id', orgId)
-
-      const pages = (allPages || []) as { id: string; title: string; tags: string[] }[]
-      const homePage = pages.find(p => p.tags.includes('ホーム'))
-      const specPages = pages
-        .filter(p => !p.tags.includes('ホーム'))
-        .map(p => ({ id: p.id, title: p.title }))
-
-      const homePreset = preset.wikiPages.find(p => p.isHome)
-      if (homePreset && homePage && specPages.length > 0) {
-        const homeBody = homePreset.generateBody(orgId, spaceId, specPages)
-        // Update by specific page ID to avoid multi-row updates
-         
-        await (supabase as SupabaseClient)
-          .from('wiki_pages')
-          .update({ body: homeBody })
-          .eq('id', homePage.id)
-      }
-    } catch (err) {
-      // Non-critical: space is created, just spec links missing from home page
-      console.warn('[create-with-preset] Home page spec link update failed:', err)
-    }
-  }
+  // 6. Replace placeholder links in home page body with real spaceId + spec page links.
+  //    Non-critical for the response, but must run even with 0 spec pages —
+  //    the body created in step 4 contains placeholder paths.
+  await updateHomePageSpecLinks(supabase as SupabaseClient, preset, orgId, spaceId)
 
   return NextResponse.json({
     space: {

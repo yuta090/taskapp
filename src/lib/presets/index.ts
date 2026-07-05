@@ -39,7 +39,7 @@ export interface PresetDefinition {
   genre: PresetGenre
   label: string
   description: string
-  icon: string // lucide-react icon name
+  icon: string // Phosphor icon name — must be registered in ICON_MAP (GenrePicker.tsx)
   wikiPages: PresetWikiPage[]
   milestones: PresetMilestone[]
   recommendedIntegrations: string[]
