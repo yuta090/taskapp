@@ -29,7 +29,7 @@ export function NextDeliveryMetric({ milestoneName, dueDate, overdueDays }: Next
         isOverdue ? (
           <span className="flex flex-col min-w-0">
             <span className="text-rose-600 truncate">{dateStr}</span>
-            <span className="text-sm font-bold text-rose-500 whitespace-nowrap">{overdueDays}日超過</span>
+            <span className="text-sm font-semibold text-rose-500 whitespace-nowrap">{overdueDays}日超過</span>
           </span>
         ) : (
           <span className="truncate">{dateStr}</span>
