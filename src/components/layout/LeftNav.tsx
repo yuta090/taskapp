@@ -279,9 +279,11 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
             <button
               type="button"
               onClick={() => {
-                resetInternalOnboarding()
-                setIsOpen(false)
-                window.location.reload()
+                void (async () => {
+                  await resetInternalOnboarding()
+                  setIsOpen(false)
+                  window.location.reload()
+                })()
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >

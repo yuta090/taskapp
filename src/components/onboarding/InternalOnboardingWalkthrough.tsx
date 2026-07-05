@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   PlusCircle,
   ArrowsLeftRight,
@@ -10,7 +11,7 @@ import {
   CaretRight,
   CaretLeft,
 } from '@phosphor-icons/react'
-import { useOnboardingFlag } from '@/lib/hooks/useOnboardingFlag'
+import { useOnboardingFlag, resetOnboardingFlagOnServer } from '@/lib/hooks/useOnboardingFlag'
 import { useSpotlightRect } from '@/lib/hooks/useSpotlightRect'
 import { usePanelPosition } from '@/lib/hooks/usePanelPosition'
 import { useWalkthroughDismissal } from '@/lib/hooks/useWalkthroughDismissal'
@@ -24,8 +25,13 @@ interface WalkthroughStep {
   iconBg: string
   title: string
   description: string
-  /** CSS selector for the element to spotlight; falls back to a centered dialog if absent/unmatched. */
-  targetSelector?: string
+  /**
+   * CSS selectors for the element to spotlight, in priority order — later
+   * entries are fallbacks for states where the primary is absent (e.g. a
+   * brand-new project with zero task rows). Falls back to a centered dialog
+   * if none match.
+   */
+  targetSelectors?: readonly string[]
 }
 
 const steps: WalkthroughStep[] = [
@@ -35,6 +41,9 @@ const steps: WalkthroughStep[] = [
     iconBg: 'bg-blue-100',
     title: 'タスク作成の流れ',
     description: 'タイトルを入力してEnterで作成できます。詳細は後から編集可能です。',
+    // 空プロジェクトでは空状態、タスクがある場合はインラインの「タスクを追加」行。
+    // サイドバー内の要素は別スタッキングコンテキストで隠れるため使わない。
+    targetSelectors: ['[data-walkthrough="task-create"]'],
   },
   {
     icon: ArrowsLeftRight,
@@ -42,7 +51,10 @@ const steps: WalkthroughStep[] = [
     iconBg: 'bg-amber-100',
     title: 'ボールの概念',
     description: '次にアクションを取る側を表します。「社内」はチーム、「外部」はクライアント対応中です。',
-    targetSelector: '[data-walkthrough="task-row-ball"]',
+    targetSelectors: [
+      '[data-walkthrough="task-row-ball"]',
+      '[data-walkthrough="filter-client-wait"]',
+    ],
   },
   {
     icon: Eye,
@@ -50,7 +62,10 @@ const steps: WalkthroughStep[] = [
     iconBg: 'bg-indigo-100',
     title: 'クライアントに公開',
     description: 'ONにするとクライアントのポータルにタスクが表示されます。',
-    targetSelector: '[data-walkthrough="task-row-visibility"]',
+    targetSelectors: [
+      '[data-walkthrough="task-row-visibility"]',
+      '[data-walkthrough="filter-client-wait"]',
+    ],
   },
   {
     icon: RocketLaunch,
@@ -61,14 +76,20 @@ const steps: WalkthroughStep[] = [
   },
 ]
 
-/** Clear onboarding flag so the walkthrough shows again on next mount. */
-export function resetInternalOnboarding(): void {
+/**
+ * Clear the onboarding flag (localStorage + server) so the walkthrough
+ * shows again on next mount. Server clear must complete before callers
+ * reload/navigate, otherwise `useOnboardingFlag` re-reads the still-true
+ * server flag and the walkthrough stays hidden.
+ */
+export async function resetInternalOnboarding(): Promise<void> {
   if (typeof window === 'undefined') return
   try {
     localStorage.removeItem(ONBOARDING_KEY)
   } catch {
     // localStorage unavailable
   }
+  await resetOnboardingFlagOnServer('internal_walkthrough')
 }
 
 export function InternalOnboardingWalkthrough() {
@@ -110,7 +131,7 @@ export function InternalOnboardingWalkthrough() {
   }, [currentStep])
 
   const step = steps[currentStep]
-  const targetRect = useSpotlightRect(step.targetSelector, isOpen)
+  const { rect: targetRect, matchedSelector } = useSpotlightRect(step.targetSelectors, isOpen)
   const panelRef = useRef<HTMLDivElement>(null)
   const panelStyle = usePanelPosition(panelRef, targetRect)
 
@@ -119,7 +140,7 @@ export function InternalOnboardingWalkthrough() {
   useWalkthroughDismissal({
     isOpen,
     panelRef,
-    targetSelector: step.targetSelector,
+    targetSelector: matchedSelector ?? undefined,
     onNext: handleNext,
     onPrev: handlePrev,
     onClose: handleClose,
@@ -130,7 +151,9 @@ export function InternalOnboardingWalkthrough() {
   const Icon = step.icon
   const isLast = currentStep === steps.length - 1
 
-  return (
+  // 親ペイン（main等）のスタッキングコンテキストに閉じ込められると
+  // サイドバーの下に描画されるため、body直下にポータルで出す
+  return createPortal(
     <div
       role="dialog"
       aria-labelledby="internal-onboarding-title"
@@ -261,6 +284,7 @@ export function InternalOnboardingWalkthrough() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

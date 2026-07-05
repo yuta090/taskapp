@@ -86,6 +86,78 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
     expect(screen.getByTestId('walkthrough-spotlight-ring')).toBeInTheDocument()
   })
 
+  it('step1「タスク作成の流れ」は作成導線（task-create）をハイライトする', async () => {
+    render(
+      <>
+        <div data-walkthrough="task-create">empty state</div>
+        <InternalOnboardingWalkthrough />
+      </>
+    )
+
+    await waitFor(() => screen.getByRole('dialog'))
+    expect(screen.getByText('タスク作成の流れ')).toBeInTheDocument()
+    expect(screen.getByTestId('walkthrough-spotlight-ring')).toBeInTheDocument()
+  })
+
+  it('タスク行が無い場合「ボールの概念」はクライアント確認待ちフィルタにフォールバックする', async () => {
+    render(
+      <>
+        {/* task-row-ball は存在しない（新規プロジェクト相当） */}
+        <button data-walkthrough="filter-client-wait">クライアント確認待ち</button>
+        <InternalOnboardingWalkthrough />
+      </>
+    )
+
+    await waitFor(() => screen.getByRole('dialog'))
+    fireEvent.click(screen.getByText('次へ'))
+
+    await waitFor(() => {
+      expect(screen.getByText('ボールの概念')).toBeInTheDocument()
+    })
+    // フォールバック先がハイライトされる（中央カードに落ちない）
+    expect(screen.getByTestId('walkthrough-spotlight-ring')).toBeInTheDocument()
+  })
+
+  it('フォールバック先のターゲットをクリックしても次のステップへ進む', async () => {
+    render(
+      <>
+        <button data-walkthrough="filter-client-wait">クライアント確認待ち</button>
+        <InternalOnboardingWalkthrough />
+      </>
+    )
+
+    await waitFor(() => screen.getByRole('dialog'))
+    fireEvent.click(screen.getByText('次へ'))
+    await waitFor(() => screen.getByText('ボールの概念'))
+
+    fireEvent.click(screen.getByText('クライアント確認待ち'))
+
+    await waitFor(() => {
+      expect(screen.getByText('クライアントに公開')).toBeInTheDocument()
+    })
+  })
+
+  it('primaryのタスク行があればフォールバックではなくそちらを使う', async () => {
+    render(
+      <>
+        <div data-walkthrough="task-row-ball">ball badge</div>
+        <button data-walkthrough="filter-client-wait">クライアント確認待ち</button>
+        <InternalOnboardingWalkthrough />
+      </>
+    )
+
+    await waitFor(() => screen.getByRole('dialog'))
+    fireEvent.click(screen.getByText('次へ'))
+    await waitFor(() => screen.getByText('ボールの概念'))
+    await waitFor(() => screen.getByTestId('walkthrough-spotlight-ring'))
+
+    // primary（タスク行のボール）クリックで進む＝primaryがスポットライト対象
+    fireEvent.click(screen.getByText('ball badge'))
+    await waitFor(() => {
+      expect(screen.getByText('クライアントに公開')).toBeInTheDocument()
+    })
+  })
+
   it('calls markDone (server + localStorage) when the walkthrough is completed', async () => {
     render(<InternalOnboardingWalkthrough />)
 

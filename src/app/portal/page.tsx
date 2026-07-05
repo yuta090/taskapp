@@ -2,6 +2,11 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalDashboardClient } from './PortalDashboardClient'
 import { computeHealthStatus } from '@/lib/portal/computeHealthStatus'
+import {
+  buildPortalActivities,
+  type PortalActivityNotificationRow,
+  type PortalActivityCompletedTaskRow,
+} from '@/lib/portal/buildPortalActivities'
 import type { MilestoneStatus } from '@/components/portal'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -282,25 +287,12 @@ export default async function PortalDashboardPage() {
     milestoneName: nextMilestone?.name,
   })
 
-  // Format activities from notifications and completed tasks
-  const notificationActivities = (recentNotifications || []).map((n: { id: string; type: string; payload: { message?: string }; created_at: string }) => ({
-    id: n.id,
-    type: 'notification' as const,
-    message: n.payload?.message || `${n.type}の通知`,
-    timestamp: n.created_at,
-  }))
-
-  const completedActivities = (recentCompletedTasks || []).map((t: { id: string; title: string; completed_at: string | null; updated_at: string }) => ({
-    id: `completed-${t.id}`,
-    type: 'task_completed' as const,
-    message: `「${t.title}」が完了しました`,
-    timestamp: t.completed_at || t.updated_at,
-  }))
-
-  // Combine and sort by timestamp
-  const activities = [...notificationActivities, ...completedActivities]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 10)
+  // Format activities from notifications and completed tasks (carries task_id
+  // through so the feed can link to the task — see buildPortalActivities)
+  const activities = buildPortalActivities({
+    notifications: (recentNotifications || []) as PortalActivityNotificationRow[],
+    completedTasks: (recentCompletedTasks || []) as PortalActivityCompletedTaskRow[],
+  })
 
   // Format approvals (simplified - may need adjustment based on actual table structure)
   const approvals = (recentApprovals || []).map((a: Record<string, unknown>) => {

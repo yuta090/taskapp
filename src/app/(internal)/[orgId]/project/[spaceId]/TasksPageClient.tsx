@@ -74,6 +74,7 @@ function InlineTaskInput({ indent, onSubmit }: { indent: boolean; onSubmit: (tit
     return (
       <button
         type="button"
+        data-walkthrough="task-create"
         onClick={() => { setIsEditing(true); setTimeout(() => inputRef.current?.focus(), 0) }}
         className="w-full row-h flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
         style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
@@ -911,6 +912,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               data-testid="tasks-filter-client-wait"
+              data-walkthrough="filter-client-wait"
               onClick={() => handleFilterChange('client_wait')}
               className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
                 activeFilter === 'client_wait'
@@ -1084,7 +1086,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         {loading && <div className="content-wrap py-4"><LoadingState /></div>}
         {error && <div className="content-wrap py-4"><ErrorRetry onRetry={fetchTasks} /></div>}
         {!loading && !error && filteredTasks.length === 0 && (
-          <div className="content-wrap py-4">
+          <div className="content-wrap py-4" data-walkthrough="task-create">
             <EmptyState
               icon={searchQuery ? <MagnifyingGlass /> : <Copy />}
               message={searchQuery ? `「${searchQuery}」に一致するタスクはありません` : 'タスクはありません'}
@@ -1097,9 +1099,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   検索をクリア
                 </button>
               ) : (
-                <p className="text-xs text-gray-400">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] font-mono">N</kbd> キーで最初のタスクを作成しましょう
-                </p>
+                <button
+                  type="button"
+                  onClick={handleCreateOpen}
+                  className="inline-flex items-center gap-1.5 h-8 rounded-md px-3 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+                >
+                  <Plus />
+                  タスクを作成
+                </button>
               )}
             />
           </div>

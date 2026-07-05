@@ -64,6 +64,30 @@ describe('PortalOnboardingWalkthrough spotlight', () => {
     })
   })
 
+  it('要対応タスクが0件でも step2/3 はアクション一覧セクションにフォールバックしてハイライトする', async () => {
+    render(
+      <>
+        {/* action-card / action-buttons は存在しない（要対応0件） */}
+        <div data-walkthrough="portal-action-section">action list</div>
+        <PortalOnboardingWalkthrough />
+      </>
+    )
+
+    await waitFor(() => screen.getByRole('dialog'))
+    fireEvent.click(screen.getByText('次へ'))
+
+    await waitFor(() => {
+      expect(screen.getByText('クリックして詳細を見る')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('walkthrough-spotlight-ring')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('次へ'))
+    await waitFor(() => {
+      expect(screen.getByText('承認・修正依頼')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('walkthrough-spotlight-ring')).toBeInTheDocument()
+  })
+
   it('calls markDone (server + localStorage) when the walkthrough is completed', async () => {
     render(<PortalOnboardingWalkthrough />)
 
