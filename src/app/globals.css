@@ -482,3 +482,18 @@ body {
   left: 50%;
   transform: translateX(-50%);
 }
+
+/* ============================================
+   Mobile bottom safe-area (<md)
+   On phones the browser's bottom toolbar / home indicator can cover the
+   last rows of a scroll area, making them unreachable ("can't scroll to the
+   bottom"). Give every scroll region inside the app's main content extra
+   bottom clearance so the final items can always be scrolled into view.
+   Desktop (md+) is unaffected.
+   ============================================ */
+@media (max-width: 767px) {
+  #main-content .overflow-y-auto,
+  #main-content .overflow-auto {
+    padding-bottom: max(4rem, calc(env(safe-area-inset-bottom) + 1.5rem));
+  }
+}
