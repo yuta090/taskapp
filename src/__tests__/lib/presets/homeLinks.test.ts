@@ -135,6 +135,40 @@ describe('updateHomePageSpecLinks', () => {
     expect(fake.updates).toHaveLength(0)
   })
 
+  it('ホーム未検出（read-after-writeの遅延等）もリトライ対象にする', async () => {
+    // 1回目のselectはホーム行が見えず、2回目で見える状況を再現
+    let call = 0
+    const client = {
+      from: vi.fn(() => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => {
+              call++
+              return Promise.resolve({
+                data: call === 1 ? specRows : [homeRow, ...specRows],
+                error: null,
+              })
+            },
+          }),
+        }),
+        update: (patch: { body: string }) => ({
+          eq: () => {
+            updates.push(patch.body)
+            return Promise.resolve({ error: null })
+          },
+        }),
+      })),
+    }
+    const updates: string[] = []
+    const ok = await updateHomePageSpecLinks(
+      client as unknown as SupabaseClient, preset, ORG_ID, SPACE_ID,
+    )
+
+    expect(ok).toBe(true)
+    expect(call).toBe(2)
+    expect(updates).toHaveLength(1)
+  })
+
   it('ホーム定義のないプリセット（blank）は何もせずtrue', async () => {
     const fake = makeFakeSupabase({ pages: [] })
     const ok = await updateHomePageSpecLinks(fake.client, getBlankPreset(), ORG_ID, SPACE_ID)
