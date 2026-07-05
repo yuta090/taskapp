@@ -161,9 +161,11 @@ export function PortalHeader({
             {/* Help (Desktop) */}
             <button
               onClick={() => {
-                resetPortalOnboarding()
-                router.push('/portal')
-                router.refresh()
+                void (async () => {
+                  await resetPortalOnboarding()
+                  router.push('/portal')
+                  router.refresh()
+                })()
               }}
               className="hidden md:flex items-center justify-center w-9 h-9 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
               aria-label="ヘルプ"
@@ -226,9 +228,11 @@ export function PortalHeader({
             <hr className="my-2 border-gray-200" />
             <button
               onClick={() => {
-                resetPortalOnboarding()
-                router.push('/portal')
-                router.refresh()
+                void (async () => {
+                  await resetPortalOnboarding()
+                  router.push('/portal')
+                  router.refresh()
+                })()
               }}
               className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors w-full"
             >

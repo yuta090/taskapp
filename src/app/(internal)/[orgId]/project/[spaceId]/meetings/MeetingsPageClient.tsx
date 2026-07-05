@@ -475,10 +475,15 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
           {!isLoading && !hasError && unifiedItems.length === 0 && (
             <div className="text-center text-gray-400 py-20">
               <Notebook className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">会議・日程調整はありません</p>
-              <p className="text-xs mt-1 text-gray-300">
-                「新規」ボタンから会議を作成しましょう
-              </p>
+              <p className="text-sm mb-3">会議・日程調整はありません</p>
+              <button
+                type="button"
+                onClick={() => setIsCreateSheetOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 rounded-md px-3 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+              >
+                <Plus weight="bold" />
+                会議を作成
+              </button>
             </div>
           )}
           {!isLoading && !hasError && unifiedItems.length > 0 && filteredItems.length === 0 && (

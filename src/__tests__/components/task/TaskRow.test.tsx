@@ -71,6 +71,54 @@ describe('TaskRow — 用語統一 (M-1, M-3)', () => {
   })
 })
 
+describe('TaskRow — クライアント待ち日数バッジ (B-4)', () => {
+  it('ball=client かつ経過3日未満のときは日数バッジを表示しない', () => {
+    const now = new Date('2026-07-05T12:00:00+09:00')
+    render(
+      <TaskRow
+        task={makeTask({ ball: 'client', updated_at: '2026-07-04T12:00:00+09:00' })}
+        now={now}
+      />
+    )
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
+    expect(screen.queryByText(/日待ち/)).not.toBeInTheDocument()
+  })
+
+  it('ball=client かつ経過3日以上で「N日待ち」を表示する', () => {
+    const now = new Date('2026-07-05T12:00:00+09:00')
+    render(
+      <TaskRow
+        task={makeTask({ ball: 'client', updated_at: '2026-07-02T12:00:00+09:00' })}
+        now={now}
+      />
+    )
+    expect(screen.getByText('3日待ち')).toBeInTheDocument()
+  })
+
+  it('7日以上経過したときは強調表示（text-red-500）になる', () => {
+    const now = new Date('2026-07-09T12:00:00+09:00')
+    render(
+      <TaskRow
+        task={makeTask({ ball: 'client', updated_at: '2026-07-02T12:00:00+09:00' })}
+        now={now}
+      />
+    )
+    const badge = screen.getByText('7日待ち')
+    expect(badge.className).toContain('text-red-500')
+  })
+
+  it('ball=internal のときは日数バッジを表示しない', () => {
+    const now = new Date('2026-07-20T12:00:00+09:00')
+    render(
+      <TaskRow
+        task={makeTask({ ball: 'internal', updated_at: '2026-07-02T12:00:00+09:00' })}
+        now={now}
+      />
+    )
+    expect(screen.queryByText(/日待ち/)).not.toBeInTheDocument()
+  })
+})
+
 describe('TaskRow — hover アクション (M-6)', () => {
   it('一括選択チェックボックスは hover/focus 時のみ表示するクラスを持つ（非バルクモード）', () => {
     render(<TaskRow task={makeTask()} onCheckChange={vi.fn()} />)

@@ -10,7 +10,7 @@ import {
   CaretRight,
   CaretLeft,
 } from '@phosphor-icons/react'
-import { useOnboardingFlag } from '@/lib/hooks/useOnboardingFlag'
+import { useOnboardingFlag, resetOnboardingFlagOnServer } from '@/lib/hooks/useOnboardingFlag'
 import { useSpotlightRect } from '@/lib/hooks/useSpotlightRect'
 import { usePanelPosition } from '@/lib/hooks/usePanelPosition'
 import { useWalkthroughDismissal } from '@/lib/hooks/useWalkthroughDismissal'
@@ -61,14 +61,20 @@ const steps: WalkthroughStep[] = [
   },
 ]
 
-/** Clear onboarding flag so the walkthrough shows again on next mount. */
-export function resetInternalOnboarding(): void {
+/**
+ * Clear the onboarding flag (localStorage + server) so the walkthrough
+ * shows again on next mount. Server clear must complete before callers
+ * reload/navigate, otherwise `useOnboardingFlag` re-reads the still-true
+ * server flag and the walkthrough stays hidden.
+ */
+export async function resetInternalOnboarding(): Promise<void> {
   if (typeof window === 'undefined') return
   try {
     localStorage.removeItem(ONBOARDING_KEY)
   } catch {
     // localStorage unavailable
   }
+  await resetOnboardingFlagOnServer('internal_walkthrough')
 }
 
 export function InternalOnboardingWalkthrough() {

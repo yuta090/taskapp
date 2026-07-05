@@ -112,3 +112,35 @@ export function useOnboardingFlag(
 
   return { shouldShow, markDone }
 }
+
+/**
+ * Clears a server-persisted onboarding flag so the walkthrough shows again
+ * next time `shouldShow` is checked. Used by "reset"/"show guide again"
+ * actions (e.g. LeftNav, PortalHeader), which fire outside of any live
+ * `useOnboardingFlag` instance and so cannot call `markDone`'s inverse
+ * through hook state.
+ */
+export async function resetOnboardingFlagOnServer(key: OnboardingFlagKey): Promise<void> {
+  try {
+    const supabase = createClient() as SupabaseClient
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) return
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('onboarding_flags')
+      .eq('id', user.id)
+      .single<{ onboarding_flags: Record<string, boolean> }>()
+
+    const rest = { ...(data?.onboarding_flags ?? {}) }
+    delete rest[key]
+    const { error } = await supabase
+      .from('profiles')
+      .update({ onboarding_flags: rest })
+      .eq('id', user.id)
+
+    if (error) throw error
+  } catch (err) {
+    console.warn('Failed to reset onboarding flag on server:', err)
+  }
+}

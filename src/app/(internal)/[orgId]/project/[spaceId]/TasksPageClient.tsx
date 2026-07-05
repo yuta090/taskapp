@@ -1097,9 +1097,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   検索をクリア
                 </button>
               ) : (
-                <p className="text-xs text-gray-400">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] font-mono">N</kbd> キーで最初のタスクを作成しましょう
-                </p>
+                <button
+                  type="button"
+                  onClick={handleCreateOpen}
+                  className="inline-flex items-center gap-1.5 h-8 rounded-md px-3 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+                >
+                  <Plus />
+                  タスクを作成
+                </button>
               )}
             />
           </div>
