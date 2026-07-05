@@ -11,8 +11,8 @@ const mockUser = { id: 'internal-user-1' }
 
 let getUserResponse: { data: { user: typeof mockUser | null }; error: null | { message: string } }
 let selectResponse: { data: { onboarding_flags: Record<string, boolean> } | null; error: null | { message: string } }
-const updateCalls: Array<Record<string, unknown>> = []
-let updateResponse: { error: null | { message: string } }
+const upsertCalls: Array<[Record<string, unknown>, Record<string, unknown>]> = []
+let upsertResponse: { error: null | { message: string } }
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -25,9 +25,11 @@ vi.mock('@/lib/supabase/client', () => ({
           single: vi.fn(() => Promise.resolve(selectResponse)),
         })),
       })),
-      update: vi.fn((payload: Record<string, unknown>) => {
-        updateCalls.push(payload)
-        return { eq: vi.fn(() => Promise.resolve(updateResponse)) }
+      // upsert (not update) — the profiles row may not exist yet if the
+      // on_auth_user_created trigger hasn't run.
+      upsert: vi.fn((payload: Record<string, unknown>, options: Record<string, unknown>) => {
+        upsertCalls.push([payload, options])
+        return Promise.resolve(upsertResponse)
       }),
     })),
   }),
@@ -38,17 +40,20 @@ const { markPortalPreviewSeen } = await import('@/lib/portal/markPortalPreviewSe
 describe('markPortalPreviewSeen', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    updateCalls.length = 0
+    upsertCalls.length = 0
     getUserResponse = { data: { user: mockUser }, error: null }
     selectResponse = { data: { onboarding_flags: { portal_walkthrough: true } }, error: null }
-    updateResponse = { error: null }
+    upsertResponse = { error: null }
   })
 
   it('merges portal_preview_seen=true into existing onboarding_flags without dropping other flags', async () => {
     await markPortalPreviewSeen()
 
-    expect(updateCalls).toEqual([
-      { onboarding_flags: { portal_walkthrough: true, portal_preview_seen: true } },
+    expect(upsertCalls).toEqual([
+      [
+        { id: mockUser.id, onboarding_flags: { portal_walkthrough: true, portal_preview_seen: true } },
+        { onConflict: 'id' },
+      ],
     ])
   })
 
@@ -57,11 +62,11 @@ describe('markPortalPreviewSeen', () => {
 
     await markPortalPreviewSeen()
 
-    expect(updateCalls).toEqual([])
+    expect(upsertCalls).toEqual([])
   })
 
   it('swallows errors (best-effort persistence, never throws)', async () => {
-    updateResponse = { error: { message: 'db down' } }
+    upsertResponse = { error: { message: 'db down' } }
 
     await expect(markPortalPreviewSeen()).resolves.toBeUndefined()
   })

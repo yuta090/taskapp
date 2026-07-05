@@ -22,10 +22,15 @@ export async function markPortalPreviewSeen(): Promise<void> {
       .single<{ onboarding_flags: Record<string, boolean> }>()
 
     const currentFlags = data?.onboarding_flags ?? {}
+    // upsert (not update) — the profiles row may not exist yet if the
+    // on_auth_user_created trigger hasn't run, in which case update() would
+    // silently no-op (0 rows affected).
     const { error } = await supabase
       .from('profiles')
-      .update({ onboarding_flags: { ...currentFlags, portal_preview_seen: true } })
-      .eq('id', user.id)
+      .upsert(
+        { id: user.id, onboarding_flags: { ...currentFlags, portal_preview_seen: true } },
+        { onConflict: 'id' }
+      )
 
     if (error) throw error
   } catch (err) {

@@ -9,8 +9,7 @@ const mockFrom = vi.fn()
 const mockSelect = vi.fn()
 const mockEq = vi.fn()
 const mockSingle = vi.fn()
-const mockUpdate = vi.fn()
-const mockUpdateEq = vi.fn()
+const mockUpsert = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -25,12 +24,12 @@ describe('useOnboardingFlag', () => {
     localStorage.clear()
 
     // from('profiles').select('onboarding_flags').eq('id', ...).single()
-    mockFrom.mockReturnValue({ select: mockSelect, update: mockUpdate })
+    mockFrom.mockReturnValue({ select: mockSelect, upsert: mockUpsert })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockEq.mockReturnValue({ single: mockSingle })
-    // from('profiles').update({...}).eq('id', ...)
-    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
-    mockUpdateEq.mockResolvedValue({ error: null })
+    // from('profiles').upsert({...}, { onConflict: 'id' }) — trigger may not have
+    // created the row yet, so a plain update would silently no-op (0 rows).
+    mockUpsert.mockResolvedValue({ error: null })
   })
 
   afterEach(() => {
@@ -120,16 +119,19 @@ describe('useOnboardingFlag', () => {
 
     expect(localStorage.getItem(LOCAL_KEY)).toBe('true')
     expect(mockFrom).toHaveBeenCalledWith('profiles')
-    expect(mockUpdate).toHaveBeenCalledWith({
-      onboarding_flags: { portal_walkthrough: true, internal_walkthrough: true },
-    })
-    expect(mockUpdateEq).toHaveBeenCalledWith('id', 'user-1')
+    expect(mockUpsert).toHaveBeenCalledWith(
+      {
+        id: 'user-1',
+        onboarding_flags: { portal_walkthrough: true, internal_walkthrough: true },
+      },
+      { onConflict: 'id' }
+    )
   })
 
   it('markDone still writes localStorage when the server update fails (swallows the error)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
     mockSingle.mockResolvedValue({ data: { onboarding_flags: {} }, error: null })
-    mockUpdateEq.mockResolvedValue({ error: { message: 'update failed' } })
+    mockUpsert.mockResolvedValue({ error: { message: 'update failed' } })
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const { result } = renderHook(() => useOnboardingFlag('internal_walkthrough', LOCAL_KEY))
@@ -152,10 +154,13 @@ describe('useOnboardingFlag', () => {
       await resetOnboardingFlagOnServer('internal_walkthrough')
 
       expect(mockFrom).toHaveBeenCalledWith('profiles')
-      expect(mockUpdate).toHaveBeenCalledWith({
-        onboarding_flags: { portal_walkthrough: true },
-      })
-      expect(mockUpdateEq).toHaveBeenCalledWith('id', 'user-1')
+      expect(mockUpsert).toHaveBeenCalledWith(
+        {
+          id: 'user-1',
+          onboarding_flags: { portal_walkthrough: true },
+        },
+        { onConflict: 'id' }
+      )
     })
 
     it('does nothing when there is no logged-in user', async () => {
@@ -163,7 +168,7 @@ describe('useOnboardingFlag', () => {
 
       await resetOnboardingFlagOnServer('internal_walkthrough')
 
-      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(mockUpsert).not.toHaveBeenCalled()
     })
 
     it('swallows server errors instead of throwing', async () => {
@@ -172,7 +177,7 @@ describe('useOnboardingFlag', () => {
         data: { onboarding_flags: { internal_walkthrough: true } },
         error: null,
       })
-      mockUpdateEq.mockResolvedValue({ error: { message: 'update failed' } })
+      mockUpsert.mockResolvedValue({ error: { message: 'update failed' } })
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
       await expect(resetOnboardingFlagOnServer('internal_walkthrough')).resolves.toBeUndefined()

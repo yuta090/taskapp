@@ -99,10 +99,15 @@ export function useOnboardingFlag(
         .single<{ onboarding_flags: Record<string, boolean> }>()
 
       const currentFlags = data?.onboarding_flags ?? {}
+      // upsert (not update) — the profiles row may not exist yet if the
+      // on_auth_user_created trigger hasn't run, in which case update() would
+      // silently no-op (0 rows affected).
       const { error } = await supabase
         .from('profiles')
-        .update({ onboarding_flags: { ...currentFlags, [key]: true } })
-        .eq('id', user.id)
+        .upsert(
+          { id: user.id, onboarding_flags: { ...currentFlags, [key]: true } },
+          { onConflict: 'id' }
+        )
 
       if (error) throw error
     } catch (err) {
@@ -136,8 +141,7 @@ export async function resetOnboardingFlagOnServer(key: OnboardingFlagKey): Promi
     delete rest[key]
     const { error } = await supabase
       .from('profiles')
-      .update({ onboarding_flags: rest })
-      .eq('id', user.id)
+      .upsert({ id: user.id, onboarding_flags: rest }, { onConflict: 'id' })
 
     if (error) throw error
   } catch (err) {
