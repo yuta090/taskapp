@@ -85,7 +85,21 @@ describe('ResetConfirmPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'パスワードを変更' }))
 
     await waitFor(() => {
-      expect(screen.getByText('パスワードを変更しました')).toBeInTheDocument()
+      expect(screen.getByText('新しいパスワードを設定しました')).toBeInTheDocument()
     })
+  })
+
+  it('should navigate to "/" (not "/login") when "アプリへ進む" is clicked — middleware resolves the actual landing since the session is already authenticated', async () => {
+    await renderReadyPage()
+    mockUpdateUser.mockResolvedValue({ error: null })
+
+    fireEvent.change(screen.getByLabelText(/^新しいパスワード\*?$/), { target: { value: 'password123' } })
+    fireEvent.change(screen.getByLabelText(/^パスワード（確認）\*?$/), { target: { value: 'password123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'パスワードを変更' }))
+
+    const cta = await screen.findByRole('button', { name: 'アプリへ進む' })
+    fireEvent.click(cta)
+
+    expect(mockPush).toHaveBeenCalledWith('/')
   })
 })

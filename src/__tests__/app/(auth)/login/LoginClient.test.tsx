@@ -108,11 +108,12 @@ describe('LoginClient', () => {
 })
 
 describe('LoginClient — ログイン後リダイレクト', () => {
-  let membershipResponse: { data: { org_id: string; role: string } | null }
+  let membershipResponse: { data: { org_id: string; role: string }[] | null }
   let spaceResponse: { data: { id: string } | null }
   let vendorResponse: { data: { id: string } | null }
 
   // テーブルごとにチェーンを分ける（org_memberships / spaces / space_memberships）
+  // org_memberships は resolvePostLoginLanding が全件取得するため limit/single を挟まない
   function setupTableMocks() {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'spaces') {
@@ -135,9 +136,7 @@ describe('LoginClient — ログイン後リダイレクト', () => {
       return {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
-        order: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockReturnThis(),
-        single: vi.fn(() => Promise.resolve(membershipResponse)),
+        order: vi.fn(() => Promise.resolve(membershipResponse)),
       }
     })
   }
@@ -175,28 +174,51 @@ describe('LoginClient — ログイン後リダイレクト', () => {
   })
 
   it('組織はあるがプロジェクトが無ければ /onboarding へ（Step2から再開）', async () => {
-    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
     spaceResponse = { data: null }
     await login()
     expect(mockPush).toHaveBeenCalledWith('/onboarding')
   })
 
   it('組織もプロジェクトもあれば最初のプロジェクトへ', async () => {
-    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
     spaceResponse = { data: { id: 'space-1' } }
     await login()
     expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-1')
   })
 
   it('clientロールは /portal へ', async () => {
-    membershipResponse = { data: { org_id: 'org-1', role: 'client' } }
+    membershipResponse = { data: [{ org_id: 'org-1', role: 'client' }] }
     await login()
     expect(mockPush).toHaveBeenCalledWith('/portal')
+  })
+
+  it('clientロールでも同org内にvendorのspace所属があれば /vendor-portal へ', async () => {
+    membershipResponse = { data: [{ org_id: 'org-1', role: 'client' }] }
+    vendorResponse = { data: { id: 'sm-1' } }
+    await login()
+    expect(mockPush).toHaveBeenCalledWith('/vendor-portal')
+  })
+
+  it('ACTIVE_ORG_COOKIE があれば複数org所属時にそちらを優先する（org切替中の着地）', async () => {
+    membershipResponse = {
+      data: [
+        { org_id: 'org-1', role: 'owner' },
+        { org_id: 'org-2', role: 'client' },
+      ],
+    }
+    document.cookie = 'taskapp:activeOrgId=org-2'
+    try {
+      await login()
+      expect(mockPush).toHaveBeenCalledWith('/portal')
+    } finally {
+      document.cookie = 'taskapp:activeOrgId=; max-age=0'
+    }
   })
 })
 
 describe('LoginClient — redirect パラメータ（招待ログインリンク等）', () => {
-  let membershipResponse: { data: { org_id: string; role: string } | null }
+  let membershipResponse: { data: { org_id: string; role: string }[] | null }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -210,9 +232,9 @@ describe('LoginClient — redirect パラメータ（招待ログインリンク
     mockFrom.mockImplementation(() => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
+      order: vi.fn(() => Promise.resolve(membershipResponse)),
       limit: vi.fn().mockReturnThis(),
-      single: vi.fn(() => Promise.resolve(membershipResponse)),
+      single: vi.fn(() => Promise.resolve({ data: null })),
       maybeSingle: vi.fn(() => Promise.resolve({ data: null })),
     }))
   })
