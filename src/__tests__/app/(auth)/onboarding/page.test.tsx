@@ -155,6 +155,46 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
       expect(mockReplace).toHaveBeenCalledWith('/portal')
     })
   })
+
+  it('組織あり・プロジェクト無しでは lastPath が残っていても Step2 を表示（/inbox に弾かれない）', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: null }
+    localStorage.setItem('taskapp:lastPath', '/inbox')
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  it('組織・プロジェクトありで現在の組織の lastPath があればそこへ復帰', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: { id: 'space-1' } }
+    localStorage.setItem('taskapp:lastPath', '/org-1/project/space-2')
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/org-1/project/space-2')
+    })
+  })
+
+  it('別組織・ポータル等の lastPath は無視して最初のプロジェクトへ', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: { id: 'space-1' } }
+    localStorage.setItem('taskapp:lastPath', '/other-org/project/space-9')
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+  })
 })
 
 describe('OnboardingPage — Step 2: テンプレート選択とプロジェクト作成', () => {

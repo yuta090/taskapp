@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -34,6 +35,8 @@ export default function InviteAcceptPage({
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null)
+  const [emailMismatch, setEmailMismatch] = useState(false)
 
   const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
@@ -74,8 +77,12 @@ export default function InviteAcceptPage({
         }
       }
 
-      // リダイレクト（内部メンバー用）
-      router.push(`/${data.org_id}/project/${data.space_id}`)
+      // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）
+      if (data.role === 'client') {
+        router.push('/portal')
+      } else {
+        router.push(`/${data.org_id}/project/${data.space_id}`)
+      }
     } catch (err) {
       console.error('Accept error:', err)
       setError('エラーが発生しました')
@@ -90,6 +97,7 @@ export default function InviteAcceptPage({
       // 現在のセッションを確認
       const { data: { session } } = await supabase.auth.getSession()
       setIsLoggedIn(!!session)
+      setSessionEmail(session?.user?.email ?? null)
 
       // 招待情報を取得
       const { data, error } = await (supabase as SupabaseClient).rpc('rpc_validate_invite', {
@@ -101,9 +109,14 @@ export default function InviteAcceptPage({
       } else {
         setInviteInfo(data)
 
-        // ログイン済みの場合は自動で受諾
+        // ログイン済みでも、招待宛先のアカウントである場合のみ自動受諾する
+        // （wrong-account join 防止。不一致ならアカウント切替を案内）
         if (session && data.valid) {
-          await acceptInvite(true)
+          if (shouldAutoAcceptInvite(session.user?.email, data.email)) {
+            await acceptInvite(true)
+          } else {
+            setEmailMismatch(true)
+          }
         }
       }
 
@@ -164,6 +177,40 @@ export default function InviteAcceptPage({
             </Link>
           </div>
         </div>
+      </AuthCard>
+    )
+  }
+
+  // 別アカウントでログイン中（招待宛先とメール不一致）→ 切替を案内
+  if (isLoggedIn && emailMismatch) {
+    return (
+      <AuthCard
+        title="別のアカウントでログイン中です"
+        description="この招待は、現在ログイン中のアカウントとは別のメールアドレス宛です。"
+      >
+        <div className="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-800 space-y-1">
+          <p>
+            ログイン中: <strong>{sessionEmail}</strong>
+          </p>
+          <p>
+            招待の宛先: <strong>{inviteInfo.email}</strong>
+          </p>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          招待を受けるには、宛先のメールアドレスのアカウントに切り替えてください。
+        </p>
+        <AuthButton
+          type="button"
+          onClick={async () => {
+            const supabase = createClient()
+            await supabase.auth.signOut()
+            setIsLoggedIn(false)
+            setSessionEmail(null)
+            setEmailMismatch(false)
+          }}
+        >
+          ログアウトして招待を受ける
+        </AuthButton>
       </AuthCard>
     )
   }
