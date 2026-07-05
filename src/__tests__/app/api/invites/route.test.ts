@@ -171,6 +171,17 @@ describe('POST /api/invites', () => {
     expect(sendInviteEmailMock).not.toHaveBeenCalled()
   })
 
+  it('returns 409 with a Japanese message when the invitee is already a member (RPC dedup guard)', async () => {
+    rpcResponse = { data: null, error: { message: 'already a member' } }
+
+    const response = await callPost(baseBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(data.error).toBe('既にメンバーです')
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
   it('sends the invite email with the message and reports email_sent: true', async () => {
     const response = await callPost({ ...baseBody, message: 'よろしくお願いします' })
     const data = await response.json()

@@ -126,6 +126,13 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
+      // rpc_create_invite が既存メンバーへの招待を拒否した場合（重複防止）
+      if (error.message === 'already a member') {
+        return NextResponse.json(
+          { error: '既にメンバーです' },
+          { status: 409 }
+        )
+      }
       return NextResponse.json(
         { error: error.message },
         { status: 400 }
