@@ -116,7 +116,7 @@ body {
    3-Pane Layout Utilities
    ============================================ */
 
-/* Inspector: must resize Main, never overlay */
+/* Inspector base (closed): zero-width, hidden */
 .inspector-pane {
   width: 0;
   overflow: hidden;
@@ -125,10 +125,16 @@ body {
 }
 
 .inspector-pane.open {
-  width: 400px;
   opacity: 1;
-  border-left: 1px solid var(--color-gray-200);
-  transition: width 150ms ease-out, opacity 150ms ease-out 50ms;
+}
+
+/* Desktop (md+): resize Main, never overlay (hard UI rule) */
+@media (min-width: 768px) {
+  .inspector-pane.open {
+    width: 400px;
+    border-left: 1px solid var(--color-gray-200);
+    transition: width 150ms ease-out, opacity 150ms ease-out 50ms;
+  }
 }
 
 @media (min-width: 1920px) {
@@ -140,6 +146,24 @@ body {
 @media (min-width: 2560px) {
   .inspector-pane.open {
     width: 480px;
+  }
+}
+
+/* Mobile (<md): the "never overlay" rule does NOT apply — the inspector
+   becomes a full-screen sheet on top of Main instead of resizing it.
+   100dvh avoids the iOS Safari url-bar gap. */
+@media (max-width: 767px) {
+  .inspector-pane {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    z-index: 50;
+    transition: opacity 200ms ease-out;
+  }
+
+  .inspector-pane.open {
+    width: 100%;
+    background: #fff;
   }
 }
 
