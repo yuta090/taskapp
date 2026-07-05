@@ -7,7 +7,7 @@
 #   1. Basic Information → App Credentials の Client ID / Client Secret /
 #      Signing Secret を .env.local の SLACK_CLIENT_ID / SLACK_CLIENT_SECRET /
 #      SLACK_SIGNING_SECRET に設定（SLACK_STATE_SECRET は openssl rand -hex 32 で生成）
-#   2. 下記 <YOUR-DOMAIN> を実際の公開ドメインに置換してから貼り付けること。
+#   2. 下記 agentpm.app を実際の公開ドメインに置換してから貼り付けること。
 #      ローカル開発で Events / Interactivity / Slash Command を試す場合は
 #      ngrok 等の公開URLが必要（OAuth redirect のみ http://localhost:4000 でも可）
 #
@@ -28,14 +28,14 @@ features:
     always_online: true
   slash_commands:
     - command: /agentpm
-      url: https://<YOUR-DOMAIN>/api/slack/commands
+      url: https://agentpm.app/api/slack/commands
       description: タスクの確認・作成
       usage_hint: "help | status | task <タイトル>"
       should_escape: false
 
 oauth_config:
   redirect_urls:
-    - https://<YOUR-DOMAIN>/api/slack/callback
+    - https://agentpm.app/api/slack/callback
     - http://localhost:4000/api/slack/callback
   scopes:
     bot:
@@ -46,12 +46,12 @@ oauth_config:
 
 settings:
   event_subscriptions:
-    request_url: https://<YOUR-DOMAIN>/api/slack/webhook
+    request_url: https://agentpm.app/api/slack/webhook
     bot_events:
       - app_mention
   interactivity:
     is_enabled: true
-    request_url: https://<YOUR-DOMAIN>/api/slack/interactions
+    request_url: https://agentpm.app/api/slack/interactions
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
