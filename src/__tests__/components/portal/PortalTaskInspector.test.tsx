@@ -69,3 +69,41 @@ describe('PortalTaskInspector — description visibility (H-4)', () => {
     expect(description).toHaveClass('whitespace-pre-wrap')
   })
 })
+
+describe('PortalTaskInspector — readOnly (portal preview mode)', () => {
+  it('replaces the approve/request-changes buttons with a "プレビューでは操作できません" note', () => {
+    render(
+      <PortalTaskInspector
+        task={{ ...baseTask, status: 'considering' }}
+        onClose={() => {}}
+        onApprove={async () => {}}
+        onRequestChanges={async () => {}}
+        readOnly
+      />
+    )
+
+    expect(screen.getByText('プレビューでは操作できません')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '承認' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '修正依頼' })).not.toBeInTheDocument()
+  })
+
+  it('shows nothing extra when readOnly and there are no actions to hide', () => {
+    render(<PortalTaskInspector task={baseTask} onClose={() => {}} readOnly />)
+
+    expect(screen.queryByText('プレビューでは操作できません')).not.toBeInTheDocument()
+  })
+
+  it('still shows the real action buttons when readOnly is not set (default/unaffected)', () => {
+    render(
+      <PortalTaskInspector
+        task={{ ...baseTask, status: 'considering' }}
+        onClose={() => {}}
+        onApprove={async () => {}}
+        onRequestChanges={async () => {}}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '承認' })).toBeInTheDocument()
+    expect(screen.queryByText('プレビューでは操作できません')).not.toBeInTheDocument()
+  })
+})

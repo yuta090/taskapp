@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
+import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -859,6 +859,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <Breadcrumb items={breadcrumbItems} />
           </div>
           <div className="flex-1" />
+          <Link
+            href={`/portal/preview/${spaceId}`}
+            data-testid="client-preview-link"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="クライアント表示プレビュー"
+          >
+            <Eye className="text-lg" />
+          </Link>
           <Link
             href={`${projectBasePath}/settings`}
             data-testid="project-settings-link"
