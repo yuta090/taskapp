@@ -203,6 +203,15 @@ export function TaskCreateSheet({
     }
   }, [restored])
 
+  // 不変条件: ball='client' のタスクは必ず client_scope='deliverable'
+  // （RLS上、ball='client' かつ非deliverableはクライアントから不可視になり、
+  //   承認依頼メールのリンク先が404になる行き止まりを生むため）。
+  useEffect(() => {
+    if (ball === 'client' && clientScope !== 'deliverable') {
+      setClientScope('deliverable')
+    }
+  }, [ball, clientScope])
+
   // Auto-save draft on field changes
   const saveDraftData = useCallback(() => {
     if (!title && !description && !dueDate && !startDate && !assigneeId) return // Don't save empty drafts
@@ -350,6 +359,13 @@ export function TaskCreateSheet({
     if (ball === 'client' && clientOwnerIds.length === 0) {
       setOwnerValidationError(true)
       clientOwnerFieldRef.current?.focus()
+      return
+    }
+
+    // Validate（防御的）: ball='client' は client_scope='deliverable' が必須
+    // （通常は上のuseEffectで自動連動するため到達しないはずだが、不変条件を最終防衛する）
+    if (ball === 'client' && clientScope !== 'deliverable') {
+      toast.error('外部ボールのタスクはクライアント公開が必須です')
       return
     }
 
@@ -601,6 +617,13 @@ export function TaskCreateSheet({
               </label>
               <p className="text-xs text-amber-500 mt-0.5">
                 クライアントへの確認を依頼する相手です（担当者と自動的に同期されます）
+              </p>
+              <p
+                data-testid="task-create-scope-auto-note"
+                className="mt-1 flex items-center gap-1 text-xs text-amber-600"
+              >
+                <Eye className="text-xs" />
+                外部ボールのタスクは自動的にクライアントに公開されます
               </p>
               {ownerValidationError && (
                 <p
@@ -870,7 +893,7 @@ export function TaskCreateSheet({
               <div className="relative ml-3">
                 <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-2">
-                    <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-blue-500' : 'text-gray-300'}`} />
+                    <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-amber-500' : 'text-gray-300'}`} />
                     <div>
                       <div className="flex items-center gap-1">
                         <span className="text-sm font-medium text-gray-700">クライアントに公開</span>
@@ -888,14 +911,24 @@ export function TaskCreateSheet({
                           クライアントのダッシュボードに表示されます
                         </p>
                       )}
+                      {ball === 'client' && (
+                        <p className="text-xs text-amber-600">
+                          外部ボールのタスクは自動的にクライアント公開になります
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
+                    onClick={() => {
+                      if (ball === 'client') return
+                      setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')
+                    }}
+                    disabled={ball === 'client'}
+                    title={ball === 'client' ? '外部ボールのタスクは自動的にクライアント公開になります' : undefined}
                     data-testid="task-create-client-scope-toggle"
-                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-                      clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-70 ${
+                      clientScope === 'deliverable' ? 'bg-amber-500' : 'bg-gray-300'
                     }`}
                   >
                     <span
