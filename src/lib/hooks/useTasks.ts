@@ -238,6 +238,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         estimated_cost: null,
         estimate_status: 'none',
         completed_at: null,
+        is_sample: false,
         ball: task.ball,
         origin: task.origin,
         type: task.type,

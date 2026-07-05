@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
 import { updateHomePageSpecLinks } from '@/lib/presets/homeLinks'
+import { createSampleTasks } from '@/lib/presets/sampleTasks'
 import type { PresetGenre } from '@/lib/presets'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -98,6 +99,16 @@ export async function POST(request: NextRequest) {
   //    the body created in step 4 contains placeholder paths.
   await updateHomePageSpecLinks(supabase as SupabaseClient, preset, orgId, spaceId)
 
+  // 7. Create sample tasks so the landing screen isn't empty right after onboarding.
+  //    Best-effort — a failure here must not fail the (already-succeeded) space creation.
+  const sampleTasksCreated = await createSampleTasks(
+    supabase as SupabaseClient,
+    preset,
+    orgId,
+    spaceId,
+    user.id,
+  )
+
   return NextResponse.json({
     space: {
       id: spaceId,
@@ -107,5 +118,6 @@ export async function POST(request: NextRequest) {
     },
     milestonesCreated: rpcResult.milestones_created ?? 0,
     wikiPagesCreated: rpcResult.wiki_pages_created ?? 0,
+    sampleTasksCreated,
   })
 }

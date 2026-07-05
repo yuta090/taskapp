@@ -438,6 +438,7 @@ export interface Database {
           estimated_cost: number | null
           estimate_status: EstimateStatus
           completed_at: string | null
+          is_sample: boolean
           created_at: string
           updated_at: string
         }
@@ -465,6 +466,7 @@ export interface Database {
           estimated_cost?: number | null
           estimate_status?: EstimateStatus
           completed_at?: string | null
+          is_sample?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -492,6 +494,7 @@ export interface Database {
           estimated_cost?: number | null
           estimate_status?: EstimateStatus
           completed_at?: string | null
+          is_sample?: boolean
           created_at?: string
           updated_at?: string
         }
