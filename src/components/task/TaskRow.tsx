@@ -24,6 +24,8 @@ interface TaskRowProps {
   isChecked?: boolean
   onCheckChange?: (taskId: string, checked: boolean) => void
   onContextMenu?: (taskId: string, x: number, y: number) => void
+  /** Render the touch-friendly two-line mobile layout (<md). */
+  isMobile?: boolean
   /** Injectable "current time" for the client-waiting-days badge (testing only). */
   now?: Date
 }
@@ -173,7 +175,7 @@ function BallIndicator({ ball, waitingDays }: { ball: BallSide; waitingDays?: nu
   )
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, now }: TaskRowProps) {
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now }: TaskRowProps) {
   // 取消済みレビューは「レビュー無し」と同じ扱い（バッジ非表示・再依頼クイックアクション表示）
   const reviewStatus = rawReviewStatus === 'cancelled' ? undefined : rawReviewStatus
   const formattedDueDate = formatDate(task.due_date)
@@ -189,6 +191,12 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
     onClick?.(task.id)
   }, [onClick, task.id])
 
+  const handleMobileActions = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    onContextMenu?.(task.id, rect.left, rect.bottom)
+  }, [onContextMenu, task.id])
+
   const handleCheck = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     onCheckChange?.(task.id, !isChecked)
@@ -200,6 +208,110 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       onContextMenu(task.id, e.clientX, e.clientY)
     }
   }, [onContextMenu, task.id])
+
+  const selectionClass = isChecked
+    ? 'bg-blue-50/60'
+    : isSelected
+      ? 'bg-blue-50 border-l-2 border-l-blue-500'
+      : isNew
+        ? 'bg-green-50/40 border-l-2 border-l-green-400'
+        : 'active:bg-gray-50'
+
+  // ── Mobile: touch-friendly 2-line row (title on top, meta below), fixed 64px ──
+  if (isMobile) {
+    return (
+      <div
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        className={`task-row group flex items-center gap-2.5 cursor-pointer h-16 ${selectionClass}`}
+        style={{ paddingLeft: indent ? 24 : 14, paddingRight: 6 }}
+      >
+        {/* Bulk selection checkbox (only in bulk mode on mobile) */}
+        {onCheckChange && bulkMode && (
+          <button
+            type="button"
+            onClick={handleCheck}
+            className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
+              isChecked ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-300'
+            }`}
+            aria-label={isChecked ? '選択解除' : '選択'}
+          >
+            {isChecked && <Check weight="bold" className="w-3.5 h-3.5" />}
+          </button>
+        )}
+
+        {/* Status icon (tap target) */}
+        <div className="flex-shrink-0">
+          <StatusDropdown
+            status={task.status}
+            onStatusChange={onStatusChange ? handleStatusChange : undefined}
+          />
+        </div>
+
+        {/* Two-line content */}
+        <div className="flex-1 min-w-0 flex flex-col justify-center gap-1 py-1.5">
+          {/* Line 1: title + client-visible dot */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <TruncatedText className={`text-sm ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+              {task.title}
+            </TruncatedText>
+            {task.ball === 'client' && (
+              <span className="flex-shrink-0"><AmberDot /></span>
+            )}
+          </div>
+
+          {/* Line 2: meta — due date, ball status, badges, assignee (clips gracefully) */}
+          <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+            {formattedDueDate && (
+              <span className={`flex-shrink-0 flex items-center gap-0.5 text-[11px] ${overdue ? 'text-red-500' : 'text-gray-500'}`}>
+                <CalendarBlank className="text-[12px]" />
+                {formattedDueDate}
+              </span>
+            )}
+            {task.ball === 'client' && (
+              <span className="flex-shrink-0"><BallIndicator ball={task.ball} waitingDays={clientWaitingDays} /></span>
+            )}
+            {task.origin === 'client' && (
+              <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-50 text-purple-700">
+                {task.title.startsWith('[BUG]') ? 'バグ報告' : task.title.startsWith('[Q&A]') ? '質問' : 'クライアント'}
+              </span>
+            )}
+            {reviewStatus && (
+              <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                reviewStatus === 'approved' ? 'bg-green-50 text-green-700'
+                  : reviewStatus === 'changes_requested' ? 'bg-red-50 text-red-700'
+                  : 'bg-amber-50 text-amber-700'
+              }`}>
+                {reviewStatus === 'approved' ? '社内承認済み' : reviewStatus === 'changes_requested' ? '差戻' : '社内承認待ち'}
+              </span>
+            )}
+            {task.type === 'spec' && (
+              <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">SPEC</span>
+            )}
+            {assigneeName && (
+              <span
+                className="flex-shrink-0 w-4 h-4 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[9px] font-medium ml-auto"
+                title={assigneeName}
+              >
+                {assigneeName.charAt(0)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Trailing kebab — always visible on mobile, opens action sheet */}
+        <button
+          type="button"
+          data-testid="task-row-mobile-actions"
+          onClick={handleMobileActions}
+          className="flex-shrink-0 p-2 -mr-0.5 rounded text-gray-400 active:bg-gray-100"
+          aria-label="タスクアクション"
+        >
+          <DotsThree weight="bold" className="text-lg" />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div
