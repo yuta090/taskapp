@@ -8,6 +8,10 @@ import {
 } from '@/lib/presets'
 import { ICON_MAP } from '@/components/space/GenrePicker'
 
+const VALID_TASK_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']
+const VALID_BALL_SIDES = ['client', 'internal', 'agency', 'vendor']
+const VALID_CLIENT_SCOPES = ['deliverable', 'internal']
+
 const DUMMY_ORG = 'org-1111'
 const DUMMY_SPACE = 'space-2222'
 const SAMPLE_SPEC_PAGES = [
@@ -142,6 +146,59 @@ describe('preset invariants (全ジャンル共通の品質基準)', () => {
       }
     },
   )
+
+  it.each(presets.map(p => [p.genre, p] as const))(
+    '%s: サンプルタスクが3〜5件あり、値がCHECK制約の有効値のみを使う',
+    (_genre, preset) => {
+      expect(preset.sampleTasks.length).toBeGreaterThanOrEqual(3)
+      expect(preset.sampleTasks.length).toBeLessThanOrEqual(5)
+      for (const task of preset.sampleTasks) {
+        expect(task.title.length).toBeGreaterThan(0)
+        expect(task.title).not.toMatch(/【サンプル】/)
+        expect(task.description).toContain('これはサンプルタスクです。自由に編集・削除できます。')
+        expect(VALID_BALL_SIDES).toContain(task.ball)
+        expect(VALID_TASK_STATUSES).toContain(task.status)
+        expect(VALID_CLIENT_SCOPES).toContain(task.clientScope)
+        if (task.milestoneName !== undefined) {
+          expect(preset.milestones.map(m => m.name)).toContain(task.milestoneName)
+        }
+        if (task.dueInDays !== undefined) {
+          expect(Number.isInteger(task.dueInDays)).toBe(true)
+          expect(task.dueInDays).toBeGreaterThan(0)
+        }
+      }
+    },
+  )
+
+  it.each(presets.map(p => [p.genre, p] as const))(
+    '%s: ball=client かつ clientScope=deliverable のサンプルタスクが1件以上ある（クライアント確認待ちの例）',
+    (_genre, preset) => {
+      const deliverableWaiting = preset.sampleTasks.filter(
+        t => t.ball === 'client' && t.clientScope === 'deliverable'
+      )
+      expect(deliverableWaiting.length).toBeGreaterThanOrEqual(1)
+    },
+  )
+
+  it.each(presets.map(p => [p.genre, p] as const))(
+    '%s: 期限付き＋マイルストーン紐付けの社内タスクが1件以上ある',
+    (_genre, preset) => {
+      const scheduledInternal = preset.sampleTasks.filter(
+        t => t.ball === 'internal' && t.dueInDays !== undefined && t.milestoneName !== undefined
+      )
+      expect(scheduledInternal.length).toBeGreaterThanOrEqual(1)
+    },
+  )
+
+  it.each(presets.map(p => [p.genre, p] as const))(
+    '%s: 着手前（backlog）の社内タスクが1件以上ある',
+    (_genre, preset) => {
+      const notStarted = preset.sampleTasks.filter(
+        t => t.ball === 'internal' && t.status === 'backlog'
+      )
+      expect(notStarted.length).toBeGreaterThanOrEqual(1)
+    },
+  )
 })
 
 describe('preset content quality (ジャンル固有)', () => {
@@ -150,6 +207,11 @@ describe('preset content quality (ジャンル固有)', () => {
     const page = preset.wikiPages.find(p => p.title === 'コンテンツカレンダー')!
     const body = page.generateBody(DUMMY_ORG, DUMMY_SPACE)
     expect(body).toContain('制作フロー')
+  })
+
+  it('blankプリセットはサンプルタスクを持たない', () => {
+    const blank = getBlankPreset()
+    expect(blank.sampleTasks).toHaveLength(0)
   })
 
   it('デザイン制作: 成果物一覧にレビュー・フィードバックのルール節がある', () => {
