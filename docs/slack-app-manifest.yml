@@ -41,6 +41,7 @@ oauth_config:
       - channels:read
       - groups:read
       - app_mentions:read
+      - commands
 
 settings:
   event_subscriptions:

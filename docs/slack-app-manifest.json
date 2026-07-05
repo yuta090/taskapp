@@ -28,7 +28,8 @@
                 "chat:write",
                 "channels:read",
                 "groups:read",
-                "app_mentions:read"
+                "app_mentions:read",
+                "commands"
             ]
         }
     },
