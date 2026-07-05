@@ -72,7 +72,7 @@ export function PortalSettingsClient({
         <div className="max-w-2xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">設定</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">設定</h1>
             <p className="mt-1 text-sm text-gray-600">
               アカウント設定と通知の管理
             </p>
@@ -88,7 +88,7 @@ export function PortalSettingsClient({
             </div>
             <div className="p-4 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl font-bold shadow-md">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl font-medium shadow-md">
                   {user.displayName.charAt(0).toUpperCase()}
                 </div>
                 <div>

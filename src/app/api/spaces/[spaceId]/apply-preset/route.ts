@@ -45,17 +45,16 @@ export async function POST(
   const preset = getPreset(genre)
 
   // 3. Fetch orgId from space
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: spaceData } = await (supabase as any)
+  const { data: spaceData } = await (supabase as unknown as SupabaseClient)
     .from('spaces')
     .select('org_id')
     .eq('id', spaceId)
-    .single()
+    .single<{ org_id: string }>()
 
   if (!spaceData) {
     return NextResponse.json({ error: 'Space not found' }, { status: 404 })
   }
-  const orgId = spaceData.org_id as string
+  const orgId = spaceData.org_id
 
   // 4. Build milestones JSON for RPC
   const milestones = preset.milestones.map(m => ({
@@ -72,8 +71,7 @@ export async function POST(
   }))
 
   // 6. Call RPC for atomic application
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rpcResult, error: rpcError } = await (supabase as any).rpc(
+  const { data: rpcResult, error: rpcError } = await (supabase as unknown as SupabaseClient).rpc(
     'rpc_apply_preset_to_space',
     {
       p_space_id: spaceId,

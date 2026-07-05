@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import OnboardingPage from '@/app/(auth)/onboarding/page'
 
 const mockPush = vi.fn()
@@ -11,28 +11,45 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockGetUser = vi.fn()
-const mockFrom = vi.fn()
-const mockSelect = vi.fn()
-const mockEq = vi.fn()
-const mockLimit = vi.fn()
-const mockMaybeSingle = vi.fn()
+const mockRpc = vi.fn()
+
+// テーブル別に応答を差し替えられる Supabase mock
+let membershipResponse: { data: { org_id: string; role: string } | null }
+let spaceResponse: { data: { id: string } | null }
+
+const membershipChain = {
+  select: vi.fn().mockReturnThis(),
+  eq: vi.fn().mockReturnThis(),
+  limit: vi.fn().mockReturnThis(),
+  maybeSingle: vi.fn(() => Promise.resolve(membershipResponse)),
+}
+const spacesChain = {
+  select: vi.fn().mockReturnThis(),
+  eq: vi.fn().mockReturnThis(),
+  order: vi.fn().mockReturnThis(),
+  limit: vi.fn().mockReturnThis(),
+  maybeSingle: vi.fn(() => Promise.resolve(spaceResponse)),
+}
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: { getUser: mockGetUser },
-    from: mockFrom,
-    rpc: vi.fn(),
+    from: (table: string) => (table === 'spaces' ? spacesChain : membershipChain),
+    rpc: mockRpc,
   }),
 }))
 
-describe('OnboardingPage', () => {
+function mockUser(metadata: Record<string, string> = {}) {
+  mockGetUser.mockResolvedValue({
+    data: { user: { id: 'user-1', user_metadata: metadata } },
+  })
+}
+
+describe('OnboardingPage — Step 1: 組織作成', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFrom.mockReturnValue({ select: mockSelect })
-    mockSelect.mockReturnValue({ eq: mockEq })
-    mockEq.mockReturnValue({ limit: mockLimit })
-    mockLimit.mockReturnValue({ maybeSingle: mockMaybeSingle })
-    mockMaybeSingle.mockResolvedValue({ data: null })
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
   })
 
   afterEach(() => {
@@ -40,9 +57,7 @@ describe('OnboardingPage', () => {
   })
 
   it('should prefill the org name from user_metadata.org_name', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-1', user_metadata: { org_name: '株式会社サンプル' } } },
-    })
+    mockUser({ org_name: '株式会社サンプル' })
 
     render(<OnboardingPage />)
 
@@ -52,9 +67,7 @@ describe('OnboardingPage', () => {
   })
 
   it('should show the prefill-specific description when org_name is available', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-1', user_metadata: { org_name: '株式会社サンプル' } } },
-    })
+    mockUser({ org_name: '株式会社サンプル' })
 
     render(<OnboardingPage />)
 
@@ -64,9 +77,7 @@ describe('OnboardingPage', () => {
   })
 
   it('should keep the default description when org_name is not available', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'user-1', user_metadata: {} } },
-    })
+    mockUser()
 
     render(<OnboardingPage />)
 
@@ -75,5 +86,158 @@ describe('OnboardingPage', () => {
     })
 
     expect(screen.getByLabelText(/^組織名\*?$/)).toHaveValue('')
+  })
+
+  it('組織作成に成功したらプロジェクト作成ステップ（テンプレート選択）へ進む', async () => {
+    mockUser({ org_name: '株式会社サンプル' })
+    mockRpc.mockResolvedValue({ data: { org_id: 'org-1', plan_id: 'free' }, error: null })
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^組織名\*?$/)).toHaveValue('株式会社サンプル')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /開始する/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    // テンプレートカードが並ぶ
+    expect(screen.getByText('Web/アプリ開発')).toBeInTheDocument()
+    expect(screen.getByText(/白紙から始める/)).toBeInTheDocument()
+    // /inbox へは飛ばさない
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+})
+
+describe('OnboardingPage — 再開・リダイレクト', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
+    localStorage.clear()
+  })
+
+  it('組織はあるがプロジェクトが無い場合はテンプレート選択ステップを表示（死にコード修正）', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: null }
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    expect(mockReplace).not.toHaveBeenCalledWith('/inbox')
+  })
+
+  it('組織もプロジェクトもある場合はプロジェクトへリダイレクト', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: { id: 'space-1' } }
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+  })
+
+  it('clientロールは /portal へリダイレクト', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'client' } }
+
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/portal')
+    })
+  })
+})
+
+describe('OnboardingPage — Step 2: テンプレート選択とプロジェクト作成', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    spaceResponse = { data: null }
+    localStorage.clear()
+  })
+
+  async function renderStep2() {
+    mockUser()
+    render(<OnboardingPage />)
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+  }
+
+  it('テンプレートを選ぶと create-with-preset API を呼びプロジェクトへ遷移する', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ space: { id: 'space-9' } }),
+    }) as unknown as typeof fetch
+
+    await renderStep2()
+
+    fireEvent.change(screen.getByLabelText(/^プロジェクト名\*?$/), {
+      target: { value: 'コーポレートサイト制作' },
+    })
+    fireEvent.click(screen.getByText('Web/アプリ開発'))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/spaces/create-with-preset',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    const body = JSON.parse(
+      (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string,
+    )
+    expect(body).toEqual({
+      name: 'コーポレートサイト制作',
+      presetGenre: 'web_development',
+      orgId: 'org-1',
+    })
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-9')
+    })
+  })
+
+  it('API失敗時はエラーを表示してステップに留まる', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: 'Failed to create space' }),
+    }) as unknown as typeof fetch
+
+    await renderStep2()
+
+    fireEvent.change(screen.getByLabelText(/^プロジェクト名\*?$/), {
+      target: { value: '新規案件' },
+    })
+    fireEvent.click(screen.getByText(/白紙から始める/))
+
+    await waitFor(() => {
+      expect(screen.getByText('プロジェクトの作成に失敗しました。もう一度お試しください。')).toBeInTheDocument()
+    })
+    expect(mockPush).not.toHaveBeenCalled()
+    // ピッカーは選び直せる状態のまま
+    expect(screen.getByText('Web/アプリ開発')).toBeInTheDocument()
+  })
+
+  it('プロジェクト名が空のままテンプレートを選ぶとバリデーションエラー', async () => {
+    global.fetch = vi.fn() as unknown as typeof fetch
+
+    await renderStep2()
+
+    fireEvent.change(screen.getByLabelText(/^プロジェクト名\*?$/), { target: { value: '  ' } })
+    fireEvent.click(screen.getByText('Web/アプリ開発'))
+
+    await waitFor(() => {
+      expect(screen.getByText('プロジェクト名を入力してください。')).toBeInTheDocument()
+    })
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 })

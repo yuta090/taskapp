@@ -178,7 +178,7 @@ export function PortalTaskInspector({
               <CurrencyJpy className="w-4 h-4 text-amber-600" />
               <span className="text-xs font-medium text-amber-700">見積もり確認</span>
             </div>
-            <div className="text-2xl font-bold text-gray-900 tracking-tight">
+            <div className="text-2xl font-semibold text-gray-900 tracking-tight">
               ¥{task.estimatedCost!.toLocaleString()}
             </div>
           </div>

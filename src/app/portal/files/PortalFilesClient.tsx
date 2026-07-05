@@ -56,7 +56,7 @@ export function PortalFilesClient({
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">ファイル</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">ファイル</h1>
             <p className="mt-1 text-sm text-gray-600">
               プロジェクトの共有ファイルを確認できます
             </p>

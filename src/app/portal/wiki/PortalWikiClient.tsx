@@ -60,14 +60,14 @@ export function PortalWikiClient({
                 <ArrowLeft className="text-base" />
                 Wiki一覧に戻る
               </button>
-              <h1 className="text-2xl font-bold text-gray-900">{selectedPage.title}</h1>
+              <h1 className="text-2xl font-semibold text-gray-900">{selectedPage.title}</h1>
               <p className="mt-1 text-sm text-gray-400">
                 公開日: {formatDate(selectedPage.publishedAt)}
               </p>
             </div>
           ) : (
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Wiki</h1>
+              <h1 className="text-2xl font-semibold text-gray-900">Wiki</h1>
               <p className="mt-1 text-sm text-gray-600">
                 プロジェクトのドキュメント・仕様書
               </p>

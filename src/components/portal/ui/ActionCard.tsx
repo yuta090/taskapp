@@ -148,14 +148,14 @@ export function ActionCard({
                   e.stopPropagation()
                   setShowInput(true)
                 }}
-                className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-md transition-all border border-transparent hover:border-gray-200 hover:shadow-sm"
+                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-white rounded-md transition-all border border-transparent hover:border-gray-200 hover:shadow-sm"
               >
                 修正依頼
               </button>
               <button
                 onClick={handleApprove}
                 disabled={disabled}
-                className={`px-3 py-1.5 text-xs font-bold ${APPROVE_BUTTON.soft} rounded-md transition-all border border-green-100`}
+                className={`px-3 py-1.5 text-xs font-medium ${APPROVE_BUTTON.soft} rounded-md transition-all border border-green-100`}
               >
                 承認
               </button>
@@ -182,21 +182,21 @@ export function ActionCard({
                 setShowInput(false)
                 setComment('')
               }}
-              className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-md"
+              className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 rounded-md"
             >
               キャンセル
             </button>
             <button
               onClick={handleApprove}
               disabled={disabled}
-              className="px-3 py-1.5 text-xs font-bold text-green-600 hover:bg-green-50 rounded-md"
+              className="px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded-md"
             >
               承認
             </button>
             <button
               onClick={handleRequestChanges}
               disabled={disabled || !comment.trim()}
-              className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               送信
             </button>

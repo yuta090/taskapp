@@ -211,7 +211,7 @@ export function PortalOnboardingWalkthrough() {
           {/* Title */}
           <h2
             id="onboarding-title"
-            className="text-xl font-bold text-gray-900 mb-2"
+            className="text-xl font-semibold text-gray-900 mb-2"
           >
             {step.title}
           </h2>

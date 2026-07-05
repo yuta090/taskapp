@@ -224,7 +224,7 @@ export function PortalTasksClient({
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">要対応タスク</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">要対応タスク</h1>
             <p className="mt-1 text-sm text-gray-600">
               確認・承認が必要なタスクの一覧です。「要確認」はすぐにアクションが必要、「チーム対応中」はチームが準備中です。
             </p>
@@ -233,21 +233,21 @@ export function PortalTasksClient({
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-gray-900">{visibleTasks.length}</div>
+              <div className="text-2xl font-semibold text-gray-900">{visibleTasks.length}</div>
               <div className="text-sm text-gray-500">全体</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-amber-600">{consideringTasks.length}</div>
+              <div className="text-2xl font-semibold text-amber-600">{consideringTasks.length}</div>
               <div className="text-sm text-gray-500">要確認</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-red-600">
+              <div className="text-2xl font-semibold text-red-600">
                 {visibleTasks.filter(t => t.isOverdue).length}
               </div>
               <div className="text-sm text-gray-500">期限切れ</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-gray-600">{otherTasks.length}</div>
+              <div className="text-2xl font-semibold text-gray-600">{otherTasks.length}</div>
               <div className="text-sm text-gray-500">チーム対応中</div>
             </div>
           </div>
