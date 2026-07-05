@@ -117,12 +117,15 @@ interface PortalDashboardClientProps {
   currentProject: Project
   projects: Project[]
   dashboardData: DashboardData
+  /** Internal-facing read-only preview (`/portal/preview/[spaceId]`): disables all write actions. */
+  previewMode?: boolean
 }
 
 export function PortalDashboardClient({
   currentProject,
   projects,
   dashboardData,
+  previewMode = false,
 }: PortalDashboardClientProps) {
   const router = useRouter()
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -134,7 +137,7 @@ export function PortalDashboardClient({
   const spaceQuery = projects.length > 1 ? `?space=${currentProject.id}` : ''
 
   const handleApprove = async (taskId: string, comment: string) => {
-    if (submittingTaskId === taskId) return
+    if (previewMode || submittingTaskId === taskId) return
     setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
@@ -177,7 +180,7 @@ export function PortalDashboardClient({
   }
 
   const handleRequestChanges = async (taskId: string, comment: string) => {
-    if (submittingTaskId === taskId) return
+    if (previewMode || submittingTaskId === taskId) return
     setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
@@ -209,7 +212,7 @@ export function PortalDashboardClient({
   }
 
   const handleEstimateApprove = async (taskId: string, comment: string) => {
-    if (submittingTaskId === taskId) return
+    if (previewMode || submittingTaskId === taskId) return
     setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
@@ -234,7 +237,7 @@ export function PortalDashboardClient({
   }
 
   const handleEstimateReject = async (taskId: string, comment: string) => {
-    if (submittingTaskId === taskId) return
+    if (previewMode || submittingTaskId === taskId) return
     setSubmittingTaskId(taskId)
     try {
       const response = await fetch(`/api/portal/tasks/${taskId}`, {
@@ -281,7 +284,22 @@ export function PortalDashboardClient({
       onRequestChanges={handleRequestChanges}
       onEstimateApprove={handleEstimateApprove}
       onEstimateReject={handleEstimateReject}
+      readOnly={previewMode}
     />
+  ) : null
+
+  // 「クライアント表示プレビュー」バナー — amber-500 = クライアント可視の意味に合わせ、
+  // このダッシュボードがクライアントに見える内容そのものであることを示す。
+  const previewBanner = previewMode ? (
+    <div className="flex-shrink-0 flex items-center justify-between gap-4 px-4 py-2 bg-amber-500 text-white text-sm font-medium">
+      <span>クライアント表示プレビュー — クライアントにはこのように表示されます</span>
+      <Link
+        href={`/${currentProject.orgId}/project/${currentProject.id}`}
+        className="underline hover:no-underline whitespace-nowrap flex-shrink-0"
+      >
+        プロジェクトに戻る
+      </Link>
+    </div>
   ) : null
 
   return (
@@ -290,9 +308,10 @@ export function PortalDashboardClient({
       projects={projects}
       actionCount={dashboardData.totalActionCount}
       inspector={inspector}
+      banner={previewBanner}
     >
-      {/* Onboarding walkthrough - shown only on first visit */}
-      <PortalOnboardingWalkthrough />
+      {/* Onboarding walkthrough - shown only on first visit (skipped in preview: this is an internal viewer, not the client) */}
+      {!previewMode && <PortalOnboardingWalkthrough />}
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto space-y-8">
@@ -309,8 +328,11 @@ export function PortalDashboardClient({
             </div>
             <button
               type="button"
-              onClick={() => setRequestSheetOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 shadow-sm transition-colors"
+              data-testid="portal-dashboard-request-button"
+              onClick={() => !previewMode && setRequestSheetOpen(true)}
+              disabled={previewMode}
+              title={previewMode ? 'プレビューでは操作できません' : undefined}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
               <Plus className="text-lg" weight="bold" />
               リクエストを送る
@@ -423,6 +445,7 @@ export function PortalDashboardClient({
                   onRequestChanges={handleRequestChanges}
                   onViewDetail={handleViewDetail}
                   maxDisplay={6}
+                  readOnly={previewMode}
                 />
               </BentoCard>
             </div>

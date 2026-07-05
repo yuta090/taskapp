@@ -44,6 +44,8 @@ interface PortalTaskInspectorProps {
   onRequestChanges?: (taskId: string, comment: string) => Promise<void>
   onEstimateApprove?: (taskId: string, comment: string) => Promise<void>
   onEstimateReject?: (taskId: string, comment: string) => Promise<void>
+  /** Portal preview mode: replaces the action panel with a "プレビューでは操作できません" note. */
+  readOnly?: boolean
 }
 
 function formatDate(date: string): string {
@@ -85,6 +87,7 @@ export function PortalTaskInspector({
   onRequestChanges,
   onEstimateApprove,
   onEstimateReject,
+  readOnly = false,
 }: PortalTaskInspectorProps) {
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -185,7 +188,12 @@ export function PortalTaskInspector({
         )}
 
         {/* Action Panel - description直下に配置 */}
-        {showActions && (
+        {showActions && readOnly && (
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 text-xs text-gray-500">
+            プレビューでは操作できません
+          </div>
+        )}
+        {showActions && !readOnly && (
           <div className="px-4 py-4 border-b border-gray-100 bg-gray-50/50">
             {/* Comment Input */}
             <div className="relative">
