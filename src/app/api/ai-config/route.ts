@@ -36,7 +36,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'orgId is required' }, { status: 400 })
     }
 
-    // org_ai_configを取得（RLSでowner制限）
+    // org owner権限チェック（POST/DELETEと同様。RLSに加えたdefense-in-depth）
+    const { data: membership } = await (supabase as SupabaseClient)
+      .from('org_memberships')
+      .select('role')
+      .eq('org_id', orgId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (!membership || membership.role !== 'owner') {
+      return NextResponse.json(
+        { error: 'Only org owners can view AI settings' },
+        { status: 403 },
+      )
+    }
+
+    // org_ai_configを取得（RLSでもowner制限）
     const { data, error } = await (supabase as SupabaseClient)
       .from('org_ai_config')
       .select('id, org_id, provider, model, enabled, api_key_encrypted, created_at, updated_at')

@@ -82,7 +82,7 @@ export default function OrgIntegrationsPage() {
   const [slackTokenError, setSlackTokenError] = useState('')
 
   // AI
-  const { data: aiConfig, isLoading: loadingAi } = useAiConfig(orgId ?? undefined)
+  const { data: aiConfig, isLoading: loadingAi } = useAiConfig(isOwner ? orgId ?? undefined : undefined)
   const saveAiConfig = useSaveAiConfig()
   const deleteAiConfig = useDeleteAiConfig()
   const [aiProvider, setAiProvider] = useState<string>('openai')
