@@ -241,31 +241,36 @@ describe('GanttChart', () => {
 })
 
 describe('GanttChart initial scroll position (今日にセンタリング)', () => {
-  let scrollToMock: ReturnType<typeof vi.fn>
+  // Records which element each scrollTo call happened on, so we can assert
+  // the chart *body* (.gantt-scroll) scrolls — scrolling only the date header
+  // moves nothing visible (there is no header→body sync).
+  let scrollCalls: Array<{ el: Element; arg: ScrollToOptions }>
 
   beforeEach(() => {
-    scrollToMock = vi.fn()
+    scrollCalls = []
     // jsdom doesn't implement Element.scrollTo
-    Element.prototype.scrollTo = scrollToMock as unknown as typeof Element.prototype.scrollTo
+    Element.prototype.scrollTo = function (arg: ScrollToOptions) {
+      scrollCalls.push({ el: this as Element, arg })
+    } as typeof Element.prototype.scrollTo
   })
 
-  it('scrolls the chart to today automatically on mount', () => {
+  it('scrolls the chart body to today automatically on mount', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    expect(scrollToMock).toHaveBeenCalledTimes(1)
-    expect(scrollToMock).toHaveBeenCalledWith(
-      expect.objectContaining({ behavior: 'auto' })
-    )
+    const bodyCalls = scrollCalls.filter((c) => c.el.classList.contains('gantt-scroll'))
+    expect(bodyCalls).toHaveLength(1)
+    expect(bodyCalls[0].arg).toEqual(expect.objectContaining({ behavior: 'auto' }))
   })
 
   it('does not scroll again on subsequent re-renders', () => {
     const { rerender } = render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
-    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    const initialCallCount = scrollCalls.length
+    expect(initialCallCount).toBeGreaterThan(0)
 
     rerender(
       <GanttChart tasks={mockTasks} milestones={mockMilestones} selectedTaskId="task-1" />
     )
 
-    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    expect(scrollCalls).toHaveLength(initialCallCount)
   })
 })
