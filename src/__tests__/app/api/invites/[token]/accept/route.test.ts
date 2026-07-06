@@ -40,7 +40,7 @@ const createUserMock = vi.fn(() => Promise.resolve(createUserResponse))
 const adminRpcMock = vi.fn(() => Promise.resolve(acceptRpcResponse))
 const inviteSingleMock = vi.fn(() => Promise.resolve(inviteSelectResponse))
 const getUserMock = vi.fn(() => Promise.resolve(authUserResponse))
-const rateLimitAllowedMock = vi.fn(() => ({ allowed: true, remaining: 9, resetAt: Date.now() + 1000 }))
+const rateLimitAllowedMock = vi.fn((..._args: unknown[]) => ({ allowed: true, remaining: 9, resetAt: Date.now() + 1000 }))
 
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => rateLimitAllowedMock(...args),

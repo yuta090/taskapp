@@ -15,4 +15,9 @@ describe('isActionableNotification', () => {
   it('does not treat unrelated types as actionable', () => {
     expect(isActionableNotification('meeting_ended')).toBe(false)
   })
+
+  it('does not treat review_cancelled as actionable (non-action notice, no ball to act on)', () => {
+    expect(isActionableNotification('review_cancelled')).toBe(false)
+    expect(ACTIONABLE_TYPES_ARRAY).not.toContain('review_cancelled')
+  })
 })

@@ -49,7 +49,7 @@ const tokenInsertMock = vi.fn(() => ({
 
 const tokenUpdateIsMock = vi.fn(() => Promise.resolve({ error: null }))
 
-const sendApprovalEmailMock = vi.fn(() => Promise.resolve())
+const sendApprovalEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 
 vi.mock('@/lib/email/approval', () => ({
   sendApprovalEmail: (...args: unknown[]) => sendApprovalEmailMock(...args),

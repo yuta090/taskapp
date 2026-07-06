@@ -18,7 +18,7 @@ let spaceResponse: { data: { name: string } | null }
 let profileResponse: { data: { display_name: string } | null }
 let rpcResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
 
-const sendInviteEmailMock = vi.fn(() => Promise.resolve({ success: true, messageId: 'msg-1' }))
+const sendInviteEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true, messageId: 'msg-1' }))
 
 vi.mock('@/lib/email', () => ({
   sendInviteEmail: (...args: unknown[]) => sendInviteEmailMock(...args),

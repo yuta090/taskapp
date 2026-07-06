@@ -41,9 +41,9 @@ let commentInsertResponse: { error: null | { message: string } }
 
 const updateCalls: Array<Record<string, unknown>> = []
 
-const createTaskNotificationMock = vi.fn(() => Promise.resolve())
-const createAuditLogMock = vi.fn(() => Promise.resolve({ success: true }))
-const resolveReturnAssigneeMock = vi.fn(() => Promise.resolve('resolved-internal-owner'))
+const createTaskNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve())
+const createAuditLogMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true }))
+const resolveReturnAssigneeMock = vi.fn((..._args: unknown[]) => Promise.resolve('resolved-internal-owner'))
 
 vi.mock('@/lib/audit', () => ({
   createAuditLog: (...args: unknown[]) => createAuditLogMock(...args),

@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server'
  * touch the database or send email without a valid secret.
  */
 
-const sendReminderEmailMock = vi.fn(() => Promise.resolve({ success: true }))
+const sendReminderEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true }))
 vi.mock('@/lib/email/reminder', () => ({
   sendReminderEmail: (...args: unknown[]) => sendReminderEmailMock(...args),
 }))
