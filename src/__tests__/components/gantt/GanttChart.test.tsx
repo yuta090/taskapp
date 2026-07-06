@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { GanttChart } from '@/components/gantt/GanttChart'
 import type { Task, Milestone } from '@/types/database'
@@ -237,5 +237,35 @@ describe('GanttChart', () => {
 
     // Should now be in 'week' mode
     expect(screen.getByText('週')).toBeInTheDocument()
+  })
+})
+
+describe('GanttChart initial scroll position (今日にセンタリング)', () => {
+  let scrollToMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    scrollToMock = vi.fn()
+    // jsdom doesn't implement Element.scrollTo
+    Element.prototype.scrollTo = scrollToMock as unknown as typeof Element.prototype.scrollTo
+  })
+
+  it('scrolls the chart to today automatically on mount', () => {
+    render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
+    expect(scrollToMock).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: 'auto' })
+    )
+  })
+
+  it('does not scroll again on subsequent re-renders', () => {
+    const { rerender } = render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <GanttChart tasks={mockTasks} milestones={mockMilestones} selectedTaskId="task-1" />
+    )
+
+    expect(scrollToMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -267,6 +267,28 @@ export function GanttChart({
     }
   }
 
+  // Auto-center on today once when the chart first mounts, so it doesn't
+  // default to the left (past) edge of an empty-looking grid. Must run only
+  // once: later re-renders (e.g. task edits) shouldn't yank the user's scroll
+  // position back to today.
+  const hasAutoScrolledRef = useRef(false)
+  useEffect(() => {
+    if (hasAutoScrolledRef.current) return
+    const container = scrollContainerRef.current
+    if (!container || typeof container.scrollTo !== 'function') return
+    hasAutoScrolledRef.current = true
+
+    if (todayIndex >= 0) {
+      const scrollX = todayIndex * dayWidth - container.clientWidth / 2
+      container.scrollTo({ left: Math.max(0, scrollX), behavior: 'auto' })
+    } else if (new Date() > endDate) {
+      // Today is after the whole range (all-past project) - land on the right edge
+      container.scrollTo({ left: totalWidth, behavior: 'auto' })
+    }
+    // Intentionally run once on mount only - see comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Sync vertical scroll between sidebar and chart
   const handleChartScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (sidebarRef.current) {

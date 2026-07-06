@@ -2,11 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import BillingSettingsPage from '@/app/settings/billing/page'
 
-// Mock next/link
-vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
-  ),
+const mockPush = vi.fn()
+const mockBack = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush, back: mockBack }),
 }))
 
 // Mock billing components
@@ -222,18 +221,19 @@ describe('BillingSettingsPage', () => {
     expect(screen.getByTestId('invoice-history')).toBeInTheDocument()
   })
 
-  it('should have back link to inbox', () => {
+  it('should show a back button that falls back to /inbox when there is no history', () => {
     mockUseStripeStatus.mockReturnValue({
       serverConfigured: true,
       loading: false,
       error: null,
       clientConfigured: true,
     })
+    Object.defineProperty(window.history, 'length', { value: 1, configurable: true })
 
     render(<BillingSettingsPage />)
 
-    const backLink = screen.getByRole('link')
-    expect(backLink).toHaveAttribute('href', '/inbox')
+    fireEvent.click(screen.getByRole('button', { name: '戻る' }))
+    expect(mockPush).toHaveBeenCalledWith('/inbox')
   })
 
   it('should show org name when loaded', () => {
