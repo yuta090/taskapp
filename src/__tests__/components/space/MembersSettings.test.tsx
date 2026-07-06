@@ -256,7 +256,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
 
   it('disables the invite button while a request is in flight (double-submit guard)', async () => {
     let resolveFetch!: (value: unknown) => void
-    global.fetch = vi.fn(() => new Promise(resolve => { resolveFetch = resolve }))
+    global.fetch = vi.fn(() => new Promise(resolve => { resolveFetch = resolve })) as unknown as typeof fetch
 
     render(<MembersSettings orgId="org-1" spaceId="space-1" />)
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())

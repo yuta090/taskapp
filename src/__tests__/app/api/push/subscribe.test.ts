@@ -29,7 +29,7 @@ vi.mock('@/lib/supabase/server', () => ({
 const deleteNeqMock = vi.fn(() => Promise.resolve({ error: null }))
 const deleteEqMock = vi.fn(() => ({ neq: deleteNeqMock }))
 const deleteMock = vi.fn(() => ({ eq: deleteEqMock }))
-const upsertMock = vi.fn(() => Promise.resolve({ error: null }))
+const upsertMock = vi.fn(() => Promise.resolve({ error: null as { message: string } | null }))
 
 const adminFromMock = vi.fn((table: string) => {
   if (table === 'push_subscriptions') {

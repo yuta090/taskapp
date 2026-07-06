@@ -91,6 +91,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     estimated_cost: null,
     estimate_status: 'none',
     completed_at: null,
+    is_sample: false,
     created_at: '2026-07-01T00:00:00',
     updated_at: '2026-07-01T00:00:00',
     ...overrides,
