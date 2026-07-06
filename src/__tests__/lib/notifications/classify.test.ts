@@ -20,4 +20,9 @@ describe('isActionableNotification', () => {
     expect(isActionableNotification('review_cancelled')).toBe(false)
     expect(ACTIONABLE_TYPES_ARRAY).not.toContain('review_cancelled')
   })
+
+  it('does not treat file_uploaded as actionable (informational notice, not a ball to act on)', () => {
+    expect(isActionableNotification('file_uploaded')).toBe(false)
+    expect(ACTIONABLE_TYPES_ARRAY).not.toContain('file_uploaded')
+  })
 })

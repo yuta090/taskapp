@@ -116,4 +116,31 @@ describe('buildPushMessage', () => {
       expect(msg.url).toBe('/inbox')
     })
   })
+
+  // file_uploaded has no fixed title (unlike ball_passed etc.) — it needs the
+  // uploader name and file name baked in, since a push notification must stand
+  // on its own outside the app.
+  describe('file_uploaded notifications', () => {
+    it('builds a dynamic title from uploader_name and file_name', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'file_uploaded',
+          payload: { uploader_name: '山田太郎', file_name: '見積書.pdf' },
+        }),
+        'internal'
+      )
+      expect(msg.title).toBe('山田太郎さんが資料をアップロードしました: 見積書.pdf')
+    })
+
+    it('uses payload.link as the url', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'file_uploaded',
+          payload: { link: '/org-1/project/space-1/files' },
+        }),
+        'internal'
+      )
+      expect(msg.url).toBe('/org-1/project/space-1/files')
+    })
+  })
 })

@@ -185,6 +185,25 @@ describe('POST /api/files/[id]/complete', () => {
     })
   })
 
+  // 通知の受信トレイ表示(InboxClient/NotificationInspector)は payload.title/message で
+  // タイトル・本文を、payload.link で「詳細を見る」ボタンのリンク先を組み立てる
+  // (scheduling_reminder 等の既存タイプと同じ規約)。この payload が欠けていると
+  // 通知一覧に「通知」という空タイトルしか出せない。
+  it('includes title/message/link in the notification payload so the inbox can render it', async () => {
+    fileSelectResponse = { data: { ...baseFile, origin: 'client', client_visible: true }, error: null }
+    const response = await callPost(FILE_ID)
+    expect(response.status).toBe(200)
+    expect(notificationInsertCall?.[0].payload).toMatchObject({
+      file_id: FILE_ID,
+      file_name: '議事録.pdf',
+      space_id: SPACE_ID,
+      uploader_name: 'アップローダー',
+      title: 'ファイル: クライアントから資料が届きました',
+      message: 'アップローダーさんが「議事録.pdf」をアップロードしました',
+      link: `/${ORG_ID}/project/${SPACE_ID}/files`,
+    })
+  })
+
   it('returns 500 when the status update fails', async () => {
     fileUpdateResponse = { data: null, error: { message: 'db error' } }
     const response = await callPost(FILE_ID)

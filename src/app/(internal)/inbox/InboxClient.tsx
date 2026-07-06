@@ -15,6 +15,7 @@ import {
   XCircle,
   CaretDown,
   Funnel,
+  File,
 } from '@phosphor-icons/react'
 import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
 import { WARNING } from '@/lib/design/tokens'
@@ -37,6 +38,7 @@ const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyAr
   { label: '会議関連', types: ['meeting_reminder', 'meeting_scheduled', 'meeting_ended'] },
   { label: 'タスク完了', types: ['task_completed'] },
   { label: '仕様決定', types: ['spec_decision_needed'] },
+  { label: 'ファイル', types: ['file_uploaded'] },
 ]
 
 // ── Type filter dropdown ──
@@ -154,6 +156,8 @@ function getNotificationIcon(type: string) {
       return <CheckCircle weight="fill" />
     case 'spec_decision_needed':
       return <Bell />
+    case 'file_uploaded':
+      return <File />
     default:
       return <Bell />
   }

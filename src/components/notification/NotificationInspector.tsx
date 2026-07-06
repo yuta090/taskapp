@@ -18,6 +18,7 @@ import {
   Circle,
   Spinner,
   Play,
+  File,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
@@ -86,6 +87,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <ChatCircleText className={`${iconClass} text-amber-500`} />
     case 'spec_decision_needed':
       return <Bell className={`${iconClass} text-amber-500`} />
+    case 'file_uploaded':
+      return <File className={`${iconClass} text-gray-500`} />
     default:
       return <Bell className={`${iconClass} text-gray-500`} />
   }
@@ -109,6 +112,7 @@ function getNotificationTypeLabel(type: string): string {
     case 'confirmation_request': return '確認依頼'
     case 'urgent_confirmation': return '緊急確認依頼'
     case 'spec_decision_needed': return '仕様決定依頼'
+    case 'file_uploaded': return 'ファイル'
     default: return '通知'
   }
 }

@@ -116,6 +116,8 @@ async function notifyInternalMembers(
 
     const uploaderName = profile?.display_name || 'クライアント'
 
+    // title/message/link は InboxClient/NotificationInspector の表示規約に合わせる
+    // (scheduling_reminder 等と同じく payload.link が「詳細を見る」ボタンのリンク先になる)。
     const rows = recipients.map((toUserId: string) => ({
       org_id: file.org_id,
       space_id: file.space_id,
@@ -128,6 +130,9 @@ async function notifyInternalMembers(
         file_name: file.name,
         space_id: file.space_id,
         uploader_name: uploaderName,
+        title: 'ファイル: クライアントから資料が届きました',
+        message: `${uploaderName}さんが「${file.name}」をアップロードしました`,
+        link: `/${file.org_id}/project/${file.space_id}/files`,
       },
     }))
 
