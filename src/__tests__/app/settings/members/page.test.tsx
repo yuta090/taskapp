@@ -39,8 +39,6 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
-vi.stubGlobal('confirm', vi.fn(() => true))
-
 describe('MembersSettingsPage invite form', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -273,7 +271,7 @@ describe('MembersSettingsPage pending invites section', () => {
     expect(screen.queryByText('保留中の招待')).not.toBeInTheDocument()
   })
 
-  it('cancels a pending invite via DELETE and removes it from the list', async () => {
+  it('shows a confirm dialog naming the invitee before cancelling, and cancelling the dialog does nothing', async () => {
     const deleteMock = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) }))
     global.fetch = mockFetchByUrl({
       '/api/invites/pending/invite-1': deleteMock,
@@ -285,6 +283,27 @@ describe('MembersSettingsPage pending invites section', () => {
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('招待を取り消す'))
+
+    expect(screen.getByText(/pending@example\.com.*取り消しますか/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
+
+    expect(deleteMock).not.toHaveBeenCalled()
+    expect(screen.getByText('pending@example.com')).toBeInTheDocument()
+  })
+
+  it('cancels a pending invite via DELETE and removes it from the list after confirming the dialog', async () => {
+    const deleteMock = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) }))
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending/invite-1': deleteMock,
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('招待を取り消す'))
+    fireEvent.click(screen.getByRole('button', { name: '取り消す' }))
 
     await waitFor(() => {
       expect(deleteMock).toHaveBeenCalled()
@@ -305,6 +324,7 @@ describe('MembersSettingsPage pending invites section', () => {
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('招待を取り消す'))
+    fireEvent.click(screen.getByRole('button', { name: '取り消す' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('招待の取り消しに失敗しました'))
     expect(screen.getByText('pending@example.com')).toBeInTheDocument()
@@ -493,7 +513,27 @@ describe('MembersSettingsPage role change / removal (RPC-backed writes)', () => 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('最後のオーナーの役割は変更できません'))
   })
 
-  it('calls rpc_remove_org_member with org_id/user_id and removes the row only after RPC succeeds', async () => {
+  it('shows a confirm dialog naming the member before removal, and cancelling the dialog does nothing', async () => {
+    mockRpc.mockImplementation((fnName: string) => {
+      if (fnName === 'rpc_get_org_members') {
+        return Promise.resolve({ data: mockMembersList(), error: null })
+      }
+      return Promise.resolve({ data: { ok: true }, error: null })
+    })
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('Member User')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle('メンバーを削除'))
+
+    expect(screen.getByText(/Member User.*削除しますか/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
+
+    expect(mockRpc).not.toHaveBeenCalledWith('rpc_remove_org_member', expect.anything())
+    expect(screen.getByText('Member User')).toBeInTheDocument()
+  })
+
+  it('calls rpc_remove_org_member with org_id/user_id and removes the row only after confirming the dialog and the RPC succeeds', async () => {
     mockRpc.mockImplementation((fnName: string) => {
       if (fnName === 'rpc_get_org_members') {
         return Promise.resolve({ data: mockMembersList(), error: null })
@@ -508,6 +548,7 @@ describe('MembersSettingsPage role change / removal (RPC-backed writes)', () => 
     await waitFor(() => expect(screen.getByText('Member User')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('メンバーを削除'))
+    fireEvent.click(screen.getByRole('button', { name: '削除' }))
 
     await waitFor(() => {
       expect(mockRpc).toHaveBeenCalledWith('rpc_remove_org_member', {
@@ -535,6 +576,7 @@ describe('MembersSettingsPage role change / removal (RPC-backed writes)', () => 
     await waitFor(() => expect(screen.getByText('Member User')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('メンバーを削除'))
+    fireEvent.click(screen.getByRole('button', { name: '削除' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('メンバーの削除に失敗しました'))
     expect(toastSuccess).not.toHaveBeenCalled()
@@ -562,6 +604,7 @@ describe('MembersSettingsPage role change / removal (RPC-backed writes)', () => 
     await waitFor(() => expect(screen.getByText('Second Owner')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('メンバーを削除'))
+    fireEvent.click(screen.getByRole('button', { name: '削除' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('最後のオーナーは削除できません'))
     expect(screen.getByText('Second Owner')).toBeInTheDocument()

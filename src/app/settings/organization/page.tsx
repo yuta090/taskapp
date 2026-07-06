@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Buildings, Check, CircleNotch, Crown, Users, PlugsConnected, CreditCard, CaretRight } from '@phosphor-icons/react'
+import { Buildings, Check, CircleNotch, Crown, Users, PlugsConnected, CreditCard, CaretRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
+import { SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function OrganizationSettingsPage() {
@@ -72,12 +73,7 @@ export default function OrganizationSettingsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">組織設定</h1>
               <p className="text-sm text-gray-500">組織の基本情報</p>

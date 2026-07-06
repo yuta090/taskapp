@@ -10,6 +10,7 @@ vi.mock('next/link', () => ({
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
 const mockUseCurrentOrg = vi.fn()
