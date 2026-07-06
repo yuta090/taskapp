@@ -162,6 +162,9 @@ export default function PortalInvitePage({
           >
             ログインページへ
           </Link>
+          <p className="text-xs text-gray-400 mt-4">
+            リンクの再送が必要な場合は、プロジェクトの担当者にご連絡ください。
+          </p>
         </div>
       </AuthCard>
     )

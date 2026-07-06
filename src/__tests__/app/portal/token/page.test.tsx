@@ -198,4 +198,18 @@ describe('PortalInvitePage — 受諾動線', () => {
       expect(screen.getByText('招待が無効です')).toBeInTheDocument()
     })
   })
+
+  it('無効な招待は行き止まりにせず、次のアクションを案内する（B8）', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'invalid' } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('招待が無効です')).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getByText('リンクの再送が必要な場合は、プロジェクトの担当者にご連絡ください。')
+    ).toBeInTheDocument()
+  })
 })

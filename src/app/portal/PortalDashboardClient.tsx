@@ -169,6 +169,7 @@ export function PortalDashboardClient({
         return
       }
 
+      toast.success('承認しました。チームに通知されます。')
       setSelectedTask(null)
       router.refresh()
     } catch (error) {
@@ -417,11 +418,13 @@ export function PortalDashboardClient({
                 title={
                   <span className="flex items-center gap-2">
                     確認待ちのタスク
-                    {dashboardData.totalActionCount > 0 && (
-                      <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium text-white bg-amber-500 rounded-full">
-                        {dashboardData.totalActionCount}件
-                      </span>
-                    )}
+                    <span className={`inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${
+                      dashboardData.totalActionCount > 0
+                        ? 'text-white bg-amber-500'
+                        : 'text-gray-500 bg-gray-100'
+                    }`}>
+                      {dashboardData.totalActionCount}件
+                    </span>
                     <span className="text-xs text-gray-400 font-normal">
                       / 全{dashboardData.progress.totalCount}件
                     </span>

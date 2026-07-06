@@ -38,3 +38,31 @@ describe('ActionSection readOnly', () => {
     expect(screen.getAllByRole('button', { name: '修正依頼' })).toHaveLength(2)
   })
 })
+
+/**
+ * B5: with zero action tasks, the waitingMessage banner, the built-in
+ * "全て完了しています" heading, and "あなたの確認が必要なタスクはありません。"
+ * all rendered at once — three overlapping empty-state messages.
+ */
+describe('ActionSection — empty state message (B5)', () => {
+  it('renders a single empty-state message using the waitingMessage text, not a duplicated banner', () => {
+    render(
+      <ActionSection
+        tasks={[]}
+        totalCount={0}
+        waitingMessage="すべてのタスクが確認済みです"
+      />
+    )
+
+    expect(screen.getByText('すべてのタスクが確認済みです')).toBeInTheDocument()
+    expect(screen.queryByText('全て完了しています')).not.toBeInTheDocument()
+    expect(screen.queryByText('あなたの確認が必要なタスクはありません。')).not.toBeInTheDocument()
+  })
+
+  it('falls back to a single "すべて" worded message when no waitingMessage is provided', () => {
+    render(<ActionSection tasks={[]} totalCount={0} />)
+
+    expect(screen.getByText(/すべて/)).toBeInTheDocument()
+    expect(screen.queryByText('全て完了しています')).not.toBeInTheDocument()
+  })
+})
