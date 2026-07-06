@@ -158,19 +158,15 @@ describe('POST /api/tools', () => {
     expect(data.details).toEqual(issues)
   })
 
-  it('returns 500 for an unexpected dispatch error (flagging current stack-trace leak behavior)', async () => {
+  it('returns a generic 500 without leaking the error message or stack trace', async () => {
     dispatchImpl = () => Promise.reject(new Error('unexpected internal failure'))
 
     const response = await callTools({ tool: 'list_tasks' })
     const data = await response.json()
 
-    // NOTE: the route currently echoes the raw error message and stack trace
-    // to the client (see "DEBUG: Return actual error for diagnosis" comment
-    // in src/app/api/tools/route.ts). This is an information-disclosure
-    // finding, not desired behavior — see report. This test documents the
-    // current behavior so a future fix shows up as an intentional test change.
     expect(response.status).toBe(500)
-    expect(data.error).toBe('unexpected internal failure')
-    expect(data.stack).toBeDefined()
+    expect(data.error).toBe('Internal server error')
+    expect(data.stack).toBeUndefined()
+    expect(JSON.stringify(data)).not.toContain('unexpected internal failure')
   })
 })

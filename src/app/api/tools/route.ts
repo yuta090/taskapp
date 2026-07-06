@@ -127,10 +127,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // DEBUG: Return actual error for diagnosis (remove before production)
-    const msg = error instanceof Error ? error.message : String(error)
-    const stack = error instanceof Error ? error.stack?.split('\n').slice(0, 5) : undefined
-    console.error('POST /api/tools error:', msg)
-    return NextResponse.json({ error: msg, stack }, { status: 500 })
+    // 詳細はサーバーログのみに出力し、クライアントには汎用メッセージだけ返す
+    console.error('POST /api/tools error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
