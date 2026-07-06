@@ -70,6 +70,22 @@ describe('PortalTaskInspector — description visibility (H-4)', () => {
   })
 })
 
+describe('PortalTaskInspector — status label completeness (B1)', () => {
+  it('shows バックログ for status backlog instead of the raw English value', () => {
+    render(<PortalTaskInspector task={{ ...baseTask, status: 'backlog' }} onClose={() => {}} />)
+
+    expect(screen.getByText('バックログ')).toBeInTheDocument()
+    expect(screen.queryByText('backlog')).not.toBeInTheDocument()
+  })
+
+  it('shows 社内確認中 for status in_review instead of the raw English value', () => {
+    render(<PortalTaskInspector task={{ ...baseTask, status: 'in_review' }} onClose={() => {}} />)
+
+    expect(screen.getByText('社内確認中')).toBeInTheDocument()
+    expect(screen.queryByText('in_review')).not.toBeInTheDocument()
+  })
+})
+
 describe('PortalTaskInspector — readOnly (portal preview mode)', () => {
   it('replaces the approve/request-changes buttons with a "プレビューでは操作できません" note', () => {
     render(

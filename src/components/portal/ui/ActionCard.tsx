@@ -119,7 +119,7 @@ export function ActionCard({
           </h3>
           {type === 'spec' && (
             <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded" title="仕様書の確認・承認が必要なタスクです">
-              SPEC
+              仕様
             </span>
           )}
           {estimateStatus === 'pending' && estimatedCost != null && (
@@ -179,6 +179,7 @@ export function ActionCard({
             autoFocus
           />
           <div className="flex justify-end gap-2 mt-2">
+            {/* 承認は表示しない: コメント入力中の誤承認防止(B4)。承認するなら入力をキャンセルして通常の承認ボタンを使う */}
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -190,18 +191,11 @@ export function ActionCard({
               キャンセル
             </button>
             <button
-              onClick={handleApprove}
-              disabled={disabled}
-              className="px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded-md"
-            >
-              承認
-            </button>
-            <button
               onClick={handleRequestChanges}
               disabled={disabled || !comment.trim()}
               className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              送信
+              修正依頼を送信
             </button>
           </div>
         </div>

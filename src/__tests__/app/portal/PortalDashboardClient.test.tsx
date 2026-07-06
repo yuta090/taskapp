@@ -1,8 +1,17 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PortalDashboardClient } from '@/app/portal/PortalDashboardClient'
+
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: (...args: unknown[]) => toastError(...args),
+  },
+}))
 
 /**
  * previewMode (#99 ストリームC「クライアント表示プレビュー」):
@@ -117,5 +126,51 @@ describe('PortalDashboardClient previewMode', () => {
     ).not.toBeInTheDocument()
     expect(screen.getByTestId('portal-dashboard-request-button')).not.toBeDisabled()
     expect(screen.getByRole('button', { name: '承認' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * B2: when there are zero action-required tasks, the "件" badge was
+ * skipped entirely, leaving the heading read as "確認待ちのタスク / 全50件"
+ * with no numerator — looking broken/cut off.
+ */
+describe('PortalDashboardClient — action count heading (B2)', () => {
+  it('shows "0件" instead of omitting the numerator when there are no action tasks', () => {
+    renderWithProviders(
+      <PortalDashboardClient
+        currentProject={project}
+        projects={[project]}
+        dashboardData={{ ...dashboardData, actionTasks: [], totalActionCount: 0 }}
+      />
+    )
+
+    expect(screen.getByText('0件')).toBeInTheDocument()
+  })
+})
+
+/**
+ * B3: handleApprove silently removed the card with no confirmation that
+ * the approval went through, unlike the equivalent email-approval flow.
+ */
+describe('PortalDashboardClient — approval success feedback (B3)', () => {
+  it('shows a success toast after approving a task successfully', async () => {
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({}),
+    })
+
+    renderWithProviders(
+      <PortalDashboardClient
+        currentProject={project}
+        projects={[project]}
+        dashboardData={dashboardData}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '承認' }))
+
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith('承認しました。チームに通知されます。')
+    )
   })
 })
