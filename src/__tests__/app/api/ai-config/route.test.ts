@@ -196,19 +196,21 @@ describe('GET /api/ai-config', () => {
     expect(data.config.keyPrefix).toBe('****...')
   })
 
-  it(
-    'GET does not itself verify org membership (relies entirely on RLS) — ' +
-      'documents a defense-in-depth gap vs. POST/DELETE which check role === owner explicitly',
-    async () => {
-      membershipResponse = { data: null } // caller is not even a member
-      // The route never queries org_memberships for GET, so this has no effect
-      // on the outcome — which is exactly the gap being documented.
+  it('returns 403 when the caller is not an org owner (defense-in-depth like POST/DELETE)', async () => {
+    membershipResponse = { data: { role: 'member' } }
 
-      const response = await callGet(ORG_ID)
+    const response = await callGet(ORG_ID)
 
-      expect(response.status).toBe(200)
-    }
-  )
+    expect(response.status).toBe(403)
+  })
+
+  it('returns 403 when the caller has no membership in the org at all', async () => {
+    membershipResponse = { data: null }
+
+    const response = await callGet(ORG_ID)
+
+    expect(response.status).toBe(403)
+  })
 })
 
 describe('POST /api/ai-config', () => {
