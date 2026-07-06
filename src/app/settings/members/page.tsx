@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { ArrowLeft, CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass, Copy, ArrowClockwise, X } from '@phosphor-icons/react'
-import Link from 'next/link'
+import { CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass, Copy, ArrowClockwise, X } from '@phosphor-icons/react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 
@@ -52,6 +52,7 @@ const ORG_ROLE_OPTIONS = [
 ]
 
 export default function MembersSettingsPage() {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const { orgId, role, loading: orgLoading } = useCurrentOrg()
   const { user, loading: userLoading } = useCurrentUser()
   const [members, setMembers] = useState<MemberRow[]>([])
@@ -199,7 +200,14 @@ export default function MembersSettingsPage() {
 
   const handleRemoveMember = async (userId: string) => {
     if (!isOwner || userId === user?.id || !orgId) return
-    if (!confirm('このメンバーを組織から削除しますか？')) return
+    const target = members.find((m) => m.user_id === userId)
+    const ok = await confirm({
+      title: 'メンバーを削除',
+      message: `${target?.display_name || 'このメンバー'}を組織から削除しますか？この操作は取り消せません。`,
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     const prevMembers = members
     // Optimistic update
@@ -283,7 +291,14 @@ export default function MembersSettingsPage() {
 
   const handleCancelInvite = async (inviteId: string) => {
     if (!isOwner) return
-    if (!confirm('この招待を取り消しますか？')) return
+    const target = pendingInvites.find((i) => i.id === inviteId)
+    const ok = await confirm({
+      title: '招待を取り消し',
+      message: `${target?.email || 'この招待'}への招待を取り消しますか？`,
+      confirmLabel: '取り消す',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     setPendingInviteActionId(inviteId)
     try {
@@ -344,15 +359,11 @@ export default function MembersSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {ConfirmDialog}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">メンバー管理</h1>
               <p className="text-sm text-gray-500">組織のメンバー一覧と管理</p>

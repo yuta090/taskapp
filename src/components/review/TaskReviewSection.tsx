@@ -366,7 +366,7 @@ export function TaskReviewSection({
                   {approval.state === 'approved'
                     ? '承認'
                     : approval.state === 'blocked'
-                    ? '差戻'
+                    ? '差し戻し'
                     : '未対応'}
                 </span>
               </div>
@@ -430,7 +430,7 @@ export function TaskReviewSection({
                       className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50 transition-colors"
                     >
                       <XCircle weight="bold" />
-                      差戻
+                      差し戻し
                     </button>
                   </div>
                 ) : (

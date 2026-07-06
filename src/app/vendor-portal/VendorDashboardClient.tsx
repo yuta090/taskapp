@@ -36,7 +36,7 @@ export function VendorDashboardClient({
           <div className="bg-white border border-gray-200 rounded-xl p-5">
             <div className="text-xs text-gray-500 mb-1">自社対応中</div>
             <div className="text-3xl font-bold text-indigo-600">{stats.vendorBall}</div>
-            <div className="text-xs text-gray-400 mt-1">ボールが自社にあるタスク</div>
+            <div className="text-xs text-gray-400 mt-1">自社の対応待ちのタスク</div>
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-5">
             <div className="text-xs text-gray-500 mb-1">代理店対応中</div>

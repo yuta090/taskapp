@@ -8,9 +8,19 @@ interface ErrorFallbackProps {
   error: Error & { digest?: string }
   reset: () => void
   variant?: 'full' | 'inline'
+  /** Where the "back" link goes. Defaults to the marketing home page. */
+  backHref?: string
+  /** Label for the "back" link. Defaults to "ホームに戻る". */
+  backLabel?: string
 }
 
-export function ErrorFallback({ error, reset, variant = 'full' }: ErrorFallbackProps) {
+export function ErrorFallback({
+  error,
+  reset,
+  variant = 'full',
+  backHref = '/',
+  backLabel = 'ホームに戻る',
+}: ErrorFallbackProps) {
   useEffect(() => {
     console.error('[ErrorBoundary]', error)
   }, [error])
@@ -36,12 +46,12 @@ export function ErrorFallback({ error, reset, variant = 'full' }: ErrorFallbackP
           再試行
         </button>
         <Link
-          href="/"
+          href={backHref}
           className="text-sm text-indigo-600 hover:underline"
         >
           <span className="inline-flex items-center gap-1">
             <House size={14} aria-hidden="true" />
-            ホームに戻る
+            {backLabel}
           </span>
         </Link>
       </div>

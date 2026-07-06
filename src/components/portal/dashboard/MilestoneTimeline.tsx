@@ -51,13 +51,13 @@ export function MilestoneTimeline({ milestones, className = '' }: MilestoneTimel
                     </span>
                     {isCurrent && (
                       <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium border border-indigo-100">
-                        NOW
+                        現在
                       </span>
                     )}
                   </div>
                 </div>
               </div>
-              <span className="text-xs text-gray-400 font-mono font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="text-xs text-gray-400 font-mono font-medium">
                 {formatDate(milestone.dueDate)}
               </span>
             </div>

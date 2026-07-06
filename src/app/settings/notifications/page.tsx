@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { ArrowLeft, Bell, BellSlash, Envelope, CircleNotch, Check } from '@phosphor-icons/react'
+import { Bell, BellSlash, Envelope, CircleNotch, Check } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
+import { SettingsBackButton } from '@/components/shared'
 
 interface NotificationSettings {
   email_enabled: boolean
@@ -130,13 +131,7 @@ export default function NotificationSettingsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              aria-label="戻る"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" aria-hidden="true" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">通知設定</h1>
               <p className="text-sm text-gray-500">ブラウザ通知とメール通知の設定</p>

@@ -262,7 +262,7 @@ function FollowUpRow({
   )
 }
 
-function MilestoneProgressSection({
+export function MilestoneProgressSection({
   milestones,
   tasks,
   forecasts,
@@ -306,7 +306,13 @@ function MilestoneProgressSection({
                   {dueStr && (
                     <span className="text-[10px] text-gray-400">{dueStr}</span>
                   )}
-                  {forecast && riskBadge(forecast.level)}
+                  {total === 0 ? (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
+                      タスクなし
+                    </span>
+                  ) : (
+                    forecast && riskBadge(forecast.level)
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">

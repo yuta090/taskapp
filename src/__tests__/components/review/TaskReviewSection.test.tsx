@@ -231,3 +231,35 @@ describe('TaskReviewSection — レビューを取り消す (S5)', () => {
     expect(screen.queryByText('社内承認待ち')).not.toBeInTheDocument()
   })
 })
+
+describe('TaskReviewSection — 「差戻」→「差し戻し」表記統一 (A6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'editor' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+    ]
+  })
+
+  it('レビュアーごとの状態バッジが「差し戻し」を使う（旧: 差戻）', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'changes_requested', created_by: 'u1' },
+      [{ id: 'a1', reviewer_id: 'i1', state: 'blocked', blocked_reason: '修正してください' }]
+    )
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+
+    await waitFor(() => expect(screen.getAllByText('差し戻し').length).toBeGreaterThanOrEqual(2))
+    expect(screen.queryByText('差戻')).not.toBeInTheDocument()
+  })
+
+  it('レビュアー自身の差し戻しアクションボタンが「差し戻し」を使う（旧: 差戻）', async () => {
+    mockReviewWith(
+      { id: 'r1', status: 'open', created_by: 'i1' },
+      [{ id: 'a1', reviewer_id: 'u1', state: 'pending' }]
+    )
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+
+    await waitFor(() => expect(screen.getByText('差し戻し')).toBeInTheDocument())
+    expect(screen.queryByText('差戻')).not.toBeInTheDocument()
+  })
+})
