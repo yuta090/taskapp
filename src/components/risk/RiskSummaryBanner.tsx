@@ -26,7 +26,7 @@ export function RiskSummaryBanner({
     <Link
       href={href}
       data-testid="risk-summary-banner"
-      className="flex items-center gap-2 px-5 py-1.5 bg-red-50 border-b border-red-100 text-xs text-red-700 hover:bg-red-100 transition-colors"
+      className="flex items-center gap-2 px-4 md:px-5 py-1.5 bg-red-50 border-b border-red-100 text-xs text-red-700 hover:bg-red-100 transition-colors"
     >
       <Warning weight="fill" className="w-3.5 h-3.5 flex-shrink-0" />
       <div className="flex items-center gap-3 flex-1 min-w-0">
