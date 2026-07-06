@@ -21,7 +21,7 @@ vi.mock('@/lib/supabase/server', () => ({
   ),
 }))
 
-const deleteEqEqMock = vi.fn(() => Promise.resolve({ error: null }))
+const deleteEqEqMock = vi.fn(() => Promise.resolve({ error: null as { message: string } | null }))
 const deleteEqMock = vi.fn(() => ({ eq: deleteEqEqMock }))
 const deleteMock = vi.fn(() => ({ eq: deleteEqMock }))
 

@@ -37,7 +37,7 @@ vi.mock('next/navigation', () => ({
   notFound: () => notFoundMock(),
 }))
 
-const fetchPortalDashboardDataMock = vi.fn(() =>
+const fetchPortalDashboardDataMock = vi.fn((..._args: unknown[]) =>
   Promise.resolve({
     health: { status: 'on_track', reason: '', nextMilestone: undefined },
     alert: { overdueCount: 0, nextDueDate: null },

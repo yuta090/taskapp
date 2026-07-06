@@ -249,8 +249,8 @@ describe('GanttChart initial scroll position (今日にセンタリング)', () 
   beforeEach(() => {
     scrollCalls = []
     // jsdom doesn't implement Element.scrollTo
-    Element.prototype.scrollTo = function (arg: ScrollToOptions) {
-      scrollCalls.push({ el: this as Element, arg })
+    Element.prototype.scrollTo = function (this: Element, arg: ScrollToOptions) {
+      scrollCalls.push({ el: this, arg })
     } as typeof Element.prototype.scrollTo
   })
 

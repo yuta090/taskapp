@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server'
  * secret or without VAPID configured.
  */
 
-const sendNotificationMock = vi.fn(() => Promise.resolve())
+const sendNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 const setVapidDetailsMock = vi.fn()
 vi.mock('web-push', () => ({
   default: {
