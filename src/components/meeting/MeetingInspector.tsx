@@ -13,8 +13,10 @@ import {
   CheckCircle,
   CircleNotch,
   ArrowSquareOut,
+  Trash,
 } from '@phosphor-icons/react'
-import { AmberBadge } from '@/components/shared'
+import { AmberBadge, useConfirmDialog } from '@/components/shared'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 import type { MinutesPreviewResult, ParseMinutesResult } from '@/lib/hooks/useMeetings'
 
@@ -24,6 +26,8 @@ interface MeetingInspectorProps {
   onClose: () => void
   onStart?: () => void
   onEnd?: () => void
+  /** C2: 会議と議事録を削除する。日程調整に紐づく場合は失敗する */
+  onDelete?: () => Promise<void>
   /** AT-005/#87: 議事録から SPEC 行のタスク化候補をプレビュー（生成はしない） */
   onPreviewMinutes?: (meetingId: string, minutesMd: string) => Promise<MinutesPreviewResult>
   /** AT-005/#87: 議事録の未処理 SPEC 行をタスク化して結果を返す */
@@ -38,6 +42,7 @@ export function MeetingInspector({
   onClose,
   onStart,
   onEnd,
+  onDelete,
   onPreviewMinutes,
   onCreateTasks,
 }: MeetingInspectorProps) {
@@ -49,6 +54,15 @@ export function MeetingInspector({
   const [creating, setCreating] = useState(false)
   const [createResult, setCreateResult] = useState<ParseMinutesResult | null>(null)
   const [taskError, setTaskError] = useState<string | null>(null)
+
+  // C2: 会議削除
+  const { confirm, ConfirmDialog } = useConfirmDialog()
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // C1: 参加者の user_id を表示名に解決（未解決時もUUIDは出さない）
+  const { members } = useSpaceMembers(meeting.space_id)
+  const resolveParticipantName = (userId: string): string =>
+    members.find((m) => m.id === userId)?.displayName || 'メンバー'
 
   const clientParticipants = participants.filter((p) => p.side === 'client')
   const internalParticipants = participants.filter((p) => p.side === 'internal')
@@ -91,6 +105,23 @@ export function MeetingInspector({
     }
   }, [activeTab, meeting.id, meeting.minutes_md, onPreviewMinutes, createResult])
 
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: '会議を削除',
+      message: 'この会議と議事録は完全に削除されます。この操作は取り消せません。',
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
+    setIsDeleting(true)
+    try {
+      await onDelete?.()
+      onClose()
+    } catch {
+      setIsDeleting(false)
+    }
+  }
+
   const handleTaskify = async () => {
     if (!onCreateTasks || !meeting.minutes_md) return
     setCreating(true)
@@ -108,19 +139,33 @@ export function MeetingInspector({
 
   return (
     <div className="h-full flex flex-col bg-white">
+      {ConfirmDialog}
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
         <h2 className="text-sm font-medium text-gray-900 truncate">
           会議詳細
         </h2>
-        <button
-          onClick={onClose}
-          data-testid="meeting-inspector-close"
-          className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-          aria-label="会議詳細を閉じる"
-        >
-          <X className="text-lg" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              data-testid="meeting-inspector-delete"
+              className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600 disabled:opacity-50"
+              title="会議を削除"
+            >
+              <Trash className="text-lg" />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            data-testid="meeting-inspector-close"
+            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            aria-label="会議詳細を閉じる"
+          >
+            <X className="text-lg" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -212,7 +257,7 @@ export function MeetingInspector({
                   <div className="space-y-1">
                     {clientParticipants.map((p) => (
                       <div key={p.id} className="text-sm text-gray-700">
-                        {p.user_id}
+                        {resolveParticipantName(p.user_id)}
                       </div>
                     ))}
                   </div>
@@ -225,7 +270,7 @@ export function MeetingInspector({
                   <div className="space-y-1">
                     {internalParticipants.map((p) => (
                       <div key={p.id} className="text-sm text-gray-700">
-                        {p.user_id}
+                        {resolveParticipantName(p.user_id)}
                       </div>
                     ))}
                   </div>
@@ -382,7 +427,7 @@ export function MeetingInspector({
             ) : (
               <div className="text-center py-10 text-gray-400">
                 <FileText className="text-4xl mx-auto mb-2 opacity-50" />
-                <p className="text-sm">議事録はありません</p>
+                <p className="text-sm">議事録はまだありません。会議終了後にここに表示されます。</p>
               </div>
             )}
           </div>
