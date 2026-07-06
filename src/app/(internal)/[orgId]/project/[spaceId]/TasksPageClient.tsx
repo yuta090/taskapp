@@ -334,7 +334,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         result = tasks.filter((task) => task.status === 'backlog')
         break
       case 'client_wait':
-        result = tasks.filter((task) => task.ball === 'client')
+        result = tasks.filter((task) => task.ball === 'client' && task.status !== 'done')
         break
       case 'client_origin':
         result = tasks.filter((task) => task.origin === 'client')

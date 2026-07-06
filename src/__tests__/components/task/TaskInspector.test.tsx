@@ -157,3 +157,18 @@ describe('TaskInspector — client_scope 編集と ball=client 不変条件', ()
     expect(screen.getByText('公開中')).toBeInTheDocument()
   })
 })
+
+describe('TaskInspector — ボールの説明を常時表示 (A3)', () => {
+  it('ボールラベルの下に補足説明テキストが常時表示される（title属性だけに頼らない）', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(
+      screen.getByText('次にアクションを取る側。外部=クライアントの対応待ち')
+    ).toBeInTheDocument()
+  })
+})

@@ -53,7 +53,7 @@ export function MilestoneGroupHeader({
       {/* Due date - right after title */}
       {formattedDueDate && (
         <span className="text-xs text-gray-400 tabular-nums">
-          {formattedDueDate}
+          期日 {formattedDueDate}
         </span>
       )}
 

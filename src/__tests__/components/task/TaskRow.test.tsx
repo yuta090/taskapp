@@ -70,6 +70,26 @@ describe('TaskRow — 用語統一 (M-1, M-3)', () => {
     render(<TaskRow task={makeTask({ status: 'in_review' })} onClick={vi.fn()} />)
     expect(screen.getByText('社内承認を依頼')).toBeInTheDocument()
   })
+
+  it('reviewStatus=changes_requested のバッジは「差し戻し」を使う（A6）', () => {
+    render(<TaskRow task={makeTask()} reviewStatus="changes_requested" />)
+    expect(screen.getByText('差し戻し')).toBeInTheDocument()
+    expect(screen.queryByText('差戻')).not.toBeInTheDocument()
+  })
+})
+
+describe('TaskRow — SPECバッジの説明ツールチップ (A5)', () => {
+  it('type=spec のとき、SPECバッジにツールチップの説明文が付く', () => {
+    render(<TaskRow task={makeTask({ type: 'spec' })} />)
+    expect(screen.getByText('SPEC')).toBeInTheDocument()
+    expect(screen.getByText('仕様タスク: 決定が必要な仕様に紐づくタスク')).toBeInTheDocument()
+  })
+
+  it('type=task のときはSPECバッジもツールチップも表示しない', () => {
+    render(<TaskRow task={makeTask({ type: 'task' })} />)
+    expect(screen.queryByText('SPEC')).not.toBeInTheDocument()
+    expect(screen.queryByText('仕様タスク: 決定が必要な仕様に紐づくタスク')).not.toBeInTheDocument()
+  })
 })
 
 describe('TaskRow — 取消済みレビュー (cancelled)', () => {
@@ -77,7 +97,7 @@ describe('TaskRow — 取消済みレビュー (cancelled)', () => {
     render(<TaskRow task={makeTask()} reviewStatus="cancelled" />)
     expect(screen.queryByText('社内承認待ち')).not.toBeInTheDocument()
     expect(screen.queryByText('社内承認済み')).not.toBeInTheDocument()
-    expect(screen.queryByText('差戻')).not.toBeInTheDocument()
+    expect(screen.queryByText('差し戻し')).not.toBeInTheDocument()
   })
 
   it('in_review かつ reviewStatus=cancelled なら「社内承認を依頼」クイックアクションを出す', () => {
@@ -85,6 +105,18 @@ describe('TaskRow — 取消済みレビュー (cancelled)', () => {
       <TaskRow task={makeTask({ status: 'in_review' })} reviewStatus="cancelled" onClick={vi.fn()} />
     )
     expect(screen.getByText('社内承認を依頼')).toBeInTheDocument()
+  })
+})
+
+describe('TaskRow — 完了タスクの確認待ちバッジ除外 (A1)', () => {
+  it('status=done かつ ball=client のときは「クライアント確認待ち」バッジを表示しない', () => {
+    render(<TaskRow task={makeTask({ ball: 'client', status: 'done' })} />)
+    expect(screen.queryByText('クライアント確認待ち')).not.toBeInTheDocument()
+  })
+
+  it('status!=done かつ ball=client のときは引き続きバッジを表示する', () => {
+    render(<TaskRow task={makeTask({ ball: 'client', status: 'in_progress' })} />)
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
   })
 })
 
