@@ -236,8 +236,11 @@ export function GanttHeader({
         />
       )}
 
-      {/* Date header */}
-      <div className="relative overflow-hidden">
+      {/* Date header. Must lay out at the SVG's full width (flex-shrink-0):
+          with overflow-hidden it collapsed to the visible width, so the parent
+          scroller had nothing to scroll and the dates could never follow the
+          chart's horizontal position. */}
+      <div className="relative flex-shrink-0">
         <svg
           ref={svgRef}
           width={totalWidth}

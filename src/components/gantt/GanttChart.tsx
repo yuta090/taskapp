@@ -300,10 +300,16 @@ export function GanttChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Sync vertical scroll between sidebar and chart
+  // Sync vertical scroll between sidebar and chart. Attached to the date
+  // header scroller, so also mirror horizontal position back to the chart
+  // body — without this, scrolling the header by hand desyncs the dates
+  // from the bars (body→header sync alone is one-way).
   const handleChartScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (sidebarRef.current) {
       sidebarRef.current.scrollTop = e.currentTarget.scrollTop
+    }
+    if (chartBodyRef.current && chartBodyRef.current.scrollLeft !== e.currentTarget.scrollLeft) {
+      chartBodyRef.current.scrollLeft = e.currentTarget.scrollLeft
     }
   }, [])
 
