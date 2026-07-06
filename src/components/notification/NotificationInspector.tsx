@@ -62,6 +62,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
   switch (type) {
     case 'review_request':
       return <Eye className={`${iconClass} text-blue-500`} />
+    case 'review_cancelled':
+      return <XCircle className={`${iconClass} text-gray-500`} />
     case 'client_question':
     case 'client_feedback':
       return <ChatCircleText className={`${iconClass} text-amber-500`} />
@@ -92,6 +94,7 @@ function getNotificationIcon(type: string, urgent?: boolean) {
 function getNotificationTypeLabel(type: string): string {
   switch (type) {
     case 'review_request': return '社内承認依頼'
+    case 'review_cancelled': return 'レビュー取消'
     case 'client_question': return '外部からの質問'
     case 'client_feedback': return '外部からのフィードバック'
     case 'task_assigned': return 'タスク割り当て'
