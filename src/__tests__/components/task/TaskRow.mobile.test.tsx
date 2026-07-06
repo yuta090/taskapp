@@ -67,3 +67,15 @@ describe('TaskRow — モバイル行 (PR3)', () => {
     expect(onClick).toHaveBeenCalledWith('t1')
   })
 })
+
+describe('TaskRow — モバイル: 完了タスクの確認待ちバッジ除外 (A1)', () => {
+  it('status=done かつ ball=client のときは「クライアント確認待ち」バッジを表示しない', () => {
+    render(<TaskRow task={{ ...baseTask, status: 'done' }} isMobile />)
+    expect(screen.queryByText('クライアント確認待ち')).not.toBeInTheDocument()
+  })
+
+  it('status!=done かつ ball=client のときは引き続きバッジを表示する', () => {
+    render(<TaskRow task={{ ...baseTask, status: 'in_progress' }} isMobile />)
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
+  })
+})

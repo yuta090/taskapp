@@ -268,7 +268,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
                 {formattedDueDate}
               </span>
             )}
-            {task.ball === 'client' && (
+            {task.ball === 'client' && task.status !== 'done' && (
               <span className="flex-shrink-0"><BallIndicator ball={task.ball} waitingDays={clientWaitingDays} /></span>
             )}
             {task.origin === 'client' && (
@@ -282,11 +282,13 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
                   : reviewStatus === 'changes_requested' ? 'bg-red-50 text-red-700'
                   : 'bg-amber-50 text-amber-700'
               }`}>
-                {reviewStatus === 'approved' ? '社内承認済み' : reviewStatus === 'changes_requested' ? '差戻' : '社内承認待ち'}
+                {reviewStatus === 'approved' ? '社内承認済み' : reviewStatus === 'changes_requested' ? '差し戻し' : '社内承認待ち'}
               </span>
             )}
             {task.type === 'spec' && (
-              <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">SPEC</span>
+              <Tooltip content="仕様タスク: 決定が必要な仕様に紐づくタスク">
+                <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">SPEC</span>
+              </Tooltip>
             )}
             {assigneeName && (
               <span
@@ -405,9 +407,11 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
         {/* Spec task badge */}
         {task.type === 'spec' && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
-            SPEC
-          </span>
+          <Tooltip content="仕様タスク: 決定が必要な仕様に紐づくタスク">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
+              SPEC
+            </span>
+          </Tooltip>
         )}
 
         {/* Sample task badge (preset-seeded, not client-visible → gray, not amber) */}
@@ -448,7 +452,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
             {reviewStatus === 'approved'
               ? '社内承認済み'
               : reviewStatus === 'changes_requested'
-              ? '差戻'
+              ? '差し戻し'
               : '社内承認待ち'}
           </span>
         )}
@@ -491,9 +495,11 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       )}
 
       {/* Ball indicator */}
-      <div className="flex-shrink-0 row-meta" data-walkthrough="task-row-ball">
-        <BallIndicator ball={task.ball} waitingDays={clientWaitingDays} />
-      </div>
+      {task.status !== 'done' && (
+        <div className="flex-shrink-0 row-meta" data-walkthrough="task-row-ball">
+          <BallIndicator ball={task.ball} waitingDays={clientWaitingDays} />
+        </div>
+      )}
 
       {/* Hover actions */}
       <div className="hidden row-actions items-center gap-1">

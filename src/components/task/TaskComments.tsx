@@ -221,7 +221,7 @@ export function TaskComments({
   } = useTaskComments({ orgId, spaceId, taskId, clientOnly })
 
   const [newComment, setNewComment] = useState('')
-  const [visibility, setVisibility] = useState<CommentVisibility>('client')
+  const [visibility, setVisibility] = useState<CommentVisibility>('internal')
   const [isSending, setIsSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commentsEndRef = useRef<HTMLDivElement>(null)

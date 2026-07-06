@@ -701,6 +701,9 @@ export function TaskInspector({
                 </span>
               </button>
             </div>
+            <p className="text-[10px] text-gray-500">
+              次にアクションを取る側。外部=クライアントの対応待ち
+            </p>
           </div>
         </div>
 
