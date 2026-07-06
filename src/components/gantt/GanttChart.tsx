@@ -657,10 +657,14 @@ export function GanttChart({
         </div>
 
         <div className="flex-1 overflow-hidden">
+          {/* Programmatically-scrolled only (mirrors the chart body). Must NOT
+              be user-scrollable or smooth-scrolled: the body↔header mirroring
+              would feed smooth-animation intermediate values back and forth,
+              pinning both near 0 (seen in prod with scrollBehavior smooth). */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto overflow-y-hidden"
-            style={{ scrollBehavior: 'smooth' }}
+            data-testid="gantt-header-scroller"
+            className="overflow-x-hidden overflow-y-hidden"
             onScroll={handleChartScroll}
           >
             <GanttHeader
@@ -838,8 +842,9 @@ export function GanttChart({
           className="flex-1 overflow-scroll gantt-scroll"
           style={{ cursor: isPanning ? 'grabbing' : undefined }}
           onScroll={(e) => {
-            if (scrollContainerRef.current) {
-              scrollContainerRef.current.scrollLeft = e.currentTarget.scrollLeft
+            const header = scrollContainerRef.current
+            if (header && header.scrollLeft !== e.currentTarget.scrollLeft) {
+              header.scrollLeft = e.currentTarget.scrollLeft
             }
             if (sidebarRef.current) {
               sidebarRef.current.scrollTop = e.currentTarget.scrollTop

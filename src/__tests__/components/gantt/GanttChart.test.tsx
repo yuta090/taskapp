@@ -277,7 +277,9 @@ describe('GanttChart initial scroll position (今日にセンタリング)', () 
   it('mirrors the auto-scroll to the date header scroller', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    const headerCalls = scrollCalls.filter((c) => c.el.className.includes('overflow-x-auto'))
+    const headerCalls = scrollCalls.filter(
+      (c) => (c.el as HTMLElement).dataset?.testid === 'gantt-header-scroller'
+    )
     expect(headerCalls).toHaveLength(1)
     expect(headerCalls[0].arg).toEqual(expect.objectContaining({ behavior: 'auto' }))
   })
@@ -288,8 +290,12 @@ describe('GanttChart initial scroll position (今日にセンタリング)', () 
     // dates could then never follow the chart position.
     const { container } = render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    const headerScroller = container.querySelector('.overflow-x-auto')
+    const headerScroller = container.querySelector('[data-testid="gantt-header-scroller"]')
     expect(headerScroller).not.toBeNull()
+    // Programmatic-only scroller: never user-scrollable, never smooth
+    // (smooth + bidirectional mirroring feedback-loops both panes to ~0).
+    expect(headerScroller!.className).not.toContain('overflow-x-auto')
+    expect((headerScroller as HTMLElement).style.scrollBehavior).not.toBe('smooth')
     const dateWrapper = headerScroller!.querySelector('.relative')
     expect(dateWrapper).not.toBeNull()
     expect(dateWrapper!.className).toContain('flex-shrink-0')
