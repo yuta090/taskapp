@@ -98,6 +98,13 @@ describe('GET /api/invites/pending', () => {
     expect(malformed.status).toBe(400)
   })
 
+  it('accepts non-v4 but well-formed UUIDs (demo org id regression)', async () => {
+    // v4限定regexがデモ組織ID(非v4)を400で弾いていた回帰テスト
+    const response = await callGet('00000000-0000-0000-0000-000000000001')
+
+    expect(response.status).toBe(200)
+  })
+
   it('returns 403 when the caller is not the org owner', async () => {
     orgMembershipResponse = { data: { role: 'member' } }
 

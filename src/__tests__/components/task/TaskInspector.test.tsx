@@ -159,6 +159,31 @@ describe('TaskInspector — client_scope 編集と ball=client 不変条件', ()
   })
 })
 
+describe('TaskInspector — 完了タスクの「クライアント確認待ち」バッジ抑止', () => {
+  // TaskRow側は #172 で status=done を除外済み。インスペクタ側の取り残し回帰テスト。
+  it('status=done かつ ball=client のときバッジを表示しない', () => {
+    renderInspector({
+      task: makeTask({ ball: 'client', status: 'done', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(screen.queryByText('クライアント確認待ち')).not.toBeInTheDocument()
+  })
+
+  it('status!=done かつ ball=client のときは引き続きバッジを表示する', () => {
+    renderInspector({
+      task: makeTask({ ball: 'client', status: 'in_progress', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
+  })
+})
+
 describe('TaskInspector — ボールの説明を常時表示 (A3)', () => {
   it('ボールラベルの下に補足説明テキストが常時表示される（title属性だけに頼らない）', () => {
     renderInspector({
