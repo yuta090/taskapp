@@ -15,6 +15,7 @@ import {
   ChatCircleText,
   Notebook,
   BookOpen,
+  FolderOpen,
   SquaresFour,
   Gear,
   SignOut,
@@ -728,6 +729,14 @@ function SpaceNavItem({
             icon={<BookOpen />}
             label="Wiki"
             active={isActive(`${basePath}/wiki`, pathname.includes(`/project/${space.id}/wiki`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}/files`}
+            icon={<FolderOpen />}
+            label="ファイル"
+            active={isActive(`${basePath}/files`, pathname.includes(`/project/${space.id}/files`))}
             collapsed={collapsed}
             onNavigate={onNavigate}
           />

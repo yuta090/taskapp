@@ -5,7 +5,7 @@ export interface PushNotificationRow {
   org_id: string
   space_id: string
   type: string
-  payload: { message?: string; task_id?: string; link?: string }
+  payload: { message?: string; task_id?: string; link?: string; uploader_name?: string; file_name?: string }
 }
 
 // Types whose payload carries an explicit `link` (no task_id) — the deep link
@@ -13,6 +13,7 @@ export interface PushNotificationRow {
 const LINK_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
   'scheduling_reminder',
   'scheduling_proposal_expired',
+  'file_uploaded',
 ])
 
 export type PushRecipientRole = 'client' | 'internal'
@@ -40,7 +41,11 @@ const TITLE_BY_TYPE: Record<string, string> = {
 const DEFAULT_TITLE = '新しい通知があります'
 
 export function buildPushMessage(n: PushNotificationRow, role: PushRecipientRole): PushMessage {
-  const title = TITLE_BY_TYPE[n.type] ?? DEFAULT_TITLE
+  // file_uploaded has no fixed title — it needs the uploader/file name baked
+  // in, since a push notification must stand on its own outside the app.
+  const title = n.type === 'file_uploaded'
+    ? `${n.payload.uploader_name ?? 'クライアント'}さんが資料をアップロードしました: ${n.payload.file_name ?? 'ファイル'}`
+    : TITLE_BY_TYPE[n.type] ?? DEFAULT_TITLE
   const body = n.payload.message ?? ''
   const taskId = n.payload.task_id
 

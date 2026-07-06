@@ -341,7 +341,7 @@ describe('GET /api/scheduling/proposals', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authResponse = { data: { user: mockUser } }
-    membershipResponse = { data: { id: 'membership-1' }, error: null }
+    membershipResponse = { data: { id: 'membership-1', role: 'admin' }, error: null }
     proposalsListResponse = {
       data: [
         {
