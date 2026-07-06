@@ -273,4 +273,26 @@ describe('GanttChart initial scroll position (今日にセンタリング)', () 
 
     expect(scrollCalls).toHaveLength(initialCallCount)
   })
+
+  it('mirrors the auto-scroll to the date header scroller', () => {
+    render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    const headerCalls = scrollCalls.filter((c) => c.el.className.includes('overflow-x-auto'))
+    expect(headerCalls).toHaveLength(1)
+    expect(headerCalls[0].arg).toEqual(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('date header lays out at full width so the scroller can actually move it', () => {
+    // Regression: with overflow-hidden the date wrapper collapsed to the
+    // visible width, leaving the parent scroller nothing to scroll — the
+    // dates could then never follow the chart position.
+    const { container } = render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    const headerScroller = container.querySelector('.overflow-x-auto')
+    expect(headerScroller).not.toBeNull()
+    const dateWrapper = headerScroller!.querySelector('.relative')
+    expect(dateWrapper).not.toBeNull()
+    expect(dateWrapper!.className).toContain('flex-shrink-0')
+    expect(dateWrapper!.className).not.toContain('overflow-hidden')
+  })
 })
