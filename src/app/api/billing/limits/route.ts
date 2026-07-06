@@ -4,8 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
-// UUID v4 format validation
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+import { UUID_REGEX } from '@/lib/uuid'
 
 export async function GET(request: NextRequest) {
   try {
