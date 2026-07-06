@@ -556,7 +556,7 @@ export function TaskInspector({
               )}
             </div>
           )}
-          {task.ball === 'client' && (
+          {task.ball === 'client' && task.status !== 'done' && (
             <div className="mt-2">
               <Tooltip content="ONでクライアントのポータルに表示されます">
                 <AmberBadge>クライアント確認待ち</AmberBadge>

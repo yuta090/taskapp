@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       .from('scheduling_proposals')
       .select(`
         *,
-        proposal_slots (*),
+        proposal_slots!proposal_slots_proposal_id_fkey (*),
         proposal_respondents (id, user_id, side, is_required)
       `)
       .in('id', proposalIds)

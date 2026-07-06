@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+import { UUID_REGEX } from '@/lib/uuid'
 const VALID_RESPONSES = ['available', 'unavailable_but_proceed', 'unavailable']
 
 // POST: 回答送信（内部ユーザー用）
