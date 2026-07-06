@@ -63,6 +63,8 @@ interface UseMeetingsReturn {
   /** 選択された会議の詳細（minutes_md等）をオンデマンドで取得 */
   fetchMeetingDetail: (meetingId: string) => Promise<Meeting | null>
   createMeeting: (meeting: CreateMeetingInput) => Promise<Meeting>
+  /** C2: 会議と議事録を削除する。日程調整(scheduling_proposals)に紐づく場合はブロックする */
+  deleteMeeting: (meetingId: string) => Promise<void>
   startMeeting: (meetingId: string) => Promise<void>
   endMeeting: (meetingId: string) => Promise<{
     summary_subject: string
@@ -236,6 +238,53 @@ export function useMeetings({
     [orgId, spaceId, supabase, queryClient]
   )
 
+  // C2: 会議の削除。scheduling_proposals.confirmed_meeting_id → meetings は
+  // ON DELETE NO ACTION のため、紐づく日程調整が残っていると DELETE が失敗する。
+  // 事前にチェックしてブロックし、参照の付け替えはしない。
+  const deleteMeeting = useCallback(
+    async (meetingId: string): Promise<void> => {
+      const { data: linkedProposals, error: checkError } = await (supabase as SupabaseClient)
+        .from('scheduling_proposals')
+        .select('id')
+        .eq('confirmed_meeting_id', meetingId)
+        .limit(1)
+
+      if (checkError) throw checkError
+      if (linkedProposals && linkedProposals.length > 0) {
+        throw new Error('この会議は日程調整に紐づいているため削除できません')
+      }
+
+      // Capture previous state for rollback
+      const previousData = queryClient.getQueryData<MeetingsQueryData>(['meetings', spaceId])
+
+      // Optimistic update
+      queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], (old) => {
+        if (!old) return { meetings: [], participants: {} }
+        const nextParticipants = { ...old.participants }
+        delete nextParticipants[meetingId]
+        return {
+          meetings: old.meetings.filter((m) => m.id !== meetingId),
+          participants: nextParticipants,
+        }
+      })
+
+      try {
+        const { error: deleteError } = await (supabase as SupabaseClient)
+          .from('meetings')
+          .delete()
+          .eq('id', meetingId)
+
+        if (deleteError) throw deleteError
+      } catch (err) {
+        if (previousData) {
+          queryClient.setQueryData<MeetingsQueryData>(['meetings', spaceId], previousData)
+        }
+        throw err instanceof Error ? err : new Error('Failed to delete meeting')
+      }
+    },
+    [supabase, queryClient, spaceId]
+  )
+
   const startMeeting = useCallback(
     async (meetingId: string) => {
       // Capture previous state for rollback
@@ -403,6 +452,7 @@ export function useMeetings({
     fetchMeetings,
     fetchMeetingDetail,
     createMeeting,
+    deleteMeeting,
     startMeeting,
     endMeeting,
     parseMinutes,

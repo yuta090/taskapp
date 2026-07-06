@@ -24,6 +24,7 @@ vi.mock('@/lib/hooks/useMeetings', () => ({
     error: null,
     fetchMeetingDetail: vi.fn(),
     createMeeting: vi.fn(),
+    deleteMeeting: vi.fn(),
     startMeeting: vi.fn(),
     endMeeting: vi.fn(),
     parseMinutes: vi.fn(),

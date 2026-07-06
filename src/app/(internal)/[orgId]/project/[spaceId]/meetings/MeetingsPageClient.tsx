@@ -65,6 +65,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     error,
     fetchMeetingDetail,
     createMeeting,
+    deleteMeeting,
     startMeeting,
     endMeeting,
     parseMinutes,
@@ -245,6 +246,15 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             toast.error('会議の終了に失敗しました')
           }
         }}
+        onDelete={async () => {
+          try {
+            await deleteMeeting(selectedMeeting.id)
+            toast.success('会議を削除しました')
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : '会議の削除に失敗しました')
+            throw err
+          }
+        }}
         onPreviewMinutes={previewMinutes}
         onCreateTasks={async (meetingId, minutesMd) => {
           const result = await parseMinutes(meetingId, minutesMd)
@@ -257,7 +267,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
         }}
       />
     )
-  }, [endMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes])
+  }, [endMeeting, deleteMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes])
 
   // ---- Proposal inspector ----
   // Reset detail when switching proposals (prevents stale data flash)

@@ -7,6 +7,17 @@ import type { Meeting } from '@/types/database'
 // #87: 議事録タブから、決まった作業(SPEC行)をワンクリックでタスク化する導線。
 // バックエンド(parseMinutes/previewMinutes)は既存。ここでは UI 導線を検証する。
 
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({
+  useSpaceMembers: () => ({
+    members: [],
+    clientMembers: [],
+    internalMembers: [],
+    loading: false,
+    error: null,
+    getMemberName: (id: string) => id,
+  }),
+}))
+
 const MINUTES = [
   '# 定例MTG',
   '- [ ] SPEC(/spec/REVIEW_SPEC.md#a): レビュー観点を追記 (期限: 07/10, 担当: 田中)',
@@ -148,7 +159,7 @@ describe('MeetingInspector 議事録→タスク化 (#87)', () => {
     )
     openMinutesTab()
     expect(onPreviewMinutes).not.toHaveBeenCalled()
-    expect(screen.getByText('議事録はありません')).toBeTruthy()
+    expect(screen.getByText('議事録はまだありません。会議終了後にここに表示されます。')).toBeTruthy()
   })
 
   it('コールバック未提供でも従来通り議事録markdownを表示する（後方互換）', () => {
