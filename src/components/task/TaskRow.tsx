@@ -224,7 +224,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         className={`task-row group flex items-center gap-2.5 cursor-pointer h-16 ${selectionClass}`}
-        style={{ paddingLeft: indent ? 24 : 14, paddingRight: 6 }}
+        style={{ paddingLeft: indent ? 28 : 16, paddingRight: 14 }}
       >
         {/* Bulk selection checkbox (only in bulk mode on mobile) */}
         {onCheckChange && bulkMode && (

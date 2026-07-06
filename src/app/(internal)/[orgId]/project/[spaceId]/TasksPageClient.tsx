@@ -928,7 +928,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}
-        <div className="h-11 flex items-center px-5 border-b border-gray-50">
+        <div className="h-11 flex items-center px-4 md:px-5 border-b border-gray-50">
           <div className="flex items-center gap-2">
             {activeFilter === 'client_wait' ? (
               <ChatCircleText className="text-lg text-amber-500" />
@@ -959,7 +959,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         </div>
 
         {/* Bottom row: Filters + Sort — stacks into 2 rows on mobile (<md) */}
-        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 md:h-10">
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 px-4 md:px-5 py-2 md:py-0 md:h-10">
           {/* Filter tabs — horizontally scrollable on mobile */}
           <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5 w-full md:w-auto overflow-x-auto hide-scrollbar [&>button]:shrink-0 [&>button]:whitespace-nowrap">
             <button
