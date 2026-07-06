@@ -4,6 +4,7 @@ import { PortalFilesClient } from './PortalFilesClient'
 import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import { getClientProjects, resolveCurrentProject } from '@/lib/portal/getClientProjects'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ProjectFile } from '@/lib/hooks/useFiles'
 
 interface PageProps {
   searchParams: Promise<{ space?: string | string[] }>
@@ -40,11 +41,37 @@ export default async function PortalFilesPage({ searchParams }: PageProps) {
     redirect('/portal')
   }
 
-  // Get files (placeholder - would need a files table)
-  const files: { id: string; name: string; type: string; size: number; createdAt: string }[] = []
+  // 可視性はRLSに従う(client_visible=true または自分がアップロードしたファイルのみ)
+  const { data: fileRows } = await (supabase as SupabaseClient)
+    .from('files')
+    .select('id, name, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
+    .eq('space_id', spaceId)
+    .eq('status', 'ready')
+    .order('created_at', { ascending: false })
+
+  const files: ProjectFile[] = (fileRows || []).map((f: {
+    id: string
+    name: string
+    mime_type: string
+    size_bytes: number
+    origin: 'internal' | 'client'
+    client_visible: boolean
+    uploaded_by: string
+    created_at: string
+  }) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mime_type,
+    sizeBytes: f.size_bytes,
+    origin: f.origin,
+    clientVisible: f.client_visible,
+    uploadedBy: f.uploaded_by,
+    uploaderName: '',
+    createdAt: f.created_at,
+  }))
 
   // Get action count for sidebar badge
-   
+
   const { count: actionCount } = await (supabase as SupabaseClient)
     .from('tasks')
     .select('id', { count: 'exact', head: true })
@@ -57,6 +84,7 @@ export default async function PortalFilesPage({ searchParams }: PageProps) {
       currentProject={currentProject}
       projects={projects}
       files={files}
+      currentUserId={user.id}
       actionCount={actionCount || 0}
     />
   )
