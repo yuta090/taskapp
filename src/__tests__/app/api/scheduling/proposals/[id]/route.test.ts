@@ -19,7 +19,7 @@ let authResponse: { data: { user: typeof mockUser | null } }
 let proposalDetailResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
 let membershipResponse: { data: { id: string } | null; error: null }
 let profilesResponse: { data: Array<Record<string, unknown>> | null }
-let proposalPatchLookupResponse: { data: Record<string, unknown> | null }
+let proposalPatchLookupResponse: { data: Record<string, unknown> | null; error?: { message: string } | null }
 let updateResponse: { data: { id: string } | null; error: { message: string } | null }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
