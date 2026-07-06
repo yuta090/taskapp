@@ -260,10 +260,14 @@ export function GanttChart({
   const todayIndex = dates.findIndex((d) => isToday(d))
   const todayX = todayIndex >= 0 ? dateToX(new Date(), startDate, dayWidth) : null
 
+  // Horizontal scroll must target the chart body (chartBodyRef): its onScroll
+  // handler mirrors scrollLeft to the date header (scrollContainerRef), but
+  // there is no sync in the other direction, so scrolling the header alone
+  // moves nothing visible.
   const scrollToToday = () => {
-    if (scrollContainerRef.current && todayIndex >= 0) {
-      const scrollX = todayIndex * dayWidth - scrollContainerRef.current.clientWidth / 2
-      scrollContainerRef.current.scrollTo({ left: scrollX, behavior: 'smooth' })
+    if (chartBodyRef.current && todayIndex >= 0) {
+      const scrollX = todayIndex * dayWidth - chartBodyRef.current.clientWidth / 2
+      chartBodyRef.current.scrollTo({ left: scrollX, behavior: 'smooth' })
     }
   }
 
@@ -274,16 +278,23 @@ export function GanttChart({
   const hasAutoScrolledRef = useRef(false)
   useEffect(() => {
     if (hasAutoScrolledRef.current) return
-    const container = scrollContainerRef.current
+    const container = chartBodyRef.current
+    const header = scrollContainerRef.current
     if (!container || typeof container.scrollTo !== 'function') return
     hasAutoScrolledRef.current = true
 
+    let scrollX: number | null = null
     if (todayIndex >= 0) {
-      const scrollX = todayIndex * dayWidth - container.clientWidth / 2
-      container.scrollTo({ left: Math.max(0, scrollX), behavior: 'auto' })
+      scrollX = Math.max(0, todayIndex * dayWidth - container.clientWidth / 2)
     } else if (new Date() > endDate) {
       // Today is after the whole range (all-past project) - land on the right edge
-      container.scrollTo({ left: totalWidth, behavior: 'auto' })
+      scrollX = totalWidth
+    }
+    if (scrollX !== null) {
+      container.scrollTo({ left: scrollX, behavior: 'auto' })
+      // The body→header onScroll sync only fires on user scroll events in some
+      // browsers' programmatic-scroll timing; set the header directly too.
+      header?.scrollTo({ left: scrollX, behavior: 'auto' })
     }
     // Intentionally run once on mount only - see comment above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
