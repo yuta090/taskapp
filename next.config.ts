@@ -7,10 +7,10 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      // 静的LP: public/lp1/index.html を /lp1 で配信する
+      // 静的LP: public/lp<N>/index.html を /lp<N> で配信する（lp1=税理士, lp2=社労士, ...）
       {
-        source: "/lp1",
-        destination: "/lp1/index.html",
+        source: "/lp:id(\\d+)",
+        destination: "/lp:id/index.html",
       },
     ];
   },

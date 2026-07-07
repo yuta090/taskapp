@@ -19,11 +19,14 @@ const publicPaths = [
   '/privacy',
   '/terms',
   '/portal/email-action',
-  '/lp1', // 静的LP（public/lp1/index.html へ rewrite）
 ]
+
+// 静的LP: /lp1, /lp2, ... （public/lp<N>/index.html へ rewrite）。番号付きのみ公開
+const STATIC_LP_PATTERN = /^\/lp\d+(\/|$)/
 
 /** セグメント境界を考慮したパスマッチ（/privacy が /privacy-policy にマッチしない） */
 function isPublicPathMatch(pathname: string): boolean {
+  if (STATIC_LP_PATTERN.test(pathname)) return true
   return publicPaths.some(path => {
     if (path === '/') return pathname === '/'
     return pathname === path || pathname.startsWith(path + '/')
