@@ -204,6 +204,20 @@ describe('middleware — 保護パスの未認証ガード（回帰）', () => {
     expect(redirectPath(response)).toBeNull()
   })
 
+  it('静的LP /lp2 以降も番号付きLPは未認証で通す', async () => {
+    for (const path of ['/lp2', '/lp3', '/lp12']) {
+      const response = await middleware(makeRequest(path))
+      expect(redirectPath(response), path).toBeNull()
+    }
+  })
+
+  it('/lp（番号なし）や /lpx は公開扱いにしない', async () => {
+    for (const path of ['/lp', '/lpx', '/lp1abc']) {
+      const response = await middleware(makeRequest(path))
+      expect(redirectPath(response), path).toBe('/login')
+    }
+  })
+
   it('未認証で保護パス（クエリ付き）にアクセスすると redirect にクエリ文字列も保持する', async () => {
     const response = await middleware(makeRequest('/inbox?task=123&foo=bar'))
 
