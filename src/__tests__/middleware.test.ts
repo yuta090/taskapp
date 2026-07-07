@@ -198,6 +198,12 @@ describe('middleware — 保護パスの未認証ガード（回帰）', () => {
     expect(redirectPath(response)).toBeNull()
   })
 
+  it('静的LP /lp1 は未認証でも通す（rewrite先はpublic/lp1/index.html）', async () => {
+    const response = await middleware(makeRequest('/lp1'))
+
+    expect(redirectPath(response)).toBeNull()
+  })
+
   it('未認証で保護パス（クエリ付き）にアクセスすると redirect にクエリ文字列も保持する', async () => {
     const response = await middleware(makeRequest('/inbox?task=123&foo=bar'))
 

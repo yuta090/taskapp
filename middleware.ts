@@ -19,6 +19,7 @@ const publicPaths = [
   '/privacy',
   '/terms',
   '/portal/email-action',
+  '/lp1', // 静的LP（public/lp1/index.html へ rewrite）
 ]
 
 /** セグメント境界を考慮したパスマッチ（/privacy が /privacy-policy にマッチしない） */
