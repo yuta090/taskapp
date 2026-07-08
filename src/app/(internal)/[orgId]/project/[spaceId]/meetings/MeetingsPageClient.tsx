@@ -13,6 +13,7 @@ import { ProposalRow, ProposalInspector, ProposalCreateSheet } from '@/component
 import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 import type { Meeting } from '@/types/database'
+import { MEETING_QUERY_PARAM, PROPOSAL_QUERY_PARAM } from '@/lib/navigation/meetingLinks'
 
 interface MeetingsPageClientProps {
   orgId: string
@@ -83,8 +84,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   } = useSchedulingProposals({ orgId, spaceId })
 
   const projectBasePath = `/${orgId}/project/${spaceId}/meetings`
-  const selectedMeetingId = searchParams.get('meeting')
-  const selectedProposalId = searchParams.get('proposal')
+  const selectedMeetingId = searchParams.get(MEETING_QUERY_PARAM)
+  const selectedProposalId = searchParams.get(PROPOSAL_QUERY_PARAM)
 
   // Unified list: meetings + open/expired proposals
   const unifiedItems = useMemo(() => {
