@@ -54,3 +54,6 @@ scripts/.migration-apply.log
 
 # supabase CLI temp
 supabase/.temp/
+
+# Playwright MCP working dir
+.playwright-mcp/

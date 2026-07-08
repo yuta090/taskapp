@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -34,62 +35,60 @@ export default function InviteAcceptPage({
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null)
+  const [emailMismatch, setEmailMismatch] = useState(false)
 
-  const acceptInvite = useCallback(async (userId?: string) => {
+  const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
     setError('')
 
     try {
-      const supabase = createClient()
-
-      if (!userId) {
-        // 新規ユーザーの場合、まず登録
-        if (password.length < 8) {
-          setError('パスワードは8文字以上で入力してください')
-          setLoading(false)
-          return
-        }
-
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: inviteInfo!.email,
-          password,
-        })
-
-        if (authError) {
-          setError(authError.message)
-          setLoading(false)
-          return
-        }
-
-        if (!authData.user) {
-          setError('ユーザー作成に失敗しました')
-          setLoading(false)
-          return
-        }
-
-        userId = authData.user.id
-      }
-
-      // 招待を受諾
-      const { error: acceptError } = await (supabase as SupabaseClient).rpc('rpc_accept_invite', {
-        p_token: token,
-        p_user_id: userId,
-      })
-
-      if (acceptError) {
-        setError(acceptError.message)
+      if (!isAutoAccept && password.length < 8) {
+        setError('パスワードは8文字以上で入力してください')
         setLoading(false)
         return
       }
 
-      // リダイレクト（内部メンバー用）
-      router.push(`/${inviteInfo!.org_id}/project/${inviteInfo!.space_id}`)
+      // サーバーサイドで受諾（新規ユーザー作成はサーバー側で招待メールのアドレスを使って行う）
+      const response = await fetch(`/api/invites/${token}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: isAutoAccept ? undefined : JSON.stringify({ password }),
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || 'エラーが発生しました')
+        setLoading(false)
+        return
+      }
+
+      if (!isAutoAccept) {
+        const supabase = createClient()
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: data.email,
+          password,
+        })
+
+        if (signInError) {
+          setError(signInError.message)
+          setLoading(false)
+          return
+        }
+      }
+
+      // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）
+      if (data.role === 'client') {
+        router.push('/portal')
+      } else {
+        router.push(`/${data.org_id}/project/${data.space_id}`)
+      }
     } catch (err) {
       console.error('Accept error:', err)
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, inviteInfo, token, router])
+  }, [password, token, router])
 
   useEffect(() => {
     async function loadInvite() {
@@ -98,6 +97,7 @@ export default function InviteAcceptPage({
       // 現在のセッションを確認
       const { data: { session } } = await supabase.auth.getSession()
       setIsLoggedIn(!!session)
+      setSessionEmail(session?.user?.email ?? null)
 
       // 招待情報を取得
       const { data, error } = await (supabase as SupabaseClient).rpc('rpc_validate_invite', {
@@ -109,9 +109,14 @@ export default function InviteAcceptPage({
       } else {
         setInviteInfo(data)
 
-        // ログイン済みの場合は自動で受諾
+        // ログイン済みでも、招待宛先のアカウントである場合のみ自動受諾する
+        // （wrong-account join 防止。不一致ならアカウント切替を案内）
         if (session && data.valid) {
-          await acceptInvite(session.user.id)
+          if (shouldAutoAcceptInvite(session.user?.email, data.email)) {
+            await acceptInvite(true)
+          } else {
+            setEmailMismatch(true)
+          }
         }
       }
 
@@ -123,7 +128,7 @@ export default function InviteAcceptPage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await acceptInvite()
+    await acceptInvite(false)
   }
 
   if (checkingAuth) {
@@ -152,7 +157,7 @@ export default function InviteAcceptPage({
             </svg>
           </div>
           <p className="text-sm text-gray-600 mb-4">
-            プロジェクト担当者に再招待を依頼してください。
+            プロジェクト担当者に再招待を依頼してください。既に参加済みの場合はログインしてください。
           </p>
           <div className="flex flex-col gap-3">
             <a
@@ -176,6 +181,40 @@ export default function InviteAcceptPage({
     )
   }
 
+  // 別アカウントでログイン中（招待宛先とメール不一致）→ 切替を案内
+  if (isLoggedIn && emailMismatch) {
+    return (
+      <AuthCard
+        title="別のアカウントでログイン中です"
+        description="この招待は、現在ログイン中のアカウントとは別のメールアドレス宛です。"
+      >
+        <div className="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-800 space-y-1">
+          <p>
+            ログイン中: <strong>{sessionEmail}</strong>
+          </p>
+          <p>
+            招待の宛先: <strong>{inviteInfo.email}</strong>
+          </p>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          招待を受けるには、宛先のメールアドレスのアカウントに切り替えてください。
+        </p>
+        <AuthButton
+          type="button"
+          onClick={async () => {
+            const supabase = createClient()
+            await supabase.auth.signOut()
+            setIsLoggedIn(false)
+            setSessionEmail(null)
+            setEmailMismatch(false)
+          }}
+        >
+          ログアウトして招待を受ける
+        </AuthButton>
+      </AuthCard>
+    )
+  }
+
   // ログイン済みで処理中
   if (isLoggedIn && loading) {
     return (
@@ -190,20 +229,32 @@ export default function InviteAcceptPage({
     )
   }
 
+  // 既存ユーザーが未ログイン: パスワード検証に到達させず、ログインへ誘導する
+  if (inviteInfo.is_existing_user && !isLoggedIn) {
+    return (
+      <AuthCard title={`${inviteInfo.org_name} に招待されました`}>
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <p className="text-sm text-gray-600">
+            <strong>{inviteInfo.inviter_name || '管理者'}</strong> さんから
+            <br />
+            <strong>{inviteInfo.space_name}</strong> に招待されました。
+          </p>
+        </div>
+        <p className="mb-4 text-sm text-gray-600">
+          <strong>{inviteInfo.email}</strong> は既にアカウントをお持ちです。ログインして参加してください。
+        </p>
+        <AuthButton
+          type="button"
+          onClick={() => router.push(`/login?redirect=/invite/${token}`)}
+        >
+          ログインして参加
+        </AuthButton>
+      </AuthCard>
+    )
+  }
+
   return (
-    <AuthCard
-      title={`${inviteInfo.org_name} に招待されました`}
-      footer={
-        inviteInfo.is_existing_user && !isLoggedIn ? (
-          <>
-            すでにアカウントをお持ちの方は{' '}
-            <Link href={`/login?redirect=/invite/${token}`} className="text-amber-600 hover:text-amber-700 font-medium">
-              ログイン
-            </Link>
-          </>
-        ) : null
-      }
-    >
+    <AuthCard title={`${inviteInfo.org_name} に招待されました`}>
       <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
         <p className="text-sm text-gray-600">
           <strong>{inviteInfo.inviter_name || '管理者'}</strong> さんから

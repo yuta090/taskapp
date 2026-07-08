@@ -10,6 +10,8 @@ import {
   Eye,
 } from '@phosphor-icons/react'
 import { Breadcrumb, LoadingState, ErrorRetry } from '@/components/shared'
+import { buildTaskDeepLink } from '@/lib/taskLinks'
+import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useReviews } from '@/lib/hooks/useReviews'
@@ -17,6 +19,7 @@ import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskLevel } from '@/lib/risk/calculateRisk'
+import { buildMeetingHref } from '@/lib/navigation/meetingLinks'
 
 // -- Constants --
 
@@ -55,7 +58,8 @@ function classifyFollowUps(tasks: Task[]): ClientFollowUp[] {
   const items: ClientFollowUp[] = []
 
   for (const task of clientTasks) {
-    const staleDays = daysBetween(new Date(task.updated_at), now)
+    // Shared with TaskRow's "N日待ち" badge (B-4) so the two views can't disagree.
+    const staleDays = getClientWaitingDays(task.updated_at, now)
     const dueDaysLeft = task.due_date
       ? daysBetween(now, new Date(task.due_date))
       : null
@@ -101,12 +105,14 @@ function riskBadge(level: RiskLevel) {
     medium: 'bg-amber-100 text-amber-700',
     low: 'bg-green-100 text-green-700',
     none: 'bg-gray-100 text-gray-500',
+    unknown: 'bg-gray-100 text-gray-500',
   }
   const labels: Record<RiskLevel, string> = {
     high: '高リスク',
     medium: '中リスク',
     low: '低リスク',
     none: '完了',
+    unknown: 'データ待ち',
   }
   return (
     <span
@@ -233,7 +239,7 @@ function FollowUpRow({
   const isUrgent = item.level === 'urgent'
   return (
     <Link
-      href={`/${orgId}/project/${spaceId}?taskId=${item.task.id}`}
+      href={buildTaskDeepLink(orgId, spaceId, item.task.id)}
       className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
         isUrgent
           ? 'bg-red-50 hover:bg-red-100'
@@ -257,7 +263,7 @@ function FollowUpRow({
   )
 }
 
-function MilestoneProgressSection({
+export function MilestoneProgressSection({
   milestones,
   tasks,
   forecasts,
@@ -301,7 +307,13 @@ function MilestoneProgressSection({
                   {dueStr && (
                     <span className="text-[10px] text-gray-400">{dueStr}</span>
                   )}
-                  {forecast && riskBadge(forecast.level)}
+                  {total === 0 ? (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
+                      タスクなし
+                    </span>
+                  ) : (
+                    forecast && riskBadge(forecast.level)
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -412,7 +424,7 @@ function UpcomingDeadlinesSection({
             return (
               <Link
                 key={task.id}
-                href={`/${orgId}/project/${spaceId}?taskId=${task.id}`}
+                href={buildTaskDeepLink(orgId, spaceId, task.id)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors"
               >
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
@@ -463,7 +475,7 @@ function UpcomingMeetingsSection({
             return (
               <Link
                 key={m.id}
-                href={`/${orgId}/project/${spaceId}/meetings?meetingId=${m.id}`}
+                href={buildMeetingHref(`/${orgId}/project/${spaceId}`, m.id)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors"
               >
                 <span className="text-xs text-gray-500 flex-shrink-0 w-16">

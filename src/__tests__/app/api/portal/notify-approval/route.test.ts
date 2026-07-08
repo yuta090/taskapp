@@ -27,6 +27,8 @@ const mockTask = {
   ball: 'client' as const,
   estimate_status: 'approved',
   estimated_cost: null,
+  due_date: null as string | null,
+  description: null as string | null,
 }
 
 let authResponse: { data: { user: typeof mockUser | null } }
@@ -47,7 +49,7 @@ const tokenInsertMock = vi.fn(() => ({
 
 const tokenUpdateIsMock = vi.fn(() => Promise.resolve({ error: null }))
 
-const sendApprovalEmailMock = vi.fn(() => Promise.resolve())
+const sendApprovalEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 
 vi.mock('@/lib/email/approval', () => ({
   sendApprovalEmail: (...args: unknown[]) => sendApprovalEmailMock(...args),
@@ -256,6 +258,43 @@ describe('POST /api/portal/notify-approval', () => {
     expect(data.success).toBe(true)
     expect(tokenInsertMock).toHaveBeenCalledTimes(1)
     expect(sendApprovalEmailMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the task due date and a 120-character description excerpt to the approval email', async () => {
+    spaceMembershipResponse = { data: { role: 'editor' }, error: null }
+    taskResponse = {
+      data: {
+        ...mockTask,
+        due_date: '2026-07-10',
+        description: 'a'.repeat(200),
+      },
+      error: null,
+    }
+
+    const response = await callPost({ taskId: 'task-1', spaceId: 'space-1' })
+
+    expect(response.status).toBe(200)
+    expect(sendApprovalEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dueDate: '2026-07-10',
+        descriptionExcerpt: 'a'.repeat(120),
+      })
+    )
+  })
+
+  it('passes null due date/description excerpt when the task has none', async () => {
+    spaceMembershipResponse = { data: { role: 'editor' }, error: null }
+    taskResponse = { data: { ...mockTask, due_date: null, description: null }, error: null }
+
+    const response = await callPost({ taskId: 'task-1', spaceId: 'space-1' })
+
+    expect(response.status).toBe(200)
+    expect(sendApprovalEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dueDate: null,
+        descriptionExcerpt: null,
+      })
+    )
   })
 
   it('returns 404 without checking membership when the task does not exist', async () => {

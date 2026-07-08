@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { CheckCircle, Warning, SpinnerGap, ArrowRight } from '@phosphor-icons/react'
+import { APPROVE_BUTTON } from '@/lib/design/tokens'
 
 interface TaskData {
   id: string
@@ -80,11 +81,11 @@ export function EmailActionClient({ token }: { token: string }) {
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg text-white text-sm font-bold shadow-md mb-3">
+          <div className="inline-flex items-center justify-center w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg text-white text-sm font-semibold shadow-md mb-3">
             TA
           </div>
           <div className="text-sm text-gray-500">
-            {data?.orgName && `${data.orgName} / `}{data?.spaceName || 'TaskApp'}
+            {data?.orgName && `${data.orgName} / `}{data?.spaceName || 'AgentPM'}
           </div>
         </div>
 
@@ -131,7 +132,7 @@ function ReadyView({ data, onApprove }: { data: TokenData; onApprove: () => void
       <div className="p-6">
         <div className="text-center mb-4">
           <Warning size={40} className="text-amber-500 mx-auto mb-2" />
-          <h2 className="text-lg font-bold text-gray-900">状態が変更されました</h2>
+          <h2 className="text-lg font-semibold text-gray-900">状態が変更されました</h2>
         </div>
         <p className="text-sm text-gray-600 text-center mb-4">
           このタスクは既に対応済みか、状態が変更されています。
@@ -143,7 +144,7 @@ function ReadyView({ data, onApprove }: { data: TokenData; onApprove: () => void
 
   return (
     <div className="p-6">
-      <h2 className="text-lg font-bold text-gray-900 mb-4">
+      <h2 className="text-lg font-semibold text-gray-900 mb-4">
         {isEstimate ? '見積もりの確認' : '確認のお願い'}
       </h2>
 
@@ -154,7 +155,7 @@ function ReadyView({ data, onApprove }: { data: TokenData; onApprove: () => void
       {isEstimate && data.task.estimatedCost && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
           <div className="text-xs font-semibold text-amber-700 mb-1">見積もり金額</div>
-          <div className="text-2xl font-bold text-amber-900">
+          <div className="text-2xl font-semibold text-amber-900">
             {formatCurrency(data.task.estimatedCost)}
           </div>
         </div>
@@ -164,7 +165,7 @@ function ReadyView({ data, onApprove }: { data: TokenData; onApprove: () => void
       <button
         type="button"
         onClick={onApprove}
-        className="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors text-base shadow-sm"
+        className={`w-full py-3 px-4 ${APPROVE_BUTTON.solid} font-medium rounded-xl transition-colors text-base shadow-sm`}
       >
         {isEstimate ? '見積もりを承認する' : '承認する'}
       </button>
@@ -191,7 +192,7 @@ function SuccessView({ message }: { message: string }) {
   return (
     <div className="p-8 text-center">
       <CheckCircle size={48} weight="fill" className="text-emerald-500 mx-auto mb-3" />
-      <h2 className="text-lg font-bold text-gray-900 mb-1">{message}</h2>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">{message}</h2>
       <p className="text-sm text-gray-500">ありがとうございます。チームに通知されました。</p>
     </div>
   )
@@ -201,7 +202,7 @@ function ErrorView({ message }: { message: string }) {
   return (
     <div className="p-8 text-center">
       <Warning size={48} weight="fill" className="text-rose-500 mx-auto mb-3" />
-      <h2 className="text-lg font-bold text-gray-900 mb-1">エラー</h2>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">エラー</h2>
       <p className="text-sm text-gray-600 mb-4">{message}</p>
       <Link
         href="/portal"
@@ -218,7 +219,7 @@ function ExpiredView({ message }: { message: string }) {
   return (
     <div className="p-8 text-center">
       <Warning size={48} weight="fill" className="text-amber-500 mx-auto mb-3" />
-      <h2 className="text-lg font-bold text-gray-900 mb-1">リンク無効</h2>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">リンク無効</h2>
       <p className="text-sm text-gray-600 mb-4">{message}</p>
       <Link
         href="/portal"
@@ -235,7 +236,7 @@ function TaskCard({ title }: { title: string }) {
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6">
       <div className="text-xs font-semibold text-gray-500 mb-1">タスク</div>
-      <div className="text-base font-bold text-gray-900">{title}</div>
+      <div className="text-base font-semibold text-gray-900">{title}</div>
     </div>
   )
 }

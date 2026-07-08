@@ -335,8 +335,21 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
       {/* Views Tab Nav */}
       <ViewsTabNav orgId={orgId} spaceId={spaceId} activeView="gantt" />
 
-      {/* Content */}
-      <div className="flex-1 p-4 overflow-hidden">
+      {/* Mobile gate: Gantt editing is desktop-only (touch drag is out of scope) */}
+      <div className="md:hidden flex-1 flex items-center justify-center p-8">
+        <div className="max-w-xs text-center">
+          <SquaresFour className="text-4xl text-gray-300 mx-auto mb-3" />
+          <p className="text-sm font-medium text-gray-700 mb-1">
+            ガントチャートはPCでの表示を推奨します
+          </p>
+          <p className="text-xs text-gray-500">
+            画面幅が広い端末でご利用ください。タスクの確認・編集はタスク一覧から行えます。
+          </p>
+        </div>
+      </div>
+
+      {/* Content (desktop only) */}
+      <div className="hidden md:block flex-1 p-4 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex items-center gap-2 text-gray-500">

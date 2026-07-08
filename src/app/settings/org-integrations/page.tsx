@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
-  ArrowLeft,
   GithubLogo,
   ChatCircleDots,
   Brain,
@@ -17,7 +16,6 @@ import {
   CircleNotch,
   Crown,
 } from '@phosphor-icons/react'
-import Link from 'next/link'
 import { toast } from 'sonner'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
@@ -29,7 +27,7 @@ import {
 import { useAiConfig, useSaveAiConfig, useDeleteAiConfig } from '@/lib/hooks/useAiConfig'
 import { isGitHubConfigured, getGitHubInstallUrl } from '@/lib/github/config'
 import { isSlackConfigured } from '@/lib/slack/config'
-import { useConfirmDialog } from '@/components/shared'
+import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 
 const AI_PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
@@ -49,7 +47,7 @@ const AI_MODELS: Record<string, { value: string; label: string }[]> = {
 
 export default function OrgIntegrationsPage() {
   const searchParams = useSearchParams()
-  const { orgId, orgName, role, loading: orgLoading } = useCurrentOrg()
+  const { orgId, role, loading: orgLoading } = useCurrentOrg()
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const isOwner = role === 'owner'
 
@@ -84,7 +82,7 @@ export default function OrgIntegrationsPage() {
   const [slackTokenError, setSlackTokenError] = useState('')
 
   // AI
-  const { data: aiConfig, isLoading: loadingAi } = useAiConfig(orgId ?? undefined)
+  const { data: aiConfig, isLoading: loadingAi } = useAiConfig(isOwner ? orgId ?? undefined : undefined)
   const saveAiConfig = useSaveAiConfig()
   const deleteAiConfig = useDeleteAiConfig()
   const [aiProvider, setAiProvider] = useState<string>('openai')
@@ -199,15 +197,10 @@ export default function OrgIntegrationsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">組織の外部連携</h1>
-              <p className="text-sm text-gray-500">{orgName} の外部サービス設定</p>
+              <p className="text-sm text-gray-500">組織全体で使う接続（Slack・GitHub・AI）</p>
             </div>
           </div>
         </div>

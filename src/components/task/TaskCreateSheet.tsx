@@ -120,6 +120,8 @@ export function TaskCreateSheet({
   const [estimationExpanded, setEstimationExpanded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showPortalPreview, setShowPortalPreview] = useState(false)
+  const [ownerValidationError, setOwnerValidationError] = useState(false)
+  const clientOwnerFieldRef = useRef<HTMLDivElement>(null)
 
   // Draft auto-save
   const draftKey = isGlobalCreate ? 'task_create_global' : `task_create_${spaceId}`
@@ -170,6 +172,7 @@ export function TaskCreateSheet({
       setDescription(defaultDescription)
       setClientOwnerIds(defaultClientOwnerIds)
       setBall(defaultBall)
+      setOwnerValidationError(false)
       // In global create mode, preserve selectedSpaceId between creates
       // Only clear if the previously selected space is no longer available
       if (isGlobalCreate && selectedSpaceId && !spaces.some((s) => s.id === selectedSpaceId)) {
@@ -199,6 +202,15 @@ export function TaskCreateSheet({
       toast.info('下書きを復元しました', { duration: 2000 })
     }
   }, [restored])
+
+  // 不変条件: ball='client' のタスクは必ず client_scope='deliverable'
+  // （RLS上、ball='client' かつ非deliverableはクライアントから不可視になり、
+  //   承認依頼メールのリンク先が404になる行き止まりを生むため）。
+  useEffect(() => {
+    if (ball === 'client' && clientScope !== 'deliverable') {
+      setClientScope('deliverable')
+    }
+  }, [ball, clientScope])
 
   // Auto-save draft on field changes
   const saveDraftData = useCallback(() => {
@@ -254,11 +266,25 @@ export function TaskCreateSheet({
   }, [isOpen, effectiveSpaceId, supabase])
 
   const toggleClientOwner = (ownerId: string) => {
-    setClientOwnerIds((prev) =>
-      prev.includes(ownerId)
+    setClientOwnerIds((prev) => {
+      const next = prev.includes(ownerId)
         ? prev.filter((id) => id !== ownerId)
         : [...prev, ownerId]
-    )
+      if (next.length > 0) setOwnerValidationError(false)
+      return next
+    })
+  }
+
+  // M-2: 担当者にクライアントメンバーを選んだ場合、関係者・外部へ自動同期する
+  const handleAssigneeChange = (newAssigneeId: string) => {
+    setAssigneeId(newAssigneeId)
+    const selectedMember = members.find((m) => m.id === newAssigneeId)
+    if (selectedMember?.role === 'client') {
+      setClientOwnerIds((prev) =>
+        prev.includes(newAssigneeId) ? prev : [...prev, newAssigneeId]
+      )
+      setOwnerValidationError(false)
+    }
   }
 
   const toggleInternalOwner = (ownerId: string) => {
@@ -331,7 +357,15 @@ export function TaskCreateSheet({
 
     // Validate: ball=client needs client owner
     if (ball === 'client' && clientOwnerIds.length === 0) {
-      toast.error('外部にボールを渡す場合は外部担当者を指定してください')
+      setOwnerValidationError(true)
+      clientOwnerFieldRef.current?.focus()
+      return
+    }
+
+    // Validate（防御的）: ball='client' は client_scope='deliverable' が必須
+    // （通常は上のuseEffectで自動連動するため到達しないはずだが、不変条件を最終防衛する）
+    if (ball === 'client' && clientScope !== 'deliverable') {
+      toast.error('外部ボールのタスクはクライアント公開が必須です')
       return
     }
 
@@ -383,20 +417,21 @@ export function TaskCreateSheet({
   if (!isOpen) return null
 
   return (
-    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div ref={focusTrapRef} className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30 animate-backdrop-in"
         onClick={onClose}
       />
 
-      {/* Sheet */}
+      {/* Sheet — bottom sheet on mobile (<md), centered dialog on desktop.
+          Height-capped with a scrollable body so long forms stay reachable. */}
       <div
         data-testid="task-create-sheet"
-        className="relative w-full max-w-2xl bg-white rounded-xl shadow-xl animate-dialog-in"
+        className="relative w-full max-w-2xl bg-white rounded-t-2xl md:rounded-xl shadow-xl animate-dialog-in flex flex-col max-h-[92dvh] md:max-h-[88vh]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-medium text-gray-900">新規タスク</h2>
             {effectiveSpaceName && (
@@ -414,8 +449,9 @@ export function TaskCreateSheet({
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        {/* Form — header/footer fixed, this body scrolls */}
+        <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           {/* === COMPACT MODE: Always visible === */}
 
           {/* Space selector (global create mode) */}
@@ -572,11 +608,34 @@ export function TaskCreateSheet({
 
           {/* Client owners (required when ball=client) — always visible in compact mode */}
           {ball === 'client' && (
-            <div className="p-3 bg-amber-50 rounded-lg">
+            <div
+              ref={clientOwnerFieldRef}
+              tabIndex={-1}
+              data-testid="task-create-client-owner-field"
+              className="p-3 bg-amber-50 rounded-lg focus:outline-none"
+            >
               <label className="text-xs font-medium text-amber-600">
                 関係者・外部 <span className="text-amber-500">（必須）</span>
               </label>
-              <p className="text-xs text-amber-500 mt-0.5">対応するクライアント側メンバー</p>
+              <p className="text-xs text-amber-500 mt-0.5">
+                クライアントへの確認を依頼する相手です（担当者と自動的に同期されます）
+              </p>
+              <p
+                data-testid="task-create-scope-auto-note"
+                className="mt-1 flex items-center gap-1 text-xs text-amber-600"
+              >
+                <Eye className="text-xs" />
+                外部ボールのタスクは自動的にクライアントに公開されます
+              </p>
+              {ownerValidationError && (
+                <p
+                  role="alert"
+                  data-testid="task-create-client-owner-error"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  クライアント側の担当者を選択してください
+                </p>
+              )}
               <div className="mt-2 flex items-center gap-2">
                 <User className="text-amber-500" />
                 <span className="text-sm text-amber-700">
@@ -634,7 +693,7 @@ export function TaskCreateSheet({
               </label>
               <select
                 value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
+                onChange={(e) => handleAssigneeChange(e.target.value)}
                 data-testid="task-create-assignee"
                 className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 disabled={membersLoading}
@@ -836,7 +895,7 @@ export function TaskCreateSheet({
               <div className="relative ml-3">
                 <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-2">
-                    <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-blue-500' : 'text-gray-300'}`} />
+                    <Eye className={`text-lg ${clientScope === 'deliverable' ? 'text-amber-500' : 'text-gray-300'}`} />
                     <div>
                       <div className="flex items-center gap-1">
                         <span className="text-sm font-medium text-gray-700">クライアントに公開</span>
@@ -854,14 +913,24 @@ export function TaskCreateSheet({
                           クライアントのダッシュボードに表示されます
                         </p>
                       )}
+                      {ball === 'client' && (
+                        <p className="text-xs text-amber-600">
+                          外部ボールのタスクは自動的にクライアント公開になります
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')}
+                    onClick={() => {
+                      if (ball === 'client') return
+                      setClientScope(clientScope === 'deliverable' ? 'internal' : 'deliverable')
+                    }}
+                    disabled={ball === 'client'}
+                    title={ball === 'client' ? '外部ボールのタスクは自動的にクライアント公開になります' : undefined}
                     data-testid="task-create-client-scope-toggle"
-                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-                      clientScope === 'deliverable' ? 'bg-blue-500' : 'bg-gray-300'
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-70 ${
+                      clientScope === 'deliverable' ? 'bg-amber-500' : 'bg-gray-300'
                     }`}
                   >
                     <span
@@ -1004,8 +1073,10 @@ export function TaskCreateSheet({
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2">
+          </div>{/* /scroll body */}
+
+          {/* Actions — fixed footer (thumb-reachable on mobile) */}
+          <div className="flex-shrink-0 flex justify-end gap-2 px-4 py-3 border-t border-gray-100 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
               onClick={onClose}

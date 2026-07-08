@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { GanttChart } from '@/components/gantt/GanttChart'
 import type { Task, Milestone } from '@/types/database'
@@ -36,6 +36,7 @@ const mockTasks: Task[] = [
     actual_hours: null,
     estimated_cost: null,
     estimate_status: 'none' as const,
+    is_sample: false,
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: null,
@@ -63,6 +64,7 @@ const mockTasks: Task[] = [
     actual_hours: null,
     estimated_cost: null,
     estimate_status: 'none' as const,
+    is_sample: false,
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: null,
@@ -90,6 +92,7 @@ const mockTasks: Task[] = [
     actual_hours: null,
     estimated_cost: null,
     estimate_status: 'none' as const,
+    is_sample: false,
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: '2024-01-30',
@@ -159,11 +162,18 @@ describe('GanttChart', () => {
   it('should render legend', () => {
     render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
 
-    expect(screen.getByText('外部確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('クライアント確認待ち')).toBeInTheDocument()
     expect(screen.getByText('社内対応中')).toBeInTheDocument()
     // "マイルストーン" also appears as the (default-active) grouping button,
     // so use getAllByText to tolerate duplicates.
     expect(screen.getAllByText('マイルストーン').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('should use unified terminology for the in_review status filter (M-3)', () => {
+    render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    expect(screen.getByText('社内承認中')).toBeInTheDocument()
+    expect(screen.queryByText('確認中')).not.toBeInTheDocument()
   })
 
   it('should render zoom controls', () => {
@@ -193,11 +203,11 @@ describe('GanttChart', () => {
     expect(onTaskClick).toHaveBeenCalledWith('task-1')
   })
 
-  it('should show empty state when no tasks', () => {
+  it('should show an educational empty state when no tasks (初回UX改善 D)', () => {
     render(<GanttChart tasks={[]} milestones={[]} />)
 
-    // Multiple "タスクがありません" texts exist (sidebar + chart body)
-    expect(screen.getAllByText('タスクがありません').length).toBeGreaterThanOrEqual(1)
+    // Multiple copies exist (sidebar + chart body)
+    expect(screen.getAllByText('期限付きタスクやマイルストーンを設定するとここに表示されます').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(hasText('0/0 タスク'))).toBeInTheDocument()
   })
 
@@ -227,5 +237,68 @@ describe('GanttChart', () => {
 
     // Should now be in 'week' mode
     expect(screen.getByText('週')).toBeInTheDocument()
+  })
+})
+
+describe('GanttChart initial scroll position (今日にセンタリング)', () => {
+  // Records which element each scrollTo call happened on, so we can assert
+  // the chart *body* (.gantt-scroll) scrolls — scrolling only the date header
+  // moves nothing visible (there is no header→body sync).
+  let scrollCalls: Array<{ el: Element; arg: ScrollToOptions }>
+
+  beforeEach(() => {
+    scrollCalls = []
+    // jsdom doesn't implement Element.scrollTo
+    Element.prototype.scrollTo = function (this: Element, arg: ScrollToOptions) {
+      scrollCalls.push({ el: this, arg })
+    } as typeof Element.prototype.scrollTo
+  })
+
+  it('scrolls the chart body to today automatically on mount', () => {
+    render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    const bodyCalls = scrollCalls.filter((c) => c.el.classList.contains('gantt-scroll'))
+    expect(bodyCalls).toHaveLength(1)
+    expect(bodyCalls[0].arg).toEqual(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('does not scroll again on subsequent re-renders', () => {
+    const { rerender } = render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+    const initialCallCount = scrollCalls.length
+    expect(initialCallCount).toBeGreaterThan(0)
+
+    rerender(
+      <GanttChart tasks={mockTasks} milestones={mockMilestones} selectedTaskId="task-1" />
+    )
+
+    expect(scrollCalls).toHaveLength(initialCallCount)
+  })
+
+  it('mirrors the auto-scroll to the date header scroller', () => {
+    render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    const headerCalls = scrollCalls.filter(
+      (c) => (c.el as HTMLElement).dataset?.testid === 'gantt-header-scroller'
+    )
+    expect(headerCalls).toHaveLength(1)
+    expect(headerCalls[0].arg).toEqual(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('date header lays out at full width so the scroller can actually move it', () => {
+    // Regression: with overflow-hidden the date wrapper collapsed to the
+    // visible width, leaving the parent scroller nothing to scroll — the
+    // dates could then never follow the chart position.
+    const { container } = render(<GanttChart tasks={mockTasks} milestones={mockMilestones} />)
+
+    const headerScroller = container.querySelector('[data-testid="gantt-header-scroller"]')
+    expect(headerScroller).not.toBeNull()
+    // Programmatic-only scroller: never user-scrollable, never smooth
+    // (smooth + bidirectional mirroring feedback-loops both panes to ~0).
+    expect(headerScroller!.className).not.toContain('overflow-x-auto')
+    expect((headerScroller as HTMLElement).style.scrollBehavior).not.toBe('smooth')
+    const dateWrapper = headerScroller!.querySelector('.relative')
+    expect(dateWrapper).not.toBeNull()
+    expect(dateWrapper!.className).toContain('flex-shrink-0')
+    expect(dateWrapper!.className).not.toContain('overflow-hidden')
   })
 })

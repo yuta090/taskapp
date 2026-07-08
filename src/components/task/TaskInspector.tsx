@@ -1,14 +1,16 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy } from '@phosphor-icons/react'
-import { AmberBadge, TruncatedText, useConfirmDialog } from '@/components/shared'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye } from '@phosphor-icons/react'
+import { AmberBadge, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useAgencyMode } from '@/lib/hooks/useAgencyMode'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useLatestClientAction } from '@/lib/hooks/useLatestClientAction'
+import { WARNING, CLIENT } from '@/lib/design/tokens'
 import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
 import { TaskEventTimeline } from './TaskEventTimeline'
@@ -17,7 +19,7 @@ import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
 import { TaskPricingPanel } from './TaskPricingPanel'
-import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState } from '@/types/database'
+import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface TaskInspectorProps {
@@ -39,6 +41,7 @@ interface TaskInspectorProps {
     wikiPageId?: string | null
     estimatedCost?: number | null
     estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
+    clientScope?: ClientScope
   }) => Promise<void>
   onDelete?: () => Promise<void>
   onDuplicate?: () => void
@@ -56,9 +59,9 @@ interface TaskInspectorProps {
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'backlog', label: '未着手' },
-  { value: 'todo', label: 'ToDo' },
+  { value: 'todo', label: '着手予定' },
   { value: 'in_progress', label: '進行中' },
-  { value: 'in_review', label: '承認確認中' },
+  { value: 'in_review', label: '社内承認中' },
   { value: 'done', label: '完了' },
   { value: 'considering', label: '検討中' },
 ]
@@ -133,6 +136,10 @@ export function TaskInspector({
 
   // Space members with display names
   const { members, clientMembers, internalMembers, getMemberName, loading: membersLoading } = useSpaceMembers(spaceId)
+
+  // H-1: derived (no new column) — surfaces "client requested changes" when the ball is back internally
+  const latestClientAction = useLatestClientAction(task.id)
+  const showChangesRequestedBadge = task.ball === 'internal' && latestClientAction === 'changes_requested'
 
   // FR-OWN-002: 責任者欄の表示/非表示設定
   const { shouldShowOwnerField } = useSpaceSettings(spaceId)
@@ -278,7 +285,7 @@ export function TaskInspector({
     }
     // 状態遷移ガード: approved→pending は禁止 (rejected→pending のみ許可)
     if (task.estimate_status === 'approved') {
-      toast.error('承認済みの見積もりは変更できません')
+      toast.error('クライアント承認済みの見積もりは変更できません')
       return
     }
     // クライアントメンバーがいなければボール渡し不可
@@ -332,6 +339,15 @@ export function TaskInspector({
       await onUpdate?.({ wikiPageId: newWikiPageId })
       flashSaved()
     }
+  }
+
+  // 不変条件: ball='client' のタスクは client_scope='deliverable' から変更不可
+  // （RLS上クライアントから不可視になり、渡した先で誰も動けなくなるため）
+  const handleClientScopeChange = async (newScope: ClientScope) => {
+    if (task.ball === 'client' && newScope !== 'deliverable') return
+    if (newScope === task.client_scope) return
+    await onUpdate?.({ clientScope: newScope })
+    flashSaved()
   }
 
   // FR-ASN-003: ボール切り替え時のハンドラー（ペンディング状態対応）
@@ -540,9 +556,18 @@ export function TaskInspector({
               )}
             </div>
           )}
-          {task.ball === 'client' && (
+          {task.ball === 'client' && task.status !== 'done' && (
             <div className="mt-2">
-              <AmberBadge>確認待ち</AmberBadge>
+              <Tooltip content="ONでクライアントのポータルに表示されます">
+                <AmberBadge>クライアント確認待ち</AmberBadge>
+              </Tooltip>
+            </div>
+          )}
+          {showChangesRequestedBadge && (
+            <div className="mt-2">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${WARNING.badge}`}>
+                クライアントから修正依頼
+              </span>
             </div>
           )}
         </div>
@@ -648,7 +673,7 @@ export function TaskInspector({
 
           {/* Ball */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアントの確認待ち">ボール</label>
+            <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアント確認待ち">ボール</label>
             <div className="flex gap-1.5">
               <button
                 onClick={() => handleBallChange('internal')}
@@ -676,7 +701,50 @@ export function TaskInspector({
                 </span>
               </button>
             </div>
+            <p className="text-[10px] text-gray-500">
+              次にアクションを取る側。外部=クライアントの対応待ち
+            </p>
           </div>
+        </div>
+
+        {/* Client Scope（クライアント公開） */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+            <Eye className="text-sm" />
+            クライアント公開
+          </label>
+          {onUpdate ? (
+            <div className="flex items-center justify-between px-3 py-2 border border-gray-200 rounded-lg bg-white">
+              <span className={`text-sm ${task.client_scope === 'deliverable' ? `font-medium ${CLIENT.accent}` : 'text-gray-500'}`}>
+                {task.client_scope === 'deliverable' ? '公開中' : '非公開'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleClientScopeChange(task.client_scope === 'deliverable' ? 'internal' : 'deliverable')}
+                disabled={task.ball === 'client'}
+                title={task.ball === 'client' ? '外部ボールのタスクは非公開にできません' : undefined}
+                data-testid="task-inspector-client-scope-toggle"
+                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  task.client_scope === 'deliverable' ? CLIENT.dot : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    task.client_scope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-700">
+              {task.client_scope === 'deliverable' ? '公開中' : '非公開'}
+            </div>
+          )}
+          {task.ball === 'client' && (
+            <p className={`text-[10px] ${CLIENT.accent}`}>
+              外部ボールのタスクは自動的にクライアント公開になります
+            </p>
+          )}
         </div>
 
         {/* Ball inline owner selection */}
@@ -982,7 +1050,7 @@ export function TaskInspector({
             {task.estimate_status === 'approved' && (
               <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-lg">
                 <Check className="w-3.5 h-3.5 text-green-600" weight="bold" />
-                <span className="text-xs font-medium text-green-700">承認済み</span>
+                <span className="text-xs font-medium text-green-700">クライアント承認済み</span>
                 {task.estimated_cost != null && (
                   <span className="ml-auto text-xs font-semibold text-green-800">
                     ¥{task.estimated_cost.toLocaleString()}

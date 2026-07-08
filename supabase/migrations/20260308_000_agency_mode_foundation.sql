@@ -2,24 +2,32 @@
 -- Iron Rule: agency_mode=false のスペースでは既存動作に一切影響なし
 
 -- 1. spaces テーブルに agency_mode フラグ + デフォルトマージン率を追加
-ALTER TABLE spaces ADD COLUMN agency_mode boolean NOT NULL DEFAULT false;
-ALTER TABLE spaces ADD COLUMN default_margin_rate numeric(5,2) DEFAULT NULL;
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS agency_mode boolean NOT NULL DEFAULT false;
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS default_margin_rate numeric(5,2) DEFAULT NULL;
 
-ALTER TABLE spaces ADD CONSTRAINT chk_default_margin_rate
-  CHECK (default_margin_rate IS NULL OR (default_margin_rate >= 0 AND default_margin_rate <= 999.99));
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_default_margin_rate') THEN
+    ALTER TABLE spaces ADD CONSTRAINT chk_default_margin_rate
+      CHECK (default_margin_rate IS NULL OR (default_margin_rate >= 0 AND default_margin_rate <= 999.99));
+  END IF;
+END $$;
 
 COMMENT ON COLUMN spaces.agency_mode IS '代理店モード有効フラグ（true のスペースでのみ vendor/agency ボール・ベンダーポータルが有効）';
 COMMENT ON COLUMN spaces.default_margin_rate IS 'デフォルトマージン率（%）。タスク個別に上書き可能';
 
 -- 2. spaces テーブルにベンダー設定を追加
-ALTER TABLE spaces ADD COLUMN vendor_settings jsonb
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS vendor_settings jsonb
   NOT NULL DEFAULT '{"show_client_name": false, "allow_client_comments": false}';
 
-ALTER TABLE spaces ADD CONSTRAINT chk_vendor_settings CHECK (
-  vendor_settings IS NOT NULL
-  AND jsonb_typeof(vendor_settings->'show_client_name') = 'boolean'
-  AND jsonb_typeof(vendor_settings->'allow_client_comments') = 'boolean'
-);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_vendor_settings') THEN
+    ALTER TABLE spaces ADD CONSTRAINT chk_vendor_settings CHECK (
+      vendor_settings IS NOT NULL
+      AND jsonb_typeof(vendor_settings->'show_client_name') = 'boolean'
+      AND jsonb_typeof(vendor_settings->'allow_client_comments') = 'boolean'
+    );
+  END IF;
+END $$;
 
 COMMENT ON COLUMN spaces.vendor_settings IS 'ベンダーポータル設定（agency_mode=true のスペースでのみ有効）';
 

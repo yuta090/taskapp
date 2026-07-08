@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { PaperPlaneTilt, Circle, CheckCircle, Clock, CaretRight } from '@phosphor-icons/react'
+import { useRouter } from 'next/navigation'
+import { PaperPlaneTilt, Plus, Circle, CheckCircle, Clock, CaretRight } from '@phosphor-icons/react'
 import { PortalShell, PortalTaskInspector } from '@/components/portal'
+import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 
 interface Project {
   id: string
@@ -76,8 +78,10 @@ export function PortalRequestsClient({
   requests,
   actionCount = 0,
 }: PortalRequestsClientProps) {
+  const router = useRouter()
   const [filter, setFilter] = useState<FilterKey>('all')
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null)
+  const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
   const filteredRequests = requests.filter(r => {
     if (filter === 'active') return r.status !== 'done'
@@ -114,24 +118,24 @@ export function PortalRequestsClient({
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">送信したリクエスト</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">送信したリクエスト</h1>
             <p className="mt-1 text-sm text-gray-600">
-              クライアントから送信されたバグ報告・機能要望・質問の一覧です。
+              あなたが送信したバグ報告・機能要望・質問の一覧です。
             </p>
           </div>
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-gray-900">{requests.length}</div>
+              <div className="text-2xl font-semibold text-gray-900">{requests.length}</div>
               <div className="text-sm text-gray-500">全体</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-blue-600">{activeCount}</div>
+              <div className="text-2xl font-semibold text-blue-600">{activeCount}</div>
               <div className="text-sm text-gray-500">対応中</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-2xl font-bold text-green-600">{doneCount}</div>
+              <div className="text-2xl font-semibold text-green-600">{doneCount}</div>
               <div className="text-sm text-gray-500">完了</div>
             </div>
           </div>
@@ -174,9 +178,16 @@ export function PortalRequestsClient({
                   ? '対応中のリクエストはありません'
                   : '完了したリクエストはありません'}
               </p>
-              <p className="text-sm text-gray-400 mt-1">
-                ダッシュボードの「リクエストを送る」ボタンからバグ報告や機能要望を送信できます
-              </p>
+              {filter === 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setRequestSheetOpen(true)}
+                  className="mt-3 inline-flex items-center gap-1.5 h-8 rounded-md px-3 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+                >
+                  <Plus weight="bold" />
+                  依頼を作成
+                </button>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
@@ -227,6 +238,11 @@ export function PortalRequestsClient({
           )}
         </div>
       </div>
+      <PortalRequestSheet
+        isOpen={requestSheetOpen}
+        onClose={() => setRequestSheetOpen(false)}
+        onSuccess={() => router.refresh()}
+      />
     </PortalShell>
   )
 }

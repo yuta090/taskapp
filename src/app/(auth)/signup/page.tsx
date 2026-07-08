@@ -1,33 +1,48 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+const RESEND_COOLDOWN_SECONDS = 60
+
 function SignupForm() {
   const router = useRouter()
   const [orgName, setOrgName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [resendMessage, setResendMessage] = useState('')
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [resendCooldown])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setPasswordError('')
+
+    // パスワードバリデーション(フィールド直下に表示)
+    if (password.length < 8) {
+      setPasswordError('パスワードは8文字以上で入力してください')
+      return
+    }
+
     setLoading(true)
 
     try {
-      // パスワードバリデーション
-      if (password.length < 8) {
-        setError('パスワードは8文字以上で入力してください')
-        return
-      }
-
       const supabase = createClient()
 
       // 1. ユーザー作成
@@ -55,7 +70,14 @@ function SignupForm() {
         return
       }
 
-      // 2. 組織とbilling作成 (RPC)
+      // メール確認が必要でセッションが無い場合は、RPCを呼ばず成功画面へ
+      // (匿名でのRPC実行を避けるため)
+      if (!authData.session) {
+        setSuccess(true)
+        return
+      }
+
+      // セッションがある場合のみ組織とbillingを作成 (RPC)
       const { error: orgError } = await (supabase as SupabaseClient).rpc(
         'rpc_create_org_with_billing',
         {
@@ -66,19 +88,12 @@ function SignupForm() {
 
       if (orgError) {
         console.error('Org creation error:', orgError)
-        // ユーザーは作成されたが、メール確認が必要な場合
-        setSuccess(true)
+        setError('組織の作成に失敗しました。もう一度お試しください。')
         return
       }
 
-      // メール確認が必要な場合
-      if (!authData.session) {
-        setSuccess(true)
-        return
-      }
-
-      // セッションがある場合は直接リダイレクト
-      router.push('/inbox')
+      // 組織は出来たがプロジェクトが無い状態 → テンプレート選択（Step2）へ
+      router.push('/onboarding')
     } catch (err) {
       console.error('Signup error:', err)
       setError('登録中にエラーが発生しました')
@@ -87,11 +102,29 @@ function SignupForm() {
     }
   }
 
+  async function handleResend() {
+    if (resendCooldown > 0) return
+
+    const supabase = createClient()
+    const { error: resendError } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+    })
+
+    if (resendError) {
+      setResendMessage('再送に失敗しました。もう一度お試しください。')
+      return
+    }
+
+    setResendMessage(`再送しました（${RESEND_COOLDOWN_SECONDS}秒後に再送可能）`)
+    setResendCooldown(RESEND_COOLDOWN_SECONDS)
+  }
+
   if (success) {
     return (
       <AuthCard
         title="確認メールを送信しました"
-        description="メールに記載されたリンクをクリックして、登録を完了してください。"
+        description="メール内のリンクをクリックすると、自動的にログインされ設定が続行されます。"
       >
         <div className="text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
@@ -102,12 +135,40 @@ function SignupForm() {
           <p className="text-sm text-gray-600 mb-4">
             <strong>{email}</strong> に確認メールを送信しました。
           </p>
-          <Link
-            href="/login"
-            className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+
+          <div className="text-left text-xs text-gray-500 space-y-2 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <p>メールが届かない場合は迷惑メールフォルダをご確認ください。</p>
+            <p>既にアカウントをお持ちの場合、確認メールは届きません。ログインまたはパスワードリセットをお試しください。</p>
+            <p className="flex gap-2">
+              <Link href="/login" className="text-amber-600 hover:text-amber-700 font-medium">
+                ログイン
+              </Link>
+              <Link href="/reset" className="text-amber-600 hover:text-amber-700 font-medium">
+                パスワードリセット
+              </Link>
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendCooldown > 0}
+            className="text-sm text-amber-600 hover:text-amber-700 font-medium disabled:text-gray-400 disabled:cursor-not-allowed mb-2"
           >
-            ログインページへ
-          </Link>
+            確認メールを再送する
+          </button>
+          {resendMessage && (
+            <p className="text-xs text-gray-500 mb-4">{resendMessage}</p>
+          )}
+
+          <div>
+            <Link
+              href="/login"
+              className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+            >
+              ログインページへ
+            </Link>
+          </div>
         </div>
       </AuthCard>
     )
@@ -174,6 +235,7 @@ function SignupForm() {
           placeholder="8文字以上"
           required
           autoComplete="new-password"
+          error={passwordError}
         />
 
         <AuthButton type="submit" loading={loading}>

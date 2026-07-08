@@ -18,6 +18,7 @@ import {
   Circle,
   Spinner,
   Play,
+  File,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
@@ -38,9 +39,9 @@ interface NotificationInspectorProps {
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string; color: string }[] = [
   { value: 'backlog', label: 'バックログ', color: 'text-gray-400' },
-  { value: 'todo', label: 'Todo', color: 'text-gray-400' },
+  { value: 'todo', label: '着手予定', color: 'text-gray-400' },
   { value: 'in_progress', label: '進行中', color: 'text-blue-400' },
-  { value: 'in_review', label: '承認確認中', color: 'text-amber-400' },
+  { value: 'in_review', label: '社内承認中', color: 'text-amber-400' },
   { value: 'done', label: '完了', color: 'text-green-500' },
 ]
 
@@ -62,6 +63,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
   switch (type) {
     case 'review_request':
       return <Eye className={`${iconClass} text-blue-500`} />
+    case 'review_cancelled':
+      return <XCircle className={`${iconClass} text-gray-500`} />
     case 'client_question':
     case 'client_feedback':
       return <ChatCircleText className={`${iconClass} text-amber-500`} />
@@ -72,6 +75,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <Warning className={`${iconClass} text-orange-500`} />
     case 'meeting_reminder':
     case 'meeting_scheduled':
+    case 'scheduling_reminder':
+    case 'scheduling_proposal_expired':
       return <Calendar className={`${iconClass} text-green-500`} />
     case 'meeting_ended':
       return <CheckCircle className={`${iconClass} text-blue-500`} weight="fill" />
@@ -82,6 +87,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <ChatCircleText className={`${iconClass} text-amber-500`} />
     case 'spec_decision_needed':
       return <Bell className={`${iconClass} text-amber-500`} />
+    case 'file_uploaded':
+      return <File className={`${iconClass} text-gray-500`} />
     default:
       return <Bell className={`${iconClass} text-gray-500`} />
   }
@@ -89,7 +96,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
 
 function getNotificationTypeLabel(type: string): string {
   switch (type) {
-    case 'review_request': return '承認依頼'
+    case 'review_request': return '社内承認依頼'
+    case 'review_cancelled': return 'レビュー取消'
     case 'client_question': return '外部からの質問'
     case 'client_feedback': return '外部からのフィードバック'
     case 'task_assigned': return 'タスク割り当て'
@@ -97,11 +105,14 @@ function getNotificationTypeLabel(type: string): string {
     case 'due_date_reminder': return '期限リマインダー'
     case 'meeting_reminder': return 'ミーティングリマインダー'
     case 'meeting_scheduled': return 'ミーティング予定'
+    case 'scheduling_reminder': return '日程調整リマインダー'
+    case 'scheduling_proposal_expired': return '日程調整期限切れ'
     case 'meeting_ended': return '会議終了'
     case 'task_completed': return 'タスク完了'
     case 'confirmation_request': return '確認依頼'
     case 'urgent_confirmation': return '緊急確認依頼'
     case 'spec_decision_needed': return '仕様決定依頼'
+    case 'file_uploaded': return 'ファイル'
     default: return '通知'
   }
 }
@@ -503,6 +514,22 @@ export function NotificationInspector({
 
     // Confirmation / Urgent confirmation: Link to scheduling page
     if ((notification.type === 'confirmation_request' || notification.type === 'urgent_confirmation') && payload.link) {
+      return (
+        <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <p className="text-xs text-gray-500 mb-2 font-medium">日程調整への回答が必要です</p>
+          <Link
+            href={payload.link}
+            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
+          >
+            <Calendar />
+            日程を回答する
+          </Link>
+        </div>
+      )
+    }
+
+    // Scheduling reminder / expired: Link to scheduling page
+    if ((notification.type === 'scheduling_reminder' || notification.type === 'scheduling_proposal_expired') && payload.link) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">日程調整への回答が必要です</p>

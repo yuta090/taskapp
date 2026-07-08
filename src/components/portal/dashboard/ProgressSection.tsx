@@ -44,7 +44,7 @@ export function ProgressSection({ completedCount, totalCount, deadline, classNam
 
       <div className="relative z-20 flex flex-col items-center justify-center h-full p-6">
 
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">PROJECT PROGRESS</h3>
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-widest mb-4">PROJECT PROGRESS</h3>
 
         <div className="relative mb-4">
           {/* Main Progress SVG */}
@@ -82,8 +82,8 @@ export function ProgressSection({ completedCount, totalCount, deadline, classNam
 
           {/* Score in center */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-5xl font-black text-gray-900 tracking-tighter">
-              {percent}<span className="text-xl text-gray-400 font-bold ml-0.5">%</span>
+            <span className="text-5xl font-semibold text-gray-900 tracking-tighter">
+              {percent}<span className="text-xl text-gray-400 font-medium ml-0.5">%</span>
             </span>
             <span className="text-xs text-gray-400 mt-1">{completedCount}件完了</span>
           </div>

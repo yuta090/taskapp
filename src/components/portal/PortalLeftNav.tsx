@@ -21,11 +21,14 @@ import {
   Planet,
   Lifebuoy,
   PaperPlaneTilt,
+  Question,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { usePortalVisibilityForPortal, type PortalVisibleSections } from '@/lib/hooks/usePortalVisibility'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 const STORAGE_KEY = 'taskapp:sidebar:portal:collapsed'
 
@@ -112,6 +115,9 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
   const [isOpen, setIsOpen] = useState(false)
 
   const handleLogout = useCallback(async () => {
+    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
+    // valid session, so it must run while the user is still logged in.
+    await cleanupPushOnLogout()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
@@ -165,6 +171,14 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
               プロフィール設定
             </Link>
             <Link
+              href="/help/client"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Question className="text-base text-gray-500" />
+              使い方
+            </Link>
+            <Link
               href="/docs/manual/client"
               onClick={() => setIsOpen(false)}
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -175,10 +189,12 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
             <button
               type="button"
               onClick={() => {
-                resetPortalOnboarding()
-                setIsOpen(false)
-                router.push('/portal')
-                router.refresh()
+                void (async () => {
+                  await resetPortalOnboarding()
+                  setIsOpen(false)
+                  router.push('/portal')
+                  router.refresh()
+                })()
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
@@ -229,6 +245,9 @@ export function PortalLeftNav({
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
   const { sections } = usePortalVisibilityForPortal(currentProject?.id ?? null)
+  const { user } = useCurrentUser()
+  const userName = user?.user_metadata?.name as string | undefined
+  const userEmail = user?.email
 
   const visibleNavItems = useMemo(() => {
     const items: { key: keyof PortalVisibleSections; href: string; icon: React.ReactNode; label: string; badge?: number }[] = [
@@ -244,6 +263,10 @@ export function PortalLeftNav({
   }, [sections, actionCount])
 
   const showProjectSwitcher = projects.length > 1
+  // Only append ?space= once there is something to disambiguate — keeps the
+  // single-project experience (the vast majority of clients) byte-for-byte
+  // identical to before this switcher existed.
+  const spaceQuery = showProjectSwitcher && currentProject?.id ? `?space=${currentProject.id}` : ''
 
   // Restore collapsed state from localStorage
   useEffect(() => {
@@ -290,15 +313,15 @@ export function PortalLeftNav({
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded transition-colors group flex-1 min-w-0 ${
             showProjectSwitcher ? 'hover:bg-white/50 cursor-pointer' : 'cursor-default'
           }`}
-          title={collapsed ? (currentProject?.name || 'TaskApp') : undefined}
+          title={collapsed ? (currentProject?.name || 'AgentPM') : undefined}
         >
-          <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-bold shadow-md flex-shrink-0">
-            TA
+          <div className="w-5 h-5 2xl:w-6 2xl:h-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded flex items-center justify-center text-white text-[10px] 2xl:text-xs font-semibold shadow-md flex-shrink-0">
+            A
           </div>
           {!collapsed && (
             <>
               <span className="font-medium text-gray-900 truncate text-sm 2xl:text-base">
-                {currentProject?.name || 'TaskApp'}
+                {currentProject?.name || 'AgentPM'}
               </span>
               {showProjectSwitcher && (
                 <CaretDown
@@ -338,7 +361,7 @@ export function PortalLeftNav({
               {projects.map((project) => (
                 <Link
                   key={project.id}
-                  href="/portal"
+                  href={`${pathname}?space=${project.id}`}
                   onClick={() => setProjectMenuOpen(false)}
                   className={`flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
                     project.id === currentProject?.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'
@@ -358,7 +381,7 @@ export function PortalLeftNav({
         {/* Dashboard */}
         <div className="space-y-0.5">
           <NavItem
-            href="/portal"
+            href={`/portal${spaceQuery}`}
             icon={<House />}
             label="ダッシュボード"
             active={pathname === '/portal'}
@@ -378,7 +401,7 @@ export function PortalLeftNav({
             {visibleNavItems.map((item) => (
               <SubNavItem
                 key={item.key}
-                href={item.href}
+                href={`${item.href}${spaceQuery}`}
                 icon={item.icon}
                 label={item.label}
                 badge={item.badge}
@@ -387,7 +410,7 @@ export function PortalLeftNav({
               />
             ))}
             <SubNavItem
-              href="/portal/settings"
+              href={`/portal/settings${spaceQuery}`}
               icon={<Gear />}
               label="設定"
               active={pathname === '/portal/settings'}
@@ -421,7 +444,7 @@ export function PortalLeftNav({
       </div>
 
       {/* User Menu at bottom */}
-      <UserMenu collapsed={collapsed} />
+      <UserMenu collapsed={collapsed} userName={userName} userEmail={userEmail} />
 
       {/* Request Sheet */}
       <PortalRequestSheet

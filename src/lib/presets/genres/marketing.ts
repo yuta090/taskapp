@@ -3,7 +3,7 @@
  * キャンペーン計画, KPI管理, コンテンツカレンダー
  */
 
-import type { PresetDefinition, PresetWikiPage } from '../index'
+import type { PresetDefinition, PresetWikiPage, PresetSampleTask } from '../index'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 
 function generateCampaignBody(): string {
@@ -56,6 +56,12 @@ function generateContentCalendarBody(): string {
       { cells: [[{ type: 'text', text: '公開日', styles: { bold: true } }], [{ type: 'text', text: 'タイトル', styles: { bold: true } }], [{ type: 'text', text: 'チャネル', styles: { bold: true } }], [{ type: 'text', text: 'ステータス', styles: { bold: true } }]] },
       { cells: [[{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: 'ブログ / SNS / メール' }], [{ type: 'text', text: '企画 / 制作中 / 公開済み' }]] },
     ] } },
+    { type: 'paragraph', content: [] },
+    { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: '制作フロー' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: '企画: ', styles: { bold: true } }, { type: 'text', text: 'テーマ・キーワード選定、担当アサイン' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: '制作: ', styles: { bold: true } }, { type: 'text', text: '原稿執筆・クリエイティブ作成' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: 'レビュー: ', styles: { bold: true } }, { type: 'text', text: '校正・ブランド/法務表現チェック' }] },
+    { type: 'numberedListItem', content: [{ type: 'text', text: '公開: ', styles: { bold: true } }, { type: 'text', text: '配信設定・計測タグの動作確認' }] },
   ])
 }
 
@@ -92,6 +98,46 @@ const wikiPages: PresetWikiPage[] = [
   { title: 'プロジェクトホーム', tags: ['ホーム', 'テンプレート'], generateBody: generateHomeBody, isHome: true },
 ]
 
+const sampleTasks: PresetSampleTask[] = [
+  {
+    title: '広告クリエイティブ案のご確認',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nボール（担当）をクライアントに渡すと、一覧にアンバー色の「クライアント確認待ち」表示が出ます。タスクを開いてボールを社内に戻す操作を試してみてください。',
+    ball: 'client',
+    status: 'in_progress',
+    clientScope: 'deliverable',
+    milestoneName: '制作',
+  },
+  {
+    title: '配信スケジュールの確定',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\n期限日とマイルストーンが設定されています。ステータスを変更すると保存ボタンなしでその場に反映されます（楽観的更新）。ガントチャートでの表示も確認してみてください。',
+    ball: 'internal',
+    status: 'todo',
+    clientScope: 'internal',
+    milestoneName: '実施',
+    dueInDays: 10,
+  },
+  {
+    title: 'ターゲット像の整理',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nまだ着手前のタスクです。ステータスのアイコンをクリックして「進行中」に変更する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '企画',
+  },
+  {
+    title: '月次レポートフォーマットの作成',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nタスクをクリックしてインスペクターを開き、担当者や説明文を編集する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '分析',
+  },
+]
+
 export const marketingPreset: PresetDefinition = {
   genre: 'marketing',
   label: 'マーケティング',
@@ -105,6 +151,7 @@ export const marketingPreset: PresetDefinition = {
     { name: '分析', orderKey: 4 },
     { name: '改善', orderKey: 5 },
   ],
+  sampleTasks,
   recommendedIntegrations: ['slack'],
   defaultSettings: { ownerFieldEnabled: null },
 }

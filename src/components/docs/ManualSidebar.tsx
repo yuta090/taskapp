@@ -29,6 +29,7 @@ const sections: NavSection[] = [
       { href: '/docs/manual/internal/settings', label: 'プロジェクト設定' },
       { href: '/docs/manual/internal/user-settings', label: 'ユーザー・組織設定' },
       { href: '/docs/manual/internal/mcp-guide', label: 'MCP（AI連携）' },
+      { href: '/docs/manual/internal/slack-setup', label: 'Slack連携' },
       { href: '/docs/manual/internal/notifications', label: '通知ガイド' },
       { href: '/docs/manual/internal/troubleshooting', label: 'トラブルシューティング' },
       { href: '/docs/manual/internal/glossary', label: '用語集' },
@@ -61,7 +62,7 @@ export function ManualSidebar() {
           className="text-base font-bold text-gray-900 hover:text-indigo-600 transition-colors"
           onClick={() => setMobileOpen(false)}
         >
-          TaskApp マニュアル
+          AgentPM マニュアル
         </Link>
       </div>
 

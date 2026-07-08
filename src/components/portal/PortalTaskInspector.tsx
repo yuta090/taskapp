@@ -11,6 +11,7 @@ import {
   ChatCircle,
   CurrencyJpy,
 } from '@phosphor-icons/react'
+import { getPortalStatusLabel } from './labels'
 
 interface Task {
   id: string
@@ -44,6 +45,8 @@ interface PortalTaskInspectorProps {
   onRequestChanges?: (taskId: string, comment: string) => Promise<void>
   onEstimateApprove?: (taskId: string, comment: string) => Promise<void>
   onEstimateReject?: (taskId: string, comment: string) => Promise<void>
+  /** Portal preview mode: replaces the action panel with a "プレビューでは操作できません" note. */
+  readOnly?: boolean
 }
 
 function formatDate(date: string): string {
@@ -66,16 +69,21 @@ function formatDateTime(date: string): string {
   })
 }
 
+// Color is decided here per status; the label text always comes from
+// labels.ts (single source of truth) so every TaskStatus value has a
+// Japanese label instead of leaking the raw English status (B1).
 function getStatusLabel(status?: string): { label: string; color: string } {
   if (!status) return { label: '不明', color: 'bg-gray-100 text-gray-700' }
-  const statusMap: Record<string, { label: string; color: string }> = {
-    considering: { label: '要確認', color: 'bg-amber-50 text-amber-700' },
-    open: { label: '未着手', color: 'bg-gray-100 text-gray-600' },
-    in_progress: { label: '進行中', color: 'bg-blue-50 text-blue-700' },
-    todo: { label: 'Todo', color: 'bg-gray-100 text-gray-600' },
-    done: { label: '完了', color: 'bg-green-50 text-green-700' },
+  const colorMap: Record<string, string> = {
+    considering: 'bg-amber-50 text-amber-700',
+    open: 'bg-gray-100 text-gray-600',
+    in_progress: 'bg-blue-50 text-blue-700',
+    in_review: 'bg-blue-50 text-blue-700',
+    todo: 'bg-gray-100 text-gray-600',
+    backlog: 'bg-gray-100 text-gray-600',
+    done: 'bg-green-50 text-green-700',
   }
-  return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-600' }
+  return { label: getPortalStatusLabel(status), color: colorMap[status] || 'bg-gray-100 text-gray-600' }
 }
 
 export function PortalTaskInspector({
@@ -85,6 +93,7 @@ export function PortalTaskInspector({
   onRequestChanges,
   onEstimateApprove,
   onEstimateReject,
+  readOnly = false,
 }: PortalTaskInspectorProps) {
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -162,10 +171,12 @@ export function PortalTaskInspector({
         {/* Title & Description */}
         <div className="px-4 py-4 border-b border-gray-100">
           <h2 className="text-lg font-semibold text-gray-900">{task.title}</h2>
-          {task.description && (
+          {task.description ? (
             <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">
               {task.description}
             </p>
+          ) : (
+            <p className="mt-2 text-sm text-gray-400 italic">説明はありません</p>
           )}
         </div>
 
@@ -176,14 +187,19 @@ export function PortalTaskInspector({
               <CurrencyJpy className="w-4 h-4 text-amber-600" />
               <span className="text-xs font-medium text-amber-700">見積もり確認</span>
             </div>
-            <div className="text-2xl font-bold text-gray-900 tracking-tight">
+            <div className="text-2xl font-semibold text-gray-900 tracking-tight">
               ¥{task.estimatedCost!.toLocaleString()}
             </div>
           </div>
         )}
 
         {/* Action Panel - description直下に配置 */}
-        {showActions && (
+        {showActions && readOnly && (
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 text-xs text-gray-500">
+            プレビューでは操作できません
+          </div>
+        )}
+        {showActions && !readOnly && (
           <div className="px-4 py-4 border-b border-gray-100 bg-gray-50/50">
             {/* Comment Input */}
             <div className="relative">

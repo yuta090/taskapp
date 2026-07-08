@@ -21,8 +21,12 @@ const publicPaths = [
   '/portal/email-action',
 ]
 
+// 静的LP: /lp1, /lp2, ... （public/lp<N>/index.html へ rewrite）。番号付きのみ公開
+const STATIC_LP_PATTERN = /^\/lp\d+(\/|$)/
+
 /** セグメント境界を考慮したパスマッチ（/privacy が /privacy-policy にマッチしない） */
 function isPublicPathMatch(pathname: string): boolean {
+  if (STATIC_LP_PATTERN.test(pathname)) return true
   return publicPaths.some(path => {
     if (path === '/') return pathname === '/'
     return pathname === path || pathname.startsWith(path + '/')
@@ -114,7 +118,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/login', request.url))
       }
       const redirectUrl = new URL('/login', request.url)
-      redirectUrl.searchParams.set('redirect', pathname)
+      redirectUrl.searchParams.set('redirect', pathname + request.nextUrl.search)
       return NextResponse.redirect(redirectUrl)
     }
 
@@ -137,11 +141,25 @@ export async function middleware(request: NextRequest) {
 
   // 認証済みユーザーがログイン/サインアップページにアクセスした場合
   if (user && (pathname === '/login' || pathname === '/signup')) {
+    // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されているので
+    // そちらを優先（auth/callback の next と同じバリデーション）
+    const redirectParam = request.nextUrl.searchParams.get('redirect')
+    if (
+      redirectParam &&
+      redirectParam.startsWith('/') &&
+      !redirectParam.startsWith('//') &&
+      !redirectParam.includes('\\')
+    ) {
+      return NextResponse.redirect(new URL(redirectParam, request.url))
+    }
+
     const cookieOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value
     const membership = await resolveActiveOrg(supabase, user.id, cookieOrgId)
 
+    // 組織未所属 → オンボーディング（Step1: 組織作成）。
+    // LoginClient / auth/callback と同じ判定に揃える（/inbox は組織前提の画面）
     if (!membership) {
-      return NextResponse.redirect(new URL('/inbox', request.url))
+      return NextResponse.redirect(new URL('/onboarding', request.url))
     }
 
     if (membership.role === 'client') {
@@ -176,7 +194,8 @@ export async function middleware(request: NextRequest) {
       )
     }
 
-    return redirectWithOrgCookie(new URL('/inbox', request.url), membership.org_id)
+    // 組織はあるがプロジェクトが無い（作成途中で離脱）→ Step2から再開
+    return redirectWithOrgCookie(new URL('/onboarding', request.url), membership.org_id)
   }
 
   // /onboarding ガード
@@ -219,7 +238,10 @@ export async function middleware(request: NextRequest) {
           onboardMembership.org_id
         )
       }
-      return redirectWithOrgCookie(new URL('/inbox', request.url), onboardMembership.org_id)
+      // 組織はあるがプロジェクトが無い → オンボーディング（Step2）をそのまま表示。
+      // ここで /inbox に弾くと LoginClient / auth/callback の Step2 再開が到達不能になる
+      response.cookies.set(ACTIVE_ORG_COOKIE, onboardMembership.org_id, ACTIVE_ORG_COOKIE_OPTIONS)
+      return response
     }
     return response
   }

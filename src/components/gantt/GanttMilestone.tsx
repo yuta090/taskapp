@@ -21,6 +21,7 @@ const RISK_BADGE = {
   medium: { bg: '#FEF3C7', text: '#D97706', border: '#FDE68A', label: '中' },
   low: { bg: '#DCFCE7', text: '#16A34A', border: '#BBF7D0', label: '低' },
   none: { bg: '#F1F5F9', text: '#64748B', border: '#E2E8F0', label: '-' },
+  unknown: { bg: '#F1F5F9', text: '#64748B', border: '#E2E8F0', label: '?' },
 } as const
 
 function getUrgencyLevel(daysUntil: number): UrgencyLevel {

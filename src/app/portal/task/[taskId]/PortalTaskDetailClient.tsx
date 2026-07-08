@@ -165,9 +165,10 @@ export function PortalTaskDetailClient({
     >
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto space-y-6">
-        {/* Back link */}
+        {/* Back link — carries ?space= so it returns to this task's own
+            project's list, not whichever project happens to be first (S6) */}
         <Link
-          href="/portal/tasks"
+          href={projects.length > 1 ? `/portal/tasks?space=${currentProject.id}` : '/portal/tasks'}
           className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -195,7 +196,7 @@ export function PortalTaskDetailClient({
                   {statusLabels[task.status] || task.status}
                 </span>
               </div>
-              <h1 className="text-xl font-bold text-gray-900">{task.title}</h1>
+              <h1 className="text-xl font-semibold text-gray-900">{task.title}</h1>
             </div>
           </div>
 
@@ -291,7 +292,7 @@ export function PortalTaskDetailClient({
                 onClick={handleApprove}
                 disabled={isSubmitting}
                 aria-busy={isSubmitting}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
@@ -327,7 +328,7 @@ export function PortalTaskDetailClient({
         {!canTakeAction && (
           <div className="bg-gray-50 rounded-xl border border-gray-200 p-6 text-center">
             {task.status === 'done' ? (
-              <div className="flex items-center justify-center gap-2 text-emerald-600">
+              <div className="flex items-center justify-center gap-2 text-green-600">
                 <CheckCircle weight="fill" className="w-5 h-5" />
                 <span className="text-sm font-medium">このタスクは完了しています</span>
               </div>

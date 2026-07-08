@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
+import { updateHomePageSpecLinks } from '@/lib/presets/homeLinks'
 import type { PresetGenre } from '@/lib/presets'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * POST /api/spaces/[spaceId]/apply-preset
@@ -43,17 +45,16 @@ export async function POST(
   const preset = getPreset(genre)
 
   // 3. Fetch orgId from space
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: spaceData } = await (supabase as any)
+  const { data: spaceData } = await (supabase as unknown as SupabaseClient)
     .from('spaces')
     .select('org_id')
     .eq('id', spaceId)
-    .single()
+    .single<{ org_id: string }>()
 
   if (!spaceData) {
     return NextResponse.json({ error: 'Space not found' }, { status: 404 })
   }
-  const orgId = spaceData.org_id as string
+  const orgId = spaceData.org_id
 
   // 4. Build milestones JSON for RPC
   const milestones = preset.milestones.map(m => ({
@@ -70,8 +71,7 @@ export async function POST(
   }))
 
   // 6. Call RPC for atomic application
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rpcResult, error: rpcError } = await (supabase as any).rpc(
+  const { data: rpcResult, error: rpcError } = await (supabase as unknown as SupabaseClient).rpc(
     'rpc_apply_preset_to_space',
     {
       p_space_id: spaceId,
@@ -102,34 +102,7 @@ export async function POST(
   }
 
   // 7. Update home page with real spec page links (non-critical)
-  if (genre !== 'blank' && preset.wikiPages.some(p => p.isHome)) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: allPages } = await (supabase as any)
-        .from('wiki_pages')
-        .select('id, title, tags')
-        .eq('space_id', spaceId)
-        .eq('org_id', orgId)
-
-      const pages = (allPages || []) as { id: string; title: string; tags: string[] }[]
-      const homePage = pages.find(p => p.tags.includes('ホーム'))
-      const specPages = pages
-        .filter(p => !p.tags.includes('ホーム'))
-        .map(p => ({ id: p.id, title: p.title }))
-
-      const homePreset = preset.wikiPages.find(p => p.isHome)
-      if (homePreset && homePage && specPages.length > 0) {
-        const homeBody = homePreset.generateBody(orgId, spaceId, specPages)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any)
-          .from('wiki_pages')
-          .update({ body: homeBody })
-          .eq('id', homePage.id)
-      }
-    } catch (err) {
-      console.warn('[apply-preset] Home page spec link update failed:', err)
-    }
-  }
+  await updateHomePageSpecLinks(supabase as unknown as SupabaseClient, preset, orgId, spaceId)
 
   return NextResponse.json({
     milestonesCreated: rpcResult.milestones_created ?? 0,

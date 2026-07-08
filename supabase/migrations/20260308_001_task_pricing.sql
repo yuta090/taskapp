@@ -1,7 +1,7 @@
 -- Task Pricing: 原価・売値・マージン管理テーブル
 -- agency_mode=true のスペースでのみ使用
 
-CREATE TABLE task_pricing (
+CREATE TABLE IF NOT EXISTS task_pricing (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES organizations(id),
   space_id uuid NOT NULL REFERENCES spaces(id),
@@ -37,8 +37,8 @@ CREATE TABLE task_pricing (
 );
 
 -- インデックス
-CREATE INDEX idx_task_pricing_space ON task_pricing(space_id);
-CREATE INDEX idx_task_pricing_org ON task_pricing(org_id);
+CREATE INDEX IF NOT EXISTS idx_task_pricing_space ON task_pricing(space_id);
+CREATE INDEX IF NOT EXISTS idx_task_pricing_org ON task_pricing(org_id);
 
 COMMENT ON TABLE task_pricing IS '代理店モード用タスク価格管理（原価・マージン・売値）';
 COMMENT ON COLUMN task_pricing.cost_hours IS '工数（時間）— ベンダーが入力';
@@ -62,6 +62,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS trg_task_pricing_updated_at ON task_pricing;
 CREATE TRIGGER trg_task_pricing_updated_at
   BEFORE UPDATE ON task_pricing
   FOR EACH ROW

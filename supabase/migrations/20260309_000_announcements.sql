@@ -21,14 +21,15 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
 );
 
 -- org_id NULL = system-wide announcement (visible to all orgs)
-CREATE INDEX idx_announcements_org ON announcements (org_id, published, created_at DESC);
-CREATE INDEX idx_announcement_reads_user ON announcement_reads (user_id);
+CREATE INDEX IF NOT EXISTS idx_announcements_org ON announcements (org_id, published, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads (user_id);
 
 -- RLS
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcement_reads ENABLE ROW LEVEL SECURITY;
 
 -- Anyone in the org can read announcements (or system-wide where org_id IS NULL)
+drop policy if exists "Users can read announcements" on announcements;
 CREATE POLICY "Users can read announcements"
   ON announcements FOR SELECT
   USING (
@@ -42,6 +43,7 @@ CREATE POLICY "Users can read announcements"
   );
 
 -- Only org admins can insert/update/delete
+drop policy if exists "Admins can manage announcements" on announcements;
 CREATE POLICY "Admins can manage announcements"
   ON announcements FOR ALL
   USING (
@@ -52,11 +54,13 @@ CREATE POLICY "Admins can manage announcements"
   );
 
 -- Users can read their own read-marks
+drop policy if exists "Users can read own announcement_reads" on announcement_reads;
 CREATE POLICY "Users can read own announcement_reads"
   ON announcement_reads FOR SELECT
   USING (user_id = auth.uid());
 
 -- Users can mark announcements as read
+drop policy if exists "Users can mark announcements read" on announcement_reads;
 CREATE POLICY "Users can mark announcements read"
   ON announcement_reads FOR INSERT
   WITH CHECK (user_id = auth.uid());

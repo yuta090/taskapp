@@ -2,9 +2,15 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PortalFilesClient } from './PortalFilesClient'
 import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
+import { getClientProjects, resolveCurrentProject } from '@/lib/portal/getClientProjects'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ProjectFile } from '@/lib/hooks/useFiles'
 
-export default async function PortalFilesPage() {
+interface PageProps {
+  searchParams: Promise<{ space?: string | string[] }>
+}
+
+export default async function PortalFilesPage({ searchParams }: PageProps) {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -13,56 +19,59 @@ export default async function PortalFilesPage() {
     redirect('/login')
   }
 
-  // Get client's spaces
-   
-  const { data: memberships } = await (supabase as SupabaseClient)
-    .from('space_memberships')
-    .select(`
-      space_id,
-      spaces!inner (
-        id,
-        name,
-        org_id,
-        organizations!inner (
-          id,
-          name
-        )
-      )
-    `)
-    .eq('user_id', user.id)
-    .eq('role', 'client')
+  // Get client's projects, resolved against ?space=
+  const { space } = await searchParams
+  const projects = await getClientProjects(supabase as SupabaseClient, user.id)
+  const currentProject = resolveCurrentProject(projects, space)
 
-  if (!memberships || memberships.length === 0) {
+  if (!currentProject) {
     return (
       <div className="min-h-screen bg-[#F7F7F5] flex items-center justify-center">
         <div className="text-center bg-white rounded-xl border border-gray-200 shadow-sm p-8 max-w-md">
-          <h1 className="text-xl font-bold text-gray-900 mb-2">アクセス権限がありません</h1>
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">アクセス権限がありません</h1>
           <p className="text-gray-600">招待リンクからアクセスしてください</p>
         </div>
       </div>
     )
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const projects = memberships.map((m: any) => ({
-    id: m.space_id,
-    name: m.spaces?.name || 'プロジェクト',
-    orgId: m.spaces?.org_id,
-    orgName: m.spaces?.organizations?.name || '組織',
-  }))
-
-  const currentProject = projects[0]
   const spaceId = currentProject.id
 
   if (!(await isPortalSectionEnabled(supabase as SupabaseClient, spaceId, 'files'))) {
     redirect('/portal')
   }
 
-  // Get files (placeholder - would need a files table)
-  const files: { id: string; name: string; type: string; size: number; createdAt: string }[] = []
+  // 可視性はRLSに従う(client_visible=true または自分がアップロードしたファイルのみ)
+  const { data: fileRows } = await (supabase as SupabaseClient)
+    .from('files')
+    .select('id, name, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
+    .eq('space_id', spaceId)
+    .eq('status', 'ready')
+    .order('created_at', { ascending: false })
+
+  const files: ProjectFile[] = (fileRows || []).map((f: {
+    id: string
+    name: string
+    mime_type: string
+    size_bytes: number
+    origin: 'internal' | 'client'
+    client_visible: boolean
+    uploaded_by: string
+    created_at: string
+  }) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mime_type,
+    sizeBytes: f.size_bytes,
+    origin: f.origin,
+    clientVisible: f.client_visible,
+    uploadedBy: f.uploaded_by,
+    uploaderName: '',
+    createdAt: f.created_at,
+  }))
 
   // Get action count for sidebar badge
-   
+
   const { count: actionCount } = await (supabase as SupabaseClient)
     .from('tasks')
     .select('id', { count: 'exact', head: true })
@@ -75,6 +84,7 @@ export default async function PortalFilesPage() {
       currentProject={currentProject}
       projects={projects}
       files={files}
+      currentUserId={user.id}
       actionCount={actionCount || 0}
     />
   )

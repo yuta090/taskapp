@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useSyncExternalStore } from 'react'
-import { ArrowLeft, Sun, Moon, Desktop, Globe, Clock, SidebarSimple } from '@phosphor-icons/react'
-import Link from 'next/link'
+import { Sun, Moon, Desktop, Globe, Clock, SidebarSimple } from '@phosphor-icons/react'
+import { SettingsBackButton } from '@/components/shared'
 
 type Theme = 'light' | 'dark' | 'system'
 type Language = 'ja' | 'en'
@@ -75,12 +75,7 @@ export default function PreferencesSettingsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">環境設定</h1>
               <p className="text-sm text-gray-500">表示やUIのカスタマイズ</p>

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   PlusCircle,
   ArrowsLeftRight,
@@ -10,6 +11,11 @@ import {
   CaretRight,
   CaretLeft,
 } from '@phosphor-icons/react'
+import { useOnboardingFlag, resetOnboardingFlagOnServer } from '@/lib/hooks/useOnboardingFlag'
+import { useSpotlightRect } from '@/lib/hooks/useSpotlightRect'
+import { usePanelPosition } from '@/lib/hooks/usePanelPosition'
+import { useWalkthroughDismissal } from '@/lib/hooks/useWalkthroughDismissal'
+import { WalkthroughBackdrop } from '@/components/onboarding/WalkthroughBackdrop'
 
 const ONBOARDING_KEY = 'taskapp_internal_onboarded'
 
@@ -19,7 +25,13 @@ interface WalkthroughStep {
   iconBg: string
   title: string
   description: string
-  detail?: string
+  /**
+   * CSS selectors for the element to spotlight, in priority order — later
+   * entries are fallbacks for states where the primary is absent (e.g. a
+   * brand-new project with zero task rows). Falls back to a centered dialog
+   * if none match.
+   */
+  targetSelectors?: readonly string[]
 }
 
 const steps: WalkthroughStep[] = [
@@ -28,93 +40,81 @@ const steps: WalkthroughStep[] = [
     iconColor: 'text-blue-600',
     iconBg: 'bg-blue-100',
     title: 'タスク作成の流れ',
-    description:
-      'タイトルを入力してEnterで即作成。詳細は右側のインスペクターで編集できます。',
-    detail:
-      '「詳細オプション」を開くと、タスクタイプ・担当者・期限・マイルストーンなどを作成時に設定できます。まずはタイトルだけで作成し、後から詳細を追加するのがおすすめです。',
+    description: 'タイトルを入力してEnterで作成できます。詳細は後から編集可能です。',
+    // 空プロジェクトでは空状態、タスクがある場合はインラインの「タスクを追加」行。
+    // サイドバー内の要素は別スタッキングコンテキストで隠れるため使わない。
+    targetSelectors: ['[data-walkthrough="task-create"]'],
   },
   {
     icon: ArrowsLeftRight,
     iconColor: 'text-amber-600',
     iconBg: 'bg-amber-100',
     title: 'ボールの概念',
-    description:
-      '「ボール」は次にアクションを取る側を表します。',
-    detail:
-      '「社内」= チームが作業中。「外部」= クライアントの確認待ち。ボールを「外部」にすると、クライアント側の関係者を指定する必要があります。タスクの停滞を防ぐための仕組みです。',
+    description: '次にアクションを取る側を表します。「社内」はチーム、「外部」はクライアント対応中です。',
+    targetSelectors: [
+      '[data-walkthrough="task-row-ball"]',
+      '[data-walkthrough="filter-client-wait"]',
+    ],
   },
   {
     icon: Eye,
     iconColor: 'text-indigo-600',
     iconBg: 'bg-indigo-100',
     title: 'クライアントに公開',
-    description:
-      '「クライアントに公開」をONにすると、クライアントのポータルにタスクが表示されます。',
-    detail:
-      '黄色いバッジがついた要素はクライアントに見えるものです。社内の作業タスクは非公開のままにして、成果物や確認事項だけを公開するのがベストプラクティスです。',
+    description: 'ONにするとクライアントのポータルにタスクが表示されます。',
+    targetSelectors: [
+      '[data-walkthrough="task-row-visibility"]',
+      '[data-walkthrough="filter-client-wait"]',
+    ],
   },
   {
     icon: RocketLaunch,
     iconColor: 'text-emerald-600',
     iconBg: 'bg-emerald-100',
     title: '準備完了！',
-    description:
-      'これでプロジェクト管理を始められます。',
-    detail:
-      'タスク一覧の左側でプロジェクトを切り替え、右側のインスペクターで詳細を編集。ガントチャートやバーンダウンチャートで進捗も確認できます。',
+    description: 'これでプロジェクト管理を始められます。',
   },
 ]
 
-function isOnboarded(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return localStorage.getItem(ONBOARDING_KEY) === 'true'
-  } catch {
-    return false
-  }
-}
-
-function markOnboarded(): void {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(ONBOARDING_KEY, 'true')
-  } catch {
-    // localStorage unavailable
-  }
-}
-
-/** Clear onboarding flag so the walkthrough shows again on next mount. */
-export function resetInternalOnboarding(): void {
+/**
+ * Clear the onboarding flag (localStorage + server) so the walkthrough
+ * shows again on next mount. Server clear must complete before callers
+ * reload/navigate, otherwise `useOnboardingFlag` re-reads the still-true
+ * server flag and the walkthrough stays hidden.
+ */
+export async function resetInternalOnboarding(): Promise<void> {
   if (typeof window === 'undefined') return
   try {
     localStorage.removeItem(ONBOARDING_KEY)
   } catch {
     // localStorage unavailable
   }
+  await resetOnboardingFlagOnServer('internal_walkthrough')
 }
 
 export function InternalOnboardingWalkthrough() {
+  const { shouldShow, markDone } = useOnboardingFlag('internal_walkthrough', ONBOARDING_KEY)
   const [isOpen, setIsOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [fadeIn, setFadeIn] = useState(false)
 
   useEffect(() => {
-    if (!isOnboarded()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- must run after hydration; localStorage unavailable during SSR
+    if (shouldShow) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- opens once the async server/localStorage flag check resolves
       setIsOpen(true)
       const timer = setTimeout(() => setFadeIn(true), 50)
       return () => clearTimeout(timer)
     }
-  }, [])
+  }, [shouldShow])
 
   const handleClose = useCallback(() => {
     setFadeIn(false)
     const timer = setTimeout(() => {
       setIsOpen(false)
-      markOnboarded()
+      void markDone()
     }, 200)
     return () => clearTimeout(timer)
-  }, [])
+  }, [markDone])
 
   const handleNext = useCallback(() => {
     if (currentStep < steps.length - 1) {
@@ -130,52 +130,65 @@ export function InternalOnboardingWalkthrough() {
     }
   }, [currentStep])
 
-  useEffect(() => {
-    if (!isOpen) return
+  const step = steps[currentStep]
+  const { rect: targetRect, matchedSelector } = useSpotlightRect(step.targetSelectors, isOpen)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelStyle = usePanelPosition(panelRef, targetRect)
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose()
-      } else if (e.key === 'ArrowRight') {
-        handleNext()
-      } else if (e.key === 'ArrowLeft') {
-        handlePrev()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, handleClose, handleNext, handlePrev])
+  // Esc closes, arrow keys navigate, clicking the spotlighted target
+  // advances the step, and clicking the dimmed background closes.
+  useWalkthroughDismissal({
+    isOpen,
+    panelRef,
+    targetSelector: matchedSelector ?? undefined,
+    onNext: handleNext,
+    onPrev: handlePrev,
+    onClose: handleClose,
+  })
 
   if (!isOpen) return null
 
-  const step = steps[currentStep]
   const Icon = step.icon
   const isLast = currentStep === steps.length - 1
 
-  return (
+  // 親ペイン（main等）のスタッキングコンテキストに閉じ込められると
+  // サイドバーの下に描画されるため、body直下にポータルで出す
+  return createPortal(
     <div
       role="dialog"
       aria-labelledby="internal-onboarding-title"
       aria-describedby="internal-onboarding-description"
-      className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-opacity duration-200 ${
-        fadeIn ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-[100] pointer-events-none transition-opacity duration-200 ${
+        targetRect ? '' : 'flex items-center justify-center p-4'
+      } ${fadeIn ? 'opacity-100' : 'opacity-0'}`}
     >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={handleClose}
-      />
+      {/* Dimmed area: blocks clicks to the UI underneath and closes the
+          tour; only the spotlight hole lets clicks reach the real target. */}
+      <WalkthroughBackdrop targetRect={targetRect} onClose={handleClose} />
+      {targetRect && (
+        <div
+          data-testid="walkthrough-spotlight-ring"
+          className="fixed rounded-lg ring-4 ring-indigo-600 pointer-events-none transition-all duration-200"
+          style={{
+            top: targetRect.top - 8,
+            left: targetRect.left - 8,
+            width: targetRect.width + 16,
+            height: targetRect.height + 16,
+          }}
+        />
+      )}
 
       {/* Card */}
       <div
-        className={`relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
+        ref={panelRef}
+        data-testid="walkthrough-panel"
+        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
           fadeIn ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         }`}
+        style={panelStyle}
       >
         {/* Top accent bar */}
-        <div className="h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-500" />
+        <div className="h-1 bg-indigo-600" />
 
         {/* Close / Skip */}
         <button
@@ -202,9 +215,9 @@ export function InternalOnboardingWalkthrough() {
                 key={i}
                 className={`h-1 rounded-full transition-all duration-300 ${
                   i === currentStep
-                    ? 'w-8 bg-blue-500'
+                    ? 'w-8 bg-indigo-600'
                     : i < currentStep
-                      ? 'w-4 bg-blue-300'
+                      ? 'w-4 bg-indigo-200'
                       : 'w-4 bg-gray-200'
                 }`}
               />
@@ -229,13 +242,6 @@ export function InternalOnboardingWalkthrough() {
           >
             {step.description}
           </p>
-
-          {/* Detail */}
-          {step.detail && (
-            <p className="mt-3 text-sm text-gray-500 leading-relaxed">
-              {step.detail}
-            </p>
-          )}
         </div>
 
         {/* Footer Actions */}
@@ -263,8 +269,8 @@ export function InternalOnboardingWalkthrough() {
             onClick={handleNext}
             className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg transition-colors ${
               isLast
-                ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
             }`}
           >
             {isLast ? (
@@ -278,6 +284,7 @@ export function InternalOnboardingWalkthrough() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

@@ -5,6 +5,15 @@ const nextConfig: NextConfig = {
   devIndicators: {
     position: "bottom-right",
   },
+  async rewrites() {
+    return [
+      // 静的LP: public/lp<N>/index.html を /lp<N> で配信する（lp1=税理士, lp2=社労士, ...）
+      {
+        source: "/lp:id(\\d+)",
+        destination: "/lp:id/index.html",
+      },
+    ];
+  },
   async headers() {
     return [
       {

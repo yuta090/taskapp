@@ -46,7 +46,7 @@ export function generateDefaultWikiBody(
         ],
       }))
     : [
-        { type: 'bulletListItem', content: [{ type: 'text', text: '（仕様書ページが生成されませんでした）' }] },
+        { type: 'bulletListItem', content: [{ type: 'text', text: '（ドキュメントリンク未設定）' }] },
       ]
 
   const blocks: TemplateBlock[] = [

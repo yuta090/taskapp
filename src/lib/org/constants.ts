@@ -6,4 +6,5 @@ export const ACTIVE_ORG_COOKIE_OPTIONS = {
   path: '/',
   sameSite: 'lax' as const,
   maxAge: ACTIVE_ORG_MAX_AGE,
+  secure: process.env.NODE_ENV === 'production',
 }

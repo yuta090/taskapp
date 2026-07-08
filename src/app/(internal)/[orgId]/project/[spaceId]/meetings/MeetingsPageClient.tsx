@@ -13,6 +13,7 @@ import { ProposalRow, ProposalInspector, ProposalCreateSheet } from '@/component
 import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 import type { Meeting } from '@/types/database'
+import { MEETING_QUERY_PARAM, PROPOSAL_QUERY_PARAM } from '@/lib/navigation/meetingLinks'
 
 interface MeetingsPageClientProps {
   orgId: string
@@ -65,8 +66,11 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     error,
     fetchMeetingDetail,
     createMeeting,
+    deleteMeeting,
     startMeeting,
     endMeeting,
+    parseMinutes,
+    previewMinutes,
   } = useMeetings({ orgId, spaceId })
 
   const {
@@ -80,8 +84,8 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   } = useSchedulingProposals({ orgId, spaceId })
 
   const projectBasePath = `/${orgId}/project/${spaceId}/meetings`
-  const selectedMeetingId = searchParams.get('meeting')
-  const selectedProposalId = searchParams.get('proposal')
+  const selectedMeetingId = searchParams.get(MEETING_QUERY_PARAM)
+  const selectedProposalId = searchParams.get(PROPOSAL_QUERY_PARAM)
 
   // Unified list: meetings + open/expired proposals
   const unifiedItems = useMemo(() => {
@@ -243,9 +247,28 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             toast.error('会議の終了に失敗しました')
           }
         }}
+        onDelete={async () => {
+          try {
+            await deleteMeeting(selectedMeeting.id)
+            toast.success('会議を削除しました')
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : '会議の削除に失敗しました')
+            throw err
+          }
+        }}
+        onPreviewMinutes={previewMinutes}
+        onCreateTasks={async (meetingId, minutesMd) => {
+          const result = await parseMinutes(meetingId, minutesMd)
+          if (result.createdCount > 0) {
+            toast.success(`${result.createdCount}件のタスクを作成しました`)
+          } else {
+            toast.info('タスク化できる決定事項はありませんでした')
+          }
+          return result
+        }}
       />
     )
-  }, [endMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery])
+  }, [endMeeting, deleteMeeting, participants, selectedMeeting, selectedProposalId, setInspector, startMeeting, updateQuery, parseMinutes, previewMinutes])
 
   // ---- Proposal inspector ----
   // Reset detail when switching proposals (prevents stale data flash)
@@ -463,10 +486,15 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
           {!isLoading && !hasError && unifiedItems.length === 0 && (
             <div className="text-center text-gray-400 py-20">
               <Notebook className="text-4xl mx-auto mb-3 opacity-50" />
-              <p className="text-sm">会議・日程調整はありません</p>
-              <p className="text-xs mt-1 text-gray-300">
-                「新規」ボタンから会議を作成しましょう
-              </p>
+              <p className="text-sm mb-3">会議・日程調整はありません</p>
+              <button
+                type="button"
+                onClick={() => setIsCreateSheetOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 rounded-md px-3 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+              >
+                <Plus weight="bold" />
+                会議を作成
+              </button>
             </div>
           )}
           {!isLoading && !hasError && unifiedItems.length > 0 && filteredItems.length === 0 && (

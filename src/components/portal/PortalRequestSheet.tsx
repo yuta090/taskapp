@@ -210,7 +210,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 id="request-sheet-title" className="text-lg font-bold text-gray-900">
+          <h2 id="request-sheet-title" className="text-lg font-semibold text-gray-900">
             リクエストを送る
           </h2>
           <button
@@ -405,7 +405,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
                   ? 'その他、気づいたことがあればご記入ください'
                   : category === 'feature'
                     ? '例: 月次報告用にタスク一覧をCSVでダウンロードしたい'
-                    : '例: クライアント側で担当者を追加できますか？'
+                    : '例: 担当者を追加してもらうことはできますか？'
               }
               className={`w-full px-3 py-2.5 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:ring-2 transition-shadow resize-none ${
                 fieldErrors.description

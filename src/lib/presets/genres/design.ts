@@ -3,7 +3,7 @@
  * デザインブリーフ, スタイルガイド, 成果物一覧
  */
 
-import type { PresetDefinition, PresetWikiPage } from '../index'
+import type { PresetDefinition, PresetWikiPage, PresetSampleTask } from '../index'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 
 function generateBriefBody(): string {
@@ -62,6 +62,11 @@ function generateDeliverablesBody(): string {
       { cells: [[{ type: 'text', text: '成果物', styles: { bold: true } }], [{ type: 'text', text: '担当', styles: { bold: true } }], [{ type: 'text', text: 'ステータス', styles: { bold: true } }], [{ type: 'text', text: 'リンク', styles: { bold: true } }]] },
       { cells: [[{ type: 'text', text: '' }], [{ type: 'text', text: '' }], [{ type: 'text', text: '制作中 / レビュー中 / 完了' }], [{ type: 'text', text: '' }]] },
     ] } },
+    { type: 'paragraph', content: [] },
+    { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: 'レビュー・フィードバックルール' }] },
+    { type: 'bulletListItem', content: [{ type: 'text', text: '修正回数: ', styles: { bold: true } }, { type: 'text', text: '（例: 初稿＋2回まで。超過分は要相談）' }] },
+    { type: 'bulletListItem', content: [{ type: 'text', text: 'フィードバック方法: ', styles: { bold: true } }, { type: 'text', text: '（Figmaコメント / タスクで依頼 等）' }] },
+    { type: 'bulletListItem', content: [{ type: 'text', text: '承認者: ', styles: { bold: true } }, { type: 'text', text: '' }] },
   ])
 }
 
@@ -98,6 +103,46 @@ const wikiPages: PresetWikiPage[] = [
   { title: 'プロジェクトホーム', tags: ['ホーム', 'テンプレート'], generateBody: generateHomeBody, isHome: true },
 ]
 
+const sampleTasks: PresetSampleTask[] = [
+  {
+    title: 'ロゴデザイン案のご確認',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nボール（担当）をクライアントに渡すと、一覧にアンバー色の「クライアント確認待ち」表示が出ます。タスクを開いてボールを社内に戻す操作を試してみてください。',
+    ball: 'client',
+    status: 'in_progress',
+    clientScope: 'deliverable',
+    milestoneName: '制作',
+  },
+  {
+    title: '納品用データの書き出し',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\n期限日とマイルストーンが設定されています。ステータスを変更すると保存ボタンなしでその場に反映されます（楽観的更新）。ガントチャートでの表示も確認してみてください。',
+    ball: 'internal',
+    status: 'todo',
+    clientScope: 'internal',
+    milestoneName: '納品',
+    dueInDays: 7,
+  },
+  {
+    title: '参考デザインのリサーチ',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nまだ着手前のタスクです。ステータスのアイコンをクリックして「進行中」に変更する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: 'ヒアリング',
+  },
+  {
+    title: '配色パターンの検討',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nタスクをクリックしてインスペクターを開き、担当者や説明文を編集する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: 'コンセプト',
+  },
+]
+
 export const designPreset: PresetDefinition = {
   genre: 'design',
   label: 'デザイン制作',
@@ -111,6 +156,7 @@ export const designPreset: PresetDefinition = {
     { name: '修正', orderKey: 4 },
     { name: '納品', orderKey: 5 },
   ],
+  sampleTasks,
   recommendedIntegrations: ['slack'],
   defaultSettings: { ownerFieldEnabled: null },
 }

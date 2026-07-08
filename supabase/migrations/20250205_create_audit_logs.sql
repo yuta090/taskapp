@@ -68,6 +68,7 @@ alter table audit_logs enable row level security;
 -- 閲覧ポリシー:
 -- - クライアントは visibility='client' のみ
 -- - チーム（owner/member）は全件
+drop policy if exists audit_logs_select on audit_logs;
 create policy audit_logs_select on audit_logs for select using (
   exists (
     select 1 from space_memberships sm
@@ -81,6 +82,7 @@ create policy audit_logs_select on audit_logs for select using (
 );
 
 -- 挿入ポリシー: スペースメンバーのみ挿入可能
+drop policy if exists audit_logs_insert on audit_logs;
 create policy audit_logs_insert on audit_logs for insert with check (
   exists (
     select 1 from space_memberships sm
@@ -90,9 +92,11 @@ create policy audit_logs_insert on audit_logs for insert with check (
 );
 
 -- 更新禁止: 監査ログは不変
+drop policy if exists audit_logs_no_update on audit_logs;
 create policy audit_logs_no_update on audit_logs for update using (false);
 
 -- 削除禁止: 監査ログは削除不可
+drop policy if exists audit_logs_no_delete on audit_logs;
 create policy audit_logs_no_delete on audit_logs for delete using (false);
 
 -- ============================================================================

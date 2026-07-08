@@ -34,12 +34,14 @@ export function TaskPricingPanel({
   // Initialize form from pricing data
   useEffect(() => {
     if (pricing) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 取得済み pricing をフォーム入力の初期値に同期する
       setCostHours(pricing.cost_hours != null ? String(pricing.cost_hours) : '')
       setCostUnitPrice(pricing.cost_unit_price != null ? String(pricing.cost_unit_price) : '')
       setMarginRate(pricing.margin_rate != null ? String(pricing.margin_rate) : '')
       setSellMode(pricing.sell_mode)
       setSellTotal(pricing.sell_total != null ? String(pricing.sell_total) : '')
     } else if (defaultMarginRate != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- スペース既定の利益率をフォーム初期値に同期する
       setMarginRate(String(defaultMarginRate))
     }
   }, [pricing, defaultMarginRate])

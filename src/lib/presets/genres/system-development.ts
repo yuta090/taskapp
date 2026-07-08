@@ -3,13 +3,17 @@
  * 要件定義書, DB設計書, 画面一覧, テスト計画書
  */
 
-import type { PresetDefinition, PresetWikiPage } from '../index'
+import type { PresetDefinition, PresetWikiPage, PresetSampleTask } from '../index'
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
 
 // Reuse DB設計書 from existing templates
 import { SPEC_TEMPLATES } from '@/lib/wiki/defaultTemplate'
 
-const dbTemplate = SPEC_TEMPLATES.find(s => s.title === 'DB設計書')!
+const foundDbTemplate = SPEC_TEMPLATES.find(s => s.title === 'DB設計書')
+if (!foundDbTemplate) {
+  throw new Error('SPEC_TEMPLATES に「DB設計書」が見つかりません。defaultTemplate.ts のタイトル変更を確認してください')
+}
+const dbTemplate = foundDbTemplate
 
 function generateRequirementsBody(): string {
   return JSON.stringify([
@@ -77,7 +81,7 @@ function generateHomeBody(orgId: string, spaceId: string, specPages?: SpecPageRe
         type: 'bulletListItem',
         content: [{ type: 'link', href: `${wikiPath}?page=${spec.id}`, content: [{ type: 'text', text: spec.title }] }],
       }))
-    : [{ type: 'bulletListItem', content: [{ type: 'text', text: '（仕様書ページが生成されませんでした）' }] }]
+    : [{ type: 'bulletListItem', content: [{ type: 'text', text: '（ドキュメントリンク未設定）' }] }]
 
   return JSON.stringify([
     { type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'プロジェクト概要' }] },
@@ -112,6 +116,46 @@ const wikiPages: PresetWikiPage[] = [
   { title: 'プロジェクトホーム', tags: ['ホーム', 'テンプレート'], generateBody: generateHomeBody, isHome: true },
 ]
 
+const sampleTasks: PresetSampleTask[] = [
+  {
+    title: '画面遷移図のご確認',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nボール（担当）をクライアントに渡すと、一覧にアンバー色の「クライアント確認待ち」表示が出ます。タスクを開いてボールを社内に戻す操作を試してみてください。',
+    ball: 'client',
+    status: 'in_progress',
+    clientScope: 'deliverable',
+    milestoneName: '基本設計',
+  },
+  {
+    title: '本番DBのバックアップ設定',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\n期限日とマイルストーンが設定されています。ステータスを変更すると保存ボタンなしでその場に反映されます（楽観的更新）。ガントチャートでの表示も確認してみてください。',
+    ball: 'internal',
+    status: 'todo',
+    clientScope: 'internal',
+    milestoneName: '開発',
+    dueInDays: 14,
+  },
+  {
+    title: '非機能要件の洗い出し',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nまだ着手前のタスクです。ステータスのアイコンをクリックして「進行中」に変更する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: '要件定義',
+  },
+  {
+    title: 'テストケース一覧の作成',
+    description:
+      'これはサンプルタスクです。自由に編集・削除できます。\n\nタスクをクリックしてインスペクターを開き、担当者や説明文を編集する操作を試してみてください。',
+    ball: 'internal',
+    status: 'backlog',
+    clientScope: 'internal',
+    milestoneName: 'テスト',
+  },
+]
+
 export const systemDevelopmentPreset: PresetDefinition = {
   genre: 'system_development',
   label: '業務システム開発',
@@ -126,6 +170,7 @@ export const systemDevelopmentPreset: PresetDefinition = {
     { name: 'テスト', orderKey: 5 },
     { name: '運用開始', orderKey: 6 },
   ],
+  sampleTasks,
   recommendedIntegrations: ['github', 'slack'],
   defaultSettings: { ownerFieldEnabled: null },
 }

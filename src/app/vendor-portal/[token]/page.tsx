@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -34,50 +35,46 @@ export default function VendorInvitePage({
   const [loading, setLoading] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  // V5: ログイン中アカウントのメールが招待メールと不一致のとき、自動承認せず警告を出す
+  const [emailMismatch, setEmailMismatch] = useState<{ invited: string; current: string } | null>(null)
 
-  const acceptInvite = useCallback(async (userId?: string) => {
+  const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)
     setError('')
 
     try {
-      const supabase = createClient()
+      if (!isAutoAccept && password.length < 8) {
+        setError('パスワードは8文字以上で入力してください')
+        setLoading(false)
+        return
+      }
 
-      if (!userId) {
-        if (password.length < 8) {
-          setError('パスワードは8文字以上で入力してください')
-          setLoading(false)
-          return
-        }
+      // サーバーサイドで受諾（新規ユーザー作成はサーバー側で招待メールのアドレスを使って行う）
+      const response = await fetch(`/api/invites/${token}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: isAutoAccept ? undefined : JSON.stringify({ password }),
+      })
+      const data = await response.json()
 
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: inviteInfo!.email,
+      if (!response.ok) {
+        setError(data.error || 'エラーが発生しました')
+        setLoading(false)
+        return
+      }
+
+      if (!isAutoAccept) {
+        const supabase = createClient()
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: data.email,
           password,
         })
 
-        if (authError) {
-          setError(authError.message)
+        if (signInError) {
+          setError(signInError.message)
           setLoading(false)
           return
         }
-
-        if (!authData.user) {
-          setError('ユーザー作成に失敗しました')
-          setLoading(false)
-          return
-        }
-
-        userId = authData.user.id
-      }
-
-      const { error: acceptError } = await (supabase as SupabaseClient).rpc('rpc_accept_invite', {
-        p_token: token,
-        p_user_id: userId,
-      })
-
-      if (acceptError) {
-        setError(acceptError.message)
-        setLoading(false)
-        return
       }
 
       router.push('/vendor-portal')
@@ -86,7 +83,7 @@ export default function VendorInvitePage({
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, inviteInfo, token, router])
+  }, [password, token, router])
 
   useEffect(() => {
     async function loadInvite() {
@@ -105,7 +102,12 @@ export default function VendorInvitePage({
         setInviteInfo(data)
 
         if (session && data.valid) {
-          await acceptInvite(session.user.id)
+          if (shouldAutoAcceptInvite(session.user.email, data.email)) {
+            await acceptInvite(true)
+          } else {
+            // 別アカウントでログイン中: 自動承認せず、正しいアカウントを促す
+            setEmailMismatch({ invited: data.email, current: session.user.email ?? '' })
+          }
         }
       }
 
@@ -117,7 +119,7 @@ export default function VendorInvitePage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await acceptInvite()
+    await acceptInvite(false)
   }
 
   if (checkingAuth) {
@@ -145,11 +147,44 @@ export default function VendorInvitePage({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
+          <p className="text-sm text-gray-500 mb-3">
+            既に参加済みの場合はログインしてください。
+          </p>
           <Link
             href="/login"
             className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
           >
             ログインページへ
+          </Link>
+        </div>
+      </AuthCard>
+    )
+  }
+
+  // V5: 別アカウントでログイン中（招待メールと不一致）— 自動承認せず正しいアカウントを促す
+  if (emailMismatch) {
+    return (
+      <AuthCard
+        title="別のアカウントでログイン中です"
+        description="この招待はご利用中のアカウントとは別のメールアドレス宛です。誤ったアカウントへの参加を防ぐため、自動での参加を停止しました。"
+      >
+        <div className="space-y-4">
+          <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm">
+            <p className="text-gray-700">招待先: <strong className="text-amber-700">{emailMismatch.invited}</strong></p>
+            <p className="text-gray-700 mt-1">ログイン中: <strong>{emailMismatch.current}</strong></p>
+          </div>
+          <AuthButton
+            type="button"
+            onClick={async () => {
+              const supabase = createClient()
+              await supabase.auth.signOut()
+              window.location.reload()
+            }}
+          >
+            別のアカウントでログインし直す
+          </AuthButton>
+          <Link href="/vendor-portal" className="block text-center text-sm text-gray-500 hover:text-gray-700">
+            現在のアカウントのポータルに戻る
           </Link>
         </div>
       </AuthCard>
@@ -169,6 +204,30 @@ export default function VendorInvitePage({
     )
   }
 
+  // 既存ユーザーが未ログイン: パスワード検証に到達させず、ログインへ誘導する
+  if (inviteInfo.is_existing_user && !isLoggedIn) {
+    return (
+      <AuthCard title={`${inviteInfo.org_name} に招待されました`}>
+        <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+          <p className="text-sm text-indigo-800">
+            <strong>{inviteInfo.inviter_name || '管理者'}</strong> さんから
+            <br />
+            <strong>{inviteInfo.space_name}</strong> にベンダーとして招待されました。
+          </p>
+        </div>
+        <p className="mb-4 text-sm text-gray-600">
+          <strong>{inviteInfo.email}</strong> は既にアカウントをお持ちです。ログインして参加してください。
+        </p>
+        <AuthButton
+          type="button"
+          onClick={() => router.push(`/login?redirect=/vendor-portal/${token}`)}
+        >
+          ログインして参加
+        </AuthButton>
+      </AuthCard>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
@@ -176,9 +235,9 @@ export default function VendorInvitePage({
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">TA</span>
+              <span className="text-white font-bold text-sm">A</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">TaskApp</span>
+            <span className="text-xl font-bold text-gray-900">AgentPM</span>
           </Link>
           <div className="mt-2">
             <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded">
@@ -233,15 +292,6 @@ export default function VendorInvitePage({
               {inviteInfo.is_existing_user ? 'ベンダーポータルに参加' : 'アカウントを作成して参加'}
             </AuthButton>
           </form>
-
-          {inviteInfo.is_existing_user && !isLoggedIn && (
-            <div className="mt-4 text-center text-sm text-gray-600">
-              すでにアカウントをお持ちの方は{' '}
-              <Link href={`/login?redirect=/vendor-portal/${token}`} className="text-indigo-600 hover:text-indigo-700 font-medium">
-                ログイン
-              </Link>
-            </div>
-          )}
         </div>
       </div>
     </div>

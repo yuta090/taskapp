@@ -33,7 +33,7 @@ export function MilestoneGroupHeader({
 
   return (
     <div
-      className="sticky top-0 z-10 bg-white flex items-center gap-2 px-2 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors select-none border-b border-gray-100"
+      className="sticky top-0 z-10 bg-white flex items-center gap-2 px-4 md:px-2 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors select-none border-b border-gray-100"
       onClick={onToggle}
     >
       {/* Collapse toggle */}
@@ -53,7 +53,7 @@ export function MilestoneGroupHeader({
       {/* Due date - right after title */}
       {formattedDueDate && (
         <span className="text-xs text-gray-400 tabular-nums">
-          {formattedDueDate}
+          期日 {formattedDueDate}
         </span>
       )}
 

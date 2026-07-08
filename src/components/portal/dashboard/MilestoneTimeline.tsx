@@ -46,18 +46,18 @@ export function MilestoneTimeline({ milestones, className = '' }: MilestoneTimel
 
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-bold tracking-tight ${isCurrent ? 'text-indigo-900' : 'text-gray-700'}`}>
+                    <span className={`text-sm tracking-tight ${isCurrent ? 'font-semibold text-indigo-900' : 'font-medium text-gray-700'}`}>
                       {milestone.name}
                     </span>
                     {isCurrent && (
-                      <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-bold border border-indigo-100">
-                        NOW
+                      <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium border border-indigo-100">
+                        現在
                       </span>
                     )}
                   </div>
                 </div>
               </div>
-              <span className="text-xs text-gray-400 font-mono font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="text-xs text-gray-400 font-mono font-medium">
                 {formatDate(milestone.dueDate)}
               </span>
             </div>

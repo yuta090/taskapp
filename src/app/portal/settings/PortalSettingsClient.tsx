@@ -3,6 +3,8 @@
 import { User, Envelope, Bell, Shield, CalendarCheck, Trash, Info } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
+import { useReminderPreference } from '@/lib/hooks/useReminderPreference'
+import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
 
@@ -18,6 +20,7 @@ interface UserInfo {
   email: string
   displayName: string
   avatarUrl?: string
+  reminderEmailsEnabled?: boolean
 }
 
 interface PortalSettingsClientProps {
@@ -34,6 +37,11 @@ export function PortalSettingsClient({
   actionCount = 0,
 }: PortalSettingsClientProps) {
   const isGCalEnabled = isGoogleCalendarConfigured()
+  const { enabled: remindersEnabled, toggle: toggleReminders } = useReminderPreference(
+    user.id,
+    user.reminderEmailsEnabled ?? true
+  )
+  const push = usePushNotifications()
   const {
     loading: gCalLoading,
     connectGoogle,
@@ -72,7 +80,7 @@ export function PortalSettingsClient({
         <div className="max-w-2xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">設定</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">設定</h1>
             <p className="mt-1 text-sm text-gray-600">
               アカウント設定と通知の管理
             </p>
@@ -88,7 +96,7 @@ export function PortalSettingsClient({
             </div>
             <div className="p-4 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl font-bold shadow-md">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl font-medium shadow-md">
                   {user.displayName.charAt(0).toUpperCase()}
                 </div>
                 <div>
@@ -131,6 +139,51 @@ export function PortalSettingsClient({
               <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
                 通知設定のカスタマイズ機能は近日公開予定です。現在はデフォルト設定（すべての通知を受信）で動作しています。
               </p>
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">リマインドメール</p>
+                  <p className="text-xs text-gray-500">対応待ちタスクのお知らせを受け取る</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={remindersEnabled}
+                    onChange={() => void toggleReminders()}
+                    className="sr-only peer"
+                    data-testid="portal-reminder-emails-toggle"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">ブラウザ通知</p>
+                  <p className="text-xs text-gray-500">
+                    タスクの確認依頼やボールの受け渡しをブラウザ通知でお知らせします（このデバイスのみ）
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={push.isSubscribed}
+                    onChange={() => void (push.isSubscribed ? push.disable() : push.enable())}
+                    disabled={!push.isSupported || push.permission === 'denied' || push.loading}
+                    className="sr-only peer"
+                    data-testid="portal-push-toggle"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
+                </label>
+              </div>
+              {push.isSupported && push.permission === 'denied' && (
+                <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                  ブラウザの設定で通知がブロックされています。アドレスバーのサイト設定から許可してください
+                </p>
+              )}
+              {!push.isSupported && (
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                  このブラウザはプッシュ通知に対応していません。
+                </p>
+              )}
             </div>
           </div>
 

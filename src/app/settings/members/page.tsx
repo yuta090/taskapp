@@ -1,14 +1,24 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { ArrowLeft, CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass } from '@phosphor-icons/react'
-import Link from 'next/link'
+import { CircleNotch, Users, Crown, Trash, Plus, Warning, MagnifyingGlass, Copy, ArrowClockwise, X } from '@phosphor-icons/react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+
+const INVITE_MESSAGE_MAX_LENGTH = 500
+
+function getErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message
+  }
+  return String(err)
+}
 
 interface MemberRow {
   user_id: string
@@ -17,6 +27,16 @@ interface MemberRow {
   email: string | null
   avatar_url: string | null
   joined_at: string
+}
+
+interface PendingInvite {
+  id: string
+  email: string
+  role: string
+  space_id: string
+  space_name: string
+  created_at: string
+  expires_at: string
 }
 
 const ORG_ROLE_LABELS: Record<string, string> = {
@@ -32,6 +52,7 @@ const ORG_ROLE_OPTIONS = [
 ]
 
 export default function MembersSettingsPage() {
+  const { confirm, ConfirmDialog } = useConfirmDialog()
   const { orgId, role, loading: orgLoading } = useCurrentOrg()
   const { user, loading: userLoading } = useCurrentUser()
   const [members, setMembers] = useState<MemberRow[]>([])
@@ -45,8 +66,21 @@ export default function MembersSettingsPage() {
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
+  const [inviteSpaceId, setInviteSpaceId] = useState('')
+  const [inviteNote, setInviteNote] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteMessage, setInviteMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+
+  // Pending invites state
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([])
+  const [pendingInviteActionId, setPendingInviteActionId] = useState<string | null>(null)
+
+  const { spaces: userSpaces } = useUserSpaces()
+  const invitableSpaces = useMemo(
+    () => userSpaces.filter(s => s.orgId === orgId && (s.role === 'admin' || s.role === 'editor')),
+    [userSpaces, orgId]
+  )
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
@@ -118,6 +152,30 @@ export default function MembersSettingsPage() {
     void fetchMembers()
   }, [orgId, orgLoading, userLoading, fetchMembers])
 
+  const fetchPendingInvites = useCallback(async () => {
+    if (!orgId || !isOwner) return
+
+    try {
+      const response = await fetch(`/api/invites/pending?org_id=${orgId}`)
+      if (!response.ok) throw new Error('Failed to fetch pending invites')
+      const data = await response.json()
+      setPendingInvites(data.invites || [])
+    } catch (err: unknown) {
+      console.error('Failed to fetch pending invites:', err)
+    }
+  }, [orgId, isOwner])
+
+  useEffect(() => {
+    if (orgLoading || userLoading) return
+    void fetchPendingInvites()
+  }, [orgLoading, userLoading, fetchPendingInvites])
+
+  useEffect(() => {
+    if (!inviteSpaceId && invitableSpaces.length > 0) {
+      setInviteSpaceId(invitableSpaces[0].id)
+    }
+  }, [invitableSpaces, inviteSpaceId])
+
   const handleRoleChange = async (userId: string, newRole: string) => {
     if (!isOwner || userId === user?.id || !orgId) return
 
@@ -129,23 +187,27 @@ export default function MembersSettingsPage() {
 
     try {
       const { error: updateError } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .update({ role: newRole })
-        .eq('org_id', orgId)
-        .eq('user_id', userId)
+        .rpc('rpc_update_org_member_role', { p_org_id: orgId, p_user_id: userId, p_role: newRole })
 
       if (updateError) throw updateError
       toast.success('役割を変更しました')
     } catch (err: unknown) {
       console.error('Failed to update role:', err)
       setMembers(prevMembers) // Rollback
-      toast.error('役割の変更に失敗しました')
+      toast.error(getErrorMessage(err).includes('last owner') ? '最後のオーナーの役割は変更できません' : '役割の変更に失敗しました')
     }
   }
 
   const handleRemoveMember = async (userId: string) => {
     if (!isOwner || userId === user?.id || !orgId) return
-    if (!confirm('このメンバーを組織から削除しますか？')) return
+    const target = members.find((m) => m.user_id === userId)
+    const ok = await confirm({
+      title: 'メンバーを削除',
+      message: `${target?.display_name || 'このメンバー'}を組織から削除しますか？この操作は取り消せません。`,
+      confirmLabel: '削除',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     const prevMembers = members
     // Optimistic update
@@ -153,37 +215,124 @@ export default function MembersSettingsPage() {
 
     try {
       const { error: deleteError } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .delete()
-        .eq('org_id', orgId)
-        .eq('user_id', userId)
+        .rpc('rpc_remove_org_member', { p_org_id: orgId, p_user_id: userId })
 
       if (deleteError) throw deleteError
       toast.success('メンバーを削除しました')
     } catch (err: unknown) {
       console.error('Failed to remove member:', err)
       setMembers(prevMembers) // Rollback
-      toast.error('メンバーの削除に失敗しました')
+      toast.error(getErrorMessage(err).includes('last owner') ? '最後のオーナーは削除できません' : 'メンバーの削除に失敗しました')
     }
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !isOwner) return
+    if (!inviteEmail.trim() || !isOwner || !orgId || !inviteSpaceId) return
+    if (inviteNote.length > INVITE_MESSAGE_MAX_LENGTH) return
 
     setInviting(true)
     setInviteMessage(null)
+    setInviteLink(null)
 
     try {
-      setInviteMessage({
-        type: 'success',
-        text: `${inviteEmail} への招待メール送信機能は準備中です。直接メンバーを追加する場合は、まずユーザーにアカウント作成を依頼してください。`,
+      const response = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: orgId,
+          space_id: inviteSpaceId,
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          message: inviteNote.trim(),
+        }),
       })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setInviteMessage({ type: 'error', text: data.error || 'メンバーの招待に失敗しました' })
+        return
+      }
+
+      if (data.email_sent) {
+        setInviteMessage({
+          type: 'success',
+          text: `${inviteEmail} に招待メールを送信しました`,
+        })
+      } else {
+        const link = `${window.location.origin}${inviteRole === 'client' ? '/portal' : '/invite'}/${data.token}`
+        setInviteLink(link)
+        setInviteMessage({
+          type: 'error',
+          text: '招待リンクを作成しました（メール送信に失敗したためリンクを共有してください）',
+        })
+      }
+
       setInviteEmail('')
+      setInviteNote('')
     } catch (err: unknown) {
       console.error('Failed to invite member:', err)
       setInviteMessage({ type: 'error', text: 'メンバーの招待に失敗しました' })
     } finally {
       setInviting(false)
+    }
+  }
+
+  const handleCopyInviteLink = async () => {
+    if (!inviteLink) return
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      toast.success('招待リンクをコピーしました')
+    } catch (err: unknown) {
+      console.error('Failed to copy invite link:', err)
+      toast.error('コピーに失敗しました')
+    }
+  }
+
+  const handleCancelInvite = async (inviteId: string) => {
+    if (!isOwner) return
+    const target = pendingInvites.find((i) => i.id === inviteId)
+    const ok = await confirm({
+      title: '招待を取り消し',
+      message: `${target?.email || 'この招待'}への招待を取り消しますか？`,
+      confirmLabel: '取り消す',
+      variant: 'danger',
+    })
+    if (!ok) return
+
+    setPendingInviteActionId(inviteId)
+    try {
+      const response = await fetch(`/api/invites/pending/${inviteId}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to cancel invite')
+
+      setPendingInvites(prev => prev.filter(i => i.id !== inviteId))
+      toast.success('招待を取り消しました')
+    } catch (err: unknown) {
+      console.error('Failed to cancel invite:', err)
+      toast.error('招待の取り消しに失敗しました')
+    } finally {
+      setPendingInviteActionId(null)
+    }
+  }
+
+  const handleResendInvite = async (inviteId: string) => {
+    if (!isOwner) return
+
+    setPendingInviteActionId(inviteId)
+    try {
+      const response = await fetch(`/api/invites/pending/${inviteId}/resend`, { method: 'POST' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to resend invite')
+
+      setPendingInvites(prev =>
+        prev.map(i => (i.id === inviteId ? { ...i, expires_at: data.expires_at || i.expires_at } : i))
+      )
+      toast.success('招待を再送しました')
+    } catch (err: unknown) {
+      console.error('Failed to resend invite:', err)
+      toast.error('招待の再送に失敗しました')
+    } finally {
+      setPendingInviteActionId(null)
     }
   }
 
@@ -210,15 +359,11 @@ export default function MembersSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {ConfirmDialog}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">メンバー管理</h1>
               <p className="text-sm text-gray-500">組織のメンバー一覧と管理</p>
@@ -397,6 +542,24 @@ export default function MembersSettingsPage() {
               </div>
             )}
 
+            {inviteLink && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={inviteLink}
+                  className="flex-1 px-3 py-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg"
+                />
+                <button
+                  onClick={handleCopyInviteLink}
+                  className="flex items-center gap-1 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  コピー
+                </button>
+              </div>
+            )}
+
             <div className="flex items-end gap-3">
               <div className="flex-1">
                 <label className="text-xs text-gray-500">メールアドレス</label>
@@ -407,6 +570,22 @@ export default function MembersSettingsPage() {
                   placeholder="email@example.com"
                   className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+              </div>
+              <div className="w-40">
+                <label htmlFor="invite-space" className="text-xs text-gray-500">プロジェクト</label>
+                <select
+                  id="invite-space"
+                  value={inviteSpaceId}
+                  onChange={e => setInviteSpaceId(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {invitableSpaces.length === 0 && <option value="">プロジェクトがありません</option>}
+                  {invitableSpaces.map(space => (
+                    <option key={space.id} value={space.id}>
+                      {space.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="w-32">
                 <label className="text-xs text-gray-500">役割</label>
@@ -421,12 +600,81 @@ export default function MembersSettingsPage() {
               </div>
               <button
                 onClick={handleInvite}
-                disabled={!inviteEmail.trim() || inviting}
+                disabled={!inviteEmail.trim() || !inviteSpaceId || inviting || inviteNote.length > INVITE_MESSAGE_MAX_LENGTH}
                 className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 {inviting ? '送信中...' : '招待'}
               </button>
+            </div>
+
+            <div>
+              <label htmlFor="invite-message" className="text-xs text-gray-500">メッセージ（任意）</label>
+              <textarea
+                id="invite-message"
+                value={inviteNote}
+                onChange={e => setInviteNote(e.target.value)}
+                placeholder="招待に添えるひと言メッセージ"
+                rows={2}
+                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              />
+              <div className={`mt-1 text-[11px] text-right ${inviteNote.length > INVITE_MESSAGE_MAX_LENGTH ? 'text-red-600' : 'text-gray-400'}`}>
+                {inviteNote.length > INVITE_MESSAGE_MAX_LENGTH && (
+                  <span className="float-left text-red-600">{INVITE_MESSAGE_MAX_LENGTH}文字以内で入力してください</span>
+                )}
+                {inviteNote.length}/{INVITE_MESSAGE_MAX_LENGTH}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pending invites (owner only, hidden when empty) */}
+        {isOwner && pendingInvites.length > 0 && (
+          <div className="bg-white rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <div className="flex items-center gap-2 text-gray-700">
+                <span className="text-sm font-medium">保留中の招待</span>
+                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                  {pendingInvites.length}件
+                </span>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {pendingInvites.map(invite => {
+                const actionInFlight = pendingInviteActionId === invite.id
+                return (
+                  <div key={invite.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">{invite.email}</div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {invite.space_name}
+                        <span className={`ml-2 px-1.5 py-0.5 rounded ${getRoleBadgeColor(invite.role)}`}>
+                          {ORG_ROLE_LABELS[invite.role] || invite.role}
+                        </span>
+                        <span className="ml-2">
+                          期限: {new Date(invite.expires_at).toLocaleDateString('ja-JP')}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleResendInvite(invite.id)}
+                      disabled={actionInFlight}
+                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="招待を再送する"
+                    >
+                      <ArrowClockwise className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleCancelInvite(invite.id)}
+                      disabled={actionInFlight}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="招待を取り消す"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

@@ -53,3 +53,11 @@ export { useSpaceArchive } from './useSpaceArchive'
 export { useSpaceGroups, type SpaceGroupItem } from './useSpaceGroups'
 export { useKeyboardShortcuts } from './useKeyboardShortcuts'
 export { useFormDraft } from './useFormDraft'
+export {
+  useFiles,
+  useUploadFile,
+  useUpdateFile,
+  useDeleteFile,
+  formatFileSize,
+  type ProjectFile,
+} from './useFiles'

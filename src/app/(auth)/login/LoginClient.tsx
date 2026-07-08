@@ -1,13 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
+import { getActiveOrgId } from '@/lib/org/activeOrg'
 
-const DEMO_ACCOUNTS = [
+function shouldShowDemoAccounts(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true'
+}
+
+// 本番ビルドでは NODE_ENV / NEXT_PUBLIC_* が静的置換され条件が false 定数になるため、
+// この配列（デモ資格情報）ごとデッドコード除去されバンドルに残らない
+const DEMO_ACCOUNTS = (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true') ? [
   { email: 'demo@example.com', password: 'demo1234', name: '田中 太郎', label: '内部PM', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border-indigo-200', group: 'internal' as const },
   { email: 'staff1@example.com', password: 'staff1234', name: '佐藤 花子', label: 'デザイナー', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200', group: 'internal' as const },
   { email: 'staff2@example.com', password: 'staff2345', name: '山田 次郎', label: '開発者', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200', group: 'internal' as const },
@@ -15,49 +23,21 @@ const DEMO_ACCOUNTS = [
   { email: 'client2@client.com', password: 'client2345', name: '高橋 美咲', label: 'クライアント承認者', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200', group: 'client' as const },
   { email: 'vendor1@vendor.com', password: 'vendor1234', name: '中村 健太', label: 'ベンダーDir', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 border-teal-200', group: 'vendor' as const },
   { email: 'vendor2@vendor.com', password: 'vendor2345', name: '松本 理恵', label: 'ベンダーDes', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200', group: 'vendor' as const },
-]
+] : []
 
 const AUTH_ERRORS: Record<string, string> = {
   auth_callback_failed: 'Google認証に失敗しました。もう一度お試しください。',
   auth_cancelled: 'Google認証がキャンセルされました。',
 }
 
+/** auth/callback の next と同じバリデーション（オープンリダイレクト防止） */
+function isSafeInternalPath(path: string | null): path is string {
+  return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
+}
+
+/** ACTIVE_ORG_COOKIE から切替中のorgを読み、resolvePostLoginLanding の preferredOrgId に渡す */
 async function resolveRedirect(supabase: SupabaseClient, userId: string): Promise<string> {
-  const { data: membership } = await supabase
-    .from('org_memberships')
-    .select('org_id, role')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single()
-
-  if (membership?.role === 'client') {
-    // Check if user is a vendor in any space within this org
-    const { data: vendorMem } = await supabase
-      .from('space_memberships')
-      .select('id, spaces!inner(org_id)')
-      .eq('user_id', userId)
-      .eq('role', 'vendor')
-      .eq('spaces.org_id', membership.org_id)
-      .limit(1)
-      .maybeSingle()
-    if (vendorMem) return '/vendor-portal'
-    return '/portal'
-  }
-
-  if (membership) {
-    const { data: space } = await supabase
-      .from('spaces')
-      .select('id')
-      .eq('org_id', membership.org_id)
-      .eq('type', 'project')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single()
-    if (space) return `/${membership.org_id}/project/${space.id}`
-  }
-
-  return '/inbox'
+  return resolvePostLoginLanding(supabase, userId, { preferredOrgId: getActiveOrgId() })
 }
 
 export default function LoginClient() {
@@ -70,6 +50,30 @@ export default function LoginClient() {
   const [error, setError] = useState(errorFromUrl ? AUTH_ERRORS[errorFromUrl] || '' : '')
   const [loading, setLoading] = useState(false)
   const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
+  const [loggedInEmail, setLoggedInEmail] = useState<string | null>(null)
+  const [returningToApp, setReturningToApp] = useState(false)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setLoggedInEmail(session?.user?.email ?? null)
+    })
+  }, [])
+
+  async function handleReturnToApp() {
+    setReturningToApp(true)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        router.push(await resolveRedirect(supabase as SupabaseClient, session.user.id))
+      }
+    } catch {
+      setError('ログイン中にエラーが発生しました')
+    } finally {
+      setReturningToApp(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -89,7 +93,13 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されて
+        // いるのでそちらへ復帰。Google ログイン（auth/callback の next）と同じ挙動
+        if (isSafeInternalPath(redirect)) {
+          router.push(redirect)
+        } else {
+          router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        }
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -115,7 +125,11 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        if (isSafeInternalPath(redirect)) {
+          router.push(redirect)
+        } else {
+          router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+        }
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -136,6 +150,37 @@ export default function LoginClient() {
         </>
       }
     >
+      {loggedInEmail && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-center justify-between gap-3">
+          <span>{loggedInEmail} としてログイン中です</span>
+          <button
+            type="button"
+            onClick={handleReturnToApp}
+            disabled={returningToApp}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            アプリへ戻る
+          </button>
+        </div>
+      )}
+
+      {/* Google Login (top, matches signup order) */}
+      <div className="mb-4">
+        <GoogleSignInButton
+          label="Googleでログイン"
+          redirectTo={redirect || undefined}
+        />
+      </div>
+
+      <div className="relative my-4">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-gray-200" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-white px-2 text-gray-500">またはメールでログイン</span>
+        </div>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
@@ -177,23 +222,8 @@ export default function LoginClient() {
         </AuthButton>
       </form>
 
-      {/* Google Login */}
-      <div className="mt-4">
-        <div className="relative my-4">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-white px-2 text-gray-500">または</span>
-          </div>
-        </div>
-        <GoogleSignInButton
-          label="Googleでログイン"
-          redirectTo={redirect || undefined}
-        />
-      </div>
-
-      {/* Demo Accounts Section */}
+      {/* Demo Accounts Section (non-production only, unless explicitly enabled) */}
+      {shouldShowDemoAccounts() && (
       <div className="mt-6 pt-6 border-t border-gray-200">
         <div className="text-xs text-gray-500 mb-3 text-center">テスト用デモアカウント</div>
         <div className="space-y-2">
@@ -220,6 +250,7 @@ export default function LoginClient() {
           ))}
         </div>
       </div>
+      )}
     </AuthCard>
   )
 }

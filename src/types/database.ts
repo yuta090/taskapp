@@ -44,7 +44,7 @@ export type EstimateStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type MeetingStatus = 'planned' | 'in_progress' | 'ended'
 
 // Review status
-export type ReviewStatus = 'open' | 'approved' | 'changes_requested'
+export type ReviewStatus = 'open' | 'approved' | 'changes_requested' | 'cancelled'
 
 // Review approval state
 export type ApprovalState = 'pending' | 'approved' | 'blocked'
@@ -104,6 +104,7 @@ export interface Database {
           display_name: string
           avatar_url: string | null
           is_superadmin: boolean
+          onboarding_flags: Record<string, boolean>
           created_at: string
           updated_at: string
         }
@@ -112,6 +113,7 @@ export interface Database {
           display_name?: string
           avatar_url?: string | null
           is_superadmin?: boolean
+          onboarding_flags?: Record<string, boolean>
           created_at?: string
           updated_at?: string
         }
@@ -120,6 +122,7 @@ export interface Database {
           display_name?: string
           avatar_url?: string | null
           is_superadmin?: boolean
+          onboarding_flags?: Record<string, boolean>
           created_at?: string
           updated_at?: string
         }
@@ -435,6 +438,7 @@ export interface Database {
           estimated_cost: number | null
           estimate_status: EstimateStatus
           completed_at: string | null
+          is_sample: boolean
           created_at: string
           updated_at: string
         }
@@ -462,6 +466,7 @@ export interface Database {
           estimated_cost?: number | null
           estimate_status?: EstimateStatus
           completed_at?: string | null
+          is_sample?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -489,6 +494,7 @@ export interface Database {
           estimated_cost?: number | null
           estimate_status?: EstimateStatus
           completed_at?: string | null
+          is_sample?: boolean
           created_at?: string
           updated_at?: string
         }

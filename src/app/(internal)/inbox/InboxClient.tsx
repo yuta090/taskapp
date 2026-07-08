@@ -12,10 +12,13 @@ import {
   ArrowRight,
   Check,
   Eye,
+  XCircle,
   CaretDown,
   Funnel,
+  File,
 } from '@phosphor-icons/react'
 import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
+import { WARNING } from '@/lib/design/tokens'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { useInspector } from '@/components/layout'
@@ -27,7 +30,7 @@ type ReadFilter = 'all' | 'unread' | 'read'
 type ActionFilter = 'all' | 'actionable' | 'actioned'
 
 const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyArray<string> }> = [
-  { label: 'レビュー依頼', types: ['review_request'] },
+  { label: 'レビュー', types: ['review_request', 'review_cancelled'] },
   { label: 'クライアント連絡', types: ['client_question', 'client_feedback'] },
   { label: '確認依頼', types: ['confirmation_request', 'urgent_confirmation'] },
   { label: 'タスク割り当て', types: ['task_assigned', 'ball_passed'] },
@@ -35,6 +38,7 @@ const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyAr
   { label: '会議関連', types: ['meeting_reminder', 'meeting_scheduled', 'meeting_ended'] },
   { label: 'タスク完了', types: ['task_completed'] },
   { label: '仕様決定', types: ['spec_decision_needed'] },
+  { label: 'ファイル', types: ['file_uploaded'] },
 ]
 
 // ── Type filter dropdown ──
@@ -132,6 +136,8 @@ function getNotificationIcon(type: string) {
   switch (type) {
     case 'review_request':
       return <Eye />
+    case 'review_cancelled':
+      return <XCircle />
     case 'client_question':
     case 'client_feedback':
     case 'confirmation_request':
@@ -150,6 +156,8 @@ function getNotificationIcon(type: string) {
       return <CheckCircle weight="fill" />
     case 'spec_decision_needed':
       return <Bell />
+    case 'file_uploaded':
+      return <File />
     default:
       return <Bell />
   }
@@ -199,7 +207,7 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
     ? <span className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded font-medium flex-shrink-0">緊急</span>
     : isActionable && !isActioned
       ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
-          isUnread ? 'bg-amber-50 text-amber-700' : 'bg-amber-50/60 text-amber-600'
+          isUnread ? WARNING.badge : WARNING.badgeMuted
         }`}>要対応</span>
       : isActioned
         ? <span className="text-[10px] text-gray-400 flex-shrink-0">対応済み</span>
@@ -514,7 +522,10 @@ export default function InboxClient() {
         {error && <ErrorRetry message={error} onRetry={fetchNotifications} />}
 
         {!loading && !error && notifications.length === 0 && (
-          <EmptyState icon={<Tray />} message="通知はありません" />
+          <EmptyState
+            icon={<Tray />}
+            message="クライアントの承認・修正依頼やボールの受け渡しがここに届きます。まずはタスクを作成してクライアントに公開してみましょう。"
+          />
         )}
 
         {!loading && !error && notifications.length > 0 && filteredNotifications.length === 0 && (

@@ -32,7 +32,7 @@ export default function AdminDesignSystemPage() {
     <div className="p-6 max-w-5xl">
       <AdminPageHeader
         title="デザインシステム"
-        description="TaskApp で使用しているカラー・タイポグラフィ・コンポーネント"
+        description="AgentPM で使用しているカラー・タイポグラフィ・コンポーネント"
       />
 
       {/* Colors */}
@@ -68,7 +68,7 @@ export default function AdminDesignSystemPage() {
             <div key={f.name} className="flex items-baseline gap-4">
               <span className="text-xs text-gray-400 w-16 shrink-0 font-mono">{f.name} ({f.size})</span>
               <span className={f.class + ' text-gray-900'}>
-                TaskApp 管理パネル The quick brown fox
+                AgentPM 管理パネル The quick brown fox
               </span>
             </div>
           ))}

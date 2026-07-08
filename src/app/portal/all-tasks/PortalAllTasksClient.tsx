@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { ListChecks, Clock, CheckCircle, Circle, CaretRight, CaretDown } from '@phosphor-icons/react'
-import { PortalShell, PortalTaskInspector } from '@/components/portal'
+import { PortalShell, PortalTaskInspector, getPortalStatusLabel } from '@/components/portal'
 
 interface Project {
   id: string
@@ -38,15 +38,21 @@ interface PortalAllTasksClientProps {
   actionCount?: number
 }
 
+// Color/icon is decided here per status; the label text itself always comes
+// from labels.ts (single source of truth) so every TaskStatus value has a
+// Japanese label instead of leaking the raw English status (B1).
 function getStatusInfo(status: string): { label: string; color: string; icon: React.ElementType } {
-  const statusMap: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-    done: { label: '完了', color: 'text-green-500', icon: CheckCircle },
-    in_progress: { label: '進行中', color: 'text-blue-400', icon: Clock },
-    considering: { label: '要確認', color: 'text-amber-500', icon: Circle },
-    open: { label: '未着手', color: 'text-gray-500', icon: Circle },
-    todo: { label: 'Todo', color: 'text-gray-400', icon: Circle },
+  const colorIconMap: Record<string, { color: string; icon: React.ElementType }> = {
+    done: { color: 'text-green-500', icon: CheckCircle },
+    in_progress: { color: 'text-blue-400', icon: Clock },
+    in_review: { color: 'text-blue-400', icon: Clock },
+    considering: { color: 'text-amber-500', icon: Circle },
+    open: { color: 'text-gray-500', icon: Circle },
+    todo: { color: 'text-gray-400', icon: Circle },
+    backlog: { color: 'text-gray-400', icon: Circle },
   }
-  return statusMap[status] || { label: status, color: 'text-gray-400', icon: Circle }
+  const { color, icon } = colorIconMap[status] || { color: 'text-gray-400', icon: Circle }
+  return { label: getPortalStatusLabel(status), color, icon }
 }
 
 function formatDate(date: string): string {
@@ -158,7 +164,7 @@ export function PortalAllTasksClient({
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Page Header */}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">タスク一覧</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">タスク一覧</h1>
             <p className="mt-1 text-sm text-gray-600">
               プロジェクトの全タスクを確認できます
             </p>

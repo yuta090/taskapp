@@ -1,6 +1,13 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
+import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
+import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
+
+/** LoginClient の isSafeInternalPath と同じ検証（オープンリダイレクト防止） */
+function isSafeInternalPath(path: string | null): path is string {
+  return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl
@@ -60,57 +67,22 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  // org_membership の確認
-  const { data: membership, error: membershipError } = await supabase
-    .from('org_memberships')
-    .select('org_id, role')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  // next パラメータ付き（招待のログインリンク等）は行き先が明示されているのでそちらへ復帰。
+  // LoginClient の redirect パラメータと同じ優先順位・バリデーション。
+  if (isSafeInternalPath(next)) {
+    return NextResponse.redirect(new URL(next, origin))
+  }
 
-  // membershipクエリエラー → fail closed（ログインページへ）
-  if (membershipError) {
-    console.error('Membership query error:', membershipError)
+  // 着地判定（org_memberships → role別のvendor/space判定）は LoginClient と共通のロジックに委譲
+  try {
+    const preferredOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value ?? null
+    const landing = await resolvePostLoginLanding(supabase, user.id, { preferredOrgId })
+    return NextResponse.redirect(new URL(landing, origin))
+  } catch (err) {
+    // membershipクエリエラー等 → fail closed（ログインページへ）
+    console.error('resolvePostLoginLanding failed:', err)
     return NextResponse.redirect(
       new URL('/login?error=auth_callback_failed', origin)
     )
   }
-
-  // membership なし → onboarding（新規ユーザー）
-  if (!membership) {
-    return NextResponse.redirect(new URL('/onboarding', origin))
-  }
-
-  // role に基づくリダイレクト（next パラメータより優先）
-  if (membership.role === 'client') {
-    return NextResponse.redirect(new URL('/portal', origin))
-  }
-
-  // 内部メンバー → 最初のプロジェクトスペースへ
-  const { data: space } = await supabase
-    .from('spaces')
-    .select('id')
-    .eq('org_id', membership.org_id)
-    .eq('type', 'project')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single()
-
-  if (space) {
-    // next パラメータがある場合はそちらを使用（バリデーション付き）
-    if (next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\')) {
-      return NextResponse.redirect(new URL(next, origin))
-    }
-    return NextResponse.redirect(
-      new URL(`/${membership.org_id}/project/${space.id}`, origin)
-    )
-  }
-
-  // next パラメータがある場合
-  if (next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\')) {
-    return NextResponse.redirect(new URL(next, origin))
-  }
-
-  return NextResponse.redirect(new URL('/inbox', origin))
 }

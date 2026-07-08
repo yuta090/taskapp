@@ -8,10 +8,10 @@ export const PORTAL_STATUS_LABELS: Record<string, string> = {
   considering: '要確認',
   open: '未着手',
   in_progress: '進行中',
-  todo: 'Todo',
+  todo: '着手予定',
   done: '完了',
   backlog: 'バックログ',
-  in_review: '承認確認中',
+  in_review: '社内確認中',
 }
 
 /** Ball labels for client-facing display */

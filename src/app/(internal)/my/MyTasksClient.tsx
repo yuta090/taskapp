@@ -97,9 +97,9 @@ function saveFilterState(filters: FilterState) {
 
 const statusLabels: Record<StatusFilter, string> = {
   all: 'すべて',
-  todo: 'TODO',
+  todo: '着手予定',
   in_progress: '進行中',
-  in_review: '承認確認中',
+  in_review: '社内承認中',
 }
 
 const sortLabels: Record<SortField, string> = {
@@ -603,7 +603,10 @@ export default function MyTasksClient() {
           {loading && <LoadingState />}
           {error && <ErrorRetry message={error.message} onRetry={handleRetry} />}
           {!loading && !error && tasks.length === 0 && (
-            <EmptyState icon={<Target />} message="担当しているタスクはありません" />
+            <EmptyState
+              icon={<Target />}
+              message="担当者に設定されたタスクがここに表示されます。タスクの担当者欄から自分を設定してみましょう。"
+            />
           )}
           {!loading && !error && tasks.length > 0 && filteredTasks.length === 0 && (
             <EmptyState

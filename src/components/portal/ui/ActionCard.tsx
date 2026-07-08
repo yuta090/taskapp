@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { APPROVE_BUTTON } from '@/lib/design/tokens'
 
 interface ActionCardProps {
   id: string
@@ -16,6 +17,8 @@ interface ActionCardProps {
   onApprove?: (id: string, comment: string) => Promise<void>
   onRequestChanges?: (id: string, comment: string) => Promise<void>
   onViewDetail?: (id: string) => void
+  /** Portal preview mode: hides the 承認/修正依頼 actions entirely (view-only). */
+  readOnly?: boolean
 }
 
 export function ActionCard({
@@ -33,6 +36,7 @@ export function ActionCard({
   onApprove,
   onRequestChanges,
   onViewDetail,
+  readOnly = false,
 }: ActionCardProps) {
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -103,6 +107,7 @@ export function ActionCard({
             ? 'bg-gray-50 border border-gray-200'
             : 'hover:bg-gray-50/80 border border-transparent hover:border-gray-200/60'
         }`}
+      data-walkthrough="portal-action-card"
       onClick={() => !showInput && onViewDetail?.(id)}
     >
       {/* Main row: Title + Due date + Actions */}
@@ -114,7 +119,7 @@ export function ActionCard({
           </h3>
           {type === 'spec' && (
             <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded" title="仕様書の確認・承認が必要なタスクです">
-              SPEC
+              仕様
             </span>
           )}
           {estimateStatus === 'pending' && estimatedCost != null && (
@@ -125,7 +130,7 @@ export function ActionCard({
         </div>
 
         {/* Right: Due date (always visible) + Actions (hover) */}
-        <div className="mt-2 sm:mt-0 flex items-center gap-3 flex-shrink-0">
+        <div className="mt-2 sm:mt-0 flex items-center gap-3 flex-shrink-0" data-walkthrough="portal-action-buttons">
           {/* Due date - always visible */}
           {dueDate && (
             <span className={`inline-flex items-center gap-1.5 text-sm tabular-nums ${
@@ -137,7 +142,7 @@ export function ActionCard({
           )}
 
           {/* Action buttons - visible on hover (hidden for estimate-pending: must use inspector) */}
-          {!showInput && estimateStatus !== 'pending' && (
+          {!readOnly && !showInput && estimateStatus !== 'pending' && (
             <div className={`flex items-center gap-2 ${
               showInput ? '' : 'sm:opacity-0 sm:group-hover:opacity-100'
             } transition-opacity`}>
@@ -146,14 +151,14 @@ export function ActionCard({
                   e.stopPropagation()
                   setShowInput(true)
                 }}
-                className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-md transition-all border border-transparent hover:border-gray-200 hover:shadow-sm"
+                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-white rounded-md transition-all border border-transparent hover:border-gray-200 hover:shadow-sm"
               >
                 修正依頼
               </button>
               <button
                 onClick={handleApprove}
                 disabled={disabled}
-                className="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700 rounded-md transition-all border border-indigo-100"
+                className={`px-3 py-1.5 text-xs font-medium ${APPROVE_BUTTON.soft} rounded-md transition-all border border-green-100`}
               >
                 承認
               </button>
@@ -174,29 +179,23 @@ export function ActionCard({
             autoFocus
           />
           <div className="flex justify-end gap-2 mt-2">
+            {/* 承認は表示しない: コメント入力中の誤承認防止(B4)。承認するなら入力をキャンセルして通常の承認ボタンを使う */}
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 setShowInput(false)
                 setComment('')
               }}
-              className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-md"
+              className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 rounded-md"
             >
               キャンセル
             </button>
             <button
-              onClick={handleApprove}
-              disabled={disabled}
-              className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-md"
-            >
-              承認
-            </button>
-            <button
               onClick={handleRequestChanges}
               disabled={disabled || !comment.trim()}
-              className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              送信
+              修正依頼を送信
             </button>
           </div>
         </div>

@@ -2,13 +2,14 @@
 
 import { useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, CalendarCheck, VideoCamera, Trash, Info, CircleNotch, PlugsConnected } from '@phosphor-icons/react'
+import { CalendarCheck, VideoCamera, Trash, Info, CircleNotch, PlugsConnected, ArrowRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
+import { SettingsBackButton } from '@/components/shared'
 import type { IntegrationProvider } from '@/lib/integrations/types'
 
 type VideoProvider = 'google_meet' | 'zoom' | 'teams'
@@ -95,21 +96,32 @@ export default function UserIntegrationsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">外部連携</h1>
-              <p className="text-sm text-gray-500">個人の外部サービス接続</p>
+              <h1 className="text-xl font-semibold text-gray-900">個人の外部連携</h1>
+              <p className="text-sm text-gray-500">あなた個人のアカウント接続（Google カレンダー・ビデオ会議）</p>
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+        {/* Org integrations guidance */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex items-start gap-3">
+          <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-600" />
+          <div className="text-sm text-gray-700">
+            <p className="font-medium">Slack・GitHub・AI 連携をお探しですか？</p>
+            <p className="mt-0.5">これらは組織単位の設定です。</p>
+            <Link
+              href="/settings/org-integrations"
+              className="inline-flex items-center gap-1 mt-2 text-blue-600 hover:underline"
+            >
+              組織の外部連携を開く
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+
         {/* Google Calendar */}
         {isGCalEnabled && (
           <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">

@@ -15,6 +15,7 @@ import {
   ChatCircleText,
   Notebook,
   BookOpen,
+  FolderOpen,
   SquaresFour,
   Gear,
   SignOut,
@@ -35,6 +36,7 @@ import {
   PlugsConnected,
   ChartBar,
   Lifebuoy,
+  Question,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
@@ -44,6 +46,7 @@ import type { UserSpace } from '@/lib/hooks/useUserSpaces'
 import { useSpaceGroups } from '@/lib/hooks/useSpaceGroups'
 import type { SpaceGroupItem } from '@/lib/hooks/useSpaceGroups'
 import { createClient } from '@/lib/supabase/client'
+import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
 import { TruncatedText } from '@/components/shared'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
@@ -70,13 +73,15 @@ interface NavItemProps {
   href: string
   icon: React.ReactNode
   label: string
+  /** collapsed 時は従来どおり label が title になる。展開時にも補足説明を出したい場合に指定 */
+  tooltip?: string
   badge?: number
   active?: boolean
   collapsed?: boolean
   onNavigate?: (href: string) => void
 }
 
-function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: NavItemProps) {
+function NavItem({ href, icon, label, tooltip, badge, active, collapsed, onNavigate }: NavItemProps) {
   return (
     <Link
       href={href}
@@ -88,7 +93,7 @@ function NavItem({ href, icon, label, badge, active, collapsed, onNavigate }: Na
           ? 'text-gray-900 bg-gray-200/60 font-medium'
           : 'text-gray-600 hover:bg-gray-200/50'
       }`}
-      title={collapsed ? label : undefined}
+      title={collapsed ? label : tooltip}
     >
       <span className="text-xl 2xl:text-2xl text-gray-500 group-hover:text-gray-900 flex-shrink-0">
         {icon}
@@ -143,6 +148,9 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
   const [isOpen, setIsOpen] = useState(false)
 
   const handleLogout = useCallback(async () => {
+    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
+    // valid session, so it must run while the user is still logged in.
+    await cleanupPushOnLogout()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
@@ -258,7 +266,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <PlugsConnected className="text-base text-gray-500" />
-              外部連携
+              個人の外部連携
             </Link>
             <Link
               href="/settings/api-keys"
@@ -276,18 +284,6 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               <BookOpen className="text-base text-gray-500" />
               マニュアル
             </Link>
-            <button
-              type="button"
-              onClick={() => {
-                resetInternalOnboarding()
-                setIsOpen(false)
-                window.location.reload()
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Lifebuoy className="text-base text-gray-500" />
-              使い方ガイドを再表示
-            </button>
             <hr className="my-1 border-gray-100" />
             <button
               type="button"
@@ -297,6 +293,84 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
               <SignOut className="text-base" />
               ログアウト
             </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** 左ナビ下部の常設ヘルプ導線。操作ガイド再表示・用語ガイド・使い方マニュアルへの単一の入口。 */
+function HelpMenu({ collapsed }: { collapsed?: boolean }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen])
+
+  return (
+    <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-1 relative`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        data-testid="leftnav-help-button"
+        className={`flex items-center ${
+          collapsed ? 'justify-center w-full' : 'gap-2'
+        } px-2 py-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 transition-colors w-full`}
+        title={collapsed ? 'ヘルプ' : undefined}
+        aria-label="ヘルプ"
+        aria-expanded={isOpen}
+      >
+        <Question className="text-lg" weight="bold" />
+        {!collapsed && <span className="text-xs">ヘルプ</span>}
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div
+            className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+              collapsed ? 'left-0 w-56' : 'left-3 right-3'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                void (async () => {
+                  await resetInternalOnboarding()
+                  setIsOpen(false)
+                  window.location.reload()
+                })()
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Lifebuoy className="text-base text-gray-500" />
+              操作ガイドを再表示
+            </button>
+            <Link
+              href="/help#glossary"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="text-base text-gray-500" />
+              用語ガイド
+            </Link>
+            <Link
+              href="/help"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Question className="text-base text-gray-500" />
+              使い方マニュアル
+            </Link>
           </div>
         </>
       )}
@@ -629,7 +703,7 @@ function SpaceNavItem({
           <SubNavItem
             href={basePath}
             icon={<Copy />}
-            label="タスク"
+            label="すべてのタスク"
             active={isActive(basePath, pathname === basePath && searchParams.get('filter') !== 'client_wait')}
             collapsed={collapsed}
             onNavigate={onNavigate}
@@ -637,7 +711,7 @@ function SpaceNavItem({
           <SubNavItem
             href={`${basePath}?filter=client_wait`}
             icon={<ChatCircleText />}
-            label="確認待ち"
+            label="クライアント確認待ち"
             active={isActive(`${basePath}?filter=client_wait`, pathname === basePath && searchParams.get('filter') === 'client_wait')}
             collapsed={collapsed}
             onNavigate={onNavigate}
@@ -655,6 +729,14 @@ function SpaceNavItem({
             icon={<BookOpen />}
             label="Wiki"
             active={isActive(`${basePath}/wiki`, pathname.includes(`/project/${space.id}/wiki`))}
+            collapsed={collapsed}
+            onNavigate={onNavigate}
+          />
+          <SubNavItem
+            href={`${basePath}/files`}
+            icon={<FolderOpen />}
+            label="ファイル"
+            active={isActive(`${basePath}/files`, pathname.includes(`/project/${space.id}/files`))}
             collapsed={collapsed}
             onNavigate={onNavigate}
           />
@@ -952,24 +1034,33 @@ export const LeftNav = memo(function LeftNav() {
       {/* Nav Items */}
       <div className={`flex-1 overflow-y-auto ${collapsed ? 'px-1.5' : 'px-2'} space-y-6 pt-2 hide-scrollbar`}>
         {/* Personal */}
-        <div className="space-y-0.5">
-          <NavItem
-            href="/inbox"
-            icon={<Tray />}
-            label="受信トレイ"
-            badge={inboxCount}
-            active={isActive('/inbox', pathname === '/inbox')}
-            collapsed={collapsed}
-            onNavigate={setPendingHref}
-          />
-          <NavItem
-            href="/my"
-            icon={<Target />}
-            label="マイタスク"
-            active={isActive('/my', pathname === '/my')}
-            collapsed={collapsed}
-            onNavigate={setPendingHref}
-          />
+        <div>
+          {!collapsed && (
+            <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5">
+              個人
+            </div>
+          )}
+          <div className="space-y-0.5">
+            <NavItem
+              href="/inbox"
+              icon={<Tray />}
+              label="受信トレイ"
+              tooltip="承認・修正依頼・ボールの受け渡しなど、対応が必要な通知"
+              badge={inboxCount}
+              active={isActive('/inbox', pathname === '/inbox')}
+              collapsed={collapsed}
+              onNavigate={setPendingHref}
+            />
+            <NavItem
+              href="/my"
+              icon={<Target />}
+              label="マイタスク"
+              tooltip="自分が担当者になっているタスク"
+              active={isActive('/my', pathname === '/my')}
+              collapsed={collapsed}
+              onNavigate={setPendingHref}
+            />
+          </div>
         </div>
 
         {/* Team / Project */}
@@ -1201,6 +1292,9 @@ export const LeftNav = memo(function LeftNav() {
           </div>
         </div>
       </div>
+
+      {/* Help menu - fixed above the collapse toggle */}
+      <HelpMenu collapsed={collapsed} />
 
       {/* Collapse toggle - fixed above user menu */}
       <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-1`}>

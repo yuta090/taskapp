@@ -4,6 +4,7 @@
  */
 
 import type { SpecPageRef } from '@/lib/wiki/defaultTemplate'
+import type { BallSide, TaskStatus, ClientScope } from '@/types/database'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,13 +36,26 @@ export interface PresetMilestone {
   orderKey: number
 }
 
+export interface PresetSampleTask {
+  title: string
+  description: string
+  ball: BallSide
+  status: TaskStatus
+  clientScope: ClientScope
+  /** Must match a `name` in this preset's `milestones` array. */
+  milestoneName?: string
+  /** Due date relative to space creation date (in days). */
+  dueInDays?: number
+}
+
 export interface PresetDefinition {
   genre: PresetGenre
   label: string
   description: string
-  icon: string // lucide-react icon name
+  icon: string // Phosphor icon name — must be registered in ICON_MAP (GenrePicker.tsx)
   wikiPages: PresetWikiPage[]
   milestones: PresetMilestone[]
+  sampleTasks: PresetSampleTask[]
   recommendedIntegrations: string[]
   defaultSettings: {
     ownerFieldEnabled: boolean | null
@@ -69,6 +83,7 @@ const BLANK_PRESET: PresetDefinition = {
   icon: 'FileText',
   wikiPages: [],
   milestones: [],
+  sampleTasks: [],
   recommendedIntegrations: [],
   defaultSettings: { ownerFieldEnabled: null },
 }

@@ -1,7 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
+import { rpc } from '@/lib/supabase/rpc'
+import { resolveReturnAssignee } from '../resolveReturnAssignee'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
+
+/**
+ * S5: translate the enforce_review_gate DB trigger's raw Postgres exception
+ * into a clear, client-facing 409 message instead of the generic
+ * "state changed, please reload" fallback. Returns null if the error is not
+ * one of the trigger's known messages (caller falls back to the generic
+ * message).
+ */
+function reviewGateErrorMessage(updateError: { message: string } | null): string | null {
+  const message = updateError?.message ?? ''
+  if (message.includes('review is not approved')) {
+    return '社内レビューが完了していないため承認できません'
+  }
+  if (message.includes('spec decision is not made')) {
+    return '決定事項が未決のため承認できません'
+  }
+  return null
+}
 
 /**
  * Fire-and-forget server-side notification.
@@ -31,6 +52,48 @@ function fireServerNotification(
   }).catch((err) => {
     console.warn('[portal-notify] Failed:', err)
   })
+}
+
+/**
+ * Creates an in-app inbox notification for whoever created the task, so a
+ * client's approval/change-request is visible in the internal Inbox and not
+ * only as a (frequently missed) Slack message. Never notifies the actor
+ * themselves (e.g. if created_by happens to equal the acting client).
+ */
+async function notifyTaskCreator(
+  supabase: SupabaseClient<Database>,
+  params: {
+    orgId: string
+    spaceId: string
+    createdBy: string | null
+    actorId: string
+    taskId: string
+    taskTitle: string
+    type: 'task_completed' | 'ball_passed'
+    dedupeSuffix: string
+    title: string
+    message: string
+  },
+): Promise<void> {
+  if (!params.createdBy || params.createdBy === params.actorId) return
+
+  try {
+    await rpc.createTaskNotification(supabase, {
+      orgId: params.orgId,
+      spaceId: params.spaceId,
+      toUserId: params.createdBy,
+      type: params.type,
+      dedupeKey: `portal_${params.dedupeSuffix}:${params.taskId}:${params.createdBy}`,
+      payload: {
+        task_id: params.taskId,
+        task_title: params.taskTitle,
+        title: params.title,
+        message: params.message,
+      },
+    })
+  } catch (err) {
+    console.error('[portal-notify] Failed to create in-app notification:', err)
+  }
 }
 
 interface TaskActionBody {
@@ -95,7 +158,7 @@ export async function POST(
      
     const taskPromise = (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, org_id, space_id, title, status, ball, type, estimated_cost, estimate_status')
+      .select('id, org_id, space_id, title, status, ball, type, estimated_cost, estimate_status, created_by, assignee_id')
       .eq('id', taskId)
       .single()
 
@@ -317,10 +380,15 @@ export async function POST(
         .single()
 
       if (updateError || !updatedTask) {
-        // If no row was updated, it means the task state changed (race condition)
+        // If no row was updated, it means the task state changed (race
+        // condition) — OR the enforce_review_gate DB trigger rejected the
+        // transition because a named review is still open/blocked, or a
+        // spec decision is undecided. Surface the trigger's reason clearly
+        // instead of the generic "state changed" message when we recognize it.
         console.error('Error approving task:', updateError || 'No rows updated')
+        const gateMessage = reviewGateErrorMessage(updateError)
         return NextResponse.json(
-          { error: 'タスクの状態が変更されました。ページを再読み込みしてください。' },
+          { error: gateMessage ?? 'タスクの状態が変更されました。ページを再読み込みしてください。' },
           { status: 409 }
         )
       }
@@ -351,6 +419,20 @@ export async function POST(
         changes: { oldStatus: task.status, newStatus: 'done' },
       })
 
+      // In-app inbox notification so the approval is visible without Slack
+      await notifyTaskCreator(supabase as SupabaseClient<Database>, {
+        orgId: task.org_id,
+        spaceId: task.space_id,
+        createdBy: task.created_by,
+        actorId: user.id,
+        taskId,
+        taskTitle: task.title,
+        type: 'task_completed',
+        dedupeSuffix: 'approved',
+        title: `「${task.title}」が承認されました`,
+        message: trimmedComment || 'クライアントがタスクを承認しました。',
+      })
+
       return NextResponse.json({
         success: true,
         message: '承認しました',
@@ -358,13 +440,23 @@ export async function POST(
       })
     } else {
       // action === 'request_changes'
-      // Transfer ball back to internal team
+      // Transfer ball back to internal team, and make sure the task lands on
+      // a real internal owner (assignee_id may currently be the client
+      // reviewer, or unset) — H-1: previously the task effectively lost its
+      // owner on the way back in.
+      const returnAssigneeId = await resolveReturnAssignee(supabase as SupabaseClient, {
+        spaceId: task.space_id,
+        assigneeId: task.assignee_id,
+        createdBy: task.created_by,
+      })
+
       // IMPORTANT: Include ball='client' in WHERE clause to prevent race conditions
-       
+
       const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
         .from('tasks')
         .update({
           ball: 'internal',
+          assignee_id: returnAssigneeId,
           updated_at: now,
         })
         .eq('id', taskId)
@@ -429,11 +521,11 @@ export async function POST(
       if (commentError) {
         console.error('Failed to create task comment:', commentError)
 
-        // Attempt to revert the ball change (conditional to avoid clobbering newer state)
-         
+        // Attempt to revert the ball (and assignee) change (conditional to avoid clobbering newer state)
+
         await (supabase as SupabaseClient)
           .from('tasks')
-          .update({ ball: 'client', updated_at: now })
+          .update({ ball: 'client', assignee_id: task.assignee_id, updated_at: now })
           .eq('id', taskId)
           .eq('ball', 'internal')
           .eq('updated_at', now)
@@ -443,6 +535,20 @@ export async function POST(
           { status: 500 }
         )
       }
+
+      // In-app inbox notification so the change request is visible without Slack
+      await notifyTaskCreator(supabase as SupabaseClient<Database>, {
+        orgId: task.org_id,
+        spaceId: task.space_id,
+        createdBy: task.created_by,
+        actorId: user.id,
+        taskId,
+        taskTitle: task.title,
+        type: 'ball_passed',
+        dedupeSuffix: 'changes_requested',
+        title: `「${task.title}」に修正依頼が届きました`,
+        message: trimmedComment,
+      })
 
       return NextResponse.json({
         success: true,

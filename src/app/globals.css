@@ -38,6 +38,14 @@
   --color-amber-500: #F59E0B;
   --color-amber-600: #D97706;
 
+  /* Orange (Warning / 要対応 / 接続異常) — amber をクライアント可視専用に保つための別トークン */
+  --color-orange-50: #FFF7ED;
+  --color-orange-100: #FFEDD5;
+  --color-orange-200: #FED7AA;
+  --color-orange-500: #F97316;
+  --color-orange-600: #EA580C;
+  --color-orange-700: #C2410C;
+
   /* Indigo (Primary) */
   --color-indigo-500: #6366F1;
   --color-indigo-600: #4F46E5;
@@ -108,7 +116,7 @@ body {
    3-Pane Layout Utilities
    ============================================ */
 
-/* Inspector: must resize Main, never overlay */
+/* Inspector base (closed): zero-width, hidden */
 .inspector-pane {
   width: 0;
   overflow: hidden;
@@ -117,10 +125,16 @@ body {
 }
 
 .inspector-pane.open {
-  width: 400px;
   opacity: 1;
-  border-left: 1px solid var(--color-gray-200);
-  transition: width 150ms ease-out, opacity 150ms ease-out 50ms;
+}
+
+/* Desktop (md+): resize Main, never overlay (hard UI rule) */
+@media (min-width: 768px) {
+  .inspector-pane.open {
+    width: 400px;
+    border-left: 1px solid var(--color-gray-200);
+    transition: width 150ms ease-out, opacity 150ms ease-out 50ms;
+  }
 }
 
 @media (min-width: 1920px) {
@@ -132,6 +146,24 @@ body {
 @media (min-width: 2560px) {
   .inspector-pane.open {
     width: 480px;
+  }
+}
+
+/* Mobile (<md): the "never overlay" rule does NOT apply — the inspector
+   becomes a full-screen sheet on top of Main instead of resizing it.
+   100dvh avoids the iOS Safari url-bar gap. */
+@media (max-width: 767px) {
+  .inspector-pane {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    z-index: 50;
+    transition: opacity 200ms ease-out;
+  }
+
+  .inspector-pane.open {
+    width: 100%;
+    background: #fff;
   }
 }
 
@@ -449,4 +481,19 @@ body {
   position: relative;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* ============================================
+   Mobile bottom safe-area (<md)
+   On phones the browser's bottom toolbar / home indicator can cover the
+   last rows of a scroll area, making them unreachable ("can't scroll to the
+   bottom"). Give every scroll region inside the app's main content extra
+   bottom clearance so the final items can always be scrolled into view.
+   Desktop (md+) is unaffected.
+   ============================================ */
+@media (max-width: 767px) {
+  #main-content .overflow-y-auto,
+  #main-content .overflow-auto {
+    padding-bottom: max(4rem, calc(env(safe-area-inset-bottom) + 1.5rem));
+  }
 }

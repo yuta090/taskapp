@@ -52,7 +52,7 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'not_done', label: '完了以外' },
   { value: 'backlog', label: '未着手' },
   { value: 'in_progress', label: '進行中' },
-  { value: 'in_review', label: '確認中' },
+  { value: 'in_review', label: '社内承認中' },
   { value: 'done', label: '完了' },
 ]
 
@@ -181,7 +181,7 @@ export function GanttChart({
         if (!byBall.has(key)) byBall.set(key, [])
         byBall.get(key)!.push(t)
       })
-      const ballLabels: Record<string, string> = { client: '外部確認待ち', internal: '社内対応中' }
+      const ballLabels: Record<string, string> = { client: 'クライアント確認待ち', internal: '社内対応中' }
       const ballColors: Record<string, string> = { client: GANTT_CONFIG.COLORS.CLIENT, internal: GANTT_CONFIG.COLORS.INTERNAL }
       for (const [ball, ts] of byBall) {
         groups.push({ label: ballLabels[ball] || ball, groupKey: ball, tasks: ts, color: ballColors[ball] })
@@ -260,17 +260,56 @@ export function GanttChart({
   const todayIndex = dates.findIndex((d) => isToday(d))
   const todayX = todayIndex >= 0 ? dateToX(new Date(), startDate, dayWidth) : null
 
+  // Horizontal scroll must target the chart body (chartBodyRef): its onScroll
+  // handler mirrors scrollLeft to the date header (scrollContainerRef), but
+  // there is no sync in the other direction, so scrolling the header alone
+  // moves nothing visible.
   const scrollToToday = () => {
-    if (scrollContainerRef.current && todayIndex >= 0) {
-      const scrollX = todayIndex * dayWidth - scrollContainerRef.current.clientWidth / 2
-      scrollContainerRef.current.scrollTo({ left: scrollX, behavior: 'smooth' })
+    if (chartBodyRef.current && todayIndex >= 0) {
+      const scrollX = todayIndex * dayWidth - chartBodyRef.current.clientWidth / 2
+      chartBodyRef.current.scrollTo({ left: scrollX, behavior: 'smooth' })
     }
   }
 
-  // Sync vertical scroll between sidebar and chart
+  // Auto-center on today once when the chart first mounts, so it doesn't
+  // default to the left (past) edge of an empty-looking grid. Must run only
+  // once: later re-renders (e.g. task edits) shouldn't yank the user's scroll
+  // position back to today.
+  const hasAutoScrolledRef = useRef(false)
+  useEffect(() => {
+    if (hasAutoScrolledRef.current) return
+    const container = chartBodyRef.current
+    const header = scrollContainerRef.current
+    if (!container || typeof container.scrollTo !== 'function') return
+    hasAutoScrolledRef.current = true
+
+    let scrollX: number | null = null
+    if (todayIndex >= 0) {
+      scrollX = Math.max(0, todayIndex * dayWidth - container.clientWidth / 2)
+    } else if (new Date() > endDate) {
+      // Today is after the whole range (all-past project) - land on the right edge
+      scrollX = totalWidth
+    }
+    if (scrollX !== null) {
+      container.scrollTo({ left: scrollX, behavior: 'auto' })
+      // The body→header onScroll sync only fires on user scroll events in some
+      // browsers' programmatic-scroll timing; set the header directly too.
+      header?.scrollTo({ left: scrollX, behavior: 'auto' })
+    }
+    // Intentionally run once on mount only - see comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Sync vertical scroll between sidebar and chart. Attached to the date
+  // header scroller, so also mirror horizontal position back to the chart
+  // body — without this, scrolling the header by hand desyncs the dates
+  // from the bars (body→header sync alone is one-way).
   const handleChartScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (sidebarRef.current) {
       sidebarRef.current.scrollTop = e.currentTarget.scrollTop
+    }
+    if (chartBodyRef.current && chartBodyRef.current.scrollLeft !== e.currentTarget.scrollLeft) {
+      chartBodyRef.current.scrollLeft = e.currentTarget.scrollLeft
     }
   }, [])
 
@@ -618,10 +657,14 @@ export function GanttChart({
         </div>
 
         <div className="flex-1 overflow-hidden">
+          {/* Programmatically-scrolled only (mirrors the chart body). Must NOT
+              be user-scrollable or smooth-scrolled: the body↔header mirroring
+              would feed smooth-animation intermediate values back and forth,
+              pinning both near 0 (seen in prod with scrollBehavior smooth). */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto overflow-y-hidden"
-            style={{ scrollBehavior: 'smooth' }}
+            data-testid="gantt-header-scroller"
+            className="overflow-x-hidden overflow-y-hidden"
             onScroll={handleChartScroll}
           >
             <GanttHeader
@@ -788,7 +831,7 @@ export function GanttChart({
                 fontSize: GANTT_CONFIG.FONT.SIZE_SM,
               }}
             >
-              {tasks.length === 0 ? 'タスクがありません' : '条件に一致するタスクがありません'}
+              {tasks.length === 0 ? '期限付きタスクやマイルストーンを設定するとここに表示されます' : '条件に一致するタスクがありません'}
             </div>
           )}
         </div>
@@ -799,8 +842,9 @@ export function GanttChart({
           className="flex-1 overflow-scroll gantt-scroll"
           style={{ cursor: isPanning ? 'grabbing' : undefined }}
           onScroll={(e) => {
-            if (scrollContainerRef.current) {
-              scrollContainerRef.current.scrollLeft = e.currentTarget.scrollLeft
+            const header = scrollContainerRef.current
+            if (header && header.scrollLeft !== e.currentTarget.scrollLeft) {
+              header.scrollLeft = e.currentTarget.scrollLeft
             }
             if (sidebarRef.current) {
               sidebarRef.current.scrollTop = e.currentTarget.scrollTop
@@ -977,7 +1021,7 @@ export function GanttChart({
             {/* Empty state */}
             {filteredTasks.length === 0 && (
               <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
-                {tasks.length === 0 ? 'タスクがありません' : '条件に一致するタスクがありません'}
+                {tasks.length === 0 ? '期限付きタスクやマイルストーンを設定するとここに表示されます' : '条件に一致するタスクがありません'}
               </div>
             )}
           </div>
@@ -994,7 +1038,7 @@ export function GanttChart({
             className="w-3 h-3 rounded"
             style={{ backgroundColor: GANTT_CONFIG.COLORS.CLIENT }}
           />
-          <span>外部確認待ち</span>
+          <span>クライアント確認待ち</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div
@@ -1039,9 +1083,9 @@ function getStatusBadge(status: string): { bg: string; text: string } {
 
 const statusLabels: Record<string, string> = {
   backlog: '未着手',
-  todo: 'ToDo',
+  todo: '着手予定',
   in_progress: '進行中',
-  in_review: '承認確認中',
+  in_review: '社内承認中',
   done: '完了',
   considering: '検討中',
 }

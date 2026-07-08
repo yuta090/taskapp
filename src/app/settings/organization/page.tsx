@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Buildings, Check, CircleNotch, Crown } from '@phosphor-icons/react'
+import { Buildings, Check, CircleNotch, Crown, Users, PlugsConnected, CreditCard, CaretRight } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
+import { SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function OrganizationSettingsPage() {
@@ -72,12 +73,7 @@ export default function OrganizationSettingsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <Link
-              href="/inbox"
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">組織設定</h1>
               <p className="text-sm text-gray-500">組織の基本情報</p>
@@ -183,6 +179,60 @@ export default function OrganizationSettingsPage() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Organization Management */}
+        <div>
+          <h2 className="text-sm font-medium text-gray-900 mb-3">組織の管理</h2>
+          <div className="space-y-3">
+            <Link
+              href="/settings/members"
+              className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 rounded-lg">
+                  <Users className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">メンバー管理</h3>
+                  <p className="text-xs text-gray-500">メンバー・クライアントの招待と権限管理</p>
+                </div>
+              </div>
+              <CaretRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+            </Link>
+
+            <Link
+              href="/settings/org-integrations"
+              className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 rounded-lg">
+                  <PlugsConnected className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">組織の外部連携</h3>
+                  <p className="text-xs text-gray-500">Slack・GitHub・AI などの組織全体の接続</p>
+                </div>
+              </div>
+              <CaretRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+            </Link>
+
+            <Link
+              href="/settings/billing"
+              className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 rounded-lg">
+                  <CreditCard className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">プランと請求</h3>
+                  <p className="text-xs text-gray-500">プランの確認・変更と請求情報</p>
+                </div>
+              </div>
+              <CaretRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+            </Link>
+          </div>
         </div>
       </main>
     </div>
