@@ -19,6 +19,8 @@ import {
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
 import { BentoCard } from '@/components/portal/dashboard/BentoCard'
 import { MetricCard } from '@/components/portal/dashboard/MetricCard'
+import { BallOwnershipRadar } from '@/components/portal/dashboard/BallOwnershipRadar'
+import { ApprovalHistory } from '@/components/portal/dashboard/ApprovalHistory'
 import { NextDeliveryMetric } from '@/components/portal/dashboard/NextDeliveryMetric'
 
 interface Project {
@@ -326,6 +328,16 @@ export function PortalDashboardClient({
               <p className="mt-2 text-gray-600 max-w-2xl">
                 プロジェクトの全体進捗と、あなたの確認が必要な項目です。
               </p>
+              {/* ボールの所在: あなた(client) / 先方(team) — 「今どちらの番か」を明示 */}
+              {dashboardData.ballOwnership.clientCount + dashboardData.ballOwnership.teamCount > 0 && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs text-gray-400">ボールの所在</span>
+                  <BallOwnershipRadar
+                    clientCount={dashboardData.ballOwnership.clientCount}
+                    teamCount={dashboardData.ballOwnership.teamCount}
+                  />
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -477,6 +489,13 @@ export function PortalDashboardClient({
                 </div>
               </BentoCard>
             </div>
+
+            {/* 6. 承認履歴 (Full width) — 承認済みの記録で「言った言わない」を防ぐ信頼シグナル */}
+            {dashboardData.approvals.length > 0 && (
+              <div className="lg:col-span-4 md:col-span-2">
+                <ApprovalHistory approvals={dashboardData.approvals} />
+              </div>
+            )}
 
           </div>
 
