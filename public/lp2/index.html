@@ -512,6 +512,25 @@
     .cta-band h2 { font-size: 22px; }
     .float-cta { right: 12px; bottom: 12px; }
   }
+
+/* ===== 相談フォーム ===== */
+html{scroll-behavior:smooth}
+.lead-form{max-width:520px;margin:8px auto 0;text-align:left}
+.lf-row{margin-bottom:14px}
+.lf-label{display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.lf-opt{font-weight:400;color:var(--ink-soft);font-size:11px;margin-left:6px}
+.lf-req{color:var(--shu);font-size:11px;margin-left:6px}
+.lf-input{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:12px 14px;font-size:16px;color:var(--ink);font-family:inherit}
+.lf-input:focus{outline:none;border-color:var(--shu);box-shadow:0 0 0 3px var(--shu-soft)}
+.lf-input::placeholder{color:#b6a897;font-size:13px}
+.lf-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.lf-submit{width:100%;border:none;cursor:pointer;font-family:inherit}
+.lf-submit:disabled{opacity:.6;cursor:not-allowed}
+.lf-error{color:#b3261e;font-size:13px;margin:0 0 12px}
+.lf-error a{color:inherit}
+.lf-done{padding:28px 0 8px;text-align:center}
+.lf-done-title{font-weight:700;font-size:18px;color:var(--ink);margin:0 0 6px}
+.lf-done-body{color:var(--ink-soft);font-size:14px;margin:0}
 </style>
 
 <!-- ================= HERO ================= -->
@@ -522,7 +541,7 @@
       <h1>勤怠さえ、<br>届けば。<span class="stamp" aria-hidden="true">受領</span></h1>
       <p class="hero-sub">給与計算の遅れも、手続きのギリギリも、6月の山も——根っこはいつも、顧問先からの<b>「勤怠待ち・書類待ち」</b>。その回収と催促、事務所の一員としてAI秘書が引き受けます。顧問先は、いつものLINEに写真を返信するだけ。</p>
       <div class="cta-row">
-        <a class="btn" href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">先行導入の相談をする</a>
+        <a class="btn" href="#cta">先行導入の相談をする</a>
         <span class="btn-note">先行導入は 5事務所 限定<br>15分のオンライン相談から</span>
       </div>
     </div>
@@ -712,7 +731,7 @@
 <section class="cta-band">
   <div class="wrap">
     <h2 class="mincho">その月15時間を、秘書に任せませんか。</h2>
-    <a class="btn" href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">先行導入の相談をする</a>
+    <a class="btn" href="#cta">先行導入の相談をする</a>
     <span class="btn-note">15分のオンライン相談。合わなければ、それで終わりで構いません。</span>
   </div>
 </section>
@@ -772,8 +791,26 @@
       <span class="perk">先行月給（特別条件）</span>
       <span class="perk">要望が開発に直接反映</span>
     </div>
-    <div class="cta-row" style="justify-content: center;">
-      <a class="btn" href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">先行導入の相談をする</a>
+    <form class="lead-form" id="lead-form" novalidate>
+      <div class="lf-row">
+        <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
+        <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇社会保険労務士事務所" autocomplete="organization">
+      </div>
+      <div class="lf-row">
+        <label class="lf-label" for="lf-email">メールアドレス <span class="lf-req">必須</span></label>
+        <input class="lf-input" id="lf-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="lf-row">
+        <label class="lf-label" for="lf-message">いまの回収のやり方・お困りごと <span class="lf-opt">任意</span></label>
+        <textarea class="lf-input" id="lf-message" name="message" rows="3" placeholder="例: 顧問先30社。勤怠データの催促は担当者がメールと電話で行っている、など"></textarea>
+      </div>
+      <input class="lf-hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <p class="lf-error" id="lf-error" hidden>送信に失敗しました。お手数ですが<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p>
+      <button class="btn lf-submit" type="submit">先行導入の相談をする</button>
+    </form>
+    <div class="lf-done" id="lf-done" hidden>
+      <p class="lf-done-title">送信ありがとうございます。</p>
+      <p class="lf-done-body">1営業日以内に、メールでご連絡いたします。</p>
     </div>
     <span class="btn-note">まずは15分のオンライン相談から。売り込みはしません——<br>いまの回収のやり方を伺い、合わなければ正直にそう申し上げます。</span>
   </div>
@@ -786,7 +823,7 @@
   </div>
 </footer>
 
-<a class="float-cta btn" href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">先行導入の相談</a>
+<a class="float-cta btn" href="#cta">先行導入の相談</a>
 
 <script>
 (function () {
@@ -815,5 +852,45 @@
 })();
 </script>
 
+<script>
+(function () {
+  var form = document.getElementById('lead-form')
+  if (!form) return
+  form.addEventListener('submit', function (e) {
+    e.preventDefault()
+    var btn = form.querySelector('.lf-submit')
+    var err = document.getElementById('lf-error')
+    if (!form.email.value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.value)) {
+      err.hidden = false
+      err.textContent = 'メールアドレスをご確認ください。'
+      return
+    }
+    err.hidden = true
+    btn.disabled = true
+    btn.textContent = '送信中…'
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'lp2',
+        company: form.company.value,
+        email: form.email.value,
+        message: form.message.value,
+        website: form.website.value,
+      }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status)
+        form.hidden = true
+        document.getElementById('lf-done').hidden = false
+      })
+      .catch(function () {
+        err.hidden = false
+        btn.disabled = false
+        btn.textContent = '先行導入の相談をする'
+      })
+  })
+})()
+</script>
 </body>
 </html>
