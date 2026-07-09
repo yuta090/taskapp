@@ -21,7 +21,7 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({ from: adminFromMock })),
 }))
 
-const sendLeadNotificationEmailMock = vi.fn(() => Promise.resolve())
+const sendLeadNotificationEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 vi.mock('@/lib/email/lead', () => ({
   sendLeadNotificationEmail: (...args: unknown[]) => sendLeadNotificationEmailMock(...args),
 }))
