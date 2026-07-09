@@ -89,6 +89,8 @@ const labelClasses = 'block text-sm font-medium text-slate-700 mb-1.5'
 export default function ContactPage() {
     const [formData, setFormData] = useState<FormData>(initialFormData)
     const [submitted, setSubmitted] = useState(false)
+    const [submitting, setSubmitting] = useState(false)
+    const [submitError, setSubmitError] = useState<string | null>(null)
 
     const handleChange = (
         e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -97,9 +99,25 @@ export default function ContactPage() {
         setFormData((prev) => ({ ...prev, [name]: value }))
     }
 
-    const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault()
-        setSubmitted(true)
+        setSubmitting(true)
+        setSubmitError(null)
+        try {
+            const res = await fetch('/api/leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source: 'contact', ...formData }),
+            })
+            if (!res.ok) throw new Error(`status ${res.status}`)
+            setSubmitted(true)
+        } catch {
+            setSubmitError(
+                '送信に失敗しました。時間をおいて再度お試しいただくか、メールでご連絡ください。'
+            )
+        } finally {
+            setSubmitting(false)
+        }
     }
 
     return (
@@ -278,12 +296,18 @@ export default function ContactPage() {
                                         </div>
 
                                         {/* Submit */}
+                                        {submitError && (
+                                            <p className="text-sm text-red-600" role="alert">
+                                                {submitError}
+                                            </p>
+                                        )}
                                         <button
                                             type="submit"
-                                            className="w-full py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center justify-center gap-2"
+                                            disabled={submitting}
+                                            className="w-full py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                                         >
                                             <PaperPlaneTilt size={18} weight="bold" />
-                                            送信する
+                                            {submitting ? '送信中…' : '送信する'}
                                         </button>
 
                                         <p className="text-xs text-slate-400 text-center">
