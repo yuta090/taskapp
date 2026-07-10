@@ -55,8 +55,23 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const account = await findLineAccountForOrg(orgId)
+  const lookup = await findLineAccountForOrg(orgId)
+  if (!lookup) {
+    return NextResponse.json(
+      { error: 'この事務所のLINEアカウントが未設定です' },
+      { status: 409 },
+    )
+  }
+  if (lookup.status === 'disabled') {
+    // disabled = 受信の記録は続けるが能動的な動作は止める(§1)。送信APIもここで止まる
+    return NextResponse.json(
+      { error: 'LINEアカウントが無効化されています' },
+      { status: 409 },
+    )
+  }
+  const account = lookup.account
   if (!account) {
+    // active だが復号失敗(資格情報破損等)。未設定と同じ扱いにする
     return NextResponse.json(
       { error: 'この事務所のLINEアカウントが未設定です' },
       { status: 409 },

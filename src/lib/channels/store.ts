@@ -77,17 +77,110 @@ export async function findLineAccountByDestination(
   return decryptAccount(data as AccountRow)
 }
 
-export async function findLineAccountForOrg(orgId: string): Promise<LineAccount | null> {
+export interface LineAccountLookup {
+  id: string
+  status: 'active' | 'disabled'
+  /** status='active' かつ復号成功のときのみ非null */
+  account: LineAccount | null
+}
+
+/**
+ * 送信前の409分岐用: 1クエリで存在確認とstatus判定を済ませる。
+ * disabled(記録は続けるが自動応答/送信は止める)は復号せずに返し、無駄なdecrypt呼び出しを避ける。
+ */
+export async function findLineAccountForOrg(orgId: string): Promise<LineAccountLookup | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
-    .select('id, org_id, display_name, credentials_encrypted')
+    .select('id, org_id, display_name, credentials_encrypted, status')
     .eq('channel', 'line')
     .eq('org_id', orgId)
-    .eq('status', 'active')
     .maybeSingle()
 
   if (error || !data) return null
-  return decryptAccount(data as AccountRow)
+
+  const row = data as AccountRow & { status: string }
+  const status = row.status as 'active' | 'disabled'
+  if (status !== 'active') {
+    return { id: row.id, status, account: null }
+  }
+
+  const account = await decryptAccount(row)
+  return { id: row.id, status, account }
+}
+
+export interface ChannelAccountMeta {
+  id: string
+  orgId: string
+  channel: string
+  displayName: string
+  lineBotUserId: string | null
+  status: 'active' | 'disabled'
+  createdAt: string
+}
+
+const ACCOUNT_META_COLUMNS = 'id, org_id, channel, display_name, line_bot_user_id, status, created_at'
+
+interface AccountMetaRow {
+  id: string
+  org_id: string
+  channel: string
+  display_name: string
+  line_bot_user_id: string | null
+  status: string
+  created_at: string
+}
+
+function toAccountMeta(row: AccountMetaRow): ChannelAccountMeta {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    channel: row.channel,
+    displayName: row.display_name,
+    lineBotUserId: row.line_bot_user_id,
+    status: row.status as 'active' | 'disabled',
+    createdAt: row.created_at,
+  }
+}
+
+/** コンソールのbot状態カード用。credentials_encryptedは絶対に選択しない */
+export async function findChannelAccountMetaForOrg(orgId: string): Promise<ChannelAccountMeta | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select(ACCOUNT_META_COLUMNS)
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toAccountMeta(data as AccountMetaRow)
+}
+
+/** PATCH /api/channels/accounts の認可用: accountIdの実所属orgを引く(クライアント申告のorgIdは信用しない) */
+export async function findChannelAccountOrgId(accountId: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('org_id')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data.org_id as string
+}
+
+export async function updateChannelAccountStatus(
+  accountId: string,
+  status: 'active' | 'disabled',
+): Promise<ChannelAccountMeta | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', accountId)
+    .select(ACCOUNT_META_COLUMNS)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toAccountMeta(data as AccountMetaRow)
 }
 
 // ---------------------------------------------------------------------------
