@@ -30,6 +30,7 @@ const storeMock = {
   findLineAccountForOrg: vi.fn(),
   insertChannelMessage: vi.fn(),
   updateChannelMessageStatus: vi.fn(),
+  verifyGroupInOrg: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -165,5 +166,94 @@ describe('POST /api/channels/messages', () => {
       'failed',
       expect.stringContaining('LINE push failed'),
     )
+  })
+
+  describe('groupId指定（グループ宛て送信）', () => {
+    const groupBody = {
+      orgId: validBody.orgId,
+      groupId: '33333333-3333-4333-8333-333333333333',
+      text: '明日は10時集合でお願いします',
+    }
+
+    beforeEach(() => {
+      storeMock.verifyGroupInOrg.mockResolvedValue({
+        id: groupBody.groupId,
+        orgId: validBody.orgId,
+        spaceId: 'space-1',
+        accountId: 'acc-1',
+        externalGroupId: 'G-1',
+        displayName: null,
+        status: 'active',
+        digestEnabled: true,
+        lastExtractedMessageCreatedAt: null,
+      })
+    })
+
+    it('spaceIdとgroupIdの両方指定は400', async () => {
+      const response = await callPost({ ...validBody, groupId: groupBody.groupId })
+      expect(response.status).toBe(400)
+    })
+
+    it('spaceId/groupIdどちらも無ければ400', async () => {
+      const response = await callPost({ orgId: validBody.orgId, text: 'x' })
+      expect(response.status).toBe(400)
+    })
+
+    it('他orgのgroupIdは404', async () => {
+      storeMock.verifyGroupInOrg.mockResolvedValue(null)
+      const response = await callPost(groupBody)
+      expect(response.status).toBe(404)
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('leftになったグループへの送信は404', async () => {
+      storeMock.verifyGroupInOrg.mockResolvedValue({
+        id: groupBody.groupId,
+        orgId: validBody.orgId,
+        spaceId: 'space-1',
+        accountId: 'acc-1',
+        externalGroupId: 'G-1',
+        displayName: null,
+        status: 'left',
+        digestEnabled: true,
+        lastExtractedMessageCreatedAt: null,
+      })
+      const response = await callPost(groupBody)
+      expect(response.status).toBe(404)
+    })
+
+    it('成功: グループのexternalGroupId宛てにpushし、group_id付きで記録する', async () => {
+      const response = await callPost(groupBody)
+
+      expect(response.status).toBe(200)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupId: groupBody.groupId,
+          spaceId: 'space-1',
+          direction: 'outbound',
+          actor: 'secretary',
+          sentBy: 'staff-1',
+          body: groupBody.text,
+        }),
+      )
+      expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'G-1', retryKey: 'row-1' }))
+      expect(storeMock.findActiveIdentityForSpace).not.toHaveBeenCalled()
+    })
+
+    it('orgにLINEアカウントが無ければ409', async () => {
+      storeMock.findLineAccountForOrg.mockResolvedValue(null)
+      const response = await callPost(groupBody)
+      expect(response.status).toBe(409)
+    })
+
+    it('LINEアカウントがdisabledなら未設定と区別した409（groupId宛ても同じ判定を共有する）', async () => {
+      storeMock.findLineAccountForOrg.mockResolvedValue({ id: 'acc-1', status: 'disabled', account: null })
+      const response = await callPost(groupBody)
+      const json = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(json.error).toContain('無効化')
+      expect(pushMock).not.toHaveBeenCalled()
+    })
   })
 })

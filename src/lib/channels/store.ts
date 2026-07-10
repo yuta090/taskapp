@@ -27,6 +27,7 @@ export interface LineAccount {
   displayName: string
   channelSecret: string
   accessToken: string
+  status: 'active' | 'disabled'
 }
 
 interface AccountRow {
@@ -34,6 +35,7 @@ interface AccountRow {
   org_id: string
   display_name: string
   credentials_encrypted: string
+  status: string
 }
 
 async function decryptAccount(row: AccountRow): Promise<LineAccount | null> {
@@ -59,18 +61,34 @@ async function decryptAccount(row: AccountRow): Promise<LineAccount | null> {
     displayName: row.display_name,
     channelSecret: credentials.channel_secret,
     accessToken: credentials.access_token,
+    status: row.status === 'disabled' ? 'disabled' : 'active',
   }
 }
 
+/**
+ * destination(=bot userId)からアカウントを逆引きする。
+ * status='disabled'でも返す — disabled中もinboundの記録は続ける必要があるため
+ * （止まるのは自動応答・digest・送信APIのみ。§1参照）。
+ */
 export async function findLineAccountByDestination(
   destination: string,
 ): Promise<LineAccount | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
-    .select('id, org_id, display_name, credentials_encrypted')
+    .select('id, org_id, display_name, credentials_encrypted, status')
     .eq('channel', 'line')
     .eq('line_bot_user_id', destination)
-    .eq('status', 'active')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return decryptAccount(data as AccountRow)
+}
+
+export async function findLineAccountById(accountId: string): Promise<LineAccount | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id, org_id, display_name, credentials_encrypted, status')
+    .eq('id', accountId)
     .maybeSingle()
 
   if (error || !data) return null
@@ -358,6 +376,220 @@ export async function linkIdentityViaCode(
 }
 
 // ---------------------------------------------------------------------------
+// channel_groups
+// ---------------------------------------------------------------------------
+
+export interface ChannelGroup {
+  id: string
+  orgId: string
+  spaceId: string | null
+  accountId: string
+  externalGroupId: string
+  displayName: string | null
+  status: 'active' | 'left'
+  digestEnabled: boolean
+  lastExtractedMessageCreatedAt: string | null
+}
+
+interface GroupRow {
+  id: string
+  org_id: string
+  space_id: string | null
+  account_id: string
+  external_group_id: string
+  display_name: string | null
+  status: string
+  digest_enabled: boolean
+  last_extracted_message_created_at: string | null
+}
+
+function toChannelGroup(row: GroupRow): ChannelGroup {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    spaceId: row.space_id,
+    accountId: row.account_id,
+    externalGroupId: row.external_group_id,
+    displayName: row.display_name,
+    status: row.status === 'left' ? 'left' : 'active',
+    digestEnabled: row.digest_enabled,
+    lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
+  }
+}
+
+const GROUP_COLUMNS =
+  'id, org_id, space_id, account_id, external_group_id, display_name, status, digest_enabled, last_extracted_message_created_at'
+
+export async function findActiveGroup(
+  accountId: string,
+  externalGroupId: string,
+): Promise<ChannelGroup | null> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select(GROUP_COLUMNS)
+    .eq('account_id', accountId)
+    .eq('external_group_id', externalGroupId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toChannelGroup(data as GroupRow)
+}
+
+/**
+ * join時に呼ぶ: activeな世代が既にあればそれを返し（冪等）、無ければ新世代を作る。
+ * 世代方式のため、leftになった旧世代がいくつあっても新規insertは1回だけ成功する。
+ */
+export async function findOrCreateActiveGroup(input: {
+  orgId: string
+  accountId: string
+  externalGroupId: string
+  displayName: string | null
+}): Promise<ChannelGroup> {
+  const existing = await findActiveGroup(input.accountId, input.externalGroupId)
+  if (existing) return existing
+
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .insert({
+      org_id: input.orgId,
+      account_id: input.accountId,
+      external_group_id: input.externalGroupId,
+      display_name: input.displayName,
+      channel: 'line',
+    })
+    .select(GROUP_COLUMNS)
+    .single()
+
+  if (error) {
+    // レース: join webhookの並行処理で先に他方がinsertした場合は既存を再取得する
+    if (error.code === '23505') {
+      const raced = await findActiveGroup(input.accountId, input.externalGroupId)
+      if (raced) return raced
+    }
+    throw new Error(`channel_groups: insert failed: ${error.message}`)
+  }
+  return toChannelGroup(data as GroupRow)
+}
+
+export async function markGroupLeft(accountId: string, externalGroupId: string): Promise<void> {
+  await admin()
+    .from('channel_groups')
+    .update({ status: 'left', left_at: new Date().toISOString() })
+    .eq('account_id', accountId)
+    .eq('external_group_id', externalGroupId)
+    .eq('status', 'active')
+}
+
+export async function findGroupById(groupId: string): Promise<ChannelGroup | null> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select(GROUP_COLUMNS)
+    .eq('id', groupId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toChannelGroup(data as GroupRow)
+}
+
+export async function verifyGroupInOrg(orgId: string, groupId: string): Promise<ChannelGroup | null> {
+  const group = await findGroupById(groupId)
+  if (!group || group.orgId !== orgId) return null
+  return group
+}
+
+/**
+ * リンクコード成立時のspace紐付け＋バックフィルを単一RPCで原子化する。
+ * space_id NULL→値の一方向（DBトリガーでも強制）。既に紐付け済み(space_id非null)なら
+ * false を返し、呼び出し側は通常メッセージ扱いにする。
+ *
+ * 以前はlinkGroupToSpace(update)→backfillGroupSpaceId(2回update)を別々のクエリで
+ * 行っており、途中クラッシュで「space_idはセット済みだがbackfill未実行」のまま
+ * 永久に固定される穴があった（space_idはNULL→値の一方向のため再試行不可）。
+ * rpc_link_group_to_space内で同一トランザクションにして解消する。
+ */
+export async function linkGroupToSpaceAtomic(groupId: string, spaceId: string): Promise<boolean> {
+  const { data, error } = await admin().rpc('rpc_link_group_to_space', {
+    p_group_id: groupId,
+    p_space_id: spaceId,
+  })
+  if (error) throw new Error(`rpc_link_group_to_space failed: ${error.message}`)
+  return !!data
+}
+
+export interface UpdateChannelGroupInput {
+  digestEnabled?: boolean
+  displayName?: string
+}
+
+export async function updateChannelGroup(
+  groupId: string,
+  updates: UpdateChannelGroupInput,
+): Promise<void> {
+  const patch: Record<string, unknown> = {}
+  if (updates.digestEnabled !== undefined) patch.digest_enabled = updates.digestEnabled
+  if (updates.displayName !== undefined) patch.display_name = updates.displayName
+  if (Object.keys(patch).length === 0) return
+
+  await admin().from('channel_groups').update(patch).eq('id', groupId)
+}
+
+/**
+ * unlink（誤紐付けの是正）。旧世代のopenな申し送りタスクはauto-dismissする
+ * （新世代へは引き継がない設計。§2.1参照）。
+ */
+export async function unlinkGroup(groupId: string): Promise<void> {
+  const client = admin()
+  await client
+    .from('channel_groups')
+    .update({ status: 'left', left_at: new Date().toISOString() })
+    .eq('id', groupId)
+  await client
+    .from('channel_digest_tasks')
+    .update({ status: 'dismissed' })
+    .eq('group_id', groupId)
+    .eq('status', 'open')
+}
+
+export interface DigestEligibleGroup {
+  id: string
+  orgId: string
+  accountId: string
+  externalGroupId: string
+  lastExtractedMessageCreatedAt: string | null
+}
+
+/**
+ * cronの対象: status='active' かつ digest_enabled かつ 紐づくaccountがstatus='active'。
+ */
+export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select(
+      'id, org_id, account_id, external_group_id, last_extracted_message_created_at, channel_accounts!inner(status)',
+    )
+    .eq('status', 'active')
+    .eq('digest_enabled', true)
+    .eq('channel_accounts.status', 'active')
+
+  if (error || !data) return []
+  type EligibleRow = {
+    id: string
+    org_id: string
+    account_id: string
+    external_group_id: string
+    last_extracted_message_created_at: string | null
+  }
+  return (data as unknown as EligibleRow[]).map((row) => ({
+    id: row.id,
+    orgId: row.org_id,
+    accountId: row.account_id,
+    externalGroupId: row.external_group_id,
+    lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
+  }))
+}
+
+// ---------------------------------------------------------------------------
 // channel_messages
 // ---------------------------------------------------------------------------
 
@@ -366,6 +598,8 @@ export interface InsertChannelMessageInput {
   spaceId: string | null
   identityId: string | null
   accountId: string | null
+  /** グループ発言の帰属（不変列）。1:1メッセージは null */
+  groupId?: string | null
   channel: string
   direction: 'inbound' | 'outbound'
   actor: 'client' | 'secretary' | 'staff' | 'system'
@@ -391,6 +625,7 @@ export async function insertChannelMessage(
       space_id: input.spaceId,
       identity_id: input.identityId,
       account_id: input.accountId,
+      group_id: input.groupId ?? null,
       channel: input.channel,
       direction: input.direction,
       actor: input.actor,
@@ -425,6 +660,241 @@ export async function updateChannelMessageStatus(
     .from('channel_messages')
     .update({ status, error: errorText ?? null })
     .eq('id', messageId)
+}
+
+// ---------------------------------------------------------------------------
+// channel_digest_tasks
+// ---------------------------------------------------------------------------
+
+export interface GroupTextMessage {
+  id: string
+  body: string
+  createdAt: string
+}
+
+/**
+ * 抽出対象: 水位より後・textのみ・actor='client'（secretary/systemの発言は除く）。
+ * sinceIso が null なら（初回抽出）そのグループの全text発言が対象。
+ */
+/**
+ * 1回のcronで抽出に渡す上限。初回抽出などでグループの滞留メッセージが極端に多い場合でも
+ * 無制限に投入してLLM呼び出しが詰まらないよう、古い順にこの件数だけ処理する。
+ * 水位は「このバッチの末尾」まで前進するため、残りは次回cronで続きから処理される。
+ */
+export const GROUP_TEXT_MESSAGES_BATCH_LIMIT = 500
+
+export async function findGroupTextMessagesSince(
+  groupId: string,
+  sinceIso: string | null,
+): Promise<GroupTextMessage[]> {
+  let query = admin()
+    .from('channel_messages')
+    .select('id, body, created_at')
+    .eq('group_id', groupId)
+    .eq('content_type', 'text')
+    .eq('actor', 'client')
+    .order('created_at', { ascending: true })
+    .limit(GROUP_TEXT_MESSAGES_BATCH_LIMIT)
+
+  if (sinceIso) {
+    query = query.gt('created_at', sinceIso)
+  }
+
+  const { data, error } = await query
+  if (error || !data) return []
+  return (data as Array<{ id: string; body: string | null; created_at: string }>)
+    .filter((row): row is { id: string; body: string; created_at: string } => !!row.body)
+    .map((row) => ({ id: row.id, body: row.body, createdAt: row.created_at }))
+}
+
+export interface DigestTaskCandidate {
+  sourceMessageId: string
+  title: string
+  assigneeHint: string | null
+}
+
+/**
+ * 抽出タスクの原子INSERT＋水位更新（同一トランザクション。exactly-once）。
+ * 戻り値は実際にINSERTされた件数（unique(source_message_id,title)による重複は数えない）。
+ */
+export async function ingestDigestTasks(
+  groupId: string,
+  newWatermarkIso: string,
+  tasks: DigestTaskCandidate[],
+): Promise<number> {
+  const { data, error } = await admin().rpc('rpc_ingest_digest_tasks', {
+    p_group_id: groupId,
+    p_new_watermark: newWatermarkIso,
+    p_tasks: tasks.map((t) => ({
+      source_message_id: t.sourceMessageId,
+      title: t.title,
+      assignee_hint: t.assigneeHint,
+    })),
+  })
+  if (error) throw new Error(`rpc_ingest_digest_tasks failed: ${error.message}`)
+  return (data as number) ?? 0
+}
+
+export interface NumberedDigestTask {
+  id: string
+  title: string
+  digestNumber: number
+}
+
+/**
+ * 配信直前の再採番: まず当該グループの digest_number を全行NULLクリアしてから、
+ * openなタスクにcreated_at順で1..Nを振り直す。
+ * （「完了N」返信が常に最新世代のみにマッチし、昨日の一覧が今朝の別タスクを消さないため）
+ */
+export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<NumberedDigestTask[]> {
+  const client = admin()
+  await client.from('channel_digest_tasks').update({ digest_number: null }).eq('group_id', groupId)
+
+  const { data, error } = await client
+    .from('channel_digest_tasks')
+    .select('id, title, created_at')
+    .eq('group_id', groupId)
+    .eq('status', 'open')
+    .order('created_at', { ascending: true })
+
+  if (error || !data || data.length === 0) return []
+
+  const rows = data as Array<{ id: string; title: string }>
+  const numbered = rows.map((row, index) => ({ id: row.id, title: row.title, digestNumber: index + 1 }))
+
+  await Promise.all(
+    numbered.map((task) =>
+      client.from('channel_digest_tasks').update({ digest_number: task.digestNumber }).eq('id', task.id),
+    ),
+  )
+
+  return numbered
+}
+
+export interface DigestTaskForVerification {
+  id: string
+  title: string
+  status: 'open' | 'done' | 'dismissed'
+  groupId: string
+  orgId: string
+  accountId: string
+}
+
+/**
+ * postback/console消し込みの検証用: task→group→account の系列を1件で取得する。
+ * task.group_id が webhook解決済みaccountのものかは呼び出し側で比較する。
+ */
+export async function findDigestTaskForVerification(
+  taskId: string,
+): Promise<DigestTaskForVerification | null> {
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .select('id, title, status, group_id, org_id, channel_groups!inner(account_id)')
+    .eq('id', taskId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  const row = data as {
+    id: string
+    title: string
+    status: string
+    group_id: string
+    org_id: string
+    channel_groups: { account_id: string } | { account_id: string }[]
+  }
+  const groupRel = Array.isArray(row.channel_groups) ? row.channel_groups[0] : row.channel_groups
+  if (!groupRel) return null
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status as DigestTaskForVerification['status'],
+    groupId: row.group_id,
+    orgId: row.org_id,
+    accountId: groupRel.account_id,
+  }
+}
+
+/**
+ * 原子更新（status='open'の行のみ）。0行なら「既に完了済み」として扱う（二重タップ吸収）。
+ */
+export async function markDigestTaskDoneAtomic(
+  taskId: string,
+  doneVia: 'postback' | 'reply' | 'console',
+  doneByExternalUserId: string | null,
+): Promise<{ id: string; title: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .update({
+      status: 'done',
+      done_at: new Date().toISOString(),
+      done_via: doneVia,
+      done_by_external_user_id: doneByExternalUserId,
+    })
+    .eq('id', taskId)
+    .eq('status', 'open')
+    .select('id, title')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return { id: data.id as string, title: data.title as string }
+}
+
+/**
+ * グループ内「完了N」返信の突合。openかつdigest_number=Nの行のみを原子更新する。
+ */
+export async function markDigestTaskDoneByGroupAndNumberAtomic(
+  groupId: string,
+  digestNumber: number,
+  doneByExternalUserId: string | null,
+): Promise<{ id: string; title: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .update({
+      status: 'done',
+      done_at: new Date().toISOString(),
+      done_via: 'reply',
+      done_by_external_user_id: doneByExternalUserId,
+    })
+    .eq('group_id', groupId)
+    .eq('digest_number', digestNumber)
+    .eq('status', 'open')
+    .select('id, title')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return { id: data.id as string, title: data.title as string }
+}
+
+export async function findDigestTaskOrgId(taskId: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .select('org_id')
+    .eq('id', taskId)
+    .maybeSingle()
+  if (error || !data) return null
+  return data.org_id as string
+}
+
+/**
+ * コンソールからの消し込み/復旧。open復旧はdone_*をクリアする。
+ */
+export async function updateDigestTaskStatusConsole(
+  taskId: string,
+  status: 'done' | 'dismissed' | 'open',
+): Promise<boolean> {
+  const patch: Record<string, unknown> =
+    status === 'open'
+      ? { status: 'open', done_at: null, done_via: null, done_by_external_user_id: null }
+      : { status, done_at: new Date().toISOString(), done_via: 'console', done_by_external_user_id: null }
+
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .update(patch)
+    .eq('id', taskId)
+    .select('id')
+    .maybeSingle()
+
+  return !error && !!data
 }
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,10 @@ interface LineMessagePayload {
   duration?: number
 }
 
+interface LinePostbackPayload {
+  data: string
+}
+
 export interface LineWebhookEvent {
   type: string
   webhookEventId: string
@@ -30,6 +34,7 @@ export interface LineWebhookEvent {
   source: LineEventSource
   replyToken?: string
   message?: LineMessagePayload
+  postback?: LinePostbackPayload
   [key: string]: unknown
 }
 
@@ -51,12 +56,28 @@ export function parseLineWebhookBody(rawBody: string): ParsedLineWebhookBody | n
   return { destination: body.destination, events: body.events as LineWebhookEvent[] }
 }
 
-export type NormalizedEventKind = 'message' | 'follow' | 'unfollow'
+export type NormalizedEventKind =
+  | 'message'
+  | 'follow'
+  | 'unfollow'
+  | 'join'
+  | 'leave'
+  | 'room_join'
+  | 'postback'
 
 export interface NormalizedLineEvent {
   kind: NormalizedEventKind
-  externalUserId: string
-  /** message イベントは message.id、follow/unfollow は webhookEventId */
+  /** 1:1のLINE userId。グループの匿名メンバー発言では null */
+  externalUserId: string | null
+  /** グループ発言・グループ系イベント(join/leave/postback)の場合のみ */
+  groupId?: string
+  /** room招待（Stage 2非サポート）の場合のみ */
+  roomId?: string
+  /** kind='postback' の場合のみ: postback.data そのまま */
+  postbackData?: string
+  /** reply送信用（通数無料）。イベントに無ければ undefined */
+  replyToken?: string
+  /** message イベントは message.id、それ以外は webhookEventId */
   externalMessageId: string
   webhookEventId: string
   isRedelivery: boolean
@@ -69,28 +90,60 @@ export interface NormalizedLineEvent {
 const MESSAGE_CONTENT_TYPES = new Set(['text', 'image', 'file', 'video', 'audio', 'sticker'])
 
 export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent | null {
-  const userId = event.source?.userId
-  if (!userId) return null
+  const source = event.source
+  const userId = source?.userId ?? null
+  const groupId = source?.type === 'group' ? source.groupId : undefined
+  const roomId = source?.type === 'room' ? source.roomId : undefined
 
   const common = {
     externalUserId: userId,
     webhookEventId: event.webhookEventId,
     isRedelivery: event.deliveryContext?.isRedelivery ?? false,
     occurredAt: new Date(event.timestamp).toISOString(),
+    replyToken: event.replyToken,
+  }
+  const systemCommon = {
+    externalMessageId: event.webhookEventId,
+    contentType: 'system' as const,
+    body: null,
+    payload: {},
+  }
+
+  if (event.type === 'join') {
+    // room招待は非サポート: 案内を送って退出するため system イベントとしてのみ扱う
+    if (source?.type === 'room' && roomId) {
+      return { ...common, ...systemCommon, kind: 'room_join', roomId }
+    }
+    if (source?.type === 'group' && groupId) {
+      return { ...common, ...systemCommon, kind: 'join', groupId }
+    }
+    return null
+  }
+
+  if (event.type === 'leave') {
+    if (source?.type === 'group' && groupId) {
+      return { ...common, ...systemCommon, kind: 'leave', groupId }
+    }
+    return null
+  }
+
+  if (event.type === 'postback') {
+    if (!event.postback?.data) return null
+    return { ...common, ...systemCommon, kind: 'postback', groupId, postbackData: event.postback.data }
   }
 
   if (event.type === 'follow' || event.type === 'unfollow') {
-    return {
-      ...common,
-      kind: event.type,
-      externalMessageId: event.webhookEventId,
-      contentType: 'system',
-      body: null,
-      payload: {},
-    }
+    // 1:1のみ（グループはfollow/unfollowを発行しない）
+    if (!userId) return null
+    return { ...common, ...systemCommon, kind: event.type }
   }
 
   if (event.type === 'message' && event.message) {
+    // room（複数人トーク）のメッセージは非サポート。1:1とグループのみ扱う
+    if (source?.type !== 'user' && source?.type !== 'group') return null
+    // 1:1は userId 必須。グループは匿名メンバーの発言を許容する
+    if (source.type === 'user' && !userId) return null
+
     const message = event.message
     if (!MESSAGE_CONTENT_TYPES.has(message.type)) return null
 
@@ -98,6 +151,7 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
       return {
         ...common,
         kind: 'message',
+        groupId,
         externalMessageId: message.id,
         contentType: 'text',
         body: message.text ?? '',
@@ -116,6 +170,7 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
     return {
       ...common,
       kind: 'message',
+      groupId,
       externalMessageId: message.id,
       contentType: message.type as NormalizedLineEvent['contentType'],
       body: null,
