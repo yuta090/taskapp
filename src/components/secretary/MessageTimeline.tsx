@@ -16,9 +16,10 @@ interface MessageTimelineProps {
 
 /** 右カラム: 選択spaceの会話タイムライン＋送信ボックス */
 export function MessageTimeline({ orgId, space, isLinked }: MessageTimelineProps) {
-  const { messages, isLoading, isRefreshing, error, refetch, sendMessage } = useChannelTimeline(
+  const { messages, isLoading, isRefreshing, error, refetch, sendMessage, retryMessage } = useChannelTimeline(
     orgId,
     space?.id ?? null,
+    isLinked,
   )
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -64,7 +65,7 @@ export function MessageTimeline({ orgId, space, isLinked }: MessageTimelineProps
               key={message.id}
               message={message}
               onRetry={
-                message.status === 'failed' ? () => void sendMessage(message.body ?? '') : undefined
+                message.status === 'failed' ? () => void retryMessage(message) : undefined
               }
             />
           ))

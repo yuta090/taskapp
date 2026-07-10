@@ -40,8 +40,11 @@ export interface SendMessageResult {
  * space毎の会話タイムライン。手動更新＋30秒ポーリング。
  * 送信はoptimistic append(送信ボタン無し・即時反映)し、失敗時はエラー表示+リトライ導線用に
  * 該当メッセージを status='failed' のまま残す。
+ *
+ * isLinked=false(未連携space)ではポーリングを止める(無駄な30秒毎の問い合わせを避ける)。
+ * 履歴の初回取得自体は連携解除後も見られるようenabledはspace選択の有無だけで判定する。
  */
-export function useChannelTimeline(orgId: string, spaceId: string | null) {
+export function useChannelTimeline(orgId: string, spaceId: string | null, isLinked: boolean = true) {
   const queryClient = useQueryClient()
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
@@ -65,7 +68,7 @@ export function useChannelTimeline(orgId: string, spaceId: string | null) {
       return (data ?? []) as ChannelMessageRow[]
     },
     enabled: !!orgId && !!spaceId,
-    refetchInterval: 30_000,
+    refetchInterval: isLinked ? 30_000 : false,
   })
 
   const sendMessage = useCallback(
@@ -139,6 +142,20 @@ export function useChannelTimeline(orgId: string, spaceId: string | null) {
     [orgId, spaceId, queryClient, queryKey],
   )
 
+  /**
+   * status='failed' な行の再送。sendMessage(text)をそのまま呼ぶと失敗行を残したまま
+   * 新規のoptimisticバブルが追加され二重表示になるため、先に失敗行を消してから送り直す。
+   */
+  const retryMessage = useCallback(
+    async (failedMessage: ChannelMessageRow): Promise<SendMessageResult> => {
+      queryClient.setQueryData<ChannelMessageRow[]>(queryKey, (old) =>
+        (old ?? []).filter((m) => m.id !== failedMessage.id),
+      )
+      return sendMessage(failedMessage.body ?? '')
+    },
+    [queryClient, queryKey, sendMessage],
+  )
+
   return {
     messages: data ?? [],
     isLoading,
@@ -146,5 +163,6 @@ export function useChannelTimeline(orgId: string, spaceId: string | null) {
     error: error instanceof Error ? error.message : null,
     refetch,
     sendMessage,
+    retryMessage,
   }
 }

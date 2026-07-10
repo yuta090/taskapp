@@ -77,35 +77,35 @@ export async function findLineAccountByDestination(
   return decryptAccount(data as AccountRow)
 }
 
-export async function findLineAccountForOrg(orgId: string): Promise<LineAccount | null> {
-  const { data, error } = await admin()
-    .from('channel_accounts')
-    .select('id, org_id, display_name, credentials_encrypted')
-    .eq('channel', 'line')
-    .eq('org_id', orgId)
-    .eq('status', 'active')
-    .maybeSingle()
-
-  if (error || !data) return null
-  return decryptAccount(data as AccountRow)
-}
-
-export interface LineAccountStatus {
+export interface LineAccountLookup {
   id: string
   status: 'active' | 'disabled'
+  /** status='active' かつ復号成功のときのみ非null */
+  account: LineAccount | null
 }
 
-/** 送信前の409分岐用: disabled(記録は続けるが自動応答/送信は止める)を「未設定」と区別する */
-export async function findLineAccountStatusForOrg(orgId: string): Promise<LineAccountStatus | null> {
+/**
+ * 送信前の409分岐用: 1クエリで存在確認とstatus判定を済ませる。
+ * disabled(記録は続けるが自動応答/送信は止める)は復号せずに返し、無駄なdecrypt呼び出しを避ける。
+ */
+export async function findLineAccountForOrg(orgId: string): Promise<LineAccountLookup | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
-    .select('id, status')
+    .select('id, org_id, display_name, credentials_encrypted, status')
     .eq('channel', 'line')
     .eq('org_id', orgId)
     .maybeSingle()
 
   if (error || !data) return null
-  return { id: data.id as string, status: data.status as 'active' | 'disabled' }
+
+  const row = data as AccountRow & { status: string }
+  const status = row.status as 'active' | 'disabled'
+  if (status !== 'active') {
+    return { id: row.id, status, account: null }
+  }
+
+  const account = await decryptAccount(row)
+  return { id: row.id, status, account }
 }
 
 export interface ChannelAccountMeta {

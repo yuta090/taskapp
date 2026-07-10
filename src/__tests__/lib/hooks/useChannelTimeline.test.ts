@@ -128,4 +128,75 @@ describe('useChannelTimeline', () => {
     expect(sendResult?.ok).toBe(false)
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('retryMessage: 失敗行を消してから同じ本文で送り直す(重複表示にしない)', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: '一時的なエラー' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'real-2', status: 'sent' }) })
+
+    const { result } = renderHook(() => useChannelTimeline('org-1', 'space-1'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.sendMessage('請求書の件です。')
+    })
+    await waitFor(() => expect(result.current.messages).toHaveLength(1))
+    expect(result.current.messages[0].status).toBe('failed')
+    const failedMessage = result.current.messages[0]
+
+    await act(async () => {
+      await result.current.retryMessage(failedMessage)
+    })
+
+    // 失敗行が残ったまま新規行が積まれる(重複表示)にはならず、1件だけ残る
+    await waitFor(() => expect(result.current.messages).toHaveLength(1))
+    expect(result.current.messages[0]).toMatchObject({
+      id: 'real-2',
+      status: 'sent',
+      body: '請求書の件です。',
+    })
+  })
+
+  it('isLinked=falseのときrefetchIntervalが無効化される(ポーリングを止める)', async () => {
+    const { result } = renderHook(() => useChannelTimeline('org-1', 'space-1', false), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    const callsAfterInitialLoad = mockOrder.mock.calls.length
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(mockOrder.mock.calls.length).toBe(callsAfterInitialLoad)
+  })
+
+  it('isLinked=true(既定)では30秒毎にポーリングされる', async () => {
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() => useChannelTimeline('org-1', 'space-1', true), {
+        wrapper: createWrapper(),
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(result.current.isLoading).toBe(false)
+
+      const callsAfterInitialLoad = mockOrder.mock.calls.length
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000)
+      })
+
+      expect(mockOrder.mock.calls.length).toBeGreaterThan(callsAfterInitialLoad)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
