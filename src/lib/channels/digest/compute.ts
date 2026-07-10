@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { buildDigestDonePostbackData } from '@/lib/channels/digest/postback'
 
 /**
@@ -9,20 +10,31 @@ import { buildDigestDonePostbackData } from '@/lib/channels/digest/postback'
  */
 
 const MAX_TITLE_LENGTH = 50
+const MAX_ASSIGNEE_HINT_LENGTH = 30
 
 /**
- * 改行・制御文字を除去し、50字に切り詰める。
+ * 制御文字(0x00-0x1F, 0x7F)を除去する。
  * 正規表現の制御文字レンジ記法(no-control-regexに抵触しやすく可読性も低い)は避け、
- * 文字コードで明示的に制御文字(0x00-0x1F, 0x7F)だけを取り除く。
+ * 文字コードで明示的に判定する。
  */
-export function sanitizeDigestTitle(raw: string): string {
+function stripControlChars(raw: string): string {
   let stripped = ''
   for (const ch of raw) {
     const code = ch.codePointAt(0) ?? 0
     if (code <= 0x1f || code === 0x7f) continue
     stripped += ch
   }
-  return stripped.trim().slice(0, MAX_TITLE_LENGTH)
+  return stripped
+}
+
+/** 改行・制御文字を除去し、50字に切り詰める */
+export function sanitizeDigestTitle(raw: string): string {
+  return stripControlChars(raw).trim().slice(0, MAX_TITLE_LENGTH)
+}
+
+/** 改行・制御文字を除去し、30字に切り詰める（LLMが読み取った担当者名の自由文字列） */
+export function sanitizeAssigneeHint(raw: string): string {
+  return stripControlChars(raw).trim().slice(0, MAX_ASSIGNEE_HINT_LENGTH)
 }
 
 export interface DigestSourceMessage {
@@ -88,9 +100,11 @@ export function parseLlmDigestExtraction(raw: string): ExtractedDigestTask[] | n
     if (!item || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
     if (typeof record.title !== 'string' || !record.title.trim()) continue
+    const assigneeHint =
+      typeof record.assignee_hint === 'string' ? sanitizeAssigneeHint(record.assignee_hint) : ''
     tasks.push({
       title: sanitizeDigestTitle(record.title),
-      assigneeHint: typeof record.assignee_hint === 'string' ? record.assignee_hint : null,
+      assigneeHint: assigneeHint.length > 0 ? assigneeHint : null,
       sourceIndex: typeof record.source_index === 'number' ? record.source_index : -1,
     })
   }
@@ -168,4 +182,22 @@ export function buildDigestFlexMessage(items: DigestFlexItem[]): {
       },
     },
   }
+}
+
+/**
+ * digest push の retryKey を (groupId, JST日付) から決定的に導出する。
+ * cronが同日中に再実行されても同じキーになるため、LINE側の二重配信防止が効く
+ * （手動リトライ・pg_netの再送等でcronが同日2回走っても同一グループへ二重pushしない）。
+ * UUID v4形式に整形しているが、値そのものはハッシュ由来の決定論的な文字列。
+ */
+export function buildDigestRetryKey(groupId: string, jstDateString: string): string {
+  const hex = createHash('sha256').update(`channel-digest:${groupId}:${jstDateString}`).digest('hex')
+  const variantNibble = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${variantNibble}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join('-')
 }

@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   sanitizeDigestTitle,
+  sanitizeAssigneeHint,
   buildDigestExtractionPrompt,
   parseLlmDigestExtraction,
   buildDigestPushText,
   buildDigestFlexMessage,
+  buildDigestRetryKey,
 } from '@/lib/channels/digest/compute'
 
 /**
@@ -28,6 +30,21 @@ describe('sanitizeDigestTitle', () => {
 
   it('前後の空白を除去する', () => {
     expect(sanitizeDigestTitle('  発注する  ')).toBe('発注する')
+  })
+})
+
+describe('sanitizeAssigneeHint', () => {
+  it('改行・制御文字を除去する', () => {
+    expect(sanitizeAssigneeHint('田中さん\n（店長）\t')).toBe('田中さん（店長）')
+  })
+
+  it('30字を超える場合は切り詰める', () => {
+    const long = 'た'.repeat(40)
+    expect(sanitizeAssigneeHint(long).length).toBe(30)
+  })
+
+  it('前後の空白を除去する', () => {
+    expect(sanitizeAssigneeHint('  田中さん  ')).toBe('田中さん')
   })
 })
 
@@ -80,6 +97,16 @@ describe('parseLlmDigestExtraction', () => {
   it('空配列は空配列を返す（タスク無しとして扱う）', () => {
     expect(parseLlmDigestExtraction('[]')).toEqual([])
   })
+
+  it('assignee_hintもtitleと同様にサニタイズする（改行除去・30字切り詰め）', () => {
+    const raw = JSON.stringify([
+      { title: '発注', assignee_hint: '田中さん\n（店長）', source_index: 0 },
+      { title: '発注2', assignee_hint: 'た'.repeat(40), source_index: 1 },
+    ])
+    const result = parseLlmDigestExtraction(raw)
+    expect(result?.[0].assigneeHint).toBe('田中さん（店長）')
+    expect(result?.[1].assigneeHint?.length).toBe(30)
+  })
 })
 
 describe('buildDigestPushText', () => {
@@ -114,5 +141,30 @@ describe('buildDigestFlexMessage', () => {
     const items = [{ digestNumber: 1, title: 'タスク1', taskId: 'task-1' }]
     const flex = buildDigestFlexMessage(items)
     expect(JSON.stringify(flex)).not.toContain('ほか')
+  })
+})
+
+describe('buildDigestRetryKey', () => {
+  it('同じgroupId・同じ日付なら同じキーを返す（同日cron再実行での二重配信対策）', () => {
+    const a = buildDigestRetryKey('group-1', '2026-07-11')
+    const b = buildDigestRetryKey('group-1', '2026-07-11')
+    expect(a).toBe(b)
+  })
+
+  it('groupIdが異なれば異なるキーを返す', () => {
+    expect(buildDigestRetryKey('group-1', '2026-07-11')).not.toBe(
+      buildDigestRetryKey('group-2', '2026-07-11'),
+    )
+  })
+
+  it('日付が異なれば異なるキーを返す（翌日は新規キー）', () => {
+    expect(buildDigestRetryKey('group-1', '2026-07-11')).not.toBe(
+      buildDigestRetryKey('group-1', '2026-07-12'),
+    )
+  })
+
+  it('UUID形式（v4相当）の文字列を返す', () => {
+    const key = buildDigestRetryKey('group-1', '2026-07-11')
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   })
 })

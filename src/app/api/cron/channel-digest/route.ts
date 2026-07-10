@@ -13,7 +13,9 @@ import {
   parseLlmDigestExtraction,
   buildDigestPushText,
   buildDigestFlexMessage,
+  buildDigestRetryKey,
 } from '@/lib/channels/digest/compute'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
  * POST /api/cron/channel-digest
@@ -41,6 +43,8 @@ export async function POST(request: NextRequest) {
   }
 
   const groups = await findDigestEligibleGroups()
+  // JST日付。同日中にcronが再実行されてもretryKeyが同じになりLINE側で二重配信を弾ける
+  const jstDateStr = formatDateToLocalString(new Date())
 
   let extractedTasks = 0
   let digestsSent = 0
@@ -108,6 +112,7 @@ export async function POST(request: NextRequest) {
           accessToken: account.accessToken,
           to: group.externalGroupId,
           messages: [{ type: 'text', text: pushText }, flex],
+          retryKey: buildDigestRetryKey(group.id, jstDateStr),
         })
         digestsSent += 1
       } catch (error) {

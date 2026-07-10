@@ -106,9 +106,25 @@ describe('POST /api/cron/channel-digest', () => {
     expect(callLlmMock).not.toHaveBeenCalled()
     expect(body.digestsSent).toBe(1)
     expect(pushMock).toHaveBeenCalledTimes(1)
-    const pushArg = pushMock.mock.calls[0][0] as { to: string; messages: unknown[] }
+    const pushArg = pushMock.mock.calls[0][0] as { to: string; messages: unknown[]; retryKey?: string }
     expect(pushArg.to).toBe('G-1')
     expect(pushArg.messages).toHaveLength(2)
+    // 同日中にcronが再実行されても同じretryKeyになる（決定的導出）ことを別テストで検証
+    expect(pushArg.retryKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+  })
+
+  it('同日中に2回叩かれても同じgroupへのretryKeyは同一（LINE側で二重配信を弾ける）', async () => {
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+      { id: 'task-1', title: '酒屋へ発注', digestNumber: 1 },
+    ])
+
+    await callPost({ authorization: 'Bearer test-cron-secret' })
+    await callPost({ authorization: 'Bearer test-cron-secret' })
+
+    const firstRetryKey = (pushMock.mock.calls[0][0] as { retryKey: string }).retryKey
+    const secondRetryKey = (pushMock.mock.calls[1][0] as { retryKey: string }).retryKey
+    expect(firstRetryKey).toBe(secondRetryKey)
   })
 
   it('openタスクが0件なら送信しない', async () => {
