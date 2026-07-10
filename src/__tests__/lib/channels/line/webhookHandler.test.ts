@@ -23,6 +23,20 @@ const ACCOUNT = {
   displayName: '山田会計事務所',
   channelSecret: CHANNEL_SECRET,
   accessToken: 'token-xyz',
+  status: 'active' as const,
+}
+const DISABLED_ACCOUNT = { ...ACCOUNT, status: 'disabled' as const }
+
+const GROUP = {
+  id: 'group-1',
+  orgId: 'org-1',
+  spaceId: null as string | null,
+  accountId: 'acc-1',
+  externalGroupId: 'G-1',
+  displayName: null,
+  status: 'active' as const,
+  digestEnabled: true,
+  lastExtractedMessageCreatedAt: null,
 }
 
 const storeMock = {
@@ -32,17 +46,30 @@ const storeMock = {
   findValidLinkCode: vi.fn(),
   linkIdentityViaCode: vi.fn(),
   uploadAttachment: vi.fn(),
+  findOrCreateActiveGroup: vi.fn(),
+  findActiveGroup: vi.fn(),
+  markGroupLeft: vi.fn(),
+  findGroupById: vi.fn(),
+  linkGroupToSpace: vi.fn(),
+  backfillGroupSpaceId: vi.fn(),
+  findDigestTaskForVerification: vi.fn(),
+  markDigestTaskDoneAtomic: vi.fn(),
+  markDigestTaskDoneByGroupAndNumberAtomic: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
 const pushMock = vi.fn()
 const fetchContentMock = vi.fn()
+const replyMock = vi.fn()
+const leaveRoomMock = vi.fn()
 vi.mock('@/lib/channels/line/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/channels/line/client')>()
   return {
     ...actual,
     pushLineMessage: (...args: unknown[]) => pushMock(...args),
     fetchLineMessageContent: (...args: unknown[]) => fetchContentMock(...args),
+    replyLineMessage: (...args: unknown[]) => replyMock(...args),
+    leaveRoom: (...args: unknown[]) => leaveRoomMock(...args),
   }
 })
 
@@ -70,13 +97,87 @@ function textEvent(text: string, overrides: Record<string, unknown> = {}) {
   }
 }
 
+function groupTextEvent(text: string, overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'message',
+    webhookEventId: 'evt-g1',
+    deliveryContext: { isRedelivery: false },
+    timestamp: 1750000000000,
+    mode: 'active',
+    source: { type: 'group', groupId: 'G-1', userId: 'U-client-1' },
+    replyToken: 'rt-g1',
+    message: { id: 'msg-g1', type: 'text', text },
+    ...overrides,
+  }
+}
+
+function joinEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'join',
+    webhookEventId: 'evt-join',
+    deliveryContext: { isRedelivery: false },
+    timestamp: 1750000000000,
+    mode: 'active',
+    source: { type: 'group', groupId: 'G-1' },
+    replyToken: 'rt-join',
+    ...overrides,
+  }
+}
+
+function leaveEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'leave',
+    webhookEventId: 'evt-leave',
+    deliveryContext: { isRedelivery: false },
+    timestamp: 1750000000000,
+    mode: 'active',
+    source: { type: 'group', groupId: 'G-1' },
+    ...overrides,
+  }
+}
+
+function roomJoinEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'join',
+    webhookEventId: 'evt-room-join',
+    deliveryContext: { isRedelivery: false },
+    timestamp: 1750000000000,
+    mode: 'active',
+    source: { type: 'room', roomId: 'R-1' },
+    replyToken: 'rt-room',
+    ...overrides,
+  }
+}
+
+function postbackEvent(data: string, overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'postback',
+    webhookEventId: 'evt-postback',
+    deliveryContext: { isRedelivery: false },
+    timestamp: 1750000000000,
+    mode: 'active',
+    source: { type: 'group', groupId: 'G-1', userId: 'U-client-1' },
+    replyToken: 'rt-postback',
+    postback: { data },
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   storeMock.findLineAccountByDestination.mockResolvedValue(ACCOUNT)
   storeMock.findActiveLineIdentities.mockResolvedValue([])
   storeMock.insertChannelMessage.mockResolvedValue({ id: 'row-1' })
   storeMock.findValidLinkCode.mockResolvedValue(null)
+  storeMock.findOrCreateActiveGroup.mockResolvedValue(GROUP)
+  storeMock.findActiveGroup.mockResolvedValue(GROUP)
+  storeMock.findGroupById.mockResolvedValue(GROUP)
+  storeMock.linkGroupToSpace.mockResolvedValue(true)
+  storeMock.backfillGroupSpaceId.mockResolvedValue(undefined)
+  storeMock.markGroupLeft.mockResolvedValue(undefined)
   pushMock.mockResolvedValue(undefined)
+  replyMock.mockResolvedValue(undefined)
+  leaveRoomMock.mockResolvedValue(undefined)
 })
 
 describe('handleLineWebhook', () => {
@@ -339,5 +440,288 @@ describe('handleLineWebhook', () => {
 
     expect(result.status).toBe(200)
     expect(storeMock.insertChannelMessage).toHaveBeenCalledTimes(2)
+  })
+
+  describe('disabled アカウント', () => {
+    it('follow: inboundは記録されるが挨拶は送らない', async () => {
+      storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+      const body = makeBody([
+        {
+          type: 'follow',
+          webhookEventId: 'evt-follow',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledTimes(1)
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('join: グループは記録されるが挨拶は送らない', async () => {
+      storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+      const body = makeBody([joinEvent()])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.findOrCreateActiveGroup).toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledTimes(1)
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('グループ発言: inboundは記録されるがpostback消し込みは処理しない', async () => {
+      storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+      const body = makeBody([postbackEvent('action=digest_done&task=11111111-1111-4111-8111-111111111111')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.findDigestTaskForVerification).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('グループ: join', () => {
+    it('active世代をupsertし、挨拶をグループへpushする', async () => {
+      const body = makeBody([joinEvent()])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.findOrCreateActiveGroup).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-1', accountId: 'acc-1', externalGroupId: 'G-1' }),
+      )
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      const pushArg = pushMock.mock.calls[0][0] as { to: string; messages: { text: string }[] }
+      expect(pushArg.to).toBe('G-1')
+      expect(pushArg.messages[0].text).toContain('記録に残ります')
+    })
+
+    it('再送(dedupe)では挨拶を二重送信しない', async () => {
+      storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+      const body = makeBody([joinEvent()])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('グループ: leave', () => {
+    it('active世代をleftにし、systemイベントを記録する', async () => {
+      const body = makeBody([leaveEvent()])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.markGroupLeft).toHaveBeenCalledWith('acc-1', 'G-1')
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ actor: 'system', groupId: 'group-1', payload: { event: 'leave' } }),
+      )
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('グループ: room招待（非サポート）', () => {
+    it('案内をreplyし、roomから退出する', async () => {
+      const body = makeBody([roomJoinEvent()])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(replyMock).toHaveBeenCalledTimes(1)
+      const replyArg = replyMock.mock.calls[0][0] as { replyToken: string; messages: { text: string }[] }
+      expect(replyArg.replyToken).toBe('rt-room')
+      expect(replyArg.messages[0].text).toContain('グループトーク')
+      expect(leaveRoomMock).toHaveBeenCalledWith('token-xyz', 'R-1')
+    })
+  })
+
+  describe('グループ発言', () => {
+    it('匿名メンバー（userIdなし）の発言も記録される', async () => {
+      const body = makeBody([groupTextEvent('明日の仕込みお願いします', { source: { type: 'group', groupId: 'G-1' } })])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupId: 'group-1',
+          externalUserId: null,
+          spaceId: null,
+          body: '明日の仕込みお願いします',
+        }),
+      )
+    })
+
+    it('1対1 identityを持つ人のグループ発言にidentity由来のspace_idは付かない', async () => {
+      storeMock.findActiveLineIdentities.mockResolvedValue([{ id: 'ident-1', spaceId: 'space-OTHER' }])
+      const body = makeBody([
+        groupTextEvent('お疲れさまです', { source: { type: 'group', groupId: 'G-1', userId: 'U-member' } }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ spaceId: null, identityId: 'ident-1' }),
+      )
+    })
+
+    it('グループのspace_idが確定していれば発言に反映される', async () => {
+      storeMock.findActiveGroup.mockResolvedValue({ ...GROUP, spaceId: 'space-1' })
+      const body = makeBody([groupTextEvent('本日の発注分です')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ spaceId: 'space-1', groupId: 'group-1' }),
+      )
+    })
+
+    it('グループ内リンクコード: 未紐付けグループで成立 → space確定＋バックフィル＋reply確認', async () => {
+      storeMock.findValidLinkCode.mockResolvedValue({
+        id: 'code-1',
+        orgId: 'org-1',
+        spaceId: 'space-9',
+        firstUsedAt: null,
+      })
+      storeMock.linkGroupToSpace.mockResolvedValue(true)
+
+      const body = makeBody([groupTextEvent('AB2CD3EF')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.linkGroupToSpace).toHaveBeenCalledWith('group-1', 'space-9')
+      expect(storeMock.backfillGroupSpaceId).toHaveBeenCalledWith('group-1', 'space-9')
+      expect(replyMock).toHaveBeenCalledTimes(1)
+      const replyArg = replyMock.mock.calls[0][0] as { replyToken: string }
+      expect(replyArg.replyToken).toBe('rt-g1')
+      // inbound(コード)がspace-9で記録される
+      expect(storeMock.insertChannelMessage.mock.calls[0][0]).toMatchObject({ spaceId: 'space-9' })
+    })
+
+    it('既に紐付け済みグループへのコード形状テキストは通常メッセージ扱い', async () => {
+      storeMock.findActiveGroup.mockResolvedValue({ ...GROUP, spaceId: 'space-1' })
+      const body = makeBody([groupTextEvent('AB2CD3EF')])
+      await handleLineWebhook(body, sign(body))
+
+      // リンク処理を試みない（既にspace_idがある）
+      expect(storeMock.findValidLinkCode).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ spaceId: 'space-1', body: 'AB2CD3EF' }),
+      )
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('「完了2」返信: openかつdigest_number=2を原子更新しreplyで確認', async () => {
+      storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue({
+        id: 'task-2',
+        title: '酒屋へ発注',
+      })
+      const body = makeBody([groupTextEvent('完了2')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).toHaveBeenCalledWith(
+        'group-1',
+        2,
+        'U-client-1',
+      )
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          replyToken: 'rt-g1',
+          messages: [expect.objectContaining({ text: expect.stringContaining('酒屋へ発注') })],
+        }),
+      )
+    })
+
+    it('「完了2」返信でマッチしなければ「既に完了済みです」', async () => {
+      storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue(null)
+      const body = makeBody([groupTextEvent('2 完了')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('既に完了済み') })],
+        }),
+      )
+    })
+
+    it('マッチしない通常メッセージは完了処理を試みない', async () => {
+      const body = makeBody([groupTextEvent('了解しました')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('postback（digest_done）', () => {
+    const TASK_ID = '11111111-1111-4111-8111-111111111111'
+
+    beforeEach(() => {
+      storeMock.findDigestTaskForVerification.mockResolvedValue({
+        id: TASK_ID,
+        title: '酒屋へ発注',
+        status: 'open',
+        groupId: 'group-1',
+        orgId: 'org-1',
+        accountId: 'acc-1',
+      })
+      storeMock.markDigestTaskDoneAtomic.mockResolvedValue({ id: TASK_ID, title: '酒屋へ発注' })
+    })
+
+    it('検証OK → 原子更新 → replyで完了を通知', async () => {
+      const body = makeBody([postbackEvent(`action=digest_done&task=${TASK_ID}`)])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.markDigestTaskDoneAtomic).toHaveBeenCalledWith(TASK_ID, 'postback', 'U-client-1')
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          replyToken: 'rt-postback',
+          messages: [expect.objectContaining({ text: expect.stringContaining('酒屋へ発注') })],
+        }),
+      )
+    })
+
+    it('二重タップの2回目は「既に完了済みです」', async () => {
+      storeMock.markDigestTaskDoneAtomic.mockResolvedValue(null)
+      const body = makeBody([postbackEvent(`action=digest_done&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('既に完了済み') })],
+        }),
+      )
+    })
+
+    it('他org/他アカウントのタスクへのpostbackは拒否される', async () => {
+      storeMock.findDigestTaskForVerification.mockResolvedValue({
+        id: TASK_ID,
+        title: '酒屋へ発注',
+        status: 'open',
+        groupId: 'group-OTHER',
+        orgId: 'org-OTHER',
+        accountId: 'acc-OTHER',
+      })
+      const body = makeBody([postbackEvent(`action=digest_done&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('他グループのタスク（同accountだが別グループ）へのpostbackは拒否される', async () => {
+      storeMock.findGroupById.mockResolvedValue({ ...GROUP, id: 'group-1', externalGroupId: 'G-OTHER' })
+      const body = makeBody([postbackEvent(`action=digest_done&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
+    })
+
+    it('不明なpostback形式は無視する', async () => {
+      const body = makeBody([postbackEvent('action=unknown')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.findDigestTaskForVerification).not.toHaveBeenCalled()
+    })
   })
 })

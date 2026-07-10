@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { pushLineMessage, fetchLineMessageContent, LinePushError } from '@/lib/channels/line/client'
+import {
+  pushLineMessage,
+  fetchLineMessageContent,
+  replyLineMessage,
+  leaveRoom,
+  LinePushError,
+} from '@/lib/channels/line/client'
 
 /**
  * LINE Messaging API push 送信クライアント
@@ -112,6 +118,57 @@ describe('fetchLineMessageContent', () => {
     await expect(fetchLineMessageContent('token-123', 'msg-gone')).rejects.toMatchObject({
       name: 'LinePushError',
       status: 404,
+    })
+  })
+})
+
+describe('replyLineMessage', () => {
+  it('reply APIへ replyToken と messages をPOSTする（通数無料のため消し込み確認等で使う）', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse())
+
+    await replyLineMessage({
+      accessToken: 'token-123',
+      replyToken: 'reply-abc',
+      messages: [{ type: 'text', text: '『酒屋へ発注』を完了にしました' }],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.line.me/v2/bot/message/reply')
+    expect(init.method).toBe('POST')
+    const headers = init.headers as Record<string, string>
+    expect(headers['Authorization']).toBe('Bearer token-123')
+    const body = JSON.parse(init.body as string)
+    expect(body.replyToken).toBe('reply-abc')
+    expect(body.messages).toEqual([{ type: 'text', text: '『酒屋へ発注』を完了にしました' }])
+  })
+
+  it('非2xxなら LinePushError を投げる', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Invalid reply token', { status: 400 }))
+    await expect(
+      replyLineMessage({ accessToken: 't', replyToken: 'bad', messages: [{ type: 'text', text: 'x' }] }),
+    ).rejects.toMatchObject({ name: 'LinePushError', status: 400 })
+  })
+})
+
+describe('leaveRoom', () => {
+  it('room leave APIへ roomId 付きでPOSTする（room招待の非サポート案内後に退出するため）', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse())
+
+    await leaveRoom('token-123', 'R1')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.line.me/v2/bot/room/R1/leave')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer token-123')
+  })
+
+  it('非2xxなら LinePushError を投げる', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('error', { status: 500 }))
+    await expect(leaveRoom('token-123', 'R1')).rejects.toMatchObject({
+      name: 'LinePushError',
+      status: 500,
     })
   })
 })
