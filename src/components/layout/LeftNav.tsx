@@ -37,6 +37,7 @@ import {
   ChartBar,
   Lifebuoy,
   Question,
+  Robot,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
@@ -1062,6 +1063,28 @@ export const LeftNav = memo(function LeftNav() {
             />
           </div>
         </div>
+
+        {/* 事務所（org単位。space非依存） */}
+        {orgId && (
+          <div>
+            {!collapsed && (
+              <div className="px-2 text-[10px] 2xl:text-xs font-medium text-gray-500 mb-1.5">
+                事務所
+              </div>
+            )}
+            <div className="space-y-0.5">
+              <NavItem
+                href={`/${orgId}/secretary`}
+                icon={<Robot />}
+                label="秘書"
+                tooltip="AI秘書コンソール（LINE連携・会話ログ・送信）"
+                active={isActive(`/${orgId}/secretary`, pathname === `/${orgId}/secretary`)}
+                collapsed={collapsed}
+                onNavigate={setPendingHref}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Team / Project */}
         <div>
