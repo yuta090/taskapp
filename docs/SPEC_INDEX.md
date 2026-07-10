@@ -48,7 +48,8 @@
 | **CLI Spec** | `spec/CLI_SPEC.md` | AgentPM CLI仕様 |
 | **CLI Dynamic Manifest** | `spec/CLI_DYNAMIC_MANIFEST_SPEC.md` | CLI動的マニフェスト（JSON駆動コマンド登録） |
 | **Estimate Workflow** | `spec/ESTIMATE_WORKFLOW_SPEC.md` | 見積もりワークフロー（送信→承認/再見積もり） |
-| **AI Secretary Design** | `spec/AI_SECRETARY_DESIGN_v0.1.md` | AI秘書（回収・催促・証跡）設計骨格 v0.1（構想確定・実装前） |
+| **AI Secretary Design** | `spec/AI_SECRETARY_DESIGN_v0.1.md` | AI秘書（回収・催促・証跡）設計骨格 v0.1（配管はStage 1実装済み） |
+| **Channel Plumbing** | `spec/CHANNEL_PLUMBING_SPEC.md` | チャネル配管 Stage 1（channel_messagesログ・LINE webhook/送信・突合・添付保存・redaction） |
 
 ### Prototypes
 
