@@ -39,6 +39,11 @@ describe('normalizeLinkCode', () => {
     expect(normalizeLinkCode('ＡＢ２ＣＤ３ＥＦ')).toBe('AB2CD3EF')
   })
 
+  it('全角スペース・コード内の空白も吸収する', () => {
+    expect(normalizeLinkCode('　AB2CD3EF　')).toBe('AB2CD3EF')
+    expect(normalizeLinkCode('AB2C D3EF')).toBe('AB2CD3EF')
+  })
+
   it('コード形式でない通常メッセージは null', () => {
     expect(normalizeLinkCode('領収書を送ります')).toBeNull()
     expect(normalizeLinkCode('こんにちは AB2CD3EF です')).toBeNull()

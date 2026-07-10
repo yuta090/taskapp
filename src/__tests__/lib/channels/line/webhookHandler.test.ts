@@ -186,7 +186,7 @@ describe('handleLineWebhook', () => {
     expect(pushMock).toHaveBeenCalledTimes(1)
   })
 
-  it('他orgのリンクコードは成立しない', async () => {
+  it('他orgのリンクコードは成立しない（未突合ユーザーには案内を返す）', async () => {
     storeMock.findValidLinkCode.mockResolvedValue({
       id: 'code-x',
       orgId: 'org-OTHER',
@@ -197,6 +197,59 @@ describe('handleLineWebhook', () => {
     await handleLineWebhook(body, sign(body))
 
     expect(storeMock.linkIdentityViaCode).not.toHaveBeenCalled()
+    // 未突合(identity 0件)なのでコード案内を返信
+    expect(pushMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('リンク済みユーザーのコード形状テキスト（参照番号等）は通常メッセージとして帰属を保つ', async () => {
+    storeMock.findActiveLineIdentities.mockResolvedValue([{ id: 'ident-1', spaceId: 'space-1' }])
+    storeMock.findValidLinkCode.mockResolvedValue(null)
+
+    const body = makeBody([textEvent('AB2CD3EF')])
+    await handleLineWebhook(body, sign(body))
+
+    // 帰属を失わず記録し、誤った「コードをお確かめください」返信をしない
+    expect(storeMock.insertChannelMessage).toHaveBeenCalledTimes(1)
+    expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: 'space-1', identityId: 'ident-1', body: 'AB2CD3EF' }),
+    )
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('リンクコード再送（webhook redelivery）では確認返信を二重送信しない', async () => {
+    storeMock.findValidLinkCode.mockResolvedValue({
+      id: 'code-1',
+      orgId: 'org-1',
+      spaceId: 'space-9',
+      firstUsedAt: null,
+    })
+    storeMock.linkIdentityViaCode.mockResolvedValue({ id: 'ident-9', spaceId: 'space-9' })
+    storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+
+    const body = makeBody([textEvent('AB2CD3EF')])
+    const result = await handleLineWebhook(body, sign(body))
+
+    expect(result.status).toBe(200)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('follow再送では挨拶を二重送信しない', async () => {
+    storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+    const body = makeBody([
+      {
+        type: 'follow',
+        webhookEventId: 'evt-follow',
+        deliveryContext: { isRedelivery: true },
+        timestamp: 1750000000000,
+        mode: 'active',
+        source: { type: 'user', userId: 'U-client-1' },
+        replyToken: 'rt-2',
+      },
+    ])
+    const result = await handleLineWebhook(body, sign(body))
+
+    expect(result.status).toBe(200)
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   it('follow: system記録＋挨拶（AI名乗り・記録明示）を返信', async () => {

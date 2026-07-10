@@ -7,6 +7,7 @@ import {
   uploadAttachment,
   type LineAccount,
   type InsertChannelMessageInput,
+  type ValidLinkCode,
 } from '@/lib/channels/store'
 import { pushLineMessage, fetchLineMessageContent } from '@/lib/channels/line/client'
 import { verifyLineSignature } from '@/lib/channels/line/verify'
@@ -87,7 +88,9 @@ export async function handleLineWebhook(
 
 async function processEvent(account: LineAccount, event: NormalizedLineEvent): Promise<void> {
   if (event.kind === 'follow') {
-    await recordSystemEvent(account, event, 'follow')
+    // webhook再送(dedupe)時は挨拶も再送しない
+    const recorded = await recordSystemEvent(account, event, 'follow')
+    if (recorded === 'duplicate') return
     await sendSecretaryText(account, event.externalUserId, buildGreeting(account.displayName), {
       relatedEventId: event.webhookEventId,
     })
@@ -100,15 +103,37 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
   }
 
   // message イベント
+  const identities = await findActiveLineIdentities(account.orgId, event.externalUserId)
+
   if (event.contentType === 'text' && event.body) {
     const code = normalizeLinkCode(event.body)
     if (code) {
-      await processLinkCode(account, event, code)
-      return
+      const linkCode = await findValidLinkCode(code)
+      // 他org（別事務所のOA）のコードは成立させない
+      if (linkCode && linkCode.orgId === account.orgId) {
+        await processLinkCode(account, event, linkCode)
+        return
+      }
+      // 有効コードでない場合: 未突合ユーザーにだけ案内を返す。
+      // リンク済みユーザーのコード形状テキスト（参照番号等）は通常メッセージとして
+      // フォールスルーし、帰属を失わない
+      if (identities.length === 0) {
+        const recorded = await insertChannelMessage(inboundTextRecord(account, event, null, null))
+        if (recorded !== 'duplicate') {
+          await sendSecretaryText(account, event.externalUserId, LINK_CODE_FAILED_TEXT, {
+            relatedEventId: event.webhookEventId,
+          })
+        }
+        return
+      }
     }
   }
 
-  const { spaceId, identityId } = await resolveIdentity(account, event.externalUserId)
+  // 1件なら帰属確定。複数件（同一人物が複数顧問先の窓口）は人力トリアージに委ねてnull
+  const { spaceId, identityId } =
+    identities.length === 1
+      ? { spaceId: identities[0].spaceId, identityId: identities[0].id }
+      : { spaceId: null, identityId: null }
 
   let storagePath: string | null = null
   let status: InsertChannelMessageInput['status'] = 'received'
@@ -153,40 +178,21 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
 async function processLinkCode(
   account: LineAccount,
   event: NormalizedLineEvent,
-  code: string,
+  linkCode: ValidLinkCode,
 ): Promise<void> {
-  const linkCode = await findValidLinkCode(code)
-  // 他org（別事務所のOA）のコードは成立させない
-  const valid = linkCode && linkCode.orgId === account.orgId
-
-  if (!valid) {
-    await insertChannelMessage(inboundTextRecord(account, event, null, null))
-    await sendSecretaryText(account, event.externalUserId, LINK_CODE_FAILED_TEXT, {
-      relatedEventId: event.webhookEventId,
-    })
-    return
-  }
-
+  // linkIdentityViaCode は冪等（既にactiveなら既存を返す）
   const identity = await linkIdentityViaCode(linkCode, event.externalUserId)
-  await insertChannelMessage(inboundTextRecord(account, event, identity.spaceId, identity.id))
+  const recorded = await insertChannelMessage(
+    inboundTextRecord(account, event, identity.spaceId, identity.id),
+  )
+  // webhook再送(dedupe)時は確認返信も再送しない
+  if (recorded === 'duplicate') return
   await sendSecretaryText(
     account,
     event.externalUserId,
     buildLinkConfirmation(account.displayName),
     { spaceId: identity.spaceId, identityId: identity.id, relatedEventId: event.webhookEventId },
   )
-}
-
-async function resolveIdentity(
-  account: LineAccount,
-  externalUserId: string,
-): Promise<{ spaceId: string | null; identityId: string | null }> {
-  const identities = await findActiveLineIdentities(account.orgId, externalUserId)
-  // 1件なら確定。複数件（同一人物が複数顧問先の窓口）は人力トリアージに委ねてnull
-  if (identities.length === 1) {
-    return { spaceId: identities[0].spaceId, identityId: identities[0].id }
-  }
-  return { spaceId: null, identityId: null }
 }
 
 function inboundTextRecord(
@@ -219,8 +225,8 @@ async function recordSystemEvent(
   account: LineAccount,
   event: NormalizedLineEvent,
   eventName: 'follow' | 'unfollow',
-): Promise<void> {
-  await insertChannelMessage({
+): Promise<{ id: string } | 'duplicate'> {
+  return insertChannelMessage({
     orgId: account.orgId,
     spaceId: null,
     identityId: null,

@@ -22,8 +22,11 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 const createLinkCodeMock = vi.fn()
+const verifySpaceInOrgMock = vi.fn()
 vi.mock('@/lib/channels/store', () => ({
   createLinkCode: (...args: unknown[]) => createLinkCodeMock(...args),
+  verifySpaceInOrg: (...args: unknown[]) => verifySpaceInOrgMock(...args),
+  DuplicateLinkCodeError: class DuplicateLinkCodeError extends Error {},
 }))
 
 const { POST } = await import('@/app/api/channels/link-codes/route')
@@ -47,9 +50,17 @@ describe('POST /api/channels/link-codes', () => {
     vi.clearAllMocks()
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    verifySpaceInOrgMock.mockResolvedValue(true)
     createLinkCodeMock.mockImplementation((input: { code: string }) =>
       Promise.resolve({ id: 'code-1', code: input.code, expiresAt: '2026-08-09T00:00:00Z' }),
     )
+  })
+
+  it('spaceがorgに属さなければ404（他orgへの発行防止）', async () => {
+    verifySpaceInOrgMock.mockResolvedValue(false)
+    const response = await callPost(validBody)
+    expect(response.status).toBe(404)
+    expect(createLinkCodeMock).not.toHaveBeenCalled()
   })
 
   it('未ログインは401', async () => {

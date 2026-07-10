@@ -170,6 +170,24 @@ export interface CreateLinkCodeInput {
   createdBy: string
 }
 
+/** コード衝突（unique違反）のとき投げる。呼び出し側はこれに限りリトライしてよい */
+export class DuplicateLinkCodeError extends Error {
+  constructor() {
+    super('link code collision')
+    this.name = 'DuplicateLinkCodeError'
+  }
+}
+
+export async function verifySpaceInOrg(orgId: string, spaceId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('spaces')
+    .select('id')
+    .eq('id', spaceId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  return !error && !!data
+}
+
 export async function createLinkCode(
   input: CreateLinkCodeInput,
 ): Promise<{ id: string; code: string; expiresAt: string }> {
@@ -186,6 +204,7 @@ export async function createLinkCode(
     .single()
 
   if (error || !data) {
+    if (error?.code === '23505') throw new DuplicateLinkCodeError()
     throw new Error(`channel_link_codes: insert failed: ${error?.message}`)
   }
   return { id: data.id as string, code: data.code as string, expiresAt: data.expires_at as string }

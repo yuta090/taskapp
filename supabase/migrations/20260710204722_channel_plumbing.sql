@@ -269,8 +269,9 @@ begin
 end;
 $$;
 
--- service role のみ実行可
+-- service role のみ実行可（暗黙のPUBLIC grantをrevokeするため、明示grantが必須）
 revoke execute on function public.rpc_redact_channel_message(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.rpc_redact_channel_message(uuid, uuid, text) to service_role;
 
 -- -----------------------------------------------------------------------------
 -- 5) RLS

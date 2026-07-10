@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
-import { createLinkCode } from '@/lib/channels/store'
+import { createLinkCode, verifySpaceInOrg, DuplicateLinkCodeError } from '@/lib/channels/store'
 import { generateLinkCode } from '@/lib/channels/linkCode'
 import { isValidUuid } from '@/lib/uuid'
 
@@ -32,8 +32,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  // コード衝突(31^8分の1)は理論上あり得るためリトライ
-  let lastError: unknown
+  // org境界: 他orgのspaceにコードを発行させない
+  if (!(await verifySpaceInOrg(orgId, spaceId))) {
+    return NextResponse.json({ error: 'space not found in org' }, { status: 404 })
+  }
+
+  // コード衝突(unique違反)に限りリトライ。それ以外は即エラー
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const created = await createLinkCode({
@@ -48,10 +52,11 @@ export async function POST(request: NextRequest) {
         expiresAt: created.expiresAt,
       })
     } catch (error) {
-      lastError = error
+      if (error instanceof DuplicateLinkCodeError) continue
+      console.error('link-codes: failed to create', error)
+      return NextResponse.json({ error: 'コードの発行に失敗しました' }, { status: 500 })
     }
   }
 
-  console.error('link-codes: failed to create', lastError)
   return NextResponse.json({ error: 'コードの発行に失敗しました' }, { status: 500 })
 }

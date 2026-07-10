@@ -25,7 +25,8 @@ export function generateLinkCode(): string {
  */
 export function normalizeLinkCode(text: string): string | null {
   const normalized = text
-    .trim()
+    // 空白は全て吸収（全角スペースU+3000・コード内の区切り空白を含む）
+    .replace(/[\s\u3000]/g, '')
     // 全角英数 → 半角
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
     .toUpperCase()
