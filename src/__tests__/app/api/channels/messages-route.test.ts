@@ -245,5 +245,15 @@ describe('POST /api/channels/messages', () => {
       const response = await callPost(groupBody)
       expect(response.status).toBe(409)
     })
+
+    it('LINEアカウントがdisabledなら未設定と区別した409（groupId宛ても同じ判定を共有する）', async () => {
+      storeMock.findLineAccountForOrg.mockResolvedValue({ id: 'acc-1', status: 'disabled', account: null })
+      const response = await callPost(groupBody)
+      const json = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(json.error).toContain('無効化')
+      expect(pushMock).not.toHaveBeenCalled()
+    })
   })
 })

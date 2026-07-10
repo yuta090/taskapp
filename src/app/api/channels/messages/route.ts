@@ -7,6 +7,7 @@ import {
   updateChannelMessageStatus,
   verifyGroupInOrg,
   type InsertChannelMessageInput,
+  type LineAccount,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { isValidUuid } from '@/lib/uuid'
@@ -86,28 +87,9 @@ async function sendToSpace(params: {
     )
   }
 
-  const lookup = await findLineAccountForOrg(orgId)
-  if (!lookup) {
-    return NextResponse.json(
-      { error: 'この事務所のLINEアカウントが未設定です' },
-      { status: 409 },
-    )
-  }
-  if (lookup.status === 'disabled') {
-    // disabled = 受信の記録は続けるが能動的な動作は止める(§1)。送信APIもここで止まる
-    return NextResponse.json(
-      { error: 'LINEアカウントが無効化されています' },
-      { status: 409 },
-    )
-  }
-  const account = lookup.account
-  if (!account) {
-    // active だが復号失敗(資格情報破損等)。未設定と同じ扱いにする
-    return NextResponse.json(
-      { error: 'この事務所のLINEアカウントが未設定です' },
-      { status: 409 },
-    )
-  }
+  const resolved = await resolveActiveLineAccount(orgId)
+  if (!resolved.ok) return resolved.response
+  const account = resolved.account
 
   return sendAndRecord(
     {
@@ -148,13 +130,9 @@ async function sendToGroup(params: {
     return NextResponse.json({ error: 'group not found' }, { status: 404 })
   }
 
-  const account = await findLineAccountForOrg(orgId)
-  if (!account) {
-    return NextResponse.json(
-      { error: 'この事務所のLINEアカウントが未設定です' },
-      { status: 409 },
-    )
-  }
+  const resolved = await resolveActiveLineAccount(orgId)
+  if (!resolved.ok) return resolved.response
+  const account = resolved.account
 
   return sendAndRecord(
     {
@@ -180,6 +158,47 @@ async function sendToGroup(params: {
     account.accessToken,
     group.externalGroupId,
   )
+}
+
+type ResolveAccountResult =
+  | { ok: true; account: LineAccount }
+  | { ok: false; response: NextResponse }
+
+/**
+ * spaceId/groupId宛て送信の共通アカウント解決。disabledは「未設定」と区別した409にする
+ * （§1: disabledは受信の記録は続けるが能動的な動作=送信は止める）。
+ */
+async function resolveActiveLineAccount(orgId: string): Promise<ResolveAccountResult> {
+  const lookup = await findLineAccountForOrg(orgId)
+  if (!lookup) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'この事務所のLINEアカウントが未設定です' },
+        { status: 409 },
+      ),
+    }
+  }
+  if (lookup.status === 'disabled') {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'LINEアカウントが無効化されています' },
+        { status: 409 },
+      ),
+    }
+  }
+  if (!lookup.account) {
+    // active だが復号失敗(資格情報破損等)。未設定と同じ扱いにする
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'この事務所のLINEアカウントが未設定です' },
+        { status: 409 },
+      ),
+    }
+  }
+  return { ok: true, account: lookup.account }
 }
 
 async function sendAndRecord(
