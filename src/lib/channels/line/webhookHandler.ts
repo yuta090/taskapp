@@ -9,8 +9,7 @@ import {
   findActiveGroup,
   markGroupLeft,
   findGroupById,
-  linkGroupToSpace,
-  backfillGroupSpaceId,
+  linkGroupToSpaceAtomic,
   findDigestTaskForVerification,
   markDigestTaskDoneAtomic,
   markDigestTaskDoneByGroupAndNumberAtomic,
@@ -598,11 +597,10 @@ async function processGroupLinkCode(
   identityId: string | null,
   disabled: boolean,
 ): Promise<void> {
-  const linked = await linkGroupToSpace(group.id, linkCode.spaceId)
+  // 紐付け＋バックフィル（過去メッセージ・openタスク）は同一トランザクションのRPCで原子化
+  const linked = await linkGroupToSpaceAtomic(group.id, linkCode.spaceId)
   let currentGroup: ChannelGroup = group
   if (linked) {
-    // リンク成立と同一処理内で必須のバックフィル（過去メッセージ・openタスク）
-    await backfillGroupSpaceId(group.id, linkCode.spaceId)
     currentGroup = { ...group, spaceId: linkCode.spaceId }
   } else {
     // レース: 既に他方が紐付け済み。現在値を再取得して整合させる
@@ -624,7 +622,7 @@ async function processGroupLinkCode(
   } else {
     await pushLineMessage({
       accessToken: account.accessToken,
-      to: externalGroupIdOf(event),
+      to: event.groupId!,
       messages: [{ type: 'text', text: confirmation }],
     })
   }
@@ -696,6 +694,14 @@ async function handleDigestCompleteCommand(
   })
 }
 
+type PostbackResult = 'done' | 'already_done' | 'rejected'
+
+/**
+ * postback(digest_done)。消し込み操作の原本証跡はchannel_messagesに残す（§2.3）。
+ * 記録は disabled 中も必ず行う（inboundの記録continuityは他イベントと同じ）。
+ * disabled中に止めるのは「自動応答」= reply送信のみ。検証・状態確定(消し込み)自体は
+ * ユーザーの実際の操作を正しく反映するため常に行う。
+ */
 async function processPostback(
   account: LineAccount,
   event: NormalizedLineEvent,
@@ -703,31 +709,68 @@ async function processPostback(
 ): Promise<void> {
   const action = parseDigestDonePostback(event.postbackData ?? '')
   if (!action) return
-  // digestまわりの自動応答はdisabled中は停止（digest自体も配信されないため実運用では発生しない想定）
-  if (disabled) return
 
   const task = await findDigestTaskForVerification(action.taskId)
-  if (!task) return
+  let rejected = false
 
-  // 検証: task→group→account→orgの系列がwebhookで解決したaccountと一致すること
-  if (task.accountId !== account.id || task.orgId !== account.orgId) {
+  if (!task) {
+    rejected = true
+  } else if (task.accountId !== account.id || task.orgId !== account.orgId) {
+    // 検証: task→group→account→orgの系列がwebhookで解決したaccountと一致すること
     console.error('LINE webhook: postback task belongs to a different account/org', action.taskId)
-    return
-  }
-
-  // 検証: task.group_idがwebhookを受けたグループのものであること
-  if (event.groupId) {
-    const group = await findGroupById(task.groupId)
-    if (!group || group.externalGroupId !== event.groupId) {
+    rejected = true
+  } else if (event.groupId) {
+    // 検証: task.group_idがwebhookを受けたグループのものであること
+    const taskGroup = await findGroupById(task.groupId)
+    if (!taskGroup || taskGroup.externalGroupId !== event.groupId) {
       console.error('LINE webhook: postback task belongs to a different group', action.taskId)
-      return
+      rejected = true
     }
   }
 
-  // 原子更新（status='open'のみ）。0行なら二重タップ等で既に完了済み
-  const result = await markDigestTaskDoneAtomic(action.taskId, 'postback', event.externalUserId ?? null)
-  const replyText = result ? buildTaskDoneReply(result.title) : ALREADY_DONE_TEXT
+  let result: PostbackResult
+  let doneTitle: string | null = null
+  if (rejected) {
+    result = 'rejected'
+  } else {
+    // 原子更新（status='open'のみ）。0行なら二重タップ等で既に完了済み
+    const updated = await markDigestTaskDoneAtomic(action.taskId, 'postback', event.externalUserId ?? null)
+    if (updated) {
+      result = 'done'
+      doneTitle = updated.title
+    } else {
+      result = 'already_done'
+    }
+  }
 
+  // 記録用のgroup_idはwebhookを受けたグループ基準（taskの帰属先ではなく、タップが物理的に発生した場所）
+  const group = event.groupId ? await findActiveGroup(account.id, event.groupId) : null
+
+  const recorded = await insertChannelMessage({
+    orgId: account.orgId,
+    spaceId: group?.spaceId ?? null,
+    identityId: null,
+    accountId: account.id,
+    groupId: group?.id ?? null,
+    channel: 'line',
+    direction: 'inbound',
+    actor: 'system',
+    externalUserId: event.externalUserId,
+    externalMessageId: event.webhookEventId,
+    contentType: 'system',
+    body: null,
+    payload: { event: 'postback', action: 'digest_done', taskId: action.taskId, result },
+    storagePath: null,
+    status: 'received',
+    error: null,
+    occurredAt: event.occurredAt,
+  })
+
+  // webhook再送(dedupe)時はreplyを再送しない。rejectedは何も返さない（不正リクエストへの応答を避ける）。
+  // disabled中は自動応答(reply)のみ停止する（記録・状態確定は既に完了している）
+  if (recorded === 'duplicate' || disabled || rejected) return
+
+  const replyText = result === 'done' ? buildTaskDoneReply(doneTitle!) : ALREADY_DONE_TEXT
   if (event.replyToken) {
     await replyLineMessage({
       accessToken: account.accessToken,
@@ -735,8 +778,4 @@ async function processPostback(
       messages: [{ type: 'text', text: replyText }],
     })
   }
-}
-
-function externalGroupIdOf(event: NormalizedLineEvent): string {
-  return event.groupId!
 }
