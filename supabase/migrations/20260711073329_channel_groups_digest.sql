@@ -246,6 +246,54 @@ revoke execute on function public.rpc_ingest_digest_tasks(uuid, timestamptz, jso
 grant execute on function public.rpc_ingest_digest_tasks(uuid, timestamptz, jsonb) to service_role;
 
 -- -----------------------------------------------------------------------------
+-- 4.5) rpc_link_group_to_space — リンクコード成立時のspace紐付け＋バックフィルの原子化
+-- -----------------------------------------------------------------------------
+-- 以前はアプリ側で update(channel_groups.space_id) → update(channel_messages) →
+-- update(channel_digest_tasks) を別クエリで行っており、backfill前にクラッシュすると
+-- 「space_idはセット済み・backfill未実行」のまま永久に固定される穴があった
+-- （space_idはNULL→値の一方向のみのため再試行で直せない）。同一トランザクションにする。
+create or replace function public.rpc_link_group_to_space(
+  p_group_id uuid,
+  p_space_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rows int;
+  v_linked boolean;
+begin
+  update channel_groups
+  set space_id = p_space_id
+  where id = p_group_id
+    and space_id is null;
+
+  get diagnostics v_rows = row_count;
+  v_linked := v_rows > 0;
+
+  if v_linked then
+    update channel_messages
+    set space_id = p_space_id
+    where group_id = p_group_id
+      and space_id is null;
+
+    update channel_digest_tasks
+    set space_id = p_space_id
+    where group_id = p_group_id
+      and status = 'open'
+      and space_id is null;
+  end if;
+
+  return v_linked;
+end;
+$$;
+
+revoke execute on function public.rpc_link_group_to_space(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.rpc_link_group_to_space(uuid, uuid) to service_role;
+
+-- -----------------------------------------------------------------------------
 -- 5) RLS
 -- -----------------------------------------------------------------------------
 alter table public.channel_groups enable row level security;
@@ -335,7 +383,8 @@ end $$;
 --   11) roomに招待されたら案内を送って退出する
 -- ロールバック:
 --   select cron.unschedule('channel-digest');
---   drop function app_invoke_channel_digest, rpc_ingest_digest_tasks(uuid, timestamptz, jsonb);
+--   drop function app_invoke_channel_digest, rpc_ingest_digest_tasks(uuid, timestamptz, jsonb),
+--     rpc_link_group_to_space(uuid, uuid);
 --   drop table channel_digest_tasks;
 --   alter table channel_messages drop constraint channel_messages_group_fk, drop column group_id;
 --   drop table channel_groups cascade;

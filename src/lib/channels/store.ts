@@ -499,39 +499,22 @@ export async function verifyGroupInOrg(orgId: string, groupId: string): Promise<
 }
 
 /**
- * リンクコード成立時のspace紐付け。space_id NULL→値の一方向（trigger側でも強制）。
- * 既に紐付け済み(space_id非null)なら false を返し、呼び出し側は通常メッセージ扱いにする。
+ * リンクコード成立時のspace紐付け＋バックフィルを単一RPCで原子化する。
+ * space_id NULL→値の一方向（DBトリガーでも強制）。既に紐付け済み(space_id非null)なら
+ * false を返し、呼び出し側は通常メッセージ扱いにする。
+ *
+ * 以前はlinkGroupToSpace(update)→backfillGroupSpaceId(2回update)を別々のクエリで
+ * 行っており、途中クラッシュで「space_idはセット済みだがbackfill未実行」のまま
+ * 永久に固定される穴があった（space_idはNULL→値の一方向のため再試行不可）。
+ * rpc_link_group_to_space内で同一トランザクションにして解消する。
  */
-export async function linkGroupToSpace(groupId: string, spaceId: string): Promise<boolean> {
-  const { data, error } = await admin()
-    .from('channel_groups')
-    .update({ space_id: spaceId })
-    .eq('id', groupId)
-    .is('space_id', null)
-    .select('id')
-    .maybeSingle()
-
-  return !error && !!data
-}
-
-/**
- * リンク成立と同一処理内で呼ぶ必須のバックフィル:
- * 当該group_idかつspace_id IS NULLのchannel_messagesと、openなchannel_digest_tasksに
- * space_idを反映する（過去分・誤帰属を残さないため）。
- */
-export async function backfillGroupSpaceId(groupId: string, spaceId: string): Promise<void> {
-  const client = admin()
-  await client
-    .from('channel_messages')
-    .update({ space_id: spaceId })
-    .eq('group_id', groupId)
-    .is('space_id', null)
-  await client
-    .from('channel_digest_tasks')
-    .update({ space_id: spaceId })
-    .eq('group_id', groupId)
-    .eq('status', 'open')
-    .is('space_id', null)
+export async function linkGroupToSpaceAtomic(groupId: string, spaceId: string): Promise<boolean> {
+  const { data, error } = await admin().rpc('rpc_link_group_to_space', {
+    p_group_id: groupId,
+    p_space_id: spaceId,
+  })
+  if (error) throw new Error(`rpc_link_group_to_space failed: ${error.message}`)
+  return !!data
 }
 
 export interface UpdateChannelGroupInput {
@@ -693,6 +676,13 @@ export interface GroupTextMessage {
  * 抽出対象: 水位より後・textのみ・actor='client'（secretary/systemの発言は除く）。
  * sinceIso が null なら（初回抽出）そのグループの全text発言が対象。
  */
+/**
+ * 1回のcronで抽出に渡す上限。初回抽出などでグループの滞留メッセージが極端に多い場合でも
+ * 無制限に投入してLLM呼び出しが詰まらないよう、古い順にこの件数だけ処理する。
+ * 水位は「このバッチの末尾」まで前進するため、残りは次回cronで続きから処理される。
+ */
+export const GROUP_TEXT_MESSAGES_BATCH_LIMIT = 500
+
 export async function findGroupTextMessagesSince(
   groupId: string,
   sinceIso: string | null,
@@ -704,6 +694,7 @@ export async function findGroupTextMessagesSince(
     .eq('content_type', 'text')
     .eq('actor', 'client')
     .order('created_at', { ascending: true })
+    .limit(GROUP_TEXT_MESSAGES_BATCH_LIMIT)
 
   if (sinceIso) {
     query = query.gt('created_at', sinceIso)
