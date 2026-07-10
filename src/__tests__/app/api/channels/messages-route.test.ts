@@ -28,6 +28,7 @@ vi.mock('@/lib/supabase/server', () => ({
 const storeMock = {
   findActiveIdentityForSpace: vi.fn(),
   findLineAccountForOrg: vi.fn(),
+  findLineAccountStatusForOrg: vi.fn(),
   insertChannelMessage: vi.fn(),
   updateChannelMessageStatus: vi.fn(),
 }
@@ -69,6 +70,7 @@ describe('POST /api/channels/messages', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     storeMock.findActiveIdentityForSpace.mockResolvedValue({ id: 'ident-1', externalId: 'U-c1' })
+    storeMock.findLineAccountStatusForOrg.mockResolvedValue({ id: 'acc-1', status: 'active' })
     storeMock.findLineAccountForOrg.mockResolvedValue({
       id: 'acc-1',
       orgId: validBody.orgId,
@@ -106,9 +108,21 @@ describe('POST /api/channels/messages', () => {
   })
 
   it('orgにLINEアカウントが無ければ409', async () => {
-    storeMock.findLineAccountForOrg.mockResolvedValue(null)
+    storeMock.findLineAccountStatusForOrg.mockResolvedValue(null)
     const response = await callPost(validBody)
     expect(response.status).toBe(409)
+    expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+  })
+
+  it('LINEアカウントがdisabledなら未設定と区別した409', async () => {
+    storeMock.findLineAccountStatusForOrg.mockResolvedValue({ id: 'acc-1', status: 'disabled' })
+    const response = await callPost(validBody)
+    const json = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(json.error).toContain('無効化')
+    expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   it('成功: queued記録 → push(retryKey=行id) → sent更新', async () => {

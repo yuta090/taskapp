@@ -90,6 +90,99 @@ export async function findLineAccountForOrg(orgId: string): Promise<LineAccount 
   return decryptAccount(data as AccountRow)
 }
 
+export interface LineAccountStatus {
+  id: string
+  status: 'active' | 'disabled'
+}
+
+/** 送信前の409分岐用: disabled(記録は続けるが自動応答/送信は止める)を「未設定」と区別する */
+export async function findLineAccountStatusForOrg(orgId: string): Promise<LineAccountStatus | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id, status')
+    .eq('channel', 'line')
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return { id: data.id as string, status: data.status as 'active' | 'disabled' }
+}
+
+export interface ChannelAccountMeta {
+  id: string
+  orgId: string
+  channel: string
+  displayName: string
+  lineBotUserId: string | null
+  status: 'active' | 'disabled'
+  createdAt: string
+}
+
+const ACCOUNT_META_COLUMNS = 'id, org_id, channel, display_name, line_bot_user_id, status, created_at'
+
+interface AccountMetaRow {
+  id: string
+  org_id: string
+  channel: string
+  display_name: string
+  line_bot_user_id: string | null
+  status: string
+  created_at: string
+}
+
+function toAccountMeta(row: AccountMetaRow): ChannelAccountMeta {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    channel: row.channel,
+    displayName: row.display_name,
+    lineBotUserId: row.line_bot_user_id,
+    status: row.status as 'active' | 'disabled',
+    createdAt: row.created_at,
+  }
+}
+
+/** コンソールのbot状態カード用。credentials_encryptedは絶対に選択しない */
+export async function findChannelAccountMetaForOrg(orgId: string): Promise<ChannelAccountMeta | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select(ACCOUNT_META_COLUMNS)
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toAccountMeta(data as AccountMetaRow)
+}
+
+/** PATCH /api/channels/accounts の認可用: accountIdの実所属orgを引く(クライアント申告のorgIdは信用しない) */
+export async function findChannelAccountOrgId(accountId: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('org_id')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data.org_id as string
+}
+
+export async function updateChannelAccountStatus(
+  accountId: string,
+  status: 'active' | 'disabled',
+): Promise<ChannelAccountMeta | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', accountId)
+    .select(ACCOUNT_META_COLUMNS)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toAccountMeta(data as AccountMetaRow)
+}
+
 // ---------------------------------------------------------------------------
 // channel_identities
 // ---------------------------------------------------------------------------
