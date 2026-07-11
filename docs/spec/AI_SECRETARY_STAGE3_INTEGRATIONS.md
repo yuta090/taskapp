@@ -74,7 +74,7 @@ create table integration_sinks (
 create table sink_deliveries (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references organizations(id) on delete cascade,
-  sink_id uuid not null references integration_sinks(id) on delete cascade,
+  sink_id uuid not null references integration_sinks(id) on delete restrict,
   digest_task_id uuid,                -- タスク単位の履歴・external_refs 突合用（ping は NULL）
   event_type text not null,           -- 'task.created' | 'task.done' | 'task.dismissed' | 'task.reopened' | 'ping'
   event_key text not null,            -- 冪等キー: 状態遷移1回ごとに一意（§2-1）
@@ -94,6 +94,7 @@ create index sink_deliveries_dispatch_idx
   on sink_deliveries (next_attempt_at) where status in ('queued', 'failed');
 ```
 
+- **sink_id は `on delete restrict`（PR-1実装で確定。旧記載の`on delete cascade`は誤り）**: cascadeだとsink削除時に配達ログ(証跡)も消え、受け入れ基準11「sink削除後も配達ログが参照できる」および本節DELETE欄の「削除はログとして残す」と矛盾する。`integration_sinks`側に物理DELETE禁止のガード（`channel_identities`と同型のDELETE禁止トリガー）を追加し、API層のDELETEは`status='disabled'`への更新として実装する。
 - **event_key の意味論（重要）**: `<event_type>:<task_id>` では **done→reopen→再done で2回目の done が unique 衝突して無音消滅**する。event_key は**状態遷移1回ごとに一意**にする — 実装はトリガー内で生成する **遷移イベントUUID**（`gen_random_uuid()`）を全 sink 行で共有する形（`<event_type>:<task_id>:<event_uuid>` 等）。unique(sink_id, event_key) は「同一遷移の二重 enqueue 防止」として保持。
 - **payload は常にフルスナップショット**（イベント時点の status を含む task 全体）＋ `occurred_at` 必須。受信側が任意イベントを upsert / last-write-wins として扱えるようにし、順序保証なし（§2-2）の実害を消す。
 - `dead`: 恒久失敗 or 最大試行超過。配達ログとして残す（削除しない）。**再送手段あり**（§3 redeliver）。
@@ -191,7 +192,7 @@ deliver(sink, delivery) -> { ok, permanent?, responseStatus?, error? }
 | GET | `/api/integrations/sinks` | internal | org の sink 一覧＋直近配達状況 |
 | POST | `/api/integrations/sinks` | owner/admin | 作成。webhook は secret を生成して**一度だけ平文返却**（以後は取得不可） |
 | PATCH | `/api/integrations/sinks/[id]` | owner/admin | 有効/無効・イベント購読・宛先変更・secret ローテーション（新 secret 一度だけ返却）。再有効化時は §2-2 のリセット |
-| DELETE | `/api/integrations/sinks/[id]` | owner/admin | 削除（deliveries はログとして残す） |
+| DELETE | `/api/integrations/sinks/[id]` | owner/admin | 削除（deliveries はログとして残す。実装は`integration_sinks`の物理DELETEをせず`status='disabled'`への更新で表現する。物理DELETEはDBトリガーで拒否される） |
 | POST | `/api/integrations/sinks/[id]/test` | owner/admin | テスト配達（`event: "ping"`、SSRF 検証も本配送と同一関数） |
 | POST | `/api/integrations/deliveries/[id]/redeliver` | owner/admin | dead/failed → queued へリセット（同一行なので unique 制約と整合） |
 | POST | `/api/integrations/sinks/[id]/redeliver` | owner/admin | sink 単位の一括再送（dead/failed 全件） |
