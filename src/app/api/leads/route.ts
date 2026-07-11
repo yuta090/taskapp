@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   const company = typeof body.company === 'string' ? body.company.trim() : undefined
   const message = typeof body.message === 'string' ? body.message.trim() : undefined
   const extra: Record<string, string> = {}
-  for (const key of ['teamSize', 'currentTool', 'partnerCount', 'channels', 'pain'] as const) {
+  for (const key of ['teamSize', 'currentTool', 'partnerCount', 'channels', 'pain', 'preferredSlots'] as const) {
     if (typeof body[key] === 'string' && (body[key] as string).length <= 200) {
       extra[key] = body[key] as string
     }
