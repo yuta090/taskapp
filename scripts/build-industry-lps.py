@@ -90,6 +90,10 @@ KEYS = [
 ('FINH2', '<h2 class="mincho">最初の5事務所を、<br>募集します。</h2>'),
 ('FINPARA', '<p>このサービスはいま、実際の会計事務所と一緒に作る段階にあります。先行導入の事務所には、貴所の顧問先・チャネル・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>'),
 ('PERK1', '<span class="perk">貴所の運用に合わせた作り込み</span>'),
+('FORMCOMPANY', '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇会計事務所" autocomplete="organization">
+        </div>'''),
 ('FOOTER', '<span>skara ｜ 税理士・会計事務所のためのAI秘書（先行導入募集中・開発中のサービスです）</span>'),
 ]
 
@@ -174,6 +178,10 @@ INDUSTRIES['lp3'] = {
 'FINH2': '<h2 class="mincho">最初の5社を、<br>募集します。</h2>',
 'FINPARA': '<p>このサービスはいま、実際の元請け企業と一緒に作る段階にあります。先行導入の企業には、御社の現場・協力会社・書類の種類に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>',
 'PERK1': '<span class="perk">御社の運用に合わせた作り込み</span>',
+'FORMCOMPANY': '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">会社名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇建設" autocomplete="organization">
+        </div>''',
 'FOOTER': '<span>skara ｜ 建設業の元請けのためのAI秘書（先行導入募集中・開発中のサービスです）</span>',
 }
 
@@ -257,6 +265,10 @@ INDUSTRIES['lp4'] = {
 'FINH2': '<h2 class="mincho">最初の5事務所を、<br>募集します。</h2>',
 'FINPARA': '<p>このサービスはいま、実際の行政書士事務所と一緒に作る段階にあります。先行導入の事務所には、貴所の案件・チャネル・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>',
 'PERK1': '<span class="perk">貴所の運用に合わせた作り込み</span>',
+'FORMCOMPANY': '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇行政書士事務所" autocomplete="organization">
+        </div>''',
 'FOOTER': '<span>skara ｜ 行政書士事務所のためのAI秘書（先行導入募集中・開発中のサービスです）</span>',
 }
 
@@ -339,6 +351,10 @@ INDUSTRIES['lp5'] = {
 'FINH2': '<h2 class="mincho">最初の5社を、<br>募集します。</h2>',
 'FINPARA': '<p>このサービスはいま、実際の管理会社と一緒に作る段階にあります。先行導入の企業には、御社の物件・入居者層・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>',
 'PERK1': '<span class="perk">御社の運用に合わせた作り込み</span>',
+'FORMCOMPANY': '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">会社名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇不動産管理" autocomplete="organization">
+        </div>''',
 'FOOTER': '<span>skara ｜ 賃貸管理会社のためのAI秘書（先行導入募集中・開発中のサービスです）</span>',
 }
 
@@ -421,6 +437,10 @@ INDUSTRIES['lp6'] = {
 'FINH2': '<h2 class="mincho">最初の5事務所を、<br>募集します。</h2>',
 'FINPARA': '<p>このサービスはいま、実際の司法書士事務所と一緒に作る段階にあります。先行導入の事務所には、貴所の案件・チャネル・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>',
 'PERK1': '<span class="perk">貴所の運用に合わせた作り込み</span>',
+'FORMCOMPANY': '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇司法書士事務所" autocomplete="organization">
+        </div>''',
 'FOOTER': '<span>skara ｜ 司法書士事務所のためのAI秘書（先行導入募集中・開発中のサービスです）</span>',
 }
 
@@ -503,6 +523,10 @@ INDUSTRIES['lp7'] = {
 'FINH2': '<h2 class="mincho">最初の5社を、<br>募集します。</h2>',
 'FINPARA': '<p>このサービスはいま、実際の人事チームと一緒に作る段階にあります。先行導入の企業には、御社の採用フロー・書類の種類に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>',
 'PERK1': '<span class="perk">御社の運用に合わせた作り込み</span>',
+'FORMCOMPANY': '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">会社名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="株式会社〇〇" autocomplete="organization">
+        </div>''',
 'FOOTER': '<span>skara ｜ 人事・労務担当のためのAI秘書（先行導入募集中・開発中のサービスです）</span>',
 }
 
@@ -586,6 +610,10 @@ INDUSTRIES['lp8'] = {
 'FINH2': '<h2 class="mincho">最初の5社を、<br>募集します。</h2>',
 'FINPARA': '<p>このサービスはいま、実際の保険代理店と一緒に作る段階にあります。先行導入の代理店には、御社の商品構成・契約者層に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>',
 'PERK1': '<span class="perk">御社の運用に合わせた作り込み</span>',
+'FORMCOMPANY': '''<div class="lf-row">
+          <label class="lf-label" for="lf-company">会社名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇保険事務所" autocomplete="organization">
+        </div>''',
 'FOOTER': '<span>skara ｜ 保険代理店のためのAI秘書（先行導入募集中・開発中のサービスです）</span>',
 }
 
