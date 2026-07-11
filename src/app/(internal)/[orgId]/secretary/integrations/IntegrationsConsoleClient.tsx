@@ -19,7 +19,7 @@ interface IntegrationsConsoleClientProps {
  * モーダル禁止・保存ボタンなし(optimistic updates)。docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4。
  */
 export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientProps) {
-  const { sinks, viewerRole, notionConnection, isLoading } = useSinks(orgId)
+  const { sinks, viewerRole, notionConnection, googleSheetsConnection, isLoading } = useSinks(orgId)
   const [selectedSinkId, setSelectedSinkId] = useState<string | null>(null)
   const [justCreatedSecret, setJustCreatedSecret] = useState<string | null>(null)
 
@@ -63,6 +63,7 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
             viewerRole={viewerRole}
             onCreated={handleCreated}
             notionConnection={notionConnection}
+            googleSheetsConnection={googleSheetsConnection}
           />
         </aside>
 
@@ -73,6 +74,7 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
             sink={selectedSink}
             viewerRole={viewerRole}
             notionConnection={notionConnection}
+            googleSheetsConnection={googleSheetsConnection}
           />
         ) : (
           !isLoading && (

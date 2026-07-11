@@ -23,6 +23,10 @@ const deliverNotionMock = vi.fn()
 vi.mock('@/lib/sinks/adapters/notion', () => ({
   deliverNotion: (...args: unknown[]) => deliverNotionMock(...args),
 }))
+const deliverGoogleSheetsMock = vi.fn()
+vi.mock('@/lib/sinks/adapters/google_sheets', () => ({
+  deliverGoogleSheets: (...args: unknown[]) => deliverGoogleSheetsMock(...args),
+}))
 vi.mock('@/lib/sinks/notify', () => ({
   notifySinkBecameError: (...args: unknown[]) => notifySinkBecameErrorMock(...args),
 }))
@@ -47,7 +51,7 @@ function delivery(overrides: Partial<Record<string, unknown>> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', SINK]]))
+  findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map([['sink-1', SINK]]), transientSinkIds: new Set() })
 })
 
 describe('dispatchBatch', () => {
@@ -152,7 +156,7 @@ describe('dispatchBatch', () => {
 
   it('handles an unresolvable sink (e.g. Notion/Sheets not implemented yet) as a permanent failure without calling the adapter', async () => {
     claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-unknown' })])
-    findDeliverableSinksByIdsMock.mockResolvedValue(new Map())
+    findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map(), transientSinkIds: new Set() })
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'dead',
       sinkStatus: 'active',
@@ -164,9 +168,36 @@ describe('dispatchBatch', () => {
 
     expect(deliverWebhookMock).not.toHaveBeenCalled()
     expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'permanent_fail', countsTowardFailures: false }),
+      expect.objectContaining({ outcome: 'permanent_fail', error: 'sink_not_deliverable', countsTowardFailures: false }),
     )
     expect(summary.dead).toBe(1)
+  })
+
+  // レビュー回帰(Major修正2): Google Sheetsのtoken refreshが一時障害(5xx/ネットワーク)で
+  // 失敗した場合、sink_not_deliverable(恒久)ではなくtemporary_fail(再試行)に落とす。
+  // store.findDeliverableSinksByIdsがtransientSinkIdsで区別して返す。
+  it('treats a sink whose resolution failed transiently (e.g. Google Sheets token refresh 5xx) as temporary_fail, not permanent', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient' })])
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map(),
+      transientSinkIds: new Set(['sink-transient']),
+    })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 1,
+      justBecameError: false,
+    })
+
+    const summary = await dispatchBatch()
+
+    expect(deliverWebhookMock).not.toHaveBeenCalled()
+    expect(deliverGoogleSheetsMock).not.toHaveBeenCalled()
+    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
+    )
+    expect(summary.failed).toBe(1)
+    expect(summary.dead).toBe(0)
   })
 
   it('routes notion sinks to deliverNotion instead of deliverWebhook (and passes digestTaskId through)', async () => {
@@ -176,7 +207,7 @@ describe('dispatchBatch', () => {
       accessToken: 'tok',
       databaseId: '12345678-1234-1234-1234-123456789012',
     }
-    findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', NOTION_SINK]]))
+    findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map([['sink-1', NOTION_SINK]]), transientSinkIds: new Set() })
     claimSinkDeliveriesMock.mockResolvedValue([delivery()])
     deliverNotionMock.mockResolvedValue({ ok: true, responseStatus: 200 })
     completeSinkDeliveryMock.mockResolvedValue({
@@ -194,6 +225,66 @@ describe('dispatchBatch', () => {
       expect.objectContaining({ id: 'd1', digestTaskId: 'task-1', eventType: 'task.created' }),
     )
     expect(summary.sent).toBe(1)
+  })
+
+  it('routes google_sheets sinks to deliverGoogleSheets instead of deliverWebhook (no digestTaskId requirement)', async () => {
+    const GOOGLE_SHEETS_SINK = {
+      id: 'sink-1',
+      provider: 'google_sheets' as const,
+      accessToken: 'tok',
+      spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      sheetName: 'タスク',
+    }
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map([['sink-1', GOOGLE_SHEETS_SINK]]),
+      transientSinkIds: new Set(),
+    })
+    claimSinkDeliveriesMock.mockResolvedValue([delivery()])
+    deliverGoogleSheetsMock.mockResolvedValue({ ok: true, responseStatus: 200 })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'sent',
+      sinkStatus: 'active',
+      consecutiveFailures: 0,
+      justBecameError: false,
+    })
+
+    const summary = await dispatchBatch()
+
+    expect(deliverWebhookMock).not.toHaveBeenCalled()
+    expect(deliverNotionMock).not.toHaveBeenCalled()
+    expect(deliverGoogleSheetsMock).toHaveBeenCalledWith(
+      GOOGLE_SHEETS_SINK,
+      expect.objectContaining({ id: 'd1', eventType: 'task.created', eventKey: 'task.created:task-1:evt-1' }),
+    )
+    expect(summary.sent).toBe(1)
+  })
+
+  it('classifies a google_sheets 429 (quota) as temporary and schedules a retry', async () => {
+    const GOOGLE_SHEETS_SINK = {
+      id: 'sink-1',
+      provider: 'google_sheets' as const,
+      accessToken: 'tok',
+      spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      sheetName: 'タスク',
+    }
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map([['sink-1', GOOGLE_SHEETS_SINK]]),
+      transientSinkIds: new Set(),
+    })
+    claimSinkDeliveriesMock.mockResolvedValue([delivery()])
+    deliverGoogleSheetsMock.mockResolvedValue({ ok: false, responseStatus: 429, error: 'rate limited' })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 1,
+      justBecameError: false,
+    })
+
+    await dispatchBatch()
+
+    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
+    )
   })
 
   it('collects per-delivery errors without aborting the whole batch', async () => {

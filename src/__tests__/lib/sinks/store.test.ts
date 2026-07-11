@@ -33,6 +33,11 @@ vi.mock('@/lib/supabase/admin', () => ({
   })),
 }))
 
+const getValidTokenDetailedMock = vi.fn()
+vi.mock('@/lib/integrations/token-manager', () => ({
+  getValidTokenDetailed: (...args: unknown[]) => getValidTokenDetailedMock(...args),
+}))
+
 const store = await import('@/lib/sinks/store')
 
 const ORG_ID = 'org-1'
@@ -44,6 +49,7 @@ beforeEach(() => {
   rpcCalls.length = 0
   fromResponses = {}
   rpcResponses = {}
+  getValidTokenDetailedMock.mockReset()
   process.env.SYSTEM_ENCRYPTION_KEY = 'test-encryption-key'
 
   fromMock.mockImplementation((table: string) => {
@@ -558,6 +564,216 @@ describe('findDeliverableSink (notion)', () => {
       error: null,
     }
     expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+  })
+})
+
+describe('findActiveGoogleSheetsConnection', () => {
+  it('returns the connection id and access token for an active org connection', async () => {
+    fromResponses['integration_connections'] = {
+      data: { id: 'conn-gs-1', access_token: 'access-abc' },
+      error: null,
+    }
+    const connection = await store.findActiveGoogleSheetsConnection(ORG_ID)
+    expect(connection).toEqual({ id: 'conn-gs-1', accessToken: 'access-abc' })
+  })
+
+  it('returns null when there is no active connection (not connected / revoked / expired)', async () => {
+    fromResponses['integration_connections'] = { data: null, error: null }
+    expect(await store.findActiveGoogleSheetsConnection(ORG_ID)).toBeNull()
+  })
+})
+
+describe('createGoogleSheetsSink', () => {
+  it('inserts a google_sheets sink with secret_encrypted null and connection_id set', async () => {
+    fromResponses['integration_sinks'] = {
+      data: {
+        id: SINK_ID,
+        org_id: ORG_ID,
+        group_id: null,
+        provider: 'google_sheets',
+        display_name: 'Sheets連携',
+        config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: 'タスク' },
+        connection_id: 'conn-gs-1',
+        events: ['task.created'],
+        status: 'active',
+        consecutive_failures: 0,
+        last_delivered_at: null,
+        created_by: 'user-1',
+        created_at: '2026-07-12T00:00:00.000Z',
+        updated_at: '2026-07-12T00:00:00.000Z',
+      },
+      error: null,
+    }
+
+    const sink = await store.createGoogleSheetsSink({
+      orgId: ORG_ID,
+      groupId: null,
+      displayName: 'Sheets連携',
+      spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      sheetName: 'タスク',
+      connectionId: 'conn-gs-1',
+      events: ['task.created'],
+      createdBy: 'user-1',
+    })
+
+    expect(sink.provider).toBe('google_sheets')
+    expect(sink.connectionId).toBe('conn-gs-1')
+    const call = fromMock.mock.results[0].value
+    const insertArg = call.insert.mock.calls[0][0] as Record<string, unknown>
+    expect(insertArg.secret_encrypted).toBeNull()
+    expect(insertArg.connection_id).toBe('conn-gs-1')
+    expect(insertArg.provider).toBe('google_sheets')
+    expect(insertArg.config).toEqual({
+      spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      sheet_name: 'タスク',
+    })
+  })
+})
+
+describe('findDeliverableSink (google_sheets)', () => {
+  const VALID_CONFIG = {
+    spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+    sheet_name: 'タスク',
+  }
+
+  function mockGoogleSheetsSinkRow() {
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: { id: SINK_ID, org_id: ORG_ID, provider: 'google_sheets', config: VALID_CONFIG, secret_encrypted: null },
+          error: null,
+        })
+      }
+      if (table === 'integration_connections') {
+        return chain({ data: { id: 'conn-gs-1', access_token: 'stale-token' }, error: null })
+      }
+      return chain({ data: null, error: null })
+    })
+  }
+
+  it('resolves a google_sheets sink using token-manager.getValidTokenDetailed for the org active connection', async () => {
+    mockGoogleSheetsSinkRow()
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'ok', token: 'fresh-access-token' })
+
+    const sink = await store.findDeliverableSink(SINK_ID)
+
+    expect(getValidTokenDetailedMock).toHaveBeenCalledWith('conn-gs-1', expect.any(Function))
+    expect(sink).toEqual({
+      id: SINK_ID,
+      provider: 'google_sheets',
+      accessToken: 'fresh-access-token',
+      spreadsheetId: VALID_CONFIG.spreadsheet_id,
+      sheetName: VALID_CONFIG.sheet_name,
+    })
+  })
+
+  it('returns null when the org has no active google_sheets connection', async () => {
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: { id: SINK_ID, org_id: ORG_ID, provider: 'google_sheets', config: VALID_CONFIG, secret_encrypted: null },
+          error: null,
+        })
+      }
+      return chain({ data: null, error: null }) // integration_connections: none active
+    })
+
+    expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+    expect(getValidTokenDetailedMock).not.toHaveBeenCalled()
+  })
+
+  it('returns null when getValidTokenDetailed reports auth_failed (expired/revoked, no fallback token)', async () => {
+    mockGoogleSheetsSinkRow()
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'auth_failed' })
+
+    expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+  })
+
+  // レビュー回帰(Major修正2): refreshの一時障害(5xx/ネットワーク)はsink_not_deliverable(恒久)ではなく
+  // dispatcher側でtemporary_fail(再試行)に落とすため、単発解決のfindDeliverableSinkではnullを返す
+  // (このAPIは恒久/一時を区別しない。区別が要るのはfindDeliverableSinksByIds経由のdispatchのみ)。
+  it('returns null when getValidTokenDetailed reports transient_error (does not throw)', async () => {
+    mockGoogleSheetsSinkRow()
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+
+    expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+  })
+
+  it('returns null when config.spreadsheet_id/sheet_name is missing or invalid (invalid config shape)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: { id: SINK_ID, org_id: ORG_ID, provider: 'google_sheets', config: { spreadsheet_id: 'too-short' }, secret_encrypted: null },
+      error: null,
+    }
+    expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+    expect(getValidTokenDetailedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('findDeliverableSinksByIds (google_sheets transient error handling)', () => {
+  const VALID_CONFIG = {
+    spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+    sheet_name: 'タスク',
+  }
+
+  it('separates a transiently-failed google_sheets sink into transientSinkIds instead of dropping it silently', async () => {
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: [
+            { id: 'sink-ok', org_id: ORG_ID, provider: 'google_sheets', config: VALID_CONFIG, secret_encrypted: null },
+            { id: 'sink-transient', org_id: ORG_ID, provider: 'google_sheets', config: VALID_CONFIG, secret_encrypted: null },
+          ],
+          error: null,
+        })
+      }
+      if (table === 'integration_connections') {
+        return chain({ data: { id: 'conn-gs-1', access_token: 'stale-token' }, error: null })
+      }
+      return chain({ data: null, error: null })
+    })
+    // 両sinkとも同じorg接続(conn-gs-1)を解決するが、2件目は呼び出しタイミングで一時障害が
+    // 起きたことを模擬するため、呼び出し順に応じて結果を切り替える。
+    getValidTokenDetailedMock
+      .mockResolvedValueOnce({ status: 'ok', token: 'fresh-token' })
+      .mockResolvedValueOnce({ status: 'transient_error' })
+
+    const result = await store.findDeliverableSinksByIds(['sink-ok', 'sink-transient'])
+
+    expect(result.sinks.has('sink-ok')).toBe(true)
+    expect(result.sinks.has('sink-transient')).toBe(false)
+    expect(result.transientSinkIds.has('sink-transient')).toBe(true)
+    expect(result.transientSinkIds.has('sink-ok')).toBe(false)
+  })
+
+  it('does not add auth_failed/unavailable sinks to transientSinkIds (stays permanent)', async () => {
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: [{ id: 'sink-auth-failed', org_id: ORG_ID, provider: 'google_sheets', config: VALID_CONFIG, secret_encrypted: null }],
+          error: null,
+        })
+      }
+      if (table === 'integration_connections') {
+        return chain({ data: { id: 'conn-gs-1', access_token: 'stale-token' }, error: null })
+      }
+      return chain({ data: null, error: null })
+    })
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'auth_failed' })
+
+    const result = await store.findDeliverableSinksByIds(['sink-auth-failed'])
+
+    expect(result.sinks.size).toBe(0)
+    expect(result.transientSinkIds.size).toBe(0)
+  })
+
+  it('returns empty sinks/transientSinkIds when no ids are given', async () => {
+    const result = await store.findDeliverableSinksByIds([])
+    expect(result.sinks.size).toBe(0)
+    expect(result.transientSinkIds.size).toBe(0)
   })
 })
 

@@ -3,6 +3,7 @@ import { requireOrgAdmin } from '@/lib/channels/authz'
 import { isValidUuid } from '@/lib/uuid'
 import { validateWebhookUrl } from '@/lib/sinks/ssrf'
 import { isValidNotionDatabaseId } from '@/lib/sinks/adapters/notion'
+import { isValidSpreadsheetId, isValidSheetName } from '@/lib/sinks/adapters/google_sheets'
 import {
   findSinkOrgId,
   findSinkMeta,
@@ -16,6 +17,8 @@ import {
 export const runtime = 'nodejs'
 
 const ALLOWED_EVENTS_SET = new Set<string>(ALLOWED_SINK_EVENTS)
+// notion/google_sheetsはconnection_id経由でaccess_tokenを参照するためsecretを持たない
+const NO_SECRET_PROVIDERS = new Set(['notion', 'google_sheets'])
 
 async function resolveOrgAndAuthorize(sinkId: string) {
   const orgId = await findSinkOrgId(sinkId)
@@ -72,6 +75,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (!isValidNotionDatabaseId(databaseId)) {
         return NextResponse.json({ error: 'config.database_id is invalid' }, { status: 400 })
       }
+    } else if (currentSink?.provider === 'google_sheets') {
+      // 同型のガード: spreadsheet_id/sheet_nameを欠くconfigの無言永続化を防ぐ。
+      const spreadsheetId = typeof config.spreadsheet_id === 'string' ? config.spreadsheet_id : ''
+      if (!spreadsheetId) {
+        return NextResponse.json({ error: 'config.spreadsheet_id is required' }, { status: 400 })
+      }
+      if (!isValidSpreadsheetId(spreadsheetId)) {
+        return NextResponse.json({ error: 'config.spreadsheet_id is invalid' }, { status: 400 })
+      }
+      const sheetName = typeof config.sheet_name === 'string' ? config.sheet_name : ''
+      if (!sheetName) {
+        return NextResponse.json({ error: 'config.sheet_name is required' }, { status: 400 })
+      }
+      if (!isValidSheetName(sheetName)) {
+        return NextResponse.json({ error: 'config.sheet_name is invalid' }, { status: 400 })
+      }
     } else {
       // M1修正: config を送ったのにurlを欠く(または空の)configを許すと、無言でurl無しの
       // configが永続化され、以後の配送が全部ssrf_blocked:invalid_url→deadになる。
@@ -118,7 +137,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   let sink = await updateSinkMeta(sinkId, metaUpdates)
 
   let secret: string | undefined
-  if (body.rotateSecret === true && currentSink?.provider !== 'notion') {
+  if (body.rotateSecret === true && !NO_SECRET_PROVIDERS.has(currentSink?.provider ?? '')) {
     const rotated = await rotateWebhookSecret(sinkId)
     if (rotated) {
       sink = rotated.sink

@@ -6,6 +6,7 @@ import {
   useSinks,
   useCreateSink,
   useCreateNotionSink,
+  useCreateGoogleSheetsSink,
   useUpdateSink,
   useTestSinkDelivery,
   useRedeliverSink,
@@ -100,6 +101,30 @@ describe('useSinks', () => {
 
     expect(result.current.error).toBe('Internal members only')
     expect(result.current.sinks).toEqual([])
+  })
+
+  it('googleSheetsConnectionを取得する（未接続時はデフォルトでconnected:false）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ sinks: [], viewerRole: 'owner' }),
+    })
+    const { result } = renderHook(() => useSinks('org-1'), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.googleSheetsConnection).toEqual({ connected: false })
+  })
+
+  it('googleSheetsConnectionが接続済みならconnected:trueを返す', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        sinks: [],
+        viewerRole: 'owner',
+        googleSheetsConnection: { connected: true },
+      }),
+    })
+    const { result } = renderHook(() => useSinks('org-1'), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.googleSheetsConnection).toEqual({ connected: true })
   })
 })
 
@@ -243,6 +268,85 @@ describe('useCreateNotionSink', () => {
         })
       }),
     ).rejects.toThrow('notion_not_connected')
+
+    const cached = queryClient.getQueryData<{ sinks: SinkMeta[] }>(['integrationSinks', 'org-1'])
+    expect(cached?.sinks).toHaveLength(0)
+  })
+})
+
+describe('useCreateGoogleSheetsSink', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('POSTs provider=google_sheets with config.spreadsheet_id/sheet_name and returns the sink without a secret', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['integrationSinks', 'org-1'], { sinks: [], viewerRole: 'owner' })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    const SHEETS_SINK: SinkMeta = {
+      ...SINK,
+      id: 'sink-3',
+      provider: 'google_sheets',
+      config: { spreadsheet_id: 'sheet-abc', sheet_name: 'タスク' },
+    }
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ sink: SHEETS_SINK }) })
+
+    const { result } = renderHook(() => useCreateGoogleSheetsSink(), { wrapper })
+
+    let response: { sink: SinkMeta } | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync({
+        orgId: 'org-1',
+        displayName: 'Sheets連携',
+        spreadsheetId: 'sheet-abc',
+        sheetName: 'タスク',
+        events: ['task.created'],
+      })
+    })
+
+    expect(response?.sink.id).toBe('sink-3')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/integrations/sinks',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          orgId: 'org-1',
+          groupId: null,
+          provider: 'google_sheets',
+          displayName: 'Sheets連携',
+          config: { spreadsheet_id: 'sheet-abc', sheet_name: 'タスク' },
+          events: ['task.created'],
+        }),
+      }),
+    )
+
+    const cached = queryClient.getQueryData<{ sinks: SinkMeta[] }>(['integrationSinks', 'org-1'])
+    expect(cached?.sinks).toHaveLength(1)
+    expect(cached?.sinks[0].id).toBe('sink-3')
+  })
+
+  it('作成失敗時はエラーを投げ、キャッシュを変更しない', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['integrationSinks', 'org-1'], { sinks: [], viewerRole: 'owner' })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: 'google_sheets_not_connected' }) })
+
+    const { result } = renderHook(() => useCreateGoogleSheetsSink(), { wrapper })
+
+    await expect(
+      act(async () => {
+        await result.current.mutateAsync({
+          orgId: 'org-1',
+          displayName: 'x',
+          spreadsheetId: 'sheet-abc',
+          sheetName: 'タスク',
+          events: ['task.created'],
+        })
+      }),
+    ).rejects.toThrow('google_sheets_not_connected')
 
     const cached = queryClient.getQueryData<{ sinks: SinkMeta[] }>(['integrationSinks', 'org-1'])
     expect(cached?.sinks).toHaveLength(0)

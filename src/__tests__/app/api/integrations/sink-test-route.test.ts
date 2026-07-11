@@ -32,6 +32,10 @@ const testNotionConnectionMock = vi.fn()
 vi.mock('@/lib/sinks/adapters/notion', () => ({
   testNotionConnection: (...args: unknown[]) => testNotionConnectionMock(...args),
 }))
+const testGoogleSheetsConnectionMock = vi.fn()
+vi.mock('@/lib/sinks/adapters/google_sheets', () => ({
+  testGoogleSheetsConnection: (...args: unknown[]) => testGoogleSheetsConnectionMock(...args),
+}))
 
 const { POST } = await import('@/app/api/integrations/sinks/[id]/test/route')
 
@@ -111,5 +115,44 @@ describe('POST /api/integrations/sinks/[id]/test', () => {
 
     expect(response.status).toBe(200)
     expect(data).toEqual({ deliveryId: null, outcome: 'failed', responseStatus: 401, error: 'unauthorized' })
+  })
+
+  it('google_sheets sinks are verified via a spreadsheet metadata GET instead of appending a row; success maps to outcome:"sent"', async () => {
+    const SHEETS_SINK = {
+      id: SINK_ID,
+      provider: 'google_sheets' as const,
+      accessToken: 'tok',
+      spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      sheetName: 'タスク',
+    }
+    sinksStoreMock.findDeliverableSink.mockResolvedValue(SHEETS_SINK)
+    testGoogleSheetsConnectionMock.mockResolvedValue({ ok: true, responseStatus: 200 })
+
+    const response = await callPost()
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data).toEqual({ deliveryId: null, outcome: 'sent', responseStatus: 200 })
+    expect(testGoogleSheetsConnectionMock).toHaveBeenCalledWith(SHEETS_SINK)
+    expect(sinksStoreMock.insertPingDelivery).not.toHaveBeenCalled()
+    expect(dispatchClaimedDeliveryMock).not.toHaveBeenCalled()
+  })
+
+  it('google_sheets failures map to outcome:"failed" with the adapter error text attached', async () => {
+    const SHEETS_SINK = {
+      id: SINK_ID,
+      provider: 'google_sheets' as const,
+      accessToken: 'tok',
+      spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      sheetName: 'タスク',
+    }
+    sinksStoreMock.findDeliverableSink.mockResolvedValue(SHEETS_SINK)
+    testGoogleSheetsConnectionMock.mockResolvedValue({ ok: false, responseStatus: 404, error: 'not found' })
+
+    const response = await callPost()
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data).toEqual({ deliveryId: null, outcome: 'failed', responseStatus: 404, error: 'not found' })
   })
 })

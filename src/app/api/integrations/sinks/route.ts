@@ -4,10 +4,13 @@ import { verifyGroupInOrg } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
 import { validateWebhookUrl } from '@/lib/sinks/ssrf'
 import { isValidNotionDatabaseId } from '@/lib/sinks/adapters/notion'
+import { isValidSpreadsheetId, isValidSheetName } from '@/lib/sinks/adapters/google_sheets'
 import {
   createWebhookSink,
   createNotionSink,
+  createGoogleSheetsSink,
   findActiveNotionConnection,
+  findActiveGoogleSheetsConnection,
   listSinksForOrg,
   findLatestDeliveryStatusForOrg,
   ALLOWED_SINK_EVENTS,
@@ -35,10 +38,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const [sinks, latestDeliveries, notionConnection] = await Promise.all([
+  const [sinks, latestDeliveries, notionConnection, googleSheetsConnection] = await Promise.all([
     listSinksForOrg(orgId),
     findLatestDeliveryStatusForOrg(orgId),
     findActiveNotionConnection(orgId),
+    findActiveGoogleSheetsConnection(orgId),
   ])
 
   const wireSinks = sinks.map((sink) => ({
@@ -53,6 +57,11 @@ export async function GET(request: NextRequest) {
       connected: notionConnection !== null,
       workspaceName: notionConnection?.workspaceName ?? null,
     },
+    // Googleのトークンレスポンスにはnotionのworkspace_nameに相当する表示名が無いため、
+    // 秘匿情報(アクセストークン)を返さないよう接続可否のbooleanのみ返す。
+    googleSheetsConnection: {
+      connected: googleSheetsConnection !== null,
+    },
   })
 }
 
@@ -65,13 +74,13 @@ interface CreateSinkBody {
   events?: unknown
 }
 
-const CREATABLE_PROVIDERS = new Set(['webhook', 'notion'])
+const CREATABLE_PROVIDERS = new Set(['webhook', 'notion', 'google_sheets'])
 
 /**
  * POST /api/integrations/sinks — sink作成。owner/adminのみ。
  *
- * provider='webhook'|'notion'を受け付ける（google_sheetsはPR-4まで拒否）。
- * webhookのsecretは作成時に一度だけ平文で返す（以後は取得不可）。notionは
+ * provider='webhook'|'notion'|'google_sheets'を受け付ける。
+ * webhookのsecretは作成時に一度だけ平文で返す（以後は取得不可）。notion/google_sheetsは
  * secretを持たない（connection_id経由でaccess_tokenを参照するためレスポンスに含めない）。
  */
 export async function POST(request: NextRequest) {
@@ -94,7 +103,7 @@ export async function POST(request: NextRequest) {
 
   if (typeof body.provider !== 'string' || !CREATABLE_PROVIDERS.has(body.provider)) {
     return NextResponse.json(
-      { error: "provider must be 'webhook' or 'notion' (google_sheets is not yet available)" },
+      { error: "provider must be one of 'webhook', 'notion', 'google_sheets'" },
       { status: 400 },
     )
   }
@@ -150,6 +159,42 @@ export async function POST(request: NextRequest) {
       groupId,
       displayName,
       databaseId,
+      connectionId: connection.id,
+      events,
+      createdBy: auth.userId,
+    })
+
+    return NextResponse.json({ sink }, { status: 201 })
+  }
+
+  if (body.provider === 'google_sheets') {
+    const spreadsheetId = config && typeof config.spreadsheet_id === 'string' ? config.spreadsheet_id : ''
+    if (!spreadsheetId) {
+      return NextResponse.json({ error: 'config.spreadsheet_id is required' }, { status: 400 })
+    }
+    if (!isValidSpreadsheetId(spreadsheetId)) {
+      return NextResponse.json({ error: 'config.spreadsheet_id is invalid' }, { status: 400 })
+    }
+
+    const sheetName = config && typeof config.sheet_name === 'string' ? config.sheet_name : ''
+    if (!sheetName) {
+      return NextResponse.json({ error: 'config.sheet_name is required' }, { status: 400 })
+    }
+    if (!isValidSheetName(sheetName)) {
+      return NextResponse.json({ error: 'config.sheet_name is invalid' }, { status: 400 })
+    }
+
+    const connection = await findActiveGoogleSheetsConnection(orgId)
+    if (!connection) {
+      return NextResponse.json({ error: 'google_sheets_not_connected' }, { status: 400 })
+    }
+
+    const sink = await createGoogleSheetsSink({
+      orgId,
+      groupId,
+      displayName,
+      spreadsheetId,
+      sheetName,
       connectionId: connection.id,
       events,
       createdBy: auth.userId,

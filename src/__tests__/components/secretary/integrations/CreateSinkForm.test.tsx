@@ -10,11 +10,13 @@ import type { SinkMeta } from '@/lib/hooks/useSinks'
  * (docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4)。
  */
 
-const { mutateAsyncMock, createNotionMutateAsyncMock, toastErrorMock } = vi.hoisted(() => ({
-  mutateAsyncMock: vi.fn(),
-  createNotionMutateAsyncMock: vi.fn(),
-  toastErrorMock: vi.fn(),
-}))
+const { mutateAsyncMock, createNotionMutateAsyncMock, createGoogleSheetsMutateAsyncMock, toastErrorMock } =
+  vi.hoisted(() => ({
+    mutateAsyncMock: vi.fn(),
+    createNotionMutateAsyncMock: vi.fn(),
+    createGoogleSheetsMutateAsyncMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+  }))
 
 vi.mock('@/lib/hooks/useSinks', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/hooks/useSinks')>()
@@ -22,6 +24,7 @@ vi.mock('@/lib/hooks/useSinks', async (importOriginal) => {
     ...actual,
     useCreateSink: () => ({ mutateAsync: mutateAsyncMock, isPending: false }),
     useCreateNotionSink: () => ({ mutateAsync: createNotionMutateAsyncMock, isPending: false }),
+    useCreateGoogleSheetsSink: () => ({ mutateAsync: createGoogleSheetsMutateAsyncMock, isPending: false }),
   }
 })
 
@@ -219,6 +222,88 @@ describe('CreateSinkForm', () => {
       // notionはsecretを持たないためonCreatedはsecret引数なしで呼ばれる
       await waitFor(() => expect(onCreated).toHaveBeenCalled())
       expect(onCreated.mock.calls[0][0]).toEqual(expect.objectContaining({ id: 'sink-2', provider: 'notion' }))
+      expect(onCreated.mock.calls[0]).toHaveLength(1)
+    })
+  })
+
+  describe('provider=google_sheets', () => {
+    it('Google Sheetsを選択するとURL欄が消えスプレッドシートID/シート名欄が表示される', () => {
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+          googleSheetsConnection={{ connected: true }}
+        />,
+      )
+      fireEvent.click(screen.getByLabelText('Google Sheets'))
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('スプレッドシートID')).toBeInTheDocument()
+      expect(screen.getByLabelText('シート名')).toBeInTheDocument()
+    })
+
+    it('未接続なら作成ボタンが無効で接続導線を表示する', () => {
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+          googleSheetsConnection={{ connected: false }}
+        />,
+      )
+      fireEvent.click(screen.getByLabelText('Google Sheets'))
+      fireEvent.change(screen.getByLabelText('表示名'), { target: { value: 'Sheets連携' } })
+      fireEvent.change(screen.getByLabelText('スプレッドシートID'), {
+        target: { value: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms' },
+      })
+      fireEvent.change(screen.getByLabelText('シート名'), { target: { value: 'タスク' } })
+      expect(screen.getByRole('button', { name: '作成' })).toBeDisabled()
+      expect(screen.getByRole('link', { name: /Google Sheets に接続/ })).toHaveAttribute(
+        'href',
+        '/api/integrations/auth/google_sheets?orgId=org-1',
+      )
+    })
+
+    it('接続済みならID/シート名を入力して送信するとuseCreateGoogleSheetsSinkが呼ばれる', async () => {
+      createGoogleSheetsMutateAsyncMock.mockResolvedValue({
+        sink: {
+          ...SINK,
+          id: 'sink-3',
+          provider: 'google_sheets',
+          config: { spreadsheet_id: 'sheet-abc', sheet_name: 'タスク' },
+        },
+      })
+      const onCreated = vi.fn()
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={onCreated}
+          onCancel={vi.fn()}
+          googleSheetsConnection={{ connected: true }}
+        />,
+      )
+      fireEvent.click(screen.getByLabelText('Google Sheets'))
+      fireEvent.change(screen.getByLabelText('表示名'), { target: { value: 'Sheets連携' } })
+      fireEvent.change(screen.getByLabelText('スプレッドシートID'), { target: { value: 'sheet-abc' } })
+      fireEvent.change(screen.getByLabelText('シート名'), { target: { value: 'タスク' } })
+
+      const submit = screen.getByRole('button', { name: '作成' })
+      expect(submit).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(submit)
+      })
+
+      expect(createGoogleSheetsMutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          displayName: 'Sheets連携',
+          spreadsheetId: 'sheet-abc',
+          sheetName: 'タスク',
+        }),
+      )
+      await waitFor(() => expect(onCreated).toHaveBeenCalled())
+      expect(onCreated.mock.calls[0][0]).toEqual(expect.objectContaining({ id: 'sink-3', provider: 'google_sheets' }))
       expect(onCreated.mock.calls[0]).toHaveLength(1)
     })
   })

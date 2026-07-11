@@ -245,4 +245,82 @@ describe('SinkDetailPanel', () => {
       expect(screen.getByRole('button', { name: 'テスト配達' })).toBeInTheDocument()
     })
   })
+
+  describe('provider=google_sheets', () => {
+    function sheetsSink(overrides: Partial<SinkMeta> = {}): SinkMeta {
+      return sink({
+        provider: 'google_sheets',
+        config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: 'タスク' },
+        connectionId: 'conn-gs-1',
+        ...overrides,
+      })
+    }
+
+    it('URL欄の代わりにスプレッドシートID/シート名欄を表示し、secret再生成ボタンは出さない', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={sheetsSink()} viewerRole="owner" />)
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('スプレッドシートID')).toHaveValue(
+        '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+      )
+      expect(screen.getByLabelText('シート名')).toHaveValue('タスク')
+      expect(screen.queryByRole('button', { name: /secretを再生成/ })).not.toBeInTheDocument()
+    })
+
+    it('スプレッドシートIDをblurすると変更があればconfigを更新する（シート名は現在値のまま送る）', async () => {
+      render(<SinkDetailPanel orgId="org-1" sink={sheetsSink()} viewerRole="owner" />)
+      const input = screen.getByLabelText('スプレッドシートID')
+      fireEvent.change(input, { target: { value: 'differentSpreadsheetId0000000000000' } })
+      await act(async () => {
+        fireEvent.blur(input)
+      })
+      expect(updateSinkMutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          sinkId: 'sink-1',
+          config: { spreadsheet_id: 'differentSpreadsheetId0000000000000', sheet_name: 'タスク' },
+        }),
+      )
+    })
+
+    it('シート名をblurすると変更があればconfigを更新する（スプレッドシートIDは現在値のまま送る）', async () => {
+      render(<SinkDetailPanel orgId="org-1" sink={sheetsSink()} viewerRole="owner" />)
+      const input = screen.getByLabelText('シート名')
+      fireEvent.change(input, { target: { value: '新しいシート' } })
+      await act(async () => {
+        fireEvent.blur(input)
+      })
+      expect(updateSinkMutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          sinkId: 'sink-1',
+          config: {
+            spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+            sheet_name: '新しいシート',
+          },
+        }),
+      )
+    })
+
+    it('接続状態を表示する', () => {
+      render(
+        <SinkDetailPanel
+          orgId="org-1"
+          sink={sheetsSink()}
+          viewerRole="owner"
+          googleSheetsConnection={{ connected: true }}
+        />,
+      )
+      expect(screen.getByText(/接続中/)).toBeInTheDocument()
+    })
+
+    it('テスト配達ボタンは引き続き表示される', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={sheetsSink()} viewerRole="owner" />)
+      expect(screen.getByRole('button', { name: 'テスト配達' })).toBeInTheDocument()
+    })
+
+    it('行append方式による重複行の注記を表示する', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={sheetsSink()} viewerRole="owner" />)
+      expect(screen.getByText(/重複行が入ることがあります/)).toBeInTheDocument()
+    })
+  })
 })

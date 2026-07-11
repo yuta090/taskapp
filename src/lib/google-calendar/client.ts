@@ -73,7 +73,11 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   if (!response.ok) {
     const errorBody = await response.text()
     console.error('Google token refresh failed:', response.status, errorBody)
-    throw new Error(`Google token refresh failed (${response.status})`)
+    // token-manager.tsが失効(400/401)と一時障害(5xx等)を分類するためにHTTP statusを
+    // Errorへ属性として持たせる(メッセージ文言は変更しない)。
+    const error = new Error(`Google token refresh failed (${response.status})`) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   const data: GoogleTokenResponse = await response.json()

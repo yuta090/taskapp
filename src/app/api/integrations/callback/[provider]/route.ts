@@ -7,6 +7,7 @@ import { exchangeCodeForTokens } from '@/lib/google-calendar/client'
 import { exchangeZoomCode } from '@/lib/zoom/client'
 import { exchangeTeamsCode } from '@/lib/teams/client'
 import { exchangeNotionCode } from '@/lib/notion/client'
+import { exchangeGoogleSheetsCode } from '@/lib/google-sheets/client'
 
 export const runtime = 'nodejs'
 
@@ -137,6 +138,10 @@ export async function GET(
 
     if (provider === 'notion') {
       return await handleNotionCallback(code, orgId, appUrl)
+    }
+
+    if (provider === 'google_sheets') {
+      return await handleGoogleSheetsCallback(code, orgId, appUrl)
     }
 
     return NextResponse.redirect(`${appUrl}?error=unsupported_provider`)
@@ -288,6 +293,61 @@ async function handleNotionCallback(
     console.error('Notion callback error:', err)
     return NextResponse.redirect(
       `${integrationsTabUrl}?integration=notion&status=error&message=token_exchange_failed`,
+    )
+  }
+}
+
+/**
+ * Google Sheetsはnotionと同じくowner_type='org'でupsertする（org単位1接続。§1-1のunique制約）。
+ * userIdはstate検証（本人確認）のみに使い、接続の帰属はorg単位のため保存には使わない。
+ * リダイレクト先はnotionと同じ秘書コンソールの連携タブ。
+ * refreshTokenがnullの場合はupsertペイロードにrefresh_tokenキー自体を含めない
+ * （レビュー回帰対応: 含めるとon conflict時にnullで上書きされ、再認可(reconnect)で
+ * 既存の有効なrefresh_tokenを失ってしまう。省略すればon conflict時に既存値が保持される。
+ * 新規接続でrefreshTokenがnullなら、その行は初めからrefresh_tokenを持たない状態で作られ、
+ * token-manager.refreshIfNeededが有効期限切れ後にstatus='expired'化して顕在化させる）。
+ */
+async function handleGoogleSheetsCallback(
+  code: string,
+  orgId: string,
+  appUrl: string,
+): Promise<NextResponse> {
+  const integrationsTabUrl = `${appUrl}/${orgId}/secretary/integrations`
+  try {
+    const tokens = await exchangeGoogleSheetsCode(code)
+
+    const upsertPayload: Record<string, unknown> = {
+      provider: 'google_sheets',
+      owner_type: 'org',
+      owner_id: orgId,
+      org_id: orgId,
+      access_token: tokens.accessToken,
+      token_expires_at: tokens.expiresAt.toISOString(),
+      scopes: tokens.scopes,
+      status: 'active',
+      last_refreshed_at: new Date().toISOString(),
+      metadata: {},
+    }
+    if (tokens.refreshToken !== null) {
+      upsertPayload.refresh_token = tokens.refreshToken
+    }
+
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+      .from('integration_connections')
+      .upsert(upsertPayload, { onConflict: 'provider,owner_type,owner_id' })
+
+    if (upsertError) {
+      console.error('Google Sheets integration connection save failed:', upsertError)
+      return NextResponse.redirect(
+        `${integrationsTabUrl}?integration=google_sheets&status=error&message=save_failed`,
+      )
+    }
+
+    return NextResponse.redirect(`${integrationsTabUrl}?integration=google_sheets&status=connected`)
+  } catch (err) {
+    console.error('Google Sheets callback error:', err)
+    return NextResponse.redirect(
+      `${integrationsTabUrl}?integration=google_sheets&status=error&message=token_exchange_failed`,
     )
   }
 }

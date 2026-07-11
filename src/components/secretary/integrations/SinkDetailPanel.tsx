@@ -11,6 +11,7 @@ import {
   type SinkMeta,
   type ViewerRole,
   type NotionConnectionStatus,
+  type GoogleSheetsConnectionStatus,
   type TestSinkDeliveryResult,
 } from '@/lib/hooks/useSinks'
 import { SinkStatusPill } from '@/components/secretary/integrations/statusPill'
@@ -23,6 +24,7 @@ interface SinkDetailPanelProps {
   sink: SinkMeta
   viewerRole: ViewerRole | null
   notionConnection?: NotionConnectionStatus
+  googleSheetsConnection?: GoogleSheetsConnectionStatus
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -38,13 +40,24 @@ const EVENT_LABEL: Record<string, string> = {
  * 親が key={sink.id} で本コンポーネントを再マウントする前提のため、
  * 選択中sink切替時のフォームstate同期はuseEffectを使わずマウント時の初期値で済ませる。
  */
-export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: SinkDetailPanelProps) {
+export function SinkDetailPanel({
+  orgId,
+  sink,
+  viewerRole,
+  notionConnection,
+  googleSheetsConnection,
+}: SinkDetailPanelProps) {
   const canManage = viewerRole === 'owner' || viewerRole === 'admin'
   const isNotion = sink.provider === 'notion'
+  const isGoogleSheets = sink.provider === 'google_sheets'
 
   const [displayNameDraft, setDisplayNameDraft] = useState(sink.displayName)
   const [urlDraft, setUrlDraft] = useState((sink.config.url as string | undefined) ?? '')
   const [databaseIdDraft, setDatabaseIdDraft] = useState((sink.config.database_id as string | undefined) ?? '')
+  const [spreadsheetIdDraft, setSpreadsheetIdDraft] = useState(
+    (sink.config.spreadsheet_id as string | undefined) ?? '',
+  )
+  const [sheetNameDraft, setSheetNameDraft] = useState((sink.config.sheet_name as string | undefined) ?? '')
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<TestSinkDeliveryResult | null>(null)
 
@@ -76,6 +89,24 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
   const handleDatabaseIdBlur = () => {
     if (databaseIdDraft === ((sink.config.database_id as string | undefined) ?? '')) return
     void runUpdate({ orgId, sinkId: sink.id, config: { database_id: databaseIdDraft } })
+  }
+
+  const handleSpreadsheetIdBlur = () => {
+    if (spreadsheetIdDraft === ((sink.config.spreadsheet_id as string | undefined) ?? '')) return
+    void runUpdate({
+      orgId,
+      sinkId: sink.id,
+      config: { spreadsheet_id: spreadsheetIdDraft, sheet_name: sheetNameDraft },
+    })
+  }
+
+  const handleSheetNameBlur = () => {
+    if (sheetNameDraft === ((sink.config.sheet_name as string | undefined) ?? '')) return
+    void runUpdate({
+      orgId,
+      sinkId: sink.id,
+      config: { spreadsheet_id: spreadsheetIdDraft, sheet_name: sheetNameDraft },
+    })
   }
 
   const toggleEvent = (event: string) => {
@@ -185,6 +216,47 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
               </p>
             )}
           </div>
+        ) : isGoogleSheets ? (
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="sink-detail-spreadsheet-id" className="block text-xs font-medium text-gray-700 mb-1">
+                スプレッドシートID
+              </label>
+              <input
+                id="sink-detail-spreadsheet-id"
+                type="text"
+                value={spreadsheetIdDraft}
+                disabled={!canManage}
+                onChange={(e) => setSpreadsheetIdDraft(e.target.value)}
+                onBlur={handleSpreadsheetIdBlur}
+                className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {googleSheetsConnection && (
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {googleSheetsConnection.connected
+                    ? '接続中のGoogleアカウントでアクセスします'
+                    : 'Googleアカウントが未接続です。連携先の作成画面から再接続してください。'}
+                </p>
+              )}
+            </div>
+            <div>
+              <label htmlFor="sink-detail-sheet-name" className="block text-xs font-medium text-gray-700 mb-1">
+                シート名
+              </label>
+              <input
+                id="sink-detail-sheet-name"
+                type="text"
+                value={sheetNameDraft}
+                disabled={!canManage}
+                onChange={(e) => setSheetNameDraft(e.target.value)}
+                onBlur={handleSheetNameBlur}
+                className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <p className="text-[11px] text-gray-500">
+              行追記のログ方式のため、まれに重複行が入ることがあります（配達は at-least-once）。
+            </p>
+          </div>
         ) : (
           <div>
             <label htmlFor="sink-detail-url" className="block text-xs font-medium text-gray-700 mb-1">
@@ -230,7 +302,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
                 {sink.status === 'active' ? '無効にする' : '有効にする'}
               </button>
             )}
-            {!isNotion && (
+            {!isNotion && !isGoogleSheets && (
               <button
                 type="button"
                 onClick={() => void handleRotateSecret()}
@@ -269,7 +341,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
         配達は5分間隔で自動再試行されます
       </div>
 
-      {!isNotion && <WebhookReceiverGuide />}
+      {!isNotion && !isGoogleSheets && <WebhookReceiverGuide />}
     </div>
   )
 }

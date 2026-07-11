@@ -5,6 +5,7 @@ import { getGoogleOAuthUrl, isGoogleCalendarFullyConfigured } from '@/lib/google
 import { getZoomOAuthUrl, isZoomOAuthConfigured } from '@/lib/zoom/config'
 import { getTeamsOAuthUrl, isTeamsOAuthConfigured } from '@/lib/teams/config'
 import { getNotionOAuthUrl, isNotionOAuthConfigured } from '@/lib/notion/config'
+import { getGoogleSheetsOAuthUrl, isGoogleSheetsOAuthConfigured } from '@/lib/google-sheets/config'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -115,6 +116,15 @@ export async function GET(
 
       const state = createSignedState(provider, orgId, user.id)
       return NextResponse.redirect(getNotionOAuthUrl(state))
+    }
+
+    if (provider === 'google_sheets') {
+      if (!isGoogleSheetsOAuthConfigured()) {
+        return NextResponse.json({ error: 'Google Sheets OAuth is not configured' }, { status: 503 })
+      }
+
+      const state = createSignedState(provider, orgId, user.id)
+      return NextResponse.redirect(getGoogleSheetsOAuthUrl(state))
     }
 
     return NextResponse.json(
