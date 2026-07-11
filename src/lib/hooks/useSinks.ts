@@ -41,9 +41,15 @@ export interface SinkMeta {
 
 export type ViewerRole = 'owner' | 'admin' | 'member'
 
+export interface NotionConnectionStatus {
+  connected: boolean
+  workspaceName: string | null
+}
+
 interface SinksResponse {
   sinks: SinkMeta[]
   viewerRole: ViewerRole | null
+  notionConnection?: NotionConnectionStatus
 }
 
 export const ALLOWED_SINK_EVENTS = ['task.created', 'task.done', 'task.dismissed', 'task.reopened'] as const
@@ -72,6 +78,7 @@ export function useSinks(orgId: string) {
   return {
     sinks: data?.sinks ?? [],
     viewerRole: data?.viewerRole ?? null,
+    notionConnection: data?.notionConnection ?? { connected: false, workspaceName: null },
     isLoading,
     error: error instanceof Error ? error.message : null,
     refetch,
@@ -121,18 +128,64 @@ export function useCreateSink() {
   })
 }
 
+export interface CreateNotionSinkInput {
+  orgId: string
+  groupId?: string | null
+  displayName: string
+  databaseId: string
+  events: string[]
+}
+
+/**
+ * notionシンクの作成（POST provider='notion'）。webhookと異なりsecretを持たない
+ * (connection_id経由でaccess_tokenを参照する)ため、レスポンス/戻り値にsecretは含まれない。
+ * config形状(database_id vs url)が異なるためuseCreateSinkとは別フックにする。
+ */
+export function useCreateNotionSink() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: CreateNotionSinkInput): Promise<{ sink: SinkMeta }> => {
+      const response = await fetch('/api/integrations/sinks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId: input.orgId,
+          groupId: input.groupId ?? null,
+          provider: 'notion',
+          displayName: input.displayName,
+          config: { database_id: input.databaseId },
+          events: input.events,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'シンクの作成に失敗しました')
+      return json as { sink: SinkMeta }
+    },
+    onSuccess: (result, input) => {
+      const queryKey = sinksQueryKey(input.orgId)
+      queryClient.setQueryData<SinksResponse>(queryKey, (old) => {
+        const createdSink: SinkMeta = { ...result.sink, lastDelivery: null }
+        return old ? { ...old, sinks: [...old.sinks, createdSink] } : { sinks: [createdSink], viewerRole: null }
+      })
+    },
+  })
+}
+
 export interface UpdateSinkInput {
   orgId: string
   sinkId: string
   displayName?: string
   url?: string
+  /** notionのdatabase_id等、provider固有configを直接指定する場合（urlより優先） */
+  config?: Record<string, unknown>
   events?: string[]
   status?: 'active' | 'disabled'
   rotateSecret?: boolean
 }
 
 /**
- * シンク設定の更新（PATCH）: 表示名・URL・イベント購読・有効/無効・secretローテーション。
+ * シンク設定の更新（PATCH）: 表示名・URL/config・イベント購読・有効/無効・secretローテーション。
  * 保存ボタンを持たないため、フィールド操作のたびに呼び出す前提でoptimistic updateする。
  * rotateSecretは新secretを一度だけ返す（呼び出し側で表示し、以後は破棄する）。
  */
@@ -143,7 +196,8 @@ export function useUpdateSink() {
     mutationFn: async (input: UpdateSinkInput): Promise<{ sink: SinkMeta; secret?: string }> => {
       const body: Record<string, unknown> = {}
       if (input.displayName !== undefined) body.displayName = input.displayName
-      if (input.url !== undefined) body.config = { url: input.url }
+      if (input.config !== undefined) body.config = input.config
+      else if (input.url !== undefined) body.config = { url: input.url }
       if (input.events !== undefined) body.events = input.events
       if (input.status !== undefined) body.status = input.status
       if (input.rotateSecret) body.rotateSecret = true
@@ -171,7 +225,11 @@ export function useUpdateSink() {
             return {
               ...sink,
               ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
-              ...(input.url !== undefined ? { config: { ...sink.config, url: input.url } } : {}),
+              ...(input.config !== undefined
+                ? { config: { ...sink.config, ...input.config } }
+                : input.url !== undefined
+                  ? { config: { ...sink.config, url: input.url } }
+                  : {}),
               ...(input.events !== undefined ? { events: input.events } : {}),
               ...(input.status !== undefined
                 ? {

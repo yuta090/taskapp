@@ -176,4 +176,55 @@ describe('SinkDetailPanel', () => {
     expect(screen.queryByRole('button', { name: /secretを再生成/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'テスト配達' })).not.toBeInTheDocument()
   })
+
+  describe('provider=notion', () => {
+    function notionSink(overrides: Partial<SinkMeta> = {}): SinkMeta {
+      return sink({
+        provider: 'notion',
+        config: { database_id: '12345678-1234-1234-1234-123456789012' },
+        connectionId: 'conn-1',
+        ...overrides,
+      })
+    }
+
+    it('URL欄の代わりにデータベースID欄を表示し、secret再生成ボタンは出さない', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={notionSink()} viewerRole="owner" />)
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('データベースID')).toHaveValue('12345678-1234-1234-1234-123456789012')
+      expect(screen.queryByRole('button', { name: /secretを再生成/ })).not.toBeInTheDocument()
+    })
+
+    it('データベースIDをblurすると変更があればconfigを更新する', async () => {
+      render(<SinkDetailPanel orgId="org-1" sink={notionSink()} viewerRole="owner" />)
+      const input = screen.getByLabelText('データベースID')
+      fireEvent.change(input, { target: { value: '87654321-4321-4321-4321-210987654321' } })
+      await act(async () => {
+        fireEvent.blur(input)
+      })
+      expect(updateSinkMutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          sinkId: 'sink-1',
+          config: { database_id: '87654321-4321-4321-4321-210987654321' },
+        }),
+      )
+    })
+
+    it('接続中のワークスペース名を表示する', () => {
+      render(
+        <SinkDetailPanel
+          orgId="org-1"
+          sink={notionSink()}
+          viewerRole="owner"
+          notionConnection={{ connected: true, workspaceName: 'Acme Workspace' }}
+        />,
+      )
+      expect(screen.getByText(/Acme Workspace/)).toBeInTheDocument()
+    })
+
+    it('テスト配達ボタンは引き続き表示される', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={notionSink()} viewerRole="owner" />)
+      expect(screen.getByRole('button', { name: 'テスト配達' })).toBeInTheDocument()
+    })
+  })
 })

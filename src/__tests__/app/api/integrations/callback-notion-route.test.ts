@@ -16,7 +16,6 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 const upsertMock = vi.fn()
-const eqMock = vi.fn(() => ({ upsert: upsertMock }))
 const fromMock = vi.fn(() => ({ upsert: upsertMock }))
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ from: fromMock })),
