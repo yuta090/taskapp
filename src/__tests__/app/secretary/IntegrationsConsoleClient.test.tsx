@@ -21,14 +21,17 @@ vi.mock('@/components/secretary/integrations/SinkListPane', () => ({
     selectedSinkId,
     onSelect,
     onCreated,
+    googleSheetsConnection,
   }: {
     sinks: SinkMeta[]
     selectedSinkId: string | null
     onSelect: (id: string) => void
     onCreated: (sink: SinkMeta, secret: string) => void
+    googleSheetsConnection?: { connected: boolean }
   }) => (
     <div data-testid="sink-list-pane">
       <span data-testid="selected-id">{selectedSinkId ?? 'none'}</span>
+      <span data-testid="list-pane-google-sheets-connected">{String(googleSheetsConnection?.connected)}</span>
       {sinks.map((s) => (
         <button key={s.id} onClick={() => onSelect(s.id)}>
           select-{s.id}
@@ -42,7 +45,18 @@ vi.mock('@/components/secretary/integrations/SinkListPane', () => ({
 }))
 
 vi.mock('@/components/secretary/integrations/SinkDetailPanel', () => ({
-  SinkDetailPanel: ({ sink }: { sink: SinkMeta }) => <div data-testid="sink-detail-panel">{sink.displayName}</div>,
+  SinkDetailPanel: ({
+    sink,
+    googleSheetsConnection,
+  }: {
+    sink: SinkMeta
+    googleSheetsConnection?: { connected: boolean }
+  }) => (
+    <div data-testid="sink-detail-panel">
+      {sink.displayName}
+      <span data-testid="detail-panel-google-sheets-connected">{String(googleSheetsConnection?.connected)}</span>
+    </div>
+  ),
 }))
 
 function sink(overrides: Partial<SinkMeta> = {}): SinkMeta {
@@ -88,6 +102,19 @@ describe('IntegrationsConsoleClient', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
     expect(screen.getByTestId('selected-id')).toHaveTextContent('sink-1')
     expect(screen.getByTestId('sink-detail-panel')).toHaveTextContent('自社Webhook')
+  })
+
+  it('googleSheetsConnectionをSinkListPane/SinkDetailPanelの両方へ渡す', () => {
+    useSinksMock.mockReturnValue({
+      sinks: [sink()],
+      viewerRole: 'owner',
+      isLoading: false,
+      error: null,
+      googleSheetsConnection: { connected: true },
+    })
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    expect(screen.getByTestId('list-pane-google-sheets-connected')).toHaveTextContent('true')
+    expect(screen.getByTestId('detail-panel-google-sheets-connected')).toHaveTextContent('true')
   })
 
   it('一覧からの選択で詳細パネルが切り替わる', () => {

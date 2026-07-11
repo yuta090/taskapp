@@ -46,10 +46,16 @@ export interface NotionConnectionStatus {
   workspaceName: string | null
 }
 
+/** Googleのトークンレスポンスにはnotionのworkspace_nameに相当する表示名が無いためboolean のみ */
+export interface GoogleSheetsConnectionStatus {
+  connected: boolean
+}
+
 interface SinksResponse {
   sinks: SinkMeta[]
   viewerRole: ViewerRole | null
   notionConnection?: NotionConnectionStatus
+  googleSheetsConnection?: GoogleSheetsConnectionStatus
 }
 
 export const ALLOWED_SINK_EVENTS = ['task.created', 'task.done', 'task.dismissed', 'task.reopened'] as const
@@ -79,6 +85,7 @@ export function useSinks(orgId: string) {
     sinks: data?.sinks ?? [],
     viewerRole: data?.viewerRole ?? null,
     notionConnection: data?.notionConnection ?? { connected: false, workspaceName: null },
+    googleSheetsConnection: data?.googleSheetsConnection ?? { connected: false },
     isLoading,
     error: error instanceof Error ? error.message : null,
     refetch,
@@ -155,6 +162,52 @@ export function useCreateNotionSink() {
           provider: 'notion',
           displayName: input.displayName,
           config: { database_id: input.databaseId },
+          events: input.events,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'シンクの作成に失敗しました')
+      return json as { sink: SinkMeta }
+    },
+    onSuccess: (result, input) => {
+      const queryKey = sinksQueryKey(input.orgId)
+      queryClient.setQueryData<SinksResponse>(queryKey, (old) => {
+        const createdSink: SinkMeta = { ...result.sink, lastDelivery: null }
+        return old ? { ...old, sinks: [...old.sinks, createdSink] } : { sinks: [createdSink], viewerRole: null }
+      })
+    },
+  })
+}
+
+export interface CreateGoogleSheetsSinkInput {
+  orgId: string
+  groupId?: string | null
+  displayName: string
+  spreadsheetId: string
+  sheetName: string
+  events: string[]
+}
+
+/**
+ * google_sheetsシンクの作成（POST provider='google_sheets'）。notionと同様にsecretを持たない
+ * (connection_id経由でaccess_tokenを参照する)ため、レスポンス/戻り値にsecretは含まれない。
+ * config形状(spreadsheet_id + sheet_name)が異なるためuseCreateSink/useCreateNotionSinkとは
+ * 別フックにする。
+ */
+export function useCreateGoogleSheetsSink() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: CreateGoogleSheetsSinkInput): Promise<{ sink: SinkMeta }> => {
+      const response = await fetch('/api/integrations/sinks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId: input.orgId,
+          groupId: input.groupId ?? null,
+          provider: 'google_sheets',
+          displayName: input.displayName,
+          config: { spreadsheet_id: input.spreadsheetId, sheet_name: input.sheetName },
           events: input.events,
         }),
       })

@@ -5,11 +5,13 @@ import { toast } from 'sonner'
 import {
   useCreateSink,
   useCreateNotionSink,
+  useCreateGoogleSheetsSink,
   ALLOWED_SINK_EVENTS,
   DEFAULT_SINK_EVENTS,
   type SinkMeta,
   type SinkProvider,
   type NotionConnectionStatus,
+  type GoogleSheetsConnectionStatus,
 } from '@/lib/hooks/useSinks'
 import { useChannelGroups } from '@/lib/hooks/useChannelGroups'
 
@@ -18,6 +20,7 @@ interface CreateSinkFormProps {
   onCreated: (sink: SinkMeta, secret?: string) => void
   onCancel: () => void
   notionConnection?: NotionConnectionStatus
+  googleSheetsConnection?: GoogleSheetsConnectionStatus
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -30,10 +33,11 @@ const EVENT_LABEL: Record<string, string> = {
 const CREATABLE_PROVIDERS: Array<{ value: SinkProvider; label: string }> = [
   { value: 'webhook', label: 'Webhook' },
   { value: 'notion', label: 'Notion' },
+  { value: 'google_sheets', label: 'Google Sheets' },
 ]
 
 /**
- * sink作成フォーム。provider='webhook'|'notion'に対応(google_sheetsは未対応)。
+ * sink作成フォーム。provider='webhook'|'notion'|'google_sheets'に対応。
  * 「作成」は新規リソース作成の一回きりの明示アクションであり、既存リソース編集の
  * 保存ボタンではないため、他の確定アクション(確認コード発行等)と同じくボタン式でよい。
  */
@@ -42,25 +46,36 @@ export function CreateSinkForm({
   onCreated,
   onCancel,
   notionConnection = { connected: false, workspaceName: null },
+  googleSheetsConnection = { connected: false },
 }: CreateSinkFormProps) {
   const [provider, setProvider] = useState<SinkProvider>('webhook')
   const [displayName, setDisplayName] = useState('')
   const [url, setUrl] = useState('')
   const [databaseId, setDatabaseId] = useState('')
+  const [spreadsheetId, setSpreadsheetId] = useState('')
+  const [sheetName, setSheetName] = useState('')
   const [events, setEvents] = useState<string[]>(DEFAULT_SINK_EVENTS)
   const [groupId, setGroupId] = useState<string>('')
 
   const createSink = useCreateSink()
   const createNotionSink = useCreateNotionSink()
+  const createGoogleSheetsSink = useCreateGoogleSheetsSink()
   const { groups } = useChannelGroups(orgId)
 
   const isNotion = provider === 'notion'
+  const isGoogleSheets = provider === 'google_sheets'
   const canSubmit = isNotion
     ? displayName.trim().length > 0 &&
       databaseId.trim().length > 0 &&
       events.length > 0 &&
       notionConnection.connected
-    : displayName.trim().length > 0 && url.trim().length > 0 && events.length > 0
+    : isGoogleSheets
+      ? displayName.trim().length > 0 &&
+        spreadsheetId.trim().length > 0 &&
+        sheetName.trim().length > 0 &&
+        events.length > 0 &&
+        googleSheetsConnection.connected
+      : displayName.trim().length > 0 && url.trim().length > 0 && events.length > 0
 
   const toggleEvent = (event: string) => {
     setEvents((prev) => (prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event]))
@@ -81,6 +96,18 @@ export function CreateSinkForm({
         onCreated(result.sink)
         return
       }
+      if (isGoogleSheets) {
+        const result = await createGoogleSheetsSink.mutateAsync({
+          orgId,
+          displayName: displayName.trim(),
+          spreadsheetId: spreadsheetId.trim(),
+          sheetName: sheetName.trim(),
+          events,
+          groupId: groupId || null,
+        })
+        onCreated(result.sink)
+        return
+      }
       const result = await createSink.mutateAsync({
         orgId,
         displayName: displayName.trim(),
@@ -94,7 +121,11 @@ export function CreateSinkForm({
     }
   }
 
-  const isPending = isNotion ? createNotionSink.isPending : createSink.isPending
+  const isPending = isNotion
+    ? createNotionSink.isPending
+    : isGoogleSheets
+      ? createGoogleSheetsSink.isPending
+      : createSink.isPending
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
@@ -157,6 +188,48 @@ export function CreateSinkForm({
               </a>
             </p>
           )}
+        </div>
+      ) : isGoogleSheets ? (
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="sink-spreadsheet-id" className="block text-xs font-medium text-gray-700 mb-1">
+              スプレッドシートID
+            </label>
+            <input
+              id="sink-spreadsheet-id"
+              type="text"
+              value={spreadsheetId}
+              onChange={(e) => setSpreadsheetId(e.target.value)}
+              placeholder="例: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+              className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            {googleSheetsConnection.connected ? (
+              <p className="mt-1 text-[11px] text-green-600">接続済み</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-gray-500">
+                先にGoogleアカウントへ接続してください。{' '}
+                <a
+                  href={`/api/integrations/auth/google_sheets?orgId=${encodeURIComponent(orgId)}`}
+                  className="text-indigo-600 hover:text-indigo-800 underline"
+                >
+                  Google Sheets に接続
+                </a>
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="sink-sheet-name" className="block text-xs font-medium text-gray-700 mb-1">
+              シート名
+            </label>
+            <input
+              id="sink-sheet-name"
+              type="text"
+              value={sheetName}
+              onChange={(e) => setSheetName(e.target.value)}
+              placeholder="例: タスク"
+              className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
         </div>
       ) : (
         <div>

@@ -3,6 +3,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { WebhookSink, DeliverableDelivery } from '@/lib/sinks/adapters/webhook'
 import type { NotionSink } from '@/lib/sinks/adapters/notion'
+import type { GoogleSheetsSink } from '@/lib/sinks/adapters/google_sheets'
+import { isValidSpreadsheetId, isValidSheetName } from '@/lib/sinks/adapters/google_sheets'
+import { getValidToken } from '@/lib/integrations/token-manager'
+import { refreshAccessToken } from '@/lib/google-sheets/client'
 
 /**
  * 外部連携シンクのデータアクセス層（service role専用）。
@@ -257,8 +261,8 @@ export async function rotateWebhookSecret(
   return { sink: toSinkMeta(data as SinkMetaRow), secret: plaintextSecret }
 }
 
-/** dispatcher・test送信用のprovider横断シンク型（webhookは復号済みsecret、notionはアクセストークン） */
-export type DeliverableSink = WebhookSink | NotionSink
+/** dispatcher・test送信用のprovider横断シンク型（webhookは復号済みsecret、notion/google_sheetsはアクセストークン） */
+export type DeliverableSink = WebhookSink | NotionSink | GoogleSheetsSink
 
 interface DeliverableSinkRow {
   id: string
@@ -285,11 +289,22 @@ async function toDeliverableSink(row: DeliverableSinkRow): Promise<DeliverableSi
     if (!connection) return null
     return { id: row.id, provider: 'notion', accessToken: connection.accessToken, databaseId }
   }
-  // google_sheets: 未実装(PR-4)
+  if (row.provider === 'google_sheets') {
+    const spreadsheetId = typeof row.config.spreadsheet_id === 'string' ? row.config.spreadsheet_id : ''
+    const sheetName = typeof row.config.sheet_name === 'string' ? row.config.sheet_name : ''
+    if (!isValidSpreadsheetId(spreadsheetId) || !isValidSheetName(sheetName)) return null
+    const connection = await findActiveGoogleSheetsConnection(row.org_id)
+    if (!connection) return null
+    // Googleのアクセストークンは1時間で失効するため、店頭のaccess_token列を直接使わず
+    // token-managerでrefresh込みの有効なトークンを都度解決する(notionは無期限トークンのため不要)。
+    const accessToken = await getValidToken(connection.id, refreshAccessToken)
+    if (!accessToken) return null
+    return { id: row.id, provider: 'google_sheets', accessToken, spreadsheetId, sheetName }
+  }
   return null
 }
 
-/** dispatcher・test送信用: 配達可能な形にした単一シンク（webhook/notion） */
+/** dispatcher・test送信用: 配達可能な形にした単一シンク（webhook/notion/google_sheets） */
 export async function findDeliverableSink(sinkId: string): Promise<DeliverableSink | null> {
   const { data, error } = await admin()
     .from('integration_sinks')
@@ -377,6 +392,75 @@ export async function createNotionSink(input: CreateNotionSinkInput): Promise<Si
       provider: 'notion',
       display_name: input.displayName,
       config: { database_id: input.databaseId },
+      secret_encrypted: null,
+      connection_id: input.connectionId,
+      events: input.events,
+      created_by: input.createdBy,
+    })
+    .select(SINK_META_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    throw new Error(`integration_sinks: insert failed: ${error?.message}`)
+  }
+  return toSinkMeta(data as SinkMetaRow)
+}
+
+// ---------------------------------------------------------------------------
+// integration_connections — Google Sheets（org単位、provider='google_sheets' owner_type='org'）
+// ---------------------------------------------------------------------------
+
+export interface GoogleSheetsConnectionInfo {
+  id: string
+  accessToken: string
+}
+
+/**
+ * orgのactiveなGoogle Sheets接続を1件返す（unique(provider,owner_type,owner_id)によりorgあたり最大1件）。
+ * ここで返すaccessTokenはUI表示(接続可否のみ)向けで、失効している可能性がある。実配達では
+ * 必ずconnection.id経由でtoken-manager.getValidTokenをもう一段呼び、refresh込みで解決する
+ * (Notionは無期限トークンのためこの二段構えが不要な違い)。
+ */
+export async function findActiveGoogleSheetsConnection(
+  orgId: string,
+): Promise<GoogleSheetsConnectionInfo | null> {
+  const { data, error } = await admin()
+    .from('integration_connections')
+    .select('id, access_token')
+    .eq('provider', 'google_sheets')
+    .eq('owner_type', 'org')
+    .eq('owner_id', orgId)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (error || !data) return null
+  const row = data as { id: string; access_token: string }
+  return { id: row.id, accessToken: row.access_token }
+}
+
+export interface CreateGoogleSheetsSinkInput {
+  orgId: string
+  groupId: string | null
+  displayName: string
+  spreadsheetId: string
+  sheetName: string
+  connectionId: string
+  events: string[]
+  createdBy: string
+}
+
+/**
+ * google_sheetsシンクを作成する。notionと同様にsecretは持たない(connection_id経由で
+ * access_tokenを参照する)ためsecret_encryptedはnull。
+ */
+export async function createGoogleSheetsSink(input: CreateGoogleSheetsSinkInput): Promise<SinkMeta> {
+  const { data, error } = await admin()
+    .from('integration_sinks')
+    .insert({
+      org_id: input.orgId,
+      group_id: input.groupId,
+      provider: 'google_sheets',
+      display_name: input.displayName,
+      config: { spreadsheet_id: input.spreadsheetId, sheet_name: input.sheetName },
       secret_encrypted: null,
       connection_id: input.connectionId,
       events: input.events,

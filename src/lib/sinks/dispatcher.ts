@@ -8,6 +8,7 @@ import {
 } from '@/lib/sinks/store'
 import { deliverWebhook } from '@/lib/sinks/adapters/webhook'
 import { deliverNotion } from '@/lib/sinks/adapters/notion'
+import { deliverGoogleSheets } from '@/lib/sinks/adapters/google_sheets'
 import { classifyDeliveryFailure } from '@/lib/sinks/backoff'
 import { notifySinkBecameError } from '@/lib/sinks/notify'
 
@@ -41,12 +42,19 @@ export async function dispatchClaimedDelivery(
           eventKey: delivery.eventKey,
           payload: delivery.payload,
         })
-      : await deliverWebhook(sink, {
-          id: delivery.id,
-          eventType: delivery.eventType,
-          eventKey: delivery.eventKey,
-          payload: delivery.payload,
-        })
+      : sink.provider === 'google_sheets'
+        ? await deliverGoogleSheets(sink, {
+            id: delivery.id,
+            eventType: delivery.eventType,
+            eventKey: delivery.eventKey,
+            payload: delivery.payload,
+          })
+        : await deliverWebhook(sink, {
+            id: delivery.id,
+            eventType: delivery.eventType,
+            eventKey: delivery.eventKey,
+            payload: delivery.payload,
+          })
 
   if (result.ok) {
     await completeSinkDelivery({
@@ -104,7 +112,7 @@ export async function dispatchBatch(options: DispatchBatchOptions = {}): Promise
 
     try {
       if (!sink) {
-        // provider未実装(Notion/Sheets)またはsecret復号失敗。恒久失敗として処理し
+        // 未対応providerまたはsecret復号失敗/接続なし・失効(notion/google_sheets)。恒久失敗として処理し
         // 存在しない/壊れたsinkへの無限リトライを避ける。毒delivery扱いなのでカウントしない。
         const completion = await completeSinkDelivery({
           deliveryId: delivery.id,
