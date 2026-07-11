@@ -119,6 +119,22 @@ describe('POST /api/leads', () => {
     })
   })
 
+  it('相談希望日時(preferredSlots)がextraとして保存され通知メールにも渡る', async () => {
+    const response = await callPost({
+      ...validBody,
+      preferredSlots: '7/14(月) 10〜12時、7/15(火) 16〜18時',
+    })
+
+    expect(response.status).toBe(200)
+    const row = (insertMock.mock.calls[0] as unknown[])[0] as Record<string, unknown>
+    expect(row.extra).toEqual({ preferredSlots: '7/14(月) 10〜12時、7/15(火) 16〜18時' })
+    const emailArgs = (sendLeadNotificationEmailMock.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >
+    expect(emailArgs.extra).toEqual({ preferredSlots: '7/14(月) 10〜12時、7/15(火) 16〜18時' })
+  })
+
   it('extraの各回答が200文字を超えると保存対象から落とす(リード自体は保存)', async () => {
     const response = await callPost({
       ...validBody,

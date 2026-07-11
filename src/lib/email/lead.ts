@@ -39,6 +39,7 @@ const EXTRA_LABELS: Record<string, string> = {
   partnerCount: 'やり取りする相手の件数',
   channels: 'いまの連絡手段',
   pain: '困っていること',
+  preferredSlots: '相談希望日時の候補',
   teamSize: 'チーム人数',
   currentTool: '現在のツール',
 }
