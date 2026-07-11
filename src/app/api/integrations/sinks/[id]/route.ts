@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgAdmin } from '@/lib/channels/authz'
 import { isValidUuid } from '@/lib/uuid'
 import { validateWebhookUrl } from '@/lib/sinks/ssrf'
+import { isValidNotionDatabaseId } from '@/lib/sinks/adapters/notion'
 import {
   findSinkOrgId,
   findSinkMeta,
@@ -57,18 +58,32 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
+  const currentSink = await findSinkMeta(sinkId)
+
   if (body.config !== undefined) {
-    // M1修正: config を送ったのにurlを欠く(または空の)configを許すと、無言でurl無しの
-    // configが永続化され、以後の配送が全部ssrf_blocked:invalid_url→deadになる。
-    // configを渡す以上、webhook sinkでは常にurlを必須とする(部分マージは許可しない)。
     const config = body.config as Record<string, unknown>
-    const url = typeof config.url === 'string' ? config.url : ''
-    if (!url) {
-      return NextResponse.json({ error: 'config.url is required' }, { status: 400 })
-    }
-    const validation = await validateWebhookUrl(url)
-    if (!validation.ok) {
-      return NextResponse.json({ error: `invalid webhook url: ${validation.reason}` }, { status: 400 })
+
+    if (currentSink?.provider === 'notion') {
+      // webhookのM1修正と同型のガード: database_idを欠くconfigの無言永続化を防ぐ。
+      const databaseId = typeof config.database_id === 'string' ? config.database_id : ''
+      if (!databaseId) {
+        return NextResponse.json({ error: 'config.database_id is required' }, { status: 400 })
+      }
+      if (!isValidNotionDatabaseId(databaseId)) {
+        return NextResponse.json({ error: 'config.database_id is invalid' }, { status: 400 })
+      }
+    } else {
+      // M1修正: config を送ったのにurlを欠く(または空の)configを許すと、無言でurl無しの
+      // configが永続化され、以後の配送が全部ssrf_blocked:invalid_url→deadになる。
+      // configを渡す以上、webhook sinkでは常にurlを必須とする(部分マージは許可しない)。
+      const url = typeof config.url === 'string' ? config.url : ''
+      if (!url) {
+        return NextResponse.json({ error: 'config.url is required' }, { status: 400 })
+      }
+      const validation = await validateWebhookUrl(url)
+      if (!validation.ok) {
+        return NextResponse.json({ error: `invalid webhook url: ${validation.reason}` }, { status: 400 })
+      }
     }
   }
 
@@ -103,7 +118,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   let sink = await updateSinkMeta(sinkId, metaUpdates)
 
   let secret: string | undefined
-  if (body.rotateSecret === true) {
+  if (body.rotateSecret === true && currentSink?.provider !== 'notion') {
     const rotated = await rotateWebhookSecret(sinkId)
     if (rotated) {
       sink = rotated.sink

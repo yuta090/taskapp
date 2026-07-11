@@ -389,6 +389,178 @@ describe('insertPingDelivery', () => {
   })
 })
 
+describe('findExternalRef', () => {
+  it('returns the external_ref when a row exists', async () => {
+    fromResponses['sink_external_refs'] = { data: { external_ref: 'page-1' }, error: null }
+    const ref = await store.findExternalRef(SINK_ID, 'task-1')
+    expect(ref).toBe('page-1')
+  })
+
+  it('returns null when no row exists', async () => {
+    fromResponses['sink_external_refs'] = { data: null, error: null }
+    const ref = await store.findExternalRef(SINK_ID, 'task-1')
+    expect(ref).toBeNull()
+  })
+})
+
+describe('saveExternalRef', () => {
+  it('inserts successfully', async () => {
+    fromResponses['sink_external_refs'] = { data: null, error: null }
+    const result = await store.saveExternalRef(SINK_ID, 'task-1', 'page-1')
+    expect(result).toEqual({ outcome: 'inserted' })
+  })
+
+  it('falls back to reading the existing ref on a unique-constraint conflict (23505, concurrent delivery)', async () => {
+    let callCount = 0
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'sink_external_refs') {
+        callCount += 1
+        if (callCount === 1) {
+          return chain({
+            data: null,
+            error: { code: '23505', message: 'duplicate key value violates unique constraint' },
+          })
+        }
+        return chain({ data: { external_ref: 'page-winner' }, error: null })
+      }
+      return chain(fromResponses[table] ?? { data: null, error: null })
+    })
+
+    const result = await store.saveExternalRef(SINK_ID, 'task-1', 'page-orphan')
+    expect(result).toEqual({ outcome: 'conflict', existingRef: 'page-winner' })
+  })
+
+  it('throws on a non-conflict insert error', async () => {
+    fromResponses['sink_external_refs'] = { data: null, error: { code: '23503', message: 'fk violation' } }
+    await expect(store.saveExternalRef(SINK_ID, 'task-1', 'page-1')).rejects.toThrow(
+      'sink_external_refs: insert failed',
+    )
+  })
+})
+
+describe('findActiveNotionConnection', () => {
+  it('returns the access token and workspace name for an active org connection', async () => {
+    fromResponses['integration_connections'] = {
+      data: { id: 'conn-1', access_token: 'secret_abc', metadata: { workspace_name: 'Acme Workspace' } },
+      error: null,
+    }
+    const connection = await store.findActiveNotionConnection(ORG_ID)
+    expect(connection).toEqual({ id: 'conn-1', accessToken: 'secret_abc', workspaceName: 'Acme Workspace' })
+  })
+
+  it('returns null when there is no active connection (not connected / revoked)', async () => {
+    fromResponses['integration_connections'] = { data: null, error: null }
+    expect(await store.findActiveNotionConnection(ORG_ID)).toBeNull()
+  })
+})
+
+describe('createNotionSink', () => {
+  it('inserts a notion sink with secret_encrypted null and connection_id set (no secret to leak)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: {
+        id: SINK_ID,
+        org_id: ORG_ID,
+        group_id: null,
+        provider: 'notion',
+        display_name: 'Notion連携',
+        config: { database_id: '12345678-1234-1234-1234-123456789012' },
+        connection_id: 'conn-1',
+        events: ['task.created'],
+        status: 'active',
+        consecutive_failures: 0,
+        last_delivered_at: null,
+        created_by: 'user-1',
+        created_at: '2026-07-12T00:00:00.000Z',
+        updated_at: '2026-07-12T00:00:00.000Z',
+      },
+      error: null,
+    }
+
+    const sink = await store.createNotionSink({
+      orgId: ORG_ID,
+      groupId: null,
+      displayName: 'Notion連携',
+      databaseId: '12345678-1234-1234-1234-123456789012',
+      connectionId: 'conn-1',
+      events: ['task.created'],
+      createdBy: 'user-1',
+    })
+
+    expect(sink.provider).toBe('notion')
+    expect(sink.connectionId).toBe('conn-1')
+    const call = fromMock.mock.results[0].value
+    const insertArg = call.insert.mock.calls[0][0] as Record<string, unknown>
+    expect(insertArg.secret_encrypted).toBeNull()
+    expect(insertArg.connection_id).toBe('conn-1')
+    expect(insertArg.provider).toBe('notion')
+  })
+})
+
+describe('findDeliverableSink (notion)', () => {
+  it('resolves a notion sink using the org active connection access token', async () => {
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: {
+            id: SINK_ID,
+            org_id: ORG_ID,
+            provider: 'notion',
+            config: { database_id: '12345678-1234-1234-1234-123456789012' },
+            secret_encrypted: null,
+          },
+          error: null,
+        })
+      }
+      if (table === 'integration_connections') {
+        return chain({
+          data: { id: 'conn-1', access_token: 'secret_abc', metadata: { workspace_name: 'Acme' } },
+          error: null,
+        })
+      }
+      return chain({ data: null, error: null })
+    })
+
+    const sink = await store.findDeliverableSink(SINK_ID)
+    expect(sink).toEqual({
+      id: SINK_ID,
+      provider: 'notion',
+      accessToken: 'secret_abc',
+      databaseId: '12345678-1234-1234-1234-123456789012',
+    })
+  })
+
+  it('returns null when the org has no active notion connection (not connected / revoked)', async () => {
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: {
+            id: SINK_ID,
+            org_id: ORG_ID,
+            provider: 'notion',
+            config: { database_id: '12345678-1234-1234-1234-123456789012' },
+            secret_encrypted: null,
+          },
+          error: null,
+        })
+      }
+      return chain({ data: null, error: null }) // integration_connections: none active
+    })
+
+    expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+  })
+
+  it('returns null when config.database_id is missing (invalid config shape)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: { id: SINK_ID, org_id: ORG_ID, provider: 'notion', config: {}, secret_encrypted: null },
+      error: null,
+    }
+    expect(await store.findDeliverableSink(SINK_ID)).toBeNull()
+  })
+})
+
 describe('listDeliveries', () => {
   it('applies sinkId/taskId/beforeCreatedAt filters when provided', async () => {
     fromResponses['sink_deliveries'] = { data: [], error: null }

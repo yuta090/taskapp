@@ -19,7 +19,7 @@ interface IntegrationsConsoleClientProps {
  * モーダル禁止・保存ボタンなし(optimistic updates)。docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4。
  */
 export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientProps) {
-  const { sinks, viewerRole, isLoading } = useSinks(orgId)
+  const { sinks, viewerRole, notionConnection, isLoading } = useSinks(orgId)
   const [selectedSinkId, setSelectedSinkId] = useState<string | null>(null)
   const [justCreatedSecret, setJustCreatedSecret] = useState<string | null>(null)
 
@@ -30,9 +30,10 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
     [sinks, effectiveSinkId],
   )
 
-  const handleCreated = (sink: SinkMeta, secret: string) => {
+  const handleCreated = (sink: SinkMeta, secret?: string) => {
     setSelectedSinkId(sink.id)
-    setJustCreatedSecret(secret)
+    // notionはsecretを持たないため、secretがある場合(webhook)だけ一度きり表示バナーを出す
+    if (secret) setJustCreatedSecret(secret)
   }
 
   // 別sinkの選択(一覧操作)でsecretバナーを消す。作成直後のsink以外を見ている間まで
@@ -61,11 +62,18 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
             onSelect={handleSelect}
             viewerRole={viewerRole}
             onCreated={handleCreated}
+            notionConnection={notionConnection}
           />
         </aside>
 
         {selectedSink ? (
-          <SinkDetailPanel key={selectedSink.id} orgId={orgId} sink={selectedSink} viewerRole={viewerRole} />
+          <SinkDetailPanel
+            key={selectedSink.id}
+            orgId={orgId}
+            sink={selectedSink}
+            viewerRole={viewerRole}
+            notionConnection={notionConnection}
+          />
         ) : (
           !isLoading && (
             <div className="flex-1 flex items-center justify-center">

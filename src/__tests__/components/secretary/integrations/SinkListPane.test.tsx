@@ -10,8 +10,15 @@ import type { SinkMeta } from '@/lib/hooks/useSinks'
  */
 
 vi.mock('@/components/secretary/integrations/CreateSinkForm', () => ({
-  CreateSinkForm: ({ onCancel }: { onCancel: () => void }) => (
+  CreateSinkForm: ({
+    onCancel,
+    notionConnection,
+  }: {
+    onCancel: () => void
+    notionConnection?: { connected: boolean; workspaceName: string | null }
+  }) => (
     <div data-testid="create-sink-form">
+      <span data-testid="notion-connected">{String(notionConnection?.connected)}</span>
       <button onClick={onCancel}>close-create-form</button>
     </div>
   ),
@@ -102,6 +109,22 @@ describe('SinkListPane', () => {
 
     fireEvent.click(screen.getByText('close-create-form'))
     expect(screen.queryByTestId('create-sink-form')).not.toBeInTheDocument()
+  })
+
+  it('notionConnectionをCreateSinkFormへ渡す', () => {
+    render(
+      <SinkListPane
+        orgId="org-1"
+        sinks={[]}
+        selectedSinkId={null}
+        onSelect={vi.fn()}
+        viewerRole="owner"
+        onCreated={vi.fn()}
+        notionConnection={{ connected: true, workspaceName: 'Acme Workspace' }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /新規作成/ }))
+    expect(screen.getByTestId('notion-connected')).toHaveTextContent('true')
   })
 
   it('選択中のsinkはハイライトされる', () => {

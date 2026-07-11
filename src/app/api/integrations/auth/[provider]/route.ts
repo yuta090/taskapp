@@ -4,9 +4,20 @@ import { createClient } from '@/lib/supabase/server'
 import { getGoogleOAuthUrl, isGoogleCalendarFullyConfigured } from '@/lib/google-calendar/config'
 import { getZoomOAuthUrl, isZoomOAuthConfigured } from '@/lib/zoom/config'
 import { getTeamsOAuthUrl, isTeamsOAuthConfigured } from '@/lib/teams/config'
+import { getNotionOAuthUrl, isNotionOAuthConfigured } from '@/lib/notion/config'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
+
+/**
+ * org 単位で共有接続を保持する provider（`integration_connections.owner_type='org'`）。
+ * 誰でも OAuth を実行できると、org 全体の共有接続を自分のワークスペーストークンで
+ * 上書きできてしまう（callback の onConflict(provider,owner_type,owner_id) upsert により、
+ * 全 notion sink の配達先が差し替わる）。よって owner/admin のみに限定する。
+ * 将来 google_sheets（同じく owner_type='org' 想定）を追加する際もここに足すだけでよい。
+ */
+const ORG_OWNED_PROVIDERS = new Set(['notion', 'google_sheets'])
+const ADMIN_ROLES = new Set(['owner', 'admin'])
 
 /**
  * HMAC signed state を生成（CSRF防止）
@@ -65,6 +76,10 @@ export async function GET(
       return NextResponse.json({ error: 'Not a member of this organization' }, { status: 403 })
     }
 
+    if (ORG_OWNED_PROVIDERS.has(provider) && !ADMIN_ROLES.has(membership.role)) {
+      return NextResponse.json({ error: 'Owner or admin only' }, { status: 403 })
+    }
+
     if (provider === 'google_calendar') {
       if (!isGoogleCalendarFullyConfigured()) {
         return NextResponse.json({ error: 'Google Calendar OAuth is not configured' }, { status: 503 })
@@ -91,6 +106,15 @@ export async function GET(
 
       const state = createSignedState(provider, orgId, user.id)
       return NextResponse.redirect(getTeamsOAuthUrl(state))
+    }
+
+    if (provider === 'notion') {
+      if (!isNotionOAuthConfigured()) {
+        return NextResponse.json({ error: 'Notion OAuth is not configured' }, { status: 503 })
+      }
+
+      const state = createSignedState(provider, orgId, user.id)
+      return NextResponse.redirect(getNotionOAuthUrl(state))
     }
 
     return NextResponse.json(

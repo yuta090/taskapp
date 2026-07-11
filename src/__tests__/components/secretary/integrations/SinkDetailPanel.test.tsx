@@ -157,8 +157,8 @@ describe('SinkDetailPanel', () => {
     expect(updateSinkMutateAsyncMock).not.toHaveBeenCalled()
   })
 
-  it('テスト配達ボタンで結果を表示する', async () => {
-    testSinkMutateAsyncMock.mockResolvedValue({ deliveryId: 'd-1', outcome: { ok: true, responseStatus: 200 } })
+  it('テスト配達ボタンで成功結果を表示する(outcome:"sent")', async () => {
+    testSinkMutateAsyncMock.mockResolvedValue({ deliveryId: 'd-1', outcome: 'sent', responseStatus: 200 })
     render(<SinkDetailPanel orgId="org-1" sink={sink()} viewerRole="owner" />)
 
     await act(async () => {
@@ -169,11 +169,80 @@ describe('SinkDetailPanel', () => {
     expect(screen.getByText(/200/)).toBeInTheDocument()
   })
 
+  it('テスト配達ボタンで失敗結果とエラー文言を表示する(outcome:"failed")', async () => {
+    testSinkMutateAsyncMock.mockResolvedValue({
+      deliveryId: null,
+      outcome: 'failed',
+      responseStatus: 401,
+      error: 'unauthorized',
+    })
+    render(<SinkDetailPanel orgId="org-1" sink={sink()} viewerRole="owner" />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'テスト配達' }))
+    })
+
+    const message = screen.getByText(/テスト配達に失敗しました/)
+    expect(message).toHaveTextContent('unauthorized')
+    expect(message).toHaveClass('text-red-600')
+  })
+
   it('member(owner/adminでない)は編集不可（inputはdisabled、操作系ボタンなし）', () => {
     render(<SinkDetailPanel orgId="org-1" sink={sink()} viewerRole="member" />)
     expect(screen.getByLabelText('表示名')).toBeDisabled()
     expect(screen.queryByRole('button', { name: '無効にする' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /secretを再生成/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'テスト配達' })).not.toBeInTheDocument()
+  })
+
+  describe('provider=notion', () => {
+    function notionSink(overrides: Partial<SinkMeta> = {}): SinkMeta {
+      return sink({
+        provider: 'notion',
+        config: { database_id: '12345678-1234-1234-1234-123456789012' },
+        connectionId: 'conn-1',
+        ...overrides,
+      })
+    }
+
+    it('URL欄の代わりにデータベースID欄を表示し、secret再生成ボタンは出さない', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={notionSink()} viewerRole="owner" />)
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('データベースID')).toHaveValue('12345678-1234-1234-1234-123456789012')
+      expect(screen.queryByRole('button', { name: /secretを再生成/ })).not.toBeInTheDocument()
+    })
+
+    it('データベースIDをblurすると変更があればconfigを更新する', async () => {
+      render(<SinkDetailPanel orgId="org-1" sink={notionSink()} viewerRole="owner" />)
+      const input = screen.getByLabelText('データベースID')
+      fireEvent.change(input, { target: { value: '87654321-4321-4321-4321-210987654321' } })
+      await act(async () => {
+        fireEvent.blur(input)
+      })
+      expect(updateSinkMutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          sinkId: 'sink-1',
+          config: { database_id: '87654321-4321-4321-4321-210987654321' },
+        }),
+      )
+    })
+
+    it('接続中のワークスペース名を表示する', () => {
+      render(
+        <SinkDetailPanel
+          orgId="org-1"
+          sink={notionSink()}
+          viewerRole="owner"
+          notionConnection={{ connected: true, workspaceName: 'Acme Workspace' }}
+        />,
+      )
+      expect(screen.getByText(/Acme Workspace/)).toBeInTheDocument()
+    })
+
+    it('テスト配達ボタンは引き続き表示される', () => {
+      render(<SinkDetailPanel orgId="org-1" sink={notionSink()} viewerRole="owner" />)
+      expect(screen.getByRole('button', { name: 'テスト配達' })).toBeInTheDocument()
+    })
   })
 })

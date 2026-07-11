@@ -10,6 +10,8 @@ import {
   ALLOWED_SINK_EVENTS,
   type SinkMeta,
   type ViewerRole,
+  type NotionConnectionStatus,
+  type TestSinkDeliveryResult,
 } from '@/lib/hooks/useSinks'
 import { SinkStatusPill } from '@/components/secretary/integrations/statusPill'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
@@ -20,6 +22,7 @@ interface SinkDetailPanelProps {
   orgId: string
   sink: SinkMeta
   viewerRole: ViewerRole | null
+  notionConnection?: NotionConnectionStatus
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -29,25 +32,21 @@ const EVENT_LABEL: Record<string, string> = {
   'task.reopened': '再オープン',
 }
 
-interface TestOutcome {
-  ok: boolean
-  responseStatus?: number
-  error?: string
-}
-
 /**
  * 右カラム: sinkの設定・有効/無効・secretローテーション・テスト配達・配達ログ。
  * 保存ボタンは持たず、フィールド操作のたびに即時mutateする(optimistic update)。
  * 親が key={sink.id} で本コンポーネントを再マウントする前提のため、
  * 選択中sink切替時のフォームstate同期はuseEffectを使わずマウント時の初期値で済ませる。
  */
-export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProps) {
+export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: SinkDetailPanelProps) {
   const canManage = viewerRole === 'owner' || viewerRole === 'admin'
+  const isNotion = sink.provider === 'notion'
 
   const [displayNameDraft, setDisplayNameDraft] = useState(sink.displayName)
   const [urlDraft, setUrlDraft] = useState((sink.config.url as string | undefined) ?? '')
+  const [databaseIdDraft, setDatabaseIdDraft] = useState((sink.config.database_id as string | undefined) ?? '')
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<TestOutcome | null>(null)
+  const [testResult, setTestResult] = useState<TestSinkDeliveryResult | null>(null)
 
   const updateSink = useUpdateSink()
   const testSinkDelivery = useTestSinkDelivery()
@@ -72,6 +71,11 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
   const handleUrlBlur = () => {
     if (urlDraft === ((sink.config.url as string | undefined) ?? '')) return
     void runUpdate({ orgId, sinkId: sink.id, url: urlDraft })
+  }
+
+  const handleDatabaseIdBlur = () => {
+    if (databaseIdDraft === ((sink.config.database_id as string | undefined) ?? '')) return
+    void runUpdate({ orgId, sinkId: sink.id, config: { database_id: databaseIdDraft } })
   }
 
   const toggleEvent = (event: string) => {
@@ -107,7 +111,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
   const handleTestDelivery = async () => {
     try {
       const result = await testSinkDelivery.mutateAsync(sink.id)
-      setTestResult(result.outcome as TestOutcome)
+      setTestResult(result)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'テスト配達に失敗しました')
     }
@@ -159,20 +163,44 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
             className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <div>
-          <label htmlFor="sink-detail-url" className="block text-xs font-medium text-gray-700 mb-1">
-            URL
-          </label>
-          <input
-            id="sink-detail-url"
-            type="url"
-            value={urlDraft}
-            disabled={!canManage}
-            onChange={(e) => setUrlDraft(e.target.value)}
-            onBlur={handleUrlBlur}
-            className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
+        {isNotion ? (
+          <div>
+            <label htmlFor="sink-detail-database-id" className="block text-xs font-medium text-gray-700 mb-1">
+              データベースID
+            </label>
+            <input
+              id="sink-detail-database-id"
+              type="text"
+              value={databaseIdDraft}
+              disabled={!canManage}
+              onChange={(e) => setDatabaseIdDraft(e.target.value)}
+              onBlur={handleDatabaseIdBlur}
+              className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            {notionConnection && (
+              <p className="mt-1 text-[11px] text-gray-500">
+                {notionConnection.connected
+                  ? `接続中のワークスペース: ${notionConnection.workspaceName ?? 'Notionワークスペース'}`
+                  : 'Notionワークスペースが未接続です。連携先の作成画面から再接続してください。'}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div>
+            <label htmlFor="sink-detail-url" className="block text-xs font-medium text-gray-700 mb-1">
+              URL
+            </label>
+            <input
+              id="sink-detail-url"
+              type="url"
+              value={urlDraft}
+              disabled={!canManage}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onBlur={handleUrlBlur}
+              className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+        )}
         <div>
           <span className="block text-xs font-medium text-gray-700 mb-1">購読イベント</span>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
@@ -202,13 +230,15 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
                 {sink.status === 'active' ? '無効にする' : '有効にする'}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => void handleRotateSecret()}
-              className="h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
-            >
-              secretを再生成
-            </button>
+            {!isNotion && (
+              <button
+                type="button"
+                onClick={() => void handleRotateSecret()}
+                className="h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                secretを再生成
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void handleTestDelivery()}
@@ -222,8 +252,8 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
         )}
 
         {testResult && (
-          <p className={`text-xs ${testResult.ok ? 'text-green-600' : 'text-red-600'}`}>
-            {testResult.ok
+          <p className={`text-xs ${testResult.outcome === 'sent' ? 'text-green-600' : 'text-red-600'}`}>
+            {testResult.outcome === 'sent'
               ? `テスト配達に成功しました（HTTPステータス: ${testResult.responseStatus ?? '-'}）`
               : `テスト配達に失敗しました: ${testResult.error ?? `HTTPステータス: ${testResult.responseStatus ?? '-'}`}`}
           </p>
@@ -239,7 +269,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
         配達は5分間隔で自動再試行されます
       </div>
 
-      <WebhookReceiverGuide />
+      {!isNotion && <WebhookReceiverGuide />}
     </div>
   )
 }

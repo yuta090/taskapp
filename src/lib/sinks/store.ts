@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { WebhookSink, DeliverableDelivery } from '@/lib/sinks/adapters/webhook'
+import type { NotionSink } from '@/lib/sinks/adapters/notion'
 
 /**
  * 外部連携シンクのデータアクセス層（service role専用）。
@@ -256,66 +257,178 @@ export async function rotateWebhookSecret(
   return { sink: toSinkMeta(data as SinkMetaRow), secret: plaintextSecret }
 }
 
-/** dispatcher・test送信用: 復号済みsecretを含む配達可能な形にした単一シンク */
-export async function findDeliverableSink(sinkId: string): Promise<WebhookSink | null> {
-  const { data, error } = await admin()
-    .from('integration_sinks')
-    .select('id, provider, config, secret_encrypted')
-    .eq('id', sinkId)
-    .maybeSingle()
-  if (error || !data) return null
-  return toDeliverableWebhookSink(
-    data as { id: string; provider: string; config: Record<string, unknown>; secret_encrypted: string | null },
-  )
-}
+/** dispatcher・test送信用のprovider横断シンク型（webhookは復号済みsecret、notionはアクセストークン） */
+export type DeliverableSink = WebhookSink | NotionSink
 
-async function toDeliverableWebhookSink(row: {
+interface DeliverableSinkRow {
   id: string
+  org_id: string
   provider: string
   config: Record<string, unknown>
   secret_encrypted: string | null
-}): Promise<WebhookSink | null> {
-  // PR-1ではwebhookアダプタのみ実装（Notion/Sheetsは後続PR）
-  if (row.provider !== 'webhook' || !row.secret_encrypted) return null
-  const secret = await decryptSecret(row.secret_encrypted)
-  if (!secret) return null
-  return {
-    id: row.id,
-    provider: 'webhook',
-    config: row.config as { url: string },
-    secret,
-  }
 }
 
-/** dispatch用: 複数sinkIdの復号済みシンクをまとめて取得する（重複sink_idを1回で解決） */
+const DELIVERABLE_SINK_COLUMNS = 'id, org_id, provider, config, secret_encrypted'
+
+async function toDeliverableSink(row: DeliverableSinkRow): Promise<DeliverableSink | null> {
+  if (row.provider === 'webhook') {
+    if (!row.secret_encrypted) return null
+    const secret = await decryptSecret(row.secret_encrypted)
+    if (!secret) return null
+    return { id: row.id, provider: 'webhook', config: row.config as { url: string }, secret }
+  }
+  if (row.provider === 'notion') {
+    const databaseId = typeof row.config.database_id === 'string' ? row.config.database_id : ''
+    if (!databaseId) return null
+    // 接続が無い/revokedのnotion sinkは配達不能(呼び出し側でsink_not_deliverableの恒久失敗になる)
+    const connection = await findActiveNotionConnection(row.org_id)
+    if (!connection) return null
+    return { id: row.id, provider: 'notion', accessToken: connection.accessToken, databaseId }
+  }
+  // google_sheets: 未実装(PR-4)
+  return null
+}
+
+/** dispatcher・test送信用: 配達可能な形にした単一シンク（webhook/notion） */
+export async function findDeliverableSink(sinkId: string): Promise<DeliverableSink | null> {
+  const { data, error } = await admin()
+    .from('integration_sinks')
+    .select(DELIVERABLE_SINK_COLUMNS)
+    .eq('id', sinkId)
+    .maybeSingle()
+  if (error || !data) return null
+  return toDeliverableSink(data as DeliverableSinkRow)
+}
+
+/** dispatch用: 複数sinkIdの配達可能シンクをまとめて取得する（重複sink_idを1回で解決） */
 export async function findDeliverableSinksByIds(
   sinkIds: string[],
-): Promise<Map<string, WebhookSink>> {
+): Promise<Map<string, DeliverableSink>> {
   const uniqueIds = Array.from(new Set(sinkIds))
   if (uniqueIds.length === 0) return new Map()
 
   const { data, error } = await admin()
     .from('integration_sinks')
-    .select('id, provider, config, secret_encrypted')
+    .select(DELIVERABLE_SINK_COLUMNS)
     .in('id', uniqueIds)
   if (error || !data) return new Map()
 
-  const rows = data as Array<{
-    id: string
-    provider: string
-    config: Record<string, unknown>
-    secret_encrypted: string | null
-  }>
+  const rows = data as DeliverableSinkRow[]
 
-  const entries = await Promise.all(
-    rows.map(async (row) => [row.id, await toDeliverableWebhookSink(row)] as const),
-  )
+  const entries = await Promise.all(rows.map(async (row) => [row.id, await toDeliverableSink(row)] as const))
 
-  const map = new Map<string, WebhookSink>()
+  const map = new Map<string, DeliverableSink>()
   for (const [id, sink] of entries) {
     if (sink) map.set(id, sink)
   }
   return map
+}
+
+// ---------------------------------------------------------------------------
+// integration_connections — Notion（org単位1ワークスペース、provider='notion' owner_type='org'）
+// ---------------------------------------------------------------------------
+
+export interface NotionConnectionInfo {
+  id: string
+  accessToken: string
+  workspaceName: string | null
+}
+
+/** orgのactiveなNotion接続を1件返す（unique(provider,owner_type,owner_id)によりorgあたり最大1件） */
+export async function findActiveNotionConnection(orgId: string): Promise<NotionConnectionInfo | null> {
+  const { data, error } = await admin()
+    .from('integration_connections')
+    .select('id, access_token, metadata')
+    .eq('provider', 'notion')
+    .eq('owner_type', 'org')
+    .eq('owner_id', orgId)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (error || !data) return null
+  const row = data as { id: string; access_token: string; metadata: Record<string, unknown> | null }
+  const metadata = row.metadata ?? {}
+  return {
+    id: row.id,
+    accessToken: row.access_token,
+    workspaceName: typeof metadata.workspace_name === 'string' ? metadata.workspace_name : null,
+  }
+}
+
+export interface CreateNotionSinkInput {
+  orgId: string
+  groupId: string | null
+  displayName: string
+  databaseId: string
+  connectionId: string
+  events: string[]
+  createdBy: string
+}
+
+/**
+ * notionシンクを作成する。webhookと異なりsecretは持たない(connection_id経由でaccess_tokenを参照)
+ * ためsecret_encryptedはnull。レスポンスに秘匿情報を含める必要がない。
+ */
+export async function createNotionSink(input: CreateNotionSinkInput): Promise<SinkMeta> {
+  const { data, error } = await admin()
+    .from('integration_sinks')
+    .insert({
+      org_id: input.orgId,
+      group_id: input.groupId,
+      provider: 'notion',
+      display_name: input.displayName,
+      config: { database_id: input.databaseId },
+      secret_encrypted: null,
+      connection_id: input.connectionId,
+      events: input.events,
+      created_by: input.createdBy,
+    })
+    .select(SINK_META_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    throw new Error(`integration_sinks: insert failed: ${error?.message}`)
+  }
+  return toSinkMeta(data as SinkMetaRow)
+}
+
+// ---------------------------------------------------------------------------
+// sink_external_refs — Notion外部オブジェクト対応表(§1-3)
+// ---------------------------------------------------------------------------
+
+export async function findExternalRef(sinkId: string, digestTaskId: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('sink_external_refs')
+    .select('external_ref')
+    .eq('sink_id', sinkId)
+    .eq('digest_task_id', digestTaskId)
+    .maybeSingle()
+  if (error || !data) return null
+  return (data as { external_ref: string }).external_ref
+}
+
+export type SaveExternalRefResult =
+  | { outcome: 'inserted' }
+  | { outcome: 'conflict'; existingRef: string }
+
+/**
+ * refをinsertする。unique(sink_id, digest_task_id)への競合(23505、並行配達で
+ * 別の遷移が先にrefを確定させた場合)は既存refを読み直してoutcome:'conflict'で返す
+ * （呼び出し側のadapterはそちらのページをPATCHでフォールバック更新する）。
+ */
+export async function saveExternalRef(
+  sinkId: string,
+  digestTaskId: string,
+  externalRef: string,
+): Promise<SaveExternalRefResult> {
+  const { error } = await admin()
+    .from('sink_external_refs')
+    .insert({ sink_id: sinkId, digest_task_id: digestTaskId, external_ref: externalRef })
+  if (!error) return { outcome: 'inserted' }
+  if ((error as { code?: string }).code === '23505') {
+    const existing = await findExternalRef(sinkId, digestTaskId)
+    if (existing) return { outcome: 'conflict', existingRef: existing }
+  }
+  throw new Error(`sink_external_refs: insert failed: ${error.message}`)
 }
 
 // ---------------------------------------------------------------------------
