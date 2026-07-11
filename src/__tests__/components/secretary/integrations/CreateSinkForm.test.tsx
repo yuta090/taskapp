@@ -10,8 +10,9 @@ import type { SinkMeta } from '@/lib/hooks/useSinks'
  * (docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4)。
  */
 
-const { mutateAsyncMock, toastErrorMock } = vi.hoisted(() => ({
+const { mutateAsyncMock, createNotionMutateAsyncMock, toastErrorMock } = vi.hoisted(() => ({
   mutateAsyncMock: vi.fn(),
+  createNotionMutateAsyncMock: vi.fn(),
   toastErrorMock: vi.fn(),
 }))
 
@@ -20,6 +21,7 @@ vi.mock('@/lib/hooks/useSinks', async (importOriginal) => {
   return {
     ...actual,
     useCreateSink: () => ({ mutateAsync: mutateAsyncMock, isPending: false }),
+    useCreateNotionSink: () => ({ mutateAsync: createNotionMutateAsyncMock, isPending: false }),
   }
 })
 
@@ -143,5 +145,81 @@ describe('CreateSinkForm', () => {
     render(<CreateSinkForm orgId="org-1" onCreated={vi.fn()} onCancel={onCancel} />)
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
     expect(onCancel).toHaveBeenCalled()
+  })
+
+  describe('provider=notion', () => {
+    it('Notionを選択するとURL欄が消えデータベースID欄が表示される', () => {
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+          notionConnection={{ connected: true, workspaceName: 'Acme Workspace' }}
+        />,
+      )
+      fireEvent.click(screen.getByLabelText('Notion'))
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('データベースID')).toBeInTheDocument()
+    })
+
+    it('未接続なら作成ボタンが無効で接続導線を表示する', () => {
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+          notionConnection={{ connected: false, workspaceName: null }}
+        />,
+      )
+      fireEvent.click(screen.getByLabelText('Notion'))
+      fireEvent.change(screen.getByLabelText('表示名'), { target: { value: 'Notion連携' } })
+      fireEvent.change(screen.getByLabelText('データベースID'), {
+        target: { value: '12345678-1234-1234-1234-123456789012' },
+      })
+      expect(screen.getByRole('button', { name: '作成' })).toBeDisabled()
+      expect(screen.getByRole('link', { name: /Notion に接続/ })).toHaveAttribute(
+        'href',
+        '/api/integrations/auth/notion?orgId=org-1',
+      )
+    })
+
+    it('接続済みならdatabaseIdを入力して送信するとuseCreateNotionSinkが呼ばれる', async () => {
+      createNotionMutateAsyncMock.mockResolvedValue({
+        sink: { ...SINK, id: 'sink-2', provider: 'notion', config: { database_id: 'db-1' } },
+      })
+      const onCreated = vi.fn()
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={onCreated}
+          onCancel={vi.fn()}
+          notionConnection={{ connected: true, workspaceName: 'Acme Workspace' }}
+        />,
+      )
+      fireEvent.click(screen.getByLabelText('Notion'))
+      fireEvent.change(screen.getByLabelText('表示名'), { target: { value: 'Notion連携' } })
+      fireEvent.change(screen.getByLabelText('データベースID'), {
+        target: { value: '12345678-1234-1234-1234-123456789012' },
+      })
+
+      const submit = screen.getByRole('button', { name: '作成' })
+      expect(submit).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(submit)
+      })
+
+      expect(createNotionMutateAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          displayName: 'Notion連携',
+          databaseId: '12345678-1234-1234-1234-123456789012',
+        }),
+      )
+      // notionはsecretを持たないためonCreatedはsecret引数なしで呼ばれる
+      await waitFor(() => expect(onCreated).toHaveBeenCalled())
+      expect(onCreated.mock.calls[0][0]).toEqual(expect.objectContaining({ id: 'sink-2', provider: 'notion' }))
+      expect(onCreated.mock.calls[0]).toHaveLength(1)
+    })
   })
 })

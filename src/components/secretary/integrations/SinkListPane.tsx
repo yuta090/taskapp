@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Plus, Plugs } from '@phosphor-icons/react'
 import { EmptyState } from '@/components/shared'
-import type { SinkMeta, ViewerRole } from '@/lib/hooks/useSinks'
+import type { SinkMeta, ViewerRole, NotionConnectionStatus } from '@/lib/hooks/useSinks'
 import { CreateSinkForm } from '@/components/secretary/integrations/CreateSinkForm'
 import { SinkStatusPill } from '@/components/secretary/integrations/statusPill'
 
@@ -13,7 +13,8 @@ interface SinkListPaneProps {
   selectedSinkId: string | null
   onSelect: (sinkId: string) => void
   viewerRole: ViewerRole | null
-  onCreated: (sink: SinkMeta, secret: string) => void
+  onCreated: (sink: SinkMeta, secret?: string) => void
+  notionConnection?: NotionConnectionStatus
 }
 
 const PROVIDER_LABEL: Record<SinkMeta['provider'], string> = {
@@ -23,7 +24,15 @@ const PROVIDER_LABEL: Record<SinkMeta['provider'], string> = {
 }
 
 /** 左カラム: sink一覧＋新規作成（docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4） */
-export function SinkListPane({ orgId, sinks, selectedSinkId, onSelect, viewerRole, onCreated }: SinkListPaneProps) {
+export function SinkListPane({
+  orgId,
+  sinks,
+  selectedSinkId,
+  onSelect,
+  viewerRole,
+  onCreated,
+  notionConnection,
+}: SinkListPaneProps) {
   const [isCreating, setIsCreating] = useState(false)
   const canManage = viewerRole === 'owner' || viewerRole === 'admin'
 
@@ -47,6 +56,7 @@ export function SinkListPane({ orgId, sinks, selectedSinkId, onSelect, viewerRol
         <div className="px-3 pb-3 flex-shrink-0">
           <CreateSinkForm
             orgId={orgId}
+            notionConnection={notionConnection}
             onCreated={(sink, secret) => {
               setIsCreating(false)
               onCreated(sink, secret)

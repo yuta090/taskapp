@@ -148,6 +148,51 @@ describe('PATCH /api/integrations/sinks/[id]', () => {
   })
 })
 
+describe('PATCH /api/integrations/sinks/[id] (provider=notion)', () => {
+  const NOTION_SINK_META = { id: SINK_ID, orgId: ORG_ID, displayName: 'Notion連携', status: 'active', provider: 'notion' }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
+    sinksStoreMock.findSinkOrgId.mockResolvedValue(ORG_ID)
+    sinksStoreMock.findSinkMeta.mockResolvedValue(NOTION_SINK_META)
+    sinksStoreMock.updateSinkMeta.mockResolvedValue(NOTION_SINK_META)
+    sinksStoreMock.reactivateSink.mockResolvedValue(NOTION_SINK_META)
+    sinksStoreMock.disableSink.mockResolvedValue({ ...NOTION_SINK_META, status: 'disabled' })
+  })
+
+  it('400 when config.database_id is missing for a notion sink (does not attempt webhook URL validation)', async () => {
+    const response = await callPatch({ config: { url: 'https://example.com/hook' } })
+    expect(response.status).toBe(400)
+    expect(validateWebhookUrlMock).not.toHaveBeenCalled()
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('400 when config.database_id is invalid', async () => {
+    const response = await callPatch({ config: { database_id: 'not-an-id' } })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('accepts a valid database_id and updates config', async () => {
+    const response = await callPatch({ config: { database_id: '12345678-1234-1234-1234-123456789012' } })
+    expect(response.status).toBe(200)
+    expect(sinksStoreMock.updateSinkMeta).toHaveBeenCalledWith(
+      SINK_ID,
+      expect.objectContaining({ config: { database_id: '12345678-1234-1234-1234-123456789012' } }),
+    )
+  })
+
+  it('ignores rotateSecret for a notion sink (no secret to rotate)', async () => {
+    const response = await callPatch({ rotateSecret: true })
+    const data = await response.json()
+    expect(response.status).toBe(200)
+    expect(data.secret).toBeUndefined()
+    expect(sinksStoreMock.rotateWebhookSecret).not.toHaveBeenCalled()
+  })
+})
+
 describe('DELETE /api/integrations/sinks/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks()

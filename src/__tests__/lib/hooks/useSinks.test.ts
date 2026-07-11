@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   useSinks,
   useCreateSink,
+  useCreateNotionSink,
   useUpdateSink,
   useTestSinkDelivery,
   useRedeliverSink,
@@ -65,6 +66,30 @@ describe('useSinks', () => {
     expect(result.current.sinks).toEqual([SINK])
     expect(result.current.viewerRole).toBe('owner')
     expect(fetchMock).toHaveBeenCalledWith('/api/integrations/sinks?orgId=org-1')
+  })
+
+  it('notionConnectionを取得する（未接続時はデフォルトでconnected:false）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ sinks: [], viewerRole: 'owner' }),
+    })
+    const { result } = renderHook(() => useSinks('org-1'), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.notionConnection).toEqual({ connected: false, workspaceName: null })
+  })
+
+  it('notionConnectionが接続済みならworkspaceNameを含めて返す', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        sinks: [],
+        viewerRole: 'owner',
+        notionConnection: { connected: true, workspaceName: 'Acme Workspace' },
+      }),
+    })
+    const { result } = renderHook(() => useSinks('org-1'), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.notionConnection).toEqual({ connected: true, workspaceName: 'Acme Workspace' })
   })
 
   it('取得失敗時はエラーメッセージを返す', async () => {
@@ -152,6 +177,78 @@ describe('useCreateSink', () => {
   })
 })
 
+describe('useCreateNotionSink', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('POSTs provider=notion with config.database_id and returns the sink without a secret', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['integrationSinks', 'org-1'], { sinks: [], viewerRole: 'owner' })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    const NOTION_SINK: SinkMeta = { ...SINK, id: 'sink-2', provider: 'notion', config: { database_id: 'db-1' } }
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ sink: NOTION_SINK }) })
+
+    const { result } = renderHook(() => useCreateNotionSink(), { wrapper })
+
+    let response: { sink: SinkMeta } | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync({
+        orgId: 'org-1',
+        displayName: 'Notion連携',
+        databaseId: 'db-1',
+        events: ['task.created'],
+      })
+    })
+
+    expect(response?.sink.id).toBe('sink-2')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/integrations/sinks',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          orgId: 'org-1',
+          groupId: null,
+          provider: 'notion',
+          displayName: 'Notion連携',
+          config: { database_id: 'db-1' },
+          events: ['task.created'],
+        }),
+      }),
+    )
+
+    const cached = queryClient.getQueryData<{ sinks: SinkMeta[] }>(['integrationSinks', 'org-1'])
+    expect(cached?.sinks).toHaveLength(1)
+    expect(cached?.sinks[0].id).toBe('sink-2')
+  })
+
+  it('作成失敗時はエラーを投げ、キャッシュを変更しない', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['integrationSinks', 'org-1'], { sinks: [], viewerRole: 'owner' })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: 'notion_not_connected' }) })
+
+    const { result } = renderHook(() => useCreateNotionSink(), { wrapper })
+
+    await expect(
+      act(async () => {
+        await result.current.mutateAsync({
+          orgId: 'org-1',
+          displayName: 'x',
+          databaseId: 'db-1',
+          events: ['task.created'],
+        })
+      }),
+    ).rejects.toThrow('notion_not_connected')
+
+    const cached = queryClient.getQueryData<{ sinks: SinkMeta[] }>(['integrationSinks', 'org-1'])
+    expect(cached?.sinks).toHaveLength(0)
+  })
+})
+
 describe('useUpdateSink', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.restoreAllMocks())
@@ -211,6 +308,27 @@ describe('useUpdateSink', () => {
     expect(cached?.sinks[0].status).toBe('active')
   })
 
+  it('configを直接指定するとPATCHボディにそのまま渡す(notionのdatabase_id更新用)', async () => {
+    const NOTION_SINK: SinkMeta = { ...SINK, id: 'sink-2', provider: 'notion', config: { database_id: 'db-1' } }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['integrationSinks', 'org-1'], { sinks: [NOTION_SINK], viewerRole: 'owner' })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ sink: { ...NOTION_SINK, config: { database_id: 'db-2' } } }) })
+
+    const { result } = renderHook(() => useUpdateSink(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ orgId: 'org-1', sinkId: 'sink-2', config: { database_id: 'db-2' } })
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/integrations/sinks/sink-2',
+      expect.objectContaining({ body: JSON.stringify({ config: { database_id: 'db-2' } }) }),
+    )
+  })
+
   it('rotateSecretを指定するとPATCHボディにrotateSecret:trueを含め、返ってきたsecretを返す', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     queryClient.setQueryData(['integrationSinks', 'org-1'], { sinks: [SINK], viewerRole: 'owner' })
@@ -243,10 +361,10 @@ describe('useUpdateSink', () => {
 describe('useTestSinkDelivery', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('POST /sinks/[id]/test を呼び、結果を返す', async () => {
+  it('POST /sinks/[id]/test を呼び、結果を返す(outcomeは webhook/notion共通の文字列形状)', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ deliveryId: 'd-1', outcome: { ok: true, responseStatus: 200 } }),
+      json: async () => ({ deliveryId: 'd-1', outcome: 'sent', responseStatus: 200 }),
     })
     const { result } = renderHook(() => useTestSinkDelivery(), { wrapper: createWrapper() })
 
@@ -256,7 +374,22 @@ describe('useTestSinkDelivery', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith('/api/integrations/sinks/sink-1/test', { method: 'POST' })
-    expect(response).toEqual({ deliveryId: 'd-1', outcome: { ok: true, responseStatus: 200 } })
+    expect(response).toEqual({ deliveryId: 'd-1', outcome: 'sent', responseStatus: 200 })
+  })
+
+  it('失敗時はerror文字列を含めて返す(notion由来)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ deliveryId: null, outcome: 'failed', responseStatus: 401, error: 'unauthorized' }),
+    })
+    const { result } = renderHook(() => useTestSinkDelivery(), { wrapper: createWrapper() })
+
+    let response: unknown
+    await act(async () => {
+      response = await result.current.mutateAsync('sink-2')
+    })
+
+    expect(response).toEqual({ deliveryId: null, outcome: 'failed', responseStatus: 401, error: 'unauthorized' })
   })
 })
 

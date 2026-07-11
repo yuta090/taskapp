@@ -171,6 +171,7 @@ deliver(sink, delivery) -> { ok, permanent?, responseStatus?, error? }
 - **ref ベースの upsert 意味論**（順序非依存）:
   - 任意のイベント配達時、`sink_external_refs` に ref があれば**そのページを更新**、なければ**イベント時点のスナップショットでページ作成＋ref 登録**。
   - つまり done が created より先に着いても「done 状態でページ作成」になり、後着の created は ref 存在により更新で吸収される（二重ページを作らない）。
+  - **既知の限界**: ページ作成と ref 登録（`sink_external_refs` への insert）は非原子。作成直後のプロセス断・DB 瞬断・並行配達の同時 create では稀に重複ページが残り得る（at-least-once の残存ウィンドウ、v1 許容。dedup クエリは顧客 DB に専用プロパティを要求し新たな失敗モードを持ち込むため導入しない）。重複が生じても後続イベントは ref 登録済みのページ側に集約される。
 - レート制限 3req/秒: dispatch ループで provider 別に間隔制御。
 
 **Google Sheets**
@@ -284,4 +285,6 @@ deliver(sink, delivery) -> { ok, permanent?, responseStatus?, error? }
 10. secret_encrypted が authenticated から select できない／別 org の sink・deliveries が RLS で見えない
 11. sink 削除後も配達ログが参照できる
 12. グループ再リンク（新世代）時に旧世代向け sink が disabled になり通知される
-13. **done が created より先に届いた場合に Notion 側が二重ページにならない**（upsert 意味論）
+13. **done が created より先に届いた場合に Notion 側が二重ページにならない**（upsert 意味論）†
+
+† 順序逆転（done 先着→created 後着）自体はこの upsert 意味論で成立する。ただしページ作成と ref 登録（`sink_external_refs` insert）は非原子のため、作成直後のプロセス断・DB 瞬断・並行配達の競合では稀に重複ページが残り得る（at-least-once の残存ウィンドウ、v1 許容）。重複が生じても後続イベントは ref 登録済みページ側に集約される。PR-3 レビューで `saveExternalRef` の非 23505 エラー時に1回だけ即時リトライを追加し発生窓を縮小したが、根本解消（dedup クエリ等）は顧客 DB に新たな失敗モードを持ち込むため v1 では見送り。

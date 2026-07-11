@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { exchangeCodeForTokens } from '@/lib/google-calendar/client'
 import { exchangeZoomCode } from '@/lib/zoom/client'
 import { exchangeTeamsCode } from '@/lib/teams/client'
+import { exchangeNotionCode } from '@/lib/notion/client'
 
 export const runtime = 'nodejs'
 
@@ -134,6 +135,10 @@ export async function GET(
       return await handleTeamsCallback(code, orgId, user.id, appUrl)
     }
 
+    if (provider === 'notion') {
+      return await handleNotionCallback(code, orgId, appUrl)
+    }
+
     return NextResponse.redirect(`${appUrl}?error=unsupported_provider`)
   } catch (err) {
     console.error('Integration callback error:', err)
@@ -230,6 +235,59 @@ async function handleZoomCallback(
     console.error('Zoom callback error:', err)
     return NextResponse.redirect(
       `${appUrl}/settings/integrations?integration=zoom&status=error&message=token_exchange_failed`,
+    )
+  }
+}
+
+/**
+ * Notionはowner_type='org'でupsertする（org単位1ワークスペース。§1-1のunique制約）。
+ * userIdはstate検証（本人確認）のみに使い、接続の帰属はorg単位のため保存には使わない。
+ * リダイレクト先は既存の/settings/integrationsではなく秘書コンソールの連携タブ。
+ */
+async function handleNotionCallback(
+  code: string,
+  orgId: string,
+  appUrl: string,
+): Promise<NextResponse> {
+  const integrationsTabUrl = `${appUrl}/${orgId}/secretary/integrations`
+  try {
+    const tokens = await exchangeNotionCode(code)
+
+    // Notionトークンは無期限（refresh_tokenなし、token_expires_atはnull）。
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+      .from('integration_connections')
+      .upsert(
+        {
+          provider: 'notion',
+          owner_type: 'org',
+          owner_id: orgId,
+          org_id: orgId,
+          access_token: tokens.accessToken,
+          refresh_token: null,
+          token_expires_at: null,
+          scopes: null,
+          status: 'active',
+          last_refreshed_at: new Date().toISOString(),
+          metadata: {
+            workspace_id: tokens.workspaceId,
+            workspace_name: tokens.workspaceName,
+            workspace_icon: tokens.workspaceIcon,
+            bot_id: tokens.botId,
+          },
+        },
+        { onConflict: 'provider,owner_type,owner_id' },
+      )
+
+    if (upsertError) {
+      console.error('Notion integration connection save failed:', upsertError)
+      return NextResponse.redirect(`${integrationsTabUrl}?integration=notion&status=error&message=save_failed`)
+    }
+
+    return NextResponse.redirect(`${integrationsTabUrl}?integration=notion&status=connected`)
+  } catch (err) {
+    console.error('Notion callback error:', err)
+    return NextResponse.redirect(
+      `${integrationsTabUrl}?integration=notion&status=error&message=token_exchange_failed`,
     )
   }
 }
