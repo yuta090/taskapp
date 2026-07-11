@@ -877,6 +877,14 @@ export async function findDigestTaskOrgId(taskId: string): Promise<string | null
 
 /**
  * コンソールからの消し込み/復旧。open復旧はdone_*をクリアする。
+ *
+ * 同一statusへの更新はno-op（Stage 3 §2-1 付随修正）: neq('status', status)で対象0件に
+ * すれば実UPDATEを発行しない。done→doneの再送(楽観的更新のリトライ・二重クリック)で
+ * done_at/done_via/done_by_external_user_idが新しい値に上書きされ、元の消し込み証跡が
+ * 壊れるのを防ぐ。enqueueトリガー(old.status IS DISTINCT FROM new.status)も元々空遷移では
+ * 発火しないため、no-op化してもsink配達への影響はない。
+ * update 0件は「既に同じstatus」と「taskId不在」を区別できないため、その場合だけ
+ * 存在確認を挟み、二重クリックをAPI層で404エラー扱いにしない(冪等成功として返す)。
  */
 export async function updateDigestTaskStatusConsole(
   taskId: string,
@@ -891,10 +899,19 @@ export async function updateDigestTaskStatusConsole(
     .from('channel_digest_tasks')
     .update(patch)
     .eq('id', taskId)
+    .neq('status', status)
     .select('id')
     .maybeSingle()
 
-  return !error && !!data
+  if (error) return false
+  if (data) return true
+
+  const { data: existing } = await admin()
+    .from('channel_digest_tasks')
+    .select('id')
+    .eq('id', taskId)
+    .maybeSingle()
+  return !!existing
 }
 
 // ---------------------------------------------------------------------------
