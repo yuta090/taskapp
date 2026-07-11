@@ -57,6 +57,13 @@ const storeMock = {
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
+// AC12(docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §10): グループ再リンク(新世代作成)時に
+// 旧世代向けsinkをdisableし通知する。ベストエフォート(失敗してもreply等の主フローは継続)。
+const sinksStoreMock = { disableStaleGroupSinks: vi.fn() }
+vi.mock('@/lib/sinks/store', () => sinksStoreMock)
+const sinksNotifyMock = { notifySinkDisabledForRelink: vi.fn() }
+vi.mock('@/lib/sinks/notify', () => sinksNotifyMock)
+
 const pushMock = vi.fn()
 const fetchContentMock = vi.fn()
 const replyMock = vi.fn()
@@ -176,6 +183,8 @@ beforeEach(() => {
   pushMock.mockResolvedValue(undefined)
   replyMock.mockResolvedValue(undefined)
   leaveRoomMock.mockResolvedValue(undefined)
+  sinksStoreMock.disableStaleGroupSinks.mockResolvedValue([])
+  sinksNotifyMock.notifySinkDisabledForRelink.mockResolvedValue(undefined)
 })
 
 describe('handleLineWebhook', () => {
@@ -612,6 +621,88 @@ describe('handleLineWebhook', () => {
       expect(replyArg.replyToken).toBe('rt-g1')
       // inbound(コード)がspace-9で記録される
       expect(storeMock.insertChannelMessage.mock.calls[0][0]).toMatchObject({ spaceId: 'space-9' })
+    })
+
+    it('AC12: 紐付け成立時に旧世代sinkの無効化を試み、無効化されたsinkごとに通知する', async () => {
+      storeMock.findValidLinkCode.mockResolvedValue({
+        id: 'code-1',
+        orgId: 'org-1',
+        spaceId: 'space-9',
+        firstUsedAt: null,
+      })
+      storeMock.linkGroupToSpaceAtomic.mockResolvedValue(true)
+      sinksStoreMock.disableStaleGroupSinks.mockResolvedValue([
+        { sinkId: 'sink-old-1', orgId: 'org-1', displayName: 'Notion連携' },
+        { sinkId: 'sink-old-2', orgId: 'org-1', displayName: '自社Webhook' },
+      ])
+
+      const body = makeBody([groupTextEvent('AB2CD3EF')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(sinksStoreMock.disableStaleGroupSinks).toHaveBeenCalledWith('group-1')
+      expect(sinksNotifyMock.notifySinkDisabledForRelink).toHaveBeenCalledTimes(2)
+      expect(sinksNotifyMock.notifySinkDisabledForRelink).toHaveBeenCalledWith(
+        'sink-old-1',
+        'org-1',
+        'Notion連携',
+      )
+      expect(sinksNotifyMock.notifySinkDisabledForRelink).toHaveBeenCalledWith(
+        'sink-old-2',
+        'org-1',
+        '自社Webhook',
+      )
+      // 主フロー(reply確認)は継続する
+      expect(replyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('AC12: 旧世代sinkが無ければ通知を呼ばない', async () => {
+      storeMock.findValidLinkCode.mockResolvedValue({
+        id: 'code-1',
+        orgId: 'org-1',
+        spaceId: 'space-9',
+        firstUsedAt: null,
+      })
+      storeMock.linkGroupToSpaceAtomic.mockResolvedValue(true)
+      sinksStoreMock.disableStaleGroupSinks.mockResolvedValue([])
+
+      const body = makeBody([groupTextEvent('AB2CD3EF')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(sinksStoreMock.disableStaleGroupSinks).toHaveBeenCalledWith('group-1')
+      expect(sinksNotifyMock.notifySinkDisabledForRelink).not.toHaveBeenCalled()
+    })
+
+    it('AC12: 無効化がレースで紐付け不成立(linked=false)の場合は呼ばない(新世代でないため)', async () => {
+      storeMock.findValidLinkCode.mockResolvedValue({
+        id: 'code-1',
+        orgId: 'org-1',
+        spaceId: 'space-9',
+        firstUsedAt: null,
+      })
+      storeMock.linkGroupToSpaceAtomic.mockResolvedValue(false)
+
+      const body = makeBody([groupTextEvent('AB2CD3EF')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(sinksStoreMock.disableStaleGroupSinks).not.toHaveBeenCalled()
+    })
+
+    it('AC12: sink無効化がエラーでも主フロー(reply確認)は継続する(ベストエフォート)', async () => {
+      storeMock.findValidLinkCode.mockResolvedValue({
+        id: 'code-1',
+        orgId: 'org-1',
+        spaceId: 'space-9',
+        firstUsedAt: null,
+      })
+      storeMock.linkGroupToSpaceAtomic.mockResolvedValue(true)
+      sinksStoreMock.disableStaleGroupSinks.mockRejectedValue(new Error('db down'))
+
+      const body = makeBody([groupTextEvent('AB2CD3EF')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(replyMock).toHaveBeenCalledTimes(1)
     })
 
     it('既に紐付け済みグループへのコード形状テキストは通常メッセージ扱い', async () => {

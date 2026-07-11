@@ -61,3 +61,58 @@ export async function notifySinkBecameError(sinkId: string, orgId: string): Prom
     console.error('notifySinkBecameError: upsert failed', error)
   }
 }
+
+/**
+ * グループ再リンク（新世代作成）で無効化されたsinkのorg owner/admin向け通知
+ * （受け入れ基準12。§10）。displayNameは呼び出し側（rpc_disable_stale_group_sinksの
+ * 返り値）から渡されるためintegration_sinksの再取得は不要（notifySinkBecameErrorとの違い）。
+ *
+ * dedupe_keyはnotifySinkBecameErrorの'sink_error:'プレフィックスと別名前空間にし、
+ * 同日中に両方の通知が届くべきケース（例: エラー停止後に誤って再リンクした等）で
+ * 互いのdedupeに巻き込まれないようにする。
+ */
+export async function notifySinkDisabledForRelink(
+  sinkId: string,
+  orgId: string,
+  displayName: string,
+): Promise<void> {
+  const client = createAdminClient() as SupabaseClient
+
+  const [{ data: space }, { data: admins }] = await Promise.all([
+    client.from('spaces').select('id').eq('org_id', orgId).order('created_at', { ascending: true }).limit(1).maybeSingle(),
+    client.from('org_memberships').select('user_id').eq('org_id', orgId).in('role', ['owner', 'admin']),
+  ])
+
+  if (!space) {
+    console.error('notifySinkDisabledForRelink: org has no space to attach the notification to', orgId)
+    return
+  }
+
+  const recipients = ((admins as Array<{ user_id: string }> | null) ?? []).map((m) => m.user_id)
+  if (recipients.length === 0) return
+
+  const dayBucket = formatDateToLocalString(new Date())
+
+  const rows = recipients.map((toUserId) => ({
+    org_id: orgId,
+    space_id: (space as { id: string }).id,
+    to_user_id: toUserId,
+    channel: 'in_app',
+    type: 'sink_disabled_relink',
+    dedupe_key: `sink_disabled_relink:${sinkId}:${dayBucket}`,
+    payload: {
+      sink_id: sinkId,
+      title: '連携: グループの再リンクによりシンクを無効化しました',
+      message: `グループの再リンク（付け替え）により、「${displayName}」への配達を停止しました。必要であれば設定を確認し再度有効化してください。`,
+      link: `/${orgId}/secretary/integrations`,
+    },
+  }))
+
+  const { error } = await client
+    .from('notifications')
+    .upsert(rows, { onConflict: 'to_user_id,channel,dedupe_key', ignoreDuplicates: true })
+  if (error) {
+    // ベストエフォート: 通知に失敗してもLINE webhookの主フローは継続させる
+    console.error('notifySinkDisabledForRelink: upsert failed', error)
+  }
+}

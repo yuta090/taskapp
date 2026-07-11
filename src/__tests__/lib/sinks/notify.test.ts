@@ -25,7 +25,7 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({ from: fromMock })),
 }))
 
-const { notifySinkBecameError } = await import('@/lib/sinks/notify')
+const { notifySinkBecameError, notifySinkDisabledForRelink } = await import('@/lib/sinks/notify')
 
 const ORG_ID = 'org-1'
 const SINK_ID = 'sink-1'
@@ -96,5 +96,69 @@ describe('notifySinkBecameError', () => {
     const [rows, options] = builder.upsert.mock.calls[0]
     expect(Array.isArray(rows)).toBe(true)
     expect(options).toEqual({ onConflict: 'to_user_id,channel,dedupe_key', ignoreDuplicates: true })
+  })
+})
+
+/**
+ * AC12(docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §10): グループ再リンク(新世代作成)で
+ * disabledになったsinkのorg owner/adminへの通知。displayNameは呼び出し側
+ * (rpc_disable_stale_group_sinksの返り値)から渡されるためintegration_sinksの再取得は不要。
+ */
+describe('notifySinkDisabledForRelink', () => {
+  const SINK_DISPLAY_NAME = 'Notion連携'
+
+  it('inserts one in_app notification per owner/admin, mentioning the sink name and relink reason', async () => {
+    await notifySinkDisabledForRelink(SINK_ID, ORG_ID, SINK_DISPLAY_NAME)
+
+    expect(fromMock.mock.calls.some(([table]) => table === 'integration_sinks')).toBe(false)
+
+    const notificationsCall = fromMock.mock.calls.find(([table]) => table === 'notifications')
+    expect(notificationsCall).toBeDefined()
+    const builder = fromMock.mock.results[fromMock.mock.calls.indexOf(notificationsCall!)].value
+    const rows = builder.upsert.mock.calls[0][0] as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => r.to_user_id).sort()).toEqual(['admin-1', 'owner-1'])
+    for (const row of rows) {
+      expect(row.space_id).toBe('space-1')
+      expect(row.org_id).toBe(ORG_ID)
+      expect(row.channel).toBe('in_app')
+      expect(row.type).toBe('sink_disabled_relink')
+      expect((row.payload as { message: string }).message).toContain(SINK_DISPLAY_NAME)
+    }
+  })
+
+  it('does nothing (no throw) when the org has no space to attach to', async () => {
+    fromResponses.spaces = { data: null, error: null }
+    await expect(
+      notifySinkDisabledForRelink(SINK_ID, ORG_ID, SINK_DISPLAY_NAME),
+    ).resolves.toBeUndefined()
+    const notificationsCall = fromMock.mock.calls.find(([table]) => table === 'notifications')
+    expect(notificationsCall).toBeUndefined()
+  })
+
+  it('does nothing when there are no owner/admin recipients', async () => {
+    fromResponses.org_memberships = { data: [], error: null }
+    await notifySinkDisabledForRelink(SINK_ID, ORG_ID, SINK_DISPLAY_NAME)
+    const notificationsCall = fromMock.mock.calls.find(([table]) => table === 'notifications')
+    expect(notificationsCall).toBeUndefined()
+  })
+
+  it('swallows insert errors (best-effort; never throws)', async () => {
+    fromResponses.notifications = { data: null, error: { message: 'conflict' } }
+    await expect(
+      notifySinkDisabledForRelink(SINK_ID, ORG_ID, SINK_DISPLAY_NAME),
+    ).resolves.toBeUndefined()
+  })
+
+  it('uses a dedupe_key distinct from sink_error so the same-day error notification is unaffected', async () => {
+    await notifySinkDisabledForRelink(SINK_ID, ORG_ID, SINK_DISPLAY_NAME)
+    const notificationsCall = fromMock.mock.calls.find(([table]) => table === 'notifications')
+    const builder = fromMock.mock.results[fromMock.mock.calls.indexOf(notificationsCall!)].value
+    const rows = builder.upsert.mock.calls[0][0] as Array<Record<string, unknown>>
+    for (const row of rows) {
+      expect(row.dedupe_key).toContain('sink_disabled_relink')
+      expect(row.dedupe_key).toContain(SINK_ID)
+    }
   })
 })
