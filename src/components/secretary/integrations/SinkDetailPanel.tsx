@@ -11,6 +11,7 @@ import {
   type SinkMeta,
   type ViewerRole,
   type NotionConnectionStatus,
+  type TestSinkDeliveryResult,
 } from '@/lib/hooks/useSinks'
 import { SinkStatusPill } from '@/components/secretary/integrations/statusPill'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
@@ -31,12 +32,6 @@ const EVENT_LABEL: Record<string, string> = {
   'task.reopened': '再オープン',
 }
 
-interface TestOutcome {
-  ok: boolean
-  responseStatus?: number
-  error?: string
-}
-
 /**
  * 右カラム: sinkの設定・有効/無効・secretローテーション・テスト配達・配達ログ。
  * 保存ボタンは持たず、フィールド操作のたびに即時mutateする(optimistic update)。
@@ -51,7 +46,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
   const [urlDraft, setUrlDraft] = useState((sink.config.url as string | undefined) ?? '')
   const [databaseIdDraft, setDatabaseIdDraft] = useState((sink.config.database_id as string | undefined) ?? '')
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<TestOutcome | null>(null)
+  const [testResult, setTestResult] = useState<TestSinkDeliveryResult | null>(null)
 
   const updateSink = useUpdateSink()
   const testSinkDelivery = useTestSinkDelivery()
@@ -116,7 +111,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
   const handleTestDelivery = async () => {
     try {
       const result = await testSinkDelivery.mutateAsync(sink.id)
-      setTestResult(result.outcome as TestOutcome)
+      setTestResult(result)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'テスト配達に失敗しました')
     }
@@ -257,8 +252,8 @@ export function SinkDetailPanel({ orgId, sink, viewerRole, notionConnection }: S
         )}
 
         {testResult && (
-          <p className={`text-xs ${testResult.ok ? 'text-green-600' : 'text-red-600'}`}>
-            {testResult.ok
+          <p className={`text-xs ${testResult.outcome === 'sent' ? 'text-green-600' : 'text-red-600'}`}>
+            {testResult.outcome === 'sent'
               ? `テスト配達に成功しました（HTTPステータス: ${testResult.responseStatus ?? '-'}）`
               : `テスト配達に失敗しました: ${testResult.error ?? `HTTPステータス: ${testResult.responseStatus ?? '-'}`}`}
           </p>

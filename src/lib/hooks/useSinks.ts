@@ -264,14 +264,27 @@ export function useUpdateSink() {
   })
 }
 
+/**
+ * テスト配達結果。webhook(ping)/notion(database query)どちらもこの共通形状で返る
+ * （PR-3レビュー対応: 以前はwebhookが文字列・notionがオブジェクトで形状が割れていた）。
+ * notionのdeliveryIdはping行を作らないためnull。error/responseStatusは失敗時の
+ * 診断情報（webhookは現状responseStatus/errorを返さないためoptional）。
+ */
+export interface TestSinkDeliveryResult {
+  deliveryId: string | null
+  outcome: 'sent' | 'failed' | 'dead'
+  responseStatus?: number
+  error?: string
+}
+
 /** テスト配達（POST /sinks/[id]/test、event:'ping'）。結果を同期的に返す */
 export function useTestSinkDelivery() {
   return useMutation({
-    mutationFn: async (sinkId: string): Promise<{ deliveryId: string; outcome: unknown }> => {
+    mutationFn: async (sinkId: string): Promise<TestSinkDeliveryResult> => {
       const response = await fetch(`/api/integrations/sinks/${sinkId}/test`, { method: 'POST' })
       const json = await response.json()
       if (!response.ok) throw new Error(json.error ?? 'テスト配達に失敗しました')
-      return json as { deliveryId: string; outcome: unknown }
+      return json as TestSinkDeliveryResult
     },
   })
 }

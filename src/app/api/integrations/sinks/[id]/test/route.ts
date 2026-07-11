@@ -41,8 +41,15 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   }
 
   if (sink.provider === 'notion') {
-    const outcome = await testNotionConnection(sink)
-    return NextResponse.json({ deliveryId: null, outcome })
+    // webhook側(dispatchClaimedDelivery)のoutcome形状('sent'|'failed'|'dead'の文字列)に
+    // 揃える。notionはHTTPレスポンスの詳細を持つため、error/responseStatusを併記する。
+    const result = await testNotionConnection(sink)
+    return NextResponse.json({
+      deliveryId: null,
+      outcome: result.ok ? 'sent' : 'failed',
+      ...(result.responseStatus !== undefined ? { responseStatus: result.responseStatus } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {}),
+    })
   }
 
   const delivery = await insertPingDelivery({ id: sinkId, orgId })

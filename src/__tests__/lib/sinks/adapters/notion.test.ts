@@ -128,6 +128,53 @@ describe('deliverNotion', () => {
     expect(saveExternalRefMock).not.toHaveBeenCalled()
   })
 
+  it('URL-encodes the stored ref before embedding it in the PATCH path', async () => {
+    // page_id自体はNotionのUUID形式だが、defense-in-depthとしてURLパス埋め込み前に
+    // encodeURIComponentを通すことを検証する(レビュー指摘・Minor#4)。
+    findExternalRefMock.mockResolvedValue('page id/with?special&chars')
+    fetchMock.mockResolvedValue(jsonResponse(200, { id: 'page-existing' }))
+
+    await deliverNotion(SINK, delivery())
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe(`https://api.notion.com/v1/pages/${encodeURIComponent('page id/with?special&chars')}`)
+  })
+
+  it('URL-encodes the conflict-fallback ref before embedding it in the PATCH path', async () => {
+    findExternalRefMock.mockResolvedValue(null)
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { id: 'page-orphan' }))
+      .mockResolvedValueOnce(jsonResponse(200, { id: 'page-winner' }))
+    saveExternalRefMock.mockResolvedValue({ outcome: 'conflict', existingRef: 'winner id/with space' })
+
+    await deliverNotion(SINK, delivery())
+
+    const [url] = fetchMock.mock.calls[1]
+    expect(url).toBe(`https://api.notion.com/v1/pages/${encodeURIComponent('winner id/with space')}`)
+  })
+
+  it('retries saveExternalRef once immediately on a non-conflict error, then succeeds', async () => {
+    findExternalRefMock.mockResolvedValue(null)
+    fetchMock.mockResolvedValue(jsonResponse(200, { id: 'page-abc' }))
+    saveExternalRefMock
+      .mockRejectedValueOnce(new Error('sink_external_refs: insert failed: connection reset'))
+      .mockResolvedValueOnce({ outcome: 'inserted' })
+
+    const result = await deliverNotion(SINK, delivery())
+
+    expect(result.ok).toBe(true)
+    expect(saveExternalRefMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('propagates the error when saveExternalRef fails twice in a row (delivery stays unresolved for redelivery)', async () => {
+    findExternalRefMock.mockResolvedValue(null)
+    fetchMock.mockResolvedValue(jsonResponse(200, { id: 'page-abc' }))
+    saveExternalRefMock.mockRejectedValue(new Error('sink_external_refs: insert failed: db down'))
+
+    await expect(deliverNotion(SINK, delivery())).rejects.toThrow('db down')
+    expect(saveExternalRefMock).toHaveBeenCalledTimes(2)
+  })
+
   it('acceptance #13: a done delivery arriving before created creates the page in done state, and the later created delivery is absorbed into an update (no duplicate page)', async () => {
     // 1st delivery: task.done arrives first, no ref yet -> creates page in done state
     findExternalRefMock.mockResolvedValueOnce(null)

@@ -84,7 +84,9 @@ describe('POST /api/integrations/sinks/[id]/test', () => {
     )
   })
 
-  it('notion sinks are verified via a database query instead of a ping delivery (no page is created)', async () => {
+  // レビュー指摘(Minor): webhookはoutcomeが'sent'|'failed'|'dead'の文字列。notionも
+  // 同じ形状に揃え(成功→'sent'/失敗→'failed')、error/responseStatusは併記フィールドにする。
+  it('notion sinks are verified via a database query instead of a ping delivery (no page is created); success maps to outcome:"sent"', async () => {
     const NOTION_SINK = { id: SINK_ID, provider: 'notion' as const, accessToken: 'tok', databaseId: 'db-1' }
     sinksStoreMock.findDeliverableSink.mockResolvedValue(NOTION_SINK)
     testNotionConnectionMock.mockResolvedValue({ ok: true, responseStatus: 200 })
@@ -93,9 +95,21 @@ describe('POST /api/integrations/sinks/[id]/test', () => {
     const data = await response.json()
 
     expect(response.status).toBe(200)
-    expect(data).toEqual({ deliveryId: null, outcome: { ok: true, responseStatus: 200 } })
+    expect(data).toEqual({ deliveryId: null, outcome: 'sent', responseStatus: 200 })
     expect(testNotionConnectionMock).toHaveBeenCalledWith(NOTION_SINK)
     expect(sinksStoreMock.insertPingDelivery).not.toHaveBeenCalled()
     expect(dispatchClaimedDeliveryMock).not.toHaveBeenCalled()
+  })
+
+  it('notion failures map to outcome:"failed" with the adapter error text attached', async () => {
+    const NOTION_SINK = { id: SINK_ID, provider: 'notion' as const, accessToken: 'tok', databaseId: 'db-1' }
+    sinksStoreMock.findDeliverableSink.mockResolvedValue(NOTION_SINK)
+    testNotionConnectionMock.mockResolvedValue({ ok: false, responseStatus: 401, error: 'unauthorized' })
+
+    const response = await callPost()
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data).toEqual({ deliveryId: null, outcome: 'failed', responseStatus: 401, error: 'unauthorized' })
   })
 })

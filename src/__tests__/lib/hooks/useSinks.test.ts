@@ -361,10 +361,10 @@ describe('useUpdateSink', () => {
 describe('useTestSinkDelivery', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('POST /sinks/[id]/test を呼び、結果を返す', async () => {
+  it('POST /sinks/[id]/test を呼び、結果を返す(outcomeは webhook/notion共通の文字列形状)', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ deliveryId: 'd-1', outcome: { ok: true, responseStatus: 200 } }),
+      json: async () => ({ deliveryId: 'd-1', outcome: 'sent', responseStatus: 200 }),
     })
     const { result } = renderHook(() => useTestSinkDelivery(), { wrapper: createWrapper() })
 
@@ -374,7 +374,22 @@ describe('useTestSinkDelivery', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith('/api/integrations/sinks/sink-1/test', { method: 'POST' })
-    expect(response).toEqual({ deliveryId: 'd-1', outcome: { ok: true, responseStatus: 200 } })
+    expect(response).toEqual({ deliveryId: 'd-1', outcome: 'sent', responseStatus: 200 })
+  })
+
+  it('失敗時はerror文字列を含めて返す(notion由来)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ deliveryId: null, outcome: 'failed', responseStatus: 401, error: 'unauthorized' }),
+    })
+    const { result } = renderHook(() => useTestSinkDelivery(), { wrapper: createWrapper() })
+
+    let response: unknown
+    await act(async () => {
+      response = await result.current.mutateAsync('sink-2')
+    })
+
+    expect(response).toEqual({ deliveryId: null, outcome: 'failed', responseStatus: 401, error: 'unauthorized' })
   })
 })
 

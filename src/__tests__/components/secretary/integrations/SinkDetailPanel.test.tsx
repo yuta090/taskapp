@@ -157,8 +157,8 @@ describe('SinkDetailPanel', () => {
     expect(updateSinkMutateAsyncMock).not.toHaveBeenCalled()
   })
 
-  it('テスト配達ボタンで結果を表示する', async () => {
-    testSinkMutateAsyncMock.mockResolvedValue({ deliveryId: 'd-1', outcome: { ok: true, responseStatus: 200 } })
+  it('テスト配達ボタンで成功結果を表示する(outcome:"sent")', async () => {
+    testSinkMutateAsyncMock.mockResolvedValue({ deliveryId: 'd-1', outcome: 'sent', responseStatus: 200 })
     render(<SinkDetailPanel orgId="org-1" sink={sink()} viewerRole="owner" />)
 
     await act(async () => {
@@ -167,6 +167,24 @@ describe('SinkDetailPanel', () => {
 
     expect(testSinkMutateAsyncMock).toHaveBeenCalledWith('sink-1')
     expect(screen.getByText(/200/)).toBeInTheDocument()
+  })
+
+  it('テスト配達ボタンで失敗結果とエラー文言を表示する(outcome:"failed")', async () => {
+    testSinkMutateAsyncMock.mockResolvedValue({
+      deliveryId: null,
+      outcome: 'failed',
+      responseStatus: 401,
+      error: 'unauthorized',
+    })
+    render(<SinkDetailPanel orgId="org-1" sink={sink()} viewerRole="owner" />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'テスト配達' }))
+    })
+
+    const message = screen.getByText(/テスト配達に失敗しました/)
+    expect(message).toHaveTextContent('unauthorized')
+    expect(message).toHaveClass('text-red-600')
   })
 
   it('member(owner/adminでない)は編集不可（inputはdisabled、操作系ボタンなし）', () => {

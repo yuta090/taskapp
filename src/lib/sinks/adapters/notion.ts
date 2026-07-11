@@ -12,6 +12,10 @@ import { findExternalRef, saveExternalRef } from '@/lib/sinks/store'
  * 返すだけで、HTTPステータスがある失敗はdispatcher側のclassifyDeliveryFailureに分類を委ねる
  * (401/403/404/400/422→permanent, 429/5xx→temporary は既存分類と一致するため重複させない)。
  * ローカル検証で弾く場合（不正なdatabase_id・タスクを伴わない配達）だけpermanent:trueを明示する。
+ *
+ * 既知の限界（受け入れ基準13の脚注参照）: ページ作成→ref保存は非原子のため、作成直後の
+ * プロセス断・DB瞬断・並行配達の競合では稀に重複ページが残り得る(at-least-once の残存
+ * ウィンドウ、v1許容)。saveExternalRefWithRetryで非23505エラーの窓は縮めるが解消はしない。
  */
 
 export interface NotionSink {
@@ -114,6 +118,32 @@ function toAdapterResult(result: NotionFetchResult): AdapterResult {
 }
 
 /**
+ * page_idはNotionのUUID形式で信頼できる想定だが、URLパスへ埋め込む前に
+ * defense-in-depthとしてencodeURIComponentを通す(レビュー指摘)。
+ */
+function pagePath(pageId: string): string {
+  return `/pages/${encodeURIComponent(pageId)}`
+}
+
+/**
+ * saveExternalRefが非23505エラー(DB瞬断等)で失敗した場合に1回だけ即時リトライする。
+ * レビュー対応(受け入れ基準13の残存ウィンドウ縮小、脚注参照): ページ作成→ref保存は
+ * 非原子のため、この窓を完全には塞げない(v1許容)。2回目も失敗したら呼び出し元へ
+ * そのままthrowし、deliveryを未確定のまま残して再配達に委ねる。
+ */
+async function saveExternalRefWithRetry(
+  sinkId: string,
+  digestTaskId: string,
+  externalRef: string,
+): Promise<Awaited<ReturnType<typeof saveExternalRef>>> {
+  try {
+    return await saveExternalRef(sinkId, digestTaskId, externalRef)
+  } catch {
+    return await saveExternalRef(sinkId, digestTaskId, externalRef)
+  }
+}
+
+/**
  * ページpropertyマッピング(v1固定スキーマ、database側は顧客が用意する前提):
  * 名前(title)=タイトル、ステータス(rich_text)=status、担当(rich_text)=assignee_hint、
  * 出典(rich_text)=group/space名、発生時刻(date)=occurred_at。
@@ -154,7 +184,7 @@ export async function deliverNotion(
 
   const existingRef = await findExternalRef(sink.id, delivery.digestTaskId)
   if (existingRef) {
-    const result = await notionFetch(`/pages/${existingRef}`, sink.accessToken, {
+    const result = await notionFetch(pagePath(existingRef), sink.accessToken, {
       method: 'PATCH',
       body: { properties },
     })
@@ -174,12 +204,14 @@ export async function deliverNotion(
     return { ok: false, permanent: true, error: 'notion_adapter: create response missing id' }
   }
 
-  const saveResult = await saveExternalRef(sink.id, delivery.digestTaskId, pageId)
+  const saveResult = await saveExternalRefWithRetry(sink.id, delivery.digestTaskId, pageId)
   if (saveResult.outcome === 'conflict') {
     // 並行配達でrefが先に確定していた場合: そちらのページを正としてこのイベントの
     // 新しいスナップショットでPATCHする。作成したページは孤児になり得るが、
-    // ref一意性(sink_id, digest_task_id)を保ち二重ページの参照を作らないことを優先する。
-    const fallbackResult = await notionFetch(`/pages/${saveResult.existingRef}`, sink.accessToken, {
+    // ref一意性(sink_id, digest_task_id)を保ち二重ページの参照を作らないことを優先する
+    // (docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md 受け入れ基準13の脚注: v1許容の
+    // 残存ウィンドウとして明文化済み)。
+    const fallbackResult = await notionFetch(pagePath(saveResult.existingRef), sink.accessToken, {
       method: 'PATCH',
       body: { properties },
     })
