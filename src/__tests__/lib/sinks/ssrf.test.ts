@@ -12,7 +12,26 @@ vi.mock('node:dns/promises', () => ({
   lookup: (...args: unknown[]) => lookupMock(...args),
 }))
 
-const { validateWebhookUrl, isDeniedIp } = await import('@/lib/sinks/ssrf')
+// m4: undici側をモックし、safeFetchが実際に渡すAgentのconnect.lookupを検証できるようにする
+const agentConstructorMock = vi.fn()
+const agentCloseMock = vi.fn(() => Promise.resolve())
+class MockAgent {
+  options: Record<string, unknown>
+  constructor(options: Record<string, unknown>) {
+    this.options = options
+    agentConstructorMock(options)
+  }
+  close() {
+    return agentCloseMock()
+  }
+}
+const undiciFetchMock = vi.fn()
+vi.mock('undici', () => ({
+  Agent: MockAgent,
+  fetch: (...args: unknown[]) => undiciFetchMock(...args),
+}))
+
+const { validateWebhookUrl, isDeniedIp, safeFetch } = await import('@/lib/sinks/ssrf')
 
 function mockDns(addresses: Array<{ address: string; family: 4 | 6 }>) {
   lookupMock.mockResolvedValue(addresses)
@@ -120,5 +139,62 @@ describe('validateWebhookUrl', () => {
     const result = await validateWebhookUrl('https://doesnotexist.invalid/hook')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toBe('dns_resolution_failed')
+  })
+})
+
+describe('safeFetch (DNS pinning)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    undiciFetchMock.mockResolvedValue({ status: 200, text: () => Promise.resolve('') })
+  })
+
+  // m4: DNS rebinding対策の核。validateWebhookUrlで確定したIPだけに接続を固定し、
+  // 実際の接続時(connect.lookup)には再度DNS解決しない(=登録時public→配送時private
+  // への差し替えが効かない)ことを保証する回帰テスト。
+  it('pins the connection to the IP resolved during validation and does not re-resolve DNS at connect time', async () => {
+    mockDns([{ address: '8.8.8.8', family: 4 }])
+
+    await safeFetch('https://public.example.com/hook', { method: 'POST', body: '{}' })
+
+    // 検証フェーズでdns.lookupが呼ばれるのは1回だけ(safeFetch内で再解決しない)
+    expect(lookupMock).toHaveBeenCalledTimes(1)
+
+    expect(agentConstructorMock).toHaveBeenCalledTimes(1)
+    const agentOptions = agentConstructorMock.mock.calls[0][0] as {
+      connect: { lookup: (...args: unknown[]) => void }
+    }
+    const customLookup = agentOptions.connect.lookup
+    expect(typeof customLookup).toBe('function')
+
+    // undici/nodeの内部コネクタが実際の接続時にこの関数を呼んでも、
+    // 渡されたhostnameに関わらず検証済みIPだけを返す(=DNSを再度引かない)
+    const callback = vi.fn()
+    customLookup('attacker-controlled-hostname.example', { all: true }, callback)
+    expect(callback).toHaveBeenCalledWith(null, [{ address: '8.8.8.8', family: 4 }])
+
+    // customLookup呼び出し後もdns.lookupの呼び出し回数は増えない(接続時の再解決が無い証拠)
+    expect(lookupMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('pins an IPv6 resolved address with family=6', async () => {
+    mockDns([{ address: '2001:4860:4860::8888', family: 6 }])
+
+    await safeFetch('https://public.example.com/hook')
+
+    const agentOptions = agentConstructorMock.mock.calls[0][0] as {
+      connect: { lookup: (...args: unknown[]) => void }
+    }
+    const callback = vi.fn()
+    agentOptions.connect.lookup('public.example.com', { all: true }, callback)
+    expect(callback).toHaveBeenCalledWith(null, [{ address: '2001:4860:4860::8888', family: 6 }])
+  })
+
+  it('never calls the real undici fetch when SSRF validation fails', async () => {
+    mockDns([{ address: '169.254.169.254', family: 4 }])
+    const result = await safeFetch('https://metadata.example.com/hook')
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('ssrf_blocked:ip_denied')
+    expect(undiciFetchMock).not.toHaveBeenCalled()
+    expect(agentConstructorMock).not.toHaveBeenCalled()
   })
 })
