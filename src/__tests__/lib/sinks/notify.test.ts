@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 function chain(response: any) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {}
-  for (const m of ['select', 'eq', 'in', 'order', 'limit', 'insert']) {
+  for (const m of ['select', 'eq', 'in', 'order', 'limit', 'insert', 'upsert']) {
     builder[m] = vi.fn(() => builder)
   }
   builder.maybeSingle = vi.fn(() => Promise.resolve(response))
@@ -48,7 +48,7 @@ describe('notifySinkBecameError', () => {
     const notificationsCall = fromMock.mock.calls.find(([table]) => table === 'notifications')
     expect(notificationsCall).toBeDefined()
     const builder = fromMock.mock.results[fromMock.mock.calls.indexOf(notificationsCall!)].value
-    const rows = builder.insert.mock.calls[0][0] as Array<Record<string, unknown>>
+    const rows = builder.upsert.mock.calls[0][0] as Array<Record<string, unknown>>
 
     expect(rows).toHaveLength(2)
     expect(rows.map((r) => r.to_user_id).sort()).toEqual(['admin-1', 'owner-1'])
@@ -78,5 +78,23 @@ describe('notifySinkBecameError', () => {
   it('swallows insert errors (best-effort; never throws)', async () => {
     fromResponses.notifications = { data: null, error: { message: 'conflict' } }
     await expect(notifySinkBecameError(SINK_ID, ORG_ID)).resolves.toBeUndefined()
+  })
+
+  // m2回帰テスト: 同日中に再エラー(再有効化→再エラー)が起きると、同じdedupe_keyでの
+  // 素の.insert()はunique(to_user_id,channel,dedupe_key)違反でバッチ全体が失敗し、
+  // 一部の担当者だけでなく通知が0件になる。upsert+ignoreDuplicatesで
+  // 「既存の同キー通知はスキップ・新規担当者へは届く」を保証する。
+  it('uses upsert with onConflict + ignoreDuplicates instead of a plain insert (avoids the whole batch failing on a same-day dedupe_key collision)', async () => {
+    await notifySinkBecameError(SINK_ID, ORG_ID)
+
+    expect(fromMock.mock.calls.some(([table]) => table === 'notifications')).toBe(true)
+    const notificationsCall = fromMock.mock.calls.find(([table]) => table === 'notifications')
+    const builder = fromMock.mock.results[fromMock.mock.calls.indexOf(notificationsCall!)].value
+
+    expect(builder.insert).not.toHaveBeenCalled()
+    expect(builder.upsert).toHaveBeenCalledTimes(1)
+    const [rows, options] = builder.upsert.mock.calls[0]
+    expect(Array.isArray(rows)).toBe(true)
+    expect(options).toEqual({ onConflict: 'to_user_id,channel,dedupe_key', ignoreDuplicates: true })
   })
 })

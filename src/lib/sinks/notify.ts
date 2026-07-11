@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
- * sinkがconsecutive_failures>20でstatus='error'になった際のorg内部向け通知（§2-2）。
+ * sinkがconsecutive_failures>=20でstatus='error'になった際のorg内部向け通知（§2-2。
+ * m5: 「20連続失敗」の文言・通知メッセージとちょうど一致するよう、20回目の失敗で発火する）。
  *
  * notifications表はspace_id NOT NULLだが、sinkはorg全体スコープ(group_id=NULL)もあり得るため
  * 自然なspaceが無い。org内で最も古いspaceを便宜上の入れ物として使う
@@ -48,9 +49,15 @@ export async function notifySinkBecameError(sinkId: string, orgId: string): Prom
     },
   }))
 
-  const { error } = await client.from('notifications').insert(rows)
+  // upsert+ignoreDuplicates(素のinsertではない): 同日中の再有効化→再エラーで
+  // 既存行とdedupe_keyが衝突すると、素のinsertはunique(to_user_id,channel,dedupe_key)違反で
+  // バッチ全体が失敗し通知が0件になる(m2)。ignoreDuplicatesなら衝突行だけスキップされ、
+  // 新規担当者へは正しく届く。
+  const { error } = await client
+    .from('notifications')
+    .upsert(rows, { onConflict: 'to_user_id,channel,dedupe_key', ignoreDuplicates: true })
   if (error) {
     // ベストエフォート: 通知に失敗してもdispatcher本体は継続させる
-    console.error('notifySinkBecameError: insert failed', error)
+    console.error('notifySinkBecameError: upsert failed', error)
   }
 }
