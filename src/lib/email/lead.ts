@@ -31,6 +31,16 @@ export interface SendLeadNotificationEmailParams {
   name?: string
   company?: string
   message?: string
+  extra?: Record<string, string>
+}
+
+// ステップフォーム等の追加回答キー → 通知メールでの見出し
+const EXTRA_LABELS: Record<string, string> = {
+  partnerCount: 'やり取りする相手の件数',
+  channels: 'いまの連絡手段',
+  pain: '困っていること',
+  teamSize: 'チーム人数',
+  currentTool: '現在のツール',
 }
 
 /**
@@ -50,6 +60,9 @@ export async function sendLeadNotificationEmail(params: SendLeadNotificationEmai
     ['会社名', params.company],
     ['メール', params.email],
     ['メッセージ', params.message],
+    ...Object.entries(params.extra ?? {}).map(
+      ([key, value]): [string, string | undefined] => [EXTRA_LABELS[key] ?? key, value]
+    ),
   ]
   const html = `
     <h2>新しい相談リード（${escapeHtml(params.source)}）</h2>
