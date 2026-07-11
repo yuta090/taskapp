@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getGoogleOAuthUrl, isGoogleCalendarFullyConfigured } from '@/lib/google-calendar/config'
 import { getZoomOAuthUrl, isZoomOAuthConfigured } from '@/lib/zoom/config'
 import { getTeamsOAuthUrl, isTeamsOAuthConfigured } from '@/lib/teams/config'
+import { getNotionOAuthUrl, isNotionOAuthConfigured } from '@/lib/notion/config'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -91,6 +92,15 @@ export async function GET(
 
       const state = createSignedState(provider, orgId, user.id)
       return NextResponse.redirect(getTeamsOAuthUrl(state))
+    }
+
+    if (provider === 'notion') {
+      if (!isNotionOAuthConfigured()) {
+        return NextResponse.json({ error: 'Notion OAuth is not configured' }, { status: 503 })
+      }
+
+      const state = createSignedState(provider, orgId, user.id)
+      return NextResponse.redirect(getNotionOAuthUrl(state))
     }
 
     return NextResponse.json(

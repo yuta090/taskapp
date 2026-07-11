@@ -32,6 +32,8 @@ vi.mock('@/lib/sinks/ssrf', () => ({
 
 const sinksStoreMock = {
   createWebhookSink: vi.fn(),
+  createNotionSink: vi.fn(),
+  findActiveNotionConnection: vi.fn(),
   listSinksForOrg: vi.fn(),
   findLatestDeliveryStatusForOrg: vi.fn(),
   ALLOWED_SINK_EVENTS: ['task.created', 'task.done', 'task.dismissed', 'task.reopened'],
@@ -65,6 +67,7 @@ describe('GET /api/integrations/sinks', () => {
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     sinksStoreMock.listSinksForOrg.mockResolvedValue([])
     sinksStoreMock.findLatestDeliveryStatusForOrg.mockResolvedValue(new Map())
+    sinksStoreMock.findActiveNotionConnection.mockResolvedValue(null)
   })
 
   it('401 when not logged in', async () => {
@@ -94,6 +97,23 @@ describe('GET /api/integrations/sinks', () => {
     expect(response.status).toBe(200)
     expect(data.sinks[0].lastDelivery.status).toBe('sent')
   })
+
+  it('includes notionConnection: connected=false when the org has no active Notion connection', async () => {
+    const response = await callGet(ORG_ID)
+    const data = await response.json()
+    expect(data.notionConnection).toEqual({ connected: false, workspaceName: null })
+  })
+
+  it('includes notionConnection: connected=true with the workspace name when active', async () => {
+    sinksStoreMock.findActiveNotionConnection.mockResolvedValue({
+      id: 'conn-1',
+      accessToken: 'secret_abc',
+      workspaceName: 'Acme Workspace',
+    })
+    const response = await callGet(ORG_ID)
+    const data = await response.json()
+    expect(data.notionConnection).toEqual({ connected: true, workspaceName: 'Acme Workspace' })
+  })
 })
 
 describe('POST /api/integrations/sinks', () => {
@@ -106,6 +126,12 @@ describe('POST /api/integrations/sinks', () => {
     sinksStoreMock.createWebhookSink.mockResolvedValue({
       sink: { id: 'sink-1', orgId: ORG_ID },
       secret: 'whsec_abc',
+    })
+    sinksStoreMock.createNotionSink.mockResolvedValue({ id: 'sink-2', orgId: ORG_ID, provider: 'notion' })
+    sinksStoreMock.findActiveNotionConnection.mockResolvedValue({
+      id: 'conn-1',
+      accessToken: 'secret_abc',
+      workspaceName: 'Acme Workspace',
     })
   })
 
@@ -122,10 +148,16 @@ describe('POST /api/integrations/sinks', () => {
     expect(response.status).toBe(403)
   })
 
-  it('400 for provider other than webhook', async () => {
-    const response = await callPost({ ...validBody, provider: 'notion' })
+  it('400 for provider=google_sheets (not yet available)', async () => {
+    const response = await callPost({ ...validBody, provider: 'google_sheets' })
     expect(response.status).toBe(400)
     expect(sinksStoreMock.createWebhookSink).not.toHaveBeenCalled()
+    expect(sinksStoreMock.createNotionSink).not.toHaveBeenCalled()
+  })
+
+  it('400 for an unknown provider string', async () => {
+    const response = await callPost({ ...validBody, provider: 'carrier-pigeon' })
+    expect(response.status).toBe(400)
   })
 
   it('400 when displayName is missing', async () => {
@@ -171,5 +203,52 @@ describe('POST /api/integrations/sinks', () => {
         createdBy: 'user-1',
       }),
     )
+  })
+
+  describe('provider=notion', () => {
+    const notionBody = {
+      orgId: ORG_ID,
+      provider: 'notion',
+      displayName: 'Notion連携',
+      config: { database_id: '12345678-1234-1234-1234-123456789012' },
+    }
+
+    it('400 when config.database_id is missing', async () => {
+      const response = await callPost({ ...notionBody, config: {} })
+      expect(response.status).toBe(400)
+      expect(sinksStoreMock.createNotionSink).not.toHaveBeenCalled()
+    })
+
+    it('400 when config.database_id has an invalid format (URL-path injection guard)', async () => {
+      const response = await callPost({ ...notionBody, config: { database_id: '../../etc/passwd' } })
+      expect(response.status).toBe(400)
+      expect(sinksStoreMock.createNotionSink).not.toHaveBeenCalled()
+    })
+
+    it('400 notion_not_connected when the org has no active Notion connection', async () => {
+      sinksStoreMock.findActiveNotionConnection.mockResolvedValue(null)
+      const response = await callPost(notionBody)
+      const data = await response.json()
+      expect(response.status).toBe(400)
+      expect(data.error).toBe('notion_not_connected')
+      expect(sinksStoreMock.createNotionSink).not.toHaveBeenCalled()
+    })
+
+    it('201 creates the sink without a secret in the response', async () => {
+      const response = await callPost(notionBody)
+      const data = await response.json()
+      expect(response.status).toBe(201)
+      expect(data.secret).toBeUndefined()
+      expect(sinksStoreMock.createNotionSink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: ORG_ID,
+          groupId: null,
+          displayName: 'Notion連携',
+          databaseId: '12345678-1234-1234-1234-123456789012',
+          connectionId: 'conn-1',
+          createdBy: 'user-1',
+        }),
+      )
+    })
   })
 })

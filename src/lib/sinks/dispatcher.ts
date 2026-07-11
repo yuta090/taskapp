@@ -3,9 +3,11 @@ import {
   completeSinkDelivery,
   findDeliverableSinksByIds,
   type ClaimedDelivery,
+  type DeliverableSink,
   type DeliveryOutcome,
 } from '@/lib/sinks/store'
-import { deliverWebhook, type WebhookSink } from '@/lib/sinks/adapters/webhook'
+import { deliverWebhook } from '@/lib/sinks/adapters/webhook'
+import { deliverNotion } from '@/lib/sinks/adapters/notion'
 import { classifyDeliveryFailure } from '@/lib/sinks/backoff'
 import { notifySinkBecameError } from '@/lib/sinks/notify'
 
@@ -28,14 +30,23 @@ type DeliveryOutcomeResult = 'sent' | 'failed' | 'dead'
 
 export async function dispatchClaimedDelivery(
   delivery: ClaimedDelivery,
-  sink: WebhookSink,
+  sink: DeliverableSink,
 ): Promise<DeliveryOutcomeResult> {
-  const result = await deliverWebhook(sink, {
-    id: delivery.id,
-    eventType: delivery.eventType,
-    eventKey: delivery.eventKey,
-    payload: delivery.payload,
-  })
+  const result =
+    sink.provider === 'notion'
+      ? await deliverNotion(sink, {
+          id: delivery.id,
+          digestTaskId: delivery.digestTaskId,
+          eventType: delivery.eventType,
+          eventKey: delivery.eventKey,
+          payload: delivery.payload,
+        })
+      : await deliverWebhook(sink, {
+          id: delivery.id,
+          eventType: delivery.eventType,
+          eventKey: delivery.eventKey,
+          payload: delivery.payload,
+        })
 
   if (result.ok) {
     await completeSinkDelivery({

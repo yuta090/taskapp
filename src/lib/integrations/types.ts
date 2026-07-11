@@ -1,6 +1,12 @@
 // Integration connection types for unified OAuth provider management
 
-export type IntegrationProvider = 'google_calendar' | 'zoom' | 'google_meet' | 'teams'
+export type IntegrationProvider =
+  | 'google_calendar'
+  | 'zoom'
+  | 'google_meet'
+  | 'teams'
+  | 'notion'
+  | 'google_sheets'
 
 export type ConnectionOwnerType = 'user' | 'org'
 

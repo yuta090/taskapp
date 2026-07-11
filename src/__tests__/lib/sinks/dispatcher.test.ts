@@ -19,6 +19,10 @@ vi.mock('@/lib/sinks/store', () => ({
 vi.mock('@/lib/sinks/adapters/webhook', () => ({
   deliverWebhook: (...args: unknown[]) => deliverWebhookMock(...args),
 }))
+const deliverNotionMock = vi.fn()
+vi.mock('@/lib/sinks/adapters/notion', () => ({
+  deliverNotion: (...args: unknown[]) => deliverNotionMock(...args),
+}))
 vi.mock('@/lib/sinks/notify', () => ({
   notifySinkBecameError: (...args: unknown[]) => notifySinkBecameErrorMock(...args),
 }))
@@ -163,6 +167,33 @@ describe('dispatchBatch', () => {
       expect.objectContaining({ outcome: 'permanent_fail', countsTowardFailures: false }),
     )
     expect(summary.dead).toBe(1)
+  })
+
+  it('routes notion sinks to deliverNotion instead of deliverWebhook (and passes digestTaskId through)', async () => {
+    const NOTION_SINK = {
+      id: 'sink-1',
+      provider: 'notion' as const,
+      accessToken: 'tok',
+      databaseId: '12345678-1234-1234-1234-123456789012',
+    }
+    findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', NOTION_SINK]]))
+    claimSinkDeliveriesMock.mockResolvedValue([delivery()])
+    deliverNotionMock.mockResolvedValue({ ok: true, responseStatus: 200 })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'sent',
+      sinkStatus: 'active',
+      consecutiveFailures: 0,
+      justBecameError: false,
+    })
+
+    const summary = await dispatchBatch()
+
+    expect(deliverWebhookMock).not.toHaveBeenCalled()
+    expect(deliverNotionMock).toHaveBeenCalledWith(
+      NOTION_SINK,
+      expect.objectContaining({ id: 'd1', digestTaskId: 'task-1', eventType: 'task.created' }),
+    )
+    expect(summary.sent).toBe(1)
   })
 
   it('collects per-delivery errors without aborting the whole batch', async () => {
