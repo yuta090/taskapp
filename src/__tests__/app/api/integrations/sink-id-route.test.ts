@@ -93,6 +93,27 @@ describe('PATCH /api/integrations/sinks/[id]', () => {
     expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
   })
 
+  // M1回帰テスト: config を送ったのに url を欠く(または空の) config が無言で永続化され、
+  // 以後の配送が全部 ssrf_blocked:invalid_url → dead になるバグを防ぐ。
+  it('400 when config is provided without a url (config={})', async () => {
+    const response = await callPatch({ config: {} })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+    expect(validateWebhookUrlMock).not.toHaveBeenCalled()
+  })
+
+  it('400 when config.url is an empty string', async () => {
+    const response = await callPatch({ config: { url: '' } })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('400 when config.url is not a string (e.g. null)', async () => {
+    const response = await callPatch({ config: { url: null } })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
   it('400 for events outside the allowed set', async () => {
     const response = await callPatch({ events: ['not.a.real.event'] })
     expect(response.status).toBe(400)

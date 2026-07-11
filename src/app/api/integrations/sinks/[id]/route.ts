@@ -58,12 +58,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   if (body.config !== undefined) {
+    // M1修正: config を送ったのにurlを欠く(または空の)configを許すと、無言でurl無しの
+    // configが永続化され、以後の配送が全部ssrf_blocked:invalid_url→deadになる。
+    // configを渡す以上、webhook sinkでは常にurlを必須とする(部分マージは許可しない)。
     const config = body.config as Record<string, unknown>
-    if (typeof config.url === 'string') {
-      const validation = await validateWebhookUrl(config.url)
-      if (!validation.ok) {
-        return NextResponse.json({ error: `invalid webhook url: ${validation.reason}` }, { status: 400 })
-      }
+    const url = typeof config.url === 'string' ? config.url : ''
+    if (!url) {
+      return NextResponse.json({ error: 'config.url is required' }, { status: 400 })
+    }
+    const validation = await validateWebhookUrl(url)
+    if (!validation.ok) {
+      return NextResponse.json({ error: `invalid webhook url: ${validation.reason}` }, { status: 400 })
     }
   }
 
