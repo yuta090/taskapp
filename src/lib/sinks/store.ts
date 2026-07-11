@@ -425,6 +425,27 @@ export async function redeliverSink(sinkId: string): Promise<number> {
   return (data as number) ?? 0
 }
 
+export interface DisabledStaleSink {
+  sinkId: string
+  orgId: string
+  displayName: string
+}
+
+/**
+ * グループ再リンク（新世代作成）時に旧世代 group_id を向いていた active な sink を
+ * disable する（受け入れ基準12）。呼び出し側（webhookHandler）は返り値を使って
+ * org owner/adminへ通知する。旧世代が無ければ空配列（例外にしない）。
+ */
+export async function disableStaleGroupSinks(newGroupId: string): Promise<DisabledStaleSink[]> {
+  const { data, error } = await admin().rpc('rpc_disable_stale_group_sinks', {
+    p_new_group_id: newGroupId,
+  })
+  if (error) throw new Error(`rpc_disable_stale_group_sinks failed: ${error.message}`)
+  return ((data as Array<{ out_sink_id: string; out_org_id: string; out_display_name: string }>) ?? []).map(
+    (row) => ({ sinkId: row.out_sink_id, orgId: row.out_org_id, displayName: row.out_display_name }),
+  )
+}
+
 /** テスト配達(event: 'ping')。dispatcherの通常キューを経由せず即時処理する前提の行を作る */
 export async function insertPingDelivery(sink: {
   id: string

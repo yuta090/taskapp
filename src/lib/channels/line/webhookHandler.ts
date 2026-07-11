@@ -18,6 +18,8 @@ import {
   type ValidLinkCode,
   type ChannelGroup,
 } from '@/lib/channels/store'
+import { disableStaleGroupSinks } from '@/lib/sinks/store'
+import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
 import {
   pushLineMessage,
   fetchLineMessageContent,
@@ -602,6 +604,19 @@ async function processGroupLinkCode(
   let currentGroup: ChannelGroup = group
   if (linked) {
     currentGroup = { ...group, spaceId: linkCode.spaceId }
+    // AC12(docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §10): 新世代への紐付けが
+    // 成立した＝再リンクの可能性がある。旧世代向けsinkを無効化し通知する。
+    // ベストエフォート: 失敗してもreply確認等の主フローは継続する。
+    try {
+      const disabledSinks = await disableStaleGroupSinks(group.id)
+      await Promise.all(
+        disabledSinks.map((sink) =>
+          notifySinkDisabledForRelink(sink.sinkId, sink.orgId, sink.displayName),
+        ),
+      )
+    } catch (error) {
+      console.error('processGroupLinkCode: disableStaleGroupSinks failed', error)
+    }
   } else {
     // レース: 既に他方が紐付け済み。現在値を再取得して整合させる
     currentGroup = (await findGroupById(group.id)) ?? group

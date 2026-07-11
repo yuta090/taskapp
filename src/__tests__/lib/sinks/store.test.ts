@@ -331,6 +331,41 @@ describe('reactivateSink / redeliverDelivery / redeliverSink', () => {
   })
 })
 
+describe('disableStaleGroupSinks', () => {
+  it('calls rpc_disable_stale_group_sinks and maps out_* columns to camelCase', async () => {
+    rpcResponses['rpc_disable_stale_group_sinks'] = {
+      data: [
+        { out_sink_id: 'sink-old-1', out_org_id: ORG_ID, out_display_name: 'Notion連携' },
+        { out_sink_id: 'sink-old-2', out_org_id: ORG_ID, out_display_name: '自社Webhook' },
+      ],
+      error: null,
+    }
+
+    const result = await store.disableStaleGroupSinks('group-new-1')
+
+    expect(rpcCalls[0]).toEqual({
+      fn: 'rpc_disable_stale_group_sinks',
+      args: { p_new_group_id: 'group-new-1' },
+    })
+    expect(result).toEqual([
+      { sinkId: 'sink-old-1', orgId: ORG_ID, displayName: 'Notion連携' },
+      { sinkId: 'sink-old-2', orgId: ORG_ID, displayName: '自社Webhook' },
+    ])
+  })
+
+  it('returns an empty array when there is no stale generation', async () => {
+    rpcResponses['rpc_disable_stale_group_sinks'] = { data: [], error: null }
+    expect(await store.disableStaleGroupSinks('group-new-1')).toEqual([])
+  })
+
+  it('throws with the RPC error message on failure', async () => {
+    rpcResponses['rpc_disable_stale_group_sinks'] = { data: null, error: { message: 'boom' } }
+    await expect(store.disableStaleGroupSinks('group-new-1')).rejects.toThrow(
+      'rpc_disable_stale_group_sinks failed: boom',
+    )
+  })
+})
+
 describe('insertPingDelivery', () => {
   it('generates a unique event_key per call (unique(sink_id, event_key) safety)', async () => {
     fromResponses['sink_deliveries'] = {

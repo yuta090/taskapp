@@ -7,6 +7,7 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { useChannelAccount } from '@/lib/hooks/useChannelAccount'
 import { useChannelIdentities } from '@/lib/hooks/useChannelIdentities'
 import { BotStatusHeader } from '@/components/secretary/BotStatusHeader'
+import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { SpaceConnectionList } from '@/components/secretary/SpaceConnectionList'
 import { MessageTimeline } from '@/components/secretary/MessageTimeline'
 
@@ -37,6 +38,7 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
+      <SecretaryTabNav orgId={orgId} activeTab="messages" />
       <BotStatusHeader
         account={account}
         viewerRole={viewerRole}
