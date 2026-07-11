@@ -301,8 +301,11 @@ async function handleNotionCallback(
  * Google Sheetsはnotionと同じくowner_type='org'でupsertする（org単位1接続。§1-1のunique制約）。
  * userIdはstate検証（本人確認）のみに使い、接続の帰属はorg単位のため保存には使わない。
  * リダイレクト先はnotionと同じ秘書コンソールの連携タブ。
- * refreshTokenがnullでも保存する（既存ユーザーの再認可漏れでrefresh_tokenが返らないケースがあり、
- * その場合はtoken-manager.refreshIfNeededが有効期限切れ後にstatus='expired'化して顕在化させる）。
+ * refreshTokenがnullの場合はupsertペイロードにrefresh_tokenキー自体を含めない
+ * （レビュー回帰対応: 含めるとon conflict時にnullで上書きされ、再認可(reconnect)で
+ * 既存の有効なrefresh_tokenを失ってしまう。省略すればon conflict時に既存値が保持される。
+ * 新規接続でrefreshTokenがnullなら、その行は初めからrefresh_tokenを持たない状態で作られ、
+ * token-manager.refreshIfNeededが有効期限切れ後にstatus='expired'化して顕在化させる）。
  */
 async function handleGoogleSheetsCallback(
   code: string,
@@ -313,24 +316,25 @@ async function handleGoogleSheetsCallback(
   try {
     const tokens = await exchangeGoogleSheetsCode(code)
 
+    const upsertPayload: Record<string, unknown> = {
+      provider: 'google_sheets',
+      owner_type: 'org',
+      owner_id: orgId,
+      org_id: orgId,
+      access_token: tokens.accessToken,
+      token_expires_at: tokens.expiresAt.toISOString(),
+      scopes: tokens.scopes,
+      status: 'active',
+      last_refreshed_at: new Date().toISOString(),
+      metadata: {},
+    }
+    if (tokens.refreshToken !== null) {
+      upsertPayload.refresh_token = tokens.refreshToken
+    }
+
     const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
       .from('integration_connections')
-      .upsert(
-        {
-          provider: 'google_sheets',
-          owner_type: 'org',
-          owner_id: orgId,
-          org_id: orgId,
-          access_token: tokens.accessToken,
-          refresh_token: tokens.refreshToken,
-          token_expires_at: tokens.expiresAt.toISOString(),
-          scopes: tokens.scopes,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {},
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
+      .upsert(upsertPayload, { onConflict: 'provider,owner_type,owner_id' })
 
     if (upsertError) {
       console.error('Google Sheets integration connection save failed:', upsertError)

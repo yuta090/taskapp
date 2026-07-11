@@ -97,7 +97,10 @@ describe('GET /api/integrations/callback/google_sheets', () => {
     )
   })
 
-  it('saves the connection even when Google omits a refresh_token (token-manager will expire it later)', async () => {
+  // レビュー回帰(Minor): refreshTokenがnullのとき、upsertペイロードにrefresh_tokenキーを
+  // 含めてしまうと、既存接続の再認可(reconnect)で保持していたrefresh_tokenをnullで
+  // 上書きしてしまう。省略すればon conflict時に既存値が保持される。
+  it('omits refresh_token from the upsert payload when Google omits it, so a reconnect does not null out an existing refresh_token', async () => {
     exchangeGoogleSheetsCodeMock.mockResolvedValue({
       accessToken: 'access-abc',
       refreshToken: null,
@@ -107,8 +110,10 @@ describe('GET /api/integrations/callback/google_sheets', () => {
     const state = signedState({ provider: 'google_sheets', orgId: ORG_ID, userId: USER_ID, ts: Date.now() })
     const response = await callGet('google_sheets', { code: 'auth-code-1', state })
 
+    const upsertPayload = upsertMock.mock.calls[0][0] as Record<string, unknown>
+    expect(upsertPayload).not.toHaveProperty('refresh_token')
     expect(upsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({ refresh_token: null }),
+      expect.objectContaining({ access_token: 'access-abc' }),
       { onConflict: 'provider,owner_type,owner_id' },
     )
     expect(response.status).toBe(307)

@@ -51,7 +51,7 @@ function delivery(overrides: Partial<Record<string, unknown>> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', SINK]]))
+  findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map([['sink-1', SINK]]), transientSinkIds: new Set() })
 })
 
 describe('dispatchBatch', () => {
@@ -156,7 +156,7 @@ describe('dispatchBatch', () => {
 
   it('handles an unresolvable sink (e.g. Notion/Sheets not implemented yet) as a permanent failure without calling the adapter', async () => {
     claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-unknown' })])
-    findDeliverableSinksByIdsMock.mockResolvedValue(new Map())
+    findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map(), transientSinkIds: new Set() })
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'dead',
       sinkStatus: 'active',
@@ -168,9 +168,36 @@ describe('dispatchBatch', () => {
 
     expect(deliverWebhookMock).not.toHaveBeenCalled()
     expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'permanent_fail', countsTowardFailures: false }),
+      expect.objectContaining({ outcome: 'permanent_fail', error: 'sink_not_deliverable', countsTowardFailures: false }),
     )
     expect(summary.dead).toBe(1)
+  })
+
+  // レビュー回帰(Major修正2): Google Sheetsのtoken refreshが一時障害(5xx/ネットワーク)で
+  // 失敗した場合、sink_not_deliverable(恒久)ではなくtemporary_fail(再試行)に落とす。
+  // store.findDeliverableSinksByIdsがtransientSinkIdsで区別して返す。
+  it('treats a sink whose resolution failed transiently (e.g. Google Sheets token refresh 5xx) as temporary_fail, not permanent', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient' })])
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map(),
+      transientSinkIds: new Set(['sink-transient']),
+    })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 1,
+      justBecameError: false,
+    })
+
+    const summary = await dispatchBatch()
+
+    expect(deliverWebhookMock).not.toHaveBeenCalled()
+    expect(deliverGoogleSheetsMock).not.toHaveBeenCalled()
+    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
+    )
+    expect(summary.failed).toBe(1)
+    expect(summary.dead).toBe(0)
   })
 
   it('routes notion sinks to deliverNotion instead of deliverWebhook (and passes digestTaskId through)', async () => {
@@ -180,7 +207,7 @@ describe('dispatchBatch', () => {
       accessToken: 'tok',
       databaseId: '12345678-1234-1234-1234-123456789012',
     }
-    findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', NOTION_SINK]]))
+    findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map([['sink-1', NOTION_SINK]]), transientSinkIds: new Set() })
     claimSinkDeliveriesMock.mockResolvedValue([delivery()])
     deliverNotionMock.mockResolvedValue({ ok: true, responseStatus: 200 })
     completeSinkDeliveryMock.mockResolvedValue({
@@ -208,7 +235,10 @@ describe('dispatchBatch', () => {
       spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
       sheetName: 'タスク',
     }
-    findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', GOOGLE_SHEETS_SINK]]))
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map([['sink-1', GOOGLE_SHEETS_SINK]]),
+      transientSinkIds: new Set(),
+    })
     claimSinkDeliveriesMock.mockResolvedValue([delivery()])
     deliverGoogleSheetsMock.mockResolvedValue({ ok: true, responseStatus: 200 })
     completeSinkDeliveryMock.mockResolvedValue({
@@ -237,7 +267,10 @@ describe('dispatchBatch', () => {
       spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
       sheetName: 'タスク',
     }
-    findDeliverableSinksByIdsMock.mockResolvedValue(new Map([['sink-1', GOOGLE_SHEETS_SINK]]))
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map([['sink-1', GOOGLE_SHEETS_SINK]]),
+      transientSinkIds: new Set(),
+    })
     claimSinkDeliveriesMock.mockResolvedValue([delivery()])
     deliverGoogleSheetsMock.mockResolvedValue({ ok: false, responseStatus: 429, error: 'rate limited' })
     completeSinkDeliveryMock.mockResolvedValue({
