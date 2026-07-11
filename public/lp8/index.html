@@ -529,6 +529,10 @@ html{scroll-behavior:smooth}
 .sf-opt[aria-pressed="true"]{border-color:var(--shu);background:var(--shu-soft);font-weight:700}
 .sf-opt[aria-pressed="true"]::after{content:"✓";float:right;color:var(--shu)}
 .sf-next{margin-top:14px;width:100%;border:none;cursor:pointer;font-family:inherit}
+.sf-slots{grid-template-columns:repeat(3,1fr)}
+.sf-slot-day{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--ink-soft);margin-top:2px}
+.sf-opt.sf-slot{padding:11px 6px;font-size:13px;text-align:center}
+.sf-opt.sf-slot[aria-pressed="true"]::after{content:""}
 .sf-step.sf-enter{animation:sfIn .28s ease both}
 @keyframes sfIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.sf-step.sf-enter{animation:none}}
@@ -845,6 +849,11 @@ html{scroll-behavior:smooth}
         </div>
       </fieldset>
       <fieldset class="sf-step" hidden>
+        <legend class="sf-q">オンライン相談（15分）は、いつがご都合よいですか？<span class="sf-multi">（複数選べます／選ばずに進んでもOK）</span></legend>
+        <div class="sf-opts sf-slots" data-name="preferredSlots" data-multi id="sf-slots"></div>
+        <button type="button" class="btn sf-next">次へ</button>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
         <legend class="sf-q">ありがとうございます。ご連絡先をお願いします。</legend>
         <div class="lf-row">
           <label class="lf-label" for="lf-company">会社名 <span class="lf-opt">任意</span></label>
@@ -866,7 +875,7 @@ html{scroll-behavior:smooth}
     </form>
     <div class="lf-done" id="lf-done" hidden>
       <p class="lf-done-title">送信ありがとうございます。</p>
-      <p class="lf-done-body">1営業日以内に、メールでご連絡いたします。</p>
+      <p class="lf-done-body">1営業日以内に、日程のご案内をメールでお送りします。</p>
     </div>
     <span class="btn-note">まずは15分のオンライン相談から。売り込みはしません——<br>いまの回収のやり方を伺い、合わなければ正直にそう申し上げます。</span>
   </div>
@@ -922,6 +931,34 @@ html{scroll-behavior:smooth}
   var current = 0
   var m = location.pathname.match(/\/(lp\d+)(?:\/|$)/)
   var source = m ? m[1] : 'lp'
+
+  // 相談希望日時: 直近の平日4日 × 3つの時間帯を候補として生成
+  var slotBox = document.getElementById('sf-slots')
+  if (slotBox) {
+    var youbi = ['日', '月', '火', '水', '木', '金', '土']
+    var bands = ['10〜12時', '13〜15時', '16〜18時']
+    var d = new Date()
+    var added = 0
+    while (added < 4) {
+      d.setDate(d.getDate() + 1)
+      if (d.getDay() === 0 || d.getDay() === 6) continue
+      var dayLabel = (d.getMonth() + 1) + '/' + d.getDate() + '(' + youbi[d.getDay()] + ')'
+      var head = document.createElement('div')
+      head.className = 'sf-slot-day'
+      head.textContent = dayLabel
+      slotBox.appendChild(head)
+      bands.forEach(function (band) {
+        var b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'sf-opt sf-slot'
+        b.setAttribute('aria-pressed', 'false')
+        b.setAttribute('data-value', dayLabel + ' ' + band)
+        b.textContent = band
+        slotBox.appendChild(b)
+      })
+      added++
+    }
+  }
 
   function show(i, focus) {
     current = i
@@ -996,6 +1033,7 @@ html{scroll-behavior:smooth}
     if (answers.partnerCount) body.partnerCount = answers.partnerCount
     if (answers.channels) body.channels = answers.channels
     if (answers.pain) body.pain = answers.pain
+    if (answers.preferredSlots) body.preferredSlots = answers.preferredSlots
     fetch('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
