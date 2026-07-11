@@ -93,6 +93,44 @@ describe('POST /api/leads', () => {
     expect(insertMock).not.toHaveBeenCalled()
   })
 
+  it('ステップフォームの回答(partnerCount/channels/pain)がextraとして保存され通知メールにも渡る', async () => {
+    const response = await callPost({
+      ...validBody,
+      partnerCount: '30〜50件',
+      channels: 'LINE・メール・電話',
+      pain: '期限までに揃わない',
+    })
+
+    expect(response.status).toBe(200)
+    const row = (insertMock.mock.calls[0] as unknown[])[0] as Record<string, unknown>
+    expect(row.extra).toEqual({
+      partnerCount: '30〜50件',
+      channels: 'LINE・メール・電話',
+      pain: '期限までに揃わない',
+    })
+    const emailArgs = (sendLeadNotificationEmailMock.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >
+    expect(emailArgs.extra).toEqual({
+      partnerCount: '30〜50件',
+      channels: 'LINE・メール・電話',
+      pain: '期限までに揃わない',
+    })
+  })
+
+  it('extraの各回答が200文字を超えると保存対象から落とす(リード自体は保存)', async () => {
+    const response = await callPost({
+      ...validBody,
+      partnerCount: 'あ'.repeat(201),
+      pain: '催促の手間',
+    })
+
+    expect(response.status).toBe(200)
+    const row = (insertMock.mock.calls[0] as unknown[])[0] as Record<string, unknown>
+    expect(row.extra).toEqual({ pain: '催促の手間' })
+  })
+
   it('honeypotが埋まっていたら保存せず200(成功を装う)', async () => {
     const response = await callPost({ ...validBody, website: 'http://spam.example' })
     expect(response.status).toBe(200)

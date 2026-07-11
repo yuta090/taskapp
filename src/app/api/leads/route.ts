@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   const company = typeof body.company === 'string' ? body.company.trim() : undefined
   const message = typeof body.message === 'string' ? body.message.trim() : undefined
   const extra: Record<string, string> = {}
-  for (const key of ['teamSize', 'currentTool'] as const) {
+  for (const key of ['teamSize', 'currentTool', 'partnerCount', 'channels', 'pain'] as const) {
     if (typeof body[key] === 'string' && (body[key] as string).length <= 200) {
       extra[key] = body[key] as string
     }
@@ -80,7 +80,14 @@ export async function POST(request: NextRequest) {
 
   // 通知メールの失敗でリード自体を失わない（保存済みなので200を返す）
   try {
-    await sendLeadNotificationEmail({ source, email, name, company, message })
+    await sendLeadNotificationEmail({
+      source,
+      email,
+      name,
+      company,
+      message,
+      extra: Object.keys(extra).length > 0 ? extra : undefined,
+    })
   } catch (e) {
     console.error('[leads] notification email failed:', e)
   }

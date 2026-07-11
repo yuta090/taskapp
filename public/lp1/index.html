@@ -513,9 +513,25 @@
     .float-cta { right: 12px; bottom: 12px; }
   }
 
-/* ===== 相談フォーム ===== */
+/* ===== 相談ステップフォーム ===== */
 html{scroll-behavior:smooth}
-.lead-form{max-width:520px;margin:8px auto 0;text-align:left}
+.lead-form{max-width:520px;margin:16px auto 0;text-align:left}
+.sf-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;min-height:26px}
+.sf-back{background:none;border:none;color:var(--ink-soft);font-size:13px;cursor:pointer;font-family:inherit;padding:4px 10px 4px 0}
+.sf-back:hover{color:var(--shu)}
+.sf-progress{font-size:12px;color:var(--ink-soft);letter-spacing:.1em}
+.sf-step{border:none;margin:0;padding:0;min-inline-size:auto}
+.sf-q{display:block;font-weight:700;font-size:16px;color:var(--ink);margin-bottom:14px;line-height:1.7;padding:0;font-feature-settings:"palt"}
+.sf-multi{font-weight:400;font-size:12px;color:var(--ink-soft)}
+.sf-opts{display:grid;gap:8px}
+.sf-opt{display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:13px 16px;font-size:15px;color:var(--ink);font-family:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.sf-opt:hover{border-color:var(--shu)}
+.sf-opt[aria-pressed="true"]{border-color:var(--shu);background:var(--shu-soft);font-weight:700}
+.sf-opt[aria-pressed="true"]::after{content:"✓";float:right;color:var(--shu)}
+.sf-next{margin-top:14px;width:100%;border:none;cursor:pointer;font-family:inherit}
+.sf-step.sf-enter{animation:sfIn .28s ease both}
+@keyframes sfIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sf-step.sf-enter{animation:none}}
 .lf-row{margin-bottom:14px}
 .lf-label{display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px}
 .lf-opt{font-weight:400;color:var(--ink-soft);font-size:11px;margin-left:6px}
@@ -792,21 +808,61 @@ html{scroll-behavior:smooth}
       <span class="perk">要望が開発に直接反映</span>
     </div>
     <form class="lead-form" id="lead-form" novalidate>
-      <div class="lf-row">
-        <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
-        <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇会計事務所" autocomplete="organization">
+      <div class="sf-head">
+        <button type="button" class="sf-back" id="sf-back" hidden>← 戻る</button>
+        <span class="sf-progress" id="sf-progress" aria-live="polite">1 / 4</span>
       </div>
-      <div class="lf-row">
-        <label class="lf-label" for="lf-email">メールアドレス <span class="lf-req">必須</span></label>
-        <input class="lf-input" id="lf-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email">
-      </div>
-      <div class="lf-row">
-        <label class="lf-label" for="lf-message">いまの回収のやり方・お困りごと <span class="lf-opt">任意</span></label>
-        <textarea class="lf-input" id="lf-message" name="message" rows="3" placeholder="例: 顧問先50社。月次資料の催促はスタッフが電話とLINEで行っている、など"></textarea>
-      </div>
-      <input class="lf-hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <p class="lf-error" id="lf-error" hidden>送信に失敗しました。お手数ですが<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p>
-      <button class="btn lf-submit" type="submit">先行導入の相談をする</button>
+      <fieldset class="sf-step">
+        <legend class="sf-q">書類や連絡のやり取りをする相手は、何件くらいありますか？</legend>
+        <div class="sf-opts" data-name="partnerCount">
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="〜10件">〜10件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="10〜30件">10〜30件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="30〜50件">30〜50件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="50〜100件">50〜100件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="100件以上">100件以上</button>
+        </div>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">いま、催促や回収に使っている連絡手段は？<span class="sf-multi">（複数選べます）</span></legend>
+        <div class="sf-opts" data-name="channels" data-multi>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="LINE">LINE</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="メール">メール</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="Chatwork">Chatwork</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="Slack">Slack</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="電話・FAX">電話・FAX</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="郵送・手渡し">郵送・手渡し</button>
+        </div>
+        <button type="button" class="btn sf-next">次へ</button>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">いちばん困っていることは、どれに近いですか？</legend>
+        <div class="sf-opts" data-name="pain">
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="期限までに揃わない">期限までに揃わない</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="催促の手間と気疲れ">催促の手間と、気疲れ</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="送った・届いていないのすれ違い">「送った」「届いていない」のすれ違い</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="記録が担当者の頭の中にしかない">記録が担当者の頭の中にしかない</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="その他">その他</button>
+        </div>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">ありがとうございます。ご連絡先をお願いします。</legend>
+        <div class="lf-row">
+          <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇会計事務所" autocomplete="organization">
+        </div>
+        <div class="lf-row">
+          <label class="lf-label" for="lf-email">メールアドレス <span class="lf-req">必須</span></label>
+          <input class="lf-input" id="lf-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="lf-row">
+          <label class="lf-label" for="lf-message">補足があれば <span class="lf-opt">任意</span></label>
+          <textarea class="lf-input" id="lf-message" name="message" rows="3" placeholder="例: 繁忙期の時期、いま困っている場面など"></textarea>
+        </div>
+        <input class="lf-hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <p class="lf-error" id="lf-error" hidden>送信に失敗しました。お手数ですが<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p>
+        <button class="btn lf-submit" type="submit">先行導入の相談をする</button>
+      </fieldset>
+      <noscript><p class="lf-error">フォームの利用にはJavaScriptが必要です。<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p></noscript>
     </form>
     <div class="lf-done" id="lf-done" hidden>
       <p class="lf-done-title">送信ありがとうございます。</p>
@@ -842,9 +898,12 @@ html{scroll-behavior:smooth}
   }
   var fcta = document.querySelector('.float-cta');
   var hero = document.querySelector('.hero');
+  var ctaSec = document.getElementById('cta');
   if (fcta && hero) {
     var onScroll = function () {
-      fcta.classList.toggle('is-on', window.scrollY > hero.offsetHeight * 0.8);
+      var past = window.scrollY > hero.offsetHeight * 0.8;
+      var atCta = ctaSec && ctaSec.getBoundingClientRect().top < window.innerHeight * 0.7;
+      fcta.classList.toggle('is-on', past && !atCta);
     };
     addEventListener('scroll', onScroll, { passive: true });
     onScroll();
@@ -856,6 +915,65 @@ html{scroll-behavior:smooth}
 (function () {
   var form = document.getElementById('lead-form')
   if (!form) return
+  var steps = [].slice.call(form.querySelectorAll('.sf-step'))
+  var back = document.getElementById('sf-back')
+  var progress = document.getElementById('sf-progress')
+  var answers = {}
+  var current = 0
+  var m = location.pathname.match(/\/(lp\d+)(?:\/|$)/)
+  var source = m ? m[1] : 'lp'
+
+  function show(i, focus) {
+    current = i
+    steps.forEach(function (s, j) {
+      s.hidden = j !== i
+      s.classList.remove('sf-enter')
+    })
+    void steps[i].offsetWidth
+    steps[i].classList.add('sf-enter')
+    back.hidden = i === 0
+    progress.textContent = (i + 1) + ' / ' + steps.length
+    if (focus) {
+      var first = steps[i].querySelector('.sf-opt, .lf-input')
+      if (first) { try { first.focus({ preventScroll: true }) } catch (_) { /* old browsers */ } }
+    }
+  }
+
+  back.addEventListener('click', function () {
+    if (current > 0) show(current - 1, true)
+  })
+
+  steps.forEach(function (step) {
+    var next = step.querySelector('.sf-next')
+    if (next) next.addEventListener('click', function () { show(current + 1, true) })
+    var opts = step.querySelector('.sf-opts')
+    if (!opts) return
+    var name = opts.getAttribute('data-name')
+    var multi = opts.hasAttribute('data-multi')
+    opts.addEventListener('click', function (e) {
+      var btn = e.target
+      while (btn && btn !== opts && !(btn.classList && btn.classList.contains('sf-opt'))) btn = btn.parentNode
+      if (!btn || btn === opts) return
+      if (multi) {
+        btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')
+        var vals = []
+        ;[].slice.call(opts.querySelectorAll('.sf-opt[aria-pressed="true"]')).forEach(function (b) {
+          vals.push(b.getAttribute('data-value'))
+        })
+        answers[name] = vals.join('、')
+      } else {
+        ;[].slice.call(opts.querySelectorAll('.sf-opt')).forEach(function (b) {
+          b.setAttribute('aria-pressed', 'false')
+        })
+        btn.setAttribute('aria-pressed', 'true')
+        answers[name] = btn.getAttribute('data-value')
+        setTimeout(function () { show(current + 1, true) }, 180)
+      }
+    })
+  })
+
+  show(0, false)
+
   form.addEventListener('submit', function (e) {
     e.preventDefault()
     var btn = form.querySelector('.lf-submit')
@@ -868,16 +986,20 @@ html{scroll-behavior:smooth}
     err.hidden = true
     btn.disabled = true
     btn.textContent = '送信中…'
+    var body = {
+      source: source,
+      company: form.company.value,
+      email: form.email.value,
+      message: form.message.value,
+      website: form.website.value,
+    }
+    if (answers.partnerCount) body.partnerCount = answers.partnerCount
+    if (answers.channels) body.channels = answers.channels
+    if (answers.pain) body.pain = answers.pain
     fetch('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source: 'lp1',
-        company: form.company.value,
-        email: form.email.value,
-        message: form.message.value,
-        website: form.website.value,
-      }),
+      body: JSON.stringify(body),
     })
       .then(function (r) {
         if (!r.ok) throw new Error(r.status)
