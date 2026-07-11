@@ -131,7 +131,7 @@ describe('dispatchBatch', () => {
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'dead',
       sinkStatus: 'error',
-      consecutiveFailures: 21,
+      consecutiveFailures: 20,
       justBecameError: true,
     })
 

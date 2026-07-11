@@ -278,7 +278,7 @@ describe('completeSinkDelivery', () => {
   it('surfaces justBecameError=true so the caller can notify', async () => {
     rpcResponses['rpc_complete_sink_delivery'] = {
       data: [
-        { delivery_status: 'failed', sink_status: 'error', consecutive_failures: 21, just_became_error: true },
+        { delivery_status: 'failed', sink_status: 'error', consecutive_failures: 20, just_became_error: true },
       ],
       error: null,
     }

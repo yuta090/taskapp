@@ -346,10 +346,13 @@ begin
 
     v_new_status := 'sent';
 
-    update integration_sinks
+    -- isk別名で明示修飾する: returns table(...)のOUT列名consecutive_failuresが
+    -- 同名のplpgsql変数を暗黙宣言するため、非修飾の列参照は
+    -- integration_sinks.consecutive_failures と曖昧衝突しSQLエラーになる。
+    update integration_sinks isk
     set consecutive_failures = 0, last_delivered_at = now()
-    where id = v_sink_id
-    returning status, consecutive_failures into v_sink_status, v_consecutive_failures;
+    where isk.id = v_sink_id
+    returning isk.status, isk.consecutive_failures into v_sink_status, v_consecutive_failures;
 
   else
     v_attempts := v_attempts + 1;
@@ -374,22 +377,25 @@ begin
         last_error = left(coalesce(p_error, ''), 500)
     where id = p_delivery_id;
 
-    select status into v_prev_sink_status from integration_sinks where id = v_sink_id for update;
+    select isk.status into v_prev_sink_status from integration_sinks isk where isk.id = v_sink_id for update;
 
     if p_counts_toward_failures then
-      update integration_sinks
-      set consecutive_failures = consecutive_failures + 1
-      where id = v_sink_id
-      returning status, consecutive_failures into v_sink_status, v_consecutive_failures;
+      -- 同上: isk別名で明示修飾しないとconsecutive_failuresがOUT列名と曖昧衝突する
+      update integration_sinks isk
+      set consecutive_failures = isk.consecutive_failures + 1
+      where isk.id = v_sink_id
+      returning isk.status, isk.consecutive_failures into v_sink_status, v_consecutive_failures;
 
-      if v_consecutive_failures > 20 and v_prev_sink_status = 'active' then
+      -- 20連続失敗で停止（m5: >20だと21回目まで発火せず「20連続失敗」の文言・通知と
+      -- ズレるため、ちょうど20回目の失敗で発火する >= 20 に統一する）
+      if v_consecutive_failures >= 20 and v_prev_sink_status = 'active' then
         update integration_sinks set status = 'error' where id = v_sink_id;
         v_sink_status := 'error';
         v_just_became_error := true;
       end if;
     else
-      select status, consecutive_failures into v_sink_status, v_consecutive_failures
-      from integration_sinks where id = v_sink_id;
+      select isk.status, isk.consecutive_failures into v_sink_status, v_consecutive_failures
+      from integration_sinks isk where isk.id = v_sink_id;
     end if;
   end if;
 
