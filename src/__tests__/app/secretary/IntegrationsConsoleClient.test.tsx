@@ -114,4 +114,20 @@ describe('IntegrationsConsoleClient', () => {
     fireEvent.click(screen.getByRole('button', { name: '閉じる' }))
     expect(screen.queryByText('whsec_created')).not.toBeInTheDocument()
   })
+
+  it('作成後に別sinkを選択するとsecretバナーが消える（選択操作でクリアされる）', () => {
+    useSinksMock.mockReturnValue({
+      sinks: [sink(), sink({ id: 'sink-2', displayName: '2つ目' })],
+      viewerRole: 'owner',
+      isLoading: false,
+      error: null,
+    })
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+
+    fireEvent.click(screen.getByText('simulate-create'))
+    expect(screen.getByText('whsec_created')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('select-sink-2'))
+    expect(screen.queryByText('whsec_created')).not.toBeInTheDocument()
+  })
 })

@@ -29,7 +29,7 @@ export function SecretReveal({ secret, onDismiss }: SecretRevealProps) {
       <div className="flex items-start gap-2">
         <Warning className="text-red-600 text-sm flex-shrink-0 mt-0.5" weight="fill" />
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-red-700">
+          <p className="text-xs font-medium text-red-600">
             このsecretは今だけ表示されます。二度と表示されないため、今すぐ控えてください。
           </p>
           <div className="mt-2 flex items-center gap-1.5">
@@ -50,7 +50,7 @@ export function SecretReveal({ secret, onDismiss }: SecretRevealProps) {
         <button
           type="button"
           onClick={onDismiss}
-          className="p-1 text-red-400 hover:text-red-700 transition-colors flex-shrink-0"
+          className="p-1 text-red-600 hover:text-red-600 transition-colors flex-shrink-0"
           title="閉じる"
         >
           <X className="text-sm" />

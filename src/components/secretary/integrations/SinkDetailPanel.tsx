@@ -123,17 +123,17 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
       </div>
 
       {sink.status === 'error' && (
-        <div className="rounded-lg border border-red-100 bg-red-50 p-3 flex items-start gap-2">
+        <div className="rounded-lg border border-gray-100 bg-red-50 p-3 flex items-start gap-2">
           <WarningCircle className="text-red-600 text-sm flex-shrink-0 mt-0.5" weight="fill" />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-red-700">
+            <p className="text-xs font-medium text-red-600">
               配達エラーが続いています（連続失敗 {sink.consecutiveFailures} 回）。設定を確認してください。
             </p>
             {canManage && (
               <button
                 type="button"
                 onClick={handleReactivate}
-                className="mt-1.5 h-7 rounded-md px-2.5 text-xs font-medium bg-white text-red-700 border border-red-200 hover:bg-red-50 transition-colors"
+                className="mt-1.5 h-7 rounded-md px-2.5 text-xs font-medium bg-white text-red-600 border border-gray-200 hover:bg-red-50 transition-colors"
               >
                 再度有効化
               </button>
@@ -222,7 +222,7 @@ export function SinkDetailPanel({ orgId, sink, viewerRole }: SinkDetailPanelProp
         )}
 
         {testResult && (
-          <p className={`text-xs ${testResult.ok ? 'text-green-700' : 'text-red-600'}`}>
+          <p className={`text-xs ${testResult.ok ? 'text-green-600' : 'text-red-600'}`}>
             {testResult.ok
               ? `テスト配達に成功しました（HTTPステータス: ${testResult.responseStatus ?? '-'}）`
               : `テスト配達に失敗しました: ${testResult.error ?? `HTTPステータス: ${testResult.responseStatus ?? '-'}`}`}

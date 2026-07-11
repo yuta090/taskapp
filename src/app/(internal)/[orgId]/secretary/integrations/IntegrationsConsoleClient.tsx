@@ -35,6 +35,13 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
     setJustCreatedSecret(secret)
   }
 
+  // 別sinkの選択(一覧操作)でsecretバナーを消す。作成直後のsink以外を見ている間まで
+  // secretが画面に残り続けるのを防ぐ(一度きり表示の意図に合わせる)。
+  const handleSelect = (sinkId: string) => {
+    setSelectedSinkId(sinkId)
+    setJustCreatedSecret(null)
+  }
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <SecretaryTabNav orgId={orgId} activeTab="integrations" />
@@ -51,7 +58,7 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
             orgId={orgId}
             sinks={sinks}
             selectedSinkId={effectiveSinkId}
-            onSelect={setSelectedSinkId}
+            onSelect={handleSelect}
             viewerRole={viewerRole}
             onCreated={handleCreated}
           />

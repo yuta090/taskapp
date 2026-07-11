@@ -83,7 +83,7 @@ export function DeliveryLogList({ orgId, sinkId, canManage }: DeliveryLogListPro
                 })}
               </span>
               {delivery.lastError && (
-                <span className="text-red-500 truncate flex-1 min-w-0" title={delivery.lastError}>
+                <span className="text-red-600 truncate flex-1 min-w-0" title={delivery.lastError}>
                   {delivery.lastError}
                 </span>
               )}
