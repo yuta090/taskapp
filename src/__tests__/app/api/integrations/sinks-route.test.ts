@@ -4,7 +4,9 @@ import { NextRequest } from 'next/server'
 /**
  * GET/POST /api/integrations/sinks
  * - GET: 内部メンバーなら閲覧可
- * - POST: owner/adminのみ。provider='webhook'のみ許可(PR-1)。SSRF検証をURL登録時にも通す
+ * - POST: owner/adminのみ。provider='webhook'|'notion'|'google_sheets'を許可。
+ *   webhookはSSRF検証をURL登録時にも通す。google_sheetsはnotionと同様、
+ *   org接続がなければ400・config(spreadsheet_id/sheet_name)を検証する(PR-4)。
  */
 
 const getUserMock = vi.fn()
@@ -33,7 +35,9 @@ vi.mock('@/lib/sinks/ssrf', () => ({
 const sinksStoreMock = {
   createWebhookSink: vi.fn(),
   createNotionSink: vi.fn(),
+  createGoogleSheetsSink: vi.fn(),
   findActiveNotionConnection: vi.fn(),
+  findActiveGoogleSheetsConnection: vi.fn(),
   listSinksForOrg: vi.fn(),
   findLatestDeliveryStatusForOrg: vi.fn(),
   ALLOWED_SINK_EVENTS: ['task.created', 'task.done', 'task.dismissed', 'task.reopened'],
@@ -68,6 +72,7 @@ describe('GET /api/integrations/sinks', () => {
     sinksStoreMock.listSinksForOrg.mockResolvedValue([])
     sinksStoreMock.findLatestDeliveryStatusForOrg.mockResolvedValue(new Map())
     sinksStoreMock.findActiveNotionConnection.mockResolvedValue(null)
+    sinksStoreMock.findActiveGoogleSheetsConnection.mockResolvedValue(null)
   })
 
   it('401 when not logged in', async () => {
@@ -114,6 +119,23 @@ describe('GET /api/integrations/sinks', () => {
     const data = await response.json()
     expect(data.notionConnection).toEqual({ connected: true, workspaceName: 'Acme Workspace' })
   })
+
+  it('includes googleSheetsConnection: connected=false when the org has no active connection', async () => {
+    const response = await callGet(ORG_ID)
+    const data = await response.json()
+    expect(data.googleSheetsConnection).toEqual({ connected: false })
+  })
+
+  it('includes googleSheetsConnection: connected=true when active (no token/secret leaked)', async () => {
+    sinksStoreMock.findActiveGoogleSheetsConnection.mockResolvedValue({
+      id: 'conn-gs-1',
+      accessToken: 'access-abc',
+    })
+    const response = await callGet(ORG_ID)
+    const data = await response.json()
+    expect(data.googleSheetsConnection).toEqual({ connected: true })
+    expect(JSON.stringify(data)).not.toContain('access-abc')
+  })
 })
 
 describe('POST /api/integrations/sinks', () => {
@@ -133,6 +155,11 @@ describe('POST /api/integrations/sinks', () => {
       accessToken: 'secret_abc',
       workspaceName: 'Acme Workspace',
     })
+    sinksStoreMock.createGoogleSheetsSink.mockResolvedValue({ id: 'sink-3', orgId: ORG_ID, provider: 'google_sheets' })
+    sinksStoreMock.findActiveGoogleSheetsConnection.mockResolvedValue({
+      id: 'conn-gs-1',
+      accessToken: 'access-abc',
+    })
   })
 
   const validBody = {
@@ -146,13 +173,6 @@ describe('POST /api/integrations/sinks', () => {
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     const response = await callPost(validBody)
     expect(response.status).toBe(403)
-  })
-
-  it('400 for provider=google_sheets (not yet available)', async () => {
-    const response = await callPost({ ...validBody, provider: 'google_sheets' })
-    expect(response.status).toBe(400)
-    expect(sinksStoreMock.createWebhookSink).not.toHaveBeenCalled()
-    expect(sinksStoreMock.createNotionSink).not.toHaveBeenCalled()
   })
 
   it('400 for an unknown provider string', async () => {
@@ -246,6 +266,75 @@ describe('POST /api/integrations/sinks', () => {
           displayName: 'Notion連携',
           databaseId: '12345678-1234-1234-1234-123456789012',
           connectionId: 'conn-1',
+          createdBy: 'user-1',
+        }),
+      )
+    })
+  })
+
+  describe('provider=google_sheets', () => {
+    const sheetsBody = {
+      orgId: ORG_ID,
+      provider: 'google_sheets',
+      displayName: 'Sheets連携',
+      config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: 'タスク' },
+    }
+
+    it('400 when config.spreadsheet_id is missing', async () => {
+      const response = await callPost({ ...sheetsBody, config: { sheet_name: 'タスク' } })
+      expect(response.status).toBe(400)
+      expect(sinksStoreMock.createGoogleSheetsSink).not.toHaveBeenCalled()
+    })
+
+    it('400 when config.spreadsheet_id has an invalid format (URL-path injection guard)', async () => {
+      const response = await callPost({
+        ...sheetsBody,
+        config: { spreadsheet_id: '../../etc/passwd', sheet_name: 'タスク' },
+      })
+      expect(response.status).toBe(400)
+      expect(sinksStoreMock.createGoogleSheetsSink).not.toHaveBeenCalled()
+    })
+
+    it('400 when config.sheet_name is missing', async () => {
+      const response = await callPost({
+        ...sheetsBody,
+        config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms' },
+      })
+      expect(response.status).toBe(400)
+      expect(sinksStoreMock.createGoogleSheetsSink).not.toHaveBeenCalled()
+    })
+
+    it('400 when config.sheet_name contains a control character', async () => {
+      const response = await callPost({
+        ...sheetsBody,
+        config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: 'a\nb' },
+      })
+      expect(response.status).toBe(400)
+      expect(sinksStoreMock.createGoogleSheetsSink).not.toHaveBeenCalled()
+    })
+
+    it('400 google_sheets_not_connected when the org has no active connection', async () => {
+      sinksStoreMock.findActiveGoogleSheetsConnection.mockResolvedValue(null)
+      const response = await callPost(sheetsBody)
+      const data = await response.json()
+      expect(response.status).toBe(400)
+      expect(data.error).toBe('google_sheets_not_connected')
+      expect(sinksStoreMock.createGoogleSheetsSink).not.toHaveBeenCalled()
+    })
+
+    it('201 creates the sink without a secret in the response', async () => {
+      const response = await callPost(sheetsBody)
+      const data = await response.json()
+      expect(response.status).toBe(201)
+      expect(data.secret).toBeUndefined()
+      expect(sinksStoreMock.createGoogleSheetsSink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: ORG_ID,
+          groupId: null,
+          displayName: 'Sheets連携',
+          spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+          sheetName: 'タスク',
+          connectionId: 'conn-gs-1',
           createdBy: 'user-1',
         }),
       )

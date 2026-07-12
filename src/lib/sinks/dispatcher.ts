@@ -8,6 +8,7 @@ import {
 } from '@/lib/sinks/store'
 import { deliverWebhook } from '@/lib/sinks/adapters/webhook'
 import { deliverNotion } from '@/lib/sinks/adapters/notion'
+import { deliverGoogleSheets } from '@/lib/sinks/adapters/google_sheets'
 import { classifyDeliveryFailure } from '@/lib/sinks/backoff'
 import { notifySinkBecameError } from '@/lib/sinks/notify'
 
@@ -41,12 +42,19 @@ export async function dispatchClaimedDelivery(
           eventKey: delivery.eventKey,
           payload: delivery.payload,
         })
-      : await deliverWebhook(sink, {
-          id: delivery.id,
-          eventType: delivery.eventType,
-          eventKey: delivery.eventKey,
-          payload: delivery.payload,
-        })
+      : sink.provider === 'google_sheets'
+        ? await deliverGoogleSheets(sink, {
+            id: delivery.id,
+            eventType: delivery.eventType,
+            eventKey: delivery.eventKey,
+            payload: delivery.payload,
+          })
+        : await deliverWebhook(sink, {
+            id: delivery.id,
+            eventType: delivery.eventType,
+            eventKey: delivery.eventKey,
+            payload: delivery.payload,
+          })
 
   if (result.ok) {
     await completeSinkDelivery({
@@ -97,20 +105,22 @@ export async function dispatchBatch(options: DispatchBatchOptions = {}): Promise
   const summary: DispatchSummary = { claimed: claimed.length, sent: 0, failed: 0, dead: 0, errors: [] }
   if (claimed.length === 0) return summary
 
-  const sinks = await findDeliverableSinksByIds(claimed.map((d) => d.sinkId))
+  const { sinks, transientSinkIds } = await findDeliverableSinksByIds(claimed.map((d) => d.sinkId))
 
   for (const delivery of claimed) {
     const sink = sinks.get(delivery.sinkId)
 
     try {
       if (!sink) {
-        // provider未実装(Notion/Sheets)またはsecret復号失敗。恒久失敗として処理し
-        // 存在しない/壊れたsinkへの無限リトライを避ける。毒delivery扱いなのでカウントしない。
+        // レビュー回帰対応(修正2): Google Sheetsのtoken refreshが5xx/ネットワーク等の一時障害で
+        // 失敗した場合はsink_not_deliverable(恒久)にせずtemporary_fail(再試行)に落とす。
+        // それ以外(未対応provider・secret復号失敗・接続なし・失効)は従来通り恒久失敗。
+        const isTransient = transientSinkIds.has(delivery.sinkId)
         const completion = await completeSinkDelivery({
           deliveryId: delivery.id,
-          outcome: 'permanent_fail',
-          error: 'sink_not_deliverable',
-          countsTowardFailures: false,
+          outcome: isTransient ? 'temporary_fail' : 'permanent_fail',
+          error: isTransient ? 'sink_connection_transient_error' : 'sink_not_deliverable',
+          countsTowardFailures: isTransient,
         })
         if (completion.deliveryStatus === 'dead') summary.dead += 1
         else summary.failed += 1

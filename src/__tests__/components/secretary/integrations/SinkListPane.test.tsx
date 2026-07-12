@@ -13,12 +13,15 @@ vi.mock('@/components/secretary/integrations/CreateSinkForm', () => ({
   CreateSinkForm: ({
     onCancel,
     notionConnection,
+    googleSheetsConnection,
   }: {
     onCancel: () => void
     notionConnection?: { connected: boolean; workspaceName: string | null }
+    googleSheetsConnection?: { connected: boolean }
   }) => (
     <div data-testid="create-sink-form">
       <span data-testid="notion-connected">{String(notionConnection?.connected)}</span>
+      <span data-testid="google-sheets-connected">{String(googleSheetsConnection?.connected)}</span>
       <button onClick={onCancel}>close-create-form</button>
     </div>
   ),
@@ -125,6 +128,22 @@ describe('SinkListPane', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /新規作成/ }))
     expect(screen.getByTestId('notion-connected')).toHaveTextContent('true')
+  })
+
+  it('googleSheetsConnectionをCreateSinkFormへ渡す', () => {
+    render(
+      <SinkListPane
+        orgId="org-1"
+        sinks={[]}
+        selectedSinkId={null}
+        onSelect={vi.fn()}
+        viewerRole="owner"
+        onCreated={vi.fn()}
+        googleSheetsConnection={{ connected: true }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /新規作成/ }))
+    expect(screen.getByTestId('google-sheets-connected')).toHaveTextContent('true')
   })
 
   it('選択中のsinkはハイライトされる', () => {

@@ -4,6 +4,7 @@ import { isValidUuid } from '@/lib/uuid'
 import { findSinkOrgId, findDeliverableSink, insertPingDelivery } from '@/lib/sinks/store'
 import { dispatchClaimedDelivery } from '@/lib/sinks/dispatcher'
 import { testNotionConnection } from '@/lib/sinks/adapters/notion'
+import { testGoogleSheetsConnection } from '@/lib/sinks/adapters/google_sheets'
 
 export const runtime = 'nodejs'
 
@@ -44,6 +45,18 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     // webhook側(dispatchClaimedDelivery)のoutcome形状('sent'|'failed'|'dead'の文字列)に
     // 揃える。notionはHTTPレスポンスの詳細を持つため、error/responseStatusを併記する。
     const result = await testNotionConnection(sink)
+    return NextResponse.json({
+      deliveryId: null,
+      outcome: result.ok ? 'sent' : 'failed',
+      ...(result.responseStatus !== undefined ? { responseStatus: result.responseStatus } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {}),
+    })
+  }
+
+  if (sink.provider === 'google_sheets') {
+    // notionと同じ形状に揃える。行を書き込まずスプレッドシートのメタデータ取得で
+    // 接続とアクセスだけを検証する(§3: テスト送信で実データを汚さない)。
+    const result = await testGoogleSheetsConnection(sink)
     return NextResponse.json({
       deliveryId: null,
       outcome: result.ok ? 'sent' : 'failed',

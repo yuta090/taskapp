@@ -3,7 +3,12 @@
 import { useState } from 'react'
 import { Plus, Plugs } from '@phosphor-icons/react'
 import { EmptyState } from '@/components/shared'
-import type { SinkMeta, ViewerRole, NotionConnectionStatus } from '@/lib/hooks/useSinks'
+import type {
+  SinkMeta,
+  ViewerRole,
+  NotionConnectionStatus,
+  GoogleSheetsConnectionStatus,
+} from '@/lib/hooks/useSinks'
 import { CreateSinkForm } from '@/components/secretary/integrations/CreateSinkForm'
 import { SinkStatusPill } from '@/components/secretary/integrations/statusPill'
 
@@ -15,6 +20,7 @@ interface SinkListPaneProps {
   viewerRole: ViewerRole | null
   onCreated: (sink: SinkMeta, secret?: string) => void
   notionConnection?: NotionConnectionStatus
+  googleSheetsConnection?: GoogleSheetsConnectionStatus
 }
 
 const PROVIDER_LABEL: Record<SinkMeta['provider'], string> = {
@@ -32,6 +38,7 @@ export function SinkListPane({
   viewerRole,
   onCreated,
   notionConnection,
+  googleSheetsConnection,
 }: SinkListPaneProps) {
   const [isCreating, setIsCreating] = useState(false)
   const canManage = viewerRole === 'owner' || viewerRole === 'admin'
@@ -57,6 +64,7 @@ export function SinkListPane({
           <CreateSinkForm
             orgId={orgId}
             notionConnection={notionConnection}
+            googleSheetsConnection={googleSheetsConnection}
             onCreated={(sink, secret) => {
               setIsCreating(false)
               onCreated(sink, secret)

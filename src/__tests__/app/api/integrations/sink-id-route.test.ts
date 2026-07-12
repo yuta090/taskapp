@@ -193,6 +193,77 @@ describe('PATCH /api/integrations/sinks/[id] (provider=notion)', () => {
   })
 })
 
+describe('PATCH /api/integrations/sinks/[id] (provider=google_sheets)', () => {
+  const SHEETS_SINK_META = {
+    id: SINK_ID,
+    orgId: ORG_ID,
+    displayName: 'Sheets連携',
+    status: 'active',
+    provider: 'google_sheets',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
+    sinksStoreMock.findSinkOrgId.mockResolvedValue(ORG_ID)
+    sinksStoreMock.findSinkMeta.mockResolvedValue(SHEETS_SINK_META)
+    sinksStoreMock.updateSinkMeta.mockResolvedValue(SHEETS_SINK_META)
+    sinksStoreMock.reactivateSink.mockResolvedValue(SHEETS_SINK_META)
+    sinksStoreMock.disableSink.mockResolvedValue({ ...SHEETS_SINK_META, status: 'disabled' })
+  })
+
+  it('400 when config.spreadsheet_id is missing (does not attempt webhook URL validation)', async () => {
+    const response = await callPatch({ config: { sheet_name: 'タスク' } })
+    expect(response.status).toBe(400)
+    expect(validateWebhookUrlMock).not.toHaveBeenCalled()
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('400 when config.spreadsheet_id is invalid', async () => {
+    const response = await callPatch({ config: { spreadsheet_id: 'bad', sheet_name: 'タスク' } })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('400 when config.sheet_name is missing', async () => {
+    const response = await callPatch({
+      config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms' },
+    })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('400 when config.sheet_name is invalid (control character)', async () => {
+    const response = await callPatch({
+      config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: 'a\nb' },
+    })
+    expect(response.status).toBe(400)
+    expect(sinksStoreMock.updateSinkMeta).not.toHaveBeenCalled()
+  })
+
+  it('accepts a valid spreadsheet_id/sheet_name and updates config', async () => {
+    const response = await callPatch({
+      config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: '新しいシート' },
+    })
+    expect(response.status).toBe(200)
+    expect(sinksStoreMock.updateSinkMeta).toHaveBeenCalledWith(
+      SINK_ID,
+      expect.objectContaining({
+        config: { spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', sheet_name: '新しいシート' },
+      }),
+    )
+  })
+
+  it('ignores rotateSecret for a google_sheets sink (no secret to rotate)', async () => {
+    const response = await callPatch({ rotateSecret: true })
+    const data = await response.json()
+    expect(response.status).toBe(200)
+    expect(data.secret).toBeUndefined()
+    expect(sinksStoreMock.rotateWebhookSecret).not.toHaveBeenCalled()
+  })
+})
+
 describe('DELETE /api/integrations/sinks/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
