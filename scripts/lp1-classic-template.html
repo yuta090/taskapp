@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>資料さえ、揃えば。｜ 税理士・会計事務所のためのAI秘書</title>
+<meta name="description" content="税理士・会計事務所の資料回収と催促を、AI秘書が事務所の一員として引き受けます。顧問先はいつものLINEやメールに返信するだけ。先行導入5事務所を募集中。">
+<meta property="og:title" content="資料さえ、揃えば。｜ 税理士・会計事務所のためのAI秘書">
+<meta property="og:description" content="顧問先からの資料回収・催促・証跡を、AI秘書がまるごと引き受けます。相手はLINEに写真を返信するだけ。">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/lp1/images/hero.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22none%22 stroke=%22%23a3503a%22 stroke-width=%228%22/><text x=%2250%22 y=%2266%22 font-size=%2248%22 text-anchor=%22middle%22 fill=%22%23a3503a%22>受</text></svg>">
+</head>
+<body>
+
+<style>
+  /* 白×ブラウン基調の単一テーマ（閲覧環境のダークモードでも固定） */
+  :root, :root[data-theme="light"], :root[data-theme="dark"] {
+    --paper: #faf8f4;      /* 温かみのある白 */
+    --card: #ffffff;
+    --ink: #3a2f26;        /* 墨ではなく焦げ茶 */
+    --ink-soft: #857567;
+    --line: #e6ddd0;
+    --shu: #a3503a;        /* 弁柄（落ち着いた赤茶）— 印・アクセント */
+    --shu-soft: #f6ebe4;
+    --ledger: #bfa88f;     /* 淡い茶の罫 */
+    --ledger-soft: #f3ede4;
+    --chat-bg: #8a99b4;
+    --bubble-in: #ffffff;
+    --bubble-out: #9fe870;
+    --chat-meta: #eef1f6;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", "Yu Gothic", Meiryo, sans-serif;
+    line-height: 1.9;
+    font-size: 15.5px;
+  }
+  .mincho { font-family: "Hiragino Mincho ProN", "Yu Mincho", "BIZ UDMincho", serif; }
+
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 72px 0; }
+
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--shu);
+    font-weight: 700;
+  }
+  h2 {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    font-size: 30px;
+    line-height: 1.5;
+    margin: 10px 0 0;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .sec-head { display: grid; gap: 2px; margin-bottom: 36px; }
+  p { margin: 0; max-width: 38em; }
+  .muted { color: var(--ink-soft); }
+
+  /* ================= HERO ================= */
+  .hero {
+    padding: 96px 0 80px;
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in srgb, var(--paper) 97%, transparent) 0%,
+        color-mix(in srgb, var(--paper) 90%, transparent) 48%,
+        color-mix(in srgb, var(--paper) 62%, transparent) 100%
+      ),
+      url("/lp1/images/hero.jpg");
+    background-size: cover;
+    background-position: center;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .hero-copy { display: grid; gap: 26px; }
+  h1 {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    font-size: clamp(46px, 8.5vw, 76px);
+    line-height: 1.32;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    position: relative;
+  }
+  .stamp {
+    position: absolute;
+    right: -6px;
+    bottom: -18px;
+    width: 92px;
+    height: 92px;
+    border: 3.5px solid var(--shu);
+    border-radius: 50%;
+    color: var(--shu);
+    display: grid;
+    place-items: center;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    writing-mode: vertical-rl;
+    transform: rotate(-8deg);
+    opacity: 0.92;
+    animation: stamp-in 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) 0.5s backwards;
+  }
+  @keyframes stamp-in {
+    from { opacity: 0; transform: rotate(-18deg) scale(1.7); }
+    to   { opacity: 0.92; transform: rotate(-8deg) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stamp { animation: none; }
+  }
+  .hero-sub {
+    font-size: 16.5px;
+    max-width: 30em;
+  }
+  .hero-sub b { color: var(--shu); }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .btn {
+    display: inline-block;
+    background: var(--shu);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 15px;
+    padding: 15px 30px;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+  }
+  .btn:focus-visible, a:focus-visible { outline: 3px solid var(--shu); outline-offset: 3px; }
+  .btn-note { font-size: 12px; color: var(--ink-soft); }
+  .link-quiet { color: var(--ink); font-size: 14px; text-underline-offset: 4px; }
+
+  /* 未着リストカード */
+  .waitlist {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 22px 24px;
+    display: grid;
+    gap: 0;
+    box-shadow: 0 14px 36px rgba(90, 70, 50, 0.10);
+  }
+  .waitlist-title {
+    font-size: 12.5px;
+    letter-spacing: 0.12em;
+    color: var(--ink-soft);
+    font-weight: 700;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .wait-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    padding: 13px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size: 13.5px;
+    align-items: baseline;
+  }
+  .wait-row:last-of-type { border-bottom: none; }
+  .wait-row .who { font-weight: 700; }
+  .wait-row .what { color: var(--ink-soft); font-size: 12.5px; grid-column: 1; }
+  .wait-days {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    align-self: center;
+    color: var(--shu);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .wait-days small { display: block; font-size: 10.5px; color: var(--ink-soft); font-weight: 500; }
+  .waitlist-foot { padding-top: 12px; font-size: 12px; color: var(--ink-soft); }
+
+  /* ================= 写真 ================= */
+  .shot {
+    margin: 0 0 40px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: saturate(0.82) contrast(0.97);
+  }
+  .shot-land { aspect-ratio: 3 / 2; }
+  .shot-wide { aspect-ratio: 12 / 5; }
+  .shot-ph {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    background: var(--ledger-soft);
+    border: 2px dashed var(--ledger);
+    border-radius: 6px;
+    color: var(--ink-soft);
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+    text-align: center;
+    padding: 20px;
+    line-height: 1.8;
+  }
+  figcaption {
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    padding: 8px 2px 0;
+  }
+
+  /* ================= 共感（毎月、同じ仕事） ================= */
+  .loop { display: grid; gap: 0; counter-reset: step; max-width: 44em; }
+  .loop-item {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 18px;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .loop-item:last-child { border-bottom: none; }
+  .loop-num {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    font-size: 24px;
+    color: var(--ledger);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .loop-num::before { content: counter(step, decimal-leading-zero); }
+  .loop-item b { display: block; font-size: 16px; margin-bottom: 2px; }
+  .loop-item p { font-size: 14px; color: var(--ink-soft); }
+  .loop-close {
+    margin-top: 34px;
+    background: var(--ledger-soft);
+    border-left: 3px solid var(--ledger);
+    padding: 18px 22px;
+    border-radius: 0 6px 6px 0;
+    max-width: 42em;
+    font-size: 15px;
+  }
+  .loop-close b { color: var(--shu); }
+
+  /* ================= 解決 ================= */
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 8px; }
+  .pillar {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 20px 22px;
+    display: grid;
+    gap: 8px;
+    align-content: start;
+  }
+  .pillar b { font-size: 16px; color: var(--shu); font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; }
+  .pillar span { font-size: 13.5px; color: var(--ink-soft); line-height: 1.8; }
+  .traits { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .trait {
+    font-size: 13px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 16px;
+  }
+  .trait b { color: var(--shu); font-weight: 700; }
+
+  /* ================= LINEモック ================= */
+  .mock-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .mock-side { display: grid; gap: 18px; }
+  .mock-side h3 {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    font-size: 22px;
+    margin: 0;
+    line-height: 1.6;
+  }
+  .mock-side ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+  .mock-side li { padding-left: 22px; position: relative; font-size: 14.5px; }
+  .mock-side li::before {
+    content: "";
+    position: absolute; left: 0; top: 0.68em;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--shu); opacity: 0.55;
+  }
+  .phone {
+    width: min(360px, 100%);
+    justify-self: center;
+    border-radius: 26px;
+    border: 1px solid var(--line);
+    background: var(--chat-bg);
+    overflow: hidden;
+    box-shadow: 0 18px 44px rgba(90, 70, 50, 0.16);
+  }
+  .phone-head {
+    background: rgba(255,255,255,0.94);
+    color: #3a2f26;
+    padding: 12px 16px;
+    font-size: 13.5px;
+    font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .phone-head .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: #a3503a; color: #fff;
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; flex: none;
+  }
+  .chat { padding: 16px 12px 20px; display: grid; gap: 12px; font-size: 13.5px; line-height: 1.7; }
+  .day-chip {
+    justify-self: center; font-size: 10.5px; color: #2c3e5c;
+    background: rgba(255,255,255,0.55); padding: 2px 12px; border-radius: 999px;
+  }
+  .msg { display: grid; gap: 3px; max-width: 84%; }
+  .msg .bubble { padding: 9px 13px; border-radius: 14px; white-space: pre-line; }
+  .msg.in { justify-self: start; }
+  .msg.in .bubble { background: var(--bubble-in); border-top-left-radius: 4px; color: #3a2f26; }
+  .msg.out { justify-self: end; }
+  .msg.out .bubble { background: var(--bubble-out); border-top-right-radius: 4px; color: #1d2a1d; }
+  .msg .meta { font-size: 10px; color: var(--chat-meta); }
+  .msg.in .meta { justify-self: start; }
+  .msg.out .meta { justify-self: end; }
+  .photo {
+    background: #d7dee9; border-radius: 12px; height: 92px;
+    display: grid; place-items: center;
+    color: #5c6570; font-size: 11px; letter-spacing: 0.08em;
+  }
+
+  /* ================= 月給の算数 ================= */
+  .math-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 30px 34px;
+    display: grid;
+    gap: 18px;
+  }
+  .math-row {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .math-row .big {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    font-size: 26px; font-weight: 700; color: var(--shu);
+  }
+  .math-label {
+    font-size: 11.5px; letter-spacing: 0.16em; color: var(--ink-soft); font-weight: 700;
+  }
+  .math-div { border: none; border-top: 1px dashed var(--line); margin: 2px 0; }
+  .math-note { font-size: 13px; color: var(--ink-soft); max-width: 42em; }
+
+  /* ================= 業務報告 ================= */
+  .report {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--shu);
+    border-radius: 6px;
+    padding: 24px 28px;
+    max-width: 40em;
+    display: grid;
+    gap: 10px;
+  }
+  .report .from { font-size: 12px; color: var(--ink-soft); letter-spacing: 0.08em; }
+  .report .body { font-size: 14.5px; }
+  .report .body b { color: var(--shu); }
+
+  /* ================= FAQ ================= */
+  .faq { display: grid; gap: 14px; max-width: 46em; }
+  .faq details {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0;
+  }
+  .faq summary {
+    cursor: pointer;
+    padding: 16px 20px;
+    font-weight: 700;
+    font-size: 15px;
+    list-style: none;
+    position: relative;
+    padding-right: 44px;
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after {
+    content: "＋";
+    position: absolute; right: 18px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--shu); font-weight: 400; font-size: 18px;
+  }
+  .faq details[open] summary::after { content: "－"; }
+  .faq .a { padding: 0 20px 18px; font-size: 14px; color: var(--ink-soft); max-width: 42em; }
+
+  /* ================= 最終CTA ================= */
+  .final {
+    text-align: center;
+    padding: 88px 0 96px;
+  }
+  .final-inner { display: grid; gap: 22px; justify-items: center; }
+  .final h2 { font-size: 34px; }
+  .final p { max-width: 34em; }
+  .partner-perks {
+    display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+    margin-top: 4px;
+  }
+  .perk {
+    font-size: 13px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 999px;
+    padding: 6px 16px;
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 26px 0 40px;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+  @media (max-width: 760px) {
+    section { padding: 56px 0; }
+    .hero { padding: 64px 0 56px; }
+    .hero-grid, .mock-grid { grid-template-columns: 1fr; gap: 36px; }
+    .pillars { grid-template-columns: 1fr; }
+    h2 { font-size: 24px; }
+    .final h2 { font-size: 27px; }
+    .stamp { width: 74px; height: 74px; font-size: 21px; bottom: -12px; }
+  }
+  /* ===== 体験強化（jp-lp-design × taste-skill） ===== */
+  h1, h2, h3 { font-feature-settings: "palt"; word-break: keep-all; overflow-wrap: break-word; }
+
+  /* 背景リズム: 白 → ベージュ → 濃茶 → 白 → 弁柄帯 → ベージュ → 白 → ベージュ */
+  .section-beige { background: var(--ledger-soft); }
+  .section-dark {
+    background: #40342a;
+    color: #ece2d4;
+    clip-path: polygon(0 48px, 100% 0, 100% calc(100% - 48px), 0 100%);
+    padding: 128px 0;
+  }
+  .section-dark h3 { color: #f7f0e6; }
+  .section-dark .mock-side li { color: #d8ccbd; }
+  .section-dark .mock-side li::before { background: #d9a08c; }
+  .section-dark .phone { border-color: rgba(255,255,255,0.14); }
+
+  .cta-band {
+    background: var(--shu);
+    color: #fff;
+    text-align: center;
+    padding: 60px 0;
+  }
+  .cta-band h2 { color: #fff; border-bottom: none; padding-bottom: 0; font-size: 27px; }
+  .cta-band .wrap { display: grid; gap: 22px; justify-items: center; }
+  .cta-band .btn { background: #fff; color: var(--shu); }
+  .cta-band .btn-note { color: rgba(255,255,255,0.78); }
+
+  /* 対応チャネル */
+  .chan-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 28px; }
+  .chan-label { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-soft); margin-right: 4px; }
+  .chan {
+    font-size: 13.5px; font-weight: 700;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 999px; padding: 7px 18px;
+  }
+
+  /* スクロールリビール */
+  .reveal { opacity: 0; transform: translateY(26px); transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
+  .reveal.is-in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* フローティングCTA */
+  .float-cta {
+    position: fixed; right: 16px; bottom: 16px; z-index: 200;
+    padding: 13px 24px; font-size: 14px;
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 10px 28px rgba(90, 70, 50, 0.3);
+  }
+  .float-cta.is-on { opacity: 1; transform: none; pointer-events: auto; }
+
+  /* 縦のサイド英字（薄い装飾） */
+  .side-note { position: relative; }
+  .side-note::after {
+    content: attr(data-side-text);
+    position: absolute; right: 14px; top: 50%;
+    transform: translateY(-50%);
+    writing-mode: vertical-rl;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.34em;
+    color: var(--ink); opacity: 0.05;
+    pointer-events: none; white-space: nowrap;
+  }
+
+  @media (max-width: 760px) {
+    .section-dark { clip-path: polygon(0 24px, 100% 0, 100% calc(100% - 24px), 0 100%); padding: 88px 0; }
+    .side-note::after { display: none; }
+    .cta-band h2 { font-size: 22px; }
+    .float-cta { right: 12px; bottom: 12px; }
+  }
+
+/* ===== 相談ステップフォーム ===== */
+html{scroll-behavior:smooth}
+.lead-form{max-width:520px;margin:16px auto 0;text-align:left}
+.sf-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;min-height:26px}
+.sf-back{background:none;border:none;color:var(--ink-soft);font-size:13px;cursor:pointer;font-family:inherit;padding:4px 10px 4px 0}
+.sf-back:hover{color:var(--shu)}
+.sf-progress{font-size:12px;color:var(--ink-soft);letter-spacing:.1em}
+.sf-step{border:none;margin:0;padding:0;min-inline-size:auto}
+.sf-q{display:block;font-weight:700;font-size:16px;color:var(--ink);margin-bottom:14px;line-height:1.7;padding:0;font-feature-settings:"palt"}
+.sf-multi{font-weight:400;font-size:12px;color:var(--ink-soft)}
+.sf-opts{display:grid;gap:8px}
+.sf-opt{display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:13px 16px;font-size:15px;color:var(--ink);font-family:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.sf-opt:hover{border-color:var(--shu)}
+.sf-opt[aria-pressed="true"]{border-color:var(--shu);background:var(--shu-soft);font-weight:700}
+.sf-opt[aria-pressed="true"]::after{content:"✓";float:right;color:var(--shu)}
+.sf-next{margin-top:14px;width:100%;border:none;cursor:pointer;font-family:inherit}
+.sf-slots{grid-template-columns:repeat(3,1fr)}
+.sf-slot-day{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--ink-soft);margin-top:2px}
+.sf-opt.sf-slot{padding:11px 6px;font-size:13px;text-align:center}
+.sf-opt.sf-slot[aria-pressed="true"]::after{content:""}
+.sf-step.sf-enter{animation:sfIn .28s ease both}
+@keyframes sfIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sf-step.sf-enter{animation:none}}
+.lf-row{margin-bottom:14px}
+.lf-label{display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.lf-opt{font-weight:400;color:var(--ink-soft);font-size:11px;margin-left:6px}
+.lf-req{color:var(--shu);font-size:11px;margin-left:6px}
+.lf-input{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:12px 14px;font-size:16px;color:var(--ink);font-family:inherit}
+.lf-input:focus{outline:none;border-color:var(--shu);box-shadow:0 0 0 3px var(--shu-soft)}
+.lf-input::placeholder{color:#b6a897;font-size:13px}
+.lf-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.lf-submit{width:100%;border:none;cursor:pointer;font-family:inherit}
+.lf-submit:disabled{opacity:.6;cursor:not-allowed}
+.lf-error{color:#b3261e;font-size:13px;margin:0 0 12px}
+.lf-error a{color:inherit}
+.lf-done{padding:28px 0 8px;text-align:center}
+.lf-done-title{font-weight:700;font-size:18px;color:var(--ink);margin:0 0 6px}
+.lf-done-body{color:var(--ink-soft);font-size:14px;margin:0}
+</style>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">税理士・会計事務所のための AI秘書</span>
+      <h1>資料さえ、<br>揃えば。<span class="stamp" aria-hidden="true">受領</span></h1>
+      <p class="hero-sub">月次の遅れも、決算のギリギリも、繁忙期の残業も——根っこはいつも、顧問先からの<b>「資料待ち」</b>。その回収と催促、事務所の一員としてAI秘書が引き受けます。顧問先は、いつものLINEに写真を返信するだけ。</p>
+      <div class="cta-row">
+        <a class="btn" href="#cta">先行導入の相談をする</a>
+        <span class="btn-note">先行導入は 5事務所 限定<br>15分のオンライン相談から</span>
+      </div>
+    </div>
+    <div class="waitlist" role="img" aria-label="未着資料リストの例">
+      <div class="waitlist-title">今朝の未着リスト ｜ 3月分</div>
+      <div class="wait-row">
+        <span class="who">㈱丸山工務店</span>
+        <span class="what">通帳コピー（3月分）</span>
+        <span class="wait-days">14日<small>催促2回</small></span>
+      </div>
+      <div class="wait-row">
+        <span class="who">山田商事㈱</span>
+        <span class="what">経費領収書ひと月分</span>
+        <span class="wait-days">9日<small>既読のみ</small></span>
+      </div>
+      <div class="wait-row">
+        <span class="who">カフェひだまり</span>
+        <span class="what">給与データ・通勤費</span>
+        <span class="wait-days">21日<small>電話つながらず</small></span>
+      </div>
+      <div class="wait-row">
+        <span class="who">佐野設備工業㈱</span>
+        <span class="what">売上請求書の控え</span>
+        <span class="wait-days">6日<small>「明日送る」×2</small></span>
+      </div>
+      <div class="waitlist-foot">——先生の事務所にも、このリストはありませんか。</div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= 共感 ================= -->
+<section id="pain">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>催促に時間を取られて、<br>本来の業務が遅れていませんか？</h2>
+    </div>
+    <p style="margin-bottom: 32px;">「催促」は、連絡を1通送って終わりではありません。毎月・全顧問先で、この一連が人の手で回っています——月次も、決算も、その分だけ後ろへずれていきます。</p>
+    <figure class="shot shot-land" data-slot="01-pain">
+      <img src="/lp1/images/pain.jpg" alt="書類と領収書が積まれた夕方の事務所で、電話をかける事務員" loading="lazy">
+    </figure>
+    <div class="loop">
+      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
+        <b>未着リストを作る</b>
+        <p>会計ソフトと突き合わせて、今月足りないものを顧問先ごとに洗い出す。先月と同じ顔ぶれが並ぶ。</p>
+      </div></div>
+      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
+        <b>文面を考えて、連絡する</b>
+        <p>相手はお客様。強くは書けない。今回も「お忙しいところ恐れ入ります」から始まる文面に、毎回数分悩む。</p>
+      </div></div>
+      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
+        <b>届いた資料の中身を確認する</b>
+        <p>写真がぶれて金額が読めない。3月分だけ抜けている。ファイル名は全部「スキャン.pdf」。</p>
+      </div></div>
+      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
+        <b>不足分を、再依頼する</b>
+        <p>いちばん言いづらい連絡。「先日いただいた分なのですが……」。角が立たないように、また文面に悩む。</p>
+      </div></div>
+      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
+        <b>受領を記録して、引き継ぐ</b>
+        <p>誰から何をもらったか、どこまで催促したか——記録は担当者の頭の中と、散らばったトーク履歴の中にしかない。</p>
+      </div></div>
+      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
+        <b>期限が近づき、また催促する</b>
+        <p>電話はつながらない。留守電に吹き込み、LINEにも送る。「送りました」「届いていません」が始まる。</p>
+      </div></div>
+    </div>
+    <figure class="shot shot-land" style="margin-top: 36px;" data-slot="04-chase">
+      <img src="/lp1/images/chase.jpg" alt="受話器を肩に挟みながらメールを打ち、傍らのスマホでトークも確認する事務員" loading="lazy">
+      <figcaption>電話、メール、LINE——同じ用件を、相手ごとに、何度も。</figcaption>
+    </figure>
+    <div class="loop-close">この一連に、顧問先1社あたり<b>月30分</b>。50社なら<b>月25時間</b>。そして年末調整と確定申告の繁忙期には、これが<b>全顧問先で同時に</b>起きます。</div>
+  </div>
+</section>
+
+<!-- ================= 解決 ================= -->
+<section id="solution" class="section-beige">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">解決のかたち</span>
+      <h2>ツールを導入するのではなく、<br>回収専門の秘書を、ひとり雇う。</h2>
+    </div>
+    <p>新しいシステムの操作を覚える必要はありません。事務所に「回収係の秘書」がひとり入社する、と考えてください。秘書は顧問先ごとの未着を把握し、相手のいる場所——LINE・メール・Chatwork・Slack・Google Chat——へ出向いて、角の立たない言葉で、揃うまで追いかけます。顧問先に見えるのは<b>「〇〇会計事務所の秘書」</b>。事務所の顔として働きます。</p>
+    <figure class="shot shot-land" style="margin-top: 36px;" data-slot="02-calm">
+      <img src="/lp1/images/calm.jpg" alt="朝の光の入る片付いた事務所で、画面を確認する2人のスタッフ" loading="lazy">
+    </figure>
+    <div class="pillars">
+      <div class="pillar">
+        <b>回収</b>
+        <span>未着のリストアップから受領の記録まで、「揃うまで」の一連を秘書が持つ。領収書は写真の返信だけで受領。</span>
+      </div>
+      <div class="pillar">
+        <b>催促</b>
+        <span>既読を確認しながら、適切な間隔で、何度でも。文面を考えるのは秘書の仕事。先生が悩む時間はゼロに。</span>
+      </div>
+      <div class="pillar">
+        <b>証跡</b>
+        <span>いつ依頼し、いつ既読になり、いつ受領したか。すべて記録に残り、「渡した・もらってない」が消える。</span>
+      </div>
+    </div>
+    <div class="chan-row">
+      <span class="chan-label">対応チャネル</span>
+      <span class="chan">LINE</span>
+      <span class="chan">メール</span>
+      <span class="chan">Chatwork</span>
+      <span class="chan">Slack</span>
+      <span class="chan">Google Chat</span>
+    </div>
+    <div class="traits">
+      <span class="trait">深夜に送っても<b>失礼にならない</b></span>
+      <span class="trait">何度催促しても<b>関係が悪くならない</b></span>
+      <span class="trait">繁忙期でも<b>全社同時に</b>動ける</span>
+      <span class="trait">そして、<b>退職しない</b></span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 顧問先の体験（LINEモック） ================= -->
+<section id="mock" class="section-dark">
+  <div class="wrap mock-grid">
+    <div class="mock-side">
+      <h3>顧問先の操作は、<br>写真を返信するだけ。</h3>
+      <ul>
+        <li>アプリの導入・ログイン・パスワードは一切不要。LINE・メール・Chatwork・Slack・Google Chat——いつもの場所に秘書からメッセージが届きます</li>
+        <li>領収書は撮って返信するだけ。秘書が枚数を確認し、受領を記録します</li>
+        <li>AIであることは最初に名乗ります。だから深夜の送信も、繰り返しの催促も、お互いに気まずくない</li>
+      </ul>
+    </div>
+    <div class="phone" role="img" aria-label="顧問先とのLINEトーク画面の例">
+      <div class="phone-head"><span class="avatar">秘</span>〇〇会計事務所 AI秘書</div>
+      <div class="chat">
+        <span class="day-chip">4月8日（水）</span>
+        <div class="msg in">
+          <div class="bubble">山田社長、お疲れさまです。〇〇会計事務所のAI秘書です。
+3月分の資料のうち、残り2点をお待ちしています。
+
+・通帳のコピー（3月分）
+・経費の領収書
+
+領収書はお写真のままご返信いただければ大丈夫です。</div>
+          <span class="meta">10:00</span>
+        </div>
+        <div class="msg out">
+          <div class="bubble"><span class="photo">［領収書の写真］</span></div>
+          <span class="meta">既読 12:41</span>
+        </div>
+        <div class="msg out">
+          <div class="bubble">これで足りる？</div>
+          <span class="meta">既読 12:41</span>
+        </div>
+        <div class="msg in">
+          <div class="bubble">お写真ありがとうございます。領収書24枚、確かにお預かりしました。
+残りは通帳のコピー（3月分）のみです。金曜までにいただけますと、月次のご報告が予定どおりお出しできます。</div>
+          <span class="meta">12:42</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 月給の算数 ================= -->
+<section id="math" class="side-note" data-side-text="COLLECTION">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>顧問先1社分の顧問料で、<br>事務所の回収が全部回る。</h2>
+    </div>
+    <div class="math-card">
+      <div>
+        <div class="math-label">いま人の手にかかっているもの</div>
+        <div class="math-row"><span>回収の一連が</span><span class="big">1社 月30分</span><span>×</span><span class="big">50社</span><span>=</span><span class="big">月25時間</span><span class="muted">≒ 月4.5万円分の事務作業</span></div>
+      </div>
+      <hr class="math-div">
+      <div>
+        <div class="math-label">空いた手が生むもの</div>
+        <div class="math-row"><span>担当者一人が持てる顧問先が</span><span class="big">＋5社</span><span>なら、顧問料</span><span class="big">月3万円</span><span>×5社 =</span><span class="big">月15万円</span><span class="muted">の増収余地</span></div>
+      </div>
+      <hr class="math-div">
+      <div>
+        <div class="math-label">秘書の月給</div>
+        <div class="math-row"><span class="big">顧問先1社分の顧問料以下</span><span class="muted">（先行導入の事務所と一緒に決めます）</span></div>
+      </div>
+      <p class="math-note">これは事務コストの削減だけの話ではありません。事務員の採用がむずかしいこの業界で、「もう一人採れないから顧問先を増やせない」への答えです。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CTA帯 ================= -->
+<section class="cta-band">
+  <div class="wrap">
+    <h2 class="mincho">その月25時間を、秘書に任せませんか。</h2>
+    <a class="btn" href="#cta">先行導入の相談をする</a>
+    <span class="btn-note">15分のオンライン相談。合わなければ、それで終わりで構いません。</span>
+  </div>
+</section>
+
+<!-- ================= 業務報告 ================= -->
+<section id="report" class="section-beige">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>丸投げではなく、<br>週に一度の業務報告つき。</h2>
+    </div>
+    <p style="margin-bottom: 26px;">任せきりのブラックボックスにはしません。秘書は毎週、事務所に業務報告を上げます。AIで拾いきれない例外——長期の未反応、こじれそうな相手——だけが、先生の判断に上がってきます。</p>
+    <div class="report">
+      <span class="from">AI秘書 → 所長 ｜ 週次業務報告（4月第2週）</span>
+      <p class="body">今週は催促を<b>14件</b>行い、<b>9件</b>を回収しました。未回収3件のうち、㈱丸山工務店さまは2週間ご反応がありません。トーンを変えた再送も既読のままのため、<b>先生から一度お電話いただくのが良さそうです</b>。他2件は「今週中に送る」とお返事をいただいており、金曜まで秘書側で追いかけます。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>先生方から、必ず聞かれること。</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>顧問先に、AIからの連絡は失礼にならないか。</summary>
+        <p class="a">秘書は最初のご挨拶で「AI秘書です」と名乗ります。隠さないからこそ、深夜の送信も繰り返しの催促も角が立ちません。文面は「詰めない・責めない・事実と期限だけ」を原則に設計しており、顧問先が返しやすいことを最優先にしています。名義はあくまで「〇〇会計事務所の秘書」——事務所の顔を汚さないことが、この秘書の第一の職務規程です。</p>
+      </details>
+      <details>
+        <summary>うちの顧問先はLINEではなくChatworkや電話なのだが。</summary>
+        <p class="a">秘書は相手のいる場所へ出向きます。LINE・メール・Chatwork・Slack・Google Chatに対応し、顧問先ごとに使い分けられます。どうしても電話でしか動かない相手は、秘書が「電話が必要な相手リスト」として週次報告に整理して上げるので、人の電話を最小の件数に絞れます。</p>
+      </details>
+      <details>
+        <summary>導入や設定が大変なのでは。新しいツールを覚える余裕はない。</summary>
+        <p class="a">導入は「入社手続き」だけです。顧問先のリストと、毎月・決算期に集めるものを秘書に教える——初回15〜30分で終わります。事務所側が新しい画面の操作を覚える必要は基本的にありません。秘書が動き、報告が届く。それだけです。</p>
+      </details>
+      <details>
+        <summary>顧問先の資料を預けて、セキュリティは大丈夫か。</summary>
+        <p class="a">受領した資料とやり取りの記録は、事務所ごとに分離された領域に暗号化して保管し、事務所のメンバー以外はアクセスできません。やり取りの全履歴が証跡として残ること自体が、「渡した・もらってない」トラブルからの防御にもなります。詳細な安全管理措置は、先行導入のご相談時に資料でご説明します。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 最終CTA ================= -->
+<section class="final section-beige" id="cta">
+  <div class="wrap final-inner">
+    <figure class="shot shot-wide" style="width: 100%; margin-bottom: 16px;" data-slot="03-done">
+      <img src="/lp1/images/done.jpg" alt="朝の机に、書類がきれいに揃って積まれている" loading="lazy">
+    </figure>
+    <span class="eyebrow">先行導入 ｜ 5事務所 限定</span>
+    <h2 class="mincho">最初の5事務所を、<br>募集します。</h2>
+    <p>このサービスはいま、実際の会計事務所と一緒に作る段階にあります。先行導入の事務所には、貴所の顧問先・チャネル・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>
+    <div class="partner-perks">
+      <span class="perk">貴所の運用に合わせた作り込み</span>
+      <span class="perk">先行月給（特別条件）</span>
+      <span class="perk">要望が開発に直接反映</span>
+    </div>
+    <form class="lead-form" id="lead-form" novalidate>
+      <div class="sf-head">
+        <button type="button" class="sf-back" id="sf-back" hidden>← 戻る</button>
+        <span class="sf-progress" id="sf-progress" aria-live="polite">1 / 4</span>
+      </div>
+      <fieldset class="sf-step">
+        <legend class="sf-q">書類や連絡のやり取りをする相手は、何件くらいありますか？</legend>
+        <div class="sf-opts" data-name="partnerCount">
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="〜10件">〜10件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="10〜30件">10〜30件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="30〜50件">30〜50件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="50〜100件">50〜100件</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="100件以上">100件以上</button>
+        </div>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">いま、催促や回収に使っている連絡手段は？<span class="sf-multi">（複数選べます）</span></legend>
+        <div class="sf-opts" data-name="channels" data-multi>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="LINE">LINE</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="メール">メール</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="Chatwork">Chatwork</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="Slack">Slack</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="電話・FAX">電話・FAX</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="郵送・手渡し">郵送・手渡し</button>
+        </div>
+        <button type="button" class="btn sf-next">次へ</button>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">いちばん困っていることは、どれに近いですか？</legend>
+        <div class="sf-opts" data-name="pain">
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="期限までに揃わない">期限までに揃わない</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="催促の手間と気疲れ">催促の手間と、気疲れ</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="送った・届いていないのすれ違い">「送った」「届いていない」のすれ違い</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="記録が担当者の頭の中にしかない">記録が担当者の頭の中にしかない</button>
+          <button type="button" class="sf-opt" aria-pressed="false" data-value="その他">その他</button>
+        </div>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">オンライン相談（15分）は、いつがご都合よいですか？<span class="sf-multi">（複数選べます／選ばずに進んでもOK）</span></legend>
+        <div class="sf-opts sf-slots" data-name="preferredSlots" data-multi id="sf-slots"></div>
+        <button type="button" class="btn sf-next">次へ</button>
+      </fieldset>
+      <fieldset class="sf-step" hidden>
+        <legend class="sf-q">ありがとうございます。ご連絡先をお願いします。</legend>
+        <div class="lf-row">
+          <label class="lf-label" for="lf-company">事務所名 <span class="lf-opt">任意</span></label>
+          <input class="lf-input" id="lf-company" name="company" type="text" placeholder="〇〇会計事務所" autocomplete="organization">
+        </div>
+        <div class="lf-row">
+          <label class="lf-label" for="lf-email">メールアドレス <span class="lf-req">必須</span></label>
+          <input class="lf-input" id="lf-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="lf-row">
+          <label class="lf-label" for="lf-message">補足があれば <span class="lf-opt">任意</span></label>
+          <textarea class="lf-input" id="lf-message" name="message" rows="3" placeholder="例: 繁忙期の時期、いま困っている場面など"></textarea>
+        </div>
+        <input class="lf-hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <p class="lf-error" id="lf-error" hidden>送信に失敗しました。お手数ですが<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p>
+        <button class="btn lf-submit" type="submit">先行導入の相談をする</button>
+      </fieldset>
+      <noscript><p class="lf-error">フォームの利用にはJavaScriptが必要です。<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p></noscript>
+    </form>
+    <div class="lf-done" id="lf-done" hidden>
+      <p class="lf-done-title">送信ありがとうございます。</p>
+      <p class="lf-done-body">1営業日以内に、日程のご案内をメールでお送りします。</p>
+    </div>
+    <span class="btn-note">まずは15分のオンライン相談から。売り込みはしません——<br>いまの回収のやり方を伺い、合わなければ正直にそう申し上げます。</span>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>skara ｜ 税理士・会計事務所のためのAI秘書（先行導入募集中・開発中のサービスです）</span>
+    <span>© 2026 skara</span>
+  </div>
+</footer>
+
+<a class="float-cta btn" href="#cta">先行導入の相談</a>
+
+<script>
+(function () {
+  var els = document.querySelectorAll('.sec-head, .shot, .waitlist, .pillars, .chan-row, .traits, .math-card, .report, .faq, .loop, .loop-close, .final-inner, .cta-band .wrap, .mock-side, .phone');
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  els.forEach(function (el) { el.classList.add('reveal'); });
+  if ('IntersectionObserver' in window && !reduce) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+    els.forEach(function (el) { io.observe(el); });
+  } else {
+    els.forEach(function (el) { el.classList.add('is-in'); });
+  }
+  var fcta = document.querySelector('.float-cta');
+  var hero = document.querySelector('.hero');
+  var ctaSec = document.getElementById('cta');
+  if (fcta && hero) {
+    var onScroll = function () {
+      var past = window.scrollY > hero.offsetHeight * 0.8;
+      var atCta = ctaSec && ctaSec.getBoundingClientRect().top < window.innerHeight * 0.7;
+      fcta.classList.toggle('is-on', past && !atCta);
+    };
+    addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+})();
+</script>
+
+<script>
+(function () {
+  var form = document.getElementById('lead-form')
+  if (!form) return
+  var steps = [].slice.call(form.querySelectorAll('.sf-step'))
+  var back = document.getElementById('sf-back')
+  var progress = document.getElementById('sf-progress')
+  var answers = {}
+  var current = 0
+  var m = location.pathname.match(/\/(lp\d+)(?:\/|$)/)
+  var source = m ? m[1] : 'lp'
+
+  // 相談希望日時: 直近の平日4日 × 3つの時間帯を候補として生成
+  var slotBox = document.getElementById('sf-slots')
+  if (slotBox) {
+    var youbi = ['日', '月', '火', '水', '木', '金', '土']
+    var bands = ['10〜12時', '13〜15時', '16〜18時']
+    var d = new Date()
+    var added = 0
+    while (added < 4) {
+      d.setDate(d.getDate() + 1)
+      if (d.getDay() === 0 || d.getDay() === 6) continue
+      var dayLabel = (d.getMonth() + 1) + '/' + d.getDate() + '(' + youbi[d.getDay()] + ')'
+      var head = document.createElement('div')
+      head.className = 'sf-slot-day'
+      head.textContent = dayLabel
+      slotBox.appendChild(head)
+      bands.forEach(function (band) {
+        var b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'sf-opt sf-slot'
+        b.setAttribute('aria-pressed', 'false')
+        b.setAttribute('data-value', dayLabel + ' ' + band)
+        b.textContent = band
+        slotBox.appendChild(b)
+      })
+      added++
+    }
+  }
+
+  function show(i, focus) {
+    current = i
+    steps.forEach(function (s, j) {
+      s.hidden = j !== i
+      s.classList.remove('sf-enter')
+    })
+    void steps[i].offsetWidth
+    steps[i].classList.add('sf-enter')
+    back.hidden = i === 0
+    progress.textContent = (i + 1) + ' / ' + steps.length
+    if (focus) {
+      var first = steps[i].querySelector('.sf-opt, .lf-input')
+      if (first) { try { first.focus({ preventScroll: true }) } catch (_) { /* old browsers */ } }
+    }
+  }
+
+  back.addEventListener('click', function () {
+    if (current > 0) show(current - 1, true)
+  })
+
+  steps.forEach(function (step) {
+    var next = step.querySelector('.sf-next')
+    if (next) next.addEventListener('click', function () { show(current + 1, true) })
+    var opts = step.querySelector('.sf-opts')
+    if (!opts) return
+    var name = opts.getAttribute('data-name')
+    var multi = opts.hasAttribute('data-multi')
+    opts.addEventListener('click', function (e) {
+      var btn = e.target
+      while (btn && btn !== opts && !(btn.classList && btn.classList.contains('sf-opt'))) btn = btn.parentNode
+      if (!btn || btn === opts) return
+      if (multi) {
+        btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')
+        var vals = []
+        ;[].slice.call(opts.querySelectorAll('.sf-opt[aria-pressed="true"]')).forEach(function (b) {
+          vals.push(b.getAttribute('data-value'))
+        })
+        answers[name] = vals.join('、')
+      } else {
+        ;[].slice.call(opts.querySelectorAll('.sf-opt')).forEach(function (b) {
+          b.setAttribute('aria-pressed', 'false')
+        })
+        btn.setAttribute('aria-pressed', 'true')
+        answers[name] = btn.getAttribute('data-value')
+        setTimeout(function () { show(current + 1, true) }, 180)
+      }
+    })
+  })
+
+  show(0, false)
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault()
+    var btn = form.querySelector('.lf-submit')
+    var err = document.getElementById('lf-error')
+    if (!form.email.value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.value)) {
+      err.hidden = false
+      err.textContent = 'メールアドレスをご確認ください。'
+      return
+    }
+    err.hidden = true
+    btn.disabled = true
+    btn.textContent = '送信中…'
+    var body = {
+      source: source,
+      company: form.company.value,
+      email: form.email.value,
+      message: form.message.value,
+      website: form.website.value,
+    }
+    if (answers.partnerCount) body.partnerCount = answers.partnerCount
+    if (answers.channels) body.channels = answers.channels
+    if (answers.pain) body.pain = answers.pain
+    if (answers.preferredSlots) body.preferredSlots = answers.preferredSlots
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status)
+        form.hidden = true
+        document.getElementById('lf-done').hidden = false
+      })
+      .catch(function () {
+        err.hidden = false
+        btn.disabled = false
+        btn.textContent = '先行導入の相談をする'
+      })
+  })
+})()
+</script>
+</body>
+</html>
