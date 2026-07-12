@@ -1,782 +1,506 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>勤怠さえ、届けば。｜ 社労士事務所のためのAI秘書</title>
 <meta name="description" content="社労士事務所の勤怠データ・手続き書類の回収と催促を、AI秘書が事務所の一員として引き受けます。顧問先はいつものLINEやメールに返信するだけ。先行導入5事務所を募集中。">
 <meta property="og:title" content="勤怠さえ、届けば。｜ 社労士事務所のためのAI秘書">
 <meta property="og:description" content="顧問先からの勤怠・書類の回収・催促・証跡を、AI秘書がまるごと引き受けます。相手はLINEに写真を返信するだけ。">
 <meta property="og:type" content="website">
-<meta property="og:image" content="/lp2/images/hero.jpg">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22none%22 stroke=%22%23a3503a%22 stroke-width=%228%22/><text x=%2250%22 y=%2266%22 font-size=%2248%22 text-anchor=%22middle%22 fill=%22%23a3503a%22>受</text></svg>">
-</head>
-<body>
-
 <style>
-  /* 白×ブラウン基調の単一テーマ（閲覧環境のダークモードでも固定） */
-  :root, :root[data-theme="light"], :root[data-theme="dark"] {
-    --paper: #faf8f4;      /* 温かみのある白 */
-    --card: #ffffff;
-    --ink: #3a2f26;        /* 墨ではなく焦げ茶 */
-    --ink-soft: #857567;
-    --line: #e6ddd0;
-    --shu: #a3503a;        /* 弁柄（落ち着いた赤茶）— 印・アクセント */
-    --shu-soft: #f6ebe4;
-    --ledger: #bfa88f;     /* 淡い茶の罫 */
-    --ledger-soft: #f3ede4;
-    --chat-bg: #8a99b4;
-    --bubble-in: #ffffff;
-    --bubble-out: #9fe870;
-    --chat-meta: #eef1f6;
-  }
-
-  body {
-    background: var(--paper);
-    color: var(--ink);
-    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", "Yu Gothic", Meiryo, sans-serif;
-    line-height: 1.9;
-    font-size: 15.5px;
-  }
-  .mincho { font-family: "Hiragino Mincho ProN", "Yu Mincho", "BIZ UDMincho", serif; }
-
-  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
-  section { padding: 72px 0; }
-
-  .eyebrow {
-    font-size: 12px;
-    letter-spacing: 0.24em;
-    color: var(--shu);
-    font-weight: 700;
-  }
-  h2 {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-    font-size: 30px;
-    line-height: 1.5;
-    margin: 10px 0 0;
-    font-weight: 600;
-    text-wrap: balance;
-  }
-  .sec-head { display: grid; gap: 2px; margin-bottom: 36px; }
-  p { margin: 0; max-width: 38em; }
-  .muted { color: var(--ink-soft); }
-
-  /* ================= HERO ================= */
-  .hero {
-    padding: 96px 0 80px;
-    background-image:
-      linear-gradient(
-        to right,
-        color-mix(in srgb, var(--paper) 97%, transparent) 0%,
-        color-mix(in srgb, var(--paper) 90%, transparent) 48%,
-        color-mix(in srgb, var(--paper) 62%, transparent) 100%
-      ),
-      url("/lp2/images/hero.jpg");
-    background-size: cover;
-    background-position: center;
-  }
-  .hero-grid {
-    display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: 48px;
-    align-items: center;
-  }
-  .hero-copy { display: grid; gap: 26px; }
-  h1 {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-    font-size: clamp(46px, 8.5vw, 76px);
-    line-height: 1.32;
-    margin: 0;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    position: relative;
-  }
-  .stamp {
-    position: absolute;
-    right: -6px;
-    bottom: -18px;
-    width: 92px;
-    height: 92px;
-    border: 3.5px solid var(--shu);
-    border-radius: 50%;
-    color: var(--shu);
-    display: grid;
-    place-items: center;
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    writing-mode: vertical-rl;
-    transform: rotate(-8deg);
-    opacity: 0.92;
-    animation: stamp-in 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) 0.5s backwards;
-  }
-  @keyframes stamp-in {
-    from { opacity: 0; transform: rotate(-18deg) scale(1.7); }
-    to   { opacity: 0.92; transform: rotate(-8deg) scale(1); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .stamp { animation: none; }
-  }
-  .hero-sub {
-    font-size: 16.5px;
-    max-width: 30em;
-  }
-  .hero-sub b { color: var(--shu); }
-  .cta-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
-  .btn {
-    display: inline-block;
-    background: var(--shu);
-    color: #fff;
-    text-decoration: none;
-    font-weight: 700;
-    font-size: 15px;
-    padding: 15px 30px;
-    border-radius: 4px;
-    letter-spacing: 0.04em;
-  }
-  .btn:focus-visible, a:focus-visible { outline: 3px solid var(--shu); outline-offset: 3px; }
-  .btn-note { font-size: 12px; color: var(--ink-soft); }
-  .link-quiet { color: var(--ink); font-size: 14px; text-underline-offset: 4px; }
-
-  /* 未着リストカード */
-  .waitlist {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 22px 24px;
-    display: grid;
-    gap: 0;
-    box-shadow: 0 14px 36px rgba(90, 70, 50, 0.10);
-  }
-  .waitlist-title {
-    font-size: 12.5px;
-    letter-spacing: 0.12em;
-    color: var(--ink-soft);
-    font-weight: 700;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--line);
-  }
-  .wait-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 16px;
-    padding: 13px 0;
-    border-bottom: 1px dashed var(--line);
-    font-size: 13.5px;
-    align-items: baseline;
-  }
-  .wait-row:last-of-type { border-bottom: none; }
-  .wait-row .who { font-weight: 700; }
-  .wait-row .what { color: var(--ink-soft); font-size: 12.5px; grid-column: 1; }
-  .wait-days {
-    grid-row: 1 / span 2;
-    grid-column: 2;
-    align-self: center;
-    color: var(--shu);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-    font-size: 14px;
-    white-space: nowrap;
-  }
-  .wait-days small { display: block; font-size: 10.5px; color: var(--ink-soft); font-weight: 500; }
-  .waitlist-foot { padding-top: 12px; font-size: 12px; color: var(--ink-soft); }
-
-  /* ================= 写真 ================= */
-  .shot {
-    margin: 0 0 40px;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid var(--line);
-  }
-  .shot img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    filter: saturate(0.82) contrast(0.97);
-  }
-  .shot-land { aspect-ratio: 3 / 2; }
-  .shot-wide { aspect-ratio: 12 / 5; }
-  .shot-ph {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    background: var(--ledger-soft);
-    border: 2px dashed var(--ledger);
-    border-radius: 6px;
-    color: var(--ink-soft);
-    font-size: 12.5px;
-    letter-spacing: 0.06em;
-    text-align: center;
-    padding: 20px;
-    line-height: 1.8;
-  }
-  figcaption {
-    font-size: 11.5px;
-    color: var(--ink-soft);
-    padding: 8px 2px 0;
-  }
-
-  /* ================= 共感（毎月、同じ仕事） ================= */
-  .loop { display: grid; gap: 0; counter-reset: step; max-width: 44em; }
-  .loop-item {
-    counter-increment: step;
-    display: grid;
-    grid-template-columns: 44px 1fr;
-    gap: 18px;
-    padding: 20px 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .loop-item:last-child { border-bottom: none; }
-  .loop-num {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-    font-size: 24px;
-    color: var(--ledger);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .loop-num::before { content: counter(step, decimal-leading-zero); }
-  .loop-item b { display: block; font-size: 16px; margin-bottom: 2px; }
-  .loop-item p { font-size: 14px; color: var(--ink-soft); }
-  .loop-close {
-    margin-top: 34px;
-    background: var(--ledger-soft);
-    border-left: 3px solid var(--ledger);
-    padding: 18px 22px;
-    border-radius: 0 6px 6px 0;
-    max-width: 42em;
-    font-size: 15px;
-  }
-  .loop-close b { color: var(--shu); }
-
-  /* ================= 解決 ================= */
-  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 8px; }
-  .pillar {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 20px 22px;
-    display: grid;
-    gap: 8px;
-    align-content: start;
-  }
-  .pillar b { font-size: 16px; color: var(--shu); font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; }
-  .pillar span { font-size: 13.5px; color: var(--ink-soft); line-height: 1.8; }
-  .traits { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
-  .trait {
-    font-size: 13px;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 6px 16px;
-  }
-  .trait b { color: var(--shu); font-weight: 700; }
-
-  /* ================= LINEモック ================= */
-  .mock-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 48px;
-    align-items: center;
-  }
-  .mock-side { display: grid; gap: 18px; }
-  .mock-side h3 {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-    font-size: 22px;
-    margin: 0;
-    line-height: 1.6;
-  }
-  .mock-side ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
-  .mock-side li { padding-left: 22px; position: relative; font-size: 14.5px; }
-  .mock-side li::before {
-    content: "";
-    position: absolute; left: 0; top: 0.68em;
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--shu); opacity: 0.55;
-  }
-  .phone {
-    width: min(360px, 100%);
-    justify-self: center;
-    border-radius: 26px;
-    border: 1px solid var(--line);
-    background: var(--chat-bg);
-    overflow: hidden;
-    box-shadow: 0 18px 44px rgba(90, 70, 50, 0.16);
-  }
-  .phone-head {
-    background: rgba(255,255,255,0.94);
-    color: #3a2f26;
-    padding: 12px 16px;
-    font-size: 13.5px;
-    font-weight: 700;
-    display: flex; align-items: center; gap: 10px;
-  }
-  .phone-head .avatar {
-    width: 30px; height: 30px; border-radius: 50%;
-    background: #a3503a; color: #fff;
-    display: grid; place-items: center;
-    font-size: 12px; font-weight: 700; flex: none;
-  }
-  .chat { padding: 16px 12px 20px; display: grid; gap: 12px; font-size: 13.5px; line-height: 1.7; }
-  .day-chip {
-    justify-self: center; font-size: 10.5px; color: #2c3e5c;
-    background: rgba(255,255,255,0.55); padding: 2px 12px; border-radius: 999px;
-  }
-  .msg { display: grid; gap: 3px; max-width: 84%; }
-  .msg .bubble { padding: 9px 13px; border-radius: 14px; white-space: pre-line; }
-  .msg.in { justify-self: start; }
-  .msg.in .bubble { background: var(--bubble-in); border-top-left-radius: 4px; color: #3a2f26; }
-  .msg.out { justify-self: end; }
-  .msg.out .bubble { background: var(--bubble-out); border-top-right-radius: 4px; color: #1d2a1d; }
-  .msg .meta { font-size: 10px; color: var(--chat-meta); }
-  .msg.in .meta { justify-self: start; }
-  .msg.out .meta { justify-self: end; }
-  .photo {
-    background: #d7dee9; border-radius: 12px; height: 92px;
-    display: grid; place-items: center;
-    color: #5c6570; font-size: 11px; letter-spacing: 0.08em;
-  }
-
-  /* ================= 月給の算数 ================= */
-  .math-card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 30px 34px;
-    display: grid;
-    gap: 18px;
-  }
-  .math-row {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px;
-    font-variant-numeric: tabular-nums;
-  }
-  .math-row .big {
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-    font-size: 26px; font-weight: 700; color: var(--shu);
-  }
-  .math-label {
-    font-size: 11.5px; letter-spacing: 0.16em; color: var(--ink-soft); font-weight: 700;
-  }
-  .math-div { border: none; border-top: 1px dashed var(--line); margin: 2px 0; }
-  .math-note { font-size: 13px; color: var(--ink-soft); max-width: 42em; }
-
-  /* ================= 業務報告 ================= */
-  .report {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-left: 4px solid var(--shu);
-    border-radius: 6px;
-    padding: 24px 28px;
-    max-width: 40em;
-    display: grid;
-    gap: 10px;
-  }
-  .report .from { font-size: 12px; color: var(--ink-soft); letter-spacing: 0.08em; }
-  .report .body { font-size: 14.5px; }
-  .report .body b { color: var(--shu); }
-
-  /* ================= FAQ ================= */
-  .faq { display: grid; gap: 14px; max-width: 46em; }
-  .faq details {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 0;
-  }
-  .faq summary {
-    cursor: pointer;
-    padding: 16px 20px;
-    font-weight: 700;
-    font-size: 15px;
-    list-style: none;
-    position: relative;
-    padding-right: 44px;
-  }
-  .faq summary::-webkit-details-marker { display: none; }
-  .faq summary::after {
-    content: "＋";
-    position: absolute; right: 18px; top: 50%;
-    transform: translateY(-50%);
-    color: var(--shu); font-weight: 400; font-size: 18px;
-  }
-  .faq details[open] summary::after { content: "－"; }
-  .faq .a { padding: 0 20px 18px; font-size: 14px; color: var(--ink-soft); max-width: 42em; }
-
-  /* ================= 最終CTA ================= */
-  .final {
-    text-align: center;
-    padding: 88px 0 96px;
-  }
-  .final-inner { display: grid; gap: 22px; justify-items: center; }
-  .final h2 { font-size: 34px; }
-  .final p { max-width: 34em; }
-  .partner-perks {
-    display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
-    margin-top: 4px;
-  }
-  .perk {
-    font-size: 13px;
-    border: 1px solid var(--line);
-    background: var(--card);
-    border-radius: 999px;
-    padding: 6px 16px;
-  }
-
-  footer {
-    border-top: 1px solid var(--line);
-    padding: 26px 0 40px;
-    font-size: 11.5px;
-    color: var(--ink-soft);
-  }
-  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-
-  @media (max-width: 760px) {
-    section { padding: 56px 0; }
-    .hero { padding: 64px 0 56px; }
-    .hero-grid, .mock-grid { grid-template-columns: 1fr; gap: 36px; }
-    .pillars { grid-template-columns: 1fr; }
-    h2 { font-size: 24px; }
-    .final h2 { font-size: 27px; }
-    .stamp { width: 74px; height: 74px; font-size: 21px; bottom: -12px; }
-  }
-  /* ===== 体験強化（jp-lp-design × taste-skill） ===== */
-  h1, h2, h3 { font-feature-settings: "palt"; word-break: keep-all; overflow-wrap: break-word; }
-
-  /* 背景リズム: 白 → ベージュ → 濃茶 → 白 → 弁柄帯 → ベージュ → 白 → ベージュ */
-  .section-beige { background: var(--ledger-soft); }
-  .section-dark {
-    background: #40342a;
-    color: #ece2d4;
-    clip-path: polygon(0 48px, 100% 0, 100% calc(100% - 48px), 0 100%);
-    padding: 128px 0;
-  }
-  .section-dark h3 { color: #f7f0e6; }
-  .section-dark .mock-side li { color: #d8ccbd; }
-  .section-dark .mock-side li::before { background: #d9a08c; }
-  .section-dark .phone { border-color: rgba(255,255,255,0.14); }
-
-  .cta-band {
-    background: var(--shu);
-    color: #fff;
-    text-align: center;
-    padding: 60px 0;
-  }
-  .cta-band h2 { color: #fff; border-bottom: none; padding-bottom: 0; font-size: 27px; }
-  .cta-band .wrap { display: grid; gap: 22px; justify-items: center; }
-  .cta-band .btn { background: #fff; color: var(--shu); }
-  .cta-band .btn-note { color: rgba(255,255,255,0.78); }
-
-  /* 対応チャネル */
-  .chan-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 28px; }
-  .chan-label { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-soft); margin-right: 4px; }
-  .chan {
-    font-size: 13.5px; font-weight: 700;
-    background: var(--card); border: 1px solid var(--line);
-    border-radius: 999px; padding: 7px 18px;
-  }
-
-  /* スクロールリビール */
-  .reveal { opacity: 0; transform: translateY(26px); transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
-  .reveal.is-in { opacity: 1; transform: none; }
-  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
-
-  /* フローティングCTA */
-  .float-cta {
-    position: fixed; right: 16px; bottom: 16px; z-index: 200;
-    padding: 13px 24px; font-size: 14px;
-    opacity: 0; transform: translateY(8px); pointer-events: none;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-    box-shadow: 0 10px 28px rgba(90, 70, 50, 0.3);
-  }
-  .float-cta.is-on { opacity: 1; transform: none; pointer-events: auto; }
-
-  /* 縦のサイド英字（薄い装飾） */
-  .side-note { position: relative; }
-  .side-note::after {
-    content: attr(data-side-text);
-    position: absolute; right: 14px; top: 50%;
-    transform: translateY(-50%);
-    writing-mode: vertical-rl;
-    font-size: 13px; font-weight: 700; letter-spacing: 0.34em;
-    color: var(--ink); opacity: 0.05;
-    pointer-events: none; white-space: nowrap;
-  }
-
-  @media (max-width: 760px) {
-    .section-dark { clip-path: polygon(0 24px, 100% 0, 100% calc(100% - 24px), 0 100%); padding: 88px 0; }
-    .side-note::after { display: none; }
-    .cta-band h2 { font-size: 22px; }
-    .float-cta { right: 12px; bottom: 12px; }
-  }
-
-/* ===== 相談ステップフォーム ===== */
+/* ============================================================
+   EDITORIAL CAMPAIGN — 資料さえ、揃えば。
+   palette: 朱 #E14A2B / クリーム #F4EDDE / 蛍光 #EFFF3C /
+            ターコイズ #1FA79A / 墨 #221D18 / 白
+   ============================================================ */
+:root{
+  --shu:#E14A2B; --cream:#F4EDDE; --neon:#EFFF3C;
+  --tq:#1FA79A; --sumi:#221D18; --white:#fff;
+  --shu-soft:#F7D9CF; --card:#fff; --line:#221D18;
+  --ink:#221D18; --ink-soft:#6d6257;
+}
+*{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
-.lead-form{max-width:520px;margin:16px auto 0;text-align:left}
-.sf-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;min-height:26px}
-.sf-back{background:none;border:none;color:var(--ink-soft);font-size:13px;cursor:pointer;font-family:inherit;padding:4px 10px 4px 0}
+body{
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;
+  background:var(--cream); color:var(--sumi);
+  font-feature-settings:"palt"; -webkit-font-smoothing:antialiased;
+  overflow-x:hidden; line-height:1.9;
+}
+img{max-width:100%;display:block}
+a{color:inherit}
+
+/* ---- shared ---- */
+.panel{position:relative;overflow:hidden}
+.pin{max-width:1080px;margin:0 auto;padding:0 24px;position:relative}
+.en{font-family:"Helvetica Neue",Arial,sans-serif;font-weight:700;letter-spacing:.32em;font-size:11px;text-transform:uppercase}
+.disp{font-weight:800;line-height:1.04;letter-spacing:.01em}
+.outline{color:transparent;-webkit-text-stroke:2px var(--sumi)}
+.outline-w{color:transparent;-webkit-text-stroke:2px var(--white)}
+.btn{
+  display:inline-block;background:var(--sumi);color:var(--cream);
+  font-weight:800;font-size:16px;padding:18px 44px;text-decoration:none;
+  border:2px solid var(--sumi);transition:all .18s ease;
+}
+.btn:hover{background:var(--shu);border-color:var(--shu);color:#fff;transform:translateY(-2px)}
+.note{font-size:12px;color:var(--ink-soft);line-height:1.9}
+.stamp{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:1.05em;height:1.05em;border:.045em solid var(--shu);border-radius:50%;
+  color:var(--shu);font-size:.42em;font-weight:800;letter-spacing:.06em;
+  transform:rotate(-10deg);text-indent:.06em;vertical-align:.28em;
+  white-space:nowrap;
+  animation:stampIn .45s cubic-bezier(.2,1.6,.4,1) .5s both;
+}
+@keyframes stampIn{from{opacity:0;transform:rotate(-24deg) scale(1.8)}to{opacity:1;transform:rotate(-10deg) scale(1)}}
+.nw{white-space:nowrap}
+.rv{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s cubic-bezier(.16,1,.3,1)}
+.rv.is-in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}.stamp{animation:none}}
+
+/* ============ P1 HERO ============ */
+.hero{background:var(--cream);padding:0 0 0}
+.hero-top{display:flex;justify-content:space-between;align-items:center;padding:18px 24px 0;max-width:1080px;margin:0 auto}
+.hero-brand{font-weight:800;font-size:14px;letter-spacing:.18em;white-space:nowrap}
+.hero-brand small{font-weight:600;color:var(--ink-soft);letter-spacing:.1em;margin-left:10px;font-size:10px}
+.hero-grid{position:relative;max-width:1080px;margin:0 auto;padding:34px 24px 0}
+.hero h1{
+  position:relative;z-index:3;
+  font-size:clamp(64px,16.5vw,170px);font-weight:800;line-height:.99;letter-spacing:-.015em;
+}
+.hero h1 .l2{display:block;margin-left:.55em}
+.hero h1 .l2 .o{color:transparent;-webkit-text-stroke:clamp(1.6px,.35vw,3px) var(--sumi)}
+.hero h1 .soro{color:var(--shu)}
+.hero-tate{
+  position:absolute;top:12px;right:24px;z-index:4;
+  writing-mode:vertical-rl;font-size:13px;font-weight:700;letter-spacing:.42em;
+  color:var(--sumi);height:15em;
+  border-right:2px solid var(--sumi);padding-right:10px;
+}
+.hero-photo{position:relative;margin-top:clamp(-96px,-11vw,-40px);z-index:2}
+.hero-photo .ph{
+  width:min(74vw,470px);margin:0 auto;position:relative;
+}
+.hero-photo img{width:100%}
+.hero-neon{
+  position:absolute;z-index:-1;border-radius:50%;
+  width:46vw;max-width:300px;aspect-ratio:1;background:var(--neon);
+  right:-14%;top:-5%;
+}
+.hero-en{
+  position:absolute;left:-8px;bottom:16%;z-index:3;
+  transform:rotate(90deg);transform-origin:left bottom;
+  color:var(--sumi);opacity:.85;
+}
+.hero-cta{
+  position:relative;z-index:5;text-align:center;
+  margin-top:6px;padding:0 24px 26px;
+}
+.hero-cta .note{margin-top:12px}
+.hero-foot{
+  border-top:2px solid var(--sumi);
+  display:flex;justify-content:space-between;gap:8px;
+  max-width:1080px;margin:0 auto;padding:10px 24px 16px;
+  font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--ink-soft);
+}
+
+/* ============ P2 PAIN (neon) ============ */
+.pain{background:var(--neon);padding:0 0 72px}
+.ticker{
+  border-top:3px solid var(--sumi);border-bottom:3px solid var(--sumi);
+  overflow:hidden;white-space:nowrap;padding:10px 0;background:var(--neon);
+}
+.ticker-inner{display:inline-block;animation:tick 30s linear infinite;font-weight:800;font-size:15px;letter-spacing:.08em}
+.ticker-inner span{margin:0 1.4em}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media(prefers-reduced-motion:reduce){.ticker-inner{animation:none}}
+.pain-grid{display:grid;grid-template-columns:1fr;gap:0;max-width:1080px;margin:0 auto;padding:56px 24px 0}
+.pain h2{
+  font-size:clamp(38px,10vw,84px);font-weight:800;line-height:1.06;letter-spacing:-.01em;
+  position:relative;z-index:2;
+}
+.pain h2 .num{
+  font-size:1.9em;line-height:.9;color:transparent;-webkit-text-stroke:clamp(2px,.4vw,4px) var(--sumi);
+  font-family:"Helvetica Neue",Arial,sans-serif;font-weight:800;letter-spacing:-.04em;
+  vertical-align:-.12em;padding-right:.04em;
+}
+.pain-sub{max-width:34em;font-size:15px;margin-top:22px;font-weight:500}
+.pain-ph{
+  width:min(78vw,440px);margin:34px auto 0;transform:rotate(-2deg);
+  border:10px solid #fff;box-shadow:0 24px 60px rgba(34,29,24,.18);
+  position:relative;
+}
+.pain-ph::after{
+  content:"";position:absolute;top:-22px;left:50%;transform:translateX(-50%) rotate(3deg);
+  width:110px;height:30px;background:var(--shu);opacity:.9;
+}
+.loopline{
+  max-width:1080px;margin:44px auto 0;padding:0 24px;
+  display:grid;grid-template-columns:1fr;gap:8px 22px;counter-reset:lp;
+}
+.loopline li{list-style:none}
+.loopline b{
+  display:block;font-size:14px;letter-spacing:.04em;border-bottom:2px solid var(--sumi);
+  padding:9px 0 7px;counter-increment:lp;font-weight:800;
+}
+.loopline b::before{
+  content:"0" counter(lp);font-family:"Helvetica Neue",Arial,sans-serif;
+  color:var(--shu);margin-right:.7em;font-weight:800;
+}
+@media(min-width:768px){
+  .pain-grid{grid-template-columns:1.1fr .9fr;align-items:center;gap:20px}
+  .pain-ph{margin:0}
+  .loopline{grid-template-columns:repeat(3,1fr)}
+}
+
+/* ============ P3 SOLUTION (turquoise) ============ */
+.sol{background:var(--tq);color:#fff;padding:84px 0 80px;position:relative}
+.sol .en{color:var(--neon)}
+.sol h2{
+  font-size:clamp(40px,9.6vw,78px);font-weight:800;line-height:1.02;margin-top:14px;
+}
+.sol h2 .o{color:transparent;-webkit-text-stroke:clamp(1.6px,.3vw,3px) #fff}
+.sol-grid{display:grid;grid-template-columns:1fr;gap:36px;align-items:center}
+.sol-ph{
+  width:min(72vw,400px);justify-self:center;position:relative;
+  clip-path:polygon(0 3%,100% 0,100% 97%,0 100%);
+}
+.sol-ph::before{
+  content:"AI SECRETARY";position:absolute;z-index:2;right:-12px;top:18px;
+  writing-mode:vertical-rl;font-family:"Helvetica Neue",Arial,sans-serif;
+  font-size:11px;font-weight:700;letter-spacing:.4em;color:var(--neon);
+}
+.sol p{max-width:36em;font-size:15px;font-weight:500}
+.sol p b{color:var(--neon);font-weight:800}
+.pillars{display:flex;gap:14px;margin:26px 0 6px}
+.pill-c{
+  width:92px;height:92px;border:2.5px solid #fff;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:17px;letter-spacing:.1em;
+  transform:rotate(-8deg);
+}
+.pill-c:nth-child(2){transform:rotate(4deg);background:var(--neon);color:var(--sumi);border-color:var(--neon)}
+.pill-c:nth-child(3){transform:rotate(-3deg)}
+.chans{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.chan{
+  border:1.5px solid rgba(255,255,255,.85);padding:6px 14px;border-radius:999px;
+  font-size:12.5px;font-weight:700;letter-spacing:.06em;
+}
+@media(min-width:768px){.sol-grid{grid-template-columns:1fr 1fr}}
+
+/* ============ P4 EXPERIENCE (cream) ============ */
+.exp{background:var(--cream);padding:0 0 84px}
+.exp-ph{position:relative}
+.exp-ph img{width:100%;max-height:72vh;object-fit:cover}
+.exp-ph h2{
+  position:absolute;left:4vw;bottom:-.4em;z-index:2;
+  font-size:clamp(46px,10.5vw,110px);font-weight:800;line-height:1.03;
+  color:#fff;text-shadow:0 2px 26px rgba(34,29,24,.16);
+}
+.exp-ph h2 .mk{color:var(--sumi);background:var(--neon);padding:0 .08em;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.exp-body{max-width:1080px;margin:64px auto 0;padding:0 24px;display:grid;gap:30px}
+.exp-quote{
+  border-left:6px solid var(--shu);padding:6px 70px 6px 22px;
+  font-size:clamp(19px,3.2vw,26px);font-weight:800;line-height:1.7;position:relative;
+}
+.exp-quote small{display:block;font-size:12px;color:var(--ink-soft);font-weight:600;margin-top:10px;letter-spacing:.12em}
+.exp-quote .st{position:absolute;right:-2px;top:-30px;font-size:52px}
+.exp-list{font-size:14px;font-weight:500;max-width:38em}
+.exp-list li{list-style:none;padding:10px 0;border-bottom:1.5px solid rgba(34,29,24,.22)}
+.exp-list li::before{content:"—";color:var(--shu);font-weight:800;margin-right:.8em}
+@media(min-width:768px){.exp-body{grid-template-columns:1.1fr .9fr;align-items:start}}
+
+/* ============ P5 MATH (shu) ============ */
+.math{background:var(--shu);color:#fff;padding:84px 0 88px;position:relative}
+.math .pin{display:grid;gap:38px}
+.math h2{font-size:clamp(34px,7.6vw,60px);font-weight:800;line-height:1.1}
+.math h2 em{font-style:normal;color:var(--neon)}
+.mrows{display:grid;gap:0;border-top:2.5px solid rgba(255,255,255,.85)}
+.mrow{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;
+  padding:20px 0;border-bottom:2.5px solid rgba(255,255,255,.85);
+}
+.mrow .big{
+  font-family:"Helvetica Neue",Arial,sans-serif;font-weight:800;
+  font-size:clamp(34px,6.4vw,58px);letter-spacing:-.03em;line-height:1;
+}
+.mrow .big.jp{font-family:inherit;font-size:clamp(24px,4.6vw,40px);letter-spacing:0}
+.mrow .u{font-size:14px;font-weight:700;opacity:.92}
+.mrow .neon-t{color:var(--neon)}
+.math-note{font-size:14px;font-weight:500;max-width:37em;opacity:.95}
+.math-ph{
+  width:min(64vw,360px);justify-self:end;margin-top:-8px;
+  transform:rotate(2deg);border:10px solid #fff;box-shadow:0 22px 54px rgba(34,29,24,.28);
+}
+.math-en{
+  position:absolute;top:22px;right:-4px;transform:rotate(90deg);transform-origin:right top;
+  color:rgba(255,255,255,.65);
+}
+@media(min-width:768px){
+  .math .pin{grid-template-columns:1.25fr .75fr;align-items:start}
+  .math .m-left{grid-column:1}
+  .math-ph{grid-column:2;grid-row:1/3}
+}
+
+/* ============ P6 REPORT (cream) ============ */
+.rep{background:var(--cream);padding:84px 0}
+.rep-grid{display:grid;gap:36px;align-items:start}
+.rep h2{font-size:clamp(40px,9vw,72px);font-weight:800;line-height:1.05}
+.rep h2 .o{color:transparent;-webkit-text-stroke:clamp(1.6px,.3vw,3px) var(--sumi)}
+.rep-lead{font-size:15px;font-weight:500;max-width:36em;margin-top:18px}
+.rep-card{
+  background:#fff;border:2.5px solid var(--sumi);padding:26px 24px 24px;position:relative;
+  box-shadow:10px 10px 0 var(--tq);
+}
+.rep-card .from{display:block;font-size:11px;font-weight:800;letter-spacing:.18em;color:var(--ink-soft);border-bottom:2px solid var(--sumi);padding-bottom:10px;margin-bottom:14px}
+.rep-card .body{font-size:14px;font-weight:500;line-height:2.05}
+.rep-card .body b{background:var(--neon);font-weight:800;padding:0 3px}
+.rep-card .rstamp{
+  position:absolute;top:-26px;right:-14px;width:74px;height:74px;border:3px solid var(--shu);
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:var(--shu);font-weight:800;font-size:19px;transform:rotate(-12deg);background:rgba(255,255,255,.7);
+}
+.rep-ph{width:min(58vw,320px);transform:rotate(-2.5deg);border:9px solid #fff;box-shadow:0 18px 44px rgba(34,29,24,.16);margin-top:26px}
+@media(min-width:768px){
+  .rep-grid{grid-template-columns:1fr 1.05fr}
+  .rep-ph{margin-top:34px;margin-left:8%}
+}
+
+/* ============ P7 FAQ ============ */
+.faq{background:#fff;border-top:3px solid var(--sumi);padding:72px 0}
+.faq h2{font-size:clamp(30px,5.4vw,48px);font-weight:800;margin-bottom:26px}
+.faq h2 span{color:var(--shu)}
+.faq details{border-bottom:2px solid var(--sumi)}
+.faq summary{
+  cursor:pointer;list-style:none;font-weight:800;font-size:16px;padding:20px 34px 20px 0;position:relative;
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"＋";position:absolute;right:4px;top:20px;color:var(--shu);font-weight:800}
+.faq details[open] summary::after{content:"−"}
+.faq .a{font-size:14px;font-weight:500;color:#453b31;padding:0 0 22px;max-width:44em}
+
+/* ============ P8 CTA + FORM ============ */
+.final{background:var(--cream);padding:76px 0 90px;position:relative}
+.final-frame{
+  max-width:760px;margin:0 auto;border:3px solid var(--sumi);background:#fff;
+  padding:clamp(28px,6vw,56px) clamp(20px,5vw,52px) 44px;position:relative;
+  box-shadow:14px 14px 0 var(--shu);
+}
+.final-frame .en{display:block;text-align:center;color:var(--shu)}
+.final h2{
+  text-align:center;font-size:clamp(34px,7.4vw,58px);font-weight:800;line-height:1.2;margin:12px 0 14px;
+}
+.final-lead{text-align:center;font-size:14px;font-weight:500;max-width:33em;margin:0 auto}
+.perks{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:20px 0 6px}
+.perk{border:1.5px solid var(--sumi);padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700}
+.final .note{display:block;text-align:center;margin-top:18px}
+
+/* ---- ステップフォーム（機能クラスは既存のまま・見た目のみ再設計） ---- */
+.lead-form{max-width:520px;margin:26px auto 0;text-align:left}
+.sf-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;min-height:26px}
+.sf-back{background:none;border:none;color:var(--ink-soft);font-size:13px;cursor:pointer;font-family:inherit;padding:4px 10px 4px 0;font-weight:700}
 .sf-back:hover{color:var(--shu)}
-.sf-progress{font-size:12px;color:var(--ink-soft);letter-spacing:.1em}
+.sf-progress{font-family:"Helvetica Neue",Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.2em;color:var(--shu)}
 .sf-step{border:none;margin:0;padding:0;min-inline-size:auto}
-.sf-q{display:block;font-weight:700;font-size:16px;color:var(--ink);margin-bottom:14px;line-height:1.7;padding:0;font-feature-settings:"palt"}
-.sf-multi{font-weight:400;font-size:12px;color:var(--ink-soft)}
-.sf-opts{display:grid;gap:8px}
-.sf-opt{display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:13px 16px;font-size:15px;color:var(--ink);font-family:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease}
-.sf-opt:hover{border-color:var(--shu)}
-.sf-opt[aria-pressed="true"]{border-color:var(--shu);background:var(--shu-soft);font-weight:700}
-.sf-opt[aria-pressed="true"]::after{content:"✓";float:right;color:var(--shu)}
-.sf-next{margin-top:14px;width:100%;border:none;cursor:pointer;font-family:inherit}
+.sf-q{display:block;font-weight:800;font-size:17px;color:var(--sumi);margin-bottom:16px;line-height:1.7;padding:0;font-feature-settings:"palt"}
+.sf-multi{font-weight:500;font-size:12px;color:var(--ink-soft)}
+.sf-opts{display:grid;gap:9px}
+.sf-opt{
+  display:block;width:100%;box-sizing:border-box;text-align:left;background:#fff;
+  border:2px solid var(--sumi);padding:13px 16px;font-size:15px;color:var(--sumi);
+  font-family:inherit;cursor:pointer;font-weight:600;
+  transition:all .14s ease;border-radius:0;
+}
+.sf-opt:hover{background:var(--neon)}
+.sf-opt[aria-pressed="true"]{background:var(--sumi);color:var(--neon);font-weight:800}
+.sf-opt[aria-pressed="true"]::after{content:"✓";float:right;color:var(--neon)}
+.sf-next{margin-top:16px;width:100%;border:none;cursor:pointer;font-family:inherit}
 .sf-slots{grid-template-columns:repeat(3,1fr)}
-.sf-slot-day{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--ink-soft);margin-top:2px}
+.sf-slot-day{grid-column:1/-1;font-size:12px;font-weight:800;color:var(--shu);margin-top:4px;letter-spacing:.08em}
 .sf-opt.sf-slot{padding:11px 6px;font-size:13px;text-align:center}
 .sf-opt.sf-slot[aria-pressed="true"]::after{content:""}
 .sf-step.sf-enter{animation:sfIn .28s ease both}
 @keyframes sfIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.sf-step.sf-enter{animation:none}}
+@media(prefers-reduced-motion:reduce){.sf-step.sf-enter{animation:none}}
 .lf-row{margin-bottom:14px}
-.lf-label{display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px}
-.lf-opt{font-weight:400;color:var(--ink-soft);font-size:11px;margin-left:6px}
-.lf-req{color:var(--shu);font-size:11px;margin-left:6px}
-.lf-input{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:12px 14px;font-size:16px;color:var(--ink);font-family:inherit}
-.lf-input:focus{outline:none;border-color:var(--shu);box-shadow:0 0 0 3px var(--shu-soft)}
-.lf-input::placeholder{color:#b6a897;font-size:13px}
+.lf-label{display:block;font-size:13px;font-weight:800;color:var(--sumi);margin-bottom:6px}
+.lf-opt{font-weight:500;color:var(--ink-soft);font-size:11px;margin-left:6px}
+.lf-req{color:var(--shu);font-size:11px;margin-left:6px;font-weight:800}
+.lf-input{
+  width:100%;box-sizing:border-box;background:#fff;border:2px solid var(--sumi);
+  padding:12px 14px;font-size:16px;color:var(--sumi);font-family:inherit;border-radius:0;
+}
+.lf-input:focus{outline:none;border-color:var(--shu);box-shadow:4px 4px 0 var(--neon)}
+.lf-input::placeholder{color:#b0a597;font-size:13px}
 .lf-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
 .lf-submit{width:100%;border:none;cursor:pointer;font-family:inherit}
 .lf-submit:disabled{opacity:.6;cursor:not-allowed}
 .lf-error{color:#b3261e;font-size:13px;margin:0 0 12px}
 .lf-error a{color:inherit}
-.lf-done{padding:28px 0 8px;text-align:center}
-.lf-done-title{font-weight:700;font-size:18px;color:var(--ink);margin:0 0 6px}
+.lf-done{padding:30px 0 8px;text-align:center}
+.lf-done-title{font-weight:800;font-size:19px;color:var(--sumi);margin:0 0 6px}
 .lf-done-body{color:var(--ink-soft);font-size:14px;margin:0}
-</style>
 
-<!-- ================= HERO ================= -->
-<header class="hero">
-  <div class="wrap hero-grid">
-    <div class="hero-copy">
-      <span class="eyebrow">社労士事務所のための AI秘書</span>
-      <h1>勤怠さえ、<br>届けば。<span class="stamp" aria-hidden="true">受領</span></h1>
-      <p class="hero-sub">給与計算の遅れも、手続きのギリギリも、6月の山も——根っこはいつも、顧問先からの<b>「勤怠待ち・書類待ち」</b>。その回収と催促、事務所の一員としてAI秘書が引き受けます。顧問先は、いつものLINEに写真を返信するだけ。</p>
-      <div class="cta-row">
-        <a class="btn" href="#cta">先行導入の相談をする</a>
-        <span class="btn-note">先行導入は 5事務所 限定<br>15分のオンライン相談から</span>
-      </div>
-    </div>
-    <div class="waitlist" role="img" aria-label="未着資料リストの例">
-      <div class="waitlist-title">今朝の未着リスト ｜ 4月分給与</div>
-      <div class="wait-row">
-        <span class="who">㈱丸山工務店</span>
-        <span class="what">勤怠データ（4月分）</span>
-        <span class="wait-days">5日<small>締め日超過</small></span>
-      </div>
-      <div class="wait-row">
-        <span class="who">山田商事㈱</span>
-        <span class="what">新入社員の入社書類</span>
-        <span class="wait-days">12日<small>入社日は来週</small></span>
-      </div>
-      <div class="wait-row">
-        <span class="who">カフェひだまり</span>
-        <span class="what">雇用契約書の返送</span>
-        <span class="wait-days">21日<small>電話つながらず</small></span>
-      </div>
-      <div class="wait-row">
-        <span class="who">佐野設備工業㈱</span>
-        <span class="what">算定基礎の報酬データ</span>
-        <span class="wait-days">9日<small>「明日送る」×2</small></span>
-      </div>
-      <div class="waitlist-foot">——先生の事務所にも、このリストはありませんか。</div>
-    </div>
+/* ---- footer / float ---- */
+footer{background:var(--sumi);color:var(--cream);padding:22px 24px;font-size:11.5px;letter-spacing:.06em}
+footer .pin{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;padding:0}
+.float-cta{
+  position:fixed;right:16px;bottom:16px;z-index:60;
+  font-size:14px;padding:14px 22px;box-shadow:6px 6px 0 rgba(34,29,24,.25);
+  opacity:0;transform:translateY(8px);pointer-events:none;
+  transition:opacity .3s ease,transform .3s ease;
+  background:var(--shu);border-color:var(--shu);color:#fff;
+}
+.float-cta.is-on{opacity:1;transform:none;pointer-events:auto}
+</style>
+</head>
+<body>
+
+<!-- ============ P1 HERO ============ -->
+<header class="hero panel" id="top">
+  <div class="hero-top">
+    <span class="hero-brand">skara<small>AI SECRETARY</small></span>
+    <span class="en" style="letter-spacing:.2em;font-size:10px">EDITION 01 — LABOR</span>
+  </div>
+  <div class="hero-grid">
+    <span class="hero-tate">社労士事務所のための、AI秘書。</span>
+    <h1>勤怠さえ、<span class="l2"><span class="soro">届</span><span class="o">けば。</span><span class="stamp" aria-hidden="true">受領</span></span></h1>
+  </div>
+  <div class="hero-photo">
+    <span class="hero-en en">HIRE YOUR SECRETARY, TODAY.</span>
+    <figure class="ph">
+      <span class="hero-neon" aria-hidden="true"></span>
+      <img src="/lp-assets/ed-hero.jpg" alt="書類の束を抱えて歩く、朱色のジャケットの秘書" fetchpriority="high">
+    </figure>
+  </div>
+  <div class="hero-cta">
+    <a class="btn" href="#cta">先行導入の相談をする</a>
+    <p class="note">先行導入は5事務所限定 ｜ まずは15分のオンライン相談から</p>
+  </div>
+  <div class="hero-foot">
+    <span>回収 × 催促 × 証跡</span>
+    <span>DOCUMENTS, COLLECTED.</span>
   </div>
 </header>
 
-<!-- ================= 共感 ================= -->
-<section id="pain">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2>催促に時間を取られて、<br>本来の業務が遅れていませんか？</h2>
+<!-- ============ P2 PAIN ============ -->
+<section class="pain panel">
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-inner">
+      <span>◆ 勤怠データ（4月分） ── 5日・締め日超過</span><span>◆ 新入社員の入社書類 ── 12日・入社日は来週</span><span>◆ 雇用契約書の返送 ── 21日・電話つながらず</span><span>◆ 算定基礎の報酬データ ── 9日・「明日送る」×2</span>
+      <span>◆ 勤怠データ（4月分） ── 5日・締め日超過</span><span>◆ 新入社員の入社書類 ── 12日・入社日は来週</span><span>◆ 雇用契約書の返送 ── 21日・電話つながらず</span><span>◆ 算定基礎の報酬データ ── 9日・「明日送る」×2</span>
     </div>
-    <p style="margin-bottom: 32px;">「催促」は、連絡を1通送って終わりではありません。毎月・全顧問先で、この一連が人の手で回っています——給与計算も、手続きも、その分だけ後ろへずれていきます。</p>
-    <figure class="shot shot-land" data-slot="01-pain">
-      <img src="/lp2/images/pain.jpg" alt="勤怠表と書類が積まれた夕方の事務所で、電話をかける事務員" loading="lazy">
+  </div>
+  <div class="pain-grid">
+    <div class="rv">
+      <span class="en">EVERY MONTH, EVERY CLIENT.</span>
+      <h2 style="margin-top:10px"><span class="nw">その催促に、</span><br><span class="nw">月<span class="num">15</span>時間。</span></h2>
+      <p class="pain-sub">「催促」は、連絡を1通送って終わりではありません。毎月・全顧問先で、この一連が人の手で回っています——給与計算も、手続きも、その分だけ後ろへずれていきます。この一連に、顧問先1社あたり月30分。30社なら月15時間。そして算定基礎届・年度更新の6月と、年末調整の12月には、これが全顧問先で同時に起きます。</p>
+    </div>
+    <figure class="pain-ph rv">
+      <img src="/lp-assets/ed-pain.jpg" alt="山積みの書類に埋もれ、受話器を握る担当者" loading="lazy">
     </figure>
-    <div class="loop">
-      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
-        <b>未着リストを作る</b>
-        <p>締め日を過ぎても届かない勤怠を、顧問先ごとに洗い出す。先月と同じ顔ぶれが並ぶ。</p>
-      </div></div>
-      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
-        <b>文面を考えて、連絡する</b>
-        <p>相手はお客様。「このままでは給与計算が間に合いません」とは書けない。今回も「お忙しいところ恐れ入ります」から。</p>
-      </div></div>
-      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
-        <b>届いたデータの中身を確認する</b>
-        <p>打刻漏れ、残業時間の不整合。Excelのフォーマットは顧問先ごとに毎回違う。</p>
-      </div></div>
-      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
-        <b>不備を、差し戻す</b>
-        <p>いちばん言いづらい連絡。「先日いただいた勤怠なのですが……」。角が立たないように、また文面に悩む。</p>
-      </div></div>
-      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
-        <b>受領を記録して、引き継ぐ</b>
-        <p>誰から何をもらったか、どこまで催促したか——記録は担当者の頭の中と、散らばったトーク履歴の中にしかない。</p>
-      </div></div>
-      <div class="loop-item"><span class="loop-num" aria-hidden="true"></span><div>
-        <b>給与支払日から逆算して、また催促する</b>
-        <p>電話はつながらない。留守電に吹き込み、LINEにも送る。間に合わなければ、残業するのは事務所側。</p>
-      </div></div>
+  </div>
+  <ol class="loopline rv">
+    <li><b>未着リストを作る</b></li>
+    <li><b>文面を考えて、連絡する</b></li>
+    <li><b>届いたデータの中身を確認する</b></li>
+    <li><b>不備を、差し戻す</b></li>
+    <li><b>受領を記録して、引き継ぐ</b></li>
+    <li><b>給与支払日から逆算して、また催促する</b></li>
+  </ol>
+</section>
+
+<!-- ============ P3 SOLUTION ============ -->
+<section class="sol panel">
+  <div class="pin">
+    <div class="sol-grid">
+      <div class="rv">
+        <span class="en">A NEW MEMBER JOINS YOUR FIRM</span>
+        <h2><span class="nw">秘書が、</span><br><span class="o nw">入社します。</span></h2>
+        <div class="pillars" aria-label="秘書の3つの職務">
+          <span class="pill-c">回収</span><span class="pill-c">催促</span><span class="pill-c">証跡</span>
+        </div>
+        <p>新しいシステムの操作を覚える必要はありません。事務所に「回収係の秘書」がひとり入社する、と考えてください。秘書は顧問先ごとの未着を把握し、相手のいる場所へ出向いて、角の立たない言葉で、揃うまで追いかけます。顧問先に見えるのは<b>「〇〇社労士事務所の秘書」</b>。事務所の顔として働きます。</p>
+        <div class="chans" aria-label="対応チャネル">
+          <span class="chan">LINE</span><span class="chan">メール</span><span class="chan">Chatwork</span><span class="chan">Slack</span><span class="chan">Google Chat</span>
+        </div>
+      </div>
+      <figure class="sol-ph rv">
+        <img src="/lp-assets/ed-secretary.jpg" alt="スマートフォンを手にした、頼れる表情の秘書" loading="lazy">
+      </figure>
     </div>
-    <figure class="shot shot-land" style="margin-top: 36px;" data-slot="04-chase">
-      <img src="/lp2/images/chase.jpg" alt="受話器を肩に挟みながらメールを打ち、傍らのスマホでトークも確認する事務員" loading="lazy">
-      <figcaption>電話、メール、LINE——同じ用件を、相手ごとに、何度も。</figcaption>
+  </div>
+</section>
+
+<!-- ============ P4 EXPERIENCE ============ -->
+<section class="exp panel">
+  <div class="exp-ph">
+    <img src="/lp-assets/ed-hands.jpg" alt="窓辺の明るい机で、書類をスマートフォンで撮る手元" loading="lazy">
+    <h2 style="font-size:clamp(34px,8.8vw,96px)">顧問先の操作は、<br><span class="mk">写真を返信するだけ。</span></h2>
+  </div>
+  <div class="exp-body">
+    <div class="exp-quote rv">
+      「お写真ありがとうございます。タイムカード8名分、確かにお預かりしました。」
+      <small>—— 秘書から顧問先へ、実際のトーンで</small>
+      <span class="st stamp" aria-hidden="true">受領</span>
+    </div>
+    <ul class="exp-list rv">
+      <li>未着のリストアップから受領の記録まで、「揃うまで」の一連を秘書が持つを回収</li>
+      <li>タイムカードは撮って返信するだけ。秘書が人数分を確認し、受領を記録します</li>
+      <li>既読を確認しながら、適切な間隔で何度でも</li>
+      <li>文面を考えるのは秘書の仕事。悩む時間はゼロに</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ P5 MATH ============ -->
+<section class="math panel">
+  <span class="math-en en">THE MATH OF ONE SECRETARY</span>
+  <div class="pin">
+    <div class="m-left rv">
+      <span class="en" style="color:var(--neon)">SALARY, NOT SOFTWARE.</span>
+      <h2 style="margin-top:12px;font-size:clamp(27px,7.3vw,48px)"><span class="nw">顧問先1社分の顧問料で、</span><br><span class="nw">事務所の回収が全部回る。</span></h2>
+    </div>
+    <figure class="math-ph rv">
+      <img src="/lp-assets/ed-math.jpg" alt="朱色の背景に、封筒の束・印鑑と朱肉・電卓" loading="lazy">
     </figure>
-    <div class="loop-close">この一連に、顧問先1社あたり<b>月30分</b>。30社なら<b>月15時間</b>。そして算定基礎届・年度更新の6月と、年末調整の12月には、これが<b>全顧問先で同時に</b>起きます。</div>
-  </div>
-</section>
-
-<!-- ================= 解決 ================= -->
-<section id="solution" class="section-beige">
-  <div class="wrap">
-    <div class="sec-head">
-      <span class="eyebrow">解決のかたち</span>
-      <h2>ツールを導入するのではなく、<br>回収専門の秘書を、ひとり雇う。</h2>
-    </div>
-    <p>新しいシステムの操作を覚える必要はありません。事務所に「回収係の秘書」がひとり入社する、と考えてください。秘書は顧問先ごとの未着を把握し、相手のいる場所——LINE・メール・Chatwork・Slack・Google Chat——へ出向いて、角の立たない言葉で、揃うまで追いかけます。顧問先に見えるのは<b>「〇〇社労士事務所の秘書」</b>。事務所の顔として働きます。</p>
-    <figure class="shot shot-land" style="margin-top: 36px;" data-slot="02-calm">
-      <img src="/lp2/images/calm.jpg" alt="朝の光の入る片付いた事務所で、画面を確認する2人のスタッフ" loading="lazy">
-    </figure>
-    <div class="pillars">
-      <div class="pillar">
-        <b>回収</b>
-        <span>未着のリストアップから受領の記録まで、「揃うまで」の一連を秘書が持つ。タイムカードは写真の返信だけで受領。</span>
+    <div class="rv">
+      <div class="mrows">
+        <div class="mrow"><span class="u">回収の一連が</span><span class="big jp">1社 月30分</span><span class="u">×</span><span class="big jp">30社</span><span class="u">=</span><span class="big jp neon-t">月15時間</span><span class="u" style="flex-basis:100%">≒ 月2.7万円分の事務作業</span></div>
+        <div class="mrow"><span class="u">担当者一人が持てる顧問先が</span><span class="big jp">＋5社</span><span class="u">なら、顧問料</span><span class="big jp">月3万円</span><span class="u">×5社 =</span><span class="big jp neon-t">月15万円</span><span class="u" style="flex-basis:100%">の増収余地</span></div>
+        <div class="mrow"><span class="big jp neon-t">顧問先1社分の顧問料以下</span><span class="u" style="flex-basis:100%">（先行導入の事務所と一緒に決めます）</span></div>
       </div>
-      <div class="pillar">
-        <b>催促</b>
-        <span>既読を確認しながら、適切な間隔で、何度でも。文面を考えるのは秘書の仕事。先生が悩む時間はゼロに。</span>
-      </div>
-      <div class="pillar">
-        <b>証跡</b>
-        <span>いつ依頼し、いつ既読になり、いつ受領したか。すべて記録に残り、「渡した・もらってない」が消える。</span>
-      </div>
-    </div>
-    <div class="chan-row">
-      <span class="chan-label">対応チャネル</span>
-      <span class="chan">LINE</span>
-      <span class="chan">メール</span>
-      <span class="chan">Chatwork</span>
-      <span class="chan">Slack</span>
-      <span class="chan">Google Chat</span>
-    </div>
-    <div class="traits">
-      <span class="trait">深夜に送っても<b>失礼にならない</b></span>
-      <span class="trait">何度催促しても<b>関係が悪くならない</b></span>
-      <span class="trait">繁忙期でも<b>全社同時に</b>動ける</span>
-      <span class="trait">そして、<b>退職しない</b></span>
+      <p class="math-note" style="margin-top:22px">これは事務コストの削減だけの話ではありません。事務員の採用がむずかしいこの業界で、「もう一人採れないから顧問先を増やせない」への答えです。</p>
     </div>
   </div>
 </section>
 
-<!-- ================= 顧問先の体験（LINEモック） ================= -->
-<section id="mock" class="section-dark">
-  <div class="wrap mock-grid">
-    <div class="mock-side">
-      <h3>顧問先の操作は、<br>写真を返信するだけ。</h3>
-      <ul>
-        <li>アプリの導入・ログイン・パスワードは一切不要。LINE・メール・Chatwork・Slack・Google Chat——いつもの場所に秘書からメッセージが届きます</li>
-        <li>タイムカードは撮って返信するだけ。秘書が人数分を確認し、受領を記録します</li>
-        <li>AIであることは最初に名乗ります。だから深夜の送信も、繰り返しの催促も、お互いに気まずくない</li>
-      </ul>
+<!-- ============ P6 REPORT ============ -->
+<section class="rep panel">
+  <div class="pin rep-grid">
+    <div class="rv">
+      <span class="en" style="color:var(--shu)">WEEKLY REPORT</span>
+      <h2 style="margin-top:10px"><span class="nw">任せきりに、</span><br><span class="o nw">しない。</span></h2>
+      <p class="rep-lead">ブラックボックスにはしません。秘書は毎週、事務所に業務報告を上げます。AIで拾いきれない例外——長期の未反応、こじれそうな相手——だけが、先生の判断に上がってきます。</p>
+      <figure class="rep-ph rv">
+        <img src="/lp-assets/ed-calm.jpg" alt="青空の見える窓辺で、お茶を手にくつろぐ所長" loading="lazy">
+      </figure>
     </div>
-    <div class="phone" role="img" aria-label="顧問先とのLINEトーク画面の例">
-      <div class="phone-head"><span class="avatar">秘</span>〇〇社労士事務所 AI秘書</div>
-      <div class="chat">
-        <span class="day-chip">4月8日（水）</span>
-        <div class="msg in">
-          <div class="bubble">山田社長、お疲れさまです。〇〇社労士事務所のAI秘書です。
-4月分の給与計算のため、残り2点をお待ちしています。
-
-・4月分の勤怠データ（タイムカード）
-・佐藤さまの雇用契約書のご返送
-
-タイムカードはお写真のままご返信いただければ大丈夫です。</div>
-          <span class="meta">10:00</span>
-        </div>
-        <div class="msg out">
-          <div class="bubble"><span class="photo">［タイムカードの写真］</span></div>
-          <span class="meta">既読 12:41</span>
-        </div>
-        <div class="msg out">
-          <div class="bubble">これで足りる？</div>
-          <span class="meta">既読 12:41</span>
-        </div>
-        <div class="msg in">
-          <div class="bubble">お写真ありがとうございます。タイムカード8名分、確かにお預かりしました。
-残りは雇用契約書のご返送のみです。金曜までにいただけますと、お給与のお振込に間に合います。</div>
-          <span class="meta">12:42</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ================= 月給の算数 ================= -->
-<section id="math" class="side-note" data-side-text="COLLECTION">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2>顧問先1社分の顧問料で、<br>事務所の回収が全部回る。</h2>
-    </div>
-    <div class="math-card">
-      <div>
-        <div class="math-label">いま人の手にかかっているもの</div>
-        <div class="math-row"><span>回収の一連が</span><span class="big">1社 月30分</span><span>×</span><span class="big">30社</span><span>=</span><span class="big">月15時間</span><span class="muted">≒ 月2.7万円分の事務作業</span></div>
-      </div>
-      <hr class="math-div">
-      <div>
-        <div class="math-label">空いた手が生むもの</div>
-        <div class="math-row"><span>担当者一人が持てる顧問先が</span><span class="big">＋5社</span><span>なら、顧問料</span><span class="big">月3万円</span><span>×5社 =</span><span class="big">月15万円</span><span class="muted">の増収余地</span></div>
-      </div>
-      <hr class="math-div">
-      <div>
-        <div class="math-label">秘書の月給</div>
-        <div class="math-row"><span class="big">顧問先1社分の顧問料以下</span><span class="muted">（先行導入の事務所と一緒に決めます）</span></div>
-      </div>
-      <p class="math-note">これは事務コストの削減だけの話ではありません。事務員の採用がむずかしいこの業界で、「もう一人採れないから顧問先を増やせない」への答えです。</p>
-    </div>
-  </div>
-</section>
-
-<!-- ================= CTA帯 ================= -->
-<section class="cta-band">
-  <div class="wrap">
-    <h2 class="mincho">その月15時間を、秘書に任せませんか。</h2>
-    <a class="btn" href="#cta">先行導入の相談をする</a>
-    <span class="btn-note">15分のオンライン相談。合わなければ、それで終わりで構いません。</span>
-  </div>
-</section>
-
-<!-- ================= 業務報告 ================= -->
-<section id="report" class="section-beige">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2>丸投げではなく、<br>週に一度の業務報告つき。</h2>
-    </div>
-    <p style="margin-bottom: 26px;">任せきりのブラックボックスにはしません。秘書は毎週、事務所に業務報告を上げます。AIで拾いきれない例外——長期の未反応、こじれそうな相手——だけが、先生の判断に上がってきます。</p>
-    <div class="report">
+    <div class="rep-card rv">
+      <span class="rstamp" aria-hidden="true">受領</span>
       <span class="from">AI秘書 → 所長 ｜ 週次業務報告（4月第2週）</span>
       <p class="body">今週は催促を<b>14件</b>行い、<b>11件</b>を回収しました。未回収3件のうち、㈱丸山工務店さまの勤怠データは締め日を5日超過しています。トーンを変えた再送も既読のままのため、<b>先生から一度お電話いただくのが良さそうです</b>。他2件は「今週中に送る」とお返事をいただいており、給与計算の締めに間に合うよう金曜まで秘書側で追いかけます。</p>
     </div>
   </div>
 </section>
 
-<!-- ================= FAQ ================= -->
-<section id="faq">
-  <div class="wrap">
-    <div class="sec-head">
-      <h2>先生方から、必ず聞かれること。</h2>
-    </div>
-    <div class="faq">
+<!-- ============ P7 FAQ ============ -->
+<section class="faq panel">
+  <div class="pin" style="max-width:820px">
+    <h2 class="rv">先生方から、<span>必ず</span>聞かれること。</h2>
+    <div class="rv">
       <details>
         <summary>顧問先に、AIからの連絡は失礼にならないか。</summary>
         <p class="a">秘書は最初のご挨拶で「AI秘書です」と名乗ります。隠さないからこそ、深夜の送信も繰り返しの催促も角が立ちません。文面は「詰めない・責めない・事実と期限だけ」を原則に設計しており、顧問先が返しやすいことを最優先にしています。名義はあくまで「〇〇社労士事務所の秘書」——事務所の顔を汚さないことが、この秘書の第一の職務規程です。</p>
@@ -786,7 +510,7 @@ html{scroll-behavior:smooth}
         <p class="a">秘書は相手のいる場所へ出向きます。LINE・メール・Chatwork・Slack・Google Chatに対応し、顧問先ごとに使い分けられます。どうしても電話でしか動かない相手は、秘書が「電話が必要な相手リスト」として週次報告に整理して上げるので、人の電話を最小の件数に絞れます。</p>
       </details>
       <details>
-        <summary>導入や設定が大変なのでは。新しいツールを覚える余裕はない。</summary>
+        <summary>導入は大変か。</summary>
         <p class="a">導入は「入社手続き」だけです。顧問先のリストと、毎月・算定基礎の時期に集めるものを秘書に教える——初回15〜30分で終わります。事務所側が新しい画面の操作を覚える必要は基本的にありません。秘書が動き、報告が届く。それだけです。</p>
       </details>
       <details>
@@ -797,21 +521,19 @@ html{scroll-behavior:smooth}
   </div>
 </section>
 
-<!-- ================= 最終CTA ================= -->
-<section class="final section-beige" id="cta">
-  <div class="wrap final-inner">
-    <figure class="shot shot-wide" style="width: 100%; margin-bottom: 16px;" data-slot="03-done">
-      <img src="/lp2/images/done.jpg" alt="朝の机に、書類がきれいに揃って積まれている" loading="lazy">
-    </figure>
-    <span class="eyebrow">先行導入 ｜ 5事務所 限定</span>
-    <h2 class="mincho">最初の5事務所を、<br>募集します。</h2>
-    <p>このサービスはいま、実際の社労士事務所と一緒に作る段階にあります。先行導入の事務所には、貴所の顧問先・チャネル・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>
-    <div class="partner-perks">
-      <span class="perk">貴所の運用に合わせた作り込み</span>
-      <span class="perk">先行月給（特別条件）</span>
-      <span class="perk">要望が開発に直接反映</span>
-    </div>
-    <form class="lead-form" id="lead-form" novalidate>
+<!-- ============ P8 CTA + FORM ============ -->
+<section class="final panel" id="cta">
+  <div class="pin">
+    <div class="final-frame rv">
+      <span class="en">NOW HIRING — 5 FIRMS ONLY</span>
+      <h2>最初の5事務所を、<br>募集します。</h2>
+      <p class="final-lead">このサービスはいま、実際の社労士事務所と一緒に作る段階にあります。先行導入の事務所には、貴所の顧問先・チャネル・回収物に合わせて秘書を作り込み、月給も一緒に決めさせていただきます。</p>
+      <div class="perks">
+        <span class="perk">貴所の運用に合わせた作り込み</span>
+        <span class="perk">先行月給（特別条件）</span>
+        <span class="perk">要望が開発に直接反映</span>
+      </div>
+      <form class="lead-form" id="lead-form" novalidate>
       <div class="sf-head">
         <button type="button" class="sf-back" id="sf-back" hidden>← 戻る</button>
         <span class="sf-progress" id="sf-progress" aria-live="polite">1 / 4</span>
@@ -873,16 +595,17 @@ html{scroll-behavior:smooth}
       </fieldset>
       <noscript><p class="lf-error">フォームの利用にはJavaScriptが必要です。<a href="mailto:takahashi@skara.co.jp?subject=%E3%80%90AI%E7%A7%98%E6%9B%B8%E3%80%91%E5%85%88%E8%A1%8C%E5%B0%8E%E5%85%A5%E3%81%AE%E7%9B%B8%E8%AB%87">メール</a>でご連絡ください。</p></noscript>
     </form>
-    <div class="lf-done" id="lf-done" hidden>
+      <div class="lf-done" id="lf-done" hidden>
       <p class="lf-done-title">送信ありがとうございます。</p>
       <p class="lf-done-body">1営業日以内に、日程のご案内をメールでお送りします。</p>
     </div>
-    <span class="btn-note">まずは15分のオンライン相談から。売り込みはしません——<br>いまの回収のやり方を伺い、合わなければ正直にそう申し上げます。</span>
+      <span class="note">まずは15分のオンライン相談から。売り込みはしません——<br>いまの回収のやり方を伺い、合わなければ正直にそう申し上げます。</span>
+    </div>
   </div>
 </section>
 
 <footer>
-  <div class="wrap">
+  <div class="pin">
     <span>skara ｜ 社労士事務所のためのAI秘書（先行導入募集中・開発中のサービスです）</span>
     <span>© 2026 skara</span>
   </div>
@@ -892,9 +615,8 @@ html{scroll-behavior:smooth}
 
 <script>
 (function () {
-  var els = document.querySelectorAll('.sec-head, .shot, .waitlist, .pillars, .chan-row, .traits, .math-card, .report, .faq, .loop, .loop-close, .final-inner, .cta-band .wrap, .mock-side, .phone');
+  var els = document.querySelectorAll('.rv');
   var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  els.forEach(function (el) { el.classList.add('reveal'); });
   if ('IntersectionObserver' in window && !reduce) {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
