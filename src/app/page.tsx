@@ -33,7 +33,7 @@ const FEATURES = [
   {
     k: '01',
     t: 'いま、どっちの番か。',
-    d: 'タスクごとに「ボール」の所在がひと目でわかる。相手待ちのまま放置される仕事が、なくなります。',
+    d: 'どちらにボールがあるかが明確。その催促も、AIが行ってくれます。相手待ちのまま放置される仕事が、なくなります。',
     name: 'ボール管理',
   },
   {
@@ -145,6 +145,14 @@ export default function Home() {
 .feat h2{font-size:clamp(34px,7vw,64px);font-weight:800;line-height:1.2}
 .feat h2 .o{color:transparent;-webkit-text-stroke:2px var(--sumi)}
 .feat .lead{max-width:37em;font-size:15px;font-weight:500;margin-top:14px}
+.feat-shots{position:relative;margin:40px 0 10px;padding-bottom:14%}
+.feat-shots .sh{display:block;border:8px solid #fff;box-shadow:0 16px 40px rgba(34,29,24,.15)}
+.feat-shots .sh1{width:94%;transform:rotate(-1.2deg)}
+.feat-shots .sh2{position:absolute;width:64%;right:0;bottom:0;transform:rotate(1.6deg);box-shadow:0 20px 48px rgba(34,29,24,.22)}
+@media(min-width:768px){.feat-shots .sh1{width:78%}.feat-shots .sh2{width:56%}}
+.feat-shots .sh2::before{content:"";position:absolute;top:-16px;left:50%;transform:translateX(-50%) rotate(-3deg);width:92px;height:24px;background:var(--neon);opacity:.95}
+.feat-shots .cap{position:absolute;left:0;bottom:-4px;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:.28em;color:var(--soft)}
+.feat-shots img{width:100%;display:block}
 .feat-grid{display:grid;grid-template-columns:1fr;gap:14px;margin-top:36px}
 @media(min-width:768px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
 .feat-card{background:#fff;border:2.5px solid var(--sumi);padding:24px 22px 20px;position:relative}
@@ -290,6 +298,17 @@ export default function Home() {
           <p className="lead">
             agentpmはもともと、受託開発・制作会社のためのクライアントワーク管理ツール。秘書が記録する先には、チームでそのまま使える進行管理があります。
           </p>
+          <div className="feat-shots" aria-label="実際の画面">
+            <span className="sh sh1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/top-assets/ui-dash.jpg" alt="プロジェクトダッシュボード。ボールの所在（社内/クライアント）と期限超過がひと目でわかる" loading="lazy" />
+            </span>
+            <span className="sh sh2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/top-assets/ui-portal.jpg" alt="クライアントポータル。相手はログイン不要で進捗確認と承認ができる" loading="lazy" />
+            </span>
+            <span className="cap">REAL SCREENS — BALL & CLIENT PORTAL</span>
+          </div>
           <div className="feat-grid">
             {FEATURES.map((f) => (
               <div key={f.k} className="feat-card">
