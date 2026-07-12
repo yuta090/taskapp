@@ -19,7 +19,7 @@ export interface DeliverableDelivery {
   eventType: string
   eventKey: string
   payload: {
-    occurredAt: string
+    occurred_at: string
     task: Record<string, unknown>
   }
 }
@@ -40,7 +40,7 @@ export async function deliverWebhook(
     id: delivery.id,
     event: delivery.eventType,
     event_key: delivery.eventKey,
-    occurred_at: delivery.payload.occurredAt,
+    occurred_at: delivery.payload.occurred_at,
     data: { task: delivery.payload.task },
   })
 

@@ -24,7 +24,7 @@ export interface GoogleSheetsDeliverableDelivery {
   eventType: string
   eventKey: string
   payload: {
-    occurredAt: string
+    occurred_at: string
     task: Record<string, unknown> | null
   }
 }
@@ -150,7 +150,7 @@ function buildRow(
   delivery: GoogleSheetsDeliverableDelivery,
 ): string[] {
   return [
-    delivery.payload.occurredAt,
+    delivery.payload.occurred_at,
     delivery.eventType,
     toCell(task.title),
     toCell(task.status),

@@ -31,7 +31,7 @@ function delivery(overrides: Partial<Parameters<typeof deliverGoogleSheets>[1]> 
     eventType: 'task.created',
     eventKey: 'task.created:task-1:evt-1',
     payload: {
-      occurredAt: '2026-07-12T00:00:00.000Z',
+      occurred_at: '2026-07-12T00:00:00.000Z',
       task: {
         id: 'task-1',
         title: '発注書を送る',
@@ -115,6 +115,8 @@ describe('deliverGoogleSheets', () => {
     expect(url).toContain('insertDataOption=INSERT_ROWS')
     expect(init.method).toBe('POST')
     expect(init.headers['Authorization']).toBe('Bearer access-token-1')
+    const body = JSON.parse(init.body)
+    expect(body.values[0][0]).toBe('2026-07-12T00:00:00.000Z')
   })
 
   it('URL-encodes the A1 range, escaping single quotes in the sheet name (defense-in-depth)', async () => {
@@ -132,7 +134,7 @@ describe('deliverGoogleSheets', () => {
       SINK,
       delivery({
         payload: {
-          occurredAt: '2026-07-12T00:05:00.000Z',
+          occurred_at: '2026-07-12T00:05:00.000Z',
           task: { id: 'task-2', title: '見積書を確認', status: null, assignee_hint: undefined, group: '', space: null },
         },
       }),
@@ -148,7 +150,7 @@ describe('deliverGoogleSheets', () => {
   it('treats a delivery with no task (e.g. ping) as a permanent local failure without making a request', async () => {
     const result = await deliverGoogleSheets(
       SINK,
-      delivery({ payload: { occurredAt: '2026-07-12T00:00:00.000Z', task: null } }),
+      delivery({ payload: { occurred_at: '2026-07-12T00:00:00.000Z', task: null } }),
     )
     expect(result.ok).toBe(false)
     expect(result.permanent).toBe(true)
