@@ -18,7 +18,7 @@ const DELIVERY = {
   id: 'delivery-1',
   eventType: 'task.created',
   eventKey: 'task.created:task-1:evt-1',
-  payload: { occurredAt: '2026-07-11T00:00:00.000Z', task: { id: 'task-1', title: '発注' } },
+  payload: { occurred_at: '2026-07-11T00:00:00.000Z', task: { id: 'task-1', title: '発注' } },
 }
 
 describe('deliverWebhook', () => {
