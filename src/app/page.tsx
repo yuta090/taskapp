@@ -73,7 +73,6 @@ export default function Home() {
 .top .btn:hover{background:var(--shu);border-color:var(--shu);color:#fff;transform:translateY(-2px)}
 .top .btn.ghost{background:transparent;color:var(--sumi)}
 .top .btn.ghost:hover{background:var(--neon);color:var(--sumi);border-color:var(--sumi)}
-.top .stamp{display:inline-flex;align-items:center;justify-content:center;width:1.05em;height:1.05em;border:.045em solid var(--shu);border-radius:50%;color:var(--shu);font-size:.4em;font-weight:800;letter-spacing:.06em;transform:rotate(-10deg);vertical-align:.3em;white-space:nowrap}
 
 /* header */
 .top-head{display:flex;justify-content:space-between;align-items:center;max-width:1080px;margin:0 auto;padding:18px 24px}
@@ -209,7 +208,6 @@ export default function Home() {
             <span className="l2">
               <span className="ac">戻</span>
               <span className="o">ろう。</span>
-              <span className="stamp" aria-hidden="true">受領</span>
             </span>
           </h1>
           <figure className="duo">
