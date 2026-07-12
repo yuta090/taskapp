@@ -87,18 +87,32 @@ export default function Home() {
 @media(max-width:560px){.top-nav .hide-m{display:none}}
 
 /* hero */
-.top-hero{position:relative;padding:44px 0 46px;overflow:hidden}
-.top-hero .neon{position:absolute;border-radius:50%;width:min(46vw,340px);aspect-ratio:1;background:var(--neon);right:-8%;top:-12%;z-index:0}
-.top-hero h1{position:relative;z-index:1;font-size:clamp(52px,12.5vw,128px);font-weight:800;line-height:1.06;letter-spacing:-.015em}
+.top-hero{position:relative;padding:36px 0 0;overflow:hidden}
+.top-hero .hwrap{display:grid;grid-template-columns:1fr;position:relative}
+.top-hero .neon{position:absolute;border-radius:50%;width:min(52vw,380px);aspect-ratio:1;background:var(--neon);right:-12%;top:6%;z-index:0}
+.top-hero .papers{position:absolute;width:min(44vw,300px);right:-6%;top:-2%;z-index:0;transform:rotate(8deg)}
+.top-hero h1{position:relative;z-index:2;font-size:clamp(50px,12.2vw,108px);font-weight:800;line-height:1.06;letter-spacing:-.015em;white-space:nowrap}
 .top-hero h1 .l2{display:block;margin-left:.55em}
 .top-hero h1 .ac{color:var(--shu)}
 .top-hero h1 .o{color:transparent;-webkit-text-stroke:clamp(1.6px,.3vw,3px) var(--sumi)}
-.top-hero .lead{position:relative;z-index:1;max-width:36em;font-size:15.5px;font-weight:500;margin-top:26px}
-.top-hero .pillars{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;font-weight:800;font-size:14px;letter-spacing:.06em}
+.top-hero .duo{position:relative;z-index:1;width:min(78vw,350px);margin:clamp(-40px,-7vw,-18px) auto 0}
+.top-hero .duo img{width:100%;display:block}
+.top-hero .copy2{position:relative;z-index:2;margin-top:-10px;padding-bottom:40px}
+.top-hero .lead{max-width:36em;font-size:15.5px;font-weight:500;margin-top:18px}
+.top-hero .pillars{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;font-weight:800;font-size:14px;letter-spacing:.06em}
 .top-hero .pillars span{border:2px solid var(--sumi);padding:7px 16px;background:#fff}
 .top-hero .pillars span.emph{background:var(--sumi);color:var(--neon)}
-.top-hero .cta{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:30px}
+.top-hero .cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:30px}
 .top-hero .note{font-size:12px;color:var(--soft)}
+@media(min-width:900px){
+  .top-hero{padding:48px 0 0}
+  .top-hero .hwrap{grid-template-columns:1.05fr .95fr;align-items:end;min-height:560px}
+  .top-hero h1{grid-column:1/-1;font-size:clamp(72px,8.6vw,104px)}
+  .top-hero .duo{grid-column:2;grid-row:2;width:min(36vw,430px);margin:-120px 0 0;justify-self:end}
+  .top-hero .copy2{grid-column:1;grid-row:2;align-self:start;margin-top:26px;padding-bottom:56px}
+  .top-hero .neon{right:2%;top:10%}
+  .top-hero .papers{right:-2%;top:4%}
+}
 
 /* double ticker */
 .tick{border-top:3px solid var(--sumi);border-bottom:3px solid var(--sumi);overflow:hidden;white-space:nowrap;padding:9px 0;background:var(--neon)}
@@ -187,8 +201,9 @@ export default function Home() {
 
       {/* hero */}
       <section className="top-hero">
-        <div className="pin">
+        <div className="pin hwrap">
           <span className="neon" aria-hidden="true" />
+          <img className="papers" src="/top-assets/hero-papers.png" alt="" aria-hidden="true" />
           <h1>
             本来の仕事に、
             <span className="l2">
@@ -197,20 +212,26 @@ export default function Home() {
               <span className="stamp" aria-hidden="true">受領</span>
             </span>
           </h1>
-          <p className="lead">
-            催促、確認、リマインド、進行の管理。クライアントワークの<b>「まわりの仕事」</b>は、agentpmが引き受けます。あなたと相手のあいだで止まっている仕事を、揃うまで追いかける。
-          </p>
-          <div className="pillars" aria-label="agentpmの二本柱">
-            <span>タスク管理</span>
-            <span className="emph">＋ 雇えるAI秘書</span>
+          <figure className="duo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/top-assets/hero-duo.png" alt="書類の束を抱えたAI秘書と、鞄を手にした経営者" />
+          </figure>
+          <div className="copy2">
+            <p className="lead">
+              催促、確認、リマインド、進行の管理。クライアントワークの<b>「まわりの仕事」</b>は、agentpmが引き受けます。あなたと相手のあいだで止まっている仕事を、揃うまで追いかける。
+            </p>
+            <div className="pillars" aria-label="agentpmの二本柱">
+              <span>タスク管理</span>
+              <span className="emph">＋ 雇えるAI秘書</span>
+            </div>
+            <div className="cta">
+              <Link href="/contact" className="btn">15分の相談から</Link>
+              <Link href="/signup" className="btn ghost">無料で始める</Link>
+            </div>
+            <p className="note" style={{ marginTop: 12 }}>
+              売り込みはしません——いまの進め方を伺い、合わなければ正直にそう申し上げます。
+            </p>
           </div>
-          <div className="cta">
-            <Link href="/contact" className="btn">15分の相談から</Link>
-            <Link href="/signup" className="btn ghost">無料で始める</Link>
-          </div>
-          <p className="note" style={{ marginTop: 12 }}>
-            売り込みはしません——いまの進め方を伺い、合わなければ正直にそう申し上げます。
-          </p>
         </div>
       </section>
 
