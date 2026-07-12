@@ -38,7 +38,7 @@ function delivery(overrides: Partial<Parameters<typeof deliverNotion>[1]> = {}) 
     eventType: 'task.created',
     eventKey: 'task.created:task-1:evt-1',
     payload: {
-      occurredAt: '2026-07-12T00:00:00.000Z',
+      occurred_at: '2026-07-12T00:00:00.000Z',
       task: {
         id: 'task-1',
         title: '発注書を送る',
@@ -183,7 +183,7 @@ describe('deliverNotion', () => {
 
     const doneResult = await deliverNotion(
       SINK,
-      delivery({ eventType: 'task.done', payload: { occurredAt: '2026-07-12T00:05:00.000Z', task: { ...delivery().payload.task, status: 'done' } } }),
+      delivery({ eventType: 'task.done', payload: { occurred_at: '2026-07-12T00:05:00.000Z', task: { ...delivery().payload.task, status: 'done' } } }),
     )
     expect(doneResult.ok).toBe(true)
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://api.notion.com/v1/pages', expect.objectContaining({ method: 'POST' }))
@@ -257,7 +257,7 @@ describe('deliverNotion', () => {
   })
 
   it('treats a delivery with no digestTaskId/task (e.g. ping) as a permanent local failure', async () => {
-    const result = await deliverNotion(SINK, delivery({ digestTaskId: null, payload: { occurredAt: '2026-07-12T00:00:00.000Z', task: null } }))
+    const result = await deliverNotion(SINK, delivery({ digestTaskId: null, payload: { occurred_at: '2026-07-12T00:00:00.000Z', task: null } }))
     expect(result.ok).toBe(false)
     expect(result.permanent).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()

@@ -43,7 +43,7 @@ function delivery(overrides: Partial<Record<string, unknown>> = {}) {
     digestTaskId: 'task-1',
     eventType: 'task.created',
     eventKey: 'task.created:task-1:evt-1',
-    payload: { occurredAt: '2026-07-11T00:00:00.000Z', task: { id: 'task-1' } },
+    payload: { occurred_at: '2026-07-11T00:00:00.000Z', task: { id: 'task-1' } },
     attempts: 0,
     ...overrides,
   }

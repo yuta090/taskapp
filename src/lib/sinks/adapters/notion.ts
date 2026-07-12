@@ -31,7 +31,7 @@ export interface NotionDeliverableDelivery {
   eventType: string
   eventKey: string
   payload: {
-    occurredAt: string
+    occurred_at: string
     task: Record<string, unknown> | null
   }
 }
@@ -180,7 +180,7 @@ export async function deliverNotion(
   }
 
   const task = delivery.payload.task
-  const properties = buildProperties(task, delivery.payload.occurredAt)
+  const properties = buildProperties(task, delivery.payload.occurred_at)
 
   const existingRef = await findExternalRef(sink.id, delivery.digestTaskId)
   if (existingRef) {
