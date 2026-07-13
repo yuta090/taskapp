@@ -54,10 +54,12 @@ export async function POST(request: NextRequest) {
   await Promise.allSettled(
     groups.map(async (group) => {
       try {
-        const messages = await findGroupTextMessagesSince(
-          group.id,
-          group.lastExtractedMessageCreatedAt,
-        )
+        // 抽出は pickup_mode='all' のみ実行する（mention_only はメンション即時タスク化で拾うため、
+        // 夜間LLM抽出との二重登録を避けて経路を分ける。off はfindDigestEligibleGroupsで対象外）
+        const messages =
+          group.pickupMode === 'all'
+            ? await findGroupTextMessagesSince(group.id, group.lastExtractedMessageCreatedAt)
+            : []
 
         if (messages.length > 0) {
           try {

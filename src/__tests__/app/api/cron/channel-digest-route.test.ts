@@ -44,6 +44,7 @@ const GROUP = {
   orgId: 'org-1',
   accountId: 'acc-1',
   externalGroupId: 'G-1',
+  pickupMode: 'all' as const,
   lastExtractedMessageCreatedAt: '2026-07-10T22:00:00.000Z',
 }
 
@@ -199,5 +200,36 @@ describe('POST /api/cron/channel-digest', () => {
     const response = await callPost({ authorization: 'Bearer test-cron-secret' })
     expect(response.status).toBe(200)
     expect(storeMock.ingestDigestTasks).not.toHaveBeenCalled()
+  })
+
+  describe('pickup_mode（Stage 2.5 §1）', () => {
+    it('mention_only グループはLLM抽出を呼ばない（配信は既存open分があれば行う）', async () => {
+      const mentionOnlyGroup = { ...GROUP, pickupMode: 'mention_only' as const }
+      storeMock.findDigestEligibleGroups.mockResolvedValue([mentionOnlyGroup])
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        { id: 'msg-1', body: 'メンションで拾われた分ではない発言', createdAt: '2026-07-11T05:00:00.000Z' },
+      ])
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+        { id: 'task-1', title: '見積提出', digestNumber: 1 },
+      ])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(callLlmMock).not.toHaveBeenCalled()
+      expect(storeMock.ingestDigestTasks).not.toHaveBeenCalled()
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('findDigestEligibleGroupsの対象自体からoffグループは除外される想定のため、cronはoffを意識しない', async () => {
+      // off はstore層(findDigestEligibleGroups)で除外される前提（§1）。
+      // cronルート自体は返ってきたグループを無条件に処理してよいことの確認（回帰防止）
+      storeMock.findDigestEligibleGroups.mockResolvedValue([])
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+      expect(body.processedGroups).toBe(0)
+    })
   })
 })
