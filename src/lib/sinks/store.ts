@@ -112,7 +112,13 @@ function toSinkMeta(row: SinkMetaRow): SinkMeta {
   }
 }
 
-export const DEFAULT_SINK_EVENTS = ['task.created', 'task.done', 'task.dismissed'] as const
+// task.reopened を外すと「取り消す」（Stage 2.5）後も外部ツール側がdoneのまま残る
+export const DEFAULT_SINK_EVENTS = [
+  'task.created',
+  'task.done',
+  'task.dismissed',
+  'task.reopened',
+] as const
 export const ALLOWED_SINK_EVENTS = [
   'task.created',
   'task.done',
