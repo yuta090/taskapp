@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { buildDigestDonePostbackData } from '@/lib/channels/digest/postback'
+import { buildDigestDonePostbackData, buildDigestUndoPostbackData } from '@/lib/channels/digest/postback'
 
 /**
  * 日次digest抽出・配信の純粋ロジック（DB/LLM呼び出しを含まない）。
@@ -35,6 +35,24 @@ export function sanitizeDigestTitle(raw: string): string {
 /** 改行・制御文字を除去し、30字に切り詰める（LLMが読み取った担当者名の自由文字列） */
 export function sanitizeAssigneeHint(raw: string): string {
   return stripControlChars(raw).trim().slice(0, MAX_ASSIGNEE_HINT_LENGTH)
+}
+
+/**
+ * メンション即時タスク化（Stage 2.5 §2）: 本文からbot宛メンション区間を除去し、
+ * 残りをsanitizeDigestTitleと同様に整形する。除去後に空になれば空文字を返し、
+ * 呼び出し側はタスクを作らずガイダンスを返信する。
+ */
+export function buildMentionTaskTitle(
+  body: string,
+  spans: Array<{ index: number; length: number }>,
+): string {
+  // indexのずれを防ぐため後ろ（indexが大きい方）から除去する
+  const sorted = [...spans].sort((a, b) => b.index - a.index)
+  let stripped = body
+  for (const span of sorted) {
+    stripped = stripped.slice(0, span.index) + stripped.slice(span.index + span.length)
+  }
+  return sanitizeDigestTitle(stripped)
 }
 
 export interface DigestSourceMessage {
@@ -179,6 +197,64 @@ export function buildDigestFlexMessage(items: DigestFlexItem[]): {
         type: 'box',
         layout: 'vertical',
         contents: footerContents,
+      },
+    },
+  }
+}
+
+export interface TaskDoneFlexInput {
+  title: string
+  /** LINE APIから取得したメンバー表示名。取得失敗・匿名メンバーは null（記名無しの従来文言にフォールバック） */
+  doneByDisplayName: string | null
+  taskId: string
+}
+
+/**
+ * 完了replyのFlex Message（Stage 2.5 §3-1/3-2）: 記名文言＋「取り消す」ボタン。
+ * 誤タップ対策として「押させない」ではなく「誰が押したか見える＋すぐ戻せる」を採る。
+ * doneByDisplayNameはLINE APIから来る非信頼文字列のためsanitizeAssigneeHintを通す。
+ */
+export function buildTaskDoneFlexMessage(input: TaskDoneFlexInput): {
+  type: 'flex'
+  altText: string
+  contents: {
+    type: 'bubble'
+    body: { type: 'box'; layout: 'vertical'; contents: Array<{ type: 'text'; text: string; wrap: boolean }> }
+    footer: { type: 'box'; layout: 'vertical'; contents: unknown[] }
+  }
+} {
+  const title = sanitizeDigestTitle(input.title)
+  const displayName = input.doneByDisplayName ? sanitizeAssigneeHint(input.doneByDisplayName) : null
+  const bodyText =
+    displayName && displayName.length > 0
+      ? `${displayName}さんが『${title}』を完了にしました。`
+      : `『${title}』を完了にしました。`
+
+  return {
+    type: 'flex',
+    altText: bodyText,
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{ type: 'text', text: bodyText, wrap: true }],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            action: {
+              type: 'postback',
+              label: '取り消す',
+              data: buildDigestUndoPostbackData(input.taskId),
+              displayText: '取り消す',
+            },
+          },
+        ],
       },
     },
   }

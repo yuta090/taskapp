@@ -109,6 +109,32 @@ export interface LineMessageContent {
   contentType: string
 }
 
+export interface GroupMemberProfile {
+  displayName: string
+}
+
+/**
+ * グループメンバーのプロフィール取得（Stage 2.5 §3-1: 完了の記名化）。
+ * ベストエフォート: 非2xx・例外はいずれもnullを返す（プロフィールが取れなくても完了処理自体は止めない）。
+ */
+export async function fetchGroupMemberProfile(
+  accessToken: string,
+  groupId: string,
+  userId: string,
+): Promise<GroupMemberProfile | null> {
+  try {
+    const response = await fetch(`https://api.line.me/v2/bot/group/${groupId}/member/${userId}/profile`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!response.ok) return null
+    const body = (await response.json()) as { displayName?: unknown }
+    if (typeof body.displayName !== 'string') return null
+    return { displayName: body.displayName }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 添付コンテンツの取得。LINE側は一定期間で消えるため受信時に呼び、Storageへ保存する。
  */

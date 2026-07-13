@@ -177,4 +177,93 @@ describe('normalizeLineEvent', () => {
       normalizeLineEvent({ ...BASE, source: { type: 'group', groupId: 'G1' }, type: 'postback' }),
     ).toBeNull()
   })
+
+  describe('mention正規化（Stage 2.5 §2）', () => {
+    it('mentionees[].isSelf===true があれば mentionsSelf=true・selfMentionSpans に位置を残す', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-1',
+          type: 'text',
+          text: '@AgentPM秘書 金曜までに見積提出',
+          mention: {
+            mentionees: [{ index: 0, length: 8, type: 'user', isSelf: true }],
+          },
+        },
+      })
+      expect(record).toMatchObject({
+        mentionsSelf: true,
+        selfMentionSpans: [{ index: 0, length: 8 }],
+      })
+    })
+
+    it('mentionees があっても isSelf===true が無ければ mentionsSelf は undefined', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-2',
+          type: 'text',
+          text: '@田中さん お願いします',
+          mention: {
+            mentionees: [{ index: 0, length: 5, type: 'user', isSelf: false }],
+          },
+        },
+      })
+      expect(record?.mentionsSelf).toBeUndefined()
+      expect(record?.selfMentionSpans).toBeUndefined()
+    })
+
+    it('mention フィールド自体が無いテキストは mentionsSelf が undefined', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: { id: 'm-mention-3', type: 'text', text: '普通の発言' },
+      })
+      expect(record?.mentionsSelf).toBeUndefined()
+      expect(record?.selfMentionSpans).toBeUndefined()
+    })
+
+    it('text以外（画像等）は mention を解析しない', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-4',
+          type: 'image',
+          contentProvider: { type: 'line' },
+        },
+      })
+      expect(record?.mentionsSelf).toBeUndefined()
+      expect(record?.selfMentionSpans).toBeUndefined()
+    })
+
+    it('複数メンションのうち自分宛のものだけを selfMentionSpans に残す', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-5',
+          type: 'text',
+          text: '@田中さん @AgentPM秘書 見積お願いします',
+          mention: {
+            mentionees: [
+              { index: 0, length: 5, type: 'user', isSelf: false },
+              { index: 6, length: 8, type: 'user', isSelf: true },
+            ],
+          },
+        },
+      })
+      expect(record).toMatchObject({
+        mentionsSelf: true,
+        selfMentionSpans: [{ index: 6, length: 8 }],
+      })
+    })
+  })
 })
