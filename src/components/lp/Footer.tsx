@@ -113,7 +113,7 @@ export function LPFooter() {
                                         </Link>
                                     </li>
                                 ))}
-                                <li className="text-sm text-slate-500">Sorekara Inc.</li>
+                                <li className="text-sm text-slate-500">株式会社ソレカラ</li>
                             </ul>
                         </div>
                     </div>
@@ -121,7 +121,7 @@ export function LPFooter() {
                     {/* Bottom bar */}
                     <div className="mt-12 pt-6 border-t border-slate-800 text-center">
                         <p className="text-xs text-slate-600">
-                            &copy; 2026 Sorekara Inc. All rights reserved.
+                            &copy; 2026 sorekara inc. All rights reserved.
                         </p>
                     </div>
                 </div>
