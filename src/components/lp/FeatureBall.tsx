@@ -26,7 +26,7 @@ export function FeatureBall() {
             今誰が動くべきかが常に明確だから、催促の連絡が不要です。
           </p>
           <p className="text-sm text-amber-400 font-bold mt-4">
-            この概念は他のPMツールにはありません。
+            当社調査の範囲では、標準機能としては確認できませんでした。
           </p>
         </div>
 

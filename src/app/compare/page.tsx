@@ -536,6 +536,9 @@ export default function ComparePage() {
             <p className="text-xs text-slate-400 mt-4 text-center">
               ※ AgentPM Team: ¥4,980/月（10名まで）、Business: ¥14,800/月（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
             </p>
+            <p className="text-xs text-slate-400 mt-1 text-center">
+              ※ 2026年3月時点の当社調査。各社の価格・条件は変更される場合があります。
+            </p>
           </motion.div>
         </div>
       </section>
