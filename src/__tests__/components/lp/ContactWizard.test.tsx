@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ContactWizard } from '@/components/lp/ContactWizard'
 
 /**
@@ -70,6 +70,40 @@ describe('ContactWizard', () => {
     fireEvent.click(screen.getByRole('radio', { name: '2〜5人' }))
 
     await waitForStep('社外とのやり取りに使っているものは？')
+  })
+
+  it('単一選択の320msロック中に連打しても二重前進しない(fake timers)', () => {
+    vi.useFakeTimers()
+    try {
+      render(<ContactWizard />)
+      fillPain('LINEやチャットの依頼が、流れて消えてしまう')
+      goNext()
+      expect(
+        screen.getByRole('heading', { name: 'チームの人数は？' })
+      ).toBeInTheDocument()
+
+      // ロック中に連打(複数の選択肢を素早くクリック)しても前進は1回だけ
+      fireEvent.click(screen.getByRole('radio', { name: '1人' }))
+      fireEvent.click(screen.getByRole('radio', { name: '2〜5人' }))
+      fireEvent.click(screen.getByRole('radio', { name: '6〜20人' }))
+
+      act(() => {
+        vi.advanceTimersByTime(320)
+      })
+      expect(
+        screen.getByRole('heading', { name: '社外とのやり取りに使っているものは？' })
+      ).toBeInTheDocument()
+
+      // 保留中のタイマーが複数積まれていた場合、ここでさらに先(Q4)へ進んでしまう
+      act(() => {
+        vi.advanceTimersByTime(320)
+      })
+      expect(
+        screen.getByRole('heading', { name: '社外とのやり取りに使っているものは？' })
+      ).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('「← 戻る」で前の画面に戻っても回答が保持されている', async () => {

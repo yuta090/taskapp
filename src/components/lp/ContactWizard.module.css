@@ -1,0 +1,521 @@
+/*
+ * トークン・規約の正本は /Users/takahashiyuuta/scripts/multica-prj/shindan-app/design.md。
+ * このモジュールはContactWizardコンポーネントの内部にのみ適用され、TaskApp LPの他部分・
+ * Tailwindには影響しない。CSS変数は :root ではなく .root（コンポーネントのルート要素）配下で
+ * 定義し、スコープを閉じる。
+ */
+
+.root {
+  --main: #0077c7;
+  --main-dark: #0066a9;
+  --main-tint: #e9f3fb;
+  --text-black: #23221e;
+  --text-grey: #706d65;
+  --white: #fff;
+  --head: #edebe8;
+  --border: #d6d3d0;
+  --danger: #e01e5a;
+  --shadow-1: 0 1px 4px rgba(35, 34, 30, 0.12);
+  --shadow-2: 0 4px 12px rgba(35, 34, 30, 0.16);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --mesh-ivory: #f8f4e6;
+  --mesh-willow: #a8c97f;
+  --mesh-celadon: #7ebea5;
+  --mesh-pale: #d6e9ca;
+
+  font-family:
+    'Yu Gothic UI',
+    'YuGothic',
+    'Yu Gothic',
+    'Hiragino Sans',
+    'Noto Sans JP',
+    sans-serif;
+  font-feature-settings: 'palt';
+  font-weight: 500;
+  color: var(--text-black);
+  line-height: 1.8;
+}
+
+.root *:focus-visible {
+  outline: 2px solid var(--main);
+  outline-offset: 2px;
+}
+
+/* ===== 背景メッシュ（design.md §1 Matcha air。ページ全体ではなくsection内に限定） ===== */
+.section {
+  position: relative;
+  overflow: hidden;
+  background: var(--mesh-ivory);
+  padding: 64px 0;
+}
+
+.mesh {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  filter: blur(72px) saturate(1.05);
+  pointer-events: none;
+}
+.mesh i {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+}
+.m1 {
+  width: 55vmax;
+  height: 55vmax;
+  left: -12vmax;
+  top: -18vmax;
+  background: var(--mesh-willow);
+  opacity: 0.45;
+  animation: cwDrift1 14s ease-in-out infinite alternate;
+}
+.m2 {
+  width: 60vmax;
+  height: 60vmax;
+  right: -20vmax;
+  top: 8vmax;
+  background: var(--mesh-celadon);
+  opacity: 0.4;
+  animation: cwDrift2 18s ease-in-out infinite alternate;
+}
+.m3 {
+  width: 50vmax;
+  height: 50vmax;
+  left: 10vmax;
+  bottom: -22vmax;
+  background: var(--mesh-pale);
+  opacity: 0.6;
+  animation: cwDrift3 11s ease-in-out infinite alternate;
+}
+@keyframes cwDrift1 {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(16vmax, 10vmax) scale(1.25);
+  }
+}
+@keyframes cwDrift2 {
+  from {
+    transform: translate(0, 0) scale(1.15);
+  }
+  to {
+    transform: translate(-14vmax, -9vmax) scale(0.9);
+  }
+}
+@keyframes cwDrift3 {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(12vmax, -12vmax) scale(1.3);
+  }
+}
+
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  padding: 32px;
+  box-shadow: var(--shadow-1);
+  animation: cwFadeUp 0.45s var(--ease) both;
+}
+@media (max-width: 560px) {
+  .card {
+    padding: 24px 20px;
+  }
+}
+
+/* ===== 設問フロー ===== */
+.prog {
+  height: 6px;
+  background: var(--head);
+  border-radius: 999px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+.prog i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--main), #3d9bdc);
+  border-radius: 999px;
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.qslide {
+  animation: cwFadeUp 0.3s var(--ease) both;
+}
+.qno {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--main);
+  letter-spacing: 0.12em;
+  margin-bottom: 8px;
+}
+.qtext {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-black);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+.qtext:focus-visible {
+  outline: none;
+}
+.lead {
+  font-size: 13.5px;
+  color: var(--text-grey);
+  margin-bottom: 24px;
+}
+.opts {
+  display: grid;
+  gap: 12px;
+}
+
+/* 選択肢: 左ラジオ円 + MAIN淡色スイープ + 浮上。複数選択(Q1/Q3)もこの見た目を流用する */
+.opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--white);
+  padding: 16px 16px 16px 52px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-black);
+  position: relative;
+  background-image: linear-gradient(90deg, var(--main-tint), var(--main-tint));
+  background-repeat: no-repeat;
+  background-size: 0% 100%;
+  transition:
+    border-color 0.2s,
+    background-size 0.25s var(--ease),
+    transform 0.15s,
+    box-shadow 0.2s;
+}
+.opt::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--white);
+  transition:
+    border-color 0.2s,
+    background 0.2s,
+    box-shadow 0.25s;
+}
+.opt:hover {
+  border-color: var(--main);
+  background-size: 100% 100%;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+}
+.opt:hover::before {
+  border-color: var(--main);
+  box-shadow: 0 0 0 4px rgba(0, 119, 199, 0.14);
+}
+.opt:active {
+  transform: scale(0.985);
+}
+.opt.sel {
+  border-color: var(--main);
+  background-size: 100% 100%;
+  animation: cwOptPulse 0.35s var(--bounce);
+}
+.opt.sel::before {
+  border-color: var(--main);
+  background: var(--main);
+  box-shadow: 0 0 0 4px rgba(0, 119, 199, 0.14);
+}
+.opt.sel::after {
+  content: '✓';
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--white);
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
+  animation: cwCheckPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+/* ネイティブのcheckbox/radioはvisually-hiddenだが、フォーカス時はカード(.opt)側にリングを出す */
+.opt:has(:focus-visible) {
+  outline: 2px solid var(--main);
+  outline-offset: 2px;
+}
+.back {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--text-grey);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* 見た目を消しつつフォーカス・スクリーンリーダーには残すための隠蔽 */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 自由回答 */
+.freebox {
+  width: 100%;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.7;
+  color: var(--text-black);
+  background: var(--white);
+  resize: vertical;
+  margin-bottom: 16px;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.freebox:focus {
+  outline: none;
+  border-color: var(--main);
+  box-shadow: 0 0 0 3px rgba(0, 119, 199, 0.14);
+}
+
+/* 連絡先フォームの入力欄（design.md §5） */
+.field {
+  margin-bottom: 16px;
+}
+.label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-black);
+  margin-bottom: 6px;
+}
+.required {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--danger);
+}
+.optional {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-grey);
+}
+.input {
+  width: 100%;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-black);
+  background: var(--white);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--main);
+  box-shadow: 0 0 0 3px rgba(0, 119, 199, 0.14);
+}
+.privacy {
+  font-size: 11px;
+  color: var(--text-grey);
+  margin-top: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+.chip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--main);
+  background: var(--main-tint);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+/* ===== ボタン ===== */
+.cta {
+  display: inline-block;
+  width: 100%;
+  text-align: center;
+  cursor: pointer;
+  background: var(--main);
+  color: var(--white);
+  font-weight: 700;
+  font-size: 16px;
+  padding: 15px 20px;
+  border: none;
+  border-radius: 6px;
+  transition:
+    background 0.2s,
+    transform 0.15s,
+    box-shadow 0.2s;
+}
+.cta:hover:not(:disabled) {
+  background: var(--main-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+}
+.cta:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.cta:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.err {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 8px 0;
+  animation: cwShake 0.28s;
+}
+
+/* ===== サンクス（段階リビール） ===== */
+.thanksIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--main-tint);
+  color: var(--main);
+  margin-bottom: 16px;
+}
+.resKicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--main);
+  margin-bottom: 8px;
+}
+.resTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-black);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.resTitle:focus-visible {
+  outline: none;
+}
+.thanksBody {
+  font-size: 15px;
+  color: var(--text-black);
+  margin-bottom: 24px;
+}
+.detailLinks {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+.detailLinks p {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-black);
+  margin-bottom: 10px;
+}
+.detailLinks a {
+  color: var(--main);
+  font-weight: 700;
+  text-decoration: none;
+  margin-right: 20px;
+  font-size: 13.5px;
+}
+.detailLinks a:hover {
+  text-decoration: underline;
+}
+.rv {
+  animation: cwFadeUp 0.5s var(--ease) both;
+}
+
+@keyframes cwFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cwOptPulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.97);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes cwCheckPop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes cwShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before,
+  .root *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

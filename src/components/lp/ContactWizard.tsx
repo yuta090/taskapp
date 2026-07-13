@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { CheckCircle, PaperPlaneTilt } from '@phosphor-icons/react'
+import styles from './ContactWizard.module.css'
+
+/*
+ * デザインは multica-prj/shindan-app と同一の規約に合わせる（design.md が正本）。
+ * トークン・クラスは ContactWizard.module.css にスコープし、TaskApp LPの
+ * Tailwind/他コンポーネントには影響させない。
+ */
 
 /* ─── Options ─── */
 
@@ -53,17 +60,18 @@ const PAIN_THANKS_MESSAGE: Record<string, string> = {
 const DEFAULT_THANKS_MESSAGE = '状況に合わせた使い方をご提案します。'
 
 const TOTAL_STEPS = 6
+const SINGLE_SELECT_LOCK_MS = 320
+
+const STEP_CATEGORY: Record<number, string> = {
+    1: 'お困りごと',
+    2: 'チーム規模',
+    3: '連絡手段',
+    4: '取引先の数',
+    5: '今の気持ち',
+    6: 'ご連絡先',
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-/* ─── Styling (contact page既存トークンに合わせる) ─── */
-
-const inputClasses =
-    'w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 focus:outline-none transition-colors'
-const labelClasses = 'block text-sm font-medium text-slate-700 mb-1.5'
-
-const cardClasses =
-    'flex items-center gap-3 rounded-lg border border-slate-200 px-4 py-3.5 text-sm text-slate-700 cursor-pointer transition-colors has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50 has-[:checked]:text-amber-900 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-amber-500/40'
 
 function toggleId(list: string[], id: string): string[] {
     return list.includes(id) ? list.filter((v) => v !== id) : [...list, id]
@@ -102,12 +110,42 @@ const initialAnswers: Answers = {
     company: '',
 }
 
+/* ─── Choice card (checkbox=複数選択 / radio=単一選択共通の見た目) ─── */
+
+function ChoiceCard({
+    type,
+    name,
+    checked,
+    label,
+    onChange,
+}: {
+    type: 'checkbox' | 'radio'
+    name?: string
+    checked: boolean
+    label: string
+    onChange: () => void
+}) {
+    return (
+        <label className={`${styles.opt} ${checked ? styles.sel : ''}`}>
+            <input
+                type={type}
+                name={name}
+                checked={checked}
+                onChange={onChange}
+                className={styles.visuallyHidden}
+            />
+            {label}
+        </label>
+    )
+}
+
 /* ─── Component ─── */
 
 export function ContactWizard() {
     const [step, setStep] = useState(1)
     const [answers, setAnswers] = useState<Answers>(initialAnswers)
     const [website, setWebsite] = useState('') // honeypot
+    const [locked, setLocked] = useState(false)
     const [emailError, setEmailError] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [submitError, setSubmitError] = useState<string | null>(null)
@@ -122,10 +160,16 @@ export function ContactWizard() {
     const goNext = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS))
     const goBack = () => setStep((s) => Math.max(s - 1, 1))
 
-    // 単一選択の質問はタップから少し待って自動的に次へ進む(ミツモア型)
+    // 単一選択の質問は選択→チェックポップ→320ms保持→自動前進(shindan-app q/page.tsx踏襲)。
+    // 保持中は連打ロックし、二重前進を防ぐ
     const selectSingleAndAdvance = (key: 'teamSize' | 'partnerCount', id: string) => {
+        if (locked) return
         setAnswers((prev) => ({ ...prev, [key]: id }))
-        setTimeout(() => goNext(), 200)
+        setLocked(true)
+        window.setTimeout(() => {
+            goNext()
+            setLocked(false)
+        }, SINGLE_SELECT_LOCK_MS)
     }
 
     const handleSubmit = async () => {
@@ -170,335 +214,356 @@ export function ContactWizard() {
             PAIN_OPTIONS.find((o) => answers.pain.includes(o.id) && PAIN_THANKS_MESSAGE[o.id])
                 ?.id ?? null
         return (
-            <div className="text-center py-12">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
-                    <CheckCircle size={32} weight="fill" className="text-green-600" />
-                </div>
-                <h2
-                    ref={headingRef}
-                    tabIndex={-1}
-                    className="text-xl font-bold text-slate-900 mb-2 focus:outline-none"
-                >
-                    送信ありがとうございます。1営業日以内にご連絡します。
-                </h2>
-                <p className="text-slate-600 mb-8 max-w-md mx-auto">
-                    {thanksMessage ? PAIN_THANKS_MESSAGE[thanksMessage] : DEFAULT_THANKS_MESSAGE}
-                </p>
-                <div className="border-t border-slate-200 pt-6">
-                    <p className="text-sm font-medium text-slate-700 mb-3">詳しく知りたい方へ</p>
-                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                        <Link
-                            href="/seminar"
-                            className="text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors"
-                        >
-                            セミナー一覧を見る →
-                        </Link>
-                        <Link
-                            href="/features"
-                            className="text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors"
-                        >
-                            機能紹介を見る →
-                        </Link>
+            <div className={styles.root}>
+                <section className={styles.section}>
+                    <MeshBackground />
+                    <div className={styles.wrap}>
+                        <div className={styles.card} style={{ textAlign: 'center' }}>
+                            <div className={`${styles.thanksIcon} ${styles.rv}`}>
+                                <CheckCircle size={28} weight="fill" />
+                            </div>
+                            <div className={`${styles.resKicker} ${styles.rv}`}>送信完了</div>
+                            <h2
+                                ref={headingRef}
+                                tabIndex={-1}
+                                className={`${styles.resTitle} ${styles.rv}`}
+                                style={{ animationDelay: '.07s' }}
+                            >
+                                送信ありがとうございます。1営業日以内にご連絡します。
+                            </h2>
+                            <p
+                                className={`${styles.thanksBody} ${styles.rv}`}
+                                style={{ animationDelay: '.14s' }}
+                            >
+                                {thanksMessage
+                                    ? PAIN_THANKS_MESSAGE[thanksMessage]
+                                    : DEFAULT_THANKS_MESSAGE}
+                            </p>
+                            <div
+                                className={`${styles.detailLinks} ${styles.rv}`}
+                                style={{ animationDelay: '.21s', textAlign: 'left' }}
+                            >
+                                <p>詳しく知りたい方へ</p>
+                                <Link href="/seminar">セミナー一覧を見る →</Link>
+                                <Link href="/features">機能紹介を見る →</Link>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </section>
             </div>
         )
     }
 
+    const pct = (step / TOTAL_STEPS) * 100
+
     return (
-        <div>
-            {/* Progress */}
-            <div className="mb-6">
-                <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                        className="h-full bg-amber-500 transition-all duration-200"
-                        style={{ width: `${(step / TOTAL_STEPS) * 100}%` }}
-                    />
-                </div>
-                <p className="mt-2 text-xs text-slate-400">
-                    {step} / {TOTAL_STEPS}
-                </p>
-            </div>
-
-            <div className="transition-opacity duration-200">
-                {step === 1 && (
-                    <fieldset>
-                        <legend>
-                            <h2
-                                ref={headingRef}
-                                tabIndex={-1}
-                                className="text-lg font-bold text-slate-900 mb-1 focus:outline-none"
-                            >
-                                いま、どんなことにお困りですか？
-                            </h2>
-                        </legend>
-                        <p className="text-sm text-slate-500 mb-4">近いものをすべて選んでください</p>
-                        <div className="space-y-2.5">
-                            {PAIN_OPTIONS.map((opt) => (
-                                <label key={opt.id} className={cardClasses}>
-                                    <input
-                                        type="checkbox"
-                                        className="accent-amber-500"
-                                        checked={answers.pain.includes(opt.id)}
-                                        onChange={() =>
-                                            setAnswers((prev) => ({
-                                                ...prev,
-                                                pain: toggleId(prev.pain, opt.id),
-                                            }))
-                                        }
-                                    />
-                                    {opt.label}
-                                </label>
-                            ))}
+        <div className={styles.root}>
+            <section className={styles.section}>
+                <MeshBackground />
+                <div className={styles.wrap}>
+                    <div className={styles.card}>
+                        <div className={styles.prog}>
+                            <i style={{ width: `${pct}%` }} />
                         </div>
-                        <button
-                            type="button"
-                            disabled={answers.pain.length === 0}
-                            onClick={goNext}
-                            className="mt-6 w-full py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            次へ
-                        </button>
-                    </fieldset>
-                )}
 
-                {step === 2 && (
-                    <fieldset role="radiogroup" aria-label="チームの人数は？">
-                        <BackLink onClick={goBack} />
-                        <legend>
-                            <h2
-                                ref={headingRef}
-                                tabIndex={-1}
-                                className="text-lg font-bold text-slate-900 mb-4 focus:outline-none"
-                            >
-                                チームの人数は？
-                            </h2>
-                        </legend>
-                        <div className="space-y-2.5">
-                            {TEAM_SIZE_OPTIONS.map((opt) => (
-                                <label key={opt.id} className={cardClasses}>
-                                    <input
-                                        type="radio"
-                                        name="teamSize"
-                                        className="accent-amber-500"
-                                        checked={answers.teamSize === opt.id}
-                                        onChange={() => selectSingleAndAdvance('teamSize', opt.id)}
-                                    />
-                                    {opt.label}
-                                </label>
-                            ))}
-                        </div>
-                    </fieldset>
-                )}
-
-                {step === 3 && (
-                    <fieldset>
-                        <BackLink onClick={goBack} />
-                        <legend>
-                            <h2
-                                ref={headingRef}
-                                tabIndex={-1}
-                                className="text-lg font-bold text-slate-900 mb-4 focus:outline-none"
-                            >
-                                社外とのやり取りに使っているものは？
-                            </h2>
-                        </legend>
-                        <div className="space-y-2.5">
-                            {CHANNEL_OPTIONS.map((opt) => (
-                                <label key={opt.id} className={cardClasses}>
-                                    <input
-                                        type="checkbox"
-                                        className="accent-amber-500"
-                                        checked={answers.channels.includes(opt.id)}
-                                        onChange={() =>
-                                            setAnswers((prev) => ({
-                                                ...prev,
-                                                channels: toggleId(prev.channels, opt.id),
-                                            }))
-                                        }
-                                    />
-                                    {opt.label}
-                                </label>
-                            ))}
-                        </div>
-                        <button
-                            type="button"
-                            disabled={answers.channels.length === 0}
-                            onClick={goNext}
-                            className="mt-6 w-full py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            次へ
-                        </button>
-                    </fieldset>
-                )}
-
-                {step === 4 && (
-                    <fieldset role="radiogroup" aria-label="やり取りする相手先（顧問先・クライアント）はどのくらい？">
-                        <BackLink onClick={goBack} />
-                        <legend>
-                            <h2
-                                ref={headingRef}
-                                tabIndex={-1}
-                                className="text-lg font-bold text-slate-900 mb-4 focus:outline-none"
-                            >
-                                やり取りする相手先（顧問先・クライアント）はどのくらい？
-                            </h2>
-                        </legend>
-                        <div className="space-y-2.5">
-                            {PARTNER_COUNT_OPTIONS.map((opt) => (
-                                <label key={opt.id} className={cardClasses}>
-                                    <input
-                                        type="radio"
-                                        name="partnerCount"
-                                        className="accent-amber-500"
-                                        checked={answers.partnerCount === opt.id}
-                                        onChange={() =>
-                                            selectSingleAndAdvance('partnerCount', opt.id)
-                                        }
-                                    />
-                                    {opt.label}
-                                </label>
-                            ))}
-                        </div>
-                    </fieldset>
-                )}
-
-                {step === 5 && (
-                    <div>
-                        <BackLink onClick={goBack} />
-                        <h2
-                            ref={headingRef}
-                            tabIndex={-1}
-                            className="text-lg font-bold text-slate-900 mb-1 focus:outline-none"
-                        >
-                            いまの状況やお気持ちを、そのまま教えてください
-                        </h2>
-                        <p className="text-sm text-slate-500 mb-4">
-                            うまくいっていないこと、モヤモヤしていること、箇条書きでも殴り書きでも大丈夫です。整理されていなくて構いません。
-                        </p>
-                        <textarea
-                            aria-label="いまの状況やお気持ち"
-                            rows={5}
-                            value={answers.message}
-                            onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                                setAnswers((prev) => ({ ...prev, message: e.target.value }))
-                            }
-                            placeholder="例: 顧問先とのLINEに依頼が埋もれて、月末にいつも探している…"
-                            className={inputClasses + ' resize-y'}
-                        />
-                        <div className="mt-6 flex gap-3">
-                            <button
-                                type="button"
-                                onClick={goNext}
-                                className="flex-1 py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors"
-                            >
-                                次へ
-                            </button>
-                            <button
-                                type="button"
-                                onClick={goNext}
-                                className="py-3 px-4 text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
-                            >
-                                スキップ
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {step === 6 && (
-                    <div>
-                        <BackLink onClick={goBack} />
-                        <h2
-                            ref={headingRef}
-                            tabIndex={-1}
-                            className="text-lg font-bold text-slate-900 mb-4 focus:outline-none"
-                        >
-                            最後に、ご連絡先を教えてください
-                        </h2>
-
-                        {answers.pain.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mb-5">
-                                {PAIN_OPTIONS.filter((o) => answers.pain.includes(o.id)).map(
-                                    (o) => (
-                                        <span
-                                            key={o.id}
-                                            className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1"
-                                        >
-                                            {o.label}
-                                        </span>
-                                    )
-                                )}
+                        {step === 1 && (
+                            <div className={styles.qslide} key={step}>
+                                <div className={styles.qno}>
+                                    {STEP_CATEGORY[1]} ｜ {step} / {TOTAL_STEPS}
+                                </div>
+                                <h2 ref={headingRef} tabIndex={-1} className={styles.qtext}>
+                                    いま、どんなことにお困りですか？
+                                </h2>
+                                <p className={styles.lead}>近いものをすべて選んでください</p>
+                                <fieldset>
+                                    <legend className={styles.visuallyHidden}>
+                                        いま、どんなことにお困りですか？
+                                    </legend>
+                                    <div className={styles.opts}>
+                                        {PAIN_OPTIONS.map((opt) => (
+                                            <ChoiceCard
+                                                key={opt.id}
+                                                type="checkbox"
+                                                checked={answers.pain.includes(opt.id)}
+                                                label={opt.label}
+                                                onChange={() =>
+                                                    setAnswers((prev) => ({
+                                                        ...prev,
+                                                        pain: toggleId(prev.pain, opt.id),
+                                                    }))
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                </fieldset>
+                                <button
+                                    type="button"
+                                    disabled={answers.pain.length === 0}
+                                    onClick={goNext}
+                                    className={styles.cta}
+                                    style={{ marginTop: 24 }}
+                                >
+                                    次へ
+                                </button>
                             </div>
                         )}
 
-                        <div className="space-y-4">
-                            <div>
-                                <label htmlFor="wizard-name" className={labelClasses}>
-                                    お名前
-                                    <span className="ml-1.5 text-xs text-red-500 font-normal">
-                                        必須
-                                    </span>
-                                </label>
-                                <input
-                                    id="wizard-name"
-                                    type="text"
-                                    required
-                                    value={answers.name}
-                                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                        setAnswers((prev) => ({ ...prev, name: e.target.value }))
-                                    }
-                                    placeholder="山田 太郎"
-                                    className={inputClasses}
-                                />
+                        {step === 2 && (
+                            <div className={styles.qslide} key={step}>
+                                <div className={styles.qno}>
+                                    {STEP_CATEGORY[2]} ｜ {step} / {TOTAL_STEPS}
+                                </div>
+                                <h2
+                                    ref={headingRef}
+                                    tabIndex={-1}
+                                    className={styles.qtext}
+                                    style={{ marginBottom: 24 }}
+                                >
+                                    チームの人数は？
+                                </h2>
+                                <fieldset role="radiogroup" aria-label="チームの人数は？">
+                                    <legend className={styles.visuallyHidden}>
+                                        チームの人数は？
+                                    </legend>
+                                    <div className={styles.opts}>
+                                        {TEAM_SIZE_OPTIONS.map((opt) => (
+                                            <ChoiceCard
+                                                key={opt.id}
+                                                type="radio"
+                                                name="teamSize"
+                                                checked={answers.teamSize === opt.id}
+                                                label={opt.label}
+                                                onChange={() =>
+                                                    selectSingleAndAdvance('teamSize', opt.id)
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                </fieldset>
+                                <button type="button" onClick={goBack} className={styles.back}>
+                                    ← 戻る
+                                </button>
                             </div>
-                            <div>
-                                <label htmlFor="wizard-email" className={labelClasses}>
-                                    メールアドレス
-                                    <span className="ml-1.5 text-xs text-red-500 font-normal">
-                                        必須
-                                    </span>
-                                </label>
-                                <input
-                                    id="wizard-email"
-                                    type="email"
-                                    required
-                                    value={answers.email}
-                                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                        setAnswers((prev) => ({ ...prev, email: e.target.value }))
-                                    }
-                                    placeholder="you@example.com"
-                                    className={inputClasses}
-                                />
-                                {emailError && (
-                                    <p className="mt-1.5 text-sm text-red-600" role="alert">
-                                        {emailError}
-                                    </p>
-                                )}
+                        )}
+
+                        {step === 3 && (
+                            <div className={styles.qslide} key={step}>
+                                <div className={styles.qno}>
+                                    {STEP_CATEGORY[3]} ｜ {step} / {TOTAL_STEPS}
+                                </div>
+                                <h2
+                                    ref={headingRef}
+                                    tabIndex={-1}
+                                    className={styles.qtext}
+                                    style={{ marginBottom: 24 }}
+                                >
+                                    社外とのやり取りに使っているものは？
+                                </h2>
+                                <fieldset>
+                                    <legend className={styles.visuallyHidden}>
+                                        社外とのやり取りに使っているものは？
+                                    </legend>
+                                    <div className={styles.opts}>
+                                        {CHANNEL_OPTIONS.map((opt) => (
+                                            <ChoiceCard
+                                                key={opt.id}
+                                                type="checkbox"
+                                                checked={answers.channels.includes(opt.id)}
+                                                label={opt.label}
+                                                onChange={() =>
+                                                    setAnswers((prev) => ({
+                                                        ...prev,
+                                                        channels: toggleId(prev.channels, opt.id),
+                                                    }))
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                </fieldset>
+                                <button
+                                    type="button"
+                                    disabled={answers.channels.length === 0}
+                                    onClick={goNext}
+                                    className={styles.cta}
+                                    style={{ marginTop: 24 }}
+                                >
+                                    次へ
+                                </button>
+                                <button type="button" onClick={goBack} className={styles.back}>
+                                    ← 戻る
+                                </button>
                             </div>
-                            <div>
-                                <label htmlFor="wizard-company" className={labelClasses}>
-                                    会社名・事務所名
-                                    <span className="ml-1.5 text-xs text-slate-400 font-normal">
-                                        任意
-                                    </span>
-                                </label>
-                                <input
-                                    id="wizard-company"
-                                    type="text"
-                                    value={answers.company}
-                                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                        )}
+
+                        {step === 4 && (
+                            <div className={styles.qslide} key={step}>
+                                <div className={styles.qno}>
+                                    {STEP_CATEGORY[4]} ｜ {step} / {TOTAL_STEPS}
+                                </div>
+                                <h2
+                                    ref={headingRef}
+                                    tabIndex={-1}
+                                    className={styles.qtext}
+                                    style={{ marginBottom: 24 }}
+                                >
+                                    やり取りする相手先（顧問先・クライアント）はどのくらい？
+                                </h2>
+                                <fieldset
+                                    role="radiogroup"
+                                    aria-label="やり取りする相手先（顧問先・クライアント）はどのくらい？"
+                                >
+                                    <legend className={styles.visuallyHidden}>
+                                        やり取りする相手先（顧問先・クライアント）はどのくらい？
+                                    </legend>
+                                    <div className={styles.opts}>
+                                        {PARTNER_COUNT_OPTIONS.map((opt) => (
+                                            <ChoiceCard
+                                                key={opt.id}
+                                                type="radio"
+                                                name="partnerCount"
+                                                checked={answers.partnerCount === opt.id}
+                                                label={opt.label}
+                                                onChange={() =>
+                                                    selectSingleAndAdvance('partnerCount', opt.id)
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                </fieldset>
+                                <button type="button" onClick={goBack} className={styles.back}>
+                                    ← 戻る
+                                </button>
+                            </div>
+                        )}
+
+                        {step === 5 && (
+                            <div className={styles.qslide} key={step}>
+                                <div className={styles.qno}>
+                                    {STEP_CATEGORY[5]} ｜ {step} / {TOTAL_STEPS}
+                                </div>
+                                <h2 ref={headingRef} tabIndex={-1} className={styles.qtext}>
+                                    いまの状況やお気持ちを、そのまま教えてください
+                                </h2>
+                                <p className={styles.lead}>
+                                    うまくいっていないこと、モヤモヤしていること、箇条書きでも殴り書きでも大丈夫です。整理されていなくて構いません。
+                                </p>
+                                <textarea
+                                    aria-label="いまの状況やお気持ち"
+                                    rows={5}
+                                    value={answers.message}
+                                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
                                         setAnswers((prev) => ({
                                             ...prev,
-                                            company: e.target.value,
+                                            message: e.target.value,
                                         }))
                                     }
-                                    placeholder="株式会社〇〇"
-                                    className={inputClasses}
+                                    placeholder="率直にどうぞ（任意・未記入のまま進めます）"
+                                    className={styles.freebox}
                                 />
+                                <button type="button" onClick={goNext} className={styles.cta}>
+                                    次へ
+                                </button>
+                                <button type="button" onClick={goNext} className={styles.back}>
+                                    スキップ
+                                </button>
+                                <button type="button" onClick={goBack} className={styles.back}>
+                                    ← 戻る
+                                </button>
                             </div>
+                        )}
 
-                            {/* honeypot: 人間には見えない欄。埋まっていたらAPI側でbot扱いされる */}
-                            <div className="relative h-0 w-0 overflow-hidden">
+                        {step === 6 && (
+                            <div className={styles.qslide} key={step}>
+                                <div className={styles.qno}>
+                                    {STEP_CATEGORY[6]} ｜ {step} / {TOTAL_STEPS}
+                                </div>
+                                <h2
+                                    ref={headingRef}
+                                    tabIndex={-1}
+                                    className={styles.qtext}
+                                    style={{ marginBottom: 20 }}
+                                >
+                                    最後に、ご連絡先を教えてください
+                                </h2>
+
+                                {answers.pain.length > 0 && (
+                                    <div className={styles.chips}>
+                                        {PAIN_OPTIONS.filter((o) =>
+                                            answers.pain.includes(o.id)
+                                        ).map((o) => (
+                                            <span key={o.id} className={styles.chip}>
+                                                {o.label}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className={styles.field}>
+                                    <label htmlFor="wizard-name" className={styles.label}>
+                                        お名前
+                                        <span className={styles.required}>必須</span>
+                                    </label>
+                                    <input
+                                        id="wizard-name"
+                                        type="text"
+                                        required
+                                        value={answers.name}
+                                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                            setAnswers((prev) => ({
+                                                ...prev,
+                                                name: e.target.value,
+                                            }))
+                                        }
+                                        placeholder="山田 太郎"
+                                        className={styles.input}
+                                    />
+                                </div>
+                                <div className={styles.field}>
+                                    <label htmlFor="wizard-email" className={styles.label}>
+                                        メールアドレス
+                                        <span className={styles.required}>必須</span>
+                                    </label>
+                                    <input
+                                        id="wizard-email"
+                                        type="email"
+                                        required
+                                        value={answers.email}
+                                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                            setAnswers((prev) => ({
+                                                ...prev,
+                                                email: e.target.value,
+                                            }))
+                                        }
+                                        placeholder="you@example.com"
+                                        className={styles.input}
+                                    />
+                                    {emailError && (
+                                        <p className={styles.err} role="alert">
+                                            {emailError}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className={styles.field}>
+                                    <label htmlFor="wizard-company" className={styles.label}>
+                                        会社名・事務所名
+                                        <span className={styles.optional}>任意</span>
+                                    </label>
+                                    <input
+                                        id="wizard-company"
+                                        type="text"
+                                        value={answers.company}
+                                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                            setAnswers((prev) => ({
+                                                ...prev,
+                                                company: e.target.value,
+                                            }))
+                                        }
+                                        placeholder="株式会社〇〇"
+                                        className={styles.input}
+                                    />
+                                </div>
+
+                                {/* honeypot: 人間には見えない欄。埋まっていたらAPI側でbot扱いされる */}
                                 <input
                                     type="text"
                                     name="website"
@@ -507,44 +572,49 @@ export function ContactWizard() {
                                     aria-hidden="true"
                                     tabIndex={-1}
                                     autoComplete="off"
-                                    className="absolute opacity-0"
+                                    className={styles.visuallyHidden}
                                 />
-                            </div>
 
-                            {submitError && (
-                                <p className="text-sm text-red-600" role="alert">
-                                    {submitError}
+                                {submitError && (
+                                    <p className={styles.err} role="alert">
+                                        {submitError}
+                                    </p>
+                                )}
+
+                                <button
+                                    type="button"
+                                    disabled={submitting}
+                                    onClick={handleSubmit}
+                                    className={styles.cta}
+                                >
+                                    <PaperPlaneTilt
+                                        size={16}
+                                        weight="bold"
+                                        style={{ marginRight: 8, verticalAlign: -2 }}
+                                    />
+                                    {submitting ? '送信中…' : '相談内容を送信する'}
+                                </button>
+                                <p className={styles.privacy}>
+                                    入力いただいた内容は、本お問い合わせに関するご連絡にのみ使用します。1営業日以内にご連絡します。
                                 </p>
-                            )}
-
-                            <button
-                                type="button"
-                                disabled={submitting}
-                                onClick={handleSubmit}
-                                className="w-full py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                <PaperPlaneTilt size={18} weight="bold" />
-                                {submitting ? '送信中…' : '相談内容を送信する'}
-                            </button>
-                            <p className="text-xs text-slate-400 text-center">
-                                これを添えて送ります・1営業日以内にご連絡します
-                            </p>
-                        </div>
+                                <button type="button" onClick={goBack} className={styles.back}>
+                                    ← 戻る
+                                </button>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
+                </div>
+            </section>
         </div>
     )
 }
 
-function BackLink({ onClick }: { onClick: () => void }) {
+function MeshBackground() {
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className="mb-4 text-sm text-slate-400 hover:text-slate-600 transition-colors"
-        >
-            ← 戻る
-        </button>
+        <div className={styles.mesh} aria-hidden="true">
+            <i className={styles.m1} />
+            <i className={styles.m2} />
+            <i className={styles.m3} />
+        </div>
     )
 }
