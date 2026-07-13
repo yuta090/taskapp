@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
-import { verifyGroupInOrg, updateChannelGroup, unlinkGroup } from '@/lib/channels/store'
+import { verifyGroupInOrg, updateChannelGroup, unlinkGroup, type PickupMode } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
 
 export const runtime = 'nodejs'
 
+const PICKUP_MODES: readonly PickupMode[] = ['all', 'mention_only', 'off']
+
+function isPickupMode(value: unknown): value is PickupMode {
+  return typeof value === 'string' && (PICKUP_MODES as readonly string[]).includes(value)
+}
+
 /**
  * PATCH /api/channels/groups — グループ管理（秘書コンソール用）
  *
- * {orgId, groupId, digestEnabled?, displayName?, unlink?}
+ * {orgId, groupId, pickupMode?, displayName?, unlink?}
  * 内部メンバーのみ。groupIdのorg一致をサーバ側で検証する。
+ * pickupMode: 'all'|'mention_only'|'off'（Stage 2.5 §1）。digestEnabledは廃止。
  * unlink: 誤紐付けの是正（status='left'化）。openな申し送りタスクのauto-dismissは
  * store層（unlinkGroup）で同一処理として行う。
  */
@@ -17,7 +24,7 @@ export async function PATCH(request: NextRequest) {
   let body: {
     orgId?: unknown
     groupId?: unknown
-    digestEnabled?: unknown
+    pickupMode?: unknown
     displayName?: unknown
     unlink?: unknown
   }
@@ -34,10 +41,14 @@ export async function PATCH(request: NextRequest) {
   }
 
   const unlink = body.unlink === true
-  const digestEnabled = typeof body.digestEnabled === 'boolean' ? body.digestEnabled : undefined
   const displayName = typeof body.displayName === 'string' ? body.displayName : undefined
 
-  if (!unlink && digestEnabled === undefined && displayName === undefined) {
+  if (body.pickupMode !== undefined && !isPickupMode(body.pickupMode)) {
+    return NextResponse.json({ error: 'invalid pickupMode' }, { status: 400 })
+  }
+  const pickupMode = isPickupMode(body.pickupMode) ? body.pickupMode : undefined
+
+  if (!unlink && pickupMode === undefined && displayName === undefined) {
     return NextResponse.json({ error: 'no changes specified' }, { status: 400 })
   }
 
@@ -57,7 +68,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   await updateChannelGroup(groupId, {
-    ...(digestEnabled !== undefined ? { digestEnabled } : {}),
+    ...(pickupMode !== undefined ? { pickupMode } : {}),
     ...(displayName !== undefined ? { displayName } : {}),
   })
   return NextResponse.json({ id: groupId, ok: true })

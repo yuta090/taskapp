@@ -11,6 +11,13 @@ interface LineEventSource {
   roomId?: string
 }
 
+interface LineMentionee {
+  index: number
+  length: number
+  type: string
+  isSelf?: boolean
+}
+
 interface LineMessagePayload {
   id: string
   type: string
@@ -19,6 +26,7 @@ interface LineMessagePayload {
   fileName?: string
   fileSize?: number
   duration?: number
+  mention?: { mentionees: LineMentionee[] }
 }
 
 interface LinePostbackPayload {
@@ -75,6 +83,10 @@ export interface NormalizedLineEvent {
   roomId?: string
   /** kind='postback' の場合のみ: postback.data そのまま */
   postbackData?: string
+  /** text メッセージが自bot宛メンションを含む場合のみ true（Stage 2.5 §2 mention_only判定用） */
+  mentionsSelf?: boolean
+  /** mentionsSelf=true のときの自分宛メンション区間（本文からメンション文字列を除去するため） */
+  selfMentionSpans?: Array<{ index: number; length: number }>
   /** reply送信用（通数無料）。イベントに無ければ undefined */
   replyToken?: string
   /** message イベントは message.id、それ以外は webhookEventId */
@@ -148,6 +160,11 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
     if (!MESSAGE_CONTENT_TYPES.has(message.type)) return null
 
     if (message.type === 'text') {
+      const selfMentionSpans = (message.mention?.mentionees ?? [])
+        .filter((m) => m.isSelf === true)
+        .map((m) => ({ index: m.index, length: m.length }))
+      const mentionsSelf = selfMentionSpans.length > 0
+
       return {
         ...common,
         kind: 'message',
@@ -155,7 +172,8 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
         externalMessageId: message.id,
         contentType: 'text',
         body: message.text ?? '',
-        payload: {},
+        payload: mentionsSelf ? { mentionsSelf: true } : {},
+        ...(mentionsSelf ? { mentionsSelf, selfMentionSpans } : {}),
       }
     }
 

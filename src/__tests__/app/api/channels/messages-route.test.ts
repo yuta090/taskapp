@@ -184,7 +184,7 @@ describe('POST /api/channels/messages', () => {
         externalGroupId: 'G-1',
         displayName: null,
         status: 'active',
-        digestEnabled: true,
+        pickupMode: 'all',
         lastExtractedMessageCreatedAt: null,
       })
     })
@@ -215,7 +215,7 @@ describe('POST /api/channels/messages', () => {
         externalGroupId: 'G-1',
         displayName: null,
         status: 'left',
-        digestEnabled: true,
+        pickupMode: 'all',
         lastExtractedMessageCreatedAt: null,
       })
       const response = await callPost(groupBody)
