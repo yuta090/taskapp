@@ -52,7 +52,7 @@ const GROUP = {
   externalGroupId: 'G-1',
   displayName: null,
   status: 'active',
-  digestEnabled: true,
+  pickupMode: 'all',
   lastExtractedMessageCreatedAt: null,
 }
 
@@ -68,19 +68,19 @@ describe('PATCH /api/channels/groups', () => {
 
   it('未ログインは401', async () => {
     getUserMock.mockResolvedValue({ data: { user: null }, error: null })
-    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, digestEnabled: false })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'off' })
     expect(response.status).toBe(401)
   })
 
   it('内部メンバーでなければ403', async () => {
     membershipSingleMock.mockResolvedValue({ data: { role: 'client' }, error: null })
-    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, digestEnabled: false })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'off' })
     expect(response.status).toBe(403)
   })
 
   it('他orgのgroupIdは404', async () => {
     storeMock.verifyGroupInOrg.mockResolvedValue(null)
-    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, digestEnabled: false })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'off' })
     expect(response.status).toBe(404)
     expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
   })
@@ -90,10 +90,16 @@ describe('PATCH /api/channels/groups', () => {
     expect(response.status).toBe(400)
   })
 
-  it('digestEnabledを更新できる', async () => {
-    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, digestEnabled: false })
+  it('pickupModeを更新できる', async () => {
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'mention_only' })
     expect(response.status).toBe(200)
-    expect(storeMock.updateChannelGroup).toHaveBeenCalledWith(GROUP_ID, { digestEnabled: false })
+    expect(storeMock.updateChannelGroup).toHaveBeenCalledWith(GROUP_ID, { pickupMode: 'mention_only' })
+  })
+
+  it('pickupModeが3値以外なら400', async () => {
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'invalid' })
+    expect(response.status).toBe(400)
+    expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
   })
 
   it('displayNameを更新できる', async () => {

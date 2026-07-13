@@ -13,6 +13,8 @@ import {
   findDigestTaskForVerification,
   markDigestTaskDoneAtomic,
   markDigestTaskDoneByGroupAndNumberAtomic,
+  createInstantDigestTask,
+  reopenDigestTaskAtomic,
   type LineAccount,
   type InsertChannelMessageInput,
   type ValidLinkCode,
@@ -25,6 +27,7 @@ import {
   fetchLineMessageContent,
   replyLineMessage,
   leaveRoom,
+  fetchGroupMemberProfile,
 } from '@/lib/channels/line/client'
 import { verifyLineSignature } from '@/lib/channels/line/verify'
 import {
@@ -34,7 +37,8 @@ import {
 } from '@/lib/channels/line/events'
 import { normalizeLinkCode } from '@/lib/channels/linkCode'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
-import { parseDigestDonePostback } from '@/lib/channels/digest/postback'
+import { parseDigestDonePostback, parseDigestUndoPostback } from '@/lib/channels/digest/postback'
+import { buildMentionTaskTitle, buildTaskDoneFlexMessage } from '@/lib/channels/digest/compute'
 
 /**
  * LINE webhook のオーケストレーション。
@@ -78,11 +82,34 @@ function buildGroupLinkConfirmation(accountDisplayName: string): string {
   )
 }
 
-function buildTaskDoneReply(title: string): string {
-  return `『${title}』を完了にしました。`
+const ALREADY_DONE_TEXT = 'そのタスクは既に完了済みです。'
+
+function buildTaskUndoReply(title: string): string {
+  return `『${title}』を申し送りに戻しました。`
 }
 
-const ALREADY_DONE_TEXT = 'そのタスクは既に完了済みです。'
+const UNDO_FAILED_TEXT =
+  '取り消せませんでした（完了から24時間以上経過、または既に戻されています）。コンソールからも戻せます。'
+
+const MENTION_TITLE_EMPTY_TEXT =
+  '内容が読み取れませんでした。メンションに続けて申し送り内容をお書きください。'
+
+/**
+ * 完了reply（Stage 2.5 §3-1）: LINEグループメンバーのプロフィールを取得できれば記名する。
+ * ベストエフォート（fetchGroupMemberProfileは失敗時null）のため、取得できなければ従来文言にフォールバックする。
+ */
+async function buildNamedDoneMessage(
+  account: LineAccount,
+  externalGroupId: string,
+  externalUserId: string | null,
+  title: string,
+  taskId: string,
+) {
+  const profile = externalUserId
+    ? await fetchGroupMemberProfile(account.accessToken, externalGroupId, externalUserId)
+    : null
+  return buildTaskDoneFlexMessage({ title, doneByDisplayName: profile?.displayName ?? null, taskId })
+}
 
 const LINK_CODE_FAILED_TEXT =
   '確認コードをお確かめのうえ、もう一度お送りください。ご不明な場合は事務所までご連絡ください。'
@@ -565,6 +592,13 @@ async function processGroupMessage(
         }
       }
     }
+
+    // メンション即時タスク化（Stage 2.5 §2）: mention_only のみ。all は夜間抽出で拾うため
+    // 経路を分ける（同じsource_message_idでtitleが異なると unique 制約をすり抜けて二重登録になる）
+    if (group.pickupMode === 'mention_only' && event.mentionsSelf) {
+      await handleMentionInstantTask(account, event, group, identityId, disabled)
+      return
+    }
   }
 
   let storagePath: string | null = null
@@ -679,7 +713,71 @@ async function handleDigestCompleteCommand(
     digestNumber,
     event.externalUserId ?? null,
   )
-  const replyText = result ? buildTaskDoneReply(result.title) : ALREADY_DONE_TEXT
+
+  // 記名Flex（Stage 2.5 §3-1）: 完了できた場合のみ。マッチしない場合は従来どおりテキスト
+  const replyMessage = result
+    ? await buildNamedDoneMessage(account, group.externalGroupId, event.externalUserId, result.title, result.id)
+    : ({ type: 'text' as const, text: ALREADY_DONE_TEXT })
+  const replyBodyForRecord = replyMessage.type === 'text' ? replyMessage.text : replyMessage.altText
+
+  if (event.replyToken) {
+    await replyLineMessage({
+      accessToken: account.accessToken,
+      replyToken: event.replyToken,
+      messages: [replyMessage],
+    })
+  }
+  await insertChannelMessage({
+    orgId: account.orgId,
+    spaceId: group.spaceId,
+    identityId: null,
+    accountId: account.id,
+    groupId: group.id,
+    channel: 'line',
+    direction: 'outbound',
+    actor: 'secretary',
+    externalUserId: null,
+    externalMessageId: null,
+    contentType: 'text',
+    body: replyBodyForRecord,
+    payload: { autoReplyTo: event.webhookEventId },
+    storagePath: null,
+    status: event.replyToken ? 'sent' : 'failed',
+    error: event.replyToken ? null : 'no replyToken',
+    occurredAt: new Date().toISOString(),
+  })
+}
+
+/**
+ * メンション即時タスク化（Stage 2.5 §2）: mention_only グループでbot宛メンションを検知した際のパス。
+ * disabled中は記録のみで終了する（digest系の自動動作はdisabledで停止、の既存原則に従う）。
+ */
+async function handleMentionInstantTask(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  identityId: string | null,
+  disabled: boolean,
+): Promise<void> {
+  const recorded = await insertChannelMessage(groupMessageRecord(account, event, group, identityId, null))
+  if (recorded === 'duplicate') return
+  if (disabled) return
+
+  const title = buildMentionTaskTitle(event.body ?? '', event.selfMentionSpans ?? [])
+
+  let replyText: string
+  if (!title) {
+    replyText = MENTION_TITLE_EMPTY_TEXT
+  } else {
+    await createInstantDigestTask({
+      orgId: account.orgId,
+      groupId: group.id,
+      spaceId: group.spaceId,
+      sourceMessageId: recorded.id,
+      title,
+    })
+    replyText = `申し送りに追加しました。\n『${title}』`
+  }
 
   if (event.replyToken) {
     await replyLineMessage({
@@ -709,52 +807,67 @@ async function handleDigestCompleteCommand(
   })
 }
 
-type PostbackResult = 'done' | 'already_done' | 'rejected'
+type PostbackAction = 'digest_done' | 'digest_undo'
+type PostbackResult = 'done' | 'already_done' | 'reopened' | 'cannot_undo' | 'rejected'
 
 /**
- * postback(digest_done)。消し込み操作の原本証跡はchannel_messagesに残す（§2.3）。
- * 記録は disabled 中も必ず行う（inboundの記録continuityは他イベントと同じ）。
- * disabled中に止めるのは「自動応答」= reply送信のみ。検証・状態確定(消し込み)自体は
- * ユーザーの実際の操作を正しく反映するため常に行う。
+ * postback(digest_done / digest_undo・Stage 2.5 §3-2)。消し込み・取り消し操作の原本証跡は
+ * channel_messagesに残す（§2.3）。記録は disabled 中も必ず行う（inboundの記録continuityは
+ * 他イベントと同じ）。disabled中に止めるのは「自動応答」= reply送信のみ。
+ * 検証・状態確定(消し込み/取り消し)自体はユーザーの実際の操作を正しく反映するため常に行う。
+ * digest_undo も digest_done と同一の検証チェーン（task→group→account→org一致）を通す。
  */
 async function processPostback(
   account: LineAccount,
   event: NormalizedLineEvent,
   disabled: boolean,
 ): Promise<void> {
-  const action = parseDigestDonePostback(event.postbackData ?? '')
-  if (!action) return
+  const doneAction = parseDigestDonePostback(event.postbackData ?? '')
+  const undoAction = doneAction ? null : parseDigestUndoPostback(event.postbackData ?? '')
+  if (!doneAction && !undoAction) return
 
-  const task = await findDigestTaskForVerification(action.taskId)
+  const actionKind: PostbackAction = doneAction ? 'digest_done' : 'digest_undo'
+  const taskId = (doneAction ?? undoAction)!.taskId
+
+  const task = await findDigestTaskForVerification(taskId)
   let rejected = false
 
   if (!task) {
     rejected = true
   } else if (task.accountId !== account.id || task.orgId !== account.orgId) {
     // 検証: task→group→account→orgの系列がwebhookで解決したaccountと一致すること
-    console.error('LINE webhook: postback task belongs to a different account/org', action.taskId)
+    console.error('LINE webhook: postback task belongs to a different account/org', taskId)
     rejected = true
   } else if (event.groupId) {
     // 検証: task.group_idがwebhookを受けたグループのものであること
     const taskGroup = await findGroupById(task.groupId)
     if (!taskGroup || taskGroup.externalGroupId !== event.groupId) {
-      console.error('LINE webhook: postback task belongs to a different group', action.taskId)
+      console.error('LINE webhook: postback task belongs to a different group', taskId)
       rejected = true
     }
   }
 
   let result: PostbackResult
-  let doneTitle: string | null = null
+  let resultTitle: string | null = null
   if (rejected) {
     result = 'rejected'
-  } else {
+  } else if (actionKind === 'digest_done') {
     // 原子更新（status='open'のみ）。0行なら二重タップ等で既に完了済み
-    const updated = await markDigestTaskDoneAtomic(action.taskId, 'postback', event.externalUserId ?? null)
+    const updated = await markDigestTaskDoneAtomic(taskId, 'postback', event.externalUserId ?? null)
     if (updated) {
       result = 'done'
-      doneTitle = updated.title
+      resultTitle = updated.title
     } else {
       result = 'already_done'
+    }
+  } else {
+    // 原子更新（status='done'かつdone_atが24時間以内のみ）。0行なら取り消せない
+    const reopened = await reopenDigestTaskAtomic(taskId)
+    if (reopened) {
+      result = 'reopened'
+      resultTitle = reopened.title
+    } else {
+      result = 'cannot_undo'
     }
   }
 
@@ -774,7 +887,7 @@ async function processPostback(
     externalMessageId: event.webhookEventId,
     contentType: 'system',
     body: null,
-    payload: { event: 'postback', action: 'digest_done', taskId: action.taskId, result },
+    payload: { event: 'postback', action: actionKind, taskId, result },
     storagePath: null,
     status: 'received',
     error: null,
@@ -784,9 +897,20 @@ async function processPostback(
   // webhook再送(dedupe)時はreplyを再送しない。rejectedは何も返さない（不正リクエストへの応答を避ける）。
   // disabled中は自動応答(reply)のみ停止する（記録・状態確定は既に完了している）
   if (recorded === 'duplicate' || disabled || rejected) return
+  if (!event.replyToken) return
 
-  const replyText = result === 'done' ? buildTaskDoneReply(doneTitle!) : ALREADY_DONE_TEXT
-  if (event.replyToken) {
+  if (actionKind === 'digest_done') {
+    const replyMessage =
+      result === 'done'
+        ? await buildNamedDoneMessage(account, event.groupId ?? '', event.externalUserId, resultTitle!, taskId)
+        : ({ type: 'text' as const, text: ALREADY_DONE_TEXT })
+    await replyLineMessage({
+      accessToken: account.accessToken,
+      replyToken: event.replyToken,
+      messages: [replyMessage],
+    })
+  } else {
+    const replyText = result === 'reopened' ? buildTaskUndoReply(resultTitle!) : UNDO_FAILED_TEXT
     await replyLineMessage({
       accessToken: account.accessToken,
       replyToken: event.replyToken,

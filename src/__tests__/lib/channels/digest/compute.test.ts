@@ -7,6 +7,8 @@ import {
   buildDigestPushText,
   buildDigestFlexMessage,
   buildDigestRetryKey,
+  buildMentionTaskTitle,
+  buildTaskDoneFlexMessage,
 } from '@/lib/channels/digest/compute'
 
 /**
@@ -166,5 +168,90 @@ describe('buildDigestRetryKey', () => {
   it('UUID形式（v4相当）の文字列を返す', () => {
     const key = buildDigestRetryKey('group-1', '2026-07-11')
     expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+})
+
+describe('buildMentionTaskTitle（Stage 2.5 §2: メンション即時タスク化）', () => {
+  it('本文からメンション区間を除去し、残りをsanitizeDigestTitleと同様に整形する', () => {
+    const title = buildMentionTaskTitle('@AgentPM秘書 金曜までに見積提出', [{ index: 0, length: 10 }])
+    expect(title).toBe('金曜までに見積提出')
+  })
+
+  it('前後の空白・改行・制御文字も除去する', () => {
+    const title = buildMentionTaskTitle('@bot \n 発注お願いします \t', [{ index: 0, length: 4 }])
+    expect(title).toBe('発注お願いします')
+  })
+
+  it('複数区間を後ろから除去する（indexずれ対策）', () => {
+    const title = buildMentionTaskTitle('@田中 @bot 見積お願いします', [
+      { index: 0, length: 3 },
+      { index: 4, length: 4 },
+    ])
+    expect(title).toBe('見積お願いします')
+  })
+
+  it('メンション除去後に50字を超える場合は切り詰める', () => {
+    const long = '@bot ' + 'あ'.repeat(60)
+    const title = buildMentionTaskTitle(long, [{ index: 0, length: 4 }])
+    expect(title.length).toBe(50)
+  })
+
+  it('メンション除去後に空文字になる場合は空文字を返す（呼び出し側でタスク化を止める）', () => {
+    const title = buildMentionTaskTitle('@AgentPM秘書', [{ index: 0, length: 10 }])
+    expect(title).toBe('')
+  })
+
+  it('spansが空なら本文全体をsanitizeDigestTitleと同様に整形する', () => {
+    expect(buildMentionTaskTitle('  発注お願いします  ', [])).toBe('発注お願いします')
+  })
+})
+
+describe('buildTaskDoneFlexMessage（Stage 2.5 §3-1: 完了の記名化＋取り消し）', () => {
+  const TASK_ID = '11111111-1111-4111-8111-111111111111'
+
+  it('doneByDisplayNameありなら記名文言をbodyに含める', () => {
+    const flex = buildTaskDoneFlexMessage({
+      title: '酒屋へ発注',
+      doneByDisplayName: '田中太郎',
+      taskId: TASK_ID,
+    })
+    const serialized = JSON.stringify(flex)
+    expect(serialized).toContain('田中太郎さんが')
+    expect(serialized).toContain('酒屋へ発注')
+    expect(serialized).toContain('完了にしました')
+  })
+
+  it('doneByDisplayNameがnullなら記名無しの従来文言', () => {
+    const flex = buildTaskDoneFlexMessage({ title: '酒屋へ発注', doneByDisplayName: null, taskId: TASK_ID })
+    const serialized = JSON.stringify(flex)
+    expect(serialized).not.toContain('さんが')
+    expect(serialized).toContain('『酒屋へ発注』を完了にしました')
+  })
+
+  it('footerに取り消すボタン(postback action=digest_undo)を含む', () => {
+    const flex = buildTaskDoneFlexMessage({ title: '酒屋へ発注', doneByDisplayName: null, taskId: TASK_ID })
+    const serialized = JSON.stringify(flex)
+    expect(serialized).toContain('取り消す')
+    expect(serialized).toContain(`action=digest_undo&task=${TASK_ID}`)
+  })
+
+  it('displayNameは制御文字/改行を除去してから埋め込む（LINE APIからの非信頼文字列）', () => {
+    const flex = buildTaskDoneFlexMessage({
+      title: '酒屋へ発注',
+      doneByDisplayName: '田中\n太郎\t',
+      taskId: TASK_ID,
+    })
+    const serialized = JSON.stringify(flex)
+    expect(serialized).toContain('田中太郎さんが')
+  })
+
+  it('titleも制御文字を除去してから埋め込む', () => {
+    const flex = buildTaskDoneFlexMessage({
+      title: '酒屋へ\n発注',
+      doneByDisplayName: null,
+      taskId: TASK_ID,
+    })
+    const serialized = JSON.stringify(flex)
+    expect(serialized).toContain('酒屋へ発注')
   })
 })

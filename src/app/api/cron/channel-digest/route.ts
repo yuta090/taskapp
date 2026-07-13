@@ -21,8 +21,8 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
  * POST /api/cron/channel-digest
  *
  * pg_cron が毎朝7時(JST) app_invoke_channel_digest() 経由で pg_net から呼び出す内部API。
- * digest対象グループ（active×digest_enabled×accountがactive）ごとに:
- *   1. 抽出水位より後のグループ発言をLLMで抽出し、原子INSERT＋水位更新（exactly-once）
+ * digest対象グループ（active×pickup_mode<>'off'×accountがactive）ごとに:
+ *   1. pickup_mode='all' のみ: 抽出水位より後のグループ発言をLLMで抽出し、原子INSERT＋水位更新（exactly-once）
  *   2. openな申し送りタスクを再採番し、0件でなければLINEへpush
  *
  * 1グループの失敗が他グループを止めない（Promise.allSettled）。
@@ -54,10 +54,12 @@ export async function POST(request: NextRequest) {
   await Promise.allSettled(
     groups.map(async (group) => {
       try {
-        const messages = await findGroupTextMessagesSince(
-          group.id,
-          group.lastExtractedMessageCreatedAt,
-        )
+        // 抽出は pickup_mode='all' のみ実行する（mention_only はメンション即時タスク化で拾うため、
+        // 夜間LLM抽出との二重登録を避けて経路を分ける。off はfindDigestEligibleGroupsで対象外）
+        const messages =
+          group.pickupMode === 'all'
+            ? await findGroupTextMessagesSince(group.id, group.lastExtractedMessageCreatedAt)
+            : []
 
         if (messages.length > 0) {
           try {
