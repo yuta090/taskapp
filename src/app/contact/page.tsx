@@ -3,7 +3,8 @@ import { LPHeader } from '@/components/lp/Header'
 import { LPFooter } from '@/components/lp/Footer'
 import { CTABand } from '@/components/lp/CTABand'
 import { ContactWizard } from '@/components/lp/ContactWizard'
-import { ChatCircleDots, ArrowsClockwise, Check, CalendarBlank } from '@phosphor-icons/react'
+// server component のため ssr エントリを使う（本体エントリは createContext を含み RSC で落ちる）
+import { ChatCircleDots, ArrowsClockwise, Check, CalendarBlank } from '@phosphor-icons/react/dist/ssr'
 
 const migrationPoints = [
     'CSVエクスポート手順のご案内',

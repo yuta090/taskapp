@@ -244,8 +244,9 @@ export function ContactWizard() {
                                 style={{ animationDelay: '.21s', textAlign: 'left' }}
                             >
                                 <p>詳しく知りたい方へ</p>
-                                <Link href="/seminar">セミナー一覧を見る →</Link>
+                                {/* /seminar は未実装(404)のため案内しない。ページ新設時に復活させる */}
                                 <Link href="/features">機能紹介を見る →</Link>
+                                <Link href="/">業種別の活用例を見る →</Link>
                             </div>
                         </div>
                     </div>
