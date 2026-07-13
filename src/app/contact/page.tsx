@@ -6,6 +6,12 @@ import { ContactWizard } from '@/components/lp/ContactWizard'
 // server component のため ssr エントリを使う（本体エントリは createContext を含み RSC で落ちる）
 import { ChatCircleDots, ArrowsClockwise, Check, CalendarBlank } from '@phosphor-icons/react/dist/ssr'
 
+export const metadata = {
+    title: '導入相談 | AgentPM',
+    description:
+        '回収・催促・証跡を任せるAI秘書とタスク管理。6つの質問で状況を伺い、1営業日以内にご連絡します。',
+}
+
 const migrationPoints = [
     'CSVエクスポート手順のご案内',
     'インポート作業のサポート',
