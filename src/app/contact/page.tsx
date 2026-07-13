@@ -47,76 +47,64 @@ export default function ContactPage() {
                 </div>
             </section>
 
-            {/* ── 3-Column Layout ── */}
-            <section className="pb-20 lg:pb-28">
+            {/* ── 相談ウィザード（全幅バンド。デザインは multica-prj/shindan-app 準拠） ── */}
+            <ContactWizard />
+
+            {/* ── サポートカード ── */}
+            <section className="py-16 lg:py-20">
                 <div className="container mx-auto px-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-                        {/* Column 1: Form (spans 2 cols on lg) */}
-                        <div className="md:col-span-2">
-                            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
-                                <h2 className="text-xl font-bold text-slate-900 mb-6">
-                                    導入相談フォーム
-                                </h2>
-                                <ContactWizard />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                        {/* チャットサポート */}
+                        <div
+                            id="chat"
+                            className="bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                        >
+                            <div className="inline-flex items-center justify-center w-12 h-12 bg-amber-100 rounded-xl mb-4">
+                                <ChatCircleDots
+                                    size={24}
+                                    weight="duotone"
+                                    className="text-amber-600"
+                                />
                             </div>
+                            <h3 className="text-lg font-bold text-slate-900 mb-2">
+                                チャットサポート
+                            </h3>
+                            <p className="text-sm text-slate-600 mb-3">
+                                画面右下のチャットから即対応。
+                            </p>
+                            <p className="text-xs text-slate-400">対応時間: 平日 10:00-18:00</p>
                         </div>
 
-                        {/* Column 2 & 3: Support cards */}
-                        <div className="flex flex-col gap-6">
-                            {/* チャットサポート */}
-                            <div
-                                id="chat"
-                                className="bg-slate-50 rounded-2xl p-6 border border-slate-200"
-                            >
-                                <div className="inline-flex items-center justify-center w-12 h-12 bg-amber-100 rounded-xl mb-4">
-                                    <ChatCircleDots
-                                        size={24}
-                                        weight="duotone"
-                                        className="text-amber-600"
-                                    />
-                                </div>
-                                <h3 className="text-lg font-bold text-slate-900 mb-2">
-                                    チャットサポート
-                                </h3>
-                                <p className="text-sm text-slate-600 mb-3">
-                                    画面右下のチャットから即対応。
-                                </p>
-                                <p className="text-xs text-slate-400">
-                                    対応時間: 平日 10:00-18:00
-                                </p>
+                        {/* 移行サポート */}
+                        <div
+                            id="migration"
+                            className="bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                        >
+                            <div className="inline-flex items-center justify-center w-12 h-12 bg-amber-100 rounded-xl mb-4">
+                                <ArrowsClockwise
+                                    size={24}
+                                    weight="duotone"
+                                    className="text-amber-600"
+                                />
                             </div>
-
-                            {/* 移行サポート */}
-                            <div
-                                id="migration"
-                                className="bg-slate-50 rounded-2xl p-6 border border-slate-200"
-                            >
-                                <div className="inline-flex items-center justify-center w-12 h-12 bg-amber-100 rounded-xl mb-4">
-                                    <ArrowsClockwise
-                                        size={24}
-                                        weight="duotone"
-                                        className="text-amber-600"
-                                    />
-                                </div>
-                                <h3 className="text-lg font-bold text-slate-900 mb-3">
-                                    移行サポート
-                                </h3>
-                                <ul className="space-y-2.5">
-                                    {migrationPoints.map((point) => (
-                                        <li
-                                            key={point}
-                                            className="flex items-start gap-2 text-sm text-slate-600"
-                                        >
-                                            <Check
-                                                size={16}
-                                                weight="bold"
-                                                className="text-amber-500 mt-0.5 shrink-0"
-                                            />
-                                            {point}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
+                            <h3 className="text-lg font-bold text-slate-900 mb-3">
+                                移行サポート
+                            </h3>
+                            <ul className="space-y-2.5">
+                                {migrationPoints.map((point) => (
+                                    <li
+                                        key={point}
+                                        className="flex items-start gap-2 text-sm text-slate-600"
+                                    >
+                                        <Check
+                                            size={16}
+                                            weight="bold"
+                                            className="text-amber-500 mt-0.5 shrink-0"
+                                        />
+                                        {point}
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
                     </div>
                 </div>
