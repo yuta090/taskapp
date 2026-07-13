@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -379,6 +380,8 @@ export async function linkIdentityViaCode(
 // channel_groups
 // ---------------------------------------------------------------------------
 
+export type PickupMode = 'all' | 'mention_only' | 'off'
+
 export interface ChannelGroup {
   id: string
   orgId: string
@@ -387,7 +390,8 @@ export interface ChannelGroup {
   externalGroupId: string
   displayName: string | null
   status: 'active' | 'left'
-  digestEnabled: boolean
+  /** 申し送りの拾い方（Stage 2.5 §1）。digest_enabled列は廃止・読み書きしない */
+  pickupMode: PickupMode
   lastExtractedMessageCreatedAt: string | null
 }
 
@@ -399,8 +403,12 @@ interface GroupRow {
   external_group_id: string
   display_name: string | null
   status: string
-  digest_enabled: boolean
+  pickup_mode: string
   last_extracted_message_created_at: string | null
+}
+
+function toPickupMode(value: string): PickupMode {
+  return value === 'mention_only' || value === 'off' ? value : 'all'
 }
 
 function toChannelGroup(row: GroupRow): ChannelGroup {
@@ -412,13 +420,13 @@ function toChannelGroup(row: GroupRow): ChannelGroup {
     externalGroupId: row.external_group_id,
     displayName: row.display_name,
     status: row.status === 'left' ? 'left' : 'active',
-    digestEnabled: row.digest_enabled,
+    pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
   }
 }
 
 const GROUP_COLUMNS =
-  'id, org_id, space_id, account_id, external_group_id, display_name, status, digest_enabled, last_extracted_message_created_at'
+  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at'
 
 export async function findActiveGroup(
   accountId: string,
@@ -518,16 +526,25 @@ export async function linkGroupToSpaceAtomic(groupId: string, spaceId: string): 
 }
 
 export interface UpdateChannelGroupInput {
-  digestEnabled?: boolean
+  pickupMode?: PickupMode
   displayName?: string
 }
 
+/**
+ * 'all' への切替時は last_extracted_message_created_at = now() に更新する
+ * （mention_only/off 期間中の溜まったバックログを一括LLM投入しないため。切替前の発言は拾わない仕様）。
+ */
 export async function updateChannelGroup(
   groupId: string,
   updates: UpdateChannelGroupInput,
 ): Promise<void> {
   const patch: Record<string, unknown> = {}
-  if (updates.digestEnabled !== undefined) patch.digest_enabled = updates.digestEnabled
+  if (updates.pickupMode !== undefined) {
+    patch.pickup_mode = updates.pickupMode
+    if (updates.pickupMode === 'all') {
+      patch.last_extracted_message_created_at = new Date().toISOString()
+    }
+  }
   if (updates.displayName !== undefined) patch.display_name = updates.displayName
   if (Object.keys(patch).length === 0) return
 
@@ -556,20 +573,22 @@ export interface DigestEligibleGroup {
   orgId: string
   accountId: string
   externalGroupId: string
+  pickupMode: PickupMode
   lastExtractedMessageCreatedAt: string | null
 }
 
 /**
- * cronの対象: status='active' かつ digest_enabled かつ 紐づくaccountがstatus='active'。
+ * cronの対象: status='active' かつ pickup_mode<>'off' かつ 紐づくaccountがstatus='active'。
+ * pickupModeを返すのはcron側が抽出可否（'all'のみLLM抽出）を判定するため。
  */
 export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]> {
   const { data, error } = await admin()
     .from('channel_groups')
     .select(
-      'id, org_id, account_id, external_group_id, last_extracted_message_created_at, channel_accounts!inner(status)',
+      'id, org_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, channel_accounts!inner(status)',
     )
     .eq('status', 'active')
-    .eq('digest_enabled', true)
+    .neq('pickup_mode', 'off')
     .eq('channel_accounts.status', 'active')
 
   if (error || !data) return []
@@ -578,6 +597,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     org_id: string
     account_id: string
     external_group_id: string
+    pickup_mode: string
     last_extracted_message_created_at: string | null
   }
   return (data as unknown as EligibleRow[]).map((row) => ({
@@ -585,6 +605,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     orgId: row.org_id,
     accountId: row.account_id,
     externalGroupId: row.external_group_id,
+    pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
   }))
 }
@@ -735,6 +756,43 @@ export async function ingestDigestTasks(
   return (data as number) ?? 0
 }
 
+export interface CreateInstantDigestTaskInput {
+  orgId: string
+  groupId: string
+  /** groupからのデノーマライズ。未紐付けグループ（space_id null）でも作成できる */
+  spaceId: string | null
+  sourceMessageId: string
+  title: string
+}
+
+/**
+ * メンション即時タスク化（Stage 2.5 §2）: channel_digest_tasks へ直接INSERTする。
+ * extracted_dateはJST日付（formatDateToLocalString使用。toISOString().split禁止）。
+ * unique(source_message_id, title) 競合（webhook再送等）は握って冪等成功('duplicate')扱いにする。
+ */
+export async function createInstantDigestTask(
+  input: CreateInstantDigestTaskInput,
+): Promise<{ id: string; title: string } | 'duplicate'> {
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .insert({
+      org_id: input.orgId,
+      group_id: input.groupId,
+      space_id: input.spaceId,
+      source_message_id: input.sourceMessageId,
+      title: input.title,
+      extracted_date: formatDateToLocalString(new Date()),
+    })
+    .select('id, title')
+    .single()
+
+  if (error) {
+    if (error.code === '23505') return 'duplicate'
+    throw new Error(`channel_digest_tasks: insert failed: ${error.message}`)
+  }
+  return { id: data!.id as string, title: data!.title as string }
+}
+
 export interface NumberedDigestTask {
   id: string
   title: string
@@ -858,6 +916,28 @@ export async function markDigestTaskDoneByGroupAndNumberAtomic(
     .eq('group_id', groupId)
     .eq('digest_number', digestNumber)
     .eq('status', 'open')
+    .select('id, title')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return { id: data.id as string, title: data.title as string }
+}
+
+const REOPEN_UNDO_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 完了の取り消し（Stage 2.5 §3-2）。原子更新（status='done'かつdone_atが24時間以内の行のみ）。
+ * 0行なら「取り消せない」（既にopen/dismissed、または24時間超過=トーク履歴に残った古いボタンからの
+ * ゾンビreopen防止）として null を返す。
+ */
+export async function reopenDigestTaskAtomic(taskId: string): Promise<{ id: string; title: string } | null> {
+  const cutoff = new Date(Date.now() - REOPEN_UNDO_WINDOW_MS).toISOString()
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .update({ status: 'open', done_at: null, done_via: null, done_by_external_user_id: null })
+    .eq('id', taskId)
+    .eq('status', 'done')
+    .gt('done_at', cutoff)
     .select('id, title')
     .maybeSingle()
 
