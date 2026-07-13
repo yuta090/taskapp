@@ -186,6 +186,7 @@
 
 /* 選択肢: 左ラジオ円 + MAIN淡色スイープ + 浮上。複数選択(Q1/Q3)もこの見た目を流用する */
 .opt {
+  appearance: none;
   display: block;
   width: 100%;
   text-align: left;
@@ -194,6 +195,7 @@
   border-radius: 6px;
   background-color: var(--white);
   padding: 16px 16px 16px 52px;
+  font-family: inherit;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-black);

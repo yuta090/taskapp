@@ -106,6 +106,33 @@ describe('ContactWizard', () => {
     }
   })
 
+  it('320msロック中に「戻る」しても、タイマー発火時に強制前進しない(fake timers)', () => {
+    vi.useFakeTimers()
+    try {
+      render(<ContactWizard />)
+      fillPain('LINEやチャットの依頼が、流れて消えてしまう')
+      goNext()
+      expect(screen.getByRole('heading', { name: 'チームの人数は？' })).toBeInTheDocument()
+
+      // ロックが始まった直後に戻る → Q1に戻る
+      fireEvent.click(screen.getByRole('radio', { name: '1人' }))
+      fireEvent.click(screen.getByRole('button', { name: /戻る/ }))
+      expect(
+        screen.getByRole('heading', { name: 'いま、どんなことにお困りですか？' })
+      ).toBeInTheDocument()
+
+      // 保留中だったタイマーが発火しても、Q2へ弾き返されない
+      act(() => {
+        vi.advanceTimersByTime(320)
+      })
+      expect(
+        screen.getByRole('heading', { name: 'いま、どんなことにお困りですか？' })
+      ).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('「← 戻る」で前の画面に戻っても回答が保持されている', async () => {
     render(<ContactWizard />)
     fillPain('LINEやチャットの依頼が、流れて消えてしまう')
@@ -131,6 +158,19 @@ describe('ContactWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
 
     expect(await screen.findByText(/メールアドレスの形式/)).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('お名前が空だと送信されずエラーが表示される', async () => {
+    render(<ContactWizard />)
+    await advanceToContactStep()
+
+    fireEvent.change(screen.getByLabelText(/メールアドレス/), {
+      target: { value: 'yamada@example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
+
+    expect(await screen.findByText(/お名前を入力してください/)).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 

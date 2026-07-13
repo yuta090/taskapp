@@ -110,17 +110,14 @@ const initialAnswers: Answers = {
     company: '',
 }
 
-/* ─── Choice card (checkbox=複数選択 / radio=単一選択共通の見た目) ─── */
+/* ─── Choice cards ─── */
 
-function ChoiceCard({
-    type,
-    name,
+// 複数選択(Q1/Q3): ネイティブcheckboxをラベルで囲みカード見た目にする
+function CheckboxCard({
     checked,
     label,
     onChange,
 }: {
-    type: 'checkbox' | 'radio'
-    name?: string
     checked: boolean
     label: string
     onChange: () => void
@@ -128,14 +125,38 @@ function ChoiceCard({
     return (
         <label className={`${styles.opt} ${checked ? styles.sel : ''}`}>
             <input
-                type={type}
-                name={name}
+                type="checkbox"
                 checked={checked}
                 onChange={onChange}
                 className={styles.visuallyHidden}
             />
             {label}
         </label>
+    )
+}
+
+// 単一選択(Q2/Q4): ネイティブradioは矢印キーでフォーカス移動しただけでもonChangeが
+// 発火し自動前進してしまうため使わない。buttonにrole="radio"+aria-checkedを付与し、
+// Tab/矢印でのフォーカス移動では選択されず、click/Enter/Spaceの明示的な活性化でのみ選択する
+function RadioCard({
+    checked,
+    label,
+    onSelect,
+}: {
+    checked: boolean
+    label: string
+    onSelect: () => void
+}) {
+    return (
+        <button
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            className={`${styles.opt} ${checked ? styles.sel : ''}`}
+            onClick={onSelect}
+        >
+            {label}
+        </button>
     )
 }
 
@@ -146,19 +167,36 @@ export function ContactWizard() {
     const [answers, setAnswers] = useState<Answers>(initialAnswers)
     const [website, setWebsite] = useState('') // honeypot
     const [locked, setLocked] = useState(false)
+    const [nameError, setNameError] = useState<string | null>(null)
     const [emailError, setEmailError] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [submitError, setSubmitError] = useState<string | null>(null)
     const [submitted, setSubmitted] = useState(false)
 
     const headingRef = useRef<HTMLHeadingElement>(null)
+    // 単一選択の自動前進タイマー。戻る操作やアンマウント時に必ずクリアし、
+    // 古いタイマーが後から発火してstepを強制的に進めてしまうバグ(戻った直後に弾き返される)を防ぐ
+    const lockTimerRef = useRef<number | null>(null)
 
     useEffect(() => {
         headingRef.current?.focus()
     }, [step, submitted])
 
+    useEffect(() => {
+        return () => {
+            if (lockTimerRef.current !== null) window.clearTimeout(lockTimerRef.current)
+        }
+    }, [])
+
     const goNext = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS))
-    const goBack = () => setStep((s) => Math.max(s - 1, 1))
+    const goBack = () => {
+        if (lockTimerRef.current !== null) {
+            window.clearTimeout(lockTimerRef.current)
+            lockTimerRef.current = null
+        }
+        setLocked(false)
+        setStep((s) => Math.max(s - 1, 1))
+    }
 
     // 単一選択の質問は選択→チェックポップ→320ms保持→自動前進(shindan-app q/page.tsx踏襲)。
     // 保持中は連打ロックし、二重前進を防ぐ
@@ -166,18 +204,21 @@ export function ContactWizard() {
         if (locked) return
         setAnswers((prev) => ({ ...prev, [key]: id }))
         setLocked(true)
-        window.setTimeout(() => {
+        lockTimerRef.current = window.setTimeout(() => {
+            lockTimerRef.current = null
             goNext()
             setLocked(false)
         }, SINGLE_SELECT_LOCK_MS)
     }
 
     const handleSubmit = async () => {
+        setNameError(null)
         setEmailError(null)
-        if (!EMAIL_RE.test(answers.email.trim())) {
-            setEmailError('メールアドレスの形式が正しくありません。')
-            return
-        }
+        const nameValid = answers.name.trim().length > 0
+        const emailValid = EMAIL_RE.test(answers.email.trim())
+        if (!nameValid) setNameError('お名前を入力してください。')
+        if (!emailValid) setEmailError('メールアドレスの形式が正しくありません。')
+        if (!nameValid || !emailValid) return
 
         setSubmitting(true)
         setSubmitError(null)
@@ -210,7 +251,7 @@ export function ContactWizard() {
     }
 
     if (submitted) {
-        const thanksMessage =
+        const matchedPainId =
             PAIN_OPTIONS.find((o) => answers.pain.includes(o.id) && PAIN_THANKS_MESSAGE[o.id])
                 ?.id ?? null
         return (
@@ -235,8 +276,8 @@ export function ContactWizard() {
                                 className={`${styles.thanksBody} ${styles.rv}`}
                                 style={{ animationDelay: '.14s' }}
                             >
-                                {thanksMessage
-                                    ? PAIN_THANKS_MESSAGE[thanksMessage]
+                                {matchedPainId
+                                    ? PAIN_THANKS_MESSAGE[matchedPainId]
                                     : DEFAULT_THANKS_MESSAGE}
                             </p>
                             <div
@@ -282,9 +323,8 @@ export function ContactWizard() {
                                     </legend>
                                     <div className={styles.opts}>
                                         {PAIN_OPTIONS.map((opt) => (
-                                            <ChoiceCard
+                                            <CheckboxCard
                                                 key={opt.id}
-                                                type="checkbox"
                                                 checked={answers.pain.includes(opt.id)}
                                                 label={opt.label}
                                                 onChange={() =>
@@ -328,13 +368,11 @@ export function ContactWizard() {
                                     </legend>
                                     <div className={styles.opts}>
                                         {TEAM_SIZE_OPTIONS.map((opt) => (
-                                            <ChoiceCard
+                                            <RadioCard
                                                 key={opt.id}
-                                                type="radio"
-                                                name="teamSize"
                                                 checked={answers.teamSize === opt.id}
                                                 label={opt.label}
-                                                onChange={() =>
+                                                onSelect={() =>
                                                     selectSingleAndAdvance('teamSize', opt.id)
                                                 }
                                             />
@@ -366,9 +404,8 @@ export function ContactWizard() {
                                     </legend>
                                     <div className={styles.opts}>
                                         {CHANNEL_OPTIONS.map((opt) => (
-                                            <ChoiceCard
+                                            <CheckboxCard
                                                 key={opt.id}
-                                                type="checkbox"
                                                 checked={answers.channels.includes(opt.id)}
                                                 label={opt.label}
                                                 onChange={() =>
@@ -418,13 +455,11 @@ export function ContactWizard() {
                                     </legend>
                                     <div className={styles.opts}>
                                         {PARTNER_COUNT_OPTIONS.map((opt) => (
-                                            <ChoiceCard
+                                            <RadioCard
                                                 key={opt.id}
-                                                type="radio"
-                                                name="partnerCount"
                                                 checked={answers.partnerCount === opt.id}
                                                 label={opt.label}
-                                                onChange={() =>
+                                                onSelect={() =>
                                                     selectSingleAndAdvance('partnerCount', opt.id)
                                                 }
                                             />
@@ -518,6 +553,11 @@ export function ContactWizard() {
                                         placeholder="山田 太郎"
                                         className={styles.input}
                                     />
+                                    {nameError && (
+                                        <p className={styles.err} role="alert">
+                                            {nameError}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className={styles.field}>
                                     <label htmlFor="wizard-email" className={styles.label}>
