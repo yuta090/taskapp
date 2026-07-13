@@ -61,7 +61,7 @@ const plans: Plan[] = [
       '日程調整（1対1のみ）',
       '監査ログ（7日保持）',
     ],
-    notIncluded: ['CSVエクスポート', '多段階承認', '全スキル', 'SSO/SAML'],
+    notIncluded: ['CSVエクスポート', '多段階承認', '全スキル'],
     cta: '無料で始める',
     primary: false,
   },
@@ -85,7 +85,7 @@ const plans: Plan[] = [
       'CSVエクスポート',
       'チャットサポート',
     ],
-    notIncluded: ['SSO/SAML'],
+    notIncluded: [],
     cta: '無料トライアルを始める',
     primary: true,
     tag: 'おすすめ',
@@ -99,14 +99,13 @@ const plans: Plan[] = [
     price: { annual: '¥14,800', monthly: '¥18,800' },
     period: '/月',
     target: '中規模チーム・全社導入',
-    description: 'Teamの全機能+SSO/SAML。全社で安心導入。',
+    description: 'Teamの全機能。大規模チーム向け。',
     icon: Buildings,
     features: [
       '内部メンバー30名（超過 +¥330/人）',
       'プロジェクト無制限',
       'ポータル参加者: 無制限',
       'Teamの全機能',
-      'SSO/SAML認証',
       '監査ログ（3年保持）',
       '優先チャットサポート',
     ],
@@ -205,10 +204,6 @@ const faqItems = [
     a: 'いいえ。URLはそのまま継続します。クライアントへの再共有は不要です。',
   },
   {
-    q: 'SSO/SAMLはどのプランで使えますか？',
-    a: 'Business以上のプランで利用できます。Google Workspace、Azure AD、Okta等に対応。',
-  },
-  {
     q: '年払いの場合、途中解約の返金はありますか？',
     a: '月割りでの返金に対応しています。',
   },
@@ -218,7 +213,7 @@ const faqItems = [
   },
   {
     q: 'セキュリティの対応状況を教えてください。',
-    a: 'TLS暗号化（通信）、AES-256暗号化（保管）、RLS（行レベルセキュリティ）、SSO/SAML認証、監査ログを実装済みです。ISO 27001は2026年内取得予定。SOC2は2027年取得予定です。',
+    a: 'TLS暗号化（通信）、AES-256暗号化（保管）、RLS（行レベルセキュリティ）、監査ログを実装済みです。ISO 27001は2026年内取得予定。SOC2は2027年取得予定です。',
   },
 ]
 
@@ -809,7 +804,7 @@ export default function PricingPage() {
       {/* ============================================================ */}
       {/*  FAQ                                                          */}
       {/* ============================================================ */}
-      <section className="py-20 bg-white">
+      <section id="faq" className="py-20 bg-white">
         <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
