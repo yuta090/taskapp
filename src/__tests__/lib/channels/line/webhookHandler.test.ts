@@ -63,6 +63,8 @@ const storeMock = {
   backfillDigestAssigneeIdentity: vi.fn(),
   consumeUserLinkCode: vi.fn(),
   expireUserLinkCode: vi.fn(),
+  promoteDigestTaskViaLine: vi.fn(),
+  rejectDigestTaskViaLine: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -948,6 +950,141 @@ describe('handleLineWebhook', () => {
       const serialized = JSON.stringify(replyArg.messages[0])
       expect(serialized).not.toContain('さんが')
       expect(serialized).toContain('『酒屋へ発注』を完了にしました')
+    })
+  })
+
+  describe('postback（digest_promote / digest_reject・責任者確認 Stage 2.7-B）', () => {
+    const TASK_ID = '22222222-2222-4222-8222-222222222222'
+
+    // 責任者確認ボタンは 1:1 トークに届く（source.type='user'）。グループ検証は通らず、
+    // アクター解決とテナント/認可は _via_line RPC が完結する。
+    function approvalEvent(data: string) {
+      return postbackEvent(data, {
+        source: { type: 'user', userId: 'U-approver' },
+        webhookEventId: 'evt-approve',
+        replyToken: 'rt-approve',
+      })
+    }
+
+    beforeEach(() => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'promoted', created: true, taskId: 'new-task-1' })
+      storeMock.rejectDigestTaskViaLine.mockResolvedValue({ status: 'rejected' })
+    })
+
+    it('承認 → webhook検証済みの (account.id, externalUserId, taskId) でRPCを呼ぶ（body由来のUUIDは渡さない）', async () => {
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.promoteDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID)
+      // 消し込み系RPCは呼ばない（取り違え防止）
+      expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
+    })
+
+    it('承認成功 → replyでタスク化を通知し、操作を証跡に記録（result=promoted）', async () => {
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledTimes(1)
+      const replyArg = replyMock.mock.calls[0][0] as { replyToken: string; messages: unknown[] }
+      expect(replyArg.replyToken).toBe('rt-approve')
+      expect(JSON.stringify(replyArg.messages[0])).toContain('タスク')
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          direction: 'inbound',
+          actor: 'system',
+          externalMessageId: 'evt-approve',
+          payload: { event: 'postback', action: 'digest_promote', taskId: TASK_ID, result: 'promoted' },
+        }),
+      )
+    })
+
+    it('却下 → rejectDigestTaskViaLine を呼び、result=rejected を記録', async () => {
+      const body = makeBody([approvalEvent(`action=digest_reject&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.rejectDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: { event: 'postback', action: 'digest_reject', taskId: TASK_ID, result: 'rejected' },
+        }),
+      )
+    })
+
+    it('forbidden（責任者でない/紐付け無効）→ 返信も監査行も残さず完全沈黙（例外と外形上区別不能）', async () => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'forbidden', created: false, taskId: null })
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).not.toHaveBeenCalled()
+      // 非承認系は監査行も残さない（forbidden/not_found/例外で行の有無に差を作らない）
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+    })
+
+    it('conflict（既に処理済み）→ 処理済みを通知し result=conflict を記録', async () => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'conflict', created: false, taskId: null })
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('処理済み') })],
+        }),
+      )
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: expect.objectContaining({ result: 'conflict' }) }),
+      )
+    })
+
+    it('冪等: 承認済みを再タップ（created=false, status=promoted）→ すでにタスク化済みと返す', async () => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'promoted', created: false, taskId: 'new-task-1' })
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('すでに') })],
+        }),
+      )
+    })
+
+    it('webhook再送(duplicate)ではreplyを再送しない', async () => {
+      storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('グループ由来の承認postbackは動かさない（1:1限定・公開の場に結果を返さない）', async () => {
+      // postbackEvent の既定は source.type='group'（グループ）
+      const body = makeBody([postbackEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.promoteDigestTaskViaLine).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('ルーム由来の承認postbackも動かさない（fail-closed）', async () => {
+      const body = makeBody([
+        postbackEvent(`action=digest_promote&task=${TASK_ID}`, {
+          source: { type: 'room', roomId: 'R-1', userId: 'U-approver' },
+        }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.promoteDigestTaskViaLine).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('RPCが一過性失敗 → 沈黙（forbidden/not_foundと外形上区別不能・監査行も残さない）＋バッチは継続', async () => {
+      storeMock.promoteDigestTaskViaLine.mockRejectedValue(new Error('transient'))
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200) // バッチは落とさない
+      expect(replyMock).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled() // forbidden と同じく行を残さない
     })
   })
 

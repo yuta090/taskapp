@@ -1306,3 +1306,47 @@ export async function revokeUserLink(linkId: string, actorUserId: string): Promi
   if (error) throw new Error(`rpc_revoke_user_link failed: ${error.message}`)
   return data === true
 }
+
+// -----------------------------------------------------------------------------
+// 申し送り候補の責任者確認（Stage 2.7-B）
+// RPC は例外を投げず status で返す（監査行を同一Txに残すため）。LINE経路は内部UUIDを
+// 受け取らず external_user_id から解決し、RPC側で org/account/認可を束縛する。
+// -----------------------------------------------------------------------------
+export type DigestPromoteStatus = 'not_found' | 'forbidden' | 'conflict' | 'promoted'
+export type DigestRejectStatus = 'not_found' | 'forbidden' | 'conflict' | 'rejected'
+
+/** LINE経路の昇格。channel_account_id と external_user_id は webhook 検証済みの値のみ渡す */
+export async function promoteDigestTaskViaLine(
+  channelAccountId: string,
+  externalUserId: string,
+  taskId: string,
+): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
+  const { data, error } = await admin().rpc('rpc_promote_digest_task_via_line', {
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_promote_digest_task_via_line failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return {
+    status: (row?.status ?? 'not_found') as DigestPromoteStatus,
+    created: row?.created === true,
+    taskId: row?.task_id ?? null,
+  }
+}
+
+/** LINE経路の却下。 */
+export async function rejectDigestTaskViaLine(
+  channelAccountId: string,
+  externalUserId: string,
+  taskId: string,
+): Promise<{ status: DigestRejectStatus }> {
+  const { data, error } = await admin().rpc('rpc_reject_digest_task_via_line', {
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_reject_digest_task_via_line failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'not_found') as DigestRejectStatus }
+}
