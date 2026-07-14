@@ -5,6 +5,7 @@ import {
   ingestDigestTasks,
   clearAndRenumberOpenDigestTasks,
   findLineAccountById,
+  findIdentityIdsByExternalUserIds,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
@@ -14,6 +15,7 @@ import {
   buildDigestPushText,
   buildDigestFlexMessage,
   buildDigestRetryKey,
+  resolveAssignee,
 } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
@@ -63,22 +65,45 @@ export async function POST(request: NextRequest) {
 
         if (messages.length > 0) {
           try {
+            const now = new Date()
             const prompt = buildDigestExtractionPrompt(
               messages.map((message, index) => ({ index, body: message.body })),
+              now,
             )
             const llmResponse = await callLlm({ orgId: group.orgId, messages: prompt, maxTokens: 1500 })
-            const extracted = parseLlmDigestExtraction(llmResponse.content)
+            const extracted = parseLlmDigestExtraction(llmResponse.content, now)
 
             if (extracted === null) {
               skipped.push({ groupId: group.id, reason: 'llm_response_unparseable' })
             } else {
-              const candidates = extracted
+              const resolved = extracted
                 .filter((task) => messages[task.sourceIndex] !== undefined)
                 .map((task) => ({
-                  sourceMessageId: messages[task.sourceIndex].id,
-                  title: task.title,
-                  assigneeHint: task.assigneeHint,
+                  task,
+                  message: messages[task.sourceIndex],
+                  // メンション（発話者の明示的な指名）はLLMの推測より確か。上書きさせない
+                  assignee: resolveAssignee(messages[task.sourceIndex].mentions, task.assigneeHint),
                 }))
+
+              // メンションで取れたuserIdを既存identityに解決する（未友だちの人は null のまま残る）
+              const identities = await findIdentityIdsByExternalUserIds(
+                group.orgId,
+                resolved
+                  .map((r) => r.assignee.assigneeExternalUserId)
+                  .filter((id): id is string => id !== null),
+              )
+
+              const candidates = resolved.map(({ task, message, assignee }) => ({
+                sourceMessageId: message.id,
+                title: task.title,
+                assigneeHint: assignee.assigneeHint,
+                assigneeExternalUserId: assignee.assigneeExternalUserId,
+                assigneeIdentityId: assignee.assigneeExternalUserId
+                  ? (identities.get(assignee.assigneeExternalUserId) ?? null)
+                  : null,
+                dueDate: task.dueDate,
+                dueTime: task.dueTime,
+              }))
               const newWatermark = messages[messages.length - 1].createdAt
               extractedTasks += await ingestDigestTasks(group.id, newWatermark, candidates)
             }
@@ -99,8 +124,16 @@ export async function POST(request: NextRequest) {
           return
         }
 
+        // 期限順（近い順→期限なし）に採番済み。超過は ⚠️ で示す（Stage 2.6 §5）
         const pushText = buildDigestPushText(
-          numbered.map((task) => ({ digestNumber: task.digestNumber, title: task.title })),
+          numbered.map((task) => ({
+            digestNumber: task.digestNumber,
+            title: task.title,
+            dueDate: task.dueDate,
+            dueTime: task.dueTime,
+            assigneeHint: task.assigneeHint,
+          })),
+          jstDateStr,
         )
         const flex = buildDigestFlexMessage(
           numbered.map((task) => ({
