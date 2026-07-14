@@ -18,6 +18,15 @@ const publicPaths = [
   '/pricing',
   '/privacy',
   '/terms',
+  // 特商法表示は購入前の誰もが閲覧できる必要がある（法令要件）
+  '/tokushoho',
+  '/company',
+  // マーケティングページ: ヘッダー・フッターから導線があるため未認証で開けないと集客が成立しない
+  '/features',
+  '/compare',
+  '/use-cases',
+  // ヘルプ: 顧客・クライアント（アカウントを持たない相手を含む）が参照する
+  '/help',
   '/portal/email-action',
 ]
 

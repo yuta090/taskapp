@@ -198,6 +198,27 @@ describe('middleware — 保護パスの未認証ガード（回帰）', () => {
     expect(redirectPath(response)).toBeNull()
   })
 
+  // 本番で /tokushoho・/features 等がログイン必須になっていた回帰。
+  // 特商法表示は法令上、購入前の誰もが閲覧できる必要がある。
+  // マーケティング・ヘルプページも未認証で見られなければ集客・サポートが成立しない。
+  it('公開すべきマーケティング・法務・ヘルプページは未認証で通す', async () => {
+    const paths = [
+      '/tokushoho',
+      '/terms',
+      '/privacy',
+      '/features',
+      '/compare',
+      '/use-cases',
+      '/company',
+      '/help',
+      '/help/client',
+    ]
+    for (const path of paths) {
+      const response = await middleware(makeRequest(path))
+      expect(redirectPath(response), path).toBeNull()
+    }
+  })
+
   it('静的LP /lp1 は未認証でも通す（rewrite先はpublic/lp1/index.html）', async () => {
     const response = await middleware(makeRequest('/lp1'))
 
