@@ -37,10 +37,10 @@ const mainComparisonRows = [
   { feature: '代理店モード', agentpm: '\u25CE', backlog: '\u00D7', jira: '\u00D7', linear: '\u00D7', redmine: '\u00D7' },
   { feature: '見積もり・承認連動', agentpm: '\u25CE', backlog: '\u00D7', jira: '\u00D7', linear: '\u00D7', redmine: '\u00D7' },
   { feature: '仕様書・証跡の一体管理', agentpm: '\u25CE', backlog: '\u25B3 Wiki別', jira: '\u25B3 Confluence別', linear: '\u00D7', redmine: '\u25B3' },
-  { feature: 'SSO/SAML', agentpm: '\u25CB Business以上', backlog: '\u25CB Premium以上', jira: '\u25CB', linear: '\u25CB', redmine: '\u25B3' },
+  { feature: 'SSO/SAML', agentpm: '\u00D7 検討中', backlog: '\u25CB Premium以上', jira: '\u25CB', linear: '\u25CB', redmine: '\u25B3' },
   { feature: 'GitHub連携', agentpm: '\u25CB', backlog: '\u25CB', jira: '\u25CE', linear: '\u25CE', redmine: '\u25B3' },
   { feature: 'テンプレ\u2192当日稼働', agentpm: '\u25CE', backlog: '\u25CB', jira: '\u25B3', linear: '\u25CB', redmine: '\u25B3' },
-  { feature: 'エンタープライズ', agentpm: '\u25CB SSO/監査対応', backlog: '\u25CB', jira: '\u25CE', linear: '\u25CB', redmine: '\u25B3' },
+  { feature: 'エンタープライズ', agentpm: '\u25B3 監査ログ・RLS', backlog: '\u25CB', jira: '\u25CE', linear: '\u25CB', redmine: '\u25B3' },
 ]
 
 const agencyComparisonRows = [
@@ -74,7 +74,6 @@ const fitForAgentPM = [
   '仕様書・議事録・証跡を一体管理したい',
   '代理店モードで原価/売値を分離したい',
   'テンプレートで当日稼働したい',
-  'SSO/SAMLでセキュアに運用したい',
 ]
 
 const fitForOthers = [
@@ -127,19 +126,19 @@ const approvalPackItems = [
   },
 ]
 
+// 実装済みとして掲げてよいのは、コード・インフラで裏が取れているものだけ
 const enterpriseReady = [
-  { label: 'SSO/SAML対応済み', done: true },
-  { label: 'TLS 1.3 + AES-256暗号化', done: true },
+  { label: '通信の暗号化（TLS）・保管時の暗号化', done: true },
   { label: 'Row Level Security (RLS)', done: true },
   { label: '監査ログ', done: true },
 ]
 
+// 時期を明示できるのは自社で実装するものだけ。第三者認証の取得時期は約束しない
 const enterprisePlanned = [
-  { label: 'SCIM プロビジョニング', when: 'Q4 2026' },
-  { label: '細粒度権限管理', when: '2027' },
-  { label: 'SLA保証', when: '2027' },
-  { label: 'ISO 27001', when: '2026年内' },
-  { label: 'SOC 2', when: '2027' },
+  { label: 'SSO/SAML', when: '検討中' },
+  { label: 'SCIM プロビジョニング', when: '検討中' },
+  { label: '細粒度権限管理', when: '検討中' },
+  { label: 'SLA保証', when: '検討中' },
 ]
 
 /* ─── Page Component ─── */
@@ -338,7 +337,7 @@ export default function ComparePage() {
             <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Agency Mode</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">代理店モード詳細比較</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              代理店・制作会社の「原価管理」に特化した機能は、AgentPMだけ。
+              代理店・制作会社の「原価管理」に特化した機能は、当社調査の範囲では、他社の標準機能としては確認できませんでした。
             </p>
           </motion.div>
 
@@ -492,7 +491,7 @@ export default function ComparePage() {
             <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Price Comparison</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">料金比較</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              同等機能で比較した場合、AgentPMは最大で月¥12,620お得です。
+              同等の機能構成で比較した場合の月額差は、当社調査（2026年3月時点）では最大 ¥12,620 でした。各社の価格・プラン条件は変更される場合があります。
             </p>
           </motion.div>
 
@@ -535,6 +534,9 @@ export default function ComparePage() {
             </div>
             <p className="text-xs text-slate-400 mt-4 text-center">
               ※ AgentPM Team: ¥4,980/月（10名まで）、Business: ¥14,800/月（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
+            </p>
+            <p className="text-xs text-slate-400 mt-1 text-center">
+              ※ 2026年3月時点の当社調査。各社の価格・条件は変更される場合があります。
             </p>
           </motion.div>
         </div>
@@ -692,7 +694,7 @@ export default function ComparePage() {
               <ArrowRight weight="bold" className="text-slate-600 hidden md:block" size={14} />
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">2</span>
-                <span>SSO連携</span>
+                <span>権限・運用設計</span>
               </div>
               <ArrowRight weight="bold" className="text-slate-600 hidden md:block" size={14} />
               <div className="flex items-center gap-2">

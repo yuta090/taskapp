@@ -62,7 +62,7 @@ const supportItems: DropdownItem[] = [
   { href: '/contact', label: '導入相談', desc: '無料でチームに合った運用を提案', icon: <UserCircle size={18} weight="duotone" /> },
   { href: '/contact#chat', label: 'チャットサポート', desc: '使い方の質問に即対応', icon: <ChatCircle size={18} weight="duotone" /> },
   { href: '/contact#migration', label: '移行サポート', desc: 'Backlog等からの移行をお手伝い', icon: <ArrowsLeftRight size={18} weight="duotone" /> },
-  { href: '/#faq', label: 'よくある質問', desc: '導入・料金・セキュリティ等', icon: <Question size={18} weight="duotone" /> },
+  { href: '/pricing#faq', label: 'よくある質問', desc: '導入・料金・セキュリティ等', icon: <Question size={18} weight="duotone" /> },
 ]
 
 /* ─── Dropdown wrapper (desktop) ─── */

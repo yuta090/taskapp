@@ -25,7 +25,7 @@ const mcpTools = [
 ]
 
 const safetyItems = [
-  { icon: ClockCounterClockwise, text: '操作履歴からワンクリック復元' },
+  { icon: ClockCounterClockwise, text: '監査ログで変更履歴をいつでも確認' },
   { icon: Lock, text: '権限設定でAI操作を制限可能' },
   { icon: ShieldCheck, text: '全操作が監査ログに記録' },
 ]
