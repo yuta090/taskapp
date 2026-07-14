@@ -217,6 +217,85 @@ describe('normalizeLineEvent', () => {
       expect(record?.selfMentionSpans).toBeUndefined()
     })
 
+    it('他人宛メンションの userId を assigneeMentions に残す（Stage 2.6）', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-assignee-1',
+          type: 'text',
+          // メンション区間はUTF-16の [index, length)。'@秘書'=0..2, '@山田'=4..6
+          text: '@秘書 @山田 金曜17時までに酒屋へ発注',
+          mention: {
+            mentionees: [
+              { index: 0, length: 3, type: 'user', isSelf: true },
+              { index: 4, length: 3, type: 'user', userId: 'U-yamada' },
+            ],
+          },
+        },
+      })
+      expect(record?.assigneeMentions).toEqual([
+        { index: 4, length: 3, userId: 'U-yamada', displayName: '山田' },
+      ])
+    })
+
+    it('userId が取れないメンション（プロフィール取得未同意）でも表示名は残す（Stage 2.6）', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-assignee-2',
+          type: 'text',
+          text: '@田中 お願いします',
+          mention: {
+            mentionees: [{ index: 0, length: 3, type: 'user' }],
+          },
+        },
+      })
+      expect(record?.assigneeMentions).toEqual([
+        { index: 0, length: 3, userId: null, displayName: '田中' },
+      ])
+    })
+
+    it('@all（type:"all"）は担当と見なさない（Stage 2.6）', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-assignee-3',
+          type: 'text',
+          text: '@all 明日までに提出',
+          mention: {
+            mentionees: [{ index: 0, length: 4, type: 'all' }],
+          },
+        },
+      })
+      expect(record?.assigneeMentions).toBeUndefined()
+    })
+
+    it('夜間抽出のため mentionees を payload に保存する（Stage 2.6）', () => {
+      const record = normalizeLineEvent({
+        ...BASE,
+        source: { type: 'group', groupId: 'G1' },
+        type: 'message',
+        message: {
+          id: 'm-mention-assignee-4',
+          type: 'text',
+          text: '@山田 金曜までに発注',
+          mention: {
+            mentionees: [{ index: 0, length: 3, type: 'user', userId: 'U-yamada' }],
+          },
+        },
+      })
+      // payload に残さないと all モードの夜間抽出で「誰宛だったか」を復元できない
+      expect(record?.payload).toEqual({
+        mentionees: [{ index: 0, length: 3, userId: 'U-yamada', displayName: '山田' }],
+      })
+    })
+
     it('mention フィールド自体が無いテキストは mentionsSelf が undefined', () => {
       const record = normalizeLineEvent({
         ...BASE,

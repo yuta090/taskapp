@@ -32,7 +32,7 @@ export function CTABand() {
               href="/contact"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white/10 text-white font-bold rounded-xl border border-white/20 hover:bg-white/20 transition-colors"
             >
-              3分デモ動画を見る
+              導入相談をする
             </Link>
           </div>
         </motion.div>

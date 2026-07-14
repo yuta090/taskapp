@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import { buildDigestDonePostbackData, buildDigestUndoPostbackData } from '@/lib/channels/digest/postback'
+import { formatDueLabel, validateDue } from '@/lib/channels/digest/due'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
  * 日次digest抽出・配信の純粋ロジック（DB/LLM呼び出しを含まない）。
@@ -65,17 +67,38 @@ export interface LlmChatMessage {
   content: string
 }
 
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+
 /**
  * LLM抽出プロンプト。申し送り・依頼・期限のある事項のみをJSON配列で返させる。
+ *
+ * 相対日付（「明日」「金曜まで」「今週中」）は基準日時がないと絶対日付に解決できないため、
+ * `now`（JST）をプロンプトに注入する。時刻は明示があるときだけ返させ、
+ * 「午前中」「朝イチ」等の曖昧語は勝手に丸めさせない（リマインドが嘘をつくため）。
  */
-export function buildDigestExtractionPrompt(messages: DigestSourceMessage[]): LlmChatMessage[] {
+export function buildDigestExtractionPrompt(
+  messages: DigestSourceMessage[],
+  now: Date,
+): LlmChatMessage[] {
+  const today = formatDateToLocalString(now)
+  const weekday = WEEKDAY_LABELS[now.getDay()]
+
   const system =
     'あなたはグループチャットの申し送り抽出アシスタントです。' +
+    `現在は ${today}(${weekday}) ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} (JST) です。` +
     '与えられたメッセージから、申し送り・依頼・期限のある事項だけを抽出してください。' +
     '雑談・相槌・挨拶は無視してください。' +
     '出力は必ずJSON配列のみとし、各要素は' +
-    '{"title": "50字以内の要約", "assignee_hint": "担当者名(不明ならnull)", "source_index": 元メッセージのindex}' +
-    'の形式にしてください。他の説明文は一切出力しないでください。'
+    '{"title": "50字以内の要約", "assignee_hint": "担当者名(不明ならnull)", ' +
+    '"due_date": "YYYY-MM-DD(期限が読み取れなければnull)", ' +
+    '"due_time": "HH:MM(時刻の明示がなければnull)", ' +
+    '"source_index": 元メッセージのindex}' +
+    'の形式にしてください。' +
+    '「明日」「金曜まで」「今週中」などの相対的な期限は、上記の現在日時を基準に絶対日付へ変換してください。' +
+    '「今週中」は今週の金曜、「今月中」は月末として扱ってください。' +
+    '時刻は「17時まで」のように明示された場合のみ due_time に入れ、' +
+    '「午前中」「朝イチ」「夕方」のような曖昧な表現は due_time を null にしてください。' +
+    '他の説明文は一切出力しないでください。'
 
   const body = messages.map((m) => `[${m.index}] ${m.body}`).join('\n')
   const user = `以下はグループチャットのメッセージ一覧です。JSON配列で申し送りを抽出してください。\n\n${body}`
@@ -90,14 +113,21 @@ export interface ExtractedDigestTask {
   title: string
   assigneeHint: string | null
   sourceIndex: number
+  /** YYYY-MM-DD（JST）。検証済み。null = 期限なし */
+  dueDate: string | null
+  /** HH:MM（JST）。検証済み。null = 終日 */
+  dueTime: string | null
 }
 
 /**
  * LLM応答をJSON.parseし、配列として検証する。
  * 失敗（JSON壊れ・配列でない）は null を返す（呼び出し側はそのグループをスキップし、例外で全体を止めない）。
  * ```json フェンス付きの応答も許容する。
+ *
+ * 期限は `validateDue` を必ず通す（LLMは年を間違え、過去日を返す。
+ * 壊れた期限をそのまま保存するとリマインドが嘘をつく）。
  */
-export function parseLlmDigestExtraction(raw: string): ExtractedDigestTask[] | null {
+export function parseLlmDigestExtraction(raw: string, now: Date): ExtractedDigestTask[] | null {
   const unfenced = raw
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
@@ -120,23 +150,107 @@ export function parseLlmDigestExtraction(raw: string): ExtractedDigestTask[] | n
     if (typeof record.title !== 'string' || !record.title.trim()) continue
     const assigneeHint =
       typeof record.assignee_hint === 'string' ? sanitizeAssigneeHint(record.assignee_hint) : ''
+    const due = validateDue(
+      typeof record.due_date === 'string' ? record.due_date : null,
+      typeof record.due_time === 'string' ? record.due_time : null,
+      now,
+    )
     tasks.push({
       title: sanitizeDigestTitle(record.title),
       assigneeHint: assigneeHint.length > 0 ? assigneeHint : null,
       sourceIndex: typeof record.source_index === 'number' ? record.source_index : -1,
+      dueDate: due.dueDate,
+      dueTime: due.dueTime,
     })
   }
   return tasks
 }
 
+export interface MentionedAssignee {
+  /** プロフィール取得に同意していないメンバーは null */
+  userId: string | null
+  displayName: string
+}
+
+export interface AssigneeResolution {
+  /** 名前ラベル。常にこれを埋める（DBの assignee_hint） */
+  assigneeHint: string | null
+  /** メンションで取れたLINE userId（DBの assignee_external_user_id）。取れなければ null */
+  assigneeExternalUserId: string | null
+}
+
+/**
+ * 担当の決定（Stage 2.6 §1-2）: メンション優先・LLMは補助。
+ *
+ * メンションは発話者の明示的な指名であり、LLMが本文から読み取った推測より確か。
+ * よってメンションがあればLLMの assignee_hint は採らない。
+ * 複数メンションは先頭1件だけを担当にする（複数担当は「誰も自分ごとにしない」を招く）。
+ */
+export function resolveAssignee(
+  mentions: MentionedAssignee[] | undefined,
+  llmHint: string | null,
+): AssigneeResolution {
+  const primary = mentions?.[0]
+  if (primary) {
+    const hint = sanitizeAssigneeHint(primary.displayName)
+    return {
+      assigneeHint: hint.length > 0 ? hint : null,
+      assigneeExternalUserId: primary.userId,
+    }
+  }
+
+  const hint = llmHint ? sanitizeAssigneeHint(llmHint) : ''
+  return {
+    assigneeHint: hint.length > 0 ? hint : null,
+    assigneeExternalUserId: null,
+  }
+}
+
+const HONORIFIC_PATTERN = /(さん|様|さま|くん|君|ちゃん|氏)$/
+
+/** 「田中さん」に「さん」を重ねない。メンション由来は敬称なし（'山田'）で来る */
+function withHonorific(hint: string): string {
+  return HONORIFIC_PATTERN.test(hint) ? hint : `${hint}さん`
+}
+
 export interface DigestPushItem {
   digestNumber: number
   title: string
+  dueDate?: string | null
+  dueTime?: string | null
+  assigneeHint?: string | null
 }
 
-export function buildDigestPushText(items: DigestPushItem[]): string {
-  const lines = items.map((item) => `${item.digestNumber}. ${item.title}`)
+/**
+ * digest本文。digestは毎朝openタスクを全件送るため、
+ * 期限順に並べ・超過を ⚠️ で示すこと自体が「期限リマインド」の実体になる（Stage 2.6 §5）。
+ * 並び替えは呼び出し側（配信直前の再採番）で済ませる。ここは表示のみ。
+ *
+ * todayJst は formatDateToLocalString(new Date()) を渡す。
+ */
+export function buildDigestPushText(items: DigestPushItem[], todayJst: string): string {
+  const lines = items.map((item) => {
+    const detail = buildTaskDetailLine(item.dueDate ?? null, item.dueTime ?? null, item.assigneeHint ?? null, todayJst)
+    return detail ? `${item.digestNumber}. ${item.title}  ${detail}` : `${item.digestNumber}. ${item.title}`
+  })
   return `おはようございます。今日の申し送りです（${items.length}件）\n${lines.join('\n')}`
+}
+
+/**
+ * 期限・担当の添え書き（`⏰7/17(金) 17:00  👤山田さん`）。両方無ければ空文字。
+ * digest一覧と、メンション即時タスク化のreplyで同じ見え方にするため共有する。
+ */
+export function buildTaskDetailLine(
+  dueDate: string | null,
+  dueTime: string | null,
+  assigneeHint: string | null,
+  todayJst: string,
+): string {
+  const parts: string[] = []
+  const due = formatDueLabel(dueDate, dueTime, todayJst)
+  if (due) parts.push(due)
+  if (assigneeHint) parts.push(`👤${withHonorific(assigneeHint)}`)
+  return parts.join('  ')
 }
 
 export interface DigestFlexItem extends DigestPushItem {

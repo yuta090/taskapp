@@ -14,7 +14,14 @@ interface LineEventSource {
 interface LineMentionee {
   index: number
   length: number
+  /** 'user' = 個人宛 / 'all' = @all（全員宛。指名ではないので担当と見なさない） */
   type: string
+  /**
+   * メンションされたユーザーのLINE userId。
+   * type='user' かつ本人がプロフィール取得に同意している場合のみ含まれる。
+   * 未同意のメンバーをメンションしても来ないため、常に取れる前提は置けない（Stage 2.6 §1-1）。
+   */
+  userId?: string
   isSelf?: boolean
 }
 
@@ -64,6 +71,15 @@ export function parseLineWebhookBody(rawBody: string): ParsedLineWebhookBody | n
   return { destination: body.destination, events: body.events as LineWebhookEvent[] }
 }
 
+export interface AssigneeMention {
+  index: number
+  length: number
+  /** プロフィール取得に同意していないメンバーは null（表示名だけで運用する） */
+  userId: string | null
+  /** 本文のメンション区間から切り出した表示名（先頭の @ は落とす） */
+  displayName: string
+}
+
 export type NormalizedEventKind =
   | 'message'
   | 'follow'
@@ -87,6 +103,12 @@ export interface NormalizedLineEvent {
   mentionsSelf?: boolean
   /** mentionsSelf=true のときの自分宛メンション区間（本文からメンション文字列を除去するため） */
   selfMentionSpans?: Array<{ index: number; length: number }>
+  /**
+   * 他人宛メンション（Stage 2.6 §3）: 申し送りの担当決定に使う。
+   * userId は本人が未同意なら null になるため、表示名（本文のメンション区間から切り出し）を常に持つ。
+   * @all は指名ではないため含めない。
+   */
+  assigneeMentions?: AssigneeMention[]
   /** reply送信用（通数無料）。イベントに無ければ undefined */
   replyToken?: string
   /** message イベントは message.id、それ以外は webhookEventId */
@@ -100,6 +122,15 @@ export interface NormalizedLineEvent {
 }
 
 const MESSAGE_CONTENT_TYPES = new Set(['text', 'image', 'file', 'video', 'audio', 'sticker'])
+
+/**
+ * 本文のメンション区間から表示名を切り出す（'@山田' → '山田'）。
+ * LINEはメンション対象の表示名を別フィールドで返さないため、本文の [index, length) を切る以外に手段がない。
+ * userId が取れない（プロフィール取得未同意）メンバーは、この表示名だけが担当の手がかりになる。
+ */
+function extractMentionDisplayName(text: string, index: number, length: number): string {
+  return text.slice(index, index + length).replace(/^@/, '').trim()
+}
 
 export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent | null {
   const source = event.source
@@ -160,10 +191,28 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
     if (!MESSAGE_CONTENT_TYPES.has(message.type)) return null
 
     if (message.type === 'text') {
-      const selfMentionSpans = (message.mention?.mentionees ?? [])
+      const mentionees = message.mention?.mentionees ?? []
+      const text = message.text ?? ''
+
+      const selfMentionSpans = mentionees
         .filter((m) => m.isSelf === true)
         .map((m) => ({ index: m.index, length: m.length }))
       const mentionsSelf = selfMentionSpans.length > 0
+
+      // 他人宛メンション = 担当の指名（Stage 2.6）。@all は全員宛で指名ではないため除く
+      const assigneeMentions = mentionees
+        .filter((m) => m.isSelf !== true && m.type === 'user')
+        .map((m) => ({
+          index: m.index,
+          length: m.length,
+          userId: m.userId ?? null,
+          displayName: extractMentionDisplayName(text, m.index, m.length),
+        }))
+
+      const payload: Record<string, unknown> = {}
+      if (mentionsSelf) payload.mentionsSelf = true
+      // 夜間一括抽出（allモード）は生イベントを見られないため、担当の復元にはpayloadが唯一の手がかり
+      if (assigneeMentions.length > 0) payload.mentionees = assigneeMentions
 
       return {
         ...common,
@@ -171,9 +220,10 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
         groupId,
         externalMessageId: message.id,
         contentType: 'text',
-        body: message.text ?? '',
-        payload: mentionsSelf ? { mentionsSelf: true } : {},
+        body: text,
+        payload,
         ...(mentionsSelf ? { mentionsSelf, selfMentionSpans } : {}),
+        ...(assigneeMentions.length > 0 ? { assigneeMentions } : {}),
       }
     }
 

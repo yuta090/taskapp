@@ -15,6 +15,8 @@ import {
   markDigestTaskDoneByGroupAndNumberAtomic,
   createInstantDigestTask,
   reopenDigestTaskAtomic,
+  findIdentityIdsByExternalUserIds,
+  backfillDigestAssigneeIdentity,
   type LineAccount,
   type InsertChannelMessageInput,
   type ValidLinkCode,
@@ -38,7 +40,14 @@ import {
 import { normalizeLinkCode } from '@/lib/channels/linkCode'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import { parseDigestDonePostback, parseDigestUndoPostback } from '@/lib/channels/digest/postback'
-import { buildMentionTaskTitle, buildTaskDoneFlexMessage } from '@/lib/channels/digest/compute'
+import {
+  buildMentionTaskTitle,
+  buildTaskDoneFlexMessage,
+  buildTaskDetailLine,
+  resolveAssignee,
+} from '@/lib/channels/digest/compute'
+import { parseJapaneseDue } from '@/lib/channels/digest/due'
+import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
  * LINE webhook のオーケストレーション。
@@ -282,6 +291,15 @@ async function processLinkCode(
 ): Promise<void> {
   // linkIdentityViaCode は冪等（既にactiveなら既存を返す）
   const identity = await linkIdentityViaCode(linkCode, event.externalUserId!)
+
+  // 友だち追加前にメンションされた申し送りを人へ昇格する（Stage 2.6 §6）。
+  // バックフィルの失敗で紐付け自体を失敗させない（名前ラベルのままでも運用は成立する）
+  try {
+    await backfillDigestAssigneeIdentity(identity.id)
+  } catch (error) {
+    console.error('[line-webhook] digest assignee backfill failed', error)
+  }
+
   const recorded = await insertChannelMessage(
     inboundTextRecord(account, event, identity.spaceId, identity.id),
   )
@@ -763,20 +781,53 @@ async function handleMentionInstantTask(
   if (recorded === 'duplicate') return
   if (disabled) return
 
-  const title = buildMentionTaskTitle(event.body ?? '', event.selfMentionSpans ?? [])
+  const body = event.body ?? ''
+  // 秘書宛メンションに加えて担当者宛メンションもタイトルから除去する
+  // （担当は assignee_hint に別で持つため、タイトルに '@山田' を残さない）
+  const mentionSpans = [...(event.selfMentionSpans ?? []), ...(event.assigneeMentions ?? [])]
+  const title = buildMentionTaskTitle(body, mentionSpans)
 
   let replyText: string
   if (!title) {
     replyText = MENTION_TITLE_EMPTY_TEXT
   } else {
+    // 期限は本文（メンション除去前）から解決する。titleは50字で切り詰められるため、
+    // 末尾の期限表現がタイトルから落ちていても本文には残っている
+    const now = new Date()
+    const due = parseJapaneseDue(body, now)
+    // 即時パスはLLMを通さない（即応性を優先）。担当はメンションだけから決める
+    const assignee = resolveAssignee(event.assigneeMentions, null)
+
+    let assigneeIdentityId: string | null = null
+    if (assignee.assigneeExternalUserId) {
+      const identities = await findIdentityIdsByExternalUserIds(account.orgId, [
+        assignee.assigneeExternalUserId,
+      ])
+      assigneeIdentityId = identities.get(assignee.assigneeExternalUserId) ?? null
+    }
+
     await createInstantDigestTask({
       orgId: account.orgId,
       groupId: group.id,
       spaceId: group.spaceId,
       sourceMessageId: recorded.id,
       title,
+      assigneeHint: assignee.assigneeHint,
+      assigneeExternalUserId: assignee.assigneeExternalUserId,
+      assigneeIdentityId,
+      dueDate: due.dueDate,
+      dueTime: due.dueTime,
     })
-    replyText = `申し送りに追加しました。\n『${title}』`
+
+    const detail = buildTaskDetailLine(
+      due.dueDate,
+      due.dueTime,
+      assignee.assigneeHint,
+      formatDateToLocalString(now),
+    )
+    replyText = detail
+      ? `申し送りに追加しました。\n『${title}』\n${detail}`
+      : `申し送りに追加しました。\n『${title}』`
   }
 
   if (event.replyToken) {

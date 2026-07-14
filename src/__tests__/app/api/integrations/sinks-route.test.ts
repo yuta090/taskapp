@@ -41,7 +41,7 @@ const sinksStoreMock = {
   listSinksForOrg: vi.fn(),
   findLatestDeliveryStatusForOrg: vi.fn(),
   ALLOWED_SINK_EVENTS: ['task.created', 'task.done', 'task.dismissed', 'task.reopened'],
-  DEFAULT_SINK_EVENTS: ['task.created', 'task.done', 'task.dismissed'],
+  DEFAULT_SINK_EVENTS: ['task.created', 'task.done', 'task.dismissed', 'task.reopened'],
 }
 vi.mock('@/lib/sinks/store', () => sinksStoreMock)
 
@@ -219,7 +219,7 @@ describe('POST /api/integrations/sinks', () => {
         groupId: null,
         displayName: 'My Webhook',
         url: 'https://example.com/hook',
-        events: ['task.created', 'task.done', 'task.dismissed'],
+        events: ['task.created', 'task.done', 'task.dismissed', 'task.reopened'],
         createdBy: 'user-1',
       }),
     )

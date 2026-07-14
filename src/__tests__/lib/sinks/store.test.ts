@@ -64,6 +64,17 @@ beforeEach(() => {
   })
 })
 
+describe('DEFAULT_SINK_EVENTS', () => {
+  it('includes task.reopened (完了取り消しを購読しないと外部ツールがdoneのまま残る)', () => {
+    expect(store.DEFAULT_SINK_EVENTS).toEqual([
+      'task.created',
+      'task.done',
+      'task.dismissed',
+      'task.reopened',
+    ])
+  })
+})
+
 describe('generateWebhookSecret', () => {
   it('produces a whsec_-prefixed random secret, different each call', () => {
     const a = store.generateWebhookSecret()
