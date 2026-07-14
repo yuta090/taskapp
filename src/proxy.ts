@@ -31,6 +31,8 @@ const publicPaths = [
   '/use-cases',
   // ヘルプ: 顧客・クライアント（アカウントを持たない相手を含む）が参照する
   '/help',
+  // ブログ: SEO記事。未ログインの検索流入が読む
+  '/blog',
   '/portal/email-action',
 ]
 
