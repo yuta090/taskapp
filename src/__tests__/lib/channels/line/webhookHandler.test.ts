@@ -636,6 +636,31 @@ describe('handleLineWebhook', () => {
       )
     })
 
+    it('グループ内リンクコード: space確定後に発言者identityを再解決する（帰属を欠落させない）', async () => {
+      storeMock.findValidLinkCode.mockResolvedValue({
+        id: 'code-1',
+        orgId: 'org-1',
+        spaceId: 'space-9',
+        firstUsedAt: null,
+      })
+      storeMock.linkGroupToSpaceAtomic.mockResolvedValue(true)
+      storeMock.findGroupById.mockResolvedValue({ ...GROUP, spaceId: 'space-9' })
+      // 紐付け前は space 未確定でidentityを解決できない。確定後の space-9 でだけ解決できる
+      storeMock.findIdentityIdsByExternalUserIds.mockImplementation(
+        async (_org: string, spaceId: string | null) =>
+          spaceId === 'space-9' ? new Map([['U-1', 'ident-9']]) : new Map(),
+      )
+
+      const body = makeBody([
+        groupTextEvent('AB2CD3EF', { source: { type: 'group', groupId: 'G-1', userId: 'U-1' } }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ spaceId: 'space-9', identityId: 'ident-9' }),
+      )
+    })
+
     it('グループ内リンクコード: 未紐付けグループで成立 → space確定＋バックフィル(原子RPC)＋reply確認', async () => {
       storeMock.findValidLinkCode.mockResolvedValue({
         id: 'code-1',

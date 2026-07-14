@@ -680,8 +680,20 @@ async function processGroupLinkCode(
     currentGroup = (await findGroupById(group.id)) ?? group
   }
 
+  // 紐付け前は space 未確定で identity を解決できなかった（他顧問先のidentityを引かないため null）。
+  // ここでは space が確定しているので、このメッセージだけ発言者帰属が欠落しないよう再解決する
+  const resolvedIdentityId =
+    identityId ??
+    (event.externalUserId
+      ? (
+          await findIdentityIdsByExternalUserIds(account.orgId, currentGroup.spaceId, [
+            event.externalUserId,
+          ])
+        ).get(event.externalUserId) ?? null
+      : null)
+
   const recorded = await insertChannelMessage(
-    groupMessageRecord(account, event, currentGroup, identityId, null),
+    groupMessageRecord(account, event, currentGroup, resolvedIdentityId, null),
   )
   if (recorded === 'duplicate' || disabled) return
 
