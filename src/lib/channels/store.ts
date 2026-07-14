@@ -1,6 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { dueSortKey } from '@/lib/channels/digest/due'
+import type { MentionedAssignee } from '@/lib/channels/digest/compute'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -691,6 +693,31 @@ export interface GroupTextMessage {
   id: string
   body: string
   createdAt: string
+  /**
+   * 受信時に正規化したメンション（Stage 2.6 §3）。
+   * 夜間一括抽出は生のwebhookイベントを見られないため、
+   * 「誰宛の依頼だったか」を復元できるのはここに残した payload.mentionees だけ。
+   */
+  mentions: MentionedAssignee[]
+}
+
+/** payload.mentionees（非信頼なJSON）から担当メンションを取り出す。壊れた要素は捨てる */
+function readMentionsFromPayload(payload: unknown): MentionedAssignee[] {
+  if (!payload || typeof payload !== 'object') return []
+  const raw = (payload as Record<string, unknown>).mentionees
+  if (!Array.isArray(raw)) return []
+
+  const mentions: MentionedAssignee[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    if (typeof record.displayName !== 'string' || !record.displayName.trim()) continue
+    mentions.push({
+      userId: typeof record.userId === 'string' ? record.userId : null,
+      displayName: record.displayName,
+    })
+  }
+  return mentions
 }
 
 /**
@@ -710,7 +737,7 @@ export async function findGroupTextMessagesSince(
 ): Promise<GroupTextMessage[]> {
   let query = admin()
     .from('channel_messages')
-    .select('id, body, created_at')
+    .select('id, body, created_at, payload')
     .eq('group_id', groupId)
     .eq('content_type', 'text')
     .eq('actor', 'client')
@@ -723,15 +750,27 @@ export async function findGroupTextMessagesSince(
 
   const { data, error } = await query
   if (error || !data) return []
-  return (data as Array<{ id: string; body: string | null; created_at: string }>)
-    .filter((row): row is { id: string; body: string; created_at: string } => !!row.body)
-    .map((row) => ({ id: row.id, body: row.body, createdAt: row.created_at }))
+  return (data as Array<{ id: string; body: string | null; created_at: string; payload: unknown }>)
+    .filter((row): row is { id: string; body: string; created_at: string; payload: unknown } => !!row.body)
+    .map((row) => ({
+      id: row.id,
+      body: row.body,
+      createdAt: row.created_at,
+      mentions: readMentionsFromPayload(row.payload),
+    }))
 }
 
 export interface DigestTaskCandidate {
   sourceMessageId: string
   title: string
+  /** 担当者名の自由文字列（ラベル）。メンション表示名 or LLM抽出 */
   assigneeHint: string | null
+  /** メンションで取れたLINE userId。identity未作成でも残す（後日バックフィルするため） */
+  assigneeExternalUserId: string | null
+  /** userId が既存identityに解決できた場合のみ */
+  assigneeIdentityId: string | null
+  dueDate: string | null
+  dueTime: string | null
 }
 
 /**
@@ -750,6 +789,10 @@ export async function ingestDigestTasks(
       source_message_id: t.sourceMessageId,
       title: t.title,
       assignee_hint: t.assigneeHint,
+      assignee_external_user_id: t.assigneeExternalUserId,
+      assignee_identity_id: t.assigneeIdentityId,
+      due_date: t.dueDate,
+      due_time: t.dueTime,
     })),
   })
   if (error) throw new Error(`rpc_ingest_digest_tasks failed: ${error.message}`)
@@ -763,6 +806,11 @@ export interface CreateInstantDigestTaskInput {
   spaceId: string | null
   sourceMessageId: string
   title: string
+  assigneeHint?: string | null
+  assigneeExternalUserId?: string | null
+  assigneeIdentityId?: string | null
+  dueDate?: string | null
+  dueTime?: string | null
 }
 
 /**
@@ -781,6 +829,11 @@ export async function createInstantDigestTask(
       space_id: input.spaceId,
       source_message_id: input.sourceMessageId,
       title: input.title,
+      assignee_hint: input.assigneeHint ?? null,
+      assignee_external_user_id: input.assigneeExternalUserId ?? null,
+      assignee_identity_id: input.assigneeIdentityId ?? null,
+      due_date: input.dueDate ?? null,
+      due_time: input.dueTime ?? null,
       extracted_date: formatDateToLocalString(new Date()),
     })
     .select('id, title')
@@ -797,12 +850,19 @@ export interface NumberedDigestTask {
   id: string
   title: string
   digestNumber: number
+  dueDate: string | null
+  dueTime: string | null
+  assigneeHint: string | null
 }
 
 /**
  * 配信直前の再採番: まず当該グループの digest_number を全行NULLクリアしてから、
- * openなタスクにcreated_at順で1..Nを振り直す。
+ * openなタスクに 1..N を振り直す。
  * （「完了N」返信が常に最新世代のみにマッチし、昨日の一覧が今朝の別タスクを消さないため）
+ *
+ * 並びは「期限の近い順 → 期限なし」（Stage 2.6 §5）。digestは毎朝openを全件送るため、
+ * 期限順に並べること自体が期限リマインドとして機能する（新しいcronを増やさない）。
+ * 同着（同一期限・期限なし同士）は created_at 順で安定させる。
  */
 export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<NumberedDigestTask[]> {
   const client = admin()
@@ -810,15 +870,31 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
 
   const { data, error } = await client
     .from('channel_digest_tasks')
-    .select('id, title, created_at')
+    .select('id, title, created_at, due_date, due_time, assignee_hint')
     .eq('group_id', groupId)
     .eq('status', 'open')
     .order('created_at', { ascending: true })
 
   if (error || !data || data.length === 0) return []
 
-  const rows = data as Array<{ id: string; title: string }>
-  const numbered = rows.map((row, index) => ({ id: row.id, title: row.title, digestNumber: index + 1 }))
+  const rows = data as Array<{
+    id: string
+    title: string
+    due_date: string | null
+    due_time: string | null
+    assignee_hint: string | null
+  }>
+  const numbered = rows
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      dueDate: row.due_date,
+      dueTime: row.due_time,
+      assigneeHint: row.assignee_hint,
+    }))
+    // created_at順の配列に対する安定ソート（Array.prototype.sortはES2019以降、安定であることが保証される）
+    .sort((a, b) => dueSortKey(a.dueDate, a.dueTime) - dueSortKey(b.dueDate, b.dueTime))
+    .map((row, index) => ({ ...row, digestNumber: index + 1 }))
 
   await Promise.all(
     numbered.map((task) =>
@@ -827,6 +903,45 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
   )
 
   return numbered
+}
+
+/**
+ * メンションで取れたLINE userId を、既存の active identity に解決する（Stage 2.6 §1-1）。
+ * identity が無い（＝まだ友だち追加していない）人は null。その場合も
+ * assignee_external_user_id に生のuserIdを残すため、後日 backfill で人へ昇格できる。
+ */
+export async function findIdentityIdsByExternalUserIds(
+  orgId: string,
+  externalUserIds: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(externalUserIds)]
+  if (unique.length === 0) return new Map()
+
+  const { data, error } = await admin()
+    .from('channel_identities')
+    .select('id, external_id')
+    .eq('org_id', orgId)
+    .eq('channel', 'line')
+    .eq('status', 'active')
+    .in('external_id', unique)
+
+  if (error || !data) return new Map()
+  return new Map(
+    (data as Array<{ id: string; external_id: string }>).map((row) => [row.external_id, row.id]),
+  )
+}
+
+/**
+ * 友だち追加でidentityができた人の、過去のopen申し送りを人へ紐付ける（Stage 2.6 §6）。
+ * 失敗しても identity 作成自体は成立させたいため、呼び出し側で握りつぶす前提。
+ * done済みの履歴は書き換えない（RPC側でopenのみ対象）。
+ */
+export async function backfillDigestAssigneeIdentity(identityId: string): Promise<number> {
+  const { data, error } = await admin().rpc('rpc_backfill_digest_assignee_identity', {
+    p_identity_id: identityId,
+  })
+  if (error) throw new Error(`rpc_backfill_digest_assignee_identity failed: ${error.message}`)
+  return (data as number) ?? 0
 }
 
 export interface DigestTaskForVerification {

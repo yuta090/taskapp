@@ -59,6 +59,8 @@ const storeMock = {
   markDigestTaskDoneByGroupAndNumberAtomic: vi.fn(),
   createInstantDigestTask: vi.fn(),
   reopenDigestTaskAtomic: vi.fn(),
+  findIdentityIdsByExternalUserIds: vi.fn(),
+  backfillDigestAssigneeIdentity: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -187,6 +189,8 @@ beforeEach(() => {
   storeMock.findGroupById.mockResolvedValue(GROUP)
   storeMock.linkGroupToSpaceAtomic.mockResolvedValue(true)
   storeMock.markGroupLeft.mockResolvedValue(undefined)
+  storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
+  storeMock.backfillDigestAssigneeIdentity.mockResolvedValue(0)
   pushMock.mockResolvedValue(undefined)
   replyMock.mockResolvedValue(undefined)
   leaveRoomMock.mockResolvedValue(undefined)
@@ -915,27 +919,113 @@ describe('handleLineWebhook', () => {
       })
     }
 
-    it('メンション付き発言 → 記録＋即時タスク作成＋reply', async () => {
-      const body = makeBody([mentionEvent('@AgentPM秘書 金曜までに見積提出', [{ index: 0, length: 10 }])])
-      const result = await handleLineWebhook(body, sign(body))
+    it('メンション付き発言 → 記録＋即時タスク作成＋reply（期限を本文から解決する・Stage 2.6）', async () => {
+      // 「金曜まで」の解決は基準日に依存するため時刻を固定する（2026-07-14(火) → 金曜は07-17）
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 6, 14, 10, 30))
+      try {
+        const body = makeBody([mentionEvent('@AgentPM秘書 金曜までに見積提出', [{ index: 0, length: 10 }])])
+        const result = await handleLineWebhook(body, sign(body))
 
-      expect(result.status).toBe(200)
-      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ groupId: 'group-1', body: '@AgentPM秘書 金曜までに見積提出' }),
-      )
-      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith({
-        orgId: 'org-1',
-        groupId: 'group-1',
-        spaceId: null,
-        sourceMessageId: 'row-1',
-        title: '金曜までに見積提出',
-      })
-      expect(replyMock).toHaveBeenCalledWith(
+        expect(result.status).toBe(200)
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ groupId: 'group-1', body: '@AgentPM秘書 金曜までに見積提出' }),
+        )
+        expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith({
+          orgId: 'org-1',
+          groupId: 'group-1',
+          spaceId: null,
+          sourceMessageId: 'row-1',
+          title: '金曜までに見積提出',
+          assigneeHint: null,
+          assigneeExternalUserId: null,
+          assigneeIdentityId: null,
+          dueDate: '2026-07-17',
+          dueTime: null,
+        })
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            replyToken: 'rt-g1',
+            messages: [
+              expect.objectContaining({ text: expect.stringContaining('金曜までに見積提出') }),
+            ],
+          }),
+        )
+        // 期限はreplyにも見える形で返す（作成された内容をその場で確認できる）
+        const replyText = (replyMock.mock.calls[0][0] as { messages: Array<{ text: string }> })
+          .messages[0].text
+        expect(replyText).toContain('⏰7/17(金)')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('担当者メンション付き → 担当をラベル＋userIdで保存し、タイトルからメンションを除く（Stage 2.6）', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 6, 14, 10, 30))
+      storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map([['U-yamada', 'identity-1']]))
+      try {
+        // '@秘書'=0..2, '@山田'=4..6
+        const text = '@秘書 @山田 明日17時までに酒屋へ発注'
+        const body = makeBody([
+          groupTextEvent(text, {
+            message: {
+              id: 'msg-mention-assignee',
+              type: 'text',
+              text,
+              mention: {
+                mentionees: [
+                  { index: 0, length: 3, type: 'user', isSelf: true },
+                  { index: 4, length: 3, type: 'user', userId: 'U-yamada' },
+                ],
+              },
+            },
+          }),
+        ])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: '明日17時までに酒屋へ発注',
+            assigneeHint: '山田',
+            assigneeExternalUserId: 'U-yamada',
+            assigneeIdentityId: 'identity-1',
+            dueDate: '2026-07-15',
+            dueTime: '17:00',
+          }),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('userId が取れないメンション（プロフィール取得未同意）でも名前ラベルは残す（Stage 2.6）', async () => {
+      storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
+      const text = '@秘書 @田中 請求書を確認'
+      const body = makeBody([
+        groupTextEvent(text, {
+          message: {
+            id: 'msg-mention-noid',
+            type: 'text',
+            text,
+            mention: {
+              mentionees: [
+                { index: 0, length: 3, type: 'user', isSelf: true },
+                { index: 4, length: 3, type: 'user' },
+              ],
+            },
+          },
+        }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
         expect.objectContaining({
-          replyToken: 'rt-g1',
-          messages: [
-            expect.objectContaining({ text: expect.stringContaining('金曜までに見積提出') }),
-          ],
+          title: '請求書を確認',
+          assigneeHint: '田中',
+          assigneeExternalUserId: null,
+          assigneeIdentityId: null,
         }),
       )
     })

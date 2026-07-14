@@ -15,6 +15,7 @@ const storeMock = {
   ingestDigestTasks: vi.fn(),
   clearAndRenumberOpenDigestTasks: vi.fn(),
   findLineAccountById: vi.fn(),
+  findIdentityIdsByExternalUserIds: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -65,6 +66,7 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.findGroupTextMessagesSince.mockResolvedValue([])
     storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
     storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
+    storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -141,30 +143,120 @@ describe('POST /api/cron/channel-digest', () => {
   })
 
   it('新規メッセージがあればLLM抽出→ingestし、水位はグループの最終メッセージ時刻を渡す', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 14, 7, 0))
     storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
     storeMock.findGroupTextMessagesSince.mockResolvedValue([
-      { id: 'msg-1', body: '金曜までに酒屋へ発注お願いします', createdAt: '2026-07-11T05:00:00.000Z' },
-      { id: 'msg-2', body: 'ラジャー', createdAt: '2026-07-11T05:01:00.000Z' },
+      {
+        id: 'msg-1',
+        body: '金曜までに酒屋へ発注お願いします',
+        createdAt: '2026-07-11T05:00:00.000Z',
+        mentions: [],
+      },
+      { id: 'msg-2', body: 'ラジャー', createdAt: '2026-07-11T05:01:00.000Z', mentions: [] },
     ])
     callLlmMock.mockResolvedValue({
-      content: JSON.stringify([{ title: '酒屋へ発注', assignee_hint: null, source_index: 0 }]),
+      content: JSON.stringify([
+        {
+          title: '酒屋へ発注',
+          assignee_hint: null,
+          due_date: '2026-07-17',
+          due_time: '17:00',
+          source_index: 0,
+        },
+      ]),
     })
     storeMock.ingestDigestTasks.mockResolvedValue(1)
     storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
-      { id: 'task-1', title: '酒屋へ発注', digestNumber: 1 },
+      { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
     ])
 
-    const response = await callPost({ authorization: 'Bearer test-cron-secret' })
-    const body = await response.json()
+    try {
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
 
-    expect(response.status).toBe(200)
-    expect(callLlmMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1' }))
-    expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith(
-      'group-1',
-      '2026-07-11T05:01:00.000Z',
-      [{ sourceMessageId: 'msg-1', title: '酒屋へ発注', assigneeHint: null }],
-    )
-    expect(body.extractedTasks).toBe(1)
+      expect(response.status).toBe(200)
+      expect(callLlmMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1' }))
+      expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:01:00.000Z', [
+        {
+          sourceMessageId: 'msg-1',
+          title: '酒屋へ発注',
+          assigneeHint: null,
+          assigneeExternalUserId: null,
+          assigneeIdentityId: null,
+          dueDate: '2026-07-17',
+          dueTime: '17:00',
+        },
+      ])
+      expect(body.extractedTasks).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('メンションはLLMの推測より優先し、userIdは既存identityに解決する（Stage 2.6）', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 14, 7, 0))
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.findGroupTextMessagesSince.mockResolvedValue([
+      {
+        id: 'msg-1',
+        body: '@山田 金曜までに酒屋へ発注',
+        createdAt: '2026-07-11T05:00:00.000Z',
+        mentions: [{ userId: 'U-yamada', displayName: '山田' }],
+      },
+    ])
+    // LLMは本文から別の名前（田中）を推測している。メンションがある以上こちらは採らない
+    callLlmMock.mockResolvedValue({
+      content: JSON.stringify([
+        { title: '酒屋へ発注', assignee_hint: '田中さん', due_date: '2026-07-17', source_index: 0 },
+      ]),
+    })
+    storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map([['U-yamada', 'identity-1']]))
+    storeMock.ingestDigestTasks.mockResolvedValue(1)
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+    try {
+      await callPost({ authorization: 'Bearer test-cron-secret' })
+
+      expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:00:00.000Z', [
+        {
+          sourceMessageId: 'msg-1',
+          title: '酒屋へ発注',
+          assigneeHint: '山田',
+          assigneeExternalUserId: 'U-yamada',
+          assigneeIdentityId: 'identity-1',
+          dueDate: '2026-07-17',
+          dueTime: null,
+        },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('期限順に並んだ一覧を配信し、超過は ⚠️ で示す（Stage 2.6）', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 14, 7, 0))
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.findGroupTextMessagesSince.mockResolvedValue([])
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+      { id: 'task-1', title: '請求書の確認', digestNumber: 1, dueDate: '2026-07-12', dueTime: null, assigneeHint: null },
+      { id: 'task-2', title: '酒屋へ発注', digestNumber: 2, dueDate: '2026-07-17', dueTime: '17:00', assigneeHint: '山田' },
+      { id: 'task-3', title: '議事録の共有', digestNumber: 3, dueDate: null, dueTime: null, assigneeHint: null },
+    ])
+
+    try {
+      await callPost({ authorization: 'Bearer test-cron-secret' })
+
+      const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+      const text = pushed.messages[0].text ?? ''
+      expect(text).toContain('1. 請求書の確認  ⚠️7/12(日) 期限超過')
+      expect(text).toContain('2. 酒屋へ発注  ⏰7/17(金) 17:00  👤山田さん')
+      expect(text).toContain('3. 議事録の共有')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('org_ai_config未設定(callLlmが例外)ならそのグループはスキップしログに残す。他グループは継続', async () => {
