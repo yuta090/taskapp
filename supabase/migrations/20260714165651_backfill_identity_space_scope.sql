@@ -143,6 +143,98 @@ $$;
 revoke execute on function public.rpc_link_group_to_space(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.rpc_link_group_to_space(uuid, uuid) to service_role;
 
+-- -----------------------------------------------------------------------------
+-- 既存 channel_messages の誤帰属も是正する（Codexレビュー3周目の指摘）
+-- -----------------------------------------------------------------------------
+-- 旧 processGroupMessage は org内identityの先頭[0]を無条件採用していたため、
+-- channel_messages.identity_id にも別顧問先のidentityが入り得た（発言者の誤表示）。
+--
+-- guardトリガー（trg_channel_messages_guard）は identity_id の非NULL→変更を例外にするため、
+-- 一時停止して是正する。是正は「space_id と identity.space_id が食い違う行」だけを対象にする
+-- （原理的にあり得ない組み合わせ＝旧バグの産物）。停止と再有効化は同一トランザクション内。
+alter table public.channel_messages disable trigger trg_channel_messages_guard;
+
+update channel_messages m
+set identity_id = null
+from channel_identities i
+where m.identity_id = i.id
+  and m.space_id is distinct from i.space_id;
+
+alter table public.channel_messages enable trigger trg_channel_messages_guard;
+
+-- -----------------------------------------------------------------------------
+-- 帰属をDB側で導出する（アプリのレースに依存しない・Codexレビュー3周目の指摘）
+-- -----------------------------------------------------------------------------
+-- レース: webhookイベントAが「未紐付け」のgroupを読んだ直後に、イベントBのリンクRPCが
+-- space確定＋バックフィルを完了する。その後Aが古い spaceId=null のままINSERTすると、
+-- そのメッセージ／申し送りは二度と拾われない（バックフィルは既に走り終えている）。
+--
+-- アプリ側で読んだ値を信用せず、**INSERT時にDBの最新のgroupから導出**することで根治する。
+-- テーブルごとに関数を分ける。1つの汎用トリガー関数に tg_table_name の分岐で押し込むと、
+-- PL/pgSQL が IF 条件の record フィールド参照を評価する際、その列を持たないテーブルで
+-- 実行時に 'record "new" has no field ...' で落ちる（実行検証で発覚。定義時には通ってしまう）。
+
+create or replace function public.channel_messages_derive_space()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_space_id uuid;
+begin
+  -- space は常にグループ由来（identityからは絶対に導出しない。既存の不変条件）
+  if new.group_id is not null and new.space_id is null then
+    select space_id into v_space_id from channel_groups where id = new.group_id;
+    new.space_id := v_space_id;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.channel_digest_tasks_derive_attribution()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_space_id uuid;
+begin
+  if new.group_id is not null and new.space_id is null then
+    select space_id into v_space_id from channel_groups where id = new.group_id;
+    new.space_id := v_space_id;
+  end if;
+
+  -- 担当identityは、確定した space の中だけで解決する（顧問先境界を越えない）
+  if new.assignee_identity_id is null
+     and new.assignee_external_user_id is not null
+     and new.space_id is not null then
+    select i.id into new.assignee_identity_id
+    from channel_identities i
+    where i.org_id = new.org_id
+      and i.space_id = new.space_id
+      and i.channel = 'line'
+      and i.status = 'active'
+      and i.external_id = new.assignee_external_user_id;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_channel_messages_derive_space on public.channel_messages;
+create trigger trg_channel_messages_derive_space
+  before insert on public.channel_messages
+  for each row execute function public.channel_messages_derive_space();
+
+-- sink配信トリガー(trg_channel_digest_tasks_enqueue_sink_deliveries)は AFTER INSERT のため、
+-- この BEFORE トリガーで導出した確定値を見る
+drop trigger if exists trg_channel_digest_tasks_derive_attribution on public.channel_digest_tasks;
+create trigger trg_channel_digest_tasks_derive_attribution
+  before insert on public.channel_digest_tasks
+  for each row execute function public.channel_digest_tasks_derive_attribution();
+
 -- =============================================================================
 -- 巻き戻しについて（forward fix が標準手順）
 --
