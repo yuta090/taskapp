@@ -132,7 +132,9 @@ begin
   from channel_identities
   where id = p_identity_id and status = 'active';
 
-  if v_org_id is null then
+  -- assignee_external_user_id はLINEのuserIdしか入らない。
+  -- 他チャネル（emailのアドレス等）のidentityで誤って突合しないようチャネルを固定する
+  if v_org_id is null or v_channel <> 'line' then
     return 0;
   end if;
 
