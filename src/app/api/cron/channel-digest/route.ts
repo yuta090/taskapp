@@ -86,8 +86,10 @@ export async function POST(request: NextRequest) {
                 }))
 
               // メンションで取れたuserIdを既存identityに解決する（未友だちの人は null のまま残る）
+              // 必ずこのグループの space で解決する（他顧問先のidentityを引かない）
               const identities = await findIdentityIdsByExternalUserIds(
                 group.orgId,
+                group.spaceId,
                 resolved
                   .map((r) => r.assignee.assigneeExternalUserId)
                   .filter((id): id is string => id !== null),

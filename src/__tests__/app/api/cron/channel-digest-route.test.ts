@@ -43,6 +43,7 @@ function callPost(headers: Record<string, string> = {}) {
 const GROUP = {
   id: 'group-1',
   orgId: 'org-1',
+  spaceId: 'space-1',
   accountId: 'acc-1',
   externalGroupId: 'G-1',
   pickupMode: 'all' as const,
@@ -219,6 +220,12 @@ describe('POST /api/cron/channel-digest', () => {
     try {
       await callPost({ authorization: 'Bearer test-cron-secret' })
 
+      // identity解決は必ずこのグループの space に限る（他顧問先のidentityを引かない）
+      expect(storeMock.findIdentityIdsByExternalUserIds).toHaveBeenCalledWith(
+        'org-1',
+        GROUP.spaceId,
+        ['U-yamada'],
+      )
       expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:00:00.000Z', [
         {
           sourceMessageId: 'msg-1',

@@ -593,15 +593,36 @@ describe('handleLineWebhook', () => {
       )
     })
 
-    it('1対1 identityを持つ人のグループ発言にidentity由来のspace_idは付かない', async () => {
+    it('別顧問先(space)のidentityしか無い人のグループ発言は、space_idもidentity_idも付けない', async () => {
+      // 同一人物が複数顧問先の窓口になり得る（社長が2法人経営等）。
+      // 発言者identityは「このグループのspace」のものに限る。org内の先頭を無条件に採ると、
+      // 別顧問先のidentityが channel_messages.identity_id に入り（更新不可のため）誤りが残り続ける。
+      // Stage 2.6 以降 identity は「担当」の意味を持つため、誤帰属は実害になる。
       storeMock.findActiveLineIdentities.mockResolvedValue([{ id: 'ident-1', spaceId: 'space-OTHER' }])
+      storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
       const body = makeBody([
         groupTextEvent('お疲れさまです', { source: { type: 'group', groupId: 'G-1', userId: 'U-member' } }),
       ])
       await handleLineWebhook(body, sign(body))
 
       expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ spaceId: null, identityId: 'ident-1' }),
+        expect.objectContaining({ spaceId: null, identityId: null }),
+      )
+    })
+
+    it('同一spaceのidentityを持つ人のグループ発言は identity_id が付く', async () => {
+      storeMock.findActiveGroup.mockResolvedValue({ ...GROUP, spaceId: 'space-1' })
+      storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map([['U-member', 'ident-1']]))
+      const body = makeBody([
+        groupTextEvent('お疲れさまです', { source: { type: 'group', groupId: 'G-1', userId: 'U-member' } }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.findIdentityIdsByExternalUserIds).toHaveBeenCalledWith('org-1', 'space-1', [
+        'U-member',
+      ])
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ spaceId: 'space-1', identityId: 'ident-1' }),
       )
     })
 
@@ -963,6 +984,8 @@ describe('handleLineWebhook', () => {
     it('担当者メンション付き → 担当をラベル＋userIdで保存し、タイトルからメンションを除く（Stage 2.6）', async () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date(2026, 6, 14, 10, 30))
+      // identity解決は space 単位。紐付け済みグループで検証する
+      storeMock.findActiveGroup.mockResolvedValue({ ...GROUP_MENTION_ONLY, spaceId: 'space-1' })
       storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map([['U-yamada', 'identity-1']]))
       try {
         // '@秘書'=0..2, '@山田'=4..6
@@ -985,6 +1008,10 @@ describe('handleLineWebhook', () => {
         const result = await handleLineWebhook(body, sign(body))
 
         expect(result.status).toBe(200)
+        // 他顧問先のidentityを引かないよう、必ずこのグループの space で解決する
+        expect(storeMock.findIdentityIdsByExternalUserIds).toHaveBeenCalledWith('org-1', 'space-1', [
+          'U-yamada',
+        ])
         expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
           expect.objectContaining({
             title: '明日17時までに酒屋へ発注',
@@ -998,6 +1025,40 @@ describe('handleLineWebhook', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+
+    it('未紐付けグループ(space未確定)では identity を解決しない（他顧問先のidentityを流用しない）', async () => {
+      // GROUP_MENTION_ONLY.spaceId は null
+      storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
+      const text = '@秘書 @山田 請求書を確認'
+      const body = makeBody([
+        groupTextEvent(text, {
+          message: {
+            id: 'msg-mention-nospace',
+            type: 'text',
+            text,
+            mention: {
+              mentionees: [
+                { index: 0, length: 3, type: 'user', isSelf: true },
+                { index: 4, length: 3, type: 'user', userId: 'U-yamada' },
+              ],
+            },
+          },
+        }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.findIdentityIdsByExternalUserIds).toHaveBeenCalledWith('org-1', null, [
+        'U-yamada',
+      ])
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assigneeHint: '山田',
+          assigneeExternalUserId: 'U-yamada',
+          // spaceが決まっていない以上、どの顧問先の窓口とも言えないため紐付けない
+          assigneeIdentityId: null,
+        }),
+      )
     })
 
     it('userId が取れないメンション（プロフィール取得未同意）でも名前ラベルは残す（Stage 2.6）', async () => {
