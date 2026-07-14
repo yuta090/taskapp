@@ -1,4 +1,10 @@
 import {
+  extractUserLinkCode,
+  looksLikeUserLinkCode,
+  maskUserLinkCode,
+  hashUserLinkCode,
+} from '@/lib/channels/userLink'
+import {
   findLineAccountByDestination,
   findActiveLineIdentities,
   insertChannelMessage,
@@ -21,6 +27,8 @@ import {
   type InsertChannelMessageInput,
   type ValidLinkCode,
   type ChannelGroup,
+  consumeUserLinkCode,
+  expireUserLinkCode,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -123,6 +131,28 @@ async function buildNamedDoneMessage(
 const LINK_CODE_FAILED_TEXT =
   '確認コードをお確かめのうえ、もう一度お送りください。ご不明な場合は事務所までご連絡ください。'
 
+/**
+ * 内部ユーザーの本人紐付け（Stage 2.7-A）への応答。
+ * 失敗理由を必要以上に明かさない（総当たりの手掛かりを与えない）が、
+ * 本人が自力で回復できる程度の情報は返す。
+ */
+const USER_LINK_REPLY: Record<string, string> = {
+  ok: 'LINEアカウントを連携しました。承認の依頼はこのトークに届きます。',
+  invalid: 'コードが無効です。管理画面で新しいコードを発行してお試しください。',
+  expired: 'コードの有効期限が切れています。管理画面で新しいコードを発行してください。',
+  locked: '試行回数が多すぎます。しばらく時間をおいてからお試しください。',
+  conflict:
+    'このLINEアカウントは既に別のユーザーに連携されています。管理画面で連携を解除してからお試しください。',
+}
+
+/** グループに誤って貼られた内部コードへの応答（コードは即時失効させる） */
+const USER_LINK_LEAKED_TEXT =
+  'このコードはグループでは使えません。安全のため無効化しました。管理画面で再発行し、秘書との1:1トークにお送りください。'
+
+/** 失効対象が見つからなかった場合（既に使用済み・期限切れ等）。「無効化しました」と嘘をつかない */
+const USER_LINK_LEAKED_UNKNOWN_TEXT =
+  'このコードはグループでは使えません。秘書との1:1トークにお送りください。'
+
 const ROOM_UNSUPPORTED_TEXT =
   '恐れ入りますが、複数人トークには対応しておりません。グループトークでご利用ください。'
 
@@ -212,6 +242,13 @@ async function processDirectMessage(
   const externalUserId = event.externalUserId!
   const identities = await findActiveLineIdentities(account.orgId, externalUserId)
 
+  // 内部ユーザーの本人紐付けコード（TA-...）は顧客用の突合コードより先に判定する。
+  // 形式が異なるので取り違えは起きないが、判定順を固定しておく（Stage 2.7-A §3-4）
+  if (event.contentType === 'text' && looksLikeUserLinkCode(event.body)) {
+    await processUserLinkCode(account, event, disabled)
+    return
+  }
+
   if (event.contentType === 'text' && event.body) {
     const code = normalizeLinkCode(event.body)
     if (code) {
@@ -274,12 +311,42 @@ async function processDirectMessage(
     externalUserId,
     externalMessageId: event.externalMessageId,
     contentType: event.contentType,
-    body: event.body,
+    body: maskUserLinkCode(event.body),
     payload: event.payload,
     storagePath,
     status,
     error: errorText,
     occurredAt: event.occurredAt,
+  })
+}
+
+/**
+ * 内部ユーザーの本人紐付け（Stage 2.7-A）。1:1トークでのみ受理する。
+ *
+ * 記録は必ず先に行う（inboundTextRecord がコードをマスクするので、平文はDBに残らない）。
+ * RPC は例外を投げず status で返す — 例外だと同一トランザクション内の試行履歴も
+ * ロールバックされ、総当たり対策が機能しなくなるため。
+ */
+async function processUserLinkCode(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  disabled: boolean,
+): Promise<void> {
+  const externalUserId = event.externalUserId!
+  const recorded = await insertChannelMessage(inboundTextRecord(account, event, null, null))
+
+  // 本文全体ではなく *抽出したコード* をハッシュする。
+  // 「このコードです TA-xxx よろしく」のように前後に文章が付いていても成立させる
+  const code = extractUserLinkCode(event.body)
+  const { status } = code
+    ? await consumeUserLinkCode(hashUserLinkCode(code), account.id, externalUserId)
+    : ({ status: 'invalid' } as const)
+
+  // webhook再送(dedupe)時は応答を再送しない。disabled中は自動応答を止める
+  if (recorded === 'duplicate' || disabled) return
+
+  await sendSecretaryText(account, externalUserId, USER_LINK_REPLY[status], {
+    relatedEventId: event.webhookEventId,
   })
 }
 
@@ -331,7 +398,7 @@ function inboundTextRecord(
     externalUserId: event.externalUserId,
     externalMessageId: event.externalMessageId,
     contentType: 'text',
-    body: event.body,
+    body: maskUserLinkCode(event.body),
     payload: event.payload,
     storagePath: null,
     status: 'received',
@@ -424,7 +491,7 @@ function groupMessageRecord(
     externalUserId: event.externalUserId,
     externalMessageId: event.externalMessageId,
     contentType: event.contentType,
-    body: event.body,
+    body: maskUserLinkCode(event.body),
     payload: event.payload,
     storagePath,
     status,
@@ -580,6 +647,26 @@ async function processGroupMessage(
 ): Promise<void> {
   const externalGroupId = event.groupId!
   const group = await findActiveGroup(account.id, externalGroupId)
+
+  // 内部ユーザーの本人紐付けコードがグループに貼られた（誤爆）。
+  // グループの全員がそれを読めてしまうため、紐付けは *成立させず* コードを即時失効させる。
+  // 本文は groupMessageRecord がマスクするので、会話ログにも平文は残らない。
+  const leakedCode = event.contentType === 'text' ? extractUserLinkCode(event.body) : null
+  if (leakedCode) {
+    // 本文全体ではなく *抽出したコード* をハッシュする。ここを取り違えると、
+    // 文章付きで貼られたコードが失効せず、グループの参加者がそれを1:1で使えてしまう
+    const expired = await expireUserLinkCode(hashUserLinkCode(leakedCode))
+    const recorded = await insertChannelMessage(groupMessageRecord(account, event, group, null, null))
+    if (recorded !== 'duplicate' && !disabled) {
+      await replyLineMessage({
+        accessToken: account.accessToken,
+        replyToken: event.replyToken!,
+        // 失効できていないのに「無効化しました」と断言しない
+        messages: [{ type: 'text', text: expired ? USER_LINK_LEAKED_TEXT : USER_LINK_LEAKED_UNKNOWN_TEXT }],
+      })
+    }
+    return
+  }
 
   if (!group) {
     // 万一activeな世代が無い場合（join取りこぼし等）。帰属無しで記録だけ行う
