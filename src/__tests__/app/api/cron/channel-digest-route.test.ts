@@ -16,6 +16,7 @@ const storeMock = {
   clearAndRenumberOpenDigestTasks: vi.fn(),
   findLineAccountById: vi.fn(),
   findIdentityIdsByExternalUserIds: vi.fn(),
+  reconcileDigestAssignees: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -43,6 +44,7 @@ function callPost(headers: Record<string, string> = {}) {
 const GROUP = {
   id: 'group-1',
   orgId: 'org-1',
+  spaceId: 'space-1',
   accountId: 'acc-1',
   externalGroupId: 'G-1',
   pickupMode: 'all' as const,
@@ -67,6 +69,7 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
     storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
     storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
+    storeMock.reconcileDigestAssignees.mockResolvedValue(0)
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -128,6 +131,32 @@ describe('POST /api/cron/channel-digest', () => {
     const firstRetryKey = (pushMock.mock.calls[0][0] as { retryKey: string }).retryKey
     const secondRetryKey = (pushMock.mock.calls[1][0] as { retryKey: string }).retryKey
     expect(firstRetryKey).toBe(secondRetryKey)
+  })
+
+  it('配信前に担当の自己修復スイープを走らせる（取りこぼしを毎朝ならす）', async () => {
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.reconcileDigestAssignees.mockResolvedValue(2)
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+    await callPost({ authorization: 'Bearer test-cron-secret' })
+
+    expect(storeMock.reconcileDigestAssignees).toHaveBeenCalledWith('group-1')
+  })
+
+  it('スイープが失敗しても配信は続ける（担当が付かないだけで申し送りは届ける）', async () => {
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.reconcileDigestAssignees.mockRejectedValue(new Error('reconcile boom'))
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+      { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+    ])
+
+    const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.digestsSent).toBe(1)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(body.skipped[0].reason).toContain('reconcile_failed')
   })
 
   it('openタスクが0件なら送信しない', async () => {
@@ -219,6 +248,12 @@ describe('POST /api/cron/channel-digest', () => {
     try {
       await callPost({ authorization: 'Bearer test-cron-secret' })
 
+      // identity解決は必ずこのグループの space に限る（他顧問先のidentityを引かない）
+      expect(storeMock.findIdentityIdsByExternalUserIds).toHaveBeenCalledWith(
+        'org-1',
+        GROUP.spaceId,
+        ['U-yamada'],
+      )
       expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:00:00.000Z', [
         {
           sourceMessageId: 'msg-1',

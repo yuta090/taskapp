@@ -6,6 +6,7 @@ import {
   clearAndRenumberOpenDigestTasks,
   findLineAccountById,
   findIdentityIdsByExternalUserIds,
+  reconcileDigestAssignees,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
@@ -86,8 +87,10 @@ export async function POST(request: NextRequest) {
                 }))
 
               // メンションで取れたuserIdを既存identityに解決する（未友だちの人は null のまま残る）
+              // 必ずこのグループの space で解決する（他顧問先のidentityを引かない）
               const identities = await findIdentityIdsByExternalUserIds(
                 group.orgId,
+                group.spaceId,
                 resolved
                   .map((r) => r.assignee.assigneeExternalUserId)
                   .filter((id): id is string => id !== null),
@@ -112,6 +115,16 @@ export async function POST(request: NextRequest) {
             const reason = error instanceof Error ? error.message : String(error)
             skipped.push({ groupId: group.id, reason })
           }
+        }
+
+        // 配信前の自己修復: identity作成と申し送りINSERTがすれ違って担当が未解決のまま
+        // 残った分を、同一spaceのidentityへ解決しなおす（取りこぼしを毎朝ならす）。
+        // 失敗しても配信自体は続ける（担当が付かないだけで、申し送りは届けたい）
+        try {
+          await reconcileDigestAssignees(group.id)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          skipped.push({ groupId: group.id, reason: `reconcile_failed: ${reason}` })
         }
 
         // 配信: 新規抽出の有無によらず、既存のopenタスクも含めて毎朝再採番してから送る
