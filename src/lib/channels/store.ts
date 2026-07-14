@@ -850,6 +850,19 @@ export async function createInstantDigestTask(
   return { id: data!.id as string, title: data!.title as string }
 }
 
+/**
+ * 配信前の自己修復スイープ（Stage 2.6 fix）: identity作成と申し送りINSERTがすれ違って
+ * 担当identityがnullのまま残った分を、同一spaceのidentityへ解決しなおす。
+ * どの経路の取りこぼしも等しく吸収できるため、各INSERT経路をロックで直列化するより単純。
+ */
+export async function reconcileDigestAssignees(groupId: string): Promise<number> {
+  const { data, error } = await admin().rpc('rpc_reconcile_digest_assignees', {
+    p_group_id: groupId,
+  })
+  if (error) throw new Error(`rpc_reconcile_digest_assignees failed: ${error.message}`)
+  return (data as number) ?? 0
+}
+
 export interface NumberedDigestTask {
   id: string
   title: string

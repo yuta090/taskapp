@@ -174,18 +174,29 @@ alter table public.channel_messages enable trigger trg_channel_messages_guard;
 -- PL/pgSQL が IF 条件の record フィールド参照を評価する際、その列を持たないテーブルで
 -- 実行時に 'record "new" has no field ...' で落ちる（実行検証で発覚。定義時には通ってしまう）。
 
+-- ★group行は `for share` で読む。素のSELECTだとMVCCで未コミットのリンクTxが見えず、
+--   「リンクTxがspace確定＋バックフィルを終える」のと「古いspace=nullでINSERTする」のが
+--   すれ違って、その行が永久に拾われない（Codexレビュー4周目の指摘）。
+--   for share ならどちらが先でも直列化される:
+--     INSERTが先 → リンクのUPDATEが待つ → リンクのバックフィルがその行を拾う
+--     リンクが先 → INSERTのトリガーが待つ → 確定後のspaceを読む
+--   共有ロック同士は競合しないため、通常のwebhook流量では待ちは発生しない。
 create or replace function public.channel_messages_derive_space()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_space_id uuid;
 begin
   -- space は常にグループ由来（identityからは絶対に導出しない。既存の不変条件）
   if new.group_id is not null and new.space_id is null then
-    select space_id into v_space_id from channel_groups where id = new.group_id;
+    select space_id into v_space_id
+    from public.channel_groups
+    where id = new.group_id
+    for share;
+
     new.space_id := v_space_id;
   end if;
   return new;
@@ -196,13 +207,18 @@ create or replace function public.channel_digest_tasks_derive_attribution()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_space_id uuid;
+  v_ok boolean;
 begin
   if new.group_id is not null and new.space_id is null then
-    select space_id into v_space_id from channel_groups where id = new.group_id;
+    select space_id into v_space_id
+    from public.channel_groups
+    where id = new.group_id
+    for share;
+
     new.space_id := v_space_id;
   end if;
 
@@ -211,12 +227,28 @@ begin
      and new.assignee_external_user_id is not null
      and new.space_id is not null then
     select i.id into new.assignee_identity_id
-    from channel_identities i
+    from public.channel_identities i
     where i.org_id = new.org_id
       and i.space_id = new.space_id
       and i.channel = 'line'
       and i.status = 'active'
       and i.external_id = new.assignee_external_user_id;
+  end if;
+
+  -- 呼び出し側が明示的に渡した assignee_identity_id も、越境していないかDBで検証する
+  -- （アプリ側の経路は space スコープ済みだが、DB自体が越境値を拒否できる状態にしておく）
+  if new.assignee_identity_id is not null then
+    select true into v_ok
+    from public.channel_identities i
+    where i.id = new.assignee_identity_id
+      and i.org_id = new.org_id
+      and i.space_id is not distinct from new.space_id;
+
+    if v_ok is not true then
+      raise exception
+        'channel_digest_tasks: assignee_identity_id % is outside the task org/space boundary',
+        new.assignee_identity_id;
+    end if;
   end if;
 
   return new;
@@ -234,6 +266,52 @@ drop trigger if exists trg_channel_digest_tasks_derive_attribution on public.cha
 create trigger trg_channel_digest_tasks_derive_attribution
   before insert on public.channel_digest_tasks
   for each row execute function public.channel_digest_tasks_derive_attribution();
+
+-- -----------------------------------------------------------------------------
+-- rpc_reconcile_digest_assignees — 取りこぼしを毎朝ならす自己修復スイープ
+-- -----------------------------------------------------------------------------
+-- identity作成（linkIdentityViaCode＋バックフィル）と、申し送りINSERTの間にも同型の競合がある:
+-- 互いに未コミットで見えないまま両方がコミットすると、担当identityがnullのまま残る。
+--
+-- ここを更にロックで直列化することもできるが、identity作成と申し送り作成には共有する行が無く、
+-- advisory lock を全INSERT経路に張るのは複雑さに見合わない。
+-- 申し送りが「誰の担当か」を必要とするのは毎朝のdigest配信時なので、
+-- **配信前に未解決分をならす**方が単純で、どの経路の取りこぼしも等しく吸収できる（自己修復）。
+--
+-- 対象: open × space確定済み × 生のLINE userIdを持つ × identity未解決 の申し送り。
+-- 解決は必ず同一 space の active identity に限る（顧問先境界を越えない）。
+create or replace function public.rpc_reconcile_digest_assignees(
+  p_group_id uuid
+)
+returns int
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_updated int := 0;
+begin
+  update public.channel_digest_tasks t
+  set assignee_identity_id = i.id
+  from public.channel_identities i
+  where t.group_id = p_group_id
+    and t.status = 'open'
+    and t.space_id is not null
+    and t.assignee_identity_id is null
+    and t.assignee_external_user_id is not null
+    and i.org_id = t.org_id
+    and i.space_id = t.space_id
+    and i.channel = 'line'
+    and i.status = 'active'
+    and i.external_id = t.assignee_external_user_id;
+
+  get diagnostics v_updated = row_count;
+  return v_updated;
+end;
+$$;
+
+revoke execute on function public.rpc_reconcile_digest_assignees(uuid) from public, anon, authenticated;
+grant execute on function public.rpc_reconcile_digest_assignees(uuid) to service_role;
 
 -- =============================================================================
 -- 巻き戻しについて（forward fix が標準手順）
