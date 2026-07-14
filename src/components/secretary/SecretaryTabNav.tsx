@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { ChatCircleDots, Plugs } from '@phosphor-icons/react'
+import { ChatCircleDots, Plugs, IdentificationCard } from '@phosphor-icons/react'
 
-type SecretaryTab = 'messages' | 'integrations'
+type SecretaryTab = 'messages' | 'integrations' | 'user-links'
 
 interface SecretaryTabNavProps {
   orgId: string
@@ -13,6 +13,12 @@ interface SecretaryTabNavProps {
 const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; href: (orgId: string) => string }[] = [
   { key: 'messages', label: 'メッセージ', icon: ChatCircleDots, href: (orgId) => `/${orgId}/secretary` },
   { key: 'integrations', label: '連携', icon: Plugs, href: (orgId) => `/${orgId}/secretary/integrations` },
+  {
+    key: 'user-links',
+    label: 'LINE連携',
+    icon: IdentificationCard,
+    href: (orgId) => `/${orgId}/secretary/user-links`,
+  },
 ]
 
 /**

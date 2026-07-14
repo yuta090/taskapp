@@ -1257,6 +1257,26 @@ export async function findActiveUserLinkByExternalId(
   }
 }
 
+/** 失効の認可に使う（org境界と所有者の確認）。revoke 済みも返す */
+export async function findUserLinkById(linkId: string): Promise<UserLink | null> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id, org_id, user_id, channel_account_id, external_user_id, linked_at')
+    .eq('id', linkId)
+    .maybeSingle()
+  if (error) throw new Error(`channel_user_links: select failed: ${error.message}`)
+  if (!data) return null
+
+  return {
+    id: data.id as string,
+    orgId: data.org_id as string,
+    userId: data.user_id as string,
+    channelAccountId: data.channel_account_id as string,
+    externalUserId: data.external_user_id as string,
+    linkedAt: data.linked_at as string,
+  }
+}
+
 /** コンソール表示用。org 内の active な紐付け一覧 */
 export async function listActiveUserLinks(orgId: string): Promise<UserLink[]> {
   const { data, error } = await admin()
