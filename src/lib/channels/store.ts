@@ -573,6 +573,8 @@ export async function unlinkGroup(groupId: string): Promise<void> {
 export interface DigestEligibleGroup {
   id: string
   orgId: string
+  /** 未紐付けグループは null。identity解決を顧問先スコープに限るために必要 */
+  spaceId: string | null
   accountId: string
   externalGroupId: string
   pickupMode: PickupMode
@@ -587,7 +589,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
   const { data, error } = await admin()
     .from('channel_groups')
     .select(
-      'id, org_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, channel_accounts!inner(status)',
+      'id, org_id, space_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, channel_accounts!inner(status)',
     )
     .eq('status', 'active')
     .neq('pickup_mode', 'off')
@@ -597,6 +599,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
   type EligibleRow = {
     id: string
     org_id: string
+    space_id: string | null
     account_id: string
     external_group_id: string
     pickup_mode: string
@@ -605,6 +608,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
   return (data as unknown as EligibleRow[]).map((row) => ({
     id: row.id,
     orgId: row.org_id,
+    spaceId: row.space_id,
     accountId: row.account_id,
     externalGroupId: row.external_group_id,
     pickupMode: toPickupMode(row.pickup_mode),
@@ -846,6 +850,19 @@ export async function createInstantDigestTask(
   return { id: data!.id as string, title: data!.title as string }
 }
 
+/**
+ * 配信前の自己修復スイープ（Stage 2.6 fix）: identity作成と申し送りINSERTがすれ違って
+ * 担当identityがnullのまま残った分を、同一spaceのidentityへ解決しなおす。
+ * どの経路の取りこぼしも等しく吸収できるため、各INSERT経路をロックで直列化するより単純。
+ */
+export async function reconcileDigestAssignees(groupId: string): Promise<number> {
+  const { data, error } = await admin().rpc('rpc_reconcile_digest_assignees', {
+    p_group_id: groupId,
+  })
+  if (error) throw new Error(`rpc_reconcile_digest_assignees failed: ${error.message}`)
+  return (data as number) ?? 0
+}
+
 export interface NumberedDigestTask {
   id: string
   title: string
@@ -909,11 +926,22 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
  * メンションで取れたLINE userId を、既存の active identity に解決する（Stage 2.6 §1-1）。
  * identity が無い（＝まだ友だち追加していない）人は null。その場合も
  * assignee_external_user_id に生のuserIdを残すため、後日 backfill で人へ昇格できる。
+ *
+ * ★必ず space で絞る。channel_identities は「同一人物が複数顧問先の窓口になるケース
+ * （社長が2法人経営等）」を space 違いで許容している（active一意は
+ * (org_id, channel, external_id, space_id)）。org_id だけで引くと、A社のグループの
+ * 申し送りにB社のidentityが付き、顧問先をまたいだ担当の誤帰属が起きる。
+ *
+ * spaceId が null（未紐付けグループ）なら解決しない。identity は space_id not null であり、
+ * spaceが決まっていない以上その人が「どの顧問先の窓口か」を言えないため。
  */
 export async function findIdentityIdsByExternalUserIds(
   orgId: string,
+  spaceId: string | null,
   externalUserIds: string[],
 ): Promise<Map<string, string>> {
+  if (!spaceId) return new Map()
+
   const unique = [...new Set(externalUserIds)]
   if (unique.length === 0) return new Map()
 
@@ -921,6 +949,7 @@ export async function findIdentityIdsByExternalUserIds(
     .from('channel_identities')
     .select('id, external_id')
     .eq('org_id', orgId)
+    .eq('space_id', spaceId)
     .eq('channel', 'line')
     .eq('status', 'active')
     .in('external_id', unique)

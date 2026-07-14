@@ -587,9 +587,15 @@ async function processGroupMessage(
     return
   }
 
-  // identity_idの記録は参考情報として可（誰の発言かのメモ）。space_idには絶対反映しない
+  // identity_idの記録は参考情報として可（誰の発言かのメモ）。space_idには絶対反映しない。
+  // ただし identity は必ずこのグループの space のものに限る。org内の先頭を無条件に採ると、
+  // 同一人物が複数顧問先の窓口（社長が2法人経営等）のとき別顧問先のidentityを記録し得る。
+  // channel_messages.identity_id は一度入ると変更できないため、誤りが残り続ける。
+  // 未紐付けグループ（space_id null）はそもそも誰の窓口か言えないので null にする。
   const identityId = event.externalUserId
-    ? (await findActiveLineIdentities(account.orgId, event.externalUserId))[0]?.id ?? null
+    ? (
+        await findIdentityIdsByExternalUserIds(account.orgId, group.spaceId, [event.externalUserId])
+      ).get(event.externalUserId) ?? null
     : null
 
   if (event.contentType === 'text' && event.body) {
@@ -674,8 +680,20 @@ async function processGroupLinkCode(
     currentGroup = (await findGroupById(group.id)) ?? group
   }
 
+  // 紐付け前は space 未確定で identity を解決できなかった（他顧問先のidentityを引かないため null）。
+  // ここでは space が確定しているので、このメッセージだけ発言者帰属が欠落しないよう再解決する
+  const resolvedIdentityId =
+    identityId ??
+    (event.externalUserId
+      ? (
+          await findIdentityIdsByExternalUserIds(account.orgId, currentGroup.spaceId, [
+            event.externalUserId,
+          ])
+        ).get(event.externalUserId) ?? null
+      : null)
+
   const recorded = await insertChannelMessage(
-    groupMessageRecord(account, event, currentGroup, identityId, null),
+    groupMessageRecord(account, event, currentGroup, resolvedIdentityId, null),
   )
   if (recorded === 'duplicate' || disabled) return
 
@@ -800,7 +818,8 @@ async function handleMentionInstantTask(
 
     let assigneeIdentityId: string | null = null
     if (assignee.assigneeExternalUserId) {
-      const identities = await findIdentityIdsByExternalUserIds(account.orgId, [
+      // 必ずこのグループの space で解決する（他顧問先のidentityを引かない）
+      const identities = await findIdentityIdsByExternalUserIds(account.orgId, group.spaceId, [
         assignee.assigneeExternalUserId,
       ])
       assigneeIdentityId = identities.get(assignee.assigneeExternalUserId) ?? null
