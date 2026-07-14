@@ -1,6 +1,9 @@
 import type { MetadataRoute } from 'next'
 import { listPublishedPosts } from '@/lib/blog/posts'
 
+// 公開記事をDBから引くため静的化しない（ビルド時に固定されると新記事が載らない）
+export const dynamic = 'force-dynamic'
+
 const SITE = 'https://agentpm.app'
 
 // 公開マーケティング・法務ページ（proxy.ts の publicPaths と対応）
