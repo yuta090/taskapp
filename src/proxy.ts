@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constants'
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 
+// このファイルは必ず src/ 直下に置く（src/app と同階層）。
+// リポジトリルートに置くと `next dev` が読み込まず、認証ゲートがローカルだけ無効になる
+// （ビルドは拾うため本番との差分に気づけない）。Next 16 で middleware.ts → proxy.ts に改称。
+
 // 認証不要のパス（ホワイトリスト — ここに無いページは全て認証必須）
 // NOTE: /api は静的ファイルスキップで除外済みのためここに不要
 const publicPaths = [
@@ -27,6 +31,8 @@ const publicPaths = [
   '/use-cases',
   // ヘルプ: 顧客・クライアント（アカウントを持たない相手を含む）が参照する
   '/help',
+  // ブログ: SEO記事。未ログインの検索流入が読む
+  '/blog',
   '/portal/email-action',
 ]
 
@@ -49,7 +55,7 @@ function redirectWithOrgCookie(url: URL, orgId: string): NextResponse {
   return redirectResponse
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // 静的ファイルはスキップ

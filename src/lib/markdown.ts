@@ -19,6 +19,42 @@ const sanitizeSchema = {
 
 const MANUAL_DIR = path.join(process.cwd(), 'docs', 'manual')
 
+/**
+ * Markdown 文字列をサニタイズ済み HTML に変換する。
+ * remark(GFM) → rehype(slug + sanitize) の共通パイプライン。
+ * ブログ本文・マニュアルなど、信頼できない可能性のある入力にも安全に使える。
+ */
+export async function renderMarkdownToHtml(markdown: string): Promise<string> {
+  const result = await unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype)
+    .use(rehypeSlug)
+    .use(rehypeSanitize, sanitizeSchema)
+    .use(rehypeStringify)
+    .process(markdown)
+
+  return String(result)
+}
+
+/** 本文中CTAの差し込み位置。最初の {{cta}} で before / after に分割する。 */
+export function splitOnCtaPlaceholder(markdown: string): {
+  before: string
+  after: string
+  hasPlaceholder: boolean
+} {
+  const marker = '{{cta}}'
+  const idx = markdown.indexOf(marker)
+  if (idx === -1) {
+    return { before: markdown, after: '', hasPlaceholder: false }
+  }
+  return {
+    before: markdown.slice(0, idx).trimEnd(),
+    after: markdown.slice(idx + marker.length).trimStart(),
+    hasPlaceholder: true,
+  }
+}
+
 export async function getManualPage(slugParts: string[]): Promise<{
   html: string
   title: string
@@ -58,16 +94,7 @@ export async function getManualPage(slugParts: string[]): Promise<{
   const titleMatch = raw.match(/^#\s+(.+)$/m)
   const title = titleMatch ? titleMatch[1] : 'AgentPM マニュアル'
 
-  const result = await unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkRehype)
-    .use(rehypeSlug)
-    .use(rehypeSanitize, sanitizeSchema)
-    .use(rehypeStringify)
-    .process(raw)
-
-  let html = String(result)
+  let html = await renderMarkdownToHtml(raw)
   html = rewriteLinks(html, slugParts, isIndex)
 
   return { html, title, isIndex }
