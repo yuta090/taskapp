@@ -20,6 +20,7 @@ create table public.channel_groups (
   org_id uuid not null references public.organizations(id),
   account_id uuid not null references public.channel_accounts(id),
   space_id uuid null references public.spaces(id),
+  display_name text null,
   approver_user_id uuid null references auth.users(id)
 );
 
@@ -40,6 +41,7 @@ create table public.channel_digest_tasks (
   title text not null,
   due_date date null,
   due_time time null,
+  assignee_hint text null,
   promotion_state text not null default 'none',
   requested_to_user_id uuid null,
   requested_at timestamptz null,

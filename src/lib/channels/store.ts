@@ -1403,6 +1403,99 @@ export async function rejectDigestTaskViaLine(
   return { status: (row?.status ?? 'not_found') as DigestRejectStatus }
 }
 
+/**
+ * コンソール経路の昇格。actorUserId はセッションから解決した内部ユーザー（信頼済み）。
+ * RPC 内の _digest_actor_can_approve が「現責任者・org在籍・space admin/editor」を再検証するため、
+ * 内部メンバーでも承認者本人でなければ forbidden になる（漏洩・越権を防ぐ）。
+ */
+export async function promoteDigestTask(
+  taskId: string,
+  actorUserId: string,
+): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
+  const { data, error } = await admin().rpc('rpc_promote_digest_task', {
+    p_task_id: taskId,
+    p_actor_user_id: actorUserId,
+  })
+  if (error) throw new Error(`rpc_promote_digest_task failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return {
+    status: (row?.status ?? 'not_found') as DigestPromoteStatus,
+    created: row?.created === true,
+    taskId: row?.task_id ?? null,
+  }
+}
+
+/** コンソール経路の却下（昇格と対称）。 */
+export async function rejectDigestTask(
+  taskId: string,
+  actorUserId: string,
+): Promise<{ status: DigestRejectStatus }> {
+  const { data, error } = await admin().rpc('rpc_reject_digest_task', {
+    p_task_id: taskId,
+    p_actor_user_id: actorUserId,
+  })
+  if (error) throw new Error(`rpc_reject_digest_task failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'not_found') as DigestRejectStatus }
+}
+
+export interface PendingApprovalItem {
+  taskId: string
+  title: string
+  dueDate: string | null
+  dueTime: string | null
+  assigneeHint: string | null
+  groupId: string
+  groupName: string | null
+  requestedAt: string | null
+  approvalNotifiedAt: string | null
+}
+
+/**
+ * コンソール「確認待ち」トレイの取得（Stage 2.7-B §5）。セッションユーザー宛の pending 候補を返す。
+ *
+ * 認可ファースト: rpc_list_pending_approvals が _digest_actor_can_approve を適用し、
+ * 「*現在も* 承認権限を持つ」候補だけを返す。requested_to=本人 で絞るだけだと、責任者交代・
+ * space外し・退職後に旧承認者へタイトル等が漏れる（承認/却下・LINE経路と同じガードを取得にも掛ける）。
+ *
+ * ★state ベースで引く（promotion_state='pending'）。approval_notified_at では絞らない:
+ * 1:1送信済み/未送信/送信失敗（クラッシュで notified 刻み済みだが未達）に関わらず、
+ * *まだ承認判断が済んでいない* 候補は全て出す。これが LINE 取りこぼしの確実なフォールバック。
+ */
+export async function listPendingApprovalsForUser(
+  orgId: string,
+  userId: string,
+): Promise<PendingApprovalItem[]> {
+  const { data, error } = await admin().rpc('rpc_list_pending_approvals', {
+    p_org_id: orgId,
+    p_actor_user_id: userId,
+  })
+  if (error) throw new Error(`rpc_list_pending_approvals failed: ${error.message}`)
+
+  type Row = {
+    task_id: string
+    title: string
+    due_date: string | null
+    due_time: string | null
+    assignee_hint: string | null
+    group_id: string
+    group_name: string | null
+    requested_at: string | null
+    approval_notified_at: string | null
+  }
+  return ((data as Row[]) ?? []).map((row) => ({
+    taskId: row.task_id,
+    title: row.title,
+    dueDate: row.due_date,
+    dueTime: row.due_time,
+    assigneeHint: row.assignee_hint,
+    groupId: row.group_id,
+    groupName: row.group_name,
+    requestedAt: row.requested_at,
+    approvalNotifiedAt: row.approval_notified_at,
+  }))
+}
+
 export interface PendingApprovalNotification {
   taskId: string
   orgId: string
