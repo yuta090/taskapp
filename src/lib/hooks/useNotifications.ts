@@ -39,6 +39,10 @@ export interface NotificationWithPayload extends Omit<Notification, 'payload'> {
     reminderType?: 'expiry_24h' | 'unresponded_48h'
     expiresAt?: string
     unrespondedNames?: string
+    // 申し送り承認依頼（Stage 2.7-B §5b）
+    digest_task_id?: string
+    group_name?: string
+    assignee_hint?: string
     [key: string]: Json | undefined
   }
 }
