@@ -31,6 +31,8 @@ import {
   expireUserLinkCode,
   promoteDigestTaskViaLine,
   rejectDigestTaskViaLine,
+  claimApprovalNotification,
+  clearApprovalNotifiedAt,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -60,6 +62,8 @@ import {
   buildTaskDoneFlexMessage,
   buildTaskDetailLine,
   resolveAssignee,
+  buildApprovalPromptFlexMessage,
+  buildDigestRetryKey,
 } from '@/lib/channels/digest/compute'
 import { parseJapaneseDue } from '@/lib/channels/digest/due'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
@@ -121,6 +125,7 @@ const PROMOTE_ALREADY_TEXT = 'すでにタスク化済みです。'
 const REJECT_DONE_TEXT = '却下しました。タスクには登録しません。'
 const APPROVAL_CONFLICT_TEXT = 'この項目はすでに処理済みです。'
 
+const APPROVAL_REQUESTED_TEXT = '責任者に確認をお願いしました。承認されると本体タスクになります。'
 const MENTION_TITLE_EMPTY_TEXT =
   '内容が読み取れませんでした。メンションに続けて申し送り内容をお書きください。'
 
@@ -925,28 +930,90 @@ async function handleMentionInstantTask(
       assigneeIdentityId = identities.get(assignee.assigneeExternalUserId) ?? null
     }
 
-    await createInstantDigestTask({
-      orgId: account.orgId,
-      groupId: group.id,
-      spaceId: group.spaceId,
-      sourceMessageId: recorded.id,
-      title,
-      assigneeHint: assignee.assigneeHint,
-      assigneeExternalUserId: assignee.assigneeExternalUserId,
-      assigneeIdentityId,
-      dueDate: due.dueDate,
-      dueTime: due.dueTime,
-    })
+    // 承認フロー（Stage 2.7-B）: 責任者が設定され、かつ space 紐付け済みのグループでは
+    // 即時タスク化せず pending にし、責任者の 1:1 へ確認Flexを送る。夜間ingestの pending 化と
+    // 同条件（approver かつ space）に揃える。どちらか欠ければ従来どおり即時に申し送りへ入れる。
+    const pending = Boolean(group.approverUserId && group.spaceId)
 
-    const detail = buildTaskDetailLine(
-      due.dueDate,
-      due.dueTime,
-      assignee.assigneeHint,
-      formatDateToLocalString(now),
-    )
-    replyText = detail
-      ? `申し送りに追加しました。\n『${title}』\n${detail}`
-      : `申し送りに追加しました。\n『${title}』`
+    if (pending) {
+      // まず候補を pending で作る（未通知）。作成を送信解決より前に置くことで、後続の
+      // claim/push が失敗しても候補は必ず残り、cron／コンソールが確実に拾える（取りこぼし防止）。
+      const created = await createInstantDigestTask({
+        orgId: account.orgId,
+        groupId: group.id,
+        spaceId: group.spaceId,
+        sourceMessageId: recorded.id,
+        title,
+        assigneeHint: assignee.assigneeHint,
+        assigneeExternalUserId: assignee.assigneeExternalUserId,
+        assigneeIdentityId,
+        dueDate: due.dueDate,
+        dueTime: due.dueTime,
+        approverUserId: group.approverUserId,
+      })
+
+      if (created !== 'duplicate') {
+        try {
+          // 原子的 claim: 責任者が *現在も* 承認権限を持ち有効な1:1紐付けがある場合だけ
+          // notified を刻んで送信先を返す（退職者へタイトルを漏らさない・cronと二重送信しない）。
+          const approverExternalUserId = await claimApprovalNotification(created.id)
+          if (approverExternalUserId) {
+            try {
+              await pushLineMessage({
+                accessToken: account.accessToken,
+                to: approverExternalUserId,
+                messages: [
+                  buildApprovalPromptFlexMessage({
+                    taskId: created.id,
+                    title,
+                    dueDate: due.dueDate,
+                    dueTime: due.dueTime,
+                    todayJst: formatDateToLocalString(now),
+                  }),
+                ],
+                // cron 送信と同一キー。曖昧失敗→null→cron再送でも LINE 側で二重化しない（§4-5）
+                retryKey: buildDigestRetryKey(created.id, 'approval-notify'),
+              })
+            } catch (pushError) {
+              // 送信失敗（曖昧含む）→ 未通知へ戻し cron／コンソールに委ねる
+              console.error('handleMentionInstantTask: approval push failed', pushError)
+              await clearApprovalNotifiedAt(created.id).catch((clearError) =>
+                console.error('handleMentionInstantTask: clearApprovalNotifiedAt failed', clearError),
+              )
+            }
+          }
+        } catch (claimError) {
+          // claim RPC の一時障害。候補は既に pending で残るため cron／コンソールが拾う。
+          // reply（主フロー）は続行し、webhook を非200で落とさない（LINE再送で候補を作り直させない）。
+          console.error('handleMentionInstantTask: claim approval notification failed', claimError)
+        }
+      }
+
+      replyText = APPROVAL_REQUESTED_TEXT
+    } else {
+      await createInstantDigestTask({
+        orgId: account.orgId,
+        groupId: group.id,
+        spaceId: group.spaceId,
+        sourceMessageId: recorded.id,
+        title,
+        assigneeHint: assignee.assigneeHint,
+        assigneeExternalUserId: assignee.assigneeExternalUserId,
+        assigneeIdentityId,
+        dueDate: due.dueDate,
+        dueTime: due.dueTime,
+      })
+
+      const detail = buildTaskDetailLine(
+        due.dueDate,
+        due.dueTime,
+        assignee.assigneeHint,
+        formatDateToLocalString(now),
+      )
+      replyText = detail
+        ? `申し送りに追加しました。\n『${title}』\n${detail}`
+        : `申し送りに追加しました。\n『${title}』`
+    }
   }
 
   if (event.replyToken) {

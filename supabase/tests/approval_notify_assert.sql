@@ -6,20 +6,26 @@ declare
   v_org  uuid := '00000000-0000-4000-8000-000000000001';
   v_a1   uuid := '00000000-0000-4000-8000-0000000000a1';
   v_a2   uuid := '00000000-0000-4000-8000-0000000000a2';
+  v_a3   uuid := '00000000-0000-4000-8000-0000000000a3'; -- 退職者approver
   v_g1   uuid := '00000000-0000-4000-8000-0000000000d1'; -- approver紐付けあり
   v_g2   uuid := '00000000-0000-4000-8000-0000000000d2'; -- approver紐付け無し
+  v_g3   uuid := '00000000-0000-4000-8000-0000000000d3'; -- 退職者approver（リンクありだが在籍なし）
   v_t1   uuid;
   v_t2   uuid;
+  v_t3   uuid;
+  v_ext  text;
   v_n    int;
   r      record;
 begin
-  -- pending 候補: g1（紐付けあり）×2、g2（紐付け無し）×1
+  -- pending 候補: g1（紐付けあり）×2、g2（紐付け無し）×1、g3（退職者・リンクあり在籍なし）×1
   insert into channel_digest_tasks(org_id, group_id, title, promotion_state, requested_to_user_id, requested_at)
     values (v_org, v_g1, '発注', 'pending', v_a1, now()) returning id into v_t1;
   insert into channel_digest_tasks(org_id, group_id, title, promotion_state, requested_to_user_id, requested_at)
     values (v_org, v_g1, '請求', 'pending', v_a1, now());
   insert into channel_digest_tasks(org_id, group_id, title, promotion_state, requested_to_user_id, requested_at)
     values (v_org, v_g2, '棚卸', 'pending', v_a2, now()) returning id into v_t2;
+  insert into channel_digest_tasks(org_id, group_id, title, promotion_state, requested_to_user_id, requested_at)
+    values (v_org, v_g3, '退職者宛', 'pending', v_a3, now()) returning id into v_t3;
   -- none の候補（承認フロー外）は対象外
   insert into channel_digest_tasks(org_id, group_id, title, promotion_state)
     values (v_org, v_g1, '雑談メモ', 'none');
@@ -91,6 +97,52 @@ begin
   select count(*) into v_n from rpc_claim_pending_approval_notifications(null);
   if v_n <> 2 then raise exception '7) NULL limit で n=% (期待 2: 例外なくクランプ動作)', v_n; end if;
   raise notice 'PASS 7) p_limit=NULL はクランプされ無制限にならない';
+
+  -----------------------------------------------------------------------------
+  -- 8) 退職者ガード: 有効リンクが残っていても、現在 org/space 在籍が無い approver の
+  --    候補は claim されない（1:1でタイトルを漏らさない）。notified も刻まれない。
+  -----------------------------------------------------------------------------
+  update channel_user_links set revoked_at = null where external_user_id = 'Uex-staff'; -- リンクは有効
+  update channel_digest_tasks set approval_notified_at = null;
+  if exists (select 1 from rpc_claim_pending_approval_notifications(50) where task_id = v_t3) then
+    raise exception '8) 退職者(在籍なし)approverの候補が claim された（漏洩ガード破れ）';
+  end if;
+  if (select approval_notified_at from channel_digest_tasks where id = v_t3) is not null then
+    raise exception '8) 退職者候補に notified が刻まれた';
+  end if;
+  raise notice 'PASS 8) 有効リンクありでも在籍なし承認者へは通知しない（退職者漏洩ガード）';
+
+  -----------------------------------------------------------------------------
+  -- 9) 単票 claim rpc_claim_approval_notification: 権限あり→送信先を返し notified を刻む。
+  --    2回目は null（冪等・二重送信防止）。
+  -----------------------------------------------------------------------------
+  update channel_digest_tasks set approval_notified_at = null where id = v_t1;
+  select rpc_claim_approval_notification(v_t1) into v_ext;
+  if v_ext <> 'Uapprover-new' then raise exception '9) 単票claim external=% (期待 Uapprover-new)', v_ext; end if;
+  if (select approval_notified_at from channel_digest_tasks where id = v_t1) is null then
+    raise exception '9) 単票claim後に notified が刻まれていない';
+  end if;
+  select rpc_claim_approval_notification(v_t1) into v_ext;
+  if v_ext is not null then raise exception '9) 2回目の単票claimが非null（冪等でない）'; end if;
+  raise notice 'PASS 9) 単票claimは送信先を返し notified を刻む・2回目はnull';
+
+  -----------------------------------------------------------------------------
+  -- 10) 単票claim の退職者ガード: 在籍なし approver は null（notified を刻まない）。
+  -----------------------------------------------------------------------------
+  update channel_digest_tasks set approval_notified_at = null where id = v_t3;
+  select rpc_claim_approval_notification(v_t3) into v_ext;
+  if v_ext is not null then raise exception '10) 退職者候補の単票claimが非null（漏洩ガード破れ）'; end if;
+  if (select approval_notified_at from channel_digest_tasks where id = v_t3) is not null then
+    raise exception '10) 退職者候補に単票claimで notified が刻まれた';
+  end if;
+  raise notice 'PASS 10) 単票claimも在籍なし承認者へは送らない';
+
+  -----------------------------------------------------------------------------
+  -- 11) 単票claim: pending 以外（none/promoted/rejected）や存在しないtaskは null。
+  -----------------------------------------------------------------------------
+  select rpc_claim_approval_notification('00000000-0000-4000-8000-0000000000ff') into v_ext; -- 不在
+  if v_ext is not null then raise exception '11) 不在taskの単票claimが非null'; end if;
+  raise notice 'PASS 11) 単票claimは不在/非pendingで null';
 
   raise notice '=== 全項目 PASS ===';
 end $$;

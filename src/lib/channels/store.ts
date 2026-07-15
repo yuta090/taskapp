@@ -395,6 +395,8 @@ export interface ChannelGroup {
   /** 申し送りの拾い方（Stage 2.5 §1）。digest_enabled列は廃止・読み書きしない */
   pickupMode: PickupMode
   lastExtractedMessageCreatedAt: string | null
+  /** 承認フロー（Stage 2.7-B）の責任者。未設定なら候補を pending にしない（オプトイン） */
+  approverUserId: string | null
 }
 
 interface GroupRow {
@@ -407,6 +409,7 @@ interface GroupRow {
   status: string
   pickup_mode: string
   last_extracted_message_created_at: string | null
+  approver_user_id: string | null
 }
 
 function toPickupMode(value: string): PickupMode {
@@ -424,11 +427,12 @@ function toChannelGroup(row: GroupRow): ChannelGroup {
     status: row.status === 'left' ? 'left' : 'active',
     pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
+    approverUserId: row.approver_user_id,
   }
 }
 
 const GROUP_COLUMNS =
-  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at'
+  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at, approver_user_id'
 
 export async function findActiveGroup(
   accountId: string,
@@ -815,16 +819,33 @@ export interface CreateInstantDigestTaskInput {
   assigneeIdentityId?: string | null
   dueDate?: string | null
   dueTime?: string | null
+  /**
+   * 承認フロー（Stage 2.7-B）: 責任者が設定されたグループでは候補を pending にする。
+   * 指定時は promotion_state='pending' / requested_to_user_id / requested_at を埋める。
+   * approval_notified_at は常に未通知(null)で生む。送信は生成後に claim RPC 経由で原子的に印を打つ。
+   */
+  approverUserId?: string | null
 }
 
 /**
  * メンション即時タスク化（Stage 2.5 §2）: channel_digest_tasks へ直接INSERTする。
  * extracted_dateはJST日付（formatDateToLocalString使用。toISOString().split禁止）。
  * unique(source_message_id, title) 競合（webhook再送等）は握って冪等成功('duplicate')扱いにする。
+ *
+ * approverUserId 指定時は Stage 2.7-B の承認フローに乗せ pending として作る。CHECK
+ * (digest_promotion_state_chk) が pending には requested_to_user_id / requested_at を要求するため
+ * 同時に埋める（requested_at は timestamptz の瞬時値。DATE ではないので toISOString で可）。
  */
 export async function createInstantDigestTask(
   input: CreateInstantDigestTaskInput,
 ): Promise<{ id: string; title: string } | 'duplicate'> {
+  const promotion = input.approverUserId
+    ? {
+        promotion_state: 'pending',
+        requested_to_user_id: input.approverUserId,
+        requested_at: new Date().toISOString(),
+      }
+    : {}
   const { data, error } = await admin()
     .from('channel_digest_tasks')
     .insert({
@@ -839,6 +860,7 @@ export async function createInstantDigestTask(
       due_date: input.dueDate ?? null,
       due_time: input.dueTime ?? null,
       extracted_date: formatDateToLocalString(new Date()),
+      ...promotion,
     })
     .select('id, title')
     .single()
@@ -1255,6 +1277,36 @@ export async function findActiveUserLinkByExternalId(
     externalUserId: data.external_user_id as string,
     linkedAt: data.linked_at as string,
   }
+}
+
+/**
+ * 即時1:1送信のための "単一候補 claim"（Stage 2.7-B §4-5）。cron の一括 claim の単票版。
+ * 対象が pending かつ未通知で、requested_to が *現在も* 承認権限を持ち（org在籍＋対象spaceの
+ * admin/editor、かつ現責任者と一致）、有効な1:1紐付けがある場合にのみ、approval_notified_at を
+ * 原子的に刻んで送信先 external_user_id を返す。それ以外は null（印を打たない→cron/コンソールへ委ねる）。
+ *
+ * 認可を RPC 側（_digest_actor_can_approve）に一元化することで、退職・space外しの承認者へ
+ * タイトルを 1:1 で漏らさない。行ロックで cron ディスパッチャとの二重送信も防ぐ。
+ */
+export async function claimApprovalNotification(taskId: string): Promise<string | null> {
+  const { data, error } = await admin().rpc('rpc_claim_approval_notification', {
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_claim_approval_notification failed: ${error.message}`)
+  return (data as string | null) ?? null
+}
+
+/**
+ * 即時1:1送信が失敗した pending 候補を未通知に戻す（Stage 2.7-B）。claim で刻んだ
+ * approval_notified_at を NULL に戻し、cron ディスパッチャ／コンソールが拾えるようにする。
+ * cron 送信と同一の LINE retryKey を使うため、初回が実は届いていても再送は LINE 側で冪等化される。
+ */
+export async function clearApprovalNotifiedAt(taskId: string): Promise<void> {
+  const { error } = await admin()
+    .from('channel_digest_tasks')
+    .update({ approval_notified_at: null })
+    .eq('id', taskId)
+  if (error) throw new Error(`channel_digest_tasks: clear approval_notified_at failed: ${error.message}`)
 }
 
 /** 失効の認可に使う（org境界と所有者の確認）。revoke 済みも返す */
