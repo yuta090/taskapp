@@ -20,6 +20,7 @@ import {
   PaintBrush,
   PlugsConnected,
   Terminal,
+  Article,
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { label: 'ログ', icon: ClockCounterClockwise, href: '/admin/logs' },
   { label: '通知', icon: Bell, href: '/admin/notifications' },
   { label: 'お知らせ', icon: Megaphone, href: '/admin/announcements' },
+  { label: 'ブログ', icon: Article, href: '/admin/blog' },
   { label: 'レビュー', icon: CheckCircle, href: '/admin/reviews' },
   { label: '分析', icon: ChartLine, href: '/admin/analytics' },
   { label: 'サイトマップ', icon: TreeStructure, href: '/admin/sitemap' },
