@@ -59,20 +59,21 @@ begin
   end if;
   raise notice 'PASS 3) none→再pendingで通知を再活性（増やさない）';
 
-  -- 4) pending→promoted → 通知を既読/対応済みにする（LINE/トレイ経由の掃除）
+  -- 4) pending→promoted → 通知を *削除* する（開示対策: ペイロードを受信箱に残さない）
   -- ※scratchの channel_digest_tasks は CHECK 制約なしなので付随列は省略して状態だけ遷移させる
   update channel_digest_tasks set promotion_state='promoted' where id=v_t1;
-  select * into r from notifications where dedupe_key='digest_approval:'||v_t1::text;
-  if r.read_at is null or r.actioned_at is null then raise exception '4) promoted後に通知が掃除されていない'; end if;
-  raise notice 'PASS 4) promoted遷移で承認依頼通知を既読/対応済みに';
+  select count(*) into v_n from notifications where dedupe_key='digest_approval:'||v_t1::text;
+  if v_n <> 0 then raise exception '4) promoted後に通知が削除されていない n=%', v_n; end if;
+  raise notice 'PASS 4) promoted遷移で承認依頼通知を削除（ペイロードを残さない）';
 
-  -- 5) pending→none（責任者交代）でも掃除される
-  update notifications set read_at=null, actioned_at=null where dedupe_key='digest_approval:'||v_t1::text; -- t1の通知を未読に戻して観測
-  update channel_digest_tasks set promotion_state='pending' where id=v_t1;  -- 一旦pendingへ
+  -- 5) pending→none（責任者交代）でも削除される
+  update channel_digest_tasks set promotion_state='pending', requested_to_user_id=v_a1, requested_at=now() where id=v_t1;  -- 一旦pendingへ再作成
+  select count(*) into v_n from notifications where dedupe_key='digest_approval:'||v_t1::text;
+  if v_n <> 1 then raise exception '5) 再pendingで通知が復活していない n=%', v_n; end if;
   update channel_digest_tasks set promotion_state='none', requested_to_user_id=null, requested_at=null where id=v_t1;
-  select * into r from notifications where dedupe_key='digest_approval:'||v_t1::text;
-  if r.read_at is null or r.actioned_at is null then raise exception '5) none遷移(責任者交代)で通知が掃除されていない'; end if;
-  raise notice 'PASS 5) none遷移でも承認依頼通知を掃除';
+  select count(*) into v_n from notifications where dedupe_key='digest_approval:'||v_t1::text;
+  if v_n <> 0 then raise exception '5) none遷移(責任者交代)で通知が削除されていない n=%', v_n; end if;
+  raise notice 'PASS 5) none遷移(責任者交代)でも承認依頼通知を削除';
 
   raise notice '=== digest_approval_notification 全項目 PASS ===';
 end $$;

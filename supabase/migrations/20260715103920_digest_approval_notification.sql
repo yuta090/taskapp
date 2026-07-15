@@ -11,7 +11,8 @@
 --   - 冪等: dedupe_key = 'digest_approval:<task_id>'、unique(to_user_id, channel, dedupe_key) と
 --     on conflict do nothing で二重作成しない（ingest再実行・複数回pendingでも1件）。
 --   - space_id は NOT NULL。pending は space 紐付け時のみ作られるが、防御的に g.space_id not null を要求。
---   - 後始末: pending→promoted/rejected に遷移したら当該通知を既読化し、承認済みの依頼を残さない。
+--   - 後始末: pending→promoted/rejected/none に遷移したら当該通知を *削除* し、ペイロード（タスク名等）を
+--     受信箱に残さない（notifications RLS は to_user_id 基準のみ＝離脱者へのペイロード開示を消し込む）。
 -- =============================================================================
 
 create or replace function public.channel_digest_tasks_notify_approver()
@@ -50,16 +51,21 @@ begin
           created_at = now();
   end if;
 
-  -- 2) pending から抜けた（promoted/rejected/none いずれも）→ 承認依頼通知を既読化。
-  -- 責任者交代(rpc_set_group_approver)は pending→none にするため none も掃除対象に含める
-  -- （旧責任者の受信箱に承認済みでない古い依頼を残さない）。
+  -- 2) pending から抜けた（promoted/rejected/none いずれも）→ 承認依頼通知を *削除* する。
+  -- 責任者交代(rpc_set_group_approver)は pending→none にするため none も掃除対象に含める。
+  --
+  -- 既読化ではなく削除にするのは情報開示対策（Stage 2.7-B §5b 追補）:
+  -- notifications の RLS は to_user_id 基準のみ（全通知タイプ共通の既存仕様）で、useNotifications は
+  -- org 未選択時に org フィルタも外して受信箱を引く。既読化ではペイロード（タスク名/期限/担当/グループ名）が
+  -- 行に残るため、承認者だった人が組織離脱後も自分の受信箱で内容を読めてしまう。pending 解消と同時に
+  -- 削除すれば、承認/却下/責任者交代の各経路で当該ペイロードを受信箱から消し込める。
+  -- （残る「pending中に承認者が組織離脱」の一点は promotion_state 不変のためここでは掃除できず、
+  --   membership 変更RPC＋通知RLSのmembership連動＝別途セキュリティストリームで対応する。）
   if tg_op = 'UPDATE'
      and old.promotion_state = 'pending'
      and new.promotion_state is distinct from 'pending'
   then
-    update public.notifications
-       set read_at = coalesce(read_at, now()),
-           actioned_at = coalesce(actioned_at, now())
+    delete from public.notifications
      where channel = 'in_app'
        and type = 'digest_approval_request'
        and dedupe_key = 'digest_approval:' || new.id::text;
@@ -85,7 +91,7 @@ create index if not exists notifications_digest_approval_dedupe_idx
 --   1) pending挿入(認可OK)→ digest_approval_request 通知が1件・payloadにtitle/group_name
 --   2) 再挿入/再pending → dedupeで増えない
 --   3) 認可NG(退職/交代/space外し)→ 通知は作られない
---   4) promoted/rejected へ遷移 → 当該通知が read_at/actioned_at 埋まる
+--   4) promoted/rejected/none へ遷移 → 当該通知が削除される（ペイロードを残さない）
 -- ロールバック:
 --   drop trigger trg_channel_digest_tasks_notify_approver on public.channel_digest_tasks;
 --   drop function public.channel_digest_tasks_notify_approver();

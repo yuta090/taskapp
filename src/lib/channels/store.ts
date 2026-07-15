@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { jstNow } from '@/lib/datetime/jstNow'
 import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
 import {
@@ -1556,10 +1554,7 @@ export async function ingestDigestTasks(
 }
 
 export interface CreateInstantDigestTaskInput {
-  orgId: string
   groupId: string
-  /** groupからのデノーマライズ。未紐付けグループ（space_id null）でも作成できる */
-  spaceId: string | null
   sourceMessageId: string
   title: string
   assigneeHint?: string | null
@@ -1567,58 +1562,45 @@ export interface CreateInstantDigestTaskInput {
   assigneeIdentityId?: string | null
   dueDate?: string | null
   dueTime?: string | null
-  /**
-   * 承認フロー（Stage 2.7-B）: 責任者が設定されたグループでは候補を pending にする。
-   * 指定時は promotion_state='pending' / requested_to_user_id / requested_at を埋める。
-   * approval_notified_at は常に未通知(null)で生む。送信は生成後に claim RPC 経由で原子的に印を打つ。
-   */
-  approverUserId?: string | null
+}
+
+export interface CreateInstantDigestTaskResult {
+  /** 新規作成時のみ非null。重複(webhook再送)・グループ不在では null */
+  id: string | null
+  /** 承認フローに乗るか（DB側で「現在の」approver＋space紐付けから確定した値） */
+  pending: boolean
+  /** unique(source_message_id, title) 競合で既存行に当たった（冪等成功） */
+  duplicate: boolean
 }
 
 /**
- * メンション即時タスク化（Stage 2.5 §2）: channel_digest_tasks へ直接INSERTする。
- * extracted_dateはJST日付（formatDateToLocalString使用。toISOString().split禁止）。
- * unique(source_message_id, title) 競合（webhook再送等）は握って冪等成功('duplicate')扱いにする。
+ * メンション即時タスク化（Stage 2.5 §2 / 2.7-B §4-5）: グループ行を FOR UPDATE でロックする
+ * RPC(rpc_create_instant_digest_task)経由で INSERT する。承認者(approver_user_id)・space_id は
+ * *アプリのスナップショットを信じず* ロックした行から DB 側で読み、pending 判定と promotion 列を確定する。
  *
- * approverUserId 指定時は Stage 2.7-B の承認フローに乗せ pending として作る。CHECK
- * (digest_promotion_state_chk) が pending には requested_to_user_id / requested_at を要求するため
- * 同時に埋める（requested_at は timestamptz の瞬時値。DATE ではないので toISOString で可）。
+ * これにより、取得〜INSERT の隙間に rpc_set_group_approver で承認者が変わっても、
+ * 旧承認者宛の宙吊り pending が生まれない（承認者変更と直列化される）。
+ * extracted_date は RPC 内で JST 日付。unique(source_message_id, title) 競合は duplicate=true で冪等成功。
  */
 export async function createInstantDigestTask(
   input: CreateInstantDigestTaskInput,
-): Promise<{ id: string; title: string } | 'duplicate'> {
-  const promotion = input.approverUserId
-    ? {
-        promotion_state: 'pending',
-        requested_to_user_id: input.approverUserId,
-        requested_at: new Date().toISOString(),
-      }
-    : {}
+): Promise<CreateInstantDigestTaskResult> {
   const { data, error } = await admin()
-    .from('channel_digest_tasks')
-    .insert({
-      org_id: input.orgId,
-      group_id: input.groupId,
-      space_id: input.spaceId,
-      source_message_id: input.sourceMessageId,
-      title: input.title,
-      assignee_hint: input.assigneeHint ?? null,
-      assignee_external_user_id: input.assigneeExternalUserId ?? null,
-      assignee_identity_id: input.assigneeIdentityId ?? null,
-      due_date: input.dueDate ?? null,
-      due_time: input.dueTime ?? null,
-      // JST日付。本番UTCで new Date() を直に使うと1日ずれるため jstNow() を通す
-      extracted_date: formatDateToLocalString(jstNow()),
-      ...promotion,
+    .rpc('rpc_create_instant_digest_task', {
+      p_group_id: input.groupId,
+      p_source_message_id: input.sourceMessageId,
+      p_title: input.title,
+      p_assignee_hint: input.assigneeHint ?? null,
+      p_assignee_external_user_id: input.assigneeExternalUserId ?? null,
+      p_assignee_identity_id: input.assigneeIdentityId ?? null,
+      p_due_date: input.dueDate ?? null,
+      p_due_time: input.dueTime ?? null,
     })
-    .select('id, title')
     .single()
 
-  if (error) {
-    if (error.code === '23505') return 'duplicate'
-    throw new Error(`channel_digest_tasks: insert failed: ${error.message}`)
-  }
-  return { id: data!.id as string, title: data!.title as string }
+  if (error) throw new Error(`rpc_create_instant_digest_task failed: ${error.message}`)
+  const row = data as { id: string | null; is_pending: boolean; is_duplicate: boolean }
+  return { id: row.id ?? null, pending: Boolean(row.is_pending), duplicate: Boolean(row.is_duplicate) }
 }
 
 /**
