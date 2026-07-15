@@ -1350,3 +1350,37 @@ export async function rejectDigestTaskViaLine(
   const row = Array.isArray(data) ? data[0] : data
   return { status: (row?.status ?? 'not_found') as DigestRejectStatus }
 }
+
+export interface PendingApprovalNotification {
+  taskId: string
+  orgId: string
+  channelAccountId: string
+  externalUserId: string
+  title: string
+  dueDate: string | null
+  dueTime: string | null
+}
+
+/**
+ * pending 承認候補のうち未通知で、責任者に有効な1:1紐付けがあるものを原子的に claim する。
+ * claim した行には approval_notified_at が刻まれる（並行ディスパッチャで二重送信しない）。
+ * 呼び出し側は account 単位で access token を解決し、返った external_user_id へ Flex を push する。
+ */
+export async function claimPendingApprovalNotifications(
+  limit = 50,
+): Promise<PendingApprovalNotification[]> {
+  const { data, error } = await admin().rpc('rpc_claim_pending_approval_notifications', {
+    p_limit: limit,
+  })
+  if (error) throw new Error(`rpc_claim_pending_approval_notifications failed: ${error.message}`)
+
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    taskId: row.task_id as string,
+    orgId: row.org_id as string,
+    channelAccountId: row.channel_account_id as string,
+    externalUserId: row.external_user_id as string,
+    title: row.title as string,
+    dueDate: (row.due_date as string | null) ?? null,
+    dueTime: (row.due_time as string | null) ?? null,
+  }))
+}
