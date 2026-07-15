@@ -70,6 +70,82 @@ create policy channel_group_claims_select_internal
   using ( public.app_is_org_internal(org_id) );
 
 -- -----------------------------------------------------------------------------
+-- 2.5) integrity guard（必須・設計正本 §3）
+--   claim 行は RLS で org 内部メンバーに group表示名/groupId を見せる。承認後に claim を
+--   別orgへ移せると越境露出になる。結合列を作成後 immutable にし、INSERT時に
+--   claim.org/space が bound link_code の org/space と一致することを強制する。
+-- -----------------------------------------------------------------------------
+-- BEFORE INSERT: claim.org/space が bound link_code(link_code_id) の org/space と一致する。
+create or replace function public.channel_group_claims_insert_integrity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_lc record;
+begin
+  select org_id, space_id, purpose into v_lc
+  from public.channel_link_codes
+  where id = new.link_code_id;
+
+  if v_lc.org_id is null then
+    raise exception 'channel_group_claims: unknown link_code_id %', new.link_code_id;
+  end if;
+  if v_lc.purpose is distinct from 'shared_group_claim' then
+    raise exception 'channel_group_claims: link_code purpose must be shared_group_claim (got %)', v_lc.purpose;
+  end if;
+  if new.org_id is distinct from v_lc.org_id then
+    raise exception 'channel_group_claims: org_id (%) must equal link_code org_id (%)', new.org_id, v_lc.org_id;
+  end if;
+  if new.space_id is distinct from v_lc.space_id then
+    raise exception 'channel_group_claims: space_id (%) must equal link_code space_id (%)', new.space_id, v_lc.space_id;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.channel_group_claims_insert_integrity() from public, anon, authenticated;
+
+drop trigger if exists trg_channel_group_claims_insert_integrity on public.channel_group_claims;
+create trigger trg_channel_group_claims_insert_integrity
+  before insert on public.channel_group_claims
+  for each row execute function public.channel_group_claims_insert_integrity();
+
+-- BEFORE UPDATE: 結合列 immutable ＋ status 遷移は pending→{approved,rejected,expired} のみ。
+--   auto_approved は INSERT時終端（UPDATEで他状態へ遷移不可・pending へ戻せない）。
+create or replace function public.channel_group_claims_guard_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- 結合列は作成後 immutable（越境露出の防止）。
+  if new.link_code_id is distinct from old.link_code_id
+     or new.org_id is distinct from old.org_id
+     or new.space_id is distinct from old.space_id
+     or new.account_id is distinct from old.account_id
+     or new.external_group_id is distinct from old.external_group_id then
+    raise exception 'channel_group_claims: join columns (link_code_id/org_id/space_id/account_id/external_group_id) are immutable';
+  end if;
+
+  -- status 遷移規律。同値維持は可（events_seen 等の更新のため）。
+  if new.status is distinct from old.status then
+    if old.status is distinct from 'pending'
+       or new.status not in ('approved', 'rejected', 'expired') then
+      raise exception 'channel_group_claims: invalid status transition % -> %', old.status, new.status;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_channel_group_claims_guard on public.channel_group_claims;
+create trigger trg_channel_group_claims_guard
+  before update on public.channel_group_claims
+  for each row execute function public.channel_group_claims_guard_update();
+
+-- -----------------------------------------------------------------------------
 -- 3) rpc_approve_group_claim — Web承認トランザクション（service role専用）
 --    API route が auth.uid をサーバ側解決して p_approver_user_id に渡す前提。
 --    クライアント申告の user_id/org_id は信用しない。
@@ -88,6 +164,7 @@ declare
   v_link_code_id uuid;
   v_lc record;
   v_claim record;
+  v_constraint text;
 begin
   -- ロック順序を確定するため、まず claim から link_code_id だけを軽く読む（ロック取得はしない）。
   select link_code_id into v_link_code_id
@@ -101,7 +178,8 @@ begin
   -- (1) link_codes 行を FOR UPDATE で先に掴む。
   --     ★code を単一の真実源にする（設計正本 §3/§7-8「紐付け先は常に code.org_id/space_id のみ」）。
   --       org_id/space_id もここから取り、INSERT・membership 検証に用いる。
-  select id, purpose, binding_mode, target_account_id, consumed_at, expires_at, org_id, space_id
+  --       revoked_at も同一ロック下で読む（運用者の正式な失効手段を尊重）。
+  select id, purpose, binding_mode, target_account_id, consumed_at, expires_at, revoked_at, org_id, space_id
     into v_lc
   from public.channel_link_codes
   where id = v_link_code_id
@@ -115,6 +193,14 @@ begin
   where id = p_claim_id
   for update;
 
+  -- ★TOCTOU: ロック前の無施錠読み(v_link_code_id)以後に claim.link_code_id が
+  --   別コードへ書き換えられていないかを、ロック確定後に再検証する
+  --   （結合列 immutable ガードとの二重防御。設計正本 §3 承認RPCの規律）。
+  if v_claim.link_code_id is distinct from v_lc.id then
+    raise exception 'rpc_approve_group_claim: claim link_code_id changed under lock (TOCTOU): % <> %',
+      v_claim.link_code_id, v_lc.id;
+  end if;
+
   -- 再検証（いずれか失敗で拒否）。
   if v_claim.status is distinct from 'pending' then
     raise exception 'rpc_approve_group_claim: claim % is not pending (status=%)', p_claim_id, v_claim.status;
@@ -127,6 +213,9 @@ begin
   end if;
   if v_lc.consumed_at is not null then
     raise exception 'rpc_approve_group_claim: link_code already consumed';
+  end if;
+  if v_lc.revoked_at is not null then
+    raise exception 'rpc_approve_group_claim: link_code has been revoked';
   end if;
   if v_lc.expires_at <= now() then
     raise exception 'rpc_approve_group_claim: link_code expired';
@@ -170,6 +259,11 @@ begin
       v_claim.group_display_name_snapshot, 'active', 'approved_link_code', v_lc.id
     );
   exception when unique_violation then
+    -- ★channel_groups_active_unique の時のみ graceful reject（他の unique violation は握り潰さない）。
+    get stacked diagnostics v_constraint = constraint_name;
+    if v_constraint is distinct from 'channel_groups_active_unique' then
+      raise;
+    end if;
     -- 既にこのグループは active 世代が存在する（別claim が先に成立）。
     -- コードは消費せず、この claim を却下扱いで pending から外す。
     update public.channel_group_claims
@@ -197,7 +291,8 @@ grant execute on function public.rpc_approve_group_claim(uuid, uuid) to service_
 
 -- -----------------------------------------------------------------------------
 -- 4) rpc_reject_group_claim — 承認者による却下（service role専用）
---    membership を確認の上 pending → rejected。link_codes は消費しない。
+--    approve と同型に link_code → claim 順でロックし、membership は code.org に対して
+--    検証する（設計正本 §3「reject も approve と同型」）。link_codes は消費しない。
 -- -----------------------------------------------------------------------------
 create or replace function public.rpc_reject_group_claim(
   p_claim_id uuid,
@@ -209,25 +304,44 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
+  v_link_code_id uuid;
+  v_lc record;
   v_claim record;
   v_updated int;
 begin
-  select id, org_id, status into v_claim
+  -- ロック順序を確定するため、まず claim から link_code_id を無施錠で読む。
+  select link_code_id into v_link_code_id
+  from public.channel_group_claims
+  where id = p_claim_id;
+
+  if v_link_code_id is null then
+    raise exception 'rpc_reject_group_claim: unknown claim_id %', p_claim_id;
+  end if;
+
+  -- (1) link_code → (2) claim の順でロック（approve と同一順序でデッドロック回避）。
+  select id, org_id into v_lc
+  from public.channel_link_codes
+  where id = v_link_code_id
+  for update;
+
+  select id, link_code_id, status into v_claim
   from public.channel_group_claims
   where id = p_claim_id
   for update;
 
-  if v_claim.id is null then
-    raise exception 'rpc_reject_group_claim: unknown claim_id %', p_claim_id;
+  -- TOCTOU 再検証（claim結合列 immutable との二重防御）。
+  if v_claim.link_code_id is distinct from v_lc.id then
+    raise exception 'rpc_reject_group_claim: claim link_code_id changed under lock (TOCTOU)';
   end if;
 
+  -- membership は ★code.org に対して。
   if not exists (
     select 1 from public.org_memberships m
-    where m.org_id = v_claim.org_id
+    where m.org_id = v_lc.org_id
       and m.user_id = p_approver_user_id
       and m.role in ('owner', 'admin', 'member')
   ) then
-    raise exception 'rpc_reject_group_claim: approver % is not an internal member of org %', p_approver_user_id, v_claim.org_id;
+    raise exception 'rpc_reject_group_claim: approver % is not an internal member of org %', p_approver_user_id, v_lc.org_id;
   end if;
 
   update public.channel_group_claims
@@ -246,18 +360,26 @@ grant execute on function public.rpc_reject_group_claim(uuid, uuid) to service_r
 -- =============================================================================
 -- 検証（適用後に service role で実施。設計正本 §8 (e)(f)(g)。全ケースを
 --   supabase/tests/shared_bot_tenancy_verify.sql が使い捨てクラスタで自動検証済み）:
---   (e) 承認者が code.org のメンバーでない（他org member 含む）承認RPCが拒否される。
---   (f) 失効(expires_at<=now)/消費済み(consumed_at not null)コードの承認が拒否される。
---   (g) 同一グループへの2claim同時承認 → 片方が channel_groups_active_unique の 23505 で
---       graceful に false（かつ当該 claim は rejected へ）・もう片方が true。デッドロック無し。
+--   (e) 承認者が code.org のメンバーでない（他org member 含む）承認/却下RPCが拒否される。
+--   (f) 失効(expires_at<=now)/消費済み(consumed_at)/revoke済み(revoked_at)コードの承認が拒否される。
+--   (g) 同一グループへの2claim「真の同時」承認（2接続）→ 片方が channel_groups_active_unique の
+--       23505 で graceful に false（当該 claim は rejected・敗者コード未消費）・もう片方が true。
+--       他 constraint の 23505 は握り潰さず再送出。デッドロック無し。
 --   (C1) claim.org/space ≠ code.org/space の承認が拒否される（code を単一の真実源に）。
---   + purpose≠shared_group_claim / binding_mode≠web_approval の拒否。
---   + target_account_id ≠ claim.account_id の拒否。
+--   + claim BEFORE INSERT: claim.org/space が bound link_code と不一致なら拒否。
+--   + claim BEFORE UPDATE: 結合列(link_code_id/org_id/space_id/account_id/external_group_id)
+--     の変更拒否・status は pending→{approved,rejected,expired} 以外拒否（auto_approved 遷移不可）。
+--   + TOCTOU: claim.link_code_id がロック確定後に別コードなら拒否。
+--   + purpose≠shared_group_claim / binding_mode≠web_approval / target_account 不一致の拒否。
 --   + 承認成功で channel_groups(org/space は★code由来, tenant_source=approved_link_code,
 --     bound_by_link_code_id) が1行、link_code.consumed_at が埋まり、claim.status=approved になること。
 --   + RLS: 他org の authenticated から channel_group_claims が 0行、自org は読めること。
 -- ロールバック:
 --   drop function public.rpc_reject_group_claim(uuid, uuid);
 --   drop function public.rpc_approve_group_claim(uuid, uuid);
+--   drop trigger trg_channel_group_claims_guard on public.channel_group_claims;
+--   drop trigger trg_channel_group_claims_insert_integrity on public.channel_group_claims;
+--   drop function public.channel_group_claims_guard_update();
+--   drop function public.channel_group_claims_insert_integrity();
 --   drop table public.channel_group_claims;   -- (approved 済みが作った channel_groups 行は残る＝証跡)
 -- =============================================================================

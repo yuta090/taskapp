@@ -42,10 +42,27 @@ alter table public.channel_link_codes
 
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'channel_link_codes_target_account_fk') then
+  if not exists (select 1 from pg_constraint
+                 where conname = 'channel_link_codes_target_account_fk'
+                   and conrelid = 'public.channel_link_codes'::regclass) then
     alter table public.channel_link_codes
       add constraint channel_link_codes_target_account_fk
       foreign key (target_account_id) references public.channel_accounts(id) on delete restrict;
+  end if;
+  -- shared_group_claim 行の形状 CHECK（既存 identity 行を壊さないよう purpose 条件付き）:
+  --   hash方式・binding_mode・対象platform account・生code非保存 を発行時点で強制する。
+  if not exists (select 1 from pg_constraint
+                 where conname = 'channel_link_codes_shared_claim_shape'
+                   and conrelid = 'public.channel_link_codes'::regclass) then
+    alter table public.channel_link_codes
+      add constraint channel_link_codes_shared_claim_shape
+      check (
+        purpose <> 'shared_group_claim'
+        or (code_hash is not null
+            and binding_mode is not null
+            and target_account_id is not null
+            and code is null)
+      );
   end if;
 end $$;
 
@@ -58,6 +75,9 @@ create index if not exists channel_link_codes_batch
   on public.channel_link_codes(batch_id) where batch_id is not null;
 create index if not exists channel_link_codes_target_account
   on public.channel_link_codes(target_account_id) where target_account_id is not null;
+-- code_hash の一意性（HMAC衝突/二重発行の検出。NULL は複数許容）。
+create unique index if not exists channel_link_codes_code_hash_unique
+  on public.channel_link_codes(code_hash) where code_hash is not null;
 
 comment on column public.channel_link_codes.purpose is
   'identity=友だち本人特定(legacy・既定) / group_link=(予約) / shared_group_claim=共有botグループ紐付け';
@@ -112,7 +132,12 @@ create trigger trg_channel_link_codes_guard
 --   3) 既存経路の first_used_at / revoked_at 更新が従来どおり通ること（guard で拒否されない）。
 --   4) binding_mode / purpose / target_account_id / code_hash / batch_id の UPDATE が拒否されること。
 --   5) consumed_at を 値→別値/NULL に戻す UPDATE が拒否されること（NULL→値のみ可）。
+--   6) shared_group_claim で code_hash/binding_mode/target_account_id 欠落 or code 非NULL の
+--      INSERT が shape CHECK で拒否されること。既存 identity 行は影響を受けないこと。
+--   7) 同一 code_hash の二重 INSERT が code_hash unique index で拒否されること。
 -- ロールバック:
+--   drop index channel_link_codes_code_hash_unique;
+--   alter table public.channel_link_codes drop constraint channel_link_codes_shared_claim_shape;
 --   drop trigger trg_channel_link_codes_guard on public.channel_link_codes;
 --   drop function public.channel_link_codes_guard_update();
 --   drop index channel_link_codes_batch, channel_link_codes_target_account;

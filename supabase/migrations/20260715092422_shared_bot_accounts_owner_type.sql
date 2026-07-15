@@ -28,13 +28,40 @@ alter table public.channel_accounts
 do $$
 begin
   if not exists (
-    select 1 from pg_constraint where conname = 'channel_accounts_owner_org_consistency'
+    select 1 from pg_constraint
+    where conname = 'channel_accounts_owner_org_consistency'
+      and conrelid = 'public.channel_accounts'::regclass
   ) then
     alter table public.channel_accounts
       add constraint channel_accounts_owner_org_consistency
       check ((owner_type = 'org') = (org_id is not null));
   end if;
 end $$;
+
+-- -----------------------------------------------------------------------------
+-- 4) owner_type / org_id の完全 immutable ガード（必須・設計正本 §3）
+--    行内CHECKは (platform,NULL → org,A社) の UPDATE を止められない。共有account を
+--    特定org所有へ書き換えると、A-1(group INSERT時)/A-2(group行)も account 行を見張らないため
+--    既存他社 group のイベントが誤帰属する。共有→専用は §5 の「新account＋新世代」のみ。
+--    display_name/credentials_encrypted/status/updated_at 等の更新は従来どおり通す。
+-- -----------------------------------------------------------------------------
+create or replace function public.channel_accounts_guard_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.owner_type is distinct from old.owner_type
+     or new.org_id is distinct from old.org_id then
+    raise exception 'channel_accounts: owner_type/org_id are immutable (create a new account for org↔platform changes)';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_channel_accounts_guard on public.channel_accounts;
+create trigger trg_channel_accounts_guard
+  before update on public.channel_accounts
+  for each row execute function public.channel_accounts_guard_update();
 
 -- =============================================================================
 -- 検証（適用後に service role で実施。設計正本 §8）:
@@ -48,7 +75,11 @@ end $$;
 --        insert ... ('org', NULL, ...);          -- 拒否（orgにorg_id無し）
 --   4) RLS は 20260710204722 のまま（channel_accounts は資格情報＝authenticated 一切不可）。
 --      本migrationは RLS/grant を変更しない。
+--   5) owner_type / org_id の UPDATE が guard で拒否されること（immutable）。
+--      display_name 等の更新は通ること。
 -- ロールバック（不可逆な点なし・全て加算のため巻き戻し可）:
+--   drop trigger trg_channel_accounts_guard on public.channel_accounts;
+--   drop function public.channel_accounts_guard_update();
 --   alter table public.channel_accounts drop constraint channel_accounts_owner_org_consistency;
 --   -- ※ 先に platform 行（org_id=NULL）を削除/移行してからでないと NOT NULL 復帰は失敗する
 --   alter table public.channel_accounts alter column org_id set not null;

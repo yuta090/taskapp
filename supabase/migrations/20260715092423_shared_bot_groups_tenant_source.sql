@@ -28,12 +28,16 @@ alter table public.channel_groups
 
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'channel_groups_bound_by_link_code_fk') then
+  if not exists (select 1 from pg_constraint
+                 where conname = 'channel_groups_bound_by_link_code_fk'
+                   and conrelid = 'public.channel_groups'::regclass) then
     alter table public.channel_groups
       add constraint channel_groups_bound_by_link_code_fk
       foreign key (bound_by_link_code_id) references public.channel_link_codes(id) on delete restrict;
   end if;
-  if not exists (select 1 from pg_constraint where conname = 'channel_groups_supersedes_fk') then
+  if not exists (select 1 from pg_constraint
+                 where conname = 'channel_groups_supersedes_fk'
+                   and conrelid = 'public.channel_groups'::regclass) then
     alter table public.channel_groups
       add constraint channel_groups_supersedes_fk
       foreign key (supersedes_group_id) references public.channel_groups(id) on delete set null;
