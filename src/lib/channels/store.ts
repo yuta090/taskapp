@@ -536,6 +536,93 @@ export interface UpdateChannelGroupInput {
   displayName?: string
 }
 
+export interface OrgGroupWithApprover {
+  groupId: string
+  displayName: string | null
+  spaceId: string
+  spaceName: string | null
+  approverUserId: string | null
+}
+
+/**
+ * 承認フロー設定用に、org の active かつ space 紐付け済みグループを一覧する（Stage 2.7-B §5）。
+ * 各グループの現承認者(approver_user_id)を返す。承認候補（space admin/editor）は
+ * クライアントが space 単位で解決する（useSpaceMembers）ため、ここでは持たない。
+ */
+export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroupWithApprover[]> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select('id, display_name, space_id, approver_user_id, spaces(name)')
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+    .not('space_id', 'is', null)
+    .order('display_name', { ascending: true })
+  if (error) throw new Error(`channel_groups: list failed: ${error.message}`)
+
+  type Row = {
+    id: string
+    display_name: string | null
+    space_id: string
+    approver_user_id: string | null
+    spaces: { name: string | null } | { name: string | null }[] | null
+  }
+  return (data as unknown as Row[]).map((row) => {
+    const s = Array.isArray(row.spaces) ? row.spaces[0] : row.spaces
+    return {
+      groupId: row.id,
+      displayName: row.display_name,
+      spaceId: row.space_id,
+      spaceName: s?.name ?? null,
+      approverUserId: row.approver_user_id,
+    }
+  })
+}
+
+/** 対象ユーザーが org の内部メンバー（owner/admin/member）かを確認する。承認者設定の入力検証に使う。 */
+export async function isOrgInternalMember(orgId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('org_memberships')
+    .select('role')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw new Error(`org_memberships: select failed: ${error.message}`)
+  const role = data?.role as string | undefined
+  return role === 'owner' || role === 'admin' || role === 'member'
+}
+
+/**
+ * 対象ユーザーが space の admin/editor（＝承認権限を持ち得る）かを確認する。
+ * これを満たさない人を approver にすると、承認時の _digest_actor_can_approve を永遠に
+ * 満たせず候補が宙吊りになるため、設定を弾く。
+ */
+export async function isSpaceApproverEligible(spaceId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('space_memberships')
+    .select('role')
+    .eq('space_id', spaceId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw new Error(`space_memberships: select failed: ${error.message}`)
+  const role = data?.role as string | undefined
+  return role === 'admin' || role === 'editor'
+}
+
+/**
+ * グループの承認者を原子的に設定/解除する（Stage 2.7-B）。approver 変更時に旧責任者宛の
+ * 未処理 pending を通常の申し送り(none)へ戻し、宙吊りを防ぐ。RPC(行ロック)で束ねる。
+ */
+export async function setGroupApprover(
+  groupId: string,
+  approverUserId: string | null,
+): Promise<void> {
+  const { error } = await admin().rpc('rpc_set_group_approver', {
+    p_group_id: groupId,
+    p_new_approver: approverUserId,
+  })
+  if (error) throw new Error(`rpc_set_group_approver failed: ${error.message}`)
+}
+
 /**
  * 'all' への切替時は last_extracted_message_created_at = now() に更新する
  * （mention_only/off 期間中の溜まったバックログを一括LLM投入しないため。切替前の発言は拾わない仕様）。
@@ -554,7 +641,8 @@ export async function updateChannelGroup(
   if (updates.displayName !== undefined) patch.display_name = updates.displayName
   if (Object.keys(patch).length === 0) return
 
-  await admin().from('channel_groups').update(patch).eq('id', groupId)
+  const { error } = await admin().from('channel_groups').update(patch).eq('id', groupId)
+  if (error) throw new Error(`channel_groups: update failed: ${error.message}`)
 }
 
 /**

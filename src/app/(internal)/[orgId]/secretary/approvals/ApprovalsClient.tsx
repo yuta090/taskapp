@@ -10,8 +10,11 @@ import {
   CalendarBlank,
   User,
   ChatCircleDots,
+  UserGear,
 } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 
 interface PendingApprovalItem {
   taskId: string
@@ -23,6 +26,71 @@ interface PendingApprovalItem {
   groupName: string | null
   requestedAt: string | null
   approvalNotifiedAt: string | null
+}
+
+interface OrgGroup {
+  groupId: string
+  displayName: string | null
+  spaceId: string
+  spaceName: string | null
+  approverUserId: string | null
+}
+
+/**
+ * グループごとの責任者(approver)設定。承認フローはこの設定でオプトインする（未設定なら候補は
+ * pending にならず従来の申し送り扱い）。候補は当該 space の admin/editor のみ（承認権限を持つ人）。
+ */
+function GroupApproverRow({ orgId, group }: { orgId: string; group: OrgGroup }) {
+  const { internalMembers, loading } = useSpaceMembers(group.spaceId)
+  const eligible = internalMembers.filter((m) => m.role === 'admin' || m.role === 'editor')
+  const [value, setValue] = useState(group.approverUserId ?? '')
+  const [saving, setSaving] = useState(false)
+
+  const save = async (next: string) => {
+    const prev = value
+    setValue(next)
+    setSaving(true)
+    try {
+      const res = await fetch('/api/channels/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId, groupId: group.groupId, approverUserId: next || null }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? '保存に失敗しました')
+      }
+      toast.success(next ? '責任者を設定しました' : '承認フローを解除しました')
+    } catch (e) {
+      setValue(prev) // 楽観更新のロールバック
+      toast.error(e instanceof Error ? e.message : '保存に失敗しました')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const label = group.spaceName ?? group.displayName ?? 'グループ'
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5">
+      <span className="min-w-0 flex-1 truncate text-sm text-gray-900">{label}</span>
+      <div className="flex items-center gap-1.5">
+        {saving && <Spinner className="w-3.5 h-3.5 animate-spin text-gray-400" />}
+        <select
+          value={value}
+          disabled={saving || loading}
+          onChange={(e) => void save(e.target.value)}
+          className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        >
+          <option value="">承認フローなし</option>
+          {eligible.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.displayName}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
 }
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
@@ -53,6 +121,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
   // taskId -> 'approve' | 'reject' の実行中状態
   const [busy, setBusy] = useState<Record<string, 'approve' | 'reject'>>({})
   const [rowError, setRowError] = useState<Record<string, string>>({})
+  const [groups, setGroups] = useState<OrgGroup[]>([])
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -72,6 +141,23 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/channels/groups?orgId=${orgId}`)
+        if (!res.ok) return
+        const json = await res.json().catch(() => ({}))
+        if (!cancelled) setGroups(json.groups ?? [])
+      } catch {
+        /* 設定セクションはベストエフォート。トレイ本体には影響させない */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [orgId])
 
   const act = useCallback(
     async (taskId: string, action: 'approve' | 'reject') => {
@@ -236,6 +322,24 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
                 )
               })}
             </ul>
+          )}
+
+          {groups.length > 0 && (
+            <section className="mt-8 border-t border-gray-100 pt-6">
+              <div className="mb-2 flex items-center gap-1.5">
+                <UserGear className="w-4 h-4 text-gray-400" />
+                <h3 className="text-sm font-semibold text-gray-900">承認フロー設定</h3>
+              </div>
+              <p className="mb-3 text-xs text-gray-500">
+                グループごとに責任者を決めると、そのグループの申し送りは自動でタスク化されず、
+                責任者の承認を待ちます（責任者はそのプロジェクトの管理者・編集者から選べます）。
+              </p>
+              <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                {groups.map((g) => (
+                  <GroupApproverRow key={g.groupId} orgId={orgId} group={g} />
+                ))}
+              </div>
+            </section>
           )}
         </div>
       </div>
