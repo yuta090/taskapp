@@ -37,6 +37,7 @@ const GROUP = {
   status: 'active' as const,
   pickupMode: 'all' as const,
   lastExtractedMessageCreatedAt: null,
+  approverUserId: null as string | null,
 }
 
 const GROUP_MENTION_ONLY = { ...GROUP, pickupMode: 'mention_only' as const }
@@ -63,6 +64,10 @@ const storeMock = {
   backfillDigestAssigneeIdentity: vi.fn(),
   consumeUserLinkCode: vi.fn(),
   expireUserLinkCode: vi.fn(),
+  promoteDigestTaskViaLine: vi.fn(),
+  rejectDigestTaskViaLine: vi.fn(),
+  claimApprovalNotification: vi.fn(),
+  clearApprovalNotifiedAt: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -198,6 +203,8 @@ beforeEach(() => {
   leaveRoomMock.mockResolvedValue(undefined)
   profileMock.mockResolvedValue(null)
   storeMock.createInstantDigestTask.mockResolvedValue({ id: 'digest-task-1', title: 'placeholder' })
+  storeMock.claimApprovalNotification.mockResolvedValue(null)
+  storeMock.clearApprovalNotifiedAt.mockResolvedValue(undefined)
   storeMock.reopenDigestTaskAtomic.mockResolvedValue(null)
   sinksStoreMock.disableStaleGroupSinks.mockResolvedValue([])
   sinksNotifyMock.notifySinkDisabledForRelink.mockResolvedValue(undefined)
@@ -951,6 +958,141 @@ describe('handleLineWebhook', () => {
     })
   })
 
+  describe('postback（digest_promote / digest_reject・責任者確認 Stage 2.7-B）', () => {
+    const TASK_ID = '22222222-2222-4222-8222-222222222222'
+
+    // 責任者確認ボタンは 1:1 トークに届く（source.type='user'）。グループ検証は通らず、
+    // アクター解決とテナント/認可は _via_line RPC が完結する。
+    function approvalEvent(data: string) {
+      return postbackEvent(data, {
+        source: { type: 'user', userId: 'U-approver' },
+        webhookEventId: 'evt-approve',
+        replyToken: 'rt-approve',
+      })
+    }
+
+    beforeEach(() => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'promoted', created: true, taskId: 'new-task-1' })
+      storeMock.rejectDigestTaskViaLine.mockResolvedValue({ status: 'rejected' })
+    })
+
+    it('承認 → webhook検証済みの (account.id, externalUserId, taskId) でRPCを呼ぶ（body由来のUUIDは渡さない）', async () => {
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.promoteDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID)
+      // 消し込み系RPCは呼ばない（取り違え防止）
+      expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
+    })
+
+    it('承認成功 → replyでタスク化を通知し、操作を証跡に記録（result=promoted）', async () => {
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledTimes(1)
+      const replyArg = replyMock.mock.calls[0][0] as { replyToken: string; messages: unknown[] }
+      expect(replyArg.replyToken).toBe('rt-approve')
+      expect(JSON.stringify(replyArg.messages[0])).toContain('タスク')
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          direction: 'inbound',
+          actor: 'system',
+          externalMessageId: 'evt-approve',
+          payload: { event: 'postback', action: 'digest_promote', taskId: TASK_ID, result: 'promoted' },
+        }),
+      )
+    })
+
+    it('却下 → rejectDigestTaskViaLine を呼び、result=rejected を記録', async () => {
+      const body = makeBody([approvalEvent(`action=digest_reject&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.rejectDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: { event: 'postback', action: 'digest_reject', taskId: TASK_ID, result: 'rejected' },
+        }),
+      )
+    })
+
+    it('forbidden（責任者でない/紐付け無効）→ 返信も監査行も残さず完全沈黙（例外と外形上区別不能）', async () => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'forbidden', created: false, taskId: null })
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).not.toHaveBeenCalled()
+      // 非承認系は監査行も残さない（forbidden/not_found/例外で行の有無に差を作らない）
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+    })
+
+    it('conflict（既に処理済み）→ 処理済みを通知し result=conflict を記録', async () => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'conflict', created: false, taskId: null })
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('処理済み') })],
+        }),
+      )
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: expect.objectContaining({ result: 'conflict' }) }),
+      )
+    })
+
+    it('冪等: 承認済みを再タップ（created=false, status=promoted）→ すでにタスク化済みと返す', async () => {
+      storeMock.promoteDigestTaskViaLine.mockResolvedValue({ status: 'promoted', created: false, taskId: 'new-task-1' })
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('すでに') })],
+        }),
+      )
+    })
+
+    it('webhook再送(duplicate)ではreplyを再送しない', async () => {
+      storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('グループ由来の承認postbackは動かさない（1:1限定・公開の場に結果を返さない）', async () => {
+      // postbackEvent の既定は source.type='group'（グループ）
+      const body = makeBody([postbackEvent(`action=digest_promote&task=${TASK_ID}`)])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.promoteDigestTaskViaLine).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('ルーム由来の承認postbackも動かさない（fail-closed）', async () => {
+      const body = makeBody([
+        postbackEvent(`action=digest_promote&task=${TASK_ID}`, {
+          source: { type: 'room', roomId: 'R-1', userId: 'U-approver' },
+        }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.promoteDigestTaskViaLine).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('RPCが一過性失敗 → 沈黙（forbidden/not_foundと外形上区別不能・監査行も残さない）＋バッチは継続', async () => {
+      storeMock.promoteDigestTaskViaLine.mockRejectedValue(new Error('transient'))
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}`)])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200) // バッチは落とさない
+      expect(replyMock).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled() // forbidden と同じく行を残さない
+    })
+  })
+
   describe('グループ発言: mention_only 即時タスク化（Stage 2.5 §2）', () => {
     beforeEach(() => {
       storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
@@ -1150,6 +1292,125 @@ describe('handleLineWebhook', () => {
           messages: [expect.objectContaining({ text: expect.stringContaining('内容が読み取れませんでした') })],
         }),
       )
+    })
+  })
+
+  describe('グループ発言: mention_only 即時 × 責任者承認フロー（Stage 2.7-B §4-5）', () => {
+    // 責任者設定＋space紐付け済み。approver の 1:1 送信先が解決できる状態
+    const GROUP_APPROVAL = {
+      ...GROUP_MENTION_ONLY,
+      spaceId: 'space-1' as string | null,
+      approverUserId: 'approver-user-1' as string | null,
+    }
+
+    function mentionEvent(text: string, spans: Array<{ index: number; length: number }>) {
+      return groupTextEvent(text, {
+        message: {
+          id: 'msg-approval-1',
+          type: 'text',
+          text,
+          mention: { mentionees: spans.map((s) => ({ ...s, type: 'user', isSelf: true })) },
+        },
+      })
+    }
+
+    it('責任者設定＋claim成功 → 先にpending作成→原子的claim→責任者1:1へ確認Flex、returnは確認依頼文', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+      storeMock.claimApprovalNotification.mockResolvedValue('U-approver')
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      // pending として作成（approverUserId）。approval_notified_at は claim RPC 側で刻むので渡さない
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: '見積提出', approverUserId: 'approver-user-1' }),
+      )
+      // 送信は必ず作成後の候補IDに対する原子的claim経由（退職者漏洩防止・二重送信防止をRPCに一元化）
+      expect(storeMock.claimApprovalNotification).toHaveBeenCalledWith('digest-task-1')
+      // 責任者の1:1へ承認Flex（承認/却下 postback＋二重送信防止 retryKey）
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      const pushArg = pushMock.mock.calls[0][0] as {
+        to: string
+        messages: unknown[]
+        retryKey?: string
+      }
+      expect(pushArg.to).toBe('U-approver')
+      expect(pushArg.retryKey).toBeTruthy()
+      const serialized = JSON.stringify(pushArg.messages[0])
+      expect(serialized).toContain('action=digest_promote&task=digest-task-1')
+      expect(serialized).toContain('action=digest_reject&task=digest-task-1')
+      // グループには承認依頼の旨だけ返す（即時タスク化はしない）
+      const replyText = (replyMock.mock.calls[0][0] as { messages: Array<{ text: string }> })
+        .messages[0].text
+      expect(replyText).toContain('責任者に確認')
+      expect(replyText).not.toContain('申し送りに追加しました')
+    })
+
+    it('claimがnull（権限なし/リンク未解決）→ pendingは作るがpushしない（コンソール/cronがフォールバック）', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+      storeMock.claimApprovalNotification.mockResolvedValue(null)
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.objectContaining({ approverUserId: 'approver-user-1' }),
+      )
+      expect(storeMock.claimApprovalNotification).toHaveBeenCalledWith('digest-task-1')
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('即時1:1送信が失敗 → 未通知に戻し(clearApprovalNotifiedAt)、reply主フローは続行', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+      storeMock.claimApprovalNotification.mockResolvedValue('U-approver')
+      pushMock.mockRejectedValueOnce(new Error('LINE 429'))
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.clearApprovalNotifiedAt).toHaveBeenCalledWith('digest-task-1')
+      expect(replyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('claim RPCが一時障害で例外 → 候補は残す・pushせず・webhookは200で継続（候補取りこぼし防止）', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+      storeMock.claimApprovalNotification.mockRejectedValueOnce(new Error('DB timeout'))
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      // 候補は claim より前に作成済み（cron/コンソールが拾える）。webhookは落とさない
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledTimes(1)
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(replyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('責任者設定でも space 未紐付けなら承認フローに乗せず従来どおり即時タスク化', async () => {
+      storeMock.findActiveGroup.mockResolvedValue({
+        ...GROUP_APPROVAL,
+        spaceId: null,
+      })
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.not.objectContaining({ approverUserId: expect.anything() }),
+      )
+      expect(storeMock.claimApprovalNotification).not.toHaveBeenCalled()
+      expect(pushMock).not.toHaveBeenCalled()
+      const replyText = (replyMock.mock.calls[0][0] as { messages: Array<{ text: string }> })
+        .messages[0].text
+      expect(replyText).toContain('申し送りに追加しました')
+    })
+
+    it('webhook再送(duplicate)では claim も push もしない', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+      storeMock.createInstantDigestTask.mockResolvedValue('duplicate')
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      await handleLineWebhook(body, sign(body))
+
+      expect(storeMock.claimApprovalNotification).not.toHaveBeenCalled()
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(storeMock.clearApprovalNotifiedAt).not.toHaveBeenCalled()
     })
   })
 

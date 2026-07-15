@@ -27,10 +27,14 @@ const storeMock = {
   verifyGroupInOrg: vi.fn(),
   updateChannelGroup: vi.fn(),
   unlinkGroup: vi.fn(),
+  isOrgInternalMember: vi.fn(),
+  isSpaceApproverEligible: vi.fn(),
+  setGroupApprover: vi.fn(),
+  listOrgGroupsWithApprover: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
-const { PATCH } = await import('@/app/api/channels/groups/route')
+const { PATCH, GET } = await import('@/app/api/channels/groups/route')
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
 const GROUP_ID = '22222222-2222-4222-8222-222222222222'
@@ -64,6 +68,38 @@ describe('PATCH /api/channels/groups', () => {
     storeMock.verifyGroupInOrg.mockResolvedValue(GROUP)
     storeMock.updateChannelGroup.mockResolvedValue(undefined)
     storeMock.unlinkGroup.mockResolvedValue(undefined)
+    storeMock.isOrgInternalMember.mockResolvedValue(true)
+    storeMock.isSpaceApproverEligible.mockResolvedValue(true)
+    storeMock.setGroupApprover.mockResolvedValue(undefined)
+    storeMock.listOrgGroupsWithApprover.mockResolvedValue([])
+  })
+
+  describe('GET（承認フロー設定用のグループ一覧）', () => {
+    function callGet(orgId?: string) {
+      const url = new URL('http://localhost:3000/api/channels/groups')
+      if (orgId !== undefined) url.searchParams.set('orgId', orgId)
+      return GET(new NextRequest(url, { method: 'GET' }))
+    }
+
+    it('orgId 無しは400', async () => {
+      expect((await callGet(undefined)).status).toBe(400)
+    })
+
+    it('内部メンバーでなければ403', async () => {
+      membershipSingleMock.mockResolvedValue({ data: { role: 'client' }, error: null })
+      expect((await callGet(ORG_ID)).status).toBe(403)
+    })
+
+    it('active＋space紐付け済みグループと現承認者を返す', async () => {
+      storeMock.listOrgGroupsWithApprover.mockResolvedValue([
+        { groupId: 'g1', displayName: '厨房', spaceId: 's1', spaceName: 'A社', approverUserId: 'u1' },
+      ])
+      const res = await callGet(ORG_ID)
+      const json = await res.json()
+      expect(res.status).toBe(200)
+      expect(storeMock.listOrgGroupsWithApprover).toHaveBeenCalledWith(ORG_ID)
+      expect(json.groups[0]).toMatchObject({ groupId: 'g1', approverUserId: 'u1' })
+    })
   })
 
   it('未ログインは401', async () => {
@@ -113,5 +149,63 @@ describe('PATCH /api/channels/groups', () => {
     expect(response.status).toBe(200)
     expect(storeMock.unlinkGroup).toHaveBeenCalledWith(GROUP_ID)
     expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
+  })
+
+  const APPROVER = '33333333-3333-4333-8333-333333333333'
+
+  it('approver変更は一般メンバーには不可（403）', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, approverUserId: APPROVER })
+    expect(response.status).toBe(403)
+    expect(storeMock.setGroupApprover).not.toHaveBeenCalled()
+  })
+
+  it('admin＋space admin/editor 検証を通れば setGroupApprover を原子的に呼ぶ', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, approverUserId: APPROVER })
+    expect(response.status).toBe(200)
+    expect(storeMock.isSpaceApproverEligible).toHaveBeenCalledWith('space-1', APPROVER)
+    expect(storeMock.setGroupApprover).toHaveBeenCalledWith(GROUP_ID, APPROVER)
+  })
+
+  it('approver が space の admin/editor でなければ400（宙吊り防止）', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    storeMock.isSpaceApproverEligible.mockResolvedValue(false)
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, approverUserId: APPROVER })
+    expect(response.status).toBe(400)
+    expect(storeMock.setGroupApprover).not.toHaveBeenCalled()
+  })
+
+  it('space 未紐付けグループに approver を設定しようとすると400', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    storeMock.verifyGroupInOrg.mockResolvedValue({ ...GROUP, spaceId: null })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, approverUserId: APPROVER })
+    expect(response.status).toBe(400)
+    expect(storeMock.setGroupApprover).not.toHaveBeenCalled()
+  })
+
+  it('approverUserId=null は admin による解除として setGroupApprover(null) を呼ぶ（eligibility不要）', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, approverUserId: null })
+    expect(response.status).toBe(200)
+    expect(storeMock.isSpaceApproverEligible).not.toHaveBeenCalled()
+    expect(storeMock.setGroupApprover).toHaveBeenCalledWith(GROUP_ID, null)
+  })
+
+  it('approverUserId が不正な文字列なら400', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, approverUserId: 'not-a-uuid' })
+    expect(response.status).toBe(400)
+    expect(storeMock.setGroupApprover).not.toHaveBeenCalled()
+  })
+
+  it('non-object body (null) は400（500にしない）', async () => {
+    const request = new NextRequest('http://localhost:3000/api/channels/groups', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'null',
+    })
+    const response = await PATCH(request)
+    expect(response.status).toBe(400)
   })
 })
