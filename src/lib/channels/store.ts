@@ -1161,3 +1161,148 @@ export async function uploadAttachment(
   }
   return path
 }
+
+// ---------------------------------------------------------------------------
+// 内部ユーザーの LINE 本人紐付け（Stage 2.7-A）
+//
+// channel_identities（space_id 必須＝顧問先の窓口）とは別軸。
+// こちらは auth.users に紐づく「社内の人」であり、承認の本人性の土台になる。
+// ---------------------------------------------------------------------------
+
+export type ConsumeUserLinkStatus = 'ok' | 'invalid' | 'expired' | 'locked' | 'conflict'
+
+export interface UserLink {
+  id: string
+  orgId: string
+  userId: string
+  channelAccountId: string
+  externalUserId: string
+  linkedAt: string
+}
+
+/** 発行: ログイン中の本人が自分の分だけ。平文は呼び出し側が一度だけ返し、DBにはハッシュのみ残る */
+export async function createUserLinkCode(
+  orgId: string,
+  userId: string,
+  channelAccountId: string,
+  codeHash: string,
+): Promise<void> {
+  const { error } = await admin().from('channel_user_link_codes').insert({
+    org_id: orgId,
+    user_id: userId,
+    channel_account_id: channelAccountId,
+    code_hash: codeHash,
+  })
+  if (error) throw new Error(`channel_user_link_codes: insert failed: ${error.message}`)
+}
+
+/**
+ * 消費。RPC は例外を投げず status で返す（例外だと試行履歴がロールバックされ、総当たり対策が壊れる）。
+ */
+export async function consumeUserLinkCode(
+  codeHash: string,
+  channelAccountId: string,
+  externalUserId: string,
+): Promise<{ status: ConsumeUserLinkStatus; linkId: string | null }> {
+  const { data, error } = await admin().rpc('rpc_consume_user_link_code', {
+    p_code_hash: codeHash,
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+  })
+  if (error) throw new Error(`rpc_consume_user_link_code failed: ${error.message}`)
+
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'invalid') as ConsumeUserLinkStatus, linkId: row?.link_id ?? null }
+}
+
+/**
+ * グループに晒された内部コードを即座に失効させる。
+ * 誤爆（1:1に送るべきコードをグループへ貼ってしまう）は起きる。見た人が使えてはならない。
+ */
+export async function expireUserLinkCode(codeHash: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_user_link_codes')
+    .update({ used_at: new Date().toISOString() })
+    .eq('code_hash', codeHash)
+    .is('used_at', null)
+    .select('id')
+  if (error) throw new Error(`channel_user_link_codes: expire failed: ${error.message}`)
+
+  // 0件 = 該当コードが無い / 既に使用済み。呼び出し側が「無効化しました」と断言しないよう返す
+  return (data?.length ?? 0) > 0
+}
+
+/** LINE userId から内部ユーザーを解決する。承認時のアクター解決に使う（revoke 済みは解決しない） */
+export async function findActiveUserLinkByExternalId(
+  channelAccountId: string,
+  externalUserId: string,
+): Promise<UserLink | null> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id, org_id, user_id, channel_account_id, external_user_id, linked_at')
+    .eq('channel_account_id', channelAccountId)
+    .eq('external_user_id', externalUserId)
+    .is('revoked_at', null)
+    .maybeSingle()
+  if (error) throw new Error(`channel_user_links: select failed: ${error.message}`)
+  if (!data) return null
+
+  return {
+    id: data.id as string,
+    orgId: data.org_id as string,
+    userId: data.user_id as string,
+    channelAccountId: data.channel_account_id as string,
+    externalUserId: data.external_user_id as string,
+    linkedAt: data.linked_at as string,
+  }
+}
+
+/** 失効の認可に使う（org境界と所有者の確認）。revoke 済みも返す */
+export async function findUserLinkById(linkId: string): Promise<UserLink | null> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id, org_id, user_id, channel_account_id, external_user_id, linked_at')
+    .eq('id', linkId)
+    .maybeSingle()
+  if (error) throw new Error(`channel_user_links: select failed: ${error.message}`)
+  if (!data) return null
+
+  return {
+    id: data.id as string,
+    orgId: data.org_id as string,
+    userId: data.user_id as string,
+    channelAccountId: data.channel_account_id as string,
+    externalUserId: data.external_user_id as string,
+    linkedAt: data.linked_at as string,
+  }
+}
+
+/** コンソール表示用。org 内の active な紐付け一覧 */
+export async function listActiveUserLinks(orgId: string): Promise<UserLink[]> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id, org_id, user_id, channel_account_id, external_user_id, linked_at')
+    .eq('org_id', orgId)
+    .is('revoked_at', null)
+    .order('linked_at', { ascending: false })
+  if (error) throw new Error(`channel_user_links: list failed: ${error.message}`)
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    orgId: row.org_id as string,
+    userId: row.user_id as string,
+    channelAccountId: row.channel_account_id as string,
+    externalUserId: row.external_user_id as string,
+    linkedAt: row.linked_at as string,
+  }))
+}
+
+/** 失効。二重失効は false（副作用ゼロ） */
+export async function revokeUserLink(linkId: string, actorUserId: string): Promise<boolean> {
+  const { data, error } = await admin().rpc('rpc_revoke_user_link', {
+    p_link_id: linkId,
+    p_actor_user_id: actorUserId,
+  })
+  if (error) throw new Error(`rpc_revoke_user_link failed: ${error.message}`)
+  return data === true
+}

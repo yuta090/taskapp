@@ -61,6 +61,8 @@ const storeMock = {
   reopenDigestTaskAtomic: vi.fn(),
   findIdentityIdsByExternalUserIds: vi.fn(),
   backfillDigestAssigneeIdentity: vi.fn(),
+  consumeUserLinkCode: vi.fn(),
+  expireUserLinkCode: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -1275,5 +1277,140 @@ describe('handleLineWebhook', () => {
       expect(storeMock.reopenDigestTaskAtomic).not.toHaveBeenCalled()
       expect(storeMock.markDigestTaskDoneAtomic).toHaveBeenCalled()
     })
+  })
+})
+
+/**
+ * Stage 2.7-A: 内部ユーザーの LINE 本人紐付け
+ *
+ * 最重要: channel_messages は append-only（トリガー強制）。認証コードを平文で入れたら
+ * redaction 以外では二度と消せない。よって「保存する前に」マスクしなければならない。
+ */
+describe('内部ユーザーの本人紐付けコード（TA-...）', () => {
+  const CODE = 'TA-0123456789ABCDEFGHJKMNPQRS'
+
+  beforeEach(() => {
+    storeMock.findLineAccountByDestination.mockResolvedValue(ACCOUNT)
+    storeMock.findActiveLineIdentities.mockResolvedValue([])
+    storeMock.insertChannelMessage.mockResolvedValue('inserted')
+    storeMock.consumeUserLinkCode.mockResolvedValue({ status: 'ok', linkId: 'link-1' })
+    storeMock.expireUserLinkCode.mockResolvedValue(undefined)
+  })
+
+  it('1:1でコードを送ると、会話ログには平文が残らずマスクされる', async () => {
+    const body = makeBody([textEvent(CODE)])
+    await handleLineWebhook(body, sign(body))
+
+    // 受信の記録に加え、秘書の返信も outbound として記録される（2件）。
+    // 重要なのは「どの記録にもコード平文が混入しない」こと
+    const bodies = storeMock.insertChannelMessage.mock.calls.map((c) => c[0].body)
+    expect(bodies[0]).toBe('[認証コード]')
+    for (const body of bodies) {
+      expect(body ?? '').not.toContain(CODE)
+    }
+  })
+
+  it('1:1でコードを送ると紐付けRPCが呼ばれ、成功を返信する', async () => {
+    const body = makeBody([textEvent(CODE)])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.consumeUserLinkCode).toHaveBeenCalledWith(
+      expect.stringMatching(/^[0-9a-f]{64}$/), // 平文ではなく sha256 を渡す
+      'acc-1',
+      'U-client-1',
+    )
+    expect(pushMock.mock.calls.length + replyMock.mock.calls.length).toBeGreaterThan(0)
+  })
+
+  it('小文字・前後空白でも紐付けが成立する（入力ゆれの吸収）', async () => {
+    const body = makeBody([textEvent(`  ${CODE.toLowerCase()}  `)])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.consumeUserLinkCode).toHaveBeenCalled()
+    expect(storeMock.insertChannelMessage.mock.calls[0][0].body).toBe('[認証コード]')
+  })
+
+  it('locked のときは総当たりの手掛かりを与えず、時間をおくよう返す', async () => {
+    storeMock.consumeUserLinkCode.mockResolvedValue({ status: 'locked', linkId: null })
+    const body = makeBody([textEvent(CODE)])
+    await handleLineWebhook(body, sign(body))
+
+    const sent = JSON.stringify([...pushMock.mock.calls, ...replyMock.mock.calls])
+    expect(sent).toContain('試行回数')
+  })
+
+  it('グループに貼られたコードは紐付けを成立させず、即座に失効させる', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent(CODE)])
+    await handleLineWebhook(body, sign(body))
+
+    // グループの全員が読めてしまうので、紐付けは絶対に成立させない
+    expect(storeMock.consumeUserLinkCode).not.toHaveBeenCalled()
+    // 見た人が使えないよう、コードは即時失効
+    expect(storeMock.expireUserLinkCode).toHaveBeenCalledWith(
+      expect.stringMatching(/^[0-9a-f]{64}$/),
+    )
+    // グループの会話ログにも平文を残さない
+    const record = storeMock.insertChannelMessage.mock.calls[0][0]
+    expect(record.body).toBe('[認証コード]')
+  })
+
+  it('通常の会話はマスクされない（誤検出しない）', async () => {
+    const body = makeBody([textEvent('明日までにお願いします')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.consumeUserLinkCode).not.toHaveBeenCalled()
+    expect(storeMock.insertChannelMessage.mock.calls[0][0].body).toBe('明日までにお願いします')
+  })
+})
+
+/**
+ * 回帰テスト（Codex セキュリティレビューで発見・High）
+ *
+ * 検出は部分一致なのにハッシュは本文全体、という食い違いがあった。
+ * その結果「このコードです TA-xxx よろしく」とグループへ誤爆されると、
+ * 表示はマスクされるのに *コードが失効せず*、グループにいる顧客が
+ * 見えているコードをコピーして1:1に送るだけで「責任者」として紐付けられた。
+ */
+describe('コードは本文全体ではなく抽出した値でハッシュする', () => {
+  const CODE = 'TA-0123456789ABCDEFGHJKMNPQRS'
+  let expectedHash: string
+
+  beforeEach(async () => {
+    const { hashUserLinkCode } = await import('@/lib/channels/userLink')
+    expectedHash = hashUserLinkCode(CODE)
+
+    storeMock.findLineAccountByDestination.mockResolvedValue(ACCOUNT)
+    storeMock.findActiveLineIdentities.mockResolvedValue([])
+    storeMock.insertChannelMessage.mockResolvedValue('inserted')
+    storeMock.consumeUserLinkCode.mockResolvedValue({ status: 'ok', linkId: 'link-1' })
+    storeMock.expireUserLinkCode.mockResolvedValue(true)
+  })
+
+  it('1:1で前後に文章が付いていても、正しいコードのハッシュで消費する', async () => {
+    const body = makeBody([textEvent(`このコードです ${CODE} よろしくお願いします`)])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.consumeUserLinkCode).toHaveBeenCalledWith(expectedHash, 'acc-1', 'U-client-1')
+  })
+
+  it('グループに文章付きで貼られても、正しいコードのハッシュで失効させる', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent(`これです ${CODE} 使ってください`)])
+    await handleLineWebhook(body, sign(body))
+
+    // ここが本文全体のハッシュだと失効せず、見た人がコードを使えてしまう
+    expect(storeMock.expireUserLinkCode).toHaveBeenCalledWith(expectedHash)
+    expect(storeMock.consumeUserLinkCode).not.toHaveBeenCalled()
+  })
+
+  it('失効できなかった場合は「無効化しました」と断言しない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    storeMock.expireUserLinkCode.mockResolvedValue(false)
+    const body = makeBody([groupTextEvent(`これです ${CODE}`)])
+    await handleLineWebhook(body, sign(body))
+
+    const sent = JSON.stringify(replyMock.mock.calls)
+    expect(sent).not.toContain('無効化しました')
   })
 })
