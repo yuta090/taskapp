@@ -24,7 +24,12 @@ function getEncryptionKey(): string {
 // channel_accounts
 // ---------------------------------------------------------------------------
 
-export interface LineAccount {
+/**
+ * owner_type='org'（顧客専用bot）。org_id は必ず非null。
+ * 従来の1顧客=1bot経路。account.orgId をグループ帰属・identity検索の起点に使ってよいのはこの型のみ。
+ */
+export interface OrgLineAccount {
+  ownerType: 'org'
   id: string
   orgId: string
   displayName: string
@@ -33,12 +38,30 @@ export interface LineAccount {
   status: 'active' | 'disabled'
 }
 
+/**
+ * owner_type='platform'（当社所有の共有bot）。org_id は常にnull — 複数orgで相乗りするため
+ * account単体からorgを導出できない（設計正本 §1 帰属導出の絶対規約）。
+ * グループ帰属は必ず channel_groups(group.orgId) から取る。1:1/roomはorg解決不能。
+ */
+export interface PlatformLineAccount {
+  ownerType: 'platform'
+  id: string
+  orgId: null
+  displayName: string
+  channelSecret: string
+  accessToken: string
+  status: 'active' | 'disabled'
+}
+
+export type LineAccount = OrgLineAccount | PlatformLineAccount
+
 interface AccountRow {
   id: string
-  org_id: string
+  org_id: string | null
   display_name: string
   credentials_encrypted: string
   status: string
+  owner_type: string
 }
 
 async function decryptAccount(row: AccountRow): Promise<LineAccount | null> {
@@ -58,15 +81,36 @@ async function decryptAccount(row: AccountRow): Promise<LineAccount | null> {
     return null
   }
   if (!credentials.channel_secret || !credentials.access_token) return null
+
+  const status = row.status === 'disabled' ? 'disabled' : 'active'
+  if (row.owner_type === 'platform') {
+    return {
+      ownerType: 'platform',
+      id: row.id,
+      orgId: null,
+      displayName: row.display_name,
+      channelSecret: credentials.channel_secret,
+      accessToken: credentials.access_token,
+      status,
+    }
+  }
+  // owner_type='org'。DB CHECK(channel_accounts_owner_org_consistency)によりorg_idは必ず非null
+  if (!row.org_id) {
+    console.error('channel_accounts: org account without org_id (schema invariant violated)', row.id)
+    return null
+  }
   return {
+    ownerType: 'org',
     id: row.id,
     orgId: row.org_id,
     displayName: row.display_name,
     channelSecret: credentials.channel_secret,
     accessToken: credentials.access_token,
-    status: row.status === 'disabled' ? 'disabled' : 'active',
+    status,
   }
 }
+
+const ACCOUNT_COLUMNS = 'id, org_id, display_name, credentials_encrypted, status, owner_type'
 
 /**
  * destination(=bot userId)からアカウントを逆引きする。
@@ -78,7 +122,7 @@ export async function findLineAccountByDestination(
 ): Promise<LineAccount | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
-    .select('id, org_id, display_name, credentials_encrypted, status')
+    .select(ACCOUNT_COLUMNS)
     .eq('channel', 'line')
     .eq('line_bot_user_id', destination)
     .maybeSingle()
@@ -90,7 +134,7 @@ export async function findLineAccountByDestination(
 export async function findLineAccountById(accountId: string): Promise<LineAccount | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
-    .select('id, org_id, display_name, credentials_encrypted, status')
+    .select(ACCOUNT_COLUMNS)
     .eq('id', accountId)
     .maybeSingle()
 
@@ -108,13 +152,42 @@ export interface LineAccountLookup {
 /**
  * 送信前の409分岐用: 1クエリで存在確認とstatus判定を済ませる。
  * disabled(記録は続けるが自動応答/送信は止める)は復号せずに返し、無駄なdecrypt呼び出しを避ける。
+ *
+ * owner_type='org'を明示条件に加える（設計正本 §2）: 共有bot(platform)はorgに1:1で
+ * 属さないため、org→account逆引きの対象から除く。
  */
 export async function findLineAccountForOrg(orgId: string): Promise<LineAccountLookup | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
-    .select('id, org_id, display_name, credentials_encrypted, status')
+    .select(ACCOUNT_COLUMNS)
     .eq('channel', 'line')
     .eq('org_id', orgId)
+    .eq('owner_type', 'org')
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const row = data as AccountRow & { status: string }
+  const status = row.status as 'active' | 'disabled'
+  if (status !== 'active') {
+    return { id: row.id, status, account: null }
+  }
+
+  const account = await decryptAccount(row)
+  return { id: row.id, status, account }
+}
+
+/**
+ * グループ送信用: account_idから直接1クエリで存在確認とstatus判定を済ませる。
+ * §3「グループ送信は必ず group.account_id → account」を満たすための解決経路
+ * （findLineAccountForOrgのorg→account逆引きをグループ送信に使うことは禁止）。
+ * owner_typeでは絞らない — group.account_idは既にorg/platform両方について正しいaccountを指すため。
+ */
+export async function findLineAccountByIdLookup(accountId: string): Promise<LineAccountLookup | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select(ACCOUNT_COLUMNS)
+    .eq('id', accountId)
     .maybeSingle()
 
   if (error || !data) return null
@@ -706,6 +779,153 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
   }))
+}
+
+// ---------------------------------------------------------------------------
+// 共有bot（platform account）のグループ紐付けコード（Stage 4 §1/§2/§3）
+//
+// 紐付け先org/spaceは常に channel_link_codes（code）自身が単一の真実源（設計正本 §3/§7-8）。
+// webhookはこのコードを償還してclaimを作るところまでを担い、group行の作成は
+// service-role専用の承認RPCファミリ（rpc_approve_group_claim等）だけが行う
+// （webhook内アドホックINSERT禁止）。
+// ---------------------------------------------------------------------------
+
+export interface SharedGroupClaimLinkCode {
+  id: string
+  orgId: string
+  spaceId: string
+  bindingMode: 'web_approval' | 'code_only'
+}
+
+/**
+ * shared_group_claim コードの償還用検証（webhook受信側）。
+ * purpose='shared_group_claim'・対象account(target_account_id)に一致・未消費・未失効・
+ * 未revokeのもののみ返す。理由の別（not found/expired/consumed/wrong account）は
+ * 呼び出し側に一切渡さない（設計正本 §3: コード不正時の応答を統一。存在/期限/orgを推測させない）。
+ */
+export async function findValidSharedGroupClaimCode(
+  codeHash: string,
+  targetAccountId: string,
+): Promise<SharedGroupClaimLinkCode | null> {
+  const { data, error } = await admin()
+    .from('channel_link_codes')
+    .select('id, org_id, space_id, binding_mode, target_account_id, consumed_at, revoked_at, expires_at')
+    .eq('code_hash', codeHash)
+    .eq('purpose', 'shared_group_claim')
+    .maybeSingle()
+
+  if (error || !data) return null
+  const row = data as {
+    id: string
+    org_id: string | null
+    space_id: string | null
+    binding_mode: string | null
+    target_account_id: string | null
+    consumed_at: string | null
+    revoked_at: string | null
+    expires_at: string
+  }
+  if (row.target_account_id !== targetAccountId) return null
+  if (row.consumed_at) return null
+  if (row.revoked_at) return null
+  if (new Date(row.expires_at).getTime() <= Date.now()) return null
+  if (!row.org_id || !row.space_id || !row.binding_mode) return null
+
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    spaceId: row.space_id,
+    bindingMode: row.binding_mode === 'code_only' ? 'code_only' : 'web_approval',
+  }
+}
+
+export interface GroupClaim {
+  id: string
+  orgId: string
+  spaceId: string
+  challengeLabel: string | null
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'auto_approved'
+}
+
+interface GroupClaimRow {
+  id: string
+  org_id: string
+  space_id: string
+  challenge_label: string | null
+  status: string
+}
+
+function toGroupClaim(row: GroupClaimRow): GroupClaim {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    spaceId: row.space_id,
+    challengeLabel: row.challenge_label,
+    status: row.status as GroupClaim['status'],
+  }
+}
+
+const GROUP_CLAIM_COLUMNS = 'id, org_id, space_id, challenge_label, status'
+
+async function findPendingGroupClaim(
+  linkCodeId: string,
+  accountId: string,
+  externalGroupId: string,
+): Promise<GroupClaim | null> {
+  const { data, error } = await admin()
+    .from('channel_group_claims')
+    .select(GROUP_CLAIM_COLUMNS)
+    .eq('link_code_id', linkCodeId)
+    .eq('account_id', accountId)
+    .eq('external_group_id', externalGroupId)
+    .eq('status', 'pending')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toGroupClaim(data as GroupClaimRow)
+}
+
+export interface CreateGroupClaimInput {
+  linkCodeId: string
+  accountId: string
+  externalGroupId: string
+  orgId: string
+  spaceId: string
+  challengeLabel: string
+  groupDisplayNameSnapshot: string | null
+}
+
+/**
+ * web_approval紐付けコード投入の受け口（PR2）。webhook再送(dedupe)では新規INSERTを試みず
+ * 既存の pending claim をそのまま返す（findOrCreateActiveGroupと同型: 先に既存を見て、
+ * 無ければinsertしレースは23505(channel_group_claims_pending_unique)で再取得する）。
+ */
+export async function findOrCreatePendingGroupClaim(input: CreateGroupClaimInput): Promise<GroupClaim> {
+  const existing = await findPendingGroupClaim(input.linkCodeId, input.accountId, input.externalGroupId)
+  if (existing) return existing
+
+  const { data, error } = await admin()
+    .from('channel_group_claims')
+    .insert({
+      link_code_id: input.linkCodeId,
+      account_id: input.accountId,
+      external_group_id: input.externalGroupId,
+      org_id: input.orgId,
+      space_id: input.spaceId,
+      challenge_label: input.challengeLabel,
+      group_display_name_snapshot: input.groupDisplayNameSnapshot,
+    })
+    .select(GROUP_CLAIM_COLUMNS)
+    .single()
+
+  if (error) {
+    if (error.code === '23505') {
+      const raced = await findPendingGroupClaim(input.linkCodeId, input.accountId, input.externalGroupId)
+      if (raced) return raced
+    }
+    throw new Error(`channel_group_claims: insert failed: ${error.message}`)
+  }
+  return toGroupClaim(data as GroupClaimRow)
 }
 
 // ---------------------------------------------------------------------------

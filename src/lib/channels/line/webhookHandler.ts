@@ -4,6 +4,7 @@ import {
   maskUserLinkCode,
   hashUserLinkCode,
 } from '@/lib/channels/userLink'
+import { hashSharedGroupClaimCode, generateGroupClaimChallengeLabel } from '@/lib/channels/sharedGroupClaim'
 import {
   findLineAccountByDestination,
   findActiveLineIdentities,
@@ -23,7 +24,11 @@ import {
   reopenDigestTaskAtomic,
   findIdentityIdsByExternalUserIds,
   backfillDigestAssigneeIdentity,
+  findValidSharedGroupClaimCode,
+  findOrCreatePendingGroupClaim,
   type LineAccount,
+  type OrgLineAccount,
+  type PlatformLineAccount,
   type InsertChannelMessageInput,
   type ValidLinkCode,
   type ChannelGroup,
@@ -42,6 +47,7 @@ import {
   replyLineMessage,
   leaveRoom,
   fetchGroupMemberProfile,
+  fetchGroupSummary,
 } from '@/lib/channels/line/client'
 import { verifyLineSignature } from '@/lib/channels/line/verify'
 import {
@@ -79,6 +85,11 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
  *
  * disabled アカウント: inbound の記録は続けるが、自動応答（挨拶・突合確認・消し込み確認）
  * とdigestは停止する（送信APIの409はStage 2コンソール側。ここでは扱わない）。
+ *
+ * 共有bot（owner_type='platform'・Stage 4）: account単体からorgを導けない
+ * （org_id=NULL・複数orgで相乗り）。帰属は必ず channel_groups(group.orgId) から取り、
+ * webhookはgroup行を作らない（承認RPCファミリ経由のみ）。1:1/roomはorg解決不能のため
+ * 保存ゼロ＋定型案内reply、未承認グループ(limbo)も保存ゼロが原則（設計正本 §1/§3/§4）。
  */
 
 export interface WebhookHandleResult {
@@ -86,7 +97,7 @@ export interface WebhookHandleResult {
   body: Record<string, unknown>
 }
 
-/** 初回挨拶。AI名乗りと記録明示は §9 の固定文言 — 削らないこと */
+/** 初回挨拶。AI名乗りと記録明示は §9 の固定文言 — 削らないこと（owner_type='org'専用bot向け） */
 export function buildGreeting(accountDisplayName: string): string {
   return (
     `はじめまして。${accountDisplayName}の秘書AIアシスタントです。\n` +
@@ -174,6 +185,30 @@ const USER_LINK_LEAKED_UNKNOWN_TEXT =
 const ROOM_UNSUPPORTED_TEXT =
   '恐れ入りますが、複数人トークには対応しておりません。グループトークでご利用ください。'
 
+/** 共有bot（platform）の1:1/follow応答。org解決不能のためidentityリンクは非対応（設計正本 §1・§7で将来対応） */
+const SHARED_BOT_DIRECT_UNSUPPORTED_TEXT =
+  '恐れ入りますが、個別のトークでのご相談は承っておりません。事務所からご案内された確認コードを、グループトークにご返信ください。'
+
+/** 共有bot（platform）のグループjoin挨拶。承認完了まで記録されない旨を明示する（設計正本 §4） */
+function buildSharedBotGroupGreeting(accountDisplayName: string): string {
+  return (
+    `はじめまして。${accountDisplayName}です。\n` +
+    `事務所からご案内された確認コードを、このグループにご返信ください。\n` +
+    `承認が完了するまで、このグループのやり取りは記録されません。`
+  )
+}
+
+const SHARED_GROUP_CLAIM_INVALID_TEXT =
+  'コードをお確かめのうえ、もう一度お送りください。ご不明な場合は事務所までご連絡ください。'
+
+function buildSharedGroupClaimAcceptedText(challengeLabel: string): string {
+  return (
+    `確認コードを受け付けました。事務所の担当者が承認すると連携が完了します。\n` +
+    `承認されるまで、このグループのやり取りは記録されません。\n` +
+    `お問い合わせの際は確認番号「${challengeLabel}」をお伝えください。`
+  )
+}
+
 export async function handleLineWebhook(
   rawBody: string,
   signature: string | null,
@@ -227,6 +262,17 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
     return
   }
   if (event.kind === 'follow') {
+    if (account.ownerType === 'platform') {
+      // 共有bot1:1: org解決不能・identityリンク非対応（設計正本 §1・§7で将来対応）。保存ゼロ＋定型案内のみ
+      if (!disabled) {
+        await pushLineMessage({
+          accessToken: account.accessToken,
+          to: event.externalUserId!,
+          messages: [{ type: 'text', text: SHARED_BOT_DIRECT_UNSUPPORTED_TEXT }],
+        })
+      }
+      return
+    }
     // webhook再送(dedupe)時は挨拶も再送しない
     const recorded = await recordSystemEvent(account, event, 'follow')
     if (recorded === 'duplicate' || disabled) return
@@ -236,6 +282,7 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
     return
   }
   if (event.kind === 'unfollow') {
+    if (account.ownerType === 'platform') return // 保存しない（org解決不能）
     await recordSystemEvent(account, event, 'unfollow')
     return
   }
@@ -250,6 +297,7 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
 
 // ---------------------------------------------------------------------------
 // 1:1（既存Stage1のフロー。挙動は変更しない。disabled時は自動応答のみ停止）
+// owner_type='platform'（共有bot）は org解決不能のため冒頭で分岐し、以降はorg専用botのみ
 // ---------------------------------------------------------------------------
 
 async function processDirectMessage(
@@ -257,6 +305,11 @@ async function processDirectMessage(
   event: NormalizedLineEvent,
   disabled: boolean,
 ): Promise<void> {
+  if (account.ownerType === 'platform') {
+    await processPlatformDirectMessage(account, event, disabled)
+    return
+  }
+
   const externalUserId = event.externalUserId!
   const identities = await findActiveLineIdentities(account.orgId, externalUserId)
 
@@ -339,14 +392,32 @@ async function processDirectMessage(
 }
 
 /**
- * 内部ユーザーの本人紐付け（Stage 2.7-A）。1:1トークでのみ受理する。
+ * 共有bot（platform）の1:1。org解決不能のためidentityリンクは非対応（設計正本 §1・将来対応は§7）。
+ * 内部ユーザーのTA-コードもここでは処理しない（発行APIがorg専用botのみを対象にしており、
+ * platform account宛の有効な行は現状存在し得ないため。§7「共有bot 1:1の将来対応」で扱う）。
+ */
+async function processPlatformDirectMessage(
+  account: PlatformLineAccount,
+  event: NormalizedLineEvent,
+  disabled: boolean,
+): Promise<void> {
+  if (disabled || !event.replyToken) return
+  await replyLineMessage({
+    accessToken: account.accessToken,
+    replyToken: event.replyToken,
+    messages: [{ type: 'text', text: SHARED_BOT_DIRECT_UNSUPPORTED_TEXT }],
+  })
+}
+
+/**
+ * 内部ユーザーの本人紐付け（Stage 2.7-A）。1:1トークでのみ受理する。owner_type='org'専用bot限定。
  *
  * 記録は必ず先に行う（inboundTextRecord がコードをマスクするので、平文はDBに残らない）。
  * RPC は例外を投げず status で返す — 例外だと同一トランザクション内の試行履歴も
  * ロールバックされ、総当たり対策が機能しなくなるため。
  */
 async function processUserLinkCode(
-  account: LineAccount,
+  account: OrgLineAccount,
   event: NormalizedLineEvent,
   disabled: boolean,
 ): Promise<void> {
@@ -369,7 +440,7 @@ async function processUserLinkCode(
 }
 
 async function processLinkCode(
-  account: LineAccount,
+  account: OrgLineAccount,
   event: NormalizedLineEvent,
   linkCode: ValidLinkCode,
   disabled: boolean,
@@ -399,7 +470,7 @@ async function processLinkCode(
 }
 
 function inboundTextRecord(
-  account: LineAccount,
+  account: OrgLineAccount,
   event: NormalizedLineEvent,
   spaceId: string | null,
   identityId: string | null,
@@ -426,7 +497,7 @@ function inboundTextRecord(
 }
 
 async function recordSystemEvent(
-  account: LineAccount,
+  account: OrgLineAccount,
   event: NormalizedLineEvent,
   eventName: string,
 ): Promise<{ id: string } | 'duplicate'> {
@@ -452,7 +523,7 @@ async function recordSystemEvent(
 }
 
 async function sendSecretaryText(
-  account: LineAccount,
+  account: OrgLineAccount,
   to: string,
   text: string,
   opts: { spaceId?: string | null; identityId?: string | null; relatedEventId: string },
@@ -484,11 +555,13 @@ async function sendSecretaryText(
 }
 
 // ---------------------------------------------------------------------------
-// グループ（Stage 2b）
+// グループ（Stage 2b。Stage 4以降は帰属を常に group.orgId から取る — account.orgIdは
+// owner_type='platform'ではnullであり、グループ文脈で参照してはならない）
 // ---------------------------------------------------------------------------
 
 function groupMessageRecord(
-  account: LineAccount,
+  orgId: string,
+  accountId: string,
   event: NormalizedLineEvent,
   group: ChannelGroup | null,
   identityId: string | null,
@@ -497,11 +570,11 @@ function groupMessageRecord(
   errorText: string | null = null,
 ): InsertChannelMessageInput {
   return {
-    orgId: account.orgId,
+    orgId,
     // グループ発言のspace_idは常にグループ由来のみ（identity自動帰属は絶対に適用しない）
     spaceId: group?.spaceId ?? null,
     identityId,
-    accountId: account.id,
+    accountId,
     groupId: group?.id ?? null,
     channel: 'line',
     direction: 'inbound',
@@ -524,6 +597,20 @@ async function processGroupJoin(
   disabled: boolean,
 ): Promise<void> {
   const externalGroupId = event.groupId!
+
+  if (account.ownerType === 'platform') {
+    // 共有bot: webhookからgroup行を作らない（承認RPCファミリ経由のみ・設計正本 §3）。
+    // 会話は保存せず、承認完了まで記録されない旨を明示した挨拶のみ送る（§4）。
+    if (!disabled) {
+      await pushLineMessage({
+        accessToken: account.accessToken,
+        to: externalGroupId,
+        messages: [{ type: 'text', text: buildSharedBotGroupGreeting(account.displayName) }],
+      })
+    }
+    return
+  }
+
   const group = await findOrCreateActiveGroup({
     orgId: account.orgId,
     accountId: account.id,
@@ -585,12 +672,37 @@ async function processGroupLeave(account: LineAccount, event: NormalizedLineEven
   const externalGroupId = event.groupId!
   const group = await findActiveGroup(account.id, externalGroupId)
   await markGroupLeft(account.id, externalGroupId)
+
+  if (!group) {
+    if (account.ownerType === 'platform') return // 未承認(limbo)のまま退出。保存しない
+    await insertChannelMessage({
+      orgId: account.orgId,
+      spaceId: null,
+      identityId: null,
+      accountId: account.id,
+      groupId: null,
+      channel: 'line',
+      direction: 'inbound',
+      actor: 'system',
+      externalUserId: null,
+      externalMessageId: event.webhookEventId,
+      contentType: 'system',
+      body: null,
+      payload: { event: 'leave' },
+      storagePath: null,
+      status: 'received',
+      error: null,
+      occurredAt: event.occurredAt,
+    })
+    return
+  }
+
   await insertChannelMessage({
-    orgId: account.orgId,
-    spaceId: group?.spaceId ?? null,
+    orgId: group.orgId,
+    spaceId: group.spaceId,
     identityId: null,
     accountId: account.id,
-    groupId: group?.id ?? null,
+    groupId: group.id,
     channel: 'line',
     direction: 'inbound',
     actor: 'system',
@@ -609,28 +721,32 @@ async function processGroupLeave(account: LineAccount, event: NormalizedLineEven
 /**
  * room（複数人トーク）は非サポート。案内を送って退出する。
  * disabled状態でも実施する（rooms自体が機能として非対応のため、bot有効/無効とは独立）。
+ * owner_type='platform'はorgを解決できないため記録しない（fail-closed。org_idはNOT NULL）。
  */
 async function processRoomJoin(account: LineAccount, event: NormalizedLineEvent): Promise<void> {
   const roomId = event.roomId!
-  const recorded = await insertChannelMessage({
-    orgId: account.orgId,
-    spaceId: null,
-    identityId: null,
-    accountId: account.id,
-    groupId: null,
-    channel: 'line',
-    direction: 'inbound',
-    actor: 'system',
-    externalUserId: null,
-    externalMessageId: event.webhookEventId,
-    contentType: 'system',
-    body: null,
-    payload: { event: 'room_join', roomId },
-    storagePath: null,
-    status: 'received',
-    error: null,
-    occurredAt: event.occurredAt,
-  })
+  let recorded: { id: string } | 'duplicate' | null = null
+  if (account.ownerType !== 'platform') {
+    recorded = await insertChannelMessage({
+      orgId: account.orgId,
+      spaceId: null,
+      identityId: null,
+      accountId: account.id,
+      groupId: null,
+      channel: 'line',
+      direction: 'inbound',
+      actor: 'system',
+      externalUserId: null,
+      externalMessageId: event.webhookEventId,
+      contentType: 'system',
+      body: null,
+      payload: { event: 'room_join', roomId },
+      storagePath: null,
+      status: 'received',
+      error: null,
+      occurredAt: event.occurredAt,
+    })
+  }
   if (recorded === 'duplicate') return
 
   try {
@@ -666,20 +782,36 @@ async function processGroupMessage(
   const externalGroupId = event.groupId!
   const group = await findActiveGroup(account.id, externalGroupId)
 
-  // 内部ユーザーの本人紐付けコードがグループに貼られた（誤爆）。
+  // 内部ユーザーの本人紐付けコードがグループに貼られた（誤爆）。owner_type非依存の安全策
+  // （テナントが未確定なlimboグループでも常に失効させる）。
   // グループの全員がそれを読めてしまうため、紐付けは *成立させず* コードを即時失効させる。
   // 本文は groupMessageRecord がマスクするので、会話ログにも平文は残らない。
   const leakedCode = event.contentType === 'text' ? extractUserLinkCode(event.body) : null
   if (leakedCode) {
-    // 本文全体ではなく *抽出したコード* をハッシュする。ここを取り違えると、
-    // 文章付きで貼られたコードが失効せず、グループの参加者がそれを1:1で使えてしまう
     const expired = await expireUserLinkCode(hashUserLinkCode(leakedCode))
-    const recorded = await insertChannelMessage(groupMessageRecord(account, event, group, null, null))
-    if (recorded !== 'duplicate' && !disabled) {
+    const recordOrgId = group?.orgId ?? (account.ownerType === 'platform' ? null : account.orgId)
+
+    if (recordOrgId) {
+      const recorded = await insertChannelMessage(
+        groupMessageRecord(recordOrgId, account.id, event, group, null, null),
+      )
+      if (recorded !== 'duplicate' && !disabled) {
+        await replyLineMessage({
+          accessToken: account.accessToken,
+          replyToken: event.replyToken!,
+          // 失効できていないのに「無効化しました」と断言しない
+          messages: [{ type: 'text', text: expired ? USER_LINK_LEAKED_TEXT : USER_LINK_LEAKED_UNKNOWN_TEXT }],
+        })
+      }
+      return
+    }
+
+    // 共有bot(platform)のlimbo: 帰属org不明のため記録は0行（設計正本 §8(d)）。
+    // 安全のため失効とreplyは行う（グループ全員に見える漏洩コードを放置しない）
+    if (!disabled) {
       await replyLineMessage({
         accessToken: account.accessToken,
         replyToken: event.replyToken!,
-        // 失効できていないのに「無効化しました」と断言しない
         messages: [{ type: 'text', text: expired ? USER_LINK_LEAKED_TEXT : USER_LINK_LEAKED_UNKNOWN_TEXT }],
       })
     }
@@ -687,19 +819,19 @@ async function processGroupMessage(
   }
 
   if (!group) {
+    if (account.ownerType === 'platform') {
+      await processPlatformLimboGroupMessage(account, event, externalGroupId, disabled)
+      return
+    }
     // 万一activeな世代が無い場合（join取りこぼし等）。帰属無しで記録だけ行う
-    await insertChannelMessage(groupMessageRecord(account, event, null, null, null))
+    await insertChannelMessage(groupMessageRecord(account.orgId, account.id, event, null, null, null))
     return
   }
 
-  // identity_idの記録は参考情報として可（誰の発言かのメモ）。space_idには絶対反映しない。
-  // ただし identity は必ずこのグループの space のものに限る。org内の先頭を無条件に採ると、
-  // 同一人物が複数顧問先の窓口（社長が2法人経営等）のとき別顧問先のidentityを記録し得る。
-  // channel_messages.identity_id は一度入ると変更できないため、誤りが残り続ける。
-  // 未紐付けグループ（space_id null）はそもそも誰の窓口か言えないので null にする。
+  // 以降 group 確定。owner_typeに関わらず帰属は常に group.orgId 起点（設計正本 §1 絶対規約）
   const identityId = event.externalUserId
     ? (
-        await findIdentityIdsByExternalUserIds(account.orgId, group.spaceId, [event.externalUserId])
+        await findIdentityIdsByExternalUserIds(group.orgId, group.spaceId, [event.externalUserId])
       ).get(event.externalUserId) ?? null
     : null
 
@@ -710,12 +842,14 @@ async function processGroupMessage(
       return
     }
 
-    // 既に紐付け済みグループへのコード形状テキストは通常メッセージ扱い（帰属を保つ）
+    // 既に紐付け済みグループへのコード形状テキストは通常メッセージ扱い（帰属を保つ）。
+    // 共有bot(platform)のactiveグループは作成時点でspace_idが確定済み(A-1トリガー)のため、
+    // この分岐は構造的にowner_type='org'のみで到達する
     if (group.spaceId === null) {
       const code = normalizeLinkCode(event.body)
       if (code) {
         const linkCode = await findValidLinkCode(code)
-        if (linkCode && linkCode.orgId === account.orgId) {
+        if (linkCode && linkCode.orgId === group.orgId) {
           await processGroupLinkCode(account, event, group, linkCode, identityId, disabled)
           return
         }
@@ -738,7 +872,7 @@ async function processGroupMessage(
     try {
       const content = await fetchLineMessageContent(account.accessToken, event.externalMessageId)
       storagePath = await uploadAttachment(
-        account.orgId,
+        group.orgId,
         event.externalMessageId,
         content.data,
         content.contentType,
@@ -750,8 +884,68 @@ async function processGroupMessage(
   }
 
   await insertChannelMessage(
-    groupMessageRecord(account, event, group, identityId, storagePath, status, errorText),
+    groupMessageRecord(group.orgId, account.id, event, group, identityId, storagePath, status, errorText),
   )
+}
+
+/**
+ * 共有bot（platform）の未承認グループ（limbo）でのメッセージ処理（設計正本 §1・§4・PR2）。
+ *
+ * 通常の発言/添付/postbackは保存しない・取得しない・抽出しない。唯一の例外は
+ * 紐付けコード投入: web_approval のコードのみ claim登録＋チャレンジ返信まで行う
+ * （承認RPCでのgroup作成自体はPR3のコンソールUIから。webhookはgroup行を一切作らない）。
+ * code_only の即時RPC償還はPR3実装のため、ここでは invalid と同様に扱う
+ * （未実装の機能を偽装して受理しない）。
+ */
+async function processPlatformLimboGroupMessage(
+  account: PlatformLineAccount,
+  event: NormalizedLineEvent,
+  externalGroupId: string,
+  disabled: boolean,
+): Promise<void> {
+  if (event.contentType !== 'text' || !event.body) return // 保存しない・反応しない
+
+  const code = normalizeLinkCode(event.body)
+  if (!code) return // コード形状でない通常発言は無反応・無保存
+
+  const replyText = await redeemSharedGroupClaimCode(account, externalGroupId, code)
+
+  if (disabled || !event.replyToken) return
+  await replyLineMessage({
+    accessToken: account.accessToken,
+    replyToken: event.replyToken,
+    messages: [{ type: 'text', text: replyText }],
+  })
+}
+
+async function redeemSharedGroupClaimCode(
+  account: PlatformLineAccount,
+  externalGroupId: string,
+  code: string,
+): Promise<string> {
+  const linkCode = await findValidSharedGroupClaimCode(hashSharedGroupClaimCode(code), account.id)
+  if (!linkCode || linkCode.bindingMode !== 'web_approval') {
+    // 見つからない/期限切れ/消費済み/対象account不一致/code_only(PR3未実装)は
+    // すべて同一の応答にする（設計正本 §3: コード不正時の応答を統一。存在/期限/orgを推測させない）
+    return SHARED_GROUP_CLAIM_INVALID_TEXT
+  }
+
+  // ベストエフォート: 取得できなくてもclaim登録自体は止めない（content-freeな確認材料に過ぎない）
+  const summary = await fetchGroupSummary(account.accessToken, externalGroupId)
+  const challengeLabel = generateGroupClaimChallengeLabel()
+
+  const claim = await findOrCreatePendingGroupClaim({
+    linkCodeId: linkCode.id,
+    accountId: account.id,
+    externalGroupId,
+    orgId: linkCode.orgId,
+    spaceId: linkCode.spaceId,
+    challengeLabel,
+    groupDisplayNameSnapshot: summary?.groupName ?? null,
+  })
+
+  // webhook再送で既存pendingが返った場合は、その既存challengeLabelを案内する
+  return buildSharedGroupClaimAcceptedText(claim.challengeLabel ?? challengeLabel)
 }
 
 async function processGroupLinkCode(
@@ -791,14 +985,14 @@ async function processGroupLinkCode(
     identityId ??
     (event.externalUserId
       ? (
-          await findIdentityIdsByExternalUserIds(account.orgId, currentGroup.spaceId, [
+          await findIdentityIdsByExternalUserIds(group.orgId, currentGroup.spaceId, [
             event.externalUserId,
           ])
         ).get(event.externalUserId) ?? null
       : null)
 
   const recorded = await insertChannelMessage(
-    groupMessageRecord(account, event, currentGroup, resolvedIdentityId, null),
+    groupMessageRecord(currentGroup.orgId, account.id, event, currentGroup, resolvedIdentityId, null),
   )
   if (recorded === 'duplicate' || disabled) return
 
@@ -817,7 +1011,7 @@ async function processGroupLinkCode(
     })
   }
   await insertChannelMessage({
-    orgId: account.orgId,
+    orgId: currentGroup.orgId,
     spaceId: currentGroup.spaceId,
     identityId: null,
     accountId: account.id,
@@ -846,7 +1040,9 @@ async function handleDigestCompleteCommand(
   disabled: boolean,
 ): Promise<void> {
   // 「完了N」テキスト自体も通常の発言としてまず記録する（監査ログ）
-  const recorded = await insertChannelMessage(groupMessageRecord(account, event, group, identityId, null))
+  const recorded = await insertChannelMessage(
+    groupMessageRecord(group.orgId, account.id, event, group, identityId, null),
+  )
   if (recorded === 'duplicate' || disabled) return
 
   const result = await markDigestTaskDoneByGroupAndNumberAtomic(
@@ -869,7 +1065,7 @@ async function handleDigestCompleteCommand(
     })
   }
   await insertChannelMessage({
-    orgId: account.orgId,
+    orgId: group.orgId,
     spaceId: group.spaceId,
     identityId: null,
     accountId: account.id,
@@ -900,7 +1096,9 @@ async function handleMentionInstantTask(
   identityId: string | null,
   disabled: boolean,
 ): Promise<void> {
-  const recorded = await insertChannelMessage(groupMessageRecord(account, event, group, identityId, null))
+  const recorded = await insertChannelMessage(
+    groupMessageRecord(group.orgId, account.id, event, group, identityId, null),
+  )
   if (recorded === 'duplicate') return
   if (disabled) return
 
@@ -924,7 +1122,7 @@ async function handleMentionInstantTask(
     let assigneeIdentityId: string | null = null
     if (assignee.assigneeExternalUserId) {
       // 必ずこのグループの space で解決する（他顧問先のidentityを引かない）
-      const identities = await findIdentityIdsByExternalUserIds(account.orgId, group.spaceId, [
+      const identities = await findIdentityIdsByExternalUserIds(group.orgId, group.spaceId, [
         assignee.assigneeExternalUserId,
       ])
       assigneeIdentityId = identities.get(assignee.assigneeExternalUserId) ?? null
@@ -939,7 +1137,7 @@ async function handleMentionInstantTask(
       // まず候補を pending で作る（未通知）。作成を送信解決より前に置くことで、後続の
       // claim/push が失敗しても候補は必ず残り、cron／コンソールが確実に拾える（取りこぼし防止）。
       const created = await createInstantDigestTask({
-        orgId: account.orgId,
+        orgId: group.orgId,
         groupId: group.id,
         spaceId: group.spaceId,
         sourceMessageId: recorded.id,
@@ -992,7 +1190,7 @@ async function handleMentionInstantTask(
       replyText = APPROVAL_REQUESTED_TEXT
     } else {
       await createInstantDigestTask({
-        orgId: account.orgId,
+        orgId: group.orgId,
         groupId: group.id,
         spaceId: group.spaceId,
         sourceMessageId: recorded.id,
@@ -1024,7 +1222,7 @@ async function handleMentionInstantTask(
     })
   }
   await insertChannelMessage({
-    orgId: account.orgId,
+    orgId: group.orgId,
     spaceId: group.spaceId,
     identityId: null,
     accountId: account.id,
@@ -1052,7 +1250,13 @@ type PostbackResult = 'done' | 'already_done' | 'reopened' | 'cannot_undo' | 're
  * channel_messagesに残す（§2.3）。記録は disabled 中も必ず行う（inboundの記録continuityは
  * 他イベントと同じ）。disabled中に止めるのは「自動応答」= reply送信のみ。
  * 検証・状態確定(消し込み/取り消し)自体はユーザーの実際の操作を正しく反映するため常に行う。
- * digest_undo も digest_done と同一の検証チェーン（task→group→account→org一致）を通す。
+ * digest_undo も digest_done と同一の検証チェーン（task→group→account一致）を通す。
+ *
+ * 検証: task.accountId===account.id に加え、必ずグループ由来で確認する
+ * （task.groupId→taskGroup.externalGroupId===event.groupId かつ taskGroup.orgId===task.orgId）。
+ * 共有bot(platform)はaccount.orgIdが常にnullのため、account.orgIdでの照合はできない
+ * （設計正本 §3: account.id(不変)＋group.orgIdで再設計）。event.groupIdを伴わないpostback
+ * （通常発生しない）はorg境界を検証できないためfail-closedで拒否する。
  */
 async function processPostback(
   account: LineAccount,
@@ -1088,14 +1292,15 @@ async function processPostback(
 
   if (!task) {
     rejected = true
-  } else if (task.accountId !== account.id || task.orgId !== account.orgId) {
-    // 検証: task→group→account→orgの系列がwebhookで解決したaccountと一致すること
-    console.error('LINE webhook: postback task belongs to a different account/org', taskId)
+  } else if (task.accountId !== account.id) {
+    console.error('LINE webhook: postback task belongs to a different account', taskId)
     rejected = true
-  } else if (event.groupId) {
-    // 検証: task.group_idがwebhookを受けたグループのものであること
+  } else if (!event.groupId) {
+    // グループ由来でないdigest postback（通常発生しない）はorg境界を検証できないため拒否
+    rejected = true
+  } else {
     const taskGroup = await findGroupById(task.groupId)
-    if (!taskGroup || taskGroup.externalGroupId !== event.groupId) {
+    if (!taskGroup || taskGroup.externalGroupId !== event.groupId || taskGroup.orgId !== task.orgId) {
       console.error('LINE webhook: postback task belongs to a different group', taskId)
       rejected = true
     }
@@ -1128,8 +1333,12 @@ async function processPostback(
   // 記録用のgroup_idはwebhookを受けたグループ基準（taskの帰属先ではなく、タップが物理的に発生した場所）
   const group = event.groupId ? await findActiveGroup(account.id, event.groupId) : null
 
+  // 帰属org。共有bot(platform)でgroupが未解決(limbo)なら記録しない(0行。設計正本 §8(d))
+  const recordOrgId = group?.orgId ?? (account.ownerType === 'platform' ? null : account.orgId)
+  if (!recordOrgId) return
+
   const recorded = await insertChannelMessage({
-    orgId: account.orgId,
+    orgId: recordOrgId,
     spaceId: group?.spaceId ?? null,
     identityId: null,
     accountId: account.id,
@@ -1177,7 +1386,8 @@ type ApprovalAction = 'digest_promote' | 'digest_reject'
 type ApprovalResult = 'promoted' | 'already_promoted' | 'rejected' | 'conflict' | 'forbidden' | 'not_found'
 
 /**
- * 責任者確認ボタン（1:1 トーク）の承認/却下。
+ * 責任者確認ボタン（1:1 トーク）の承認/却下。owner_type='org'専用bot限定
+ * （共有botの内部承認1:1連携は未対応。設計正本 §7「共有bot 1:1の将来対応」）。
  *
  * 消し込み(digest_done)と違い、アクター解決・テナント境界・認可はすべて _via_line RPC が
  * DB内で完結させる（webhook 検証済みの account.id と external_user_id のみ渡し、body 由来の
@@ -1195,6 +1405,8 @@ async function processApprovalPostback(
   action: ApprovalAction,
   taskId: string,
 ): Promise<void> {
+  if (account.ownerType === 'platform') return // 共有botの内部承認1:1連携は未対応（org解決不能）
+
   // 承認ボタンは 1:1 トーク専用。グループ/ルームに転送・再利用されたボタンでは動かさない
   // （公開の場に承認結果を返さない・監査の帰属を壊さない）。認可自体はRPCも守るが、
   // ここで文脈を先に閉じる。1:1 identity が無ければアクター解決も不能。

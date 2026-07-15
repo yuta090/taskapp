@@ -3,6 +3,7 @@ import { requireInternalMember } from '@/lib/channels/authz'
 import {
   findActiveIdentityForSpace,
   findLineAccountForOrg,
+  findLineAccountByIdLookup,
   insertChannelMessage,
   updateChannelMessageStatus,
   verifyGroupInOrg,
@@ -130,7 +131,10 @@ async function sendToGroup(params: {
     return NextResponse.json({ error: 'group not found' }, { status: 404 })
   }
 
-  const resolved = await resolveActiveLineAccount(orgId)
+  // 設計正本§3: グループ送信は必ず group.account_id → account。
+  // findLineAccountForOrg（org→account逆引き）はグループ送信に使わない
+  // （共有bot(platform)配下のグループはorg単体からaccountを逆引きできないため）。
+  const resolved = await resolveActiveLineAccountById(group.accountId)
   if (!resolved.ok) return resolved.response
   const account = resolved.account
 
@@ -169,7 +173,17 @@ type ResolveAccountResult =
  * （§1: disabledは受信の記録は続けるが能動的な動作=送信は止める）。
  */
 async function resolveActiveLineAccount(orgId: string): Promise<ResolveAccountResult> {
-  const lookup = await findLineAccountForOrg(orgId)
+  return lookupToResult(await findLineAccountForOrg(orgId))
+}
+
+/** group.account_id からの直接解決（§3: グループ送信専用。org→account逆引きは使わない） */
+async function resolveActiveLineAccountById(accountId: string): Promise<ResolveAccountResult> {
+  return lookupToResult(await findLineAccountByIdLookup(accountId))
+}
+
+function lookupToResult(
+  lookup: Awaited<ReturnType<typeof findLineAccountForOrg>>,
+): ResolveAccountResult {
   if (!lookup) {
     return {
       ok: false,
