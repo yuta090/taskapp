@@ -395,6 +395,8 @@ export interface ChannelGroup {
   /** 申し送りの拾い方（Stage 2.5 §1）。digest_enabled列は廃止・読み書きしない */
   pickupMode: PickupMode
   lastExtractedMessageCreatedAt: string | null
+  /** 承認フロー（Stage 2.7-B）の責任者。未設定なら候補を pending にしない（オプトイン） */
+  approverUserId: string | null
 }
 
 interface GroupRow {
@@ -407,6 +409,7 @@ interface GroupRow {
   status: string
   pickup_mode: string
   last_extracted_message_created_at: string | null
+  approver_user_id: string | null
 }
 
 function toPickupMode(value: string): PickupMode {
@@ -424,11 +427,12 @@ function toChannelGroup(row: GroupRow): ChannelGroup {
     status: row.status === 'left' ? 'left' : 'active',
     pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
+    approverUserId: row.approver_user_id,
   }
 }
 
 const GROUP_COLUMNS =
-  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at'
+  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at, approver_user_id'
 
 export async function findActiveGroup(
   accountId: string,
@@ -532,6 +536,93 @@ export interface UpdateChannelGroupInput {
   displayName?: string
 }
 
+export interface OrgGroupWithApprover {
+  groupId: string
+  displayName: string | null
+  spaceId: string
+  spaceName: string | null
+  approverUserId: string | null
+}
+
+/**
+ * 承認フロー設定用に、org の active かつ space 紐付け済みグループを一覧する（Stage 2.7-B §5）。
+ * 各グループの現承認者(approver_user_id)を返す。承認候補（space admin/editor）は
+ * クライアントが space 単位で解決する（useSpaceMembers）ため、ここでは持たない。
+ */
+export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroupWithApprover[]> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select('id, display_name, space_id, approver_user_id, spaces(name)')
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+    .not('space_id', 'is', null)
+    .order('display_name', { ascending: true })
+  if (error) throw new Error(`channel_groups: list failed: ${error.message}`)
+
+  type Row = {
+    id: string
+    display_name: string | null
+    space_id: string
+    approver_user_id: string | null
+    spaces: { name: string | null } | { name: string | null }[] | null
+  }
+  return (data as unknown as Row[]).map((row) => {
+    const s = Array.isArray(row.spaces) ? row.spaces[0] : row.spaces
+    return {
+      groupId: row.id,
+      displayName: row.display_name,
+      spaceId: row.space_id,
+      spaceName: s?.name ?? null,
+      approverUserId: row.approver_user_id,
+    }
+  })
+}
+
+/** 対象ユーザーが org の内部メンバー（owner/admin/member）かを確認する。承認者設定の入力検証に使う。 */
+export async function isOrgInternalMember(orgId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('org_memberships')
+    .select('role')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw new Error(`org_memberships: select failed: ${error.message}`)
+  const role = data?.role as string | undefined
+  return role === 'owner' || role === 'admin' || role === 'member'
+}
+
+/**
+ * 対象ユーザーが space の admin/editor（＝承認権限を持ち得る）かを確認する。
+ * これを満たさない人を approver にすると、承認時の _digest_actor_can_approve を永遠に
+ * 満たせず候補が宙吊りになるため、設定を弾く。
+ */
+export async function isSpaceApproverEligible(spaceId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('space_memberships')
+    .select('role')
+    .eq('space_id', spaceId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw new Error(`space_memberships: select failed: ${error.message}`)
+  const role = data?.role as string | undefined
+  return role === 'admin' || role === 'editor'
+}
+
+/**
+ * グループの承認者を原子的に設定/解除する（Stage 2.7-B）。approver 変更時に旧責任者宛の
+ * 未処理 pending を通常の申し送り(none)へ戻し、宙吊りを防ぐ。RPC(行ロック)で束ねる。
+ */
+export async function setGroupApprover(
+  groupId: string,
+  approverUserId: string | null,
+): Promise<void> {
+  const { error } = await admin().rpc('rpc_set_group_approver', {
+    p_group_id: groupId,
+    p_new_approver: approverUserId,
+  })
+  if (error) throw new Error(`rpc_set_group_approver failed: ${error.message}`)
+}
+
 /**
  * 'all' への切替時は last_extracted_message_created_at = now() に更新する
  * （mention_only/off 期間中の溜まったバックログを一括LLM投入しないため。切替前の発言は拾わない仕様）。
@@ -550,7 +641,8 @@ export async function updateChannelGroup(
   if (updates.displayName !== undefined) patch.display_name = updates.displayName
   if (Object.keys(patch).length === 0) return
 
-  await admin().from('channel_groups').update(patch).eq('id', groupId)
+  const { error } = await admin().from('channel_groups').update(patch).eq('id', groupId)
+  if (error) throw new Error(`channel_groups: update failed: ${error.message}`)
 }
 
 /**
@@ -815,16 +907,33 @@ export interface CreateInstantDigestTaskInput {
   assigneeIdentityId?: string | null
   dueDate?: string | null
   dueTime?: string | null
+  /**
+   * 承認フロー（Stage 2.7-B）: 責任者が設定されたグループでは候補を pending にする。
+   * 指定時は promotion_state='pending' / requested_to_user_id / requested_at を埋める。
+   * approval_notified_at は常に未通知(null)で生む。送信は生成後に claim RPC 経由で原子的に印を打つ。
+   */
+  approverUserId?: string | null
 }
 
 /**
  * メンション即時タスク化（Stage 2.5 §2）: channel_digest_tasks へ直接INSERTする。
  * extracted_dateはJST日付（formatDateToLocalString使用。toISOString().split禁止）。
  * unique(source_message_id, title) 競合（webhook再送等）は握って冪等成功('duplicate')扱いにする。
+ *
+ * approverUserId 指定時は Stage 2.7-B の承認フローに乗せ pending として作る。CHECK
+ * (digest_promotion_state_chk) が pending には requested_to_user_id / requested_at を要求するため
+ * 同時に埋める（requested_at は timestamptz の瞬時値。DATE ではないので toISOString で可）。
  */
 export async function createInstantDigestTask(
   input: CreateInstantDigestTaskInput,
 ): Promise<{ id: string; title: string } | 'duplicate'> {
+  const promotion = input.approverUserId
+    ? {
+        promotion_state: 'pending',
+        requested_to_user_id: input.approverUserId,
+        requested_at: new Date().toISOString(),
+      }
+    : {}
   const { data, error } = await admin()
     .from('channel_digest_tasks')
     .insert({
@@ -839,6 +948,7 @@ export async function createInstantDigestTask(
       due_date: input.dueDate ?? null,
       due_time: input.dueTime ?? null,
       extracted_date: formatDateToLocalString(new Date()),
+      ...promotion,
     })
     .select('id, title')
     .single()
@@ -1257,6 +1367,36 @@ export async function findActiveUserLinkByExternalId(
   }
 }
 
+/**
+ * 即時1:1送信のための "単一候補 claim"（Stage 2.7-B §4-5）。cron の一括 claim の単票版。
+ * 対象が pending かつ未通知で、requested_to が *現在も* 承認権限を持ち（org在籍＋対象spaceの
+ * admin/editor、かつ現責任者と一致）、有効な1:1紐付けがある場合にのみ、approval_notified_at を
+ * 原子的に刻んで送信先 external_user_id を返す。それ以外は null（印を打たない→cron/コンソールへ委ねる）。
+ *
+ * 認可を RPC 側（_digest_actor_can_approve）に一元化することで、退職・space外しの承認者へ
+ * タイトルを 1:1 で漏らさない。行ロックで cron ディスパッチャとの二重送信も防ぐ。
+ */
+export async function claimApprovalNotification(taskId: string): Promise<string | null> {
+  const { data, error } = await admin().rpc('rpc_claim_approval_notification', {
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_claim_approval_notification failed: ${error.message}`)
+  return (data as string | null) ?? null
+}
+
+/**
+ * 即時1:1送信が失敗した pending 候補を未通知に戻す（Stage 2.7-B）。claim で刻んだ
+ * approval_notified_at を NULL に戻し、cron ディスパッチャ／コンソールが拾えるようにする。
+ * cron 送信と同一の LINE retryKey を使うため、初回が実は届いていても再送は LINE 側で冪等化される。
+ */
+export async function clearApprovalNotifiedAt(taskId: string): Promise<void> {
+  const { error } = await admin()
+    .from('channel_digest_tasks')
+    .update({ approval_notified_at: null })
+    .eq('id', taskId)
+  if (error) throw new Error(`channel_digest_tasks: clear approval_notified_at failed: ${error.message}`)
+}
+
 /** 失効の認可に使う（org境界と所有者の確認）。revoke 済みも返す */
 export async function findUserLinkById(linkId: string): Promise<UserLink | null> {
   const { data, error } = await admin()
@@ -1305,4 +1445,175 @@ export async function revokeUserLink(linkId: string, actorUserId: string): Promi
   })
   if (error) throw new Error(`rpc_revoke_user_link failed: ${error.message}`)
   return data === true
+}
+
+// -----------------------------------------------------------------------------
+// 申し送り候補の責任者確認（Stage 2.7-B）
+// RPC は例外を投げず status で返す（監査行を同一Txに残すため）。LINE経路は内部UUIDを
+// 受け取らず external_user_id から解決し、RPC側で org/account/認可を束縛する。
+// -----------------------------------------------------------------------------
+export type DigestPromoteStatus = 'not_found' | 'forbidden' | 'conflict' | 'promoted'
+export type DigestRejectStatus = 'not_found' | 'forbidden' | 'conflict' | 'rejected'
+
+/** LINE経路の昇格。channel_account_id と external_user_id は webhook 検証済みの値のみ渡す */
+export async function promoteDigestTaskViaLine(
+  channelAccountId: string,
+  externalUserId: string,
+  taskId: string,
+): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
+  const { data, error } = await admin().rpc('rpc_promote_digest_task_via_line', {
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_promote_digest_task_via_line failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return {
+    status: (row?.status ?? 'not_found') as DigestPromoteStatus,
+    created: row?.created === true,
+    taskId: row?.task_id ?? null,
+  }
+}
+
+/** LINE経路の却下。 */
+export async function rejectDigestTaskViaLine(
+  channelAccountId: string,
+  externalUserId: string,
+  taskId: string,
+): Promise<{ status: DigestRejectStatus }> {
+  const { data, error } = await admin().rpc('rpc_reject_digest_task_via_line', {
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_reject_digest_task_via_line failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'not_found') as DigestRejectStatus }
+}
+
+/**
+ * コンソール経路の昇格。actorUserId はセッションから解決した内部ユーザー（信頼済み）。
+ * RPC 内の _digest_actor_can_approve が「現責任者・org在籍・space admin/editor」を再検証するため、
+ * 内部メンバーでも承認者本人でなければ forbidden になる（漏洩・越権を防ぐ）。
+ */
+export async function promoteDigestTask(
+  taskId: string,
+  actorUserId: string,
+): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
+  const { data, error } = await admin().rpc('rpc_promote_digest_task', {
+    p_task_id: taskId,
+    p_actor_user_id: actorUserId,
+  })
+  if (error) throw new Error(`rpc_promote_digest_task failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return {
+    status: (row?.status ?? 'not_found') as DigestPromoteStatus,
+    created: row?.created === true,
+    taskId: row?.task_id ?? null,
+  }
+}
+
+/** コンソール経路の却下（昇格と対称）。 */
+export async function rejectDigestTask(
+  taskId: string,
+  actorUserId: string,
+): Promise<{ status: DigestRejectStatus }> {
+  const { data, error } = await admin().rpc('rpc_reject_digest_task', {
+    p_task_id: taskId,
+    p_actor_user_id: actorUserId,
+  })
+  if (error) throw new Error(`rpc_reject_digest_task failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'not_found') as DigestRejectStatus }
+}
+
+export interface PendingApprovalItem {
+  taskId: string
+  title: string
+  dueDate: string | null
+  dueTime: string | null
+  assigneeHint: string | null
+  groupId: string
+  groupName: string | null
+  requestedAt: string | null
+  approvalNotifiedAt: string | null
+}
+
+/**
+ * コンソール「確認待ち」トレイの取得（Stage 2.7-B §5）。セッションユーザー宛の pending 候補を返す。
+ *
+ * 認可ファースト: rpc_list_pending_approvals が _digest_actor_can_approve を適用し、
+ * 「*現在も* 承認権限を持つ」候補だけを返す。requested_to=本人 で絞るだけだと、責任者交代・
+ * space外し・退職後に旧承認者へタイトル等が漏れる（承認/却下・LINE経路と同じガードを取得にも掛ける）。
+ *
+ * ★state ベースで引く（promotion_state='pending'）。approval_notified_at では絞らない:
+ * 1:1送信済み/未送信/送信失敗（クラッシュで notified 刻み済みだが未達）に関わらず、
+ * *まだ承認判断が済んでいない* 候補は全て出す。これが LINE 取りこぼしの確実なフォールバック。
+ */
+export async function listPendingApprovalsForUser(
+  orgId: string,
+  userId: string,
+): Promise<PendingApprovalItem[]> {
+  const { data, error } = await admin().rpc('rpc_list_pending_approvals', {
+    p_org_id: orgId,
+    p_actor_user_id: userId,
+  })
+  if (error) throw new Error(`rpc_list_pending_approvals failed: ${error.message}`)
+
+  type Row = {
+    task_id: string
+    title: string
+    due_date: string | null
+    due_time: string | null
+    assignee_hint: string | null
+    group_id: string
+    group_name: string | null
+    requested_at: string | null
+    approval_notified_at: string | null
+  }
+  return ((data as Row[]) ?? []).map((row) => ({
+    taskId: row.task_id,
+    title: row.title,
+    dueDate: row.due_date,
+    dueTime: row.due_time,
+    assigneeHint: row.assignee_hint,
+    groupId: row.group_id,
+    groupName: row.group_name,
+    requestedAt: row.requested_at,
+    approvalNotifiedAt: row.approval_notified_at,
+  }))
+}
+
+export interface PendingApprovalNotification {
+  taskId: string
+  orgId: string
+  channelAccountId: string
+  externalUserId: string
+  title: string
+  dueDate: string | null
+  dueTime: string | null
+}
+
+/**
+ * pending 承認候補のうち未通知で、責任者に有効な1:1紐付けがあるものを原子的に claim する。
+ * claim した行には approval_notified_at が刻まれる（並行ディスパッチャで二重送信しない）。
+ * 呼び出し側は account 単位で access token を解決し、返った external_user_id へ Flex を push する。
+ */
+export async function claimPendingApprovalNotifications(
+  limit = 50,
+): Promise<PendingApprovalNotification[]> {
+  const { data, error } = await admin().rpc('rpc_claim_pending_approval_notifications', {
+    p_limit: limit,
+  })
+  if (error) throw new Error(`rpc_claim_pending_approval_notifications failed: ${error.message}`)
+
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    taskId: row.task_id as string,
+    orgId: row.org_id as string,
+    channelAccountId: row.channel_account_id as string,
+    externalUserId: row.external_user_id as string,
+    title: row.title as string,
+    dueDate: (row.due_date as string | null) ?? null,
+    dueTime: (row.due_time as string | null) ?? null,
+  }))
 }

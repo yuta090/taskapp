@@ -29,6 +29,10 @@ import {
   type ChannelGroup,
   consumeUserLinkCode,
   expireUserLinkCode,
+  promoteDigestTaskViaLine,
+  rejectDigestTaskViaLine,
+  claimApprovalNotification,
+  clearApprovalNotifiedAt,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -47,12 +51,19 @@ import {
 } from '@/lib/channels/line/events'
 import { normalizeLinkCode } from '@/lib/channels/linkCode'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
-import { parseDigestDonePostback, parseDigestUndoPostback } from '@/lib/channels/digest/postback'
+import {
+  parseDigestDonePostback,
+  parseDigestUndoPostback,
+  parseDigestPromotePostback,
+  parseDigestRejectPostback,
+} from '@/lib/channels/digest/postback'
 import {
   buildMentionTaskTitle,
   buildTaskDoneFlexMessage,
   buildTaskDetailLine,
   resolveAssignee,
+  buildApprovalPromptFlexMessage,
+  buildDigestRetryKey,
 } from '@/lib/channels/digest/compute'
 import { parseJapaneseDue } from '@/lib/channels/digest/due'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
@@ -108,6 +119,13 @@ function buildTaskUndoReply(title: string): string {
 const UNDO_FAILED_TEXT =
   '取り消せませんでした（完了から24時間以上経過、または既に戻されています）。コンソールからも戻せます。'
 
+// 責任者確認（Stage 2.7-B）の 1:1 返信文言
+const PROMOTE_DONE_TEXT = '承認しました。タスクに登録し、担当の画面に追加しました。'
+const PROMOTE_ALREADY_TEXT = 'すでにタスク化済みです。'
+const REJECT_DONE_TEXT = '却下しました。タスクには登録しません。'
+const APPROVAL_CONFLICT_TEXT = 'この項目はすでに処理済みです。'
+
+const APPROVAL_REQUESTED_TEXT = '責任者に確認をお願いしました。承認されると本体タスクになります。'
 const MENTION_TITLE_EMPTY_TEXT =
   '内容が読み取れませんでした。メンションに続けて申し送り内容をお書きください。'
 
@@ -912,28 +930,90 @@ async function handleMentionInstantTask(
       assigneeIdentityId = identities.get(assignee.assigneeExternalUserId) ?? null
     }
 
-    await createInstantDigestTask({
-      orgId: account.orgId,
-      groupId: group.id,
-      spaceId: group.spaceId,
-      sourceMessageId: recorded.id,
-      title,
-      assigneeHint: assignee.assigneeHint,
-      assigneeExternalUserId: assignee.assigneeExternalUserId,
-      assigneeIdentityId,
-      dueDate: due.dueDate,
-      dueTime: due.dueTime,
-    })
+    // 承認フロー（Stage 2.7-B）: 責任者が設定され、かつ space 紐付け済みのグループでは
+    // 即時タスク化せず pending にし、責任者の 1:1 へ確認Flexを送る。夜間ingestの pending 化と
+    // 同条件（approver かつ space）に揃える。どちらか欠ければ従来どおり即時に申し送りへ入れる。
+    const pending = Boolean(group.approverUserId && group.spaceId)
 
-    const detail = buildTaskDetailLine(
-      due.dueDate,
-      due.dueTime,
-      assignee.assigneeHint,
-      formatDateToLocalString(now),
-    )
-    replyText = detail
-      ? `申し送りに追加しました。\n『${title}』\n${detail}`
-      : `申し送りに追加しました。\n『${title}』`
+    if (pending) {
+      // まず候補を pending で作る（未通知）。作成を送信解決より前に置くことで、後続の
+      // claim/push が失敗しても候補は必ず残り、cron／コンソールが確実に拾える（取りこぼし防止）。
+      const created = await createInstantDigestTask({
+        orgId: account.orgId,
+        groupId: group.id,
+        spaceId: group.spaceId,
+        sourceMessageId: recorded.id,
+        title,
+        assigneeHint: assignee.assigneeHint,
+        assigneeExternalUserId: assignee.assigneeExternalUserId,
+        assigneeIdentityId,
+        dueDate: due.dueDate,
+        dueTime: due.dueTime,
+        approverUserId: group.approverUserId,
+      })
+
+      if (created !== 'duplicate') {
+        try {
+          // 原子的 claim: 責任者が *現在も* 承認権限を持ち有効な1:1紐付けがある場合だけ
+          // notified を刻んで送信先を返す（退職者へタイトルを漏らさない・cronと二重送信しない）。
+          const approverExternalUserId = await claimApprovalNotification(created.id)
+          if (approverExternalUserId) {
+            try {
+              await pushLineMessage({
+                accessToken: account.accessToken,
+                to: approverExternalUserId,
+                messages: [
+                  buildApprovalPromptFlexMessage({
+                    taskId: created.id,
+                    title,
+                    dueDate: due.dueDate,
+                    dueTime: due.dueTime,
+                    todayJst: formatDateToLocalString(now),
+                  }),
+                ],
+                // cron 送信と同一キー。曖昧失敗→null→cron再送でも LINE 側で二重化しない（§4-5）
+                retryKey: buildDigestRetryKey(created.id, 'approval-notify'),
+              })
+            } catch (pushError) {
+              // 送信失敗（曖昧含む）→ 未通知へ戻し cron／コンソールに委ねる
+              console.error('handleMentionInstantTask: approval push failed', pushError)
+              await clearApprovalNotifiedAt(created.id).catch((clearError) =>
+                console.error('handleMentionInstantTask: clearApprovalNotifiedAt failed', clearError),
+              )
+            }
+          }
+        } catch (claimError) {
+          // claim RPC の一時障害。候補は既に pending で残るため cron／コンソールが拾う。
+          // reply（主フロー）は続行し、webhook を非200で落とさない（LINE再送で候補を作り直させない）。
+          console.error('handleMentionInstantTask: claim approval notification failed', claimError)
+        }
+      }
+
+      replyText = APPROVAL_REQUESTED_TEXT
+    } else {
+      await createInstantDigestTask({
+        orgId: account.orgId,
+        groupId: group.id,
+        spaceId: group.spaceId,
+        sourceMessageId: recorded.id,
+        title,
+        assigneeHint: assignee.assigneeHint,
+        assigneeExternalUserId: assignee.assigneeExternalUserId,
+        assigneeIdentityId,
+        dueDate: due.dueDate,
+        dueTime: due.dueTime,
+      })
+
+      const detail = buildTaskDetailLine(
+        due.dueDate,
+        due.dueTime,
+        assignee.assigneeHint,
+        formatDateToLocalString(now),
+      )
+      replyText = detail
+        ? `申し送りに追加しました。\n『${title}』\n${detail}`
+        : `申し送りに追加しました。\n『${title}』`
+    }
   }
 
   if (event.replyToken) {
@@ -979,8 +1059,25 @@ async function processPostback(
   event: NormalizedLineEvent,
   disabled: boolean,
 ): Promise<void> {
-  const doneAction = parseDigestDonePostback(event.postbackData ?? '')
-  const undoAction = doneAction ? null : parseDigestUndoPostback(event.postbackData ?? '')
+  const data = event.postbackData ?? ''
+
+  // 責任者確認（Stage 2.7-B）は 1:1 トークに届く別系統。アクター解決・テナント/認可は
+  // _via_line RPC が完結させるため、消し込み系の検証チェーンには乗せず専用ハンドラへ委ねる。
+  const promoteAction = parseDigestPromotePostback(data)
+  const rejectAction = promoteAction ? null : parseDigestRejectPostback(data)
+  if (promoteAction || rejectAction) {
+    await processApprovalPostback(
+      account,
+      event,
+      disabled,
+      promoteAction ? 'digest_promote' : 'digest_reject',
+      (promoteAction ?? rejectAction)!.taskId,
+    )
+    return
+  }
+
+  const doneAction = parseDigestDonePostback(data)
+  const undoAction = doneAction ? null : parseDigestUndoPostback(data)
   if (!doneAction && !undoAction) return
 
   const actionKind: PostbackAction = doneAction ? 'digest_done' : 'digest_undo'
@@ -1074,4 +1171,98 @@ async function processPostback(
       messages: [{ type: 'text', text: replyText }],
     })
   }
+}
+
+type ApprovalAction = 'digest_promote' | 'digest_reject'
+type ApprovalResult = 'promoted' | 'already_promoted' | 'rejected' | 'conflict' | 'forbidden' | 'not_found'
+
+/**
+ * 責任者確認ボタン（1:1 トーク）の承認/却下。
+ *
+ * 消し込み(digest_done)と違い、アクター解決・テナント境界・認可はすべて _via_line RPC が
+ * DB内で完結させる（webhook 検証済みの account.id と external_user_id のみ渡し、body 由来の
+ * 内部 UUID は一切渡さない＝confused deputy を作らない）。ここでは status を返信と証跡へ写すだけ。
+ *
+ * 非承認系（forbidden / not_found）と一過性の例外は、返信も監査行も残さず *完全に沈黙* する
+ * （第三者に候補の存在/状態を推測させる差分を一切作らない）。監査・返信は実際に状態へ作用した
+ * 結果だけに限り、それらは via_line + 認可ファーストにより現・責任者本人にしか返らない。
+ * 記録する結果については disabled 中も監査行は残し、reply（自動応答）だけ止める。
+ */
+async function processApprovalPostback(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  disabled: boolean,
+  action: ApprovalAction,
+  taskId: string,
+): Promise<void> {
+  // 承認ボタンは 1:1 トーク専用。グループ/ルームに転送・再利用されたボタンでは動かさない
+  // （公開の場に承認結果を返さない・監査の帰属を壊さない）。認可自体はRPCも守るが、
+  // ここで文脈を先に閉じる。1:1 identity が無ければアクター解決も不能。
+  const externalUserId = event.externalUserId
+  if (event.sourceType !== 'user' || !externalUserId) return
+
+  let result: ApprovalResult
+  try {
+    if (action === 'digest_promote') {
+      const r = await promoteDigestTaskViaLine(account.id, externalUserId, taskId)
+      result = r.status === 'promoted' ? (r.created ? 'promoted' : 'already_promoted') : r.status
+    } else {
+      const r = await rejectDigestTaskViaLine(account.id, externalUserId, taskId)
+      result = r.status // 'rejected' | 'conflict' | 'forbidden' | 'not_found'
+    }
+  } catch (e) {
+    // 一過性のRPC失敗。ここで返信も監査行も残すと、非承認者に対して「反応あり vs 沈黙」の
+    // 存在/状態オラクルになる（例外時点では承認者か否か未確定）。よって forbidden/not_found と
+    // *完全に同一の沈黙*（返信なし・監査行なし）にして外形上区別不能にする。認可済み本人の
+    // 一過性失敗はコンソールの「確認待ち」トレイが確実なフォールバックになる。
+    // バッチは落とさない（他イベントの処理は継続）。
+    console.error('LINE webhook: approval postback RPC failed', action, taskId, e)
+    return
+  }
+
+  // 非承認系（forbidden / not_found）は *何も残さない*（返信も監査行も）。
+  // via_line は未認可・非存在・テナント不一致をすべて forbidden に畳むため、これらは
+  // 「第三者による無権限タップ」であり、行の有無が存在オラクルにならないよう例外と揃える。
+  // 監査に残すのは実際に状態へ作用した結果（promoted/already/rejected/conflict）だけ。
+  // それらは via_line + 認可ファーストにより *現・責任者本人* にしか返らない。
+  const replyText =
+    result === 'promoted'
+      ? PROMOTE_DONE_TEXT
+      : result === 'already_promoted'
+        ? PROMOTE_ALREADY_TEXT
+        : result === 'rejected'
+          ? REJECT_DONE_TEXT
+          : result === 'conflict'
+            ? APPROVAL_CONFLICT_TEXT
+            : null
+  if (!replyText) return // forbidden / not_found → 完全沈黙
+
+  const recorded = await insertChannelMessage({
+    orgId: account.orgId,
+    spaceId: null, // 1:1 トークには space が無い
+    identityId: null,
+    accountId: account.id,
+    groupId: null,
+    channel: 'line',
+    direction: 'inbound',
+    actor: 'system',
+    externalUserId,
+    externalMessageId: event.webhookEventId,
+    contentType: 'system',
+    body: null,
+    payload: { event: 'postback', action, taskId, result },
+    storagePath: null,
+    status: 'received',
+    error: null,
+    occurredAt: event.occurredAt,
+  })
+
+  if (recorded === 'duplicate' || disabled) return
+  if (!event.replyToken) return
+
+  await replyLineMessage({
+    accessToken: account.accessToken,
+    replyToken: event.replyToken,
+    messages: [{ type: 'text', text: replyText }],
+  })
 }

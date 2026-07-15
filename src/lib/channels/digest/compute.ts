@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto'
-import { buildDigestDonePostbackData, buildDigestUndoPostbackData } from '@/lib/channels/digest/postback'
+import {
+  buildDigestDonePostbackData,
+  buildDigestUndoPostbackData,
+  buildDigestPromotePostbackData,
+  buildDigestRejectPostbackData,
+} from '@/lib/channels/digest/postback'
 import { formatDueLabel, validateDue } from '@/lib/channels/digest/due'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
@@ -366,6 +371,75 @@ export function buildTaskDoneFlexMessage(input: TaskDoneFlexInput): {
               label: '取り消す',
               data: buildDigestUndoPostbackData(input.taskId),
               displayText: '取り消す',
+            },
+          },
+        ],
+      },
+    },
+  }
+}
+
+export interface ApprovalPromptFlexInput {
+  taskId: string
+  /** 候補タイトル（LLM/発話由来の非信頼入力。sanitize してから埋め込む） */
+  title: string
+  dueDate: string | null
+  dueTime: string | null
+  /** 期限ラベルの相対表記（今日/明日）判定用の基準日（JST, YYYY-MM-DD） */
+  todayJst: string
+}
+
+/**
+ * 責任者確認のFlex Message（Stage 2.7-B §4-4）: 1:1トークへ「タスク化しますか？」を出し、
+ * [承認してタスク化] / [却下] の postback ボタンを付ける。押下は webhook の
+ * processApprovalPostback が _via_line RPC 経由で処理する（内部UUIDは外に出さない）。
+ */
+export function buildApprovalPromptFlexMessage(input: ApprovalPromptFlexInput): {
+  type: 'flex'
+  altText: string
+  contents: {
+    type: 'bubble'
+    body: { type: 'box'; layout: 'vertical'; contents: Array<{ type: 'text'; text: string; wrap: boolean; size?: string; color?: string }> }
+    footer: { type: 'box'; layout: 'vertical'; contents: unknown[] }
+  }
+} {
+  const title = sanitizeDigestTitle(input.title)
+  const detail = buildTaskDetailLine(input.dueDate, input.dueTime, null, input.todayJst)
+
+  const bodyContents: Array<{ type: 'text'; text: string; wrap: boolean; size?: string; color?: string }> = [
+    { type: 'text', text: '次の申し送りをタスクに登録しますか？', wrap: true, size: 'sm', color: '#999999' },
+    { type: 'text', text: title, wrap: true },
+  ]
+  if (detail) bodyContents.push({ type: 'text', text: detail, wrap: true, size: 'sm', color: '#666666' })
+
+  return {
+    type: 'flex',
+    altText: `確認: 「${title}」をタスクに登録しますか？`,
+    contents: {
+      type: 'bubble',
+      body: { type: 'box', layout: 'vertical', contents: bodyContents },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            action: {
+              type: 'postback',
+              label: '承認してタスク化',
+              data: buildDigestPromotePostbackData(input.taskId),
+              displayText: '承認',
+            },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            action: {
+              type: 'postback',
+              label: '却下',
+              data: buildDigestRejectPostbackData(input.taskId),
+              displayText: '却下',
             },
           },
         ],

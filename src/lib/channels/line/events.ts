@@ -91,6 +91,8 @@ export type NormalizedEventKind =
 
 export interface NormalizedLineEvent {
   kind: NormalizedEventKind
+  /** 発生元の種別。承認postbackを1:1限定にゲートする等、文脈判定に使う */
+  sourceType?: 'user' | 'group' | 'room'
   /** 1:1のLINE userId。グループの匿名メンバー発言では null */
   externalUserId: string | null
   /** グループ発言・グループ系イベント(join/leave/postback)の場合のみ */
@@ -172,7 +174,10 @@ export function normalizeLineEvent(event: LineWebhookEvent): NormalizedLineEvent
 
   if (event.type === 'postback') {
     if (!event.postback?.data) return null
-    return { ...common, ...systemCommon, kind: 'postback', groupId, postbackData: event.postback.data }
+    // sourceType/roomId を保持する。承認postback(Stage 2.7-B)は 1:1 限定にゲートするため、
+    // group/room 由来かどうかを後段で判別できる必要がある。
+    const sourceType = source?.type as 'user' | 'group' | 'room' | undefined
+    return { ...common, ...systemCommon, kind: 'postback', sourceType, groupId, roomId, postbackData: event.postback.data }
   }
 
   if (event.type === 'follow' || event.type === 'unfollow') {
