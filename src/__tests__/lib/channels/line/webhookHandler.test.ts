@@ -94,6 +94,7 @@ const storeMock = {
   rejectDigestTaskViaLine: vi.fn(),
   claimApprovalNotification: vi.fn(),
   clearApprovalNotifiedAt: vi.fn(),
+  getOrgChannelPolicyState: vi.fn(),
   findValidSharedGroupClaimCode: vi.fn(),
   findOrCreatePendingGroupClaim: vi.fn(),
   redeemCodeOnlyClaim: vi.fn(),
@@ -245,6 +246,7 @@ beforeEach(() => {
   storeMock.createInstantDigestTask.mockResolvedValue({ id: 'digest-task-1', title: 'placeholder' })
   storeMock.claimApprovalNotification.mockResolvedValue(null)
   storeMock.clearApprovalNotifiedAt.mockResolvedValue(undefined)
+  storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
   storeMock.reopenDigestTaskAtomic.mockResolvedValue(null)
   storeMock.findValidSharedGroupClaimCode.mockResolvedValue(null)
   storeMock.findOrCreatePendingGroupClaim.mockResolvedValue({
@@ -1514,6 +1516,65 @@ describe('handleLineWebhook', () => {
       expect(storeMock.claimApprovalNotification).not.toHaveBeenCalled()
       expect(pushMock).not.toHaveBeenCalled()
       expect(storeMock.clearApprovalNotifiedAt).not.toHaveBeenCalled()
+    })
+
+    describe('メータリング（PR4・即時approval pushのgate＋billable計上）', () => {
+      it('push成功時: billablePush:trueのoutbound記録を1件残す（cronと同一のexternalMessageIdで冪等）', async () => {
+        storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+        storeMock.claimApprovalNotification.mockResolvedValue('U-approver')
+        storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+        const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+        await handleLineWebhook(body, sign(body))
+
+        expect(pushMock).toHaveBeenCalledTimes(1)
+        const retryKey = (pushMock.mock.calls[0][0] as { retryKey: string }).retryKey
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            direction: 'outbound',
+            actor: 'secretary',
+            groupId: null,
+            externalUserId: 'U-approver',
+            externalMessageId: retryKey,
+            billablePush: true,
+            status: 'sent',
+          }),
+        )
+      })
+
+      it('on_exceed=block かつ state=hard は claim も push もしない（候補はpendingのまま残す）', async () => {
+        storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+        storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+        const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(storeMock.createInstantDigestTask).toHaveBeenCalledTimes(1)
+        expect(storeMock.claimApprovalNotification).not.toHaveBeenCalled()
+        expect(pushMock).not.toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ billablePush: true }),
+        )
+        // グループへの主フローreplyは継続する（抑止は通知のみに影響）
+        expect(replyMock).toHaveBeenCalledTimes(1)
+      })
+
+      it('on_exceed=degrade かつ state=soft の隔日休止日は claim も push もしない', async () => {
+        vi.useFakeTimers()
+        // 2026-07-12(JST)は通算日193（奇数）→ 抑止側
+        vi.setSystemTime(new Date(2026, 6, 12, 7, 0))
+        storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+        storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'soft', onExceed: 'degrade' })
+
+        try {
+          const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+          await handleLineWebhook(body, sign(body))
+
+          expect(storeMock.claimApprovalNotification).not.toHaveBeenCalled()
+          expect(pushMock).not.toHaveBeenCalled()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
   })
 
