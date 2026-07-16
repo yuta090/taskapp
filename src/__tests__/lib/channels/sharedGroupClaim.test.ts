@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   hashSharedGroupClaimCode,
   generateGroupClaimChallengeLabel,
+  generateSharedGroupClaimCode,
+  formatGroupClaimCodeForDisplay,
+  WEB_APPROVAL_CLAIM_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
+import { normalizeClaimCode, CLAIM_CODE_REGEX } from '@/lib/channels/linkCode'
 
 /**
  * 共有bot（platform account）グループ紐付けコードのハッシュ化（HMAC+pepper）と
@@ -91,5 +95,75 @@ describe('generateGroupClaimChallengeLabel', () => {
   it('毎回同じ値にはならない（ランダム性）', () => {
     const labels = new Set(Array.from({ length: 20 }, () => generateGroupClaimChallengeLabel()))
     expect(labels.size).toBeGreaterThan(1)
+  })
+})
+
+/**
+ * PR3a: web_approval コード発行（コンソール側）。
+ * 発行→表示コード→normalizeClaimCode→hash が、発行時に計算した code_hash と一致すること
+ * （往復一致。ここがずれると発行直後のコードが常にinvalid扱いになる＝MUST DOの回帰テスト）。
+ */
+describe('generateSharedGroupClaimCode', () => {
+  it('26文字・claim用の許可文字集合のみで生成される', () => {
+    for (let i = 0; i < 50; i++) {
+      const code = generateSharedGroupClaimCode()
+      expect(code).toHaveLength(26)
+      expect(code).toMatch(CLAIM_CODE_REGEX)
+    }
+  })
+
+  it('紛らわしい文字(0,O,1,I,L)を含まない', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(generateSharedGroupClaimCode()).not.toMatch(/[01OIL]/)
+    }
+  })
+
+  it('呼び出しごとに異なる（衝突しない）', () => {
+    const codes = new Set(Array.from({ length: 100 }, () => generateSharedGroupClaimCode()))
+    expect(codes.size).toBe(100)
+  })
+})
+
+describe('formatGroupClaimCodeForDisplay', () => {
+  const CANONICAL = 'ABCDEFGHJKMNPQRSTUVWXYZ234'
+
+  it('GC-プレフィクス＋6-5-5-5-5のハイフン区切りで整形する', () => {
+    expect(formatGroupClaimCodeForDisplay(CANONICAL)).toBe('GC-ABCDEF-GHJKM-NPQRS-TUVWX-YZ234')
+  })
+
+  it('26文字でない入力は例外を投げる', () => {
+    expect(() => formatGroupClaimCodeForDisplay(CANONICAL.slice(0, 25))).toThrow()
+    expect(() => formatGroupClaimCodeForDisplay(`${CANONICAL}A`)).toThrow()
+  })
+
+  it('許可文字集合外を含む入力は例外を投げる', () => {
+    expect(() => formatGroupClaimCodeForDisplay('abcdefghjkmnpqrstuvwxyz234')).toThrow()
+  })
+
+  it('往復一致: 発行→表示→normalizeClaimCode が元の正準形に戻る', () => {
+    for (let i = 0; i < 20; i++) {
+      const canonical = generateSharedGroupClaimCode()
+      const display = formatGroupClaimCodeForDisplay(canonical)
+      expect(normalizeClaimCode(display)).toBe(canonical)
+    }
+  })
+
+  it('往復一致: hash(表示コードをnormalizeClaimCodeした結果) が hash(発行時の正準形) と一致する', () => {
+    process.env.SHARED_GROUP_CLAIM_PEPPER = 'pepper-round-trip'
+    const canonical = generateSharedGroupClaimCode()
+    const issuedHash = hashSharedGroupClaimCode(canonical)
+
+    const display = formatGroupClaimCodeForDisplay(canonical)
+    const redeemedCanonical = normalizeClaimCode(display)
+    expect(redeemedCanonical).not.toBeNull()
+    const redeemedHash = hashSharedGroupClaimCode(redeemedCanonical as string)
+
+    expect(redeemedHash).toBe(issuedHash)
+  })
+})
+
+describe('WEB_APPROVAL_CLAIM_TTL_MS', () => {
+  it('30分（設計正本 §2の上限側）', () => {
+    expect(WEB_APPROVAL_CLAIM_TTL_MS).toBe(30 * 60 * 1000)
   })
 })
