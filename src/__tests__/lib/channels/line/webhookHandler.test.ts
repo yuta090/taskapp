@@ -1434,7 +1434,7 @@ describe('handleLineWebhook', () => {
       const replyText = (replyMock.mock.calls[0][0] as { messages: Array<{ text: string }> })
         .messages[0].text
       expect(replyText).toContain('責任者に確認')
-      expect(replyText).not.toContain('申し送りに追加しました')
+      expect(replyText).not.toContain('タスクに追加しました')
     })
 
     it('claimがnull（権限なし/リンク未解決）→ pendingは作るがpushしない（コンソール/cronがフォールバック）', async () => {
@@ -1490,7 +1490,7 @@ describe('handleLineWebhook', () => {
       expect(pushMock).not.toHaveBeenCalled()
       const replyText = (replyMock.mock.calls[0][0] as { messages: Array<{ text: string }> })
         .messages[0].text
-      expect(replyText).toContain('申し送りに追加しました')
+      expect(replyText).toContain('タスクに追加しました')
     })
 
     it('webhook再送(duplicate)では claim も push もしない', async () => {
@@ -1551,7 +1551,7 @@ describe('handleLineWebhook', () => {
       })
     })
 
-    it('24時間以内 → 原子reopen → 成功replyで「申し送りに戻しました」', async () => {
+    it('24時間以内 → 原子reopen → 成功replyで「タスクに戻しました」', async () => {
       storeMock.reopenDigestTaskAtomic.mockResolvedValue({ id: TASK_ID, title: '酒屋へ発注' })
       const body = makeBody([postbackEvent(`action=digest_undo&task=${TASK_ID}`)])
       const result = await handleLineWebhook(body, sign(body))
@@ -1567,7 +1567,7 @@ describe('handleLineWebhook', () => {
         }),
       )
       const replyArg = replyMock.mock.calls[0][0] as { messages: { text: string }[] }
-      expect(replyArg.messages[0].text).toContain('申し送りに戻しました')
+      expect(replyArg.messages[0].text).toContain('タスクに戻しました')
       expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({ event: 'postback', action: 'digest_undo', taskId: TASK_ID, result: 'reopened' }),

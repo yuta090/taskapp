@@ -53,7 +53,7 @@ const PARTNER_COUNT_OPTIONS: Option[] = [
 
 // pain選択に応じたサンクス画面の一言。PAIN_OPTIONSの並び順で最初に該当したものを採用する
 const PAIN_THANKS_MESSAGE: Record<string, string> = {
-    chat: 'LINEグループの会話から申し送りを自動で拾う機能があります。当日のデモでお見せできます。',
+    chat: 'LINEグループの会話からタスクを自動で拾う機能があります。当日のデモでお見せできます。',
     documents: '資料の回収と催促を秘書AIが代行する機能をご案内できます。',
     ball: '"いま誰の番か"を可視化するボール管理をお見せできます。',
 }

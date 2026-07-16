@@ -93,7 +93,7 @@ export function UserLinksClient({ orgId }: { orgId: string }) {
         <section>
           <h2 className="text-sm font-semibold text-gray-900">LINE連携（本人確認）</h2>
           <p className="mt-1 text-xs text-gray-500">
-            申し送りをタスクとして承認するには、担当者本人のLINEを連携しておく必要があります。
+            候補をタスクとして承認するには、担当者本人のLINEを連携しておく必要があります。
             連携していない場合、承認の依頼はLINEに届きません。
           </p>
         </section>

@@ -215,7 +215,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
           <section className="mb-4">
             <h2 className="text-sm font-semibold text-gray-900">確認待ち</h2>
             <p className="mt-1 text-xs text-gray-500">
-              申し送りをタスク化してよいか、あなたの承認を待っています。
+              この候補をタスク化してよいか、あなたの承認を待っています。
               承認すると本体タスクになり担当の画面に追加されます。却下するとタスクにはなりません。
             </p>
           </section>
@@ -242,7 +242,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <ClipboardText className="w-8 h-8 text-gray-300" />
-              <p className="text-sm text-gray-500">確認待ちの申し送りはありません。</p>
+              <p className="text-sm text-gray-500">確認待ちの候補はありません。</p>
             </div>
           ) : (
             <ul className="space-y-2">
@@ -331,7 +331,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
                 <h3 className="text-sm font-semibold text-gray-900">承認フロー設定</h3>
               </div>
               <p className="mb-3 text-xs text-gray-500">
-                グループごとに責任者を決めると、そのグループの申し送りは自動でタスク化されず、
+                グループごとに責任者を決めると、そのグループの候補は自動でタスク化されず、
                 責任者の承認を待ちます（責任者はそのプロジェクトの管理者・編集者から選べます）。
               </p>
               <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
