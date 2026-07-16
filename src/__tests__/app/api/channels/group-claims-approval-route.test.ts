@@ -1,0 +1,158 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { NextRequest } from 'next/server'
+
+/**
+ * POST /api/channels/group-claims/approval — 共有botグループ紐付けの承認/却下（Stage 4・PR3a）
+ *
+ * promoteのdigest承認 (/api/channels/digest-tasks/approval) とは別route・別命名。
+ * こちらは channel_group_claims / rpc_approve_group_claim / rpc_reject_group_claim を扱う。
+ * 承認者user_idは必ずセッション(auth.getUser)から解決し、クライアント申告は受けない。
+ */
+
+const getUserMock = vi.fn()
+const membershipSingleMock = vi.fn()
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: vi.fn(async () => ({
+    auth: { getUser: getUserMock },
+    from: vi.fn(() => ({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          eq: vi.fn(() => ({ single: membershipSingleMock })),
+        })),
+      })),
+    })),
+  })),
+}))
+
+class GroupClaimActionError extends Error {
+  reason: 'not_found' | 'forbidden' | 'conflict'
+  constructor(message: string, reason: 'not_found' | 'forbidden' | 'conflict') {
+    super(message)
+    this.reason = reason
+  }
+}
+
+const storeMock = {
+  findGroupClaimOrgId: vi.fn(),
+  approveGroupClaim: vi.fn(),
+  rejectGroupClaim: vi.fn(),
+  GroupClaimActionError,
+}
+vi.mock('@/lib/channels/store', () => storeMock)
+
+const { POST } = await import('@/app/api/channels/group-claims/approval/route')
+
+const ORG_ID = '11111111-1111-4111-8111-111111111111'
+const CLAIM_ID = '33333333-3333-4333-8333-333333333333'
+
+function callPost(body: Record<string, unknown>) {
+  return POST(
+    new NextRequest('http://localhost:3000/api/channels/group-claims/approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
+}
+
+describe('POST /api/channels/group-claims/approval', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'approver-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
+    storeMock.findGroupClaimOrgId.mockResolvedValue(ORG_ID)
+    storeMock.approveGroupClaim.mockResolvedValue(true)
+    storeMock.rejectGroupClaim.mockResolvedValue(true)
+  })
+
+  it('未ログインは401', async () => {
+    getUserMock.mockResolvedValue({ data: { user: null }, error: null })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(401)
+  })
+
+  it('内部メンバーでなければ403', async () => {
+    membershipSingleMock.mockResolvedValue({ data: { role: 'client' }, error: null })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(403)
+  })
+
+  it('不正なactionは400', async () => {
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'bogus' })
+    expect(res.status).toBe(400)
+  })
+
+  it('orgId/claimId欠落は400', async () => {
+    const res = await callPost({ orgId: ORG_ID, action: 'approve' })
+    expect(res.status).toBe(400)
+  })
+
+  it('他orgのclaimIdは404（RPCを呼ばない）', async () => {
+    storeMock.findGroupClaimOrgId.mockResolvedValue('org-OTHER')
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(404)
+    expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('claim未存在(null)も404', async () => {
+    storeMock.findGroupClaimOrgId.mockResolvedValue(null)
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(404)
+  })
+
+  it('approve: 成功(true) → 200 でセッションのuserIdをapproverに渡す', async () => {
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(200)
+    expect(storeMock.approveGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1')
+    expect(storeMock.rejectGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('approve: graceful reject(false・同時承認の敗者) → 409', async () => {
+    storeMock.approveGroupClaim.mockResolvedValue(false)
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(409)
+  })
+
+  it('approve: GroupClaimActionError(not_found) → 404', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('unknown claim_id', 'not_found'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(404)
+  })
+
+  it('approve: GroupClaimActionError(forbidden) → 403', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('not a member', 'forbidden'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(403)
+  })
+
+  it('approve: GroupClaimActionError(conflict・期限切れ/消費済み/失効/非pending) → 409', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('expired', 'conflict'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(409)
+  })
+
+  it('approve: 未分類の例外は500', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new Error('unexpected'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(500)
+  })
+
+  it('reject: 成功(true) → 200 でセッションのuserIdをapproverに渡す', async () => {
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'reject' })
+    expect(res.status).toBe(200)
+    expect(storeMock.rejectGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1')
+    expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('reject: 既に処理済み(false) → 409', async () => {
+    storeMock.rejectGroupClaim.mockResolvedValue(false)
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'reject' })
+    expect(res.status).toBe(409)
+  })
+
+  it('reject: GroupClaimActionError(not_found) → 404', async () => {
+    storeMock.rejectGroupClaim.mockRejectedValue(new GroupClaimActionError('unknown claim_id', 'not_found'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'reject' })
+    expect(res.status).toBe(404)
+  })
+})
