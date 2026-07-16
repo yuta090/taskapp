@@ -2,7 +2,7 @@
 # =============================================================================
 # 共有bot PR4: メータリング（billable_push 集計 → org_channel_policy.state）検証ハーネス
 #
-# develop の prior migration＋20260715092422〜092426＋20260716175640/175641 を
+# develop の prior migration＋20260715092422〜092426＋20260716175640/175641/183019 を
 # 1行も改変せず verbatim 適用し、shared_bot_metering_data.sql で境界を検証する（手コピー禁止）。
 # 使い捨てローカルクラスタを起動し終了時に破棄する。本番DBには一切触れない。
 #
@@ -47,6 +47,7 @@ apply "$MIG/20260715092426_shared_bot_org_channel_policy.sql"
 echo "== target migrations (verbatim, unmodified) =="
 apply "$MIG/20260716175640_shared_bot_metering_billable_push.sql"
 apply "$MIG/20260716175641_shared_bot_metering_state_cron.sql"
+apply "$MIG/20260716183019_shared_bot_metering_sent_only.sql"
 
 echo "== metering checks =="
 OUT="$WORK/o.out"

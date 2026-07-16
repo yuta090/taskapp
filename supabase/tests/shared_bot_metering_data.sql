@@ -2,7 +2,8 @@
 -- 共有bot PR4: メータリング（billable_push 集計 → org_channel_policy.state 更新）境界検証
 -- 前提: baseline_stubs.sql → 実 prior migration → 20260715092422〜092426 →
 --   20260716175640_shared_bot_metering_billable_push.sql →
---   20260716175641_shared_bot_metering_state_cron.sql を verbatim 適用済みの使い捨てクラスタ。
+--   20260716175641_shared_bot_metering_state_cron.sql →
+--   20260716183019_shared_bot_metering_sent_only.sql を verbatim 適用済みの使い捨てクラスタ。
 -- 実行は run_shared_bot_metering.sh（スキーマは作らない・手コピー禁止）。
 --
 -- 検証:
@@ -12,6 +13,8 @@
 --   (4) monthly_push_quota=NULL の org は state を 'ok' に正規化（quota 撤廃の追従）。
 --   (5) policy 行の無い org は更新対象外（暗黙 ok/none）。
 --   (6) console 読取関数 app_org_channel_push_usage_current_month は非内部呼び出しで 42501。
+--   (7) Fix3(20260716183019): billable_push=true でも status<>'sent'（queued/failed）の行は
+--       当月カウントに入らない（失敗/未送信pushの過大計上を防ぐ）。
 -- =============================================================================
 set client_min_messages = notice;
 
@@ -43,6 +46,7 @@ end $$;
 insert into organizations values ('00000000-0000-0000-0000-0000000000a1'); -- orgA quota=10
 insert into organizations values ('00000000-0000-0000-0000-0000000000a2'); -- orgB quota=NULL
 insert into organizations values ('00000000-0000-0000-0000-0000000000a3'); -- orgC no policy row
+insert into organizations values ('00000000-0000-0000-0000-0000000000a4'); -- orgD quota=5（Fix3: sent以外は集計外）
 
 -- policy 行: orgA=quota10/ok, orgB=quota NULL だが初期 state を hard にして「正規化で ok に戻る」を検証。
 insert into org_channel_policy(org_id, monthly_push_quota, on_exceed, state)
@@ -50,15 +54,19 @@ insert into org_channel_policy(org_id, monthly_push_quota, on_exceed, state)
 insert into org_channel_policy(org_id, monthly_push_quota, on_exceed, state)
   values ('00000000-0000-0000-0000-0000000000a2', null, 'none', 'hard');
 -- orgC は policy 行を作らない（暗黙 ok/none）。
+insert into org_channel_policy(org_id, monthly_push_quota, on_exceed, state)
+  values ('00000000-0000-0000-0000-0000000000a4', 5, 'block', 'ok');
 
 -- billable push 行を org へ n 件入れるヘルパ（occurred_at=当月 now）。
+-- Fix3(20260716183019)で集計は status='sent' のみを見るため、実際に送信成功した体で
+-- status='sent' を明示する（他ケースの状態遷移(3a〜3c)は「実送信済みpush」を模した数値のため）。
 create or replace function seed_billable(p_org uuid, n int) returns void
 language plpgsql as $$
 declare i int;
 begin
   for i in 1..n loop
-    insert into channel_messages(org_id, channel, direction, actor, billable_push, occurred_at)
-      values (p_org, 'line', 'outbound', 'secretary', true, now());
+    insert into channel_messages(org_id, channel, direction, actor, billable_push, status, occurred_at)
+      values (p_org, 'line', 'outbound', 'secretary', true, 'sent', now());
   end loop;
 end $$;
 
@@ -123,6 +131,32 @@ select assert_eq('count_orgA_final_10',
 select assert_sqlstate('usage_fn_forbidden_non_internal',
   $q$ select app_org_channel_push_usage_current_month('00000000-0000-0000-0000-0000000000a1') $q$,
   '42501');
+
+-- ---- (7) Fix3: billable=true でも status<>'sent' は集計外（過大計上を防ぐ） -----
+-- orgD quota=5。sent 3件 + failed 1件 + queued 1件 = billable_push行としては5件だが、
+-- 実際に送信成功した(status='sent')のは3件だけなので state は 'ok'（5件ならhard相当になるはず）。
+insert into channel_messages(org_id, channel, direction, actor, billable_push, status, occurred_at)
+  values
+    ('00000000-0000-0000-0000-0000000000a4','line','outbound','secretary', true, 'sent',   now()),
+    ('00000000-0000-0000-0000-0000000000a4','line','outbound','secretary', true, 'sent',   now()),
+    ('00000000-0000-0000-0000-0000000000a4','line','outbound','secretary', true, 'sent',   now()),
+    ('00000000-0000-0000-0000-0000000000a4','line','outbound','secretary', true, 'failed', now()),
+    ('00000000-0000-0000-0000-0000000000a4','line','outbound','secretary', true, 'queued', now());
+
+select app_refresh_channel_metering_state();
+select assert_eq('state_orgD_sent_only_3_of_5_ok',
+  (select state from org_channel_policy where org_id='00000000-0000-0000-0000-0000000000a4'), 'ok');
+select assert_eq('count_orgD_sent_only_3',
+  (select count(*) from channel_messages m
+     where m.billable_push and m.status = 'sent' and m.org_id='00000000-0000-0000-0000-0000000000a4'
+       and m.occurred_at >= (select month_from from app_jst_current_month_bounds())
+       and m.occurred_at <  (select month_to   from app_jst_current_month_bounds())), 3::bigint);
+-- billable_push行自体は5件（failed/queuedも含む）であることの対照確認
+select assert_eq('count_orgD_billable_push_rows_5_including_non_sent',
+  (select count(*) from channel_messages m
+     where m.billable_push and m.org_id='00000000-0000-0000-0000-0000000000a4'
+       and m.occurred_at >= (select month_from from app_jst_current_month_bounds())
+       and m.occurred_at <  (select month_to   from app_jst_current_month_bounds())), 5::bigint);
 
 -- ---- done -------------------------------------------------------------------
 do $$ begin raise notice 'METERING CHECKS PASSED'; end $$;
