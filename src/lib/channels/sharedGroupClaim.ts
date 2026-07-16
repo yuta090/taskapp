@@ -1,4 +1,5 @@
 import { createHmac, randomInt } from 'node:crypto'
+import { CLAIM_CODE_REGEX } from './linkCode'
 
 /**
  * 共有bot（platform account）グループ紐付けコード（Stage 4 §2/§3。Fable裁定・確定形状）。
@@ -53,4 +54,51 @@ export function generateGroupClaimChallengeLabel(): string {
     label += CHALLENGE_ALPHABET[randomInt(CHALLENGE_ALPHABET.length)]
   }
   return label
+}
+
+// -----------------------------------------------------------------------------
+// PR3a: web_approval コード発行（コンソール側）。
+// -----------------------------------------------------------------------------
+
+/**
+ * web_approval claim の既定TTL（設計正本 §2: shared_group_claimは10-30分・ここでは上限側の30分）。
+ */
+export const WEB_APPROVAL_CLAIM_TTL_MS = 30 * 60 * 1000
+
+/** 紛らわしい文字(0/O, 1/I/L)を除いた大文字英数31文字集合。linkCode.tsのALPHABETと揃える */
+const CLAIM_ISSUE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+const CLAIM_ISSUE_LENGTH = 26
+
+/**
+ * shared_group_claim コード（正準形26文字）をCSPRNGで発行する。
+ * 発行者はこの戻り値を DB に保存してはならない（code_hash のみ保存。§2/§7-5）。
+ * 表示用整形は formatGroupClaimCodeForDisplay を使うこと。
+ */
+export function generateSharedGroupClaimCode(): string {
+  let code = ''
+  for (let i = 0; i < CLAIM_ISSUE_LENGTH; i++) {
+    code += CLAIM_ISSUE_ALPHABET[randomInt(CLAIM_ISSUE_ALPHABET.length)]
+  }
+  return code
+}
+
+/** 表示形式の区切り（6-5-5-5-5 = 26文字）。GC-XXXXXX-XXXXX-XXXXX-XXXXX-XXXXX */
+const DISPLAY_GROUP_SIZES = [6, 5, 5, 5, 5] as const
+
+/**
+ * 正準形26文字を表示用（`GC-` プレフィクス＋ハイフン区切り）に整形する。
+ * @/lib/channels/linkCode.ts の normalizeClaimCode がこの逆変換（表示形→正準形）を担う
+ * （往復一致は必須。ここがずれると発行直後のコードがwebhook側で受理されなくなる）。
+ */
+export function formatGroupClaimCodeForDisplay(canonicalCode: string): string {
+  if (!CLAIM_CODE_REGEX.test(canonicalCode)) {
+    throw new Error('formatGroupClaimCodeForDisplay: canonicalCode must be a 26-char canonical code')
+  }
+  const groups: string[] = []
+  let idx = 0
+  for (const size of DISPLAY_GROUP_SIZES) {
+    groups.push(canonicalCode.slice(idx, idx + size))
+    idx += size
+  }
+  return `GC-${groups.join('-')}`
 }

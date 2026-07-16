@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { ChatCircleDots, Plugs, IdentificationCard, ClipboardText } from '@phosphor-icons/react'
+import { ChatCircleDots, Plugs, IdentificationCard, ClipboardText, UsersThree } from '@phosphor-icons/react'
 
-type SecretaryTab = 'messages' | 'approvals' | 'integrations' | 'user-links'
+type SecretaryTab = 'messages' | 'approvals' | 'integrations' | 'user-links' | 'group-links'
 
 interface SecretaryTabNavProps {
   orgId: string
@@ -24,6 +24,14 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
     label: 'LINE連携',
     icon: IdentificationCard,
     href: (orgId) => `/${orgId}/secretary/user-links`,
+  },
+  {
+    // 共有botグループ紐付けの承認（Stage 4・PR3a）。promoteのdigest承認("確認待ち"タブ)とは
+    // 別概念のため、別タブ・別命名(GroupClaim系)で分離する。approvalsとは相乗りしない。
+    key: 'group-links',
+    label: 'グループ紐付け',
+    icon: UsersThree,
+    href: (orgId) => `/${orgId}/secretary/group-links`,
   },
 ]
 
