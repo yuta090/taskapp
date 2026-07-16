@@ -929,6 +929,186 @@ export async function findOrCreatePendingGroupClaim(input: CreateGroupClaimInput
 }
 
 // ---------------------------------------------------------------------------
+// 共有botグループ紐付け（web_approval）の承認コンソール（Stage 4 §3・PR3a）
+//
+// promoteの digest 承認（rpc_promote_digest_task 系）とは別概念・別命名。
+// こちらは channel_group_claims / rpc_approve_group_claim / rpc_reject_group_claim を扱う。
+// ---------------------------------------------------------------------------
+
+export interface PendingGroupClaim {
+  id: string
+  externalGroupId: string
+  spaceId: string
+  spaceName: string | null
+  challengeLabel: string | null
+  groupDisplayNameSnapshot: string | null
+  createdAt: string
+}
+
+const GROUP_CLAIM_PENDING_COLUMNS =
+  'id, external_group_id, space_id, challenge_label, group_display_name_snapshot, created_at, spaces(name)'
+
+/** 承認コンソール「確認待ち」一覧。自orgのpending claimをspace表示名付きで古い順に返す */
+export async function listPendingGroupClaimsForOrg(orgId: string): Promise<PendingGroupClaim[]> {
+  const { data, error } = await admin()
+    .from('channel_group_claims')
+    .select(GROUP_CLAIM_PENDING_COLUMNS)
+    .eq('org_id', orgId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+
+  if (error) throw new Error(`channel_group_claims: list failed: ${error.message}`)
+
+  type Row = {
+    id: string
+    external_group_id: string
+    space_id: string
+    challenge_label: string | null
+    group_display_name_snapshot: string | null
+    created_at: string
+    spaces: { name: string | null } | { name: string | null }[] | null
+  }
+  return ((data as unknown as Row[]) ?? []).map((row) => {
+    const s = Array.isArray(row.spaces) ? row.spaces[0] : row.spaces
+    return {
+      id: row.id,
+      externalGroupId: row.external_group_id,
+      spaceId: row.space_id,
+      spaceName: s?.name ?? null,
+      challengeLabel: row.challenge_label,
+      groupDisplayNameSnapshot: row.group_display_name_snapshot,
+      createdAt: row.created_at,
+    }
+  })
+}
+
+/** 承認/却下APIの認可用: claimの実所属orgを引く（クライアント申告のorgIdは信用しない） */
+export async function findGroupClaimOrgId(claimId: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_group_claims')
+    .select('org_id')
+    .eq('id', claimId)
+    .maybeSingle()
+  if (error || !data) return null
+  return data.org_id as string
+}
+
+export type GroupClaimActionErrorReason = 'not_found' | 'forbidden' | 'conflict'
+
+/**
+ * rpc_approve_group_claim / rpc_reject_group_claim は検証失敗を例外(raise exception)で返す
+ * 設計（PR1・変更不可）。ここでpostgresの例外メッセージを route が HTTP status へ薄くマップ
+ * できる reason に分類し直す（route側は薄いままにするための分類ロジックの置き場）。
+ */
+export class GroupClaimActionError extends Error {
+  constructor(
+    message: string,
+    public readonly reason: GroupClaimActionErrorReason,
+  ) {
+    super(message)
+    this.name = 'GroupClaimActionError'
+  }
+}
+
+function classifyGroupClaimRpcError(message: string): GroupClaimActionErrorReason {
+  if (message.includes('unknown claim_id')) return 'not_found'
+  if (message.includes('is not an internal member of org')) return 'forbidden'
+  // is not pending / already consumed / has been revoked / expired / org-space mismatch 等
+  return 'conflict'
+}
+
+/**
+ * Web承認。approverUserId はAPI routeがセッションから解決した内部ユーザー（クライアント申告禁止）。
+ * 戻り値は成功(true)/同時承認の敗者(false・channel_groups_active_uniqueによるgraceful reject)を
+ * そのまま返す。それ以外の検証失敗はRPCの例外を GroupClaimActionError として投げ直す。
+ */
+export async function approveGroupClaim(claimId: string, approverUserId: string): Promise<boolean> {
+  const { data, error } = await admin().rpc('rpc_approve_group_claim', {
+    p_claim_id: claimId,
+    p_approver_user_id: approverUserId,
+  })
+  if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.message))
+  return data === true
+}
+
+/** 却下。approveと同型（承認RPCの規律・設計正本 §3）。link_codeは消費しない */
+export async function rejectGroupClaim(claimId: string, approverUserId: string): Promise<boolean> {
+  const { data, error } = await admin().rpc('rpc_reject_group_claim', {
+    p_claim_id: claimId,
+    p_approver_user_id: approverUserId,
+  })
+  if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.message))
+  return data === true
+}
+
+/**
+ * コード発行対象の共有bot（platform account）を引く。PR3aでは単一の platform account を
+ * 前提とする（複数存在する場合の選択はPR3bで詰める。設計正本 §10）。無ければ null
+ * （呼び出し側は「共有botが未設定」として400を返す）。
+ */
+export async function findFirstPlatformAccountId(): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('owner_type', 'platform')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(`channel_accounts: platform lookup failed: ${error.message}`)
+  return (data?.id as string | undefined) ?? null
+}
+
+export interface CreateSharedGroupClaimCodeInput {
+  orgId: string
+  spaceId: string
+  targetAccountId: string
+  /** hashSharedGroupClaimCode(正準形26文字) の結果。平文コードはここに渡さない */
+  codeHash: string
+  createdBy: string
+  /** timestamptzの瞬時値（toISOStringで可。DATEではないためJSTずれの対象外） */
+  expiresAt: string
+}
+
+/** code_hashの衝突（unique違反）のとき投げる。呼び出し側はこれに限りリトライしてよい */
+export class DuplicateSharedGroupClaimCodeError extends Error {
+  constructor() {
+    super('shared group claim code collision')
+    this.name = 'DuplicateSharedGroupClaimCodeError'
+  }
+}
+
+/**
+ * web_approval コードの発行。生codeは保存しない（code=null・code_hashのみ）。
+ * purpose/binding_mode/target_account_id は発行時に焼き込み・以後不変（DB guard trigger）。
+ */
+export async function createSharedGroupClaimCode(
+  input: CreateSharedGroupClaimCodeInput,
+): Promise<{ id: string; expiresAt: string }> {
+  const { data, error } = await admin()
+    .from('channel_link_codes')
+    .insert({
+      org_id: input.orgId,
+      space_id: input.spaceId,
+      channel: 'line',
+      purpose: 'shared_group_claim',
+      binding_mode: 'web_approval',
+      target_account_id: input.targetAccountId,
+      code_hash: input.codeHash,
+      code: null,
+      expires_at: input.expiresAt,
+      created_by: input.createdBy,
+    })
+    .select('id, expires_at')
+    .single()
+
+  if (error) {
+    if (error.code === '23505') throw new DuplicateSharedGroupClaimCodeError()
+    throw new Error(`channel_link_codes: shared_group_claim insert failed: ${error.message}`)
+  }
+  return { id: data!.id as string, expiresAt: data!.expires_at as string }
+}
+
+// ---------------------------------------------------------------------------
 // channel_messages
 // ---------------------------------------------------------------------------
 
