@@ -148,7 +148,9 @@ export async function POST(request: NextRequest) {
         const decision = decideAutoPush({
           state: policy.state,
           onExceed: policy.onExceed,
-          jstDayOfYear: getJstDayOfYear(jstNowDate),
+          // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
+          // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。
+          jstDayOfYear: getJstDayOfYear(),
         })
         if (!decision.deliver) {
           skipped.push({ groupId: group.id, reason: decision.reason ?? 'quota_suppressed' })
