@@ -1051,6 +1051,8 @@ export async function findFirstPlatformAccountId(): Promise<string | null> {
     .from('channel_accounts')
     .select('id')
     .eq('owner_type', 'platform')
+    // disabled な共有bot に発行すると償還不能な「死にコード」を配ることになるため active に限定
+    .eq('status', 'active')
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()

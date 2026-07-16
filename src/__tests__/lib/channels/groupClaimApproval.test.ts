@@ -221,7 +221,7 @@ describe('rejectGroupClaim', () => {
 })
 
 describe('findFirstPlatformAccountId', () => {
-  it('owner_type=platform のaccountを1件返す', async () => {
+  it('owner_type=platform かつ status=active のaccountを1件返す', async () => {
     fromResponses['channel_accounts'] = { data: { id: 'acc-platform-1' }, error: null }
     const result = await store.findFirstPlatformAccountId()
     expect(result).toBe('acc-platform-1')
@@ -229,6 +229,8 @@ describe('findFirstPlatformAccountId', () => {
     const builder = fromMock.mock.results[0].value
     expect(fromMock).toHaveBeenCalledWith('channel_accounts')
     expect(builder.eq).toHaveBeenCalledWith('owner_type', 'platform')
+    // disabled な共有botへ「死にコード」を発行しないよう active に限定する
+    expect(builder.eq).toHaveBeenCalledWith('status', 'active')
     expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: true })
     expect(builder.limit).toHaveBeenCalledWith(1)
   })
