@@ -19,6 +19,7 @@ import {
   resolveAssignee,
 } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { jstNow } from '@/lib/datetime/jstNow'
 
 /**
  * POST /api/cron/channel-digest
@@ -47,7 +48,8 @@ export async function POST(request: NextRequest) {
 
   const groups = await findDigestEligibleGroups()
   // JST日付。同日中にcronが再実行されてもretryKeyが同じになりLINE側で二重配信を弾ける
-  const jstDateStr = formatDateToLocalString(new Date())
+  const jstNowDate = jstNow()
+  const jstDateStr = formatDateToLocalString(jstNowDate)
 
   let extractedTasks = 0
   let digestsSent = 0
@@ -66,7 +68,7 @@ export async function POST(request: NextRequest) {
 
         if (messages.length > 0) {
           try {
-            const now = new Date()
+            const now = jstNow()
             const prompt = buildDigestExtractionPrompt(
               messages.map((message, index) => ({ index, body: message.body })),
               now,

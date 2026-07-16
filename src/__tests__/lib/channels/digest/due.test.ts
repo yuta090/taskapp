@@ -45,6 +45,15 @@ describe('parseJapaneseDue: 相対日付', () => {
   it('「今月中」を月末に丸める', () => {
     expect(parseJapaneseDue('今月中に精算', NOW).dueDate).toBe('2026-07-31')
   })
+
+  it('「来月末」を翌月末に丸める（今月末を返さない）', () => {
+    // 基準は 2026-07-14。来月末は 2026-08-31
+    expect(parseJapaneseDue('来月末までに提出', NOW).dueDate).toBe('2026-08-31')
+  })
+
+  it('「来月」も翌月末に丸める', () => {
+    expect(parseJapaneseDue('来月中に対応', NOW).dueDate).toBe('2026-08-31')
+  })
 })
 
 describe('parseJapaneseDue: 絶対日付', () => {
