@@ -1248,7 +1248,17 @@ export interface CodeOnlyIssuedCode {
  * CSPRNGで正準形26文字を生成→code_hashのみ保存（生codeはこの関数のスコープ内でのみ扱い、
  * 呼び出し側へは表示形式のみ返す＝§7-5「生codeは保存しない」を満たす）。
  * 同一バッチはbatch_idで束ね、TTLはCODE_ONLY_CLAIM_DEFAULT_TTL_MS（既定7日）で揃える。
- * code_hash衝突(23505)はそのspaceの分だけ最大3回リトライする（他spaceには波及しない）。
+ *
+ * ★all-or-nothing（敵対レビュー指摘の必須修正）: N行を単一の `insert([...])` 文で投入する。
+ * spaceごとに別autocommit insertを繰り返すと、途中（例50件中40件目）で非23505エラーが起きた際に
+ * 1〜39件目が**コミット済みのまま**関数がthrowし、(a) 平文コードが呼び出し側へ返らず失われ
+ * （DBにはcode_hashのみ残る）、(b) それらが未消費のまま7日間 countOutstandingCodeOnlyCodes の
+ * 上限を食い、(c) 本部のリトライが発行レート上限で429ロックアウトする、という不整合を生む。
+ * 単一INSERT文はPostgres側で1トランザクションとして扱われるため、部分コミットは起きない
+ * （失敗時はDBに1行も残らない＝orphanなし）。
+ *
+ * code_hash衝突(23505・128bitで非現実的)はバッチ全体を再生成し、同じく単一INSERT文で
+ * 最大3回までリトライする（部分成功を許さない設計を維持するため、個別space単位のリトライはしない）。
  * entitlement(allow_code_only)検査・発行レート上限の判定は呼び出し側(API route)の責務。
  */
 export async function createCodeOnlyClaimCodesBatch(
@@ -1259,37 +1269,37 @@ export async function createCodeOnlyClaimCodesBatch(
   const client = admin()
   const batchId = randomUUID()
   const expiresAt = new Date(Date.now() + CODE_ONLY_CLAIM_DEFAULT_TTL_MS).toISOString()
-  const results: CodeOnlyIssuedCode[] = []
 
-  for (const spaceId of input.spaceIds) {
-    let inserted = false
-    for (let attempt = 0; attempt < 3 && !inserted; attempt++) {
-      const canonicalCode = generateSharedGroupClaimCode()
-      const { error } = await client.from('channel_link_codes').insert({
-        org_id: input.orgId,
-        space_id: spaceId,
-        channel: 'line',
-        purpose: 'shared_group_claim',
-        binding_mode: 'code_only',
-        target_account_id: input.targetAccountId,
-        code_hash: hashSharedGroupClaimCode(canonicalCode),
-        code: null,
-        expires_at: expiresAt,
-        created_by: input.createdBy,
-        batch_id: batchId,
-      })
-      if (!error) {
-        results.push({ spaceId, displayCode: formatGroupClaimCodeForDisplay(canonicalCode) })
-        inserted = true
-      } else if (error.code !== '23505') {
-        throw new Error(`channel_link_codes: code_only batch insert failed: ${error.message}`)
-      }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const canonicalCodes = input.spaceIds.map(() => generateSharedGroupClaimCode())
+    const rows = input.spaceIds.map((spaceId, i) => ({
+      org_id: input.orgId,
+      space_id: spaceId,
+      channel: 'line',
+      purpose: 'shared_group_claim',
+      binding_mode: 'code_only',
+      target_account_id: input.targetAccountId,
+      code_hash: hashSharedGroupClaimCode(canonicalCodes[i]),
+      code: null,
+      expires_at: expiresAt,
+      created_by: input.createdBy,
+      batch_id: batchId,
+    }))
+
+    const { error } = await client.from('channel_link_codes').insert(rows)
+    if (!error) {
+      return input.spaceIds.map((spaceId, i) => ({
+        spaceId,
+        displayCode: formatGroupClaimCodeForDisplay(canonicalCodes[i]),
+      }))
     }
-    if (!inserted) {
-      throw new Error(`channel_link_codes: code_only batch insert failed after retries for space ${spaceId}`)
+    if (error.code !== '23505') {
+      throw new Error(`channel_link_codes: code_only batch insert failed: ${error.message}`)
     }
+    // 23505: このバッチ全体（全行）を再生成して単一INSERTでリトライする（次のループへ）
   }
-  return results
+
+  throw new Error('channel_link_codes: code_only batch insert failed after retries (code_hash collision)')
 }
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,15 @@ export async function POST(request: NextRequest) {
   if (spaceIds.some((id) => typeof id !== 'string' || !isValidUuid(id))) {
     return NextResponse.json({ error: 'spaceIds must be valid UUIDs' }, { status: 400 })
   }
+  // 早期の上限チェック（cheap）: どのorgでも1リクエストの発行数がこの上限を超えることは無い
+  // ため、DB往復(verifySpacesInOrgの巨大in())の前にここで弾く。org単位の既存未消費数との
+  // 合算チェックは引き続き countOutstandingCodeOnlyCodes 側で行う（TOCTOU上は緩いソフト上限）。
+  if (spaceIds.length > CODE_ONLY_OUTSTANDING_LIMIT_PER_ORG) {
+    return NextResponse.json(
+      { error: `一度に発行できるのは${CODE_ONLY_OUTSTANDING_LIMIT_PER_ORG}件までです` },
+      { status: 400 },
+    )
+  }
 
   const auth = await requireOrgAdmin(orgId)
   if (!auth.ok) {

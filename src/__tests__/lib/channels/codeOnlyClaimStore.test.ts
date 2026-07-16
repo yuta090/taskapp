@@ -171,7 +171,7 @@ describe('verifySpacesInOrg（バッチ発行の越境防止）', () => {
   })
 })
 
-describe('createCodeOnlyClaimCodesBatch', () => {
+describe('createCodeOnlyClaimCodesBatch（all-or-nothing: 単一INSERT文でN行を一括投入）', () => {
   const INPUT = {
     orgId: 'org-1',
     spaceIds: ['space-1', 'space-2'],
@@ -179,8 +179,8 @@ describe('createCodeOnlyClaimCodesBatch', () => {
     createdBy: 'user-1',
   }
 
-  it('各spaceに対しCSPRNGでコードを生成しcode_hashのみ保存、表示コードを1回だけ返す', async () => {
-    fromResponses['channel_link_codes'] = { data: { id: 'code-x' }, error: null }
+  it('全spaceの行を単一INSERT呼び出し(配列)でまとめて渡し、成功したら表示コードを1回だけ返す', async () => {
+    fromResponses['channel_link_codes'] = { data: [{ id: 'code-x1' }, { id: 'code-x2' }], error: null }
 
     const result = await store.createCodeOnlyClaimCodesBatch(INPUT)
 
@@ -191,10 +191,16 @@ describe('createCodeOnlyClaimCodesBatch', () => {
     expect(result[0].displayCode).toMatch(/^GC-/)
     expect(result[0].displayCode).not.toBe(result[1].displayCode)
 
+    // ★アトミック性: channel_link_codesへは1回しか触れない（=1つのINSERT文。part途中コミットが起きない）
+    expect(fromMock).toHaveBeenCalledTimes(1)
     expect(fromMock).toHaveBeenCalledWith('channel_link_codes')
-    const calls = fromMock.mock.results.map((r) => r.value.insert.mock.calls[0][0])
-    expect(calls).toHaveLength(2)
-    for (const payload of calls) {
+    const builder = fromMock.mock.results[0].value
+    expect(builder.insert).toHaveBeenCalledTimes(1)
+    const rows = builder.insert.mock.calls[0][0] as Array<Record<string, unknown>>
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => r.space_id)).toEqual(['space-1', 'space-2'])
+    for (const payload of rows) {
       expect(payload).toMatchObject({
         org_id: 'org-1',
         channel: 'line',
@@ -205,37 +211,55 @@ describe('createCodeOnlyClaimCodesBatch', () => {
         created_by: 'user-1',
       })
       expect(typeof payload.code_hash).toBe('string')
-      expect(payload.code_hash.length).toBeGreaterThan(0)
+      expect((payload.code_hash as string).length).toBeGreaterThan(0)
       expect(typeof payload.batch_id).toBe('string')
       expect(typeof payload.expires_at).toBe('string')
     }
     // 同一バッチ内は共通のbatch_idでグルーピングされる
-    expect(calls[0].batch_id).toBe(calls[1].batch_id)
+    expect(rows[0].batch_id).toBe(rows[1].batch_id)
     // TTLは既定7日（web_approvalの30分より大幅に長い）
-    const ttlMs = new Date(calls[0].expires_at).getTime() - Date.now()
+    const ttlMs = new Date(rows[0].expires_at as string).getTime() - Date.now()
     expect(ttlMs).toBeGreaterThan(6 * 24 * 60 * 60 * 1000)
     expect(ttlMs).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000 + 5000)
   })
 
-  it('code_hash衝突(23505)はそのspaceだけリトライする', async () => {
+  it('code_hash衝突(23505)はバッチ全体を再生成して単一INSERTでリトライする（orphanを作らない）', async () => {
     let call = 0
     fromMock.mockImplementation(() => {
       call += 1
-      // 最初の1回だけ衝突させ、以降は成功させる
-      const response = call === 1 ? { data: null, error: { code: '23505' } } : { data: { id: `code-${call}` }, error: null }
+      // 1回目のバッチ全体だけ衝突させ、2回目(再生成後)は成功させる
+      const response =
+        call === 1 ? { data: null, error: { code: '23505' } } : { data: [{ id: 'code-1' }, { id: 'code-2' }], error: null }
       return chain(response)
     })
 
-    const result = await store.createCodeOnlyClaimCodesBatch({ ...INPUT, spaceIds: ['space-1'] })
-    expect(result).toHaveLength(1)
-    expect(result[0].spaceId).toBe('space-1')
+    const result = await store.createCodeOnlyClaimCodesBatch(INPUT)
+    expect(result).toHaveLength(2)
+    // channel_link_codesへは2回（1回目失敗+2回目成功）。各回とも単一INSERT呼び出し
+    expect(fromMock).toHaveBeenCalledTimes(2)
+    for (const r of fromMock.mock.results) {
+      expect(r.value.insert).toHaveBeenCalledTimes(1)
+      expect(Array.isArray(r.value.insert.mock.calls[0][0])).toBe(true)
+    }
   })
 
-  it('23505以外のDBエラーはリトライせず例外を投げる', async () => {
+  it('23505以外のDBエラーはリトライせず例外を投げ、部分コミットが無い（単一INSERT呼び出しで完結・以後touchしない）', async () => {
     fromResponses['channel_link_codes'] = { data: null, error: { code: '99999', message: 'boom' } }
-    await expect(store.createCodeOnlyClaimCodesBatch({ ...INPUT, spaceIds: ['space-1'] })).rejects.toThrow(
-      'boom',
-    )
+    await expect(store.createCodeOnlyClaimCodesBatch(INPUT)).rejects.toThrow('boom')
+
+    // ★アトミック性: 1回の単一INSERT呼び出しだけで完結する。部分的な行単位のinsertは一切発生しない
+    // （このtry自体が失敗しているため、DB上にbatch_idの行は0行のまま=orphanなし）
+    expect(fromMock).toHaveBeenCalledTimes(1)
+    const builder = fromMock.mock.results[0].value
+    expect(builder.insert).toHaveBeenCalledTimes(1)
+    expect(Array.isArray(builder.insert.mock.calls[0][0])).toBe(true)
+    expect((builder.insert.mock.calls[0][0] as unknown[]).length).toBe(2)
+  })
+
+  it('3回連続で23505が続く場合はリトライ上限で例外を投げる（無限リトライしない）', async () => {
+    fromResponses['channel_link_codes'] = { data: null, error: { code: '23505' } }
+    await expect(store.createCodeOnlyClaimCodesBatch(INPUT)).rejects.toThrow()
+    expect(fromMock).toHaveBeenCalledTimes(3)
   })
 
   it('空配列なら空配列を返す(insertを呼ばない)', async () => {

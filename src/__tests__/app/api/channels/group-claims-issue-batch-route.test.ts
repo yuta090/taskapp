@@ -87,6 +87,19 @@ describe('POST /api/channels/group-claims/issue-batch', () => {
     expect(res.status).toBe(400)
   })
 
+  it('spaceIds(重複排除後)が上限(50)を超える一括発行は早期に400（DB往復の前に弾く）', async () => {
+    const spaceIds = Array.from(
+      { length: 51 },
+      (_, i) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`,
+    )
+    const res = await callPost({ orgId: ORG_ID, spaceIds })
+    expect(res.status).toBe(400)
+    // 早期リターン: 後続のDB往復系(entitlement/verifySpacesInOrg等)を一切呼ばない
+    expect(isCodeOnlyEntitledMock).not.toHaveBeenCalled()
+    expect(verifySpacesInOrgMock).not.toHaveBeenCalled()
+    expect(createCodeOnlyClaimCodesBatchMock).not.toHaveBeenCalled()
+  })
+
   it('未ログインは401', async () => {
     getUserMock.mockResolvedValue({ data: { user: null }, error: null })
     const res = await callPost({ orgId: ORG_ID, spaceIds: [SPACE_1] })
