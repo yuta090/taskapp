@@ -465,5 +465,26 @@ describe('POST /api/cron/channel-digest', () => {
       expect(pushMock).toHaveBeenCalledTimes(1)
       expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'G-2' }))
     })
+
+    it('Fix4: outbound記録のexternalMessageIdはpushのretryKeyと同一（決定的キーでdedupe可能）', async () => {
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+
+      const retryKey = (pushMock.mock.calls[0][0] as { retryKey: string }).retryKey
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ externalMessageId: retryKey }),
+      )
+    })
+
+    it('Fix4: insertChannelMessageがduplicateを返しても200で継続する（二重起動での二重計上を防ぐ）', async () => {
+      storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(body.errors).toEqual([])
+    })
   })
 })

@@ -174,17 +174,20 @@ export async function POST(request: NextRequest) {
           })),
         )
 
+        // outbound記録のexternalMessageIdと同一キーにする（Fix4: 決定的キーでdedupe。
+        // 二重起動(pg_net再送・手動再実行)でもchannel_messages_dedupe unique indexにより
+        // 二重計上しない＝誤ってsoft/hardへ遷移して正当な配信を抑止する事故を防ぐ）。
+        const retryKey = buildDigestRetryKey(group.id, jstDateStr)
         await pushLineMessage({
           accessToken: account.accessToken,
           to: group.externalGroupId,
           messages: [{ type: 'text', text: pushText }, flex],
-          retryKey: buildDigestRetryKey(group.id, jstDateStr),
+          retryKey,
         })
         digestsSent += 1
 
         // push成功後にoutbound記録（billablePush=true）を残す。真実の源=channel_messagesから
-        // メータリングを導出するため（設計正本 §3）。external_message_idが無くdedupeされない点は
-        // 許容（このcronはretryKey/決定的日付でLINE側の二重配信自体を防いでいる）。
+        // メータリングを導出するため（設計正本 §3）。
         await insertChannelMessage({
           orgId: group.orgId,
           spaceId: group.spaceId,
@@ -195,7 +198,7 @@ export async function POST(request: NextRequest) {
           direction: 'outbound',
           actor: 'secretary',
           externalUserId: null,
-          externalMessageId: null,
+          externalMessageId: retryKey,
           contentType: 'text',
           body: pushText,
           payload: {},

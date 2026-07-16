@@ -15,6 +15,7 @@ const storeMock = {
   findLineAccountById: vi.fn(),
   getOrgChannelPolicyState: vi.fn(),
   insertChannelMessage: vi.fn(),
+  clearApprovalNotifiedAt: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -66,6 +67,7 @@ describe('POST /api/cron/approval-notify', () => {
     storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
     storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
     storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
+    storeMock.clearApprovalNotifiedAt.mockResolvedValue(undefined)
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -193,6 +195,57 @@ describe('POST /api/cron/approval-notify', () => {
           expect.objectContaining({ taskId: row().taskId, reason: 'quota_block_suppress' }),
         ]),
       )
+    })
+
+    it('Fix2: 抑止時は claimで刻まれたapproval_notified_atをclearApprovalNotifiedAtで未通知に戻す（次runで再claim可能に）', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(storeMock.clearApprovalNotifiedAt).toHaveBeenCalledWith(row().taskId)
+      expect(json.errors).toEqual([])
+    })
+
+    it('Fix2: soft+degrade の隔日休止日（奇数日）で抑止された候補もclearApprovalNotifiedAtが呼ばれる', async () => {
+      vi.useFakeTimers()
+      // 2026-07-12(JST)は通算日193（奇数）→ 抑止側
+      vi.setSystemTime(new Date(2026, 6, 12, 7, 0))
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'soft', onExceed: 'degrade' })
+
+      try {
+        const res = await callPost(AUTH)
+        expect(res.status).toBe(200)
+        expect(storeMock.clearApprovalNotifiedAt).toHaveBeenCalledWith(row().taskId)
+        expect(pushMock).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('Fix4: outbound記録のexternalMessageIdはpushのretryKeyと同一（決定的キーでdedupe可能）', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      await callPost(AUTH)
+
+      const retryKey = (pushMock.mock.calls[0][0] as { retryKey: string }).retryKey
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ externalMessageId: retryKey }),
+      )
+    })
+
+    it('Fix4: insertChannelMessageがduplicateを返しても200で継続する（二重計上させないための冪等性）', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      expect(json.errors).toEqual([])
     })
 
     it('1件がquota抑止されても他候補の送信は続ける', async () => {

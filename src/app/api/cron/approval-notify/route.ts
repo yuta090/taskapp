@@ -4,6 +4,7 @@ import {
   findLineAccountById,
   getOrgChannelPolicyState,
   insertChannelMessage,
+  clearApprovalNotifiedAt,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { buildApprovalPromptFlexMessage, buildDigestRetryKey } from '@/lib/channels/digest/compute'
@@ -79,6 +80,12 @@ export async function POST(request: NextRequest) {
         })
         if (!decision.deliver) {
           skipped.push({ taskId: row.taskId, reason: decision.reason ?? 'quota_suppressed' })
+          // Fix2: claimPendingApprovalNotifications が既に approval_notified_at を刻んでいる。
+          // ここで戻さないと notified 済みのまま二度と再claimされず、通知が永久にロストする
+          // （隔日縮退・hard抑止のたびに取りこぼす）。未通知へ戻し、次回runで再claim可能にする。
+          await clearApprovalNotifiedAt(row.taskId).catch((clearError) =>
+            console.error(`[approval-notify] clearApprovalNotifiedAt failed (task ${row.taskId})`, clearError),
+          )
           return
         }
 
@@ -89,16 +96,21 @@ export async function POST(request: NextRequest) {
           dueTime: row.dueTime,
           todayJst,
         })
+        // outbound記録のexternalMessageIdと同一キーにする（Fix4: 決定的キーでdedupe。
+        // 二重起動でもchannel_messages_dedupe unique indexにより二重計上しない）。
+        const retryKey = buildDigestRetryKey(row.taskId, 'approval-notify')
         await pushLineMessage({
           accessToken: account.accessToken,
           to: row.externalUserId,
           messages: [flex],
           // 同一候補への push を HTTP リトライで二重化しない（決定的キー）
-          retryKey: buildDigestRetryKey(row.taskId, 'approval-notify'),
+          retryKey,
         })
         sent += 1
 
         // push成功後にoutbound記録（billablePush=true）を残す（設計正本 §3・PR4メータリング）。
+        // externalMessageIdはhandleMentionInstantTask（即時1:1送信）と同一キー導出のため、
+        // クロス経路（即時×cron）の二重計上も防ぐ（Fix1/Fix4）。
         await insertChannelMessage({
           orgId: row.orgId,
           spaceId: null,
@@ -109,7 +121,7 @@ export async function POST(request: NextRequest) {
           direction: 'outbound',
           actor: 'secretary',
           externalUserId: row.externalUserId,
-          externalMessageId: null,
+          externalMessageId: retryKey,
           contentType: 'text',
           body: row.title,
           payload: { autoReplyTo: `approval-notify:${row.taskId}` },
