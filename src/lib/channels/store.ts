@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
+import {
+  generateSharedGroupClaimCode,
+  hashSharedGroupClaimCode,
+  formatGroupClaimCodeForDisplay,
+  CODE_ONLY_CLAIM_DEFAULT_TTL_MS,
+} from '@/lib/channels/sharedGroupClaim'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -373,6 +380,19 @@ export async function verifySpaceInOrg(orgId: string, spaceId: string): Promise<
     .eq('org_id', orgId)
     .maybeSingle()
   return !error && !!data
+}
+
+/**
+ * 複数spaceが全て自org内かをまとめて検証する（code_onlyバッチ発行の越境防止用）。
+ * 重複排除した件数と、org境界で絞り込んで実際に見つかった件数が一致すればtrue。
+ */
+export async function verifySpacesInOrg(orgId: string, spaceIds: string[]): Promise<boolean> {
+  const unique = [...new Set(spaceIds)]
+  if (unique.length === 0) return true
+
+  const { data, error } = await admin().from('spaces').select('id').eq('org_id', orgId).in('id', unique)
+  if (error) throw new Error(`spaces: verify batch failed: ${error.message}`)
+  return (data?.length ?? 0) === unique.length
 }
 
 export async function createLinkCode(
@@ -993,12 +1013,12 @@ export async function findGroupClaimOrgId(claimId: string): Promise<string | nul
   return data.org_id as string
 }
 
-export type GroupClaimActionErrorReason = 'not_found' | 'forbidden' | 'conflict'
+export type GroupClaimActionErrorReason = 'not_found' | 'forbidden' | 'conflict' | 'invalid'
 
 /**
  * rpc_approve_group_claim / rpc_reject_group_claim は検証失敗を例外(raise exception)で返す
- * 設計（PR1・変更不可）。ここでpostgresの例外メッセージを route が HTTP status へ薄くマップ
- * できる reason に分類し直す（route側は薄いままにするための分類ロジックの置き場）。
+ * 設計（PR1・変更不可）。ここでpostgresの例外を route が HTTP status へ薄くマップできる reason に
+ * 分類し直す（route側は薄いままにするための分類ロジックの置き場）。
  */
 export class GroupClaimActionError extends Error {
   constructor(
@@ -1010,11 +1030,25 @@ export class GroupClaimActionError extends Error {
   }
 }
 
-function classifyGroupClaimRpcError(message: string): GroupClaimActionErrorReason {
-  if (message.includes('unknown claim_id')) return 'not_found'
-  if (message.includes('is not an internal member of org')) return 'forbidden'
-  // is not pending / already consumed / has been revoked / expired / org-space mismatch 等
-  return 'conflict'
+/**
+ * L3(errcode標準化・PR3b): 分類はSQLSTATE(error.code)ベース。supabase-jsはPostgREST経由で
+ * DBのraise時の`using errcode=`をそのままerror.codeへsurfaceするため、文言変更に脆い
+ * message部分一致より堅牢（対応表は claim RPCファミリのmigrationコメントを正本とする）。
+ */
+function classifyGroupClaimRpcError(code: string | undefined): GroupClaimActionErrorReason {
+  switch (code) {
+    case 'GC404':
+      return 'not_found'
+    case 'GC403':
+      return 'forbidden'
+    case 'GC422':
+      return 'invalid'
+    case 'GC409':
+      return 'conflict'
+    default:
+      // 未分類のSQLSTATE（P0001等の構造ガード由来を含む）は安全側で conflict にフォールバックする
+      return 'conflict'
+  }
 }
 
 /**
@@ -1027,7 +1061,7 @@ export async function approveGroupClaim(claimId: string, approverUserId: string)
     p_claim_id: claimId,
     p_approver_user_id: approverUserId,
   })
-  if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.message))
+  if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.code))
   return data === true
 }
 
@@ -1037,14 +1071,27 @@ export async function rejectGroupClaim(claimId: string, approverUserId: string):
     p_claim_id: claimId,
     p_approver_user_id: approverUserId,
   })
-  if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.message))
+  if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.code))
   return data === true
 }
 
 /**
- * コード発行対象の共有bot（platform account）を引く。PR3aでは単一の platform account を
- * 前提とする（複数存在する場合の選択はPR3bで詰める。設計正本 §10）。無ければ null
- * （呼び出し側は「共有botが未設定」として400を返す）。
+ * 複数の active platform account が存在する場合に投げる（L2ガード・設計正本 §10）。
+ * フルの複数account選択UIは投機的なので作らない — 実際に複数botが要る運用になった時に
+ * 明示的にエラーとして顕在化させ、沈黙のdead-end（誤ったaccountへ黙って発行する事故）を防ぐ。
+ */
+export class MultiplePlatformAccountsError extends Error {
+  constructor() {
+    super('multiple active platform accounts exist; explicit selection is required (not yet supported)')
+    this.name = 'MultiplePlatformAccountsError'
+  }
+}
+
+/**
+ * コード発行対象の共有bot（platform account）を引く。0件はnull（呼び出し側は「共有botが未設定」
+ * として400を返す）。1件ならそのid。2件以上は MultiplePlatformAccountsError を投げる
+ * （L2ガード。呼び出し側は409として顧客に見せる）。
+ * 2件以上の存在を判定できれば十分なので limit(2) に絞り、全件走査しない。
  */
 export async function findFirstPlatformAccountId(): Promise<string | null> {
   const { data, error } = await admin()
@@ -1054,10 +1101,12 @@ export async function findFirstPlatformAccountId(): Promise<string | null> {
     // disabled な共有bot に発行すると償還不能な「死にコード」を配ることになるため active に限定
     .eq('status', 'active')
     .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+    .limit(2)
   if (error) throw new Error(`channel_accounts: platform lookup failed: ${error.message}`)
-  return (data?.id as string | undefined) ?? null
+  const rows = (data as { id: string }[] | null) ?? []
+  if (rows.length === 0) return null
+  if (rows.length >= 2) throw new MultiplePlatformAccountsError()
+  return rows[0].id
 }
 
 export interface CreateSharedGroupClaimCodeInput {
@@ -1108,6 +1157,139 @@ export async function createSharedGroupClaimCode(
     throw new Error(`channel_link_codes: shared_group_claim insert failed: ${error.message}`)
   }
   return { id: data!.id as string, expiresAt: data!.expires_at as string }
+}
+
+// ---------------------------------------------------------------------------
+// 共有bot code_only 紐付け（Stage 4 §1/§3/§4/§7-8・PR3b）
+//
+// web_approval（人の承認）とは別経路: webhookが rpc_redeem_code_only_claim を1回呼ぶだけで
+// 人の承認なしに即時紐付けが成立する。境界はDB制約とA-1トリガーが守る（RPCの正しさに依存しない）。
+// ---------------------------------------------------------------------------
+
+export type RedeemCodeOnlyClaimResult = 'linked' | 'already_linked' | 'rejected'
+
+/**
+ * rpc_redeem_code_only_claim の薄いラッパ（webhook専用）。
+ *
+ * GC404（code_hashがどのコードにも一致しない＝記録対象が無い）は 'rejected' に畳んで返す。
+ * rpc自体はマッチした無効コード（expired/consumed/revoked/wrong-account/wrong-binding_mode）を
+ * 'rejected'（rejected claim記録済み）として返す設計だが、webhook側の応答は「見つからない」も
+ * 「マッチしたが無効」も同一の固定文言に畳む必要がある（設計正本 §3: 存在/期限/orgを推測させない）
+ * ため、ここで両者を同じ文字列 'rejected' に正規化しておき、呼び出し側の分岐を1本にする。
+ *
+ * 呼び出し契約（RPCコメント）: 1メッセージイベントにつき1回だけ呼ぶ（webhookのevent-dedupの背後）。
+ */
+export async function redeemCodeOnlyClaim(
+  codeHash: string,
+  accountId: string,
+  externalGroupId: string,
+  groupDisplayName: string | null,
+): Promise<RedeemCodeOnlyClaimResult> {
+  const { data, error } = await admin().rpc('rpc_redeem_code_only_claim', {
+    p_code_hash: codeHash,
+    p_account_id: accountId,
+    p_external_group_id: externalGroupId,
+    p_group_display_name: groupDisplayName,
+  })
+  if (error) {
+    if (error.code === 'GC404') return 'rejected'
+    throw new Error(`rpc_redeem_code_only_claim failed: ${error.message}`)
+  }
+  if (data === 'linked' || data === 'already_linked' || data === 'rejected') return data
+  throw new Error(`rpc_redeem_code_only_claim: unexpected result ${String(data)}`)
+}
+
+/**
+ * org単位の code_only entitlement（設計正本 §3: entitlement=false org での発行は拒否）。
+ * 明示行の無いorgは既定false（当社が信頼確認したorgにのみ true を付与する運用のため）。
+ */
+export async function isCodeOnlyEntitled(orgId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('allow_code_only')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) throw new Error(`org_channel_policy: select failed: ${error.message}`)
+  return (data as { allow_code_only: boolean } | null)?.allow_code_only === true
+}
+
+/**
+ * org単位の未消費(consumed_at is null)・未失効(expires_at>now)・未revoke(revoked_at is null)な
+ * code_only コード数。発行APIの発行レート上限判定に使う（設計正本 §3 code_only の追加不変条件）。
+ */
+export async function countOutstandingCodeOnlyCodes(orgId: string): Promise<number> {
+  const { count, error } = await admin()
+    .from('channel_link_codes')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('purpose', 'shared_group_claim')
+    .eq('binding_mode', 'code_only')
+    .is('consumed_at', null)
+    .is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString())
+  if (error) throw new Error(`channel_link_codes: count outstanding code_only failed: ${error.message}`)
+  return count ?? 0
+}
+
+export interface CreateCodeOnlyClaimCodesBatchInput {
+  orgId: string
+  spaceIds: string[]
+  targetAccountId: string
+  createdBy: string
+}
+
+export interface CodeOnlyIssuedCode {
+  spaceId: string
+  displayCode: string
+}
+
+/**
+ * code_only コードの一括発行（本部/多拠点の一括登録・設計正本 §0/§2）。各spaceに対し
+ * CSPRNGで正準形26文字を生成→code_hashのみ保存（生codeはこの関数のスコープ内でのみ扱い、
+ * 呼び出し側へは表示形式のみ返す＝§7-5「生codeは保存しない」を満たす）。
+ * 同一バッチはbatch_idで束ね、TTLはCODE_ONLY_CLAIM_DEFAULT_TTL_MS（既定7日）で揃える。
+ * code_hash衝突(23505)はそのspaceの分だけ最大3回リトライする（他spaceには波及しない）。
+ * entitlement(allow_code_only)検査・発行レート上限の判定は呼び出し側(API route)の責務。
+ */
+export async function createCodeOnlyClaimCodesBatch(
+  input: CreateCodeOnlyClaimCodesBatchInput,
+): Promise<CodeOnlyIssuedCode[]> {
+  if (input.spaceIds.length === 0) return []
+
+  const client = admin()
+  const batchId = randomUUID()
+  const expiresAt = new Date(Date.now() + CODE_ONLY_CLAIM_DEFAULT_TTL_MS).toISOString()
+  const results: CodeOnlyIssuedCode[] = []
+
+  for (const spaceId of input.spaceIds) {
+    let inserted = false
+    for (let attempt = 0; attempt < 3 && !inserted; attempt++) {
+      const canonicalCode = generateSharedGroupClaimCode()
+      const { error } = await client.from('channel_link_codes').insert({
+        org_id: input.orgId,
+        space_id: spaceId,
+        channel: 'line',
+        purpose: 'shared_group_claim',
+        binding_mode: 'code_only',
+        target_account_id: input.targetAccountId,
+        code_hash: hashSharedGroupClaimCode(canonicalCode),
+        code: null,
+        expires_at: expiresAt,
+        created_by: input.createdBy,
+        batch_id: batchId,
+      })
+      if (!error) {
+        results.push({ spaceId, displayCode: formatGroupClaimCodeForDisplay(canonicalCode) })
+        inserted = true
+      } else if (error.code !== '23505') {
+        throw new Error(`channel_link_codes: code_only batch insert failed: ${error.message}`)
+      }
+    }
+    if (!inserted) {
+      throw new Error(`channel_link_codes: code_only batch insert failed after retries for space ${spaceId}`)
+    }
+  }
+  return results
 }
 
 // ---------------------------------------------------------------------------

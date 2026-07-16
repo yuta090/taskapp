@@ -27,12 +27,14 @@ const findFirstPlatformAccountIdMock = vi.fn()
 const createSharedGroupClaimCodeMock = vi.fn()
 
 class DuplicateSharedGroupClaimCodeError extends Error {}
+class MultiplePlatformAccountsError extends Error {}
 
 vi.mock('@/lib/channels/store', () => ({
   verifySpaceInOrg: (...args: unknown[]) => verifySpaceInOrgMock(...args),
   findFirstPlatformAccountId: (...args: unknown[]) => findFirstPlatformAccountIdMock(...args),
   createSharedGroupClaimCode: (...args: unknown[]) => createSharedGroupClaimCodeMock(...args),
   DuplicateSharedGroupClaimCodeError,
+  MultiplePlatformAccountsError,
 }))
 
 const { POST } = await import('@/app/api/channels/group-claims/issue/route')
@@ -97,6 +99,13 @@ describe('POST /api/channels/group-claims/issue', () => {
     findFirstPlatformAccountIdMock.mockResolvedValue(null)
     const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
     expect(res.status).toBe(400)
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('複数のactive platform accountが存在する場合は409（L2ガード・明示選択が未対応）', async () => {
+    findFirstPlatformAccountIdMock.mockRejectedValue(new MultiplePlatformAccountsError())
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
+    expect(res.status).toBe(409)
     expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
   })
 

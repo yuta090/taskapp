@@ -40,13 +40,31 @@ beforeEach(() => {
 function mockApis({
   pendingItems = [],
   issueResponse,
+  policyResponse,
+  issueBatchResponse,
 }: {
   pendingItems?: unknown[]
   issueResponse?: { ok: boolean; body: unknown }
+  policyResponse?: { ok: boolean; body: unknown }
+  issueBatchResponse?: { ok: boolean; body: unknown }
 }) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
     if (url.includes('/api/channels/group-claims/pending')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: pendingItems }) })
+    }
+    if (url.includes('/api/channels/group-claims/policy')) {
+      const res = policyResponse ?? { ok: true, body: { allowCodeOnly: false } }
+      return Promise.resolve({ ok: res.ok, json: () => Promise.resolve(res.body) })
+    }
+    if (url.includes('/api/channels/group-claims/issue-batch') && init?.method === 'POST') {
+      const res = issueBatchResponse ?? {
+        ok: true,
+        body: {
+          items: [{ spaceId: 'space-1', displayCode: 'GC-AAAAAA-BBBBB-CCCCC-DDDDD-EEEEE' }],
+          expiresAt: '2026-07-23T00:00:00.000Z',
+        },
+      }
+      return Promise.resolve({ ok: res.ok, json: () => Promise.resolve(res.body) })
     }
     if (url.includes('/api/channels/group-claims/issue') && init?.method === 'POST') {
       const res = issueResponse ?? { ok: true, body: { code: 'GC-ABCDEF-GHJKM-NPQRS-TUVWX-YZ234', expiresAt: '2026-07-16T00:30:00.000Z' } }
@@ -217,6 +235,72 @@ describe('GroupLinksClient', () => {
     // 409は他経路(別タブ)で処理済み扱い → リストから消える
     await waitFor(() => {
       expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('本部一括発行（code_only・entitlementがある時だけ表示）', () => {
+    it('entitlement無し(allowCodeOnly=false)の場合はセクションを表示しない', async () => {
+      mockApis({ policyResponse: { ok: true, body: { allowCodeOnly: false } } })
+      render(<GroupLinksClient orgId={ORG} />)
+
+      await waitFor(() => screen.getByText('コードを発行'))
+      expect(screen.queryByText('本部一括発行')).not.toBeInTheDocument()
+    })
+
+    it('entitlementあり(allowCodeOnly=true)の場合はセクションを表示する', async () => {
+      mockApis({ policyResponse: { ok: true, body: { allowCodeOnly: true } } })
+      render(<GroupLinksClient orgId={ORG} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('本部一括発行')).toBeInTheDocument()
+      })
+      expect(screen.getByLabelText('山田商事')).toBeInTheDocument()
+      // 他orgのspaceは選択肢に出さない
+      const otherOrgCheckbox = screen.queryByLabelText('他org')
+      expect(otherOrgCheckbox).not.toBeInTheDocument()
+    })
+
+    it('spaceを選んで一括発行すると、発行されたコード一覧が1回表示される', async () => {
+      mockApis({
+        policyResponse: { ok: true, body: { allowCodeOnly: true } },
+        issueBatchResponse: {
+          ok: true,
+          body: {
+            items: [{ spaceId: 'space-1', displayCode: 'GC-AAAAAA-BBBBB-CCCCC-DDDDD-EEEEE' }],
+            expiresAt: '2026-07-23T00:00:00.000Z',
+          },
+        },
+      })
+      render(<GroupLinksClient orgId={ORG} />)
+
+      await waitFor(() => screen.getByText('本部一括発行'))
+      fireEvent.click(screen.getByLabelText('山田商事'))
+      fireEvent.click(screen.getByText('一括発行'))
+
+      await waitFor(() => {
+        expect(screen.getByText('GC-AAAAAA-BBBBB-CCCCC-DDDDD-EEEEE')).toBeInTheDocument()
+      })
+
+      const batchCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/api/channels/group-claims/issue-batch'))
+      expect(batchCall).toBeTruthy()
+      const body = JSON.parse((batchCall![1] as RequestInit).body as string)
+      expect(body).toEqual({ orgId: ORG, spaceIds: ['space-1'] })
+    })
+
+    it('発行失敗時はエラーメッセージを表示する', async () => {
+      mockApis({
+        policyResponse: { ok: true, body: { allowCodeOnly: true } },
+        issueBatchResponse: { ok: false, body: { error: 'このorgはcode_only発行が許可されていません' } },
+      })
+      render(<GroupLinksClient orgId={ORG} />)
+
+      await waitFor(() => screen.getByText('本部一括発行'))
+      fireEvent.click(screen.getByLabelText('山田商事'))
+      fireEvent.click(screen.getByText('一括発行'))
+
+      await waitFor(() => {
+        expect(screen.getByText('このorgはcode_only発行が許可されていません')).toBeInTheDocument()
+      })
     })
   })
 })

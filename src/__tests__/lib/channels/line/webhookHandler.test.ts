@@ -96,8 +96,17 @@ const storeMock = {
   clearApprovalNotifiedAt: vi.fn(),
   findValidSharedGroupClaimCode: vi.fn(),
   findOrCreatePendingGroupClaim: vi.fn(),
+  redeemCodeOnlyClaim: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
+
+// code_only 成立通知（Stage 4 PR3b）。ベストエフォート・webhookの主フローをブロックしない
+const groupClaimNotifyMock = { notifyCodeOnlyGroupLinked: vi.fn() }
+vi.mock('@/lib/channels/groupClaimNotify', () => groupClaimNotifyMock)
+
+// limbo紐付けコード投入のレート制限（Stage 4 §7-8・PR3b）
+const limboRateLimitMock = { registerInvalidClaimAttemptAndCheckLimit: vi.fn() }
+vi.mock('@/lib/channels/limboRateLimit', () => limboRateLimitMock)
 
 // AC12(docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §10): グループ再リンク(新世代作成)時に
 // 旧世代向けsinkをdisableし通知する。ベストエフォート(失敗してもreply等の主フローは継続)。
@@ -248,6 +257,9 @@ beforeEach(() => {
   groupSummaryMock.mockResolvedValue(null)
   sinksStoreMock.disableStaleGroupSinks.mockResolvedValue([])
   sinksNotifyMock.notifySinkDisabledForRelink.mockResolvedValue(undefined)
+  storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
+  groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockResolvedValue(undefined)
+  limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(false)
 })
 
 describe('handleLineWebhook', () => {
@@ -2071,10 +2083,10 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
         expect(replyArg.messages[0].text).not.toContain('QW3R')
       })
 
-      it('無効理由(not-found/expired/consumed/他org)は全て同一バイト列の固定文言（存在/理由を区別させない）', async () => {
+      it('無効理由(not-found/redeemがrejected)は全て同一バイト列の固定文言（存在/理由を区別させない）', async () => {
         const texts: string[] = []
 
-        // not-found相当
+        // not-found相当（findValidSharedGroupClaimCodeがnull＝webhook層はRPCすら呼ばない）
         storeMock.findValidSharedGroupClaimCode.mockResolvedValueOnce(null)
         const body1 = makeBody([groupTextEvent(DISPLAY_FORM)])
         await handleLineWebhook(body1, sign(body1))
@@ -2082,13 +2094,15 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
 
         // findValidSharedGroupClaimCode内部でexpired/consumed/他org/他accountは全てnullに畳まれる
         // （store層のテストで検証済み）ため、webhook層としては「null＝固定文言」の1本の応答だけを
-        // 確認すれば理由の別が漏れていないことを保証できる。code_onlyも同一文言に畳む。
+        // 確認すれば理由の別が漏れていないことを保証できる。code_only経路のマッチ無効
+        // （redeemCodeOnlyClaimがrejected）も同一文言に畳む。
         storeMock.findValidSharedGroupClaimCode.mockResolvedValueOnce({
           id: 'code-2',
           orgId: 'org-B',
           spaceId: 'space-B',
           bindingMode: 'code_only',
         })
+        storeMock.redeemCodeOnlyClaim.mockResolvedValueOnce('rejected')
         const body2 = makeBody([groupTextEvent(DISPLAY_FORM)])
         await handleLineWebhook(body2, sign(body2))
         texts.push((replyMock.mock.calls.at(-1)![0] as { messages: { text: string }[] }).messages[0].text)
@@ -2096,18 +2110,84 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
         expect(new Set(texts).size).toBe(1) // 全て同一バイト列
       })
 
-      it('binding_mode=code_only（PR3未実装）は無効コードと同一の応答にする（機能を偽装しない）', async () => {
-        storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
-          id: 'code-2',
-          orgId: 'org-A',
-          spaceId: 'space-A',
-          bindingMode: 'code_only',
+      describe('binding_mode=code_only（PR3b実装・人の承認なしに即時償還）', () => {
+        beforeEach(() => {
+          storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
+            id: 'code-2',
+            orgId: 'org-A',
+            spaceId: 'space-A',
+            bindingMode: 'code_only',
+          })
+          groupSummaryMock.mockResolvedValue({ groupName: 'ある店舗のグループ' })
         })
-        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
-        await handleLineWebhook(body, sign(body))
 
-        expect(storeMock.findOrCreatePendingGroupClaim).not.toHaveBeenCalled()
-        expect(replyMock).toHaveBeenCalledTimes(1)
+        it('linked: 成功文言でreplyし、rpc_redeem_code_only_claimをhash/account/group/表示名で呼び、成立通知をトリガーする', async () => {
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+
+          const { hashSharedGroupClaimCode } = await import('@/lib/channels/sharedGroupClaim')
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          const result = await handleLineWebhook(body, sign(body))
+
+          expect(result.status).toBe(200)
+          expect(storeMock.redeemCodeOnlyClaim).toHaveBeenCalledWith(
+            hashSharedGroupClaimCode(CANONICAL),
+            'acc-shared-1',
+            'G-1',
+            'ある店舗のグループ',
+          )
+          // web_approval用のclaim登録(pending)は呼ばない（code_onlyは別経路・pendingを経由しない）
+          expect(storeMock.findOrCreatePendingGroupClaim).not.toHaveBeenCalled()
+          expect(replyMock).toHaveBeenCalledTimes(1)
+          const replyArg = replyMock.mock.calls[0][0] as { messages: { text: string }[] }
+          expect(replyArg.messages[0].text).not.toBe('') // 固定invalid文言ではない専用の成功文言
+          expect(groupClaimNotifyMock.notifyCodeOnlyGroupLinked).toHaveBeenCalledWith(
+            'org-A',
+            'space-A',
+            'ある店舗のグループ',
+          )
+        })
+
+        it('already_linked: 既に登録済み文言でreplyし、成立通知は呼ばない', async () => {
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('already_linked')
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          await handleLineWebhook(body, sign(body))
+
+          expect(replyMock).toHaveBeenCalledTimes(1)
+          const replyArg = replyMock.mock.calls[0][0] as { messages: { text: string }[] }
+          expect(replyArg.messages[0].text).toContain('既に登録済み')
+          expect(groupClaimNotifyMock.notifyCodeOnlyGroupLinked).not.toHaveBeenCalled()
+        })
+
+        it('rejected: 無効コードと同一の固定文言でreplyし、成立通知は呼ばない', async () => {
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          await handleLineWebhook(body, sign(body))
+
+          expect(replyMock).toHaveBeenCalledTimes(1)
+          const replyArg = replyMock.mock.calls[0][0] as { messages: { text: string }[] }
+          expect(replyArg.messages[0].text).toBe('コードをお確かめのうえ、もう一度お送りください。ご不明な場合は事務所までご連絡ください。')
+          expect(groupClaimNotifyMock.notifyCodeOnlyGroupLinked).not.toHaveBeenCalled()
+        })
+
+        it('成立通知が失敗しても紐付け自体は成立させ、webhookは200のまま', async () => {
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+          groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockRejectedValue(new Error('mail down'))
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          const result = await handleLineWebhook(body, sign(body))
+
+          expect(result.status).toBe(200)
+          expect(replyMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('disabled中はredeemするがreplyしない', async () => {
+          storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_DISABLED_ACCOUNT)
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          await handleLineWebhook(body, sign(body))
+
+          expect(storeMock.redeemCodeOnlyClaim).toHaveBeenCalled()
+          expect(replyMock).not.toHaveBeenCalled()
+        })
       })
 
       it('コード形状でない通常発言は紐付け処理を試みない（完全な沈黙・無反応・無保存）', async () => {
@@ -2140,6 +2220,74 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
         expect(storeMock.findOrCreatePendingGroupClaim).toHaveBeenCalled()
         expect(replyMock).not.toHaveBeenCalled()
       })
+
+      describe('レート制限（設計正本 §7-8）: マッチ無効/コード不一致の投入のみカウントし、上限超過後は無応答化', () => {
+      it('無効コードはaccountId/externalGroupId単位でレート制限にカウントされる', async () => {
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValue(null)
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit).toHaveBeenCalledWith(
+          'acc-shared-1',
+          'G-1',
+        )
+      })
+
+      it('レート制限が超過(true)を返した場合は完全に無応答化する', async () => {
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValue(null)
+        limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(true)
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(replyMock).not.toHaveBeenCalled()
+      })
+
+      it('有効な紐付け（web_approval成立）はレート制限にカウントしない', async () => {
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
+          id: 'code-1',
+          orgId: 'org-A',
+          spaceId: 'space-A',
+          bindingMode: 'web_approval',
+        })
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit).not.toHaveBeenCalled()
+        expect(replyMock).toHaveBeenCalledTimes(1)
+      })
+
+      it('code_onlyのlinked/already_linkedもレート制限にカウントしない', async () => {
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
+          id: 'code-2',
+          orgId: 'org-A',
+          spaceId: 'space-A',
+          bindingMode: 'code_only',
+        })
+        storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit).not.toHaveBeenCalled()
+        expect(replyMock).toHaveBeenCalledTimes(1)
+      })
+
+      it('code_onlyのrejectedはレート制限にカウントされる', async () => {
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
+          id: 'code-2',
+          orgId: 'org-A',
+          spaceId: 'space-A',
+          bindingMode: 'code_only',
+        })
+        storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit).toHaveBeenCalledWith(
+          'acc-shared-1',
+          'G-1',
+        )
+      })
+    })
     })
   })
 

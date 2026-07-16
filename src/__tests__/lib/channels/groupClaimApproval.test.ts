@@ -150,10 +150,10 @@ describe('approveGroupClaim', () => {
     expect(await store.approveGroupClaim('claim-1', 'user-1')).toBe(false)
   })
 
-  it('unknown claim_id は GroupClaimActionError(not_found) を投げる', async () => {
+  it('unknown claim_id(GC404) は GroupClaimActionError(not_found) を投げる', async () => {
     rpcMock.mockResolvedValue({
       data: null,
-      error: { message: 'rpc_approve_group_claim: unknown claim_id claim-1' },
+      error: { code: 'GC404', message: 'rpc_approve_group_claim: unknown claim_id claim-1' },
     })
     await expect(store.approveGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
       name: 'GroupClaimActionError',
@@ -161,23 +161,42 @@ describe('approveGroupClaim', () => {
     })
   })
 
-  it('membership不足は GroupClaimActionError(forbidden) を投げる', async () => {
+  it('membership不足(GC403) は GroupClaimActionError(forbidden) を投げる', async () => {
     rpcMock.mockResolvedValue({
       data: null,
-      error: { message: 'rpc_approve_group_claim: approver user-1 is not an internal member of org org-1' },
+      error: {
+        code: 'GC403',
+        message: 'rpc_approve_group_claim: approver user-1 is not an internal member of org org-1',
+      },
     })
     await expect(store.approveGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
       reason: 'forbidden',
     })
   })
 
+  it.each(['rpc_approve_group_claim: claim claim-1 is not pending (status=approved)', 'rpc_approve_group_claim: link_code already consumed'])(
+    '%s (GC409) は GroupClaimActionError(conflict) を投げる',
+    async (message) => {
+      rpcMock.mockResolvedValue({ data: null, error: { code: 'GC409', message } })
+      await expect(store.approveGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
+        reason: 'conflict',
+      })
+    },
+  )
+
   it.each([
-    'rpc_approve_group_claim: claim claim-1 is not pending (status=approved)',
-    'rpc_approve_group_claim: link_code already consumed',
     'rpc_approve_group_claim: link_code has been revoked',
     'rpc_approve_group_claim: link_code expired',
-  ])('%s は GroupClaimActionError(conflict) を投げる', async (message) => {
-    rpcMock.mockResolvedValue({ data: null, error: { message } })
+    'rpc_approve_group_claim: link_code purpose must be shared_group_claim (got group_link)',
+  ])('%s (GC422) は GroupClaimActionError(invalid) を投げる', async (message) => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: 'GC422', message } })
+    await expect(store.approveGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
+      reason: 'invalid',
+    })
+  })
+
+  it('未分類のSQLSTATE(またはcode無し)は conflict にフォールバックする（安全側デフォルト）', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'unexpected failure' } })
     await expect(store.approveGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
       reason: 'conflict',
     })
@@ -199,20 +218,23 @@ describe('rejectGroupClaim', () => {
     expect(await store.rejectGroupClaim('claim-1', 'user-1')).toBe(false)
   })
 
-  it('unknown claim_id は GroupClaimActionError(not_found)', async () => {
+  it('unknown claim_id(GC404) は GroupClaimActionError(not_found)', async () => {
     rpcMock.mockResolvedValue({
       data: null,
-      error: { message: 'rpc_reject_group_claim: unknown claim_id claim-1' },
+      error: { code: 'GC404', message: 'rpc_reject_group_claim: unknown claim_id claim-1' },
     })
     await expect(store.rejectGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
       reason: 'not_found',
     })
   })
 
-  it('membership不足は GroupClaimActionError(forbidden)', async () => {
+  it('membership不足(GC403) は GroupClaimActionError(forbidden)', async () => {
     rpcMock.mockResolvedValue({
       data: null,
-      error: { message: 'rpc_reject_group_claim: approver user-1 is not an internal member of org org-1' },
+      error: {
+        code: 'GC403',
+        message: 'rpc_reject_group_claim: approver user-1 is not an internal member of org org-1',
+      },
     })
     await expect(store.rejectGroupClaim('claim-1', 'user-1')).rejects.toMatchObject({
       reason: 'forbidden',
@@ -220,9 +242,9 @@ describe('rejectGroupClaim', () => {
   })
 })
 
-describe('findFirstPlatformAccountId', () => {
-  it('owner_type=platform かつ status=active のaccountを1件返す', async () => {
-    fromResponses['channel_accounts'] = { data: { id: 'acc-platform-1' }, error: null }
+describe('findFirstPlatformAccountId（L2ガード: 複数activeは明示エラー）', () => {
+  it('owner_type=platform かつ status=active のaccountが1件ならそのidを返す', async () => {
+    fromResponses['channel_accounts'] = { data: [{ id: 'acc-platform-1' }], error: null }
     const result = await store.findFirstPlatformAccountId()
     expect(result).toBe('acc-platform-1')
 
@@ -232,12 +254,23 @@ describe('findFirstPlatformAccountId', () => {
     // disabled な共有botへ「死にコード」を発行しないよう active に限定する
     expect(builder.eq).toHaveBeenCalledWith('status', 'active')
     expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: true })
-    expect(builder.limit).toHaveBeenCalledWith(1)
+    // 2件以上の存在を判定できれば十分なので limit(2) に絞る（全件走査しない）
+    expect(builder.limit).toHaveBeenCalledWith(2)
   })
 
-  it('platform accountが無ければnull（共有bot未設定）', async () => {
-    fromResponses['channel_accounts'] = { data: null, error: null }
+  it('platform accountが0件ならnull（共有bot未設定）', async () => {
+    fromResponses['channel_accounts'] = { data: [], error: null }
     expect(await store.findFirstPlatformAccountId()).toBeNull()
+  })
+
+  it('platform accountが2件以上なら MultiplePlatformAccountsError を投げる（沈黙のdead-end防止）', async () => {
+    fromResponses['channel_accounts'] = {
+      data: [{ id: 'acc-platform-1' }, { id: 'acc-platform-2' }],
+      error: null,
+    }
+    await expect(store.findFirstPlatformAccountId()).rejects.toThrow(
+      store.MultiplePlatformAccountsError,
+    )
   })
 
   it('DBエラーは例外を投げる', async () => {

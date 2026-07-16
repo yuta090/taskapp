@@ -102,3 +102,22 @@ export function formatGroupClaimCodeForDisplay(canonicalCode: string): string {
   }
   return `GC-${groups.join('-')}`
 }
+
+// -----------------------------------------------------------------------------
+// PR3b: code_only バッチ発行（本部/多拠点の一括登録・設計正本 §2/§3）。
+// -----------------------------------------------------------------------------
+
+/**
+ * code_only claim の既定TTL（設計正本 §2: code_onlyはTTLだけ別＝既定7日）。
+ * 店舗が数日かけてbotを追加する現実に合わせ、web_approvalの30分より大幅に長い。
+ */
+export const CODE_ONLY_CLAIM_DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+/** 設計正本 §2 が定める上限（本実装ではデフォルトTTLのみ使用。将来カスタムTTLを許す場合の上限値として保持） */
+export const CODE_ONLY_CLAIM_MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * org単位の code_only 発行レート上限（未消費コード同時存在数）。
+ * 発行APIがこれを超える一括発行を拒否する（設計正本 §3 code_only の追加不変条件）。
+ */
+export const CODE_ONLY_OUTSTANDING_LIMIT_PER_ORG = 50
