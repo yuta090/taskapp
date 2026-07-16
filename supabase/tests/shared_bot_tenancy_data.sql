@@ -29,7 +29,10 @@ begin
     execute p_sql;
   exception when others then
     get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
-    if v_state not in ('P0001','23514','23505','23503','23502','22P02') then
+    -- GC404/GC403/GC409/GC422 は claim RPC ファミリの errcode 標準化(L3・20260716111033)。
+    -- L3 適用前は同じ検証が P0001 で飛ぶため、両方を許容して 111033 の前後どちらでも緑にする。
+    if v_state not in ('P0001','23514','23505','23503','23502','22P02',
+                       'GC404','GC403','GC409','GC422') then
       raise exception 'FAIL[%]: raised unexpected error class % (%)', label, v_state, v_msg;
     end if;
     if expect is not null and position(lower(expect) in lower(v_msg)) = 0 then
