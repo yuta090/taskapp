@@ -2179,13 +2179,16 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
           expect(replyMock).toHaveBeenCalledTimes(1)
         })
 
-        it('disabled中はredeemするがreplyしない', async () => {
+        // Fable §6: disabled = freeze (inaction, no code consumption). 旧仕様(disabled中もredeemする)から反転。
+        it('disabled中はredeemしない（コード非消費・凍結=不作為）', async () => {
           storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_DISABLED_ACCOUNT)
           storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
           const body = makeBody([groupTextEvent(DISPLAY_FORM)])
           await handleLineWebhook(body, sign(body))
 
-          expect(storeMock.redeemCodeOnlyClaim).toHaveBeenCalled()
+          expect(storeMock.findValidSharedGroupClaimCode).not.toHaveBeenCalled()
+          expect(storeMock.redeemCodeOnlyClaim).not.toHaveBeenCalled()
+          expect(limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit).not.toHaveBeenCalled()
           expect(replyMock).not.toHaveBeenCalled()
         })
       })
@@ -2206,7 +2209,8 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
         expect(replyMock).not.toHaveBeenCalled()
       })
 
-      it('disabled中はclaim登録するがreplyしない', async () => {
+      // Fable §6: disabled = freeze (inaction, no claims/limbo writes). 旧仕様(disabled中もclaim登録する)から反転。
+      it('disabled中はclaim登録しない（台帳不変・凍結=不作為）', async () => {
         storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_DISABLED_ACCOUNT)
         storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
           id: 'code-1',
@@ -2217,7 +2221,8 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
         const body = makeBody([groupTextEvent(DISPLAY_FORM)])
         await handleLineWebhook(body, sign(body))
 
-        expect(storeMock.findOrCreatePendingGroupClaim).toHaveBeenCalled()
+        expect(storeMock.findValidSharedGroupClaimCode).not.toHaveBeenCalled()
+        expect(storeMock.findOrCreatePendingGroupClaim).not.toHaveBeenCalled()
         expect(replyMock).not.toHaveBeenCalled()
       })
 
@@ -2297,6 +2302,19 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
     })
 
     it('通常発言はgroup.orgId/group.spaceIdで記録される（account.orgId=nullではない）', async () => {
+      const body = makeBody([groupTextEvent('本日の作業完了しました')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-A', spaceId: 'space-A', groupId: 'group-shared-1' }),
+      )
+    })
+
+    // Fable §6: 凍結対象は「新規テナント確立」の経路のみ。紐付け済み(active世代)groupのinbound記録は
+    // account.status='disabled'であっても従来どおり継続する（processPlatformLimboGroupMessageは通らない）。
+    it('紐付け済み(active世代)groupのinboundはdisabled中でも記録が継続する（凍結対象は新規limboのみ）', async () => {
+      storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_DISABLED_ACCOUNT)
       const body = makeBody([groupTextEvent('本日の作業完了しました')])
       const result = await handleLineWebhook(body, sign(body))
 

@@ -60,6 +60,9 @@ apply "$MIG/20260715092426_shared_bot_org_channel_policy.sql"
 # L3(errcode標準化)＋code_only 償還＋dedup/検知index を含めた完全スタックで PR1 検証を回す。
 # これにより既存6アサート(e/f/c1 等)が GC4xx で飛んでも assert_raises 許容集合で緑になることを担保する。
 apply "$MIG/20260716111033_shared_bot_code_only_redeem.sql"
+# disabled 凍結ガード（create or replace）を重ねる。PR1 のアカウントは全て active のため、この
+# 上乗せで既存アサートが全て緑なら approve への account-status チェック追加の「退行なし」を担保する。
+apply "$MIG/20260716122144_shared_bot_disabled_freeze_rpc.sql"
 
 echo "== single-session data + asserts =="
 # client_min_messages を notice に上げて個別 PASS を表示

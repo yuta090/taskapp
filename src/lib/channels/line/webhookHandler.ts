@@ -921,6 +921,13 @@ async function processGroupMessage(
  *   (3) web_approval有効（pending化できた）→ claim登録＋チャレンジ番号入りの案内
  *   (4) code_only有効（即時成立）→ 成立文言（＋org通知をベストエフォートでトリガー）
  *   (5) code_only既に別コードで登録済み → 既登録文言
+ *
+ * ★disabled 凍結（Fable裁定 §6）: account.status='disabled' は「活性化(Step6)以前への回帰＝
+ *   新規テナント確立の凍結」を意味し、それは「拒否」ではなく「不作為」。他の経路（挨拶・突合確認等）
+ *   のように「記録はする・replyだけ止める」パターンとは異なり、この関数（新規テナント確立の唯一の
+ *   入口）はコードを一切消費せず・claims/limbo系のメタも一切書かない。よって normalizeClaimCode 呼び出し
+ *   より前、関数の入口で早期returnする（DB層 rpc_redeem_code_only_claim / rpc_approve_group_claim の
+ *   status='active' チェックは多重防御。20260716122144_shared_bot_disabled_freeze_rpc.sql 参照）。
  */
 async function processPlatformLimboGroupMessage(
   account: PlatformLineAccount,
@@ -928,6 +935,9 @@ async function processPlatformLimboGroupMessage(
   externalGroupId: string,
   disabled: boolean,
 ): Promise<void> {
+  // Fable §6: disabled = freeze (inaction) — no code consumption, no claims/limbo writes.
+  if (disabled) return
+
   if (event.contentType !== 'text' || !event.body) return // 保存しない・反応しない
 
   // (1) 26文字コード形状ですらない通常発言は完全に沈黙する（無反応・無保存）
@@ -943,7 +953,7 @@ async function processPlatformLimboGroupMessage(
     if (limited) return // 上限超過後は完全な無応答化（content-free）
   }
 
-  if (disabled || !event.replyToken) return
+  if (!event.replyToken) return
   await replyLineMessage({
     accessToken: account.accessToken,
     replyToken: event.replyToken,
