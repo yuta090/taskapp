@@ -7,6 +7,8 @@ import {
   findLineAccountById,
   findIdentityIdsByExternalUserIds,
   reconcileDigestAssignees,
+  getOrgChannelPolicyState,
+  insertChannelMessage,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
@@ -20,6 +22,7 @@ import {
 } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
+import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 
 /**
  * POST /api/cron/channel-digest
@@ -139,6 +142,19 @@ export async function POST(request: NextRequest) {
           return
         }
 
+        // 送信境界の縮退判定（PR4メータリング・設計正本 §3/§7-10）。digestはauto-push。
+        // gate対象外（webhook対話的push・console手動送信）はここを通らない。
+        const policy = await getOrgChannelPolicyState(group.orgId)
+        const decision = decideAutoPush({
+          state: policy.state,
+          onExceed: policy.onExceed,
+          jstDayOfYear: getJstDayOfYear(jstNowDate),
+        })
+        if (!decision.deliver) {
+          skipped.push({ groupId: group.id, reason: decision.reason ?? 'quota_suppressed' })
+          return
+        }
+
         // 期限順（近い順→期限なし）に採番済み。超過は ⚠️ で示す（Stage 2.6 §5）
         const pushText = buildDigestPushText(
           numbered.map((task) => ({
@@ -165,6 +181,30 @@ export async function POST(request: NextRequest) {
           retryKey: buildDigestRetryKey(group.id, jstDateStr),
         })
         digestsSent += 1
+
+        // push成功後にoutbound記録（billablePush=true）を残す。真実の源=channel_messagesから
+        // メータリングを導出するため（設計正本 §3）。external_message_idが無くdedupeされない点は
+        // 許容（このcronはretryKey/決定的日付でLINE側の二重配信自体を防いでいる）。
+        await insertChannelMessage({
+          orgId: group.orgId,
+          spaceId: group.spaceId,
+          identityId: null,
+          accountId: account.id,
+          groupId: group.id,
+          channel: 'line',
+          direction: 'outbound',
+          actor: 'secretary',
+          externalUserId: null,
+          externalMessageId: null,
+          contentType: 'text',
+          body: pushText,
+          payload: {},
+          storagePath: null,
+          status: 'sent',
+          error: null,
+          occurredAt: new Date().toISOString(),
+          billablePush: true,
+        })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`group ${group.id}: ${message}`)

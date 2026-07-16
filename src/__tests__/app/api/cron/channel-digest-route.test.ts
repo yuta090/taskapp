@@ -17,6 +17,8 @@ const storeMock = {
   findLineAccountById: vi.fn(),
   findIdentityIdsByExternalUserIds: vi.fn(),
   reconcileDigestAssignees: vi.fn(),
+  getOrgChannelPolicyState: vi.fn(),
+  insertChannelMessage: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -70,6 +72,8 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
     storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
     storeMock.reconcileDigestAssignees.mockResolvedValue(0)
+    storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+    storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -375,6 +379,91 @@ describe('POST /api/cron/channel-digest', () => {
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       const body = await response.json()
       expect(body.processedGroups).toBe(0)
+    })
+  })
+
+  describe('メータリング（PR4・送信境界の縮退）', () => {
+    beforeEach(() => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+        { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+      ])
+    })
+
+    it('on_exceed=none（既定org）は常に送信し、outbound記録をbillablePush:trueで残す（退行ゲート）', async () => {
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'none' })
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          groupId: 'group-1',
+          direction: 'outbound',
+          actor: 'secretary',
+          billablePush: true,
+        }),
+      )
+    })
+
+    it('on_exceed=block かつ state=hard は抑止し、pushもoutbound記録もしない', async () => {
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(0)
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      expect(body.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ groupId: 'group-1', reason: 'quota_block_suppress' }),
+        ]),
+      )
+    })
+
+    it('on_exceed=degrade かつ state=soft は隔日（奇数日は抑止）', async () => {
+      vi.useFakeTimers()
+      // 2026-07-12(JST)は通算日193（奇数）→ 抑止側
+      vi.setSystemTime(new Date(2026, 6, 12, 7, 0))
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'soft', onExceed: 'degrade' })
+
+      try {
+        const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+        const body = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(body.digestsSent).toBe(0)
+        expect(pushMock).not.toHaveBeenCalled()
+        expect(body.skipped).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ groupId: 'group-1', reason: 'quota_soft_degrade_alt_day' }),
+          ]),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('1グループがquota抑止されても他グループの配信は続ける', async () => {
+      const group2 = { ...GROUP, id: 'group-2', orgId: 'org-2', externalGroupId: 'G-2' }
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP, group2])
+      storeMock.getOrgChannelPolicyState.mockImplementation(async (orgId: string) =>
+        orgId === 'org-1' ? { state: 'hard', onExceed: 'block' } : { state: 'ok', onExceed: 'none' },
+      )
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'G-2' }))
     })
   })
 })

@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { claimPendingApprovalNotifications, findLineAccountById } from '@/lib/channels/store'
+import {
+  claimPendingApprovalNotifications,
+  findLineAccountById,
+  getOrgChannelPolicyState,
+  insertChannelMessage,
+} from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { buildApprovalPromptFlexMessage, buildDigestRetryKey } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 
 /**
  * POST /api/cron/approval-notify
@@ -52,6 +58,8 @@ export async function POST(request: NextRequest) {
 
   let sent = 0
   const errors: string[] = []
+  const skipped: Array<{ taskId: string; reason: string }> = []
+  const jstDayOfYear = getJstDayOfYear()
 
   await Promise.allSettled(
     rows.map(async (row) => {
@@ -61,6 +69,19 @@ export async function POST(request: NextRequest) {
           errors.push(`task ${row.taskId}: line account ${row.channelAccountId} not found/decryptable`)
           return
         }
+
+        // 送信境界の縮退判定（PR4メータリング）。承認催促はauto-push。
+        const policy = await getOrgChannelPolicyState(row.orgId)
+        const decision = decideAutoPush({
+          state: policy.state,
+          onExceed: policy.onExceed,
+          jstDayOfYear,
+        })
+        if (!decision.deliver) {
+          skipped.push({ taskId: row.taskId, reason: decision.reason ?? 'quota_suppressed' })
+          return
+        }
+
         const flex = buildApprovalPromptFlexMessage({
           taskId: row.taskId,
           title: row.title,
@@ -76,6 +97,28 @@ export async function POST(request: NextRequest) {
           retryKey: buildDigestRetryKey(row.taskId, 'approval-notify'),
         })
         sent += 1
+
+        // push成功後にoutbound記録（billablePush=true）を残す（設計正本 §3・PR4メータリング）。
+        await insertChannelMessage({
+          orgId: row.orgId,
+          spaceId: null,
+          identityId: null,
+          accountId: row.channelAccountId,
+          groupId: null,
+          channel: 'line',
+          direction: 'outbound',
+          actor: 'secretary',
+          externalUserId: row.externalUserId,
+          externalMessageId: null,
+          contentType: 'text',
+          body: row.title,
+          payload: { autoReplyTo: `approval-notify:${row.taskId}` },
+          storagePath: null,
+          status: 'sent',
+          error: null,
+          occurredAt: new Date().toISOString(),
+          billablePush: true,
+        })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`task ${row.taskId}: ${message}`)
@@ -83,5 +126,5 @@ export async function POST(request: NextRequest) {
     }),
   )
 
-  return NextResponse.json({ claimed: rows.length, sent, errors })
+  return NextResponse.json({ claimed: rows.length, sent, errors, skipped })
 }

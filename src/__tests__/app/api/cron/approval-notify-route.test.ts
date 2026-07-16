@@ -13,6 +13,8 @@ import { NextRequest } from 'next/server'
 const storeMock = {
   claimPendingApprovalNotifications: vi.fn(),
   findLineAccountById: vi.fn(),
+  getOrgChannelPolicyState: vi.fn(),
+  insertChannelMessage: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -62,6 +64,8 @@ describe('POST /api/cron/approval-notify', () => {
     process.env.CRON_SECRET = 'test-cron-secret'
     storeMock.claimPendingApprovalNotifications.mockResolvedValue([])
     storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
+    storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+    storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -148,5 +152,65 @@ describe('POST /api/cron/approval-notify', () => {
     const json = await res.json()
     expect(json).toMatchObject({ claimed: 0, sent: 0 })
     expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  describe('メータリング（PR4・送信境界の縮退）', () => {
+    it('on_exceed=none（既定org）は常に送信し、outbound記録をbillablePush:trueで残す（退行ゲート）', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'none' })
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          direction: 'outbound',
+          actor: 'secretary',
+          externalUserId: 'Uapprover',
+          billablePush: true,
+        }),
+      )
+    })
+
+    it('on_exceed=block かつ state=hard は抑止し、pushもoutbound記録もしない', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(0)
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      expect(json.errors).toEqual([])
+      expect(json.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ taskId: row().taskId, reason: 'quota_block_suppress' }),
+        ]),
+      )
+    })
+
+    it('1件がquota抑止されても他候補の送信は続ける', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([
+        row({ taskId: '11111111-1111-4111-8111-111111111111', orgId: 'org-1' }),
+        row({ taskId: '22222222-2222-4222-8222-222222222222', orgId: 'org-2', externalUserId: 'Uapprover2' }),
+      ])
+      storeMock.getOrgChannelPolicyState.mockImplementation(async (orgId: string) =>
+        orgId === 'org-1' ? { state: 'hard', onExceed: 'block' } : { state: 'ok', onExceed: 'none' },
+      )
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'Uapprover2' }))
+    })
   })
 })
