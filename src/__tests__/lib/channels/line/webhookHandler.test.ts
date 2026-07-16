@@ -1997,8 +1997,13 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
       expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
     })
 
-    describe('紐付けコード投入', () => {
-      it('web_approvalの有効コード: claimを登録しチャレンジ番号入りでreplyする', async () => {
+    describe('紐付けコード投入（Fable裁定・確定形状: 31文字集合×26文字。GC-プレフィクス表示）', () => {
+      // 31文字集合(ALPHABET)のみで構成した26文字正準形
+      const CANONICAL = 'ABCDEFGHJKMNPQRSTUVWXYZ234'
+      // 表示形式（GC-プレフィクス＋ハイフン区切り）。normalizeClaimCodeで正準形へ収束する
+      const DISPLAY_FORM = 'GC-ABCDEF-GHJKM-NPQRS-TUVWX-YZ234'
+
+      it('web_approvalの有効コード(GC-表示形式): claimを登録しチャレンジ番号入りでreplyする。hash入力は26文字正準形', async () => {
         storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
           id: 'code-1',
           orgId: 'org-A',
@@ -2014,10 +2019,16 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
           status: 'pending',
         })
 
-        const body = makeBody([groupTextEvent('AB2CD3EF')])
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
         const result = await handleLineWebhook(body, sign(body))
 
         expect(result.status).toBe(200)
+        // hash入力は正準形(26文字本体)であること（発行側=PR3と同じ正準形をHMACする前提）
+        const { hashSharedGroupClaimCode } = await import('@/lib/channels/sharedGroupClaim')
+        expect(storeMock.findValidSharedGroupClaimCode).toHaveBeenCalledWith(
+          hashSharedGroupClaimCode(CANONICAL),
+          'acc-shared-1',
+        )
         expect(storeMock.findOrCreatePendingGroupClaim).toHaveBeenCalledWith(
           expect.objectContaining({
             linkCodeId: 'code-1',
@@ -2036,15 +2047,53 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
         expect(replyArg.messages[0].text).toContain('QW3R')
       })
 
-      it('無効なコード（見つからない）は汎用の案内reply（存在/理由を推測させない）', async () => {
+      it('web_approvalの有効コード(GC-プレフィクスなし・26文字本体のみ)でも同様に成立する', async () => {
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
+          id: 'code-1',
+          orgId: 'org-A',
+          spaceId: 'space-A',
+          bindingMode: 'web_approval',
+        })
+        const body = makeBody([groupTextEvent(CANONICAL)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(storeMock.findOrCreatePendingGroupClaim).toHaveBeenCalled()
+      })
+
+      it('無効なコード（見つからない）は固定文言reply（存在/理由を推測させない）', async () => {
         storeMock.findValidSharedGroupClaimCode.mockResolvedValue(null)
-        const body = makeBody([groupTextEvent('AB2CD3EF')])
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
         await handleLineWebhook(body, sign(body))
 
         expect(storeMock.findOrCreatePendingGroupClaim).not.toHaveBeenCalled()
         expect(replyMock).toHaveBeenCalledTimes(1)
         const replyArg = replyMock.mock.calls[0][0] as { messages: { text: string }[] }
         expect(replyArg.messages[0].text).not.toContain('QW3R')
+      })
+
+      it('無効理由(not-found/expired/consumed/他org)は全て同一バイト列の固定文言（存在/理由を区別させない）', async () => {
+        const texts: string[] = []
+
+        // not-found相当
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValueOnce(null)
+        const body1 = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body1, sign(body1))
+        texts.push((replyMock.mock.calls.at(-1)![0] as { messages: { text: string }[] }).messages[0].text)
+
+        // findValidSharedGroupClaimCode内部でexpired/consumed/他org/他accountは全てnullに畳まれる
+        // （store層のテストで検証済み）ため、webhook層としては「null＝固定文言」の1本の応答だけを
+        // 確認すれば理由の別が漏れていないことを保証できる。code_onlyも同一文言に畳む。
+        storeMock.findValidSharedGroupClaimCode.mockResolvedValueOnce({
+          id: 'code-2',
+          orgId: 'org-B',
+          spaceId: 'space-B',
+          bindingMode: 'code_only',
+        })
+        const body2 = makeBody([groupTextEvent(DISPLAY_FORM)])
+        await handleLineWebhook(body2, sign(body2))
+        texts.push((replyMock.mock.calls.at(-1)![0] as { messages: { text: string }[] }).messages[0].text)
+
+        expect(new Set(texts).size).toBe(1) // 全て同一バイト列
       })
 
       it('binding_mode=code_only（PR3未実装）は無効コードと同一の応答にする（機能を偽装しない）', async () => {
@@ -2054,15 +2103,23 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
           spaceId: 'space-A',
           bindingMode: 'code_only',
         })
-        const body = makeBody([groupTextEvent('ZZ9YY8XX')])
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
         await handleLineWebhook(body, sign(body))
 
         expect(storeMock.findOrCreatePendingGroupClaim).not.toHaveBeenCalled()
         expect(replyMock).toHaveBeenCalledTimes(1)
       })
 
-      it('コード形状でない通常発言は紐付け処理を試みない', async () => {
+      it('コード形状でない通常発言は紐付け処理を試みない（完全な沈黙・無反応・無保存）', async () => {
         const body = makeBody([groupTextEvent('了解しました')])
+        await handleLineWebhook(body, sign(body))
+
+        expect(storeMock.findValidSharedGroupClaimCode).not.toHaveBeenCalled()
+        expect(replyMock).not.toHaveBeenCalled()
+      })
+
+      it('8文字の顧問先突合コード形状(legacy)はshared_group_claimとして受理しない（沈黙・長さで排他）', async () => {
+        const body = makeBody([groupTextEvent('AB2CD3EF')])
         await handleLineWebhook(body, sign(body))
 
         expect(storeMock.findValidSharedGroupClaimCode).not.toHaveBeenCalled()
@@ -2077,7 +2134,7 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
           spaceId: 'space-A',
           bindingMode: 'web_approval',
         })
-        const body = makeBody([groupTextEvent('AB2CD3EF')])
+        const body = makeBody([groupTextEvent(DISPLAY_FORM)])
         await handleLineWebhook(body, sign(body))
 
         expect(storeMock.findOrCreatePendingGroupClaim).toHaveBeenCalled()

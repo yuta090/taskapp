@@ -55,7 +55,7 @@ import {
   normalizeLineEvent,
   type NormalizedLineEvent,
 } from '@/lib/channels/line/events'
-import { normalizeLinkCode } from '@/lib/channels/linkCode'
+import { normalizeLinkCode, normalizeClaimCode } from '@/lib/channels/linkCode'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import {
   parseDigestDonePostback,
@@ -889,13 +889,25 @@ async function processGroupMessage(
 }
 
 /**
- * 共有bot（platform）の未承認グループ（limbo）でのメッセージ処理（設計正本 §1・§4・PR2）。
+ * 共有bot（platform）の未承認グループ（limbo）でのメッセージ処理（設計正本 §1・§3・§4・PR2）。
  *
  * 通常の発言/添付/postbackは保存しない・取得しない・抽出しない。唯一の例外は
  * 紐付けコード投入: web_approval のコードのみ claim登録＋チャレンジ返信まで行う
  * （承認RPCでのgroup作成自体はPR3のコンソールUIから。webhookはgroup行を一切作らない）。
  * code_only の即時RPC償還はPR3実装のため、ここでは invalid と同様に扱う
  * （未実装の機能を偽装して受理しない）。
+ *
+ * ★受理フィルタは shared_group_claim 専用の normalizeClaimCode（26文字正準形。Fable裁定・
+ * 確定形状）を使う。顧問先突合コード(normalizeLinkCode・8文字・identity/group_link経路)とは
+ * 別物で、そちらはこの関数の対象外（processDirectMessage/processGroupMessage側で無変更）。
+ *
+ * 応答は必ず次の3系統のいずれかに畳む（分岐を増やさない）:
+ *   (1) normalizeClaimCode が null（26文字コード形状ですらない通常発言）→ 沈黙（無反応・無保存）
+ *   (2) 26文字形状だが有効なclaimコードでない（not-found/expired/consumed/他org/他account/
+ *       code_only未実装）→ 単一の固定文言（理由を一切開示しない。§3: 存在/期限/orgを推測させない）
+ *   (3) 有効（pending化できた）→ claim登録＋チャレンジ番号入りの案内
+ * 128bitのコード空間により応答オラクル自体は非load-bearing（設計正本 §2）だが、
+ * グループ単位のレート制限（1時間N回超で無応答化等）はPR3で追加する（今は未実装・据え置き）。
  */
 async function processPlatformLimboGroupMessage(
   account: PlatformLineAccount,
@@ -905,9 +917,11 @@ async function processPlatformLimboGroupMessage(
 ): Promise<void> {
   if (event.contentType !== 'text' || !event.body) return // 保存しない・反応しない
 
-  const code = normalizeLinkCode(event.body)
-  if (!code) return // コード形状でない通常発言は無反応・無保存
+  // (1) 26文字コード形状ですらない通常発言は完全に沈黙する（無反応・無保存）
+  const code = normalizeClaimCode(event.body)
+  if (!code) return
 
+  // (2)(3) はredeemSharedGroupClaimCode内で1本の固定文言／チャレンジ応答に畳む
   const replyText = await redeemSharedGroupClaimCode(account, externalGroupId, code)
 
   if (disabled || !event.replyToken) return
@@ -918,15 +932,22 @@ async function processPlatformLimboGroupMessage(
   })
 }
 
+/**
+ * @param canonicalCode normalizeClaimCode() が返した26文字正準形。
+ */
 async function redeemSharedGroupClaimCode(
   account: PlatformLineAccount,
   externalGroupId: string,
-  code: string,
+  canonicalCode: string,
 ): Promise<string> {
-  const linkCode = await findValidSharedGroupClaimCode(hashSharedGroupClaimCode(code), account.id)
+  const linkCode = await findValidSharedGroupClaimCode(
+    hashSharedGroupClaimCode(canonicalCode),
+    account.id,
+  )
   if (!linkCode || linkCode.bindingMode !== 'web_approval') {
-    // 見つからない/期限切れ/消費済み/対象account不一致/code_only(PR3未実装)は
-    // すべて同一の応答にする（設計正本 §3: コード不正時の応答を統一。存在/期限/orgを推測させない）
+    // (2) 見つからない/期限切れ/消費済み/対象account不一致/code_only(PR3未実装)は
+    // すべて同一バイト列の固定文言にする（設計正本 §3: コード不正時の応答を統一。
+    // 存在/期限/orgを推測させない）
     return SHARED_GROUP_CLAIM_INVALID_TEXT
   }
 

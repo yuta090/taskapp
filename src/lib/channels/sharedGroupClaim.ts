@@ -1,15 +1,18 @@
 import { createHmac, randomInt } from 'node:crypto'
 
 /**
- * 共有bot（platform account）グループ紐付けコード（Stage 4 §2/§3）。
+ * 共有bot（platform account）グループ紐付けコード（Stage 4 §2/§3。Fable裁定・確定形状）。
  *
- * コード自体の形式・入力ゆれの吸収（全角/半角・大小文字・空白）は既存の顧客用突合コード
- * （@/lib/channels/linkCode.ts の normalizeLinkCode）と共有する。二つのコード空間は
- * 保存列で自然に分離される（顧客用コードは channel_link_codes.code に平文保存、
- * shared_group_claim は code_hash のみ・code列はNULL — CHECK(channel_link_codes_shared_claim_shape)
- * で強制）ため、同じ文字コード表を使っても衝突しない。
+ * コード形状は web_approval / code_only 共通の単一形状: 31文字集合(ALPHABET) × 26文字
+ * （≈128.8bit）。表示は `GC-` プレフィクス＋ハイフン区切りだが、正準形（HMAC対象）は
+ * プレフィクス・区切りを除いた26文字本体のみ（@/lib/channels/linkCode.ts の
+ * normalizeClaimCode が受理フィルタ・正準化を担う。顧客用突合コード normalizeLinkCode(8文字)
+ * とは長さで完全に排他しており、コード空間は混同しない）。
  *
  * 設計正本 §2 channel_link_codes: 生codeを保存せず HMAC+pepper（128bit相当）で保持する。
+ * hashSharedGroupClaimCode の入力は必ず normalizeClaimCode が返した26文字正準形にすること
+ * （発行側=PR3 も償還側=本ファイルも同じ正準形をHMACする前提。ここがずれるとcode_hashが
+ * 一致せず正当なコードが常にinvalid扱いになる）。
  * pepperは専用のSHARED_GROUP_CLAIM_PEPPERを優先し、未設定時はSYSTEM_ENCRYPTION_KEY（既存の
  * システム秘密鍵）にフォールバックする。将来pepperを分離したい場合は前者のみ設定すればよい。
  */
@@ -27,9 +30,12 @@ function getPepper(): string {
   return pepper
 }
 
-/** DBに保存する code_hash を計算する。平文コードはここでしか扱わない。 */
-export function hashSharedGroupClaimCode(normalizedCode: string): string {
-  return createHmac('sha256', getPepper()).update(normalizedCode).digest('hex')
+/**
+ * DBに保存する code_hash を計算する。平文コードはここでしか扱わない。
+ * @param canonicalCode normalizeClaimCode() が返した26文字正準形（プレフィクス・区切り除去済み）。
+ */
+export function hashSharedGroupClaimCode(canonicalCode: string): string {
+  return createHmac('sha256', getPepper()).update(canonicalCode).digest('hex')
 }
 
 /** 紛らわしい文字(0/O, 1/I/L)を除いた大文字英数。既存リンクコードと同一表（linkCode.tsのALPHABETと揃える） */
