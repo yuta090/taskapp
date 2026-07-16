@@ -563,6 +563,8 @@ async function sendSecretaryText(
     status: 'sent',
     error: null,
     occurredAt: new Date().toISOString(),
+    // sendSecretaryText は常に pushLineMessage 配信（1:1自動応答）。reply分岐は無い
+    billablePush: true,
   })
 }
 
@@ -677,6 +679,8 @@ async function processGroupJoin(
     status: 'sent',
     error: null,
     occurredAt: new Date().toISOString(),
+    // join挨拶は常に pushLineMessage 配信（グループjoinイベントにreplyTokenは無い）
+    billablePush: true,
   })
 }
 
@@ -1113,6 +1117,8 @@ async function processGroupLinkCode(
     status: 'sent',
     error: null,
     occurredAt: new Date().toISOString(),
+    // replyToken有り→replyLineMessage配信（無料枠を消費しない）/ 無し→pushLineMessage配信
+    billablePush: !event.replyToken,
   })
 }
 

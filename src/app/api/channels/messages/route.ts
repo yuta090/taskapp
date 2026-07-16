@@ -112,6 +112,9 @@ async function sendToSpace(params: {
       error: null,
       occurredAt: new Date().toISOString(),
       sentBy,
+      // 秘書名義の送信UIは常にpush配信（1:1宛て）。quota縮退のgate対象外
+      // （console手動送信は設計正本 §3: 対話的push同様に維持可。billable記録のみ行う）
+      billablePush: true,
     },
     account.accessToken,
     identity.externalId,
@@ -158,6 +161,8 @@ async function sendToGroup(params: {
       error: null,
       occurredAt: new Date().toISOString(),
       sentBy,
+      // 秘書名義の送信UIは常にpush配信（グループ宛て）。quota縮退のgate対象外（sendToSpaceと同様）
+      billablePush: true,
     },
     account.accessToken,
     group.externalGroupId,
