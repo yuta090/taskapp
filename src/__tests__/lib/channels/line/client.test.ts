@@ -5,6 +5,7 @@ import {
   replyLineMessage,
   leaveRoom,
   fetchGroupMemberProfile,
+  fetchGroupSummary,
   LinePushError,
 } from '@/lib/channels/line/client'
 
@@ -201,6 +202,37 @@ describe('fetchGroupMemberProfile（Stage 2.5 §3-1: 完了の記名化）', () 
   it('ベストエフォート: fetch自体が例外を投げても null を返す', async () => {
     fetchMock.mockRejectedValueOnce(new Error('network down'))
     const result = await fetchGroupMemberProfile('token-123', 'G-1', 'U-1')
+    expect(result).toBeNull()
+  })
+})
+
+describe('fetchGroupSummary（Stage 4: 共有bot紐付けclaimの承認者向け照合材料）', () => {
+  it('group summary エンドポイントから groupName を取得する', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ groupId: 'G-1', groupName: 'ある会社の相談グループ' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    const result = await fetchGroupSummary('token-123', 'G-1')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.line.me/v2/bot/group/G-1/summary')
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer token-123')
+    expect(result).toEqual({ groupName: 'ある会社の相談グループ' })
+  })
+
+  it('ベストエフォート: 非2xxは例外を投げず null を返す（claim登録自体は止めない）', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
+    const result = await fetchGroupSummary('token-123', 'G-unknown')
+    expect(result).toBeNull()
+  })
+
+  it('ベストエフォート: fetch自体が例外を投げても null を返す', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('network down'))
+    const result = await fetchGroupSummary('token-123', 'G-1')
     expect(result).toBeNull()
   })
 })

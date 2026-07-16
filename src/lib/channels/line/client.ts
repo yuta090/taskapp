@@ -135,6 +135,29 @@ export async function fetchGroupMemberProfile(
   }
 }
 
+export interface GroupSummary {
+  groupName: string
+}
+
+/**
+ * グループ概要（表示名）の取得（Stage 4: 共有bot紐付けclaimの承認者向け照合材料）。
+ * ベストエフォート: 非2xx・例外はnull（取得できなくても claim 登録自体は止めない。
+ * group_display_name_snapshot はcontent-freeな確認材料に過ぎない）。
+ */
+export async function fetchGroupSummary(accessToken: string, groupId: string): Promise<GroupSummary | null> {
+  try {
+    const response = await fetch(`https://api.line.me/v2/bot/group/${groupId}/summary`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!response.ok) return null
+    const body = (await response.json()) as { groupName?: unknown }
+    if (typeof body.groupName !== 'string') return null
+    return { groupName: body.groupName }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 添付コンテンツの取得。LINE側は一定期間で消えるため受信時に呼び、Storageへ保存する。
  */

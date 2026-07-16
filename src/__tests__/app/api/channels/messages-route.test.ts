@@ -28,6 +28,7 @@ vi.mock('@/lib/supabase/server', () => ({
 const storeMock = {
   findActiveIdentityForSpace: vi.fn(),
   findLineAccountForOrg: vi.fn(),
+  findLineAccountByIdLookup: vi.fn(),
   insertChannelMessage: vi.fn(),
   updateChannelMessageStatus: vi.fn(),
   verifyGroupInOrg: vi.fn(),
@@ -71,6 +72,17 @@ describe('POST /api/channels/messages', () => {
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     storeMock.findActiveIdentityForSpace.mockResolvedValue({ id: 'ident-1', externalId: 'U-c1' })
     storeMock.findLineAccountForOrg.mockResolvedValue({
+      id: 'acc-1',
+      status: 'active',
+      account: {
+        id: 'acc-1',
+        orgId: validBody.orgId,
+        displayName: '山田会計事務所',
+        channelSecret: 's',
+        accessToken: 'token-1',
+      },
+    })
+    storeMock.findLineAccountByIdLookup.mockResolvedValue({
       id: 'acc-1',
       status: 'active',
       account: {
@@ -238,22 +250,56 @@ describe('POST /api/channels/messages', () => {
       )
       expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'G-1', retryKey: 'row-1' }))
       expect(storeMock.findActiveIdentityForSpace).not.toHaveBeenCalled()
+      // 設計正本§3: グループ送信は必ず group.account_id → account（org→account逆引きは使わない）
+      expect(storeMock.findLineAccountByIdLookup).toHaveBeenCalledWith('acc-1')
+      expect(storeMock.findLineAccountForOrg).not.toHaveBeenCalled()
     })
 
-    it('orgにLINEアカウントが無ければ409', async () => {
-      storeMock.findLineAccountForOrg.mockResolvedValue(null)
+    it('group.account_idのLINEアカウントが無ければ409', async () => {
+      storeMock.findLineAccountByIdLookup.mockResolvedValue(null)
       const response = await callPost(groupBody)
       expect(response.status).toBe(409)
     })
 
     it('LINEアカウントがdisabledなら未設定と区別した409（groupId宛ても同じ判定を共有する）', async () => {
-      storeMock.findLineAccountForOrg.mockResolvedValue({ id: 'acc-1', status: 'disabled', account: null })
+      storeMock.findLineAccountByIdLookup.mockResolvedValue({ id: 'acc-1', status: 'disabled', account: null })
       const response = await callPost(groupBody)
       const json = await response.json()
 
       expect(response.status).toBe(409)
       expect(json.error).toContain('無効化')
       expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('共有bot(platform)配下のグループでもgroup.account_id経由で解決できる', async () => {
+      storeMock.findLineAccountByIdLookup.mockResolvedValue({
+        id: 'acc-platform-1',
+        status: 'active',
+        account: {
+          id: 'acc-platform-1',
+          orgId: null,
+          displayName: 'agentpm秘書',
+          channelSecret: 's',
+          accessToken: 'token-shared',
+        },
+      })
+      storeMock.verifyGroupInOrg.mockResolvedValue({
+        id: groupBody.groupId,
+        orgId: validBody.orgId,
+        spaceId: 'space-1',
+        accountId: 'acc-platform-1',
+        externalGroupId: 'G-1',
+        displayName: null,
+        status: 'active',
+        pickupMode: 'all',
+        lastExtractedMessageCreatedAt: null,
+      })
+
+      const response = await callPost(groupBody)
+
+      expect(response.status).toBe(200)
+      expect(storeMock.findLineAccountByIdLookup).toHaveBeenCalledWith('acc-platform-1')
+      expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'G-1' }))
     })
   })
 })
