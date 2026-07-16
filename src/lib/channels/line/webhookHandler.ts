@@ -1243,20 +1243,41 @@ async function handleMentionInstantTask(
 }
 
 type PostbackAction = 'digest_done' | 'digest_undo'
-type PostbackResult = 'done' | 'already_done' | 'reopened' | 'cannot_undo' | 'rejected'
+type PostbackResult = 'done' | 'already_done' | 'reopened' | 'cannot_undo'
 
 /**
  * postback(digest_done / digest_undo・Stage 2.5 §3-2)。消し込み・取り消し操作の原本証跡は
- * channel_messagesに残す（§2.3）。記録は disabled 中も必ず行う（inboundの記録continuityは
- * 他イベントと同じ）。disabled中に止めるのは「自動応答」= reply送信のみ。
- * 検証・状態確定(消し込み/取り消し)自体はユーザーの実際の操作を正しく反映するため常に行う。
- * digest_undo も digest_done と同一の検証チェーン（task→group→account一致）を通す。
+ * channel_messagesに残す（§2.3）。
  *
- * 検証: task.accountId===account.id に加え、必ずグループ由来で確認する
- * （task.groupId→taskGroup.externalGroupId===event.groupId かつ taskGroup.orgId===task.orgId）。
- * 共有bot(platform)はaccount.orgIdが常にnullのため、account.orgIdでの照合はできない
- * （設計正本 §3: account.id(不変)＋group.orgIdで再設計）。event.groupIdを伴わないpostback
- * （通常発生しない）はorg境界を検証できないためfail-closedで拒否する。
+ * ★世代混同の防止（実害あり・必ず守ること）: 検証は「今まさにwebhookを受けた物理グループの
+ * *現active世代*」を唯一の真実源にする。旧世代（unlink済み／同一物理グループが別テナントへ
+ * 再紐付けされた後）に配達済みの古いFlexボタンを後から押されても、
+ * 「task.accountId一致」「taskの旧groupのexternalGroupId一致」だけでは通ってしまい、
+ * 現テナントのactive世代とtask.groupIdの一致を見ていなかった（再現: G→A社紐付け→旧Flex残存
+ * →G unlink→同一G→B社へ新世代紐付け→G上で旧Flexタップ→検証通過→A社task更新・監査がB社に
+ * 保存・A社task名がB社グループへ返信、という越境）。
+ *
+ * 手順（mutationより前に必ずこの順で。TOCTOUを最小化する）:
+ *   1. activeGroup = findActiveGroup(account.id, event.groupId) を最初に解決する
+ *      （event.groupIdが無ければ活動不能=null。org境界を検証できないため以降フォールバック無し）。
+ *   2. activeGroupが無ければ、mutation/reply/保存を一切行わず終了する
+ *      （org: 既存の「該当group無し」相当の無害終了。platform: limboと同型の無反応）。
+ *   3. task.groupId===activeGroup.id ／ task.orgId===activeGroup.orgId ／
+ *      task.accountId===account.id を全て満たさない限りmutationしない（1つでも外れたら終了）。
+ *      共有bot(platform)はaccount.orgIdが常にnullのため、account.orgIdでの照合はしない。
+ *   4. 検証通過後にのみ markDigestTaskDoneAtomic／reopenDigestTaskAtomicを実行し、
+ *      監査INSERTのorg_id/space_id/group_idは常にactiveGroup起点（taskの旧groupではない）。
+ * これにより「旧Flex×再紐付け後」「旧Flex×limbo」のいずれも mutation/返信/保存が0になる
+ * （旧taskの存在や内容を外部に一切明かさない。存在オラクルを作らない）。
+ *
+ * 既知の残存TOCTOU（本PRでは踏み込まない・意図的）: 上記検証とmutationの間で
+ * unlink/再紐付けが割り込む極めて狭い競合は、markDigestTaskDoneAtomic等のRPCシグネチャに
+ * expected_group_id を渡す形（要migration）でないと閉じられない。今回のapp層
+ * resolve-first＋verify-firstは、報告された実害（配達済みの旧Flexタップ）を確実に封じる。
+ * 残る狭いレースはPR後続でRPCへexpected_group_idを渡して閉じる。
+ *
+ * org専用bot経路も同じ検証を通す（同一org内でも別spaceへ再紐付け後の旧Flexで別spaceの
+ * taskを触れる同型バグがあるため、owner_typeで免除しない）。
  */
 async function processPostback(
   account: LineAccount,
@@ -1287,30 +1308,37 @@ async function processPostback(
   const actionKind: PostbackAction = doneAction ? 'digest_done' : 'digest_undo'
   const taskId = (doneAction ?? undoAction)!.taskId
 
-  const task = await findDigestTaskForVerification(taskId)
-  let rejected = false
-
-  if (!task) {
-    rejected = true
-  } else if (task.accountId !== account.id) {
-    console.error('LINE webhook: postback task belongs to a different account', taskId)
-    rejected = true
-  } else if (!event.groupId) {
-    // グループ由来でないdigest postback（通常発生しない）はorg境界を検証できないため拒否
-    rejected = true
-  } else {
-    const taskGroup = await findGroupById(task.groupId)
-    if (!taskGroup || taskGroup.externalGroupId !== event.groupId || taskGroup.orgId !== task.orgId) {
-      console.error('LINE webhook: postback task belongs to a different group', taskId)
-      rejected = true
-    }
+  // 1. 現active世代を最初に解決する（いかなるmutation・task読み取りの検証判断よりも前）。
+  const activeGroup = event.groupId ? await findActiveGroup(account.id, event.groupId) : null
+  if (!activeGroup) {
+    // 2. 未解決(limbo・group取りこぼし・event.groupId無し等)。mutation/reply/保存を一切しない。
+    return
   }
 
+  const task = await findDigestTaskForVerification(taskId)
+
+  // 3. taskが「今まさにactiveな世代」に属することを全条件で確認する。
+  const verified =
+    !!task &&
+    task.groupId === activeGroup.id &&
+    task.orgId === activeGroup.orgId &&
+    task.accountId === account.id
+
+  if (!verified) {
+    if (task) {
+      console.error(
+        'LINE webhook: postback task does not belong to the current active group (stale/relinked)',
+        taskId,
+      )
+    }
+    // mutation/reply/保存を一切しない（旧世代Flex・偽装taskIdのいずれも痕跡を残さない）。
+    return
+  }
+
+  // 4. 検証通過後にのみmutationを実行する。
   let result: PostbackResult
   let resultTitle: string | null = null
-  if (rejected) {
-    result = 'rejected'
-  } else if (actionKind === 'digest_done') {
+  if (actionKind === 'digest_done') {
     // 原子更新（status='open'のみ）。0行なら二重タップ等で既に完了済み
     const updated = await markDigestTaskDoneAtomic(taskId, 'postback', event.externalUserId ?? null)
     if (updated) {
@@ -1330,19 +1358,13 @@ async function processPostback(
     }
   }
 
-  // 記録用のgroup_idはwebhookを受けたグループ基準（taskの帰属先ではなく、タップが物理的に発生した場所）
-  const group = event.groupId ? await findActiveGroup(account.id, event.groupId) : null
-
-  // 帰属org。共有bot(platform)でgroupが未解決(limbo)なら記録しない(0行。設計正本 §8(d))
-  const recordOrgId = group?.orgId ?? (account.ownerType === 'platform' ? null : account.orgId)
-  if (!recordOrgId) return
-
+  // 監査INSERTはactiveGroup起点（taskの旧groupではない。常に非null）。
   const recorded = await insertChannelMessage({
-    orgId: recordOrgId,
-    spaceId: group?.spaceId ?? null,
+    orgId: activeGroup.orgId,
+    spaceId: activeGroup.spaceId,
     identityId: null,
     accountId: account.id,
-    groupId: group?.id ?? null,
+    groupId: activeGroup.id,
     channel: 'line',
     direction: 'inbound',
     actor: 'system',
@@ -1357,15 +1379,21 @@ async function processPostback(
     occurredAt: event.occurredAt,
   })
 
-  // webhook再送(dedupe)時はreplyを再送しない。rejectedは何も返さない（不正リクエストへの応答を避ける）。
+  // webhook再送(dedupe)時はreplyを再送しない。
   // disabled中は自動応答(reply)のみ停止する（記録・状態確定は既に完了している）
-  if (recorded === 'duplicate' || disabled || rejected) return
+  if (recorded === 'duplicate' || disabled) return
   if (!event.replyToken) return
 
   if (actionKind === 'digest_done') {
     const replyMessage =
       result === 'done'
-        ? await buildNamedDoneMessage(account, event.groupId ?? '', event.externalUserId, resultTitle!, taskId)
+        ? await buildNamedDoneMessage(
+            account,
+            activeGroup.externalGroupId,
+            event.externalUserId,
+            resultTitle!,
+            taskId,
+          )
         : ({ type: 'text' as const, text: ALREADY_DONE_TEXT })
     await replyLineMessage({
       accessToken: account.accessToken,

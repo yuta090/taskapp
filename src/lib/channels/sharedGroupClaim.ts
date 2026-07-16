@@ -13,9 +13,15 @@ import { createHmac, randomInt } from 'node:crypto'
  * pepperは専用のSHARED_GROUP_CLAIM_PEPPERを優先し、未設定時はSYSTEM_ENCRYPTION_KEY（既存の
  * システム秘密鍵）にフォールバックする。将来pepperを分離したい場合は前者のみ設定すればよい。
  */
+/**
+ * fail-closed: 未設定(undefined)だけでなく空文字も拒否する。
+ * SHARED_GROUP_CLAIM_PEPPER→SYSTEM_ENCRYPTION_KEYの優先順位で解決した「最終的なpepper」が
+ * 空/undefinedなら、空のHMAC鍵（=誰でも計算可能な既知鍵と同義）を黙って受け入れず必ず例外を投げる
+ * （`??` はnull/undefinedのみをフォールバック対象にするため、値の空文字判定はここで別途行う）。
+ */
 function getPepper(): string {
   const pepper = process.env.SHARED_GROUP_CLAIM_PEPPER ?? process.env.SYSTEM_ENCRYPTION_KEY
-  if (!pepper) {
+  if (!pepper || pepper.length === 0) {
     throw new Error('SHARED_GROUP_CLAIM_PEPPER (or SYSTEM_ENCRYPTION_KEY) is not configured')
   }
   return pepper

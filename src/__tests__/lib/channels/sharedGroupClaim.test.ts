@@ -57,6 +57,20 @@ describe('hashSharedGroupClaimCode', () => {
     expect(() => hashSharedGroupClaimCode('ABCD1234')).toThrow(/SHARED_GROUP_CLAIM_PEPPER/)
   })
 
+  it('SHARED_GROUP_CLAIM_PEPPERが空文字（未設定でなく明示的に空）でも例外を投げる（fail-closed）', () => {
+    process.env.SHARED_GROUP_CLAIM_PEPPER = ''
+    process.env.SYSTEM_ENCRYPTION_KEY = 'valid-fallback-key'
+    // 空文字は `??`（nullish coalescing）では未設定と判定されずSYSTEM_ENCRYPTION_KEYへ
+    // フォールバックしない。空のHMAC鍵を黙って受け入れず、必ず例外にする。
+    expect(() => hashSharedGroupClaimCode('ABCD1234')).toThrow(/SHARED_GROUP_CLAIM_PEPPER/)
+  })
+
+  it('フォールバック先のSYSTEM_ENCRYPTION_KEYが空文字でも例外を投げる（fail-closed）', () => {
+    delete process.env.SHARED_GROUP_CLAIM_PEPPER
+    process.env.SYSTEM_ENCRYPTION_KEY = ''
+    expect(() => hashSharedGroupClaimCode('ABCD1234')).toThrow(/SHARED_GROUP_CLAIM_PEPPER/)
+  })
+
   it('pepperが異なれば同じコードでも別のhashになる', () => {
     process.env.SHARED_GROUP_CLAIM_PEPPER = 'pepper-1'
     const a = hashSharedGroupClaimCode('ABCD1234')
