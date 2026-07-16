@@ -124,7 +124,7 @@ function buildGroupLinkConfirmation(accountDisplayName: string): string {
 const ALREADY_DONE_TEXT = 'そのタスクは既に完了済みです。'
 
 function buildTaskUndoReply(title: string): string {
-  return `『${title}』を申し送りに戻しました。`
+  return `『${title}』をタスクに戻しました。`
 }
 
 const UNDO_FAILED_TEXT =
@@ -138,7 +138,7 @@ const APPROVAL_CONFLICT_TEXT = 'この項目はすでに処理済みです。'
 
 const APPROVAL_REQUESTED_TEXT = '責任者に確認をお願いしました。承認されると本体タスクになります。'
 const MENTION_TITLE_EMPTY_TEXT =
-  '内容が読み取れませんでした。メンションに続けて申し送り内容をお書きください。'
+  '内容が読み取れませんでした。メンションに続けてタスク内容をお書きください。'
 
 /**
  * 完了reply（Stage 2.5 §3-1）: LINEグループメンバーのプロフィールを取得できれば記名する。
@@ -1230,8 +1230,8 @@ async function handleMentionInstantTask(
         formatDateToLocalString(now),
       )
       replyText = detail
-        ? `申し送りに追加しました。\n『${title}』\n${detail}`
-        : `申し送りに追加しました。\n『${title}』`
+        ? `タスクに追加しました。\n『${title}』\n${detail}`
+        : `タスクに追加しました。\n『${title}』`
     }
   }
 

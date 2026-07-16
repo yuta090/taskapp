@@ -238,7 +238,7 @@ export function buildDigestPushText(items: DigestPushItem[], todayJst: string): 
     const detail = buildTaskDetailLine(item.dueDate ?? null, item.dueTime ?? null, item.assigneeHint ?? null, todayJst)
     return detail ? `${item.digestNumber}. ${item.title}  ${detail}` : `${item.digestNumber}. ${item.title}`
   })
-  return `おはようございます。今日の申し送りです（${items.length}件）\n${lines.join('\n')}`
+  return `おはようございます。今日のタスクです（${items.length}件）\n${lines.join('\n')}`
 }
 
 /**
@@ -304,7 +304,7 @@ export function buildDigestFlexMessage(items: DigestFlexItem[]): {
 
   return {
     type: 'flex',
-    altText: `今日の申し送りです（${items.length}件）`,
+    altText: `今日のタスクです（${items.length}件）`,
     contents: {
       type: 'bubble',
       body: {
@@ -407,7 +407,7 @@ export function buildApprovalPromptFlexMessage(input: ApprovalPromptFlexInput): 
   const detail = buildTaskDetailLine(input.dueDate, input.dueTime, null, input.todayJst)
 
   const bodyContents: Array<{ type: 'text'; text: string; wrap: boolean; size?: string; color?: string }> = [
-    { type: 'text', text: '次の申し送りをタスクに登録しますか？', wrap: true, size: 'sm', color: '#999999' },
+    { type: 'text', text: 'この内容をタスクに登録しますか？', wrap: true, size: 'sm', color: '#999999' },
     { type: 'text', text: title, wrap: true },
   ]
   if (detail) bodyContents.push({ type: 'text', text: detail, wrap: true, size: 'sm', color: '#666666' })
