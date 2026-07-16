@@ -5,6 +5,7 @@ import {
   findFirstPlatformAccountId,
   createSharedGroupClaimCode,
   DuplicateSharedGroupClaimCodeError,
+  MultiplePlatformAccountsError,
 } from '@/lib/channels/store'
 import {
   generateSharedGroupClaimCode,
@@ -50,7 +51,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'space not found in org' }, { status: 404 })
   }
 
-  const targetAccountId = await findFirstPlatformAccountId()
+  let targetAccountId: string | null
+  try {
+    targetAccountId = await findFirstPlatformAccountId()
+  } catch (error) {
+    if (error instanceof MultiplePlatformAccountsError) {
+      // L2ガード（設計正本 §10）: 複数botの明示選択は未対応。沈黙のdead-endにせず明確に拒否する
+      return NextResponse.json(
+        { error: '共有botが複数存在するため自動選択できません。管理者にご連絡ください。' },
+        { status: 409 },
+      )
+    }
+    throw error
+  }
   if (!targetAccountId) {
     return NextResponse.json({ error: '共有botが未設定です' }, { status: 400 })
   }

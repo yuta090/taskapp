@@ -26,6 +26,8 @@ import {
   backfillDigestAssigneeIdentity,
   findValidSharedGroupClaimCode,
   findOrCreatePendingGroupClaim,
+  redeemCodeOnlyClaim,
+  type SharedGroupClaimLinkCode,
   type LineAccount,
   type OrgLineAccount,
   type PlatformLineAccount,
@@ -41,6 +43,8 @@ import {
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
+import { notifyCodeOnlyGroupLinked } from '@/lib/channels/groupClaimNotify'
+import { registerInvalidClaimAttemptAndCheckLimit } from '@/lib/channels/limboRateLimit'
 import {
   pushLineMessage,
   fetchLineMessageContent,
@@ -209,6 +213,13 @@ function buildSharedGroupClaimAcceptedText(challengeLabel: string): string {
     `お問い合わせの際は確認番号「${challengeLabel}」をお伝えください。`
   )
 }
+
+/** code_only: 人の承認なしに即時成立（設計正本 §1/§4）。web_approvalの案内文とは別の固定文言 */
+const CODE_ONLY_LINKED_TEXT =
+  'このグループを登録しました。これ以降のやり取りを記録します。\nこのトークでのやり取りは事務所の記録に残ります。'
+
+/** code_only: 別コードで既に登録済み（単回成功・マルチユース禁止・設計正本 §3） */
+const CODE_ONLY_ALREADY_LINKED_TEXT = 'このグループは既に登録済みです。'
 
 export async function handleLineWebhook(
   rawBody: string,
@@ -890,25 +901,34 @@ async function processGroupMessage(
 }
 
 /**
- * 共有bot（platform）の未承認グループ（limbo）でのメッセージ処理（設計正本 §1・§3・§4・PR2）。
+ * 共有bot（platform）の未承認グループ（limbo）でのメッセージ処理
+ * （設計正本 §1・§3・§4・§7-8・PR2/PR3b）。
  *
- * 通常の発言/添付/postbackは保存しない・取得しない・抽出しない。唯一の例外は
- * 紐付けコード投入: web_approval のコードのみ claim登録＋チャレンジ返信まで行う
- * （承認RPCでのgroup作成自体はPR3のコンソールUIから。webhookはgroup行を一切作らない）。
- * code_only の即時RPC償還はPR3実装のため、ここでは invalid と同様に扱う
- * （未実装の機能を偽装して受理しない）。
+ * 通常の発言/添付/postbackは保存しない・取得しない・抽出しない。唯一の例外は紐付けコード投入:
+ *   web_approval → claim登録＋チャレンジ返信（承認RPCでのgroup作成自体はコンソールUIから）
+ *   code_only    → rpc_redeem_code_only_claim を1回呼び、人の承認なしに即時成立
+ * いずれもwebhookはgroup行を直接作らない（web_approvalの成立は承認RPC・code_onlyは
+ * rpc_redeem_code_only_claim内で原子的に作られる）。
  *
  * ★受理フィルタは shared_group_claim 専用の normalizeClaimCode（26文字正準形。Fable裁定・
  * 確定形状）を使う。顧問先突合コード(normalizeLinkCode・8文字・identity/group_link経路)とは
  * 別物で、そちらはこの関数の対象外（processDirectMessage/processGroupMessage側で無変更）。
  *
- * 応答は必ず次の3系統のいずれかに畳む（分岐を増やさない）:
+ * 応答は必ず次のいずれかに畳む（分岐を増やさない）:
  *   (1) normalizeClaimCode が null（26文字コード形状ですらない通常発言）→ 沈黙（無反応・無保存）
- *   (2) 26文字形状だが有効なclaimコードでない（not-found/expired/consumed/他org/他account/
- *       code_only未実装）→ 単一の固定文言（理由を一切開示しない。§3: 存在/期限/orgを推測させない）
- *   (3) 有効（pending化できた）→ claim登録＋チャレンジ番号入りの案内
- * 128bitのコード空間により応答オラクル自体は非load-bearing（設計正本 §2）だが、
- * グループ単位のレート制限（1時間N回超で無応答化等）はPR3で追加する（今は未実装・据え置き）。
+ *   (2) 26文字形状だがマッチした無効コード／コード不一致（rejected）→ 単一の固定文言
+ *       （理由を一切開示しない。§3: 存在/期限/orgを推測させない）。§7-8: この(2)のみを
+ *       グループ単位でレート制限し、上限超過後は完全に無応答化する（content-free）。
+ *   (3) web_approval有効（pending化できた）→ claim登録＋チャレンジ番号入りの案内
+ *   (4) code_only有効（即時成立）→ 成立文言（＋org通知をベストエフォートでトリガー）
+ *   (5) code_only既に別コードで登録済み → 既登録文言
+ *
+ * ★disabled 凍結（Fable裁定 §6）: account.status='disabled' は「活性化(Step6)以前への回帰＝
+ *   新規テナント確立の凍結」を意味し、それは「拒否」ではなく「不作為」。他の経路（挨拶・突合確認等）
+ *   のように「記録はする・replyだけ止める」パターンとは異なり、この関数（新規テナント確立の唯一の
+ *   入口）はコードを一切消費せず・claims/limbo系のメタも一切書かない。よって normalizeClaimCode 呼び出し
+ *   より前、関数の入口で早期returnする（DB層 rpc_redeem_code_only_claim / rpc_approve_group_claim の
+ *   status='active' チェックは多重防御。20260716122144_shared_bot_disabled_freeze_rpc.sql 参照）。
  */
 async function processPlatformLimboGroupMessage(
   account: PlatformLineAccount,
@@ -916,16 +936,25 @@ async function processPlatformLimboGroupMessage(
   externalGroupId: string,
   disabled: boolean,
 ): Promise<void> {
+  // Fable §6: disabled = freeze (inaction) — no code consumption, no claims/limbo writes.
+  if (disabled) return
+
   if (event.contentType !== 'text' || !event.body) return // 保存しない・反応しない
 
   // (1) 26文字コード形状ですらない通常発言は完全に沈黙する（無反応・無保存）
   const code = normalizeClaimCode(event.body)
   if (!code) return
 
-  // (2)(3) はredeemSharedGroupClaimCode内で1本の固定文言／チャレンジ応答に畳む
+  // (2)-(5) はredeemSharedGroupClaimCode内で1本の固定文言／案内応答に畳む
   const replyText = await redeemSharedGroupClaimCode(account, externalGroupId, code)
 
-  if (disabled || !event.replyToken) return
+  // §7-8: マッチ無効/コード不一致の投入のみカウントする（正規の成立はカウントしない）
+  if (replyText === SHARED_GROUP_CLAIM_INVALID_TEXT) {
+    const limited = registerInvalidClaimAttemptAndCheckLimit(account.id, externalGroupId)
+    if (limited) return // 上限超過後は完全な無応答化（content-free）
+  }
+
+  if (!event.replyToken) return
   await replyLineMessage({
     accessToken: account.accessToken,
     replyToken: event.replyToken,
@@ -941,21 +970,23 @@ async function redeemSharedGroupClaimCode(
   externalGroupId: string,
   canonicalCode: string,
 ): Promise<string> {
-  const linkCode = await findValidSharedGroupClaimCode(
-    hashSharedGroupClaimCode(canonicalCode),
-    account.id,
-  )
-  if (!linkCode || linkCode.bindingMode !== 'web_approval') {
-    // (2) 見つからない/期限切れ/消費済み/対象account不一致/code_only(PR3未実装)は
-    // すべて同一バイト列の固定文言にする（設計正本 §3: コード不正時の応答を統一。
-    // 存在/期限/orgを推測させない）
+  const codeHash = hashSharedGroupClaimCode(canonicalCode)
+  const linkCode = await findValidSharedGroupClaimCode(codeHash, account.id)
+  if (!linkCode) {
+    // (2) 見つからない/期限切れ/消費済み/対象account不一致は同一バイト列の固定文言にする
+    // （設計正本 §3: コード不正時の応答を統一。存在/期限/orgを推測させない）
     return SHARED_GROUP_CLAIM_INVALID_TEXT
   }
 
-  // ベストエフォート: 取得できなくてもclaim登録自体は止めない（content-freeな確認材料に過ぎない）
+  // ベストエフォート: 取得できなくても紐付け処理自体は止めない（content-freeな確認材料に過ぎない）
   const summary = await fetchGroupSummary(account.accessToken, externalGroupId)
-  const challengeLabel = generateGroupClaimChallengeLabel()
+  const groupDisplayName = summary?.groupName ?? null
 
+  if (linkCode.bindingMode === 'code_only') {
+    return redeemCodeOnlySharedGroupClaim(account, linkCode, codeHash, externalGroupId, groupDisplayName)
+  }
+
+  const challengeLabel = generateGroupClaimChallengeLabel()
   const claim = await findOrCreatePendingGroupClaim({
     linkCodeId: linkCode.id,
     accountId: account.id,
@@ -963,11 +994,43 @@ async function redeemSharedGroupClaimCode(
     orgId: linkCode.orgId,
     spaceId: linkCode.spaceId,
     challengeLabel,
-    groupDisplayNameSnapshot: summary?.groupName ?? null,
+    groupDisplayNameSnapshot: groupDisplayName,
   })
 
   // webhook再送で既存pendingが返った場合は、その既存challengeLabelを案内する
   return buildSharedGroupClaimAcceptedText(claim.challengeLabel ?? challengeLabel)
+}
+
+/**
+ * code_only の即時償還（設計正本 §1/§3/§4・PR3b）。人の承認を経ず、rpc_redeem_code_only_claim
+ * を1回呼ぶだけで成立する。webhookはgroup行を直接作らない（RPC内で原子的に作られる）。
+ *
+ * 応答は3値に畳む:
+ *   linked         → 成功文言（このグループ以降のやり取りを記録する旨）＋org成立通知(ベストエフォート)
+ *   already_linked → 別コードで既に登録済み文言（マルチユース禁止・単回成功）
+ *   rejected       → web_approvalの無効コードと同一の固定文言（存在/理由を推測させない。
+ *                     GC404のnot-foundもRPCラッパ側でrejectedに畳まれている）
+ */
+async function redeemCodeOnlySharedGroupClaim(
+  account: PlatformLineAccount,
+  linkCode: SharedGroupClaimLinkCode,
+  codeHash: string,
+  externalGroupId: string,
+  groupDisplayName: string | null,
+): Promise<string> {
+  const result = await redeemCodeOnlyClaim(codeHash, account.id, externalGroupId, groupDisplayName)
+
+  if (result === 'linked') {
+    // ベストエフォート: 通知失敗は紐付け自体を巻き戻さない（設計正本 §4 成立通知は検知的統制）
+    notifyCodeOnlyGroupLinked(linkCode.orgId, linkCode.spaceId, groupDisplayName).catch((error) => {
+      console.error('LINE webhook: code_only linked notification failed', linkCode.orgId, error)
+    })
+    return CODE_ONLY_LINKED_TEXT
+  }
+  if (result === 'already_linked') {
+    return CODE_ONLY_ALREADY_LINKED_TEXT
+  }
+  return SHARED_GROUP_CLAIM_INVALID_TEXT
 }
 
 async function processGroupLinkCode(

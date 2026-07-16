@@ -72,7 +72,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'rejected' })
   } catch (error) {
     if (error instanceof GroupClaimActionError) {
-      const status = error.reason === 'not_found' ? 404 : error.reason === 'forbidden' ? 403 : 409
+      const status =
+        error.reason === 'not_found'
+          ? 404
+          : error.reason === 'forbidden'
+            ? 403
+            : error.reason === 'invalid'
+              ? 422
+              : 409
       return NextResponse.json({ error: error.reason }, { status })
     }
     console.error('group-claims/approval: unexpected error', error)

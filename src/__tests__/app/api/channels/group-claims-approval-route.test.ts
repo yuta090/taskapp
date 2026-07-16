@@ -25,8 +25,8 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 class GroupClaimActionError extends Error {
-  reason: 'not_found' | 'forbidden' | 'conflict'
-  constructor(message: string, reason: 'not_found' | 'forbidden' | 'conflict') {
+  reason: 'not_found' | 'forbidden' | 'conflict' | 'invalid'
+  constructor(message: string, reason: 'not_found' | 'forbidden' | 'conflict' | 'invalid') {
     super(message)
     this.reason = reason
   }
@@ -125,10 +125,16 @@ describe('POST /api/channels/group-claims/approval', () => {
     expect(res.status).toBe(403)
   })
 
-  it('approve: GroupClaimActionError(conflict・期限切れ/消費済み/失効/非pending) → 409', async () => {
-    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('expired', 'conflict'))
+  it('approve: GroupClaimActionError(conflict・非pending/消費済み) → 409', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('already consumed', 'conflict'))
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(409)
+  })
+
+  it('approve: GroupClaimActionError(invalid・期限切れ/失効/purpose不一致等) → 422', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('expired', 'invalid'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(422)
   })
 
   it('approve: 未分類の例外は500', async () => {
