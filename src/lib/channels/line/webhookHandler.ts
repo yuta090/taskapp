@@ -72,6 +72,7 @@ import {
   buildDigestRetryKey,
 } from '@/lib/channels/digest/compute'
 import { parseJapaneseDue } from '@/lib/channels/digest/due'
+import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
@@ -1135,7 +1136,7 @@ async function handleMentionInstantTask(
   } else {
     // 期限は本文（メンション除去前）から解決する。titleは50字で切り詰められるため、
     // 末尾の期限表現がタイトルから落ちていても本文には残っている
-    const now = new Date()
+    const now = jstNow()
     const due = parseJapaneseDue(body, now)
     // 即時パスはLLMを通さない（即応性を優先）。担当はメンションだけから決める
     const assignee = resolveAssignee(event.assigneeMentions, null)

@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { jstNow } from '@/lib/datetime/jstNow'
 import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
 
@@ -1349,7 +1350,8 @@ export async function createInstantDigestTask(
       assignee_identity_id: input.assigneeIdentityId ?? null,
       due_date: input.dueDate ?? null,
       due_time: input.dueTime ?? null,
-      extracted_date: formatDateToLocalString(new Date()),
+      // JST日付。本番UTCで new Date() を直に使うと1日ずれるため jstNow() を通す
+      extracted_date: formatDateToLocalString(jstNow()),
       ...promotion,
     })
     .select('id, title')
@@ -1395,7 +1397,15 @@ export interface NumberedDigestTask {
  */
 export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<NumberedDigestTask[]> {
   const client = admin()
-  await client.from('channel_digest_tasks').update({ digest_number: null }).eq('group_id', groupId)
+  // clear の失敗を握り潰すと、旧番号が残ったまま新番号を振れず「完了N」返信が別タスクを指す。
+  // 失敗は必ず伝播させ、cron 側で配信をスキップさせる（誤配信より欠配信を選ぶ）。
+  const clearRes = await client
+    .from('channel_digest_tasks')
+    .update({ digest_number: null })
+    .eq('group_id', groupId)
+  if (clearRes.error) {
+    throw new Error(`clearAndRenumberOpenDigestTasks: clear failed: ${clearRes.error.message}`)
+  }
 
   const { data, error } = await client
     .from('channel_digest_tasks')
@@ -1404,7 +1414,12 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
     .eq('status', 'open')
     .order('created_at', { ascending: true })
 
-  if (error || !data || data.length === 0) return []
+  // ★取得エラーは「0件」と区別して伝播させる（旧実装は error 時も [] を返し、
+  //   open タスクがあるのに配信を握り潰していた）。
+  if (error) {
+    throw new Error(`clearAndRenumberOpenDigestTasks: select failed: ${error.message}`)
+  }
+  if (!data || data.length === 0) return []
 
   const rows = data as Array<{
     id: string
@@ -1425,11 +1440,16 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
     .sort((a, b) => dueSortKey(a.dueDate, a.dueTime) - dueSortKey(b.dueDate, b.dueTime))
     .map((row, index) => ({ ...row, digestNumber: index + 1 }))
 
-  await Promise.all(
+  // 各番号更新の失敗も検査する（部分失敗のまま配信すると番号とDBがずれる）。
+  const updateResults = await Promise.all(
     numbered.map((task) =>
       client.from('channel_digest_tasks').update({ digest_number: task.digestNumber }).eq('id', task.id),
     ),
   )
+  const failed = updateResults.find((r) => r.error)
+  if (failed?.error) {
+    throw new Error(`clearAndRenumberOpenDigestTasks: renumber failed: ${failed.error.message}`)
+  }
 
   return numbered
 }

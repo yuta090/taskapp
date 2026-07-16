@@ -159,6 +159,24 @@ describe('POST /api/cron/channel-digest', () => {
     expect(body.skipped[0].reason).toContain('reconcile_failed')
   })
 
+  it('再採番がDBエラーで失敗したら、そのグループは配信せず errors に記録し他は止めない', async () => {
+    const group2 = { ...GROUP, id: 'group-2', externalGroupId: 'G-2' }
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP, group2])
+    // group-1 の再採番だけDBエラー、group-2 は正常
+    storeMock.clearAndRenumberOpenDigestTasks.mockImplementation(async (gid: string) => {
+      if (gid === 'group-1') throw new Error('renumber failed: db down')
+      return [{ id: 'task-2', title: '発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null }]
+    })
+
+    const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    // group-1 は誤配信せず errors に、group-2 は配信される
+    expect(body.errors.some((e: string) => e.includes('group-1'))).toBe(true)
+    expect(body.digestsSent).toBe(1)
+  })
+
   it('openタスクが0件なら送信しない', async () => {
     storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
     storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])

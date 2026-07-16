@@ -53,9 +53,30 @@ describe('createInstantDigestTask', () => {
         space_id: 'space-1',
         source_message_id: 'msg-1',
         title: '見積提出',
-        extracted_date: formatDateToLocalString(new Date()),
+        extracted_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       }),
     )
+  })
+
+  it('extracted_date は実行環境がUTCでもJST日付になる（1日ずれない）', async () => {
+    // 2026-07-13T22:00:00Z = 2026-07-14 07:00 JST。UTC環境では naive だと 07-13 になる
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T22:00:00.000Z'))
+    try {
+      await createInstantDigestTask({
+        orgId: 'org-1',
+        groupId: 'group-1',
+        spaceId: 'space-1',
+        sourceMessageId: 'msg-jst',
+        title: 'JST確認',
+      })
+      const builder = fromMock.mock.results[0].value
+      expect(builder.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ extracted_date: '2026-07-14' }),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('space_idがnullのグループ（未紐付け）でも作成できる', async () => {
