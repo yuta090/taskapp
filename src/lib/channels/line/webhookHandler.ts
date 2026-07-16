@@ -40,6 +40,7 @@ import {
   rejectDigestTaskViaLine,
   claimApprovalNotification,
   clearApprovalNotifiedAt,
+  getOrgChannelPolicyState,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -78,6 +79,7 @@ import {
 import { parseJapaneseDue } from '@/lib/channels/digest/due'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 
 /**
  * LINE webhook のオーケストレーション。
@@ -563,6 +565,8 @@ async function sendSecretaryText(
     status: 'sent',
     error: null,
     occurredAt: new Date().toISOString(),
+    // sendSecretaryText は常に pushLineMessage 配信（1:1自動応答）。reply分岐は無い
+    billablePush: true,
   })
 }
 
@@ -677,6 +681,8 @@ async function processGroupJoin(
     status: 'sent',
     error: null,
     occurredAt: new Date().toISOString(),
+    // join挨拶は常に pushLineMessage 配信（グループjoinイベントにreplyTokenは無い）
+    billablePush: true,
   })
 }
 
@@ -1113,6 +1119,8 @@ async function processGroupLinkCode(
     status: 'sent',
     error: null,
     occurredAt: new Date().toISOString(),
+    // replyToken有り→replyLineMessage配信（無料枠を消費しない）/ 無し→pushLineMessage配信
+    billablePush: !event.replyToken,
   })
 }
 
@@ -1237,36 +1245,76 @@ async function handleMentionInstantTask(
 
       if (created !== 'duplicate') {
         try {
-          // 原子的 claim: 責任者が *現在も* 承認権限を持ち有効な1:1紐付けがある場合だけ
-          // notified を刻んで送信先を返す（退職者へタイトルを漏らさない・cronと二重送信しない）。
-          const approverExternalUserId = await claimApprovalNotification(created.id)
-          if (approverExternalUserId) {
-            try {
-              await pushLineMessage({
-                accessToken: account.accessToken,
-                to: approverExternalUserId,
-                messages: [
-                  buildApprovalPromptFlexMessage({
-                    taskId: created.id,
-                    title,
-                    dueDate: due.dueDate,
-                    dueTime: due.dueTime,
-                    todayJst: formatDateToLocalString(now),
-                  }),
-                ],
-                // cron 送信と同一キー。曖昧失敗→null→cron再送でも LINE 側で二重化しない（§4-5）
-                retryKey: buildDigestRetryKey(created.id, 'approval-notify'),
-              })
-            } catch (pushError) {
-              // 送信失敗（曖昧含む）→ 未通知へ戻し cron／コンソールに委ねる
-              console.error('handleMentionInstantTask: approval push failed', pushError)
-              await clearApprovalNotifiedAt(created.id).catch((clearError) =>
-                console.error('handleMentionInstantTask: clearApprovalNotifiedAt failed', clearError),
-              )
+          // 送信境界の縮退判定（PR4メータリング）。claimより前に判定し、抑止なら
+          // claimもpushも一切行わない（候補はpendingのまま残り、cron／コンソールが拾う）。
+          // cron版(approval-notify)と同じ判定を即時1:1送信にも適用する（非対称の解消）。
+          const policy = await getOrgChannelPolicyState(group.orgId)
+          const decision = decideAutoPush({
+            state: policy.state,
+            onExceed: policy.onExceed,
+            jstDayOfYear: getJstDayOfYear(),
+          })
+
+          if (!decision.deliver) {
+            console.log(
+              `[handleMentionInstantTask] approval push suppressed (task ${created.id}): ${decision.reason}`,
+            )
+          } else {
+            // 原子的 claim: 責任者が *現在も* 承認権限を持ち有効な1:1紐付けがある場合だけ
+            // notified を刻んで送信先を返す（退職者へタイトルを漏らさない・cronと二重送信しない）。
+            const approverExternalUserId = await claimApprovalNotification(created.id)
+            if (approverExternalUserId) {
+              const retryKey = buildDigestRetryKey(created.id, 'approval-notify')
+              try {
+                await pushLineMessage({
+                  accessToken: account.accessToken,
+                  to: approverExternalUserId,
+                  messages: [
+                    buildApprovalPromptFlexMessage({
+                      taskId: created.id,
+                      title,
+                      dueDate: due.dueDate,
+                      dueTime: due.dueTime,
+                      todayJst: formatDateToLocalString(now),
+                    }),
+                  ],
+                  // cron 送信と同一キー。曖昧失敗→null→cron再送でも LINE 側で二重化しない（§4-5）
+                  retryKey,
+                })
+                // push成功後にoutbound記録（billablePush=true）を残す。externalMessageIdは
+                // cron(approval-notify)と同一キー＝クロス経路（即時×cron）でも二重計上しない
+                // （設計正本 §3・PR4メータリング）。
+                await insertChannelMessage({
+                  orgId: group.orgId,
+                  spaceId: group.spaceId,
+                  identityId: null,
+                  accountId: account.id,
+                  groupId: null,
+                  channel: 'line',
+                  direction: 'outbound',
+                  actor: 'secretary',
+                  externalUserId: approverExternalUserId,
+                  externalMessageId: retryKey,
+                  contentType: 'text',
+                  body: title,
+                  payload: { autoReplyTo: `approval-notify:${created.id}` },
+                  storagePath: null,
+                  status: 'sent',
+                  error: null,
+                  occurredAt: new Date().toISOString(),
+                  billablePush: true,
+                })
+              } catch (pushError) {
+                // 送信失敗（曖昧含む）→ 未通知へ戻し cron／コンソールに委ねる
+                console.error('handleMentionInstantTask: approval push failed', pushError)
+                await clearApprovalNotifiedAt(created.id).catch((clearError) =>
+                  console.error('handleMentionInstantTask: clearApprovalNotifiedAt failed', clearError),
+                )
+              }
             }
           }
         } catch (claimError) {
-          // claim RPC の一時障害。候補は既に pending で残るため cron／コンソールが拾う。
+          // claim RPC・quotaポリシー読取の一時障害。候補は既に pending で残るため cron／コンソールが拾う。
           // reply（主フロー）は続行し、webhook を非200で落とさない（LINE再送で候補を作り直させない）。
           console.error('handleMentionInstantTask: claim approval notification failed', claimError)
         }

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { claimPendingApprovalNotifications, findLineAccountById } from '@/lib/channels/store'
+import {
+  claimPendingApprovalNotifications,
+  findLineAccountById,
+  getOrgChannelPolicyState,
+  insertChannelMessage,
+  clearApprovalNotifiedAt,
+} from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { buildApprovalPromptFlexMessage, buildDigestRetryKey } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 
 /**
  * POST /api/cron/approval-notify
@@ -52,6 +59,8 @@ export async function POST(request: NextRequest) {
 
   let sent = 0
   const errors: string[] = []
+  const skipped: Array<{ taskId: string; reason: string }> = []
+  const jstDayOfYear = getJstDayOfYear()
 
   await Promise.allSettled(
     rows.map(async (row) => {
@@ -61,6 +70,25 @@ export async function POST(request: NextRequest) {
           errors.push(`task ${row.taskId}: line account ${row.channelAccountId} not found/decryptable`)
           return
         }
+
+        // 送信境界の縮退判定（PR4メータリング）。承認催促はauto-push。
+        const policy = await getOrgChannelPolicyState(row.orgId)
+        const decision = decideAutoPush({
+          state: policy.state,
+          onExceed: policy.onExceed,
+          jstDayOfYear,
+        })
+        if (!decision.deliver) {
+          skipped.push({ taskId: row.taskId, reason: decision.reason ?? 'quota_suppressed' })
+          // Fix2: claimPendingApprovalNotifications が既に approval_notified_at を刻んでいる。
+          // ここで戻さないと notified 済みのまま二度と再claimされず、通知が永久にロストする
+          // （隔日縮退・hard抑止のたびに取りこぼす）。未通知へ戻し、次回runで再claim可能にする。
+          await clearApprovalNotifiedAt(row.taskId).catch((clearError) =>
+            console.error(`[approval-notify] clearApprovalNotifiedAt failed (task ${row.taskId})`, clearError),
+          )
+          return
+        }
+
         const flex = buildApprovalPromptFlexMessage({
           taskId: row.taskId,
           title: row.title,
@@ -68,14 +96,41 @@ export async function POST(request: NextRequest) {
           dueTime: row.dueTime,
           todayJst,
         })
+        // outbound記録のexternalMessageIdと同一キーにする（Fix4: 決定的キーでdedupe。
+        // 二重起動でもchannel_messages_dedupe unique indexにより二重計上しない）。
+        const retryKey = buildDigestRetryKey(row.taskId, 'approval-notify')
         await pushLineMessage({
           accessToken: account.accessToken,
           to: row.externalUserId,
           messages: [flex],
           // 同一候補への push を HTTP リトライで二重化しない（決定的キー）
-          retryKey: buildDigestRetryKey(row.taskId, 'approval-notify'),
+          retryKey,
         })
         sent += 1
+
+        // push成功後にoutbound記録（billablePush=true）を残す（設計正本 §3・PR4メータリング）。
+        // externalMessageIdはhandleMentionInstantTask（即時1:1送信）と同一キー導出のため、
+        // クロス経路（即時×cron）の二重計上も防ぐ（Fix1/Fix4）。
+        await insertChannelMessage({
+          orgId: row.orgId,
+          spaceId: null,
+          identityId: null,
+          accountId: row.channelAccountId,
+          groupId: null,
+          channel: 'line',
+          direction: 'outbound',
+          actor: 'secretary',
+          externalUserId: row.externalUserId,
+          externalMessageId: retryKey,
+          contentType: 'text',
+          body: row.title,
+          payload: { autoReplyTo: `approval-notify:${row.taskId}` },
+          storagePath: null,
+          status: 'sent',
+          error: null,
+          occurredAt: new Date().toISOString(),
+          billablePush: true,
+        })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`task ${row.taskId}: ${message}`)
@@ -83,5 +138,5 @@ export async function POST(request: NextRequest) {
     }),
   )
 
-  return NextResponse.json({ claimed: rows.length, sent, errors })
+  return NextResponse.json({ claimed: rows.length, sent, errors, skipped })
 }

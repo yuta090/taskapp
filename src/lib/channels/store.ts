@@ -1304,6 +1304,36 @@ export async function createCodeOnlyClaimCodesBatch(
 }
 
 // ---------------------------------------------------------------------------
+// org_channel_policy（メータリング読取・PR4）
+// ---------------------------------------------------------------------------
+
+export interface OrgChannelPolicyState {
+  state: 'ok' | 'soft' | 'hard'
+  onExceed: 'none' | 'degrade' | 'block'
+}
+
+/**
+ * 送信境界（auto-push: digest/approval-notify等）が読む org 単位の縮退状態。
+ * 明示行の無い org は「暗黙 ok/none」（org_channel_policy migration検証コメント §1と同じ規約。
+ * 当社が明示的にクォータ/縮退を設定した org のみ state/on_exceed が意味を持つ）。
+ */
+export async function getOrgChannelPolicyState(orgId: string): Promise<OrgChannelPolicyState> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('state, on_exceed')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) throw new Error(`org_channel_policy: select failed: ${error.message}`)
+  if (!data) return { state: 'ok', onExceed: 'none' }
+
+  const row = data as { state: string; on_exceed: string }
+  return {
+    state: row.state === 'soft' || row.state === 'hard' ? row.state : 'ok',
+    onExceed: row.on_exceed === 'degrade' || row.on_exceed === 'block' ? row.on_exceed : 'none',
+  }
+}
+
+// ---------------------------------------------------------------------------
 // channel_messages
 // ---------------------------------------------------------------------------
 
@@ -1327,6 +1357,12 @@ export interface InsertChannelMessageInput {
   error: string | null
   occurredAt: string
   sentBy?: string | null
+  /**
+   * 請求対象push（LINE無料枠を消費するpush配信）なら true。既定 false。
+   * push（pushLineMessage）配信の記録のみ true にする — reply（replyLineMessage）配信・
+   * inbound記録は無料枠を消費しないため false のまま（設計正本 §3・PR4メータリング）。
+   */
+  billablePush?: boolean
 }
 
 export async function insertChannelMessage(
@@ -1353,6 +1389,7 @@ export async function insertChannelMessage(
       error: input.error,
       sent_by: input.sentBy ?? null,
       occurred_at: input.occurredAt,
+      billable_push: input.billablePush ?? false,
     })
     .select('id')
     .single()
