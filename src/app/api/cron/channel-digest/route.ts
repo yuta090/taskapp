@@ -7,6 +7,8 @@ import {
   findLineAccountById,
   findIdentityIdsByExternalUserIds,
   reconcileDigestAssignees,
+  getOrgChannelPolicyState,
+  insertChannelMessage,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
@@ -19,6 +21,8 @@ import {
   resolveAssignee,
 } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { jstNow } from '@/lib/datetime/jstNow'
+import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 
 /**
  * POST /api/cron/channel-digest
@@ -47,7 +51,8 @@ export async function POST(request: NextRequest) {
 
   const groups = await findDigestEligibleGroups()
   // JST日付。同日中にcronが再実行されてもretryKeyが同じになりLINE側で二重配信を弾ける
-  const jstDateStr = formatDateToLocalString(new Date())
+  const jstNowDate = jstNow()
+  const jstDateStr = formatDateToLocalString(jstNowDate)
 
   let extractedTasks = 0
   let digestsSent = 0
@@ -66,7 +71,7 @@ export async function POST(request: NextRequest) {
 
         if (messages.length > 0) {
           try {
-            const now = new Date()
+            const now = jstNow()
             const prompt = buildDigestExtractionPrompt(
               messages.map((message, index) => ({ index, body: message.body })),
               now,
@@ -137,6 +142,21 @@ export async function POST(request: NextRequest) {
           return
         }
 
+        // 送信境界の縮退判定（PR4メータリング・設計正本 §3/§7-10）。digestはauto-push。
+        // gate対象外（webhook対話的push・console手動送信）はここを通らない。
+        const policy = await getOrgChannelPolicyState(group.orgId)
+        const decision = decideAutoPush({
+          state: policy.state,
+          onExceed: policy.onExceed,
+          // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
+          // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。
+          jstDayOfYear: getJstDayOfYear(),
+        })
+        if (!decision.deliver) {
+          skipped.push({ groupId: group.id, reason: decision.reason ?? 'quota_suppressed' })
+          return
+        }
+
         // 期限順（近い順→期限なし）に採番済み。超過は ⚠️ で示す（Stage 2.6 §5）
         const pushText = buildDigestPushText(
           numbered.map((task) => ({
@@ -156,13 +176,40 @@ export async function POST(request: NextRequest) {
           })),
         )
 
+        // outbound記録のexternalMessageIdと同一キーにする（Fix4: 決定的キーでdedupe。
+        // 二重起動(pg_net再送・手動再実行)でもchannel_messages_dedupe unique indexにより
+        // 二重計上しない＝誤ってsoft/hardへ遷移して正当な配信を抑止する事故を防ぐ）。
+        const retryKey = buildDigestRetryKey(group.id, jstDateStr)
         await pushLineMessage({
           accessToken: account.accessToken,
           to: group.externalGroupId,
           messages: [{ type: 'text', text: pushText }, flex],
-          retryKey: buildDigestRetryKey(group.id, jstDateStr),
+          retryKey,
         })
         digestsSent += 1
+
+        // push成功後にoutbound記録（billablePush=true）を残す。真実の源=channel_messagesから
+        // メータリングを導出するため（設計正本 §3）。
+        await insertChannelMessage({
+          orgId: group.orgId,
+          spaceId: group.spaceId,
+          identityId: null,
+          accountId: account.id,
+          groupId: group.id,
+          channel: 'line',
+          direction: 'outbound',
+          actor: 'secretary',
+          externalUserId: null,
+          externalMessageId: retryKey,
+          contentType: 'text',
+          body: pushText,
+          payload: {},
+          storagePath: null,
+          status: 'sent',
+          error: null,
+          occurredAt: new Date().toISOString(),
+          billablePush: true,
+        })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`group ${group.id}: ${message}`)

@@ -98,10 +98,13 @@ function parseDueDate(body: string, now: Date): Date | null {
   if (/明日|あした|あす/.test(body)) return addDays(now, 1)
   if (/今日|本日|きょう/.test(body)) return startOfDay(now)
 
-  // 「今週中」「来週中」は週の終端（金曜）に丸める。「今月中」「月内」は月末
+  // 「今週中」「来週中」は週の終端（金曜）に丸める。「今月中」「月内」「月末」は月末。
+  // 「来月末」「来月」は翌月末（monthOffset を +1 する。無いと今月末を返す誤り）。
   const nextWeek = /来週/.test(body)
-  if (/今月中|月内|月末/.test(body)) {
-    return new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const nextMonth = /来月/.test(body)
+  if (nextMonth || /今月中|月内|月末/.test(body)) {
+    const monthOffset = nextMonth ? 2 : 1
+    return new Date(now.getFullYear(), now.getMonth() + monthOffset, 0)
   }
   if (/週中|週まで|週いっぱい/.test(body)) {
     const weekStart = startOfWeekMonday(now)

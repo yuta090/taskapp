@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { ChatCircleDots, Plugs } from '@phosphor-icons/react'
+import { ChatCircleDots, Plugs, IdentificationCard, ClipboardText, UsersThree } from '@phosphor-icons/react'
 
-type SecretaryTab = 'messages' | 'integrations'
+type SecretaryTab = 'messages' | 'approvals' | 'integrations' | 'user-links' | 'group-links'
 
 interface SecretaryTabNavProps {
   orgId: string
@@ -12,7 +12,27 @@ interface SecretaryTabNavProps {
 
 const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; href: (orgId: string) => string }[] = [
   { key: 'messages', label: 'メッセージ', icon: ChatCircleDots, href: (orgId) => `/${orgId}/secretary` },
+  {
+    key: 'approvals',
+    label: '確認待ち',
+    icon: ClipboardText,
+    href: (orgId) => `/${orgId}/secretary/approvals`,
+  },
   { key: 'integrations', label: '連携', icon: Plugs, href: (orgId) => `/${orgId}/secretary/integrations` },
+  {
+    key: 'user-links',
+    label: 'LINE連携',
+    icon: IdentificationCard,
+    href: (orgId) => `/${orgId}/secretary/user-links`,
+  },
+  {
+    // 共有botグループ紐付けの承認（Stage 4・PR3a）。promoteのdigest承認("確認待ち"タブ)とは
+    // 別概念のため、別タブ・別命名(GroupClaim系)で分離する。approvalsとは相乗りしない。
+    key: 'group-links',
+    label: 'グループ紐付け',
+    icon: UsersThree,
+    href: (orgId) => `/${orgId}/secretary/group-links`,
+  },
 ]
 
 /**

@@ -53,9 +53,30 @@ describe('createInstantDigestTask', () => {
         space_id: 'space-1',
         source_message_id: 'msg-1',
         title: '見積提出',
-        extracted_date: formatDateToLocalString(new Date()),
+        extracted_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       }),
     )
+  })
+
+  it('extracted_date は実行環境がUTCでもJST日付になる（1日ずれない）', async () => {
+    // 2026-07-13T22:00:00Z = 2026-07-14 07:00 JST。UTC環境では naive だと 07-13 になる
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T22:00:00.000Z'))
+    try {
+      await createInstantDigestTask({
+        orgId: 'org-1',
+        groupId: 'group-1',
+        spaceId: 'space-1',
+        sourceMessageId: 'msg-jst',
+        title: 'JST確認',
+      })
+      const builder = fromMock.mock.results[0].value
+      expect(builder.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ extracted_date: '2026-07-14' }),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('space_idがnullのグループ（未紐付け）でも作成できる', async () => {
@@ -68,6 +89,38 @@ describe('createInstantDigestTask', () => {
     })
     const builder = fromMock.mock.results[0].value
     expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ space_id: null }))
+  })
+
+  it('approverUserId 指定時は promotion_state=pending＋requested系を埋める（未通知で生む）', async () => {
+    await createInstantDigestTask({
+      orgId: 'org-1',
+      groupId: 'group-1',
+      spaceId: 'space-1',
+      sourceMessageId: 'msg-3',
+      title: '酒屋へ発注',
+      approverUserId: 'approver-1',
+    })
+    const builder = fromMock.mock.results[0].value
+    const arg = builder.insert.mock.calls[0][0]
+    expect(arg.promotion_state).toBe('pending')
+    expect(arg.requested_to_user_id).toBe('approver-1')
+    // CHECK(digest_promotion_state_chk): pending は requested_at NOT NULL を要求する
+    expect(typeof arg.requested_at).toBe('string')
+    // 通知印は必ず claim RPC 側で原子的に打つ。生成時には積まない（未通知で生む）
+    expect(arg).not.toHaveProperty('approval_notified_at')
+  })
+
+  it('approverUserId 未指定なら promotion 系は積まない（従来どおり none）', async () => {
+    await createInstantDigestTask({
+      orgId: 'org-1',
+      groupId: 'group-1',
+      spaceId: 'space-1',
+      sourceMessageId: 'msg-4',
+      title: '見積提出',
+    })
+    const arg = fromMock.mock.results[0].value.insert.mock.calls[0][0]
+    expect(arg).not.toHaveProperty('promotion_state')
+    expect(arg).not.toHaveProperty('requested_to_user_id')
   })
 
   it('unique(source_message_id, title)競合は冪等成功として duplicate を返す', async () => {

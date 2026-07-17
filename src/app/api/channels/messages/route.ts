@@ -3,6 +3,7 @@ import { requireInternalMember } from '@/lib/channels/authz'
 import {
   findActiveIdentityForSpace,
   findLineAccountForOrg,
+  findLineAccountByIdLookup,
   insertChannelMessage,
   updateChannelMessageStatus,
   verifyGroupInOrg,
@@ -111,6 +112,9 @@ async function sendToSpace(params: {
       error: null,
       occurredAt: new Date().toISOString(),
       sentBy,
+      // 秘書名義の送信UIは常にpush配信（1:1宛て）。quota縮退のgate対象外
+      // （console手動送信は設計正本 §3: 対話的push同様に維持可。billable記録のみ行う）
+      billablePush: true,
     },
     account.accessToken,
     identity.externalId,
@@ -130,7 +134,10 @@ async function sendToGroup(params: {
     return NextResponse.json({ error: 'group not found' }, { status: 404 })
   }
 
-  const resolved = await resolveActiveLineAccount(orgId)
+  // 設計正本§3: グループ送信は必ず group.account_id → account。
+  // findLineAccountForOrg（org→account逆引き）はグループ送信に使わない
+  // （共有bot(platform)配下のグループはorg単体からaccountを逆引きできないため）。
+  const resolved = await resolveActiveLineAccountById(group.accountId)
   if (!resolved.ok) return resolved.response
   const account = resolved.account
 
@@ -154,6 +161,8 @@ async function sendToGroup(params: {
       error: null,
       occurredAt: new Date().toISOString(),
       sentBy,
+      // 秘書名義の送信UIは常にpush配信（グループ宛て）。quota縮退のgate対象外（sendToSpaceと同様）
+      billablePush: true,
     },
     account.accessToken,
     group.externalGroupId,
@@ -169,7 +178,17 @@ type ResolveAccountResult =
  * （§1: disabledは受信の記録は続けるが能動的な動作=送信は止める）。
  */
 async function resolveActiveLineAccount(orgId: string): Promise<ResolveAccountResult> {
-  const lookup = await findLineAccountForOrg(orgId)
+  return lookupToResult(await findLineAccountForOrg(orgId))
+}
+
+/** group.account_id からの直接解決（§3: グループ送信専用。org→account逆引きは使わない） */
+async function resolveActiveLineAccountById(accountId: string): Promise<ResolveAccountResult> {
+  return lookupToResult(await findLineAccountByIdLookup(accountId))
+}
+
+function lookupToResult(
+  lookup: Awaited<ReturnType<typeof findLineAccountForOrg>>,
+): ResolveAccountResult {
   if (!lookup) {
     return {
       ok: false,
