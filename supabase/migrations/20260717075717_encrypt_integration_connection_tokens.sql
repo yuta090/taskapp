@@ -79,12 +79,21 @@ begin
   get diagnostics v_rows = row_count;
   raise notice 'refresh_token を暗号化した行数: %', v_rows;
 
-  -- 検証: 復号して元の平文に戻ることを全行で確認する。1件でも壊れていたら全体をロールバックする
+  -- 検証: 復号して元の平文に戻ることを確認する。1件でも壊れていたら全体をロールバックする
   -- (中途半端な暗号化のまま平文をDROPする後続フェーズに進ませない)。
+  --
+  -- 【検証対象は "暗号化列が埋まっている行" に限定する — 重要】
+  -- このマイグレーションはアプリ稼働中に適用する。バックフィル(UPDATE)と本SELECTの間に、
+  -- 現行コード(平文列にだけ書く)が新規接続をINSERTし得る。READ COMMITTED では各文が新しい
+  -- スナップショットを取るため、その新規行(平文あり・暗号化列null)が本SELECTから見える。
+  -- 全行を対象にすると decrypt(null) is distinct from access_token が真になり、健全な適用でも
+  -- v_bad>0 で誤ってロールバックしてしまう。よって "今回暗号化した行" だけを検証する。
+  -- 適用窓で生まれた平文のみの行は、contract フェーズ直前の再バックフィルで拾う(NOT NULL化の前提)。
   select count(*) into v_bad
     from public.integration_connections
-   where public.decrypt_system_secret(access_token_encrypted, v_key) is distinct from access_token
-      or (refresh_token is not null
+   where (access_token_encrypted is not null
+          and public.decrypt_system_secret(access_token_encrypted, v_key) is distinct from access_token)
+      or (refresh_token_encrypted is not null
           and public.decrypt_system_secret(refresh_token_encrypted, v_key) is distinct from refresh_token);
 
   if v_bad > 0 then
