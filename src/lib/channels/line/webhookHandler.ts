@@ -80,6 +80,8 @@ import { parseJapaneseDue } from '@/lib/channels/digest/due'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 
 /**
  * LINE webhook のオーケストレーション。
@@ -874,17 +876,26 @@ async function processGroupMessage(
       }
     }
 
-    // メンション即時タスク化（Stage 2.5 §2）: mention_only のみ。all は夜間抽出で拾うため
-    // 経路を分ける（同じsource_message_idでtitleが異なると unique 制約をすり抜けて二重登録になる）。
+    // メンション即時タスク化（Stage 2.5 §2 / フェーズ2 §all_plus_instant）:
+    // mention_only（無料）または all_plus_instant（pro以上限定・実行時ゲート）のみ。
+    // 素の all は夜間抽出のみで拾うため経路を分ける
+    // （同じsource_message_idでtitleが異なると unique 制約をすり抜けて二重登録になる）。
     // PC版LINEは本物メンションを付与できないため、非メンション合図（先頭一致）も同じ経路に乗せる。
-    if (group.pickupMode === 'mention_only') {
+    if (group.pickupMode === 'mention_only' || group.pickupMode === 'all_plus_instant') {
       // 本物メンション時は selfMentionSpans が既に同じ区間をカバーするため、
       // 二重除去を避けるためキーワード判定は本物メンションが無いときだけ行う
       const keywordSpan =
         !event.mentionsSelf && event.contentType === 'text' ? matchInstantTaskKeyword(event.body ?? '') : null
       if (event.mentionsSelf || keywordSpan) {
-        await handleMentionInstantTask(account, event, group, identityId, disabled, keywordSpan)
-        return
+        // all_plus_instant は実行時ゲート（二重防御）: 非entitled org は即時化せず
+        // 通常の記録パスへフォールスルーする（＝all相当に縮退。夜間抽出だけは動く）。
+        // 設定値(pickup_mode)自体は書き換えない。
+        const instantAllowed =
+          group.pickupMode === 'mention_only' || (await hasDualModeInstantEntitlement(group.orgId))
+        if (instantAllowed) {
+          await handleMentionInstantTask(account, event, group, identityId, disabled, keywordSpan)
+          return
+        }
       }
     }
   }
@@ -1200,6 +1211,22 @@ function matchInstantTaskKeyword(body: string): { index: number; length: number 
     if (rest.startsWith(kw)) return { index: 0, length: leadingWs + kw.length }
   }
   return null
+}
+
+/**
+ * all_plus_instant（フェーズ2・pro以上限定）の実行時ゲート。設定APIの403に加えた二重防御。
+ * fail-closed: entitlement解決に失敗しても例外は投げず、即時化しない側に倒す
+ * （resolveOrgEntitlements自体は例外を投げない設計だが、createAdminClient()の設定不備等の
+ * 想定外にも備えて握る）。
+ */
+async function hasDualModeInstantEntitlement(orgId: string): Promise<boolean> {
+  try {
+    const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
+    return entitlements.has('line_pickup_dual_mode')
+  } catch (error) {
+    console.error('hasDualModeInstantEntitlement: resolution failed, defaulting to false', error)
+    return false
+  }
 }
 
 /**

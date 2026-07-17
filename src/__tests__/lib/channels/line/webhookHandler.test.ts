@@ -68,6 +68,7 @@ const GROUP = {
 
 const GROUP_MENTION_ONLY = { ...GROUP, pickupMode: 'mention_only' as const }
 const GROUP_OFF = { ...GROUP, pickupMode: 'off' as const }
+const GROUP_ALL_PLUS_INSTANT = { ...GROUP, pickupMode: 'all_plus_instant' as const }
 
 const storeMock = {
   findLineAccountByDestination: vi.fn(),
@@ -100,6 +101,15 @@ const storeMock = {
   redeemCodeOnlyClaim: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
+
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => ({})),
+}))
+
+const resolveOrgEntitlementsMock = vi.fn()
+vi.mock('@/lib/billing/entitlements', () => ({
+  resolveOrgEntitlements: (...args: unknown[]) => resolveOrgEntitlementsMock(...args),
+}))
 
 // code_only 成立通知（Stage 4 PR3b）。ベストエフォート・webhookの主フローをブロックしない
 const groupClaimNotifyMock = { notifyCodeOnlyGroupLinked: vi.fn() }
@@ -262,6 +272,7 @@ beforeEach(() => {
   storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
   groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockResolvedValue(undefined)
   limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(false)
+  resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
 })
 
 describe('handleLineWebhook', () => {
@@ -1670,6 +1681,96 @@ describe('handleLineWebhook', () => {
         expect.objectContaining({ groupId: 'group-1', body: 'いつもの発注お願いします' }),
       )
       expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('グループ発言: all_plus_instant（フェーズ2・pro以上限定・実行時ゲート）', () => {
+    beforeEach(() => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_ALL_PLUS_INSTANT)
+    })
+
+    function mentionEvent(text: string, spans: Array<{ index: number; length: number }>) {
+      return groupTextEvent(text, {
+        message: {
+          id: 'msg-dual-1',
+          type: 'text',
+          text,
+          mention: { mentionees: spans.map((s) => ({ ...s, type: 'user', isSelf: true })) },
+        },
+      })
+    }
+
+    it('entitled org（pro）: 「@秘書 〇〇」で即時タスク化が発火する', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(resolveOrgEntitlementsMock).toHaveBeenCalledWith(expect.anything(), 'org-1')
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: '見積提出' }),
+      )
+      expect(replyMock).toHaveBeenCalled()
+    })
+
+    it('非entitled org（free）: 「@秘書 〇〇」でも即時発火せず記録のみ（all相当に縮退）', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+      // 通常メッセージとして記録される（毎時抽出はcron側が拾う）
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ groupId: 'group-1', body: '@AgentPM秘書 見積提出' }),
+      )
+    })
+
+    it('非メンション合図（PC版LINE対応）も同様にentitledのみ即時発火する', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      const body = makeBody([groupTextEvent('@秘書 見積提出お願いします')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    })
+
+    it('entitlement解決がエラーでも例外を投げず即時化しない（fail-closed）', async () => {
+      resolveOrgEntitlementsMock.mockRejectedValue(new Error('DB down'))
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    })
+
+    it('メンション/合図が無い通常発言はentitlement解決自体を呼ばない（無駄なDB呼び出しをしない）', async () => {
+      const body = makeBody([groupTextEvent('いつもの発注お願いします')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('グループ発言: mention_only はentitlement解決を呼ばない（無料機能）', () => {
+    it('mention_only × メンション付き発言 → resolveOrgEntitlementsは呼ばれない', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+      const body = makeBody([
+        groupTextEvent('@AgentPM秘書 見積提出', {
+          message: {
+            id: 'msg-mention-free',
+            type: 'text',
+            text: '@AgentPM秘書 見積提出',
+            mention: { mentionees: [{ index: 0, length: 8, type: 'user', isSelf: true }] },
+          },
+        }),
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalled()
     })
   })
 

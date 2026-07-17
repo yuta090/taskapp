@@ -19,6 +19,7 @@ const storeMock = {
   reconcileDigestAssignees: vi.fn(),
   getOrgChannelPolicyState: vi.fn(),
   insertChannelMessage: vi.fn(),
+  findExistingDigestTaskSourceMessageIds: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -74,6 +75,7 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.reconcileDigestAssignees.mockResolvedValue(0)
     storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
     storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
+    storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set())
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -379,6 +381,102 @@ describe('POST /api/cron/channel-digest', () => {
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       const body = await response.json()
       expect(body.processedGroups).toBe(0)
+    })
+  })
+
+  describe('pickup_mode=all_plus_instant（フェーズ2・pro以上限定）: 抽出拡張＋重複排除', () => {
+    const DUAL_GROUP = { ...GROUP, pickupMode: 'all_plus_instant' as const }
+
+    it('all_plus_instant グループも抽出対象になる（allと同様にLLM抽出→ingestが動く）', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([DUAL_GROUP])
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        { id: 'msg-1', body: '発注おねがいします', createdAt: '2026-07-11T05:00:00.000Z', mentions: [] },
+      ])
+      storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set())
+      callLlmMock.mockResolvedValue({
+        content: JSON.stringify([
+          { title: '発注', assignee_hint: null, due_date: null, source_index: 0 },
+        ]),
+      })
+      storeMock.ingestDigestTasks.mockResolvedValue(1)
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(callLlmMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1' }))
+      expect(body.extractedTasks).toBe(1)
+    })
+
+    it('即時タスク化済み(source_message_idが既存)の発言は抽出候補から除外され、二重登録されない', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([DUAL_GROUP])
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        { id: 'msg-1', body: '発注おねがいします', createdAt: '2026-07-11T05:00:00.000Z', mentions: [] },
+        { id: 'msg-2', body: '@秘書 見積もり出して', createdAt: '2026-07-11T05:01:00.000Z', mentions: [] },
+      ])
+      // msg-2 は既に即時タスク化済み（webhookのmention即時パス経由）
+      storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set(['msg-2']))
+      callLlmMock.mockResolvedValue({
+        content: JSON.stringify([
+          { title: '発注', assignee_hint: null, due_date: null, source_index: 0 },
+        ]),
+      })
+      storeMock.ingestDigestTasks.mockResolvedValue(1)
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(storeMock.findExistingDigestTaskSourceMessageIds).toHaveBeenCalledWith('group-1', [
+        'msg-1',
+        'msg-2',
+      ])
+      // LLMプロンプトは除外後のメッセージ(msg-1のみ)のみ渡す
+      expect(callLlmMock).toHaveBeenCalledTimes(1)
+      // 水位は除外前(=生取得の最後)のメッセージ時刻まで進める。除外してもwatermarkは変えない
+      expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:01:00.000Z', [
+        {
+          sourceMessageId: 'msg-1',
+          title: '発注',
+          assigneeHint: null,
+          assigneeExternalUserId: null,
+          assigneeIdentityId: null,
+          dueDate: null,
+          dueTime: null,
+        },
+      ])
+      expect(body.extractedTasks).toBe(1)
+    })
+
+    it('全発言が既に即時タスク化済みでも水位は生取得の最後まで進める（LLM呼び出しはスキップ）', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([DUAL_GROUP])
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        { id: 'msg-1', body: 'x', createdAt: '2026-07-11T05:00:00.000Z', mentions: [] },
+        { id: 'msg-2', body: 'y', createdAt: '2026-07-11T05:01:00.000Z', mentions: [] },
+      ])
+      storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set(['msg-1', 'msg-2']))
+      storeMock.ingestDigestTasks.mockResolvedValue(0)
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      expect(callLlmMock).not.toHaveBeenCalled()
+      expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:01:00.000Z', [])
+    })
+
+    it('all グループ（無料）では重複排除フィルタを呼ばない（no-op・従来と同一挙動）', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP]) // pickupMode: 'all'
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        { id: 'msg-1', body: '発注', createdAt: '2026-07-11T05:00:00.000Z', mentions: [] },
+      ])
+      callLlmMock.mockResolvedValue({ content: JSON.stringify([]) })
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      expect(storeMock.findExistingDigestTaskSourceMessageIds).not.toHaveBeenCalled()
     })
   })
 

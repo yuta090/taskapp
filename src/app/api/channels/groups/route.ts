@@ -11,12 +11,14 @@ import {
   type PickupMode,
 } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 
 const ADMIN_ROLES = new Set(['owner', 'admin'])
 
 export const runtime = 'nodejs'
 
-const PICKUP_MODES: readonly PickupMode[] = ['all', 'mention_only', 'off']
+const PICKUP_MODES: readonly PickupMode[] = ['all', 'mention_only', 'off', 'all_plus_instant']
 
 function isPickupMode(value: unknown): value is PickupMode {
   return typeof value === 'string' && (PICKUP_MODES as readonly string[]).includes(value)
@@ -120,6 +122,19 @@ export async function PATCH(request: NextRequest) {
   if (unlink) {
     await unlinkGroup(groupId)
     return NextResponse.json({ id: groupId, status: 'left' })
+  }
+
+  // 有料ゲート（フェーズ2・二重防御の設定時側）: all_plus_instant は pro/enterprise 限定。
+  // entitlement判定のorgIdは常にサーバ側で確定した group.orgId を使う
+  // （verifyGroupInOrgで検証済みのDB値。bodyの生orgIdは信用しない）。
+  if (pickupMode === 'all_plus_instant') {
+    const entitlements = await resolveOrgEntitlements(createAdminClient(), group.orgId)
+    if (!entitlements.has('line_pickup_dual_mode')) {
+      return NextResponse.json(
+        { error: 'plan_required', feature: 'line_pickup_dual_mode' },
+        { status: 403 },
+      )
+    }
   }
 
   if (approverProvided) {
