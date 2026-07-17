@@ -1,5 +1,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { refreshZoomToken } from '@/lib/zoom/client'
+import { decryptToken } from '@/lib/integrations/token-crypto'
+import { buildTokenColumns } from '@/lib/integrations/token-manager'
 import type {
   VideoConferenceProvider,
   CreateMeetingParams,
@@ -69,22 +71,28 @@ export class ZoomProvider implements VideoConferenceProvider {
 
       if (!conn) return null
 
+      // 暗号化列(20260717075717)を優先し、無ければ平文列へフォールバックする(移行期)。
+      const accessToken = (await decryptToken(conn.access_token_encrypted)) ?? conn.access_token
+      const refreshToken = (await decryptToken(conn.refresh_token_encrypted)) ?? conn.refresh_token
+
       // トークンの有効期限を確認（1分の余裕）
       const expiresAt = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0
       if (Date.now() < expiresAt - 60_000) {
-        return conn.access_token
+        return accessToken
       }
 
       // リフレッシュが必要
-      if (!conn.refresh_token) return null
+      if (!refreshToken) return null
 
-      const refreshed = await refreshZoomToken(conn.refresh_token)
+      const refreshed = await refreshZoomToken(refreshToken)
 
       await supabaseAdmin
         .from('integration_connections')
         .update({
-          access_token: refreshed.accessToken,
-          refresh_token: refreshed.refreshToken ?? conn.refresh_token,
+          ...(await buildTokenColumns({
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken ?? refreshToken,
+          })),
           token_expires_at: refreshed.expiresAt.toISOString(),
           last_refreshed_at: new Date().toISOString(),
         })

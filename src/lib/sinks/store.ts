@@ -48,6 +48,24 @@ async function decryptSecret(encrypted: string): Promise<string | null> {
   return data as string
 }
 
+/**
+ * integration_connections の access_token を平文で得る。
+ *
+ * 暗号化列(20260717075717)を優先し、無い/復号できない場合のみ平文列へフォールバックする
+ * (expand/contract の移行期。詳細は token-manager.decryptConnectionRow のコメント参照)。
+ * ここは token-manager を経由しない生SELECTの経路なので、同じ解決を独立に持つ必要がある。
+ */
+async function resolveConnectionAccessToken(row: {
+  access_token: string | null
+  access_token_encrypted: string | null
+}): Promise<string | null> {
+  if (row.access_token_encrypted) {
+    const decrypted = await decryptSecret(row.access_token_encrypted)
+    if (decrypted) return decrypted
+  }
+  return row.access_token ?? null
+}
+
 // ---------------------------------------------------------------------------
 // integration_sinks
 // ---------------------------------------------------------------------------
@@ -396,18 +414,25 @@ export interface NotionConnectionInfo {
 export async function findActiveNotionConnection(orgId: string): Promise<NotionConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, access_token, metadata')
+    .select('id, access_token, access_token_encrypted, metadata')
     .eq('provider', 'notion')
     .eq('owner_type', 'org')
     .eq('owner_id', orgId)
     .eq('status', 'active')
     .maybeSingle()
   if (error || !data) return null
-  const row = data as { id: string; access_token: string; metadata: Record<string, unknown> | null }
+  const row = data as {
+    id: string
+    access_token: string | null
+    access_token_encrypted: string | null
+    metadata: Record<string, unknown> | null
+  }
+  const accessToken = await resolveConnectionAccessToken(row)
+  if (!accessToken) return null
   const metadata = row.metadata ?? {}
   return {
     id: row.id,
-    accessToken: row.access_token,
+    accessToken,
     workspaceName: typeof metadata.workspace_name === 'string' ? metadata.workspace_name : null,
   }
 }
@@ -469,15 +494,17 @@ export async function findActiveGoogleSheetsConnection(
 ): Promise<GoogleSheetsConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, access_token')
+    .select('id, access_token, access_token_encrypted')
     .eq('provider', 'google_sheets')
     .eq('owner_type', 'org')
     .eq('owner_id', orgId)
     .eq('status', 'active')
     .maybeSingle()
   if (error || !data) return null
-  const row = data as { id: string; access_token: string }
-  return { id: row.id, accessToken: row.access_token }
+  const row = data as { id: string; access_token: string | null; access_token_encrypted: string | null }
+  const accessToken = await resolveConnectionAccessToken(row)
+  if (!accessToken) return null
+  return { id: row.id, accessToken }
 }
 
 export interface CreateGoogleSheetsSinkInput {

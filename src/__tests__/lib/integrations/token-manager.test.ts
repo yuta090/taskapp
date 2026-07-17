@@ -17,9 +17,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const fromMock = vi.fn()
 const fromCalls: Array<{ table: string }> = []
 const updateSpy = vi.fn()
+const rpcMock = vi.fn()
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({ from: fromMock })),
+  createClient: vi.fn(() => ({ from: fromMock, rpc: rpcMock })),
 }))
 
 const { refreshIfNeeded, getValidToken, getValidTokenDetailed } = await import(
@@ -40,6 +41,24 @@ const ACTIVE_CONNECTION = {
 let selectResponse: unknown
 let updateResponse: unknown
 
+/**
+ * 疑似暗号: encrypt_system_secret -> `enc(<平文>)`, decrypt_system_secret -> 中身を取り出す。
+ * 実物は pgcrypto (pgp_sym_encrypt + base64) だが、ここで検証したいのは
+ * 「暗号化列を読み書きしているか」「平文へフォールバックするか」であって暗号強度ではない。
+ */
+function fakeCryptoRpc(fn: string, args: Record<string, string>) {
+  if (fn === 'encrypt_system_secret') {
+    return Promise.resolve({ data: `enc(${args.plaintext})`, error: null })
+  }
+  if (fn === 'decrypt_system_secret') {
+    const m = /^enc\((.*)\)$/.exec(args.encrypted ?? '')
+    return m
+      ? Promise.resolve({ data: m[1], error: null })
+      : Promise.resolve({ data: null, error: { message: 'wrong key' } })
+  }
+  throw new Error(`unexpected rpc: ${fn}`)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   fromCalls.length = 0
@@ -47,6 +66,8 @@ beforeEach(() => {
   updateResponse = { data: null, error: null }
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+  process.env.SYSTEM_ENCRYPTION_KEY = 'test-encryption-key'
+  rpcMock.mockImplementation(fakeCryptoRpc)
 
   fromMock.mockImplementation((table: string) => {
     fromCalls.push({ table })
@@ -239,5 +260,127 @@ describe('getValidTokenDetailed (Google Sheets store.ts専用の詳細版)', () 
     selectResponse = { data: null, error: { message: 'timeout' } }
     const result = await getValidTokenDetailed(CONNECTION_ID, vi.fn())
     expect(result).toEqual({ status: 'transient_error' })
+  })
+})
+
+/**
+ * トークン暗号化 (20260717075717_encrypt_integration_connection_tokens.sql)
+ *
+ * expand/contract の expand フェーズ中は、平文列と暗号化列が両方存在する:
+ *   - 読み: 暗号化列があれば復号して使う。無ければ平文列へフォールバックする
+ *     (マイグレーション適用前の現行デプロイ / 適用〜デプロイ間に作られた新規接続)。
+ *   - 書き: 両方へ書く。平文列を読んでいる現行デプロイを壊さないため。
+ * 平文列のDROPと平文書き込みの停止は contract フェーズ(後続PR)で行う。
+ */
+describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平文へフォールバック)', () => {
+  const ENCRYPTED_CONNECTION = {
+    ...ACTIVE_CONNECTION,
+    access_token: 'stale-plaintext',
+    refresh_token: 'stale-plaintext-refresh',
+    access_token_encrypted: 'enc(real-access-token)',
+    refresh_token_encrypted: 'enc(real-refresh-token)',
+    token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
+  }
+
+  it('暗号化列があれば復号した値をaccess_tokenとして返す(平文列は見ない)', async () => {
+    selectResponse = { data: ENCRYPTED_CONNECTION, error: null }
+    const connection = await refreshIfNeeded(CONNECTION_ID, vi.fn())
+    expect(connection?.access_token).toBe('real-access-token')
+  })
+
+  it('暗号化列が無ければ平文列へフォールバックする(マイグレーション適用前でも動く)', async () => {
+    selectResponse = {
+      data: { ...ACTIVE_CONNECTION, token_expires_at: new Date(Date.now() + 3600_000).toISOString() },
+      error: null,
+    }
+    const connection = await refreshIfNeeded(CONNECTION_ID, vi.fn())
+    expect(connection?.access_token).toBe('old-access-token')
+  })
+
+  it('復号に失敗したら(鍵ローテ等)平文列へフォールバックする', async () => {
+    selectResponse = {
+      data: {
+        ...ACTIVE_CONNECTION,
+        access_token_encrypted: 'GARBAGE_NOT_DECRYPTABLE',
+        token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      },
+      error: null,
+    }
+    const connection = await refreshIfNeeded(CONNECTION_ID, vi.fn())
+    expect(connection?.access_token).toBe('old-access-token')
+  })
+
+  it('refresh_tokenも暗号化列を優先して復号し、refreshFnへ渡す', async () => {
+    selectResponse = {
+      data: { ...ENCRYPTED_CONNECTION, token_expires_at: new Date(Date.now() - 60_000).toISOString() },
+      error: null,
+    }
+    updateResponse = { data: ENCRYPTED_CONNECTION, error: null }
+    const refreshFn = vi.fn().mockResolvedValue({
+      accessToken: 'new-access-token',
+      refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+    })
+    await refreshIfNeeded(CONNECTION_ID, refreshFn)
+    expect(refreshFn).toHaveBeenCalledWith('real-refresh-token')
+  })
+
+  it('refresh成功時、access_tokenを暗号化列と平文列の両方へ書く', async () => {
+    updateResponse = { data: ENCRYPTED_CONNECTION, error: null }
+    const refreshFn = vi.fn().mockResolvedValue({
+      accessToken: 'new-access-token',
+      refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+    })
+    await refreshIfNeeded(CONNECTION_ID, refreshFn)
+
+    const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
+    expect(updateArg.access_token_encrypted).toBe('enc(new-access-token)')
+    expect(updateArg.access_token).toBe('new-access-token')
+  })
+
+  it('refresh_tokenがローテートされたら暗号化列と平文列の両方へ書く', async () => {
+    updateResponse = { data: ENCRYPTED_CONNECTION, error: null }
+    const refreshFn = vi.fn().mockResolvedValue({
+      accessToken: 'new-access-token',
+      refreshToken: 'rotated-refresh-token',
+      expiresAt: new Date(Date.now() + 3600_000),
+    })
+    await refreshIfNeeded(CONNECTION_ID, refreshFn)
+
+    const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
+    expect(updateArg.refresh_token_encrypted).toBe('enc(rotated-refresh-token)')
+    expect(updateArg.refresh_token).toBe('rotated-refresh-token')
+  })
+
+  it('【回帰】refresh_tokenが返らなければ暗号化列も平文列も上書きしない', async () => {
+    updateResponse = { data: ENCRYPTED_CONNECTION, error: null }
+    const refreshFn = vi.fn().mockResolvedValue({
+      accessToken: 'new-access-token',
+      refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+    })
+    await refreshIfNeeded(CONNECTION_ID, refreshFn)
+
+    const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
+    expect(updateArg).not.toHaveProperty('refresh_token')
+    expect(updateArg).not.toHaveProperty('refresh_token_encrypted')
+  })
+
+  it('refresh後に返すconnectionも復号済みのaccess_tokenを持つ', async () => {
+    updateResponse = { data: { ...ENCRYPTED_CONNECTION, access_token_encrypted: 'enc(new-access-token)' }, error: null }
+    const refreshFn = vi.fn().mockResolvedValue({
+      accessToken: 'new-access-token',
+      refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+    })
+    const connection = await refreshIfNeeded(CONNECTION_ID, refreshFn)
+    expect(connection?.access_token).toBe('new-access-token')
+  })
+
+  it('getValidTokenDetailedも復号済みトークンを返す', async () => {
+    selectResponse = { data: ENCRYPTED_CONNECTION, error: null }
+    const result = await getValidTokenDetailed(CONNECTION_ID, vi.fn())
+    expect(result).toEqual({ status: 'ok', token: 'real-access-token' })
   })
 })

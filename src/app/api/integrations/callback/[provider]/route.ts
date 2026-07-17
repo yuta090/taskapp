@@ -8,6 +8,7 @@ import { exchangeZoomCode } from '@/lib/zoom/client'
 import { exchangeTeamsCode } from '@/lib/teams/client'
 import { exchangeNotionCode } from '@/lib/notion/client'
 import { exchangeGoogleSheetsCode } from '@/lib/google-sheets/client'
+import { buildTokenColumns } from '@/lib/integrations/token-manager'
 
 export const runtime = 'nodejs'
 
@@ -169,8 +170,10 @@ async function handleGoogleCalendarCallback(
           owner_type: 'user',
           owner_id: userId,
           org_id: orgId,
-          access_token: tokens.accessToken,
-          refresh_token: tokens.refreshToken,
+          ...(await buildTokenColumns({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          })),
           token_expires_at: tokens.expiresAt.toISOString(),
           scopes: tokens.scopes,
           status: 'active',
@@ -215,8 +218,10 @@ async function handleZoomCallback(
           owner_type: 'user',
           owner_id: userId,
           org_id: orgId,
-          access_token: tokens.accessToken,
-          refresh_token: tokens.refreshToken,
+          ...(await buildTokenColumns({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          })),
           token_expires_at: tokens.expiresAt.toISOString(),
           scopes: tokens.scopes,
           status: 'active',
@@ -267,8 +272,9 @@ async function handleNotionCallback(
           owner_type: 'org',
           owner_id: orgId,
           org_id: orgId,
-          access_token: tokens.accessToken,
-          refresh_token: null,
+          // Notionトークンは無期限(refresh_tokenなし)。buildTokenColumnsはrefreshTokenが
+          // falsyならrefresh_token系のキー自体を含めないので、列はnullのまま作られる。
+          ...(await buildTokenColumns({ accessToken: tokens.accessToken })),
           token_expires_at: null,
           scopes: null,
           status: 'active',
@@ -321,15 +327,17 @@ async function handleGoogleSheetsCallback(
       owner_type: 'org',
       owner_id: orgId,
       org_id: orgId,
-      access_token: tokens.accessToken,
+      // refreshTokenがnullならrefresh_token系のキー自体を含めない(上のコメント参照)。
+      // buildTokenColumnsがその判定を持つ。
+      ...(await buildTokenColumns({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      })),
       token_expires_at: tokens.expiresAt.toISOString(),
       scopes: tokens.scopes,
       status: 'active',
       last_refreshed_at: new Date().toISOString(),
       metadata: {},
-    }
-    if (tokens.refreshToken !== null) {
-      upsertPayload.refresh_token = tokens.refreshToken
     }
 
     const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
@@ -369,8 +377,10 @@ async function handleTeamsCallback(
           owner_type: 'user',
           owner_id: userId,
           org_id: orgId,
-          access_token: tokens.accessToken,
-          refresh_token: tokens.refreshToken,
+          ...(await buildTokenColumns({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          })),
           token_expires_at: tokens.expiresAt.toISOString(),
           scopes: tokens.scopes,
           status: 'active',

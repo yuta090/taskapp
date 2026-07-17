@@ -17,8 +17,14 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const upsertMock = vi.fn()
 const fromMock = vi.fn(() => ({ upsert: upsertMock }))
+// トークンは暗号化して保存する(20260717075717)。buildTokenColumnsがencrypt_system_secretを呼ぶ。
+const rpcMock = vi.fn((fn: string, args: Record<string, string>) =>
+  fn === 'encrypt_system_secret'
+    ? Promise.resolve({ data: `enc(${args.plaintext})`, error: null })
+    : Promise.reject(new Error(`unexpected rpc: ${fn}`)),
+)
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({ from: fromMock })),
+  createClient: vi.fn(() => ({ from: fromMock, rpc: rpcMock })),
 }))
 
 const exchangeGoogleSheetsCodeMock = vi.fn()
@@ -58,6 +64,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+  process.env.SYSTEM_ENCRYPTION_KEY = 'test-encryption-key'
   getUserMock.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null })
   upsertMock.mockResolvedValue({ error: null })
   exchangeGoogleSheetsCodeMock.mockResolvedValue({
