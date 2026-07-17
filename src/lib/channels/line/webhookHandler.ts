@@ -875,10 +875,17 @@ async function processGroupMessage(
     }
 
     // メンション即時タスク化（Stage 2.5 §2）: mention_only のみ。all は夜間抽出で拾うため
-    // 経路を分ける（同じsource_message_idでtitleが異なると unique 制約をすり抜けて二重登録になる）
-    if (group.pickupMode === 'mention_only' && event.mentionsSelf) {
-      await handleMentionInstantTask(account, event, group, identityId, disabled)
-      return
+    // 経路を分ける（同じsource_message_idでtitleが異なると unique 制約をすり抜けて二重登録になる）。
+    // PC版LINEは本物メンションを付与できないため、非メンション合図（先頭一致）も同じ経路に乗せる。
+    if (group.pickupMode === 'mention_only') {
+      // 本物メンション時は selfMentionSpans が既に同じ区間をカバーするため、
+      // 二重除去を避けるためキーワード判定は本物メンションが無いときだけ行う
+      const keywordSpan =
+        !event.mentionsSelf && event.contentType === 'text' ? matchInstantTaskKeyword(event.body ?? '') : null
+      if (event.mentionsSelf || keywordSpan) {
+        await handleMentionInstantTask(account, event, group, identityId, disabled, keywordSpan)
+        return
+      }
     }
   }
 
@@ -1179,7 +1186,25 @@ async function handleDigestCompleteCommand(
 }
 
 /**
- * メンション即時タスク化（Stage 2.5 §2）: mention_only グループでbot宛メンションを検知した際のパス。
+ * 非メンションの即時タスク化合図（PC版LINE対応）。PCのLINEはbotへの本物メンションを
+ * 付与できない（`@名前`は単なる文字列になり mention 情報が乗らない）ため、本文先頭が
+ * この合図で始まる場合も本物メンションと同様に即時タスク化する。
+ * 誤爆防止のため「先頭」限定（文中の言及では発火しない）。
+ */
+const INSTANT_TASK_KEYWORDS = ['@秘書', 'タスク追加'] as const
+
+function matchInstantTaskKeyword(body: string): { index: number; length: number } | null {
+  const leadingWs = body.length - body.trimStart().length
+  const rest = body.slice(leadingWs)
+  for (const kw of INSTANT_TASK_KEYWORDS) {
+    if (rest.startsWith(kw)) return { index: 0, length: leadingWs + kw.length }
+  }
+  return null
+}
+
+/**
+ * メンション即時タスク化（Stage 2.5 §2）: mention_only グループでbot宛メンション、
+ * または非メンション合図（`matchInstantTaskKeyword`。PC版LINE対応）を検知した際のパス。
  * disabled中は記録のみで終了する（digest系の自動動作はdisabledで停止、の既存原則に従う）。
  */
 async function handleMentionInstantTask(
@@ -1188,6 +1213,7 @@ async function handleMentionInstantTask(
   group: ChannelGroup,
   identityId: string | null,
   disabled: boolean,
+  keywordSpan?: { index: number; length: number } | null,
 ): Promise<void> {
   const recorded = await insertChannelMessage(
     groupMessageRecord(group.orgId, account.id, event, group, identityId, null),
@@ -1196,9 +1222,13 @@ async function handleMentionInstantTask(
   if (disabled) return
 
   const body = event.body ?? ''
-  // 秘書宛メンションに加えて担当者宛メンションもタイトルから除去する
-  // （担当は assignee_hint に別で持つため、タイトルに '@山田' を残さない）
-  const mentionSpans = [...(event.selfMentionSpans ?? []), ...(event.assigneeMentions ?? [])]
+  // 秘書宛メンション・担当者宛メンションに加えて、非メンション合図（PC版LINE対応）も
+  // タイトルから除去する（担当は assignee_hint に別で持つため、タイトルに '@山田' を残さない）
+  const mentionSpans = [
+    ...(event.selfMentionSpans ?? []),
+    ...(event.assigneeMentions ?? []),
+    ...(keywordSpan ? [keywordSpan] : []),
+  ]
   const title = buildMentionTaskTitle(body, mentionSpans)
 
   let replyText: string
