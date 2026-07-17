@@ -34,6 +34,15 @@ const storeMock = {
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => ({})),
+}))
+
+const resolveOrgEntitlementsMock = vi.fn()
+vi.mock('@/lib/billing/entitlements', () => ({
+  resolveOrgEntitlements: (...args: unknown[]) => resolveOrgEntitlementsMock(...args),
+}))
+
 const { PATCH, GET } = await import('@/app/api/channels/groups/route')
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
@@ -72,6 +81,10 @@ describe('PATCH /api/channels/groups', () => {
     storeMock.isSpaceApproverEligible.mockResolvedValue(true)
     storeMock.setGroupApprover.mockResolvedValue(undefined)
     storeMock.listOrgGroupsWithApprover.mockResolvedValue([])
+    resolveOrgEntitlementsMock.mockResolvedValue({
+      planId: 'free',
+      has: () => false,
+    })
   })
 
   describe('GET（承認フロー設定用のグループ一覧）', () => {
@@ -132,10 +145,53 @@ describe('PATCH /api/channels/groups', () => {
     expect(storeMock.updateChannelGroup).toHaveBeenCalledWith(GROUP_ID, { pickupMode: 'mention_only' })
   })
 
-  it('pickupModeが3値以外なら400', async () => {
+  it('pickupModeが4値以外なら400', async () => {
     const response = await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'invalid' })
     expect(response.status).toBe(400)
     expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
+  })
+
+  describe('pickupMode=all_plus_instant（フェーズ2・有料ゲート）', () => {
+    it('entitled org（pro）で設定できる', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
+      const response = await callPatch({
+        orgId: ORG_ID,
+        groupId: GROUP_ID,
+        pickupMode: 'all_plus_instant',
+      })
+      expect(response.status).toBe(200)
+      expect(storeMock.updateChannelGroup).toHaveBeenCalledWith(GROUP_ID, {
+        pickupMode: 'all_plus_instant',
+      })
+    })
+
+    it('非entitled org（free）は403 plan_required・更新しない', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      const response = await callPatch({
+        orgId: ORG_ID,
+        groupId: GROUP_ID,
+        pickupMode: 'all_plus_instant',
+      })
+      expect(response.status).toBe(403)
+      const json = await response.json()
+      expect(json).toEqual({ error: 'plan_required', feature: 'line_pickup_dual_mode' })
+      expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
+    })
+
+    it('entitlement判定はサーバ側で確定したgroupのorgIdで行う（bodyのorgId改竄は無効）', async () => {
+      const REAL_ORG_ID = '44444444-4444-4444-8444-444444444444'
+      storeMock.verifyGroupInOrg.mockResolvedValue({ ...GROUP, orgId: REAL_ORG_ID })
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
+      // bodyのorgIdはmembership確認用のORG_IDのまま（クライアントが自称する値）だが、
+      // entitlement判定はgroup.orgId(=REAL_ORG_ID)を真実源にする
+      await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'all_plus_instant' })
+      expect(resolveOrgEntitlementsMock).toHaveBeenCalledWith(expect.anything(), REAL_ORG_ID)
+    })
+
+    it('他のpickupMode値（all/mention_only/off）はentitlement判定を呼ばない', async () => {
+      await callPatch({ orgId: ORG_ID, groupId: GROUP_ID, pickupMode: 'all' })
+      expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+    })
   })
 
   it('displayNameを更新できる', async () => {

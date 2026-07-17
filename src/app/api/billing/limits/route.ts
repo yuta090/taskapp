@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgEntitlements, PLAN_FEATURES } from '@/lib/billing/entitlements'
 
 import { UUID_REGEX } from '@/lib/uuid'
 
@@ -70,6 +72,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // features: 表示専用（フェーズ1）。実際の機能ゲートはここでは行わない。
+    // 真実源は org_billing.plan_id のみ — service-role client で改めて確定する
+    // (rpc_check_org_limits の plan_name は表示名であり判定には使わない)。
+    const admin = createAdminClient()
+    const { planId } = await resolveOrgEntitlements(admin, orgId, new Date())
+    const features = Array.from(PLAN_FEATURES[planId])
+
     // RPC応答をフラット構造に変換（Hook/UIが期待する形式）
     const flatResponse = {
       plan_name: data?.plan_name || 'Unknown',
@@ -81,6 +90,7 @@ export async function GET(request: NextRequest) {
       clients_used: data?.clients?.current ?? 0,
       storage_limit_bytes: data?.storage?.limit ?? null,
       storage_used_bytes: data?.storage?.current ?? 0,
+      features, // 表示専用。判定ロジックには使用しないこと
     }
 
     return NextResponse.json(flatResponse)

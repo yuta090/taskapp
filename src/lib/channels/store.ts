@@ -476,7 +476,12 @@ export async function linkIdentityViaCode(
 // channel_groups
 // ---------------------------------------------------------------------------
 
-export type PickupMode = 'all' | 'mention_only' | 'off'
+/**
+ * 'all_plus_instant'（フェーズ2・pro以上限定・有料）: all（毎時LLM抽出）と
+ * mention_only（メンション即時タスク化）を同時に行う。ゲート（有料判定）はAPI/webhook層の責務で、
+ * store層は値の受け渡しのみ行う（fail-closedの縮退判定はここでは行わない）。
+ */
+export type PickupMode = 'all' | 'mention_only' | 'off' | 'all_plus_instant'
 
 export interface ChannelGroup {
   id: string
@@ -507,7 +512,7 @@ interface GroupRow {
 }
 
 function toPickupMode(value: string): PickupMode {
-  return value === 'mention_only' || value === 'off' ? value : 'all'
+  return value === 'mention_only' || value === 'off' || value === 'all_plus_instant' ? value : 'all'
 }
 
 function toChannelGroup(row: GroupRow): ChannelGroup {
@@ -718,7 +723,8 @@ export async function setGroupApprover(
 }
 
 /**
- * 'all' への切替時は last_extracted_message_created_at = now() に更新する
+ * 'all'/'all_plus_instant'（いずれも毎時LLM抽出を伴う）への切替時は
+ * last_extracted_message_created_at = now() に更新する
  * （mention_only/off 期間中の溜まったバックログを一括LLM投入しないため。切替前の発言は拾わない仕様）。
  */
 export async function updateChannelGroup(
@@ -728,7 +734,7 @@ export async function updateChannelGroup(
   const patch: Record<string, unknown> = {}
   if (updates.pickupMode !== undefined) {
     patch.pickup_mode = updates.pickupMode
-    if (updates.pickupMode === 'all') {
+    if (updates.pickupMode === 'all' || updates.pickupMode === 'all_plus_instant') {
       patch.last_extracted_message_created_at = new Date().toISOString()
     }
   }
@@ -1486,6 +1492,28 @@ export async function findGroupTextMessagesSince(
       createdAt: row.created_at,
       mentions: readMentionsFromPayload(row.payload),
     }))
+}
+
+/**
+ * all_plus_instant の重複排除（フェーズ2）: 指定した source_message_id のうち、
+ * 既に channel_digest_tasks に存在する（＝メンション即時タスク化済みの）ものを返す。
+ * unique制約は (source_message_id, title) だが、即時タイトルとLLM抽出タイトルは通常一致しないため
+ * unique制約だけでは重複を防げない。抽出候補を作る前にメッセージ側で除外する必要がある。
+ */
+export async function findExistingDigestTaskSourceMessageIds(
+  groupId: string,
+  messageIds: string[],
+): Promise<Set<string>> {
+  if (messageIds.length === 0) return new Set()
+
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .select('source_message_id')
+    .eq('group_id', groupId)
+    .in('source_message_id', messageIds)
+
+  if (error) throw new Error(`channel_digest_tasks: select existing source ids failed: ${error.message}`)
+  return new Set((data as Array<{ source_message_id: string }>).map((row) => row.source_message_id))
 }
 
 export interface DigestTaskCandidate {
