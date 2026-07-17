@@ -1400,6 +1400,69 @@ describe('handleLineWebhook', () => {
     })
   })
 
+  describe('グループ発言: mention_only 非メンション合図（PC版LINE対応・本物メンションが付かない端末向け）', () => {
+    beforeEach(() => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    })
+
+    it('本文が「@秘書 〇〇」で始まる → 即時タスク化し、合図＋前後空白を除いたtitleになる', async () => {
+      const body = makeBody([groupTextEvent('@秘書 見積提出お願いします')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: '見積提出お願いします' }),
+      )
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('見積提出お願いします') })],
+        }),
+      )
+    })
+
+    it('本文が「タスク追加 〇〇」で始まる → 即時タスク化し、合図＋前後空白を除いたtitleになる', async () => {
+      const body = makeBody([groupTextEvent('タスク追加 資料を確認する')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+        expect.objectContaining({ title: '資料を確認する' }),
+      )
+    })
+
+    it('先頭でなく文中に「@秘書」がある雑談は発火しない（誤爆防止）', async () => {
+      const body = makeBody([groupTextEvent('さっき@秘書って言った？ただの雑談です')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('pickupMode=all のグループでは「@秘書 〇〇」でも即時発火しない（抽出はcron任せ）', async () => {
+      storeMock.findActiveGroup.mockResolvedValue(GROUP)
+      const body = makeBody([groupTextEvent('@秘書 見積提出お願いします')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('合図除去後にtitleが空（「@秘書」だけ）→ タスクを作らずガイダンスreply', async () => {
+      const body = makeBody([groupTextEvent('@秘書')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [expect.objectContaining({ text: expect.stringContaining('内容が読み取れませんでした') })],
+        }),
+      )
+    })
+  })
+
   describe('グループ発言: mention_only 即時 × 責任者承認フロー（Stage 2.7-B §4-5）', () => {
     // 責任者設定＋space紐付け済み。approver の 1:1 送信先が解決できる状態
     const GROUP_APPROVAL = {
