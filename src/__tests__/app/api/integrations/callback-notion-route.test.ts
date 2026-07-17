@@ -17,8 +17,14 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const upsertMock = vi.fn()
 const fromMock = vi.fn(() => ({ upsert: upsertMock }))
+// トークンは暗号化して保存する(20260717075717)。buildTokenColumnsがencrypt_system_secretを呼ぶ。
+const rpcMock = vi.fn((fn: string, args: Record<string, string>) =>
+  fn === 'encrypt_system_secret'
+    ? Promise.resolve({ data: `enc(${args.plaintext})`, error: null })
+    : Promise.reject(new Error(`unexpected rpc: ${fn}`)),
+)
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({ from: fromMock })),
+  createClient: vi.fn(() => ({ from: fromMock, rpc: rpcMock })),
 }))
 
 const exchangeNotionCodeMock = vi.fn()
@@ -57,6 +63,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+  process.env.SYSTEM_ENCRYPTION_KEY = 'test-encryption-key'
   getUserMock.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null })
   upsertMock.mockResolvedValue({ error: null })
   exchangeNotionCodeMock.mockResolvedValue({
@@ -82,7 +89,7 @@ describe('GET /api/integrations/callback/notion', () => {
         owner_id: ORG_ID,
         org_id: ORG_ID,
         access_token: 'secret_abc',
-        refresh_token: null,
+        access_token_encrypted: 'enc(secret_abc)',
         token_expires_at: null,
         status: 'active',
         metadata: expect.objectContaining({
@@ -93,6 +100,13 @@ describe('GET /api/integrations/callback/notion', () => {
       }),
       { onConflict: 'provider,owner_type,owner_id' },
     )
+
+    // Notionは無期限トークンでrefresh_tokenを持たない。buildTokenColumnsはrefreshTokenが
+    // falsyならキー自体を含めない(新規行では列がnullのまま作られ、on conflict時は既存値が
+    // 保持される。Notionは元々値を持たないので結果は同じ)。
+    const upsertPayload = upsertMock.mock.calls[0][0] as Record<string, unknown>
+    expect(upsertPayload).not.toHaveProperty('refresh_token')
+    expect(upsertPayload).not.toHaveProperty('refresh_token_encrypted')
 
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe(
