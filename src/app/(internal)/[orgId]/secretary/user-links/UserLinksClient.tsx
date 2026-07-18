@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Warning, LinkBreak } from '@phosphor-icons/react'
 import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
+import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 
 interface UserLink {
   id: string
@@ -104,6 +105,23 @@ export function UserLinksClient({ orgId }: { orgId: string }) {
             <span>{error}</span>
           </div>
         )}
+
+        <section>
+          <h3 className="text-xs font-semibold text-gray-900">① 秘書を友だち追加</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            まだ秘書を友だち追加していない場合は、下のQRから追加してください。
+          </p>
+          <div className="mt-2">
+            <LineFriendQr orgId={orgId} />
+          </div>
+        </section>
+
+        <section>
+          <h3 className="text-xs font-semibold text-gray-900">② コードで連携を完了</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            下のボタンでコードを発行し、①で追加した秘書とのトークに送信すると連携完了です。
+          </p>
+        </section>
 
         {issuedCode ? (
           <section className="rounded border border-amber-300 bg-amber-50 p-4">

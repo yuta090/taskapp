@@ -9,6 +9,7 @@ import {
   formatGroupClaimCodeForDisplay,
   CODE_ONLY_CLAIM_DEFAULT_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
+import { fetchBotInfo } from '@/lib/channels/line/client'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -2096,6 +2097,142 @@ export async function listActiveUserLinks(orgId: string): Promise<UserLink[]> {
     externalUserId: row.external_user_id as string,
     linkedAt: row.linked_at as string,
   }))
+}
+
+/**
+ * 現在ユーザー自身の active な LINE 紐付けが存在するか。オンボーディング進捗
+ * (SetupChecklist の connect_line ステップ) の完了判定に使う。
+ */
+export async function hasActiveUserLinkForUser(orgId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .is('revoked_at', null)
+    .limit(1)
+  if (error) throw new Error(`channel_user_links: user link check failed: ${error.message}`)
+  return (data?.length ?? 0) > 0
+}
+
+/**
+ * org がユーザー自身でLINE秘書を連携し始められる状態か（＝連携先Botが用意されているか）。
+ * org専用bot(owner_type='org') か 共有bot(owner_type='platform') のどちらかが active なら true。
+ * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）で、オンボーディングでは
+ * connect_line を「準備中」表示にする。**資格情報は返さず存在判定のみ**。
+ */
+export async function isLineSelfServeReady(orgId: string): Promise<boolean> {
+  const { data: orgAcc, error: orgErr } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('channel', 'line')
+    .eq('status', 'active')
+    .limit(1)
+  if (orgErr) throw new Error(`channel_accounts: org line readiness check failed: ${orgErr.message}`)
+  if ((orgAcc?.length ?? 0) > 0) return true
+
+  const { data: platformAcc, error: platformErr } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('channel', 'line')
+    .eq('owner_type', 'platform')
+    .eq('status', 'active')
+    .limit(1)
+  if (platformErr) {
+    throw new Error(`channel_accounts: platform line readiness check failed: ${platformErr.message}`)
+  }
+  return (platformAcc?.length ?? 0) > 0
+}
+
+interface AccountWithBasicIdRow extends AccountRow {
+  line_basic_id: string | null
+}
+
+/**
+ * LINE友だち追加QR導線用のaccount行取得。org専用bot(owner_type='org')を優先し、
+ * 無ければ共有bot(owner_type='platform')。identity(本人特定)には一切関与しない
+ * （こちらは「Botを見つける」までの純粋加算UXの材料取得）。
+ */
+async function findLineAccountRowForBasicId(orgId: string): Promise<AccountWithBasicIdRow | null> {
+  const { data: orgRow, error: orgErr } = await admin()
+    .from('channel_accounts')
+    .select(`${ACCOUNT_COLUMNS}, line_basic_id`)
+    .eq('channel', 'line')
+    .eq('owner_type', 'org')
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+  // org専用botのクエリが真のDBエラーを返したときは静かに共有botへ落とさずログを残す
+  // （org専用botがあるのに共有bot文言が出る誤表示を招くため）。
+  if (orgErr) console.error('channel_accounts: org line basic_id lookup failed', orgId, orgErr)
+  if (!orgErr && orgRow) return orgRow as AccountWithBasicIdRow
+
+  const { data: platformRow, error: platformErr } = await admin()
+    .from('channel_accounts')
+    .select(`${ACCOUNT_COLUMNS}, line_basic_id`)
+    .eq('channel', 'line')
+    .eq('owner_type', 'platform')
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+  if (platformErr || !platformRow) return null
+  return platformRow as AccountWithBasicIdRow
+}
+
+/**
+ * 友だち追加QR/URL用の basic_id（公開情報）を取得する。**resultはbasic_id文字列のみ**
+ * （credentials/access_tokenは絶対に呼び出し元へ返さない）。
+ *
+ * identity(本人特定)の仕組みは一切変えない — ここで返すbasic_idはQRで
+ * 「Botを見つけて友だち追加する手間」を消すためだけの純粋加算UXの材料。
+ * 「友だち追加した瞬間に紐付く」わけではなく、本人特定は従来どおりコード返信方式のみが正。
+ *
+ * 1) 既に line_basic_id があればそれを返す（LINE APIを叩かない）。
+ * 2) 無ければ credentials を復号 → fetchBotInfo で basicId を取得 →
+ *    channel_accounts.line_basic_id をUPDATEしてから返す。
+ * 3) account不在・復号失敗・fetchBotInfo失敗（いずれもベストエフォート）は null。
+ */
+async function resolveLineBasicIdForRow(row: AccountWithBasicIdRow): Promise<string | null> {
+  if (row.line_basic_id) return row.line_basic_id
+
+  const account = await decryptAccount(row)
+  if (!account) return null
+
+  const info = await fetchBotInfo(account.accessToken)
+  if (!info) return null
+
+  const { error } = await admin()
+    .from('channel_accounts')
+    .update({ line_basic_id: info.basicId })
+    .eq('id', row.id)
+  if (error) {
+    console.error('channel_accounts: failed to backfill line_basic_id', row.id, error)
+  }
+  return info.basicId
+}
+
+export async function getLineBasicIdForOrg(orgId: string): Promise<string | null> {
+  const row = await findLineAccountRowForBasicId(orgId)
+  if (!row) return null
+  return resolveLineBasicIdForRow(row)
+}
+
+/**
+ * getLineBasicIdForOrg に加え、案内文言の分岐（org専用bot=「あなたの事務所専用のLINE秘書」/
+ * 共有bot=「共通の秘書アカウント。コード送信が必ず必要」）用に owner_type も返す拡張版。
+ * ロジック分岐は持ち込まない — UIの文言分岐だけがこの値を使う。line-status API
+ * （bool専用・オンボーディング進捗判定）とは別関数・別用途（混同しないこと）。
+ */
+export async function getLineBasicIdWithOwnerTypeForOrg(
+  orgId: string,
+): Promise<{ basicId: string; ownerType: 'org' | 'platform' } | null> {
+  const row = await findLineAccountRowForBasicId(orgId)
+  if (!row) return null
+  const basicId = await resolveLineBasicIdForRow(row)
+  if (!basicId) return null
+  return { basicId, ownerType: row.owner_type === 'platform' ? 'platform' : 'org' }
 }
 
 /** 失効。二重失効は false（副作用ゼロ） */

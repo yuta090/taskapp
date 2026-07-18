@@ -12,6 +12,7 @@ import {
   ClipboardText,
 } from '@phosphor-icons/react'
 import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
+import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
 interface PendingGroupClaimItem {
@@ -232,9 +233,15 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           <section>
             <h2 className="text-sm font-semibold text-gray-900">共有botグループを追加</h2>
             <p className="mt-1 text-xs text-gray-500">
-              プロジェクトを選んでコードを発行し、顧問先のLINEグループに貼り付けてもらってください。
-              投入されると下に確認待ちが表示されます。承認するとグループが紐付きます。
+              顧問先がまだ秘書を友だち追加していない場合は、下のQRで秘書を友だち追加してもらい、
+              その秘書を<strong>LINEグループに招待</strong>してもらいます。そのうえでプロジェクトを選んでコードを発行し、
+              <strong>顧問先のLINEグループのトーク</strong>に貼り付けてもらってください。投入されると下に確認待ちが表示され、
+              承認するとグループが紐付きます。
             </p>
+
+            <div className="mt-3">
+              <LineFriendQr orgId={orgId} purpose="group" />
+            </div>
 
             {issueError && (
               <div className="mt-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

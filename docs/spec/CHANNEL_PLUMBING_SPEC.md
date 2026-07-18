@@ -1,9 +1,9 @@
 # チャネル配管 Stage 1 実装仕様（AI秘書の背骨）
 
-> **Status**: 実装済み（LINE受信・送信・突合・添付保存・redaction機構）
-> **Last Updated**: 2026-07-10
+> **Status**: 実装済み（LINE受信・送信・突合・添付保存・redaction機構・友だち追加QR導線）
+> **Last Updated**: 2026-07-18
 > **設計正本**: `docs/spec/AI_SECRETARY_DESIGN_v0.1.md`（§2 背骨=messagesログ / §8 WoZの範囲）
-> **Migration**: `supabase/migrations/20260710204722_channel_plumbing.sql`
+> **Migration**: `supabase/migrations/20260710204722_channel_plumbing.sql`（背骨）/ `20260718211923_channel_accounts_line_basic_id.sql`（友だち追加QR用 basic_id）
 
 AI秘書（回収・催促・証跡エンジン）の配管層。頭脳（文面生成・催促判断）は先行5事務所フェーズでは人力（Wizard of Oz）だが、**メッセージがシステムを通らないとログ・証跡・カルテという売り物の核が成立しない**ため、配管を先行実装した。
 
@@ -106,7 +106,23 @@ Webhook URL は LINE コンソールに `https://agentpm.app/api/channels/line/w
 - redaction UI / 添付failedの自動リトライ / link_codeブルートフォースのレート制限
 - unfollow時のidentity自動revoke（現状はログのみ・手動revoke）
 
-## 6. 検証項目（migration適用後にservice roleで実施）
+## 6. 友だち追加導線（QR）と本人特定の分離
+
+**本人特定(identity)の仕組みは変えない。** 友だち追加した人の特定は §2「突合」のコード返信方式が唯一の正であり、以下のQR導線は「Botを見つけて友だち追加する手間」を消すだけの純粋加算UX。**「追加した瞬間に紐付く」ことは無い** — 必ず「①QRで友だち追加 → ②表示されたコードをトークに送信」の2段階で連携が完了する（追加だけでは何とも紐付かない）。
+
+### なぜコード方式が必須か（QR単体では代替できない理由）
+
+標準LINE公式アカウントの `follow` webhookイベントは `source.userId` しか運ばない。友だち追加URL（`https://line.me/R/ti/p/<basicId>`）に個別パラメータ（例: `?org=...`）を付与しても、それは `follow` イベントには一切伝播しない（LIFF等の別導線を使わない限り、follow時点でどのURL/QR経由だったかをLINE側から知る手段が無い）。したがって「誰が・どの事務所向けに友だち追加したか」を特定する手段は、友だち追加後にユーザー側からコードを送ってもらう（`channel_link_codes`との突合）以外に存在しない。将来LIFF等を用いた個別パラメータ付き導線を検討する場合も、この制約（follow=userIdのみ）を前提に設計すること。
+
+### channel_accounts.line_basic_id
+
+- `channel_accounts.line_basic_id`（text, nullable）: LINE公式アカウントの basic ID（`@xxxx`）。**公開情報**（秘匿性は無い）で、友だち追加URL/QR（`https://line.me/R/ti/p/<basicId>`）の導出にのみ使う。
+- 取得元は LINE Messaging API `GET /v2/bot/info`（`fetchBotInfo`）。初回アクセス時に遅延バックフィル（`getLineBasicIdForOrg`／`getLineBasicIdWithOwnerTypeForOrg`）し、以後はDBのキャッシュ値を返す（LINE APIを毎回叩かない）。
+- `channel_accounts` は資格情報テーブルのままRLS変更なし（service_role専用）。basic_idを含む取得APIは `GET /api/channels/line/basic-id?orgId=...`（内部メンバーのみ・`requireInternalMember`）で、レスポンスは `{ basicId, ownerType }` のみ（credentials/access_tokenは一切含まない）。
+- QR画像自体はクライアント側（`qrcode`パッケージ）で生成する（basic_idが公開情報のため）。
+- Bot構成（org専用bot / 共有bot）でロジック分岐は持ち込まず、文言のみ分岐する（org専用=「あなたの事務所専用のLINE秘書」/ 共有=「共通の秘書アカウント。コード送信が必ず必要」）。
+
+## 7. 検証項目（migration適用後にservice roleで実施）
 
 1. webhook再送（同一 message.id）で行が増えない
 2. 署名不正がアカウント逆引き後に必ず401

@@ -158,6 +158,22 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
     })
   })
 
+  it('準備完了！ステップはLINE秘書連携（QR→コード送信で完了）に触れる', async () => {
+    render(<InternalOnboardingWalkthrough />)
+
+    await waitFor(() => screen.getByRole('dialog'))
+    fireEvent.click(screen.getByText('次へ'))
+    await waitFor(() => screen.getByText('ボールの概念'))
+    fireEvent.click(screen.getByText('次へ'))
+    await waitFor(() => screen.getByText('クライアントに公開'))
+    fireEvent.click(screen.getByText('次へ'))
+
+    await waitFor(() => screen.getByText('準備完了！'))
+    expect(screen.getByText(/LINE秘書/)).toBeInTheDocument()
+    expect(screen.getByText(/QRで.*追加/)).toBeInTheDocument()
+    expect(screen.getByText(/コード送信/)).toBeInTheDocument()
+  })
+
   it('calls markDone (server + localStorage) when the walkthrough is completed', async () => {
     render(<InternalOnboardingWalkthrough />)
 
