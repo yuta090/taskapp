@@ -963,6 +963,7 @@ export function TaskInspector({
           <TaskReminderField
             taskId={task.id}
             initialRemindAt={(task as { remind_at?: string | null }).remind_at ?? null}
+            orgId={task.org_id}
           />
         )}
 
