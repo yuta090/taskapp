@@ -12,9 +12,16 @@ import {
   ChatCircleDots,
   UserGear,
 } from '@phosphor-icons/react'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
+import {
+  PICKUP_MODE_OPTIONS,
+  resolvePickupOptionState,
+} from '@/lib/channels/pickupModeOptions'
+import type { PickupMode } from '@/lib/channels/store'
 
 interface PendingApprovalItem {
   taskId: string
@@ -34,17 +41,33 @@ interface OrgGroup {
   spaceId: string
   spaceName: string | null
   approverUserId: string | null
+  pickupMode: PickupMode
 }
 
 /**
- * グループごとの責任者(approver)設定。承認フローはこの設定でオプトインする（未設定なら候補は
- * pending にならず従来の申し送り扱い）。候補は当該 space の admin/editor のみ（承認権限を持つ人）。
+ * グループごとの責任者(approver)設定と取り込みモード(pickup_mode)設定。
+ * - 承認フローはこの設定でオプトインする（未設定なら候補は pending にならず従来の申し送り扱い）。
+ *   候補は当該 space の admin/editor のみ（承認権限を持つ人）。
+ * - 取り込みモードは「毎時まとめ／即時／両方／取り込まない」を選ぶ。両方(all_plus_instant)は
+ *   pro 以上限定の有料機能（②）。未解禁 org には選択肢を無効化＋「pro以上」印を出し（事前導線）、
+ *   万一 403 が返っても楽観更新をロールバックする（サーバ側 403 と二重防御）。
  */
-function GroupApproverRow({ orgId, group }: { orgId: string; group: OrgGroup }) {
+export function GroupApproverRow({
+  orgId,
+  group,
+  dualModeEntitled,
+}: {
+  orgId: string
+  group: OrgGroup
+  dualModeEntitled: boolean
+}) {
   const { internalMembers, loading } = useSpaceMembers(group.spaceId)
   const eligible = internalMembers.filter((m) => m.role === 'admin' || m.role === 'editor')
   const [value, setValue] = useState(group.approverUserId ?? '')
   const [saving, setSaving] = useState(false)
+
+  const [pickup, setPickup] = useState<PickupMode>(group.pickupMode)
+  const [pickupSaving, setPickupSaving] = useState(false)
 
   const save = async (next: string) => {
     const prev = value
@@ -69,13 +92,65 @@ function GroupApproverRow({ orgId, group }: { orgId: string; group: OrgGroup }) 
     }
   }
 
+  const savePickup = async (next: PickupMode) => {
+    const prev = pickup
+    setPickup(next)
+    setPickupSaving(true)
+    try {
+      const res = await fetch('/api/channels/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId, groupId: group.groupId, pickupMode: next }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        if (res.status === 403 && json?.error === 'plan_required') {
+          setPickup(prev)
+          toast.error('「両方」モードは pro 以上のプランで利用できます。')
+          return
+        }
+        throw new Error(json.error ?? '保存に失敗しました')
+      }
+      toast.success('取り込みモードを変更しました')
+    } catch (e) {
+      setPickup(prev) // 楽観更新のロールバック
+      toast.error(e instanceof Error ? e.message : '保存に失敗しました')
+    } finally {
+      setPickupSaving(false)
+    }
+  }
+
   const label = group.spaceName ?? group.displayName ?? 'グループ'
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5">
+    <div className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3">
       <span className="min-w-0 flex-1 truncate text-sm text-gray-900">{label}</span>
+      <div className="flex items-center gap-1.5">
+        {pickupSaving && <Spinner className="w-3.5 h-3.5 animate-spin text-gray-400" />}
+        <select
+          aria-label="取り込みモード"
+          value={pickup}
+          disabled={pickupSaving}
+          onChange={(e) => void savePickup(e.target.value as PickupMode)}
+          className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        >
+          {PICKUP_MODE_OPTIONS.map((opt) => {
+            const state = resolvePickupOptionState(opt, {
+              entitled: dualModeEntitled,
+              current: pickup,
+            })
+            return (
+              <option key={opt.value} value={opt.value} disabled={state.disabled}>
+                {opt.label}
+                {state.needsUpgrade ? '（pro以上）' : ''}
+              </option>
+            )
+          })}
+        </select>
+      </div>
       <div className="flex items-center gap-1.5">
         {saving && <Spinner className="w-3.5 h-3.5 animate-spin text-gray-400" />}
         <select
+          aria-label="承認フロー責任者"
           value={value}
           disabled={saving || loading}
           onChange={(e) => void save(e.target.value)}
@@ -122,6 +197,8 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
   const [busy, setBusy] = useState<Record<string, 'approve' | 'reject'>>({})
   const [rowError, setRowError] = useState<Record<string, string>>({})
   const [groups, setGroups] = useState<OrgGroup[]>([])
+  const { has: hasEntitlement } = useEntitlements(orgId)
+  const dualModeEntitled = hasEntitlement('line_pickup_dual_mode')
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -331,12 +408,26 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
                 <h3 className="text-sm font-semibold text-gray-900">承認フロー設定</h3>
               </div>
               <p className="mb-3 text-xs text-gray-500">
-                グループごとに責任者を決めると、そのグループの候補は自動でタスク化されず、
-                責任者の承認を待ちます（責任者はそのプロジェクトの管理者・編集者から選べます）。
+                グループごとに<span className="font-medium">取り込みモード</span>（会話をどうタスク化するか）と、
+                責任者を決められます。責任者を決めると候補は自動タスク化されず承認待ちになります
+                （責任者はそのプロジェクトの管理者・編集者から選べます）。
               </p>
+              {!dualModeEntitled && (
+                <p className="mb-3 text-xs text-amber-600">
+                  「毎時まとめ＋即時（両方）」モードは <span className="font-medium">pro 以上</span> のプランで利用できます。{' '}
+                  <Link href="/settings/billing" className="underline hover:text-amber-700">
+                    プランを見る
+                  </Link>
+                </p>
+              )}
               <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
                 {groups.map((g) => (
-                  <GroupApproverRow key={g.groupId} orgId={orgId} group={g} />
+                  <GroupApproverRow
+                    key={g.groupId}
+                    orgId={orgId}
+                    group={g}
+                    dualModeEntitled={dualModeEntitled}
+                  />
                 ))}
               </div>
             </section>

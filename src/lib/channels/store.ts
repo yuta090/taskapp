@@ -641,6 +641,7 @@ export interface OrgGroupWithApprover {
   spaceId: string
   spaceName: string | null
   approverUserId: string | null
+  pickupMode: PickupMode
 }
 
 /**
@@ -651,7 +652,7 @@ export interface OrgGroupWithApprover {
 export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroupWithApprover[]> {
   const { data, error } = await admin()
     .from('channel_groups')
-    .select('id, display_name, space_id, approver_user_id, spaces(name)')
+    .select('id, display_name, space_id, approver_user_id, pickup_mode, spaces(name)')
     .eq('org_id', orgId)
     .eq('status', 'active')
     .not('space_id', 'is', null)
@@ -663,6 +664,7 @@ export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroup
     display_name: string | null
     space_id: string
     approver_user_id: string | null
+    pickup_mode: string
     spaces: { name: string | null } | { name: string | null }[] | null
   }
   return (data as unknown as Row[]).map((row) => {
@@ -673,6 +675,7 @@ export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroup
       spaceId: row.space_id,
       spaceName: s?.name ?? null,
       approverUserId: row.approver_user_id,
+      pickupMode: toPickupMode(row.pickup_mode),
     }
   })
 }
