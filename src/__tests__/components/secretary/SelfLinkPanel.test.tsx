@@ -85,4 +85,38 @@ describe('SelfLinkPanel', () => {
     await waitFor(() => screen.getByText(/LINE公式アカウントが登録されていません/))
     expect(screen.queryByTestId('secretary-tab-messages')).not.toBeInTheDocument()
   })
+
+  // 実際に踏んだ混乱: 事務所アカウントは接続済みなのに、本人未連携の空状態
+  // 「まだ連携されていません」を「秘書ごと未接続」と誤読した（製作者本人も分からなかった）。
+  it('OA接続済みなら「接続済み」を明示し、秘書ごと未接続と誤読させない', async () => {
+    mockApis({ account: { id: 'acc-1', displayName: 'AgentPM秘書' } })
+    render(<SelfLinkPanel orgId={ORG} />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/事務所の秘書「AgentPM秘書」は/).textContent,
+      ).toMatch(/接続済み/),
+    )
+  })
+
+  it('本人未連携の空状態は「自分のLINEを連携していない」と限定して案内する', async () => {
+    mockApis({ account: { id: 'acc-1', displayName: 'OA' }, links: [] })
+    render(<SelfLinkPanel orgId={ORG} />)
+
+    await waitFor(() =>
+      expect(screen.getByText(/まだ自分のLINEを連携していません/)).toBeInTheDocument(),
+    )
+    // 誤読を招く旧文言の完全一致は出さない
+    expect(screen.queryByText('まだ連携されていません。')).not.toBeInTheDocument()
+  })
+
+  it('すでに友だち追加済みなら①をスキップして②へ進める旨を案内する', async () => {
+    mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
+    render(<SelfLinkPanel orgId={ORG} />)
+
+    await waitFor(() => screen.getByText(/OA と自分のLINEを連携する/))
+    expect(
+      screen.getByText(/すでに秘書を友だち追加済みの方は、この手順は不要です/),
+    ).toBeInTheDocument()
+  })
 })

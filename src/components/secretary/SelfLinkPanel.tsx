@@ -91,12 +91,27 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-6">
       <section>
-        <h2 className="text-sm font-semibold text-gray-900">LINE連携（本人確認）</h2>
+        <h2 className="text-sm font-semibold text-gray-900">
+          自分のLINEを連携（承認をLINEで受け取る）
+        </h2>
         <p className="mt-1 text-xs text-gray-500">
-          候補をタスクとして承認するには、担当者本人のLINEを連携しておく必要があります。
-          連携していない場合、承認の依頼はLINEに届きません。
+          申し送り候補をタスクとして承認するには、担当者<strong>本人</strong>のLINE連携が必要です。
+          未連携だと承認の依頼はLINEに届きません。
+          <br />
+          ※これは<strong>あなた個人</strong>の連携です。事務所の秘書アカウントの接続（下で「接続済み」と表示）とは別物です。
         </p>
       </section>
+
+      {/* 事務所の秘書アカウント自体の接続状態。ここが未接続だと誤読されがちなので明示する */}
+      {account && (
+        <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+          <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
+          <span>
+            事務所の秘書「{account.displayName}」は<strong>接続済み</strong>です。
+            あとは下の手順で<strong>あなた自身のLINE</strong>を連携するだけです。
+          </span>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -106,9 +121,11 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       )}
 
       <section>
-        <h3 className="text-xs font-semibold text-gray-900">① 秘書を友だち追加</h3>
+        <h3 className="text-xs font-semibold text-gray-900">① 秘書を友だち追加（未追加の人だけ）</h3>
         <p className="mt-1 text-xs text-gray-500">
-          まだ秘書を友だち追加していない場合は、下のQRから追加してください。
+          <strong>すでに秘書を友だち追加済みの方は、この手順は不要です。②へ進んでください。</strong>
+          <br />
+          まだの場合だけ、下のQRから追加してください（追加しただけでは連携は完了しません）。
         </p>
         <div className="mt-2">
           <LineFriendQr orgId={orgId} />
@@ -116,9 +133,10 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       </section>
 
       <section>
-        <h3 className="text-xs font-semibold text-gray-900">② コードで連携を完了</h3>
+        <h3 className="text-xs font-semibold text-gray-900">② コードを発行して1:1トークに送信</h3>
         <p className="mt-1 text-xs text-gray-500">
-          下のボタンでコードを発行し、①で追加した秘書とのトークに送信すると連携完了です。
+          下のボタンでコードを発行し、秘書との1:1トークに送信すると連携完了です。
+          <strong>すでに友だち追加済みでも、この②が必要です</strong>（友だち追加だけでは連携されません）。
         </p>
       </section>
 
@@ -171,7 +189,9 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       <section>
         <h3 className="text-xs font-semibold text-gray-900">連携済み</h3>
         {links.length === 0 ? (
-          <p className="mt-2 text-xs text-gray-500">まだ連携されていません。</p>
+          <p className="mt-2 text-xs text-gray-500">
+            まだ自分のLINEを連携していません。上の②から連携できます。
+          </p>
         ) : (
           <ul className="mt-2 divide-y divide-gray-200 rounded border border-gray-200">
             {links.map((link) => (
