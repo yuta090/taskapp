@@ -54,18 +54,20 @@ export interface ReminderGroupLink {
   orgId: string
   accountId: string
   externalGroupId: string
+  ownerType: string // 'platform'（共有Bot）| 'org'（専用bot）。配信先の優先判定に使う
 }
 
 /**
  * 指定した space に紐づく、配信可能な（active × accountもactive）LINEグループを返す。
  * digest とは独立（pickup_mode を問わない）。org帰属は channel_groups.org_id。
+ * 配信先の絞り込み（共有Bot優先）は route 側で preferPlatformLinks が行う。
  */
 export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<ReminderGroupLink[]> {
   if (spaceIds.length === 0) return []
 
   const { data, error } = await admin()
     .from('channel_groups')
-    .select('space_id, org_id, account_id, external_group_id, channel_accounts!inner(status)')
+    .select('space_id, org_id, account_id, external_group_id, channel_accounts!inner(status, owner_type)')
     .eq('status', 'active')
     .eq('channel_accounts.status', 'active')
     .in('space_id', spaceIds)
@@ -77,16 +79,21 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
     org_id: string
     account_id: string
     external_group_id: string
+    channel_accounts: { owner_type: string } | { owner_type: string }[]
   }
 
   return (data as unknown as Row[])
     .filter((row): row is Row & { space_id: string } => row.space_id !== null)
-    .map((row) => ({
-      spaceId: row.space_id,
-      orgId: row.org_id,
-      accountId: row.account_id,
-      externalGroupId: row.external_group_id,
-    }))
+    .map((row) => {
+      const acct = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
+      return {
+        spaceId: row.space_id,
+        orgId: row.org_id,
+        accountId: row.account_id,
+        externalGroupId: row.external_group_id,
+        ownerType: acct?.owner_type ?? 'org',
+      }
+    })
 }
 
 /** 送信成功したタスクに remind_sent_at（絶対時刻）を刻む。 */

@@ -9,6 +9,7 @@ import { pushLineMessage } from '@/lib/channels/line/client'
 import {
   selectDueTaskReminders,
   buildTaskReminderText,
+  preferPlatformLinks,
   type TaskReminderInput,
 } from '@/lib/reminders/computeTaskReminders'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
@@ -91,7 +92,9 @@ export async function POST(request: NextRequest) {
   let sent = 0
 
   for (const task of due) {
-    const taskLinks = linksBySpace.get(task.spaceId) || []
+    // 共有Bot（platform）優先。同一spaceにplatformグループがあればそこだけへ配信し、
+    // org専用botとの二重配信を防ぐ（無ければorgへフォールバック）。
+    const taskLinks = preferPlatformLinks(linksBySpace.get(task.spaceId) || [])
     if (taskLinks.length === 0) {
       skipped.push({ taskId: task.id, reason: 'no_linked_group' })
       continue
