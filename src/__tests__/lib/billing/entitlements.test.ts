@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   resolvePlanFromBilling,
   planHasFeature,
+  planLimits,
   resolveOrgEntitlements,
   type OrgBillingRow,
 } from '@/lib/billing/entitlements'
@@ -119,6 +120,32 @@ describe('planHasFeature', () => {
   it('enterprise has both features', () => {
     expect(planHasFeature('enterprise', 'line_pickup_dual_mode')).toBe(true)
     expect(planHasFeature('enterprise', 'timed_line_reminders')).toBe(true)
+  })
+
+  it('Pro中核（白ラベル/1:1DM/即時）は pro・enterprise のみ、free には無い', () => {
+    for (const f of ['own_line_account', 'line_direct_dm', 'instant_line_notify'] as const) {
+      expect(planHasFeature('free', f)).toBe(false)
+      expect(planHasFeature('pro', f)).toBe(true)
+      expect(planHasFeature('enterprise', f)).toBe(true)
+    }
+  })
+
+  it('自動タスク拾いは現状 free 無し（Free開放は要決定・据え置き）', () => {
+    // NOTE: パッケージング決定で free に開放する場合はこのテストを更新する。
+    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(false)
+  })
+})
+
+describe('planLimits', () => {
+  it('free は狭い上限（グループ3・共通LINE送信200）', () => {
+    expect(planLimits('free')).toEqual({ maxLineGroups: 3, monthlySharedPushQuota: 200 })
+  })
+  it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
+    expect(planLimits('pro').maxLineGroups).toBe(50)
+    expect(planLimits('pro').monthlySharedPushQuota).toBeNull()
+  })
+  it('enterprise は無制限', () => {
+    expect(planLimits('enterprise')).toEqual({ maxLineGroups: null, monthlySharedPushQuota: null })
   })
 })
 

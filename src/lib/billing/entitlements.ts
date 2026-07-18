@@ -10,15 +10,61 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  */
 
 export type PlanId = 'free' | 'pro' | 'enterprise'
-export type Feature = 'line_pickup_dual_mode' | 'timed_line_reminders'
+export type Feature =
+  | 'line_pickup_dual_mode' // 会話からの自動タスク拾い（dual mode）
+  | 'timed_line_reminders' // 時刻リマインド
+  | 'own_line_account' // 自社名義Bot(白ラベル)の登録・共有→専用への移行開始
+  | 'line_direct_dm' // 担当者への1:1個別DM配信（共有botは構造的に不可）
+  | 'instant_line_notify' // 即時通知（Freeは日次digest統合のみ）
 
 const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterprise'])
 
-// pro/enterprise get both features, free gets none.
+// Pro/Enterprise の中核価値（白ラベル・1:1DM・即時・時刻リマインド）を pro 以上に集約する。
+// NOTE(要決定・パッケージング): line_pickup_dual_mode（自動タスク拾い）を Free に開放するかは
+//   事業判断（fable 提案は「Freeに入れるが即時通知は Pro のみ」）。現状は従来どおり free 無しのまま
+//   据え置き、決定後に free へ 'line_pickup_dual_mode' を足す（instant_line_notify は Pro 専有を維持）。
 export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
   free: new Set(),
-  pro: new Set(['line_pickup_dual_mode', 'timed_line_reminders']),
-  enterprise: new Set(['line_pickup_dual_mode', 'timed_line_reminders']),
+  pro: new Set([
+    'line_pickup_dual_mode',
+    'timed_line_reminders',
+    'own_line_account',
+    'line_direct_dm',
+    'instant_line_notify',
+  ]),
+  enterprise: new Set([
+    'line_pickup_dual_mode',
+    'timed_line_reminders',
+    'own_line_account',
+    'line_direct_dm',
+    'instant_line_notify',
+  ]),
+}
+
+/**
+ * 数量制限（プランごと）。機能フラグ(PLAN_FEATURES)とは別マップにする。
+ * DBに列は足さない phase 1 方針を維持（コード内マップ）。null = 無制限。
+ * monthlySharedPushQuota は共通LINE(共有bot)の送信クォータ。Stripe webhook/reconcile 内の
+ * service role が org_channel_policy.monthly_push_quota へ同期する（コンソール直書きは禁止）。
+ *
+ * NOTE(要決定・数値): 下記は仮の初期値。実運用の集計（有料org数・平均グループ数・push実績）を見て
+ *   確定する。Free は「狭く始めて広げる」（増やすのは無風・減らすのは炎上）ため小さめに置く。
+ */
+export interface PlanLimits {
+  /** 接続できる相手先グループ数の上限。null=無制限 */
+  maxLineGroups: number | null
+  /** 共通LINE(共有bot)の月間送信クォータ。null=無制限（自社LINEは原価が顧客側のため無制限） */
+  monthlySharedPushQuota: number | null
+}
+
+export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
+  free: { maxLineGroups: 3, monthlySharedPushQuota: 200 },
+  pro: { maxLineGroups: 50, monthlySharedPushQuota: null },
+  enterprise: { maxLineGroups: null, monthlySharedPushQuota: null },
+}
+
+export function planLimits(plan: PlanId): PlanLimits {
+  return PLAN_LIMITS[plan]
 }
 
 export interface OrgBillingRow {
