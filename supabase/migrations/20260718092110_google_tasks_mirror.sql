@@ -355,6 +355,27 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- 6c) 権限: 上記の新規関数はすべて service role(ワーカー/callback)専用にする。
+--     Postgres は新規関数の EXECUTE を既定で PUBLIC に付与するため、明示 revoke しないと
+--     anon/authenticated が SECURITY DEFINER の rpc を直接叩けてしまう
+--     (例: rpc_mirror_complete_task で任意タスクを done 化、claim で outbox を読み出し)。
+--     ヘルパ/トリガー関数は内部呼び出し・トリガー発火で動くので grant は不要(revoke のみ)。
+-- -----------------------------------------------------------------------------
+revoke all on function public._task_is_mirror_target(public.tasks) from public, anon, authenticated;
+revoke all on function public._google_tasks_connection_for(uuid) from public, anon, authenticated;
+revoke all on function public._enqueue_task_mirror_job(uuid, uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public.enqueue_task_mirror() from public, anon, authenticated;
+revoke all on function public.rpc_claim_task_mirror_jobs(int, int) from public, anon, authenticated;
+revoke all on function public.rpc_complete_task_mirror_job(uuid, text, text) from public, anon, authenticated;
+revoke all on function public.rpc_mirror_complete_task(uuid) from public, anon, authenticated;
+revoke all on function public.rpc_backfill_task_mirror(uuid) from public, anon, authenticated;
+
+grant execute on function public.rpc_claim_task_mirror_jobs(int, int) to service_role;
+grant execute on function public.rpc_complete_task_mirror_job(uuid, text, text) to service_role;
+grant execute on function public.rpc_mirror_complete_task(uuid) to service_role;
+grant execute on function public.rpc_backfill_task_mirror(uuid) to service_role;
+
+-- -----------------------------------------------------------------------------
 -- 7) pg_cron: 順方向 dispatch と逆流 poll を起動(vault の URL/secret を net.http_post)
 --    URL/secret の vault 登録は本番運用で別途行う(sink-dispatch と同じ方式)。
 -- -----------------------------------------------------------------------------
