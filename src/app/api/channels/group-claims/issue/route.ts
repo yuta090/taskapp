@@ -4,6 +4,7 @@ import {
   verifySpaceInOrg,
   findFirstPlatformAccountId,
   createSharedGroupClaimCode,
+  orgLineGroupCapacity,
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
 } from '@/lib/channels/store'
@@ -49,6 +50,20 @@ export async function POST(request: NextRequest) {
   // org境界: 他orgのspaceにコードを発行させない
   if (!(await verifySpaceInOrg(orgId, spaceId))) {
     return NextResponse.json({ error: 'space not found in org' }, { status: 404 })
+  }
+
+  // プラン上限（相手先グループ数）: 既に上限なら、コードを渡す前に早期に止める（UX）。
+  // ハードな上限適用は承認時（active化の瞬間）に行う。既存グループは切らない。
+  const cap = await orgLineGroupCapacity(orgId)
+  if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
+    return NextResponse.json(
+      {
+        error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
+        code: 'group_limit_reached',
+        limit: cap.maxGroups,
+      },
+      { status: 402 },
+    )
   }
 
   let targetAccountId: string | null
