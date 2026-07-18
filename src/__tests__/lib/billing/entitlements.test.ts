@@ -107,8 +107,8 @@ describe('resolvePlanFromBilling', () => {
 })
 
 describe('planHasFeature', () => {
-  it('free has neither feature', () => {
-    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(false)
+  it('free は自動タスク拾いは持つが、時刻リマインドは持たない', () => {
+    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(true)
     expect(planHasFeature('free', 'timed_line_reminders')).toBe(false)
   })
 
@@ -130,9 +130,10 @@ describe('planHasFeature', () => {
     }
   })
 
-  it('自動タスク拾いは現状 free 無し（Free開放は要決定・据え置き）', () => {
-    // NOTE: パッケージング決定で free に開放する場合はこのテストを更新する。
-    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(false)
+  it('自動タスク拾いは free に開放・ただし即時通知は Pro のみ（Free=日次まとめで差別化）', () => {
+    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(true)
+    expect(planHasFeature('free', 'instant_line_notify')).toBe(false)
+    expect(planHasFeature('pro', 'instant_line_notify')).toBe(true)
   })
 })
 
@@ -176,13 +177,15 @@ describe('resolveOrgEntitlements', () => {
     expect(result.has('timed_line_reminders')).toBe(true)
   })
 
-  it('no row -> free / has = false', async () => {
+  it('no row -> free（拾いは持つが Pro専有機能は持たない）', async () => {
     const admin = makeAdmin({ data: null, error: null })
 
     const result = await resolveOrgEntitlements(admin, 'org-1', NOW)
 
     expect(result.planId).toBe('free')
-    expect(result.has('line_pickup_dual_mode')).toBe(false)
+    expect(result.has('line_pickup_dual_mode')).toBe(true)
+    expect(result.has('instant_line_notify')).toBe(false)
+    expect(result.has('timed_line_reminders')).toBe(false)
   })
 
   it('DB error -> fail-closed to free, does not throw', async () => {
@@ -192,6 +195,7 @@ describe('resolveOrgEntitlements', () => {
       expect.objectContaining({ planId: 'free' })
     )
     const result = await resolveOrgEntitlements(admin, 'org-1', NOW)
-    expect(result.has('line_pickup_dual_mode')).toBe(false)
+    // fail-closed = free。Pro専有機能は持たない（拾いは free でも持つ）
+    expect(result.has('instant_line_notify')).toBe(false)
   })
 })

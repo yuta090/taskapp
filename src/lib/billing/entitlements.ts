@@ -20,11 +20,11 @@ export type Feature =
 const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterprise'])
 
 // Pro/Enterprise の中核価値（白ラベル・1:1DM・即時・時刻リマインド）を pro 以上に集約する。
-// NOTE(要決定・パッケージング): line_pickup_dual_mode（自動タスク拾い）を Free に開放するかは
-//   事業判断（fable 提案は「Freeに入れるが即時通知は Pro のみ」）。現状は従来どおり free 無しのまま
-//   据え置き、決定後に free へ 'line_pickup_dual_mode' を足す（instant_line_notify は Pro 専有を維持）。
+// 事業判断(2026-07): 自動タスク拾い(line_pickup_dual_mode)は Free にも開放し入口として機能させる。
+//   ただし差別化として Free は日次digestまとめのみ・即時通知(instant_line_notify)は Pro 専有とする
+//   （＝「拾い」ではなく「即時性」で課金差をつける）。
 export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
-  free: new Set(),
+  free: new Set(['line_pickup_dual_mode']),
   pro: new Set([
     'line_pickup_dual_mode',
     'timed_line_reminders',
