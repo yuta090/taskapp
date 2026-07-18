@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { constructWebhookEvent } from '@/lib/stripe'
+import { mapStripeSubscriptionStatus } from '@/lib/billing/stripeSync'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -113,25 +114,9 @@ async function handleSubscriptionUpdate(
     return
   }
 
-  // ステータスをマッピング
-  let status: string
-  switch (subscription.status) {
-    case 'active':
-      status = 'active'
-      break
-    case 'trialing':
-      status = 'trialing'
-      break
-    case 'past_due':
-      status = 'past_due'
-      break
-    case 'canceled':
-    case 'unpaid':
-      status = 'canceled'
-      break
-    default:
-      status = 'active'
-  }
+  // ステータスをマッピング（reconcile cron と同一の共有写像を使う。
+  // 未知ステータスの既定は 'active'＝従来 webhook 挙動を保持）
+  const status = mapStripeSubscriptionStatus(subscription.status)
 
   // current_period_endを安全に取得
   const currentPeriodEnd = (subscription as unknown as { current_period_end?: number }).current_period_end
