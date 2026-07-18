@@ -1,13 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Clock } from '@phosphor-icons/react'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
 
 /**
  * 時刻指定LINEリマインドの設定フィールド（③・pro以上限定）。
  * datetime-local で「いつ顧問先グループへリマインドを送るか」を設定する。
  * 保存は POST /api/tasks/[taskId]/reminder（サーバ側でorg逆引き＋プラン検証）。
- * プラン未満のorgは 403 plan_required を受けて「pro以上で利用できます」を表示する。
+ *
+ * 課金導線（④・事前導線）: useEntitlements で timed_line_reminders の可否を先読みし、
+ * 未解禁のorgには操作させる前に「pro以上で利用できます」＋プランページへの導線を出す
+ * （403を踏ませる前に案内する）。判定の真実源はサーバ側（設定403／cron fail-closed）で、
+ * これは表示専用。取得失敗/ロード中は fail-closed（解禁UIを軽々に見せない）。
  *
  * 値の変換方針: remind_at は絶対時刻(ISO)で保存する。datetime-local はブラウザ
  * ローカル時刻(=顧問先運用はJST)の壁時計なので、表示はローカルgetterで組み立て
@@ -27,14 +33,21 @@ function toDatetimeLocalValue(iso: string | null): string {
 interface TaskReminderFieldProps {
   taskId: string
   initialRemindAt: string | null
+  orgId?: string
 }
 
-export function TaskReminderField({ taskId, initialRemindAt }: TaskReminderFieldProps) {
+export function TaskReminderField({ taskId, initialRemindAt, orgId }: TaskReminderFieldProps) {
+  const { has, loading: entitlementsLoading } = useEntitlements(orgId)
   const [value, setValue] = useState(() => toDatetimeLocalValue(initialRemindAt))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [planRequired, setPlanRequired] = useState(false)
+
+  const entitled = has('timed_line_reminders')
+  // 先読みで未解禁と分かっていれば操作前に案内。ロード中や既存設定がある場合は塞がない。
+  const blockedUpfront = !entitlementsLoading && !entitled && !value
+  const showUpsell = planRequired || blockedUpfront
 
   async function save(remindAt: string | null) {
     setSaving(true)
@@ -96,9 +109,9 @@ export function TaskReminderField({ taskId, initialRemindAt }: TaskReminderField
           type="datetime-local"
           value={value}
           onChange={(e) => handleChange(e.target.value)}
-          disabled={saving}
+          disabled={saving || blockedUpfront}
           data-testid="task-inspector-remind-at"
-          className="flex-1 min-w-0 px-1.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+          className="flex-1 min-w-0 px-1.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 disabled:bg-gray-50"
         />
         {value && (
           <button
@@ -111,14 +124,17 @@ export function TaskReminderField({ taskId, initialRemindAt }: TaskReminderField
           </button>
         )}
       </div>
-      {planRequired && (
+      {showUpsell && (
         <p className="text-xs text-amber-600">
-          時刻リマインドは pro 以上のプランで利用できます。
+          時刻リマインドは <span className="font-medium">pro 以上</span> のプランで利用できます。{' '}
+          <Link href="/settings/billing" className="underline hover:text-amber-700">
+            プランを見る
+          </Link>
         </p>
       )}
       {error && <p className="text-xs text-red-500">{error}</p>}
       {saved && <p className="text-xs text-green-600">保存しました</p>}
-      {value && !planRequired && !error && (
+      {value && !showUpsell && !error && (
         <p className="text-xs text-gray-400">設定時刻に、この案件のLINEグループへ秘書がリマインドします。</p>
       )}
     </div>
