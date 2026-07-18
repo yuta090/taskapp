@@ -33,6 +33,9 @@ const state = {
   upserts: [] as Array<{ table: string; value: unknown }>,
   deletes: [] as string[],
   updates: [] as Array<{ table: string; value: unknown }>,
+  // DBエラー注入用（既定 null＝成功）。
+  refError: null as { message: string } | null, // maybeSingle(refs) が返すエラー
+  writeError: null as { message: string } | null, // upsert/update/delete の await が返すエラー
 }
 function makeChain(table: string) {
   const chain: Record<string, unknown> = {}
@@ -55,9 +58,12 @@ function makeChain(table: string) {
       Promise.resolve({ data: table === 'integration_connections' ? state.conn : null, error: null }),
     ),
     maybeSingle: vi.fn(() =>
-      Promise.resolve({ data: table === 'user_task_mirror_refs' ? state.ref : null, error: null }),
+      Promise.resolve({
+        data: table === 'user_task_mirror_refs' ? state.ref : null,
+        error: table === 'user_task_mirror_refs' ? state.refError : null,
+      }),
     ),
-    then: (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null }),
+    then: (resolve: (v: unknown) => unknown) => resolve({ data: null, error: state.writeError }),
   })
   return chain
 }
@@ -72,7 +78,7 @@ const { dispatchTaskMirrorBatch } = await import('@/lib/google-tasks/mirror')
 
 const CONN = 'conn-1'
 function job(op: string, payload: Record<string, unknown> = {}, id = 'job-1') {
-  return { id, connection_id: CONN, task_id: 'task-1', op, payload, attempt: 0 }
+  return { id, connection_id: CONN, task_id: 'task-1', op, payload, attempt: 0, version: 1, leased_until: null }
 }
 function claimReturns(jobs: unknown[]) {
   rpcMock.mockImplementation((name: string) =>
@@ -91,6 +97,8 @@ beforeEach(() => {
   state.upserts = []
   state.deletes = []
   state.updates = []
+  state.refError = null
+  state.writeError = null
   getValidTokenDetailedMock.mockResolvedValue({ status: 'ok', token: 'access-token' })
   insertTaskMock.mockResolvedValue({ id: 'gt-new' })
   patchTaskMock.mockResolvedValue({ id: 'gt-1' })
@@ -199,5 +207,69 @@ describe('dispatchTaskMirrorBatch', () => {
     const metaUpdate = state.updates.find((u) => u.table === 'integration_connections')
     expect((metaUpdate?.value as { metadata: { tasklist_id: string } }).metadata.tasklist_id).toBe('list-created')
     expect(insertTaskMock).toHaveBeenCalledWith('access-token', 'list-created', expect.anything())
+  })
+})
+
+// 見つけやすさのためのヘルパ: 指定 outcome の complete 呼び出しを返す。
+function completeCall(outcome: string) {
+  return rpcMock.mock.calls.find(
+    (c) =>
+      c[0] === 'rpc_complete_task_mirror_job' && (c[1] as { p_outcome: string }).p_outcome === outcome,
+  )
+}
+
+describe('並行性・エラー処理レビュー対応（fable設計: version/lease/ref-first/補償）', () => {
+  it('complete RPC に job.version を渡す（処理中 fold を RPC 側で弾けるように）', async () => {
+    claimReturns([{ ...job('upsert', { title: 'x' }), version: 7 }])
+    await dispatchTaskMirrorBatch()
+    const done = completeCall('done')
+    expect((done?.[1] as { p_version: number }).p_version).toBe(7)
+  })
+
+  it('#6 getRef の DBエラーを ref=null と誤認せず temporary_fail（二重作成を防ぐ）', async () => {
+    state.refError = { message: 'db down' }
+    claimReturns([job('upsert', { title: 'x' })])
+    const s = await dispatchTaskMirrorBatch()
+    expect(insertTaskMock).not.toHaveBeenCalled() // ref 不明のまま insert しない
+    expect(s.tempFailed).toBe(1)
+    expect(s.done).toBe(0)
+  })
+
+  it('#5 insert 成功→saveRef 失敗 は補償 delete して temporary_fail（done にしない）', async () => {
+    state.ref = null
+    insertTaskMock.mockResolvedValue({ id: 'gt-created' })
+    state.writeError = { message: 'ref upsert failed' } // saveRef の upsert がエラー
+    claimReturns([job('upsert', { title: 'x' })])
+    const s = await dispatchTaskMirrorBatch()
+    // 作ったばかりの Google タスクを補償 delete する
+    expect(deleteTaskMock).toHaveBeenCalledWith('access-token', 'list-1', 'gt-created')
+    expect(s.tempFailed).toBe(1)
+    expect(completeCall('done')).toBeUndefined()
+  })
+
+  it('#7 delete は payload に ID が無くても refs から解決して削除する', async () => {
+    state.ref = { google_task_id: 'gt-ref', google_tasklist_id: 'list-ref' }
+    claimReturns([job('delete', {})]) // payload に google_task_id 無し
+    await dispatchTaskMirrorBatch()
+    expect(deleteTaskMock).toHaveBeenCalledWith('access-token', 'list-ref', 'gt-ref')
+    expect(state.deletes).toContain('user_task_mirror_refs') // ref も掃除
+  })
+
+  it('complete の 404（既に消えている）は dead にせず done 扱い', async () => {
+    state.ref = { google_task_id: 'gt-1', google_tasklist_id: 'list-1' }
+    patchTaskMock.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    claimReturns([job('complete', {})])
+    const s = await dispatchTaskMirrorBatch()
+    expect(s.done).toBe(1)
+    expect(s.dead).toBe(0)
+  })
+
+  it('lease 切れの行は処理せずスキップ（complete を呼ばない）', async () => {
+    const stale = { ...job('upsert', { title: 'x' }), leased_until: '2000-01-01T00:00:00.000Z' }
+    claimReturns([stale])
+    const s = await dispatchTaskMirrorBatch()
+    expect(insertTaskMock).not.toHaveBeenCalled()
+    expect(rpcMock.mock.calls.find((c) => c[0] === 'rpc_complete_task_mirror_job')).toBeUndefined()
+    expect(s.done).toBe(0)
   })
 })

@@ -36,10 +36,12 @@ interface ConnRow {
 
 /** 接続の refs を google_task_id -> task_id の Map に読み込む。 */
 async function loadRefMap(connectionId: string): Promise<Map<string, string>> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from('user_task_mirror_refs')
     .select('task_id, google_task_id')
     .eq('connection_id', connectionId)
+  // ref 取得に失敗したのに完了を「対応なし」で握りつぶすと取りこぼす。throw して cursor を進めない。
+  if (error) throw new Error(`loadRefMap failed: ${error.message}`)
   const map = new Map<string, string>()
   for (const r of (data as Array<{ task_id: string; google_task_id: string }> | null) ?? []) {
     map.set(r.google_task_id, r.task_id)
@@ -80,7 +82,12 @@ async function pollConnection(conn: ConnRow, summary: PollSummary): Promise<void
         for (const gt of completed) {
           const taskId = refMap.get(gt.id)
           if (!taskId) continue
-          const { data } = await admin().rpc('rpc_mirror_complete_task', { p_task_id: taskId })
+          const { data, error } = await admin().rpc('rpc_mirror_complete_task', {
+            p_connection_id: conn.id,
+            p_task_id: taskId,
+          })
+          // 逆流の適用失敗は cursor を進めず次回再試行（try の外で cursor 前進するため throw で止める）。
+          if (error) throw new Error(`rpc_mirror_complete_task failed: ${error.message}`)
           if (data === true) summary.completed++
         }
       }

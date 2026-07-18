@@ -58,6 +58,14 @@ create table if not exists public.user_task_mirror_jobs (
   status          text not null default 'pending' check (status in ('pending', 'done', 'dead')),
   attempt         int not null default 0,
   next_attempt_at timestamptz not null default now(),
+  -- version: enqueue で fold されるたび +1。claim が捕捉し complete で照合する。
+  --   処理中に fold（新しい op で上書き）されると version が進み、古い worker の complete が
+  --   version 不一致で弾かれる → 最新 op を捨てず pending のまま次サイクルで配達する。
+  version         bigint not null default 1,
+  -- leased_until: 実行中リース（in-flight）。next_attempt_at（バックオフ予定）とは分離する。
+  --   相乗りさせると enqueue の fold（next_attempt_at=now() リセット）が lease を壊し二重 claim を招く。
+  --   null=未リース。claim 中は now()+10分。complete で null に戻す。
+  leased_until    timestamptz,
   last_error      text,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
@@ -127,8 +135,12 @@ as $$
   insert into public.user_task_mirror_jobs (connection_id, task_id, op, payload, status, next_attempt_at)
   values (p_connection, p_task, p_op, p_payload, 'pending', now())
   on conflict (connection_id, task_id) where status = 'pending'
+  -- fold: op/payload を最新に上書きし attempt/next_attempt_at をリセット。version は必ず +1
+  -- （処理中の worker に「あなたが取ったものは古い」と伝える鍵）。leased_until は触らない
+  -- （実行中リースは claim/complete が管理する。ここでリセットすると二重 claim を招く）。
   do update set op = excluded.op, payload = excluded.payload,
-                attempt = 0, next_attempt_at = now(), last_error = null, updated_at = now();
+                attempt = 0, next_attempt_at = now(), last_error = null,
+                version = public.user_task_mirror_jobs.version + 1, updated_at = now();
 $$;
 
 -- tasks の AFTER INSERT/UPDATE/DELETE で、対象への出入り・内容変化を検知して enqueue する。
@@ -218,7 +230,9 @@ security definer
 set search_path = public
 as $$
 declare
-  v_lease_until timestamptz := now() + interval '2 minutes';
+  -- lease は cron 間隔(5分)×2 を目安に 10 分。バッチを接続ごと逐次処理する間に
+  -- lease 切れで二重 claim される窓を塞ぐ。next_attempt_at ではなく leased_until を進める。
+  v_lease_until timestamptz := now() + interval '10 minutes';
 begin
   return query
   with candidates as (
@@ -227,6 +241,7 @@ begin
     join public.integration_connections c on c.id = j.connection_id
     where j.status = 'pending'
       and j.next_attempt_at <= now()
+      and (j.leased_until is null or j.leased_until <= now())  -- 実行中(リース有効)の行は取らない
       and c.status = 'active'
     order by j.next_attempt_at asc
     limit greatest(p_total_limit * 10, 1000)
@@ -242,7 +257,7 @@ begin
     order by next_attempt_at asc limit p_total_limit
   )
   update public.user_task_mirror_jobs j
-  set next_attempt_at = v_lease_until
+  set leased_until = v_lease_until  -- next_attempt_at は触らない（fold と衝突させない）
   from chosen
   where j.id = chosen.id
   returning j.*;
@@ -256,6 +271,7 @@ $$;
 -- -----------------------------------------------------------------------------
 create or replace function public.rpc_complete_task_mirror_job(
   p_job_id uuid,
+  p_version bigint,
   p_outcome text,
   p_error text default null
 )
@@ -266,31 +282,46 @@ set search_path = public
 as $$
 declare
   v_attempt int;
+  v_version bigint;
+  v_status text;
   v_backoff constant int[] := array[1, 5, 30, 120, 360];  -- 分
   v_delay int;
 begin
-  select attempt into v_attempt from public.user_task_mirror_jobs where id = p_job_id for update;
+  select attempt, version, status into v_attempt, v_version, v_status
+    from public.user_task_mirror_jobs where id = p_job_id for update;
   if not found then return; end if;
+  if v_status <> 'pending' then return; end if;  -- done/dead は終端・不変
 
+  if v_version <> p_version then
+    -- 処理中に fold された（この worker が処理したのは古い op）。最新 op は既に pending
+    -- (attempt=0, next_attempt_at=now()) で入っている。lease だけ解いて即再配達可能にする。
+    update public.user_task_mirror_jobs
+      set leased_until = null, updated_at = now()
+      where id = p_job_id;
+    return;
+  end if;
+
+  -- version 一致：この worker の処理結果を確定する。どの分岐でも lease を解く。
   if p_outcome = 'done' then
     update public.user_task_mirror_jobs
-      set status = 'done', last_error = null, updated_at = now()
+      set status = 'done', last_error = null, leased_until = null, updated_at = now()
       where id = p_job_id;
   elsif p_outcome = 'permanent_fail' then
     update public.user_task_mirror_jobs
-      set status = 'dead', last_error = p_error, updated_at = now()
+      set status = 'dead', last_error = p_error, leased_until = null, updated_at = now()
       where id = p_job_id;
   else  -- temporary_fail
     if v_attempt + 1 >= array_length(v_backoff, 1) + 1 then
       update public.user_task_mirror_jobs
-        set status = 'dead', attempt = v_attempt + 1, last_error = p_error, updated_at = now()
+        set status = 'dead', attempt = v_attempt + 1, last_error = p_error,
+            leased_until = null, updated_at = now()
         where id = p_job_id;
     else
       v_delay := v_backoff[v_attempt + 1];
       update public.user_task_mirror_jobs
         set attempt = v_attempt + 1,
             next_attempt_at = now() + make_interval(mins => v_delay),
-            last_error = p_error, updated_at = now()
+            last_error = p_error, leased_until = null, updated_at = now()
         where id = p_job_id;
     end if;
   end if;
@@ -301,7 +332,7 @@ $$;
 -- 6) 逆流 RPC: Google 側の完了を TaskApp へ。status='done' に(既に done なら no-op)。ball は触らない。
 --    条件付き更新なので、既に done の行は UPDATE 0件 → tasks トリガーも発火せずループしない。
 -- -----------------------------------------------------------------------------
-create or replace function public.rpc_mirror_complete_task(p_task_id uuid)
+create or replace function public.rpc_mirror_complete_task(p_connection_id uuid, p_task_id uuid)
 returns boolean
 language plpgsql
 security definer
@@ -310,9 +341,21 @@ as $$
 declare
   v_updated int;
 begin
-  update public.tasks
+  -- 誤完了ガード: 「その接続の所有者が今も担当」かつ「ref が現存」する場合のみ done 化する。
+  -- 担当替え後に旧担当の Google 完了が別担当のタスクを done 化する事故を防ぐ（ref は削除ジョブ
+  -- 完了時に消えるので、既に付け替え済みなら 0 件になる）。既に done なら条件で 0 件＝ループ防止。
+  update public.tasks t
     set status = 'done', updated_at = now()
-    where id = p_task_id and status <> 'done';
+    where t.id = p_task_id
+      and t.status <> 'done'
+      and t.assignee_id = (
+        select c.owner_id from public.integration_connections c
+        where c.id = p_connection_id and c.provider = 'google_tasks' and c.owner_type = 'user'
+      )
+      and exists (
+        select 1 from public.user_task_mirror_refs r
+        where r.connection_id = p_connection_id and r.task_id = p_task_id
+      );
   get diagnostics v_updated = row_count;
   return v_updated > 0;
 end;
@@ -366,13 +409,13 @@ revoke all on function public._google_tasks_connection_for(uuid) from public, an
 revoke all on function public._enqueue_task_mirror_job(uuid, uuid, text, jsonb) from public, anon, authenticated;
 revoke all on function public.enqueue_task_mirror() from public, anon, authenticated;
 revoke all on function public.rpc_claim_task_mirror_jobs(int, int) from public, anon, authenticated;
-revoke all on function public.rpc_complete_task_mirror_job(uuid, text, text) from public, anon, authenticated;
-revoke all on function public.rpc_mirror_complete_task(uuid) from public, anon, authenticated;
+revoke all on function public.rpc_complete_task_mirror_job(uuid, bigint, text, text) from public, anon, authenticated;
+revoke all on function public.rpc_mirror_complete_task(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.rpc_backfill_task_mirror(uuid) from public, anon, authenticated;
 
 grant execute on function public.rpc_claim_task_mirror_jobs(int, int) to service_role;
-grant execute on function public.rpc_complete_task_mirror_job(uuid, text, text) to service_role;
-grant execute on function public.rpc_mirror_complete_task(uuid) to service_role;
+grant execute on function public.rpc_complete_task_mirror_job(uuid, bigint, text, text) to service_role;
+grant execute on function public.rpc_mirror_complete_task(uuid, uuid) to service_role;
 grant execute on function public.rpc_backfill_task_mirror(uuid) to service_role;
 
 -- -----------------------------------------------------------------------------

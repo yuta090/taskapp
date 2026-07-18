@@ -71,7 +71,10 @@ describe('pollTaskMirrorBatch', () => {
       nextPageToken: null,
     })
     const s = await pollTaskMirrorBatch()
-    expect(rpcMock).toHaveBeenCalledWith('rpc_mirror_complete_task', { p_task_id: 'task-1' })
+    expect(rpcMock).toHaveBeenCalledWith('rpc_mirror_complete_task', {
+      p_connection_id: 'conn-1',
+      p_task_id: 'task-1',
+    })
     expect(s.completed).toBe(1)
   })
 
