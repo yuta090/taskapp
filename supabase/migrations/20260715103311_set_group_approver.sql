@@ -21,11 +21,20 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_current uuid;
 begin
-  -- グループ行をロック（並行 ingest / 二重設定を直列化）
-  perform 1 from public.channel_groups where id = p_group_id for update;
+  -- グループ行をロック（並行 ingest / 二重設定を直列化）。現在の approver も同時に読む。
+  select approver_user_id into v_current
+  from public.channel_groups where id = p_group_id for update;
   if not found then
     return;  -- 存在しないグループは no-op（呼び出し側が org 一致を検証済み）
+  end if;
+
+  -- 変更が無ければ何もしない（冪等）。ここで return しないと、同一 approver の再設定(A→B→B)や
+  -- 二重クリックが *正当な* pending 候補まで none に戻して消してしまう（データ損失）。
+  if v_current is not distinct from p_new_approver then
+    return;
   end if;
 
   -- 宙吊り防止: 未処理 pending を通常の申し送り(none)へ戻す（CHECK 充足のため付随列を全消し）
