@@ -89,7 +89,7 @@ export async function applyBillingReconcile(
   orgId: string,
   patch: BillingReconcilePatch,
   opts: { clearSubscriptionId?: boolean; expectedSubscriptionId?: string } = {},
-): Promise<void> {
+): Promise<boolean> {
   const update: Record<string, unknown> = {
     status: patch.status,
     current_period_end: patch.current_period_end,
@@ -103,8 +103,12 @@ export async function applyBillingReconcile(
   if (opts.expectedSubscriptionId) {
     query = query.eq('stripe_subscription_id', opts.expectedSubscriptionId)
   }
-  const { error } = await query
+  // .select() で実際に更新された行を取得する。CAS(expectedSubscriptionId)不一致だと 0 行で
+  // error=null になるため、行数を見て「適用済み」か「CAS 競合で未適用」かを呼び出し側へ返す
+  // （未適用を updated に数えて over-entitlement を監視から隠さないため）。
+  const { data, error } = await query.select('org_id')
   if (error) {
     throw new Error(`applyBillingReconcile failed for ${orgId}: ${error.message}`)
   }
+  return Array.isArray(data) && data.length > 0
 }

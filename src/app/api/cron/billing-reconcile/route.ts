@@ -71,6 +71,9 @@ export async function POST(request: NextRequest) {
   const changes: Array<{ orgId: string; from: string | null; toStatus: string; toPlan?: string }> = []
   // resource_missing（削除済み）の行は即適用せず集約し、後段のサーキットブレーカ判定後にまとめて処理。
   const missingRows: typeof rows = []
+  // 一時的な Stripe エラー(5xx/network 等)が1件でもあれば Stripe/構成が不健全と判断し、missing の
+  // 破壊的 downgrade を保留するためのフラグ。
+  let hadTransientStripeError = false
   let updated = 0
 
   for (const row of rows) {
@@ -104,12 +107,16 @@ export async function POST(request: NextRequest) {
         toStatus: patch.status,
         ...(patch.plan_id ? { toPlan: patch.plan_id } : {}),
       })
-      if (!dryRun) {
-        await applyBillingReconcile(row.orgId, patch, {
+      if (dryRun) {
+        updated += 1
+      } else {
+        const applied = await applyBillingReconcile(row.orgId, patch, {
           expectedSubscriptionId: row.stripeSubscriptionId,
         })
+        // CAS 不一致(0行)は「取得後に sub が差し替わった」＝未適用。updated に数えず可視化する。
+        if (applied) updated += 1
+        else skipped.push({ orgId: row.orgId, reason: 'cas_conflict' })
       }
-      updated += 1
     } catch (err) {
       // Stripe 側で消滅(resource_missing)＝削除済みなら free に戻す破壊的操作。ただし即時には
       // 適用せず一旦集める（後段のサーキットブレーカで一括ダウングレードの暴発を止めるため）。
@@ -117,6 +124,7 @@ export async function POST(request: NextRequest) {
       if (isResourceMissing(err)) {
         missingRows.push(row)
       } else {
+        hadTransientStripeError = true
         skipped.push({
           orgId: row.orgId,
           reason: err instanceof Error ? err.message : 'unknown',
@@ -125,12 +133,15 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // サーキットブレーカ: resource_missing が「多数かつ高割合」なら、鍵取り違え/test↔live 不一致/
-  // ID一括破損など運用事故の可能性が高い。全 org を一気に free 化する前に止めて調査させる。
-  // 小規模アカウントでの正当な少数消滅は通す（絶対数の下限で誤発火を防ぐ）。
+  // サーキットブレーカ: 全 org を一気に free 化する前に、運用事故の可能性が高い状況で止める。
+  //  1) 同じ実行に一時的な Stripe エラーが1件でもあれば Stripe/構成が不健全とみなし、missing の
+  //     破壊的 downgrade は全て保留（「5 missing + 6×503」で誤 downgrade しない fail-closed）。
+  //  2) missing が「多数かつ高割合」なら鍵取り違え/test↔live 不一致/ID一括破損の疑い。
+  //  小規模かつエラー無しの正当な少数消滅は通す（絶対数の下限で誤発火を防ぐ）。
   const missingCount = missingRows.length
   const breakerTripped =
-    missingCount >= MISSING_BREAKER_MIN_ABS && missingCount > rows.length * MISSING_BREAKER_FRACTION
+    (missingCount > 0 && hadTransientStripeError) ||
+    (missingCount >= MISSING_BREAKER_MIN_ABS && missingCount > rows.length * MISSING_BREAKER_FRACTION)
 
   if (breakerTripped) {
     for (const row of missingRows) {
@@ -140,13 +151,16 @@ export async function POST(request: NextRequest) {
     for (const row of missingRows) {
       const patch = deletedSubscriptionPatch()
       changes.push({ orgId: row.orgId, from: row.status, toStatus: patch.status, toPlan: 'free' })
-      if (!dryRun) {
-        await applyBillingReconcile(row.orgId, patch, {
+      if (dryRun) {
+        updated += 1
+      } else {
+        const applied = await applyBillingReconcile(row.orgId, patch, {
           clearSubscriptionId: true,
           expectedSubscriptionId: row.stripeSubscriptionId,
         })
+        if (applied) updated += 1
+        else skipped.push({ orgId: row.orgId, reason: 'cas_conflict' })
       }
-      updated += 1
     }
   }
 

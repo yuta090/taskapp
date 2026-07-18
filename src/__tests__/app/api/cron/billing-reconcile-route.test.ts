@@ -53,7 +53,7 @@ describe('POST /api/cron/billing-reconcile', () => {
     process.env.STRIPE_PRO_PRICE_ID = 'price_pro'
     process.env.STRIPE_ENTERPRISE_PRICE_ID = 'price_ent'
     storeMock.listReconcilableBillingRows.mockResolvedValue([PRO_ROW])
-    storeMock.applyBillingReconcile.mockResolvedValue(undefined)
+    storeMock.applyBillingReconcile.mockResolvedValue(true) // 既定: 1行更新（適用済み）
   })
 
   it('CRON_SECRET が無ければ 401', async () => {
@@ -161,5 +161,35 @@ describe('POST /api/cron/billing-reconcile', () => {
       expect.objectContaining({ plan_id: 'free', status: 'active' }),
       { clearSubscriptionId: true, expectedSubscriptionId: 'sub_1' },
     )
+  })
+
+  it('CAS 不一致（0行更新）は updated に数えず cas_conflict として可視化する', async () => {
+    // 取得後に sub が差し替わった想定: applyBillingReconcile が false（0行）を返す
+    retrieveMock.mockResolvedValue({ status: 'canceled', items: { data: [{ price: { id: 'price_pro' } }] } })
+    storeMock.applyBillingReconcile.mockResolvedValue(false)
+    const res = await callPost()
+    const json = await res.json()
+    expect(json.updated).toBe(0)
+    expect(json.skipped).toContainEqual({ orgId: 'org-1', reason: 'cas_conflict' })
+  })
+
+  it('同一実行に一時Stripeエラーがあれば missing の破壊的 downgrade を保留する（fail-closed）', async () => {
+    // org-0..1 は消滅、org-2 は一時エラー(503)。missing<5 でも一時エラー混在なら発火。
+    storeMock.listReconcilableBillingRows.mockResolvedValue([
+      { ...PRO_ROW, orgId: 'org-0', stripeSubscriptionId: 'sub_0' },
+      { ...PRO_ROW, orgId: 'org-1', stripeSubscriptionId: 'sub_1' },
+      { ...PRO_ROW, orgId: 'org-2', stripeSubscriptionId: 'sub_2' },
+    ])
+    retrieveMock.mockImplementation((id: string) =>
+      id === 'sub_2'
+        ? Promise.reject(Object.assign(new Error('server error'), { statusCode: 503 }))
+        : Promise.reject({ code: 'resource_missing' }),
+    )
+    const res = await callPost()
+    const json = await res.json()
+    expect(json.circuitBreaker).toBe('resource_missing')
+    expect(json.updated).toBe(0)
+    // 破壊的な free 化は書き込まない
+    expect(storeMock.applyBillingReconcile).not.toHaveBeenCalled()
   })
 })
