@@ -138,8 +138,8 @@ describe('planHasFeature', () => {
 })
 
 describe('planLimits', () => {
-  it('free は狭い上限（グループ3・共通LINE送信200）', () => {
-    expect(planLimits('free')).toEqual({ maxLineGroups: 3, monthlySharedPushQuota: 200 })
+  it('free は狭い上限（グループ3・共通LINE送信50）', () => {
+    expect(planLimits('free')).toEqual({ maxLineGroups: 3, monthlySharedPushQuota: 50 })
   })
   it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
     expect(planLimits('pro').maxLineGroups).toBe(50)

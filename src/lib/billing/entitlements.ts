@@ -49,16 +49,22 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
  *
  * NOTE(要決定・数値): 下記は仮の初期値。実運用の集計（有料org数・平均グループ数・push実績）を見て
  *   確定する。Free は「狭く始めて広げる」（増やすのは無風・減らすのは炎上）ため小さめに置く。
+ *
+ * ⚠ 重要(fable指摘・要フォローアップ): LINE無料枠(200通/月)は「LINEアカウント単位・共有bot全org相乗り」で
+ *   あり org 単位ではない。よって monthlySharedPushQuota を「org別cap」だけで運用すると、1 Free org が
+ *   共有アカウントの無料枠を食い潰し持ち出しが非有界になる。正しくは【グローバル予算(200×アカウント数＋
+ *   許容持ち出し) ＋ org別cap(日次digest 1通/日から逆算した実効 ~35-60通/月)】の二層制にする。
+ *   下の org別cap は日次digest設計に沿った安全側の値に下げ、グローバル予算の実装は別PR。
  */
 export interface PlanLimits {
   /** 接続できる相手先グループ数の上限。null=無制限 */
   maxLineGroups: number | null
-  /** 共通LINE(共有bot)の月間送信クォータ。null=無制限（自社LINEは原価が顧客側のため無制限） */
+  /** 共通LINE(共有bot)の org別 月間送信クォータ（日次digest基準の安全側仮値）。null=無制限 */
   monthlySharedPushQuota: number | null
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
-  free: { maxLineGroups: 3, monthlySharedPushQuota: 200 },
+  free: { maxLineGroups: 3, monthlySharedPushQuota: 50 },
   pro: { maxLineGroups: 50, monthlySharedPushQuota: null },
   enterprise: { maxLineGroups: null, monthlySharedPushQuota: null },
 }
