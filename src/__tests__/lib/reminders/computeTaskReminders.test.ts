@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   selectDueTaskReminders,
   buildTaskReminderText,
+  preferPlatformLinks,
   type TaskReminderInput,
 } from '@/lib/reminders/computeTaskReminders'
 
@@ -96,5 +97,27 @@ describe('buildTaskReminderText', () => {
     const text = buildTaskReminderText(task({ dueDate: null }))
     expect(typeof text).toBe('string')
     expect(text.length).toBeGreaterThan(0)
+  })
+})
+
+describe('preferPlatformLinks', () => {
+  const org = { id: 'g-org', ownerType: 'org' as const }
+  const platform = { id: 'g-plat', ownerType: 'platform' as const }
+
+  it('platformとorgが混在したら platform だけに絞る(共有Bot優先・二重配信を防ぐ)', () => {
+    expect(preferPlatformLinks([org, platform]).map((l) => l.id)).toEqual(['g-plat'])
+  })
+
+  it('platformが無ければ org へフォールバック(無音の未送信を防ぐ)', () => {
+    expect(preferPlatformLinks([org]).map((l) => l.id)).toEqual(['g-org'])
+  })
+
+  it('platformが複数なら全platformを返す', () => {
+    const p2 = { id: 'g-plat2', ownerType: 'platform' as const }
+    expect(preferPlatformLinks([platform, org, p2]).map((l) => l.id)).toEqual(['g-plat', 'g-plat2'])
+  })
+
+  it('空配列はそのまま空', () => {
+    expect(preferPlatformLinks([])).toEqual([])
   })
 })

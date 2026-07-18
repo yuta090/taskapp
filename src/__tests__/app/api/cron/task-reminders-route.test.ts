@@ -68,6 +68,7 @@ const GROUP_LINK = {
   orgId: 'org-1',
   accountId: 'acc-1',
   externalGroupId: 'G-1',
+  ownerType: 'platform',
 }
 
 describe('POST /api/cron/task-reminders', () => {
@@ -122,6 +123,29 @@ describe('POST /api/cron/task-reminders', () => {
     expect(res.status).toBe(200)
     expect(pushMock).not.toHaveBeenCalled()
     expect(storeMock.markTaskReminderSent).not.toHaveBeenCalled()
+  })
+
+  it('同一spaceにplatformとorgが紐付く場合、共有Bot(platform)だけへ配信する', async () => {
+    storeMock.findActiveGroupsForSpaces.mockResolvedValue([
+      { spaceId: 'space-1', orgId: 'org-1', accountId: 'acc-org', externalGroupId: 'G-ORG', ownerType: 'org' },
+      GROUP_LINK, // platform / G-1
+    ])
+    const res = await callPost()
+    expect(res.status).toBe(200)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(pushMock.mock.calls[0][0].to).toBe('G-1')
+    expect(storeMock.findLineAccountById).toHaveBeenCalledWith('acc-1')
+    expect(storeMock.findLineAccountById).not.toHaveBeenCalledWith('acc-org')
+  })
+
+  it('platformが無ければ org へフォールバックして配信する', async () => {
+    storeMock.findActiveGroupsForSpaces.mockResolvedValue([
+      { spaceId: 'space-1', orgId: 'org-1', accountId: 'acc-org', externalGroupId: 'G-ORG', ownerType: 'org' },
+    ])
+    const res = await callPost()
+    expect(res.status).toBe(200)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(pushMock.mock.calls[0][0].to).toBe('G-ORG')
   })
 
   it('push が失敗したら sent を刻まない(次回再送)', async () => {
