@@ -39,7 +39,8 @@ describe('LineFriendQr', () => {
     expect(screen.getByText(/コードを1:1トークに送信/)).toBeInTheDocument()
     expect(screen.getByText(/追加だけでは連携されません/)).toBeInTheDocument()
     // org専用bot向けの文言
-    expect(screen.getByText(/あなたの事務所専用/)).toBeInTheDocument()
+    // org専用botでは付加ヘッダを出さない（文字を減らす。共有botのときだけ注意を出す）
+    expect(screen.queryByText(/共通の秘書アカウント/)).not.toBeInTheDocument()
   })
 
   it('purpose=group: 友だち追加→グループ招待→グループのトークにコード送信の3手順を表示する', async () => {
