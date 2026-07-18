@@ -89,27 +89,11 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
   }
 
   return (
-    <div className="space-y-6">
-      <section>
-        <h2 className="text-sm font-semibold text-gray-900">
-          自分のLINEを連携（承認をLINEで受け取る）
-        </h2>
-        <p className="mt-1 text-xs text-gray-500">
-          申し送り候補をタスクとして承認するには、担当者<strong>本人</strong>のLINE連携が必要です。
-          未連携だと承認の依頼はLINEに届きません。
-          <br />
-          ※これは<strong>あなた個人</strong>の連携です。事務所の秘書アカウントの接続（下で「接続済み」と表示）とは別物です。
-        </p>
-      </section>
-
-      {/* 事務所の秘書アカウント自体の接続状態。ここが未接続だと誤読されがちなので明示する */}
+    <div className="space-y-4">
       {account && (
         <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
           <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
-          <span>
-            事務所の秘書「{account.displayName}」は<strong>接続済み</strong>です。
-            あとは下の手順で<strong>あなた自身のLINE</strong>を連携するだけです。
-          </span>
+          <span>「{account.displayName}」は接続済み。あとはあなたのLINEをつなぐだけです。</span>
         </div>
       )}
 
@@ -120,25 +104,10 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
         </div>
       )}
 
-      <section>
-        <h3 className="text-xs font-semibold text-gray-900">① 秘書を友だち追加（未追加の人だけ）</h3>
-        <p className="mt-1 text-xs text-gray-500">
-          <strong>すでに秘書を友だち追加済みの方は、この手順は不要です。②へ進んでください。</strong>
-          <br />
-          まだの場合だけ、下のQRから追加してください（追加しただけでは連携は完了しません）。
-        </p>
-        <div className="mt-2">
-          <LineFriendQr orgId={orgId} />
-        </div>
-      </section>
-
-      <section>
-        <h3 className="text-xs font-semibold text-gray-900">② コードを発行して1:1トークに送信</h3>
-        <p className="mt-1 text-xs text-gray-500">
-          下のボタンでコードを発行し、秘書との1:1トークに送信すると連携完了です。
-          <strong>すでに友だち追加済みでも、この②が必要です</strong>（友だち追加だけでは連携されません）。
-        </p>
-      </section>
+      <LineFriendQr orgId={orgId} />
+      <p className="text-xs text-gray-500">
+        すでに友だち追加済みなら、下のボタンでコードを発行し、秘書との1:1トークに送るだけです。
+      </p>
 
       {issuedCode ? (
         <section className="rounded border border-amber-300 bg-amber-50 p-4">
@@ -158,14 +127,9 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
               {copied ? 'コピー済み' : 'コピー'}
             </button>
           </div>
-          <ul className="mt-3 space-y-1 text-xs text-amber-900">
-            <li>・有効期限は15分です。1回使うと無効になります。</li>
-            <li>
-              ・<strong>グループには絶対に貼らないでください。</strong>
-              貼られた場合は安全のため自動で無効化されます。
-            </li>
-            <li>・この画面を離れると再表示できません（再発行してください）。</li>
-          </ul>
+          <p className="mt-2 text-[11px] text-amber-900">
+            15分で失効・1回のみ。<strong>グループには貼らないでください。</strong>
+          </p>
         </section>
       ) : (
         <section className="space-y-2">
@@ -180,7 +144,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
               onClick={() => issue(account.id)}
               className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
             >
-              {account.displayName} と自分のLINEを連携する
+              コードを発行してつなぐ
             </button>
           )}
         </section>
@@ -189,9 +153,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       <section>
         <h3 className="text-xs font-semibold text-gray-900">連携済み</h3>
         {links.length === 0 ? (
-          <p className="mt-2 text-xs text-gray-500">
-            まだ自分のLINEを連携していません。上の②から連携できます。
-          </p>
+          <p className="mt-2 text-xs text-gray-500">まだつないでいません。</p>
         ) : (
           <ul className="mt-2 divide-y divide-gray-200 rounded border border-gray-200">
             {links.map((link) => (

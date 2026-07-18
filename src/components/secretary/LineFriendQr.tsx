@@ -108,13 +108,13 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <p className="text-xs font-semibold text-gray-900">
-        {ownerType === 'platform'
-          ? '共通の秘書アカウントです。コード送信が必ず必要です'
-          : 'あなたの事務所専用のLINE秘書です'}
-      </p>
+      {ownerType === 'platform' && (
+        <p className="text-xs font-semibold text-gray-900">
+          共通の秘書アカウントです。コード送信が必ず必要です。
+        </p>
+      )}
 
-      <div className="mt-3 flex items-start gap-3">
+      <div className="flex items-start gap-3">
         {qrDataUrl && (
           // eslint-disable-next-line @next/next/no-img-element -- data URLはnext/imageの対象外
           <img

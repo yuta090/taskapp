@@ -45,7 +45,7 @@ describe('SelfLinkPanel', () => {
     render(<SelfLinkPanel orgId={ORG} />)
 
     await waitFor(() => {
-      expect(screen.getByText(/山田会計事務所 と自分のLINEを連携する/)).toBeInTheDocument()
+      expect(screen.getByText(/コードを発行してつなぐ/)).toBeInTheDocument()
     })
   })
 
@@ -62,7 +62,7 @@ describe('SelfLinkPanel', () => {
     mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
     render(<SelfLinkPanel orgId={ORG} />)
 
-    await waitFor(() => screen.getByText(/OA と自分のLINEを連携する/))
+    await waitFor(() => screen.getByText(/コードを発行してつなぐ/))
 
     // 連携済み一覧の見出しは常に出る
     expect(screen.getByText('連携済み')).toBeInTheDocument()
@@ -72,8 +72,8 @@ describe('SelfLinkPanel', () => {
     mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
     render(<SelfLinkPanel orgId={ORG} />)
 
-    await waitFor(() => screen.getByText(/OA と自分のLINEを連携する/))
-    fireEvent.click(screen.getByText(/OA と自分のLINEを連携する/))
+    await waitFor(() => screen.getByText(/コードを発行してつなぐ/))
+    fireEvent.click(screen.getByText(/コードを発行してつなぐ/))
 
     await waitFor(() => expect(screen.getByText('ABC123')).toBeInTheDocument())
   })
@@ -93,30 +93,26 @@ describe('SelfLinkPanel', () => {
     render(<SelfLinkPanel orgId={ORG} />)
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/事務所の秘書「AgentPM秘書」は/).textContent,
-      ).toMatch(/接続済み/),
+      expect(screen.getByText(/「AgentPM秘書」は接続済み/)).toBeInTheDocument(),
     )
   })
 
-  it('本人未連携の空状態は「自分のLINEを連携していない」と限定して案内する', async () => {
+  it('本人未連携の空状態は簡潔に案内する（“秘書ごと未接続”と誤読させない）', async () => {
     mockApis({ account: { id: 'acc-1', displayName: 'OA' }, links: [] })
     render(<SelfLinkPanel orgId={ORG} />)
 
-    await waitFor(() =>
-      expect(screen.getByText(/まだ自分のLINEを連携していません/)).toBeInTheDocument(),
-    )
-    // 誤読を招く旧文言の完全一致は出さない
+    await waitFor(() => expect(screen.getByText('まだつないでいません。')).toBeInTheDocument())
+    // 誤読を招く旧文言は出さない
     expect(screen.queryByText('まだ連携されていません。')).not.toBeInTheDocument()
   })
 
-  it('すでに友だち追加済みなら①をスキップして②へ進める旨を案内する', async () => {
+  it('すでに友だち追加済みならコード送信だけでよい旨を案内する', async () => {
     mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
     render(<SelfLinkPanel orgId={ORG} />)
 
-    await waitFor(() => screen.getByText(/OA と自分のLINEを連携する/))
+    await waitFor(() => screen.getByText(/コードを発行してつなぐ/))
     expect(
-      screen.getByText(/すでに秘書を友だち追加済みの方は、この手順は不要です/),
+      screen.getByText(/すでに友だち追加済みなら、下のボタンでコードを発行し/),
     ).toBeInTheDocument()
   })
 })

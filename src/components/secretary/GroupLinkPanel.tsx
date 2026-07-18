@@ -14,10 +14,7 @@ import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 export function GroupLinkPanel({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-500">
-        顧問先グループの申し送りを秘書に受け取らせるための紐付けです。下の手順で友だち追加・招待し、
-        コードを送信してください。
-      </p>
+      <p className="text-xs text-gray-500">顧問先グループのやり取りを秘書に取り込みます。</p>
 
       <LineFriendQr orgId={orgId} purpose="group" />
 
