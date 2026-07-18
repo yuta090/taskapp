@@ -103,7 +103,9 @@ export async function POST(request: NextRequest) {
         ...(patch.plan_id ? { toPlan: patch.plan_id } : {}),
       })
       if (!dryRun) {
-        await applyBillingReconcile(row.orgId, patch)
+        await applyBillingReconcile(row.orgId, patch, {
+          expectedSubscriptionId: row.stripeSubscriptionId,
+        })
       }
       updated += 1
     } catch (err) {
@@ -112,7 +114,10 @@ export async function POST(request: NextRequest) {
         const patch = deletedSubscriptionPatch()
         changes.push({ orgId: row.orgId, from: row.status, toStatus: patch.status, toPlan: 'free' })
         if (!dryRun) {
-          await applyBillingReconcile(row.orgId, patch, { clearSubscriptionId: true })
+          await applyBillingReconcile(row.orgId, patch, {
+            clearSubscriptionId: true,
+            expectedSubscriptionId: row.stripeSubscriptionId,
+          })
         }
         updated += 1
       } else {

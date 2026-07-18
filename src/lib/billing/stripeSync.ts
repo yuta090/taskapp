@@ -29,6 +29,13 @@ export function mapStripeSubscriptionStatus(
     case 'canceled':
     case 'unpaid':
       return 'canceled'
+    // 未払い/一時停止系は「支払いが成立していない＝有料機能を持たせない」を
+    // webhook・reconcile 双方で fail-closed に統一する（過去は default 落ちで
+    // webhook のみ 'active' に倒れ over-entitlement の余地があった）。
+    case 'incomplete':
+    case 'incomplete_expired':
+    case 'paused':
+      return 'canceled'
     default:
       return opts.unknownFallback ?? 'active'
   }
@@ -62,11 +69,26 @@ export interface BillingReconcilePatch {
 
 /** buildBillingPatchFromSubscription が受け取る Stripe.Subscription の構造的サブセット。 */
 export interface SubscriptionLike {
+  // 注: apiVersion '2026-01-28.clover' 以降、current_period_end は subscription 直下から
+  // subscription item 側へ移った。互換のため両方を許容し、item 側を優先して読む。
   status: string
   current_period_end?: number | null
   cancel_at_period_end?: boolean | null
-  items?: { data?: Array<{ price?: { id?: string | null } | null }> } | null
+  items?: { data?: Array<{ price?: { id?: string | null } | null; current_period_end?: number | null }> } | null
   metadata?: Record<string, string> | null
+}
+
+/**
+ * サブスクの現在の課金期間終了(unix秒)を取得する。Clover 以降は item 側にあるため、
+ * item(先頭) → 直下 の順で解決する。どこにも無ければ null。
+ * webhook・reconcile 双方がこれを使い、past_due の猶予判定が null で潰れないようにする。
+ */
+export function subscriptionPeriodEndUnix(subscription: SubscriptionLike): number | null {
+  return (
+    subscription.items?.data?.[0]?.current_period_end ??
+    subscription.current_period_end ??
+    null
+  )
 }
 
 const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterprise'])
@@ -87,7 +109,7 @@ export function buildBillingPatchFromSubscription(
     if (metaPlan && PLAN_IDS.has(metaPlan)) planId = metaPlan as PlanId
   }
 
-  const cpe = subscription.current_period_end
+  const cpe = subscriptionPeriodEndUnix(subscription)
   const patch: BillingReconcilePatch = {
     status: mapStripeSubscriptionStatus(subscription.status, {
       unknownFallback: opts.unknownFallback,

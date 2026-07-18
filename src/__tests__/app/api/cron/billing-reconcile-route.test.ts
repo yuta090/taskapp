@@ -76,6 +76,7 @@ describe('POST /api/cron/billing-reconcile', () => {
     expect(storeMock.applyBillingReconcile).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ status: 'canceled' }),
+      { expectedSubscriptionId: 'sub_1' },
     )
   })
 
@@ -100,7 +101,7 @@ describe('POST /api/cron/billing-reconcile', () => {
     expect(storeMock.applyBillingReconcile).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ plan_id: 'free', status: 'active' }),
-      { clearSubscriptionId: true },
+      { clearSubscriptionId: true, expectedSubscriptionId: 'sub_1' },
     )
   })
 

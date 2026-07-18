@@ -58,11 +58,16 @@ export async function listReconcilableBillingRows(): Promise<ReconcilableBilling
 /**
  * reconcile で確定した patch を org_billing に反映する。
  * clearSubscriptionId=true（Stripe側で消滅）のときは stripe_subscription_id も null 化する。
+ *
+ * expectedSubscriptionId を渡すと、更新条件に stripe_subscription_id を含める（compare-and-swap）。
+ * reconcile は「行を sub A で読んだ」前提で patch を作るため、取得〜書込の隙間に webhook/checkout が
+ * sub を B に差し替えていた場合、org_id だけを条件にすると A の状態を B に誤適用しうる。
+ * sub を条件に含めれば、その場合は 0 行更新＝良性の no-op になる（次回 cron が B を拾い直す）。
  */
 export async function applyBillingReconcile(
   orgId: string,
   patch: BillingReconcilePatch,
-  opts: { clearSubscriptionId?: boolean } = {},
+  opts: { clearSubscriptionId?: boolean; expectedSubscriptionId?: string } = {},
 ): Promise<void> {
   const update: Record<string, unknown> = {
     status: patch.status,
@@ -73,7 +78,11 @@ export async function applyBillingReconcile(
   if (patch.plan_id !== undefined) update.plan_id = patch.plan_id
   if (opts.clearSubscriptionId) update.stripe_subscription_id = null
 
-  const { error } = await admin().from('org_billing').update(update).eq('org_id', orgId)
+  let query = admin().from('org_billing').update(update).eq('org_id', orgId)
+  if (opts.expectedSubscriptionId) {
+    query = query.eq('stripe_subscription_id', opts.expectedSubscriptionId)
+  }
+  const { error } = await query
   if (error) {
     throw new Error(`applyBillingReconcile failed for ${orgId}: ${error.message}`)
   }

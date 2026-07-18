@@ -5,6 +5,7 @@ import {
   buildBillingPatchFromSubscription,
   billingPatchDiffers,
   deletedSubscriptionPatch,
+  subscriptionPeriodEndUnix,
 } from '@/lib/billing/stripeSync'
 
 const PRICE_MAP = { pro: 'price_pro', enterprise: 'price_ent' }
@@ -18,9 +19,9 @@ describe('mapStripeSubscriptionStatus', () => {
     expect(mapStripeSubscriptionStatus('unpaid')).toBe('canceled')
   })
 
-  it('未知ステータスの既定は active（webhook 挙動を保持）', () => {
-    expect(mapStripeSubscriptionStatus('incomplete')).toBe('active')
-    expect(mapStripeSubscriptionStatus('paused')).toBe('active')
+  it('真に未知の（Stripe将来追加の）ステータスの既定は active（webhook 挙動を保持）', () => {
+    // incomplete/paused は既知として明示写像したので、ここは本当に未知の値で検証する。
+    expect(mapStripeSubscriptionStatus('some_future_status')).toBe('active')
   })
 
   it('reconcile 用に未知を canceled へ倒せる（over-entitlement を防ぐ fail-safe）', () => {
@@ -127,5 +128,45 @@ describe('deletedSubscriptionPatch', () => {
     expect(p.status).toBe('active')
     expect(p.current_period_end).toBeNull()
     expect(p.cancel_at_period_end).toBe(false)
+  })
+})
+
+describe('未払い/一時停止系ステータスは fail-closed（over-entitlement 防止）', () => {
+  it('incomplete / incomplete_expired / paused は canceled に写像する', () => {
+    expect(mapStripeSubscriptionStatus('incomplete')).toBe('canceled')
+    expect(mapStripeSubscriptionStatus('incomplete_expired')).toBe('canceled')
+    expect(mapStripeSubscriptionStatus('paused')).toBe('canceled')
+  })
+  it('未払い系は unknownFallback を無視して常に canceled（webhook 経路でも active に倒れない）', () => {
+    expect(mapStripeSubscriptionStatus('incomplete', { unknownFallback: 'active' })).toBe('canceled')
+  })
+})
+
+describe('subscriptionPeriodEndUnix（Clover: current_period_end は item 側）', () => {
+  it('item 側の current_period_end を優先して読む', () => {
+    const sub = { status: 'active', items: { data: [{ current_period_end: 1893456000 }] } }
+    expect(subscriptionPeriodEndUnix(sub)).toBe(1893456000)
+  })
+  it('item に無ければ直下にフォールバック（旧APIバージョン互換）', () => {
+    const sub = { status: 'active', current_period_end: 1800000000, items: { data: [{}] } }
+    expect(subscriptionPeriodEndUnix(sub)).toBe(1800000000)
+  })
+  it('どちらにも無ければ null', () => {
+    expect(subscriptionPeriodEndUnix({ status: 'active' })).toBeNull()
+  })
+})
+
+describe('buildBillingPatchFromSubscription: past_due の period_end を item から拾う', () => {
+  it('past_due で item 側 current_period_end を ISO 化して patch に載せる（null で猶予が潰れない）', () => {
+    const patch = buildBillingPatchFromSubscription(
+      {
+        status: 'past_due',
+        items: { data: [{ price: { id: 'price_pro' }, current_period_end: 1893456000 }] },
+      },
+      { priceMap: PRICE_MAP, unknownFallback: 'canceled' },
+    )
+    expect(patch.status).toBe('past_due')
+    expect(patch.plan_id).toBe('pro')
+    expect(patch.current_period_end).toBe(new Date(1893456000 * 1000).toISOString())
   })
 })
