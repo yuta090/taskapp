@@ -33,6 +33,29 @@ alter table public.tasks add column if not exists client_scope text
 
 create index if not exists tasks_client_scope_idx on public.tasks(client_scope);
 
+-- 複合インデックスは space_id / ball / status を参照する。これらは 20240101_000_schema.sql
+-- で tasks 作成時に定義され、本 migration より前にソートされる前提。前提が崩れた場合
+-- （tasks の骨格 migration が未適用のまま本ファイルが走った等）に `create index` が出す
+-- cryptic な "column ... does not exist" ではなく、原因の分かる形で fail-fast する。
+do $$
+declare
+  v_missing text;
+begin
+  select string_agg(col, ', ' order by col)
+    into v_missing
+  from unnest(array['space_id', 'ball', 'status']) as col
+  where not exists (
+    select 1 from information_schema.columns c
+    where c.table_schema = 'public' and c.table_name = 'tasks' and c.column_name = col
+  );
+
+  if v_missing is not null then
+    raise exception
+      'baseline_client_scope: tasks に複合インデックスの参照列が無い: %（tasks の骨格 migration が先に適用されているか確認）',
+      v_missing;
+  end if;
+end $$;
+
 create index if not exists tasks_portal_query_idx
   on public.tasks(space_id, ball, client_scope, status);
 
@@ -72,20 +95,35 @@ begin
     raise exception 'baseline_client_scope: tasks.client_scope が NOT NULL でない（本番がnullable。要調査）';
   end if;
 
-  if v_default is null or v_default not like '%deliverable%' then
+  -- column_default は Postgres が正規化した `'deliverable'::text` の形で入る。
+  -- LIKE '%deliverable%' だと 'not_deliverable'::text や 'deliverable_v2'::text 等も
+  -- 通してしまうため、正規化後の完全一致（先頭〜末尾アンカー）で検証する。
+  if v_default is null or v_default !~ '^''deliverable''::text$' then
     raise exception 'baseline_client_scope: tasks.client_scope の DEFAULT が deliverable でない (実際: %)', coalesce(v_default, 'NULL');
   end if;
 
-  -- CHECK が deliverable/internal の2値に閉じていること
+  -- CHECK が client_scope を deliverable/internal の「ちょうど2値」に閉じていること。
+  -- pg_get_constraintdef は `col in (...)` を `col = ANY (ARRAY[...])` に正規化するため、
+  -- IN を前提にした素朴なパターンは正しい制約でも誤って落ちる。正規化後の「制約式全体」に
+  -- 先頭〜末尾アンカー(^...$)で一致させることで、下記の誤検出を防ぐ:
+  --   - 値は '...'::text の引用符付きリテラルで厳密照合（'not_deliverable' 等の部分一致を弾く）
+  --   - 配列の順序は問わない（in ('deliverable','internal') / ('internal','deliverable') 双方可）
+  --   - 全体一致なので、3値以上（例 'archived' 追加）や複合式
+  --     （例 `status = 'done' OR client_scope = ANY (...)` のように条件付きで任意値を許すもの）は
+  --     一致せず落ちる ＝「ちょうど2値に無条件で閉じている」ことを担保
+  --   - 先頭が `CHECK ((client_scope` のため、legacy_client_scope 等の別列を参照する制約は
+  --     識別子境界で弾かれる（部分文字列一致しない）
+  -- また con.convalidated を要求し、NOT VALID の未検証制約（既存行が違反していても通る）は認めない。
+  -- （::text キャストと空白は将来の PG バージョン差を吸収するため任意/可変扱い）
   select exists (
     select 1
     from pg_constraint con
     join pg_class rel on rel.oid = con.conrelid
     join pg_namespace ns on ns.oid = rel.relnamespace
     where ns.nspname = 'public' and rel.relname = 'tasks' and con.contype = 'c'
-      and pg_get_constraintdef(con.oid) like '%client_scope%'
-      and pg_get_constraintdef(con.oid) like '%deliverable%'
-      and pg_get_constraintdef(con.oid) like '%internal%'
+      and con.convalidated
+      and pg_get_constraintdef(con.oid) ~
+        '^CHECK\s*\(\(client_scope\s*=\s*ANY\s*\(ARRAY\[\s*(''deliverable''(::text)?\s*,\s*''internal''(::text)?|''internal''(::text)?\s*,\s*''deliverable''(::text)?)\s*\]\)\)\)$'
   ) into v_check_ok;
 
   if not v_check_ok then
