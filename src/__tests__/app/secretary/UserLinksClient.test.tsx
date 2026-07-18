@@ -1,65 +1,71 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/user-links/UserLinksClient'
 
 /**
- * UI と API のレスポンス契約を守るテスト。
+ * UserLinksClient — LINE連携ハブ（1画面3カード）。
  *
- * 実際に踏んだバグ: /api/channels/accounts は `account`（単数）を返すのに、
- * UI が `accounts`（複数）を読んでいた。型では気付けず、
- * 「OAが登録済みなのに『登録されていません』と表示され、発行ボタンが永久に出ない」
- * という無言の失敗になっていた。
+ * 「自分をつなぐ/顧問先をつなぐ/グループをつなぐ」がタブに分散して分かりにくかったため、
+ * 1画面に3カードで並べ、提示レイヤーだけを統合する（Fable設計 D3）。
+ * identity・API・トークン発行ロジックは各カードの中身(SelfLinkPanel/ClientLinkPanel/
+ * GroupLinkPanel)が既存のまま呼ぶだけで、ここでは並べ方の統合のみを検証する。
  */
 
-vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('next/link', () => ({
+  default: ({ children, href, ...rest }: React.ComponentProps<'a'> & { href: string }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}))
+
+vi.mock('qrcode', () => ({ toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,FAKE') }))
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const fetchMock = vi.fn()
 
-beforeEach(() => {
-  vi.stubGlobal('fetch', fetchMock)
-  fetchMock.mockReset()
-})
+const mockUseUserSpaces = vi.fn()
+vi.mock('@/lib/hooks/useUserSpaces', () => ({
+  useUserSpaces: (...args: unknown[]) => mockUseUserSpaces(...args),
+}))
 
-function mockApis({ account, links = [] }: { account: unknown; links?: unknown[] }) {
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.stubGlobal('fetch', fetchMock)
+  mockUseUserSpaces.mockReturnValue({ spaces: [], loading: false, error: null, refetch: vi.fn() })
   fetchMock.mockImplementation((url: string) => {
     if (url.includes('/api/channels/accounts')) {
-      // 単数形。ここを複数形だと思い込むと発行ボタンが出なくなる
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ account }) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ account: null }) })
     }
     if (url.includes('/api/channels/user-links')) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ links }) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ links: [] }) })
+    }
+    if (url.includes('/api/channels/line/basic-id')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ basicId: '@abc1234', ownerType: 'org' }) })
     }
     return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
   })
-}
+})
 
-describe('UserLinksClient', () => {
-  it('OAが登録されていれば発行ボタンが表示される', async () => {
-    mockApis({ account: { id: 'acc-1', displayName: '山田会計事務所' } })
+describe('UserLinksClient (連携ハブ)', () => {
+  it('3カードの見出しが表示される(自分/顧問先/グループ)', () => {
     render(<UserLinksClient orgId={ORG} />)
 
-    await waitFor(() => {
-      expect(screen.getByText(/山田会計事務所 と自分のLINEを連携する/)).toBeInTheDocument()
-    })
+    expect(screen.getByText(/自分をつなぐ/)).toBeInTheDocument()
+    expect(screen.getByText(/顧問先をつなぐ/)).toBeInTheDocument()
+    expect(screen.getByText(/グループをつなぐ/)).toBeInTheDocument()
   })
 
-  it('OAが未登録なら案内を出す', async () => {
-    mockApis({ account: null })
+  it('SecretaryTabNavは1つだけ描画される(二重nav禁止)', () => {
     render(<UserLinksClient orgId={ORG} />)
 
-    await waitFor(() => {
-      expect(screen.getByText(/LINE公式アカウントが登録されていません/)).toBeInTheDocument()
-    })
+    expect(screen.getAllByTestId('secretary-tab-user-links')).toHaveLength(1)
   })
 
-  it('グループに貼らないよう警告する（誤爆でコードが失効するため）', async () => {
-    mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
+  it('グループカードのCTAはgroup-linksページへリンクする', () => {
     render(<UserLinksClient orgId={ORG} />)
 
-    await waitFor(() => screen.getByText(/OA と自分のLINEを連携する/))
-
-    // 連携済み一覧の見出しは常に出る
-    expect(screen.getByText('連携済み')).toBeInTheDocument()
+    const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
+    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/group-links`)
   })
 })

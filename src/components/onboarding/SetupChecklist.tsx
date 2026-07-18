@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle, CaretDown, CaretUp } from '@phosphor-icons/react'
+import { CheckCircle, CaretDown, CaretUp, Clock } from '@phosphor-icons/react'
 import { useOnboardingFlag } from '@/lib/hooks/useOnboardingFlag'
 import { useSetupChecklistData } from '@/lib/hooks/useSetupChecklistData'
 import { computeSetupChecklist } from '@/lib/onboarding/computeSetupChecklist'
@@ -25,7 +25,7 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
   const [collapsed, setCollapsed] = useState(false)
   const autoDismissedRef = useRef(false)
 
-  const result = computeSetupChecklist(data, spaceId)
+  const result = computeSetupChecklist(data, spaceId, orgId)
 
   // 全ステップ完了時は「完了」表示を一度だけ出し、以後は自動的に非表示扱いにする
   useEffect(() => {
@@ -83,29 +83,63 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
 
       {!collapsed && (
         <ul className="border-t border-gray-100 divide-y divide-gray-100">
-          {result.steps.map((step) => (
-            <li key={step.key} className="flex items-center gap-3 px-4 py-2.5">
-              {step.done ? (
-                <CheckCircle weight="fill" className="w-4 h-4 flex-shrink-0 text-green-600" />
-              ) : (
-                <div className="w-4 h-4 flex-shrink-0 rounded-full border-2 border-gray-300" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className={`text-sm ${step.done ? 'text-gray-500' : 'font-medium text-gray-900'}`}>
-                  {step.title}
-                </p>
-                <p className="text-xs text-gray-500 truncate">{step.description}</p>
-              </div>
-              {!step.done && step.href && (
-                <Link
-                  href={step.href}
-                  className="flex-shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-                >
-                  {step.ctaLabel}
-                </Link>
-              )}
-            </li>
-          ))}
+          {result.steps.map((step) => {
+            const isCurrent = step.key === result.currentStepKey
+            return (
+              <li
+                key={step.key}
+                data-testid={`setup-step-${step.key}`}
+                data-current={isCurrent ? 'true' : undefined}
+                className={`flex items-center gap-3 px-4 py-2.5 ${isCurrent ? 'bg-indigo-50/60' : ''}`}
+              >
+                {step.done ? (
+                  <CheckCircle weight="fill" className="w-4 h-4 flex-shrink-0 text-green-600" />
+                ) : step.pending ? (
+                  <Clock className="w-4 h-4 flex-shrink-0 text-gray-400" />
+                ) : (
+                  <div
+                    className={`w-4 h-4 flex-shrink-0 rounded-full border-2 ${
+                      isCurrent ? 'border-indigo-500' : 'border-gray-300'
+                    }`}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p
+                      className={`text-sm ${
+                        step.done
+                          ? 'text-gray-500'
+                          : step.pending
+                            ? 'text-gray-400'
+                            : `font-medium ${isCurrent ? 'text-indigo-900' : 'text-gray-900'}`
+                      }`}
+                    >
+                      {step.title}
+                    </p>
+                    {isCurrent && (
+                      <span className="flex-shrink-0 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+                        今ここ
+                      </span>
+                    )}
+                    {step.pending && (
+                      <span className="flex-shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-gray-500">
+                        準備中
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{step.description}</p>
+                </div>
+                {!step.done && !step.pending && step.href && (
+                  <Link
+                    href={step.href}
+                    className="flex-shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+                  >
+                    {step.ctaLabel}
+                  </Link>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

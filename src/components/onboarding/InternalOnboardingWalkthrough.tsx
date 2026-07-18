@@ -72,7 +72,9 @@ const steps: WalkthroughStep[] = [
     iconColor: 'text-emerald-600',
     iconBg: 'bg-emerald-100',
     title: '準備完了！',
-    description: 'これでプロジェクト管理を始められます。',
+    description:
+      'これでプロジェクト管理を始められます。秘書コンソールのQRでLINE秘書と友だち追加し、' +
+      '表示されたコードをトークに送信すると連携完了です（コード送信まで行って初めて連携されます）。',
   },
 ]
 

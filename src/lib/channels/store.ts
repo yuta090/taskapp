@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { jstNow } from '@/lib/datetime/jstNow'
 import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
 import {
@@ -11,6 +9,7 @@ import {
   formatGroupClaimCodeForDisplay,
   CODE_ONLY_CLAIM_DEFAULT_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
+import { fetchBotInfo } from '@/lib/channels/line/client'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -1556,10 +1555,7 @@ export async function ingestDigestTasks(
 }
 
 export interface CreateInstantDigestTaskInput {
-  orgId: string
   groupId: string
-  /** groupからのデノーマライズ。未紐付けグループ（space_id null）でも作成できる */
-  spaceId: string | null
   sourceMessageId: string
   title: string
   assigneeHint?: string | null
@@ -1567,58 +1563,45 @@ export interface CreateInstantDigestTaskInput {
   assigneeIdentityId?: string | null
   dueDate?: string | null
   dueTime?: string | null
-  /**
-   * 承認フロー（Stage 2.7-B）: 責任者が設定されたグループでは候補を pending にする。
-   * 指定時は promotion_state='pending' / requested_to_user_id / requested_at を埋める。
-   * approval_notified_at は常に未通知(null)で生む。送信は生成後に claim RPC 経由で原子的に印を打つ。
-   */
-  approverUserId?: string | null
+}
+
+export interface CreateInstantDigestTaskResult {
+  /** 新規作成時のみ非null。重複(webhook再送)・グループ不在では null */
+  id: string | null
+  /** 承認フローに乗るか（DB側で「現在の」approver＋space紐付けから確定した値） */
+  pending: boolean
+  /** unique(source_message_id, title) 競合で既存行に当たった（冪等成功） */
+  duplicate: boolean
 }
 
 /**
- * メンション即時タスク化（Stage 2.5 §2）: channel_digest_tasks へ直接INSERTする。
- * extracted_dateはJST日付（formatDateToLocalString使用。toISOString().split禁止）。
- * unique(source_message_id, title) 競合（webhook再送等）は握って冪等成功('duplicate')扱いにする。
+ * メンション即時タスク化（Stage 2.5 §2 / 2.7-B §4-5）: グループ行を FOR UPDATE でロックする
+ * RPC(rpc_create_instant_digest_task)経由で INSERT する。承認者(approver_user_id)・space_id は
+ * *アプリのスナップショットを信じず* ロックした行から DB 側で読み、pending 判定と promotion 列を確定する。
  *
- * approverUserId 指定時は Stage 2.7-B の承認フローに乗せ pending として作る。CHECK
- * (digest_promotion_state_chk) が pending には requested_to_user_id / requested_at を要求するため
- * 同時に埋める（requested_at は timestamptz の瞬時値。DATE ではないので toISOString で可）。
+ * これにより、取得〜INSERT の隙間に rpc_set_group_approver で承認者が変わっても、
+ * 旧承認者宛の宙吊り pending が生まれない（承認者変更と直列化される）。
+ * extracted_date は RPC 内で JST 日付。unique(source_message_id, title) 競合は duplicate=true で冪等成功。
  */
 export async function createInstantDigestTask(
   input: CreateInstantDigestTaskInput,
-): Promise<{ id: string; title: string } | 'duplicate'> {
-  const promotion = input.approverUserId
-    ? {
-        promotion_state: 'pending',
-        requested_to_user_id: input.approverUserId,
-        requested_at: new Date().toISOString(),
-      }
-    : {}
+): Promise<CreateInstantDigestTaskResult> {
   const { data, error } = await admin()
-    .from('channel_digest_tasks')
-    .insert({
-      org_id: input.orgId,
-      group_id: input.groupId,
-      space_id: input.spaceId,
-      source_message_id: input.sourceMessageId,
-      title: input.title,
-      assignee_hint: input.assigneeHint ?? null,
-      assignee_external_user_id: input.assigneeExternalUserId ?? null,
-      assignee_identity_id: input.assigneeIdentityId ?? null,
-      due_date: input.dueDate ?? null,
-      due_time: input.dueTime ?? null,
-      // JST日付。本番UTCで new Date() を直に使うと1日ずれるため jstNow() を通す
-      extracted_date: formatDateToLocalString(jstNow()),
-      ...promotion,
+    .rpc('rpc_create_instant_digest_task', {
+      p_group_id: input.groupId,
+      p_source_message_id: input.sourceMessageId,
+      p_title: input.title,
+      p_assignee_hint: input.assigneeHint ?? null,
+      p_assignee_external_user_id: input.assigneeExternalUserId ?? null,
+      p_assignee_identity_id: input.assigneeIdentityId ?? null,
+      p_due_date: input.dueDate ?? null,
+      p_due_time: input.dueTime ?? null,
     })
-    .select('id, title')
     .single()
 
-  if (error) {
-    if (error.code === '23505') return 'duplicate'
-    throw new Error(`channel_digest_tasks: insert failed: ${error.message}`)
-  }
-  return { id: data!.id as string, title: data!.title as string }
+  if (error) throw new Error(`rpc_create_instant_digest_task failed: ${error.message}`)
+  const row = data as { id: string | null; is_pending: boolean; is_duplicate: boolean }
+  return { id: row.id ?? null, pending: Boolean(row.is_pending), duplicate: Boolean(row.is_duplicate) }
 }
 
 /**
@@ -2114,6 +2097,142 @@ export async function listActiveUserLinks(orgId: string): Promise<UserLink[]> {
     externalUserId: row.external_user_id as string,
     linkedAt: row.linked_at as string,
   }))
+}
+
+/**
+ * 現在ユーザー自身の active な LINE 紐付けが存在するか。オンボーディング進捗
+ * (SetupChecklist の connect_line ステップ) の完了判定に使う。
+ */
+export async function hasActiveUserLinkForUser(orgId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .is('revoked_at', null)
+    .limit(1)
+  if (error) throw new Error(`channel_user_links: user link check failed: ${error.message}`)
+  return (data?.length ?? 0) > 0
+}
+
+/**
+ * org がユーザー自身でLINE秘書を連携し始められる状態か（＝連携先Botが用意されているか）。
+ * org専用bot(owner_type='org') か 共有bot(owner_type='platform') のどちらかが active なら true。
+ * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）で、オンボーディングでは
+ * connect_line を「準備中」表示にする。**資格情報は返さず存在判定のみ**。
+ */
+export async function isLineSelfServeReady(orgId: string): Promise<boolean> {
+  const { data: orgAcc, error: orgErr } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('channel', 'line')
+    .eq('status', 'active')
+    .limit(1)
+  if (orgErr) throw new Error(`channel_accounts: org line readiness check failed: ${orgErr.message}`)
+  if ((orgAcc?.length ?? 0) > 0) return true
+
+  const { data: platformAcc, error: platformErr } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('channel', 'line')
+    .eq('owner_type', 'platform')
+    .eq('status', 'active')
+    .limit(1)
+  if (platformErr) {
+    throw new Error(`channel_accounts: platform line readiness check failed: ${platformErr.message}`)
+  }
+  return (platformAcc?.length ?? 0) > 0
+}
+
+interface AccountWithBasicIdRow extends AccountRow {
+  line_basic_id: string | null
+}
+
+/**
+ * LINE友だち追加QR導線用のaccount行取得。org専用bot(owner_type='org')を優先し、
+ * 無ければ共有bot(owner_type='platform')。identity(本人特定)には一切関与しない
+ * （こちらは「Botを見つける」までの純粋加算UXの材料取得）。
+ */
+async function findLineAccountRowForBasicId(orgId: string): Promise<AccountWithBasicIdRow | null> {
+  const { data: orgRow, error: orgErr } = await admin()
+    .from('channel_accounts')
+    .select(`${ACCOUNT_COLUMNS}, line_basic_id`)
+    .eq('channel', 'line')
+    .eq('owner_type', 'org')
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+  // org専用botのクエリが真のDBエラーを返したときは静かに共有botへ落とさずログを残す
+  // （org専用botがあるのに共有bot文言が出る誤表示を招くため）。
+  if (orgErr) console.error('channel_accounts: org line basic_id lookup failed', orgId, orgErr)
+  if (!orgErr && orgRow) return orgRow as AccountWithBasicIdRow
+
+  const { data: platformRow, error: platformErr } = await admin()
+    .from('channel_accounts')
+    .select(`${ACCOUNT_COLUMNS}, line_basic_id`)
+    .eq('channel', 'line')
+    .eq('owner_type', 'platform')
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+  if (platformErr || !platformRow) return null
+  return platformRow as AccountWithBasicIdRow
+}
+
+/**
+ * 友だち追加QR/URL用の basic_id（公開情報）を取得する。**resultはbasic_id文字列のみ**
+ * （credentials/access_tokenは絶対に呼び出し元へ返さない）。
+ *
+ * identity(本人特定)の仕組みは一切変えない — ここで返すbasic_idはQRで
+ * 「Botを見つけて友だち追加する手間」を消すためだけの純粋加算UXの材料。
+ * 「友だち追加した瞬間に紐付く」わけではなく、本人特定は従来どおりコード返信方式のみが正。
+ *
+ * 1) 既に line_basic_id があればそれを返す（LINE APIを叩かない）。
+ * 2) 無ければ credentials を復号 → fetchBotInfo で basicId を取得 →
+ *    channel_accounts.line_basic_id をUPDATEしてから返す。
+ * 3) account不在・復号失敗・fetchBotInfo失敗（いずれもベストエフォート）は null。
+ */
+async function resolveLineBasicIdForRow(row: AccountWithBasicIdRow): Promise<string | null> {
+  if (row.line_basic_id) return row.line_basic_id
+
+  const account = await decryptAccount(row)
+  if (!account) return null
+
+  const info = await fetchBotInfo(account.accessToken)
+  if (!info) return null
+
+  const { error } = await admin()
+    .from('channel_accounts')
+    .update({ line_basic_id: info.basicId })
+    .eq('id', row.id)
+  if (error) {
+    console.error('channel_accounts: failed to backfill line_basic_id', row.id, error)
+  }
+  return info.basicId
+}
+
+export async function getLineBasicIdForOrg(orgId: string): Promise<string | null> {
+  const row = await findLineAccountRowForBasicId(orgId)
+  if (!row) return null
+  return resolveLineBasicIdForRow(row)
+}
+
+/**
+ * getLineBasicIdForOrg に加え、案内文言の分岐（org専用bot=「あなたの事務所専用のLINE秘書」/
+ * 共有bot=「共通の秘書アカウント。コード送信が必ず必要」）用に owner_type も返す拡張版。
+ * ロジック分岐は持ち込まない — UIの文言分岐だけがこの値を使う。line-status API
+ * （bool専用・オンボーディング進捗判定）とは別関数・別用途（混同しないこと）。
+ */
+export async function getLineBasicIdWithOwnerTypeForOrg(
+  orgId: string,
+): Promise<{ basicId: string; ownerType: 'org' | 'platform' } | null> {
+  const row = await findLineAccountRowForBasicId(orgId)
+  if (!row) return null
+  const basicId = await resolveLineBasicIdForRow(row)
+  if (!basicId) return null
+  return { basicId, ownerType: row.owner_type === 'platform' ? 'platform' : 'org' }
 }
 
 /** 失効。二重失効は false（副作用ゼロ） */

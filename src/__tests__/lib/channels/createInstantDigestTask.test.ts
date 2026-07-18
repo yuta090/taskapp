@@ -1,154 +1,105 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
- * createInstantDigestTask（Stage 2.5 §2: メンション即時タスク化）
+ * createInstantDigestTask（Stage 2.5 §2 / 2.7-B §4-5: メンション即時タスク化）
  *
- * channel_digest_tasks へ INSERT。extracted_date は JST日付
- * （formatDateToLocalString使用。toISOString().split禁止）。
- * unique(source_message_id, title) 競合は握って冪等成功('duplicate')扱い。
+ * グループ行を FOR UPDATE でロックする RPC(rpc_create_instant_digest_task) 経由で INSERT する。
+ * 承認者(approver)・space_id・extracted_date(JST) は *ロックした行* から DB 側で確定するため、
+ * アプリは org/space/approver を渡さない（取得〜作成の隙間の承認者変更レースを DB 側で直列化）。
+ * pending 判定は RPC の返す is_pending をそのまま返す。
+ * unique(source_message_id, title) 競合は is_duplicate=true の冪等成功。
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function chain(response: any) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const builder: any = {}
-  builder.insert = vi.fn(() => builder)
-  builder.select = vi.fn(() => builder)
-  builder.single = vi.fn(() => Promise.resolve(response))
-  return builder
-}
-
 let response: { data: unknown; error: unknown }
-const fromMock = vi.fn()
+const rpcMock = vi.fn()
 
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: vi.fn(() => ({ from: fromMock })),
+  createAdminClient: vi.fn(() => ({
+    rpc: (...args: unknown[]) => {
+      rpcMock(...args)
+      return { single: () => Promise.resolve(response) }
+    },
+  })),
 }))
 
 const { createInstantDigestTask } = await import('@/lib/channels/store')
 
 beforeEach(() => {
   vi.clearAllMocks()
-  response = { data: { id: 'task-9', title: '見積提出' }, error: null }
-  fromMock.mockImplementation(() => chain(response))
+  response = { data: { id: 'task-9', is_pending: false, is_duplicate: false }, error: null }
 })
 
 describe('createInstantDigestTask', () => {
-  it('groupからデノーマライズしたorg_id/space_idでINSERTし、extracted_dateはJST日付', async () => {
+  it('rpc_create_instant_digest_task を group と候補内容だけで呼ぶ（org/space/approverは渡さない）', async () => {
     const result = await createInstantDigestTask({
-      orgId: 'org-1',
       groupId: 'group-1',
-      spaceId: 'space-1',
       sourceMessageId: 'msg-1',
       title: '見積提出',
+      assigneeHint: '@山田',
+      dueDate: '2026-07-20',
+      dueTime: '10:00',
     })
 
-    expect(result).toEqual({ id: 'task-9', title: '見積提出' })
-    const builder = fromMock.mock.results[0].value
-    expect(builder.insert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        org_id: 'org-1',
-        group_id: 'group-1',
-        space_id: 'space-1',
-        source_message_id: 'msg-1',
-        title: '見積提出',
-        extracted_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-      }),
-    )
+    expect(result).toEqual({ id: 'task-9', pending: false, duplicate: false })
+    expect(rpcMock).toHaveBeenCalledWith('rpc_create_instant_digest_task', {
+      p_group_id: 'group-1',
+      p_source_message_id: 'msg-1',
+      p_title: '見積提出',
+      p_assignee_hint: '@山田',
+      p_assignee_external_user_id: null,
+      p_assignee_identity_id: null,
+      p_due_date: '2026-07-20',
+      p_due_time: '10:00',
+    })
+    // アプリ側が org/space/approver を渡していないことを保証（DB がロック行から確定する）
+    const arg = rpcMock.mock.calls[0][1] as Record<string, unknown>
+    expect(arg).not.toHaveProperty('p_org_id')
+    expect(arg).not.toHaveProperty('p_space_id')
+    expect(arg).not.toHaveProperty('p_approver_user_id')
   })
 
-  it('extracted_date は実行環境がUTCでもJST日付になる（1日ずれない）', async () => {
-    // 2026-07-13T22:00:00Z = 2026-07-14 07:00 JST。UTC環境では naive だと 07-13 になる
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-07-13T22:00:00.000Z'))
-    try {
-      await createInstantDigestTask({
-        orgId: 'org-1',
-        groupId: 'group-1',
-        spaceId: 'space-1',
-        sourceMessageId: 'msg-jst',
-        title: 'JST確認',
-      })
-      const builder = fromMock.mock.results[0].value
-      expect(builder.insert).toHaveBeenCalledWith(
-        expect.objectContaining({ extracted_date: '2026-07-14' }),
-      )
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('space_idがnullのグループ（未紐付け）でも作成できる', async () => {
+  it('省略可能な項目は null で渡す', async () => {
     await createInstantDigestTask({
-      orgId: 'org-1',
       groupId: 'group-1',
-      spaceId: null,
       sourceMessageId: 'msg-2',
       title: '在庫確認',
     })
-    const builder = fromMock.mock.results[0].value
-    expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ space_id: null }))
+    expect(rpcMock).toHaveBeenCalledWith('rpc_create_instant_digest_task', {
+      p_group_id: 'group-1',
+      p_source_message_id: 'msg-2',
+      p_title: '在庫確認',
+      p_assignee_hint: null,
+      p_assignee_external_user_id: null,
+      p_assignee_identity_id: null,
+      p_due_date: null,
+      p_due_time: null,
+    })
   })
 
-  it('approverUserId 指定時は promotion_state=pending＋requested系を埋める（未通知で生む）', async () => {
-    await createInstantDigestTask({
-      orgId: 'org-1',
+  it('RPCが is_pending=true を返せば承認フロー扱いにする', async () => {
+    response = { data: { id: 'task-9', is_pending: true, is_duplicate: false }, error: null }
+    const result = await createInstantDigestTask({
       groupId: 'group-1',
-      spaceId: 'space-1',
       sourceMessageId: 'msg-3',
       title: '酒屋へ発注',
-      approverUserId: 'approver-1',
     })
-    const builder = fromMock.mock.results[0].value
-    const arg = builder.insert.mock.calls[0][0]
-    expect(arg.promotion_state).toBe('pending')
-    expect(arg.requested_to_user_id).toBe('approver-1')
-    // CHECK(digest_promotion_state_chk): pending は requested_at NOT NULL を要求する
-    expect(typeof arg.requested_at).toBe('string')
-    // 通知印は必ず claim RPC 側で原子的に打つ。生成時には積まない（未通知で生む）
-    expect(arg).not.toHaveProperty('approval_notified_at')
+    expect(result).toEqual({ id: 'task-9', pending: true, duplicate: false })
   })
 
-  it('approverUserId 未指定なら promotion 系は積まない（従来どおり none）', async () => {
-    await createInstantDigestTask({
-      orgId: 'org-1',
-      groupId: 'group-1',
-      spaceId: 'space-1',
-      sourceMessageId: 'msg-4',
-      title: '見積提出',
-    })
-    const arg = fromMock.mock.results[0].value.insert.mock.calls[0][0]
-    expect(arg).not.toHaveProperty('promotion_state')
-    expect(arg).not.toHaveProperty('requested_to_user_id')
-  })
-
-  it('unique(source_message_id, title)競合は冪等成功として duplicate を返す', async () => {
-    response = { data: null, error: { code: '23505', message: 'duplicate key' } }
-    fromMock.mockImplementation(() => chain(response))
-
+  it('unique(source_message_id, title)競合は is_duplicate=true・id=null の冪等成功で返す', async () => {
+    response = { data: { id: null, is_pending: true, is_duplicate: true }, error: null }
     const result = await createInstantDigestTask({
-      orgId: 'org-1',
       groupId: 'group-1',
-      spaceId: 'space-1',
       sourceMessageId: 'msg-1',
       title: '見積提出',
     })
-    expect(result).toBe('duplicate')
+    expect(result).toEqual({ id: null, pending: true, duplicate: true })
   })
 
-  it('その他のDBエラーは例外を投げる', async () => {
-    response = { data: null, error: { code: '99999', message: 'boom' } }
-    fromMock.mockImplementation(() => chain(response))
-
+  it('DBエラーは例外を投げる', async () => {
+    response = { data: null, error: { message: 'boom' } }
     await expect(
-      createInstantDigestTask({
-        orgId: 'org-1',
-        groupId: 'group-1',
-        spaceId: null,
-        sourceMessageId: 'msg-1',
-        title: '見積提出',
-      }),
+      createInstantDigestTask({ groupId: 'group-1', sourceMessageId: 'msg-1', title: '見積提出' }),
     ).rejects.toThrow('boom')
   })
 })

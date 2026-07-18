@@ -26,6 +26,9 @@ const ALL_UNDONE = {
   hasClientInvite: false,
   hasPublishedTask: false,
   hasPreviewedPortal: false,
+  hasLineLinked: false,
+  // 既定は「LINE秘書が用意済み（自分で連携できる）」状態。準備中ケースは個別に lineAccountReady:false を渡す
+  lineAccountReady: true,
 }
 
 function setup(dataOverrides: Partial<typeof ALL_UNDONE> = {}, shouldShow: boolean | null = true) {
@@ -68,7 +71,8 @@ describe('SetupChecklist', () => {
     render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
 
     expect(screen.getByTestId('setup-checklist')).toBeInTheDocument()
-    expect(screen.getByText('はじめての設定 2/5')).toBeInTheDocument()
+    // LINE秘書が準備済みなので connect_line を含めた6ステップ
+    expect(screen.getByText('はじめての設定 2/6')).toBeInTheDocument()
     expect(screen.getByText('最初のタスクを作成')).toBeInTheDocument()
     expect(screen.getByText('クライアントを招待', { selector: 'p' })).toBeInTheDocument()
 
@@ -86,6 +90,33 @@ describe('SetupChecklist', () => {
 
     const previewLink = screen.getByRole('link', { name: 'プレビュー' })
     expect(previewLink).toHaveAttribute('href', `/portal/preview/${SPACE_ID}`)
+  })
+
+  it('links the connect_line CTA to the secretary console when the bot is ready but unlinked', () => {
+    setup()
+    render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    const lineLink = screen.getByRole('link', { name: 'LINEを連携' })
+    expect(lineLink).toHaveAttribute('href', `/${ORG_ID}/secretary/user-links`)
+  })
+
+  it('marks the first incomplete step as the current step ("今ここ")', () => {
+    setup({ hasNonSampleTask: true })
+    render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    const currentStep = screen.getByTestId('setup-step-invite_team')
+    expect(currentStep).toHaveAttribute('data-current', 'true')
+    expect(screen.getByText('今ここ')).toBeInTheDocument()
+  })
+
+  it('shows connect_line as "準備中" with no CTA when the LINE bot is not provisioned', () => {
+    setup({ hasNonSampleTask: true, hasTeamInvite: true, lineAccountReady: false })
+    render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    // pending ステップは分母から除外され、5ステップ基準の進捗になる
+    expect(screen.getByText('はじめての設定 2/5')).toBeInTheDocument()
+    expect(screen.getByText('準備中')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'LINEを連携' })).not.toBeInTheDocument()
   })
 
   it('dismisses the checklist via markDone when "非表示にする" is clicked', () => {
@@ -117,6 +148,7 @@ describe('SetupChecklist', () => {
       hasClientInvite: true,
       hasPublishedTask: true,
       hasPreviewedPortal: true,
+      hasLineLinked: true,
     })
     render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
 
