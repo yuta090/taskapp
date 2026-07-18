@@ -54,6 +54,17 @@ export function selectDueTaskReminders(input: SelectDueTaskRemindersInput): Task
 }
 
 /**
+ * 配信先グループの絞り込み: 共有Bot（platform）を優先する。
+ * 同一 space に platform グループがあれば platform だけに配信し（org専用botとの
+ * 二重配信を防ぐ）、無ければ渡された全グループ（org専用bot）へフォールバックする
+ * （platformを持たない従来型顧問先で無音の未送信になるのを防ぐ）。
+ */
+export function preferPlatformLinks<T extends { ownerType: string }>(links: T[]): T[] {
+  const platform = links.filter((l) => l.ownerType === 'platform')
+  return platform.length > 0 ? platform : links
+}
+
+/**
  * LINE グループへ投稿するリマインド本文。秘書からの一言＋タスク名（＋期限）。
  */
 export function buildTaskReminderText(task: TaskReminderInput): string {
