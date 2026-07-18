@@ -14,6 +14,14 @@ export interface SetupChecklistData {
   hasPublishedTask: boolean
   /** profiles.onboarding_flags.portal_preview_seen === true */
   hasPreviewedPortal: boolean
+  /** 現在ユーザー自身の active な LINE user-link（identity）が存在する＝自分がLINE秘書と連携済み */
+  hasLineLinked: boolean
+  /**
+   * org に active な LINE の channel_accounts がある＝ユーザーが自分で連携を始められる状態。
+   * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）なので、connect_line は
+   * 「準備中」表示にして完了不能なCTAを見せない。
+   */
+  lineAccountReady: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -22,6 +30,7 @@ export type SetupChecklistStepKey =
   | 'invite_client'
   | 'publish_task'
   | 'preview_portal'
+  | 'connect_line'
 
 export interface SetupChecklistStep {
   key: SetupChecklistStepKey
@@ -32,6 +41,12 @@ export interface SetupChecklistStep {
   /** CTAのリンク先。ページ内操作で完結するステップ(create_task/publish_task)は常に null */
   href: string | null
   ctaLabel: string | null
+  /**
+   * 「準備中」= ユーザーが今は完了できない情報表示ステップ（例: LINE秘書が未プロビジョニング）。
+   * pending ステップは一覧には出すが、進捗の分母（totalCount）と現在地(currentStepKey)からは除外する。
+   * 完了不能なステップで allDone に到達できなくなるのを防ぐため。
+   */
+  pending?: boolean
 }
 
 export interface SetupChecklistResult {
@@ -39,16 +54,20 @@ export interface SetupChecklistResult {
   completedCount: number
   totalCount: number
   allDone: boolean
+  /** 最初の未完了かつ実行可能（非pending）なステップ。全完了なら null。UIの「現在地」強調に使う */
+  currentStepKey: SetupChecklistStepKey | null
 }
 
 /**
  * 初回セットアップチェックリストの各ステップの完了状態・遷移先・文言を算出する純関数。
  * @param data ステップ判定に必要な真偽値（データ取得は呼び出し側の責務）
  * @param spaceId クライアント表示プレビューのリンク先に使うプロジェクトID
+ * @param orgId LINE連携ハブ（秘書コンソール）へのリンクに使う組織ID
  */
 export function computeSetupChecklist(
   data: SetupChecklistData,
-  spaceId: string
+  spaceId: string,
+  orgId: string
 ): SetupChecklistResult {
   const steps: SetupChecklistStep[] = [
     {
@@ -101,14 +120,62 @@ export function computeSetupChecklist(
       href: data.hasPreviewedPortal ? null : `/portal/preview/${spaceId}`,
       ctaLabel: data.hasPreviewedPortal ? null : 'プレビュー',
     },
+    buildConnectLineStep(data, orgId),
   ]
 
-  const completedCount = steps.filter((s) => s.done).length
+  // pending（準備中）ステップは表示のみ。進捗の分母・現在地からは除外する。
+  const applicable = steps.filter((s) => s.pending !== true)
+  const completedCount = applicable.filter((s) => s.done).length
+  const totalCount = applicable.length
+  const currentStep = applicable.find((s) => !s.done)
 
   return {
     steps,
     completedCount,
-    totalCount: steps.length,
-    allDone: completedCount === steps.length,
+    totalCount,
+    allDone: totalCount > 0 && completedCount === totalCount,
+    currentStepKey: currentStep ? currentStep.key : null,
+  }
+}
+
+/**
+ * LINE連携ステップを3状態で組み立てる:
+ * - 未準備(lineAccountReady=false): 準備中。ユーザーは完了できないので pending・CTAなし。
+ * - 準備済み・未連携: 秘書コンソール(user-links)へ誘導。QRで友だち追加→コード送信で完了する旨を説明。
+ * - 連携済み: done。
+ */
+function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChecklistStep {
+  if (!data.lineAccountReady) {
+    return {
+      key: 'connect_line',
+      title: 'LINE秘書と連携',
+      description:
+        'あなたの事務所のLINE秘書を準備中です。準備ができ次第ここから連携できます（お急ぎの場合はサポートへ）。',
+      done: false,
+      href: null,
+      ctaLabel: null,
+      pending: true,
+    }
+  }
+
+  if (data.hasLineLinked) {
+    return {
+      key: 'connect_line',
+      title: 'LINE秘書と連携',
+      description: 'LINE秘書と連携しました。',
+      done: true,
+      href: null,
+      ctaLabel: null,
+    }
+  }
+
+  return {
+    key: 'connect_line',
+    title: 'LINE秘書と連携',
+    description:
+      'QRで友だち追加し、表示されるコードをトークに送ると連携完了です（追加だけでは連携されません）。',
+    done: false,
+    href: `/${orgId}/secretary/user-links`,
+    ctaLabel: 'LINEを連携',
   }
 }

@@ -54,6 +54,18 @@ describe('sendWelcomeEmail', () => {
     expect(callArgs.text).toContain('クライアントに公開')
   })
 
+  it('mentions LINE秘書連携 with the QR→code two-step (adding alone does not link) in both bodies', async () => {
+    await sendWelcomeEmail({ ...baseParams })
+
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.html).toContain('LINE秘書')
+    expect(callArgs.html).toContain('コード')
+    expect(callArgs.html).toContain('追加だけでは連携されません')
+    expect(callArgs.text).toContain('LINE秘書')
+    expect(callArgs.text).toContain('コード')
+    expect(callArgs.text).toContain('追加だけでは連携されません')
+  })
+
   it('escapes HTML in the org name', async () => {
     await sendWelcomeEmail({ ...baseParams, orgName: '<script>alert(1)</script>' })
 

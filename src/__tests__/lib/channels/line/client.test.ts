@@ -6,6 +6,7 @@ import {
   leaveRoom,
   fetchGroupMemberProfile,
   fetchGroupSummary,
+  fetchBotInfo,
   LinePushError,
 } from '@/lib/channels/line/client'
 
@@ -233,6 +234,56 @@ describe('fetchGroupSummary（Stage 4: 共有bot紐付けclaimの承認者向け
   it('ベストエフォート: fetch自体が例外を投げても null を返す', async () => {
     fetchMock.mockRejectedValueOnce(new Error('network down'))
     const result = await fetchGroupSummary('token-123', 'G-1')
+    expect(result).toBeNull()
+  })
+})
+
+describe('fetchBotInfo（LINE友だち追加QR導線: basic_id取得用）', () => {
+  it('bot info エンドポイントから basicId を取得する', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ userId: 'U-bot-1', basicId: '@abc1234', displayName: '秘書' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    const result = await fetchBotInfo('token-123')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.line.me/v2/bot/info')
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer token-123')
+    expect(result).toEqual({ basicId: '@abc1234' })
+  })
+
+  it('ベストエフォート: 非2xxは例外を投げず null を返す', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }))
+    const result = await fetchBotInfo('bad-token')
+    expect(result).toBeNull()
+  })
+
+  it('ベストエフォート: JSONが不正なら null を返す', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('not json', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    const result = await fetchBotInfo('token-123')
+    expect(result).toBeNull()
+  })
+
+  it('ベストエフォート: basicId が欠落していれば null を返す', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ userId: 'U-bot-1', displayName: '秘書' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    const result = await fetchBotInfo('token-123')
+    expect(result).toBeNull()
+  })
+
+  it('ベストエフォート: fetch自体が例外を投げても null を返す', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('network down'))
+    const result = await fetchBotInfo('token-123')
     expect(result).toBeNull()
   })
 })

@@ -20,6 +20,27 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
   hasClientInvite: false,
   hasPublishedTask: false,
   hasPreviewedPortal: false,
+  hasLineLinked: false,
+  lineAccountReady: false,
+}
+
+/**
+ * LINE連携状態(booleanのみ)をサーバーから取得する。channel_accounts / channel_user_links は
+ * RLSでservice_role専用のためクライアント直読みできず、専用APIがbooleanだけ返す。
+ * 取得失敗時は「未準備・未連携」に倒す（connect_line は準備中表示になり、完了不能CTAを出さない）。
+ */
+async function fetchLineStatus(orgId: string): Promise<{ hasLineLinked: boolean; lineAccountReady: boolean }> {
+  try {
+    const res = await fetch(`/api/onboarding/line-status?orgId=${encodeURIComponent(orgId)}`)
+    if (!res.ok) return { hasLineLinked: false, lineAccountReady: false }
+    const json = (await res.json()) as { hasLineLinked?: unknown; lineAccountReady?: unknown }
+    return {
+      hasLineLinked: json.hasLineLinked === true,
+      lineAccountReady: json.lineAccountReady === true,
+    }
+  } catch {
+    return { hasLineLinked: false, lineAccountReady: false }
+  }
 }
 
 /**
@@ -71,6 +92,7 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         orgMembershipsResult,
         invitesResult,
         profileResult,
+        lineStatus,
       ] = await Promise.all([
         supabase
           .from('space_memberships')
@@ -83,6 +105,7 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         supabase.from('org_memberships').select('role').eq('org_id', orgId),
         supabase.from('invites').select('role').eq('org_id', orgId).is('accepted_at', null),
         supabase.from('profiles').select('onboarding_flags').eq('id', user.id).single(),
+        fetchLineStatus(orgId),
       ])
 
       const currentUserRole = (roleResult.data as { role: string } | null)?.role ?? null
@@ -105,6 +128,8 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         hasClientInvite: hasClientMember || hasPendingClientInvite,
         hasPublishedTask,
         hasPreviewedPortal: flags.portal_preview_seen === true,
+        hasLineLinked: lineStatus.hasLineLinked,
+        lineAccountReady: lineStatus.lineAccountReady,
       }
     },
     staleTime: 30_000,
