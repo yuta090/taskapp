@@ -27,8 +27,7 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        顧問先が秘書を友だち追加し、発行した確認コードを1:1トークに送信すると突合が成立します。
-        コードは紙やメール・請求書同封で渡しても構いません。
+        顧問先を選んでコードを発行し、顧問先に渡します（紙やメールでもOK）。顧問先が友だち追加してコードを送ると連携できます。
       </p>
 
       <select
@@ -46,13 +45,8 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
 
       {selectedSpaceId && (
         <div className="space-y-2">
-          <LineFriendQr orgId={orgId} />
-          <ol className="list-inside list-decimal space-y-0.5 text-xs text-gray-600">
-            <li>顧問先が秘書を友だち追加</li>
-            <li>発行した確認コードを顧問先が1:1トークに送信</li>
-            <li>突合成立</li>
-          </ol>
           <LinkCodeIssueButton orgId={orgId} spaceId={selectedSpaceId} />
+          <LineFriendQr orgId={orgId} />
         </div>
       )}
     </div>
