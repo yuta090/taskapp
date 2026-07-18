@@ -255,11 +255,24 @@ describe('並行性・エラー処理レビュー対応（fable設計: version/l
     expect(state.deletes).toContain('user_task_mirror_refs') // ref も掃除
   })
 
-  it('complete の 404（既に消えている）は dead にせず done 扱い', async () => {
+  it('complete の 404（既に消えている）は dead にせず done 扱い＋stale ref を掃除', async () => {
     state.ref = { google_task_id: 'gt-1', google_tasklist_id: 'list-1' }
     patchTaskMock.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
     claimReturns([job('complete', {})])
     const s = await dispatchTaskMirrorBatch()
+    expect(s.done).toBe(1)
+    expect(s.dead).toBe(0)
+    expect(state.deletes).toContain('user_task_mirror_refs') // ref を掃除
+  })
+
+  it('upsert(ref有り)の patch 404 は stale ref を掃除して作り直す（dead にしない）', async () => {
+    state.ref = { google_task_id: 'gt-stale', google_tasklist_id: 'list-1' }
+    patchTaskMock.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    insertTaskMock.mockResolvedValue({ id: 'gt-fresh' })
+    claimReturns([job('upsert', { title: 'x' })])
+    const s = await dispatchTaskMirrorBatch()
+    expect(state.deletes).toContain('user_task_mirror_refs') // stale ref 掃除
+    expect(insertTaskMock).toHaveBeenCalled() // 作り直し
     expect(s.done).toBe(1)
     expect(s.dead).toBe(0)
   })

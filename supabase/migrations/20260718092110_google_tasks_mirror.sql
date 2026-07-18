@@ -219,6 +219,16 @@ create trigger trg_enqueue_task_mirror
 
 -- -----------------------------------------------------------------------------
 -- 4) claim RPC: pending を lease してワーカーへ払い出す(for update skip locked)
+--
+-- 【既知の残余リスク（意図的に許容・follow-up）／2026-07-19 コードレビュー再確認】
+--   version は「fold(enqueue 上書き)」を検知するが、lease 失効後の再 claim では version が
+--   変わらないため、同一 version の worker が2つ存在しうる。10分 lease＋処理前 lease チェックで
+--   窓は極小だが、Google Tasks API は fencing token を持たないため、lease 失効中の二重 insert
+--   （最後の saveRef だけ残り Google タスクが二重化）と、旧 worker の delete が新 worker の upsert を
+--   追い越す順序逆転は原理的に残る。exactly-once は不可能なため at-least-once＋best-effort とし、
+--   恒久対応は「poll 時に refs と tasks を突合する孤児 sweep」を後付けする（本PRでは作らない）。
+--   backfill(6c) の stale 判定→delete enqueue も、間に現 owner へ再割当てされると現行対象を
+--   delete しうる TOCTOU がある（rare）。同様に sweep/ロックでの是正を follow-up とする。
 -- -----------------------------------------------------------------------------
 create or replace function public.rpc_claim_task_mirror_jobs(
   p_total_limit int default 100,

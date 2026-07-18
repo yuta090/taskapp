@@ -8,6 +8,7 @@ import {
   patchTask,
   deleteTask,
   dateToGoogleDue,
+  type TaskWriteFields,
 } from './client'
 
 /**
@@ -144,11 +145,38 @@ async function deleteRef(connectionId: string, taskId: string): Promise<void> {
   if (error) throw new Error(`deleteRef failed: ${error.message}`)
 }
 
+function isNotFound(err: unknown): boolean {
+  return (err as { status?: number } | undefined)?.status === 404
+}
+
+/** Google タスクを作成して ref を保存する。ref 保存失敗時は作成分を補償 delete して rethrow。 */
+async function insertAndSaveRef(
+  job: MirrorJob,
+  token: string,
+  tasklistId: string,
+  fields: TaskWriteFields,
+): Promise<void> {
+  const created = await insertTask(token, tasklistId, fields)
+  try {
+    await saveRef(job.connection_id, job.task_id, tasklistId, created.id)
+  } catch (err) {
+    // 補償: ref を保存できないと、この job の done で対応が失われ次の更新が二重作成になる。
+    // 作ったばかりの Google タスクを消して整合を戻し、temporary_fail として rethrow（再試行）。
+    // 補償 delete 自体の失敗は残余リスクとしてログのみ（次サイクルで ref なし→再 insert のリスクは残る）。
+    try {
+      await deleteTask(token, tasklistId, created.id)
+    } catch (delErr) {
+      console.error('[task-mirror] saveRef 失敗後の補償 delete も失敗（孤児の可能性）:', delErr)
+    }
+    throw err
+  }
+}
+
 async function processJob(job: MirrorJob, token: string, tasklistId: string): Promise<void> {
   const p = job.payload
 
   if (job.op === 'upsert') {
-    const fields = {
+    const fields: TaskWriteFields = {
       title: typeof p.title === 'string' ? p.title : '(無題)',
       notes: typeof p.notes === 'string' ? p.notes : undefined,
       // due は string|null をそのまま渡す（undefined にしない）。TaskApp 側で due_date を消したとき、
@@ -158,22 +186,19 @@ async function processJob(job: MirrorJob, token: string, tasklistId: string): Pr
     }
     const ref = await getRef(job.connection_id, job.task_id)
     if (ref) {
-      await patchTask(token, ref.google_tasklist_id || tasklistId, ref.google_task_id, fields)
-    } else {
-      const created = await insertTask(token, tasklistId, fields)
       try {
-        await saveRef(job.connection_id, job.task_id, tasklistId, created.id)
+        await patchTask(token, ref.google_tasklist_id || tasklistId, ref.google_task_id, fields)
       } catch (err) {
-        // 補償: ref を保存できないと、この job の done で対応が失われ次の更新が二重作成になる。
-        // 作ったばかりの Google タスクを消して整合を戻し、temporary_fail として rethrow（再試行）。
-        // 補償 delete 自体の失敗は残余リスクとしてログのみ（次サイクルで ref なし→再 insert のリスクは残る）。
-        try {
-          await deleteTask(token, tasklistId, created.id)
-        } catch (delErr) {
-          console.error('[task-mirror] saveRef 失敗後の補償 delete も失敗（孤児の可能性）:', delErr)
+        // Google 側で手動削除された等で 404 → stale ref を掃除して作り直す（毒化して dead にしない）。
+        if (isNotFound(err)) {
+          await deleteRef(job.connection_id, job.task_id)
+          await insertAndSaveRef(job, token, tasklistId, fields)
+          return
         }
         throw err
       }
+    } else {
+      await insertAndSaveRef(job, token, tasklistId, fields)
     }
     return
   }
@@ -191,8 +216,12 @@ async function processJob(job: MirrorJob, token: string, tasklistId: string): Pr
       try {
         await patchTask(token, glist, gid, { status: 'completed' })
       } catch (err) {
-        // 完了させたい相手が既に消えている(404)なら「完了」と同義。毒化(dead)させない。
-        if ((err as { status?: number } | undefined)?.status === 404) return
+        // 完了させたい相手が既に消えている(404)なら「完了」と同義。ただし stale ref を残すと、
+        // 後でタスク再開時の upster が消えた task を patch→404→dead 化するので ref を掃除する。
+        if (isNotFound(err)) {
+          await deleteRef(job.connection_id, job.task_id)
+          return
+        }
         throw err
       }
     }

@@ -100,11 +100,16 @@ async function pollConnection(conn: ConnRow, summary: PollSummary): Promise<void
     return
   }
 
-  // 成功時のみカーソル前進。
-  await admin()
+  // 成功時のみカーソル前進。更新失敗は取りこぼしにはならない（次回同範囲を再処理・逆流は冪等）が、
+  // 失敗を成功と報告しないよう error を確認して skipped に反映する。
+  const { error: cursorErr } = await admin()
     .from('integration_connections')
     .update({ metadata: { ...metadata, poll_cursor: nextCursor } })
     .eq('id', conn.id)
+  if (cursorErr) {
+    console.error('[task-mirror-poll] cursor 更新に失敗（次回同範囲を再処理）:', cursorErr)
+    summary.skipped++
+  }
 }
 
 /** 逆流ポーリングを1バッチ実行する。pg_cron(15分間隔)が /api/cron/task-mirror-poll 経由で叩く。 */
