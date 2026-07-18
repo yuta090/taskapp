@@ -18,7 +18,7 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
     icon: ClipboardText,
     href: (orgId) => `/${orgId}/secretary/approvals`,
   },
-  { key: 'integrations', label: '連携', icon: Plugs, href: (orgId) => `/${orgId}/secretary/integrations` },
+  { key: 'integrations', label: '外部連携', icon: Plugs, href: (orgId) => `/${orgId}/secretary/integrations` },
   {
     // 「つなぐ」= LINE連携ハブ(自分/顧問先/グループの3カード)。旧ラベル"LINE連携"は
     // タブ分散の原因の一つだったため、ハブ統合(D3)に合わせて短く汎用的な名前にする。
@@ -31,7 +31,7 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
     // 共有botグループ紐付けの承認（Stage 4・PR3a）。promoteのdigest承認("確認待ち"タブ)とは
     // 別概念のため、別タブ・別命名(GroupClaim系)で分離する。approvalsとは相乗りしない。
     key: 'group-links',
-    label: 'グループ紐付け',
+    label: '相手先グループ',
     icon: UsersThree,
     href: (orgId) => `/${orgId}/secretary/group-links`,
   },

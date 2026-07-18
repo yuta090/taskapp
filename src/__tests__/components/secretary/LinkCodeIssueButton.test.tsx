@@ -24,9 +24,9 @@ beforeEach(() => {
 })
 
 describe('LinkCodeIssueButton', () => {
-  it('発行前は「確認コードを発行」ボタンを表示する', () => {
+  it('発行前は「本人確認コードを発行」ボタンを表示する', () => {
     render(<LinkCodeIssueButton orgId={ORG} spaceId={SPACE} />)
-    expect(screen.getByText('確認コードを発行')).toBeInTheDocument()
+    expect(screen.getByText('本人確認コードを発行')).toBeInTheDocument()
   })
 
   it('発行に成功するとコードと期限を表示する', async () => {
@@ -36,7 +36,7 @@ describe('LinkCodeIssueButton', () => {
     })
 
     render(<LinkCodeIssueButton orgId={ORG} spaceId={SPACE} />)
-    fireEvent.click(screen.getByText('確認コードを発行'))
+    fireEvent.click(screen.getByText('本人確認コードを発行'))
 
     await waitFor(() => expect(screen.getByText('ABC123')).toBeInTheDocument())
     expect(fetchMock).toHaveBeenCalledWith(
@@ -55,7 +55,7 @@ describe('LinkCodeIssueButton', () => {
     })
 
     render(<LinkCodeIssueButton orgId={ORG} spaceId={SPACE} />)
-    fireEvent.click(screen.getByText('確認コードを発行'))
+    fireEvent.click(screen.getByText('本人確認コードを発行'))
     await waitFor(() => expect(screen.getByText('ABC123')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('コピー'))
@@ -69,7 +69,7 @@ describe('LinkCodeIssueButton', () => {
     })
 
     render(<LinkCodeIssueButton orgId={ORG} spaceId={SPACE} />)
-    fireEvent.click(screen.getByText('確認コードを発行'))
+    fireEvent.click(screen.getByText('本人確認コードを発行'))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('発行できません'))
   })

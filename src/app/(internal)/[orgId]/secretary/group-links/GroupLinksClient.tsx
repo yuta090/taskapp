@@ -40,7 +40,7 @@ interface IssuedBatchItem {
  *
  * promoteのdigest承認（ApprovalsClient・"確認待ち"タブ）とは別概念。こちらは
  * channel_group_claims（web_approval）を扱う: 事務所がプロジェクトを選んでコードを発行し、
- * 顧問先がLINEグループに投入すると、下に確認待ちとして現れる。承認するとグループが紐付く。
+ * 相手先がLINEグループに投入すると、下に確認待ちとして現れる。承認するとグループが紐付く。
  * 楽観更新: 承認/却下が成功したら即座にリストから消す（保存ボタンは無い）。
  */
 export function GroupLinksClient({ orgId }: { orgId: string }) {
@@ -233,9 +233,9 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           <section>
             <h2 className="text-sm font-semibold text-gray-900">共有botグループを追加</h2>
             <p className="mt-1 text-xs text-gray-500">
-              顧問先がまだ秘書を友だち追加していない場合は、下のQRで秘書を友だち追加してもらい、
+              相手先がまだ秘書を友だち追加していない場合は、下のQRで秘書を友だち追加してもらい、
               その秘書を<strong>LINEグループに招待</strong>してもらいます。そのうえでプロジェクトを選んでコードを発行し、
-              <strong>顧問先のLINEグループのトーク</strong>に貼り付けてもらってください。投入されると下に確認待ちが表示され、
+              <strong>相手先のLINEグループのトーク</strong>に貼り付けてもらってください。投入されると下に確認待ちが表示され、
               承認するとグループが紐付きます。
             </p>
 

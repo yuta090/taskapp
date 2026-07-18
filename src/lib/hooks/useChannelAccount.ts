@@ -14,12 +14,16 @@ export interface ChannelAccountMeta {
   lineBotUserId: string | null
   status: 'active' | 'disabled'
   createdAt: string
+  /** 'org'=自社LINE / 'platform'=共通LINE */
+  ownerType: 'org' | 'platform'
 }
 
 export type ViewerRole = 'owner' | 'admin' | 'member'
 
 interface AccountResponse {
   account: ChannelAccountMeta | null
+  /** 自社LINEは無いが共通LINE（共有bot）のグループを持つ＝共通LINE利用中 */
+  sharedBotInUse: boolean
   viewerRole: ViewerRole
 }
 
@@ -77,6 +81,7 @@ export function useChannelAccount(orgId: string) {
 
   return {
     account: data?.account ?? null,
+    sharedBotInUse: data?.sharedBotInUse ?? false,
     viewerRole: data?.viewerRole ?? null,
     isLoading,
     error: error instanceof Error ? error.message : null,

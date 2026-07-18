@@ -70,7 +70,7 @@ describe('ClientLinkPanel', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
 
     await waitFor(() => expect(screen.getByRole('img', { name: /QR/ })).toBeInTheDocument())
-    expect(screen.getByText('確認コードを発行')).toBeInTheDocument()
+    expect(screen.getByText('本人確認コードを発行')).toBeInTheDocument()
   })
 
   it('未選択時はQR/発行ボタンを出さない', () => {
@@ -84,6 +84,6 @@ describe('ClientLinkPanel', () => {
     })
     render(<ClientLinkPanel orgId={ORG} />)
 
-    expect(screen.queryByText('確認コードを発行')).not.toBeInTheDocument()
+    expect(screen.queryByText('本人確認コードを発行')).not.toBeInTheDocument()
   })
 })
