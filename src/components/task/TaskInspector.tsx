@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye } from '@phosphor-icons/react'
+import { TaskReminderField } from './TaskReminderField'
 import { AmberBadge, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -956,6 +957,14 @@ export function TaskInspector({
             )}
           </div>
         </div>
+
+        {/* 時刻指定LINEリマインド（③・pro以上限定） */}
+        {onUpdate && (
+          <TaskReminderField
+            taskId={task.id}
+            initialRemindAt={(task as { remind_at?: string | null }).remind_at ?? null}
+          />
+        )}
 
         {/* Milestone */}
         <div className="space-y-1.5">
