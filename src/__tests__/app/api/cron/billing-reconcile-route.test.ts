@@ -127,4 +127,39 @@ describe('POST /api/cron/billing-reconcile', () => {
     expect(json.changes).toHaveLength(1)
     expect(storeMock.applyBillingReconcile).not.toHaveBeenCalled()
   })
+
+  it('resource_missing が多数かつ高割合 → サーキットブレーカで一括ダウングレードを止める', async () => {
+    // 6 org すべてが Stripe 側で「消えている」ように見える（鍵取り違え/mode不一致など運用事故を模す）
+    const rows = Array.from({ length: 6 }, (_, i) => ({
+      ...PRO_ROW,
+      orgId: `org-${i}`,
+      stripeSubscriptionId: `sub_${i}`,
+    }))
+    storeMock.listReconcilableBillingRows.mockResolvedValue(rows)
+    retrieveMock.mockRejectedValue({ code: 'resource_missing' })
+
+    const res = await callPost()
+    const json = await res.json()
+
+    expect(json.circuitBreaker).toBe('resource_missing')
+    expect(json.missing).toBe(6)
+    expect(json.updated).toBe(0)
+    expect(json.skipped).toHaveLength(6)
+    // 破壊的な free ダウングレードは一切書き込まない
+    expect(storeMock.applyBillingReconcile).not.toHaveBeenCalled()
+  })
+
+  it('resource_missing が少数（閾値未満）なら通常どおり free に戻す', async () => {
+    // 1件だけ消滅（小規模アカウントの正当な解約）→ ブレーカ発火せず適用
+    retrieveMock.mockRejectedValue({ code: 'resource_missing' })
+    const res = await callPost()
+    const json = await res.json()
+    expect(json.circuitBreaker).toBeUndefined()
+    expect(json.updated).toBe(1)
+    expect(storeMock.applyBillingReconcile).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({ plan_id: 'free', status: 'active' }),
+      { clearSubscriptionId: true, expectedSubscriptionId: 'sub_1' },
+    )
+  })
 })

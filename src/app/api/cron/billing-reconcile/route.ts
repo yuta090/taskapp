@@ -69,6 +69,8 @@ export async function POST(request: NextRequest) {
 
   const skipped: Array<{ orgId: string; reason: string }> = []
   const changes: Array<{ orgId: string; from: string | null; toStatus: string; toPlan?: string }> = []
+  // resource_missing（削除済み）の行は即適用せず集約し、後段のサーキットブレーカ判定後にまとめて処理。
+  const missingRows: typeof rows = []
   let updated = 0
 
   for (const row of rows) {
@@ -109,17 +111,11 @@ export async function POST(request: NextRequest) {
       }
       updated += 1
     } catch (err) {
-      // Stripe 側で消滅していれば free に戻す（それ以外の一時障害はスキップ）
+      // Stripe 側で消滅(resource_missing)＝削除済みなら free に戻す破壊的操作。ただし即時には
+      // 適用せず一旦集める（後段のサーキットブレーカで一括ダウングレードの暴発を止めるため）。
+      // それ以外の一時障害(5xx/network)はスキップして次回再試行（誤 downgrade しない）。
       if (isResourceMissing(err)) {
-        const patch = deletedSubscriptionPatch()
-        changes.push({ orgId: row.orgId, from: row.status, toStatus: patch.status, toPlan: 'free' })
-        if (!dryRun) {
-          await applyBillingReconcile(row.orgId, patch, {
-            clearSubscriptionId: true,
-            expectedSubscriptionId: row.stripeSubscriptionId,
-          })
-        }
-        updated += 1
+        missingRows.push(row)
       } else {
         skipped.push({
           orgId: row.orgId,
@@ -129,13 +125,43 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // サーキットブレーカ: resource_missing が「多数かつ高割合」なら、鍵取り違え/test↔live 不一致/
+  // ID一括破損など運用事故の可能性が高い。全 org を一気に free 化する前に止めて調査させる。
+  // 小規模アカウントでの正当な少数消滅は通す（絶対数の下限で誤発火を防ぐ）。
+  const missingCount = missingRows.length
+  const breakerTripped =
+    missingCount >= MISSING_BREAKER_MIN_ABS && missingCount > rows.length * MISSING_BREAKER_FRACTION
+
+  if (breakerTripped) {
+    for (const row of missingRows) {
+      skipped.push({ orgId: row.orgId, reason: 'resource_missing_circuit_breaker' })
+    }
+  } else {
+    for (const row of missingRows) {
+      const patch = deletedSubscriptionPatch()
+      changes.push({ orgId: row.orgId, from: row.status, toStatus: patch.status, toPlan: 'free' })
+      if (!dryRun) {
+        await applyBillingReconcile(row.orgId, patch, {
+          clearSubscriptionId: true,
+          expectedSubscriptionId: row.stripeSubscriptionId,
+        })
+      }
+      updated += 1
+    }
+  }
+
   return NextResponse.json({
     checked: rows.length,
     updated,
     skipped,
+    ...(breakerTripped ? { circuitBreaker: 'resource_missing', missing: missingCount } : {}),
     ...(dryRun ? { dryRun: true, changes } : {}),
   })
 }
+
+/** resource_missing 一括ダウングレードのサーキットブレーカ閾値（絶対下限と割合の両方を満たすと発火）。 */
+const MISSING_BREAKER_MIN_ABS = 5
+const MISSING_BREAKER_FRACTION = 0.5
 
 /** Stripe の「サブスクが存在しない」エラー（削除済み）を判定する。 */
 function isResourceMissing(err: unknown): boolean {

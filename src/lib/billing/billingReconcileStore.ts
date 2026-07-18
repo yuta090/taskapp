@@ -25,34 +25,55 @@ export interface ReconcilableBillingRow {
  * 対象は「Stripe サブスク紐付きあり かつ plan_id が free でない」行のみ
  * （free 行は over-entitlement の余地が無いので Stripe を叩かない＝API 呼び出しを節約）。
  */
+type Row = {
+  org_id: string
+  plan_id: string | null
+  status: string | null
+  current_period_end: string | null
+  cancel_at_period_end: boolean | null
+  stripe_subscription_id: string | null
+}
+
+/** Supabase の1レスポンス上限。これを超える対象を1ページで取り切れないため keyset で回す。 */
+const RECONCILE_PAGE_SIZE = 1000
+
 export async function listReconcilableBillingRows(): Promise<ReconcilableBillingRow[]> {
-  const { data, error } = await admin()
-    .from('org_billing')
-    .select('org_id, plan_id, status, current_period_end, cancel_at_period_end, stripe_subscription_id')
-    .not('stripe_subscription_id', 'is', null)
-    .neq('plan_id', 'free')
+  const out: ReconcilableBillingRow[] = []
+  let lastOrgId: string | null = null
 
-  if (error || !data) return []
+  // keyset ページング（org_id 昇順）。offset だと途中で行が変わるとズレるため gt(org_id) で辿る。
+  // org_id は org_billing の一意キー前提。全ページを取り切るまで回す。
+  for (;;) {
+    let query = admin()
+      .from('org_billing')
+      .select('org_id, plan_id, status, current_period_end, cancel_at_period_end, stripe_subscription_id')
+      .not('stripe_subscription_id', 'is', null)
+      .neq('plan_id', 'free')
+      .order('org_id', { ascending: true })
+      .limit(RECONCILE_PAGE_SIZE)
+    if (lastOrgId) query = query.gt('org_id', lastOrgId)
 
-  type Row = {
-    org_id: string
-    plan_id: string | null
-    status: string | null
-    current_period_end: string | null
-    cancel_at_period_end: boolean | null
-    stripe_subscription_id: string | null
+    const { data, error } = await query
+    // エラーを空扱いにすると「DB障害＝対象なし」と誤認して静かに何もしない。必ず throw。
+    if (error) throw new Error(`listReconcilableBillingRows failed: ${error.message}`)
+
+    const batch = (data as Row[] | null) ?? []
+    for (const r of batch) {
+      if (!r.stripe_subscription_id) continue
+      out.push({
+        orgId: r.org_id,
+        planId: r.plan_id,
+        status: r.status,
+        currentPeriodEnd: r.current_period_end,
+        cancelAtPeriodEnd: r.cancel_at_period_end,
+        stripeSubscriptionId: r.stripe_subscription_id,
+      })
+    }
+    if (batch.length < RECONCILE_PAGE_SIZE) break
+    lastOrgId = batch[batch.length - 1].org_id
   }
 
-  return (data as Row[])
-    .filter((r): r is Row & { stripe_subscription_id: string } => Boolean(r.stripe_subscription_id))
-    .map((r) => ({
-      orgId: r.org_id,
-      planId: r.plan_id,
-      status: r.status,
-      currentPeriodEnd: r.current_period_end,
-      cancelAtPeriodEnd: r.cancel_at_period_end,
-      stripeSubscriptionId: r.stripe_subscription_id,
-    }))
+  return out
 }
 
 /**
