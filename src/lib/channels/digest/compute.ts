@@ -436,7 +436,18 @@ export function buildApprovalPromptFlexMessage(input: ApprovalPromptFlexInput): 
             style: 'primary',
             action: {
               type: 'postback',
-              label: '承認してタスク化',
+              label: '承認して自分がやる',
+              // self=1: 承認者を担当にする。Google Tasks 連携中なら本人の ToDo に流れる。
+              data: buildDigestPromotePostbackData(input.taskId, true),
+              displayText: '承認して自分がやる',
+            },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            action: {
+              type: 'postback',
+              label: '承認だけ（担当はあとで）',
               data: buildDigestPromotePostbackData(input.taskId),
               displayText: '承認',
             },
