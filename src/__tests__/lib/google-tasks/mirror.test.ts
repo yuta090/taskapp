@@ -264,6 +264,18 @@ describe('並行性・エラー処理レビュー対応（fable設計: version/l
     expect(s.dead).toBe(0)
   })
 
+  it('#7 due_date を消した upsert は Google へ due:null を送って期日を消す', async () => {
+    state.ref = { google_task_id: 'gt-1', google_tasklist_id: 'list-1' }
+    claimReturns([job('upsert', { title: 'x' })]) // due_date 無し
+    await dispatchTaskMirrorBatch()
+    expect(patchTaskMock).toHaveBeenCalledWith(
+      'access-token',
+      'list-1',
+      'gt-1',
+      expect.objectContaining({ due: null }),
+    )
+  })
+
   it('lease 切れの行は処理せずスキップ（complete を呼ばない）', async () => {
     const stale = { ...job('upsert', { title: 'x' }), leased_until: '2000-01-01T00:00:00.000Z' }
     claimReturns([stale])

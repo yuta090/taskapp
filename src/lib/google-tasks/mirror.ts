@@ -151,7 +151,9 @@ async function processJob(job: MirrorJob, token: string, tasklistId: string): Pr
     const fields = {
       title: typeof p.title === 'string' ? p.title : '(無題)',
       notes: typeof p.notes === 'string' ? p.notes : undefined,
-      due: dateToGoogleDue(typeof p.due_date === 'string' ? p.due_date : null) ?? undefined,
+      // due は string|null をそのまま渡す（undefined にしない）。TaskApp 側で due_date を消したとき、
+      // null を PATCH で送って Google 側の期日も消す（undefined だと省略され旧期日が残る）。
+      due: dateToGoogleDue(typeof p.due_date === 'string' ? p.due_date : null),
       status: 'needsAction' as const,
     }
     const ref = await getRef(job.connection_id, job.task_id)

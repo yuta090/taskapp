@@ -381,6 +381,7 @@ begin
     where id = p_connection_id and provider = 'google_tasks' and owner_type = 'user' and status = 'active';
   if v_owner is null then return 0; end if;
 
+  -- (1) 現在のミラー対象を upsert で積む（既存分の取り込み）。
   for r in
     select t.id, t.title, t.due_date, t.status
     from public.tasks t
@@ -393,6 +394,27 @@ begin
     );
     v_count := v_count + 1;
   end loop;
+
+  -- (2) stale ref の掃除（cleanup 取りこぼしの回収）。接続失効中に起きた担当替え/対象外化/削除は
+  --     トリガーが cleanup を積めない（そもそも Google に到達できない）。再接続の backfill で、
+  --     この接続の ref のうち対応 task がもう対象でないものへ delete を積み、孤児を回収する。
+  --     worker の delete は ref 第一で ID を解決するため payload は空でよい。
+  for r in
+    select ref.task_id
+    from public.user_task_mirror_refs ref
+    where ref.connection_id = p_connection_id
+      and not exists (
+        select 1 from public.tasks t
+        join public.spaces s on s.id = t.space_id and s.type = 'project'
+        where t.id = ref.task_id
+          and t.assignee_id = v_owner
+          and t.status in ('todo', 'in_progress')
+      )
+  loop
+    perform public._enqueue_task_mirror_job(p_connection_id, r.task_id, 'delete', '{}'::jsonb);
+    v_count := v_count + 1;
+  end loop;
+
   return v_count;
 end;
 $$;
