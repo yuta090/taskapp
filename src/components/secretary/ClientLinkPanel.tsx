@@ -23,7 +23,7 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   const { spaces: allSpaces } = useUserSpaces()
   // LINEハブの接続判定なので channel='line' に限定する（非LINE identityだけの相手先を
   // 「LINE接続済み」と誤判定してQRを畳んでしまわないように）。
-  const { counts } = useChannelIdentities(orgId, 'line')
+  const { counts, isLoading: identitiesLoading } = useChannelIdentities(orgId, 'line')
   const orgSpaces = useMemo(
     () => allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null),
     [allSpaces, orgId],
@@ -35,7 +35,9 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   }
 
   const linkedCount = selectedSpaceId ? (counts[selectedSpaceId] ?? 0) : 0
-  const state: ConnectState = linkedCount > 0 ? 'connected' : 'ready'
+  // 接続状態が未確定(ロード中)のうちはloading扱いにし、QRを一度展開してから畳む
+  // ちらつき・レイアウトシフトを避ける。
+  const state: ConnectState = identitiesLoading ? 'loading' : linkedCount > 0 ? 'connected' : 'ready'
 
   return (
     <div className="space-y-3">

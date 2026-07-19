@@ -39,7 +39,7 @@ interface ConnectionFlowSectionProps {
  * - group                 : 自動では畳まない（反復追加が通常なので毎回のクリックを増やさない）
  * - それ以外(未接続/発行済み等) : すべて展開（オンボーディング）
  */
-type DisplayMode = 'expanded' | 'collapse-onboarding' | 'collapse-qr'
+type DisplayMode = 'loading' | 'expanded' | 'collapse-onboarding' | 'collapse-qr'
 
 function resolveMode(kind: ConnectKind, state: ConnectState): DisplayMode {
   if (state !== 'connected') return 'expanded'
@@ -94,12 +94,21 @@ export function ConnectionFlowSection({
   error,
   stepsHint,
 }: ConnectionFlowSectionProps) {
-  const mode = resolveMode(kind, state)
+  // loading中は接続済みか未接続かがまだ確定しないため、QR/アクションを出さない
+  // （出すと接続済みの相手先で「展開→畳む」のちらつき＋レイアウトシフトが起きる）。
+  const mode = state === 'loading' ? 'loading' : resolveMode(kind, state)
 
   return (
     <div className="space-y-4" data-testid="connection-flow-section" data-kind={kind} data-state={state} data-mode={mode}>
       {error}
       {summary}
+
+      {mode === 'loading' && (
+        <div data-testid="connect-flow-skeleton" className="space-y-2" aria-busy="true">
+          <div className="h-24 w-24 rounded bg-gray-100 animate-pulse" />
+          <div className="h-4 w-40 rounded bg-gray-100 animate-pulse" />
+        </div>
+      )}
 
       {mode === 'expanded' && (
         <>
