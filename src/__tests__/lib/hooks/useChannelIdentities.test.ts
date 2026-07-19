@@ -1,8 +1,13 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { useChannelIdentities } from '@/lib/hooks/useChannelIdentities'
+
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return { ...actual, useQuery: vi.fn(actual.useQuery) }
+})
 
 /** useChannelIdentities — space毎のactive channel_identities件数の集計（任意でchannel絞り込み） */
 
@@ -42,6 +47,19 @@ describe('useChannelIdentities', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('staleTimeを上書きしない（アプリ既定=QueryProviderの2分を継承する）', async () => {
+    mockEqStatus.mockReturnValue(builder([]))
+
+    renderHook(() => useChannelIdentities('org-1'), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(useQuery).toHaveBeenCalled())
+    const options = (useQuery as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >
+    expect(options.staleTime).toBeUndefined()
   })
 
   it('space毎に件数を集計する', async () => {

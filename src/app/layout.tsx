@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Toaster } from 'sonner'
 import { PreferencesProviderWrapper } from '@/components/providers/PreferencesProviderWrapper'
+import { QueryProvider } from '@/components/providers/QueryProvider'
 import { ActiveOrgProvider } from '@/lib/org/ActiveOrgProvider'
 import { SkipLink } from '@/components/shared/SkipLink'
 import './globals.css'
@@ -40,10 +41,19 @@ export default function RootLayout({
       <body className="font-sans">
         <SkipLink />
         <PreferencesProviderWrapper>
-          <ActiveOrgProvider>
-            {children}
-            <Toaster position="bottom-right" richColors closeButton duration={3000} />
-          </ActiveOrgProvider>
+          {/* Single app-wide QueryProvider. ActiveOrgProvider (below) calls
+              useCurrentUser, now a react-query hook, so a QueryClient must be
+              in context on every route — including static marketing pages and
+              /_not-found. Route-group layouts no longer mount their own
+              QueryProvider (that would nest PersistQueryClientProviders on the
+              same IDB key). One long-lived client also shares cache across
+              route groups. */}
+          <QueryProvider>
+            <ActiveOrgProvider>
+              {children}
+              <Toaster position="bottom-right" richColors closeButton duration={3000} />
+            </ActiveOrgProvider>
+          </QueryProvider>
         </PreferencesProviderWrapper>
       </body>
     </html>

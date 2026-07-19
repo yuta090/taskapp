@@ -93,7 +93,6 @@ export function useUserSpaces(options?: UseUserSpacesOptions) {
       }
       return mapped
     },
-    staleTime: 30_000,
     enabled: !!user,
   })
 
