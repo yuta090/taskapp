@@ -46,7 +46,6 @@ export function useChannelIdentities(orgId: string, channel?: string) {
       return counts
     },
     enabled: !!orgId,
-    staleTime: 30_000,
   })
 
   return {
