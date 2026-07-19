@@ -27,11 +27,23 @@ vi.mock('@/lib/supabase/server', () => ({
 const storeMock = {
   findChannelAccountMetaForOrg: vi.fn(),
   findChannelAccountOrgId: vi.fn(),
+  findChannelAccountOwnerType: vi.fn(),
   updateChannelAccountStatus: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
+const resolveEntitlementsMock = vi.fn()
+vi.mock('@/lib/billing/entitlements', () => ({
+  resolveOrgEntitlements: (...args: unknown[]) => resolveEntitlementsMock(...args),
+}))
+
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
+
 const { GET, PATCH } = await import('@/app/api/channels/accounts/route')
+
+function entitled(has: boolean) {
+  return { planId: has ? 'pro' : 'free', has: () => has }
+}
 
 const ORG_A = '11111111-1111-4111-8111-111111111111'
 const ORG_B = '99999999-9999-4999-8999-999999999999'
@@ -132,6 +144,8 @@ describe('PATCH /api/channels/accounts', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
     storeMock.findChannelAccountOrgId.mockResolvedValue(ORG_A)
+    storeMock.findChannelAccountOwnerType.mockResolvedValue('org')
+    resolveEntitlementsMock.mockResolvedValue(entitled(true))
     storeMock.updateChannelAccountStatus.mockResolvedValue({ ...accountMeta, status: 'disabled' })
   })
 
@@ -189,4 +203,54 @@ describe('PATCH /api/channels/accounts', () => {
   })
 
   void ORG_B
+})
+
+describe('PATCH /api/channels/accounts — own_line_account 課金ゲート（専用botの有効化）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
+    storeMock.findChannelAccountOrgId.mockResolvedValue(ORG_A)
+    storeMock.updateChannelAccountStatus.mockResolvedValue({ ...accountMeta, status: 'active' })
+  })
+
+  it('Free org: 専用bot(owner_type=org)の有効化(active)は402 own_line_account_required', async () => {
+    storeMock.findChannelAccountOwnerType.mockResolvedValue('org')
+    resolveEntitlementsMock.mockResolvedValue(entitled(false))
+
+    const response = await callPatch({ accountId: ACCOUNT_ID, status: 'active' })
+    const json = await response.json()
+
+    expect(response.status).toBe(402)
+    expect(json.error).toBe('own_line_account_required')
+    expect(json.code).toBe('own_line_account_required')
+    expect(storeMock.updateChannelAccountStatus).not.toHaveBeenCalled()
+  })
+
+  it('Free org: 専用bot(owner_type=org)の無効化(disabled)はプラン不問で200（既存接続を無効化するだけなので許可）', async () => {
+    storeMock.findChannelAccountOwnerType.mockResolvedValue('org')
+    resolveEntitlementsMock.mockResolvedValue(entitled(false))
+
+    const response = await callPatch({ accountId: ACCOUNT_ID, status: 'disabled' })
+    expect(response.status).toBe(200)
+    expect(storeMock.updateChannelAccountStatus).toHaveBeenCalledWith(ACCOUNT_ID, 'disabled')
+  })
+
+  it('Pro org: 専用bot(owner_type=org)の有効化(active)は200で通過する', async () => {
+    storeMock.findChannelAccountOwnerType.mockResolvedValue('org')
+    resolveEntitlementsMock.mockResolvedValue(entitled(true))
+
+    const response = await callPatch({ accountId: ACCOUNT_ID, status: 'active' })
+    expect(response.status).toBe(200)
+    expect(storeMock.updateChannelAccountStatus).toHaveBeenCalledWith(ACCOUNT_ID, 'active')
+  })
+
+  it('Free org: 共有bot(owner_type=platform)の有効化はゲート対象外で200', async () => {
+    storeMock.findChannelAccountOwnerType.mockResolvedValue('platform')
+    resolveEntitlementsMock.mockResolvedValue(entitled(false))
+
+    const response = await callPatch({ accountId: ACCOUNT_ID, status: 'active' })
+    expect(response.status).toBe(200)
+    expect(storeMock.updateChannelAccountStatus).toHaveBeenCalledWith(ACCOUNT_ID, 'active')
+  })
 })
