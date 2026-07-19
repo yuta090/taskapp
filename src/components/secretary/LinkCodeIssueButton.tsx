@@ -79,7 +79,7 @@ export function LinkCodeIssueButton({ orgId, spaceId }: LinkCodeIssueButtonProps
       disabled={issuing}
       className="mt-1.5 text-[11px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition-colors"
     >
-      {issuing ? '発行中...' : '確認コードを発行'}
+      {issuing ? '発行中...' : '本人確認コードを発行'}
     </button>
   )
 }

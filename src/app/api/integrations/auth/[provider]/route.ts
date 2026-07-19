@@ -6,6 +6,7 @@ import { getZoomOAuthUrl, isZoomOAuthConfigured } from '@/lib/zoom/config'
 import { getTeamsOAuthUrl, isTeamsOAuthConfigured } from '@/lib/teams/config'
 import { getNotionOAuthUrl, isNotionOAuthConfigured } from '@/lib/notion/config'
 import { getGoogleSheetsOAuthUrl, isGoogleSheetsOAuthConfigured } from '@/lib/google-sheets/config'
+import { getGoogleTasksOAuthUrl, isGoogleTasksOAuthConfigured } from '@/lib/google-tasks/config'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -125,6 +126,15 @@ export async function GET(
 
       const state = createSignedState(provider, orgId, user.id)
       return NextResponse.redirect(getGoogleSheetsOAuthUrl(state))
+    }
+
+    if (provider === 'google_tasks') {
+      if (!isGoogleTasksOAuthConfigured()) {
+        return NextResponse.json({ error: 'Google Tasks OAuth is not configured' }, { status: 503 })
+      }
+
+      const state = createSignedState(provider, orgId, user.id)
+      return NextResponse.redirect(getGoogleTasksOAuthUrl(state))
     }
 
     return NextResponse.json(

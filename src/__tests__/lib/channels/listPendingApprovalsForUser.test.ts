@@ -73,6 +73,7 @@ describe('promoteDigestTask / rejectDigestTask（コンソール経路）', () =
     expect(rpcMock).toHaveBeenCalledWith('rpc_promote_digest_task', {
       p_task_id: 'task-1',
       p_actor_user_id: 'approver-1',
+      p_assign_self: false,
     })
     expect(r).toEqual({ status: 'promoted', created: true, taskId: 'new-1' })
   })

@@ -35,6 +35,15 @@ const storeMock = {
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => ({})),
+}))
+
+const resolveOrgEntitlementsMock = vi.fn()
+vi.mock('@/lib/billing/entitlements', () => ({
+  resolveOrgEntitlements: (...args: unknown[]) => resolveOrgEntitlementsMock(...args),
+}))
+
 const pushMock = vi.fn()
 vi.mock('@/lib/channels/line/client', () => ({
   pushLineMessage: (...args: unknown[]) => pushMock(...args),
@@ -70,6 +79,7 @@ describe('POST /api/channels/messages', () => {
     vi.clearAllMocks()
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
+    resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
     storeMock.findActiveIdentityForSpace.mockResolvedValue({ id: 'ident-1', externalId: 'U-c1' })
     storeMock.findLineAccountForOrg.mockResolvedValue({
       id: 'acc-1',
@@ -178,6 +188,60 @@ describe('POST /api/channels/messages', () => {
       'failed',
       expect.stringContaining('LINE push failed'),
     )
+  })
+
+  describe('line_direct_dm ゲート（spaceId宛て=1:1個別DM・Pro/Enterprise専有）', () => {
+    it('非entitled org（free）は403 plan_required・送信しない', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      const response = await callPost(validBody)
+      const json = await response.json()
+
+      expect(response.status).toBe(403)
+      expect(json).toEqual({ error: 'plan_required', feature: 'line_direct_dm' })
+      expect(storeMock.findActiveIdentityForSpace).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('回帰: Proでown_line_account登録後にFreeへダウングレードしてもaccount行がactiveなら旧経路は409で止まらない可能性があるため、plan由来のfeatureで確実にfail-closedにする', async () => {
+      // ダウングレード後もchannel_accounts行(owner_type='org')がactiveのまま残っているケースを模す
+      // （findLineAccountForOrgは通常どおりorgのaccountを返す＝account行側では止まらない）
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      const response = await callPost(validBody)
+
+      expect(response.status).toBe(403)
+      expect(storeMock.findLineAccountForOrg).not.toHaveBeenCalled()
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('entitled org（pro）は通常どおり送信できる', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
+      const response = await callPost(validBody)
+      expect(response.status).toBe(200)
+      expect(pushMock).toHaveBeenCalled()
+    })
+
+    it('groupId宛て送信はline_direct_dmを要求しない（相手先接続=グループ単位はFreeでも可）', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      storeMock.verifyGroupInOrg.mockResolvedValue({
+        id: '33333333-3333-4333-8333-333333333333',
+        orgId: validBody.orgId,
+        spaceId: 'space-1',
+        accountId: 'acc-1',
+        externalGroupId: 'G-1',
+        displayName: null,
+        status: 'active',
+        pickupMode: 'all',
+        lastExtractedMessageCreatedAt: null,
+      })
+      const response = await callPost({
+        orgId: validBody.orgId,
+        groupId: '33333333-3333-4333-8333-333333333333',
+        text: '明日は10時集合でお願いします',
+      })
+      expect(response.status).toBe(200)
+      expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+    })
   })
 
   describe('groupId指定（グループ宛て送信）', () => {

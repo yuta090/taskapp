@@ -41,6 +41,7 @@ import {
   claimApprovalNotification,
   clearApprovalNotifiedAt,
   getOrgChannelPolicyState,
+  getPlatformBudgetState,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -79,7 +80,8 @@ import {
 import { parseJapaneseDue } from '@/lib/channels/digest/due'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 
@@ -1215,6 +1217,11 @@ function matchInstantTaskKeyword(body: string): { index: number; length: number 
 
 /**
  * all_plus_instant（フェーズ2・pro以上限定）の実行時ゲート。設定APIの403に加えた二重防御。
+ *
+ * ゲートするfeatureは instant_line_notify（即時性そのもの）。line_pickup_dual_mode（自動タスク拾い
+ * 自体）は事業判断(2026-07・commit ce0e733)でFreeにも開放済みのため、これをここで見ると
+ * Freeでも即時化してしまう回帰になる（差別化は「拾い」ではなく「即時性」で行う設計）。
+ *
  * fail-closed: entitlement解決に失敗しても例外は投げず、即時化しない側に倒す
  * （resolveOrgEntitlements自体は例外を投げない設計だが、createAdminClient()の設定不備等の
  * 想定外にも備えて握る）。
@@ -1222,7 +1229,7 @@ function matchInstantTaskKeyword(body: string): { index: number; length: number 
 async function hasDualModeInstantEntitlement(orgId: string): Promise<boolean> {
   try {
     const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
-    return entitlements.has('line_pickup_dual_mode')
+    return entitlements.has('instant_line_notify')
   } catch (error) {
     console.error('hasDualModeInstantEntitlement: resolution failed, defaulting to false', error)
     return false
@@ -1299,13 +1306,17 @@ async function handleMentionInstantTask(
       if (!created.duplicate && created.id) {
         const taskId = created.id
         try {
-          // 送信境界の縮退判定（PR4メータリング）。claimより前に判定し、抑止なら
+          // 送信境界の縮退判定。claimより前に判定し、抑止なら
           // claimもpushも一切行わない（候補はpendingのまま残り、cron／コンソールが拾う）。
           // cron版(approval-notify)と同じ判定を即時1:1送信にも適用する（非対称の解消）。
+          // org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定（fable確定設計）。
+          // 専用bot(owner_type='org')は顧客側の枠であり当社の持ち出しではないため常に'ok'扱い。
           const policy = await getOrgChannelPolicyState(group.orgId)
-          const decision = decideAutoPush({
-            state: policy.state,
-            onExceed: policy.onExceed,
+          const globalState =
+            account.ownerType === 'platform' ? await getPlatformBudgetState(account.id) : 'ok'
+          const decision = decideSharedSendBudget({
+            org: { state: policy.state, onExceed: policy.onExceed },
+            global: { state: globalState },
             jstDayOfYear: getJstDayOfYear(),
           })
 
@@ -1471,6 +1482,7 @@ async function processPostback(
       disabled,
       promoteAction ? 'digest_promote' : 'digest_reject',
       (promoteAction ?? rejectAction)!.taskId,
+      promoteAction?.assignSelf ?? false,
     )
     return
   }
@@ -1606,6 +1618,7 @@ async function processApprovalPostback(
   disabled: boolean,
   action: ApprovalAction,
   taskId: string,
+  assignSelf = false,
 ): Promise<void> {
   if (account.ownerType === 'platform') return // 共有botの内部承認1:1連携は未対応（org解決不能）
 
@@ -1618,7 +1631,7 @@ async function processApprovalPostback(
   let result: ApprovalResult
   try {
     if (action === 'digest_promote') {
-      const r = await promoteDigestTaskViaLine(account.id, externalUserId, taskId)
+      const r = await promoteDigestTaskViaLine(account.id, externalUserId, taskId, assignSelf)
       result = r.status === 'promoted' ? (r.created ? 'promoted' : 'already_promoted') : r.status
     } else {
       const r = await rejectDigestTaskViaLine(account.id, externalUserId, taskId)

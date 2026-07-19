@@ -25,6 +25,7 @@ vi.mock('@/lib/supabase/server', () => ({
 const verifySpaceInOrgMock = vi.fn()
 const findFirstPlatformAccountIdMock = vi.fn()
 const createSharedGroupClaimCodeMock = vi.fn()
+const orgLineGroupCapacityMock = vi.fn()
 
 class DuplicateSharedGroupClaimCodeError extends Error {}
 class MultiplePlatformAccountsError extends Error {}
@@ -33,6 +34,7 @@ vi.mock('@/lib/channels/store', () => ({
   verifySpaceInOrg: (...args: unknown[]) => verifySpaceInOrgMock(...args),
   findFirstPlatformAccountId: (...args: unknown[]) => findFirstPlatformAccountIdMock(...args),
   createSharedGroupClaimCode: (...args: unknown[]) => createSharedGroupClaimCodeMock(...args),
+  orgLineGroupCapacity: (...args: unknown[]) => orgLineGroupCapacityMock(...args),
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
 }))
@@ -60,6 +62,7 @@ describe('POST /api/channels/group-claims/issue', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
     verifySpaceInOrgMock.mockResolvedValue(true)
+    orgLineGroupCapacityMock.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
     findFirstPlatformAccountIdMock.mockResolvedValue('acc-platform-1')
     createSharedGroupClaimCodeMock.mockResolvedValue({
       id: 'code-1',
@@ -86,6 +89,15 @@ describe('POST /api/channels/group-claims/issue', () => {
     membershipSingleMock.mockResolvedValue({ data: null, error: { message: 'not found' } })
     const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
     expect(res.status).toBe(403)
+  })
+
+  it('グループ上限到達なら402で早期に止める（コードを発行しない）', async () => {
+    orgLineGroupCapacityMock.mockResolvedValue({ activeCount: 3, maxGroups: 3 })
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
+    const json = await res.json()
+    expect(res.status).toBe(402)
+    expect(json.code).toBe('group_limit_reached')
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
   })
 
   it('spaceが自org内でなければ404（他orgへの発行防止）', async () => {

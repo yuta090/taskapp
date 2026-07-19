@@ -6,11 +6,11 @@ import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { LinkCodeIssueButton } from '@/components/secretary/LinkCodeIssueButton'
 
 /**
- * 連携ハブの「顧問先をつなぐ」カード。
+ * 連携ハブの「相手先をつなぐ」カード。
  *
  * identity(本人特定)・突合コード発行APIは一切変えない — 既存の LineFriendQr /
- * LinkCodeIssueButton をそのまま呼ぶだけの提示レイヤー。顧問先も同じBotを
- * 友だち追加するため purpose は既定(self)のまま使い、説明文だけ顧問先向けに寄せる。
+ * LinkCodeIssueButton をそのまま呼ぶだけの提示レイヤー。相手先も同じBotを
+ * 友だち追加するため purpose は既定(self)のまま使い、説明文だけ相手先向けに寄せる。
  */
 export function ClientLinkPanel({ orgId }: { orgId: string }) {
   const { spaces: allSpaces } = useUserSpaces()
@@ -27,7 +27,7 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        顧問先を選んでコードを発行し、顧問先に渡します（紙やメールでもOK）。顧問先が友だち追加してコードを送ると連携できます。
+        相手先を選んでコードを発行し、相手先に渡します（紙やメールでもOK）。相手先が友だち追加してコードを送ると連携できます。
       </p>
 
       <select

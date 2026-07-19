@@ -174,7 +174,24 @@ describe('PATCH /api/channels/groups', () => {
       })
       expect(response.status).toBe(403)
       const json = await response.json()
-      expect(json).toEqual({ error: 'plan_required', feature: 'line_pickup_dual_mode' })
+      expect(json).toEqual({ error: 'plan_required', feature: 'instant_line_notify' })
+      expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
+    })
+
+    it('回帰: line_pickup_dual_mode(Freeにも開放済み)がtrueでもinstant_line_notifyが無ければ403（差別化は即時性で行う・事業判断2026-07）', async () => {
+      // 実際のFreeプランのentitlements解決を模す: line_pickup_dual_modeはtrue・instant_line_notifyはfalse
+      resolveOrgEntitlementsMock.mockResolvedValue({
+        planId: 'free',
+        has: (f: string) => f === 'line_pickup_dual_mode',
+      })
+      const response = await callPatch({
+        orgId: ORG_ID,
+        groupId: GROUP_ID,
+        pickupMode: 'all_plus_instant',
+      })
+      expect(response.status).toBe(403)
+      const json = await response.json()
+      expect(json).toEqual({ error: 'plan_required', feature: 'instant_line_notify' })
       expect(storeMock.updateChannelGroup).not.toHaveBeenCalled()
     })
 

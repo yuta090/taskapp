@@ -10,6 +10,7 @@ import {
   CODE_ONLY_CLAIM_DEFAULT_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
 import { fetchBotInfo } from '@/lib/channels/line/client'
+import { resolveOrgEntitlements, planLimits } from '@/lib/billing/entitlements'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -217,9 +218,11 @@ export interface ChannelAccountMeta {
   lineBotUserId: string | null
   status: 'active' | 'disabled'
   createdAt: string
+  /** 'org'=自社LINE（自社の公式アカウント） / 'platform'=共通LINE（TaskApp共通の共有アカウント） */
+  ownerType: 'org' | 'platform'
 }
 
-const ACCOUNT_META_COLUMNS = 'id, org_id, channel, display_name, line_bot_user_id, status, created_at'
+const ACCOUNT_META_COLUMNS = 'id, org_id, channel, display_name, line_bot_user_id, status, created_at, owner_type'
 
 interface AccountMetaRow {
   id: string
@@ -229,6 +232,7 @@ interface AccountMetaRow {
   line_bot_user_id: string | null
   status: string
   created_at: string
+  owner_type: string
 }
 
 function toAccountMeta(row: AccountMetaRow): ChannelAccountMeta {
@@ -240,7 +244,26 @@ function toAccountMeta(row: AccountMetaRow): ChannelAccountMeta {
     lineBotUserId: row.line_bot_user_id,
     status: row.status as 'active' | 'disabled',
     createdAt: row.created_at,
+    ownerType: row.owner_type === 'platform' ? 'platform' : 'org',
   }
+}
+
+/**
+ * この org が「共通LINE（共有bot）」を利用中か。共有botは org_id を持たない（platform account）ため
+ * findChannelAccountMetaForOrg（org_id 絞り）には映らない。代わりに、この org に紐付いた active な
+ * グループが platform アカウント上に1つでもあれば「共通LINEを利用中」と判定する。
+ * これで「共有運用なのにコンソールが未接続に見える」問題を解消する。
+ */
+export async function orgUsesSharedBot(orgId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select('id, channel_accounts!inner(owner_type)')
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+    .eq('channel_accounts.owner_type', 'platform')
+    .limit(1)
+  if (error || !data) return false
+  return data.length > 0
 }
 
 /** コンソールのbot状態カード用。credentials_encryptedは絶対に選択しない */
@@ -267,6 +290,24 @@ export async function findChannelAccountOrgId(accountId: string): Promise<string
 
   if (error || !data) return null
   return data.org_id as string
+}
+
+/**
+ * PATCH /api/channels/accounts の課金ゲート用: 対象accountの owner_type を引く。
+ * 専用bot(owner_type='org')の再有効化(status→'active')にのみ own_line_account を要求するため、
+ * 共有bot(owner_type='platform')の有効化を誤ってゲートしないよう区別する。
+ */
+export async function findChannelAccountOwnerType(
+  accountId: string,
+): Promise<'org' | 'platform' | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('owner_type')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data.owner_type === 'platform' ? 'platform' : 'org'
 }
 
 export async function updateChannelAccountStatus(
@@ -640,6 +681,7 @@ export interface OrgGroupWithApprover {
   spaceId: string
   spaceName: string | null
   approverUserId: string | null
+  pickupMode: PickupMode
 }
 
 /**
@@ -650,7 +692,7 @@ export interface OrgGroupWithApprover {
 export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroupWithApprover[]> {
   const { data, error } = await admin()
     .from('channel_groups')
-    .select('id, display_name, space_id, approver_user_id, spaces(name)')
+    .select('id, display_name, space_id, approver_user_id, pickup_mode, spaces(name)')
     .eq('org_id', orgId)
     .eq('status', 'active')
     .not('space_id', 'is', null)
@@ -662,6 +704,7 @@ export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroup
     display_name: string | null
     space_id: string
     approver_user_id: string | null
+    pickup_mode: string
     spaces: { name: string | null } | { name: string | null }[] | null
   }
   return (data as unknown as Row[]).map((row) => {
@@ -672,6 +715,7 @@ export async function listOrgGroupsWithApprover(orgId: string): Promise<OrgGroup
       spaceId: row.space_id,
       spaceName: s?.name ?? null,
       approverUserId: row.approver_user_id,
+      pickupMode: toPickupMode(row.pickup_mode),
     }
   })
 }
@@ -1058,6 +1102,23 @@ function classifyGroupClaimRpcError(code: string | undefined): GroupClaimActionE
 }
 
 /**
+ * org の「相手先グループ接続」の容量。active グループ数と、プランの上限(maxLineGroups)を返す。
+ * maxGroups=null は無制限。プラン解決は org_billing 起点（resolveOrgEntitlements）。
+ * これを使って「新規紐付けの拒否」を判定する（既存グループは絶対に切らない＝上限超過でも既存は生存）。
+ */
+export async function orgLineGroupCapacity(
+  orgId: string,
+): Promise<{ activeCount: number; maxGroups: number | null }> {
+  const { count } = await admin()
+    .from('channel_groups')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
+  return { activeCount: count ?? 0, maxGroups: planLimits(ent.planId).maxLineGroups }
+}
+
+/**
  * Web承認。approverUserId はAPI routeがセッションから解決した内部ユーザー（クライアント申告禁止）。
  * 戻り値は成功(true)/同時承認の敗者(false・channel_groups_active_uniqueによるgraceful reject)を
  * そのまま返す。それ以外の検証失敗はRPCの例外を GroupClaimActionError として投げ直す。
@@ -1336,6 +1397,38 @@ export async function getOrgChannelPolicyState(orgId: string): Promise<OrgChanne
     state: row.state === 'soft' || row.state === 'hard' ? row.state : 'ok',
     onExceed: row.on_exceed === 'degrade' || row.on_exceed === 'block' ? row.on_exceed : 'none',
   }
+}
+
+// ---------------------------------------------------------------------------
+// platform_channel_budget（共有bot共通LINEのグローバル予算層読取・fable確定設計）
+// ---------------------------------------------------------------------------
+
+export type PlatformBudgetState = 'ok' | 'soft' | 'hard'
+
+/**
+ * 送信境界（decideSharedSendBudget のglobal層）が読む account 単位の縮退状態。
+ * owner_type='platform'（共有bot）のaccountにのみ意味を持つ。owner_type='org'（専用bot）は
+ * 呼出側がそもそも本関数を呼ばない（常に 'ok' 扱い＝顧客側の枠であり当社の持ち出しではない）。
+ *
+ * getOrgChannelPolicyState（org層）とはfail方向が異なる:
+ *   - 行の無い account（cronの自動プロビジョニングが未到達）は暗黙 'ok'。
+ *   - DBエラーは例外を投げず fail-closed で 'hard' を返す。グローバル予算は当社が守るべき
+ *     LINEアカウントの実物理上限であり、読めない時は緩めるより止める側に倒す。
+ */
+export async function getPlatformBudgetState(accountId: string): Promise<PlatformBudgetState> {
+  const { data, error } = await admin()
+    .from('platform_channel_budget')
+    .select('state')
+    .eq('account_id', accountId)
+    .maybeSingle()
+  if (error) {
+    console.error('platform_channel_budget: select failed (fail-closed to hard)', accountId, error)
+    return 'hard'
+  }
+  if (!data) return 'ok'
+
+  const row = data as { state: string }
+  return row.state === 'soft' || row.state === 'hard' ? row.state : 'ok'
 }
 
 // ---------------------------------------------------------------------------
@@ -2258,11 +2351,13 @@ export async function promoteDigestTaskViaLine(
   channelAccountId: string,
   externalUserId: string,
   taskId: string,
+  assignSelf = false,
 ): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
   const { data, error } = await admin().rpc('rpc_promote_digest_task_via_line', {
     p_channel_account_id: channelAccountId,
     p_external_user_id: externalUserId,
     p_task_id: taskId,
+    p_assign_self: assignSelf,
   })
   if (error) throw new Error(`rpc_promote_digest_task_via_line failed: ${error.message}`)
   const row = Array.isArray(data) ? data[0] : data
@@ -2297,10 +2392,12 @@ export async function rejectDigestTaskViaLine(
 export async function promoteDigestTask(
   taskId: string,
   actorUserId: string,
+  assignSelf = false,
 ): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
   const { data, error } = await admin().rpc('rpc_promote_digest_task', {
     p_task_id: taskId,
     p_actor_user_id: actorUserId,
+    p_assign_self: assignSelf,
   })
   if (error) throw new Error(`rpc_promote_digest_task failed: ${error.message}`)
   const row = Array.isArray(data) ? data[0] : data
