@@ -878,5 +878,170 @@ describe('GroupLinksClient', () => {
         vi.useRealTimers()
       }
     })
+
+    it('【LOW3-1】commit確認: サーバがその行を返さなくなった時点でtombstoneが解除され、以降その行が来ても正しく反映される', async () => {
+      const claim = {
+        id: 'claim-1',
+        externalGroupId: 'G-1',
+        spaceId: 'space-1',
+        spaceName: '山田商事',
+        challengeLabel: 'AB12',
+        groupDisplayNameSnapshot: 'ある会社の相談グループ',
+        createdAt: '2026-07-16T00:00:00Z',
+      }
+      let pendingItems: unknown[] = [claim]
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: pendingItems }) })
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        if (url.includes('/api/channels/group-claims/approval') && init?.method === 'POST') {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'approved' }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
+
+        // 承認成功→楽観除去→tombstone記録
+        await act(async () => {
+          fireEvent.click(screen.getByText('承認'))
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+
+        // サーバがcommit済み(=pending一覧にもう含まれない)を返す → tombstoneはcommit確認で解除される
+        pendingItems = []
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+
+        // tombstone解除後に、(本来ありえないが)同idの行が別の新規claimとして再度pendingに
+        // 現れた場合は、もう古いtombstoneに巻き込まれず正しく表示される
+        pendingItems = [{ ...claim, groupDisplayNameSnapshot: 'ある会社の相談グループ(再掲)' }]
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(screen.getByText('ある会社の相談グループ(再掲)')).toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('【LOW3-2】60秒フォールバック: commit確認が来ないままでもTOMBSTONE_FALLBACK_MS経過でtombstoneが落ちる', async () => {
+      const claim = {
+        id: 'claim-1',
+        externalGroupId: 'G-1',
+        spaceId: 'space-1',
+        spaceName: '山田商事',
+        challengeLabel: 'AB12',
+        groupDisplayNameSnapshot: 'ある会社の相談グループ',
+        createdAt: '2026-07-16T00:00:00Z',
+      }
+      // サーバは常にpending一覧にclaimを返し続ける(commit確認が永久に取れない異常系)
+      const pendingItems = [claim]
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: pendingItems }) })
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        if (url.includes('/api/channels/group-claims/approval') && init?.method === 'POST') {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'approved' }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
+
+        await act(async () => {
+          fireEvent.click(screen.getByText('承認'))
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+
+        // 60秒未満(3周期=45秒)はサーバがまだ返し続けていてもtombstoneにより隠され続ける
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
+        })
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+
+        // 60秒(TOMBSTONE_FALLBACK_MS)を超えるとフォールバックでtombstoneが強制的に落ち、
+        // サーバがまだ返している(=承認自体は成立している想定の異常系)行が素通しで復帰する
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2)
+        })
+        expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('【LOW3-3・固着防止】poll fetchがハング(未resolve)しても、self-heal(POLL_STALE_RESET_MS超過)で次のintervalからポーリングが再開する', async () => {
+      let pendingCall = 0
+      fetchMock.mockImplementation((url: string) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          pendingCall += 1
+          if (pendingCall === 1) {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) })
+          }
+          // 2回目(定期poll)以降は意図的に永久ハングさせる(resolve/rejectどちらも来ない)。
+          // AbortController.abort()は呼ばれるが、このmockはsignalを見ないため無効化されない
+          // ("中断が効かない異常系"を模擬)。self-healのみが復帰させられる。
+          return new Promise(() => {})
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(pendingCall).toBe(1)
+
+        // 15秒後: 定期pollが発火しハングする(call#2)。pollInFlightRefがtrueに固着する
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(2)
+
+        // さらに15秒後(call#2開始から15秒経過): まだPOLL_STALE_RESET_MS(20秒)未満なので
+        // 通常のin-flightガードによりスキップされる(順序逆転防止の挙動は維持)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(2)
+
+        // さらに15秒後(call#2開始から30秒経過・POLL_STALE_RESET_MSを超過):
+        // self-healによりガードが強制リセットされ、次のintervalでポーリングが再開する
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(3)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

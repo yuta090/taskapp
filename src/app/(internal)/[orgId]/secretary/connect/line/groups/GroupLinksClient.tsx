@@ -31,6 +31,19 @@ const PENDING_CLAIMS_POLL_INTERVAL_MS = 15_000
  */
 const TOMBSTONE_FALLBACK_MS = 60_000
 
+/** silent poll の fetch が応答しない場合に AbortController で強制中断するタイムアウト。 */
+const POLL_FETCH_TIMEOUT_MS = 10_000
+
+/**
+ * in-flightガード(pollInFlightRef)の固着防止(セルフヒール)しきい値。
+ * AbortControllerでの中断が効かない場合(例: signalを見ないfetch実装・テスト環境)でも、
+ * 前回のsilent poll開始からこの時間を超えていれば強制的にガードを解除して再試行する。
+ * PENDING_CLAIMS_POLL_INTERVAL_MS(15秒)より長くすることで通常のin-flight重複スキップ
+ * (順序逆転防止・item4)を1周期分は尊重しつつ、2周期(30秒)以内には収まる値にすることで、
+ * 1本のハングでポーリングが恒久停止しないことを保証する(=遅くとも次の次のintervalで復帰する)。
+ */
+const POLL_STALE_RESET_MS = 20_000
+
 /**
  * 相手先グループ数の上限(402 group_limit_reached)を踏んだ際のProアップセル注記。
  * 押し付けにならないよう1行＋導線リンクのみ（設定は他ストリームのゲート実装＝#287）。
@@ -62,6 +75,27 @@ interface PendingGroupClaimItem {
 /** 確認待ち一覧はcreated_at昇順(サーバ側の並び順)。静かなマージで保持した行が末尾へ飛ばないよう揃える。 */
 function sortByCreatedAt(items: PendingGroupClaimItem[]): PendingGroupClaimItem[] {
   return [...items].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+}
+
+/**
+ * サーバから取得した一覧(nextItems)へ、busy(処理中)・tombstone(直近で楽観除去済み)の
+ * 行を復活させないガードを適用してマージする。silent(ポーリング)だけでなく、非silent
+ * (mount時・「再読み込み」ボタン)でも同じロジックを通す — act()の楽観除去直後に
+ * 非silent reloadが走った場合でも、サーバがまだcommit前の一覧を返して復活させないため。
+ */
+function mergeWithGuards(
+  nextItems: PendingGroupClaimItem[],
+  prev: PendingGroupClaimItem[],
+  busyIds: Set<string>,
+  tombstoneIds: Set<string>,
+): PendingGroupClaimItem[] {
+  const excludeIds = new Set<string>([...busyIds, ...tombstoneIds])
+  if (excludeIds.size === 0) return sortByCreatedAt(nextItems)
+  // busy中の行だけは直前のprevをそのまま残す(tombstone対象は既にprevから除去済みなので
+  // 保持不要=nextItemsから除外するだけでよい)。
+  const preservedBusy = prev.filter((it) => busyIds.has(it.id))
+  const merged = nextItems.filter((it) => !excludeIds.has(it.id))
+  return sortByCreatedAt([...merged, ...preservedBusy])
 }
 
 interface IssuedCode {
@@ -116,6 +150,12 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   // ポーリングのin-flight重複ガード。前のsilent pollが未解決のうちは次のintervalをスキップし、
   // 遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ。
   const pollInFlightRef = useRef(false)
+  // in-flightガードが固着しないための補助state。silent pollのfetchが応答しない場合に
+  // AbortControllerで強制中断する(POLL_FETCH_TIMEOUT_MS)ほか、それでも解決しない異常系に
+  // 備えて「前回開始からPOLL_STALE_RESET_MSを超えていたら強制リセットする」セルフヒールに使う。
+  const pollAbortControllerRef = useRef<AbortController | null>(null)
+  const pollTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollStartedAtRef = useRef<number | null>(null)
 
   // 本部一括発行（code_only・entitlementがある時だけ表示。設計正本 §3・PR3b）
   const [allowCodeOnly, setAllowCodeOnly] = useState(false)
@@ -134,58 +174,83 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   const reload = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = options?.silent === true
-      // in-flightガード: 前のsilent pollがまだ解決していなければ今回はスキップする
-      // (遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ)。
+      let controller: AbortController | null = null
+
       if (silent) {
-        if (pollInFlightRef.current) return
+        // in-flightガード: 前のsilent pollがまだ解決していなければ今回はスキップする
+        // (遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ)。
+        if (pollInFlightRef.current) {
+          const startedAt = pollStartedAtRef.current
+          const stale = startedAt !== null && Date.now() - startedAt > POLL_STALE_RESET_MS
+          if (!stale) return
+          // セルフヒール: 前回のsilent pollがPOLL_STALE_RESET_MSを超えても応答していない
+          // (AbortControllerでの中断が効かない異常系を含む)。ガードを強制的に解除し、
+          // ポーリングが恒久停止しないようにする。放置された前回のcontroller/timeoutも掃除する。
+          if (pollTimeoutIdRef.current) {
+            clearTimeout(pollTimeoutIdRef.current)
+            pollTimeoutIdRef.current = null
+          }
+          pollAbortControllerRef.current?.abort()
+          pollAbortControllerRef.current = null
+          pollInFlightRef.current = false
+        }
         pollInFlightRef.current = true
+        pollStartedAtRef.current = Date.now()
+        controller = new AbortController()
+        pollAbortControllerRef.current = controller
+        pollTimeoutIdRef.current = setTimeout(() => controller?.abort(), POLL_FETCH_TIMEOUT_MS)
       } else {
         setLoading(true)
         setLoadError(null)
       }
+
       try {
-        const res = await fetch(`/api/channels/group-claims/pending?orgId=${orgId}`)
+        const res = await fetch(
+          `/api/channels/group-claims/pending?orgId=${orgId}`,
+          controller ? { signal: controller.signal } : undefined,
+        )
         const json = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(json.error ?? '取得に失敗しました')
         const nextItems: PendingGroupClaimItem[] = json.items ?? []
-        if (silent) {
-          setItems((prev) => {
-            const now = Date.now()
-            const tombstones = recentlyActedRef.current
-            // フォールバック: 一定時間経過したtombstoneは異常系の保険として強制的に破棄する
-            for (const [id, ts] of tombstones) {
-              if (now - ts > TOMBSTONE_FALLBACK_MS) tombstones.delete(id)
-            }
-            // commit確認: サーバがもうその行を返さなくなった(=status変更が反映された)ら
-            // 復活させる心配が無いのでtombstoneを解除する
-            const rawIds = new Set(nextItems.map((it) => it.id))
-            for (const id of tombstones.keys()) {
-              if (!rawIds.has(id)) tombstones.delete(id)
-            }
 
-            // busy(承認/却下処理中)の行と、直近で楽観除去した行(tombstone)は、
-            // サーバがまだcommit前の状態を返して復活させないようポーリング結果で上書きしない。
-            const busyIds = new Set(Object.keys(busyRef.current))
-            const excludeIds = new Set<string>([...busyIds, ...tombstones.keys()])
-            if (excludeIds.size === 0) return sortByCreatedAt(nextItems)
-
-            // busy中の行だけは直前のprevをそのまま残す(tombstone対象は既にprevから除去済みなので
-            // 保持不要=nextItemsから除外するだけでよい)。並び順はcreatedAtで揃え、末尾へ飛ばさない。
-            const preservedBusy = prev.filter((it) => busyIds.has(it.id))
-            const merged = nextItems.filter((it) => !excludeIds.has(it.id))
-            return sortByCreatedAt([...merged, ...preservedBusy])
-          })
-        } else {
-          setItems(sortByCreatedAt(nextItems))
+        const tombstones = recentlyActedRef.current
+        const now = Date.now()
+        // フォールバック: 一定時間経過したtombstoneは異常系の保険として強制的に破棄する
+        for (const [id, ts] of tombstones) {
+          if (now - ts > TOMBSTONE_FALLBACK_MS) tombstones.delete(id)
         }
+        // commit確認: サーバがもうその行を返さなくなった(=status変更が反映された)ら
+        // 復活させる心配が無いのでtombstoneを解除する
+        const rawIds = new Set(nextItems.map((it) => it.id))
+        for (const id of tombstones.keys()) {
+          if (!rawIds.has(id)) tombstones.delete(id)
+        }
+        const busyIds = new Set(Object.keys(busyRef.current))
+
+        // silentだけでなく非silent(mount時・「再読み込み」ボタン)でも同じ除外ロジックを通す。
+        // act()の楽観除去直後に非silent reloadが走っても、サーバがまだcommit前の一覧を
+        // 返して復活させることがないようにする(初回mountはbusy/tombstoneとも空なので無影響)。
+        setItems((prev) => mergeWithGuards(nextItems, prev, busyIds, new Set(tombstones.keys())))
       } catch (e) {
-        // silent(ポーリング)の取得失敗は既存表示を保持する(画面を赤くしない)。初回ロード失敗のみエラー表示。
-        if (!silent) {
+        // abort(タイムアウト/unmount)はエラー扱いしない。silent(ポーリング)の取得失敗も
+        // 既存表示を保持する(画面を赤くしない)。初回ロード失敗のみエラー表示する。
+        const aborted = e instanceof DOMException && e.name === 'AbortError'
+        if (!silent && !aborted) {
           setLoadError(e instanceof Error ? e.message : '取得に失敗しました')
         }
       } finally {
         if (silent) {
-          pollInFlightRef.current = false
+          // このreload呼び出しが「現在アクティブなpoll」である場合のみ共有refをクリアする。
+          // stale-resetで見捨てられた古いpollが後から解決しても、既に新しいpollへ
+          // 交代済みのin-flight状態を誤って巻き戻さないようにするため。
+          if (pollAbortControllerRef.current === controller) {
+            if (pollTimeoutIdRef.current) {
+              clearTimeout(pollTimeoutIdRef.current)
+              pollTimeoutIdRef.current = null
+            }
+            pollAbortControllerRef.current = null
+            pollInFlightRef.current = false
+          }
         } else {
           setLoading(false)
         }
@@ -219,6 +284,19 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [reload])
+
+  // unmount時は進行中のsilent pollを中断し、タイムアウトも解除する
+  // (interval/visibilitychangeの購読解除は各effectのクリーンアップが別途担う)。
+  useEffect(() => {
+    return () => {
+      pollAbortControllerRef.current?.abort()
+      pollAbortControllerRef.current = null
+      if (pollTimeoutIdRef.current) {
+        clearTimeout(pollTimeoutIdRef.current)
+        pollTimeoutIdRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
