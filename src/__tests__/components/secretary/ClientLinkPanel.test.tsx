@@ -94,6 +94,25 @@ describe('ClientLinkPanel', () => {
     expect(screen.queryByText('本人確認コードを発行')).not.toBeInTheDocument()
   })
 
+  it('接続状態ロード中はQRを出さずスケルトン表示（展開→畳みのちらつき防止）', () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        { id: 'space-1', name: '山田商事', orgId: ORG, orgName: 'テスト事務所', role: 'admin', archivedAt: null, groupId: null, sortOrder: 0 },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    mockUseChannelIdentities.mockReturnValue({ counts: {}, isLoading: true, error: null })
+    render(<ClientLinkPanel orgId={ORG} />)
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
+
+    expect(screen.getByTestId('connect-flow-skeleton')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /QR/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('本人確認コードを発行')).not.toBeInTheDocument()
+  })
+
   it('接続済みの相手先: 接続バッジと発行ボタン(追加でつなぐ)は出し、QRは畳む', async () => {
     mockUseUserSpaces.mockReturnValue({
       spaces: [

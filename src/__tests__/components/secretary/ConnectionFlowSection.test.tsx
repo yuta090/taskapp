@@ -19,6 +19,14 @@ const slots = {
 }
 
 describe('ConnectionFlowSection', () => {
+  it('loading中はQR/アクションを出さずスケルトンを表示（ちらつき防止）', () => {
+    render(<ConnectionFlowSection kind="counterparty" state="loading" {...slots} />)
+    expect(screen.getByTestId('connect-flow-skeleton')).toBeInTheDocument()
+    expect(screen.queryByTestId('slot-qr')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('slot-action')).not.toBeInTheDocument()
+    expect(screen.getByTestId('connection-flow-section')).toHaveAttribute('data-mode', 'loading')
+  })
+
   it('未接続(ready)はQR・アクションを最初から展開する', () => {
     render(<ConnectionFlowSection kind="self" state="ready" {...slots} />)
     expect(screen.getByTestId('slot-qr')).toBeInTheDocument()
