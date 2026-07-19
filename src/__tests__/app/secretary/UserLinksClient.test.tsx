@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/user-links/UserLinksClient'
+import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/UserLinksClient'
 
 /**
  * UserLinksClient — LINE連携ハブ（1画面3カード）。
@@ -29,6 +29,10 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
   useUserSpaces: (...args: unknown[]) => mockUseUserSpaces(...args),
 }))
 
+vi.mock('@/lib/hooks/useChannelIdentities', () => ({
+  useChannelIdentities: () => ({ counts: {}, isLoading: false, error: null }),
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('fetch', fetchMock)
@@ -48,24 +52,24 @@ beforeEach(() => {
 })
 
 describe('UserLinksClient (連携ハブ)', () => {
-  it('3カードの見出しが表示される(自分/顧問先/グループ)', () => {
+  it('3カードの見出しが表示される(自分/相手先/グループ)', () => {
     render(<UserLinksClient orgId={ORG} />)
 
     expect(screen.getByText(/自分をつなぐ/)).toBeInTheDocument()
-    expect(screen.getByText(/顧問先をつなぐ/)).toBeInTheDocument()
+    expect(screen.getByText(/相手先をつなぐ/)).toBeInTheDocument()
     expect(screen.getByText(/グループをつなぐ/)).toBeInTheDocument()
   })
 
-  it('SecretaryTabNavは1つだけ描画される(二重nav禁止)', () => {
+  it('タブ・チャネルレールはlayoutが持つため、Client自身はタブを描画しない(二重nav禁止)', () => {
     render(<UserLinksClient orgId={ORG} />)
 
-    expect(screen.getAllByTestId('secretary-tab-user-links')).toHaveLength(1)
+    expect(screen.queryByTestId('secretary-tab-connect')).not.toBeInTheDocument()
   })
 
-  it('グループカードのCTAはgroup-linksページへリンクする', () => {
+  it('グループカードのCTAは connect/line/groups ページへリンクする', () => {
     render(<UserLinksClient orgId={ORG} />)
 
     const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
-    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/group-links`)
+    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)
   })
 })

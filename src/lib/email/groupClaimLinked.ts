@@ -63,7 +63,7 @@ export interface SendGroupClaimLinkedEmailParams {
 export async function sendGroupClaimLinkedEmail(params: SendGroupClaimLinkedEmailParams) {
   const { to, orgId, orgName, spaceName, groupDisplayName } = params
   const appName = getAppName()
-  const consoleUrl = `${getAppUrl()}/${orgId}/secretary/group-links`
+  const consoleUrl = `${getAppUrl()}/${orgId}/secretary/connect/line/groups`
 
   const subject = `【${appName}】共有botグループが「${spaceName}」に紐付きました`
 

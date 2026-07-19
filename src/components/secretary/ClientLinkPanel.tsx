@@ -1,9 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { Check } from '@phosphor-icons/react'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+import { useChannelIdentities } from '@/lib/hooks/useChannelIdentities'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { LinkCodeIssueButton } from '@/components/secretary/LinkCodeIssueButton'
+import { ConnectionFlowSection, type ConnectState } from '@/components/secretary/ConnectionFlowSection'
 
 /**
  * 連携ハブの「相手先をつなぐ」カード。
@@ -11,9 +14,16 @@ import { LinkCodeIssueButton } from '@/components/secretary/LinkCodeIssueButton'
  * identity(本人特定)・突合コード発行APIは一切変えない — 既存の LineFriendQr /
  * LinkCodeIssueButton をそのまま呼ぶだけの提示レイヤー。相手先も同じBotを
  * 友だち追加するため purpose は既定(self)のまま使い、説明文だけ相手先向けに寄せる。
+ *
+ * 接続済み(channel_identities>0)の相手先では、追加接続が通常運用なので
+ * コード発行ボタン(=追加でつなぐ)と手順リマインドは常時見せ、QRだけ畳む
+ * （ConnectionFlowSection kind="counterparty"）。
  */
 export function ClientLinkPanel({ orgId }: { orgId: string }) {
   const { spaces: allSpaces } = useUserSpaces()
+  // LINEハブの接続判定なので channel='line' に限定する（非LINE identityだけの相手先を
+  // 「LINE接続済み」と誤判定してQRを畳んでしまわないように）。
+  const { counts, isLoading: identitiesLoading } = useChannelIdentities(orgId, 'line')
   const orgSpaces = useMemo(
     () => allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null),
     [allSpaces, orgId],
@@ -23,6 +33,11 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   if (orgSpaces.length === 0) {
     return <p className="text-xs text-gray-500">プロジェクトがありません。</p>
   }
+
+  const linkedCount = selectedSpaceId ? (counts[selectedSpaceId] ?? 0) : 0
+  // 接続状態が未確定(ロード中)のうちはloading扱いにし、QRを一度展開してから畳む
+  // ちらつき・レイアウトシフトを避ける。
+  const state: ConnectState = identitiesLoading ? 'loading' : linkedCount > 0 ? 'connected' : 'ready'
 
   return (
     <div className="space-y-3">
@@ -44,10 +59,25 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
       </select>
 
       {selectedSpaceId && (
-        <div className="space-y-2">
-          <LinkCodeIssueButton orgId={orgId} spaceId={selectedSpaceId} />
-          <LineFriendQr orgId={orgId} />
-        </div>
+        <ConnectionFlowSection
+          kind="counterparty"
+          state={state}
+          summary={
+            linkedCount > 0 ? (
+              <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
+                <span>この相手先は接続済みです（{linkedCount}件）。担当者を追加でつなげます。</span>
+              </div>
+            ) : undefined
+          }
+          stepsHint={
+            <p className="text-[11px] text-gray-500">
+              友だち追加のあと、発行したコードをトークに送ると連携できます（追加だけでは連携されません）。
+            </p>
+          }
+          action={<LinkCodeIssueButton orgId={orgId} spaceId={selectedSpaceId} />}
+          qr={<LineFriendQr orgId={orgId} />}
+        />
       )}
     </div>
   )

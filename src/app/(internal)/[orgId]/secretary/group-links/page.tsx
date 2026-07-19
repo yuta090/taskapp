@@ -1,15 +1,14 @@
-import { Suspense } from 'react'
-import { GroupLinksClient } from './GroupLinksClient'
+import { redirect } from 'next/navigation'
 
 interface Props {
   params: Promise<{ orgId: string }>
 }
 
-export default async function GroupLinksPage({ params }: Props) {
+/**
+ * 旧URL /{orgId}/secretary/group-links → /{orgId}/secretary/connect/line/groups への恒久リダイレクト。
+ * メール(groupClaimLinked)/通知(groupClaimNotify)に旧URLが流通済みのため、移設後も残す。
+ */
+export default async function LegacyGroupLinksPage({ params }: Props) {
   const { orgId } = await params
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <GroupLinksClient orgId={orgId} />
-    </Suspense>
-  )
+  redirect(`/${orgId}/secretary/connect/line/groups`)
 }

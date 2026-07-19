@@ -13,7 +13,6 @@ import {
   ClipboardText,
   Sparkle,
 } from '@phosphor-icons/react'
-import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
@@ -56,7 +55,7 @@ interface IssuedBatchItem {
 }
 
 /**
- * 共有botグループ紐付け承認コンソール（Stage 4・PR3a）— /{orgId}/secretary/group-links
+ * 共有botグループ紐付け承認コンソール（Stage 4・PR3a）— /{orgId}/secretary/connect/line/groups
  *
  * promoteのdigest承認（ApprovalsClient・"確認待ち"タブ）とは別概念。こちらは
  * channel_group_claims（web_approval）を扱う: 事務所がプロジェクトを選んでコードを発行し、
@@ -267,8 +266,6 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <SecretaryTabNav orgId={orgId} activeTab="group-links" />
-
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl space-y-8">
           <section>

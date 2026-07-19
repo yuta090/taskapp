@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { GroupLinksClient } from '@/app/(internal)/[orgId]/secretary/group-links/GroupLinksClient'
+import { GroupLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/groups/GroupLinksClient'
 
 /**
  * 共有botグループ紐付け承認コンソール（Stage 4・PR3a）。
