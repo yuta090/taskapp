@@ -11,8 +11,9 @@ interface Props {
  *
  * 上部に秘書コンソールの共通タブ(SecretaryTabNav・activeTab="connect")、
  * その下を2カラム [左: チャネルレール | 右: route別コンテンツ] にする。
- * 現状つなげるチャネルは LINE のみ(/connect/line, /connect/line/groups)。
- * Slack/Teams は ChannelRail の「近日」行として提示のみ(routeは持たない)。
+ * チャネルレールはレジストリ駆動。LINEは専用route(/connect/line, /connect/line/groups)、
+ * その他のチャット系は汎用の /connect/[channel] セットアップページを持つ。
+ * PLANNED(messenger)はレールの「近日」行として提示のみ(routeは持たない)。
  *
  * 配下の各 page(UserLinksClient/GroupLinksClient) は自前でタブを描画しない
  * （二重nav禁止）。タブ・レールはこのレイアウトが一元的に持つ。
@@ -23,7 +24,7 @@ export default async function ConnectLayout({ children, params }: Props) {
     <div className="flex-1 min-h-0 flex flex-col">
       <SecretaryTabNav orgId={orgId} activeTab="connect" />
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
-        <ChannelRail orgId={orgId} activeChannel="line" />
+        <ChannelRail orgId={orgId} />
         <div className="flex-1 min-h-0 flex flex-col">{children}</div>
       </div>
     </div>
