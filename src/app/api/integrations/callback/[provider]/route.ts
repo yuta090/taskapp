@@ -8,6 +8,7 @@ import { exchangeZoomCode } from '@/lib/zoom/client'
 import { exchangeTeamsCode } from '@/lib/teams/client'
 import { exchangeNotionCode } from '@/lib/notion/client'
 import { exchangeGoogleSheetsCode } from '@/lib/google-sheets/client'
+import { exchangeGoogleTasksCode } from '@/lib/google-tasks/client'
 import { buildTokenColumns } from '@/lib/integrations/token-manager'
 
 export const runtime = 'nodejs'
@@ -145,6 +146,10 @@ export async function GET(
       return await handleGoogleSheetsCallback(code, orgId, appUrl)
     }
 
+    if (provider === 'google_tasks') {
+      return await handleGoogleTasksCallback(code, orgId, user.id, appUrl)
+    }
+
     return NextResponse.redirect(`${appUrl}?error=unsupported_provider`)
   } catch (err) {
     console.error('Integration callback error:', err)
@@ -197,6 +202,71 @@ async function handleGoogleCalendarCallback(
     console.error('Google Calendar callback error:', err)
     return NextResponse.redirect(
       `${appUrl}/settings/integrations?integration=google_calendar&status=error&message=token_exchange_failed`,
+    )
+  }
+}
+
+/**
+ * Google Tasks は google_calendar と同じ user 単位接続。個人の Google Tasks は共有不可なので
+ * 必然的に user 所有。tasklist の確保(ensureTaskList)と既存タスクのバックフィルは接続確立後に
+ * ワーカー側で行うため、ここは接続の保存に専念する(metadata は空)。
+ */
+async function handleGoogleTasksCallback(
+  code: string,
+  orgId: string,
+  userId: string,
+  appUrl: string,
+): Promise<NextResponse> {
+  try {
+    const tokens = await exchangeGoogleTasksCode(code)
+
+    const { data: saved, error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+      .from('integration_connections')
+      .upsert(
+        {
+          provider: 'google_tasks',
+          owner_type: 'user',
+          owner_id: userId,
+          org_id: orgId,
+          ...(await buildTokenColumns({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          })),
+          token_expires_at: tokens.expiresAt.toISOString(),
+          scopes: tokens.scopes,
+          status: 'active',
+          last_refreshed_at: new Date().toISOString(),
+          metadata: {},
+        },
+        { onConflict: 'provider,owner_type,owner_id' },
+      )
+      .select('id')
+      .single()
+
+    if (upsertError) {
+      console.error('Google Tasks integration connection save failed:', upsertError)
+      return NextResponse.redirect(
+        `${appUrl}/settings/integrations?integration=google_tasks&status=error&message=save_failed`,
+      )
+    }
+
+    // 接続直後に既存のミラー対象タスクを一括 enqueue(best-effort。失敗しても接続は成立させる)。
+    // トリガーは将来の変更しか拾わないため、既存分はここで backfill する。
+    if (saved?.id) {
+      const { error: backfillError } = await (getSupabaseAdmin() as SupabaseClient).rpc(
+        'rpc_backfill_task_mirror',
+        { p_connection_id: saved.id },
+      )
+      if (backfillError) console.error('Google Tasks backfill enqueue failed (non-fatal):', backfillError)
+    }
+
+    return NextResponse.redirect(
+      `${appUrl}/settings/integrations?integration=google_tasks&status=connected`,
+    )
+  } catch (err) {
+    console.error('Google Tasks callback error:', err)
+    return NextResponse.redirect(
+      `${appUrl}/settings/integrations?integration=google_tasks&status=error&message=token_exchange_failed`,
     )
   }
 }

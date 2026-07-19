@@ -2348,11 +2348,13 @@ export async function promoteDigestTaskViaLine(
   channelAccountId: string,
   externalUserId: string,
   taskId: string,
+  assignSelf = false,
 ): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
   const { data, error } = await admin().rpc('rpc_promote_digest_task_via_line', {
     p_channel_account_id: channelAccountId,
     p_external_user_id: externalUserId,
     p_task_id: taskId,
+    p_assign_self: assignSelf,
   })
   if (error) throw new Error(`rpc_promote_digest_task_via_line failed: ${error.message}`)
   const row = Array.isArray(data) ? data[0] : data
@@ -2387,10 +2389,12 @@ export async function rejectDigestTaskViaLine(
 export async function promoteDigestTask(
   taskId: string,
   actorUserId: string,
+  assignSelf = false,
 ): Promise<{ status: DigestPromoteStatus; created: boolean; taskId: string | null }> {
   const { data, error } = await admin().rpc('rpc_promote_digest_task', {
     p_task_id: taskId,
     p_actor_user_id: actorUserId,
+    p_assign_self: assignSelf,
   })
   if (error) throw new Error(`rpc_promote_digest_task failed: ${error.message}`)
   const row = Array.isArray(data) ? data[0] : data

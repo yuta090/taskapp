@@ -2,12 +2,13 @@
 
 import { useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CalendarCheck, VideoCamera, Trash, Info, CircleNotch, PlugsConnected, ArrowRight } from '@phosphor-icons/react'
+import { CalendarCheck, VideoCamera, Trash, Info, CircleNotch, PlugsConnected, ArrowRight, ListChecks } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
+import { isGoogleTasksFeatureEnabled } from '@/lib/google-tasks/config'
 import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
 import { SettingsBackButton } from '@/components/shared'
 import type { IntegrationProvider } from '@/lib/integrations/types'
@@ -27,6 +28,7 @@ export default function UserIntegrationsPage() {
     loading,
     error,
     connectGoogle,
+    connectProvider,
     disconnect,
     getConnection,
     isConnected,
@@ -40,6 +42,7 @@ export default function UserIntegrationsPage() {
 
     const labels: Record<string, string> = {
       google_calendar: 'Google Calendar',
+      google_tasks: 'Google ToDo リスト',
       zoom: 'Zoom',
       teams: 'Microsoft Teams',
     }
@@ -61,12 +64,19 @@ export default function UserIntegrationsPage() {
   const isGCalEnabled = isGoogleCalendarConfigured()
   const isZoomEnabled = process.env.NEXT_PUBLIC_ZOOM_ENABLED === 'true'
   const isTeamsEnabled = process.env.NEXT_PUBLIC_TEAMS_ENABLED === 'true'
+  const isGTasksEnabled = isGoogleTasksFeatureEnabled()
   const isGCalConnected = isConnected('google_calendar')
+  const isGTasksConnected = isConnected('google_tasks')
 
+  const disconnectLabels: Record<string, string> = {
+    google_calendar: 'Google Calendar',
+    google_tasks: 'Google ToDo リスト',
+  }
   const handleDisconnect = async (provider: string) => {
     const conn = getConnection(provider as IntegrationProvider)
     if (!conn) return
-    if (!confirm(`${provider === 'google_calendar' ? 'Google Calendar' : VIDEO_LABELS[provider as VideoProvider] || provider}連携を解除しますか？`)) return
+    const label = disconnectLabels[provider] || VIDEO_LABELS[provider as VideoProvider] || provider
+    if (!confirm(`${label}連携を解除しますか？`)) return
     await disconnect(conn.id)
   }
 
@@ -216,6 +226,82 @@ export default function UserIntegrationsPage() {
                 >
                   <CalendarCheck weight="bold" />
                   Googleアカウントを接続
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Google Tasks (Google ToDo リスト) */}
+        {isGTasksEnabled && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+            <div className="flex items-center gap-2 text-gray-700">
+              <ListChecks className="text-lg" weight="bold" />
+              <h3 className="font-medium">Google ToDo リスト</h3>
+            </div>
+
+            {loading ? (
+              <div className="p-4 text-sm text-gray-500">読み込み中...</div>
+            ) : error ? (
+              <div className="p-4 text-sm text-red-700 bg-red-50 rounded-lg">{error.message}</div>
+            ) : isGTasksConnected ? (
+              <div className="space-y-3">
+                <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-600">ステータス:</span>
+                      <IntegrationStatusBadge status="active" />
+                    </div>
+                    <button
+                      onClick={() => handleDisconnect('google_tasks')}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title="連携を解除"
+                    >
+                      <Trash className="text-sm" />
+                    </button>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-500">最終同期: </span>
+                    <span className="text-gray-700">
+                      {formatDate(
+                        getConnection('google_tasks')?.last_refreshed_at ||
+                          getConnection('google_tasks')?.updated_at ||
+                          null,
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <SetupGuide defaultOpen={false}>
+                  <p>
+                    あなたが担当する未完了のタスクが、あなたの Google ToDo リストの「TaskApp」リストに
+                    自動で追加されます。Google 側でチェックを付けると TaskApp 側も完了になります。
+                  </p>
+                  <div className="flex items-start gap-2">
+                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
+                    <span>同期されるのは自分が担当のタスクだけです。他の人のタスクは同期されません。</span>
+                  </div>
+                </SetupGuide>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <SetupGuide defaultOpen={true}>
+                  <p>
+                    Google ToDo リストと連携すると、あなたが担当するタスクが Gmail や Google カレンダー、
+                    スマホの Google ToDo アプリからも見えるようになります。
+                  </p>
+                  <div className="flex items-start gap-2">
+                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
+                    <span>同期されるのは自分が担当のタスクだけ。Google 側で完了にすると TaskApp も完了になります。</span>
+                  </div>
+                </SetupGuide>
+
+                <button
+                  onClick={() => connectProvider('google_tasks')}
+                  className="flex items-center gap-2 w-full px-4 py-3 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  <ListChecks weight="bold" />
+                  Google ToDo リストを接続
                 </button>
               </div>
             )}

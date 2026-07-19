@@ -1100,9 +1100,17 @@ describe('handleLineWebhook', () => {
       const result = await handleLineWebhook(body, sign(body))
 
       expect(result.status).toBe(200)
-      expect(storeMock.promoteDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID)
+      expect(storeMock.promoteDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID, false)
       // 消し込み系RPCは呼ばない（取り違え防止）
       expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
+    })
+
+    it('「承認して自分がやる」(self=1) → assignSelf=true でRPCを呼ぶ（担当=承認者→Google Tasksへ）', async () => {
+      const body = makeBody([approvalEvent(`action=digest_promote&task=${TASK_ID}&self=1`)])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.promoteDigestTaskViaLine).toHaveBeenCalledWith('acc-1', 'U-approver', TASK_ID, true)
     })
 
     it('承認成功 → replyでタスク化を通知し、操作を証跡に記録（result=promoted）', async () => {

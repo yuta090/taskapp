@@ -1482,6 +1482,7 @@ async function processPostback(
       disabled,
       promoteAction ? 'digest_promote' : 'digest_reject',
       (promoteAction ?? rejectAction)!.taskId,
+      promoteAction?.assignSelf ?? false,
     )
     return
   }
@@ -1617,6 +1618,7 @@ async function processApprovalPostback(
   disabled: boolean,
   action: ApprovalAction,
   taskId: string,
+  assignSelf = false,
 ): Promise<void> {
   if (account.ownerType === 'platform') return // 共有botの内部承認1:1連携は未対応（org解決不能）
 
@@ -1629,7 +1631,7 @@ async function processApprovalPostback(
   let result: ApprovalResult
   try {
     if (action === 'digest_promote') {
-      const r = await promoteDigestTaskViaLine(account.id, externalUserId, taskId)
+      const r = await promoteDigestTaskViaLine(account.id, externalUserId, taskId, assignSelf)
       result = r.status === 'promoted' ? (r.created ? 'promoted' : 'already_promoted') : r.status
     } else {
       const r = await rejectDigestTaskViaLine(account.id, externalUserId, taskId)

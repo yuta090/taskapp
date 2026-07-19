@@ -7,6 +7,7 @@ export type IntegrationProvider =
   | 'teams'
   | 'notion'
   | 'google_sheets'
+  | 'google_tasks'
 
 export type ConnectionOwnerType = 'user' | 'org'
 
