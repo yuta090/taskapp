@@ -16,6 +16,7 @@ export type Feature =
   | 'own_line_account' // 自社名義Bot(白ラベル)の登録・共有→専用への移行開始
   | 'line_direct_dm' // 担当者への1:1個別DM配信（共有botは構造的に不可）
   | 'instant_line_notify' // 即時通知（Freeは日次digest統合のみ）
+  | 'external_chat_channels' // LINE以外の他チャット連携（Discord等の共有Bot受信の新規紐付け）＝Proの売り。channel非依存
 
 const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterprise'])
 
@@ -31,6 +32,7 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
     'own_line_account',
     'line_direct_dm',
     'instant_line_notify',
+    'external_chat_channels',
   ]),
   enterprise: new Set([
     'line_pickup_dual_mode',
@@ -38,6 +40,7 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
     'own_line_account',
     'line_direct_dm',
     'instant_line_notify',
+    'external_chat_channels',
   ]),
 }
 
@@ -61,12 +64,19 @@ export interface PlanLimits {
   maxLineGroups: number | null
   /** 共通LINE(共有bot)の org別 月間送信クォータ（日次digest基準の安全側仮値）。null=無制限 */
   monthlySharedPushQuota: number | null
+  /**
+   * LINE以外の外部チャット（Discord等の共有Bot受信）で紐付けできるチャンネル/グループ数の上限。
+   * external_chat_channels 機能とセットで、新規紐付け（claim承認）の確立境界のみを絞る。
+   * maxLineGroups とは別カウント。free=0（Pro専有）。null=無制限。
+   * NOTE(要決定・数値): 価格未確定方針と同様、安全側の仮値。実運用の集計を見て確定する。
+   */
+  maxExternalChatGroups: number | null
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
-  free: { maxLineGroups: 3, monthlySharedPushQuota: 50 },
-  pro: { maxLineGroups: 50, monthlySharedPushQuota: null },
-  enterprise: { maxLineGroups: null, monthlySharedPushQuota: null },
+  free: { maxLineGroups: 3, monthlySharedPushQuota: 50, maxExternalChatGroups: 0 },
+  pro: { maxLineGroups: 50, monthlySharedPushQuota: null, maxExternalChatGroups: 50 },
+  enterprise: { maxLineGroups: null, monthlySharedPushQuota: null, maxExternalChatGroups: null },
 }
 
 export function planLimits(plan: PlanId): PlanLimits {
