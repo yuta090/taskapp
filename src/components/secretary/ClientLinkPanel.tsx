@@ -42,7 +42,7 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        相手先を選んでコードを発行し、相手先に渡します（紙やメールでもOK）。相手先が友だち追加してコードを送ると連携できます。
+        つなぎたい相手先を選び、出てきた合言葉（コード）を相手に渡します（口頭・紙・メールでもOK）。相手が秘書を友だち追加して合言葉を送ると、1対1でつながります。
       </p>
 
       <select
