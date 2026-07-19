@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dueSortKey } from '@/lib/channels/digest/due'
@@ -26,6 +26,30 @@ function getEncryptionKey(): string {
   const key = process.env.SYSTEM_ENCRYPTION_KEY
   if (!key) throw new Error('SYSTEM_ENCRYPTION_KEY is not configured')
   return key
+}
+
+/**
+ * 資格情報JSONを暗号化する（sinks/store の encryptSecret と同じ pgcrypto 経路）。
+ * 失敗時は必ず throw する — 平文のまま保存 or 半端な状態を残さないため。
+ */
+async function encryptSystemSecret(plaintext: string): Promise<string> {
+  const { data, error } = await admin().rpc('encrypt_system_secret', {
+    plaintext,
+    secret: getEncryptionKey(),
+  })
+  if (error || !data) {
+    throw new Error(`encrypt_system_secret failed: ${error?.message ?? 'no data'}`)
+  }
+  return data as string
+}
+
+/**
+ * 受信Webhookの secret_token 等、サーバーが生成する機微値。
+ * sinks の generateWebhookSecret と同じ形式（whsec_ + 24byte hex）。
+ * Telegram の secret_token 仕様（1-256文字・[A-Za-z0-9_-]）を満たす。
+ */
+export function generateChannelWebhookSecret(): string {
+  return `whsec_${randomBytes(24).toString('hex')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +347,139 @@ export async function updateChannelAccountStatus(
 
   if (error || !data) return null
   return toAccountMeta(data as AccountMetaRow)
+}
+
+// ---------------------------------------------------------------------------
+// 資格情報の登録（非LINEチャットチャネル・owner_type='org'／白ラベル）
+//   LINE は line_bot_user_id 逆引き等の専用フローがあるため、この汎用経路には載せない。
+//   platform（共有bot）は当社がプロビジョニングするため、この経路では作らせない
+//   （owner_type='org' 固定）。認可・Proゲート・入力検証は呼び出し側（API route）の責務。
+// ---------------------------------------------------------------------------
+
+export interface RegisterOrgChannelAccountInput {
+  orgId: string
+  channel: string
+  displayName: string
+  /** オペレーターが入力した資格情報（registry の credentialFields のキー）。 */
+  operatorCredentials: Record<string, string>
+  /** サーバーが生成した資格情報（webhook_secret 等）。credentials JSON にマージして保存する。 */
+  generatedCredentials?: Record<string, string>
+}
+
+export interface RegisterOrgChannelAccountResult {
+  account: ChannelAccountMeta
+  /** true=新規作成 / false=既存 org account の資格情報を更新（ローテート）。 */
+  created: boolean
+  /**
+   * 実際に保存された生成フィールド（webhook_secret 等）の値。UI表示用に一度だけ返す。
+   * ローテート時は既存値を維持する（無言で回転させ受信を壊さないため）ので、
+   * 既存に生成値があればそれ、無ければ新規生成値になる。
+   */
+  generatedSecrets: Record<string, string>
+}
+
+/**
+ * 同一 org×channel の再利用可能な org account（owner_type='org'）を1件引く。
+ * status で絞らない — active優先・同順位は最新（created_at desc）。これにより
+ * 「無効化→再接続」でも新規INSERTを増やさず既存行を再利用（再有効化）し、
+ * active な org account が同一 org×channel に複数生じるのを防ぐ。
+ */
+async function findReusableOrgChannelAccountId(orgId: string, channel: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('owner_type', 'org')
+    // 'active' < 'disabled'（辞書順）なので ascending で active を先頭にする
+    .order('status', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !data) return null
+  return data.id as string
+}
+
+/**
+ * 既存 org account の資格情報を差し替える（ローテート）。owner_type/org_id は immutable
+ * ガード対象なので触らない。生成フィールド（webhook_secret 等）は既存値があれば維持し、
+ * 表示名変更や bot_token 打ち直しのたびに受信secretを無言で回転させない。
+ */
+async function rotateExistingOrgAccount(
+  existingId: string,
+  input: RegisterOrgChannelAccountInput,
+): Promise<RegisterOrgChannelAccountResult> {
+  const effectiveGenerated = { ...(input.generatedCredentials ?? {}) }
+  const existing = await findChannelAccountCredentials(existingId, input.channel)
+  if (existing) {
+    for (const key of Object.keys(effectiveGenerated)) {
+      // 既存に生成値があれば維持（回転させない）。無ければ今回の新規生成値を使う。
+      if (existing.credentials[key]) effectiveGenerated[key] = existing.credentials[key]
+    }
+  }
+
+  const credentials = { ...input.operatorCredentials, ...effectiveGenerated }
+  const credentialsEncrypted = await encryptSystemSecret(JSON.stringify(credentials))
+
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .update({
+      display_name: input.displayName,
+      credentials_encrypted: credentialsEncrypted,
+      status: 'active',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existingId)
+    .select(ACCOUNT_META_COLUMNS)
+    .single()
+  if (error || !data) throw new Error(`channel_accounts: update failed: ${error?.message}`)
+  return { account: toAccountMeta(data as AccountMetaRow), created: false, generatedSecrets: effectiveGenerated }
+}
+
+/**
+ * 非LINEチャットチャネルの資格情報を暗号化保存する。
+ * 既存の org account があれば資格情報を差し替え（ローテート・created=false）、
+ * 無ければ新規作成する（created=true）。owner_type/org_id はサーバー側で固定し、
+ * platform を作らせない（設計正本 §2 の帰属導出規約を破らないため）。
+ *
+ * 並行初回登録の敗者は active 部分一意index（channel_accounts_active_org_channel_unique）で
+ * 23505 になり、既存 active を再取得してローテートにフォールバックする
+ * （findOrCreateActiveGroup と同型のレース処理）。
+ */
+export async function registerOrgChannelAccount(
+  input: RegisterOrgChannelAccountInput,
+): Promise<RegisterOrgChannelAccountResult> {
+  const existingId = await findReusableOrgChannelAccountId(input.orgId, input.channel)
+  if (existingId) return rotateExistingOrgAccount(existingId, input)
+
+  const generated = { ...(input.generatedCredentials ?? {}) }
+  const credentials = { ...input.operatorCredentials, ...generated }
+  // 暗号化を先に済ませる（失敗時は throw して行を作らない＝平文/半端行を残さない）。
+  const credentialsEncrypted = await encryptSystemSecret(JSON.stringify(credentials))
+
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .insert({
+      org_id: input.orgId,
+      owner_type: 'org',
+      channel: input.channel,
+      display_name: input.displayName,
+      credentials_encrypted: credentialsEncrypted,
+      status: 'active',
+    })
+    .select(ACCOUNT_META_COLUMNS)
+    .single()
+
+  if (error) {
+    // 並行初回登録の敗者: active一意index違反 → 既存 active を再取得してローテート
+    if ((error as { code?: string }).code === '23505') {
+      const racedId = await findReusableOrgChannelAccountId(input.orgId, input.channel)
+      if (racedId) return rotateExistingOrgAccount(racedId, input)
+    }
+    throw new Error(`channel_accounts: insert failed: ${error.message}`)
+  }
+  if (!data) throw new Error('channel_accounts: insert failed: no data')
+  return { account: toAccountMeta(data as AccountMetaRow), created: true, generatedSecrets: generated }
 }
 
 // ---------------------------------------------------------------------------

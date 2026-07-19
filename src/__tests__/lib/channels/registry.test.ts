@@ -8,6 +8,8 @@ import {
   getChannel,
   isChannelId,
   canSendTo,
+  requiredCredentialFields,
+  generatedCredentialFields,
 } from '@/lib/channels/registry'
 import { OUTBOUND_ADAPTERS } from '@/lib/channels/adapters'
 
@@ -63,6 +65,48 @@ describe('channel registry', () => {
   it('全チャネルに資格情報フィールドの定義がある（emailを除く）', () => {
     for (const def of chatChannels()) {
       expect(def.credentialFields.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('credential field 分類（generated / optional）', () => {
+  it('Telegram の webhook_secret はサーバー生成（generated=true・オペレーター入力不要）', () => {
+    const wh = CHANNELS.telegram.credentialFields.find((f) => f.key === 'webhook_secret')
+    expect(wh?.generated).toBe(true)
+    // bot_token はオペレーター入力（generatedではない）
+    const bot = CHANNELS.telegram.credentialFields.find((f) => f.key === 'bot_token')
+    expect(bot?.generated).toBeFalsy()
+  })
+
+  it('受信専用フィールド（未実装capability向け）は optional=true', () => {
+    const cwWebhook = CHANNELS.chatwork.credentialFields.find((f) => f.key === 'webhook_token')
+    expect(cwWebhook?.optional).toBe(true)
+    const waAppSecret = CHANNELS.whatsapp.credentialFields.find((f) => f.key === 'app_secret')
+    expect(waAppSecret?.optional).toBe(true)
+  })
+
+  it('requiredCredentialFields は generated/optional を除いたオペレーター必須入力のみ', () => {
+    const req = requiredCredentialFields(CHANNELS.telegram).map((f) => f.key)
+    expect(req).toEqual(['bot_token'])
+
+    const cwReq = requiredCredentialFields(CHANNELS.chatwork).map((f) => f.key)
+    expect(cwReq).toEqual(['api_token']) // webhook_token(optional)は除外
+
+    const waReq = requiredCredentialFields(CHANNELS.whatsapp).map((f) => f.key)
+    expect(waReq).toEqual(['access_token', 'phone_number_id']) // app_secret(optional)は除外
+  })
+
+  it('generatedCredentialFields はサーバー生成フィールドのみ', () => {
+    expect(generatedCredentialFields(CHANNELS.telegram).map((f) => f.key)).toEqual(['webhook_secret'])
+    // 生成フィールドを持たないチャネルは空
+    expect(generatedCredentialFields(CHANNELS.slack)).toEqual([])
+  })
+
+  it('generated フィールドは必ず secret（機微値）である', () => {
+    for (const def of chatChannels()) {
+      for (const f of generatedCredentialFields(def)) {
+        expect(f.secret, `${def.id}.${f.key} must be secret`).toBe(true)
+      }
     }
   })
 })

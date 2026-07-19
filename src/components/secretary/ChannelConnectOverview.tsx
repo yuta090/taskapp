@@ -1,6 +1,7 @@
 import { ArrowSquareOut } from '@phosphor-icons/react/dist/ssr'
 import type { ChannelDefinition } from '@/lib/channels/registry'
 import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
+import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
 
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
   ga: { label: '利用可能', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -14,9 +15,11 @@ const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: st
  * 「運用者が何を設定するか」をアプリ内でも参照できるようにする。
  * 実接続の登録UI(資格情報の保存)は各チャネルのAPI整備に合わせて順次追加する。
  */
-export function ChannelConnectOverview({ def }: { def: ChannelDefinition }) {
+export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition; orgId: string }) {
   const Icon = CHANNEL_ICONS[def.id]
   const status = STATUS_LABEL[def.status]
+  // 実際に接続できる（送信可能・LINE以外）チャネルにのみ資格情報登録フォームを出す。
+  const canRegister = def.outbound && def.status !== 'planned' && def.id !== 'line'
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6 max-w-2xl">
@@ -81,9 +84,10 @@ export function ChannelConnectOverview({ def }: { def: ChannelDefinition }) {
         </a>
       )}
 
+      {canRegister && <ChannelCredentialForm orgId={orgId} def={def} />}
+
       <p className="mt-8 text-xs text-gray-400 border-t border-gray-100 pt-4">
         接続手順の詳細は <code>docs/setup/CHANNEL_CONNECTIONS_SETUP.html</code> を参照。
-        資格情報の登録UIは順次提供します（現在は手順の確認と実装状況の把握用）。
       </p>
     </div>
   )

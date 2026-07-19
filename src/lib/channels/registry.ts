@@ -53,6 +53,17 @@ export interface CredentialField {
   /** UIでマスク表示し、ログに出さない機微値か */
   secret: boolean
   help?: string
+  /**
+   * true なら値はサーバーが登録時に生成し、オペレーターは入力しない。
+   * 登録レスポンスで一度だけ平文を返し、オペレーターはそれを provider 側に設定する。
+   * 例: Telegram の webhook_secret（setWebhook の secret_token として貼り付ける）。
+   */
+  generated?: boolean
+  /**
+   * true なら未実装capability（主に受信Webhook）向けで、登録時は任意入力。
+   * 該当capabilityが出荷されたら required に昇格する。例: chatwork.webhook_token / whatsapp.app_secret。
+   */
+  optional?: boolean
 }
 
 export interface ChannelDefinition {
@@ -140,7 +151,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     targetHint: 'ルームID（room_id・数字）',
     credentialFields: [
       { key: 'api_token', label: 'API Token', secret: true, help: 'X-ChatWorkToken ヘッダに使用' },
-      { key: 'webhook_token', label: 'Webhook Token', secret: true, help: '受信Webhookの署名検証（受信対応時）' },
+      { key: 'webhook_token', label: 'Webhook Token', secret: true, optional: true, help: '受信Webhookの署名検証（受信対応時）' },
     ],
     setupUrl: 'https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php',
     notes: '日本のSMBで普及。受信はWebhook v2（HMAC-SHA256/Base64）。まずは送信から提供。',
@@ -193,7 +204,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     targetHint: 'chat_id（数値。ユーザー/グループ/チャンネル）',
     credentialFields: [
       { key: 'bot_token', label: 'Bot Token', secret: true, help: '@BotFather で発行' },
-      { key: 'webhook_secret', label: 'Webhook Secret Token', secret: true, help: 'setWebhook時のsecret_token（受信検証）' },
+      { key: 'webhook_secret', label: 'Webhook Secret Token', secret: true, generated: true, help: '登録時にサーバーが自動生成。setWebhook の secret_token に設定する' },
     ],
     setupUrl: 'https://core.telegram.org/bots#botfather',
     notes: 'sendMessage で送信。受信は setWebhook + X-Telegram-Bot-Api-Secret-Token 照合。',
@@ -231,7 +242,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     credentialFields: [
       { key: 'access_token', label: 'System User Access Token', secret: true, help: 'Meta Graph API 呼び出しに使用' },
       { key: 'phone_number_id', label: 'Phone Number ID', secret: false, help: 'WhatsApp番号のID' },
-      { key: 'app_secret', label: 'App Secret', secret: true, help: 'X-Hub-Signature-256 検証（受信対応時）' },
+      { key: 'app_secret', label: 'App Secret', secret: true, optional: true, help: 'X-Hub-Signature-256 検証（受信対応時）' },
     ],
     setupUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
     notes: 'Meta Cloud API。ビジネス認証が必須。24時間ウィンドウ外はテンプレートメッセージのみ。',
@@ -298,4 +309,17 @@ export function isChannelId(value: string): value is ChannelId {
 export function canSendTo(id: string): boolean {
   const def = getChannel(id)
   return !!def && def.outbound
+}
+
+/**
+ * オペレーターが登録時に入力する「必須」フィールド（サーバー生成・任意入力を除く）。
+ * 資格情報登録APIの必須検証・UIの必須入力欄がこれを唯一の真実源にする。
+ */
+export function requiredCredentialFields(def: ChannelDefinition): CredentialField[] {
+  return def.credentialFields.filter((f) => !f.generated && !f.optional)
+}
+
+/** サーバーが登録時に生成するフィールド（webhook_secret 等）。オペレーターは入力しない。 */
+export function generatedCredentialFields(def: ChannelDefinition): CredentialField[] {
+  return def.credentialFields.filter((f) => f.generated)
 }

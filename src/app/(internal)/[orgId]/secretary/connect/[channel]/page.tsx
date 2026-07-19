@@ -21,5 +21,5 @@ export default async function ConnectChannelPage({ params }: Props) {
   const def = getChannel(channel)
   if (!def || def.kind !== 'chat') notFound()
 
-  return <ChannelConnectOverview def={def} />
+  return <ChannelConnectOverview def={def} orgId={orgId} />
 }

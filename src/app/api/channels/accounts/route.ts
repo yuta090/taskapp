@@ -6,8 +6,15 @@ import {
   findChannelAccountOwnerType,
   updateChannelAccountStatus,
   orgUsesSharedBot,
+  registerOrgChannelAccount,
+  generateChannelWebhookSecret,
   type ChannelAccountMeta,
 } from '@/lib/channels/store'
+import {
+  getChannel,
+  requiredCredentialFields,
+  generatedCredentialFields,
+} from '@/lib/channels/registry'
 import { isValidUuid } from '@/lib/uuid'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -121,4 +128,136 @@ export async function PATCH(request: NextRequest) {
   }
 
   return NextResponse.json({ account: toWireAccount(updated) })
+}
+
+/**
+ * POST /api/channels/accounts — 非LINEチャットチャネルの資格情報登録（作成/ローテート）。
+ *
+ * owner/admin のみ。org_id/owner_type はサーバー側で固定（owner_type='org'／白ラベル）。
+ * platform（共有bot）はこの経路では作らせない（当社がプロビジョニングする別系統）。
+ *
+ * 課金ゲート（own_line_account・Pro専有）: 自社アカウントを繋ぐ（＝白ラベルの org account）操作は
+ * Pro 以上限定。Free org は 402 own_line_account_required で拒否する（共通LINE/共有botはこの経路外）。
+ *
+ * サーバー生成フィールド（telegram.webhook_secret 等・registry の generated=true）は
+ * ここで生成して credentials に含めて保存し、平文は generatedSecrets として一度だけ返す
+ * （オペレーターが provider 側の setWebhook 等に設定するため）。
+ * 生成secret・資格情報はレスポンスの account には一切含めない。
+ */
+export async function POST(request: NextRequest) {
+  let body: { orgId?: unknown; channel?: unknown; displayName?: unknown; credentials?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  const orgId = typeof body.orgId === 'string' ? body.orgId : ''
+  const channel = typeof body.channel === 'string' ? body.channel : ''
+  const credentialsIn =
+    body.credentials && typeof body.credentials === 'object'
+      ? (body.credentials as Record<string, unknown>)
+      : {}
+
+  if (!isValidUuid(orgId)) {
+    return NextResponse.json({ error: 'orgId is required' }, { status: 400 })
+  }
+
+  const def = getChannel(channel)
+  if (!def || def.kind !== 'chat') {
+    return NextResponse.json({ error: 'unknown channel', code: 'unknown_channel' }, { status: 400 })
+  }
+  // LINE は line_bot_user_id 逆引き等の専用フローがあるため、この汎用経路には載せない。
+  if (channel === 'line') {
+    return NextResponse.json(
+      { error: 'LINEは専用の接続フローを使用してください', code: 'line_dedicated_flow' },
+      { status: 400 },
+    )
+  }
+  // planned（アダプタ未実装）や送信不可のチャネルは接続対象外。
+  if (def.status === 'planned' || !def.outbound) {
+    return NextResponse.json(
+      { error: 'このチャネルはまだ接続できません', code: 'channel_not_connectable' },
+      { status: 400 },
+    )
+  }
+
+  const auth = await requireOrgAdmin(orgId)
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  // 自社アカウント（白ラベルの org account）を繋ぐのは Pro 専有。
+  const admin = createAdminClient() as SupabaseClient
+  const ent = await resolveOrgEntitlements(admin, orgId)
+  if (!ent.has('own_line_account')) {
+    return NextResponse.json(
+      {
+        error: 'own_line_account_required',
+        code: 'own_line_account_required',
+        message: 'Proプランで自社アカウント（白ラベル）を接続できます。',
+      },
+      { status: 402 },
+    )
+  }
+
+  // 必須フィールド（generated/optional を除く）を検証しつつ operatorCredentials を組む。
+  const operatorCredentials: Record<string, string> = {}
+  for (const field of requiredCredentialFields(def)) {
+    const raw = credentialsIn[field.key]
+    const value = typeof raw === 'string' ? raw.trim() : ''
+    if (value === '') {
+      return NextResponse.json(
+        { error: `${field.label} は必須です`, code: 'missing_credential', field: field.key },
+        { status: 400 },
+      )
+    }
+    operatorCredentials[field.key] = value
+  }
+  // optional フィールドは入力があれば取り込む（無くても登録できる）。
+  for (const field of def.credentialFields) {
+    if (field.generated || !field.optional) continue
+    const raw = credentialsIn[field.key]
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      operatorCredentials[field.key] = raw.trim()
+    }
+  }
+
+  // サーバー生成フィールド（webhook_secret 等）を生成する。
+  const generatedCredentials: Record<string, string> = {}
+  for (const field of generatedCredentialFields(def)) {
+    generatedCredentials[field.key] = generateChannelWebhookSecret()
+  }
+
+  const displayName =
+    typeof body.displayName === 'string' && body.displayName.trim() !== ''
+      ? body.displayName.trim()
+      : def.label
+
+  const { account, created, generatedSecrets } = await registerOrgChannelAccount({
+    orgId,
+    channel,
+    displayName,
+    operatorCredentials,
+    generatedCredentials,
+  })
+
+  // 受信Webhook URL（{accountId} は実IDへ解決）。オペレーターが provider 側に設定する。
+  const webhookUrl = def.webhookPath
+    ? new URL(
+        def.webhookPath.replace('{accountId}', account.id),
+        request.nextUrl.origin,
+      ).toString()
+    : null
+
+  return NextResponse.json(
+    {
+      account: toWireAccount(account),
+      created,
+      // ローテート時は既存の生成secretを維持した値（store が決定）。UI表示用に一度だけ返す。
+      generatedSecrets,
+      webhookUrl,
+    },
+    { status: created ? 201 : 200 },
+  )
 }

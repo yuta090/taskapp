@@ -82,6 +82,10 @@
   <strong>読み方</strong> — 各チャネルの「発行する資格情報」の表で <span class="paste">この列</span> の値をコピーし、TaskApp の秘書コンソール（または <code>channel_accounts</code>）へ貼り付けます。<span class="tag-secret">機密</span> は暗号化保存され、UIでは再表示されません。実装状況バッジ（下記）で「今すぐ使える範囲」を確認してください。
 </div>
 
+<div class="callout">
+  <strong>アプリ内で登録できます（LINE以外）</strong> — 秘書コンソールの「つなぐ」→各チャネルのセットアップ画面に<strong>資格情報の登録フォーム</strong>があります。ここで発行した値を貼り付けて保存すると <code>channel_accounts</code> に暗号化保存されます（作成／再登録＝ローテート）。<strong>自社アカウント（白ラベル）接続は Pro プラン限定</strong>です。<strong>Telegram の Webhook Secret Token はサーバーが自動生成</strong>し、登録直後に画面で一度だけ表示するので、それを <code>setWebhook</code> の <code>secret_token</code> に設定してください（＝この値は自分で作らず、表示された値を使う）。LINE は <code>line_bot_user_id</code> の逆引き等があるため専用フローを使います。
+</div>
+
 <h2>目次</h2>
 <ul class="toc">
   <li><a href="#common">0. 共通の前提（最初に一度だけ）</a></li>
