@@ -8,11 +8,18 @@ import {
 } from '@/lib/billing/featureCatalog'
 
 describe('FEATURE_CATALOG', () => {
-  it('②③の2機能を label/description 付きで持つ', () => {
+  it('Pro差別化機能を label/description 付きで持つ（自動拾いはFree開放のため含めない）', () => {
     const keys = FEATURE_CATALOG.map((f) => f.key)
     expect(keys).toEqual(
-      expect.arrayContaining(['line_pickup_dual_mode', 'timed_line_reminders']),
+      expect.arrayContaining([
+        'instant_line_notify',
+        'timed_line_reminders',
+        'own_line_account',
+        'line_direct_dm',
+      ]),
     )
+    // 自動タスク拾いは Free に開放済みなので“有料機能一覧”には出さない
+    expect(keys).not.toContain('line_pickup_dual_mode')
     for (const f of FEATURE_CATALOG) {
       expect(f.label.length).toBeGreaterThan(0)
       expect(f.description.length).toBeGreaterThan(0)

@@ -14,16 +14,30 @@ export interface FeatureMeta {
   description: string
 }
 
+// Pro 以上の差別化機能だけを載せる（可否は下記いずれも free=✗ / pro・enterprise=✓）。
+// 自動タスク拾い(line_pickup_dual_mode)は 2026-07 に Free へ開放したため“有料機能一覧”からは外す
+// （Free の入口機能であり、ここに載せると「Freeでも✓」になって差別化表示が崩れる）。
+// 差別化の軸は「拾えるか」ではなく「即時性・自社名義・個別到達・時刻指定」に置く。
 export const FEATURE_CATALOG: readonly FeatureMeta[] = [
   {
-    key: 'line_pickup_dual_mode',
-    label: 'LINE両方取り込み',
-    description: '毎時まとめ抽出とメンション即時タスク化を同時に有効化',
+    key: 'instant_line_notify',
+    label: '即時通知',
+    description: 'メンションをその場でタスク化して即通知（Freeは日次まとめのみ）',
   },
   {
     key: 'timed_line_reminders',
     label: '時刻指定リマインド',
-    description: '指定した日時に、顧問先のLINEグループへ秘書が自動リマインド',
+    description: '指定した日時に、相手先のLINEグループへ秘書が自動リマインド',
+  },
+  {
+    key: 'own_line_account',
+    label: '自社名義LINE',
+    description: '自社ブランドのLINE公式アカウントで秘書を運用（共通LINEから移行）',
+  },
+  {
+    key: 'line_direct_dm',
+    label: '担当者への個別DM',
+    description: '担当者ひとりずつへ1対1でLINE個別配信（共通LINEでは不可）',
   },
 ]
 

@@ -13,11 +13,13 @@ describe('PlanFeatureTable', () => {
   beforeEach(() => vi.restoreAllMocks())
   afterEach(() => vi.restoreAllMocks())
 
-  it('②③の機能行と Free/Pro/Enterprise 列を表示する', async () => {
+  it('Pro差別化機能の行と Free/Pro/Enterprise 列を表示する', async () => {
     mockLimits('Free', [])
     render(<PlanFeatureTable orgId="org-1" />)
-    expect(screen.getByText('LINE両方取り込み')).toBeInTheDocument()
+    expect(screen.getByText('即時通知')).toBeInTheDocument()
     expect(screen.getByText('時刻指定リマインド')).toBeInTheDocument()
+    expect(screen.getByText('自社名義LINE')).toBeInTheDocument()
+    expect(screen.getByText('担当者への個別DM')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Free/ })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Pro/ })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Enterprise/ })).toBeInTheDocument()
@@ -26,15 +28,15 @@ describe('PlanFeatureTable', () => {
   it('Free 行は✗（利用不可）、Pro/Enterprise は✓（利用可能）', async () => {
     mockLimits('Free', [])
     render(<PlanFeatureTable orgId="org-1" />)
-    // 2機能 × Free列 = 2つの「利用不可」、× (Pro+Enterprise) = 4つの「利用可能」
+    // 4機能 × Free列 = 4つの「利用不可」、× (Pro+Enterprise) = 8つの「利用可能」
     await waitFor(() => {
-      expect(screen.getAllByLabelText('利用不可')).toHaveLength(2)
+      expect(screen.getAllByLabelText('利用不可')).toHaveLength(4)
     })
-    expect(screen.getAllByLabelText('利用可能')).toHaveLength(4)
+    expect(screen.getAllByLabelText('利用可能')).toHaveLength(8)
   })
 
   it('現在プラン（Pro）列に「現在」バッジを付ける', async () => {
-    mockLimits('Pro', ['line_pickup_dual_mode', 'timed_line_reminders'])
+    mockLimits('Pro', ['timed_line_reminders', 'own_line_account'])
     render(<PlanFeatureTable orgId="org-1" />)
     const proHeader = await screen.findByRole('columnheader', { name: /Pro/ })
     expect(within(proHeader).getByText('現在')).toBeInTheDocument()
