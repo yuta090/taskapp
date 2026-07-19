@@ -5,6 +5,7 @@ import {
   findChannelAccountOrgId,
   findChannelAccountOwnerType,
   updateChannelAccountStatus,
+  orgUsesSharedBot,
   type ChannelAccountMeta,
 } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
@@ -23,6 +24,7 @@ function toWireAccount(meta: ChannelAccountMeta) {
     lineBotUserId: meta.lineBotUserId,
     status: meta.status,
     createdAt: meta.createdAt,
+    ownerType: meta.ownerType,
   }
 }
 
@@ -44,8 +46,12 @@ export async function GET(request: NextRequest) {
   }
 
   const account = await findChannelAccountMetaForOrg(orgId)
+  // 自社LINE(org account)が無くても、共通LINE(共有bot)のグループを持つなら「利用中」を伝える。
+  // 自社LINEがあるならそれが接続状態なので共有判定は不要（Stripe/LINE呼び出しを省く）。
+  const sharedBotInUse = account ? false : await orgUsesSharedBot(orgId)
   return NextResponse.json({
     account: account ? toWireAccount(account) : null,
+    sharedBotInUse,
     viewerRole: auth.role,
   })
 }

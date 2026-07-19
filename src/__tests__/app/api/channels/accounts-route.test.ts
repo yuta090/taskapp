@@ -29,6 +29,7 @@ const storeMock = {
   findChannelAccountOrgId: vi.fn(),
   findChannelAccountOwnerType: vi.fn(),
   updateChannelAccountStatus: vi.fn(),
+  orgUsesSharedBot: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -57,6 +58,7 @@ const accountMeta = {
   lineBotUserId: 'U-bot-1',
   status: 'active' as const,
   createdAt: '2026-07-01T00:00:00.000Z',
+  ownerType: 'org' as const,
 }
 
 function callGet(orgId: string | null) {
@@ -81,6 +83,7 @@ describe('GET /api/channels/accounts', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     storeMock.findChannelAccountMetaForOrg.mockResolvedValue(accountMeta)
+    storeMock.orgUsesSharedBot.mockResolvedValue(false)
   })
 
   it('orgId欠落は400', async () => {
@@ -124,17 +127,39 @@ describe('GET /api/channels/accounts', () => {
       lineBotUserId: 'U-bot-1',
       status: 'active',
       createdAt: '2026-07-01T00:00:00.000Z',
+      ownerType: 'org',
     })
     expect(json.account.credentials_encrypted).toBeUndefined()
     expect(json.account.credentialsEncrypted).toBeUndefined()
   })
 
-  it('未登録org: account=null', async () => {
+  it('未登録org: account=null, sharedBotInUse=false', async () => {
     storeMock.findChannelAccountMetaForOrg.mockResolvedValue(null)
+    storeMock.orgUsesSharedBot.mockResolvedValue(false)
     const response = await callGet(ORG_A)
     const json = await response.json()
     expect(response.status).toBe(200)
     expect(json.account).toBeNull()
+    expect(json.sharedBotInUse).toBe(false)
+  })
+
+  it('自社LINE無し・共通LINEのグループあり → sharedBotInUse=true', async () => {
+    storeMock.findChannelAccountMetaForOrg.mockResolvedValue(null)
+    storeMock.orgUsesSharedBot.mockResolvedValue(true)
+    const response = await callGet(ORG_A)
+    const json = await response.json()
+    expect(response.status).toBe(200)
+    expect(json.account).toBeNull()
+    expect(json.sharedBotInUse).toBe(true)
+  })
+
+  it('自社LINEありなら共通判定は呼ばず sharedBotInUse=false', async () => {
+    storeMock.findChannelAccountMetaForOrg.mockResolvedValue(accountMeta)
+    const response = await callGet(ORG_A)
+    const json = await response.json()
+    expect(json.account.ownerType).toBe('org')
+    expect(json.sharedBotInUse).toBe(false)
+    expect(storeMock.orgUsesSharedBot).not.toHaveBeenCalled()
   })
 })
 

@@ -218,9 +218,11 @@ export interface ChannelAccountMeta {
   lineBotUserId: string | null
   status: 'active' | 'disabled'
   createdAt: string
+  /** 'org'=自社LINE（自社の公式アカウント） / 'platform'=共通LINE（TaskApp共通の共有アカウント） */
+  ownerType: 'org' | 'platform'
 }
 
-const ACCOUNT_META_COLUMNS = 'id, org_id, channel, display_name, line_bot_user_id, status, created_at'
+const ACCOUNT_META_COLUMNS = 'id, org_id, channel, display_name, line_bot_user_id, status, created_at, owner_type'
 
 interface AccountMetaRow {
   id: string
@@ -230,6 +232,7 @@ interface AccountMetaRow {
   line_bot_user_id: string | null
   status: string
   created_at: string
+  owner_type: string
 }
 
 function toAccountMeta(row: AccountMetaRow): ChannelAccountMeta {
@@ -241,7 +244,26 @@ function toAccountMeta(row: AccountMetaRow): ChannelAccountMeta {
     lineBotUserId: row.line_bot_user_id,
     status: row.status as 'active' | 'disabled',
     createdAt: row.created_at,
+    ownerType: row.owner_type === 'platform' ? 'platform' : 'org',
   }
+}
+
+/**
+ * この org が「共通LINE（共有bot）」を利用中か。共有botは org_id を持たない（platform account）ため
+ * findChannelAccountMetaForOrg（org_id 絞り）には映らない。代わりに、この org に紐付いた active な
+ * グループが platform アカウント上に1つでもあれば「共通LINEを利用中」と判定する。
+ * これで「共有運用なのにコンソールが未接続に見える」問題を解消する。
+ */
+export async function orgUsesSharedBot(orgId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select('id, channel_accounts!inner(owner_type)')
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+    .eq('channel_accounts.owner_type', 'platform')
+    .limit(1)
+  if (error || !data) return false
+  return data.length > 0
 }
 
 /** コンソールのbot状態カード用。credentials_encryptedは絶対に選択しない */
