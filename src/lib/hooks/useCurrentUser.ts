@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { getCachedUser, invalidateCachedUser } from '@/lib/supabase/cached-auth'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
 import { AuthSessionMissingError, type User } from '@supabase/supabase-js'
 
 export interface CurrentUserState {
@@ -12,49 +13,38 @@ export interface CurrentUserState {
 }
 
 export function useCurrentUser(): CurrentUserState {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Created once per hook instance and reused across refetches.
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
 
-  useEffect(() => {
-    const supabase = createClient()
-
-    const fetchUser = async () => {
+  const { data, isPending, error } = useQuery<User | null>({
+    queryKey: ['currentUser'],
+    queryFn: async () => {
       try {
-        const { user: fetchedUser, error: userError } = await getCachedUser(supabase)
+        const { user: fetchedUser, error: userError } = await getCachedUser(supabaseRef.current!)
 
         if (userError) {
           throw userError
         }
 
-        setUser(fetchedUser)
-        setError(null)
+        return fetchedUser
       } catch (err) {
         // 未ログイン時の「セッションなし」は正常系。ノイズになるためログせずエラー扱いしない。
         if (err instanceof AuthSessionMissingError) {
-          setError(null)
-        } else {
-          console.error('Failed to fetch user:', err)
-          setError('ユーザー情報の取得に失敗しました')
+          return null
         }
-        setUser(null)
-      } finally {
-        setLoading(false)
+
+        console.error('Failed to fetch user:', err)
+        throw new Error('ユーザー情報の取得に失敗しました')
       }
-    }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
 
-    fetchUser()
-
-    // Listen for auth changes — invalidate cache on logout/login
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      invalidateCachedUser()
-      setUser(session?.user ?? null)
-    })
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [])
-
-  return { user, loading, error }
+  return {
+    user: data ?? null,
+    loading: isPending,
+    error: error ? error.message : null,
+  }
 }

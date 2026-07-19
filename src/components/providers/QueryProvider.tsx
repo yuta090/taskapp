@@ -4,16 +4,18 @@ import { QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client'
 import { get, set, del, keys } from 'idb-keyval'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 
-const IDB_KEY_PREFIX = 'taskapp-query-cache'
-
-/** Build user-scoped IDB key */
-function idbKey(userId: string | null): string {
-  return userId ? `${IDB_KEY_PREFIX}:${userId}` : IDB_KEY_PREFIX
-}
+// Single, unscoped IDB key. Previously this was scoped per-user
+// (`taskapp-query-cache:<uid>`), but `restoreClient` runs on mount — before
+// INITIAL_SESSION has resolved the user id — so it always read the unscoped
+// key while `persistClient` later wrote to the scoped key. That mismatch
+// meant a page reload could never restore the most recently persisted cache.
+// A single fixed key avoids the race; per-user isolation is instead handled
+// by `clearAllCaches()` on user-identity change (see auth listener below).
+const IDB_KEY = 'taskapp-query-cache'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -28,19 +30,16 @@ function makeQueryClient() {
   })
 }
 
-function makeIdbPersister(getUserId: () => string | null): Persister {
+function makeIdbPersister(): Persister {
   return {
     persistClient: async (client: PersistedClient) => {
-      const key = idbKey(getUserId())
-      await set(key, client)
+      await set(IDB_KEY, client)
     },
     restoreClient: async () => {
-      const key = idbKey(getUserId())
-      return await get<PersistedClient>(key)
+      return await get<PersistedClient>(IDB_KEY)
     },
     removeClient: async () => {
-      const key = idbKey(getUserId())
-      await del(key)
+      await del(IDB_KEY)
     },
   }
 }
@@ -49,53 +48,50 @@ function makeIdbPersister(getUserId: () => string | null): Persister {
 export async function clearQueryCache() {
   const allKeys = await keys()
   const cacheKeys = allKeys.filter(
-    (k) => typeof k === 'string' && k.startsWith(IDB_KEY_PREFIX)
+    (k) => typeof k === 'string' && k.startsWith(IDB_KEY)
   )
   await Promise.all(cacheKeys.map((k) => del(k)))
 }
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(makeQueryClient)
-  const currentUserIdRef = useRef<string | null>(null)
-  // eslint-disable-next-line react-hooks/refs -- getter only reads .current in async persister callbacks, not during render
-  const [persister] = useState(() => makeIdbPersister(() => currentUserIdRef.current))
+  const [persister] = useState(makeIdbPersister)
 
-  // Clear all user-scoped caches
+  // Clear all persisted/in-memory caches (e.g. on logout or user switch)
   const clearAllCaches = useCallback(() => {
     queryClient.clear()
     void clearQueryCache()
   }, [queryClient])
 
-  // Clear cache on auth state change (user switch / logout / identity change)
+  // Keep ['currentUser'] in sync with Supabase auth state, and clear caches
+  // on logout / user-identity change.
   useEffect(() => {
     const supabase = createClient()
+    let currentUserId: string | null = null
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Always invalidate auth cache on ANY auth state change
       invalidateCachedUser()
 
       if (event === 'SIGNED_OUT') {
-        currentUserIdRef.current = null
+        currentUserId = null
         clearAllCaches()
+        queryClient.setQueryData(['currentUser'], null)
         return
       }
 
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
         const newUserId = session?.user?.id ?? null
-        const prevUserId = currentUserIdRef.current
-
-        // On INITIAL_SESSION: if cache exists but user is different (or null), clear it
-        if (event === 'INITIAL_SESSION' && !prevUserId && newUserId) {
-          // First session load — set user ID, persister will use scoped key
-          currentUserIdRef.current = newUserId
-          return
-        }
-
-        currentUserIdRef.current = newUserId
+        const prevUserId = currentUserId
+        currentUserId = newUserId
 
         // User identity changed — clear stale cache from previous user
         if (prevUserId && newUserId && prevUserId !== newUserId) {
           clearAllCaches()
         }
+
+        // setQueryData (not invalidate) to avoid a refetch storm on every
+        // auth event — the session payload already has the up-to-date user.
+        queryClient.setQueryData(['currentUser'], session?.user ?? null)
       }
     })
     return () => subscription.unsubscribe()
