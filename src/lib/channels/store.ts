@@ -10,6 +10,7 @@ import {
   CODE_ONLY_CLAIM_DEFAULT_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
 import { fetchBotInfo } from '@/lib/channels/line/client'
+import { resolveOrgEntitlements, planLimits } from '@/lib/billing/entitlements'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -1055,6 +1056,23 @@ function classifyGroupClaimRpcError(code: string | undefined): GroupClaimActionE
       // 未分類のSQLSTATE（P0001等の構造ガード由来を含む）は安全側で conflict にフォールバックする
       return 'conflict'
   }
+}
+
+/**
+ * org の「相手先グループ接続」の容量。active グループ数と、プランの上限(maxLineGroups)を返す。
+ * maxGroups=null は無制限。プラン解決は org_billing 起点（resolveOrgEntitlements）。
+ * これを使って「新規紐付けの拒否」を判定する（既存グループは絶対に切らない＝上限超過でも既存は生存）。
+ */
+export async function orgLineGroupCapacity(
+  orgId: string,
+): Promise<{ activeCount: number; maxGroups: number | null }> {
+  const { count } = await admin()
+    .from('channel_groups')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('status', 'active')
+  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
+  return { activeCount: count ?? 0, maxGroups: planLimits(ent.planId).maxLineGroups }
 }
 
 /**
