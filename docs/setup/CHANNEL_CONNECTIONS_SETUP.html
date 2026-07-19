@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI秘書 チャネル接続セットアップ手順</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #ffffff; --ink: #1a1d21; --sub: #5b636c; --line: #e4e7eb;
+    --accent: #d97706; --accent-soft: #fef3e2; --ok: #047857; --beta: #b45309; --plan: #6b7280;
+    --code-bg: #f2f4f7; --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#15171b; --card:#1e2126; --ink:#e8eaed; --sub:#9aa2ac; --line:#2c313a;
+      --accent:#f59e0b; --accent-soft:#3a2c14; --ok:#34d399; --beta:#fbbf24; --plan:#9ca3af;
+      --code-bg:#12141a; --shadow:none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.7; font-size: 15px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; }
+  header.hero { border-bottom: 2px solid var(--accent); padding-bottom: 20px; margin-bottom: 8px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.01em; }
+  .lede { color: var(--sub); margin: 0; }
+  h2 { font-size: 20px; margin: 44px 0 14px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h2:first-of-type { border-top: none; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 10px 0; }
+  code { background: var(--code-bg); padding: .12em .4em; border-radius: 4px; font-size: .88em;
+    font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  a { color: var(--accent); }
+  .callout { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
+    padding: 14px 18px; margin: 16px 0; }
+  .callout strong { color: var(--accent); }
+  .grid { display: grid; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; box-shadow: var(--shadow); }
+  .card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .card-head h3 { flex: 0 0 auto; }
+  .badge { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+    padding: 2px 9px; border-radius: 999px; border: 1px solid; }
+  .b-ga { color: var(--ok); border-color: var(--ok); }
+  .b-beta { color: var(--beta); border-color: var(--beta); }
+  .b-plan { color: var(--plan); border-color: var(--plan); }
+  .b-pro { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .meta { color: var(--sub); font-size: 13px; margin: 2px 0 12px; }
+  ol.steps { margin: 12px 0; padding-left: 22px; }
+  ol.steps li { margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
+  td code { white-space: nowrap; }
+  .paste { color: var(--accent); font-weight: 600; }
+  .tag-secret { color: #dc2626; font-size: 11px; font-weight: 700; }
+  @media (prefers-color-scheme: dark) { .tag-secret { color: #f87171; } }
+  .toc { columns: 2; column-gap: 24px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 14px; }
+  .toc li { margin: 4px 0; break-inside: avoid; }
+  .checklist { list-style: none; padding: 0; }
+  .checklist li { padding: 8px 0 8px 30px; position: relative; border-bottom: 1px dashed var(--line); }
+  .checklist li::before { content: "☐"; position: absolute; left: 4px; top: 6px; color: var(--accent); font-size: 18px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--sub); margin-top: 6px; }
+  footer { margin-top: 50px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--sub); font-size: 13px; }
+  .diff { color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>AI秘書 チャネル接続セットアップ手順</h1>
+  <p class="lede">秘書の「繋ぐ先」を主要チャットへ拡張するために、<strong>あなた（運用者）が各サービス側で設定して発行する値</strong>と、それを TaskApp のどこに登録するかをまとめた手順書です。</p>
+</header>
+
+<p class="meta">生成日: 2026-07-20 ／ 対象コード: <code>src/lib/channels/registry.ts</code>・<code>src/lib/channels/adapters/</code></p>
+
+<div class="callout">
+  <strong>読み方</strong> — 各チャネルの「発行する資格情報」の表で <span class="paste">この列</span> の値をコピーし、TaskApp の秘書コンソール（または <code>channel_accounts</code>）へ貼り付けます。<span class="tag-secret">機密</span> は暗号化保存され、UIでは再表示されません。実装状況バッジ（下記）で「今すぐ使える範囲」を確認してください。
+</div>
+
+<h2>目次</h2>
+<ul class="toc">
+  <li><a href="#common">0. 共通の前提（最初に一度だけ）</a></li>
+  <li><a href="#line">1. LINE</a></li>
+  <li><a href="#slack">2. Slack</a></li>
+  <li><a href="#chatwork">3. Chatwork</a></li>
+  <li><a href="#google_chat">4. Google Chat</a></li>
+  <li><a href="#discord">5. Discord</a></li>
+  <li><a href="#telegram">6. Telegram</a></li>
+  <li><a href="#teams">7. Microsoft Teams</a></li>
+  <li><a href="#whatsapp">8. WhatsApp Business</a></li>
+  <li><a href="#messenger">9. Facebook Messenger</a></li>
+  <li><a href="#checklist">やることチェックリスト</a></li>
+</ul>
+
+<h2 id="common">0. 共通の前提（最初に一度だけ）</h2>
+<div class="card">
+  <p>個々のチャネル設定の前に、サーバー側で以下がそろっている必要があります。</p>
+  <table>
+    <tr><th>項目</th><th>値・場所</th><th>用途</th></tr>
+    <tr><td><code>SYSTEM_ENCRYPTION_KEY</code>（環境変数）</td><td class="paste">32バイト以上のランダム文字列</td><td>チャネルの資格情報を <code>channel_accounts.credentials_encrypted</code> に暗号化保存する鍵。未設定だと登録・送信が動きません。</td></tr>
+    <tr><td>公開URL（Webhookベース）</td><td class="paste">本番デプロイのHTTPSドメイン</td><td>受信Webhookを各サービスに登録する際のベースURL。例: <code>https://app.example.com</code></td></tr>
+    <tr><td>プラン設定</td><td><code>org_billing.plan_id</code></td><td>白ラベル・即時通知・1:1DM は Pro 専有（<code>src/lib/billing/entitlements.ts</code>）。</td></tr>
+  </table>
+  <p class="diff">凡例（実装状況）:
+    <span class="legend">
+      <span><span class="badge b-ga">GA</span> 送受信とも利用可</span>
+      <span><span class="badge b-beta">BETA</span> 送信は実装済み・受信は準備中</span>
+      <span><span class="badge b-plan">PLANNED</span> 登録のみ（ロードマップ）</span>
+      <span><span class="badge b-pro">PRO</span> 上位プラン専有</span>
+    </span>
+  </p>
+</div>
+
+<div class="grid">
+
+<!-- ===================== LINE ===================== -->
+<div class="card" id="line">
+  <div class="card-head"><h3>1. LINE</h3><span class="badge b-ga">GA</span></div>
+  <p class="meta">送信・受信対応 / グループ・1:1DM可 / 署名: HMAC-SHA256 ／ 開発者コンソール: <a href="https://developers.line.biz/console/">developers.line.biz</a></p>
+  <ol class="steps">
+    <li>LINE Developers で <strong>Messaging APIチャネル</strong>を作成（共通LINEは既存の共有アカウントを使用）。</li>
+    <li>「Messaging API設定」で <strong>チャネルアクセストークン（長期）</strong>を発行。</li>
+    <li>「チャネル基本設定」で <strong>チャネルシークレット</strong>を控える。</li>
+    <li>Webhook URL に <code>{公開URL}/api/channels/line/webhook</code> を登録し、<strong>Webhookの利用=オン</strong>・応答メッセージ=オフ。</li>
+    <li>自社LINE（白ラベル）は Pro のみ。共通LINEはプラットフォーム共有アカウントを使用。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>Channel secret</td><td class="paste"><code>channel_secret</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Channel access token（長期）</td><td class="paste"><code>access_token</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">送信先(to): LINE userId（Uで始まる）／グループID（Cで始まる）。<span class="badge b-pro">PRO</span> 自社名義・即時通知・1:1DM。</p>
+</div>
+
+<!-- ===================== Slack ===================== -->
+<div class="card" id="slack">
+  <div class="card-head"><h3>2. Slack</h3><span class="badge b-ga">GA</span></div>
+  <p class="meta">送信・受信対応 / チャンネル・DM可 / 署名: HMAC-SHA256 ／ 管理: <a href="https://api.slack.com/apps">api.slack.com/apps</a></p>
+  <ol class="steps">
+    <li>「Create New App」→ From scratch でアプリ作成。</li>
+    <li>「OAuth &amp; Permissions」で Bot Token Scopes に <code>chat:write</code>・<code>channels:read</code>・<code>groups:read</code> を追加。</li>
+    <li>ワークスペースにインストールし <strong>Bot User OAuth Token（xoxb-…）</strong>を取得。</li>
+    <li>「Basic Information」→ App Credentials の <strong>Signing Secret</strong> を控える。</li>
+    <li>受信を使う場合は「Event Subscriptions」で Request URL に <code>{公開URL}/api/slack/webhook</code> を登録。</li>
+    <li>秘書に投稿させたい各チャンネルで <code>/invite @アプリ名</code>（未参加だと <code>not_in_channel</code>）。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>Bot User OAuth Token（xoxb-）</td><td class="paste"><code>bot_token</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Signing Secret</td><td class="paste"><code>signing_secret</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">送信先(to): チャンネルID（Cで始まる）／ユーザーID（U・Wで始まる）。</p>
+</div>
+
+<!-- ===================== Chatwork ===================== -->
+<div class="card" id="chatwork">
+  <div class="card-head"><h3>3. Chatwork</h3><span class="badge b-beta">BETA</span></div>
+  <p class="meta">送信対応（受信は準備中）/ ルーム・DM可 ／ トークン発行: <a href="https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php">API設定</a></p>
+  <ol class="steps">
+    <li>Chatworkにログインし「サービス連携 → API」から <strong>APIトークン</strong>を発行。</li>
+    <li>秘書に投稿させたいルームを開き、URLの <code>rid</code> 値（数字）＝ <strong>room_id</strong> を控える。</li>
+    <li>（受信対応時）Webhook Token を発行し <code>webhook_token</code> に登録。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>API Token</td><td class="paste"><code>api_token</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Webhook Token（受信対応時）</td><td class="paste"><code>webhook_token</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">送信先(to): ルームID（room_id・数字のみ）。日本のSMBで普及。</p>
+</div>
+
+<!-- ===================== Google Chat ===================== -->
+<div class="card" id="google_chat">
+  <div class="card-head"><h3>4. Google Chat</h3><span class="badge b-beta">BETA</span></div>
+  <p class="meta">送信対応（Incoming Webhook方式）/ スペース宛 ／ ドキュメント: <a href="https://developers.google.com/chat/how-tos/webhooks">Webhooks</a></p>
+  <ol class="steps">
+    <li>Google Chat で通知したい<strong>スペース</strong>を開く（Webhookはスペースにのみ設定可）。</li>
+    <li>スペース名 → 「アプリと連携」→「Webhook」→「Webhookを追加」で名前を付けて作成。</li>
+    <li>発行された <strong>Webhook URL</strong>（<code>chat.googleapis.com/…</code>）をコピー。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>Incoming Webhook URL</td><td class="paste"><code>webhook_url</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">双方向（受信）にはChat API＋サービスアカウントが別途必要。送信のみ本方式。</p>
+</div>
+
+<!-- ===================== Discord ===================== -->
+<div class="card" id="discord">
+  <div class="card-head"><h3>5. Discord</h3><span class="badge b-beta">BETA</span></div>
+  <p class="meta">送信対応（チャンネルWebhook）/ チャンネル宛 ／ 開発者ポータル: <a href="https://discord.com/developers/applications">Developer Portal</a></p>
+  <ol class="steps">
+    <li>通知したいチャンネルの「⚙ 編集 → 連携サービス → ウェブフック」を開く。</li>
+    <li>「新しいウェブフック」を作成し、名前とアイコンを設定。</li>
+    <li>「ウェブフックURLをコピー」で <strong>Webhook URL</strong>（<code>discord.com/api/webhooks/…</code>）を取得。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>Channel Webhook URL</td><td class="paste"><code>webhook_url</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">Bot（受信・スラッシュコマンド・Ed25519署名）は後続。まずはチャンネル送信。</p>
+</div>
+
+<!-- ===================== Telegram ===================== -->
+<div class="card" id="telegram">
+  <div class="card-head"><h3>6. Telegram</h3><span class="badge b-beta">BETA</span></div>
+  <p class="meta">送信対応 / グループ・1:1DM可 ／ 作成: <a href="https://core.telegram.org/bots#botfather">@BotFather</a></p>
+  <ol class="steps">
+    <li>Telegramで <strong>@BotFather</strong> に <code>/newbot</code> を送り、名前とユーザー名を設定。</li>
+    <li>発行された <strong>Bot Token</strong>（<code>123456:AA…</code>）を控える。</li>
+    <li>送信先の <strong>chat_id</strong> を取得（対象チャット／グループにBotを追加後、<code>getUpdates</code> 等で確認）。</li>
+    <li>（受信対応時）<code>setWebhook</code> に <code>{公開URL}/api/channels/telegram/webhook</code> と secret_token を設定。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>Bot Token</td><td class="paste"><code>bot_token</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Webhook Secret Token（受信対応時）</td><td class="paste"><code>webhook_secret</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">送信先(to): chat_id（数値。ユーザー／グループ／チャンネル）。</p>
+</div>
+
+<!-- ===================== Teams ===================== -->
+<div class="card" id="teams">
+  <div class="card-head"><h3>7. Microsoft Teams</h3><span class="badge b-beta">BETA</span><span class="badge b-pro">PRO</span></div>
+  <p class="meta">送信対応（Incoming Webhook / Workflows）/ チャンネル宛 ／ 手順: <a href="https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook">Incoming Webhook</a></p>
+  <ol class="steps">
+    <li>通知したいチームのチャンネル「…」→「ワークフロー」（または従来のコネクタ）を開く。</li>
+    <li>「Webhookを使用してチャネルに投稿する」テンプレートを追加し、対象チャネルを選択。</li>
+    <li>発行された <strong>Webhook URL</strong>（<code>*.webhook.office.com</code> または <code>*.logic.azure.com</code>）をコピー。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>Incoming Webhook URL</td><td class="paste"><code>webhook_url</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">Adaptive Cardで送信。双方向はBot Framework＋Azureアプリ登録が別途必要。</p>
+</div>
+
+<!-- ===================== WhatsApp ===================== -->
+<div class="card" id="whatsapp">
+  <div class="card-head"><h3>8. WhatsApp Business</h3><span class="badge b-beta">BETA</span><span class="badge b-pro">PRO</span></div>
+  <p class="meta">送信対応（Meta Cloud API）/ 1:1DM ／ ドキュメント: <a href="https://developers.facebook.com/docs/whatsapp/cloud-api">Cloud API</a></p>
+  <ol class="steps">
+    <li>Meta for Developers でアプリを作成し <strong>WhatsApp</strong> プロダクトを追加。</li>
+    <li>Meta Business アカウントの認証・電話番号の登録を完了（審査あり）。</li>
+    <li><strong>System User Access Token</strong> と <strong>Phone Number ID</strong> を取得。</li>
+    <li>（受信対応時）Webhookに <code>{公開URL}/api/channels/whatsapp/webhook</code> を登録し App Secret で <code>X-Hub-Signature-256</code> を検証。</li>
+  </ol>
+  <table>
+    <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
+    <tr><td>System User Access Token</td><td class="paste"><code>access_token</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Phone Number ID</td><td class="paste"><code>phone_number_id</code></td><td>公開可</td></tr>
+    <tr><td>App Secret（受信対応時）</td><td class="paste"><code>app_secret</code></td><td class="tag-secret">機密</td></tr>
+  </table>
+  <p class="diff">24時間ウィンドウ外はテンプレートメッセージのみ（v1は本文テキスト対応）。ビジネス認証が前提。</p>
+</div>
+
+<!-- ===================== Messenger ===================== -->
+<div class="card" id="messenger">
+  <div class="card-head"><h3>9. Facebook Messenger</h3><span class="badge b-plan">PLANNED</span><span class="badge b-pro">PRO</span></div>
+  <p class="meta">ロードマップ（アダプタ未実装）/ 1:1DM ／ ドキュメント: <a href="https://developers.facebook.com/docs/messenger-platform">Messenger Platform</a></p>
+  <p>現状は登録枠のみ。利用にはFacebookページ・アプリのMetaレビューが必要です。準備する値は Page Access Token・App Secret（<code>page_access_token</code> / <code>app_secret</code>）。実装完了までは設定不要です。</p>
+</div>
+
+</div><!-- /grid -->
+
+<h2 id="checklist">やることチェックリスト</h2>
+<p class="meta">今すぐ繋ぐなら GA/BETA のチャネルから。あなた側の作業だけを抜き出すと以下です。</p>
+<ul class="checklist">
+  <li><strong>共通</strong>: 本番に <code>SYSTEM_ENCRYPTION_KEY</code> を設定し、公開HTTPSドメインを確定する。</li>
+  <li><strong>LINE</strong>: Messaging APIチャネルで channel secret / access token を発行し、Webhook URL を登録する。</li>
+  <li><strong>Slack</strong>: アプリを作り <code>chat:write</code> 等のscopeを付与、xoxb トークンと Signing Secret を取得、対象チャンネルにBotを招待する。</li>
+  <li><strong>Chatwork</strong>: APIトークンを発行し、投稿先ルームの room_id（数字）を控える。</li>
+  <li><strong>Google Chat</strong>: 対象スペースで Incoming Webhook を作成し URL を控える。</li>
+  <li><strong>Discord</strong>: 対象チャンネルで Webhook を作成し URL を控える。</li>
+  <li><strong>Telegram</strong>: @BotFather でBotを作成し token を取得、送信先 chat_id を控える。</li>
+  <li><strong>Microsoft Teams（Pro）</strong>: 対象チャネルの Workflows/コネクタで Incoming Webhook URL を発行する。</li>
+  <li><strong>WhatsApp Business（Pro）</strong>: Metaでビジネス認証・番号登録を済ませ、access token と phone_number_id を取得する。</li>
+  <li><strong>Messenger</strong>: 実装完了まで作業不要（ロードマップ）。</li>
+</ul>
+
+<div class="callout" style="margin-top:24px">
+  <strong>実装メモ（開発者向け）</strong> — 送信の追加は完了しています（<code>src/lib/channels/adapters/</code>、統一入口は <code>deliverToChannel(channel, ctx)</code>）。<strong>受信Webhook</strong>は各サービスで署名方式が異なり、マルチテナントの資格情報照合を伴うため、チャネルごとに個別PRで追加します（LINEは実装済み）。本手順書の「受信対応時」項目は、その受信を有効化する際に必要になる値です。
+</div>
+
+<footer>
+  この手順書は <code>src/lib/channels/registry.ts</code> の定義（表示順・資格情報キー・実装状況・Pro区分）に対応しています。チャネルを追加・変更したら、レジストリと本HTMLの両方を更新してください。
+</footer>
+
+</div>
+</body>
+</html>
