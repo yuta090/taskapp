@@ -323,14 +323,19 @@ describe('QueryProvider', () => {
     expect(PERSIST_BUSTER.length).toBeGreaterThan(0)
   })
 
-  // --- freshness tiers: フォーカス起因の一斉refetchはちらつき・負荷源のため無効化 ---
-  it('disables refetchOnWindowFocus in the default query options (freshness-tiers)', async () => {
+  // --- freshness tiers: refetchOnWindowFocusはアプリ全体では無効化しない -------------
+  // ball ownership(誰の番か)の唯一の更新経路であるuseTasks/useMeetings(realtime/ポーリング
+  // 無し)がフォーカス再取得に依拠しているため、ルート集約された単一QueryProviderで
+  // refetchOnWindowFocus:false にするとその経路ごと奪ってしまう(code review指摘で撤回)。
+  // ちらつきの根因はremount+isFetching描画であり、layout永続化+STRUCTURE staleTime+
+  // isPending描画規約で別途解消する。ここでは既定(false固定化しない)ことだけを保証する。
+  it('does not force refetchOnWindowFocus to false in the default query options', async () => {
     renderProvider()
 
     await waitFor(() => {
       expect(capturedClient).not.toBeNull()
     })
-    expect(capturedClient!.getDefaultOptions().queries?.refetchOnWindowFocus).toBe(false)
+    expect(capturedClient!.getDefaultOptions().queries?.refetchOnWindowFocus).not.toBe(false)
   })
 
   it('updates currentUser query data on SIGNED_IN / TOKEN_REFRESHED', async () => {

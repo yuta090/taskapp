@@ -51,10 +51,11 @@ function makeQueryClient() {
       queries: {
         staleTime: 2 * 60_000, // 2 minutes — balance between speed and multi-user freshness
         gcTime: 1000 * 60 * 60 * 24, // 24 hours — keep cache for persistence
-        // 秘書の接続系データは「実質固定」方針(freshness tiers)のため、フォーカス起因の
-        // 一斉refetch(ちらつき・負荷源)は既定で無効化する。リアルタイム性が必要な画面は
-        // 個別に refetchInterval(polling)を有効化する（useChannelIdentities/useChannelGroups）。
-        refetchOnWindowFocus: false,
+        // アプリ全体では無効化しない: ball ownership(誰の番か)の唯一の更新経路である
+        // useTasks/useMeetings(realtime/ポーリング無し)がフォーカス再取得に依拠している。
+        // 秘書STRUCTUREティアのちらつき対策は per-query の staleTime:5分 で個別に抑制する
+        // （QueryProvider.tsx の変更履歴・code review参照。ここをfalseにしない）。
+        refetchOnWindowFocus: true,
         retry: 1,
       },
     },
