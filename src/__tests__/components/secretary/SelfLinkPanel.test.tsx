@@ -127,6 +127,9 @@ describe('SelfLinkPanel', () => {
 
     // 接続バッジと連携済み一覧は展開表示
     expect(await screen.findByText(/あなたのLINEは接続済みです（1件）/)).toBeInTheDocument()
+    // 一覧は中立ラベルを出し、内部ユーザーID(管理番号)は表示しない
+    expect(screen.getByText('連携済みのLINE')).toBeInTheDocument()
+    expect(screen.queryByText('user-1')).not.toBeInTheDocument()
     // 発行ボタンは畳まれていて直接は見えない
     expect(screen.queryByText(/コードを発行してつなぐ/)).not.toBeInTheDocument()
     expect(screen.getByTestId('connect-reopen-toggle')).toHaveTextContent('別の端末をつなぐ')
