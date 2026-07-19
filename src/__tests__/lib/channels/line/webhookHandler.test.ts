@@ -19,6 +19,7 @@ import { createHmac } from 'node:crypto'
 const CHANNEL_SECRET = 'secret-abc'
 const ACCOUNT = {
   id: 'acc-1',
+  ownerType: 'org' as const,
   orgId: 'org-1',
   displayName: '山田会計事務所',
   channelSecret: CHANNEL_SECRET,
@@ -96,6 +97,7 @@ const storeMock = {
   claimApprovalNotification: vi.fn(),
   clearApprovalNotifiedAt: vi.fn(),
   getOrgChannelPolicyState: vi.fn(),
+  getPlatformBudgetState: vi.fn(),
   findValidSharedGroupClaimCode: vi.fn(),
   findOrCreatePendingGroupClaim: vi.fn(),
   redeemCodeOnlyClaim: vi.fn(),
@@ -257,6 +259,7 @@ beforeEach(() => {
   storeMock.claimApprovalNotification.mockResolvedValue(null)
   storeMock.clearApprovalNotifiedAt.mockResolvedValue(undefined)
   storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+  storeMock.getPlatformBudgetState.mockResolvedValue('ok')
   storeMock.reopenDigestTaskAtomic.mockResolvedValue(null)
   storeMock.findValidSharedGroupClaimCode.mockResolvedValue(null)
   storeMock.findOrCreatePendingGroupClaim.mockResolvedValue({
@@ -1662,6 +1665,47 @@ describe('handleLineWebhook', () => {
         } finally {
           vi.useRealTimers()
         }
+      })
+    })
+
+    describe('グローバル予算層（共有bot account軸の二層quota判定・fable確定設計）', () => {
+      beforeEach(() => {
+        storeMock.createInstantDigestTask.mockResolvedValue({
+          id: 'digest-task-1',
+          pending: true,
+          duplicate: false,
+        })
+      })
+
+      it('共有bot(platform)account かつ org層ok・global層hard → claimもpushもしない', async () => {
+        storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_ACCOUNT)
+        storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+        storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+        storeMock.getPlatformBudgetState.mockResolvedValue('hard')
+
+        const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(storeMock.getPlatformBudgetState).toHaveBeenCalledWith('acc-shared-1')
+        expect(storeMock.claimApprovalNotification).not.toHaveBeenCalled()
+        expect(pushMock).not.toHaveBeenCalled()
+        // グループへの主フローreplyは継続する（抑止は通知のみに影響）
+        expect(replyMock).toHaveBeenCalledTimes(1)
+      })
+
+      it('専用bot(owner_type=org)account は global層を評価しない（getPlatformBudgetStateを呼ばず通常どおりclaim/push）', async () => {
+        storeMock.findLineAccountByDestination.mockResolvedValue(ACCOUNT) // ownerType='org'
+        storeMock.findActiveGroup.mockResolvedValue(GROUP_APPROVAL)
+        storeMock.claimApprovalNotification.mockResolvedValue('U-approver')
+        storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+        storeMock.getPlatformBudgetState.mockResolvedValue('hard') // 呼ばれれば抑止されるはずの値
+
+        const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+        await handleLineWebhook(body, sign(body))
+
+        expect(storeMock.getPlatformBudgetState).not.toHaveBeenCalled()
+        expect(pushMock).toHaveBeenCalledTimes(1)
       })
     })
   })

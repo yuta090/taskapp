@@ -14,6 +14,7 @@ const storeMock = {
   claimPendingApprovalNotifications: vi.fn(),
   findLineAccountById: vi.fn(),
   getOrgChannelPolicyState: vi.fn(),
+  getPlatformBudgetState: vi.fn(),
   insertChannelMessage: vi.fn(),
   clearApprovalNotifiedAt: vi.fn(),
 }
@@ -37,10 +38,22 @@ function callPost(headers: Record<string, string> = {}) {
 
 const ACCOUNT = {
   id: 'acc-1',
+  ownerType: 'org' as const,
   orgId: 'org-1',
   displayName: '山田会計',
   channelSecret: 's',
   accessToken: 'token-1',
+  status: 'active' as const,
+}
+
+// 共有bot（owner_type='platform'）。グローバル予算層(account軸)のgateが効く対象
+const PLATFORM_ACCOUNT = {
+  id: 'acc-shared-1',
+  ownerType: 'platform' as const,
+  orgId: null as string | null,
+  displayName: 'agentpm秘書',
+  channelSecret: 's',
+  accessToken: 'token-shared',
   status: 'active' as const,
 }
 
@@ -66,6 +79,7 @@ describe('POST /api/cron/approval-notify', () => {
     storeMock.claimPendingApprovalNotifications.mockResolvedValue([])
     storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
     storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+    storeMock.getPlatformBudgetState.mockResolvedValue('ok')
     storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
     storeMock.clearApprovalNotifiedAt.mockResolvedValue(undefined)
     pushMock.mockResolvedValue(undefined)
@@ -264,6 +278,76 @@ describe('POST /api/cron/approval-notify', () => {
       expect(json.sent).toBe(1)
       expect(pushMock).toHaveBeenCalledTimes(1)
       expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'Uapprover2' }))
+    })
+  })
+
+  describe('グローバル予算層（共有bot account軸の二層quota判定・fable確定設計）', () => {
+    it('共有bot(platform)account かつ org層ok・global層hard → 抑止しclearApprovalNotifiedAtで再claim可能に戻す', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('hard')
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(0)
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(storeMock.getPlatformBudgetState).toHaveBeenCalledWith('acc-shared-1')
+      expect(storeMock.clearApprovalNotifiedAt).toHaveBeenCalledWith(row().taskId)
+      expect(json.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ taskId: row().taskId, reason: 'global_budget_hard_suppress' }),
+        ]),
+      )
+    })
+
+    it('共有bot(platform)account かつ org層on_exceed=none・global層hard → それでも抑止する（グローバル予算は物理上限）', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('hard')
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(json.sent).toBe(0)
+      expect(pushMock).not.toHaveBeenCalled()
+    })
+
+    it('専用bot(owner_type=org)account は global層を評価しない（getPlatformBudgetStateを呼ばず常送信）', async () => {
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.findLineAccountById.mockResolvedValue(ACCOUNT) // ownerType='org'
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('hard') // 呼ばれれば抑止されるはずの値
+
+      const res = await callPost(AUTH)
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(storeMock.getPlatformBudgetState).not.toHaveBeenCalled()
+    })
+
+    it('共有bot(platform)account かつ org層ok・global層soft隔日 → 奇数日は抑止', async () => {
+      vi.useFakeTimers()
+      // 2026-07-12(JST)は通算日193（奇数）→ 抑止側
+      vi.setSystemTime(new Date(2026, 6, 12, 7, 0))
+      storeMock.claimPendingApprovalNotifications.mockResolvedValue([row()])
+      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('soft')
+
+      try {
+        const res = await callPost(AUTH)
+        const json = await res.json()
+        expect(json.sent).toBe(0)
+        expect(pushMock).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })
