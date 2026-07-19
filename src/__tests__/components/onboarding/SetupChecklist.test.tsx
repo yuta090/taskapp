@@ -97,7 +97,7 @@ describe('SetupChecklist', () => {
     render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
 
     const lineLink = screen.getByRole('link', { name: 'LINEを連携' })
-    expect(lineLink).toHaveAttribute('href', `/${ORG_ID}/secretary/user-links`)
+    expect(lineLink).toHaveAttribute('href', `/${ORG_ID}/secretary/connect/line`)
   })
 
   it('marks the first incomplete step as the current step ("今ここ")', () => {

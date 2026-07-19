@@ -39,6 +39,6 @@ describe('GroupLinkPanel', () => {
     expect(screen.getByText(/グループのトークに送信/)).toBeInTheDocument()
 
     const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
-    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/group-links`)
+    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)
   })
 })
