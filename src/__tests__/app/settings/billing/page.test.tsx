@@ -16,6 +16,9 @@ vi.mock('@/components/billing', () => ({
   InvoiceHistory: ({ orgId }: { orgId?: string }) => (
     <div data-testid="invoice-history">InvoiceHistory orgId={orgId}</div>
   ),
+  PlanFeatureTable: ({ orgId }: { orgId?: string }) => (
+    <div data-testid="plan-feature-table">PlanFeatureTable orgId={orgId}</div>
+  ),
 }))
 
 // Mock useStripeStatus
