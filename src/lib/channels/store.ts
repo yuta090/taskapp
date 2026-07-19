@@ -652,6 +652,63 @@ export async function verifyGroupInOrg(orgId: string, groupId: string): Promise<
 }
 
 /**
+ * コンソール送信の自動振り分け用: space に紐づく「送信可能な」active グループ接続を1件返す。
+ * グループ接続がある相手先はコンソールから（1:1DMではなく）グループ宛てに送る＝Freeでも送れる経路
+ * （相手先接続=グループ単位はFreeでも可。1:1個別DMのみが line_direct_dm ゲート対象）。
+ * account が disabled のグループは送信不能なので候補から除外する。
+ * 複数が同居する場合の選択は selectPreferredActiveGroup に委譲（決定的）。
+ */
+export async function findActiveGroupForSpace(
+  orgId: string,
+  spaceId: string,
+): Promise<ChannelGroup | null> {
+  const { data, error } = await admin()
+    .from('channel_groups')
+    .select(`${GROUP_COLUMNS}, created_at, channel_accounts!inner(owner_type, status)`)
+    .eq('org_id', orgId)
+    .eq('space_id', spaceId)
+    .eq('status', 'active')
+    .eq('channel_accounts.status', 'active')
+
+  if (error || !data) return null
+
+  type JoinedRow = GroupRow & {
+    created_at: string
+    channel_accounts:
+      | { owner_type: string; status: string }
+      | { owner_type: string; status: string }[]
+      | null
+  }
+  const candidates = (data as unknown as JoinedRow[]).map((row) => {
+    const acc = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
+    return {
+      group: toChannelGroup(row),
+      ownerType: acc?.owner_type === 'platform' ? ('platform' as const) : ('org' as const),
+      createdAt: row.created_at,
+    }
+  })
+  return selectPreferredActiveGroup(candidates)
+}
+
+/**
+ * 1つのspaceに複数のactiveグループが同居する場合（自社LINE群＋共通LINE群など）の決定的な選択。
+ * コンソールは自社アカウント(owner_type='org')の文脈で動くため org を優先し、
+ * 同順位は created_at 昇順（最古＝最初の接続）で決める。純関数（テスト用にexport）。
+ */
+export function selectPreferredActiveGroup(
+  candidates: Array<{ group: ChannelGroup; ownerType: 'org' | 'platform'; createdAt: string }>,
+): ChannelGroup | null {
+  if (candidates.length === 0) return null
+  const sorted = [...candidates].sort((a, b) => {
+    if (a.ownerType !== b.ownerType) return a.ownerType === 'org' ? -1 : 1
+    if (a.createdAt < b.createdAt) return -1
+    if (a.createdAt > b.createdAt) return 1
+    return 0
+  })
+  return sorted[0].group
+}
+
+/**
  * リンクコード成立時のspace紐付け＋バックフィルを単一RPCで原子化する。
  * space_id NULL→値の一方向（DBトリガーでも強制）。既に紐付け済み(space_id非null)なら
  * false を返し、呼び出し側は通常メッセージ扱いにする。
