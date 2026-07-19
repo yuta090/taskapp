@@ -184,6 +184,10 @@ feature branch → (push/PR) → develop → (PR) → main
 - `fable-architect`(**Fable**) 型なし×失敗コスト大×全体俯瞰の最終判断（判断のみ・実装しない）
 - `impl-runner`(Sonnet) 実装量産 / `migration-writer`(Opus) DDL差分 / `code-reviewer`(Opus) 差分レビュー
 - `report-collector`(Haiku) レポート集計 / `design-system-checker`(Haiku) UI準拠検査 / `doc-index-updater`(Haiku) 索引同期
+- `page-perf-reviewer`(Opus) ページの表示速度レビュー。データ取得・描画が「速いページの型」(react-query永続キャッシュ活用・fetch並列/waterfall・staleTime・limit/N+1・仮想化)に準拠しているか検査
+
+### ページ表示速度は必ずレビューする（厳守）
+`src/app/**` にページ(route/`page.tsx`)を**新規作成**、または既存ページのクライアントコンポーネント・データ取得hookを**編集**したら、出す前に必ず `page-perf-reviewer` サブエージェントを呼んで表示速度の型準拠をレビューさせる。基準は速いページ(`project/[spaceId]/TasksPageClient.tsx`, `inbox/InboxClient.tsx`)と `QueryProvider`。指摘(waterfall・cache-miss・heavy-query・非仮想化)は修正してからPRにする。認証×横断の根幹設計に踏み込む指摘は Fable に判断を委ねる。
 
 ### 定義済み Workflow（`.claude/workflows/`）
 - `review-changes` 差分レビュー（観点別モデル振り分け＋検証）/ `pre-release-check` リリース前一括チェック
