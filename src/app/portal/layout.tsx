@@ -1,13 +1,10 @@
-import { QueryProvider } from '@/components/providers/QueryProvider'
-
-// Portal pages use PortalLeftNav → usePortalVisibilityForPortal, which is a
-// React Query hook. Unlike (internal)/layout.tsx, this tree previously had no
-// QueryClientProvider, so every portal page crashed with
-// "No QueryClient set, use QueryClientProvider to set one".
+// Portal pages use PortalLeftNav → usePortalVisibilityForPortal, a React Query
+// hook. The QueryClient is now provided app-wide by the root app/layout.tsx,
+// so this layout no longer needs its own QueryProvider.
 export default function PortalLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return <QueryProvider>{children}</QueryProvider>
+  return children
 }
