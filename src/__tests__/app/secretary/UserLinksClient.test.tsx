@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/UserLinksClient'
 
 /**
- * UserLinksClient — LINE連携ハブ（1画面3カード）。
+ * UserLinksClient — LINE連携ハブ。
  *
- * 「自分をつなぐ/顧問先をつなぐ/グループをつなぐ」がタブに分散して分かりにくかったため、
- * 1画面に3カードで並べ、提示レイヤーだけを統合する（Fable設計 D3）。
- * identity・API・トークン発行ロジックは各カードの中身(SelfLinkPanel/ClientLinkPanel/
- * GroupLinkPanel)が既存のまま呼ぶだけで、ここでは並べ方の統合のみを検証する。
+ * 高校生でも分かる言葉で主役2カード（グループLINEから拾う / 自分のLINEで受け取る）を
+ * 並べ、1対1(相手先)は「グループを介さず直接つなぐ」Pro副導線として畳んで置く。
+ * identity・API・トークン発行ロジックは各カードの中身が既存のまま呼ぶだけで、
+ * ここでは並べ方・言葉・畳み方の統合のみを検証する。
  */
 
 vi.mock('next/link', () => ({
@@ -52,12 +52,35 @@ beforeEach(() => {
 })
 
 describe('UserLinksClient (連携ハブ)', () => {
-  it('3カードの見出しが表示される(自分/相手先/グループ)', () => {
+  it('主役2カードを平易な見出しで、順番はグループ→自分で表示する', () => {
     render(<UserLinksClient orgId={ORG} />)
 
-    expect(screen.getByText(/自分をつなぐ/)).toBeInTheDocument()
-    expect(screen.getByText(/相手先をつなぐ/)).toBeInTheDocument()
-    expect(screen.getByText(/グループをつなぐ/)).toBeInTheDocument()
+    const group = screen.getByText('グループLINEから拾う')
+    const self = screen.getByText('自分のLINEで受け取る')
+    expect(group).toBeInTheDocument()
+    expect(self).toBeInTheDocument()
+    // グループが自分より先(上)に来る
+    expect(group.compareDocumentPosition(self) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('1対1(相手先)はPro副導線として畳まれ、既定ではClientLinkPanelを出さない', () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        { id: 'space-1', name: '山田商事', orgId: ORG, orgName: 'テスト事務所', role: 'admin', archivedAt: null, groupId: null, sortOrder: 0 },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(<UserLinksClient orgId={ORG} />)
+
+    // トグルは見えるが、中身(相手先の選択UI)は開くまで出さない
+    expect(screen.getByTestId('direct-connect-toggle')).toHaveTextContent('相手と1対1でつなぐ')
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('direct-connect-toggle'))
+    // 開くと相手先の選択UI(ClientLinkPanel)が出る
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
   it('タブ・チャネルレールはlayoutが持つため、Client自身はタブを描画しない(二重nav禁止)', () => {
