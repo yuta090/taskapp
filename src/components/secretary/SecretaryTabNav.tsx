@@ -1,13 +1,37 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ChatCircleDots, Plugs, IdentificationCard, ClipboardText } from '@phosphor-icons/react'
 
 type SecretaryTab = 'messages' | 'approvals' | 'integrations' | 'connect'
 
 interface SecretaryTabNavProps {
   orgId: string
-  activeTab: SecretaryTab
+}
+
+/**
+ * pathnameからactiveTabをプレフィックス判定する。
+ * - `/secretary/approvals` → approvals
+ * - `/secretary/integrations` → integrations
+ * - `/secretary/connect`（LINE等チャネル配下含む）、旧 `/secretary/user-links`・
+ *   `/secretary/group-links` が残っていれば connect 扱い
+ * - それ以外（`/secretary` 直下など） → messages
+ */
+function resolveActiveTab(pathname: string, orgId: string): SecretaryTab {
+  const prefix = `/${orgId}/secretary`
+  const rest = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : pathname
+
+  if (rest.startsWith('/approvals')) return 'approvals'
+  if (rest.startsWith('/integrations')) return 'integrations'
+  if (
+    rest.startsWith('/connect') ||
+    rest.startsWith('/user-links') ||
+    rest.startsWith('/group-links')
+  ) {
+    return 'connect'
+  }
+  return 'messages'
 }
 
 const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; href: (orgId: string) => string }[] = [
@@ -33,8 +57,15 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
 /**
  * 秘書コンソールのタブ切替（メッセージ/連携）。ViewsTabNav(gantt/burndown)と同型:
  * ルートベースのタブで各page.tsxが独立してデータ取得する(docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4)。
+ *
+ * secretary/layout.tsx に一元描画されるため、activeTabはpropsで受け取らずusePathname()から
+ * 自己判定する。これにより配下のpage/clientをタブごとに切り替えてもタブバー自体は
+ * remountされない(骨格の永続化)。
  */
-export function SecretaryTabNav({ orgId, activeTab }: SecretaryTabNavProps) {
+export function SecretaryTabNav({ orgId }: SecretaryTabNavProps) {
+  const pathname = usePathname()
+  const activeTab = resolveActiveTab(pathname ?? '', orgId)
+
   return (
     <div className="flex items-center gap-1 px-4 pt-2 bg-white border-b border-gray-200 flex-shrink-0">
       {tabs.map((tab) => {
