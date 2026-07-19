@@ -37,6 +37,11 @@ vi.mock('@/lib/billing/entitlements', () => ({
   resolveOrgEntitlements: (...args: unknown[]) => resolveEntitlementsMock(...args),
 }))
 
+const fetchChatworkAccountIdMock = vi.fn()
+vi.mock('@/lib/channels/chatwork/client', () => ({
+  fetchChatworkAccountId: (...args: unknown[]) => fetchChatworkAccountIdMock(...args),
+}))
+
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 
 const { POST } = await import('@/app/api/channels/accounts/route')
@@ -77,6 +82,7 @@ beforeEach(() => {
   getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
   membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
   resolveEntitlementsMock.mockResolvedValue(entitled(true))
+  fetchChatworkAccountIdMock.mockResolvedValue('363')
   storeMock.generateChannelWebhookSecret.mockReturnValue('whsec_generated')
   storeMock.registerOrgChannelAccount.mockResolvedValue({
     account: accountMeta(),
@@ -167,6 +173,39 @@ describe('POST /api/channels/accounts — 資格情報検証', () => {
     const res = await callPost({ orgId: ORG_A, channel: 'chatwork', credentials: { api_token: 'tok' } })
     expect(res.status).toBe(201)
     expect(storeMock.registerOrgChannelAccount).toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/channels/accounts — Chatwork bot_account_id 解決（自己ループ防止）', () => {
+  beforeEach(() => {
+    storeMock.registerOrgChannelAccount.mockResolvedValue({
+      account: accountMeta({ channel: 'chatwork' }),
+      created: true,
+      generatedSecrets: {},
+    })
+  })
+
+  it('登録時に /me で bot 自身の account_id を解決し operatorCredentials に注入する', async () => {
+    fetchChatworkAccountIdMock.mockResolvedValue('363')
+    const res = await callPost({ orgId: ORG_A, channel: 'chatwork', credentials: { api_token: 'tok' } })
+    expect(res.status).toBe(201)
+    expect(fetchChatworkAccountIdMock).toHaveBeenCalledWith('tok')
+    const arg = storeMock.registerOrgChannelAccount.mock.calls[0][0]
+    expect(arg.operatorCredentials).toMatchObject({ api_token: 'tok', bot_account_id: '363' })
+  })
+
+  it('api_token が無効(解決null)なら400 chatwork_token_unverified・登録しない', async () => {
+    fetchChatworkAccountIdMock.mockResolvedValue(null)
+    const res = await callPost({ orgId: ORG_A, channel: 'chatwork', credentials: { api_token: 'bad' } })
+    const json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.code).toBe('chatwork_token_unverified')
+    expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
+  })
+
+  it('telegram登録では /me 解決を呼ばない（チャネル固有処理）', async () => {
+    await callPost({ orgId: ORG_A, channel: 'telegram', credentials: { bot_token: 't' } })
+    expect(fetchChatworkAccountIdMock).not.toHaveBeenCalled()
   })
 })
 

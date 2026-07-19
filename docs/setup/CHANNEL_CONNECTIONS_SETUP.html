@@ -83,7 +83,7 @@
 </div>
 
 <div class="callout">
-  <strong>アプリ内で登録できます（LINE以外）</strong> — 秘書コンソールの「つなぐ」→各チャネルのセットアップ画面に<strong>資格情報の登録フォーム</strong>があります。ここで発行した値を貼り付けて保存すると <code>channel_accounts</code> に暗号化保存されます（作成／再登録＝ローテート）。<strong>自社アカウント（白ラベル）接続は Pro プラン限定</strong>です。<strong>Telegram の Webhook Secret Token はサーバーが自動生成</strong>し、登録直後に画面で一度だけ表示するので、それを <code>setWebhook</code> の <code>secret_token</code> に設定してください（＝この値は自分で作らず、表示された値を使う）。LINE は <code>line_bot_user_id</code> の逆引き等があるため専用フローを使います。
+  <strong>アプリ内で登録できます（LINE以外）</strong> — 秘書コンソールの「つなぐ」→各チャネルのセットアップ画面に<strong>資格情報の登録フォーム</strong>があります。ここで発行した値を貼り付けて保存すると <code>channel_accounts</code> に暗号化保存されます（作成／再登録＝ローテート）。<strong>自社アカウント（白ラベル）接続は Pro プラン限定</strong>です。<strong>サーバーが自動生成する値</strong>（Telegram の <code>webhook_secret</code>／WhatsApp の <code>verify_token</code>）は、登録直後に画面で一度だけ表示するので、その表示値をプロバイダ側（Telegram は <code>setWebhook</code> の <code>secret_token</code>、WhatsApp は App Dashboard の「確認トークン」）に設定してください（＝自分で作らず表示値を使う）。<strong>受信Webhook（会話取り込み）に対応するチャネル</strong>は Telegram・Chatwork・WhatsApp で、いずれも <code>…/webhook/{accountId}</code> の account 単位URLで受け、各チャネルの秘密（Telegram=secret_token／Chatwork=webhook_token／WhatsApp=app_secret）で署名検証します。LINE は <code>line_bot_user_id</code> の逆引き等があるため専用フローを使います。
 </div>
 
 <h2>目次</h2>
@@ -164,16 +164,17 @@
 <!-- ===================== Chatwork ===================== -->
 <div class="card" id="chatwork">
   <div class="card-head"><h3>3. Chatwork</h3><span class="badge b-beta">BETA</span></div>
-  <p class="meta">送信対応（受信は準備中）/ ルーム・DM可 ／ トークン発行: <a href="https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php">API設定</a></p>
+  <p class="meta">送信・受信対応 / ルーム・DM可 / 署名: HMAC-SHA256(Base64) ／ トークン発行: <a href="https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php">API設定</a></p>
   <ol class="steps">
-    <li>Chatworkにログインし「サービス連携 → API」から <strong>APIトークン</strong>を発行。</li>
+    <li>Chatworkにログインし「サービス連携 → API」から <strong>APIトークン</strong>を発行し <code>api_token</code> に登録。</li>
     <li>秘書に投稿させたいルームを開き、URLの <code>rid</code> 値（数字）＝ <strong>room_id</strong> を控える。</li>
-    <li>（受信対応時）Webhook Token を発行し <code>webhook_token</code> に登録。</li>
+    <li><strong>受信（会話取り込み）を使う場合</strong>: まずアプリで登録を完了すると、セットアップ画面に <code>{公開URL}/api/channels/chatwork/webhook/{accountId}</code>（accountId＝登録済み channel_accounts のID）が表示される。このURLを Chatwork の「Webhook」設定に登録し、<code>message_created</code>（必要なら <code>mention_to_me</code>）を購読する。</li>
+    <li>Chatwork が発行した <strong>Webhook Token</strong> を控え、<strong>同じ画面で再登録（＝ローテート）</strong>して <code>webhook_token</code> に貼り付ける。以降 <code>X-ChatWorkWebhookSignature</code> をこのトークンで検証する。</li>
   </ol>
   <table>
     <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
     <tr><td>API Token</td><td class="paste"><code>api_token</code></td><td class="tag-secret">機密</td></tr>
-    <tr><td>Webhook Token（受信対応時）</td><td class="paste"><code>webhook_token</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Webhook Token（受信を使う場合）</td><td class="paste"><code>webhook_token</code></td><td class="tag-secret">機密</td></tr>
   </table>
   <p class="diff">送信先(to): ルームID（room_id・数字のみ）。日本のSMBで普及。</p>
 </div>
@@ -247,18 +248,20 @@
 <!-- ===================== WhatsApp ===================== -->
 <div class="card" id="whatsapp">
   <div class="card-head"><h3>8. WhatsApp Business</h3><span class="badge b-beta">BETA</span><span class="badge b-pro">PRO</span></div>
-  <p class="meta">送信対応（Meta Cloud API）/ 1:1DM ／ ドキュメント: <a href="https://developers.facebook.com/docs/whatsapp/cloud-api">Cloud API</a></p>
+  <p class="meta">送信・受信対応（Meta Cloud API）/ 1:1DM / 署名: HMAC-SHA256 ／ ドキュメント: <a href="https://developers.facebook.com/docs/whatsapp/cloud-api">Cloud API</a></p>
   <ol class="steps">
     <li>Meta for Developers でアプリを作成し <strong>WhatsApp</strong> プロダクトを追加。</li>
     <li>Meta Business アカウントの認証・電話番号の登録を完了（審査あり）。</li>
-    <li><strong>System User Access Token</strong> と <strong>Phone Number ID</strong> を取得。</li>
-    <li>（受信対応時）Webhookに <code>{公開URL}/api/channels/whatsapp/webhook</code> を登録し App Secret で <code>X-Hub-Signature-256</code> を検証。</li>
+    <li><strong>System User Access Token</strong> と <strong>Phone Number ID</strong> を取得し、アプリの「基本設定」から <strong>App Secret</strong> を取得。</li>
+    <li>アプリで登録すると <strong>Webhook Verify Token はサーバーが自動生成</strong>し、登録直後に画面で一度だけ表示する（＝自分で作らない）。同時に表示される受信URL <code>{公開URL}/api/channels/whatsapp/webhook/{accountId}</code> と、この Verify Token を Meta App Dashboard の <strong>Webhook</strong> 設定の「コールバックURL」「確認トークン」に貼り付ける（GET検証が通る）。</li>
+    <li>Webhook の <code>messages</code> フィールドを購読する。受信本文の署名（<code>X-Hub-Signature-256</code>）は <code>app_secret</code> で検証するため、App Secret を登録しておく（未登録だと受信は401で弾かれる）。</li>
   </ol>
   <table>
     <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
     <tr><td>System User Access Token</td><td class="paste"><code>access_token</code></td><td class="tag-secret">機密</td></tr>
     <tr><td>Phone Number ID</td><td class="paste"><code>phone_number_id</code></td><td>公開可</td></tr>
-    <tr><td>App Secret（受信対応時）</td><td class="paste"><code>app_secret</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>App Secret（受信を使う場合）</td><td class="paste"><code>app_secret</code></td><td class="tag-secret">機密</td></tr>
+    <tr><td>Webhook Verify Token</td><td class="paste"><code>verify_token</code></td><td>サーバー自動生成（表示値をMetaに貼付）</td></tr>
   </table>
   <p class="diff">24時間ウィンドウ外はテンプレートメッセージのみ（v1は本文テキスト対応）。ビジネス認証が前提。</p>
 </div>

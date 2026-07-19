@@ -67,6 +67,21 @@ describe('channel registry', () => {
       expect(def.credentialFields.length).toBeGreaterThan(0)
     }
   })
+
+  it('inbound=true のチャネルは受信Webhookパスを持つ', () => {
+    for (const def of chatChannels()) {
+      if (def.inbound) {
+        expect(def.webhookPath, `${def.id} inbound but no webhookPath`).toBeTruthy()
+      }
+    }
+  })
+
+  it('account単位で受ける受信チャネル(telegram/chatwork/whatsapp)は{accountId}を含むパス', () => {
+    for (const id of ['telegram', 'chatwork', 'whatsapp'] as const) {
+      expect(CHANNELS[id].inbound).toBe(true)
+      expect(CHANNELS[id].webhookPath).toContain('{accountId}')
+    }
+  })
 })
 
 describe('credential field 分類（generated / optional）', () => {
@@ -78,7 +93,9 @@ describe('credential field 分類（generated / optional）', () => {
     expect(bot?.generated).toBeFalsy()
   })
 
-  it('受信専用フィールド（未実装capability向け）は optional=true', () => {
+  it('受信の署名検証フィールドは登録時任意（プロバイダ発行後に再登録で貼付する二段構え）', () => {
+    // 受信は実装済みだが、これらの値はアカウント作成後にプロバイダ側で発行される（URLが要る）ため
+    // 初回登録では任意入力にし、再登録（ローテート）で貼り付ける。
     const cwWebhook = CHANNELS.chatwork.credentialFields.find((f) => f.key === 'webhook_token')
     expect(cwWebhook?.optional).toBe(true)
     const waAppSecret = CHANNELS.whatsapp.credentialFields.find((f) => f.key === 'app_secret')
@@ -98,6 +115,8 @@ describe('credential field 分類（generated / optional）', () => {
 
   it('generatedCredentialFields はサーバー生成フィールドのみ', () => {
     expect(generatedCredentialFields(CHANNELS.telegram).map((f) => f.key)).toEqual(['webhook_secret'])
+    // WhatsApp の verify_token もサーバー生成（GET購読検証用）
+    expect(generatedCredentialFields(CHANNELS.whatsapp).map((f) => f.key)).toEqual(['verify_token'])
     // 生成フィールドを持たないチャネルは空
     expect(generatedCredentialFields(CHANNELS.slack)).toEqual([])
   })

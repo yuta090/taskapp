@@ -15,6 +15,7 @@ import {
   requiredCredentialFields,
   generatedCredentialFields,
 } from '@/lib/channels/registry'
+import { fetchChatworkAccountId } from '@/lib/channels/chatwork/client'
 import { isValidUuid } from '@/lib/uuid'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -221,6 +222,23 @@ export async function POST(request: NextRequest) {
     if (typeof raw === 'string' && raw.trim() !== '') {
       operatorCredentials[field.key] = raw.trim()
     }
+  }
+
+  // Chatwork: 受信Webの自己ループ防止のため、Bot自身の account_id を /me で解決して控える。
+  // （受信 message_created は Bot 自身の投稿も配信するため、senderId==bot_account_id を無視する）。
+  // 併せて api_token の有効性検証にもなる。解決不能は fail-closed で 400。
+  if (channel === 'chatwork') {
+    const botAccountId = await fetchChatworkAccountId(operatorCredentials.api_token)
+    if (!botAccountId) {
+      return NextResponse.json(
+        {
+          error: 'Chatwork APIトークンを検証できませんでした。トークンを確認して再試行してください',
+          code: 'chatwork_token_unverified',
+        },
+        { status: 400 },
+      )
+    }
+    operatorCredentials.bot_account_id = botAccountId
   }
 
   // サーバー生成フィールド（webhook_secret 等）を生成する。
