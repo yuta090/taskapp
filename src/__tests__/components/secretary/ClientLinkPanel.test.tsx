@@ -137,4 +137,18 @@ describe('ClientLinkPanel', () => {
     fireEvent.click(screen.getByTestId('connect-showqr-toggle'))
     await waitFor(() => expect(screen.getByRole('img', { name: /QR/ })).toBeInTheDocument())
   })
+
+  it('接続待ち画面のため useChannelIdentities を polling:true で呼ぶ（WAITINGティア）', () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        { id: 'space-1', name: '山田商事', orgId: ORG, orgName: 'テスト事務所', role: 'admin', archivedAt: null, groupId: null, sortOrder: 0 },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(<ClientLinkPanel orgId={ORG} />)
+
+    expect(mockUseChannelIdentities).toHaveBeenCalledWith(ORG, 'line', { polling: true })
+  })
 })
