@@ -30,8 +30,8 @@ export function UserLinksClient({ orgId }: { orgId: string }) {
         </section>
 
         <section className="rounded border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-900">顧問先をつなぐ</h2>
-          <p className="mt-0.5 text-xs text-gray-500">顧問先とのやり取りをLINEで</p>
+          <h2 className="text-sm font-semibold text-gray-900">相手先をつなぐ</h2>
+          <p className="mt-0.5 text-xs text-gray-500">相手先とのやり取りをLINEで</p>
           <div className="mt-3">
             <ClientLinkPanel orgId={orgId} />
           </div>
@@ -39,7 +39,7 @@ export function UserLinksClient({ orgId }: { orgId: string }) {
 
         <section className="rounded border border-gray-200 p-4">
           <h2 className="text-sm font-semibold text-gray-900">グループをつなぐ</h2>
-          <p className="mt-0.5 text-xs text-gray-500">顧問先グループのやり取りを取り込む</p>
+          <p className="mt-0.5 text-xs text-gray-500">相手先グループのやり取りを取り込む</p>
           <div className="mt-3">
             <GroupLinkPanel orgId={orgId} />
           </div>

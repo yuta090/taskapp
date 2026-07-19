@@ -115,4 +115,24 @@ describe('SelfLinkPanel', () => {
       screen.getByText(/すでに友だち追加済みなら、下のボタンでコードを発行し/),
     ).toBeInTheDocument()
   })
+
+  // 接続済み(自分のLINEが連携済み)なら、QR＋発行ボタンは畳んで「別の端末をつなぐ」の裏に。
+  // 接続バッジと連携済み一覧を主役にする。追加接続時だけ開いてQRを見る。
+  it('自分が連携済みなら QR/発行ボタンを畳み、接続バッジと一覧を見せる', async () => {
+    mockApis({
+      account: { id: 'acc-1', displayName: 'OA' },
+      links: [{ id: 'link-1', userId: 'user-1', linkedAt: '2026-07-01T00:00:00Z' }],
+    })
+    render(<SelfLinkPanel orgId={ORG} />)
+
+    // 接続バッジと連携済み一覧は展開表示
+    expect(await screen.findByText(/あなたのLINEは接続済みです（1件）/)).toBeInTheDocument()
+    // 発行ボタンは畳まれていて直接は見えない
+    expect(screen.queryByText(/コードを発行してつなぐ/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('connect-reopen-toggle')).toHaveTextContent('別の端末をつなぐ')
+
+    // 開くと発行ボタンが出る
+    fireEvent.click(screen.getByTestId('connect-reopen-toggle'))
+    expect(screen.getByText(/コードを発行してつなぐ/)).toBeInTheDocument()
+  })
 })

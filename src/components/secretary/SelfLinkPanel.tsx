@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Warning, LinkBreak } from '@phosphor-icons/react'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
+import { ConnectionFlowSection, type ConnectState } from '@/components/secretary/ConnectionFlowSection'
 
 interface UserLink {
   id: string
@@ -88,95 +89,121 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
     setCopied(true)
   }
 
-  return (
-    <div className="space-y-4">
-      {account && (
-        <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
-          <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
-          <span>「{account.displayName}」は接続済み。あとはあなたのLINEをつなぐだけです。</span>
-        </div>
-      )}
+  // 状態解決: コード発行中は展開しておく(codeIssued) > 連携済み(connected・自分は畳む)
+  // > アカウント登録済み未連携(ready) > アカウント未登録(preparing)。
+  const state: ConnectState = issuedCode
+    ? 'codeIssued'
+    : links.length > 0
+      ? 'connected'
+      : account
+        ? 'ready'
+        : 'preparing'
 
-      {error && (
-        <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          <Warning className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </div>
-      )}
+  const summary =
+    links.length > 0 ? (
+      <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+        <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
+        <span>あなたのLINEは接続済みです（{links.length}件）。承認や確認をLINEで受け取れます。</span>
+      </div>
+    ) : account ? (
+      <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+        <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
+        <span>「{account.displayName}」は接続済み。あとはあなたのLINEをつなぐだけです。</span>
+      </div>
+    ) : undefined
 
+  const errorNode = error ? (
+    <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+      <Warning className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      <span>{error}</span>
+    </div>
+  ) : undefined
+
+  const qr = (
+    <>
       <LineFriendQr orgId={orgId} />
       <p className="text-xs text-gray-500">
         すでに友だち追加済みなら、下のボタンでコードを発行し、秘書との1:1トークに送るだけです。
       </p>
+    </>
+  )
 
-      {issuedCode ? (
-        <section className="rounded border border-amber-300 bg-amber-50 p-4">
-          <p className="text-xs font-semibold text-amber-900">
-            このコードを、秘書との1:1トークに送ってください
-          </p>
-          <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
-              {issuedCode}
-            </code>
-            <button
-              type="button"
-              onClick={copy}
-              className="flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              {copied ? 'コピー済み' : 'コピー'}
-            </button>
-          </div>
-          <p className="mt-2 text-[11px] text-amber-900">
-            15分で失効・1回のみ。<strong>グループには貼らないでください。</strong>
-          </p>
-        </section>
+  const action = issuedCode ? (
+    <section className="rounded border border-amber-300 bg-amber-50 p-4">
+      <p className="text-xs font-semibold text-amber-900">
+        このコードを、秘書との1:1トークに送ってください
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <code className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
+          {issuedCode}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          className="flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? 'コピー済み' : 'コピー'}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-amber-900">
+        15分で失効・1回のみ。<strong>グループには貼らないでください。</strong>
+      </p>
+    </section>
+  ) : !account ? (
+    <p className="text-xs text-gray-500">
+      LINE公式アカウントが登録されていません。先に「連携」タブで設定してください。
+    </p>
+  ) : (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={() => issue(account.id)}
+      className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+    >
+      コードを発行してつなぐ
+    </button>
+  )
+
+  const detail = (
+    <section>
+      <h3 className="text-xs font-semibold text-gray-900">連携済み</h3>
+      {links.length === 0 ? (
+        <p className="mt-2 text-xs text-gray-500">まだつないでいません。</p>
       ) : (
-        <section className="space-y-2">
-          {!account ? (
-            <p className="text-xs text-gray-500">
-              LINE公式アカウントが登録されていません。先に「連携」タブで設定してください。
-            </p>
-          ) : (
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => issue(account.id)}
-              className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
-            >
-              コードを発行してつなぐ
-            </button>
-          )}
-        </section>
+        <ul className="mt-2 divide-y divide-gray-200 rounded border border-gray-200">
+          {links.map((link) => (
+            <li key={link.id} className="flex items-center justify-between px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-xs text-gray-900">{link.userId}</p>
+                <p className="text-[11px] text-gray-500">
+                  {new Date(link.linkedAt).toLocaleString('ja-JP')} に連携
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => revoke(link.id)}
+                className="flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
+              >
+                <LinkBreak className="w-3 h-3" />
+                解除
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
+    </section>
+  )
 
-      <section>
-        <h3 className="text-xs font-semibold text-gray-900">連携済み</h3>
-        {links.length === 0 ? (
-          <p className="mt-2 text-xs text-gray-500">まだつないでいません。</p>
-        ) : (
-          <ul className="mt-2 divide-y divide-gray-200 rounded border border-gray-200">
-            {links.map((link) => (
-              <li key={link.id} className="flex items-center justify-between px-3 py-2">
-                <div className="min-w-0">
-                  <p className="truncate text-xs text-gray-900">{link.userId}</p>
-                  <p className="text-[11px] text-gray-500">
-                    {new Date(link.linkedAt).toLocaleString('ja-JP')} に連携
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => revoke(link.id)}
-                  className="flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
-                >
-                  <LinkBreak className="w-3 h-3" />
-                  解除
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
+  return (
+    <ConnectionFlowSection
+      kind="self"
+      state={state}
+      error={errorNode}
+      summary={summary}
+      qr={qr}
+      action={action}
+      detail={detail}
+    />
   )
 }
