@@ -28,7 +28,7 @@ export const teamsAdapter: OutboundAdapter = async (ctx) => {
 
   return postWebhookUrl({
     url,
-    allowedHostSuffixes: ['webhook.office.com', 'logic.azure.com', 'azure.com'],
+    allowedHostSuffixes: ['webhook.office.com', 'logic.azure.com'],
     payload,
     label: 'teams',
   })
