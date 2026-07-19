@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, waitFor, act } from '@testing-library/react'
 import { useQueryClient, dehydrate, QueryClient as RQQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { PersistedClient } from '@tanstack/react-query-persist-client'
-import { QueryProvider } from '@/components/providers/QueryProvider'
+import { QueryProvider, PERSIST_BUSTER } from '@/components/providers/QueryProvider'
 
 type AuthEvent = 'SIGNED_OUT' | 'SIGNED_IN' | 'INITIAL_SESSION' | 'TOKEN_REFRESHED'
 type Session = { user: { id: string; email?: string } } | null
@@ -40,15 +40,21 @@ const LEGACY_KEY = 'taskapp-query-cache'
 const scopedKey = (uid: string) => `${LEGACY_KEY}:${uid}`
 
 /** Build a realistic PersistedClient payload using the real `dehydrate()`,
- *  instead of hand-rolling the internal dehydrated-query shape. */
-function buildPersistedClient(entries: Array<{ queryKey: unknown[]; data: unknown }>): PersistedClient {
+ *  instead of hand-rolling the internal dehydrated-query shape.
+ *  Stamps the current PERSIST_BUSTER by default so restore tests still
+ *  hydrate; pass a stale buster to simulate a cache written by an older
+ *  build (which must be discarded on restore). */
+function buildPersistedClient(
+  entries: Array<{ queryKey: unknown[]; data: unknown }>,
+  buster: string = PERSIST_BUSTER,
+): PersistedClient {
   const qc = new RQQueryClient()
   for (const entry of entries) {
     qc.setQueryData(entry.queryKey, entry.data)
   }
   return {
     timestamp: Date.now(),
-    buster: '',
+    buster,
     clientState: dehydrate(qc),
   }
 }
@@ -251,6 +257,70 @@ describe('QueryProvider', () => {
     await waitFor(() => {
       expect(getByTestId('user').textContent).toBe('null')
     })
+  })
+
+  // --- cache-buster: stale-shape persisted cache is discarded, not hydrated -
+  // Regression for the production crash where a query changed persisted data
+  // shape (channelMessages: ChannelMessageRow[] via useQuery → InfiniteData
+  // via useInfiniteQuery) while keeping the same queryKey. Returning users'
+  // old array-shaped entry hydrated into the InfiniteQueryObserver and threw
+  // `Cannot read properties of undefined (reading 'length')`. A buster bump
+  // must drop the whole stale blob so no incompatible shape is ever restored.
+  it('discards a persisted cache written under a stale buster (does not hydrate old-shape entries)', async () => {
+    // Old build's cache: array-shaped channelMessages (the pre-infinite shape)
+    // stamped with a buster that no longer matches the current one.
+    const staleData = buildPersistedClient(
+      [{ queryKey: ['channelMessages', 'org-1', 'space-1'], data: [{ id: 'm1' }, { id: 'm2' }] }],
+      'stale-old-buster',
+    )
+    idbGet.mockImplementation(async (key: string) => {
+      if (key === scopedKey('user-A')) return staleData
+      return undefined
+    })
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+    renderProvider()
+
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+    await waitFor(() => {
+      expect(capturedClient!.getQueryData(['currentUser'])).not.toBe(undefined)
+    })
+
+    // The stale entry must NOT be present in the cache (whole blob discarded).
+    expect(capturedClient!.getQueryData(['channelMessages', 'org-1', 'space-1'])).toBe(undefined)
+    // And the stale user-scoped blob is removed from IDB on buster mismatch.
+    await waitFor(() => {
+      expect(idbDel).toHaveBeenCalledWith(scopedKey('user-A'))
+    })
+  })
+
+  it('still restores a persisted cache stamped with the current buster', async () => {
+    // Same key, but written by the current build (matching buster) → restored.
+    const freshData = buildPersistedClient([
+      { queryKey: ['userSpaces', 'user-A', false], data: [{ id: 'space-A-1' }] },
+    ]) // defaults to PERSIST_BUSTER
+    idbGet.mockImplementation(async (key: string) => {
+      if (key === scopedKey('user-A')) return freshData
+      return undefined
+    })
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+    renderProvider()
+
+    await waitFor(() => {
+      expect(capturedClient!.getQueryData(['userSpaces', 'user-A', false])).toEqual([
+        { id: 'space-A-1' },
+      ])
+    })
+  })
+
+  it('PERSIST_BUSTER is a stable non-empty constant (not a build hash)', () => {
+    // A build-hash buster would wipe every user's cache on every deploy,
+    // defeating persistence. It must be a hand-bumped constant.
+    expect(typeof PERSIST_BUSTER).toBe('string')
+    expect(PERSIST_BUSTER.length).toBeGreaterThan(0)
   })
 
   it('updates currentUser query data on SIGNED_IN / TOKEN_REFRESHED', async () => {

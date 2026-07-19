@@ -11,6 +11,26 @@ import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 
 const IDB_KEY_PREFIX = 'taskapp-query-cache'
 
+/**
+ * Persisted-cache version. When this string changes, PersistQueryClientProvider
+ * discards the entire persisted blob on the next load (per user-scoped key) and
+ * starts fresh — a one-time cold start, self-healing, no data-correctness impact.
+ *
+ * ⚠️ 規約（この定数を触るときのルール・厳守）:
+ * - **ビルドハッシュにしない**。デプロイ毎に全ユーザーのキャッシュが飛び、永続化の意味が消える。
+ *   必ず手動の定数（日付＋理由）にする。
+ * - 永続対象クエリの**データ形状**を変えるときの使い分け:
+ *   - 単一クエリの形状変更 → その queryKey に版数を入れる（例 `['channelMessages','v2',…]`）。
+ *     他クエリのウォームキャッシュを温存できるので**既定はこちら**。
+ *   - 複数クエリに波及／影響範囲が不確実 → この buster をバンプして全体を一掃する。
+ *
+ * 由来: useQuery<ChannelMessageRow[]>（data=配列）→ useInfiniteQuery（data=InfiniteData）へ
+ * 変えたのに queryKey を据え置いたため、再訪ユーザーの永続キャッシュ（旧・配列形状）が
+ * InfiniteQueryObserver にハイドレートされ `undefined.length` でクラッシュした。複数の併走
+ * マージが本番に相乗りしていたため、単一キー版数化ではなく buster 一掃で全パターンを回収する。
+ */
+export const PERSIST_BUSTER = '2026-07-20-infinite-timeline'
+
 // Legacy key used by a short-lived "single fixed key" design. That design
 // caused a cross-tenant data leak: user A closes the tab without signing
 // out, user B signs in on the same browser, and `restoreClient` (which ran
@@ -171,6 +191,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       persistOptions={{
         persister,
         maxAge: 1000 * 60 * 60 * 24, // 24 hours
+        buster: PERSIST_BUSTER, // bump to discard stale-shape persisted caches (see constant above)
         dehydrateOptions: { shouldDehydrateQuery },
       }}
     >
