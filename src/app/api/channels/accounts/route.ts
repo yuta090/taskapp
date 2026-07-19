@@ -3,10 +3,14 @@ import { requireInternalMember, requireOrgAdmin } from '@/lib/channels/authz'
 import {
   findChannelAccountMetaForOrg,
   findChannelAccountOrgId,
+  findChannelAccountOwnerType,
   updateChannelAccountStatus,
   type ChannelAccountMeta,
 } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
+import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -51,6 +55,13 @@ export async function GET(request: NextRequest) {
  *
  * accountIdの実所属org(サーバ側でservice roleにより解決)に対して権限確認する。
  * リクエストボディのorgIdは受け取らない(クライアント申告のorg境界を信用しない)。
+ *
+ * 課金ゲート（own_line_account・確立/有効化のみ）: 専用bot(owner_type='org')を
+ * status='active' にする操作（新規登録の完了 or 無効化からの再有効化）は Pro 以上限定。
+ * Free org は 402 own_line_account_required で拒否する。status='disabled'（無効化）は
+ * プラン不問で常に許可する — 既存の専用bot接続を失効orgから強制的に切ることはしない
+ * （このAPIはユーザー自身の無効化操作のみを扱い、こちらから切ることはない）。
+ * 共有bot(owner_type='platform')の有効/無効はこのゲートの対象外。
  */
 export async function PATCH(request: NextRequest) {
   let body: { accountId?: unknown; status?: unknown }
@@ -78,6 +89,24 @@ export async function PATCH(request: NextRequest) {
   const auth = await requireOrgAdmin(orgId)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  if (status === 'active') {
+    const ownerType = await findChannelAccountOwnerType(accountId)
+    if (ownerType === 'org') {
+      const admin = createAdminClient() as SupabaseClient
+      const ent = await resolveOrgEntitlements(admin, orgId)
+      if (!ent.has('own_line_account')) {
+        return NextResponse.json(
+          {
+            error: 'own_line_account_required',
+            code: 'own_line_account_required',
+            message: 'Proプランで自社LINE(専用bot)を有効化できます。',
+          },
+          { status: 402 },
+        )
+      }
+    }
   }
 
   const updated = await updateChannelAccountStatus(accountId, status)

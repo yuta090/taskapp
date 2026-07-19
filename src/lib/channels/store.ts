@@ -269,6 +269,24 @@ export async function findChannelAccountOrgId(accountId: string): Promise<string
   return data.org_id as string
 }
 
+/**
+ * PATCH /api/channels/accounts の課金ゲート用: 対象accountの owner_type を引く。
+ * 専用bot(owner_type='org')の再有効化(status→'active')にのみ own_line_account を要求するため、
+ * 共有bot(owner_type='platform')の有効化を誤ってゲートしないよう区別する。
+ */
+export async function findChannelAccountOwnerType(
+  accountId: string,
+): Promise<'org' | 'platform' | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('owner_type')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data.owner_type === 'platform' ? 'platform' : 'org'
+}
+
 export async function updateChannelAccountStatus(
   accountId: string,
   status: 'active' | 'disabled',
