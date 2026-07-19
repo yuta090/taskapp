@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GroupLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/groups/GroupLinksClient'
 
 /**
@@ -30,6 +31,20 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const fetchMock = vi.fn()
+
+/**
+ * 承認/却下後の invalidateQueries(['channelGroups','channelGroupCounts']) 検証のため
+ * QueryClientProvider で包む(実アプリはroot layoutのQueryProviderが供給する)。
+ */
+function renderPanel(orgId: string = ORG) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const utils = render(
+    <QueryClientProvider client={queryClient}>
+      <GroupLinksClient orgId={orgId} />
+    </QueryClientProvider>,
+  )
+  return { queryClient, ...utils }
+}
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
@@ -83,7 +98,7 @@ function mockApis({
 describe('GroupLinksClient', () => {
   it('プロジェクト選択肢は自org分のみ（他orgのspaceは出さない）', async () => {
     mockApis({})
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => screen.getByText('コードを発行'))
     expect(screen.getByText('山田商事')).toBeInTheDocument()
@@ -92,7 +107,7 @@ describe('GroupLinksClient', () => {
 
   it('プロジェクトを選んで発行すると、コードが1回だけ表示されコピーできる', async () => {
     mockApis({})
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => screen.getByText('コードを発行'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
@@ -110,7 +125,7 @@ describe('GroupLinksClient', () => {
 
   it('発行失敗時はエラーメッセージを表示する', async () => {
     mockApis({ issueResponse: { ok: false, body: { error: '共有botが未設定です' } } })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => screen.getByText('コードを発行'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
@@ -133,7 +148,7 @@ describe('GroupLinksClient', () => {
         },
       },
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => screen.getByText('コードを発行'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
@@ -150,7 +165,7 @@ describe('GroupLinksClient', () => {
 
   it('確認待ちが無ければ空状態を表示する', async () => {
     mockApis({ pendingItems: [] })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => {
       expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
@@ -171,7 +186,7 @@ describe('GroupLinksClient', () => {
         },
       ],
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => {
       expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
@@ -190,6 +205,32 @@ describe('GroupLinksClient', () => {
     expect(body).toEqual({ orgId: ORG, claimId: 'claim-1', action: 'approve' })
   })
 
+  it('承認成功後は channelGroups と channelGroupCounts を invalidate する（承認はchannel_groupsを作るため）', async () => {
+    mockApis({
+      pendingItems: [
+        {
+          id: 'claim-1',
+          externalGroupId: 'G-1',
+          spaceId: 'space-1',
+          spaceName: '山田商事',
+          challengeLabel: 'AB12',
+          groupDisplayNameSnapshot: 'ある会社の相談グループ',
+          createdAt: '2026-07-16T00:00:00Z',
+        },
+      ],
+    })
+    const { queryClient } = renderPanel()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await waitFor(() => screen.getByText('ある会社の相談グループ'))
+    fireEvent.click(screen.getByText('承認'))
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['channelGroups', ORG] })
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['channelGroupCounts', ORG] })
+  })
+
   it('却下すると楽観的にリストから消える', async () => {
     mockApis({
       pendingItems: [
@@ -204,7 +245,7 @@ describe('GroupLinksClient', () => {
         },
       ],
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => screen.getByText('ある会社の相談グループ'))
     fireEvent.click(screen.getByText('却下'))
@@ -216,6 +257,32 @@ describe('GroupLinksClient', () => {
     const approvalCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/api/channels/group-claims/approval'))
     const body = JSON.parse((approvalCall![1] as RequestInit).body as string)
     expect(body.action).toBe('reject')
+  })
+
+  it('却下は channel_groups を作らないため invalidateQueries を呼ばない', async () => {
+    mockApis({
+      pendingItems: [
+        {
+          id: 'claim-1',
+          externalGroupId: 'G-1',
+          spaceId: 'space-1',
+          spaceName: '山田商事',
+          challengeLabel: 'AB12',
+          groupDisplayNameSnapshot: 'ある会社の相談グループ',
+          createdAt: '2026-07-16T00:00:00Z',
+        },
+      ],
+    })
+    const { queryClient } = renderPanel()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await waitFor(() => screen.getByText('ある会社の相談グループ'))
+    fireEvent.click(screen.getByText('却下'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+    })
+    expect(invalidateSpy).not.toHaveBeenCalled()
   })
 
   it('承認時に相手先グループ数の上限(402 group_limit_reached)を踏むと行内にProアップセル文言を出す', async () => {
@@ -241,7 +308,7 @@ describe('GroupLinksClient', () => {
         },
       },
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
 
     await waitFor(() => screen.getByText('ある会社の相談グループ'))
     fireEvent.click(screen.getByText('承認'))
@@ -295,7 +362,7 @@ describe('GroupLinksClient', () => {
       return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
     })
 
-    render(<GroupLinksClient orgId={ORG} />)
+    renderPanel()
     await waitFor(() => screen.getByText('ある会社の相談グループ'))
     fireEvent.click(screen.getByText('承認'))
 
@@ -308,7 +375,7 @@ describe('GroupLinksClient', () => {
   describe('本部一括発行（code_only・entitlementがある時だけ表示）', () => {
     it('entitlement無し(allowCodeOnly=false)の場合はセクションを表示しない', async () => {
       mockApis({ policyResponse: { ok: true, body: { allowCodeOnly: false } } })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderPanel()
 
       await waitFor(() => screen.getByText('コードを発行'))
       expect(screen.queryByText('本部一括発行')).not.toBeInTheDocument()
@@ -316,7 +383,7 @@ describe('GroupLinksClient', () => {
 
     it('entitlementあり(allowCodeOnly=true)の場合はセクションを表示する', async () => {
       mockApis({ policyResponse: { ok: true, body: { allowCodeOnly: true } } })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderPanel()
 
       await waitFor(() => {
         expect(screen.getByText('本部一括発行')).toBeInTheDocument()
@@ -338,7 +405,7 @@ describe('GroupLinksClient', () => {
           },
         },
       })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderPanel()
 
       await waitFor(() => screen.getByText('本部一括発行'))
       fireEvent.click(screen.getByLabelText('山田商事'))
@@ -359,7 +426,7 @@ describe('GroupLinksClient', () => {
         policyResponse: { ok: true, body: { allowCodeOnly: true } },
         issueBatchResponse: { ok: false, body: { error: 'このorgはcode_only発行が許可されていません' } },
       })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderPanel()
 
       await waitFor(() => screen.getByText('本部一括発行'))
       fireEvent.click(screen.getByLabelText('山田商事'))

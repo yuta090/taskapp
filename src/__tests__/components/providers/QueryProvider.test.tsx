@@ -323,6 +323,16 @@ describe('QueryProvider', () => {
     expect(PERSIST_BUSTER.length).toBeGreaterThan(0)
   })
 
+  // --- freshness tiers: フォーカス起因の一斉refetchはちらつき・負荷源のため無効化 ---
+  it('disables refetchOnWindowFocus in the default query options (freshness-tiers)', async () => {
+    renderProvider()
+
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+    expect(capturedClient!.getDefaultOptions().queries?.refetchOnWindowFocus).toBe(false)
+  })
+
   it('updates currentUser query data on SIGNED_IN / TOKEN_REFRESHED', async () => {
     mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
     const { getByTestId } = renderProvider()

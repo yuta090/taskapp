@@ -16,7 +16,17 @@ export interface ChannelGroupOption {
   externalGroupId: string
 }
 
-export function useChannelGroups(orgId: string) {
+interface UseChannelGroupsOptions {
+  /**
+   * true の間だけ 15秒間隔でポーリングする(WAITINGティア)。グループ承認待ちを表示する
+   * 「接続待ち」画面でのみ有効化する。既定は false = ポーリングなし・STRUCTUREティアの
+   * 5分SWRのまま。
+   */
+  polling?: boolean
+}
+
+export function useChannelGroups(orgId: string, options?: UseChannelGroupsOptions) {
+  const polling = options?.polling ?? false
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current as SupabaseClient
@@ -43,7 +53,11 @@ export function useChannelGroups(orgId: string) {
       )
     },
     enabled: !!orgId,
-    staleTime: 30_000,
+    // STRUCTUREティア(設定・接続構成): 実質固定だがwebhook起点の変化を陳腐化させないため
+    // Infinityにはせず、mount時のサイレントSWR(背景refetch)は効かせる(freshness tiers)。
+    staleTime: 5 * 60_000,
+    // WAITINGティア: 接続待ち画面がマウント中のみ15秒間隔でポーリングする。
+    ...(polling ? { refetchInterval: 15_000 } : {}),
   })
 
   return {
