@@ -83,7 +83,7 @@
 </div>
 
 <div class="callout">
-  <strong>アプリ内で登録できます（LINE以外）</strong> — 秘書コンソールの「つなぐ」→各チャネルのセットアップ画面に<strong>資格情報の登録フォーム</strong>があります。ここで発行した値を貼り付けて保存すると <code>channel_accounts</code> に暗号化保存されます（作成／再登録＝ローテート）。<strong>自社アカウント（白ラベル）接続は Pro プラン限定</strong>です。<strong>サーバーが自動生成する値</strong>（Telegram の <code>webhook_secret</code>／WhatsApp の <code>verify_token</code>）は、登録直後に画面で一度だけ表示するので、その表示値をプロバイダ側（Telegram は <code>setWebhook</code> の <code>secret_token</code>、WhatsApp は App Dashboard の「確認トークン」）に設定してください（＝自分で作らず表示値を使う）。<strong>受信Webhook（会話取り込み）に対応するチャネル</strong>は Telegram・Chatwork・WhatsApp で、いずれも <code>…/webhook/{accountId}</code> の account 単位URLで受け、各チャネルの秘密（Telegram=secret_token／Chatwork=webhook_token／WhatsApp=app_secret）で署名検証します。LINE は <code>line_bot_user_id</code> の逆引き等があるため専用フローを使います。
+  <strong>アプリ内で登録できます（LINE以外）</strong> — 秘書コンソールの「つなぐ」→各チャネルのセットアップ画面に<strong>資格情報の登録フォーム</strong>があります。ここで発行した値を貼り付けて保存すると <code>channel_accounts</code> に暗号化保存されます（作成／再登録＝ローテート）。<strong>自社アカウント（白ラベル）接続は Pro プラン限定</strong>です。<strong>サーバーが自動生成する値</strong>（Telegram の <code>webhook_secret</code>／WhatsApp の <code>verify_token</code>）は、登録直後に画面で一度だけ表示するので、その表示値をプロバイダ側（Telegram は <code>setWebhook</code> の <code>secret_token</code>、WhatsApp は App Dashboard の「確認トークン」）に設定してください（＝自分で作らず表示値を使う）。<strong>受信Webhook（会話取り込み）に対応するチャネル</strong>は Telegram・Chatwork・WhatsApp・Slack で、いずれも <code>…/webhook/{accountId}</code> の account 単位URLで受け、各チャネルの秘密（Telegram=secret_token／Chatwork=webhook_token／WhatsApp=app_secret／Slack=signing_secret）で署名検証します。LINE は <code>line_bot_user_id</code> の逆引き等があるため専用フローを使います。
 </div>
 
 <h2>目次</h2>
@@ -150,9 +150,10 @@
     <li>「OAuth &amp; Permissions」で Bot Token Scopes に <code>chat:write</code>・<code>channels:read</code>・<code>groups:read</code> を追加。</li>
     <li>ワークスペースにインストールし <strong>Bot User OAuth Token（xoxb-…）</strong>を取得。</li>
     <li>「Basic Information」→ App Credentials の <strong>Signing Secret</strong> を控える。</li>
-    <li>受信を使う場合は「Event Subscriptions」で Request URL に <code>{公開URL}/api/slack/webhook</code> を登録。</li>
+    <li>受信（会話取り込み）を使う場合は「Event Subscriptions」で Request URL に <code>{公開URL}/api/channels/slack/webhook/{accountId}</code>（accountId＝登録済み channel_accounts のID）を登録し、Subscribe to bot events に <code>message.channels</code>（必要に応じ <code>message.groups</code>/<code>message.im</code>）を追加。署名は登録済みの <code>signing_secret</code> で検証する（v0＋5分リプレイ窓）。</li>
     <li>秘書に投稿させたい各チャンネルで <code>/invite @アプリ名</code>（未参加だと <code>not_in_channel</code>）。</li>
   </ol>
+  <p class="diff">この account 単位URLは自社Slackアプリ（白ラベル）用の系統で、旧 <code>/api/slack/webhook</code>（AI秘書メンション応答）とは別。</p>
   <table>
     <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>
     <tr><td>Bot User OAuth Token（xoxb-）</td><td class="paste"><code>bot_token</code></td><td class="tag-secret">機密</td></tr>

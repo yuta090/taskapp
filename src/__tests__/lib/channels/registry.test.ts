@@ -76,8 +76,8 @@ describe('channel registry', () => {
     }
   })
 
-  it('account単位で受ける受信チャネル(telegram/chatwork/whatsapp)は{accountId}を含むパス', () => {
-    for (const id of ['telegram', 'chatwork', 'whatsapp'] as const) {
+  it('account単位で受ける受信チャネル(telegram/chatwork/whatsapp/slack)は{accountId}を含むパス', () => {
+    for (const id of ['telegram', 'chatwork', 'whatsapp', 'slack'] as const) {
       expect(CHANNELS[id].inbound).toBe(true)
       expect(CHANNELS[id].webhookPath).toContain('{accountId}')
     }

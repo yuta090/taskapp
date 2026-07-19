@@ -128,15 +128,16 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     inbound: true,
     group: true,
     directMessage: true,
-    webhookPath: '/api/slack/webhook',
+    webhookPath: '/api/channels/slack/webhook/{accountId}',
     signatureScheme: 'hmac-sha256',
     targetHint: 'チャンネルID（Cで始まる）またはユーザーID（U/Wで始まる）',
     credentialFields: [
       { key: 'bot_token', label: 'Bot User OAuth Token (xoxb-)', secret: true, help: 'chat.postMessage 送信に使用' },
-      { key: 'signing_secret', label: 'Signing Secret', secret: true, help: 'Events APIの署名検証に使用' },
+      { key: 'signing_secret', label: 'Signing Secret', secret: true, help: 'Events APIの v0 署名検証に使用' },
     ],
     setupUrl: 'https://api.slack.com/apps',
-    notes: '既存のSlack連携(slack_workspaces)と統合予定。scopes: chat:write, channels:read, groups:read。',
+    notes:
+      '自社Slackアプリ（白ラベル）を account 単位URLで接続。受信はEvents API（v0署名+5分リプレイ窓）、message のテキストを取り込む。旧統合 /api/slack/webhook（slack_workspaces）とは別系統。scopes: chat:write, channels:read, groups:read, event: message.channels 等。',
   },
   chatwork: {
     id: 'chatwork',

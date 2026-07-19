@@ -251,8 +251,10 @@ describe('POST /api/channels/accounts — 登録成功', () => {
     expect(res.status).toBe(201)
     expect(json.generatedSecrets).toEqual({})
     expect(storeMock.generateChannelWebhookSecret).not.toHaveBeenCalled()
-    // slack の webhookPath は {accountId} を含まないのでそのまま解決
-    expect(json.webhookUrl).toBe('http://localhost:3000/api/slack/webhook')
+    // slack も account単位の受信URL（{accountId} が実IDへ解決される）
+    expect(json.webhookUrl).toBe(
+      `http://localhost:3000/api/channels/slack/webhook/${ACCOUNT_ID}`,
+    )
   })
 
   it('既存アカウントのローテートは created=false・200', async () => {
