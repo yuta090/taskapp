@@ -41,6 +41,7 @@ import {
   claimApprovalNotification,
   clearApprovalNotifiedAt,
   getOrgChannelPolicyState,
+  getPlatformBudgetState,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -79,7 +80,8 @@ import {
 import { parseJapaneseDue } from '@/lib/channels/digest/due'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 
@@ -1304,13 +1306,17 @@ async function handleMentionInstantTask(
       if (!created.duplicate && created.id) {
         const taskId = created.id
         try {
-          // 送信境界の縮退判定（PR4メータリング）。claimより前に判定し、抑止なら
+          // 送信境界の縮退判定。claimより前に判定し、抑止なら
           // claimもpushも一切行わない（候補はpendingのまま残り、cron／コンソールが拾う）。
           // cron版(approval-notify)と同じ判定を即時1:1送信にも適用する（非対称の解消）。
+          // org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定（fable確定設計）。
+          // 専用bot(owner_type='org')は顧客側の枠であり当社の持ち出しではないため常に'ok'扱い。
           const policy = await getOrgChannelPolicyState(group.orgId)
-          const decision = decideAutoPush({
-            state: policy.state,
-            onExceed: policy.onExceed,
+          const globalState =
+            account.ownerType === 'platform' ? await getPlatformBudgetState(account.id) : 'ok'
+          const decision = decideSharedSendBudget({
+            org: { state: policy.state, onExceed: policy.onExceed },
+            global: { state: globalState },
             jstDayOfYear: getJstDayOfYear(),
           })
 

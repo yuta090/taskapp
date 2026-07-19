@@ -1339,6 +1339,38 @@ export async function getOrgChannelPolicyState(orgId: string): Promise<OrgChanne
 }
 
 // ---------------------------------------------------------------------------
+// platform_channel_budget（共有bot共通LINEのグローバル予算層読取・fable確定設計）
+// ---------------------------------------------------------------------------
+
+export type PlatformBudgetState = 'ok' | 'soft' | 'hard'
+
+/**
+ * 送信境界（decideSharedSendBudget のglobal層）が読む account 単位の縮退状態。
+ * owner_type='platform'（共有bot）のaccountにのみ意味を持つ。owner_type='org'（専用bot）は
+ * 呼出側がそもそも本関数を呼ばない（常に 'ok' 扱い＝顧客側の枠であり当社の持ち出しではない）。
+ *
+ * getOrgChannelPolicyState（org層）とはfail方向が異なる:
+ *   - 行の無い account（cronの自動プロビジョニングが未到達）は暗黙 'ok'。
+ *   - DBエラーは例外を投げず fail-closed で 'hard' を返す。グローバル予算は当社が守るべき
+ *     LINEアカウントの実物理上限であり、読めない時は緩めるより止める側に倒す。
+ */
+export async function getPlatformBudgetState(accountId: string): Promise<PlatformBudgetState> {
+  const { data, error } = await admin()
+    .from('platform_channel_budget')
+    .select('state')
+    .eq('account_id', accountId)
+    .maybeSingle()
+  if (error) {
+    console.error('platform_channel_budget: select failed (fail-closed to hard)', accountId, error)
+    return 'hard'
+  }
+  if (!data) return 'ok'
+
+  const row = data as { state: string }
+  return row.state === 'soft' || row.state === 'hard' ? row.state : 'ok'
+}
+
+// ---------------------------------------------------------------------------
 // channel_messages
 // ---------------------------------------------------------------------------
 

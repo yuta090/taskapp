@@ -18,6 +18,7 @@ const storeMock = {
   findIdentityIdsByExternalUserIds: vi.fn(),
   reconcileDigestAssignees: vi.fn(),
   getOrgChannelPolicyState: vi.fn(),
+  getPlatformBudgetState: vi.fn(),
   insertChannelMessage: vi.fn(),
   findExistingDigestTaskSourceMessageIds: vi.fn(),
 }
@@ -56,10 +57,22 @@ const GROUP = {
 
 const ACCOUNT = {
   id: 'acc-1',
+  ownerType: 'org' as const,
   orgId: 'org-1',
   displayName: '山田飲食店',
   channelSecret: 's',
   accessToken: 'token-1',
+  status: 'active' as const,
+}
+
+// 共有bot（owner_type='platform'）。グローバル予算層(account軸)のgateが効く対象
+const PLATFORM_ACCOUNT = {
+  id: 'acc-shared-1',
+  ownerType: 'platform' as const,
+  orgId: null as string | null,
+  displayName: 'agentpm秘書',
+  channelSecret: 's',
+  accessToken: 'token-shared',
   status: 'active' as const,
 }
 
@@ -74,6 +87,7 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
     storeMock.reconcileDigestAssignees.mockResolvedValue(0)
     storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+    storeMock.getPlatformBudgetState.mockResolvedValue('ok')
     storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
     storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set())
     pushMock.mockResolvedValue(undefined)
@@ -583,6 +597,66 @@ describe('POST /api/cron/channel-digest', () => {
       expect(response.status).toBe(200)
       expect(body.digestsSent).toBe(1)
       expect(body.errors).toEqual([])
+    })
+  })
+
+  describe('グローバル予算層（共有bot account軸の二層quota判定・fable確定設計）', () => {
+    beforeEach(() => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+        { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+      ])
+    })
+
+    it('共有bot(platform)account かつ org層ok・global層hard → 抑止する', async () => {
+      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('hard')
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(0)
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(storeMock.getPlatformBudgetState).toHaveBeenCalledWith('acc-shared-1')
+      expect(body.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ groupId: 'group-1', reason: 'global_budget_hard_suppress' }),
+        ]),
+      )
+    })
+
+    it('専用bot(owner_type=org)account は global層を評価しない（getPlatformBudgetStateを呼ばず常送信）', async () => {
+      storeMock.findLineAccountById.mockResolvedValue(ACCOUNT) // ownerType='org'
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('hard') // 呼ばれれば抑止されるはずの値
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(storeMock.getPlatformBudgetState).not.toHaveBeenCalled()
+    })
+
+    it('同一account(共有bot)を複数グループが引くcron1回内では、グローバル予算層の読取をaccount単位でメモ化する', async () => {
+      const group2 = { ...GROUP, id: 'group-2', externalGroupId: 'G-2' }
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP, group2])
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+        { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+      ])
+      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('ok')
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(2)
+      expect(storeMock.getPlatformBudgetState).toHaveBeenCalledTimes(1)
     })
   })
 })
