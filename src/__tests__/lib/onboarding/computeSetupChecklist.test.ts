@@ -101,7 +101,7 @@ describe('computeSetupChecklist', () => {
       const step = result.steps.find((s) => s.key === 'connect_line')!
       expect(step.done).toBe(false)
       expect(step.pending).not.toBe(true)
-      expect(step.href).toBe(`/${ORG_ID}/secretary/user-links`)
+      expect(step.href).toBe(`/${ORG_ID}/secretary/connect/line`)
       expect(step.ctaLabel).not.toBeNull()
     })
 

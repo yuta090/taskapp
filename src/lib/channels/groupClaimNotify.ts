@@ -52,7 +52,7 @@ export async function notifyCodeOnlyGroupLinked(
     payload: {
       title: '共有botグループが紐付きました',
       message: `グループ「${groupLabel}」が「${spaceName}」に紐付きました（招待コードによる自動成立）。`,
-      link: `/${orgId}/secretary/group-links`,
+      link: `/${orgId}/secretary/connect/line/groups`,
     },
   }))
 

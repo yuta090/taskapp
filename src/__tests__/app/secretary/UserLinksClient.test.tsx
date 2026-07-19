@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/user-links/UserLinksClient'
+import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/UserLinksClient'
 
 /**
  * UserLinksClient — LINE連携ハブ（1画面3カード）。
@@ -56,16 +56,16 @@ describe('UserLinksClient (連携ハブ)', () => {
     expect(screen.getByText(/グループをつなぐ/)).toBeInTheDocument()
   })
 
-  it('SecretaryTabNavは1つだけ描画される(二重nav禁止)', () => {
+  it('タブ・チャネルレールはlayoutが持つため、Client自身はタブを描画しない(二重nav禁止)', () => {
     render(<UserLinksClient orgId={ORG} />)
 
-    expect(screen.getAllByTestId('secretary-tab-user-links')).toHaveLength(1)
+    expect(screen.queryByTestId('secretary-tab-connect')).not.toBeInTheDocument()
   })
 
-  it('グループカードのCTAはgroup-linksページへリンクする', () => {
+  it('グループカードのCTAは connect/line/groups ページへリンクする', () => {
     render(<UserLinksClient orgId={ORG} />)
 
     const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
-    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/group-links`)
+    expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)
   })
 })

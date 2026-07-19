@@ -141,7 +141,7 @@ export function computeSetupChecklist(
 /**
  * LINE連携ステップを3状態で組み立てる:
  * - 未準備(lineAccountReady=false): 準備中。ユーザーは完了できないので pending・CTAなし。
- * - 準備済み・未連携: 秘書コンソール(user-links)へ誘導。QRで友だち追加→コード送信で完了する旨を説明。
+ * - 準備済み・未連携: 秘書コンソール(connect/line)へ誘導。QRで友だち追加→コード送信で完了する旨を説明。
  * - 連携済み: done。
  */
 function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChecklistStep {
@@ -175,7 +175,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     description:
       'QRで友だち追加し、表示されるコードをトークに送ると連携完了です（追加だけでは連携されません）。',
     done: false,
-    href: `/${orgId}/secretary/user-links`,
+    href: `/${orgId}/secretary/connect/line`,
     ctaLabel: 'LINEを連携',
   }
 }

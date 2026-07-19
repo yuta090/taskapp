@@ -9,7 +9,7 @@ import { LineFriendQr } from '@/components/secretary/LineFriendQr'
  *
  * グループ紐付けは一括発行・承認待ちなど複雑なため、ハブ内では完全再現せず
  * 友だち追加QR＋手順の案内だけを出し、実際のコード発行/承認は既存の
- * group-links ページ（GroupLinksClient）へ誘導する（バックエンド・APIは一切変えない）。
+ * connect/line/groups ページ（GroupLinksClient）へ誘導する（バックエンド・APIは一切変えない）。
  */
 export function GroupLinkPanel({ orgId }: { orgId: string }) {
   return (
@@ -19,7 +19,7 @@ export function GroupLinkPanel({ orgId }: { orgId: string }) {
       <LineFriendQr orgId={orgId} purpose="group" />
 
       <Link
-        href={`/${orgId}/secretary/group-links`}
+        href={`/${orgId}/secretary/connect/line/groups`}
         className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
       >
         グループ紐付けを管理する

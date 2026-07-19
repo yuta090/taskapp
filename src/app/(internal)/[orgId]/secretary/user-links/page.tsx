@@ -1,17 +1,14 @@
-import { Suspense } from 'react'
-import { UserLinksClient } from './UserLinksClient'
+import { redirect } from 'next/navigation'
 
 interface Props {
-  params: Promise<{
-    orgId: string
-  }>
+  params: Promise<{ orgId: string }>
 }
 
-export default async function SecretaryUserLinksPage({ params }: Props) {
+/**
+ * 旧URL /{orgId}/secretary/user-links → /{orgId}/secretary/connect/line への恒久リダイレクト。
+ * メール/オンボーディングに旧URLが流通済みのため、ルート移設後もこのリダイレクトは残す。
+ */
+export default async function LegacyUserLinksPage({ params }: Props) {
   const { orgId } = await params
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <UserLinksClient orgId={orgId} />
-    </Suspense>
-  )
+  redirect(`/${orgId}/secretary/connect/line`)
 }
