@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { BillingUsageCard, InvoiceHistory } from '@/components/billing'
+import { BillingUsageCard, InvoiceHistory, PlanFeatureTable } from '@/components/billing'
 import { useStripeStatus } from '@/lib/hooks/useStripeStatus'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
@@ -119,6 +119,9 @@ export default function BillingSettingsPage() {
 
         {/* Usage Card */}
         <BillingUsageCard orgId={orgId ?? undefined} showWarnings={true} />
+
+        {/* プラン別の機能一覧（②③の可否） */}
+        <PlanFeatureTable orgId={orgId ?? undefined} />
 
         {/* Upgrade Card */}
         <div className={`rounded-lg p-6 text-white ${
