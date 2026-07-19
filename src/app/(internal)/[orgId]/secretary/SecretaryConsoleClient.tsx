@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/shared'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { useChannelAccount } from '@/lib/hooks/useChannelAccount'
 import { useChannelIdentities } from '@/lib/hooks/useChannelIdentities'
+import { useChannelGroupCounts } from '@/lib/hooks/useChannelGroupCounts'
 import { BotStatusHeader } from '@/components/secretary/BotStatusHeader'
 import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { SpaceConnectionList } from '@/components/secretary/SpaceConnectionList'
@@ -23,7 +24,8 @@ interface SecretaryConsoleClientProps {
 export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
   const { account, sharedBotInUse, viewerRole, isLoading: accountLoading, setStatus } = useChannelAccount(orgId)
   const { spaces: allSpaces } = useUserSpaces()
-  const { counts } = useChannelIdentities(orgId)
+  const { counts: identityCounts } = useChannelIdentities(orgId)
+  const { counts: groupCounts } = useChannelGroupCounts(orgId)
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
 
   const spaces = useMemo(
@@ -31,10 +33,20 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
     [allSpaces, orgId],
   )
 
+  // 「連携済み」= 1:1DM(identity) だけでなくグループ接続でも成立させる。
+  // Freeは相手先をグループ単位で繋ぐため、identityが無くてもグループがあれば送信できる。
+  const connectionCounts = useMemo(() => {
+    const merged: Record<string, number> = { ...identityCounts }
+    for (const [spaceId, n] of Object.entries(groupCounts)) {
+      merged[spaceId] = (merged[spaceId] ?? 0) + n
+    }
+    return merged
+  }, [identityCounts, groupCounts])
+
   // 未選択時は先頭のspaceを既定にする(LeftNavのeffectiveSpaceIdと同じ考え方)
   const effectiveSpaceId = selectedSpaceId ?? spaces[0]?.id ?? null
   const selectedSpace = spaces.find((s) => s.id === effectiveSpaceId) ?? null
-  const isLinked = (counts[selectedSpace?.id ?? ''] ?? 0) > 0
+  const isLinked = (connectionCounts[selectedSpace?.id ?? ''] ?? 0) > 0
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -58,7 +70,7 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
             <SpaceConnectionList
               orgId={orgId}
               spaces={spaces}
-              identityCounts={counts}
+              connectionCounts={connectionCounts}
               selectedSpaceId={effectiveSpaceId}
               onSelect={setSelectedSpaceId}
             />

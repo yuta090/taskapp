@@ -27,6 +27,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const storeMock = {
   findActiveIdentityForSpace: vi.fn(),
+  findActiveGroupForSpace: vi.fn(),
   findLineAccountForOrg: vi.fn(),
   findLineAccountByIdLookup: vi.fn(),
   insertChannelMessage: vi.fn(),
@@ -80,6 +81,8 @@ describe('POST /api/channels/messages', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
+    // 既定は「spaceにグループ接続なし」＝従来の1:1DM経路。グループ自動振り分けのテストで上書きする。
+    storeMock.findActiveGroupForSpace.mockResolvedValue(null)
     storeMock.findActiveIdentityForSpace.mockResolvedValue({ id: 'ident-1', externalId: 'U-c1' })
     storeMock.findLineAccountForOrg.mockResolvedValue({
       id: 'acc-1',
@@ -188,6 +191,56 @@ describe('POST /api/channels/messages', () => {
       'failed',
       expect.stringContaining('LINE push failed'),
     )
+  })
+
+  describe('spaceId宛て: グループ接続があればグループ経路に自動振り分け（相手先=グループ単位はFreeでも送れる）', () => {
+    const spaceGroup = {
+      id: 'grp-space-1',
+      orgId: validBody.orgId,
+      spaceId: validBody.spaceId,
+      accountId: 'acc-1',
+      externalGroupId: 'G-space',
+      displayName: null,
+      status: 'active' as const,
+      pickupMode: 'all' as const,
+      lastExtractedMessageCreatedAt: null,
+      approverUserId: null,
+    }
+
+    it('Freeでも、spaceにactiveグループがあればline_direct_dmを要求せずグループ宛てに送る', async () => {
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      storeMock.findActiveGroupForSpace.mockResolvedValue(spaceGroup)
+
+      const response = await callPost(validBody) // spaceId 指定（コンソールは常にこれ）
+
+      expect(response.status).toBe(200)
+      // ゲートに触れない・DM経路のidentity解決もしない
+      expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+      expect(storeMock.findActiveIdentityForSpace).not.toHaveBeenCalled()
+      // グループ送信は必ず group.account_id → account（org→account逆引きは使わない）
+      expect(storeMock.findLineAccountByIdLookup).toHaveBeenCalledWith('acc-1')
+      expect(storeMock.findLineAccountForOrg).not.toHaveBeenCalled()
+      // externalGroupId宛てにpushし、group_id付き・identityId=nullで記録する
+      expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'G-space', retryKey: 'row-1' }))
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupId: 'grp-space-1',
+          spaceId: validBody.spaceId,
+          identityId: null,
+          externalUserId: null,
+          body: validBody.text,
+        }),
+      )
+    })
+
+    it('グループが無ければ従来どおり1:1DM経路（identity解決＋line_direct_dmゲート）に進む', async () => {
+      storeMock.findActiveGroupForSpace.mockResolvedValue(null)
+      const response = await callPost(validBody)
+
+      expect(response.status).toBe(200)
+      expect(storeMock.findActiveIdentityForSpace).toHaveBeenCalled()
+      expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ to: 'U-c1' }))
+    })
   })
 
   describe('line_direct_dm ゲート（spaceId宛て=1:1個別DM・Pro/Enterprise専有）', () => {
