@@ -14,7 +14,6 @@ import {
 } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import {
@@ -188,6 +187,8 @@ function formatDue(dueDate: string | null, dueTime: string | null): string | nul
  * セッションユーザー宛の pending 申し送り候補を一覧し、その場で承認/却下する。
  * LINE 1:1 が届かなかった場合の確実なフォールバック（承認/却下はどちらの経路でも同じRPCを通る）。
  * 楽観更新: 成功したら即座にリストから消す（保存ボタンは無い）。
+ * タブバー(SecretaryTabNav)は親の secretary/layout.tsx が一元描画するため、
+ * ここでは自前で描画しない(二重nav禁止)。
  */
 export function ApprovalsClient({ orgId }: { orgId: string }) {
   const [items, setItems] = useState<PendingApprovalItem[]>([])
@@ -285,8 +286,6 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <SecretaryTabNav orgId={orgId} activeTab="approvals" />
-
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl">
           <section className="mb-4">

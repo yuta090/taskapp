@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import { Plugs } from '@phosphor-icons/react'
 import { EmptyState } from '@/components/shared'
-import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { SinkListPane } from '@/components/secretary/integrations/SinkListPane'
 import { SinkDetailPanel } from '@/components/secretary/integrations/SinkDetailPanel'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
@@ -17,6 +16,8 @@ interface IntegrationsConsoleClientProps {
  * 連携タブ — /{orgId}/secretary/integrations
  * Main ペイン内2カラム(左: sink一覧 / 右: 選択中sinkの設定＋配達ログ)。Inspectorは使わない。
  * モーダル禁止・保存ボタンなし(optimistic updates)。docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4。
+ * タブバー(SecretaryTabNav)は親の secretary/layout.tsx が一元描画するため、
+ * ここでは自前で描画しない(二重nav禁止)。
  */
 export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientProps) {
   const { sinks, viewerRole, notionConnection, googleSheetsConnection, isLoading } = useSinks(orgId)
@@ -45,8 +46,6 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <SecretaryTabNav orgId={orgId} activeTab="integrations" />
-
       {justCreatedSecret && (
         <div className="px-4 pt-3 flex-shrink-0">
           <SecretReveal secret={justCreatedSecret} onDismiss={() => setJustCreatedSecret(null)} />
