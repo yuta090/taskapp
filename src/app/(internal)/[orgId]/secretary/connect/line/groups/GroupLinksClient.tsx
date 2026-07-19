@@ -18,15 +18,23 @@ import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
 /**
- * 相手先グループ数の上限(402 group_limit_reached)を踏んだ際のProアップセル注記。
- * 押し付けにならないよう1行＋導線リンクのみ（設定は他ストリームのゲート実装＝#287）。
- */
-/**
  * 承認待ち一覧の静かなポーリング間隔。相手先がグループに参加した数秒後に自動反映させるため、
  * 1対1の接続待ち画面(ClientLinkPanel→useChannelIdentities polling:true)と揃えて15秒(WAITINGティア)。
  */
 const PENDING_CLAIMS_POLL_INTERVAL_MS = 15_000
 
+/**
+ * トゥームストーン(recentlyActedRef)のフォールバック破棄時間。
+ * 通常はサーバがその行を返さなくなった時点(commit確認)で即座に破棄するが、
+ * 何らかの理由でcommit確認が取れない異常系に備えた安全弁として一定時間で強制破棄する。
+ * ポーリング間隔(15秒)を確実に2周以上できる余裕を持たせる。
+ */
+const TOMBSTONE_FALLBACK_MS = 60_000
+
+/**
+ * 相手先グループ数の上限(402 group_limit_reached)を踏んだ際のProアップセル注記。
+ * 押し付けにならないよう1行＋導線リンクのみ（設定は他ストリームのゲート実装＝#287）。
+ */
 function LineProUpsellNote() {
   return (
     <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700">
@@ -49,6 +57,11 @@ interface PendingGroupClaimItem {
   challengeLabel: string | null
   groupDisplayNameSnapshot: string | null
   createdAt: string
+}
+
+/** 確認待ち一覧はcreated_at昇順(サーバ側の並び順)。静かなマージで保持した行が末尾へ飛ばないよう揃える。 */
+function sortByCreatedAt(items: PendingGroupClaimItem[]): PendingGroupClaimItem[] {
+  return [...items].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
 }
 
 interface IssuedCode {
@@ -94,6 +107,15 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   useEffect(() => {
     busyRef.current = busy
   }, [busy])
+  // トゥームストーン: 承認/拒否(409の既処理含む)で楽観除去した直後の窓を守るガード。
+  // busyRefは「in-flight中のfetch適用」しか守らない — act()のsetItems除去→setBusy解除は
+  // ほぼ同tickで完了するため、承認クリック"前"に発火し承認完了"後"に解決する古いsilent poll
+  // (busy解除済み)がcommit前の行を復活させてしまう窓が残る。claimId→記録時刻のMapで
+  // 「サーバがまだその行を返さなくなる(commit確認)まで」ポーリング結果から除外し続ける。
+  const recentlyActedRef = useRef<Map<string, number>>(new Map())
+  // ポーリングのin-flight重複ガード。前のsilent pollが未解決のうちは次のintervalをスキップし、
+  // 遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ。
+  const pollInFlightRef = useRef(false)
 
   // 本部一括発行（code_only・entitlementがある時だけ表示。設計正本 §3・PR3b）
   const [allowCodeOnly, setAllowCodeOnly] = useState(false)
@@ -112,7 +134,12 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   const reload = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = options?.silent === true
-      if (!silent) {
+      // in-flightガード: 前のsilent pollがまだ解決していなければ今回はスキップする
+      // (遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ)。
+      if (silent) {
+        if (pollInFlightRef.current) return
+        pollInFlightRef.current = true
+      } else {
         setLoading(true)
         setLoadError(null)
       }
@@ -123,16 +150,33 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         const nextItems: PendingGroupClaimItem[] = json.items ?? []
         if (silent) {
           setItems((prev) => {
-            // busy(承認/却下処理中)の行は、サーバがまだcommit前の状態を返して復活させないよう
-            // ポーリング結果で上書きしない。処理中の行は直前のprevをそのまま残す。
+            const now = Date.now()
+            const tombstones = recentlyActedRef.current
+            // フォールバック: 一定時間経過したtombstoneは異常系の保険として強制的に破棄する
+            for (const [id, ts] of tombstones) {
+              if (now - ts > TOMBSTONE_FALLBACK_MS) tombstones.delete(id)
+            }
+            // commit確認: サーバがもうその行を返さなくなった(=status変更が反映された)ら
+            // 復活させる心配が無いのでtombstoneを解除する
+            const rawIds = new Set(nextItems.map((it) => it.id))
+            for (const id of tombstones.keys()) {
+              if (!rawIds.has(id)) tombstones.delete(id)
+            }
+
+            // busy(承認/却下処理中)の行と、直近で楽観除去した行(tombstone)は、
+            // サーバがまだcommit前の状態を返して復活させないようポーリング結果で上書きしない。
             const busyIds = new Set(Object.keys(busyRef.current))
-            if (busyIds.size === 0) return nextItems
+            const excludeIds = new Set<string>([...busyIds, ...tombstones.keys()])
+            if (excludeIds.size === 0) return sortByCreatedAt(nextItems)
+
+            // busy中の行だけは直前のprevをそのまま残す(tombstone対象は既にprevから除去済みなので
+            // 保持不要=nextItemsから除外するだけでよい)。並び順はcreatedAtで揃え、末尾へ飛ばさない。
             const preservedBusy = prev.filter((it) => busyIds.has(it.id))
-            const merged = nextItems.filter((it) => !busyIds.has(it.id))
-            return [...merged, ...preservedBusy]
+            const merged = nextItems.filter((it) => !excludeIds.has(it.id))
+            return sortByCreatedAt([...merged, ...preservedBusy])
           })
         } else {
-          setItems(nextItems)
+          setItems(sortByCreatedAt(nextItems))
         }
       } catch (e) {
         // silent(ポーリング)の取得失敗は既存表示を保持する(画面を赤くしない)。初回ロード失敗のみエラー表示。
@@ -140,7 +184,11 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           setLoadError(e instanceof Error ? e.message : '取得に失敗しました')
         }
       } finally {
-        if (!silent) setLoading(false)
+        if (silent) {
+          pollInFlightRef.current = false
+        } else {
+          setLoading(false)
+        }
       }
     },
     [orgId],
@@ -158,6 +206,18 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
       void reload({ silent: true })
     }, PENDING_CLAIMS_POLL_INTERVAL_MS)
     return () => clearInterval(id)
+  }, [reload])
+
+  // タブ復帰時に即時反映する(react-query版のwindow focus即取得と体感を揃える)。
+  // hidden中に相手先がグループ参加していても、復帰した瞬間まで最大15秒待たせない。
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void reload({ silent: true })
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [reload])
 
   useEffect(() => {
@@ -279,6 +339,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           const json = await res.json().catch(() => ({}))
           // 409 は他経路(別タブ・同時操作)で既に処理済み。その場合もリストから消して整合させる
           if (res.status === 409) {
+            recentlyActedRef.current.set(claimId, Date.now())
             setItems((prev) => prev.filter((it) => it.id !== claimId))
             return
           }
@@ -296,7 +357,9 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                 : (json.error ?? '処理に失敗しました')
           throw new Error(msg)
         }
-        // 楽観更新: 成功したら消す
+        // 楽観更新: 成功したら消す。承認クリック前に発火し完了後に解決する古いsilent poll
+        // (busy解除後まで残る)が復活させないよう、サーバがcommit確認するまでtombstoneで守る。
+        recentlyActedRef.current.set(claimId, Date.now())
         setItems((prev) => prev.filter((it) => it.id !== claimId))
         // 承認(approve)は rpc_approve_group_claim が channel_groups を新規active化する。
         // 秘書コンソール左カラム等の接続バッジ(useChannelGroups/useChannelGroupCounts)が

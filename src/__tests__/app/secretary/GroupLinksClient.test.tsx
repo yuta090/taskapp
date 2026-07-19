@@ -634,5 +634,249 @@ describe('GroupLinksClient', () => {
         vi.useRealTimers()
       }
     })
+
+    it('【回帰】承認クリック前に発火し完了後に解決する古いsilent pollが、除去済みの行を復活させない（トゥームストーン）', async () => {
+      // busyRef単体では守れない窓の再現:
+      // 1) 定期pollが発火しin-flightのまま止まる(サーバ応答が遅延)
+      // 2) その間にユーザーが承認をクリック→APIは即成功→楽観除去→busy解除
+      // 3) busy解除"後"に、承認クリック"前"から張っていた古いpollがようやく解決し、
+      //    まだcommit前(=claimを含む)の一覧を返す
+      // → busyIdsは既に空なので、tombstoneが無いと復活してしまう。
+      const claim = {
+        id: 'claim-1',
+        externalGroupId: 'G-1',
+        spaceId: 'space-1',
+        spaceName: '山田商事',
+        challengeLabel: 'AB12',
+        groupDisplayNameSnapshot: 'ある会社の相談グループ',
+        createdAt: '2026-07-16T00:00:00Z',
+      }
+      let resolveStalePoll!: () => void
+      const stalePollGate = new Promise<void>((resolve) => {
+        resolveStalePoll = resolve
+      })
+      let pendingCall = 0
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          pendingCall += 1
+          if (pendingCall === 1) {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [claim] }) })
+          }
+          // 2回目(15秒後の定期poll) = 承認クリック前に発火する「古いpoll」。承認完了後まで解決させない
+          return stalePollGate.then(() => ({ ok: true, json: () => Promise.resolve({ items: [claim] }) }))
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        if (url.includes('/api/channels/group-claims/approval') && init?.method === 'POST') {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'approved' }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
+
+        // 15秒後の定期pollを発火させる(=古いpollがin-flightになり、stalePollGateで未解決のまま止まる)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(2)
+        expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
+
+        // 古いpollがin-flightのまま、ユーザーが承認をクリック→即成功→楽観除去→busy解除
+        await act(async () => {
+          fireEvent.click(screen.getByText('承認'))
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+
+        // busy解除"後"に、承認クリック"前"から張っていた古いpollがようやく解決する
+        resolveStalePoll()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+
+        // トゥームストーンにより復活しない
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('busyで保持した行が末尾へジャンプせず元の並び順(createdAt順)を保つ', async () => {
+      const claimA = {
+        id: 'claim-a',
+        externalGroupId: 'G-A',
+        spaceId: 'space-1',
+        spaceName: '山田商事',
+        challengeLabel: 'AA11',
+        groupDisplayNameSnapshot: 'Aグループ',
+        createdAt: '2026-07-16T00:00:00Z',
+      }
+      const claimB = {
+        id: 'claim-b',
+        externalGroupId: 'G-B',
+        spaceId: 'space-1',
+        spaceName: '山田商事',
+        challengeLabel: 'BB22',
+        groupDisplayNameSnapshot: 'Bグループ',
+        createdAt: '2026-07-16T00:00:10Z',
+      }
+      let resolveApprovalA!: () => void
+      const approvalGateA = new Promise<void>((resolve) => {
+        resolveApprovalA = resolve
+      })
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [claimA, claimB] }) })
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        if (url.includes('/api/channels/group-claims/approval') && init?.method === 'POST') {
+          const body = JSON.parse((init!.body as string) ?? '{}')
+          if (body.claimId === 'claim-a') {
+            return approvalGateA.then(() => ({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve({ status: 'approved' }),
+            }))
+          }
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        const { container } = renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+
+        // Aグループの承認ボタンをクリック(未解決のまま止めてbusyにする)
+        const approveButtons = screen.getAllByText('承認')
+        await act(async () => {
+          fireEvent.click(approveButtons[0])
+          await vi.advanceTimersByTimeAsync(0)
+        })
+
+        // busy中に15秒pollが走る → Aはbusy保持、Bはサーバ応答通りそのまま
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+
+        const names = Array.from(container.querySelectorAll('li p.text-sm.font-medium')).map(
+          (el) => el.textContent,
+        )
+        // 保持行(A)が末尾へ飛ばされず、元のcreatedAt順(A→B)のまま
+        expect(names).toEqual(['Aグループ', 'Bグループ'])
+
+        resolveApprovalA()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('タブが非表示から復帰した瞬間にsilent pollを1回叩く(react-query版のfocus即取得と体感を揃える)', async () => {
+      mockApis({ pendingItems: [] })
+      const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        const countAfterMount = pendingCallCount()
+
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+        await act(async () => {
+          document.dispatchEvent(new Event('visibilitychange'))
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        // hiddenへの遷移では叩かない
+        expect(pendingCallCount()).toBe(countAfterMount)
+
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+        await act(async () => {
+          document.dispatchEvent(new Event('visibilitychange'))
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        // visibleに戻った瞬間、次の定期poll(最大15秒後)を待たず即座に1回叩く
+        expect(pendingCallCount()).toBe(countAfterMount + 1)
+      } finally {
+        vi.useRealTimers()
+        if (originalDescriptor) {
+          Object.defineProperty(document, 'visibilityState', originalDescriptor)
+        } else {
+          Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+        }
+      }
+    })
+
+    it('前のsilent pollが未解決のうちは次のintervalのfetchをスキップする(順序逆転防止)', async () => {
+      let resolveSecondPoll!: () => void
+      const secondPollGate = new Promise<void>((resolve) => {
+        resolveSecondPoll = resolve
+      })
+      let pendingCall = 0
+      fetchMock.mockImplementation((url: string) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          pendingCall += 1
+          if (pendingCall === 2) {
+            return secondPollGate.then(() => ({ ok: true, json: () => Promise.resolve({ items: [] }) }))
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) })
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        }) // 初回ロード(call#1)
+        expect(pendingCall).toBe(1)
+
+        // 15秒後の定期poll(call#2)が発火するが、未解決のまま止まる
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(2)
+
+        // さらに15秒経過。通常なら3回目が発火するはずだが、call#2が未解決のためスキップされる
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(2)
+
+        // call#2が解決すると、in-flightガードが解除される
+        resolveSecondPoll()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+
+        // 次のintervalからは再度pollされる
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        expect(pendingCall).toBe(3)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })
