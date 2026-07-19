@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { CaretDown, CaretRight, Plus, QrCode } from '@phosphor-icons/react'
 
 export type ConnectKind = 'self' | 'counterparty' | 'group'
@@ -60,12 +60,14 @@ function Disclosure({
   testId: string
 }) {
   const [open, setOpen] = useState(false)
+  const panelId = useId()
   return (
     <div>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-controls={panelId}
         data-testid={`${testId}-toggle`}
         className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
       >
@@ -74,7 +76,7 @@ function Disclosure({
         {label}
       </button>
       {open && (
-        <div data-testid={`${testId}-panel`} className="mt-3 space-y-3">
+        <div id={panelId} data-testid={`${testId}-panel`} className="mt-3 space-y-3">
           {children}
         </div>
       )}

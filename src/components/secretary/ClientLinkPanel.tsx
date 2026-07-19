@@ -21,7 +21,9 @@ import { ConnectionFlowSection, type ConnectState } from '@/components/secretary
  */
 export function ClientLinkPanel({ orgId }: { orgId: string }) {
   const { spaces: allSpaces } = useUserSpaces()
-  const { counts } = useChannelIdentities(orgId)
+  // LINEハブの接続判定なので channel='line' に限定する（非LINE identityだけの相手先を
+  // 「LINE接続済み」と誤判定してQRを畳んでしまわないように）。
+  const { counts } = useChannelIdentities(orgId, 'line')
   const orgSpaces = useMemo(
     () => allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null),
     [allSpaces, orgId],
