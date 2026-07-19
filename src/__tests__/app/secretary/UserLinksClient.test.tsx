@@ -29,6 +29,10 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
   useUserSpaces: (...args: unknown[]) => mockUseUserSpaces(...args),
 }))
 
+vi.mock('@/lib/hooks/useChannelIdentities', () => ({
+  useChannelIdentities: () => ({ counts: {}, isLoading: false, error: null }),
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('fetch', fetchMock)
@@ -48,11 +52,11 @@ beforeEach(() => {
 })
 
 describe('UserLinksClient (連携ハブ)', () => {
-  it('3カードの見出しが表示される(自分/顧問先/グループ)', () => {
+  it('3カードの見出しが表示される(自分/相手先/グループ)', () => {
     render(<UserLinksClient orgId={ORG} />)
 
     expect(screen.getByText(/自分をつなぐ/)).toBeInTheDocument()
-    expect(screen.getByText(/顧問先をつなぐ/)).toBeInTheDocument()
+    expect(screen.getByText(/相手先をつなぐ/)).toBeInTheDocument()
     expect(screen.getByText(/グループをつなぐ/)).toBeInTheDocument()
   })
 
