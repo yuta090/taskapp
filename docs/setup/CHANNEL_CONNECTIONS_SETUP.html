@@ -214,7 +214,7 @@
     <li>Telegramで <strong>@BotFather</strong> に <code>/newbot</code> を送り、名前とユーザー名を設定。</li>
     <li>発行された <strong>Bot Token</strong>（<code>123456:AA…</code>）を控える。</li>
     <li>送信先の <strong>chat_id</strong> を取得（対象チャット／グループにBotを追加後、<code>getUpdates</code> 等で確認）。</li>
-    <li>（受信対応時）<code>setWebhook</code> に <code>{公開URL}/api/channels/telegram/webhook</code> と secret_token を設定。</li>
+    <li>受信は <code>setWebhook</code> に <code>{公開URL}/api/channels/telegram/webhook/{accountId}</code> と <code>secret_token</code> を設定（実装済み。accountId=登録した channel_accounts の ID、secret_token=<code>webhook_secret</code> と一致させる）。</li>
   </ol>
   <table>
     <tr><th>発行する値</th><th class="paste">貼り付け先キー</th><th>区分</th></tr>

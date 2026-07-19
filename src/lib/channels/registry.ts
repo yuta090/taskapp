@@ -185,10 +185,10 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     kind: 'chat',
     status: 'beta',
     outbound: true,
-    inbound: false,
+    inbound: true,
     group: true,
     directMessage: true,
-    webhookPath: '/api/channels/telegram/webhook',
+    webhookPath: '/api/channels/telegram/webhook/{accountId}',
     signatureScheme: 'token',
     targetHint: 'chat_id（数値。ユーザー/グループ/チャンネル）',
     credentialFields: [

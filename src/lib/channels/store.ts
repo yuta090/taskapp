@@ -2569,3 +2569,93 @@ export async function claimPendingApprovalNotifications(
     dueTime: (row.due_time as string | null) ?? null,
   }))
 }
+
+// ---------------------------------------------------------------------------
+// 汎用チャネル（LINE以外）: 資格情報の復号と identity 突合
+//   非LINEチャネルの受信Webでaccountを解決するための、channel非依存の薄い経路。
+//   LINE固有のchannel_secret/access_token必須検証を持つ decryptAccount とは別に、
+//   任意の credentials JSON をそのまま返す（webhook_secret / bot_token 等を扱うため）。
+// ---------------------------------------------------------------------------
+
+export interface ChannelAccountCredentials {
+  id: string
+  channel: string
+  orgId: string | null
+  ownerType: 'org' | 'platform'
+  status: 'active' | 'disabled'
+  /** 復号済みの credentials JSON（キーはチャネル依存: bot_token / webhook_secret 等） */
+  credentials: Record<string, string>
+}
+
+/**
+ * account_id と channel を指定して資格情報を復号取得する（service role専用）。
+ * disabled でも返す（inbound記録は継続する方針。LINEの findLineAccountByDestination と同様）。
+ * 復号失敗・channel不一致・credentialsが非JSONは null。
+ */
+export async function findChannelAccountCredentials(
+  accountId: string,
+  channel: string,
+): Promise<ChannelAccountCredentials | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id, org_id, display_name, credentials_encrypted, status, owner_type, channel')
+    .eq('id', accountId)
+    .eq('channel', channel)
+    .maybeSingle()
+
+  if (error || !data) return null
+  const row = data as AccountRow & { channel: string }
+
+  const { data: decrypted, error: decErr } = await admin().rpc('decrypt_system_secret', {
+    encrypted: row.credentials_encrypted,
+    secret: getEncryptionKey(),
+  })
+  if (decErr || !decrypted) {
+    console.error('channel_accounts: failed to decrypt credentials', row.id, decErr)
+    return null
+  }
+
+  let credentials: Record<string, string>
+  try {
+    const parsed = JSON.parse(decrypted as string)
+    if (!parsed || typeof parsed !== 'object') return null
+    credentials = parsed as Record<string, string>
+  } catch {
+    console.error('channel_accounts: credentials are not valid JSON', row.id)
+    return null
+  }
+
+  return {
+    id: row.id,
+    channel: row.channel,
+    orgId: row.org_id,
+    ownerType: row.owner_type === 'platform' ? 'platform' : 'org',
+    status: row.status === 'disabled' ? 'disabled' : 'active',
+    credentials,
+  }
+}
+
+/**
+ * (org, channel, external_id) の active identity を取得する（channel非依存）。
+ * LINE の findIdentityIdsByExternalUserIds が channel='line' 固定なのに対し、
+ * 任意チャネルの受信突合に使う。突合ルールは呼び出し側で「1件なら確定/0・複数はnull」を判断する。
+ */
+export async function findActiveIdentitiesByExternalId(
+  orgId: string,
+  channel: string,
+  externalId: string,
+): Promise<Array<{ id: string; spaceId: string }>> {
+  const { data, error } = await admin()
+    .from('channel_identities')
+    .select('id, space_id')
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('external_id', externalId)
+    .eq('status', 'active')
+
+  if (error || !data) return []
+  return (data as Array<{ id: string; space_id: string }>).map((r) => ({
+    id: r.id,
+    spaceId: r.space_id,
+  }))
+}
