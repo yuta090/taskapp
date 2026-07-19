@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GroupLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/groups/GroupLinksClient'
 
 /**
@@ -80,10 +81,25 @@ function mockApis({
   })
 }
 
+/**
+ * GroupLinksClientはuseQueryClient()を使う(承認成功時にchannelIdentityCountsを無効化するため)ので
+ * 単体テストでもQueryClientProviderで包む必要がある。
+ */
+function renderClient(orgId: string = ORG) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+  const utils = render(
+    <QueryClientProvider client={queryClient}>
+      <GroupLinksClient orgId={orgId} />
+    </QueryClientProvider>,
+  )
+  return { ...utils, queryClient, invalidateSpy }
+}
+
 describe('GroupLinksClient', () => {
   it('プロジェクト選択肢は自org分のみ（他orgのspaceは出さない）', async () => {
     mockApis({})
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
 
     await waitFor(() => screen.getByText('コードを発行'))
     expect(screen.getByText('山田商事')).toBeInTheDocument()
@@ -92,7 +108,7 @@ describe('GroupLinksClient', () => {
 
   it('プロジェクトを選んで発行すると、コードが1回だけ表示されコピーできる', async () => {
     mockApis({})
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
 
     await waitFor(() => screen.getByText('コードを発行'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
@@ -110,7 +126,7 @@ describe('GroupLinksClient', () => {
 
   it('発行失敗時はエラーメッセージを表示する', async () => {
     mockApis({ issueResponse: { ok: false, body: { error: '共有botが未設定です' } } })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
 
     await waitFor(() => screen.getByText('コードを発行'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
@@ -133,7 +149,7 @@ describe('GroupLinksClient', () => {
         },
       },
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
 
     await waitFor(() => screen.getByText('コードを発行'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
@@ -150,7 +166,7 @@ describe('GroupLinksClient', () => {
 
   it('確認待ちが無ければ空状態を表示する', async () => {
     mockApis({ pendingItems: [] })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
 
     await waitFor(() => {
       expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
@@ -171,7 +187,7 @@ describe('GroupLinksClient', () => {
         },
       ],
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    const { invalidateSpy } = renderClient()
 
     await waitFor(() => {
       expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
@@ -188,6 +204,13 @@ describe('GroupLinksClient', () => {
     expect(approvalCall).toBeTruthy()
     const body = JSON.parse((approvalCall![1] as RequestInit).body as string)
     expect(body).toEqual({ orgId: ORG, claimId: 'claim-1', action: 'approve' })
+
+    // 承認は channel_identities を新規作成するため、connect/ハブ等が使う
+    // useChannelIdentities のキャッシュ(['channelIdentityCounts', orgId, ...])を無効化する
+    // （既定staleTime=2分を継承するため、能動的な無効化が無いと承認直後でも古い件数のまま見えてしまう回帰）
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['channelIdentityCounts', ORG] })
+    })
   })
 
   it('却下すると楽観的にリストから消える', async () => {
@@ -204,7 +227,7 @@ describe('GroupLinksClient', () => {
         },
       ],
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    const { invalidateSpy } = renderClient()
 
     await waitFor(() => screen.getByText('ある会社の相談グループ'))
     fireEvent.click(screen.getByText('却下'))
@@ -216,6 +239,8 @@ describe('GroupLinksClient', () => {
     const approvalCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/api/channels/group-claims/approval'))
     const body = JSON.parse((approvalCall![1] as RequestInit).body as string)
     expect(body.action).toBe('reject')
+    // 却下はchannel_identitiesを作らないため無効化は不要
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['channelIdentityCounts', ORG] })
   })
 
   it('承認時に相手先グループ数の上限(402 group_limit_reached)を踏むと行内にProアップセル文言を出す', async () => {
@@ -241,7 +266,7 @@ describe('GroupLinksClient', () => {
         },
       },
     })
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
 
     await waitFor(() => screen.getByText('ある会社の相談グループ'))
     fireEvent.click(screen.getByText('承認'))
@@ -295,7 +320,7 @@ describe('GroupLinksClient', () => {
       return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
     })
 
-    render(<GroupLinksClient orgId={ORG} />)
+    renderClient()
     await waitFor(() => screen.getByText('ある会社の相談グループ'))
     fireEvent.click(screen.getByText('承認'))
 
@@ -308,7 +333,7 @@ describe('GroupLinksClient', () => {
   describe('本部一括発行（code_only・entitlementがある時だけ表示）', () => {
     it('entitlement無し(allowCodeOnly=false)の場合はセクションを表示しない', async () => {
       mockApis({ policyResponse: { ok: true, body: { allowCodeOnly: false } } })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderClient()
 
       await waitFor(() => screen.getByText('コードを発行'))
       expect(screen.queryByText('本部一括発行')).not.toBeInTheDocument()
@@ -316,7 +341,7 @@ describe('GroupLinksClient', () => {
 
     it('entitlementあり(allowCodeOnly=true)の場合はセクションを表示する', async () => {
       mockApis({ policyResponse: { ok: true, body: { allowCodeOnly: true } } })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderClient()
 
       await waitFor(() => {
         expect(screen.getByText('本部一括発行')).toBeInTheDocument()
@@ -338,7 +363,7 @@ describe('GroupLinksClient', () => {
           },
         },
       })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderClient()
 
       await waitFor(() => screen.getByText('本部一括発行'))
       fireEvent.click(screen.getByLabelText('山田商事'))
@@ -359,7 +384,7 @@ describe('GroupLinksClient', () => {
         policyResponse: { ok: true, body: { allowCodeOnly: true } },
         issueBatchResponse: { ok: false, body: { error: 'このorgはcode_only発行が許可されていません' } },
       })
-      render(<GroupLinksClient orgId={ORG} />)
+      renderClient()
 
       await waitFor(() => screen.getByText('本部一括発行'))
       fireEvent.click(screen.getByLabelText('山田商事'))

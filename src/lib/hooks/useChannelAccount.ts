@@ -44,7 +44,6 @@ export function useChannelAccount(orgId: string) {
       return json as AccountResponse
     },
     enabled: !!orgId,
-    staleTime: 30_000,
   })
 
   const setStatus = useCallback(

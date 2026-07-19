@@ -1,8 +1,13 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { useChannelAccount } from '@/lib/hooks/useChannelAccount'
+
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return { ...actual, useQuery: vi.fn(actual.useQuery) }
+})
 
 /** useChannelAccount — bot状態カード用。トグルはoptimistic updateし失敗時はロールバックする */
 
@@ -32,6 +37,22 @@ describe('useChannelAccount', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('staleTimeを上書きしない（アプリ既定=QueryProviderの2分を継承する）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ account: accountMeta, viewerRole: 'owner' }),
+    })
+
+    renderHook(() => useChannelAccount('org-1'), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(useQuery).toHaveBeenCalled())
+    const options = (useQuery as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >
+    expect(options.staleTime).toBeUndefined()
   })
 
   it('初期取得: accountとviewerRoleを返す', async () => {

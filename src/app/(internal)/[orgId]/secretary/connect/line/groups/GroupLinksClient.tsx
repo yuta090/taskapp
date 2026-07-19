@@ -13,6 +13,7 @@ import {
   ClipboardText,
   Sparkle,
 } from '@phosphor-icons/react'
+import { useQueryClient } from '@tanstack/react-query'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
@@ -63,6 +64,7 @@ interface IssuedBatchItem {
  * 楽観更新: 承認/却下が成功したら即座にリストから消す（保存ボタンは無い）。
  */
 export function GroupLinksClient({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient()
   const { spaces } = useUserSpaces()
   const orgSpaces = spaces.filter((s) => s.orgId === orgId)
 
@@ -248,6 +250,12 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         }
         // 楽観更新: 成功したら消す
         setItems((prev) => prev.filter((it) => it.id !== claimId))
+        // 承認はchannel_identitiesを新規作成する(却下は作らない)。connect/ハブ等が使う
+        // useChannelIdentitiesの件数(['channelIdentityCounts', orgId, ...])は既定staleTime(2分)
+        // を継承するため、放置すると承認直後でも古い件数のまま見えてしまう。ここで能動的に無効化する。
+        if (action === 'approve') {
+          void queryClient.invalidateQueries({ queryKey: ['channelIdentityCounts', orgId] })
+        }
       } catch (e) {
         setRowError((prev) => ({
           ...prev,
@@ -261,7 +269,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         })
       }
     },
-    [orgId],
+    [orgId, queryClient],
   )
 
   return (
