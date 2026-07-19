@@ -1215,6 +1215,11 @@ function matchInstantTaskKeyword(body: string): { index: number; length: number 
 
 /**
  * all_plus_instant（フェーズ2・pro以上限定）の実行時ゲート。設定APIの403に加えた二重防御。
+ *
+ * ゲートするfeatureは instant_line_notify（即時性そのもの）。line_pickup_dual_mode（自動タスク拾い
+ * 自体）は事業判断(2026-07・commit ce0e733)でFreeにも開放済みのため、これをここで見ると
+ * Freeでも即時化してしまう回帰になる（差別化は「拾い」ではなく「即時性」で行う設計）。
+ *
  * fail-closed: entitlement解決に失敗しても例外は投げず、即時化しない側に倒す
  * （resolveOrgEntitlements自体は例外を投げない設計だが、createAdminClient()の設定不備等の
  * 想定外にも備えて握る）。
@@ -1222,7 +1227,7 @@ function matchInstantTaskKeyword(body: string): { index: number; length: number 
 async function hasDualModeInstantEntitlement(orgId: string): Promise<boolean> {
   try {
     const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
-    return entitlements.has('line_pickup_dual_mode')
+    return entitlements.has('instant_line_notify')
   } catch (error) {
     console.error('hasDualModeInstantEntitlement: resolution failed, defaulting to false', error)
     return false

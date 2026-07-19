@@ -127,11 +127,14 @@ export async function PATCH(request: NextRequest) {
   // 有料ゲート（フェーズ2・二重防御の設定時側）: all_plus_instant は pro/enterprise 限定。
   // entitlement判定のorgIdは常にサーバ側で確定した group.orgId を使う
   // （verifyGroupInOrgで検証済みのDB値。bodyの生orgIdは信用しない）。
+  // ゲートするfeatureは instant_line_notify（即時性そのもの）。line_pickup_dual_mode（自動タスク拾い
+  // 自体）は事業判断(2026-07)でFreeにも開放済みのため、これで見るとFreeでも設定できてしまう
+  // （実行時ゲート hasDualModeInstantEntitlement と同じ理由で instant_line_notify に揃える）。
   if (pickupMode === 'all_plus_instant') {
     const entitlements = await resolveOrgEntitlements(createAdminClient(), group.orgId)
-    if (!entitlements.has('line_pickup_dual_mode')) {
+    if (!entitlements.has('instant_line_notify')) {
       return NextResponse.json(
-        { error: 'plan_required', feature: 'line_pickup_dual_mode' },
+        { error: 'plan_required', feature: 'instant_line_notify' },
         { status: 403 },
       )
     }
