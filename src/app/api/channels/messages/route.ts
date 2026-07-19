@@ -12,6 +12,8 @@ import {
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { isValidUuid } from '@/lib/uuid'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 
 export const runtime = 'nodejs'
 
@@ -72,6 +74,17 @@ export async function POST(request: NextRequest) {
   return sendToSpace({ orgId, spaceId, text, sentBy: auth.userId })
 }
 
+/**
+ * spaceId宛て送信＝1:1個別DM（担当者/顧問先1名を名指しした送信）。line_direct_dm ゲート
+ * （Pro/Enterprise専有・設計正本「AI秘書 LINE連携：つなぎ方とプラン」）。
+ *
+ * own_line_account（自社LINE登録）自体が既にPro専有のため findLineAccountForOrg は
+ * 通常Free orgでは何も返さず409になるが、それだけでは「Pro→Freeへのダウングレード後も
+ * 過去に登録した自社LINEアカウント行がactiveのまま残っている」ケースを塞げない
+ * （downgrade処理がaccount行を自動でdisabledにする保証がない）。plan由来のfeatureで
+ * 明示的に再ゲートし、送信境界を確実にfail-closedにする。
+ * グループ宛て(sendToGroup)は対象外（相手先接続=グループ単位はFreeでも可）。
+ */
 async function sendToSpace(params: {
   orgId: string
   spaceId: string
@@ -79,6 +92,11 @@ async function sendToSpace(params: {
   sentBy: string
 }): Promise<NextResponse> {
   const { orgId, spaceId, text, sentBy } = params
+
+  const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
+  if (!entitlements.has('line_direct_dm')) {
+    return NextResponse.json({ error: 'plan_required', feature: 'line_direct_dm' }, { status: 403 })
+  }
 
   const identity = await findActiveIdentityForSpace(orgId, spaceId, 'line')
   if (!identity) {

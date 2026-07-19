@@ -1750,6 +1750,20 @@ describe('handleLineWebhook', () => {
       expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
     })
 
+    it('回帰: line_pickup_dual_mode(Freeにも開放済み)がtrueでもinstant_line_notifyが無ければ即時発火しない（差別化は即時性で行う・事業判断2026-07）', async () => {
+      // 実際のFreeプランのentitlements解決を模す: line_pickup_dual_modeはtrue・instant_line_notifyはfalse
+      resolveOrgEntitlementsMock.mockResolvedValue({
+        planId: 'free',
+        has: (f: string) => f === 'line_pickup_dual_mode',
+      })
+      const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
     it('entitlement解決がエラーでも例外を投げず即時化しない（fail-closed）', async () => {
       resolveOrgEntitlementsMock.mockRejectedValue(new Error('DB down'))
       const body = makeBody([mentionEvent('@AgentPM秘書 見積提出', [{ index: 0, length: 10 }])])
