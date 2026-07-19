@@ -65,16 +65,14 @@ vi.mock('@/components/secretary/MessageTimeline', () => ({
   ),
 }))
 
-const { usePathnameMock, useSearchParamsMock, routerReplaceMock } = vi.hoisted(() => ({
+const { usePathnameMock, useSearchParamsMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn(),
   useSearchParamsMock: vi.fn(),
-  routerReplaceMock: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
   usePathname: () => usePathnameMock(),
   useSearchParams: () => useSearchParamsMock(),
-  useRouter: () => ({ replace: routerReplaceMock, push: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }))
 
 function space(overrides: Partial<UserSpace> = {}): UserSpace {
@@ -129,13 +127,18 @@ describe('SecretaryConsoleClient', () => {
     expect(screen.getByTestId('message-timeline')).toHaveTextContent('スペース2')
   })
 
-  it('選択変更でrouter.replaceにより?spaceが更新される', () => {
+  it('選択変更でwindow.history.replaceStateにより?spaceが更新される(ルート遷移させない)', () => {
+    // ベースライン規約: 選択状態はルート遷移(router.replace)させずURLだけ書き換える
+    // (TasksPageClientのsyncUrlWithStateと同型)。RSCペイロード往復を発生させないため。
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState')
     render(<SecretaryConsoleClient orgId={ORG} />)
     fireEvent.click(screen.getByText('select-space-2'))
     expect(screen.getByTestId('selected-space-id')).toHaveTextContent('space-2')
-    expect(routerReplaceMock).toHaveBeenCalledWith(
+    expect(replaceStateSpy).toHaveBeenCalledWith(
+      null,
+      '',
       expect.stringContaining('space=space-2'),
-      expect.anything(),
     )
+    replaceStateSpy.mockRestore()
   })
 })

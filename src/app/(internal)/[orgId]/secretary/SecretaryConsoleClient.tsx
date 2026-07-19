@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { ChatCircleDots } from '@phosphor-icons/react'
 import { EmptyState } from '@/components/shared'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
@@ -28,7 +28,6 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
   const { spaces: allSpaces } = useUserSpaces()
   const { counts: identityCounts } = useChannelIdentities(orgId)
   const { counts: groupCounts } = useChannelGroupCounts(orgId)
-  const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   // 選択中の相手先は?space=<id>に持ち上げる(タブ往復・戻る/進むで選択が消えないように)
@@ -37,11 +36,14 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
   const handleSelectSpace = useCallback(
     (spaceId: string) => {
       setSelectedSpaceId(spaceId)
+      // ルート遷移(router.replace)はRSCペイロードの往復を発生させるため使わない。
+      // TasksPageClient.syncUrlWithStateと同型: URLだけ書き換えるhistory.replaceState。
       const params = new URLSearchParams(searchParams.toString())
       params.set('space', spaceId)
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+      const newUrl = `${pathname}?${params.toString()}`
+      window.history.replaceState(null, '', newUrl)
     },
-    [pathname, router, searchParams],
+    [pathname, searchParams],
   )
 
   const spaces = useMemo(
