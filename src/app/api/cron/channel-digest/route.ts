@@ -8,6 +8,7 @@ import {
   findIdentityIdsByExternalUserIds,
   reconcileDigestAssignees,
   getOrgChannelPolicyState,
+  getPlatformBudgetState,
   insertChannelMessage,
   findExistingDigestTaskSourceMessageIds,
 } from '@/lib/channels/store'
@@ -23,7 +24,8 @@ import {
 } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
-import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
 
 /**
  * POST /api/cron/channel-digest
@@ -62,6 +64,18 @@ export async function POST(request: NextRequest) {
   let digestsSent = 0
   const skipped: Array<{ groupId: string; reason: string }> = []
   const errors: string[] = []
+
+  // digestは同一（共有bot）accountを複数グループが繰り返し引くため、グローバル予算層の読取を
+  // account単位でメモ化する（同一cron実行内でのDB呼び出し削減。値そのものは同一実行内で不変）。
+  const platformBudgetStateCache = new Map<string, Promise<Awaited<ReturnType<typeof getPlatformBudgetState>>>>()
+  function getPlatformBudgetStateCached(accountId: string) {
+    let cached = platformBudgetStateCache.get(accountId)
+    if (!cached) {
+      cached = getPlatformBudgetState(accountId)
+      platformBudgetStateCache.set(accountId, cached)
+    }
+    return cached
+  }
 
   await Promise.allSettled(
     groups.map(async (group) => {
@@ -180,12 +194,16 @@ export async function POST(request: NextRequest) {
           return
         }
 
-        // 送信境界の縮退判定（PR4メータリング・設計正本 §3/§7-10）。digestはauto-push。
+        // 送信境界の縮退判定（設計正本 §3/§7-10）。digestはauto-push。
         // gate対象外（webhook対話的push・console手動送信）はここを通らない。
+        // org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定（fable確定設計）。
+        // 専用bot(owner_type='org')は顧客側の枠であり当社の持ち出しではないため常に'ok'扱い。
         const policy = await getOrgChannelPolicyState(group.orgId)
-        const decision = decideAutoPush({
-          state: policy.state,
-          onExceed: policy.onExceed,
+        const globalState =
+          account.ownerType === 'platform' ? await getPlatformBudgetStateCached(account.id) : 'ok'
+        const decision = decideSharedSendBudget({
+          org: { state: policy.state, onExceed: policy.onExceed },
+          global: { state: globalState },
           // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
           // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。
           jstDayOfYear: getJstDayOfYear(),

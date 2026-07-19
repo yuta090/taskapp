@@ -12,6 +12,11 @@ describe('isActionableNotification', () => {
     expect(ACTIONABLE_TYPES_ARRAY).toContain('scheduling_proposal_expired')
   })
 
+  it('treats digest_approval_request as actionable (Stage 2.7-B §5b)', () => {
+    expect(isActionableNotification('digest_approval_request')).toBe(true)
+    expect(ACTIONABLE_TYPES_ARRAY).toContain('digest_approval_request')
+  })
+
   it('does not treat unrelated types as actionable', () => {
     expect(isActionableNotification('meeting_ended')).toBe(false)
   })

@@ -42,11 +42,13 @@ function mockApis({
   issueResponse,
   policyResponse,
   issueBatchResponse,
+  approvalResponse,
 }: {
   pendingItems?: unknown[]
-  issueResponse?: { ok: boolean; body: unknown }
+  issueResponse?: { ok: boolean; status?: number; body: unknown }
   policyResponse?: { ok: boolean; body: unknown }
   issueBatchResponse?: { ok: boolean; body: unknown }
+  approvalResponse?: { ok: boolean; status?: number; body: unknown }
 }) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
     if (url.includes('/api/channels/group-claims/pending')) {
@@ -68,10 +70,11 @@ function mockApis({
     }
     if (url.includes('/api/channels/group-claims/issue') && init?.method === 'POST') {
       const res = issueResponse ?? { ok: true, body: { code: 'GC-ABCDEF-GHJKM-NPQRS-TUVWX-YZ234', expiresAt: '2026-07-16T00:30:00.000Z' } }
-      return Promise.resolve({ ok: res.ok, json: () => Promise.resolve(res.body) })
+      return Promise.resolve({ ok: res.ok, status: res.status, json: () => Promise.resolve(res.body) })
     }
     if (url.includes('/api/channels/group-claims/approval') && init?.method === 'POST') {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'approved' }) })
+      const res = approvalResponse ?? { ok: true, body: { status: 'approved' } }
+      return Promise.resolve({ ok: res.ok, status: res.status, json: () => Promise.resolve(res.body) })
     }
     return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
   })
@@ -116,6 +119,33 @@ describe('GroupLinksClient', () => {
     await waitFor(() => {
       expect(screen.getByText('共有botが未設定です')).toBeInTheDocument()
     })
+  })
+
+  it('相手先グループ数の上限(402 group_limit_reached)時はProアップセル文言を表示する', async () => {
+    mockApis({
+      issueResponse: {
+        ok: false,
+        status: 402,
+        body: {
+          error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
+          code: 'group_limit_reached',
+          limit: 3,
+        },
+      },
+    })
+    render(<GroupLinksClient orgId={ORG} />)
+
+    await waitFor(() => screen.getByText('コードを発行'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'space-1' } })
+    fireEvent.click(screen.getByText('コードを発行'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/自社LINE.*なら/)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/送信の上限なし/)).toBeInTheDocument()
+    expect(screen.getByText('プランを見る').closest('a')).toHaveAttribute('href', '/settings/billing')
+    // 通常のエラーメッセージ(赤)ではなく、上限専用の文言のみが出る
+    expect(screen.queryByText('接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。')).not.toBeInTheDocument()
   })
 
   it('確認待ちが無ければ空状態を表示する', async () => {
@@ -186,6 +216,43 @@ describe('GroupLinksClient', () => {
     const approvalCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/api/channels/group-claims/approval'))
     const body = JSON.parse((approvalCall![1] as RequestInit).body as string)
     expect(body.action).toBe('reject')
+  })
+
+  it('承認時に相手先グループ数の上限(402 group_limit_reached)を踏むと行内にProアップセル文言を出す', async () => {
+    mockApis({
+      pendingItems: [
+        {
+          id: 'claim-1',
+          externalGroupId: 'G-1',
+          spaceId: 'space-1',
+          spaceName: '山田商事',
+          challengeLabel: 'AB12',
+          groupDisplayNameSnapshot: 'ある会社の相談グループ',
+          createdAt: '2026-07-16T00:00:00Z',
+        },
+      ],
+      approvalResponse: {
+        ok: false,
+        status: 402,
+        body: {
+          error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
+          code: 'group_limit_reached',
+          limit: 3,
+        },
+      },
+    })
+    render(<GroupLinksClient orgId={ORG} />)
+
+    await waitFor(() => screen.getByText('ある会社の相談グループ'))
+    fireEvent.click(screen.getByText('承認'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/自社LINE.*なら/)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/送信の上限なし/)).toBeInTheDocument()
+    expect(screen.getByText('プランを見る').closest('a')).toHaveAttribute('href', '/settings/billing')
+    // 上限到達時は既存のクレームを消さない(承認は成立していない)
+    expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
   })
 
   it('409(既処理)は行を消し、それ以外の失敗は行に残ってエラーを出す', async () => {

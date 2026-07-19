@@ -36,12 +36,26 @@ export function buildDigestUndoPostbackData(taskId: string): string {
   return `action=digest_undo&task=${taskId}`
 }
 
-export function parseDigestPromotePostback(data: string): { taskId: string } | null {
-  return parseActionPostback(data, 'digest_promote')
+/**
+ * 承認 postback。`self=1` が付くと「承認して自分がやる」= 承認者を担当(assignee)にする。
+ * 付かなければ従来どおり担当は未設定。担当が付くと tasks トリガーが Google Tasks ミラーへ流す。
+ */
+export function parseDigestPromotePostback(data: string): { taskId: string; assignSelf: boolean } | null {
+  const parsed = parseActionPostback(data, 'digest_promote')
+  if (!parsed) return null
+  let assignSelf = false
+  try {
+    assignSelf = new URLSearchParams(data).get('self') === '1'
+  } catch {
+    assignSelf = false
+  }
+  return { taskId: parsed.taskId, assignSelf }
 }
 
-export function buildDigestPromotePostbackData(taskId: string): string {
-  return `action=digest_promote&task=${taskId}`
+export function buildDigestPromotePostbackData(taskId: string, assignSelf = false): string {
+  return assignSelf
+    ? `action=digest_promote&task=${taskId}&self=1`
+    : `action=digest_promote&task=${taskId}`
 }
 
 export function parseDigestRejectPostback(data: string): { taskId: string } | null {

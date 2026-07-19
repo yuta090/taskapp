@@ -46,6 +46,25 @@ origin = 'client' | 'internal'   # who initiated
 type = 'task' | 'spec'           # spec requires spec_path + decision_state
 ```
 
+## AI秘書 LINE連携：つなぎ方とプラン（要点）
+
+**LINEのつなぎ方＝そのままプラン。違いは「誰の名前で相手に届くか」。**
+
+| | agentpm秘書（無料） | agentpm秘書 Pro（有料） |
+|---|---|---|
+| つなぎ方 | **共通LINE**（TaskApp共通の共有アカウント・`owner_type='platform'`） | **自社LINE**（事務所自身のLINE公式アカウント・白ラベル・`owner_type='org'`） |
+| 相手先との接続 | **グループ単位** | 担当者（個人）単位も可 |
+| 自動タスク拾い | あり・**日次まとめ**のみ | あり・**即時** |
+| Pro専有 | — | 自社名義・**1:1個別DM**・即時通知・時刻リマインド・送信枠拡大・縮退なし |
+| 上限 | グループ数・共通LINE送信量に上限（縮退） | 大きめ＋グループ追加パック |
+
+- **Proを選ぶ理由**＝自社の名前で届く／即時／個別DM／送信量。承認（責任者のタスク承認）は**両方で可能**（差別化にならない）。
+- **Pro＝「つなぐハブ」（全体方針）**: チャットは LINE だけでなく **Slack/Teams など全チャット**、タスクは **Google Tasks など他のタスク管理ツールとも**連携する。この**マルチチャネル×マルチツールの連携の広さ自体を Pro の売り**にする。外部連携（Google Tasks ミラー・他チャット・他タスクツール）は原則 **Pro 専有**。個々の連携は順次追加。
+- **UIの言葉（厳守）**: 「顧問先」ではなく **「相手先」**、「共有Bot/専用Bot」ではなく **「共通LINE/自社LINE」**。グループを社内/社外に分類させない（見せ分けはタスク単位の `client_scope`）。
+- **機能ゲート**: `src/lib/billing/entitlements.ts` の `PLAN_FEATURES`（own_line_account / line_direct_dm / instant_line_notify は Pro 専有）＋ `PLAN_LIMITS`（maxLineGroups / monthlySharedPushQuota）。gate は**確立/送信境界のみ・新規紐付けの拒否のみ（既存は切らない）**。
+- **⚠ 共通LINE送信クォータ**: LINE無料枠200通/月は**アカウント単位（共有bot全org相乗り）**。org別capだけでは持ち出しが非有界 → **グローバル予算＋org別capの二層制**が必要（`monthlySharedPushQuota` の仮値は安全側、実装は別PR）。
+- **価格は未確定**（LLM抽出原価の実測とLINE規約の複数アカウント可否が前提）。方向＝**定額＋グループ追加パック**、Pro は粗利70-80%・LINE側費用込みで月10万円未満。訴求は時短でなく**クオリティ（拾い漏れゼロ）**。
+
 ## Key Files
 
 ```

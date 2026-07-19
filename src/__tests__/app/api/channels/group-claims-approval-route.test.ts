@@ -36,6 +36,7 @@ const storeMock = {
   findGroupClaimOrgId: vi.fn(),
   approveGroupClaim: vi.fn(),
   rejectGroupClaim: vi.fn(),
+  orgLineGroupCapacity: vi.fn(),
   GroupClaimActionError,
 }
 vi.mock('@/lib/channels/store', () => storeMock)
@@ -63,6 +64,7 @@ describe('POST /api/channels/group-claims/approval', () => {
     storeMock.findGroupClaimOrgId.mockResolvedValue(ORG_ID)
     storeMock.approveGroupClaim.mockResolvedValue(true)
     storeMock.rejectGroupClaim.mockResolvedValue(true)
+    storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
   })
 
   it('未ログインは401', async () => {
@@ -111,6 +113,29 @@ describe('POST /api/channels/group-claims/approval', () => {
     storeMock.approveGroupClaim.mockResolvedValue(false)
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(409)
+  })
+
+  it('approve: グループ上限到達 → 402（承認せず・既存は切らない）', async () => {
+    storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 3, maxGroups: 3 })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    const json = await res.json()
+    expect(res.status).toBe(402)
+    expect(json.code).toBe('group_limit_reached')
+    expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('approve: 上限未満なら通常承認（402にしない）', async () => {
+    storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 2, maxGroups: 3 })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(200)
+    expect(storeMock.approveGroupClaim).toHaveBeenCalled()
+  })
+
+  it('reject は上限チェックをしない（既存の却下は常に可能）', async () => {
+    storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 9, maxGroups: 3 })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'reject' })
+    expect(res.status).toBe(200)
+    expect(storeMock.rejectGroupClaim).toHaveBeenCalled()
   })
 
   it('approve: GroupClaimActionError(not_found) → 404', async () => {

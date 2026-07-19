@@ -4,6 +4,7 @@ import {
   findGroupClaimOrgId,
   approveGroupClaim,
   rejectGroupClaim,
+  orgLineGroupCapacity,
   GroupClaimActionError,
 } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
@@ -57,6 +58,19 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === 'approve') {
+      // プラン上限（相手先グループ数）: 承認＝新規グループのactive化なので、ここが上限のハード適用点。
+      // 既存グループは絶対に切らない。上限到達時は新規承認のみ 402 で拒否しアップグレードへ誘導。
+      const cap = await orgLineGroupCapacity(orgId)
+      if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
+        return NextResponse.json(
+          {
+            error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
+            code: 'group_limit_reached',
+            limit: cap.maxGroups,
+          },
+          { status: 402 },
+        )
+      }
       const ok = await approveGroupClaim(claimId, auth.userId)
       if (!ok) {
         // 同一グループへの2claim同時承認の敗者（channel_groups_active_uniqueによるgraceful reject）

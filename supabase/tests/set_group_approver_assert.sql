@@ -37,5 +37,18 @@ begin
   perform rpc_set_group_approver('00000000-0000-4000-8000-0000000000ff', v_a1);
   raise notice 'PASS 3) 不在グループは no-op';
 
+  -- 4) 同一approverの再設定(B→B)は正当な pending を消さない（no-opガード）
+  --    group を a3 にし、a3宛の pending を新規に作ってから、再度 a3 を設定しても pending が残ること。
+  perform rpc_set_group_approver(v_g1, v_a3);
+  insert into channel_digest_tasks(org_id, group_id, title, promotion_state, requested_to_user_id, requested_at, approval_notified_at)
+    values (v_org, v_g1, '再設定検証', 'pending', v_a3, now(), null) returning id into v_t;
+  perform rpc_set_group_approver(v_g1, v_a3);   -- B→B: 変更なし → 何もしないべき
+  select * into r from channel_digest_tasks where id = v_t;
+  if r.promotion_state <> 'pending' then
+    raise exception '4) 同一approver再設定で pending が消えた（no-opガード欠落）: state=%', r.promotion_state;
+  end if;
+  if r.requested_to_user_id <> v_a3 then raise exception '4) requested_to が変わった'; end if;
+  raise notice 'PASS 4) 同一approver再設定は正当なpendingを消さない';
+
   raise notice '=== set_group_approver 全項目 PASS ===';
 end $$;

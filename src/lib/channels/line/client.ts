@@ -158,6 +158,30 @@ export async function fetchGroupSummary(accessToken: string, groupId: string): P
   }
 }
 
+export interface BotInfo {
+  basicId: string
+}
+
+/**
+ * bot info（LINE公式アカウントの basic ID 等）の取得。
+ * 友だち追加QR/URL（`https://line.me/R/ti/p/<basicId>`）の導出に使う公開情報の取得用。
+ * ベストエフォート: 非2xx・JSON不正・basicId欠落・例外はいずれもnull（取れなくても
+ * QR表示を「準備中」に落とすだけで、他の処理は止めない）。
+ */
+export async function fetchBotInfo(accessToken: string): Promise<BotInfo | null> {
+  try {
+    const response = await fetch('https://api.line.me/v2/bot/info', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!response.ok) return null
+    const body = (await response.json()) as { basicId?: unknown }
+    if (typeof body.basicId !== 'string' || body.basicId.length === 0) return null
+    return { basicId: body.basicId }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 添付コンテンツの取得。LINE側は一定期間で消えるため受信時に呼び、Storageへ保存する。
  */

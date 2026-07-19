@@ -49,7 +49,7 @@
 | **CLI Dynamic Manifest** | `spec/CLI_DYNAMIC_MANIFEST_SPEC.md` | CLI動的マニフェスト（JSON駆動コマンド登録） |
 | **Estimate Workflow** | `spec/ESTIMATE_WORKFLOW_SPEC.md` | 見積もりワークフロー（送信→承認/再見積もり） |
 | **AI Secretary Design** | `spec/AI_SECRETARY_DESIGN_v0.1.md` | AI秘書（回収・催促・証跡）設計骨格 v0.1（配管はStage 1実装済み） |
-| **Channel Plumbing** | `spec/CHANNEL_PLUMBING_SPEC.md` | チャネル配管 Stage 1（channel_messagesログ・LINE webhook/送信・突合・添付保存・redaction） |
+| **Channel Plumbing** | `spec/CHANNEL_PLUMBING_SPEC.md` | チャネル配管 Stage 1（channel_messagesログ・LINE webhook/送信・突合・添付保存・redaction・友だち追加QR導線） |
 | **AI Secretary Stage 2** | `spec/AI_SECRETARY_STAGE2_DESIGN.md` | Stage 2 設計（秘書コンソール・グループLINE×日次タスク抽出・友だち特典・アカウント所有構造）— 2a/2b実装済み（2c友だち特典は未） |
 | **AI Secretary Stage 2.5** | `spec/AI_SECRETARY_STAGE2_5_GROUP_UX.md` | グループ運用の現実対応パック（pickup_mode: all/mention_only/off・メンション即時タスク化・完了の記名/取り消し）— 実装済み |
 | **AI Secretary Stage 2.6** | `spec/AI_SECRETARY_STAGE2_6_DUE_ASSIGNEE.md` | 申し送りの期限（日付＋時刻）と担当（名前ラベル／LINE userId／identity の3段・メンション優先）— 実装済み |

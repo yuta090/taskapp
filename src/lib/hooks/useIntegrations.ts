@@ -8,6 +8,7 @@ interface UseIntegrationsReturn {
   loading: boolean
   error: Error | null
   connectGoogle: () => void
+  connectProvider: (provider: IntegrationProvider) => void
   disconnect: (connectionId: string) => Promise<void>
   getConnection: (provider: IntegrationProvider) => IntegrationConnectionSafe | null
   isConnected: (provider: IntegrationProvider) => boolean
@@ -54,6 +55,13 @@ export function useIntegrations(orgId: string): UseIntegrationsReturn {
     window.location.href = `/api/integrations/auth/google_calendar?orgId=${encodeURIComponent(orgId)}`
   }, [orgId])
 
+  const connectProvider = useCallback(
+    (provider: IntegrationProvider) => {
+      window.location.href = `/api/integrations/auth/${provider}?orgId=${encodeURIComponent(orgId)}`
+    },
+    [orgId],
+  )
+
   const disconnect = useCallback(async (connectionId: string) => {
     // Optimistic update
     setConnections((prev) => prev.filter((c) => c.id !== connectionId))
@@ -91,6 +99,7 @@ export function useIntegrations(orgId: string): UseIntegrationsReturn {
     loading,
     error,
     connectGoogle,
+    connectProvider,
     disconnect,
     getConnection,
     isConnected,

@@ -19,6 +19,7 @@ import {
   Spinner,
   Play,
   File,
+  ClipboardText,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
@@ -87,6 +88,8 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <ChatCircleText className={`${iconClass} text-amber-500`} />
     case 'spec_decision_needed':
       return <Bell className={`${iconClass} text-amber-500`} />
+    case 'digest_approval_request':
+      return <ClipboardText className={`${iconClass} text-amber-500`} />
     case 'file_uploaded':
       return <File className={`${iconClass} text-gray-500`} />
     default:
@@ -112,6 +115,7 @@ function getNotificationTypeLabel(type: string): string {
     case 'confirmation_request': return '確認依頼'
     case 'urgent_confirmation': return '緊急確認依頼'
     case 'spec_decision_needed': return '仕様決定依頼'
+    case 'digest_approval_request': return '申し送りの承認依頼'
     case 'file_uploaded': return 'ファイル'
     default: return '通知'
   }
@@ -410,6 +414,46 @@ export function NotificationInspector({
     }
   }, [taskId, supabase, scheduleAdvance])
 
+  // Digest approval (Stage 2.7-B §5b): approve -> creates the real task / reject -> drops it.
+  // Goes through the same console API (RPC re-checks the approver authorization).
+  const handleDigestApproval = useCallback(
+    async (action: 'approve' | 'reject') => {
+      const digestTaskId = payload.digest_task_id
+      if (!digestTaskId) return
+      setActionLoading(true)
+      setActionError(null)
+      try {
+        const res = await fetch('/api/channels/digest-tasks/approval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orgId: notification.org_id, taskId: digestTaskId, action }),
+        })
+        if (!res.ok) {
+          // 409 = 他経路(LINE/トレイ)で既に処理済み。矛盾ではないので完了扱いにして進める
+          if (res.status === 409) {
+            setActionCompleted('done')
+            scheduleAdvance()
+            return
+          }
+          const json = await res.json().catch(() => ({}))
+          throw new Error(
+            res.status === 403
+              ? 'この項目を承認する権限がありません（責任者本人のみ）。'
+              : (json.error ?? '処理に失敗しました'),
+          )
+        }
+        setActionCompleted(action === 'approve' ? 'approved' : 'rejected')
+        scheduleAdvance()
+      } catch (err: unknown) {
+        console.error('Digest approval failed:', err)
+        setActionError(err instanceof Error ? err.message : '処理に失敗しました。再試行してください。')
+      } finally {
+        setActionLoading(false)
+      }
+    },
+    [payload.digest_task_id, notification.org_id, scheduleAdvance],
+  )
+
   // --- Render action panel based on notification type ---
   const renderActionError = () => actionError ? (
     <button
@@ -603,6 +647,49 @@ export function NotificationInspector({
               )}
               決定済みにする
             </button>
+          )}
+          {renderActionError()}
+        </div>
+      )
+    }
+
+    // Digest approval request: Approve (create task) / Reject
+    if (notification.type === 'digest_approval_request' && payload.digest_task_id) {
+      return (
+        <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <p className="text-xs text-gray-500 mb-2 font-medium">申し送りの承認</p>
+          {actionCompleted ? (
+            <div className="flex items-center gap-2 text-sm text-green-600">
+              <CheckCircle weight="fill" />
+              <span>
+                {actionCompleted === 'approved'
+                  ? 'タスク化しました'
+                  : actionCompleted === 'rejected'
+                    ? '却下しました'
+                    : '処理済みです'}
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => handleDigestApproval('approve')}
+                disabled={actionLoading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {actionLoading ? <Spinner className="animate-spin" /> : <CheckCircle weight="bold" />}
+                承認してタスク化
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDigestApproval('reject')}
+                disabled={actionLoading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
+              >
+                <XCircle weight="bold" />
+                却下
+              </button>
+            </div>
           )}
           {renderActionError()}
         </div>

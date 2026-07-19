@@ -16,6 +16,8 @@
 
 # misc
 .DS_Store
+# macOS AppleDouble files (exFAT/NTFS ボリューム上で生成される ._ ゴミ)
+._*
 *.pem
 
 # debug

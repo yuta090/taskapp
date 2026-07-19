@@ -3,13 +3,15 @@ import {
   claimPendingApprovalNotifications,
   findLineAccountById,
   getOrgChannelPolicyState,
+  getPlatformBudgetState,
   insertChannelMessage,
   clearApprovalNotifiedAt,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { buildApprovalPromptFlexMessage, buildDigestRetryKey } from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
-import { decideAutoPush, getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
+import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
 
 /**
  * POST /api/cron/approval-notify
@@ -71,11 +73,15 @@ export async function POST(request: NextRequest) {
           return
         }
 
-        // 送信境界の縮退判定（PR4メータリング）。承認催促はauto-push。
+        // 送信境界の縮退判定。承認催促はauto-push。org層(policy)＋グローバル予算層(共有bot
+        // account軸の実物理上限)の二層で判定する（fable確定設計）。専用bot(owner_type='org')は
+        // 顧客側の枠であり当社の持ち出しではないため常に'ok'扱い（グローバル層は無関係）。
         const policy = await getOrgChannelPolicyState(row.orgId)
-        const decision = decideAutoPush({
-          state: policy.state,
-          onExceed: policy.onExceed,
+        const globalState =
+          account.ownerType === 'platform' ? await getPlatformBudgetState(account.id) : 'ok'
+        const decision = decideSharedSendBudget({
+          org: { state: policy.state, onExceed: policy.onExceed },
+          global: { state: globalState },
           jstDayOfYear,
         })
         if (!decision.deliver) {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   Copy,
   Check,
@@ -10,9 +11,29 @@ import {
   XCircle,
   ChatCircleDots,
   ClipboardText,
+  Sparkle,
 } from '@phosphor-icons/react'
 import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
+import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+
+/**
+ * 相手先グループ数の上限(402 group_limit_reached)を踏んだ際のProアップセル注記。
+ * 押し付けにならないよう1行＋導線リンクのみ（設定は他ストリームのゲート実装＝#287）。
+ */
+function LineProUpsellNote() {
+  return (
+    <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700">
+      <Sparkle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" weight="fill" />
+      <span>
+        自社LINE(Pro)なら、自社の名前で・即時・送信の上限なし。{' '}
+        <Link href="/settings/billing" className="underline hover:text-amber-800">
+          プランを見る
+        </Link>
+      </span>
+    </p>
+  )
+}
 
 interface PendingGroupClaimItem {
   id: string
@@ -39,7 +60,7 @@ interface IssuedBatchItem {
  *
  * promoteのdigest承認（ApprovalsClient・"確認待ち"タブ）とは別概念。こちらは
  * channel_group_claims（web_approval）を扱う: 事務所がプロジェクトを選んでコードを発行し、
- * 顧問先がLINEグループに投入すると、下に確認待ちとして現れる。承認するとグループが紐付く。
+ * 相手先がLINEグループに投入すると、下に確認待ちとして現れる。承認するとグループが紐付く。
  * 楽観更新: 承認/却下が成功したら即座にリストから消す（保存ボタンは無い）。
  */
 export function GroupLinksClient({ orgId }: { orgId: string }) {
@@ -51,12 +72,15 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   const [issuedCode, setIssuedCode] = useState<IssuedCode | null>(null)
   const [copied, setCopied] = useState(false)
   const [issueError, setIssueError] = useState<string | null>(null)
+  // 相手先グループ数の上限(402 group_limit_reached)は通常エラーと別扱い(Proアップセル)。
+  const [issueGroupLimitReached, setIssueGroupLimitReached] = useState(false)
 
   const [items, setItems] = useState<PendingGroupClaimItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<Record<string, 'approve' | 'reject'>>({})
   const [rowError, setRowError] = useState<Record<string, string>>({})
+  const [rowGroupLimitReached, setRowGroupLimitReached] = useState<Record<string, boolean>>({})
 
   // 本部一括発行（code_only・entitlementがある時だけ表示。設計正本 §3・PR3b）
   const [allowCodeOnly, setAllowCodeOnly] = useState(false)
@@ -152,6 +176,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
     if (!selectedSpaceId) return
     setIssuing(true)
     setIssueError(null)
+    setIssueGroupLimitReached(false)
     try {
       const res = await fetch('/api/channels/group-claims/issue', {
         method: 'POST',
@@ -159,7 +184,13 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         body: JSON.stringify({ orgId, spaceId: selectedSpaceId }),
       })
       const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error ?? 'コードの発行に失敗しました')
+      if (!res.ok) {
+        if (res.status === 402 && json.code === 'group_limit_reached') {
+          setIssueGroupLimitReached(true)
+          return
+        }
+        throw new Error(json.error ?? 'コードの発行に失敗しました')
+      }
       // 平文はこの一度きり。画面を離れたら二度と表示できない
       setIssuedCode({ code: json.code, expiresAt: json.expiresAt })
       setCopied(false)
@@ -184,6 +215,11 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         delete next[claimId]
         return next
       })
+      setRowGroupLimitReached((e) => {
+        const next = { ...e }
+        delete next[claimId]
+        return next
+      })
       try {
         const res = await fetch('/api/channels/group-claims/approval', {
           method: 'POST',
@@ -195,6 +231,12 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           // 409 は他経路(別タブ・同時操作)で既に処理済み。その場合もリストから消して整合させる
           if (res.status === 409) {
             setItems((prev) => prev.filter((it) => it.id !== claimId))
+            return
+          }
+          // 相手先グループ数の上限(402 group_limit_reached): 承認は成立しない(行は残す)。
+          // 通常エラーではなくProアップセル注記を出す。
+          if (res.status === 402 && json.code === 'group_limit_reached') {
+            setRowGroupLimitReached((prev) => ({ ...prev, [claimId]: true }))
             return
           }
           const msg =
@@ -232,14 +274,29 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           <section>
             <h2 className="text-sm font-semibold text-gray-900">共有botグループを追加</h2>
             <p className="mt-1 text-xs text-gray-500">
-              プロジェクトを選んでコードを発行し、顧問先のLINEグループに貼り付けてもらってください。
-              投入されると下に確認待ちが表示されます。承認するとグループが紐付きます。
+              相手先がまだ秘書を友だち追加していない場合は、下のQRで秘書を友だち追加してもらい、
+              その秘書を<strong>LINEグループに招待</strong>してもらいます。そのうえでプロジェクトを選んでコードを発行し、
+              <strong>相手先のLINEグループのトーク</strong>に貼り付けてもらってください。投入されると下に確認待ちが表示され、
+              承認するとグループが紐付きます。
             </p>
+
+            <div className="mt-3">
+              <LineFriendQr orgId={orgId} purpose="group" />
+            </div>
 
             {issueError && (
               <div className="mt-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 <Warning className="w-4 h-4 flex-shrink-0 mt-0.5" />
                 <span>{issueError}</span>
+              </div>
+            )}
+
+            {issueGroupLimitReached && (
+              <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-xs text-amber-800">
+                  接続できる相手先グループ数の上限に達しています。
+                </p>
+                <LineProUpsellNote />
               </div>
             )}
 
@@ -426,6 +483,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                 {items.map((item) => {
                   const acting = busy[item.id]
                   const err = rowError[item.id]
+                  const limitReached = rowGroupLimitReached[item.id]
                   return (
                     <li key={item.id} className="rounded-lg border border-gray-200 bg-white p-4">
                       <p className="text-sm font-medium text-gray-900">
@@ -446,6 +504,15 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                         <p className="mt-2 rounded bg-red-50 border border-red-200 px-2 py-1.5 text-xs text-red-700">
                           {err}
                         </p>
+                      )}
+
+                      {limitReached && (
+                        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                          <p className="text-xs text-amber-800">
+                            接続できる相手先グループ数の上限に達しているため承認できません。
+                          </p>
+                          <LineProUpsellNote />
+                        </div>
                       )}
 
                       <div className="mt-3 flex items-center gap-2">

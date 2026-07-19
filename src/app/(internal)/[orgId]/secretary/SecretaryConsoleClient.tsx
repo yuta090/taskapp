@@ -21,7 +21,7 @@ interface SecretaryConsoleClientProps {
  * docs/spec/AI_SECRETARY_STAGE2_DESIGN.md §5
  */
 export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
-  const { account, viewerRole, isLoading: accountLoading, setStatus } = useChannelAccount(orgId)
+  const { account, sharedBotInUse, viewerRole, isLoading: accountLoading, setStatus } = useChannelAccount(orgId)
   const { spaces: allSpaces } = useUserSpaces()
   const { counts } = useChannelIdentities(orgId)
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
@@ -41,6 +41,7 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
       <SecretaryTabNav orgId={orgId} activeTab="messages" />
       <BotStatusHeader
         account={account}
+        sharedBotInUse={sharedBotInUse}
         viewerRole={viewerRole}
         onToggle={setStatus}
         isLoading={accountLoading}
@@ -49,7 +50,7 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
         <aside className="w-full md:w-[280px] flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col max-h-48 md:max-h-none overflow-hidden">
           <div className="px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide flex-shrink-0">
-            連携先
+            相手先
           </div>
           {spaces.length === 0 ? (
             <EmptyState icon={<ChatCircleDots />} message="プロジェクトがありません" />

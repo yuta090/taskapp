@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   resolvePlanFromBilling,
   planHasFeature,
+  planLimits,
   resolveOrgEntitlements,
   type OrgBillingRow,
 } from '@/lib/billing/entitlements'
@@ -106,8 +107,8 @@ describe('resolvePlanFromBilling', () => {
 })
 
 describe('planHasFeature', () => {
-  it('free has neither feature', () => {
-    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(false)
+  it('free は自動タスク拾いは持つが、時刻リマインドは持たない', () => {
+    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(true)
     expect(planHasFeature('free', 'timed_line_reminders')).toBe(false)
   })
 
@@ -119,6 +120,33 @@ describe('planHasFeature', () => {
   it('enterprise has both features', () => {
     expect(planHasFeature('enterprise', 'line_pickup_dual_mode')).toBe(true)
     expect(planHasFeature('enterprise', 'timed_line_reminders')).toBe(true)
+  })
+
+  it('Pro中核（白ラベル/1:1DM/即時）は pro・enterprise のみ、free には無い', () => {
+    for (const f of ['own_line_account', 'line_direct_dm', 'instant_line_notify'] as const) {
+      expect(planHasFeature('free', f)).toBe(false)
+      expect(planHasFeature('pro', f)).toBe(true)
+      expect(planHasFeature('enterprise', f)).toBe(true)
+    }
+  })
+
+  it('自動タスク拾いは free に開放・ただし即時通知は Pro のみ（Free=日次まとめで差別化）', () => {
+    expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(true)
+    expect(planHasFeature('free', 'instant_line_notify')).toBe(false)
+    expect(planHasFeature('pro', 'instant_line_notify')).toBe(true)
+  })
+})
+
+describe('planLimits', () => {
+  it('free は狭い上限（グループ3・共通LINE送信50）', () => {
+    expect(planLimits('free')).toEqual({ maxLineGroups: 3, monthlySharedPushQuota: 50 })
+  })
+  it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
+    expect(planLimits('pro').maxLineGroups).toBe(50)
+    expect(planLimits('pro').monthlySharedPushQuota).toBeNull()
+  })
+  it('enterprise は無制限', () => {
+    expect(planLimits('enterprise')).toEqual({ maxLineGroups: null, monthlySharedPushQuota: null })
   })
 })
 
@@ -149,13 +177,15 @@ describe('resolveOrgEntitlements', () => {
     expect(result.has('timed_line_reminders')).toBe(true)
   })
 
-  it('no row -> free / has = false', async () => {
+  it('no row -> free（拾いは持つが Pro専有機能は持たない）', async () => {
     const admin = makeAdmin({ data: null, error: null })
 
     const result = await resolveOrgEntitlements(admin, 'org-1', NOW)
 
     expect(result.planId).toBe('free')
-    expect(result.has('line_pickup_dual_mode')).toBe(false)
+    expect(result.has('line_pickup_dual_mode')).toBe(true)
+    expect(result.has('instant_line_notify')).toBe(false)
+    expect(result.has('timed_line_reminders')).toBe(false)
   })
 
   it('DB error -> fail-closed to free, does not throw', async () => {
@@ -165,6 +195,7 @@ describe('resolveOrgEntitlements', () => {
       expect.objectContaining({ planId: 'free' })
     )
     const result = await resolveOrgEntitlements(admin, 'org-1', NOW)
-    expect(result.has('line_pickup_dual_mode')).toBe(false)
+    // fail-closed = free。Pro専有機能は持たない（拾いは free でも持つ）
+    expect(result.has('instant_line_notify')).toBe(false)
   })
 })
