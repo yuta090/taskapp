@@ -6,8 +6,8 @@ import { LinkCodeIssueButton } from '@/components/secretary/LinkCodeIssueButton'
 interface SpaceConnectionListProps {
   orgId: string
   spaces: UserSpace[]
-  /** space_id -> active な channel_identities 件数 */
-  identityCounts: Record<string, number>
+  /** space_id -> active な連携数（1:1DMのidentity＋グループ接続の合算）。>0 で「連携済み」 */
+  connectionCounts: Record<string, number>
   selectedSpaceId: string | null
   onSelect: (spaceId: string) => void
 }
@@ -16,14 +16,14 @@ interface SpaceConnectionListProps {
 export function SpaceConnectionList({
   orgId,
   spaces,
-  identityCounts,
+  connectionCounts,
   selectedSpaceId,
   onSelect,
 }: SpaceConnectionListProps) {
   return (
     <div className="overflow-y-auto flex-1 py-2">
       {spaces.map((space) => {
-        const count = identityCounts[space.id] ?? 0
+        const count = connectionCounts[space.id] ?? 0
         const isSelected = space.id === selectedSpaceId
         return (
           <div

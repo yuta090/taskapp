@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
 import {
   findActiveIdentityForSpace,
+  findActiveGroupForSpace,
   findLineAccountForOrg,
   findLineAccountByIdLookup,
   insertChannelMessage,
@@ -9,6 +10,7 @@ import {
   verifyGroupInOrg,
   type InsertChannelMessageInput,
   type LineAccount,
+  type ChannelGroup,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { isValidUuid } from '@/lib/uuid'
@@ -75,15 +77,17 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * spaceId宛て送信＝1:1個別DM（担当者/顧問先1名を名指しした送信）。line_direct_dm ゲート
- * （Pro/Enterprise専有・設計正本「AI秘書 LINE連携：つなぎ方とプラン」）。
+ * spaceId宛て送信の入口。相手先が「グループ接続」されていれば、1:1DMではなく
+ * グループ宛てに自動で振り分ける（相手先接続=グループ単位はFreeでも可・ゲート無し）。
+ * コンソールの送信UIは常に spaceId を送るため、Freeのグループ運用でもここでグループ経路へ流れる。
  *
+ * グループ接続が無い＝純粋な1:1個別DMの相手先のときだけ line_direct_dm ゲートに進む
+ * （Pro/Enterprise専有・設計正本「AI秘書 LINE連携：つなぎ方とプラン」）。
  * own_line_account（自社LINE登録）自体が既にPro専有のため findLineAccountForOrg は
  * 通常Free orgでは何も返さず409になるが、それだけでは「Pro→Freeへのダウングレード後も
  * 過去に登録した自社LINEアカウント行がactiveのまま残っている」ケースを塞げない
  * （downgrade処理がaccount行を自動でdisabledにする保証がない）。plan由来のfeatureで
  * 明示的に再ゲートし、送信境界を確実にfail-closedにする。
- * グループ宛て(sendToGroup)は対象外（相手先接続=グループ単位はFreeでも可）。
  */
 async function sendToSpace(params: {
   orgId: string
@@ -93,6 +97,13 @@ async function sendToSpace(params: {
 }): Promise<NextResponse> {
   const { orgId, spaceId, text, sentBy } = params
 
+  // 相手先がグループ接続されていればグループ経路へ（ゲート無し・Freeでも送れる）。
+  const group = await findActiveGroupForSpace(orgId, spaceId)
+  if (group) {
+    return sendToChannelGroup(group, { orgId, text, sentBy })
+  }
+
+  // ここに来るのは純粋な1:1個別DMの相手先のみ → Pro専有ゲート。
   const entitlements = await resolveOrgEntitlements(createAdminClient(), orgId)
   if (!entitlements.has('line_direct_dm')) {
     return NextResponse.json({ error: 'plan_required', feature: 'line_direct_dm' }, { status: 403 })
@@ -152,9 +163,23 @@ async function sendToGroup(params: {
     return NextResponse.json({ error: 'group not found' }, { status: 404 })
   }
 
-  // 設計正本§3: グループ送信は必ず group.account_id → account。
-  // findLineAccountForOrg（org→account逆引き）はグループ送信に使わない
-  // （共有bot(platform)配下のグループはorg単体からaccountを逆引きできないため）。
+  return sendToChannelGroup(group, { orgId, text, sentBy })
+}
+
+/**
+ * 解決済みの active グループ宛てにpush＋記録する共通経路。
+ * spaceId宛ての自動振り分け(sendToSpace)と明示的なgroupId送信(sendToGroup)の両方から使う。
+ *
+ * 設計正本§3: グループ送信は必ず group.account_id → account。
+ * findLineAccountForOrg（org→account逆引き）はグループ送信に使わない
+ * （共有bot(platform)配下のグループはorg単体からaccountを逆引きできないため）。
+ */
+async function sendToChannelGroup(
+  group: ChannelGroup,
+  params: { orgId: string; text: string; sentBy: string },
+): Promise<NextResponse> {
+  const { orgId, text, sentBy } = params
+
   const resolved = await resolveActiveLineAccountById(group.accountId)
   if (!resolved.ok) return resolved.response
   const account = resolved.account
