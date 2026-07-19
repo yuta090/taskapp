@@ -94,6 +94,9 @@ export function useUserSpaces(options?: UseUserSpacesOptions) {
       return mapped
     },
     enabled: !!user,
+    // STRUCTUREティア(設定・接続構成): 実質固定だがwebhook起点の変化を陳腐化させないため
+    // Infinityにはせず、mount時のサイレントSWR(背景refetch)は効かせる(freshness tiers)。
+    staleTime: 5 * 60_000,
   })
 
   const refetch = useCallback(async () => {

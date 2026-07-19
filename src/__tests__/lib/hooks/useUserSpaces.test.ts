@@ -6,7 +6,7 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 
 /**
  * useUserSpaces — ユーザーが所属する全spaceを取得するフック。
- * staleTime上書き撤廃(アプリ既定=QueryProviderの2分を継承)の回帰と、
+ * STRUCTUREティア(設定・接続構成)のため staleTime: 5分 を明示する(freshness tiers)。
  * 既存のrefetch()が['userSpaces']を無効化する挙動(useSpaceGroups/useSpaceArchive等の
  * mutation側が依拠する経路)を確認する。
  */
@@ -52,7 +52,7 @@ describe('useUserSpaces', () => {
     vi.restoreAllMocks()
   })
 
-  it('staleTimeを上書きしない（アプリ既定=QueryProviderの2分を継承する）', async () => {
+  it('staleTimeはSTRUCTUREティア(5分)を明示する（mount時サイレントSWRで背景refetchは効かせる）', async () => {
     const { Wrapper } = createWrapper()
 
     renderHook(() => useUserSpaces(), { wrapper: Wrapper })
@@ -62,7 +62,7 @@ describe('useUserSpaces', () => {
       string,
       unknown
     >
-    expect(options.staleTime).toBeUndefined()
+    expect(options.staleTime).toBe(5 * 60_000)
   })
 
   it('refetch()は[\'userSpaces\']クエリを無効化する（グループ/アーカイブmutationが依拠する経路の回帰）', async () => {

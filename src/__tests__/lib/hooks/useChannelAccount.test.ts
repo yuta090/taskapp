@@ -39,7 +39,7 @@ describe('useChannelAccount', () => {
     vi.restoreAllMocks()
   })
 
-  it('staleTimeを上書きしない（アプリ既定=QueryProviderの2分を継承する）', async () => {
+  it('staleTimeはSTRUCTUREティア(5分)を明示する（mount時サイレントSWRで背景refetchは効かせる）', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ account: accountMeta, viewerRole: 'owner' }),
@@ -52,7 +52,7 @@ describe('useChannelAccount', () => {
       string,
       unknown
     >
-    expect(options.staleTime).toBeUndefined()
+    expect(options.staleTime).toBe(5 * 60_000)
   })
 
   it('初期取得: accountとviewerRoleを返す', async () => {

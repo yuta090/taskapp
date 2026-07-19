@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Copy,
   Check,
@@ -63,6 +64,7 @@ interface IssuedBatchItem {
  * 楽観更新: 承認/却下が成功したら即座にリストから消す（保存ボタンは無い）。
  */
 export function GroupLinksClient({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient()
   const { spaces } = useUserSpaces()
   const orgSpaces = spaces.filter((s) => s.orgId === orgId)
 
@@ -248,6 +250,14 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         }
         // 楽観更新: 成功したら消す
         setItems((prev) => prev.filter((it) => it.id !== claimId))
+        // 承認(approve)は rpc_approve_group_claim が channel_groups を新規active化する。
+        // 秘書コンソール左カラム等の接続バッジ(useChannelGroups/useChannelGroupCounts)が
+        // STRUCTUREティア(5分SWR)で固定されているため、承認直後に無効化して反映させる。
+        // 却下(reject)は channel_groups を作らないため対象外(STRUCTURE規約)。
+        if (action === 'approve') {
+          void queryClient.invalidateQueries({ queryKey: ['channelGroups', orgId] })
+          void queryClient.invalidateQueries({ queryKey: ['channelGroupCounts', orgId] })
+        }
       } catch (e) {
         setRowError((prev) => ({
           ...prev,
@@ -261,7 +271,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         })
       }
     },
-    [orgId],
+    [orgId, queryClient],
   )
 
   return (

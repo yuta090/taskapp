@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { ChatCircleDots } from '@phosphor-icons/react'
 import { EmptyState } from '@/components/shared'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
@@ -8,7 +9,6 @@ import { useChannelAccount } from '@/lib/hooks/useChannelAccount'
 import { useChannelIdentities } from '@/lib/hooks/useChannelIdentities'
 import { useChannelGroupCounts } from '@/lib/hooks/useChannelGroupCounts'
 import { BotStatusHeader } from '@/components/secretary/BotStatusHeader'
-import { SecretaryTabNav } from '@/components/secretary/SecretaryTabNav'
 import { SpaceConnectionList } from '@/components/secretary/SpaceConnectionList'
 import { MessageTimeline } from '@/components/secretary/MessageTimeline'
 
@@ -19,6 +19,8 @@ interface SecretaryConsoleClientProps {
 /**
  * 秘書コンソール — /{orgId}/secretary
  * Main ペイン内2カラム(左: 接続リスト / 右: タイムライン＋送信)。Inspectorは使わない。
+ * タブバー(SecretaryTabNav)は親の secretary/layout.tsx が一元描画するため、
+ * ここでは自前で描画しない(二重nav禁止)。
  * docs/spec/AI_SECRETARY_STAGE2_DESIGN.md §5
  */
 export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
@@ -26,7 +28,23 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
   const { spaces: allSpaces } = useUserSpaces()
   const { counts: identityCounts } = useChannelIdentities(orgId)
   const { counts: groupCounts } = useChannelGroupCounts(orgId)
-  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null)
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  // 選択中の相手先は?space=<id>に持ち上げる(タブ往復・戻る/進むで選択が消えないように)
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(() => searchParams.get('space'))
+
+  const handleSelectSpace = useCallback(
+    (spaceId: string) => {
+      setSelectedSpaceId(spaceId)
+      // ルート遷移(router.replace)はRSCペイロードの往復を発生させるため使わない。
+      // TasksPageClient.syncUrlWithStateと同型: URLだけ書き換えるhistory.replaceState。
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('space', spaceId)
+      const newUrl = `${pathname}?${params.toString()}`
+      window.history.replaceState(null, '', newUrl)
+    },
+    [pathname, searchParams],
+  )
 
   const spaces = useMemo(
     () => allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null),
@@ -50,7 +68,6 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <SecretaryTabNav orgId={orgId} activeTab="messages" />
       <BotStatusHeader
         account={account}
         sharedBotInUse={sharedBotInUse}
@@ -72,7 +89,7 @@ export function SecretaryConsoleClient({ orgId }: SecretaryConsoleClientProps) {
               spaces={spaces}
               connectionCounts={connectionCounts}
               selectedSpaceId={effectiveSpaceId}
-              onSelect={setSelectedSpaceId}
+              onSelect={handleSelectSpace}
             />
           )}
         </aside>

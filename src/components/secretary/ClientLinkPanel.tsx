@@ -23,7 +23,11 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
   const { spaces: allSpaces } = useUserSpaces()
   // LINEハブの接続判定なので channel='line' に限定する（非LINE identityだけの相手先を
   // 「LINE接続済み」と誤判定してQRを畳んでしまわないように）。
-  const { counts, isLoading: identitiesLoading } = useChannelIdentities(orgId, 'line')
+  // QR/合言葉を出して相手先の友だち追加を待つ「接続待ち」画面なので polling:true
+  // (WAITINGティア・15秒間隔)を有効化する(freshness tiers)。
+  const { counts, isLoading: identitiesLoading } = useChannelIdentities(orgId, 'line', {
+    polling: true,
+  })
   const orgSpaces = useMemo(
     () => allSpaces.filter((s) => s.orgId === orgId && s.archivedAt === null),
     [allSpaces, orgId],

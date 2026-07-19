@@ -85,6 +85,12 @@ beforeEach(() => {
 })
 
 describe('IntegrationsConsoleClient', () => {
+  it('SecretaryTabNavを自前で描画しない(タブバーは親の secretary/layout.tsx が持つ)', () => {
+    useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    expect(screen.queryByTestId('secretary-tab-integrations')).not.toBeInTheDocument()
+  })
+
   it('sinkが無ければ詳細パネルの代わりに空状態を表示する', () => {
     useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
     render(<IntegrationsConsoleClient orgId="org-1" />)
