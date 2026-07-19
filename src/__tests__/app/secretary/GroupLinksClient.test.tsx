@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GroupLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/groups/GroupLinksClient'
 
@@ -31,6 +31,17 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const fetchMock = vi.fn()
+
+/**
+ * 承認待ち一覧の静かなポーリング間隔。GroupLinksClient本体の
+ * PENDING_CLAIMS_POLL_INTERVAL_MS(15秒・WAITINGティア = 1対1接続待ち画面と同じ)と揃える。
+ */
+const POLL_INTERVAL_MS = 15_000
+
+function pendingCallCount() {
+  return fetchMock.mock.calls.filter(([url]) => (url as string).includes('/api/channels/group-claims/pending'))
+    .length
+}
 
 /**
  * 承認/却下後の invalidateQueries(['channelGroups','channelGroupCounts']) 検証のため
@@ -435,6 +446,193 @@ describe('GroupLinksClient', () => {
       await waitFor(() => {
         expect(screen.getByText('このorgはcode_only発行が許可されていません')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('確認待ち一覧の静かなポーリング（相手先のグループ参加を自動反映・1対1接続待ち画面と挙動を揃える）', () => {
+    it('初回mountでは取得中にloadingスケルトンを表示し、その後データ表示に切り替わる', async () => {
+      let resolvePending!: () => void
+      const pendingGate = new Promise<void>((resolve) => {
+        resolvePending = resolve
+      })
+      fetchMock.mockImplementation((url: string) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          return pendingGate.then(() => ({ ok: true, json: () => Promise.resolve({ items: [] }) }))
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      renderPanel()
+      expect(await screen.findByText('読み込み中...')).toBeInTheDocument()
+
+      resolvePending()
+      await waitFor(() => {
+        expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument()
+    })
+
+    it('15秒経過でサイレント再取得が走り、新しい承認待ち行が追加表示される（loadingスケルトンは再表示されずチラつかない）', async () => {
+      let items: unknown[] = []
+      fetchMock.mockImplementation((url: string) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items }) })
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
+
+        // 相手先がLINEグループに参加した想定 → 次のpending応答に新規行が現れる
+        items = [
+          {
+            id: 'claim-2',
+            externalGroupId: 'G-2',
+            spaceId: 'space-1',
+            spaceName: '山田商事',
+            challengeLabel: 'CD34',
+            groupDisplayNameSnapshot: '新しい相談グループ',
+            createdAt: '2026-07-16T00:00:10Z',
+          },
+        ]
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+
+        expect(screen.getByText('新しい相談グループ')).toBeInTheDocument()
+        // silent reloadなのでloadingスケルトンは再表示されない(チラつかない)
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('unmountでintervalがクリアされ、以降ポーリングされない', async () => {
+      mockApis({ pendingItems: [] })
+
+      vi.useFakeTimers()
+      try {
+        const { unmount } = renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        const countAtMount = pendingCallCount()
+
+        unmount()
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
+        })
+
+        expect(pendingCallCount()).toBe(countAtMount)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('document.visibilityStateがhiddenの間はポーリングfetchをスキップする', async () => {
+      mockApis({ pendingItems: [] })
+      const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        const countAfterMount = pendingCallCount()
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+
+        // hidden中はポーリングfetchが発火しない
+        expect(pendingCallCount()).toBe(countAfterMount)
+      } finally {
+        vi.useRealTimers()
+        if (originalDescriptor) {
+          Object.defineProperty(document, 'visibilityState', originalDescriptor)
+        } else {
+          Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+        }
+      }
+    })
+
+    it('承認処理中(busy)にポーリングが走っても、楽観除去した行が一瞬復活しない（busyガード）', async () => {
+      let resolveApproval!: () => void
+      const approvalGate = new Promise<void>((resolve) => {
+        resolveApproval = resolve
+      })
+      const claim = {
+        id: 'claim-1',
+        externalGroupId: 'G-1',
+        spaceId: 'space-1',
+        spaceName: '山田商事',
+        challengeLabel: 'AB12',
+        groupDisplayNameSnapshot: 'ある会社の相談グループ',
+        createdAt: '2026-07-16T00:00:00Z',
+      }
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/api/channels/group-claims/pending')) {
+          // ポーリングはサーバがまだcommit前(承認処理中)の一覧を返し続ける想定
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [claim] }) })
+        }
+        if (url.includes('/api/channels/group-claims/policy')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ allowCodeOnly: false }) })
+        }
+        if (url.includes('/api/channels/group-claims/approval') && init?.method === 'POST') {
+          return approvalGate.then(() => ({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ status: 'approved' }),
+          }))
+        }
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+      })
+
+      vi.useFakeTimers()
+      try {
+        renderPanel()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.getByText('ある会社の相談グループ')).toBeInTheDocument()
+
+        await act(async () => {
+          fireEvent.click(screen.getByText('承認'))
+          await vi.advanceTimersByTimeAsync(0)
+        })
+
+        // busy中にポーリングが1回走る(サーバ応答はまだ承認前の一覧のまま)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        })
+        // busyガードにより重複表示・復活せず1件のまま
+        expect(screen.getAllByText('ある会社の相談グループ')).toHaveLength(1)
+
+        // 承認APIが完了すると、楽観除去どおりリストから消える
+        resolveApproval()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0)
+        })
+        expect(screen.queryByText('ある会社の相談グループ')).not.toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })

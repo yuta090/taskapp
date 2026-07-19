@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -21,6 +21,12 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
  * 相手先グループ数の上限(402 group_limit_reached)を踏んだ際のProアップセル注記。
  * 押し付けにならないよう1行＋導線リンクのみ（設定は他ストリームのゲート実装＝#287）。
  */
+/**
+ * 承認待ち一覧の静かなポーリング間隔。相手先がグループに参加した数秒後に自動反映させるため、
+ * 1対1の接続待ち画面(ClientLinkPanel→useChannelIdentities polling:true)と揃えて15秒(WAITINGティア)。
+ */
+const PENDING_CLAIMS_POLL_INTERVAL_MS = 15_000
+
 function LineProUpsellNote() {
   return (
     <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700">
@@ -82,6 +88,12 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   const [busy, setBusy] = useState<Record<string, 'approve' | 'reject'>>({})
   const [rowError, setRowError] = useState<Record<string, string>>({})
   const [rowGroupLimitReached, setRowGroupLimitReached] = useState<Record<string, boolean>>({})
+  // ポーリング(reloadのsilent実行)がbusy(承認/却下処理中)の行を巻き戻さないためのガード。
+  // busy stateは非同期に更新されるため、setInterval側のコールバックから常に最新値を読めるようrefで併走する。
+  const busyRef = useRef<Record<string, 'approve' | 'reject'>>({})
+  useEffect(() => {
+    busyRef.current = busy
+  }, [busy])
 
   // 本部一括発行（code_only・entitlementがある時だけ表示。設計正本 §3・PR3b）
   const [allowCodeOnly, setAllowCodeOnly] = useState(false)
@@ -93,23 +105,59 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   )
   const [batchCopied, setBatchCopied] = useState(false)
 
-  const reload = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const res = await fetch(`/api/channels/group-claims/pending?orgId=${orgId}`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error ?? '取得に失敗しました')
-      setItems(json.items ?? [])
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : '取得に失敗しました')
-    } finally {
-      setLoading(false)
-    }
-  }, [orgId])
+  /**
+   * @param options.silent true のときは初回ロード用のloading/loadErrorに触れず、
+   *   itemsだけを裏で静かに差し替える(ポーリング用)。画面をチラつかせない。
+   */
+  const reload = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent === true
+      if (!silent) {
+        setLoading(true)
+        setLoadError(null)
+      }
+      try {
+        const res = await fetch(`/api/channels/group-claims/pending?orgId=${orgId}`)
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(json.error ?? '取得に失敗しました')
+        const nextItems: PendingGroupClaimItem[] = json.items ?? []
+        if (silent) {
+          setItems((prev) => {
+            // busy(承認/却下処理中)の行は、サーバがまだcommit前の状態を返して復活させないよう
+            // ポーリング結果で上書きしない。処理中の行は直前のprevをそのまま残す。
+            const busyIds = new Set(Object.keys(busyRef.current))
+            if (busyIds.size === 0) return nextItems
+            const preservedBusy = prev.filter((it) => busyIds.has(it.id))
+            const merged = nextItems.filter((it) => !busyIds.has(it.id))
+            return [...merged, ...preservedBusy]
+          })
+        } else {
+          setItems(nextItems)
+        }
+      } catch (e) {
+        // silent(ポーリング)の取得失敗は既存表示を保持する(画面を赤くしない)。初回ロード失敗のみエラー表示。
+        if (!silent) {
+          setLoadError(e instanceof Error ? e.message : '取得に失敗しました')
+        }
+      } finally {
+        if (!silent) setLoading(false)
+      }
+    },
+    [orgId],
+  )
 
   useEffect(() => {
     void reload()
+  }, [reload])
+
+  // 静かなポーリング: 相手先がグループに参加した数秒後に自動反映させる(1対1接続待ち画面と揃える)。
+  // タブが非表示の間はfetchをスキップする(react-queryのrefetchIntervalInBackground:falseと挙動を揃える)。
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void reload({ silent: true })
+    }, PENDING_CLAIMS_POLL_INTERVAL_MS)
+    return () => clearInterval(id)
   }, [reload])
 
   useEffect(() => {
