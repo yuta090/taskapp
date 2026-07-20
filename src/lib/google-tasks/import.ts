@@ -148,6 +148,101 @@ async function createExternalTask(
   return taskId
 }
 
+/**
+ * 双方向同期コネクタ層(multica)への enqueue。この接続の org に active な multica 接続があれば
+ * その id を返す(無ければ null)。best-effort: DBエラーはログのみで null 扱い(gtasks import 自体は
+ * 継続する。multica 連携はあくまで付随機能でgtasks取り込みの成否をブロックしない)。
+ */
+async function findActiveMulticaConnectionId(orgId: string): Promise<string | null> {
+  try {
+    const { data, error } = await admin()
+      .from('integration_connections')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('provider', 'multica')
+      .eq('status', 'active')
+      .maybeSingle()
+    if (error) throw new Error(`findActiveMulticaConnectionId failed: ${error.message}`)
+    return (data as { id: string } | null)?.id ?? null
+  } catch (err) {
+    console.error('[gtasks-import] findActiveMulticaConnectionId failed(multica連携をskipして継続):', err)
+    return null
+  }
+}
+
+/**
+ * connector_jobs へ enqueue する(fold付き)。同一(connection_id,task_id)の pending ジョブが既に
+ * あれば最新の op/payload で上書きし version を進める。connector_jobs_pending_unique(migration の
+ * partial unique index)による insert 競合(23505)を検知してfold更新に倒す
+ * (createExternalTask の link 競合対応と同じ流儀)。
+ * 呼び出し側は best-effort とし、失敗してもgtasks import自体は継続する(呼び出し元でcatchする)。
+ */
+async function enqueueConnectorJob(
+  connectionId: string,
+  taskId: string,
+  op: 'upsert' | 'cancel',
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const { error: insErr } = await admin().from('connector_jobs').insert({
+    connection_id: connectionId,
+    task_id: taskId,
+    op,
+    payload,
+  })
+  if (!insErr) return
+  if ((insErr as { code?: string }).code !== '23505') {
+    throw new Error(`connector_jobs enqueue failed: ${insErr.message}`)
+  }
+
+  // 既存 pending job に fold: 最新の op/payload で上書きし version を進める
+  // (rpc_complete_connector_job が処理中の fold をversion不一致で検知し、最新opをpendingのまま残す)。
+  const { data: existing, error: selErr } = await admin()
+    .from('connector_jobs')
+    .select('id, version')
+    .eq('connection_id', connectionId)
+    .eq('task_id', taskId)
+    .eq('status', 'pending')
+    .maybeSingle()
+  if (selErr) throw new Error(`connector_jobs fold lookup failed: ${selErr.message}`)
+  if (!existing) {
+    // 別workerがちょうど処理を終え pending が消えた直後の稀な競合窓。素直に再insertする。
+    const { error: retryErr } = await admin().from('connector_jobs').insert({
+      connection_id: connectionId,
+      task_id: taskId,
+      op,
+      payload,
+    })
+    if (retryErr) throw new Error(`connector_jobs enqueue retry failed: ${retryErr.message}`)
+    return
+  }
+  const row = existing as { id: string; version: number }
+  // next_attempt_at/updated_at はDBのtimestamptz列(表示用ローカル日付ではない)。mirror.ts の
+  // saveRef と同じ既存の例外運用として toISOString を使う(protocol/DBタイムスタンプはUTCで正しい)。
+  const { error: updErr } = await admin()
+    .from('connector_jobs')
+    .update({
+      op,
+      payload,
+      version: row.version + 1,
+      next_attempt_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', row.id)
+  if (updErr) throw new Error(`connector_jobs fold update failed: ${updErr.message}`)
+}
+
+/** multica への issue.upsert enqueue payload(契約 §3.1)。gtasks取り込みは進行中ステータスを持たないため既定 todo。 */
+function buildMulticaUpsertPayload(gt: GoogleTask): Record<string, unknown> {
+  return {
+    title: gt.title?.trim() || '(無題)',
+    body: gt.notes ?? null,
+    status: 'todo',
+    due_date: googleDueToDateString(gt.due),
+    assignee_hint: null,
+    origin: 'external',
+  }
+}
+
 /** 既存 link のある TaskApp タスクをタイトル/期日/本文で更新する。 */
 async function updateExternalTask(taskId: string, gt: GoogleTask): Promise<void> {
   const { error } = await admin()
@@ -260,6 +355,11 @@ async function importConnection(conn: ConnRow, summary: ImportSummary): Promise<
   // 例外として toISOString を使う(ローカル日付表示ではなくタイムスタンプカーソルのため)。
   const nextCursor = new Date(Date.now() - 60_000).toISOString()
 
+  // 双方向同期コネクタ層: この org に active な multica 接続があれば、取り込んだ/更新した
+  // external タスクを connector_jobs 経由で multica へも流す(承認済み既定)。1接続分の取り込みで
+  // 使い回すため importConnection 内で一度だけ解決する(タスク行ごとに問い合わせない)。
+  const multicaConnectionId = await findActiveMulticaConnectionId(conn.org_id)
+
   let linkMap: Map<string, string> | null = null
   let refIds: Set<string> | null = null
 
@@ -284,12 +384,35 @@ async function importConnection(conn: ConnRow, summary: ImportSummary): Promise<
                 p_task_id: existingTaskId,
               })
               if (error) throw new Error(`rpc_connector_complete_task failed: ${error.message}`)
-              if (data === true) summary.completed++
+              if (data === true) {
+                summary.completed++
+                // gtasks が先に完了 → multica の AI依頼を閉じる(0→1遷移のときだけ。二重送信しない)。
+                if (multicaConnectionId) {
+                  await enqueueConnectorJob(multicaConnectionId, existingTaskId, 'cancel', {}).catch((err) =>
+                    console.error('[gtasks-import] multica cancel enqueue failed(継続):', err),
+                  )
+                }
+              }
+            } else if (multicaConnectionId) {
+              // 未完了の更新はmulticaへも最新スナップショットを流す(version foldされる)。
+              await enqueueConnectorJob(
+                multicaConnectionId,
+                existingTaskId,
+                'upsert',
+                buildMulticaUpsertPayload(gt),
+              ).catch((err) => console.error('[gtasks-import] multica upsert enqueue failed(継続):', err))
             }
           } else {
             const taskId = await createExternalTask(conn, config, gt, listId, effectiveAssignee)
             linkMap.set(gt.id, taskId) // 同一バッチ内のカーソル重複再取得を1件に畳む(冪等)
             summary.created++
+            // 作成直後に既にcompleted(gt.status=completed)なタスクはmulticaへ送っても即キャンセルに
+            // なるだけなのでenqueueしない。
+            if (multicaConnectionId && gt.status !== 'completed') {
+              await enqueueConnectorJob(multicaConnectionId, taskId, 'upsert', buildMulticaUpsertPayload(gt)).catch(
+                (err) => console.error('[gtasks-import] multica upsert enqueue failed(継続):', err),
+              )
+            }
           }
         }
         pageToken = nextPageToken ?? undefined

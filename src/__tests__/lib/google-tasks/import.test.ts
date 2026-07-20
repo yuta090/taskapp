@@ -45,6 +45,21 @@ interface ConnRow {
   import_config: Record<string, unknown> | null
   poll_cursor: string | null
 }
+interface MulticaConnRow {
+  id: string
+  org_id: string
+  provider: string
+  status: string
+}
+interface ConnectorJobRow {
+  id: string
+  connection_id: string
+  task_id: string
+  op: string
+  payload: Record<string, unknown>
+  status: string
+  version: number
+}
 
 const rpcMock = vi.fn()
 const state = {
@@ -60,6 +75,10 @@ const state = {
   taskIdSeq: 0,
   // 競合シミュレーション用: insert 時点で「別プロセスが先に link を作った」ことにする(race)。
   raceWinnerLink: null as LinkRow | null,
+  // multica連携: 双方向同期コネクタ層(connector_jobs enqueue)テスト用の疑似state。
+  multicaConns: [] as MulticaConnRow[],
+  connectorJobs: [] as ConnectorJobRow[],
+  connectorJobIdSeq: 0,
 }
 
 function makeChain(table: string) {
@@ -74,7 +93,50 @@ function makeChain(table: string) {
         state.cursorUpdates.push({ id: eqFilters.id as string, value: updatePayload! })
         return { data: null, error: null }
       }
+      // multica連携: findActiveMulticaConnectionId(org_id + provider='multica' + status='active')。
+      // 既存の取り込み対象接続一覧クエリ(provider='google_tasks'指定)とはフィルタで判別する。
+      if (eqFilters.provider === 'multica') {
+        const rows = state.multicaConns.filter(
+          (c) =>
+            c.provider === 'multica' &&
+            (!('org_id' in eqFilters) || c.org_id === eqFilters.org_id) &&
+            (!('status' in eqFilters) || c.status === eqFilters.status),
+        )
+        return { data: rows[0] ?? null, error: null }
+      }
       return { data: state.conns, error: null }
+    }
+    if (table === 'connector_jobs') {
+      if (mode === 'insert') {
+        const p = insertPayload as unknown as { connection_id: string; task_id: string; op: string; payload: Record<string, unknown> }
+        const conflict = state.connectorJobs.find(
+          (j) => j.connection_id === p.connection_id && j.task_id === p.task_id && j.status === 'pending',
+        )
+        if (conflict) return { data: null, error: { code: '23505' } }
+        state.connectorJobs.push({
+          id: `cjob-${++state.connectorJobIdSeq}`,
+          connection_id: p.connection_id,
+          task_id: p.task_id,
+          op: p.op,
+          payload: p.payload,
+          status: 'pending',
+          version: 1,
+        })
+        return { data: null, error: null }
+      }
+      if (mode === 'update') {
+        const row = state.connectorJobs.find((j) => j.id === eqFilters.id)
+        if (row) Object.assign(row, updatePayload)
+        return { data: null, error: null }
+      }
+      // select(fold前の既存pendingジョブ検索)
+      const rows = state.connectorJobs.filter((j) => {
+        if (eqFilters.connection_id && j.connection_id !== eqFilters.connection_id) return false
+        if (eqFilters.task_id && j.task_id !== eqFilters.task_id) return false
+        if (eqFilters.status && j.status !== eqFilters.status) return false
+        return true
+      })
+      return { data: rows[0] ?? null, error: null }
     }
     if (table === 'connector_task_links') {
       if (mode === 'insert') {
@@ -201,6 +263,9 @@ beforeEach(() => {
   state.cursorUpdates = []
   state.taskIdSeq = 0
   state.raceWinnerLink = null
+  state.multicaConns = [] // 既定: multica接続なし(enqueueされない)
+  state.connectorJobs = []
+  state.connectorJobIdSeq = 0
 
   getValidTokenDetailedMock.mockResolvedValue({ status: 'ok', token: 'tok' })
   listTaskListsMock.mockResolvedValue([{ id: 'list-other', title: 'Inbox' }, { id: 'list-mirror', title: 'TaskApp' }])
@@ -424,5 +489,155 @@ describe('importGoogleTasksBatch', () => {
     // 作成した task はいったん insert されるが、link 競合検知で補償 delete され既存(task-raced)へ倒れる
     expect(state.tasksDeleted).toContain(state.tasksInserted[0]?.id)
     expect(state.links.find((l) => l.external_id === 'gt-race')?.task_id).toBe('task-raced')
+  })
+})
+
+describe('multica連携: import時のconnector_jobs enqueue(双方向同期コネクタ層)', () => {
+  it('multica接続ありのorgで外部タスクを新規作成 → op=upsertのconnector_jobがenqueueされる', async () => {
+    state.multicaConns = [{ id: 'multica-conn-1', org_id: 'org-1', provider: 'multica', status: 'active' }]
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({
+            items: [{ id: 'gt-new', title: '新規タスク', notes: '本文', due: '2026-07-25T00:00:00.000Z', status: 'needsAction' }],
+            nextPageToken: null,
+          })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+
+    expect(state.connectorJobs).toHaveLength(1)
+    expect(state.connectorJobs[0]).toMatchObject({
+      connection_id: 'multica-conn-1',
+      op: 'upsert',
+      status: 'pending',
+    })
+    expect(state.connectorJobs[0].payload).toMatchObject({
+      title: '新規タスク',
+      body: '本文',
+      due_date: '2026-07-25',
+      origin: 'external',
+    })
+    // enqueueされたtask_idは今回作成したTaskAppタスクのid
+    expect(state.connectorJobs[0].task_id).toBe(state.tasksInserted[0]?.id)
+  })
+
+  it('multica接続が無いorgではenqueueされない', async () => {
+    state.multicaConns = [] // 既定(明示)
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-new', title: '新規タスク', status: 'needsAction' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    expect(state.connectorJobs).toHaveLength(0)
+  })
+
+  it('新規作成時点で既にcompleted(gt.status=completed)なタスクはupsertをenqueueしない(送っても即キャンセルになるだけ)', async () => {
+    state.multicaConns = [{ id: 'multica-conn-1', org_id: 'org-1', provider: 'multica', status: 'active' }]
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-done', title: '完了済み新規', status: 'completed' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    expect(state.connectorJobs).toHaveLength(0)
+  })
+
+  it('別プロバイダのmulticaでない接続(provider違い)はenqueue対象にしない', async () => {
+    state.multicaConns = [{ id: 'other-conn', org_id: 'org-1', provider: 'notion', status: 'active' }]
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-new', title: 'x', status: 'needsAction' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    expect(state.connectorJobs).toHaveLength(0)
+  })
+
+  it('外部タスクが完了(rpc_connector_complete_taskがtrue) → op=cancelのconnector_jobがenqueueされる', async () => {
+    state.multicaConns = [{ id: 'multica-conn-1', org_id: 'org-1', provider: 'multica', status: 'active' }]
+    state.links = [
+      { connection_id: CONN, task_id: 'task-existing', external_id: 'gt-1', external_list_id: 'list-other', origin: 'external' },
+    ]
+    rpcMock.mockResolvedValue({ data: true, error: null }) // rpc_connector_complete_task → 0→1遷移(true)
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-1', title: '完了タスク', status: 'completed' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+
+    expect(state.connectorJobs).toHaveLength(1)
+    expect(state.connectorJobs[0]).toMatchObject({
+      connection_id: 'multica-conn-1',
+      task_id: 'task-existing',
+      op: 'cancel',
+      status: 'pending',
+    })
+  })
+
+  it('外部タスクが完了だがRPCが既にdoneでfalseを返す(0→1遷移でない) → cancelをenqueueしない(二重送信防止)', async () => {
+    state.multicaConns = [{ id: 'multica-conn-1', org_id: 'org-1', provider: 'multica', status: 'active' }]
+    state.links = [
+      { connection_id: CONN, task_id: 'task-existing', external_id: 'gt-1', external_list_id: 'list-other', origin: 'external' },
+    ]
+    rpcMock.mockResolvedValue({ data: false, error: null })
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-1', title: '完了タスク', status: 'completed' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    expect(state.connectorJobs).toHaveLength(0)
+  })
+
+  it('既存タスクの更新(未完了)はupsertをenqueueする', async () => {
+    state.multicaConns = [{ id: 'multica-conn-1', org_id: 'org-1', provider: 'multica', status: 'active' }]
+    state.links = [
+      { connection_id: CONN, task_id: 'task-existing', external_id: 'gt-1', external_list_id: 'list-other', origin: 'external' },
+    ]
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-1', title: '更新後タイトル', status: 'needsAction' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    expect(state.connectorJobs).toHaveLength(1)
+    expect(state.connectorJobs[0]).toMatchObject({
+      connection_id: 'multica-conn-1',
+      task_id: 'task-existing',
+      op: 'upsert',
+    })
+    expect(state.connectorJobs[0].payload).toMatchObject({ title: '更新後タイトル' })
+  })
+
+  it('同一(connection,task)にpendingなjobがあれば新しいop/payloadでfoldする(重複jobを作らない)', async () => {
+    state.multicaConns = [{ id: 'multica-conn-1', org_id: 'org-1', provider: 'multica', status: 'active' }]
+    state.links = [
+      { connection_id: CONN, task_id: 'task-existing', external_id: 'gt-1', external_list_id: 'list-other', origin: 'external' },
+    ]
+    state.connectorJobs = [
+      {
+        id: 'cjob-existing',
+        connection_id: 'multica-conn-1',
+        task_id: 'task-existing',
+        op: 'upsert',
+        payload: { title: '古いタイトル' },
+        status: 'pending',
+        version: 1,
+      },
+    ]
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-1', title: '新しいタイトル', status: 'needsAction' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+
+    // fold: 新規jobは増えず、既存job(cjob-existing)が最新payloadに更新されversionが進む
+    expect(state.connectorJobs).toHaveLength(1)
+    expect(state.connectorJobs[0].id).toBe('cjob-existing')
+    expect(state.connectorJobs[0].version).toBe(2)
+    expect(state.connectorJobs[0].payload).toMatchObject({ title: '新しいタイトル' })
   })
 })
