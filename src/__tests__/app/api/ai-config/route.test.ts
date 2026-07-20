@@ -86,6 +86,12 @@ vi.mock('@/lib/slack/config', () => ({
   SLACK_CONFIG: { clientSecret: 'test-slack-secret' },
 }))
 
+// verifyAiKey は実ネットワークを叩くのでモックする（決定的・高速）。route は verifyAiKey のみ使う。
+const verifyAiKeyMock = vi.fn(async () => 'valid' as 'valid' | 'invalid' | 'unknown')
+vi.mock('@/lib/ai/client', () => ({
+  verifyAiKey: (...args: [string, string]) => verifyAiKeyMock(...args),
+}))
+
 const { GET, POST, DELETE } = await import('@/app/api/ai-config/route')
 
 function callGet(orgId?: string) {
@@ -133,6 +139,7 @@ beforeEach(() => {
   encryptRpcResponse = { data: 'enc-blob-new', error: null }
   upsertResponse = { error: null }
   adminDeleteResponse = { error: null }
+  verifyAiKeyMock.mockResolvedValue('valid')
 })
 
 describe('GET /api/ai-config', () => {
@@ -283,6 +290,39 @@ describe('POST /api/ai-config', () => {
     )
     expect(JSON.stringify(data)).not.toContain(basePostBody.apiKey)
     expect(data.config.keyPrefix).toBe('sk-abc12...')
+  })
+
+  it('rejects an invalid key (provider auth failure) with 400 and does not persist', async () => {
+    verifyAiKeyMock.mockResolvedValue('invalid')
+
+    const response = await callPost(basePostBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toContain('APIキーが無効')
+    expect(adminUpsertMock).not.toHaveBeenCalled()
+  })
+
+  it('persists key_status=valid (with verified_at) when the provider verifies the key', async () => {
+    verifyAiKeyMock.mockResolvedValue('valid')
+
+    const response = await callPost(basePostBody)
+
+    expect(response.status).toBe(200)
+    const [payload] = adminUpsertMock.mock.calls[0] as [Record<string, unknown>, unknown]
+    expect(payload.key_status).toBe('valid')
+    expect(payload.key_verified_at).not.toBeNull()
+  })
+
+  it('persists key_status=unverified (verified_at null) when verification is inconclusive', async () => {
+    verifyAiKeyMock.mockResolvedValue('unknown')
+
+    const response = await callPost(basePostBody)
+
+    expect(response.status).toBe(200)
+    const [payload] = adminUpsertMock.mock.calls[0] as [Record<string, unknown>, unknown]
+    expect(payload.key_status).toBe('unverified')
+    expect(payload.key_verified_at).toBeNull()
   })
 
   it('returns 500 without leaking crypto details when encryption fails', async () => {

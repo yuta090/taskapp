@@ -48,7 +48,38 @@ export class AiConfigError extends Error {
 
 export type AiConfigStatus =
   | { configured: true }
-  | { configured: false; reason: 'missing' | 'disabled' | 'error' }
+  | { configured: false; reason: 'missing' | 'disabled' | 'invalid' | 'error' }
+
+export type AiKeyVerification = 'valid' | 'invalid' | 'unknown'
+
+/**
+ * APIキーの妥当性を、保存時にプロバイダーへ安価に疎通確認する（/v1/models を叩くだけ・課金なし）。
+ *   200        → valid
+ *   401 / 403  → invalid（キーが無効）
+ *   その他/例外 → unknown（429/5xx/ネットワーク障害等・判定不能。無効扱いにして punish しない）
+ * enabled=true でも「壊れた鍵」を "設定済み(緑)" に見せないための土台。復号済みの平文キーで呼ぶ。
+ */
+export async function verifyAiKey(provider: string, apiKey: string): Promise<AiKeyVerification> {
+  try {
+    let res: Response
+    if (provider === 'openai') {
+      res = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+    } else if (provider === 'anthropic') {
+      res = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      })
+    } else {
+      return 'unknown'
+    }
+    if (res.ok) return 'valid'
+    if (res.status === 401 || res.status === 403) return 'invalid'
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 
 /**
  * org_ai_config の「有無・有効/無効」だけを、APIキーを復号せずに安価に判定する。
@@ -59,21 +90,27 @@ export type AiConfigStatus =
  * 「AI未設定で自動タスク化が止まっている」ことを黙って握り潰さないための土台。
  * DBエラー時も throw せず reason:'error' を返す（可視化フロー自体は止めない）。
  *
- * enabled だけでなく api_key_encrypted の有無も見る（復号はしない・安価なまま）。
- * enabled=true でもキーが空の行は cron で必ず失敗するため、"設定済み(緑)" に見せない。
- * ※キーが「壊れている（復号不能・無効provider）」ケースは復号/疎通が要るためここでは判定しない。
+ * enabled・api_key_encrypted の有無・key_status(妥当性検証結果) を見る（復号はしない・安価なまま）。
+ * enabled=true でもキーが空 or 検証で invalid だった行は cron で必ず失敗するため "設定済み(緑)" に見せない。
+ * key_status='unverified'（旧データ・疎通判定不能）は valid 側に倒す＝実際に動いている設定を
+ * false negative で赤くしない。invalid は「保存時にプロバイダーが認証拒否した」確定情報のときだけ。
  */
 export async function getAiConfigStatus(orgId: string): Promise<AiConfigStatus> {
   const { data, error } = await (getSupabaseAdmin() as SupabaseClient)
     .from('org_ai_config')
-    .select('enabled, api_key_encrypted')
+    .select('enabled, api_key_encrypted, key_status')
     .eq('org_id', orgId)
     .maybeSingle()
 
   if (error) return { configured: false, reason: 'error' }
   if (!data) return { configured: false, reason: 'missing' }
-  const { enabled, api_key_encrypted } = data as { enabled: boolean; api_key_encrypted: string | null }
+  const { enabled, api_key_encrypted, key_status } = data as {
+    enabled: boolean
+    api_key_encrypted: string | null
+    key_status: string | null
+  }
   if (!api_key_encrypted || api_key_encrypted.trim() === '') return { configured: false, reason: 'missing' }
+  if (key_status === 'invalid') return { configured: false, reason: 'invalid' }
   if (!enabled) return { configured: false, reason: 'disabled' }
   return { configured: true }
 }
