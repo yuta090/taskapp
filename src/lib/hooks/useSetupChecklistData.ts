@@ -21,7 +21,7 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
   hasPublishedTask: false,
   hasPreviewedPortal: false,
   hasLineLinked: false,
-  lineAccountReady: false,
+  lineAccess: 'unavailable',
   aiConfigured: false,
 }
 
@@ -33,22 +33,27 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
  */
 async function fetchLineStatus(
   orgId: string
-): Promise<{ hasLineLinked: boolean; lineAccountReady: boolean; aiConfigured: boolean }> {
+): Promise<Pick<SetupChecklistData, 'hasLineLinked' | 'lineAccess' | 'aiConfigured'>> {
+  const VALID = ['own', 'granted', 'requested', 'none', 'unavailable'] as const
+  const fail = { hasLineLinked: false, lineAccess: 'unavailable' as const, aiConfigured: false }
   try {
     const res = await fetch(`/api/onboarding/line-status?orgId=${encodeURIComponent(orgId)}`)
-    if (!res.ok) return { hasLineLinked: false, lineAccountReady: false, aiConfigured: false }
+    if (!res.ok) return fail
     const json = (await res.json()) as {
       hasLineLinked?: unknown
-      lineAccountReady?: unknown
+      lineAccess?: unknown
       aiConfigured?: unknown
     }
+    const lineAccess = VALID.includes(json.lineAccess as (typeof VALID)[number])
+      ? (json.lineAccess as SetupChecklistData['lineAccess'])
+      : 'unavailable'
     return {
       hasLineLinked: json.hasLineLinked === true,
-      lineAccountReady: json.lineAccountReady === true,
+      lineAccess,
       aiConfigured: json.aiConfigured === true,
     }
   } catch {
-    return { hasLineLinked: false, lineAccountReady: false, aiConfigured: false }
+    return fail
   }
 }
 
@@ -138,7 +143,7 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         hasPublishedTask,
         hasPreviewedPortal: flags.portal_preview_seen === true,
         hasLineLinked: lineStatus.hasLineLinked,
-        lineAccountReady: lineStatus.lineAccountReady,
+        lineAccess: lineStatus.lineAccess,
         aiConfigured: lineStatus.aiConfigured,
       }
     },

@@ -27,8 +27,9 @@ const ALL_UNDONE = {
   hasPublishedTask: false,
   hasPreviewedPortal: false,
   hasLineLinked: false,
-  // 既定は「LINE秘書が用意済み（自分で連携できる）」状態。準備中ケースは個別に lineAccountReady:false を渡す
-  lineAccountReady: true,
+  // 既定は「共通LINE開通済み（granted）＝自分で連携できる」状態。準備中は個別に lineAccess:'unavailable' を渡す
+  lineAccess: 'granted',
+  aiConfigured: false,
 }
 
 function setup(dataOverrides: Partial<typeof ALL_UNDONE> = {}, shouldShow: boolean | null = true) {
@@ -72,7 +73,7 @@ describe('SetupChecklist', () => {
 
     expect(screen.getByTestId('setup-checklist')).toBeInTheDocument()
     // LINE秘書が準備済みなので connect_line を含めた6ステップ
-    expect(screen.getByText('はじめての設定 2/6')).toBeInTheDocument()
+    expect(screen.getByText('はじめての設定 2/7')).toBeInTheDocument()
     expect(screen.getByText('最初のタスクを作成')).toBeInTheDocument()
     expect(screen.getByText('クライアントを招待', { selector: 'p' })).toBeInTheDocument()
 
@@ -110,11 +111,11 @@ describe('SetupChecklist', () => {
   })
 
   it('shows connect_line as "準備中" with no CTA when the LINE bot is not provisioned', () => {
-    setup({ hasNonSampleTask: true, hasTeamInvite: true, lineAccountReady: false })
+    setup({ hasNonSampleTask: true, hasTeamInvite: true, lineAccess: 'unavailable' })
     render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
 
     // pending ステップは分母から除外され、5ステップ基準の進捗になる
-    expect(screen.getByText('はじめての設定 2/5')).toBeInTheDocument()
+    expect(screen.getByText('はじめての設定 2/6')).toBeInTheDocument()
     expect(screen.getByText('準備中')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'LINEを連携' })).not.toBeInTheDocument()
   })
@@ -149,6 +150,7 @@ describe('SetupChecklist', () => {
       hasPublishedTask: true,
       hasPreviewedPortal: true,
       hasLineLinked: true,
+      aiConfigured: true,
     })
     render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
 

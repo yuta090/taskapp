@@ -11,9 +11,9 @@ const allFalse: SetupChecklistData = {
   hasPublishedTask: false,
   hasPreviewedPortal: false,
   hasLineLinked: false,
-  // 既定は「orgにLINE秘書が用意されている（=ユーザーが自分で連携できる）」状態でテストする。
-  // 未準備(準備中)ケースは専用テストで lineAccountReady:false を渡す。
-  lineAccountReady: true,
+  // 既定は「共通LINE開通済み（granted）＝ユーザーが自分で連携できる」状態でテストする。
+  // requested/none/unavailable ケースは専用テストで lineAccess を渡す。
+  lineAccess: 'granted',
   aiConfigured: false,
 }
 
@@ -25,7 +25,7 @@ const allTrue: SetupChecklistData = {
   hasPublishedTask: true,
   hasPreviewedPortal: true,
   hasLineLinked: true,
-  lineAccountReady: true,
+  lineAccess: 'granted',
   aiConfigured: true,
 }
 
@@ -117,7 +117,7 @@ describe('computeSetupChecklist', () => {
     })
 
     it('LINE秘書が未準備(準備中)なら pending 表示・CTAなし・進捗の分母に含めない', () => {
-      const result = computeSetupChecklist({ ...allFalse, lineAccountReady: false }, SPACE_ID, ORG_ID)
+      const result = computeSetupChecklist({ ...allFalse, lineAccess: 'unavailable' }, SPACE_ID, ORG_ID)
       const step = result.steps.find((s) => s.key === 'connect_line')!
       expect(step.pending).toBe(true)
       expect(step.done).toBe(false)
@@ -129,7 +129,7 @@ describe('computeSetupChecklist', () => {
     })
 
     it('準備中の文言は「当社が開通し、メールでご案内する」申込制モデルを明示する（自動で使えるようになる誤解を与えない）', () => {
-      const result = computeSetupChecklist({ ...allFalse, lineAccountReady: false }, SPACE_ID, ORG_ID)
+      const result = computeSetupChecklist({ ...allFalse, lineAccess: 'unavailable' }, SPACE_ID, ORG_ID)
       const step = result.steps.find((s) => s.key === 'connect_line')!
       // 運営が開通する主体であることと、能動的なご案内(メール)を約束する
       expect(step.description).toContain('当社')
@@ -147,7 +147,7 @@ describe('computeSetupChecklist', () => {
           hasPublishedTask: true,
           hasPreviewedPortal: true,
           hasLineLinked: false,
-          lineAccountReady: false,
+          lineAccess: 'unavailable',
           aiConfigured: true,
         },
         SPACE_ID,
@@ -156,6 +156,27 @@ describe('computeSetupChecklist', () => {
       expect(result.totalCount).toBe(6)
       expect(result.completedCount).toBe(6)
       expect(result.allDone).toBe(true)
+    })
+
+    it('lineAccess=none（未申込）なら申込CTAを持つ actionable ステップ（pendingでなく分母に含める）', () => {
+      const result = computeSetupChecklist({ ...allFalse, lineAccess: 'none' }, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'connect_line')!
+      expect(step.pending).not.toBe(true)
+      expect(step.done).toBe(false)
+      expect(step.href).toBe(`/${ORG_ID}/secretary/connect/line`)
+      expect(step.ctaLabel).toContain('申し込')
+      expect(step.description).toContain('お申し込み')
+      expect(result.totalCount).toBe(7)
+    })
+
+    it('lineAccess=requested（申込中）なら pending・当社の開通待ち文言・分母から除外', () => {
+      const result = computeSetupChecklist({ ...allFalse, lineAccess: 'requested' }, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'connect_line')!
+      expect(step.pending).toBe(true)
+      expect(step.done).toBe(false)
+      expect(step.href).toBeNull()
+      expect(step.description).toContain('受け付けました')
+      expect(result.totalCount).toBe(6)
     })
   })
 
@@ -200,7 +221,7 @@ describe('computeSetupChecklist', () => {
           hasPublishedTask: true,
           hasPreviewedPortal: true,
           hasLineLinked: false,
-          lineAccountReady: false, // connect_line は pending
+          lineAccess: 'unavailable', // connect_line は pending
           aiConfigured: true,
         },
         SPACE_ID,
