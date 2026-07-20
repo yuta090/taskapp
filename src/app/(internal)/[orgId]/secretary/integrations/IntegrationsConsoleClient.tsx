@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/shared'
 import { SinkListPane } from '@/components/secretary/integrations/SinkListPane'
 import { SinkDetailPanel } from '@/components/secretary/integrations/SinkDetailPanel'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
+import { ConnectorSyncPane } from '@/components/secretary/integrations/ConnectorSyncPane'
 import { useSinks, type SinkMeta } from '@/lib/hooks/useSinks'
 
 interface IntegrationsConsoleClientProps {
@@ -46,6 +47,12 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
+      {/*
+        双方向同期(multica/gtasks)の接続管理は左カラム(SinkListPane)に収めるには窮屈なため、
+        通知連携(sink)の2カラムUIの上に独立セクションとして描画する(docs/spec/MULTICA_CONNECTOR_CONTRACT.md)。
+      */}
+      <ConnectorSyncPane orgId={orgId} />
+
       {justCreatedSecret && (
         <div className="px-4 pt-3 flex-shrink-0">
           <SecretReveal secret={justCreatedSecret} onDismiss={() => setJustCreatedSecret(null)} />
