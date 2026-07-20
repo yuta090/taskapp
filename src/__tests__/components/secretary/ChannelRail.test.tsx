@@ -10,14 +10,18 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/org/secretary/connect/line',
+}))
+
 const ORG = '11111111-1111-4111-8111-111111111111'
 
 /**
- * 「つなぐ」ハブの左レール（チャネル軸）。受信チャネルを縦に並べる。
- * 現状つなげるのは LINE のみ。Slack/Teams は「近日」の非クリック行として枠だけ見せ、
- * routeの無いチャネルへ遷移させない。チャネル追加＝この配列に1行足すだけの骨格。
+ * 「つなぐ」ハブの左レール（チャネル軸）。レジストリ駆動。
+ * GA/BETAはリンク、PLANNED(messenger)は遷移不可の「近日」行。チャネル追加＝registryに
+ * 1エントリ足すだけでレールに並ぶ。
  */
-describe('ChannelRail', () => {
+describe('ChannelRail (registry-driven)', () => {
   it('LINEはリンクで /secretary/connect/line を指す', () => {
     render(<ChannelRail orgId={ORG} activeChannel="line" />)
     const line = screen.getByTestId('channel-rail-line')
@@ -25,19 +29,35 @@ describe('ChannelRail', () => {
     expect(line).toHaveAttribute('href', `/${ORG}/secretary/connect/line`)
   })
 
+  it('主要チャット(slack/chatwork/telegram/discord/teams/whatsapp)がリンクとして並ぶ', () => {
+    render(<ChannelRail orgId={ORG} activeChannel="line" />)
+    for (const id of ['slack', 'chatwork', 'telegram', 'discord', 'teams', 'whatsapp']) {
+      const el = screen.getByTestId(`channel-rail-${id}`)
+      expect(el.tagName).toBe('A')
+      expect(el).toHaveAttribute('href', `/${ORG}/secretary/connect/${id}`)
+    }
+  })
+
   it('activeChannel=line のとき aria-current=page が付く', () => {
     render(<ChannelRail orgId={ORG} activeChannel="line" />)
     expect(screen.getByTestId('channel-rail-line')).toHaveAttribute('aria-current', 'page')
   })
 
-  it('Slack/Teams はリンクでなく（遷移不可・aria-disabled）「近日」表示', () => {
+  it('PLANNED(messenger)は遷移不可・aria-disabled・「近日」表示', () => {
     render(<ChannelRail orgId={ORG} activeChannel="line" />)
-    const slack = screen.getByTestId('channel-rail-slack')
-    const teams = screen.getByTestId('channel-rail-teams')
-    expect(slack.tagName).not.toBe('A')
-    expect(teams.tagName).not.toBe('A')
-    expect(slack).toHaveAttribute('aria-disabled', 'true')
-    expect(teams).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getAllByText('近日')).toHaveLength(2)
+    const messenger = screen.getByTestId('channel-rail-messenger')
+    expect(messenger.tagName).not.toBe('A')
+    expect(messenger).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByText('近日')).toBeInTheDocument()
+  })
+
+  it('emailはチャット系でないためレールに出さない', () => {
+    render(<ChannelRail orgId={ORG} activeChannel="line" />)
+    expect(screen.queryByTestId('channel-rail-email')).toBeNull()
+  })
+
+  it('activeChannel未指定なら pathname からアクティブを導出する', () => {
+    render(<ChannelRail orgId={ORG} />)
+    expect(screen.getByTestId('channel-rail-line')).toHaveAttribute('aria-current', 'page')
   })
 })

@@ -636,6 +636,7 @@ async function processGroupJoin(
     accountId: account.id,
     externalGroupId,
     displayName: null,
+    channel: 'line', // LINE webhook経路。findOrCreateActiveGroupは channel をハードコードしない
   })
 
   const recorded = await insertChannelMessage({
