@@ -87,7 +87,9 @@ vi.mock('@/lib/slack/config', () => ({
 }))
 
 // verifyAiKey は実ネットワークを叩くのでモックする（決定的・高速）。route は verifyAiKey のみ使う。
-const verifyAiKeyMock = vi.fn(async () => 'valid' as 'valid' | 'invalid' | 'unknown')
+const verifyAiKeyMock = vi.fn(
+  async (_provider: string, _apiKey: string) => 'valid' as 'valid' | 'invalid' | 'unknown',
+)
 vi.mock('@/lib/ai/client', () => ({
   verifyAiKey: (...args: [string, string]) => verifyAiKeyMock(...args),
 }))
@@ -309,7 +311,7 @@ describe('POST /api/ai-config', () => {
     const response = await callPost(basePostBody)
 
     expect(response.status).toBe(200)
-    const [payload] = adminUpsertMock.mock.calls[0] as [Record<string, unknown>, unknown]
+    const payload = (adminUpsertMock.mock.calls[0] as unknown[])[0] as Record<string, unknown>
     expect(payload.key_status).toBe('valid')
     expect(payload.key_verified_at).not.toBeNull()
   })
@@ -320,7 +322,7 @@ describe('POST /api/ai-config', () => {
     const response = await callPost(basePostBody)
 
     expect(response.status).toBe(200)
-    const [payload] = adminUpsertMock.mock.calls[0] as [Record<string, unknown>, unknown]
+    const payload = (adminUpsertMock.mock.calls[0] as unknown[])[0] as Record<string, unknown>
     expect(payload.key_status).toBe('unverified')
     expect(payload.key_verified_at).toBeNull()
   })

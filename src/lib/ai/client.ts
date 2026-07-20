@@ -31,20 +31,10 @@ interface AiConfig {
   enabled: boolean
 }
 
-/**
- * AI設定に起因する失敗の型付き例外。エラーメッセージ文字列に依存せず分類できるようにする
- * （digest cron のスキップ分類が日本語文言 prefix に依存して脆くなるのを避ける）。
- * decrypt_failed は「キーは登録されているが復号できない＝再設定が必要」＝設定ギャップ側に寄せる。
- */
-export type AiConfigErrorKind = 'missing' | 'disabled' | 'decrypt_failed'
-export class AiConfigError extends Error {
-  readonly kind: AiConfigErrorKind
-  constructor(kind: AiConfigErrorKind, message: string) {
-    super(message)
-    this.name = 'AiConfigError'
-    this.kind = kind
-  }
-}
+// AiConfigError は依存の軽い ./errors に定義（client.ts をモックするテストでも instanceof が壊れないため）。
+// 従来どおり client からも import できるよう re-export する。
+export { AiConfigError, type AiConfigErrorKind } from './errors'
+import { AiConfigError } from './errors'
 
 export type AiConfigStatus =
   | { configured: true }
