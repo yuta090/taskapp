@@ -234,14 +234,35 @@ describe('findOrCreateActiveGroup — channel をハードコードせず引数�
 })
 
 describe('approveGroupClaim', () => {
-  it('rpc_approve_group_claim に claim_id/approver_user_id を渡し、成功(true)を返す', async () => {
+  it('rpc_approve_group_claim に claim_id/approver_user_id/max_active_groups を渡し、成功(true)を返す', async () => {
     rpcMock.mockResolvedValue({ data: true, error: null })
-    const result = await store.approveGroupClaim('claim-1', 'user-1')
+    const result = await store.approveGroupClaim('claim-1', 'user-1', 50)
     expect(rpcMock).toHaveBeenCalledWith('rpc_approve_group_claim', {
       p_claim_id: 'claim-1',
       p_approver_user_id: 'user-1',
+      p_max_active_groups: 50,
     })
     expect(result).toBe(true)
+  })
+
+  it('max_active_groups 省略時は null（無制限＝現行挙動）を渡す', async () => {
+    rpcMock.mockResolvedValue({ data: true, error: null })
+    await store.approveGroupClaim('claim-1', 'user-1')
+    expect(rpcMock).toHaveBeenCalledWith(
+      'rpc_approve_group_claim',
+      expect.objectContaining({ p_max_active_groups: null }),
+    )
+  })
+
+  it('容量上限(GC402) は GroupClaimActionError(limit) を投げる', async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: 'GC402', message: 'rpc_approve_group_claim: active group capacity reached (max 50)' },
+    })
+    await expect(store.approveGroupClaim('claim-1', 'user-1', 50)).rejects.toMatchObject({
+      name: 'GroupClaimActionError',
+      reason: 'limit',
+    })
   })
 
   it('graceful reject（同時承認の敗者）は false を返す（例外にしない）', async () => {

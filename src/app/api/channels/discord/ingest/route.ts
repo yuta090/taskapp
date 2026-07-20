@@ -60,8 +60,8 @@ const deps: DiscordIngestDeps = {
   },
   externalChatGroupCapacity: (orgId) => orgExternalChatGroupCapacity(orgId),
   createPendingClaim: (input) => findOrCreatePendingGroupClaim(input),
-  redeemCodeOnly: (codeHash, accountId, channelId, groupDisplayName) =>
-    redeemCodeOnlyClaim(codeHash, accountId, channelId, groupDisplayName),
+  redeemCodeOnly: (codeHash, accountId, channelId, groupDisplayName, maxActiveGroups) =>
+    redeemCodeOnlyClaim(codeHash, accountId, channelId, groupDisplayName, maxActiveGroups),
   generateChallengeLabel: () => generateGroupClaimChallengeLabel(),
   registerInvalidAttempt: (accountId, channelId) =>
     registerInvalidClaimAttemptAndCheckLimit(accountId, channelId),

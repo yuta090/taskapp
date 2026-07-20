@@ -65,8 +65,13 @@ export async function POST(request: NextRequest) {
       // 既存グループは絶対に切らない。上限到達時は新規承認のみ 402 で拒否しアップグレードへ誘導。
       // ★チャネル分岐: LINE共有botは Free でも紐付け可（maxLineGroups枠）。
       //   Discord等の外部チャットは Pro の売り＝external_chat_channels 必須＋maxExternalChatGroups枠。
+      // ★ここでのソフトチェックは早期UX（RPC呼び出し前に明確な402/理由を返す）。
+      //   最終的なハード適用は approveGroupClaim(RPC)が同一Tx内でアトミックに強制する
+      //   （並行承認のTOCTOUレース対策・解決した上限値を渡す）。
+      let maxActive: number | null = null
       if (claimRef.channel === 'line') {
         const cap = await orgLineGroupCapacity(orgId)
+        maxActive = cap.maxGroups
         if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
           return NextResponse.json(
             {
@@ -90,6 +95,7 @@ export async function POST(request: NextRequest) {
           )
         }
         const cap = await orgExternalChatGroupCapacity(orgId, claimRef.channel)
+        maxActive = cap.max
         if (cap.max !== null && cap.activeCount >= cap.max) {
           return NextResponse.json(
             {
@@ -101,7 +107,7 @@ export async function POST(request: NextRequest) {
           )
         }
       }
-      const ok = await approveGroupClaim(claimId, auth.userId)
+      const ok = await approveGroupClaim(claimId, auth.userId, maxActive)
       if (!ok) {
         // 同一グループへの2claim同時承認の敗者（channel_groups_active_uniqueによるgraceful reject）
         return NextResponse.json({ error: 'conflict' }, { status: 409 })
@@ -123,7 +129,9 @@ export async function POST(request: NextRequest) {
             ? 403
             : error.reason === 'invalid'
               ? 422
-              : 409
+              : error.reason === 'limit'
+                ? 402 // 容量上限のアトミック強制（並行承認のレース時）
+                : 409
       return NextResponse.json({ error: error.reason }, { status })
     }
     console.error('group-claims/approval: unexpected error', error)

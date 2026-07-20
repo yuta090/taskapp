@@ -98,6 +98,8 @@ export interface DiscordIngestDeps {
     accountId: string,
     channelId: string,
     groupDisplayName: string | null,
+    // 容量上限（RPCが同一Tx内でアトミックに強制・null=無制限）。ソフトチェックのレース対策。
+    maxActiveGroups: number | null,
   ) => Promise<'linked' | 'already_linked' | 'rejected'>
   generateChallengeLabel: () => string
   registerInvalidAttempt: (accountId: string, channelId: string) => boolean
@@ -193,7 +195,8 @@ async function processLimbo(
   }
 
   if (linkCode.bindingMode === 'code_only') {
-    const result = await deps.redeemCodeOnly(codeHash, account.id, ev.channelId, null)
+    // 上のソフトチェックに加え、RPC へ上限を渡して確立をアトミックに強制（並行償還のレース対策）。
+    const result = await deps.redeemCodeOnly(codeHash, account.id, ev.channelId, null, cap.max)
     const text =
       result === 'linked'
         ? CODE_ONLY_LINKED_TEXT
