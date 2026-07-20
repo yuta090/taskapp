@@ -291,8 +291,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
           <section className="mb-4">
             <h2 className="text-sm font-semibold text-gray-900">確認待ち</h2>
             <p className="mt-1 text-xs text-gray-500">
-              この候補をタスク化してよいか、あなたの承認を待っています。
-              承認すると本体タスクになり担当の画面に追加されます。却下するとタスクにはなりません。
+              AI秘書が会話から拾ったタスク候補を、承認するとタスク化・却下するとなかったことになります。
             </p>
           </section>
 
@@ -319,6 +318,10 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <ClipboardText className="w-8 h-8 text-gray-300" />
               <p className="text-sm text-gray-500">確認待ちの候補はありません。</p>
+              <p className="max-w-sm text-xs text-gray-400">
+                AI秘書が会話から拾ったタスク候補が、承認待ちとしてここに届きます。
+                グループに責任者を決めると届きはじめます。
+              </p>
             </div>
           ) : (
             <ul className="space-y-2">
