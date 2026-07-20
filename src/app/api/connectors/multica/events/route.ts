@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { handleMulticaInboundEvent } from '@/lib/connectors/inbound'
+import { ensureConnectorChatReplyRegistered } from '@/lib/connectors/chatReplyBootstrap'
 
 export const runtime = 'nodejs'
 
@@ -13,6 +14,9 @@ export const runtime = 'nodejs'
  */
 export async function POST(request: NextRequest) {
   try {
+    // 完了返信の送信実装を DI ポートへ登録(冪等)。これにより inbound の task.completed →
+    // notifyChatOnCompletion が no-op ではなく本番送信(lineChatReplySender)になる。
+    ensureConnectorChatReplyRegistered()
     const rawBody = await request.text()
     const signature = request.headers.get('x-agentpm-signature')
     const result = await handleMulticaInboundEvent(rawBody, signature)
