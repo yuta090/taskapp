@@ -124,6 +124,16 @@ describe('computeSetupChecklist', () => {
       expect(result.totalCount).toBe(5)
     })
 
+    it('準備中の文言は「当社が開通し、メールでご案内する」申込制モデルを明示する（自動で使えるようになる誤解を与えない）', () => {
+      const result = computeSetupChecklist({ ...allFalse, lineAccountReady: false }, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'connect_line')!
+      // 運営が開通する主体であることと、能動的なご案内(メール)を約束する
+      expect(step.description).toContain('当社')
+      expect(step.description).toContain('ご案内')
+      // 「ここから連携できます」= 待てば画面上で自動的に使えるという誤解を残さない
+      expect(step.description).not.toContain('ここから連携できます')
+    })
+
     it('準備中で他5ステップが完了なら allDone に到達できる（連携不能ステップで詰まらない）', () => {
       const result = computeSetupChecklist(
         {

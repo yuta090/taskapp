@@ -149,8 +149,10 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
+      // 共通LINEの秘書アカウントは当社が順次開通する（申込制）。自動で画面に現れるかのような
+      // 「準備ができ次第ここから連携できます」表現は避け、開通の主体＝当社、ご案内＝メール、と明示する。
       description:
-        'あなたの事務所のLINE秘書を準備中です。準備ができ次第ここから連携できます（お急ぎの場合はサポートへ）。',
+        'LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内しますので、少々お待ちください（お急ぎの場合はサポートへご連絡ください）。',
       done: false,
       href: null,
       ctaLabel: null,

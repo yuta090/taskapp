@@ -101,7 +101,11 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
   if (!friendUrl) {
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-        <p className="text-xs text-gray-500">準備中：サポートにお問い合わせください</p>
+        {/* Bot未プロビジョニング時の正直な期待値設定: 自動で使えるようになるのではなく、
+            当社が開通しメールでご案内する申込制であることを明示する。 */}
+        <p className="text-xs text-gray-500">
+          LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内します（お急ぎの場合はサポートへ）。
+        </p>
       </div>
     )
   }
