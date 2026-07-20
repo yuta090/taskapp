@@ -72,6 +72,16 @@ export function dateToGoogleDue(date: string | null | undefined): string | null 
 }
 
 /**
+ * Google Tasks の due(RFC3339・常にUTC0時)をローカル日付文字列(YYYY-MM-DD)へ(逆変換)。
+ * due は日付のみで時刻情報を持たない仕様のため、先頭10文字を切り出すだけで足りる
+ * (Date 経由の変換は不要 = toISOString 禁止ルールに抵触しない)。import の期日取り込みで使う。
+ */
+export function googleDueToDateString(due: string | null | undefined): string | null {
+  if (!due) return null
+  return due.slice(0, 10)
+}
+
+/**
  * 共通 fetch。失効(401/403)と一時障害(5xx等)を呼び出し側(token-manager)が分類できるよう、
  * 失敗時は HTTP status を error.status に載せて throw する(google-calendar/client と同じ流儀)。
  */
@@ -96,14 +106,20 @@ async function tasksFetch(accessToken: string, path: string, init?: RequestInit)
   return res
 }
 
+/** ユーザーの全タスクリスト(id/title)を列挙する。import 対象リストの選定(ミラー出力先の除外等)に使う。 */
+export async function listTaskLists(accessToken: string): Promise<Array<{ id: string; title: string }>> {
+  const res = await tasksFetch(accessToken, `/users/@me/lists?maxResults=100`)
+  const data = (await res.json()) as { items?: Array<{ id: string; title: string }> }
+  return data.items ?? []
+}
+
 /**
  * 指定名のタスクリストを確保する(あれば既存ID、無ければ作成)。ミラー先は専用リスト1つ。
  * 同名が複数あった場合は先頭(最古)を採用する。
  */
 export async function ensureTaskList(accessToken: string, title: string): Promise<string> {
-  const res = await tasksFetch(accessToken, `/users/@me/lists?maxResults=100`)
-  const data = (await res.json()) as { items?: Array<{ id: string; title: string }> }
-  const found = (data.items ?? []).find((l) => l.title === title)
+  const lists = await listTaskLists(accessToken)
+  const found = lists.find((l) => l.title === title)
   if (found) return found.id
 
   const created = await tasksFetch(accessToken, `/users/@me/lists`, {

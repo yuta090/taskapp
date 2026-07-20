@@ -14,11 +14,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const {
   exchangeGoogleTasksCode,
   ensureTaskList,
+  listTaskLists,
   listTasks,
   insertTask,
   patchTask,
   deleteTask,
   dateToGoogleDue,
+  googleDueToDateString,
 } = await import('@/lib/google-tasks/client')
 
 const TASKS = 'https://tasks.googleapis.com/tasks/v1'
@@ -53,6 +55,33 @@ describe('dateToGoogleDue', () => {
   it('null/undefined はそのまま null', () => {
     expect(dateToGoogleDue(null)).toBeNull()
     expect(dateToGoogleDue(undefined)).toBeNull()
+  })
+})
+
+describe('googleDueToDateString', () => {
+  it('RFC3339(UTC 0時)をローカル日付文字列(YYYY-MM-DD)に変換する(先頭10文字・toISOString不要)', () => {
+    expect(googleDueToDateString('2026-07-20T00:00:00.000Z')).toBe('2026-07-20')
+  })
+  it('null/undefined はそのまま null', () => {
+    expect(googleDueToDateString(null)).toBeNull()
+    expect(googleDueToDateString(undefined)).toBeNull()
+  })
+})
+
+describe('listTaskLists', () => {
+  it('全タスクリストの id/title を返す(gtasks import の対象リスト列挙用)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ items: [{ id: 'list-1', title: 'TaskApp' }, { id: 'list-2', title: 'Inbox' }] }),
+    )
+    const lists = await listTaskLists('at')
+    expect(lists).toEqual([{ id: 'list-1', title: 'TaskApp' }, { id: 'list-2', title: 'Inbox' }])
+    expect(fetchMock.mock.calls[0][0]).toContain(`${TASKS}/users/@me/lists`)
+  })
+
+  it('items が無ければ空配列', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}))
+    const lists = await listTaskLists('at')
+    expect(lists).toEqual([])
   })
 })
 
