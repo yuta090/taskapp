@@ -195,6 +195,7 @@ async function propagateTaskCompleted(
   taskRef: string,
   result: { summary: string | null; artifactUrl: string | null },
   transitioned: boolean,
+  eventId: string,
 ): Promise<void> {
   const gtasksConnectionId = await findActiveGoogleTasksConnectionForTask(taskRef)
   if (gtasksConnectionId) {
@@ -203,7 +204,8 @@ async function propagateTaskCompleted(
 
   if (transitioned) {
     try {
-      await notifyChatOnCompletion(taskRef, result)
+      // idempotencyKey に event_id を渡す(送信側/アダプタで二重送信を弾く土台)。
+      await notifyChatOnCompletion(taskRef, result, eventId)
     } catch (error) {
       console.error('[connectors/inbound] notifyChatOnCompletion failed:', error)
     }
@@ -291,6 +293,7 @@ export async function handleMulticaInboundEvent(
         artifactUrl: typeof rawResult.artifact_url === 'string' ? rawResult.artifact_url : null,
       },
       completed === true,
+      eventId,
     )
     await recordInboundEventOnce(connectionId, eventId, eventType)
     return { status: 200, body: { ok: true } }

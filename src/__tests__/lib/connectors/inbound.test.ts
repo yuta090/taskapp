@@ -282,10 +282,12 @@ describe('handleMulticaInboundEvent', () => {
       p_task_id: TASK_REF,
     })
     expect(enqueueConnectorJobMock).toHaveBeenCalledWith('conn-gtasks', TASK_REF, 'complete', {})
-    expect(notifyChatOnCompletionMock).toHaveBeenCalledWith(TASK_REF, {
-      summary: '完了しました',
-      artifactUrl: null,
-    })
+    // event_id を idempotencyKey として渡す(送信側/アダプタで二重送信を弾く土台)。
+    expect(notifyChatOnCompletionMock).toHaveBeenCalledWith(
+      TASK_REF,
+      { summary: '完了しました', artifactUrl: null },
+      'evt-1',
+    )
   })
 
   it('既にdone(rpcがfalse) → 200・enqueueされない(二重完了防止)', async () => {

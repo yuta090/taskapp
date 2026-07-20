@@ -178,6 +178,11 @@ X-AgentPM-Signature: t=<unix秒>,v1=<hex(hmac_sha256(secret, t + "." + rawBody))
 - multica → TaskApp の**新規タスク起票**（multica を起点にする双方向）。v1 は「TaskApp/gtasks が起点、multica は実行」に限定。
 - `task.progress` のチャット中継の既定 ON 化。
 - 個人 gtasks ミラー（`user_task_mirror_*`）の connector 框組みへの統合（別判断）。
+- **チャット完了返信の本配線**（§4.1 (b)）: コネクタ層は `src/lib/connectors/chatReplySender.ts` の
+  **注入ポート（`ChatReplySender`）**だけを持ち、`notifyChat` はそこへ委譲する（未登録なら no-op）。
+  実際の「発生元チャット解決 → 資格情報復号 → `deliverToChannel` 送信」は secretary-channels の
+  アウトバウンド送信経路（現状**未実装**：`deliverToChannel` はライブラリのみで呼び出し元が無い）に属し、
+  両ストリームが1ツリーに揃った時点で `registerChatReplySender(...)` を起動時に一度呼ぶだけで本配線になる。
 
 ---
 
