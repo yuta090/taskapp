@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Compiled output
     "packages/**/dist/**",
+    // 独立パッケージ（自前の toolchain/tsconfig を持つ・ルートlint対象外）
+    "worker/**",
   ]),
 ]);
 

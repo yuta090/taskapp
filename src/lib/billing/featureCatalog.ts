@@ -39,6 +39,11 @@ export const FEATURE_CATALOG: readonly FeatureMeta[] = [
     label: '担当者への個別DM',
     description: '担当者ひとりずつへ1対1でLINE個別配信（共通LINEでは不可）',
   },
+  {
+    key: 'external_chat_channels',
+    label: 'LINE以外の他チャット連携',
+    description: 'Slack・Chatwork・Discord など他チャットの会話も秘書が取り込み（LINEはFreeでも可）',
+  },
 ]
 
 export const PLAN_ORDER: readonly PlanId[] = ['free', 'pro', 'enterprise']

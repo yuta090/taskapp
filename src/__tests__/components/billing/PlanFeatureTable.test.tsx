@@ -20,6 +20,7 @@ describe('PlanFeatureTable', () => {
     expect(screen.getByText('時刻指定リマインド')).toBeInTheDocument()
     expect(screen.getByText('自社名義LINE')).toBeInTheDocument()
     expect(screen.getByText('担当者への個別DM')).toBeInTheDocument()
+    expect(screen.getByText('LINE以外の他チャット連携')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Free/ })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Pro/ })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Enterprise/ })).toBeInTheDocument()
@@ -28,11 +29,12 @@ describe('PlanFeatureTable', () => {
   it('Free 行は✗（利用不可）、Pro/Enterprise は✓（利用可能）', async () => {
     mockLimits('Free', [])
     render(<PlanFeatureTable orgId="org-1" />)
-    // 4機能 × Free列 = 4つの「利用不可」、× (Pro+Enterprise) = 8つの「利用可能」
+    // 5機能 × Free列 = 5つの「利用不可」、× (Pro+Enterprise) = 10の「利用可能」
+    // （external_chat_channels を Pro差別化機能に追加した分で 4/8 → 5/10）
     await waitFor(() => {
-      expect(screen.getAllByLabelText('利用不可')).toHaveLength(4)
+      expect(screen.getAllByLabelText('利用不可')).toHaveLength(5)
     })
-    expect(screen.getAllByLabelText('利用可能')).toHaveLength(8)
+    expect(screen.getAllByLabelText('利用可能')).toHaveLength(10)
   })
 
   it('現在プラン（Pro）列に「現在」バッジを付ける', async () => {

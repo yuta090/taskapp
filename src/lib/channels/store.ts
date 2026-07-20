@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dueSortKey } from '@/lib/channels/digest/due'
@@ -26,6 +26,30 @@ function getEncryptionKey(): string {
   const key = process.env.SYSTEM_ENCRYPTION_KEY
   if (!key) throw new Error('SYSTEM_ENCRYPTION_KEY is not configured')
   return key
+}
+
+/**
+ * 資格情報JSONを暗号化する（sinks/store の encryptSecret と同じ pgcrypto 経路）。
+ * 失敗時は必ず throw する — 平文のまま保存 or 半端な状態を残さないため。
+ */
+async function encryptSystemSecret(plaintext: string): Promise<string> {
+  const { data, error } = await admin().rpc('encrypt_system_secret', {
+    plaintext,
+    secret: getEncryptionKey(),
+  })
+  if (error || !data) {
+    throw new Error(`encrypt_system_secret failed: ${error?.message ?? 'no data'}`)
+  }
+  return data as string
+}
+
+/**
+ * 受信Webhookの secret_token 等、サーバーが生成する機微値。
+ * sinks の generateWebhookSecret と同じ形式（whsec_ + 24byte hex）。
+ * Telegram の secret_token 仕様（1-256文字・[A-Za-z0-9_-]）を満たす。
+ */
+export function generateChannelWebhookSecret(): string {
+  return `whsec_${randomBytes(24).toString('hex')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +350,139 @@ export async function updateChannelAccountStatus(
 }
 
 // ---------------------------------------------------------------------------
+// 資格情報の登録（非LINEチャットチャネル・owner_type='org'／白ラベル）
+//   LINE は line_bot_user_id 逆引き等の専用フローがあるため、この汎用経路には載せない。
+//   platform（共有bot）は当社がプロビジョニングするため、この経路では作らせない
+//   （owner_type='org' 固定）。認可・Proゲート・入力検証は呼び出し側（API route）の責務。
+// ---------------------------------------------------------------------------
+
+export interface RegisterOrgChannelAccountInput {
+  orgId: string
+  channel: string
+  displayName: string
+  /** オペレーターが入力した資格情報（registry の credentialFields のキー）。 */
+  operatorCredentials: Record<string, string>
+  /** サーバーが生成した資格情報（webhook_secret 等）。credentials JSON にマージして保存する。 */
+  generatedCredentials?: Record<string, string>
+}
+
+export interface RegisterOrgChannelAccountResult {
+  account: ChannelAccountMeta
+  /** true=新規作成 / false=既存 org account の資格情報を更新（ローテート）。 */
+  created: boolean
+  /**
+   * 実際に保存された生成フィールド（webhook_secret 等）の値。UI表示用に一度だけ返す。
+   * ローテート時は既存値を維持する（無言で回転させ受信を壊さないため）ので、
+   * 既存に生成値があればそれ、無ければ新規生成値になる。
+   */
+  generatedSecrets: Record<string, string>
+}
+
+/**
+ * 同一 org×channel の再利用可能な org account（owner_type='org'）を1件引く。
+ * status で絞らない — active優先・同順位は最新（created_at desc）。これにより
+ * 「無効化→再接続」でも新規INSERTを増やさず既存行を再利用（再有効化）し、
+ * active な org account が同一 org×channel に複数生じるのを防ぐ。
+ */
+async function findReusableOrgChannelAccountId(orgId: string, channel: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('owner_type', 'org')
+    // 'active' < 'disabled'（辞書順）なので ascending で active を先頭にする
+    .order('status', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !data) return null
+  return data.id as string
+}
+
+/**
+ * 既存 org account の資格情報を差し替える（ローテート）。owner_type/org_id は immutable
+ * ガード対象なので触らない。生成フィールド（webhook_secret 等）は既存値があれば維持し、
+ * 表示名変更や bot_token 打ち直しのたびに受信secretを無言で回転させない。
+ */
+async function rotateExistingOrgAccount(
+  existingId: string,
+  input: RegisterOrgChannelAccountInput,
+): Promise<RegisterOrgChannelAccountResult> {
+  const effectiveGenerated = { ...(input.generatedCredentials ?? {}) }
+  const existing = await findChannelAccountCredentials(existingId, input.channel)
+  if (existing) {
+    for (const key of Object.keys(effectiveGenerated)) {
+      // 既存に生成値があれば維持（回転させない）。無ければ今回の新規生成値を使う。
+      if (existing.credentials[key]) effectiveGenerated[key] = existing.credentials[key]
+    }
+  }
+
+  const credentials = { ...input.operatorCredentials, ...effectiveGenerated }
+  const credentialsEncrypted = await encryptSystemSecret(JSON.stringify(credentials))
+
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .update({
+      display_name: input.displayName,
+      credentials_encrypted: credentialsEncrypted,
+      status: 'active',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existingId)
+    .select(ACCOUNT_META_COLUMNS)
+    .single()
+  if (error || !data) throw new Error(`channel_accounts: update failed: ${error?.message}`)
+  return { account: toAccountMeta(data as AccountMetaRow), created: false, generatedSecrets: effectiveGenerated }
+}
+
+/**
+ * 非LINEチャットチャネルの資格情報を暗号化保存する。
+ * 既存の org account があれば資格情報を差し替え（ローテート・created=false）、
+ * 無ければ新規作成する（created=true）。owner_type/org_id はサーバー側で固定し、
+ * platform を作らせない（設計正本 §2 の帰属導出規約を破らないため）。
+ *
+ * 並行初回登録の敗者は active 部分一意index（channel_accounts_active_org_channel_unique）で
+ * 23505 になり、既存 active を再取得してローテートにフォールバックする
+ * （findOrCreateActiveGroup と同型のレース処理）。
+ */
+export async function registerOrgChannelAccount(
+  input: RegisterOrgChannelAccountInput,
+): Promise<RegisterOrgChannelAccountResult> {
+  const existingId = await findReusableOrgChannelAccountId(input.orgId, input.channel)
+  if (existingId) return rotateExistingOrgAccount(existingId, input)
+
+  const generated = { ...(input.generatedCredentials ?? {}) }
+  const credentials = { ...input.operatorCredentials, ...generated }
+  // 暗号化を先に済ませる（失敗時は throw して行を作らない＝平文/半端行を残さない）。
+  const credentialsEncrypted = await encryptSystemSecret(JSON.stringify(credentials))
+
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .insert({
+      org_id: input.orgId,
+      owner_type: 'org',
+      channel: input.channel,
+      display_name: input.displayName,
+      credentials_encrypted: credentialsEncrypted,
+      status: 'active',
+    })
+    .select(ACCOUNT_META_COLUMNS)
+    .single()
+
+  if (error) {
+    // 並行初回登録の敗者: active一意index違反 → 既存 active を再取得してローテート
+    if ((error as { code?: string }).code === '23505') {
+      const racedId = await findReusableOrgChannelAccountId(input.orgId, input.channel)
+      if (racedId) return rotateExistingOrgAccount(racedId, input)
+    }
+    throw new Error(`channel_accounts: insert failed: ${error.message}`)
+  }
+  if (!data) throw new Error('channel_accounts: insert failed: no data')
+  return { account: toAccountMeta(data as AccountMetaRow), created: true, generatedSecrets: generated }
+}
+
+// ---------------------------------------------------------------------------
 // channel_identities
 // ---------------------------------------------------------------------------
 
@@ -598,6 +755,8 @@ export async function findOrCreateActiveGroup(input: {
   accountId: string
   externalGroupId: string
   displayName: string | null
+  /** account のチャネル。省略時は後方互換で 'line'。呼び出し側が account.channel を渡す。 */
+  channel?: string
 }): Promise<ChannelGroup> {
   const existing = await findActiveGroup(input.accountId, input.externalGroupId)
   if (existing) return existing
@@ -609,7 +768,7 @@ export async function findOrCreateActiveGroup(input: {
       account_id: input.accountId,
       external_group_id: input.externalGroupId,
       display_name: input.displayName,
-      channel: 'line',
+      channel: input.channel ?? 'line',
     })
     .select(GROUP_COLUMNS)
     .single()
@@ -1120,7 +1279,34 @@ export async function findGroupClaimOrgId(claimId: string): Promise<string | nul
   return data.org_id as string
 }
 
-export type GroupClaimActionErrorReason = 'not_found' | 'forbidden' | 'conflict' | 'invalid'
+/**
+ * 承認APIの認可＋容量分岐用: claimの実所属orgと、そのclaimが属するチャネル
+ * （claim.account_id → channel_accounts.channel）を1クエリで引く。
+ * チャネルは容量/エンタイトルメント判定を LINE と外部チャットで分けるために必要
+ * （'line' → maxLineGroups / それ以外 → external_chat_channels + maxExternalChatGroups）。
+ */
+export async function findGroupClaimOrgAndChannel(
+  claimId: string,
+): Promise<{ orgId: string; channel: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_group_claims')
+    .select('org_id, channel_accounts!inner(channel)')
+    .eq('id', claimId)
+    .maybeSingle()
+  if (error || !data) return null
+  const acc = (data as { channel_accounts: { channel: string } | { channel: string }[] })
+    .channel_accounts
+  const channel = Array.isArray(acc) ? acc[0]?.channel : acc?.channel
+  if (!channel) return null
+  return { orgId: (data as { org_id: string }).org_id, channel }
+}
+
+export type GroupClaimActionErrorReason =
+  | 'not_found'
+  | 'forbidden'
+  | 'conflict'
+  | 'invalid'
+  | 'limit'
 
 /**
  * rpc_approve_group_claim / rpc_reject_group_claim は検証失敗を例外(raise exception)で返す
@@ -1150,6 +1336,9 @@ function classifyGroupClaimRpcError(code: string | undefined): GroupClaimActionE
       return 'forbidden'
     case 'GC422':
       return 'invalid'
+    case 'GC402':
+      // 容量上限のアトミック強制（レース時のみ発火・ソフトチェックは事前に402を返す）
+      return 'limit'
     case 'GC409':
       return 'conflict'
     default:
@@ -1170,9 +1359,40 @@ export async function orgLineGroupCapacity(
     .from('channel_groups')
     .select('id', { count: 'exact', head: true })
     .eq('org_id', orgId)
+    // ★channel=line に限定して数える。Discord等の外部チャットグループが LINE 枠を汚染しない
+    //   （逆も orgExternalChatGroupCapacity が channel で絞る）。両枠は独立カウント。
+    .eq('channel', 'line')
     .eq('status', 'active')
   const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
   return { activeCount: count ?? 0, maxGroups: planLimits(ent.planId).maxLineGroups }
+}
+
+/**
+ * org が「外部チャット（LINE以外）連携」エンタイトルメント(external_chat_channels)を持つか。
+ * Discord等の新規紐付け確立の Pro ゲート（承認/償還の境界でのみ効かせる）。
+ */
+export async function orgHasExternalChatChannels(orgId: string): Promise<boolean> {
+  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
+  return ent.has('external_chat_channels')
+}
+
+/**
+ * org の「外部チャット（LINE以外・Discord等の共有Bot受信）」の紐付け容量。
+ * active な当該channelグループ数と、プランの上限(maxExternalChatGroups)を返す。
+ * maxLineGroups とは別カウント（Proの売りとしての外部チャット枠）。v1は channel='discord'。
+ */
+export async function orgExternalChatGroupCapacity(
+  orgId: string,
+  channel: string = 'discord',
+): Promise<{ activeCount: number; max: number | null }> {
+  const { count } = await admin()
+    .from('channel_groups')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('status', 'active')
+  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
+  return { activeCount: count ?? 0, max: planLimits(ent.planId).maxExternalChatGroups }
 }
 
 /**
@@ -1180,10 +1400,17 @@ export async function orgLineGroupCapacity(
  * 戻り値は成功(true)/同時承認の敗者(false・channel_groups_active_uniqueによるgraceful reject)を
  * そのまま返す。それ以外の検証失敗はRPCの例外を GroupClaimActionError として投げ直す。
  */
-export async function approveGroupClaim(claimId: string, approverUserId: string): Promise<boolean> {
+export async function approveGroupClaim(
+  claimId: string,
+  approverUserId: string,
+  // 容量上限（active化のハード適用点でRPCが同一Tx内アトミックに強制）。null=無制限=現行挙動。
+  // 呼び出し側(route)が対象channelに応じ maxLineGroups / maxExternalChatGroups を渡す。
+  maxActiveGroups: number | null = null,
+): Promise<boolean> {
   const { data, error } = await admin().rpc('rpc_approve_group_claim', {
     p_claim_id: claimId,
     p_approver_user_id: approverUserId,
+    p_max_active_groups: maxActiveGroups,
   })
   if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.code))
   return data === true
@@ -1216,12 +1443,20 @@ export class MultiplePlatformAccountsError extends Error {
  * として400を返す）。1件ならそのid。2件以上は MultiplePlatformAccountsError を投げる
  * （L2ガード。呼び出し側は409として顧客に見せる）。
  * 2件以上の存在を判定できれば十分なので limit(2) に絞り、全件走査しない。
+ *
+ * ⚠ channel でスコープする（既定 'line'）。複数チャネルの共有bot（例: LINE共有bot と
+ *   Discord共有bot）が併存すると owner_type だけでは複数 active になり L2ガードが誤発火する。
+ *   LINEのコード発行は 'line'、Discord受信の解決は 'discord' を渡す。channel×owner_type=platform
+ *   の active は各1件が不変条件（多拠点でも1共有bot）。
  */
-export async function findFirstPlatformAccountId(): Promise<string | null> {
+export async function findFirstPlatformAccountId(
+  channel: string = 'line',
+): Promise<string | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
     .select('id')
     .eq('owner_type', 'platform')
+    .eq('channel', channel)
     // disabled な共有bot に発行すると償還不能な「死にコード」を配ることになるため active に限定
     .eq('status', 'active')
     .order('created_at', { ascending: true })
@@ -1308,15 +1543,20 @@ export async function redeemCodeOnlyClaim(
   accountId: string,
   externalGroupId: string,
   groupDisplayName: string | null,
+  // 容量上限（RPCが同一Tx内アトミックに強制）。null=無制限=現行挙動。
+  maxActiveGroups: number | null = null,
 ): Promise<RedeemCodeOnlyClaimResult> {
   const { data, error } = await admin().rpc('rpc_redeem_code_only_claim', {
     p_code_hash: codeHash,
     p_account_id: accountId,
     p_external_group_id: externalGroupId,
     p_group_display_name: groupDisplayName,
+    p_max_active_groups: maxActiveGroups,
   })
   if (error) {
     if (error.code === 'GC404') return 'rejected'
+    // 容量上限のレース（GC402）は「今は確立させない」＝無効文言に畳む（ソフトチェックと同じ結末）。
+    if (error.code === 'GC402') return 'rejected'
     throw new Error(`rpc_redeem_code_only_claim failed: ${error.message}`)
   }
   if (data === 'linked' || data === 'already_linked' || data === 'rejected') return data
@@ -2567,5 +2807,95 @@ export async function claimPendingApprovalNotifications(
     title: row.title as string,
     dueDate: (row.due_date as string | null) ?? null,
     dueTime: (row.due_time as string | null) ?? null,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// 汎用チャネル（LINE以外）: 資格情報の復号と identity 突合
+//   非LINEチャネルの受信Webでaccountを解決するための、channel非依存の薄い経路。
+//   LINE固有のchannel_secret/access_token必須検証を持つ decryptAccount とは別に、
+//   任意の credentials JSON をそのまま返す（webhook_secret / bot_token 等を扱うため）。
+// ---------------------------------------------------------------------------
+
+export interface ChannelAccountCredentials {
+  id: string
+  channel: string
+  orgId: string | null
+  ownerType: 'org' | 'platform'
+  status: 'active' | 'disabled'
+  /** 復号済みの credentials JSON（キーはチャネル依存: bot_token / webhook_secret 等） */
+  credentials: Record<string, string>
+}
+
+/**
+ * account_id と channel を指定して資格情報を復号取得する（service role専用）。
+ * disabled でも返す（inbound記録は継続する方針。LINEの findLineAccountByDestination と同様）。
+ * 復号失敗・channel不一致・credentialsが非JSONは null。
+ */
+export async function findChannelAccountCredentials(
+  accountId: string,
+  channel: string,
+): Promise<ChannelAccountCredentials | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id, org_id, display_name, credentials_encrypted, status, owner_type, channel')
+    .eq('id', accountId)
+    .eq('channel', channel)
+    .maybeSingle()
+
+  if (error || !data) return null
+  const row = data as AccountRow & { channel: string }
+
+  const { data: decrypted, error: decErr } = await admin().rpc('decrypt_system_secret', {
+    encrypted: row.credentials_encrypted,
+    secret: getEncryptionKey(),
+  })
+  if (decErr || !decrypted) {
+    console.error('channel_accounts: failed to decrypt credentials', row.id, decErr)
+    return null
+  }
+
+  let credentials: Record<string, string>
+  try {
+    const parsed = JSON.parse(decrypted as string)
+    if (!parsed || typeof parsed !== 'object') return null
+    credentials = parsed as Record<string, string>
+  } catch {
+    console.error('channel_accounts: credentials are not valid JSON', row.id)
+    return null
+  }
+
+  return {
+    id: row.id,
+    channel: row.channel,
+    orgId: row.org_id,
+    ownerType: row.owner_type === 'platform' ? 'platform' : 'org',
+    status: row.status === 'disabled' ? 'disabled' : 'active',
+    credentials,
+  }
+}
+
+/**
+ * (org, channel, external_id) の active identity を取得する（channel非依存）。
+ * LINE の findIdentityIdsByExternalUserIds が channel='line' 固定なのに対し、
+ * 任意チャネルの受信突合に使う。突合ルールは呼び出し側で「1件なら確定/0・複数はnull」を判断する。
+ */
+export async function findActiveIdentitiesByExternalId(
+  orgId: string,
+  channel: string,
+  externalId: string,
+): Promise<Array<{ id: string; spaceId: string }>> {
+  const { data, error } = await admin()
+    .from('channel_identities')
+    .select('id, space_id')
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('external_id', externalId)
+    .eq('status', 'active')
+
+  if (error || !data) return []
+  return (data as Array<{ id: string; space_id: string }>).map((r) => ({
+    id: r.id,
+    spaceId: r.space_id,
   }))
 }

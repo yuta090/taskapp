@@ -24,19 +24,22 @@ vi.mock('@/lib/supabase/server', () => ({
   })),
 }))
 
+type Reason = 'not_found' | 'forbidden' | 'conflict' | 'invalid' | 'limit'
 class GroupClaimActionError extends Error {
-  reason: 'not_found' | 'forbidden' | 'conflict' | 'invalid'
-  constructor(message: string, reason: 'not_found' | 'forbidden' | 'conflict' | 'invalid') {
+  reason: Reason
+  constructor(message: string, reason: Reason) {
     super(message)
     this.reason = reason
   }
 }
 
 const storeMock = {
-  findGroupClaimOrgId: vi.fn(),
+  findGroupClaimOrgAndChannel: vi.fn(),
   approveGroupClaim: vi.fn(),
   rejectGroupClaim: vi.fn(),
   orgLineGroupCapacity: vi.fn(),
+  orgExternalChatGroupCapacity: vi.fn(),
+  orgHasExternalChatChannels: vi.fn(),
   GroupClaimActionError,
 }
 vi.mock('@/lib/channels/store', () => storeMock)
@@ -61,10 +64,12 @@ describe('POST /api/channels/group-claims/approval', () => {
     vi.clearAllMocks()
     getUserMock.mockResolvedValue({ data: { user: { id: 'approver-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
-    storeMock.findGroupClaimOrgId.mockResolvedValue(ORG_ID)
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'line' })
     storeMock.approveGroupClaim.mockResolvedValue(true)
     storeMock.rejectGroupClaim.mockResolvedValue(true)
     storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
+    storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 0, max: null })
+    storeMock.orgHasExternalChatChannels.mockResolvedValue(true)
   })
 
   it('未ログインは401', async () => {
@@ -90,23 +95,43 @@ describe('POST /api/channels/group-claims/approval', () => {
   })
 
   it('他orgのclaimIdは404（RPCを呼ばない）', async () => {
-    storeMock.findGroupClaimOrgId.mockResolvedValue('org-OTHER')
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: 'org-OTHER', channel: 'line' })
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(404)
     expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
   })
 
   it('claim未存在(null)も404', async () => {
-    storeMock.findGroupClaimOrgId.mockResolvedValue(null)
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue(null)
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(404)
   })
 
-  it('approve: 成功(true) → 200 でセッションのuserIdをapproverに渡す', async () => {
+  it('approve: 成功(true) → 200 でセッションのuserIdをapproverに渡す（上限は解決した値を渡す）', async () => {
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(200)
-    expect(storeMock.approveGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1')
+    // 既定は maxGroups=null（無制限）なので null を渡す
+    expect(storeMock.approveGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1', null)
     expect(storeMock.rejectGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('approve(line): 解決した maxLineGroups を approveGroupClaim へ渡す（RPCのアトミック強制用）', async () => {
+    storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 2, maxGroups: 3 })
+    await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(storeMock.approveGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1', 3)
+  })
+
+  it('approve(discord): 解決した maxExternalChatGroups を approveGroupClaim へ渡す', async () => {
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'discord' })
+    storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 10, max: 50 })
+    await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(storeMock.approveGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1', 50)
+  })
+
+  it('approve: 容量上限のレース(GroupClaimActionError limit) → 402', async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('capacity reached', 'limit'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(402)
   })
 
   it('approve: graceful reject(false・同時承認の敗者) → 409', async () => {
@@ -126,6 +151,52 @@ describe('POST /api/channels/group-claims/approval', () => {
 
   it('approve: 上限未満なら通常承認（402にしない）', async () => {
     storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 2, maxGroups: 3 })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(200)
+    expect(storeMock.approveGroupClaim).toHaveBeenCalled()
+  })
+
+  it('approve(line): LINE経路は外部チャット容量/エンタイトルメントを参照しない', async () => {
+    await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(storeMock.orgLineGroupCapacity).toHaveBeenCalledWith(ORG_ID)
+    expect(storeMock.orgExternalChatGroupCapacity).not.toHaveBeenCalled()
+    expect(storeMock.orgHasExternalChatChannels).not.toHaveBeenCalled()
+  })
+
+  it('approve(discord): 非LINEは external_chat_channels＋maxExternalChatGroups で判定（LINE容量は見ない）', async () => {
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'discord' })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(200)
+    expect(storeMock.orgHasExternalChatChannels).toHaveBeenCalledWith(ORG_ID)
+    expect(storeMock.orgExternalChatGroupCapacity).toHaveBeenCalledWith(ORG_ID, 'discord')
+    expect(storeMock.orgLineGroupCapacity).not.toHaveBeenCalled()
+    // 既定は max=null（無制限）なので null を渡す
+    expect(storeMock.approveGroupClaim).toHaveBeenCalledWith(CLAIM_ID, 'approver-1', null)
+  })
+
+  it('approve(discord): external_chat_channels 非所持は 402（承認せず）', async () => {
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'discord' })
+    storeMock.orgHasExternalChatChannels.mockResolvedValue(false)
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    const json = await res.json()
+    expect(res.status).toBe(402)
+    expect(json.code).toBe('external_chat_not_entitled')
+    expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('approve(discord): 上限到達(maxExternalChatGroups)は 402（承認せず・既存は切らない）', async () => {
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'discord' })
+    storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 50, max: 50 })
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    const json = await res.json()
+    expect(res.status).toBe(402)
+    expect(json.code).toBe('group_limit_reached')
+    expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('approve(discord): enterprise(max=null)は上限で弾かれない', async () => {
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'discord' })
+    storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 999, max: null })
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(200)
     expect(storeMock.approveGroupClaim).toHaveBeenCalled()

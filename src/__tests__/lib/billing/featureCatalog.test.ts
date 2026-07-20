@@ -16,6 +16,7 @@ describe('FEATURE_CATALOG', () => {
         'timed_line_reminders',
         'own_line_account',
         'line_direct_dm',
+        'external_chat_channels',
       ]),
     )
     // 自動タスク拾いは Free に開放済みなので“有料機能一覧”には出さない

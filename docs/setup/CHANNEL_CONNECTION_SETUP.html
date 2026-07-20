@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI秘書 チャネル接続セットアップガイド（運用者向け）</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1a1d24; --muted:#5b6472; --line:#e3e7ee;
+    --amber:#f59e0b; --amber-bg:#fff7e6; --green:#16a34a; --blue:#2563eb; --blue-bg:#eef4ff;
+    --pro:#7c3aed; --pro-bg:#f3ecff; --code-bg:#0f172a; --code-ink:#e2e8f0; --radius:12px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    line-height:1.75;font-size:15px}
+  .wrap{max-width:940px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;border-radius:16px;
+    padding:32px 28px;margin-bottom:28px}
+  header.hero h1{margin:0 0 8px;font-size:26px;letter-spacing:.01em}
+  header.hero p{margin:0;color:#cbd5e1;font-size:14px}
+  h2{font-size:20px;margin:40px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  a{color:var(--blue)}
+  .lead{color:var(--muted);font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px 22px;margin:16px 0;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .card.channel{border-left:4px solid var(--blue)}
+  .card.gateway{border-left:4px solid var(--amber)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;
+    vertical-align:middle;margin-left:8px}
+  .badge.recv{background:var(--blue-bg);color:var(--blue)}
+  .badge.send{background:#e9f9ef;color:var(--green)}
+  .badge.pro{background:var(--pro-bg);color:var(--pro)}
+  .badge.free{background:#eef2f7;color:var(--muted)}
+  ol,ul{margin:8px 0 8px;padding-left:22px}
+  ol li,ul li{margin:5px 0}
+  code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em;
+    background:#eef1f6;color:#0f172a;padding:1px 6px;border-radius:5px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:14px 16px;border-radius:10px;
+    overflow-x:auto;font-size:13px;line-height:1.6}
+  pre code{background:transparent;color:inherit;padding:0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#f0f3f8;font-weight:700;white-space:nowrap}
+  td code{white-space:nowrap}
+  .note{background:var(--amber-bg);border:1px solid #f3d999;border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13.5px}
+  .note strong{color:#b45309}
+  .tip{background:var(--blue-bg);border:1px solid #cadcff;border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13.5px}
+  .checklist{list-style:none;padding-left:4px}
+  .checklist li{position:relative;padding-left:28px;margin:7px 0}
+  .checklist li::before{content:"☐";position:absolute;left:0;top:0;font-size:16px;color:var(--muted)}
+  .toc{columns:2;column-gap:28px;font-size:14px}
+  .toc a{display:block;padding:3px 0;text-decoration:none}
+  .kv{font-size:13.5px}
+  .kv b{display:inline-block;min-width:150px;color:var(--muted);font-weight:600}
+  .small{font-size:12.5px;color:var(--muted)}
+  hr{border:none;border-top:1px solid var(--line);margin:28px 0}
+  @media (max-width:640px){ .toc{columns:1} .wrap{padding:20px 14px 60px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>AI秘書 チャネル接続セットアップガイド</h1>
+  <p>各チャットサービスと AI秘書 をつなぐために、<strong>運用者（あなた）が設定する箇所</strong>を1枚にまとめた手順書です。<br>
+  受信（メッセージの自動取り込み）を有効にするサービスごとに、①発行する鍵 ②管理画面に登録する値 ③サービス側の Webhook 設定 の3点を示します。</p>
+</header>
+
+<div class="tip">
+  <strong>用語</strong>：本書の <code>&lt;アプリのドメイン&gt;</code> は TaskApp を公開しているURL（例 <code>https://app.example.com</code>）、
+  <code>{accountId}</code> は管理画面でチャネル資格情報を登録した後に発行される<strong>アカウントID</strong>に読み替えてください。
+  「相手先」「共通LINE/自社LINE」の呼称は製品UIに準拠しています。
+</div>
+
+<h2>目次</h2>
+<nav class="toc card">
+  <a href="#flow">0. 共通の流れ</a>
+  <a href="#line">1. LINE（共通LINE / 自社LINE）</a>
+  <a href="#telegram">2. Telegram</a>
+  <a href="#chatwork">3. Chatwork</a>
+  <a href="#whatsapp">4. WhatsApp (Cloud API)</a>
+  <a href="#slack">5. Slack</a>
+  <a href="#discord">6. Discord（Gatewayワーカー）</a>
+  <a href="#sendonly">7. 送信のみ（Google Chat / Teams）</a>
+  <a href="#webhookurls">8. Webhook URL 早見表</a>
+  <a href="#env">9. 環境変数チェックリスト</a>
+  <a href="#deploy">10. Discordワーカーのデプロイ</a>
+  <a href="#plan">11. プランと上限の注意</a>
+</nav>
+
+<!-- 0 -->
+<h2 id="flow">0. 共通の流れ</h2>
+<div class="card">
+  <p>どのチャネルも大きくは同じ2段構えです。</p>
+  <ol>
+    <li><strong>TaskApp 管理画面「つなぐ」でチャネル資格情報を登録</strong>する（トークンや署名鍵を保存。値は暗号化して保管され、以後は画面に再表示されません＝<em>ローテートで再設定</em>）。登録すると <code>{accountId}</code> が発行されます。</li>
+    <li><strong>各サービス側で Webhook / Bot を設定</strong>し、TaskApp の受信URL（<a href="#webhookurls">早見表</a>）を貼り付ける。以後、そのサービスの会話が AI秘書 に取り込まれ、タスク候補として承認待ちに並びます。</li>
+  </ol>
+  <div class="note"><strong>セキュリティ設計（共通）</strong>：受信URLは<strong>アカウントごと</strong>で、そのアカウントに保存した鍵でだけ署名検証されます。署名が合わない/鍵が無いリクエストは拒否（401）。承認前のグループの会話は<strong>1行も保存しません</strong>。Discord 以外の受信は各サービスの HTTP Webhook を使い、Discord のみ常駐ワーカー（後述）を使います。</div>
+</div>
+
+<!-- 1 LINE -->
+<h2 id="line">1. LINE <span class="badge recv">受信</span><span class="badge send">送信</span></h2>
+<div class="card channel">
+  <p>LINE には2つのつなぎ方があります。違いは「誰の名前で相手に届くか」です。</p>
+  <table>
+    <tr><th>方式</th><th>名義</th><th>プラン</th><th>つなぎ方</th></tr>
+    <tr><td>共通LINE</td><td>TaskApp 共有アカウント（<code>owner_type=platform</code>）</td><td><span class="badge free">無料</span></td><td>グループにコードを投入 → 管理画面で承認</td></tr>
+    <tr><td>自社LINE（白ラベル）</td><td>事務所自身のLINE公式アカウント（<code>owner_type=org</code>）</td><td><span class="badge pro">Pro</span></td><td>Messaging API チャネルを登録</td></tr>
+  </table>
+
+  <h3>A. 共通LINE（無料・運用者の作業は最小）</h3>
+  <ol>
+    <li>管理画面「つなぐ」→ 相手先のスペースで<strong>接続コードを発行</strong>する。</li>
+    <li>そのコードを相手先に渡し、対象の LINE グループに投稿してもらう。</li>
+    <li>管理画面の<strong>「確認待ち」でグループを承認</strong>すると、以後の会話が記録されます。</li>
+  </ol>
+  <p class="small">※ 共通LINE の Bot 本体（Messaging API チャネル）と Webhook はプラットフォーム側で用意済みです。運用者はコード発行と承認だけ。</p>
+
+  <h3>B. 自社LINE（Pro・自社の名前で届く）</h3>
+  <ol>
+    <li><a href="https://developers.line.biz/">LINE Developers</a> で <strong>Messaging API チャネル</strong>を作成。</li>
+    <li>管理画面「つなぐ」→ LINE を選び、次を登録：
+      <div class="kv"><b>Channel secret</b>（Webhook署名検証に使用）</div>
+      <div class="kv"><b>Channel access token（長期）</b>（送信に使用）</div>
+    </li>
+    <li>LINE 側の <strong>Webhook URL</strong> に <code>&lt;アプリのドメイン&gt;/api/channels/line/webhook</code> を設定し、Webhook 利用を ON。応答メッセージ（自動応答）は OFF 推奨。</li>
+  </ol>
+</div>
+
+<!-- 2 Telegram -->
+<h2 id="telegram">2. Telegram <span class="badge recv">受信</span><span class="badge send">送信</span></h2>
+<div class="card channel">
+  <ol>
+    <li>Telegram の <a href="https://t.me/BotFather">@BotFather</a> で Bot を作成し <strong>Bot Token</strong> を取得。</li>
+    <li>管理画面「つなぐ」→ Telegram を選び、<strong>Bot Token</strong> を登録。<br>
+      <span class="small">登録時に <strong>Webhook Secret Token がサーバー側で自動生成</strong>されます（次の手順で使用）。</span></li>
+    <li>Telegram の <code>setWebhook</code> を呼び、URL と secret_token を設定：
+      <pre><code>curl "https://api.telegram.org/bot&lt;BOT_TOKEN&gt;/setWebhook" \
+  -d "url=&lt;アプリのドメイン&gt;/api/channels/telegram/webhook/{accountId}" \
+  -d "secret_token=&lt;登録時に発行されたWebhook Secret Token&gt;"</code></pre>
+    </li>
+  </ol>
+  <p class="small">受信は <code>X-Telegram-Bot-Api-Secret-Token</code> ヘッダで検証されます。Bot をグループに追加し、必要なら privacy mode を無効化してください。</p>
+</div>
+
+<!-- 3 Chatwork -->
+<h2 id="chatwork">3. Chatwork <span class="badge recv">受信</span><span class="badge send">送信</span></h2>
+<div class="card channel">
+  <ol>
+    <li>Chatwork で連携用アカウントの <strong>API Token</strong> を発行。</li>
+    <li>管理画面「つなぐ」→ Chatwork を選び、<strong>API Token</strong> を登録。<br>
+      <span class="small">登録時に <code>/v2/me</code> で Bot 自身の account_id を解決・検証します（自己発言のエコー防止のため。トークンが無効だと登録は失敗します）。</span></li>
+    <li>Chatwork の <strong>Webhook（Webhook Version 2）</strong>を作成し、次を設定：
+      <div class="kv"><b>Webhook URL</b> <code>&lt;アプリのドメイン&gt;/api/channels/chatwork/webhook/{accountId}</code></div>
+      <div class="kv"><b>イベント</b> メッセージ作成 / 自分への返信・メンション</div>
+    </li>
+    <li>発行された <strong>Webhook Token</strong> を管理画面「つなぐ」の Chatwork 設定に追加登録（署名 <code>X-ChatWorkWebhookSignature</code> の検証に使用）。</li>
+  </ol>
+</div>
+
+<!-- 4 WhatsApp -->
+<h2 id="whatsapp">4. WhatsApp (Cloud API) <span class="badge recv">受信</span><span class="badge send">送信</span></h2>
+<div class="card channel">
+  <ol>
+    <li><a href="https://developers.facebook.com/">Meta for Developers</a> で App を作成し WhatsApp（Cloud API）を追加。<strong>System User Access Token</strong> を取得。</li>
+    <li>管理画面「つなぐ」→ WhatsApp を選び、次を登録：
+      <div class="kv"><b>System User Access Token</b>（Graph API 呼び出し／送信）</div>
+      <div class="kv"><b>App Secret</b>（<code>X-Hub-Signature-256</code> 検証＝受信有効化に必要。Meta App 設定→基本設定で取得）</div>
+      <span class="small">登録時に <strong>Verify Token が自動生成</strong>されます（次で使用）。</span>
+    </li>
+    <li>Meta App の <strong>WhatsApp → Configuration → Webhook</strong> で設定：
+      <div class="kv"><b>Callback URL</b> <code>&lt;アプリのドメイン&gt;/api/channels/whatsapp/webhook/{accountId}</code></div>
+      <div class="kv"><b>Verify Token</b> 上で発行された値</div>
+      「Verify and Save」で検証（GET ハンドシェイク）が通れば OK。<code>messages</code> フィールドを購読。
+    </li>
+  </ol>
+</div>
+
+<!-- 5 Slack -->
+<h2 id="slack">5. Slack <span class="badge recv">受信</span><span class="badge send">送信</span></h2>
+<div class="card channel">
+  <ol>
+    <li><a href="https://api.slack.com/apps">Slack API</a> で App を作成。<strong>Bot Token（<code>xoxb-</code>）</strong>と <strong>Signing Secret</strong> を取得。</li>
+    <li>管理画面「つなぐ」→ Slack を選び、次を登録：
+      <div class="kv"><b>Bot User OAuth Token</b> <code>xoxb-…</code>（<code>chat.postMessage</code> 送信）</div>
+      <div class="kv"><b>Signing Secret</b>（Events API の v0 署名検証）</div>
+    </li>
+    <li>Slack App の <strong>Event Subscriptions</strong> を ON にし、Request URL に
+      <code>&lt;アプリのドメイン&gt;/api/channels/slack/webhook/{accountId}</code> を設定（<code>url_verification</code> チャレンジが自動で通ります）。</li>
+    <li>Bot Events で <code>message.channels</code>（必要に応じ <code>message.groups</code> 等）を購読し、Bot をチャンネルに招待。</li>
+  </ol>
+  <p class="small">署名は <code>v0=</code> 形式＋±5分のリプレイ窓で検証します。旧 Slack 連携とは分離した独立実装です。</p>
+</div>
+
+<!-- 6 Discord -->
+<h2 id="discord">6. Discord（Gatewayワーカー） <span class="badge recv">受信</span></h2>
+<div class="card gateway">
+  <div class="note"><strong>Discord だけは仕組みが違います。</strong> Discord はメッセージ受信を HTTP Webhook で取得できず、<strong>Message Content Intent</strong>（特権インテント）付きの Gateway(WebSocket) 常駐接続が必要です。そのため<strong>薄い常駐ワーカー</strong>を別プロセスとしてデプロイし、受信メッセージを AI秘書 の内部取り込み口へ HMAC 署名付きで転送します。</div>
+  <ol>
+    <li><a href="https://discord.com/developers/applications">Discord Developer Portal</a> で Application＋Bot を作成し、<strong>Message Content Intent を ON</strong>（100サーバー未満は審査不要）。<strong>Bot Token</strong> を取得。</li>
+    <li>Bot を対象サーバーに招待（<code>View Channels</code> + <code>Send Messages</code> 権限）。</li>
+    <li>app 側で <strong>共有Bot の <code>channel_accounts(platform, channel='discord')</code> 行をプロビジョニング</strong>（bot_token を <code>encrypt_system_secret</code> で暗号化保存）。手順は
+      <code>docs/setup/DISCORD_GATEWAY_PROVISIONING.md</code> 参照。</li>
+    <li>app 環境に <code>DISCORD_INGEST_HMAC_SECRET</code>、常駐ワーカーに同一値の <code>INGEST_HMAC_SECRET</code> を設定。</li>
+    <li>常駐ワーカー（<code>worker/discord-gateway/</code>）を Railway / Fly.io へデプロイ（<a href="#deploy">§10</a>）。</li>
+  </ol>
+  <p class="small">相手先グループの紐付け（承認/コード償還）や Pro 課金ゲートは LINE共通Bot と同じ仕組みで app 側が行います。ワーカーは「受ける・正規化する・運ぶ」だけで、DB 資格情報は持ちません。</p>
+</div>
+
+<!-- 7 send only -->
+<h2 id="sendonly">7. 送信のみ（Google Chat / Teams / Discord Webhook）</h2>
+<div class="card">
+  <p>次は<strong>送信専用</strong>（AI秘書 からの通知・返信を送るだけ）。受信（会話の取り込み）は現状ありません。</p>
+  <ul>
+    <li><strong>Google Chat</strong> <span class="badge send">送信</span>：スペース設定で発行した <strong>Incoming Webhook URL</strong> を登録。</li>
+    <li><strong>Microsoft Teams</strong> <span class="badge send">送信</span>：Incoming Webhook 等の送信先を登録（許可ホストは <code>logic.azure.com</code> に限定）。</li>
+    <li><strong>Discord（送信）</strong> <span class="badge send">送信</span>：各チャンネル設定→連携サービス→Webhook で発行した <strong>Channel Webhook URL</strong> を登録（受信の Gateway ワーカーとは別物）。</li>
+  </ul>
+</div>
+
+<!-- 8 webhook urls -->
+<h2 id="webhookurls">8. Webhook URL 早見表</h2>
+<div class="card">
+  <p>各サービスの管理画面に貼り付ける受信URL（<code>&lt;アプリのドメイン&gt;</code> と <code>{accountId}</code> は読み替え）。</p>
+  <table>
+    <tr><th>チャネル</th><th>受信 Webhook URL</th><th>署名/検証</th></tr>
+    <tr><td>LINE</td><td><code>&lt;アプリのドメイン&gt;/api/channels/line/webhook</code></td><td>Channel secret（X-Line-Signature）</td></tr>
+    <tr><td>Telegram</td><td><code>&lt;アプリのドメイン&gt;/api/channels/telegram/webhook/{accountId}</code></td><td>Webhook Secret Token（自動生成）</td></tr>
+    <tr><td>Chatwork</td><td><code>&lt;アプリのドメイン&gt;/api/channels/chatwork/webhook/{accountId}</code></td><td>Webhook Token（X-ChatWorkWebhookSignature）</td></tr>
+    <tr><td>WhatsApp</td><td><code>&lt;アプリのドメイン&gt;/api/channels/whatsapp/webhook/{accountId}</code></td><td>App Secret（X-Hub-Signature-256）＋Verify Token</td></tr>
+    <tr><td>Slack</td><td><code>&lt;アプリのドメイン&gt;/api/channels/slack/webhook/{accountId}</code></td><td>Signing Secret（v0 署名）</td></tr>
+    <tr><td>Discord</td><td>（HTTP Webhook なし＝常駐ワーカーが <code>/api/channels/discord/ingest</code> へ HMAC POST）</td><td>INGEST_HMAC_SECRET（HMAC-SHA256）</td></tr>
+  </table>
+</div>
+
+<!-- 9 env -->
+<h2 id="env">9. 環境変数チェックリスト</h2>
+<div class="card">
+  <h3>アプリ（TaskApp 本体）</h3>
+  <ul class="checklist">
+    <li><code>NEXT_PUBLIC_SUPABASE_URL</code> / <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>（既存）</li>
+    <li><code>SYSTEM_ENCRYPTION_KEY</code> — 共有Bot の bot_token を <code>encrypt_system_secret</code> で暗号化する際に使用（Discord プロビジョニング）</li>
+    <li><code>DISCORD_INGEST_HMAC_SECRET</code> — Discord 常駐ワーカーからの取り込みを検証する共有鍵（<strong>ワーカーの <code>INGEST_HMAC_SECRET</code> と同一値</strong>）</li>
+  </ul>
+  <h3>Discord 常駐ワーカー（<code>worker/discord-gateway/</code>）</h3>
+  <ul class="checklist">
+    <li><code>DISCORD_BOT_TOKEN</code> — Developer Portal の Bot Token</li>
+    <li><code>INGEST_URL</code> — <code>&lt;アプリのドメイン&gt;/api/channels/discord/ingest</code></li>
+    <li><code>INGEST_HMAC_SECRET</code> — app の <code>DISCORD_INGEST_HMAC_SECRET</code> と<strong>同一値</strong></li>
+    <li>（任意）<code>BATCH_MAX_SIZE</code>（既定20）/ <code>FLUSH_INTERVAL_MS</code>（既定2000）</li>
+  </ul>
+  <div class="tip">共有鍵は十分に長いランダム値に。例：<code>openssl rand -hex 32</code></div>
+</div>
+
+<!-- 10 deploy -->
+<h2 id="deploy">10. Discordワーカーのデプロイ</h2>
+<div class="card">
+  <p><code>worker/discord-gateway/</code> に <code>Dockerfile</code> 同梱。<strong>単一インスタンス</strong>運用を推奨します（多重起動は同一メッセージを二重送信しますが、下流が重複を吸収するため実害はありません）。</p>
+  <h3>Fly.io の例</h3>
+  <pre><code>cd worker/discord-gateway
+fly launch --dockerfile Dockerfile          # min_machines_running = 1 を設定
+fly secrets set DISCORD_BOT_TOKEN=... INGEST_URL=https://&lt;アプリのドメイン&gt;/api/channels/discord/ingest INGEST_HMAC_SECRET=...
+fly deploy</code></pre>
+  <h3>Railway の例</h3>
+  <ul>
+    <li>このリポジトリの <code>worker/discord-gateway</code> を Root Directory に指定してデプロイ。</li>
+    <li>Variables に <code>DISCORD_BOT_TOKEN</code> / <code>INGEST_URL</code> / <code>INGEST_HMAC_SECRET</code> を設定。</li>
+  </ul>
+  <p class="small">ローカル確認：<code>cd worker/discord-gateway &amp;&amp; npm install &amp;&amp; npm test</code>（純ロジックのテスト）→ <code>npm run build &amp;&amp; npm start</code>。</p>
+</div>
+
+<!-- 11 plan -->
+<h2 id="plan">11. プランと上限の注意</h2>
+<div class="card">
+  <ul>
+    <li><strong>LINE以外の他チャット連携（<code>external_chat_channels</code>）は Pro 専有</strong>。Free の相手先が Discord 等のコードを投入しても紐付けは確立しません（無効文言に畳んで情報を漏らさない設計）。</li>
+    <li><strong>外部チャットの相手先グループ数は <code>maxExternalChatGroups</code></strong>（Pro=50・Enterprise=無制限・Free=0）。LINE の <code>maxLineGroups</code> とは<strong>別カウント</strong>で、相互に枠を汚染しません。上限到達時は<strong>新規承認のみ 402 で拒否</strong>し、既存グループは切りません。</li>
+    <li>即時通知・時刻指定リマインド・自社名義LINE・担当者への個別DM も Pro 専有機能です。</li>
+  </ul>
+  <div class="note"><strong>価格・上限値は暫定</strong>です（LINE規約の複数アカウント可否と抽出原価の実測が前提）。<code>maxExternalChatGroups</code> 等はアプリ層のソフト上限で、厳密なアトミック上限が必要なら別途 DB 制約の検討余地があります（本ガイド時点では未実装）。</div>
+</div>
+
+<hr>
+<p class="small">この文書は実装（<code>src/lib/channels/registry.ts</code> ほか）に基づく運用者向けの設定手引きです。UI 文言や仕様の更新に合わせて随時更新してください。関連：<code>docs/setup/DISCORD_GATEWAY_PROVISIONING.md</code> / <code>worker/discord-gateway/README.md</code>。</p>
+
+</div>
+</body>
+</html>

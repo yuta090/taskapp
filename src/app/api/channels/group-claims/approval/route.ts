@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
 import {
-  findGroupClaimOrgId,
+  findGroupClaimOrgAndChannel,
   approveGroupClaim,
   rejectGroupClaim,
   orgLineGroupCapacity,
+  orgExternalChatGroupCapacity,
+  orgHasExternalChatChannels,
   GroupClaimActionError,
 } from '@/lib/channels/store'
 import { isValidUuid } from '@/lib/uuid'
@@ -51,27 +53,61 @@ export async function POST(request: NextRequest) {
   }
 
   // 越権・他orgのclaimを早期に弾く（RPCもcode.org境界を束縛するが、明快な404を返すための防御）。
-  const claimOrgId = await findGroupClaimOrgId(claimId)
-  if (!claimOrgId || claimOrgId !== orgId) {
+  // 併せて claim のチャネルを引く（LINE と外部チャットで容量/エンタイトルメントの適用先が異なる）。
+  const claimRef = await findGroupClaimOrgAndChannel(claimId)
+  if (!claimRef || claimRef.orgId !== orgId) {
     return NextResponse.json({ error: 'claim not found' }, { status: 404 })
   }
 
   try {
     if (action === 'approve') {
-      // プラン上限（相手先グループ数）: 承認＝新規グループのactive化なので、ここが上限のハード適用点。
+      // プラン上限: 承認＝新規グループのactive化なので、ここが上限のハード適用点。
       // 既存グループは絶対に切らない。上限到達時は新規承認のみ 402 で拒否しアップグレードへ誘導。
-      const cap = await orgLineGroupCapacity(orgId)
-      if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
-        return NextResponse.json(
-          {
-            error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
-            code: 'group_limit_reached',
-            limit: cap.maxGroups,
-          },
-          { status: 402 },
-        )
+      // ★チャネル分岐: LINE共有botは Free でも紐付け可（maxLineGroups枠）。
+      //   Discord等の外部チャットは Pro の売り＝external_chat_channels 必須＋maxExternalChatGroups枠。
+      // ★ここでのソフトチェックは早期UX（RPC呼び出し前に明確な402/理由を返す）。
+      //   最終的なハード適用は approveGroupClaim(RPC)が同一Tx内でアトミックに強制する
+      //   （並行承認のTOCTOUレース対策・解決した上限値を渡す）。
+      let maxActive: number | null = null
+      if (claimRef.channel === 'line') {
+        const cap = await orgLineGroupCapacity(orgId)
+        maxActive = cap.maxGroups
+        if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
+          return NextResponse.json(
+            {
+              error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
+              code: 'group_limit_reached',
+              limit: cap.maxGroups,
+            },
+            { status: 402 },
+          )
+        }
+      } else {
+        // 外部チャット: まず Pro エンタイトルメント（external_chat_channels）が無ければ確立させない。
+        const entitled = await orgHasExternalChatChannels(orgId)
+        if (!entitled) {
+          return NextResponse.json(
+            {
+              error: 'LINE以外のチャット連携はProプランの機能です。Proにアップグレードするとご利用いただけます。',
+              code: 'external_chat_not_entitled',
+            },
+            { status: 402 },
+          )
+        }
+        const cap = await orgExternalChatGroupCapacity(orgId, claimRef.channel)
+        maxActive = cap.max
+        if (cap.max !== null && cap.activeCount >= cap.max) {
+          return NextResponse.json(
+            {
+              error: '接続できる相手先グループ数の上限に達しています。Proの上限を増やすと追加できます。',
+              code: 'group_limit_reached',
+              limit: cap.max,
+            },
+            { status: 402 },
+          )
+        }
       }
-      const ok = await approveGroupClaim(claimId, auth.userId)
+      const ok = await approveGroupClaim(claimId, auth.userId, maxActive)
       if (!ok) {
         // 同一グループへの2claim同時承認の敗者（channel_groups_active_uniqueによるgraceful reject）
         return NextResponse.json({ error: 'conflict' }, { status: 409 })
@@ -93,7 +129,9 @@ export async function POST(request: NextRequest) {
             ? 403
             : error.reason === 'invalid'
               ? 422
-              : 409
+              : error.reason === 'limit'
+                ? 402 // 容量上限のアトミック強制（並行承認のレース時）
+                : 409
       return NextResponse.json({ error: error.reason }, { status })
     }
     console.error('group-claims/approval: unexpected error', error)

@@ -1,76 +1,69 @@
 'use client'
 
 import Link from 'next/link'
-import { ChatCircle, SlackLogo, MicrosoftTeamsLogo } from '@phosphor-icons/react'
-
-type ChannelKey = 'line' | 'slack' | 'teams'
+import { usePathname } from 'next/navigation'
+import { chatChannels, type ChannelId } from '@/lib/channels/registry'
+import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 
 interface ChannelRailProps {
   orgId: string
-  /** 現在表示中のチャネル。有効なチャネルのみ(現状 line)。 */
-  activeChannel: ChannelKey
+  /** 現在表示中のチャネル。未指定なら pathname から導出する。 */
+  activeChannel?: ChannelId
 }
 
 /**
  * 「つなぐ」ハブの左レール（チャネル軸のサイドメニュー）。
  *
- * 受信チャネル(双方向チャット)を縦に並べる。現状つなげるのは LINE のみで、
- * Slack / Teams は「近日」の非クリック行として枠だけ見せる（Pro=マルチチャネル
- * ハブの方向性を提示しつつ、route の無いチャネルへ遷移させない）。
+ * 表示はチャネルレジストリ(src/lib/channels/registry.ts)を単一の真実の源として駆動する。
+ * チャット系チャネルを縦に並べ、実装状況で振る舞いを変える:
+ *   - GA/BETA: /secretary/connect/<channel> へのリンク（LINEは既存の専用route、
+ *     それ以外は汎用の [channel] セットアップページ）。BETAはバッジ表示。
+ *   - PLANNED: 遷移不可の「近日」行（routeを持たせない）。
  *
- * チャネル追加時はこの配列に1行足し、/secretary/connect/<channel> を作るだけ。
- * トップタブ(SecretaryTabNav)は増やさない — フラットなタブ増殖を防ぐ骨格。
+ * チャネル追加＝registryに1エントリ足すだけでこのレールに自動で並ぶ（配列の手編集不要）。
  */
-const channels: {
-  key: ChannelKey
-  label: string
-  icon: typeof ChatCircle
-  href: (orgId: string) => string | null
-  soon?: boolean
-}[] = [
-  { key: 'line', label: 'LINE', icon: ChatCircle, href: (orgId) => `/${orgId}/secretary/connect/line` },
-  { key: 'slack', label: 'Slack', icon: SlackLogo, href: () => null, soon: true },
-  { key: 'teams', label: 'Teams', icon: MicrosoftTeamsLogo, href: () => null, soon: true },
-]
-
 export function ChannelRail({ orgId, activeChannel }: ChannelRailProps) {
+  const pathname = usePathname()
+  // /{orgId}/secretary/connect/<channel>... から現在チャネルを導出
+  const derived = pathname?.match(/\/secretary\/connect\/([^/]+)/)?.[1] as ChannelId | undefined
+  const active = activeChannel ?? derived
+
   return (
     <aside className="w-full md:w-[200px] flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col">
       <div className="px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide flex-shrink-0">
         チャネル
       </div>
-      <nav className="flex flex-row md:flex-col gap-1 px-2 pb-2">
-        {channels.map((ch) => {
-          const Icon = ch.icon
-          const href = ch.href(orgId)
-          const isActive = ch.key === activeChannel
+      <nav className="flex flex-row md:flex-col gap-1 px-2 pb-2 overflow-x-auto md:overflow-visible">
+        {chatChannels().map((ch) => {
+          const Icon = CHANNEL_ICONS[ch.id]
+          const isActive = ch.id === active
+          const planned = ch.status === 'planned'
+          const href = planned ? null : `/${orgId}/secretary/connect/${ch.id}`
 
           if (!href) {
             return (
               <div
-                key={ch.key}
-                data-testid={`channel-rail-${ch.key}`}
+                key={ch.id}
+                data-testid={`channel-rail-${ch.id}`}
                 aria-disabled="true"
-                className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded text-gray-400 cursor-not-allowed select-none"
+                className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded text-gray-400 cursor-not-allowed select-none whitespace-nowrap"
               >
                 <Icon className="w-4 h-4" />
                 <span>{ch.label}</span>
-                {ch.soon && (
-                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                    近日
-                  </span>
-                )}
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                  近日
+                </span>
               </div>
             )
           }
 
           return (
             <Link
-              key={ch.key}
+              key={ch.id}
               href={href}
-              data-testid={`channel-rail-${ch.key}`}
+              data-testid={`channel-rail-${ch.id}`}
               aria-current={isActive ? 'page' : undefined}
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded transition-colors ${
+              className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded transition-colors whitespace-nowrap ${
                 isActive
                   ? 'bg-gray-100 text-gray-900'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -78,6 +71,11 @@ export function ChannelRail({ orgId, activeChannel }: ChannelRailProps) {
             >
               <Icon className="w-4 h-4" weight={isActive ? 'fill' : 'regular'} />
               <span>{ch.label}</span>
+              {ch.status === 'beta' && (
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                  BETA
+                </span>
+              )}
             </Link>
           )
         })}
