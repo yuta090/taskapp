@@ -177,6 +177,12 @@ function makeChain(table: string) {
       return { data: orgId ? { org_id: orgId } : null, error: null }
     }
     if (table === 'org_memberships') {
+      // resolveOrgOwner: org_id + role='owner' で created_by 名義の owner を1件返す。
+      if (eqFilters.role === 'owner') {
+        const owner = state.orgMembers.find((m) => m.org_id === eqFilters.org_id)
+        return { data: owner ? { user_id: owner.user_id } : null, error: null }
+      }
+      // validateImportTarget: org_id + user_id の存在確認。
       const found = state.orgMembers.some(
         (m) => m.org_id === eqFilters.org_id && m.user_id === eqFilters.user_id,
       )
@@ -224,6 +230,8 @@ function makeChain(table: string) {
       eqFilters[col] = val
       return chain
     }),
+    order: vi.fn(() => chain),
+    limit: vi.fn(() => chain),
     single: vi.fn(() => Promise.resolve(resolveNow())),
     maybeSingle: vi.fn(() => Promise.resolve(resolveNow())),
     then: (resolve: (v: unknown) => unknown) => resolve(resolveNow()),
@@ -284,6 +292,15 @@ describe('importGoogleTasksBatch', () => {
 
     expect(state.tasksInserted).toHaveLength(1)
     expect(state.tasksInserted[0]).toMatchObject({ org_id: 'org-1', space_id: 'space-1', title: '新規タスク' })
+    // tasks の NOT NULL/デフォルト制約を満たすこと(実DBで落ちない・顧客ポータルに露出しない):
+    //   created_by=org owner / client_scope='internal'(default 'deliverable' を上書き) / description は非null。
+    expect(state.tasksInserted[0]).toMatchObject({
+      created_by: 'user-9',
+      client_scope: 'internal',
+      ball: 'internal',
+      origin: 'internal',
+    })
+    expect(state.tasksInserted[0].description).toBe('') // notes 無し → '' (null を入れない)
     expect(state.links).toHaveLength(1)
     expect(state.links[0]).toMatchObject({
       connection_id: CONN,
