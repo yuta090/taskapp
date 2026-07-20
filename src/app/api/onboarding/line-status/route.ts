@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
 import { hasActiveUserLinkForUser, isLineSelfServeReady } from '@/lib/channels/store'
+import { getAiConfigStatus } from '@/lib/ai/client'
 import { isValidUuid } from '@/lib/uuid'
 
 export const runtime = 'nodejs'
@@ -14,6 +15,9 @@ export const runtime = 'nodejs'
  *
  * - lineAccountReady: org がLINE秘書を自分で連携し始められる状態か（Botが用意済みか）
  * - hasLineLinked:    リクエストしたユーザー自身の active な user-link があるか
+ * - aiConfigured:     org_ai_config に有効なAI設定があるか（＝夜間の自動タスク抽出が動く前提）。
+ *                     org_ai_config は owner限定RLSのため内部メンバーは直読みできず、ここで
+ *                     service role で有無/有効のみ判定する（APIキーは復号も返却もしない）。
  */
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get('orgId') ?? ''
@@ -27,11 +31,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [lineAccountReady, hasLineLinked] = await Promise.all([
+    const [lineAccountReady, hasLineLinked, aiStatus] = await Promise.all([
       isLineSelfServeReady(orgId),
       hasActiveUserLinkForUser(orgId, auth.userId),
+      getAiConfigStatus(orgId),
     ])
-    return NextResponse.json({ lineAccountReady, hasLineLinked })
+    return NextResponse.json({
+      lineAccountReady,
+      hasLineLinked,
+      aiConfigured: aiStatus.configured,
+    })
   } catch (error) {
     console.error('line-status: failed', error)
     return NextResponse.json({ error: 'failed' }, { status: 500 })

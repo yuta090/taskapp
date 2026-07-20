@@ -31,6 +31,33 @@ interface AiConfig {
   enabled: boolean
 }
 
+export type AiConfigStatus =
+  | { configured: true }
+  | { configured: false; reason: 'missing' | 'disabled' | 'error' }
+
+/**
+ * org_ai_config の「有無・有効/無効」だけを、APIキーを復号せずに安価に判定する。
+ *
+ * 自動タスク抽出(channel-digest cron)が動く前提（有効なAI設定）が揃っているかを、
+ * セットアップチェックリスト・設定画面・運用ログで可視化するための軽量ステータス。
+ * getAiConfig（復号あり・未設定時throw）と違い、こちらは throw せず値で返す＝
+ * 「AI未設定で自動タスク化が止まっている」ことを黙って握り潰さないための土台。
+ * DBエラー時も throw せず reason:'error' を返す（可視化フロー自体は止めない）。
+ */
+export async function getAiConfigStatus(orgId: string): Promise<AiConfigStatus> {
+  const { data, error } = await (getSupabaseAdmin() as SupabaseClient)
+    .from('org_ai_config')
+    .select('enabled')
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (error) return { configured: false, reason: 'error' }
+  if (!data) return { configured: false, reason: 'missing' }
+  const { enabled } = data as { enabled: boolean }
+  if (!enabled) return { configured: false, reason: 'disabled' }
+  return { configured: true }
+}
+
 /**
  * Fetch and decrypt the org's AI configuration from DB
  */

@@ -22,6 +22,12 @@ export interface SetupChecklistData {
    * 「準備中」表示にして完了不能なCTAを見せない。
    */
   lineAccountReady: boolean
+  /**
+   * org_ai_config に有効なAI設定がある＝夜間の自動タスク抽出(channel-digest)が動く前提が揃っている。
+   * false のとき、LINEを繋いでも会話が自動タスク化されない（cronがサイレントにスキップする）。
+   * これを可視化するため configure_ai ステップで警告＋設定導線を出す。
+   */
+  aiConfigured: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -31,6 +37,7 @@ export type SetupChecklistStepKey =
   | 'publish_task'
   | 'preview_portal'
   | 'connect_line'
+  | 'configure_ai'
 
 export interface SetupChecklistStep {
   key: SetupChecklistStepKey
@@ -121,6 +128,16 @@ export function computeSetupChecklist(
       ctaLabel: data.hasPreviewedPortal ? null : 'プレビュー',
     },
     buildConnectLineStep(data, orgId),
+    {
+      key: 'configure_ai',
+      title: 'AI連携を設定',
+      description: data.aiConfigured
+        ? 'AI連携を設定しました。'
+        : 'AIを設定すると、LINEのやり取りが自動でタスクになります。未設定のあいだは自動タスク化は動きません。',
+      done: data.aiConfigured,
+      href: data.aiConfigured ? null : '/settings/org-integrations',
+      ctaLabel: data.aiConfigured ? null : 'AI連携を設定',
+    },
   ]
 
   // pending（準備中）ステップは表示のみ。進捗の分母・現在地からは除外する。
@@ -149,8 +166,10 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
+      // 共通LINEの秘書アカウントは当社が順次開通する（申込制）。自動で画面に現れるかのような
+      // 「準備ができ次第ここから連携できます」表現は避け、開通の主体＝当社、ご案内＝メール、と明示する。
       description:
-        'あなたの事務所のLINE秘書を準備中です。準備ができ次第ここから連携できます（お急ぎの場合はサポートへ）。',
+        'LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内しますので、少々お待ちください（お急ぎの場合はサポートへご連絡ください）。',
       done: false,
       href: null,
       ctaLabel: null,
