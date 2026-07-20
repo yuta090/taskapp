@@ -387,6 +387,8 @@ describe('importGoogleTasksBatch', () => {
     await importGoogleTasksBatch()
     expect(state.tasksUpdated).toHaveLength(1)
     expect(state.tasksUpdated[0]).toMatchObject({ id: 'task-existing', value: { title: '更新後タイトル' } })
+    // notes 無しの更新でも description は '' で送る(NOT NULL 違反で update が throw→cursor 停止するのを防ぐ)。
+    expect(state.tasksUpdated[0].value.description).toBe('')
     expect(rpcMock).not.toHaveBeenCalledWith('rpc_connector_complete_task', expect.anything())
   })
 

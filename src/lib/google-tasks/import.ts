@@ -213,7 +213,10 @@ async function updateExternalTask(taskId: string, gt: GoogleTask): Promise<void>
     .from('tasks')
     .update({
       title: gt.title?.trim() || '(無題)',
-      description: gt.notes ?? null,
+      // description は NOT NULL default ''。明示 null で NOT NULL 違反になると update が throw →
+      // importConnection の catch で cursor 未前進 → 当該接続が同一バッチを永久リトライして取り込み
+      // 恒久停止する。notes 無しタスク(大多数)や完了同期(updateを先に通る)を壊さないため '' に統一。
+      description: gt.notes ?? '',
       due_date: googleDueToDateString(gt.due),
     })
     .eq('id', taskId)
