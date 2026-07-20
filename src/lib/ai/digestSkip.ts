@@ -1,4 +1,4 @@
-import { AiConfigError } from './client'
+import { AiConfigError } from './errors'
 
 /**
  * channel-digest cron の抽出スキップ理由を、運用可視化のために分類する。

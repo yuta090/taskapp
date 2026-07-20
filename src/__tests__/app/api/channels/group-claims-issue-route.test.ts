@@ -26,6 +26,7 @@ const verifySpaceInOrgMock = vi.fn()
 const findFirstPlatformAccountIdMock = vi.fn()
 const createSharedGroupClaimCodeMock = vi.fn()
 const orgLineGroupCapacityMock = vi.fn()
+const getLineSelfServeStateMock = vi.fn()
 
 class DuplicateSharedGroupClaimCodeError extends Error {}
 class MultiplePlatformAccountsError extends Error {}
@@ -35,6 +36,7 @@ vi.mock('@/lib/channels/store', () => ({
   findFirstPlatformAccountId: (...args: unknown[]) => findFirstPlatformAccountIdMock(...args),
   createSharedGroupClaimCode: (...args: unknown[]) => createSharedGroupClaimCodeMock(...args),
   orgLineGroupCapacity: (...args: unknown[]) => orgLineGroupCapacityMock(...args),
+  getLineSelfServeState: (...args: unknown[]) => getLineSelfServeStateMock(...args),
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
 }))
@@ -62,6 +64,7 @@ describe('POST /api/channels/group-claims/issue', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
     verifySpaceInOrgMock.mockResolvedValue(true)
+    getLineSelfServeStateMock.mockResolvedValue('granted') // 既定=開通済み
     orgLineGroupCapacityMock.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
     findFirstPlatformAccountIdMock.mockResolvedValue('acc-platform-1')
     createSharedGroupClaimCodeMock.mockResolvedValue({
@@ -87,6 +90,21 @@ describe('POST /api/channels/group-claims/issue', () => {
 
   it('内部メンバーでなければ403', async () => {
     membershipSingleMock.mockResolvedValue({ data: null, error: { message: 'not found' } })
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
+    expect(res.status).toBe(403)
+  })
+
+  it('共通LINE未申込(none)なら403（発行しない・申込導線コード）', async () => {
+    getLineSelfServeStateMock.mockResolvedValue('none')
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
+    const json = await res.json()
+    expect(res.status).toBe(403)
+    expect(json.code).toBe('shared_bot_access_required')
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('申込中(requested)でも403（未開通は発行しない）', async () => {
+    getLineSelfServeStateMock.mockResolvedValue('requested')
     const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
     expect(res.status).toBe(403)
   })

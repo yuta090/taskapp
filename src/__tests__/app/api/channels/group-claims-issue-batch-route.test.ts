@@ -29,6 +29,7 @@ const verifySpacesInOrgMock = vi.fn()
 const countOutstandingCodeOnlyCodesMock = vi.fn()
 const findFirstPlatformAccountIdMock = vi.fn()
 const createCodeOnlyClaimCodesBatchMock = vi.fn()
+const getLineSelfServeStateMock = vi.fn()
 
 class MultiplePlatformAccountsError extends Error {}
 
@@ -38,6 +39,7 @@ vi.mock('@/lib/channels/store', () => ({
   countOutstandingCodeOnlyCodes: (...args: unknown[]) => countOutstandingCodeOnlyCodesMock(...args),
   findFirstPlatformAccountId: (...args: unknown[]) => findFirstPlatformAccountIdMock(...args),
   createCodeOnlyClaimCodesBatch: (...args: unknown[]) => createCodeOnlyClaimCodesBatchMock(...args),
+  getLineSelfServeState: (...args: unknown[]) => getLineSelfServeStateMock(...args),
   MultiplePlatformAccountsError,
 }))
 
@@ -63,6 +65,7 @@ describe('POST /api/channels/group-claims/issue-batch', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
     isCodeOnlyEntitledMock.mockResolvedValue(true)
+    getLineSelfServeStateMock.mockResolvedValue('granted')
     verifySpacesInOrgMock.mockResolvedValue(true)
     countOutstandingCodeOnlyCodesMock.mockResolvedValue(0)
     findFirstPlatformAccountIdMock.mockResolvedValue('acc-platform-1')

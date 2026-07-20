@@ -399,6 +399,13 @@ export default function OrgIntegrationsPage() {
                 )}
               </div>
 
+              {aiConfig.keyStatus === 'invalid' && (
+                /* 保存時にプロバイダーが認証拒否した鍵。連携中に見えても実際は動かないため明示的に警告する。 */
+                <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  登録されたAPIキーがプロバイダーで認証できませんでした。自動タスク化・AIメンションは動きません。上の削除ボタンで一度削除し、正しいキーを登録し直してください。
+                </div>
+              )}
+
               <div className="border border-gray-200 rounded-lg p-4 space-y-3">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>

@@ -9,6 +9,9 @@ export interface AiConfig {
   model: string
   enabled: boolean
   keyPrefix: string
+  /** 保存時のプロバイダー疎通による鍵の妥当性。invalid のときは再設定を促す */
+  keyStatus: 'unverified' | 'valid' | 'invalid'
+  keyVerifiedAt: string | null
   createdAt: string
   updatedAt: string
 }

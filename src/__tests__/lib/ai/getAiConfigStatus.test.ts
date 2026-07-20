@@ -45,9 +45,19 @@ describe('getAiConfigStatus', () => {
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'disabled' })
   })
 
-  it('enabled=true かつキーあり なら configured:true', async () => {
-    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc' }, error: null }
+  it('enabled=true・キーあり・key_status=valid なら configured:true', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc', key_status: 'valid' }, error: null }
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: true })
+  })
+
+  it('key_status=unverified（旧データ/判定不能）は configured:true に倒す（false negativeにしない）', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc', key_status: 'unverified' }, error: null }
+    expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: true })
+  })
+
+  it('key_status=invalid（保存時に認証拒否された）は configured:false / reason:invalid', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc', key_status: 'invalid' }, error: null }
+    expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'invalid' })
   })
 
   it('enabled=true でもキーが空なら configured:false / reason:missing（緑表示にしない）', async () => {
@@ -65,10 +75,10 @@ describe('getAiConfigStatus', () => {
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'error' })
   })
 
-  it('APIキーは有無だけ select する（復号はしない＝安価）', async () => {
-    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc' }, error: null }
+  it('復号はせず enabled/キー有無/key_status だけ select する（安価）', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc', key_status: 'valid' }, error: null }
     await ai.getAiConfigStatus('org-1')
     const builder = fromMock.mock.results[0].value
-    expect(builder.select).toHaveBeenCalledWith('enabled, api_key_encrypted')
+    expect(builder.select).toHaveBeenCalledWith('enabled, api_key_encrypted, key_status')
   })
 })
