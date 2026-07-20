@@ -49,7 +49,7 @@ describe('useChannelIdentities', () => {
     vi.restoreAllMocks()
   })
 
-  it('staleTimeを上書きしない（アプリ既定=QueryProviderの2分を継承する）', async () => {
+  it('staleTimeはSTRUCTUREティア(5分)を明示する（mount時サイレントSWRで背景refetchは効かせる）', async () => {
     mockEqStatus.mockReturnValue(builder([]))
 
     renderHook(() => useChannelIdentities('org-1'), { wrapper: createWrapper() })
@@ -59,7 +59,35 @@ describe('useChannelIdentities', () => {
       string,
       unknown
     >
-    expect(options.staleTime).toBeUndefined()
+    expect(options.staleTime).toBe(5 * 60_000)
+  })
+
+  it('polling省略時はrefetchIntervalを設定しない（既定=STRUCTUREの5分SWRのまま）', async () => {
+    mockEqStatus.mockReturnValue(builder([]))
+
+    renderHook(() => useChannelIdentities('org-1'), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(useQuery).toHaveBeenCalled())
+    const options = (useQuery as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >
+    expect(options.refetchInterval).toBeUndefined()
+  })
+
+  it('polling:true指定時はrefetchIntervalを15秒に設定する（接続待ち画面のみ有効化）', async () => {
+    mockEqStatus.mockReturnValue(builder([]))
+
+    renderHook(() => useChannelIdentities('org-1', 'line', { polling: true }), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(useQuery).toHaveBeenCalled())
+    const options = (useQuery as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >
+    expect(options.refetchInterval).toBe(15_000)
   })
 
   it('space毎に件数を集計する', async () => {

@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Copy,
   Check,
@@ -15,6 +16,33 @@ import {
 } from '@phosphor-icons/react'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+
+/**
+ * 承認待ち一覧の静かなポーリング間隔。相手先がグループに参加した数秒後に自動反映させるため、
+ * 1対1の接続待ち画面(ClientLinkPanel→useChannelIdentities polling:true)と揃えて15秒(WAITINGティア)。
+ */
+const PENDING_CLAIMS_POLL_INTERVAL_MS = 15_000
+
+/**
+ * トゥームストーン(recentlyActedRef)のフォールバック破棄時間。
+ * 通常はサーバがその行を返さなくなった時点(commit確認)で即座に破棄するが、
+ * 何らかの理由でcommit確認が取れない異常系に備えた安全弁として一定時間で強制破棄する。
+ * ポーリング間隔(15秒)を確実に2周以上できる余裕を持たせる。
+ */
+const TOMBSTONE_FALLBACK_MS = 60_000
+
+/** silent poll の fetch が応答しない場合に AbortController で強制中断するタイムアウト。 */
+const POLL_FETCH_TIMEOUT_MS = 10_000
+
+/**
+ * in-flightガード(pollInFlightRef)の固着防止(セルフヒール)しきい値。
+ * AbortControllerでの中断が効かない場合(例: signalを見ないfetch実装・テスト環境)でも、
+ * 前回のsilent poll開始からこの時間を超えていれば強制的にガードを解除して再試行する。
+ * PENDING_CLAIMS_POLL_INTERVAL_MS(15秒)より長くすることで通常のin-flight重複スキップ
+ * (順序逆転防止・item4)を1周期分は尊重しつつ、2周期(30秒)以内には収まる値にすることで、
+ * 1本のハングでポーリングが恒久停止しないことを保証する(=遅くとも次の次のintervalで復帰する)。
+ */
+const POLL_STALE_RESET_MS = 20_000
 
 /**
  * 相手先グループ数の上限(402 group_limit_reached)を踏んだ際のProアップセル注記。
@@ -44,6 +72,32 @@ interface PendingGroupClaimItem {
   createdAt: string
 }
 
+/** 確認待ち一覧はcreated_at昇順(サーバ側の並び順)。静かなマージで保持した行が末尾へ飛ばないよう揃える。 */
+function sortByCreatedAt(items: PendingGroupClaimItem[]): PendingGroupClaimItem[] {
+  return [...items].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+}
+
+/**
+ * サーバから取得した一覧(nextItems)へ、busy(処理中)・tombstone(直近で楽観除去済み)の
+ * 行を復活させないガードを適用してマージする。silent(ポーリング)だけでなく、非silent
+ * (mount時・「再読み込み」ボタン)でも同じロジックを通す — act()の楽観除去直後に
+ * 非silent reloadが走った場合でも、サーバがまだcommit前の一覧を返して復活させないため。
+ */
+function mergeWithGuards(
+  nextItems: PendingGroupClaimItem[],
+  prev: PendingGroupClaimItem[],
+  busyIds: Set<string>,
+  tombstoneIds: Set<string>,
+): PendingGroupClaimItem[] {
+  const excludeIds = new Set<string>([...busyIds, ...tombstoneIds])
+  if (excludeIds.size === 0) return sortByCreatedAt(nextItems)
+  // busy中の行だけは直前のprevをそのまま残す(tombstone対象は既にprevから除去済みなので
+  // 保持不要=nextItemsから除外するだけでよい)。
+  const preservedBusy = prev.filter((it) => busyIds.has(it.id))
+  const merged = nextItems.filter((it) => !excludeIds.has(it.id))
+  return sortByCreatedAt([...merged, ...preservedBusy])
+}
+
 interface IssuedCode {
   code: string
   expiresAt: string
@@ -63,6 +117,7 @@ interface IssuedBatchItem {
  * 楽観更新: 承認/却下が成功したら即座にリストから消す（保存ボタンは無い）。
  */
 export function GroupLinksClient({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient()
   const { spaces } = useUserSpaces()
   const orgSpaces = spaces.filter((s) => s.orgId === orgId)
 
@@ -80,6 +135,27 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   const [busy, setBusy] = useState<Record<string, 'approve' | 'reject'>>({})
   const [rowError, setRowError] = useState<Record<string, string>>({})
   const [rowGroupLimitReached, setRowGroupLimitReached] = useState<Record<string, boolean>>({})
+  // ポーリング(reloadのsilent実行)がbusy(承認/却下処理中)の行を巻き戻さないためのガード。
+  // busy stateは非同期に更新されるため、setInterval側のコールバックから常に最新値を読めるようrefで併走する。
+  const busyRef = useRef<Record<string, 'approve' | 'reject'>>({})
+  useEffect(() => {
+    busyRef.current = busy
+  }, [busy])
+  // トゥームストーン: 承認/拒否(409の既処理含む)で楽観除去した直後の窓を守るガード。
+  // busyRefは「in-flight中のfetch適用」しか守らない — act()のsetItems除去→setBusy解除は
+  // ほぼ同tickで完了するため、承認クリック"前"に発火し承認完了"後"に解決する古いsilent poll
+  // (busy解除済み)がcommit前の行を復活させてしまう窓が残る。claimId→記録時刻のMapで
+  // 「サーバがまだその行を返さなくなる(commit確認)まで」ポーリング結果から除外し続ける。
+  const recentlyActedRef = useRef<Map<string, number>>(new Map())
+  // ポーリングのin-flight重複ガード。前のsilent pollが未解決のうちは次のintervalをスキップし、
+  // 遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ。
+  const pollInFlightRef = useRef(false)
+  // in-flightガードが固着しないための補助state。silent pollのfetchが応答しない場合に
+  // AbortControllerで強制中断する(POLL_FETCH_TIMEOUT_MS)ほか、それでも解決しない異常系に
+  // 備えて「前回開始からPOLL_STALE_RESET_MSを超えていたら強制リセットする」セルフヒールに使う。
+  const pollAbortControllerRef = useRef<AbortController | null>(null)
+  const pollTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollStartedAtRef = useRef<number | null>(null)
 
   // 本部一括発行（code_only・entitlementがある時だけ表示。設計正本 §3・PR3b）
   const [allowCodeOnly, setAllowCodeOnly] = useState(false)
@@ -91,24 +167,136 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
   )
   const [batchCopied, setBatchCopied] = useState(false)
 
-  const reload = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const res = await fetch(`/api/channels/group-claims/pending?orgId=${orgId}`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error ?? '取得に失敗しました')
-      setItems(json.items ?? [])
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : '取得に失敗しました')
-    } finally {
-      setLoading(false)
-    }
-  }, [orgId])
+  /**
+   * @param options.silent true のときは初回ロード用のloading/loadErrorに触れず、
+   *   itemsだけを裏で静かに差し替える(ポーリング用)。画面をチラつかせない。
+   */
+  const reload = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent === true
+      let controller: AbortController | null = null
+
+      if (silent) {
+        // in-flightガード: 前のsilent pollがまだ解決していなければ今回はスキップする
+        // (遅延した古い応答が後発の新しい応答を上書きする順序逆転を防ぐ)。
+        if (pollInFlightRef.current) {
+          const startedAt = pollStartedAtRef.current
+          const stale = startedAt !== null && Date.now() - startedAt > POLL_STALE_RESET_MS
+          if (!stale) return
+          // セルフヒール: 前回のsilent pollがPOLL_STALE_RESET_MSを超えても応答していない
+          // (AbortControllerでの中断が効かない異常系を含む)。ガードを強制的に解除し、
+          // ポーリングが恒久停止しないようにする。放置された前回のcontroller/timeoutも掃除する。
+          if (pollTimeoutIdRef.current) {
+            clearTimeout(pollTimeoutIdRef.current)
+            pollTimeoutIdRef.current = null
+          }
+          pollAbortControllerRef.current?.abort()
+          pollAbortControllerRef.current = null
+          pollInFlightRef.current = false
+        }
+        pollInFlightRef.current = true
+        pollStartedAtRef.current = Date.now()
+        controller = new AbortController()
+        pollAbortControllerRef.current = controller
+        pollTimeoutIdRef.current = setTimeout(() => controller?.abort(), POLL_FETCH_TIMEOUT_MS)
+      } else {
+        setLoading(true)
+        setLoadError(null)
+      }
+
+      try {
+        const res = await fetch(
+          `/api/channels/group-claims/pending?orgId=${orgId}`,
+          controller ? { signal: controller.signal } : undefined,
+        )
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(json.error ?? '取得に失敗しました')
+        const nextItems: PendingGroupClaimItem[] = json.items ?? []
+
+        const tombstones = recentlyActedRef.current
+        const now = Date.now()
+        // フォールバック: 一定時間経過したtombstoneは異常系の保険として強制的に破棄する
+        for (const [id, ts] of tombstones) {
+          if (now - ts > TOMBSTONE_FALLBACK_MS) tombstones.delete(id)
+        }
+        // commit確認: サーバがもうその行を返さなくなった(=status変更が反映された)ら
+        // 復活させる心配が無いのでtombstoneを解除する
+        const rawIds = new Set(nextItems.map((it) => it.id))
+        for (const id of tombstones.keys()) {
+          if (!rawIds.has(id)) tombstones.delete(id)
+        }
+        const busyIds = new Set(Object.keys(busyRef.current))
+
+        // silentだけでなく非silent(mount時・「再読み込み」ボタン)でも同じ除外ロジックを通す。
+        // act()の楽観除去直後に非silent reloadが走っても、サーバがまだcommit前の一覧を
+        // 返して復活させることがないようにする(初回mountはbusy/tombstoneとも空なので無影響)。
+        setItems((prev) => mergeWithGuards(nextItems, prev, busyIds, new Set(tombstones.keys())))
+      } catch (e) {
+        // abort(タイムアウト/unmount)はエラー扱いしない。silent(ポーリング)の取得失敗も
+        // 既存表示を保持する(画面を赤くしない)。初回ロード失敗のみエラー表示する。
+        const aborted = e instanceof DOMException && e.name === 'AbortError'
+        if (!silent && !aborted) {
+          setLoadError(e instanceof Error ? e.message : '取得に失敗しました')
+        }
+      } finally {
+        if (silent) {
+          // このreload呼び出しが「現在アクティブなpoll」である場合のみ共有refをクリアする。
+          // stale-resetで見捨てられた古いpollが後から解決しても、既に新しいpollへ
+          // 交代済みのin-flight状態を誤って巻き戻さないようにするため。
+          if (pollAbortControllerRef.current === controller) {
+            if (pollTimeoutIdRef.current) {
+              clearTimeout(pollTimeoutIdRef.current)
+              pollTimeoutIdRef.current = null
+            }
+            pollAbortControllerRef.current = null
+            pollInFlightRef.current = false
+          }
+        } else {
+          setLoading(false)
+        }
+      }
+    },
+    [orgId],
+  )
 
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // 静かなポーリング: 相手先がグループに参加した数秒後に自動反映させる(1対1接続待ち画面と揃える)。
+  // タブが非表示の間はfetchをスキップする(react-queryのrefetchIntervalInBackground:falseと挙動を揃える)。
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void reload({ silent: true })
+    }, PENDING_CLAIMS_POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [reload])
+
+  // タブ復帰時に即時反映する(react-query版のwindow focus即取得と体感を揃える)。
+  // hidden中に相手先がグループ参加していても、復帰した瞬間まで最大15秒待たせない。
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void reload({ silent: true })
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [reload])
+
+  // unmount時は進行中のsilent pollを中断し、タイムアウトも解除する
+  // (interval/visibilitychangeの購読解除は各effectのクリーンアップが別途担う)。
+  useEffect(() => {
+    return () => {
+      pollAbortControllerRef.current?.abort()
+      pollAbortControllerRef.current = null
+      if (pollTimeoutIdRef.current) {
+        clearTimeout(pollTimeoutIdRef.current)
+        pollTimeoutIdRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -229,6 +417,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           const json = await res.json().catch(() => ({}))
           // 409 は他経路(別タブ・同時操作)で既に処理済み。その場合もリストから消して整合させる
           if (res.status === 409) {
+            recentlyActedRef.current.set(claimId, Date.now())
             setItems((prev) => prev.filter((it) => it.id !== claimId))
             return
           }
@@ -246,8 +435,18 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                 : (json.error ?? '処理に失敗しました')
           throw new Error(msg)
         }
-        // 楽観更新: 成功したら消す
+        // 楽観更新: 成功したら消す。承認クリック前に発火し完了後に解決する古いsilent poll
+        // (busy解除後まで残る)が復活させないよう、サーバがcommit確認するまでtombstoneで守る。
+        recentlyActedRef.current.set(claimId, Date.now())
         setItems((prev) => prev.filter((it) => it.id !== claimId))
+        // 承認(approve)は rpc_approve_group_claim が channel_groups を新規active化する。
+        // 秘書コンソール左カラム等の接続バッジ(useChannelGroups/useChannelGroupCounts)が
+        // STRUCTUREティア(5分SWR)で固定されているため、承認直後に無効化して反映させる。
+        // 却下(reject)は channel_groups を作らないため対象外(STRUCTURE規約)。
+        if (action === 'approve') {
+          void queryClient.invalidateQueries({ queryKey: ['channelGroups', orgId] })
+          void queryClient.invalidateQueries({ queryKey: ['channelGroupCounts', orgId] })
+        }
       } catch (e) {
         setRowError((prev) => ({
           ...prev,
@@ -261,7 +460,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
         })
       }
     },
-    [orgId],
+    [orgId, queryClient],
   )
 
   return (

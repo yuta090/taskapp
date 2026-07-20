@@ -1,12 +1,18 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { useChannelGroupCounts } from '@/lib/hooks/useChannelGroupCounts'
+
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return { ...actual, useQuery: vi.fn(actual.useQuery) }
+})
 
 /**
  * useChannelGroupCounts — space毎のactive channel_groups件数の集計。
  * 連携判定を「1:1DMのidentityだけでなくグループ接続でも“連携済み”」にするために使う。
+ * STRUCTUREティア(freshness tiers): staleTime 5分。
  */
 
 const mockSelect = vi.fn()
@@ -65,5 +71,19 @@ describe('useChannelGroupCounts', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false))
     expect(result.current.counts).toEqual({ 'space-9': 1 })
+  })
+
+  it('staleTimeはSTRUCTUREティア(5分)を明示する(30秒ではない)', async () => {
+    mockEqStatus.mockReturnValue(builder([]))
+
+    renderHook(() => useChannelGroupCounts('org-1'), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(useQuery).toHaveBeenCalled())
+    const options = (useQuery as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+      string,
+      unknown
+    >
+    expect(options.staleTime).toBe(5 * 60_000)
+    expect(options.staleTime).not.toBe(30_000)
   })
 })
