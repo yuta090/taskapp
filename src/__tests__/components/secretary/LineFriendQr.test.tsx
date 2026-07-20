@@ -87,7 +87,7 @@ describe('LineFriendQr', () => {
 
     render(<LineFriendQr orgId="org-1" />)
 
-    await waitFor(() => expect(screen.getByText(/準備中/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/順次開通/)).toBeInTheDocument())
     expect(screen.queryByRole('img', { name: /QR/ })).not.toBeInTheDocument()
     expect(toDataURLMock).not.toHaveBeenCalled()
   })
@@ -97,7 +97,7 @@ describe('LineFriendQr', () => {
 
     render(<LineFriendQr orgId="org-1" />)
 
-    await waitFor(() => expect(screen.getByText(/準備中/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/順次開通/)).toBeInTheDocument())
   })
 
   it('APIが非2xxを返す: 準備中メッセージを表示する', async () => {
@@ -105,6 +105,6 @@ describe('LineFriendQr', () => {
 
     render(<LineFriendQr orgId="org-1" />)
 
-    await waitFor(() => expect(screen.getByText(/準備中/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/順次開通/)).toBeInTheDocument())
   })
 })

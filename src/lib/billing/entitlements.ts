@@ -47,8 +47,11 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
 /**
  * 数量制限（プランごと）。機能フラグ(PLAN_FEATURES)とは別マップにする。
  * DBに列は足さない phase 1 方針を維持（コード内マップ）。null = 無制限。
- * monthlySharedPushQuota は共通LINE(共有bot)の送信クォータ。Stripe webhook/reconcile 内の
- * service role が org_channel_policy.monthly_push_quota へ同期する（コンソール直書きは禁止）。
+ * monthlySharedPushQuota は共通LINE(共有bot)の送信クォータ。org_billing への書込
+ * （新規作成RPC・Stripe webhook・reconcile）を契機に DBトリガー trg_org_billing_sync_push_quota
+ * が効果的プランから org_channel_policy.monthly_push_quota へ同期する（コンソール直書きは禁止）。
+ * 実装: supabase/migrations/20260720201858_org_push_quota_from_plan.sql（free=50 の値は
+ * app_org_push_quota() の c_free_quota と本マップを orgPushQuotaParity.test.ts で一致固定）。
  *
  * NOTE(要決定・数値): 下記は仮の初期値。実運用の集計（有料org数・平均グループ数・push実績）を見て
  *   確定する。Free は「狭く始めて広げる」（増やすのは無風・減らすのは炎上）ため小さめに置く。

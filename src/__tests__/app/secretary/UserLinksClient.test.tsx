@@ -53,7 +53,7 @@ beforeEach(() => {
 
 describe('UserLinksClient (連携ハブ)', () => {
   it('主役2カードを平易な見出しで、順番はグループ→自分で表示する', () => {
-    render(<UserLinksClient orgId={ORG} />)
+    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     const group = screen.getByText('グループLINEから拾う')
     const self = screen.getByText('自分のLINEで受け取る')
@@ -72,7 +72,7 @@ describe('UserLinksClient (連携ハブ)', () => {
       error: null,
       refetch: vi.fn(),
     })
-    render(<UserLinksClient orgId={ORG} />)
+    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     // トグルは見えるが、中身(相手先の選択UI)は開くまで出さない
     expect(screen.getByTestId('direct-connect-toggle')).toHaveTextContent('相手と1対1でつなぐ')
@@ -84,13 +84,13 @@ describe('UserLinksClient (連携ハブ)', () => {
   })
 
   it('タブ・チャネルレールはlayoutが持つため、Client自身はタブを描画しない(二重nav禁止)', () => {
-    render(<UserLinksClient orgId={ORG} />)
+    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     expect(screen.queryByTestId('secretary-tab-connect')).not.toBeInTheDocument()
   })
 
   it('グループカードのCTAは connect/line/groups ページへリンクする', () => {
-    render(<UserLinksClient orgId={ORG} />)
+    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
     expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)

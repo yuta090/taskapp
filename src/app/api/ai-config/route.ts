@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { SLACK_CONFIG } from '@/lib/slack/config'
+import { verifyAiKey } from '@/lib/ai/client'
 
 export const runtime = 'nodejs'
 
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     // org_ai_configを取得（RLSでもowner制限）
     const { data, error } = await (supabase as SupabaseClient)
       .from('org_ai_config')
-      .select('id, org_id, provider, model, enabled, api_key_encrypted, created_at, updated_at')
+      .select('id, org_id, provider, model, enabled, api_key_encrypted, key_status, key_verified_at, created_at, updated_at')
       .eq('org_id', orgId)
       .single()
 
@@ -92,6 +93,8 @@ export async function GET(request: NextRequest) {
         model: data.model,
         enabled: data.enabled,
         keyPrefix,
+        keyStatus: data.key_status ?? 'unverified',
+        keyVerifiedAt: data.key_verified_at ?? null,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       },
@@ -162,6 +165,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 保存前にプロバイダーへ疎通してキーの妥当性を確認する。
+    //   invalid(401/403)なら壊れた鍵を保存せず即 400 で返す（"設定済み(緑)なのに動かない" を作らない）。
+    //   valid なら key_status='valid'、unknown(429/5xx/ネットワーク)なら 'unverified' で保存し、
+    //   判定不能を無効扱いにして punish しない。
+    const verification = await verifyAiKey(provider, apiKey)
+    if (verification === 'invalid') {
+      return NextResponse.json(
+        { error: 'APIキーが無効です（プロバイダーで認証できませんでした）。キーをご確認ください。' },
+        { status: 400 },
+      )
+    }
+    const keyStatus = verification === 'valid' ? 'valid' : 'unverified'
+
     // APIキーを暗号化
     const { data: encryptedKey, error: encryptError } = await (getSupabaseAdmin() as SupabaseClient)
       .rpc('encrypt_slack_token', {
@@ -187,6 +203,8 @@ export async function POST(request: NextRequest) {
           api_key_encrypted: encryptedKey,
           model: model || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-sonnet-4-5-20250929'),
           enabled: true,
+          key_status: keyStatus,
+          key_verified_at: verification === 'valid' ? new Date().toISOString() : null,
           created_by: user.id,
           updated_at: new Date().toISOString(),
         },
@@ -207,6 +225,7 @@ export async function POST(request: NextRequest) {
         provider,
         model: model || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-sonnet-4-5-20250929'),
         keyPrefix: apiKey.substring(0, 8) + '...',
+        keyStatus,
       },
     })
   } catch (err) {

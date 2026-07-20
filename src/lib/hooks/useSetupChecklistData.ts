@@ -21,25 +21,39 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
   hasPublishedTask: false,
   hasPreviewedPortal: false,
   hasLineLinked: false,
-  lineAccountReady: false,
+  lineAccess: 'unavailable',
+  aiConfigured: false,
 }
 
 /**
- * LINE連携状態(booleanのみ)をサーバーから取得する。channel_accounts / channel_user_links は
- * RLSでservice_role専用のためクライアント直読みできず、専用APIがbooleanだけ返す。
- * 取得失敗時は「未準備・未連携」に倒す（connect_line は準備中表示になり、完了不能CTAを出さない）。
+ * オンボーディング状態(booleanのみ)をサーバーから取得する。channel_accounts / channel_user_links /
+ * org_ai_config は RLSでservice_role/owner専用のためクライアント直読みできず、専用APIがbooleanだけ返す。
+ * 取得失敗時は「未準備・未連携・AI未設定」に倒す（connect_line は準備中表示になり、完了不能CTAを出さない。
+ * configure_ai は未設定＝警告表示になり、AI未設定を握り潰さない）。
  */
-async function fetchLineStatus(orgId: string): Promise<{ hasLineLinked: boolean; lineAccountReady: boolean }> {
+async function fetchLineStatus(
+  orgId: string
+): Promise<Pick<SetupChecklistData, 'hasLineLinked' | 'lineAccess' | 'aiConfigured'>> {
+  const VALID = ['own', 'granted', 'requested', 'none', 'unavailable'] as const
+  const fail = { hasLineLinked: false, lineAccess: 'unavailable' as const, aiConfigured: false }
   try {
     const res = await fetch(`/api/onboarding/line-status?orgId=${encodeURIComponent(orgId)}`)
-    if (!res.ok) return { hasLineLinked: false, lineAccountReady: false }
-    const json = (await res.json()) as { hasLineLinked?: unknown; lineAccountReady?: unknown }
+    if (!res.ok) return fail
+    const json = (await res.json()) as {
+      hasLineLinked?: unknown
+      lineAccess?: unknown
+      aiConfigured?: unknown
+    }
+    const lineAccess = VALID.includes(json.lineAccess as (typeof VALID)[number])
+      ? (json.lineAccess as SetupChecklistData['lineAccess'])
+      : 'unavailable'
     return {
       hasLineLinked: json.hasLineLinked === true,
-      lineAccountReady: json.lineAccountReady === true,
+      lineAccess,
+      aiConfigured: json.aiConfigured === true,
     }
   } catch {
-    return { hasLineLinked: false, lineAccountReady: false }
+    return fail
   }
 }
 
@@ -129,7 +143,8 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         hasPublishedTask,
         hasPreviewedPortal: flags.portal_preview_seen === true,
         hasLineLinked: lineStatus.hasLineLinked,
-        lineAccountReady: lineStatus.lineAccountReady,
+        lineAccess: lineStatus.lineAccess,
+        aiConfigured: lineStatus.aiConfigured,
       }
     },
     staleTime: 30_000,

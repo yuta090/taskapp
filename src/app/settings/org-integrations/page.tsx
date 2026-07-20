@@ -399,6 +399,13 @@ export default function OrgIntegrationsPage() {
                 )}
               </div>
 
+              {aiConfig.keyStatus === 'invalid' && (
+                /* 保存時にプロバイダーが認証拒否した鍵。連携中に見えても実際は動かないため明示的に警告する。 */
+                <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  登録されたAPIキーがプロバイダーで認証できませんでした。自動タスク化・AIメンションは動きません。上の削除ボタンで一度削除し、正しいキーを登録し直してください。
+                </div>
+              )}
+
               <div className="border border-gray-200 rounded-lg p-4 space-y-3">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -478,8 +485,13 @@ export default function OrgIntegrationsPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* AI未設定 = 夜間の自動タスク化(LINE digest)も止まっている。Slackメンションだけの
+                  説明では影響が伝わらないため、自動タスク化が停止中であることを明示的に警告する。 */}
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                AI未設定のため、LINEのやり取りの自動タスク化が停止しています。APIキーを登録すると、夜間の自動タスク化とSlackのAIメンションが有効になります。
+              </div>
               <p className="text-sm text-gray-600">
-                LLM APIキーを登録して、SlackでのAIメンション機能を有効にできます。
+                LLM APIキーを登録して、LINEの自動タスク化・SlackでのAIメンション機能を有効にできます。
               </p>
 
               {isOwner && (

@@ -1,3 +1,5 @@
+import type { LineSelfServeState } from '@/lib/channels/sharedBotAccess'
+
 /**
  * Data needed to derive setup checklist step completion. All fields are
  * booleans pre-computed by the caller (see useSetupChecklistData) so this
@@ -17,11 +19,19 @@ export interface SetupChecklistData {
   /** 現在ユーザー自身の active な LINE user-link（identity）が存在する＝自分がLINE秘書と連携済み */
   hasLineLinked: boolean
   /**
-   * org に active な LINE の channel_accounts がある＝ユーザーが自分で連携を始められる状態。
-   * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）なので、connect_line は
-   * 「準備中」表示にして完了不能なCTAを見せない。
+   * 共通LINE の org 単位 利用状態。connect_line ステップを4分岐で出し分ける:
+   *   own/granted → 連携できる（連携CTA・hasLineLinked で done）
+   *   requested   → 申込受付済み・当社の開通待ち（pending・分母から除外）
+   *   none        → 未申込・申込CTA（actionable・分母に含める）
+   *   unavailable → 共有bot未プロビジョニング（pending「準備中」）
    */
-  lineAccountReady: boolean
+  lineAccess: LineSelfServeState
+  /**
+   * org_ai_config に有効なAI設定がある＝夜間の自動タスク抽出(channel-digest)が動く前提が揃っている。
+   * false のとき、LINEを繋いでも会話が自動タスク化されない（cronがサイレントにスキップする）。
+   * これを可視化するため configure_ai ステップで警告＋設定導線を出す。
+   */
+  aiConfigured: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -31,6 +41,7 @@ export type SetupChecklistStepKey =
   | 'publish_task'
   | 'preview_portal'
   | 'connect_line'
+  | 'configure_ai'
 
 export interface SetupChecklistStep {
   key: SetupChecklistStepKey
@@ -121,6 +132,16 @@ export function computeSetupChecklist(
       ctaLabel: data.hasPreviewedPortal ? null : 'プレビュー',
     },
     buildConnectLineStep(data, orgId),
+    {
+      key: 'configure_ai',
+      title: 'AI連携を設定',
+      description: data.aiConfigured
+        ? 'AI連携を設定しました。'
+        : 'AIを設定すると、LINEのやり取りが自動でタスクになります。未設定のあいだは自動タスク化は動きません。',
+      done: data.aiConfigured,
+      href: data.aiConfigured ? null : '/settings/org-integrations',
+      ctaLabel: data.aiConfigured ? null : 'AI連携を設定',
+    },
   ]
 
   // pending（準備中）ステップは表示のみ。進捗の分母・現在地からは除外する。
@@ -139,18 +160,23 @@ export function computeSetupChecklist(
 }
 
 /**
- * LINE連携ステップを3状態で組み立てる:
- * - 未準備(lineAccountReady=false): 準備中。ユーザーは完了できないので pending・CTAなし。
- * - 準備済み・未連携: 秘書コンソール(connect/line)へ誘導。QRで友だち追加→コード送信で完了する旨を説明。
- * - 連携済み: done。
+ * LINE連携ステップを lineAccess の4状態で組み立てる（申込制の per-org 出し分け）:
+ * - own/granted かつ連携済み: done。
+ * - own/granted かつ未連携: 秘書コンソールへ誘導（QR＋コード送信）。
+ * - requested: 申込受付済み・当社の開通待ち（pending・分母から除外・CTAなし）。
+ * - none: 未申込。共通LINEの利用申込へ誘導（actionable・分母に含める）。
+ * - unavailable: 共有bot未プロビジョニング（pending「準備中」）。
  */
 function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChecklistStep {
-  if (!data.lineAccountReady) {
+  const connectHref = `/${orgId}/secretary/connect/line`
+
+  if (data.lineAccess === 'unavailable') {
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
+      // 共有bot未プロビジョニング。自動で使えるようになる誤解を避け、開通の主体＝当社と明示。
       description:
-        'あなたの事務所のLINE秘書を準備中です。準備ができ次第ここから連携できます（お急ぎの場合はサポートへ）。',
+        'LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内しますので、少々お待ちください（お急ぎの場合はサポートへご連絡ください）。',
       done: false,
       href: null,
       ctaLabel: null,
@@ -158,6 +184,32 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     }
   }
 
+  if (data.lineAccess === 'requested') {
+    return {
+      key: 'connect_line',
+      title: 'LINE秘書と連携',
+      description:
+        '共通LINEの利用申込を受け付けました。当社が開通しましたら、ご登録のメールでご案内します。',
+      done: false,
+      href: null,
+      ctaLabel: null,
+      pending: true,
+    }
+  }
+
+  if (data.lineAccess === 'none') {
+    return {
+      key: 'connect_line',
+      title: 'LINE秘書と連携',
+      description:
+        '共通LINEの利用をお申し込みください。お申し込み後、当社が開通してメールでご案内します。',
+      done: false,
+      href: connectHref,
+      ctaLabel: '共通LINEを申し込む',
+    }
+  }
+
+  // own / granted
   if (data.hasLineLinked) {
     return {
       key: 'connect_line',
@@ -175,7 +227,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     description:
       'QRで友だち追加し、表示されるコードをトークに送ると連携完了です（追加だけでは連携されません）。',
     done: false,
-    href: `/${orgId}/secretary/connect/line`,
+    href: connectHref,
     ctaLabel: 'LINEを連携',
   }
 }

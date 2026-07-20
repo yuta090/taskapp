@@ -6,8 +6,10 @@ import {
   countOutstandingCodeOnlyCodes,
   findFirstPlatformAccountId,
   createCodeOnlyClaimCodesBatch,
+  getLineSelfServeState,
   MultiplePlatformAccountsError,
 } from '@/lib/channels/store'
+import { canUseSharedBotClaims } from '@/lib/channels/sharedBotAccess'
 import { CODE_ONLY_CLAIM_DEFAULT_TTL_MS, CODE_ONLY_OUTSTANDING_LIMIT_PER_ORG } from '@/lib/channels/sharedGroupClaim'
 import { isValidUuid } from '@/lib/uuid'
 
@@ -57,6 +59,17 @@ export async function POST(request: NextRequest) {
 
   if (!(await isCodeOnlyEntitled(orgId))) {
     return NextResponse.json({ error: 'このorgはcode_only発行が許可されていません' }, { status: 403 })
+  }
+
+  // 共通LINE利用の確立境界（issue と同じ）。未申込/申込中の org には一括発行もしない。
+  if (!canUseSharedBotClaims(await getLineSelfServeState(orgId))) {
+    return NextResponse.json(
+      {
+        error: '共通LINEのご利用にはお申し込みが必要です。お申し込み後、当社が開通してご案内します。',
+        code: 'shared_bot_access_required',
+      },
+      { status: 403 },
+    )
   }
 
   // org境界: 他orgのspaceへ発行させない
