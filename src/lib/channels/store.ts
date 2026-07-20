@@ -1301,7 +1301,12 @@ export async function findGroupClaimOrgAndChannel(
   return { orgId: (data as { org_id: string }).org_id, channel }
 }
 
-export type GroupClaimActionErrorReason = 'not_found' | 'forbidden' | 'conflict' | 'invalid'
+export type GroupClaimActionErrorReason =
+  | 'not_found'
+  | 'forbidden'
+  | 'conflict'
+  | 'invalid'
+  | 'limit'
 
 /**
  * rpc_approve_group_claim / rpc_reject_group_claim は検証失敗を例外(raise exception)で返す
@@ -1331,6 +1336,9 @@ function classifyGroupClaimRpcError(code: string | undefined): GroupClaimActionE
       return 'forbidden'
     case 'GC422':
       return 'invalid'
+    case 'GC402':
+      // 容量上限のアトミック強制（レース時のみ発火・ソフトチェックは事前に402を返す）
+      return 'limit'
     case 'GC409':
       return 'conflict'
     default:
@@ -1392,10 +1400,17 @@ export async function orgExternalChatGroupCapacity(
  * 戻り値は成功(true)/同時承認の敗者(false・channel_groups_active_uniqueによるgraceful reject)を
  * そのまま返す。それ以外の検証失敗はRPCの例外を GroupClaimActionError として投げ直す。
  */
-export async function approveGroupClaim(claimId: string, approverUserId: string): Promise<boolean> {
+export async function approveGroupClaim(
+  claimId: string,
+  approverUserId: string,
+  // 容量上限（active化のハード適用点でRPCが同一Tx内アトミックに強制）。null=無制限=現行挙動。
+  // 呼び出し側(route)が対象channelに応じ maxLineGroups / maxExternalChatGroups を渡す。
+  maxActiveGroups: number | null = null,
+): Promise<boolean> {
   const { data, error } = await admin().rpc('rpc_approve_group_claim', {
     p_claim_id: claimId,
     p_approver_user_id: approverUserId,
+    p_max_active_groups: maxActiveGroups,
   })
   if (error) throw new GroupClaimActionError(error.message, classifyGroupClaimRpcError(error.code))
   return data === true
@@ -1528,15 +1543,20 @@ export async function redeemCodeOnlyClaim(
   accountId: string,
   externalGroupId: string,
   groupDisplayName: string | null,
+  // 容量上限（RPCが同一Tx内アトミックに強制）。null=無制限=現行挙動。
+  maxActiveGroups: number | null = null,
 ): Promise<RedeemCodeOnlyClaimResult> {
   const { data, error } = await admin().rpc('rpc_redeem_code_only_claim', {
     p_code_hash: codeHash,
     p_account_id: accountId,
     p_external_group_id: externalGroupId,
     p_group_display_name: groupDisplayName,
+    p_max_active_groups: maxActiveGroups,
   })
   if (error) {
     if (error.code === 'GC404') return 'rejected'
+    // 容量上限のレース（GC402）は「今は確立させない」＝無効文言に畳む（ソフトチェックと同じ結末）。
+    if (error.code === 'GC402') return 'rejected'
     throw new Error(`rpc_redeem_code_only_claim failed: ${error.message}`)
   }
   if (data === 'linked' || data === 'already_linked' || data === 'rejected') return data

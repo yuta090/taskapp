@@ -161,7 +161,8 @@ describe('handleDiscordIngest — limbo（未claim）', () => {
     })
     const res = await handleDiscordIngest([event({ content: 'GC-CODE' })], deps)
     expect(res.claimsCreated).toBe(1)
-    expect(deps.redeemCodeOnly).toHaveBeenCalledWith('hash(CODE26)', 'acc-discord-plat', 'C1', null)
+    // 上限(cap.max=50・makeDeps既定)を5番目に渡す＝RPCのアトミック強制用
+    expect(deps.redeemCodeOnly).toHaveBeenCalledWith('hash(CODE26)', 'acc-discord-plat', 'C1', null, 50)
     expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', CODE_ONLY_LINKED_TEXT)
   })
 

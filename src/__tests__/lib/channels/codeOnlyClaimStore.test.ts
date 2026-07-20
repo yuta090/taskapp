@@ -47,16 +47,34 @@ beforeEach(() => {
 })
 
 describe('redeemCodeOnlyClaim', () => {
-  it('rpc_redeem_code_only_claimにcode_hash/account/group/表示名を渡し、linkedをそのまま返す', async () => {
+  it('rpc_redeem_code_only_claimにcode_hash/account/group/表示名/上限を渡し、linkedをそのまま返す', async () => {
     rpcMock.mockResolvedValue({ data: 'linked', error: null })
-    const result = await store.redeemCodeOnlyClaim('hash-1', 'acc-platform-1', 'G-1', 'ある会社')
+    const result = await store.redeemCodeOnlyClaim('hash-1', 'acc-platform-1', 'G-1', 'ある会社', 50)
     expect(result).toBe('linked')
     expect(rpcMock).toHaveBeenCalledWith('rpc_redeem_code_only_claim', {
       p_code_hash: 'hash-1',
       p_account_id: 'acc-platform-1',
       p_external_group_id: 'G-1',
       p_group_display_name: 'ある会社',
+      p_max_active_groups: 50,
     })
+  })
+
+  it('上限省略時は null（無制限＝現行挙動）を渡す', async () => {
+    rpcMock.mockResolvedValue({ data: 'linked', error: null })
+    await store.redeemCodeOnlyClaim('hash-1', 'acc-1', 'G-1', null)
+    expect(rpcMock).toHaveBeenCalledWith(
+      'rpc_redeem_code_only_claim',
+      expect.objectContaining({ p_max_active_groups: null }),
+    )
+  })
+
+  it('容量上限(GC402)のレースは rejected に畳む（今は確立させない＝無効文言）', async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: 'GC402', message: 'active group capacity reached (max 50)' },
+    })
+    expect(await store.redeemCodeOnlyClaim('hash-1', 'acc-1', 'G-1', null, 50)).toBe('rejected')
   })
 
   it('already_linkedをそのまま返す（別コード×同一グループの23505 graceful）', async () => {
