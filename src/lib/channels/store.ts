@@ -811,6 +811,37 @@ export async function verifyGroupInOrg(orgId: string, groupId: string): Promise<
 }
 
 /**
+ * 完了した本体タスク(tasks.id)の「発生元チャットグループ」を解決する。
+ *
+ * チャット起点タスクは channel_digest_tasks(申し送り)から本体 tasks へ promote される
+ * (rpc_promote_digest_task / 20260715074403)。その際 channel_digest_tasks.promoted_task_id に
+ * 本体 task の id が刻まれる。よって完了タスクから逆引きするには promoted_task_id で引き、
+ * promotion_state='promoted' の行の group_id を返せばよい。
+ *
+ * 返り値が null になるのは「そのタスクにチャット発生元が無い」場合(gtasks 直接取り込み・
+ * コンソール手起票・multica 起点など)。コネクタのチャット返信では null=返信対象なし(delivered:false)
+ * として正常に素通りさせる。
+ *
+ * promote は 1 digest → 1 task で promoted_task_id は実質一意(20260715074403)。万一同一
+ * promoted_task_id を指す promoted 行が複数あっても送信先を非決定にしないよう limit(1) で1件に倒す。
+ */
+export async function findChatOriginGroupForTask(
+  taskId: string,
+): Promise<{ groupId: string; orgId: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_digest_tasks')
+    .select('group_id, org_id')
+    .eq('promoted_task_id', taskId)
+    .eq('promotion_state', 'promoted')
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(`channel_digest_tasks: origin lookup failed: ${error.message}`)
+  if (!data) return null
+  const row = data as { group_id: string; org_id: string }
+  return { groupId: row.group_id, orgId: row.org_id }
+}
+
+/**
  * コンソール送信の自動振り分け用: space に紐づく「送信可能な」active グループ接続を1件返す。
  * グループ接続がある相手先はコンソールから（1:1DMではなく）グループ宛てに送る＝Freeでも送れる経路
  * （相手先接続=グループ単位はFreeでも可。1:1個別DMのみが line_direct_dm ゲート対象）。

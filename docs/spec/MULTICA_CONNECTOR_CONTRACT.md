@@ -210,11 +210,21 @@ X-AgentPM-Signature: t=<unix秒>,v1=<hex(hmac_sha256(secret, t + "." + rawBody))
 - ~~multica → TaskApp の**新規タスク起票**（multica を起点にする双方向）~~ → **実装済み（§4.3 `task.created`）**。
 - `task.progress` のチャット中継の既定 ON 化。
 - 個人 gtasks ミラー（`user_task_mirror_*`）の connector 框組みへの統合（別判断）。
-- **チャット完了返信の本配線**（§4.1 (b)）: コネクタ層は `src/lib/connectors/chatReplySender.ts` の
-  **注入ポート（`ChatReplySender`）**だけを持ち、`notifyChat` はそこへ委譲する（未登録なら no-op）。
-  実際の「発生元チャット解決 → 資格情報復号 → `deliverToChannel` 送信」は secretary-channels の
-  アウトバウンド送信経路（現状**未実装**：`deliverToChannel` はライブラリのみで呼び出し元が無い）に属し、
-  両ストリームが1ツリーに揃った時点で `registerChatReplySender(...)` を起動時に一度呼ぶだけで本配線になる。
+- ~~**チャット完了返信の本配線**（§4.1 (b)）~~ → **実装済み（LINE-first）**。コネクタ層は
+  `src/lib/connectors/chatReplySender.ts` の**注入ポート（`ChatReplySender`）**を持ち、`notifyChat` は
+  そこへ委譲する。実装 `src/lib/connectors/chatReplyLine.ts`（`lineChatReplySender`）が
+  「発生元チャット解決 → 資格情報復号 → 共有bot送信境界の二層メータリング → `pushLineMessage` →
+  課金メータ計上（`billablePush`）」を行い、受信 Webhook（`/api/connectors/multica/events`）の
+  ハンドラ先頭で `ensureConnectorChatReplyRegistered()`（冪等）が DI ポートへ登録する。
+  - **発生元チャットの解決**: 完了タスク → `channel_digest_tasks.promoted_task_id` 逆引き
+    （`promotion_state='promoted'`）→ `channel_groups`（送信先 `external_group_id`・`account_id`）。
+    発生元が無い（gtasks 直接取り込み・multica 起点・コンソール手起票）タスクは `delivered:false` で素通り。
+  - **LINE-first**: `findLineAccountById` が LINE 資格情報形状を要求するため、非LINEチャネル
+    （slack/chatwork/…）・復号不能・disabled は `delivered:false`。他チャネルへの拡張は adapters 層
+    （`src/lib/channels/adapters/*`）のメータリング整備後に別PRで追加する（`deliverToChannel` 経由）。
+  - **メータリング**: 完了返信も共有bot（platform account）の push 通数を消費するため、
+    approval-notify / channel-digest と同一の二層判定（org層＋グローバル層）を通す。suppress 時は
+    `delivered:false`（ベストエフォート・再送/巻き戻しなし）。専用bot（`owner_type='org'`）はグローバル層 `ok` 固定。
 
 ---
 
