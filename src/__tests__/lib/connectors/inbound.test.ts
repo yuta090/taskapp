@@ -31,6 +31,7 @@ interface ConnRow {
   provider: string
   status: string
   metadata: Record<string, unknown> | null
+  import_config?: Record<string, unknown> | null
 }
 interface LinkRow {
   connection_id: string
@@ -348,6 +349,82 @@ describe('handleMulticaInboundEvent', () => {
     const header = sign(raw)
     const res = await handleMulticaInboundEvent(raw, header)
     expect(res.status).toBe(200)
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  // --- task.created(multica起点の新規起票。契約 §4.3) -----------------------------------
+  function createdBody(overrides: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      event_id: 'evt-created-1',
+      event_type: 'task.created',
+      connection_id: 'conn-1',
+      external_id: 'multica-issue-1',
+      title: '新規Issueのタスク',
+      description: '本文です',
+      ...overrides,
+    })
+  }
+
+  it('正常なtask.created(target_space_id設定済み) → 200・rpc_connector_create_taskを正しい引数で呼ぶ・記録する・enqueueは一切しない(エコー防止)', async () => {
+    state.conns = [{ ...CONN, import_config: { target_space_id: 'space-1' } }]
+    rpcMock.mockResolvedValue({ data: 'new-task-id-1', error: null })
+    const raw = createdBody()
+    const header = sign(raw)
+    const res = await handleMulticaInboundEvent(raw, header)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: true })
+    expect(rpcMock).toHaveBeenCalledWith('rpc_connector_create_task', {
+      p_connection_id: 'conn-1',
+      p_external_id: 'multica-issue-1',
+      p_space_id: 'space-1',
+      p_title: '新規Issueのタスク',
+      p_description: '本文です',
+    })
+    expect(enqueueConnectorJobMock).not.toHaveBeenCalled()
+    expect(notifyChatOnCompletionMock).not.toHaveBeenCalled()
+    expect(state.inboundEvents).toContainEqual({
+      connection_id: 'conn-1',
+      event_id: 'evt-created-1',
+      event_type: 'task.created',
+    })
+  })
+
+  it('冪等: 既存external_idでrpcが既存task_idを返す再送 → 200(rpc呼び出しと記録のみ確認。重複起票しない旨はrpc自体の責務)', async () => {
+    state.conns = [{ ...CONN, import_config: { target_space_id: 'space-1' } }]
+    rpcMock.mockResolvedValue({ data: 'existing-task-id', error: null })
+    const raw = createdBody({ event_id: 'evt-created-dup' })
+    const header = sign(raw)
+    const res = await handleMulticaInboundEvent(raw, header)
+    expect(res.status).toBe(200)
+    expect(rpcMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('external_id欠落 → 400・rpc未呼び出し', async () => {
+    state.conns = [{ ...CONN, import_config: { target_space_id: 'space-1' } }]
+    const raw = createdBody({ external_id: undefined })
+    const header = sign(raw)
+    const res = await handleMulticaInboundEvent(raw, header)
+    expect(res.status).toBe(400)
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('title欠落 → 400・rpc未呼び出し', async () => {
+    state.conns = [{ ...CONN, import_config: { target_space_id: 'space-1' } }]
+    const raw = createdBody({ title: undefined })
+    const header = sign(raw)
+    const res = await handleMulticaInboundEvent(raw, header)
+    expect(res.status).toBe(400)
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('接続のimport_config.target_space_idが未設定 → 422・rpc未呼び出し(設定待ちの恒久エラー)', async () => {
+    state.conns = [{ ...CONN, import_config: null }]
+    const raw = createdBody()
+    const header = sign(raw)
+    const res = await handleMulticaInboundEvent(raw, header)
+    expect(res.status).toBe(422)
+    expect(res.body).toEqual({ error: 'target_space_unconfigured' })
     expect(rpcMock).not.toHaveBeenCalled()
   })
 

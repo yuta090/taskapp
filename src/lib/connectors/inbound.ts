@@ -23,6 +23,10 @@ import { notifyChatOnCompletion } from './notifyChat'
  *      - task.completed: task_ref がUUID形式でない/connector_task_links に存在しない→404
  *        (テナント境界。契約 §7-5) → rpc_connector_complete_task(0→1遷移の時だけtrue)
  *        → true の時だけ完了伝播(gtasks書き戻しenqueue + チャット通知)
+ *      - task.created: multica起点の新規起票(契約 §4.3)。external_id/title欠落→400。
+ *        接続のimport_config.target_space_id未設定→422(恒久エラー。設定待ち)。
+ *        rpc_connector_create_task(冪等: (connection_id,external_id)一意)でタスク+link作成。
+ *        **エコー防止**: multica起点タスクはmulticaへ送り返さない(enqueue一切なし)。
  *      - task.progress: v1は保存/中継しない(200)
  *      - 未知: 400
  *   6. 5が例外を投げずに完了した場合だけ、connector_inbound_events に記録する
@@ -65,19 +69,30 @@ function admin(): SupabaseClient {
 interface ConnectionRow {
   id: string
   metadata: Record<string, unknown> | null
+  import_config: Record<string, unknown> | null
 }
 
-/** provider='multica'・status='active' の接続だけを解決する(無効化/削除済み接続は401扱い)。 */
+/** provider='multica'・status='active' の接続だけを解決する(無効化/削除済み接続は401扱い)。
+ *  import_config は task.created(契約 §4.3)の取り込み先space解決に使う。 */
 async function loadActiveMulticaConnection(connectionId: string): Promise<ConnectionRow | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, metadata')
+    .select('id, metadata, import_config')
     .eq('id', connectionId)
     .eq('provider', 'multica')
     .eq('status', 'active')
     .maybeSingle()
   if (error) throw new Error(`integration_connections lookup failed: ${error.message}`)
   return (data as ConnectionRow | null) ?? null
+}
+
+/**
+ * task.created(契約 §4.3)の取り込み先space。import_config は gtasks import(§10)と同じ形を踏襲し、
+ * target_space_id が文字列で設定されている場合のみ返す。未設定は呼び出し元で422にする。
+ */
+function targetSpaceIdOf(conn: ConnectionRow): string | null {
+  const raw = conn.import_config
+  return typeof raw?.target_space_id === 'string' ? (raw.target_space_id as string) : null
 }
 
 /**
@@ -218,6 +233,10 @@ interface MulticaInboundBody {
   event_type?: unknown
   task_ref?: unknown
   result?: { summary?: unknown; artifact_url?: unknown } | unknown
+  // task.created(契約 §4.3): 新規起票なのでまだ TaskApp 側 task_id は無い。external_id/title が必須。
+  external_id?: unknown
+  title?: unknown
+  description?: unknown
 }
 
 export async function handleMulticaInboundEvent(
@@ -295,6 +314,38 @@ export async function handleMulticaInboundEvent(
       completed === true,
       eventId,
     )
+    await recordInboundEventOnce(connectionId, eventId, eventType)
+    return { status: 200, body: { ok: true } }
+  }
+
+  if (eventType === 'task.created') {
+    // multica起点の新規起票(契約 §4.3)。新規なのでtask_refはまだ無い。external_id/titleが必須。
+    const externalId = typeof parsed.external_id === 'string' ? parsed.external_id : null
+    const title = typeof parsed.title === 'string' ? parsed.title : null
+    if (!externalId || !title) {
+      return { status: 400, body: { error: 'malformed_body' } }
+    }
+    const description = typeof parsed.description === 'string' ? parsed.description : null
+
+    // 取り込み先space = この接続のimport_config.target_space_id(gtasks importと同じ形。契約 §10)。
+    // 未設定は運用側の設定待ちであり再送しても解決しない恒久エラーなので422
+    // (multicaは契約§8で4xxを再送しない。5xxのように無限リトライさせない)。
+    const targetSpaceId = targetSpaceIdOf(conn)
+    if (!targetSpaceId) {
+      return { status: 422, body: { error: 'target_space_unconfigured' } }
+    }
+
+    const { error: rpcError } = await admin().rpc('rpc_connector_create_task', {
+      p_connection_id: connectionId,
+      p_external_id: externalId,
+      p_space_id: targetSpaceId,
+      p_title: title,
+      p_description: description,
+    })
+    if (rpcError) throw new Error(`rpc_connector_create_task failed: ${rpcError.message}`)
+
+    // エコー防止: multica起点タスクはmulticaへ送り返さない(enqueueConnectorJobを一切呼ばない)。
+    // gtasksなど他コネクタへの自動送出もv1では行わない。
     await recordInboundEventOnce(connectionId, eventId, eventType)
     return { status: 200, body: { ok: true } }
   }

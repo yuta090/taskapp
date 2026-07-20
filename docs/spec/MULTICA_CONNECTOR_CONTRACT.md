@@ -123,6 +123,36 @@ multica 上で Issue が完了した。
   "task_ref": "uuid", "note": "string" }
 ```
 
+### 4.3 `task.created`（multica 起点・任意）
+
+multica 上で新規 Issue が起票された。TaskApp 側にタスクを作る（§9 でスコープ外だった multica 起点の起票を実装。実装: `src/lib/connectors/inbound.ts`）。
+
+```jsonc
+{
+  "event_id": "01J8...ULID",   // multica 側で一意。再送は同一 event_id（§6 で重複排除）
+  "event_type": "task.created",
+  "occurred_at": "2026-07-20T11:00:00+09:00",
+  "connection_id": "uuid",
+  "external_id": "string",     // multica 側の Issue ID（安定・不変。task_ref はまだ無い＝新規のため）
+  "title": "string",           // 必須
+  "description": "string|null" // 任意
+}
+```
+
+**TaskApp の処理**:
+1. `external_id` または `title` が欠落 → **400**（`malformed_body`）。
+2. **取り込み先 space**: この multica 接続の `import_config.target_space_id`（`src/lib/google-tasks/import.ts` と同じ形の設定を流用）。未設定 → **422**（`target_space_unconfigured`）。設定待ちの恒久エラーであり、multica は §8 で 4xx を再送しないため、5xx のように無限リトライさせない。
+3. `rpc_connector_create_task(connection_id, external_id, target_space_id, title, description)` を呼ぶ。タスク行 + `connector_task_links(origin='external')` を1トランザクションで**冪等**作成（`unique(connection_id, external_id)`。既存なら既存 `task_id` を返す）。
+4. `event_id` を `connector_inbound_events` に記録（§6・副作用の後）。**200** を返す。
+
+**origin モデル**: gtasks import と同一。`connector_task_links.origin='external'`（multica が正本）／`tasks.origin='internal'`（TaskApp 内部の出自表現。ball 概念とは別軸）。
+
+**エコー防止（重要）**: multica 起点で作成したタスクは、`issue.upsert`（§3.1）で multica へ送り返さない（`enqueueConnectorJob` を一切呼ばない）。他コネクタ（gtasks 等）への自動送出も v1 では行わない。
+
+**拒否ケース**（§7 参照）:
+- `external_id` または `title` 欠落 → 400
+- 接続の `import_config.target_space_id` 未設定 → 422
+
 ---
 
 ## 5. 認証・署名（既存 sink 方式を流用）
@@ -162,6 +192,8 @@ X-AgentPM-Signature: t=<unix秒>,v1=<hex(hmac_sha256(secret, t + "." + rawBody))
 3. **event_id 再送**（`unique` 違反）→ 200（冪等・副作用なし）。※拒否ではなく「握って成功」
 4. 未知 `connection_id` / secret 不一致 → 401
 5. `task_ref` が存在しない / 別テナント → 404（org 越境ガード）
+6. `task.created`（§4.3）で `external_id` / `title` 欠落 → 400
+7. `task.created`（§4.3）で接続の `import_config.target_space_id` 未設定 → 422（設定待ちの恒久エラー。multica は4xxを再送しない）
 
 ---
 
@@ -175,7 +207,7 @@ X-AgentPM-Signature: t=<unix秒>,v1=<hex(hmac_sha256(secret, t + "." + rawBody))
 
 ## 9. v1 スコープ外（将来）
 
-- multica → TaskApp の**新規タスク起票**（multica を起点にする双方向）。v1 は「TaskApp/gtasks が起点、multica は実行」に限定。
+- ~~multica → TaskApp の**新規タスク起票**（multica を起点にする双方向）~~ → **実装済み（§4.3 `task.created`）**。
 - `task.progress` のチャット中継の既定 ON 化。
 - 個人 gtasks ミラー（`user_task_mirror_*`）の connector 框組みへの統合（別判断）。
 - **チャット完了返信の本配線**（§4.1 (b)）: コネクタ層は `src/lib/connectors/chatReplySender.ts` の
