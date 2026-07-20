@@ -10,13 +10,18 @@ vi.mock('@/lib/sinks/ssrf', () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }))
 
+const decryptConnectorSecretMock = vi.fn()
+vi.mock('@/lib/connectors/secrets', () => ({
+  decryptConnectorSecret: (...args: unknown[]) => decryptConnectorSecretMock(...args),
+}))
+
 const { sendIssueUpsert, sendIssueCancel, formatLocalTimestampWithOffset } = await import(
   '@/lib/connectors/multica/client'
 )
 
 const CONN = {
   id: 'conn-multica-1',
-  metadata: { multica: { base_url: 'https://multica.example.com', send_secret: 'sec_test' } },
+  metadata: { multica: { base_url: 'https://multica.example.com', send_secret_encrypted: 'enc_sec_test' } },
 }
 
 const TASK = {
@@ -31,6 +36,7 @@ const TASK = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  decryptConnectorSecretMock.mockResolvedValue('sec_test')
 })
 
 describe('formatLocalTimestampWithOffset', () => {
@@ -74,15 +80,22 @@ describe('sendIssueUpsert', () => {
     expect(body.occurred_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
   })
 
-  it('base_url/send_secret が未設定なら permanent_fail相当(status=422)で投げる(無限リトライを防ぐ)', async () => {
+  it('base_url/send_secret_encrypted が未設定なら permanent_fail相当(status=422)で投げる(無限リトライを防ぐ)', async () => {
     const conn = { id: 'conn-no-config', metadata: {} }
     await expect(sendIssueUpsert(conn, TASK)).rejects.toMatchObject({ status: 422 })
     expect(safeFetchMock).not.toHaveBeenCalled()
+    expect(decryptConnectorSecretMock).not.toHaveBeenCalled()
   })
 
   it('metadata.multica が無い接続も同様に422', async () => {
     const conn = { id: 'conn-null-meta', metadata: null }
     await expect(sendIssueUpsert(conn, TASK)).rejects.toMatchObject({ status: 422 })
+  })
+
+  it('send_secretの復号に失敗したら422で投げる(平文フォールバックはしない)', async () => {
+    decryptConnectorSecretMock.mockResolvedValue(null)
+    await expect(sendIssueUpsert(CONN, TASK)).rejects.toMatchObject({ status: 422 })
+    expect(safeFetchMock).not.toHaveBeenCalled()
   })
 
   it('一時的なHTTP失敗(500)はstatus付きで投げ、呼び出し側が一時失敗として再試行できる', async () => {

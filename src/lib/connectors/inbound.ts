@@ -1,5 +1,6 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { verifySinkSignature } from '@/lib/sinks/signature'
+import { decryptConnectorSecret } from '@/lib/connectors/secrets'
 import { enqueueConnectorJob } from './enqueue'
 import { notifyChatOnCompletion } from './notifyChat'
 
@@ -10,8 +11,9 @@ import { notifyChatOnCompletion } from './notifyChat'
  * 処理順(契約 §4.1/§7・変更しないこと):
  *   1. JSON パース(壊れていれば400)
  *   2. connection_id で接続解決(provider='multica'・status='active')
- *      + metadata.multica.receive_secret を取得(送信鍵 send_secret とは別鍵)。
- *      未知接続/secret未設定はどちらも同一の不透明401ボディで返す
+ *      + metadata.multica.receive_secret_encrypted を復号して取得(送信鍵 send_secret とは別鍵。
+ *      暗号化保存はsink(src/lib/sinks/store.ts)と同方式。src/lib/connectors/secrets.ts参照)。
+ *      未知接続/secret未設定/復号失敗はどれも同一の不透明401ボディで返す
  *      (理由を出し分けると「この connection_id は存在する」というオラクルになるため)。
  *   3. 署名検証(X-AgentPM-Signature。rawBodyに対して検証。不正はいずれも401)
  *   4. 早期dedup(最適化。契約 §6/§7-3): connector_inbound_events を(connection_id,event_id)で
@@ -78,11 +80,17 @@ async function loadActiveMulticaConnection(connectionId: string): Promise<Connec
   return (data as ConnectionRow | null) ?? null
 }
 
-/** 受信鍵は metadata.multica.receive_secret(送信鍵 send_secret とは方向別に別発行。契約 §5)。 */
-function receiveSecretOf(conn: ConnectionRow): string | null {
+/**
+ * 受信鍵は metadata.multica.receive_secret_encrypted(送信鍵 send_secret とは方向別に別発行。
+ * 契約 §5)。暗号化保存されているため decryptConnectorSecret で都度復号する。
+ * 平文フォールバックは持たない(本ブランチ未マージ=既存データ無し。クリーンカット)。
+ */
+async function receiveSecretOf(conn: ConnectionRow): Promise<string | null> {
   const raw = (conn.metadata?.multica as Record<string, unknown> | undefined) ?? undefined
-  const secret = typeof raw?.receive_secret === 'string' ? raw.receive_secret : undefined
-  return secret ?? null
+  const encrypted =
+    typeof raw?.receive_secret_encrypted === 'string' ? raw.receive_secret_encrypted : undefined
+  if (!encrypted) return null
+  return decryptConnectorSecret(encrypted)
 }
 
 /**
@@ -231,7 +239,7 @@ export async function handleMulticaInboundEvent(
   // 接続解決(§7-4): 未知/非active/provider不一致/secret未設定はすべて同一の不透明401にまとめる
   // (理由を出し分けると「この connection_id は存在する」というオラクルになるため)。
   const conn = await loadActiveMulticaConnection(connectionId)
-  const receiveSecret = conn ? receiveSecretOf(conn) : null
+  const receiveSecret = conn ? await receiveSecretOf(conn) : null
   if (!conn || !receiveSecret) {
     return { status: 401, body: { error: 'unauthorized' } }
   }

@@ -1,17 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import { safeFetch } from '@/lib/sinks/ssrf'
 import { buildSignatureHeader } from '@/lib/sinks/signature'
+import { decryptConnectorSecret } from '@/lib/connectors/secrets'
 
 /**
  * multica API クライアント(送信側)。契約: docs/spec/MULTICA_CONNECTOR_CONTRACT.md §3(送信) / §5(署名)。
  *
  * 宛先(base_url)・署名鍵(send_secret)は接続の metadata に格納する想定:
- *   integration_connections.metadata = { multica: { base_url: 'https://...', send_secret: '...' } }
- * (multica は provider='multica' の接続の metadata に相乗り。google_tasks の tasklist_id と同じ置き場所の流儀)
+ *   integration_connections.metadata = {
+ *     multica: { base_url: 'https://...', send_secret_encrypted: '...' }
+ *   }
+ * (multica は provider='multica' の接続の metadata に相乗り。google_tasks の tasklist_id と同じ置き場所の流儀)。
+ * send_secret は sink(src/lib/sinks/store.ts)と同方式で暗号化保存され(src/lib/connectors/secrets.ts の
+ * encryptConnectorSecret で作成)、読み手はここで decryptConnectorSecret により都度復号する。
+ * 平文フォールバックは持たない(本ブランチ未マージ=既存データ無し。クリーンカット)。
  *
  * SSRF検証は safeFetch(src/lib/sinks/ssrf.ts) が内部で必ず通す(https/443/リダイレクト非追従/DNSピン留め)。
- * base_url/send_secret が未設定の接続は「設定待ち」であり無限リトライさせない = permanent_fail 相当として
- * status=422 を持つ Error を投げる(dispatch側の classifyError が 422 を permanent_fail に分類する)。
+ * base_url/send_secret_encrypted が未設定、または復号に失敗した接続は「設定待ち/破損」であり
+ * 無限リトライさせない = permanent_fail 相当として status=422 を持つ Error を投げる
+ * (dispatch側の classifyError が 422 を permanent_fail に分類する)。
  */
 
 export interface MulticaConnection {
@@ -45,16 +52,22 @@ function httpError(message: string, status?: number): Error & { status?: number 
   return err
 }
 
-function requireMulticaMetadata(conn: MulticaConnection): MulticaMetadata {
+async function requireMulticaMetadata(conn: MulticaConnection): Promise<MulticaMetadata> {
   const raw = (conn.metadata?.multica as Record<string, unknown> | undefined) ?? undefined
   const baseUrl = typeof raw?.base_url === 'string' ? raw.base_url : undefined
-  const sendSecret = typeof raw?.send_secret === 'string' ? raw.send_secret : undefined
-  if (!baseUrl || !sendSecret) {
+  const sendSecretEncrypted =
+    typeof raw?.send_secret_encrypted === 'string' ? raw.send_secret_encrypted : undefined
+  if (!baseUrl || !sendSecretEncrypted) {
     // 422 = permanent_fail(classifyError)。設定待ちのジョブを無限リトライさせない。
     throw httpError(
-      `multica connection ${conn.id} is missing metadata.multica.base_url/send_secret`,
+      `multica connection ${conn.id} is missing metadata.multica.base_url/send_secret_encrypted`,
       422,
     )
+  }
+  const sendSecret = await decryptConnectorSecret(sendSecretEncrypted)
+  if (!sendSecret) {
+    // 復号不能(鍵の不一致・データ破損等)も設定待ちと同様に恒久失敗として扱う。
+    throw httpError(`multica connection ${conn.id} send_secret could not be decrypted`, 422)
   }
   return { baseUrl, sendSecret }
 }
@@ -119,7 +132,7 @@ export async function sendIssueUpsert(
   conn: MulticaConnection,
   task: MulticaTaskInput,
 ): Promise<MulticaUpsertResult> {
-  const meta = requireMulticaMetadata(conn)
+  const meta = await requireMulticaMetadata(conn)
   const payload = {
     event_id: randomUUID(),
     event_type: 'issue.upsert',
@@ -150,7 +163,7 @@ export async function sendIssueUpsert(
  * issue.cancel(契約 §3.2): タスクが対象外化された。multica は Issue をクローズ(AI依頼を止める)。
  */
 export async function sendIssueCancel(conn: MulticaConnection, taskRef: string): Promise<void> {
-  const meta = requireMulticaMetadata(conn)
+  const meta = await requireMulticaMetadata(conn)
   const payload = {
     event_id: randomUUID(),
     event_type: 'issue.cancel',

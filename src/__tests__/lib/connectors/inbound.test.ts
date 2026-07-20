@@ -16,6 +16,16 @@ vi.mock('@/lib/connectors/notifyChat', () => ({
   notifyChatOnCompletion: (...a: unknown[]) => notifyChatOnCompletionMock(...a),
 }))
 
+// receive_secret_encrypted → 復号済み平文 のマッピング(署名検証の往復を通すため)。
+const RECEIVE_SECRET_ENCRYPTED = 'enc_recv-secret-xyz'
+const decryptConnectorSecretMock = vi.fn(async (encrypted: string) => {
+  if (encrypted === RECEIVE_SECRET_ENCRYPTED) return SECRET
+  return null
+})
+vi.mock('@/lib/connectors/secrets', () => ({
+  decryptConnectorSecret: (...a: [string]) => decryptConnectorSecretMock(...a),
+}))
+
 interface ConnRow {
   id: string
   provider: string
@@ -124,7 +134,7 @@ const CONN: ConnRow = {
   id: 'conn-1',
   provider: 'multica',
   status: 'active',
-  metadata: { multica: { receive_secret: SECRET } },
+  metadata: { multica: { receive_secret_encrypted: RECEIVE_SECRET_ENCRYPTED } },
 }
 
 function body(overrides: Record<string, unknown> = {}): string {
@@ -206,10 +216,23 @@ describe('handleMulticaInboundEvent', () => {
 
   it('send_secretで署名しても検証できない(受信/送信は別鍵) → 401', async () => {
     state.conns = [
-      { ...CONN, metadata: { multica: { receive_secret: SECRET, send_secret: 'other-send-secret' } } },
+      {
+        ...CONN,
+        metadata: {
+          multica: { receive_secret_encrypted: RECEIVE_SECRET_ENCRYPTED, send_secret_encrypted: 'enc_other-send-secret' },
+        },
+      },
     ]
     const raw = body()
     const header = sign(raw, 'other-send-secret')
+    const res = await handleMulticaInboundEvent(raw, header)
+    expect(res.status).toBe(401)
+  })
+
+  it('receive_secretの復号に失敗(nullを返す)接続 → 401(平文フォールバックはしない)', async () => {
+    state.conns = [{ ...CONN, metadata: { multica: { receive_secret_encrypted: 'enc_broken' } } }]
+    const raw = body()
+    const header = sign(raw)
     const res = await handleMulticaInboundEvent(raw, header)
     expect(res.status).toBe(401)
   })
