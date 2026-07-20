@@ -1333,6 +1333,25 @@ export async function orgLineGroupCapacity(
 }
 
 /**
+ * org の「外部チャット（LINE以外・Discord等の共有Bot受信）」の紐付け容量。
+ * active な当該channelグループ数と、プランの上限(maxExternalChatGroups)を返す。
+ * maxLineGroups とは別カウント（Proの売りとしての外部チャット枠）。v1は channel='discord'。
+ */
+export async function orgExternalChatGroupCapacity(
+  orgId: string,
+  channel: string = 'discord',
+): Promise<{ activeCount: number; max: number | null }> {
+  const { count } = await admin()
+    .from('channel_groups')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('status', 'active')
+  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
+  return { activeCount: count ?? 0, max: planLimits(ent.planId).maxExternalChatGroups }
+}
+
+/**
  * Web承認。approverUserId はAPI routeがセッションから解決した内部ユーザー（クライアント申告禁止）。
  * 戻り値は成功(true)/同時承認の敗者(false・channel_groups_active_uniqueによるgraceful reject)を
  * そのまま返す。それ以外の検証失敗はRPCの例外を GroupClaimActionError として投げ直す。
@@ -1373,12 +1392,20 @@ export class MultiplePlatformAccountsError extends Error {
  * として400を返す）。1件ならそのid。2件以上は MultiplePlatformAccountsError を投げる
  * （L2ガード。呼び出し側は409として顧客に見せる）。
  * 2件以上の存在を判定できれば十分なので limit(2) に絞り、全件走査しない。
+ *
+ * ⚠ channel でスコープする（既定 'line'）。複数チャネルの共有bot（例: LINE共有bot と
+ *   Discord共有bot）が併存すると owner_type だけでは複数 active になり L2ガードが誤発火する。
+ *   LINEのコード発行は 'line'、Discord受信の解決は 'discord' を渡す。channel×owner_type=platform
+ *   の active は各1件が不変条件（多拠点でも1共有bot）。
  */
-export async function findFirstPlatformAccountId(): Promise<string | null> {
+export async function findFirstPlatformAccountId(
+  channel: string = 'line',
+): Promise<string | null> {
   const { data, error } = await admin()
     .from('channel_accounts')
     .select('id')
     .eq('owner_type', 'platform')
+    .eq('channel', channel)
     // disabled な共有bot に発行すると償還不能な「死にコード」を配ることになるため active に限定
     .eq('status', 'active')
     .order('created_at', { ascending: true })
