@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { UserLinksClient } from './UserLinksClient'
 import { getLineSelfServeState } from '@/lib/channels/store'
 
@@ -21,9 +20,7 @@ export default async function ConnectLinePage({ params }: Props) {
   } catch {
     lineAccess = 'unavailable'
   }
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <UserLinksClient orgId={orgId} lineAccess={lineAccess} />
-    </Suspense>
-  )
+  // lineAccess はサーバ側で解決済み・UserLinksClient は suspend しないため Suspense 境界は不要。
+  // シェル(タブ/チャネルレール)は connect/layout.tsx が先に描画する。
+  return <UserLinksClient orgId={orgId} lineAccess={lineAccess} />
 }
