@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getValidTokenDetailed } from '@/lib/integrations/token-manager'
 import { refreshAccessToken } from '@/lib/google-calendar/client'
+import { enqueueConnectorJob } from '@/lib/connectors/enqueue'
 import { GOOGLE_TASKS_LIST_TITLE } from './config'
 import { listTaskLists, listTasks, googleDueToDateString, type GoogleTask } from './client'
 
@@ -168,67 +169,6 @@ async function findActiveMulticaConnectionId(orgId: string): Promise<string | nu
     console.error('[gtasks-import] findActiveMulticaConnectionId failed(multica連携をskipして継続):', err)
     return null
   }
-}
-
-/**
- * connector_jobs へ enqueue する(fold付き)。同一(connection_id,task_id)の pending ジョブが既に
- * あれば最新の op/payload で上書きし version を進める。connector_jobs_pending_unique(migration の
- * partial unique index)による insert 競合(23505)を検知してfold更新に倒す
- * (createExternalTask の link 競合対応と同じ流儀)。
- * 呼び出し側は best-effort とし、失敗してもgtasks import自体は継続する(呼び出し元でcatchする)。
- */
-async function enqueueConnectorJob(
-  connectionId: string,
-  taskId: string,
-  op: 'upsert' | 'cancel',
-  payload: Record<string, unknown>,
-): Promise<void> {
-  const { error: insErr } = await admin().from('connector_jobs').insert({
-    connection_id: connectionId,
-    task_id: taskId,
-    op,
-    payload,
-  })
-  if (!insErr) return
-  if ((insErr as { code?: string }).code !== '23505') {
-    throw new Error(`connector_jobs enqueue failed: ${insErr.message}`)
-  }
-
-  // 既存 pending job に fold: 最新の op/payload で上書きし version を進める
-  // (rpc_complete_connector_job が処理中の fold をversion不一致で検知し、最新opをpendingのまま残す)。
-  const { data: existing, error: selErr } = await admin()
-    .from('connector_jobs')
-    .select('id, version')
-    .eq('connection_id', connectionId)
-    .eq('task_id', taskId)
-    .eq('status', 'pending')
-    .maybeSingle()
-  if (selErr) throw new Error(`connector_jobs fold lookup failed: ${selErr.message}`)
-  if (!existing) {
-    // 別workerがちょうど処理を終え pending が消えた直後の稀な競合窓。素直に再insertする。
-    const { error: retryErr } = await admin().from('connector_jobs').insert({
-      connection_id: connectionId,
-      task_id: taskId,
-      op,
-      payload,
-    })
-    if (retryErr) throw new Error(`connector_jobs enqueue retry failed: ${retryErr.message}`)
-    return
-  }
-  const row = existing as { id: string; version: number }
-  // next_attempt_at/updated_at はDBのtimestamptz列(表示用ローカル日付ではない)。mirror.ts の
-  // saveRef と同じ既存の例外運用として toISOString を使う(protocol/DBタイムスタンプはUTCで正しい)。
-  const { error: updErr } = await admin()
-    .from('connector_jobs')
-    .update({
-      op,
-      payload,
-      version: row.version + 1,
-      next_attempt_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', row.id)
-  if (updErr) throw new Error(`connector_jobs fold update failed: ${updErr.message}`)
 }
 
 /** multica への issue.upsert enqueue payload(契約 §3.1)。gtasks取り込みは進行中ステータスを持たないため既定 todo。 */
