@@ -173,7 +173,8 @@ export async function POST(request: NextRequest) {
               // org_ai_config未設定・LLM API障害等。このグループの抽出だけスキップし、配信(既存open分)は継続する。
               // ただし黙って握り潰さない: AI未設定(設定ギャップ・要オペ対応)とLLM障害を切り分けて必ずログに残す。
               const reason = error instanceof Error ? error.message : String(error)
-              const kind = classifyExtractionSkip(reason)
+              // 型(AiConfigError)で分類する。復号失敗も設定ギャップ(ai_unconfigured)として可視化する。
+              const kind = classifyExtractionSkip(error)
               if (kind === 'ai_unconfigured') {
                 aiUnconfiguredGroups += 1
                 // 設定ギャップ = 自動タスク化が止まっている。org単位でgrep可能な運用シグナルを残す。
