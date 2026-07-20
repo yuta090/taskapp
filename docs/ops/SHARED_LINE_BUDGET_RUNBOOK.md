@@ -16,13 +16,19 @@
   2. **グローバル層**: platform account 単位の実物理上限（既定200通）。超過で `state` が `ok→soft→hard`。
 - 執行は**送信境界**（`decideSharedSendBudget`）が state を読んで行う。**最も厳しい層が勝つ**・fail-closed（読めなければ止める側に倒す）。ここで立てるのは「状態」だけ。
 
-## state の意味（両層共通）
+> ⚠ **重要（層で執行が違う）**:
+> - **グローバル層（platform account 200通）は state=hard で必ず抑止する**（`on_exceed` に関係なく `decideSharedSendBudget` が止める）。＝**原価の実ガードはこの層**。
+> - **org 層（無料50通）の執行は `org_channel_policy.on_exceed` 次第**。既定は `none`＝**state が soft/hard でも抑止しない（可視化のみ）**。`degrade`（隔日）/`block`（停止）を設定した org だけ実際に絞られる。現行は「既存を切らない」方針で `none` を既定にしているため、**50通は"見える化"であって、それ単体では送信を止めない**（止めるのは200通のグローバル層）。
 
-| state | 意味 | auto-push の挙動 |
-|---|---|---|
-| `ok` | 上限内 | 通常送信 |
-| `soft` | 80%到達 | **隔日縮退**（JST通算日の偶奇で1日おき送信） |
-| `hard` | 100%到達 | **auto-push 抑止**（既存グループは切らない。対話的push/手動送信は対象外） |
+## state の意味と、層ごとの執行
+
+| state | 意味 | グローバル層(200/account) | org 層(50/org) |
+|---|---|---|---|
+| `ok` | 上限内 | 通常送信 | 通常送信 |
+| `soft` | 80%到達 | 隔日縮退 | `degrade`のみ隔日縮退。`none`/`block`は送信 |
+| `hard` | 100%到達 | **抑止** | `degrade`/`block`のみ抑止。**`none`(既定)は送信継続** |
+
+※いずれも auto-push（digest/承認催促）のみ対象。対話的push・console手動送信・既存グループは切らない。
 
 ## 自動化されている部分（cron・pg_cron前提）
 
@@ -81,10 +87,11 @@ update public.platform_channel_budget
 
 ## エスカレーション目安
 
-- `remaining <= soft_threshold`（=`state` が `soft`）: 監視強化。増勢が続くなら有料LINEプラン移行 or グループ追加を検討。
-- `remaining = 0`（=`state` が `hard`）: 当月はその account 相乗り分の auto-push が抑止。新規 org の共通LINE紐付けを一時停止し、原因 org を `app_platform_budget_overview` と org 層で切り分ける。
+- `used_current_month >= soft_threshold`（=`remaining <= budget - soft_threshold`。budget=200 なら残量40以下・使用160以上＝`state` が `soft`）: 監視強化。増勢が続くなら有料LINEプラン移行 or グループ追加を検討。
+  - ※`remaining <= soft_threshold` ではない（それは使用40で成立してしまい早すぎる）。soft は**使用が soft_threshold 以上**。
+- `remaining = 0`（=`state` が `hard`）: 当月はその account 相乗り分の auto-push が**グローバル層で抑止**。新規 org の共通LINE紐付けを一時停止し、原因 org を `app_platform_budget_overview` と org 層で切り分ける。
 
 ## 関連
 
-- org 層の `monthly_push_quota` は**プラン（無料=50）から service role が同期**する（webhook/reconcile）。同期の実装は `src/lib/billing/` 側（`entitlements.ts` の `PLAN_LIMITS.monthlySharedPushQuota` が正）。
-- 送信境界の判定ロジック: `src/lib/channels/metering/decideSharedSendBudget.ts`。
+- org 層の `monthly_push_quota` は**プラン（無料=50）から同期**される。即時性は DBトリガー `trg_org_billing_sync_push_quota`（`org_billing` 書込契機）、最終的整合性は日次 cron `org-push-quota-resync`（`app_resync_all_org_push_quota()`＝全org再計算・billing欠落org や past_due猶予切れの drift を是正）。値の正本は `entitlements.ts` の `PLAN_LIMITS.monthlySharedPushQuota`。
+- 送信境界の判定ロジック: `src/lib/channels/metering/decideSharedSendBudget.ts` / `decideAutoPush.ts`（`on_exceed` × `state` の真理値表）。
