@@ -755,6 +755,8 @@ export async function findOrCreateActiveGroup(input: {
   accountId: string
   externalGroupId: string
   displayName: string | null
+  /** account のチャネル。省略時は後方互換で 'line'。呼び出し側が account.channel を渡す。 */
+  channel?: string
 }): Promise<ChannelGroup> {
   const existing = await findActiveGroup(input.accountId, input.externalGroupId)
   if (existing) return existing
@@ -766,7 +768,7 @@ export async function findOrCreateActiveGroup(input: {
       account_id: input.accountId,
       external_group_id: input.externalGroupId,
       display_name: input.displayName,
-      channel: 'line',
+      channel: input.channel ?? 'line',
     })
     .select(GROUP_COLUMNS)
     .single()
@@ -1277,6 +1279,28 @@ export async function findGroupClaimOrgId(claimId: string): Promise<string | nul
   return data.org_id as string
 }
 
+/**
+ * 承認APIの認可＋容量分岐用: claimの実所属orgと、そのclaimが属するチャネル
+ * （claim.account_id → channel_accounts.channel）を1クエリで引く。
+ * チャネルは容量/エンタイトルメント判定を LINE と外部チャットで分けるために必要
+ * （'line' → maxLineGroups / それ以外 → external_chat_channels + maxExternalChatGroups）。
+ */
+export async function findGroupClaimOrgAndChannel(
+  claimId: string,
+): Promise<{ orgId: string; channel: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_group_claims')
+    .select('org_id, channel_accounts!inner(channel)')
+    .eq('id', claimId)
+    .maybeSingle()
+  if (error || !data) return null
+  const acc = (data as { channel_accounts: { channel: string } | { channel: string }[] })
+    .channel_accounts
+  const channel = Array.isArray(acc) ? acc[0]?.channel : acc?.channel
+  if (!channel) return null
+  return { orgId: (data as { org_id: string }).org_id, channel }
+}
+
 export type GroupClaimActionErrorReason = 'not_found' | 'forbidden' | 'conflict' | 'invalid'
 
 /**
@@ -1327,9 +1351,21 @@ export async function orgLineGroupCapacity(
     .from('channel_groups')
     .select('id', { count: 'exact', head: true })
     .eq('org_id', orgId)
+    // ★channel=line に限定して数える。Discord等の外部チャットグループが LINE 枠を汚染しない
+    //   （逆も orgExternalChatGroupCapacity が channel で絞る）。両枠は独立カウント。
+    .eq('channel', 'line')
     .eq('status', 'active')
   const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
   return { activeCount: count ?? 0, maxGroups: planLimits(ent.planId).maxLineGroups }
+}
+
+/**
+ * org が「外部チャット（LINE以外）連携」エンタイトルメント(external_chat_channels)を持つか。
+ * Discord等の新規紐付け確立の Pro ゲート（承認/償還の境界でのみ効かせる）。
+ */
+export async function orgHasExternalChatChannels(orgId: string): Promise<boolean> {
+  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
+  return ent.has('external_chat_channels')
 }
 
 /**

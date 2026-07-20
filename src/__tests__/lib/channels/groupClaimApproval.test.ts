@@ -117,20 +117,119 @@ describe('listPendingGroupClaimsForOrg', () => {
   })
 })
 
-describe('findGroupClaimOrgId', () => {
-  it('claimのorg_idを返す', async () => {
-    fromResponses['channel_group_claims'] = { data: { org_id: 'org-1' }, error: null }
-    expect(await store.findGroupClaimOrgId('claim-1')).toBe('org-1')
+describe('findGroupClaimOrgAndChannel', () => {
+  it('claimのorg_idと（account経由の）channelを返す', async () => {
+    // channel は claim.account_id → channel_accounts.channel の join で解決する
+    fromResponses['channel_group_claims'] = {
+      data: { org_id: 'org-1', channel_accounts: { channel: 'discord' } },
+      error: null,
+    }
+    expect(await store.findGroupClaimOrgAndChannel('claim-1')).toEqual({
+      orgId: 'org-1',
+      channel: 'discord',
+    })
+  })
+
+  it('埋め込みが配列で返る形状差異も先頭要素から channel を取る', async () => {
+    fromResponses['channel_group_claims'] = {
+      data: { org_id: 'org-1', channel_accounts: [{ channel: 'line' }] },
+      error: null,
+    }
+    expect(await store.findGroupClaimOrgAndChannel('claim-1')).toEqual({
+      orgId: 'org-1',
+      channel: 'line',
+    })
   })
 
   it('該当なしはnull', async () => {
     fromResponses['channel_group_claims'] = { data: null, error: null }
-    expect(await store.findGroupClaimOrgId('claim-1')).toBeNull()
+    expect(await store.findGroupClaimOrgAndChannel('claim-1')).toBeNull()
   })
 
   it('DBエラーもnull（他org 404 に丸めるための呼び出し側規約）', async () => {
     fromResponses['channel_group_claims'] = { data: null, error: { message: 'boom' } }
-    expect(await store.findGroupClaimOrgId('claim-1')).toBeNull()
+    expect(await store.findGroupClaimOrgAndChannel('claim-1')).toBeNull()
+  })
+})
+
+describe('orgLineGroupCapacity — channel=line に限定して数える', () => {
+  it('channel_groups を channel=line/status=active で数える（他チャネルで汚染されない）', async () => {
+    fromResponses['channel_groups'] = { data: null, error: null, count: 2 }
+    fromResponses['org_billing'] = { data: null, error: null }
+    const res = await store.orgLineGroupCapacity('org-1')
+    const builder = fromMock.mock.results[0].value
+    expect(fromMock).toHaveBeenCalledWith('channel_groups')
+    expect(builder.eq).toHaveBeenCalledWith('org_id', 'org-1')
+    expect(builder.eq).toHaveBeenCalledWith('channel', 'line')
+    expect(builder.eq).toHaveBeenCalledWith('status', 'active')
+    // free 既定は maxLineGroups を持つ（数値 or null）。ここでは活性数の集計経路だけ検証。
+    expect(res).toHaveProperty('activeCount')
+    expect(res).toHaveProperty('maxGroups')
+  })
+})
+
+describe('orgExternalChatGroupCapacity — channel を指定して数える', () => {
+  it('既定は channel=discord で数える', async () => {
+    fromResponses['channel_groups'] = { data: null, error: null, count: 1 }
+    fromResponses['org_billing'] = { data: null, error: null }
+    await store.orgExternalChatGroupCapacity('org-1')
+    const builder = fromMock.mock.results[0].value
+    expect(builder.eq).toHaveBeenCalledWith('channel', 'discord')
+    expect(builder.eq).toHaveBeenCalledWith('status', 'active')
+  })
+
+  it('channel 明示指定でそのチャネルに絞る', async () => {
+    fromResponses['channel_groups'] = { data: null, error: null, count: 0 }
+    fromResponses['org_billing'] = { data: null, error: null }
+    await store.orgExternalChatGroupCapacity('org-1', 'slack')
+    const builder = fromMock.mock.results[0].value
+    expect(builder.eq).toHaveBeenCalledWith('channel', 'slack')
+  })
+})
+
+describe('findOrCreateActiveGroup — channel をハードコードせず引数から採る', () => {
+  const GROUP_ROW = {
+    id: 'grp-new',
+    org_id: 'org-1',
+    space_id: null,
+    account_id: 'acc-1',
+    external_group_id: 'C1',
+    display_name: null,
+    status: 'active',
+    pickup_mode: null,
+    last_extracted_message_created_at: null,
+    approver_user_id: null,
+  }
+
+  it('明示 channel=discord で INSERT する（line 固定でない）', async () => {
+    fromResponses['channel_groups#1'] = { data: null, error: null } // findActiveGroup=なし
+    fromResponses['channel_groups#2'] = { data: GROUP_ROW, error: null } // insert
+    await store.findOrCreateActiveGroup({
+      orgId: 'org-1',
+      accountId: 'acc-1',
+      externalGroupId: 'C1',
+      displayName: null,
+      channel: 'discord',
+    })
+    const insertBuilder = fromMock.mock.results[1].value
+    expect(insertBuilder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'discord', account_id: 'acc-1' }),
+    )
+  })
+
+  it('channel 省略時は line（後方互換の既定）', async () => {
+    fromResponses['channel_groups#1'] = { data: null, error: null }
+    fromResponses['channel_groups#2'] = { data: GROUP_ROW, error: null }
+    await store.findOrCreateActiveGroup({
+      orgId: 'org-1',
+      accountId: 'acc-1',
+      externalGroupId: 'C1',
+      displayName: null,
+    })
+    const insertBuilder = fromMock.mock.results[1].value
+    expect(insertBuilder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'line' }),
+    )
   })
 })
 
