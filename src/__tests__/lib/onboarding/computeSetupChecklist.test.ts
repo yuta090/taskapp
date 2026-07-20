@@ -14,9 +14,10 @@ const allFalse: SetupChecklistData = {
   // 既定は「orgにLINE秘書が用意されている（=ユーザーが自分で連携できる）」状態でテストする。
   // 未準備(準備中)ケースは専用テストで lineAccountReady:false を渡す。
   lineAccountReady: true,
+  aiConfigured: false,
 }
 
-/** 全ステップ完了状態のデータ（LINE準備済み・連携済み） */
+/** 全ステップ完了状態のデータ（LINE準備済み・連携済み・AI設定済み） */
 const allTrue: SetupChecklistData = {
   hasNonSampleTask: true,
   hasTeamInvite: true,
@@ -25,10 +26,11 @@ const allTrue: SetupChecklistData = {
   hasPreviewedPortal: true,
   hasLineLinked: true,
   lineAccountReady: true,
+  aiConfigured: true,
 }
 
 describe('computeSetupChecklist', () => {
-  it('LINE準備済みでは connect_line を含む6ステップになる', () => {
+  it('LINE準備済みでは connect_line と configure_ai を含む7ステップになる', () => {
     const result = computeSetupChecklist(allFalse, SPACE_ID, ORG_ID)
 
     expect(result.steps.map((s) => s.key)).toEqual([
@@ -38,8 +40,9 @@ describe('computeSetupChecklist', () => {
       'publish_task',
       'preview_portal',
       'connect_line',
+      'configure_ai',
     ])
-    expect(result.totalCount).toBe(6)
+    expect(result.totalCount).toBe(7)
     expect(result.completedCount).toBe(0)
     expect(result.allDone).toBe(false)
     for (const step of result.steps) {
@@ -120,8 +123,9 @@ describe('computeSetupChecklist', () => {
       expect(step.done).toBe(false)
       expect(step.href).toBeNull()
       expect(step.ctaLabel).toBeNull()
-      // pending ステップは表示はするが分母に含めない（他5つで完了に到達できる）
-      expect(result.totalCount).toBe(5)
+      // pending ステップ(connect_line)は表示はするが分母に含めない。
+      // 分母は他6つ（create/invite_team/invite_client/publish/preview/configure_ai）。
+      expect(result.totalCount).toBe(6)
     })
 
     it('準備中の文言は「当社が開通し、メールでご案内する」申込制モデルを明示する（自動で使えるようになる誤解を与えない）', () => {
@@ -134,7 +138,7 @@ describe('computeSetupChecklist', () => {
       expect(step.description).not.toContain('ここから連携できます')
     })
 
-    it('準備中で他5ステップが完了なら allDone に到達できる（連携不能ステップで詰まらない）', () => {
+    it('準備中で他の実行可能ステップ(configure_ai含む)が完了なら allDone に到達できる（連携不能ステップで詰まらない）', () => {
       const result = computeSetupChecklist(
         {
           hasNonSampleTask: true,
@@ -144,13 +148,35 @@ describe('computeSetupChecklist', () => {
           hasPreviewedPortal: true,
           hasLineLinked: false,
           lineAccountReady: false,
+          aiConfigured: true,
         },
         SPACE_ID,
         ORG_ID
       )
-      expect(result.totalCount).toBe(5)
-      expect(result.completedCount).toBe(5)
+      expect(result.totalCount).toBe(6)
+      expect(result.completedCount).toBe(6)
       expect(result.allDone).toBe(true)
+    })
+  })
+
+  describe('configure_ai ステップ（AI未設定の可視化）', () => {
+    it('AI未設定なら未完了・設定画面へのCTAを持ち、自動タスク化が止まる旨を説明する', () => {
+      const result = computeSetupChecklist(allFalse, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'configure_ai')!
+      expect(step.done).toBe(false)
+      expect(step.pending).not.toBe(true)
+      expect(step.href).toBe('/settings/org-integrations')
+      expect(step.ctaLabel).not.toBeNull()
+      // 「未設定だと自動タスク化されない」= サイレントに止まっていることを文言で可視化する
+      expect(step.description).toContain('自動')
+    })
+
+    it('AI設定済みなら done かつ CTA なし', () => {
+      const result = computeSetupChecklist({ ...allFalse, aiConfigured: true }, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'configure_ai')!
+      expect(step.done).toBe(true)
+      expect(step.href).toBeNull()
+      expect(step.ctaLabel).toBeNull()
     })
   })
 
@@ -175,6 +201,7 @@ describe('computeSetupChecklist', () => {
           hasPreviewedPortal: true,
           hasLineLinked: false,
           lineAccountReady: false, // connect_line は pending
+          aiConfigured: true,
         },
         SPACE_ID,
         ORG_ID
@@ -195,8 +222,8 @@ describe('computeSetupChecklist', () => {
 
   it('marks allDone true only when every applicable step is done', () => {
     const result = computeSetupChecklist(allTrue, SPACE_ID, ORG_ID)
-    expect(result.totalCount).toBe(6)
-    expect(result.completedCount).toBe(6)
+    expect(result.totalCount).toBe(7)
+    expect(result.completedCount).toBe(7)
     expect(result.allDone).toBe(true)
     for (const step of result.steps) {
       expect(step.href).toBeNull()

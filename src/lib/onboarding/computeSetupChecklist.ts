@@ -22,6 +22,12 @@ export interface SetupChecklistData {
    * 「準備中」表示にして完了不能なCTAを見せない。
    */
   lineAccountReady: boolean
+  /**
+   * org_ai_config に有効なAI設定がある＝夜間の自動タスク抽出(channel-digest)が動く前提が揃っている。
+   * false のとき、LINEを繋いでも会話が自動タスク化されない（cronがサイレントにスキップする）。
+   * これを可視化するため configure_ai ステップで警告＋設定導線を出す。
+   */
+  aiConfigured: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -31,6 +37,7 @@ export type SetupChecklistStepKey =
   | 'publish_task'
   | 'preview_portal'
   | 'connect_line'
+  | 'configure_ai'
 
 export interface SetupChecklistStep {
   key: SetupChecklistStepKey
@@ -121,6 +128,16 @@ export function computeSetupChecklist(
       ctaLabel: data.hasPreviewedPortal ? null : 'プレビュー',
     },
     buildConnectLineStep(data, orgId),
+    {
+      key: 'configure_ai',
+      title: 'AI連携を設定',
+      description: data.aiConfigured
+        ? 'AI連携を設定しました。'
+        : 'AIを設定すると、LINEのやり取りが自動でタスクになります。未設定のあいだは自動タスク化は動きません。',
+      done: data.aiConfigured,
+      href: data.aiConfigured ? null : '/settings/org-integrations',
+      ctaLabel: data.aiConfigured ? null : 'AI連携を設定',
+    },
   ]
 
   // pending（準備中）ステップは表示のみ。進捗の分母・現在地からは除外する。
