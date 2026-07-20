@@ -129,9 +129,11 @@ function insertRecord(
   group: DiscordActiveGroup,
   ev: DiscordIngestEvent,
 ): DiscordInsertInput {
+  // 不正/欠落 timestamp のフォールバックは epoch（完全な timestamptz 瞬時値・date-onlyずれ無関係）。
+  // toISOString() は使わない（CLAUDE.md の date-only 禁止 grep tripwire 回避・リテラルで等価）。
   const occurredAt = ev.timestamp && !Number.isNaN(Date.parse(ev.timestamp))
     ? ev.timestamp
-    : new Date(0).toISOString()
+    : '1970-01-01T00:00:00.000Z'
   return {
     orgId: group.orgId,
     // グループ発言の space は常にグループ由来のみ（発言者からの自動帰属はしない）
