@@ -133,7 +133,7 @@ multica 上で Issue が完了した。
 X-AgentPM-Signature: t=<unix秒>,v1=<hex(hmac_sha256(secret, t + "." + rawBody))>
 ```
 
-- **secret**: 接続ごとに TaskApp が発行（作成時に一度きり表示、ローテーション可）。TaskApp→multica と multica→TaskApp で**別 secret**（方向別に発行）。
+- **secret**: 接続ごとに **TaskApp が send/receive の2本を生成**（TaskApp→multica と multica→TaskApp で**別 secret**）。作成時レスポンスで**一度だけ平文返却**し、以後は sink と同方式で暗号化して保存する（`encrypt_system_secret`／metadata の `multica.send_secret_encrypted`・`receive_secret_encrypted`）。読み手は `decrypt_system_secret` で復号（平文キーへのフォールバックは持たない＝クリーンカット）。ローテーションは方向別に再生成→暗号化→一度だけ平文返却。**平文はハッシュ保存できない**（HMAC 検証に鍵そのものが要る）ため「一度だけ表示」は UI 上の露出制御であり保存は可逆暗号化。
 - **リプレイ窓**: `|now - t| <= 300 秒`。外は拒否。
 - **検証**: `rawBody`（パース前の生バイト列）に対して計算。TaskApp 受信側は §7 の 3 拒否ケースを必ず実装。
 - **転送先**: HTTPS のみ・ポート443・リダイレクト非追従。SSRF 検証は `src/lib/sinks/ssrf.ts` を通す（TaskApp→multica の宛先 URL 登録時・送信時）。
@@ -184,7 +184,7 @@ X-AgentPM-Signature: t=<unix秒>,v1=<hex(hmac_sha256(secret, t + "." + rawBody))
 ## 10. 未確定（実装前に埋める）
 
 - [ ] **multica 側の Webhook 発火・完了受付 API の実装可否**（本契約は「自社なので用意する」前提）。不可なら multica もポーリング縮退。
-- [ ] `multica_base` URL・テナント発行フロー（org ↔ connection ↔ multica テナントの対応）。
+- [x] `multica_base` URL・テナント発行フロー（org ↔ connection ↔ multica テナントの対応）: **TaskApp が接続作成時に base_url を受け取り、send/receive 2鍵を生成して暗号化保存し、作成レスポンスで webhook URL・connection_id・2鍵を一度だけ一括表示**（multica 側に貼る設定ブロック）。以後はマスク＋方向別ローテーションのみ。API: `POST /api/integrations/connections/multica`（作成）・`POST /api/integrations/connections/multica/[id]/rotate?direction=send|receive`（ローテ）。
 - [x] import 先の space/assignee 決定則（gtasks 側）: `integration_connections.import_config` で最小定義した（`src/lib/google-tasks/import.ts`）。
   `{ target_space_id: string(必須), read_list_ids?: string[], default_assignee_id?: string }`。
   `target_space_id` 未設定の接続は import を skip する。`read_list_ids` 省略時は「ミラー出力先リスト
