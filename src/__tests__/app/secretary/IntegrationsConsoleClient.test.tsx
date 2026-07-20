@@ -44,6 +44,12 @@ vi.mock('@/components/secretary/integrations/SinkListPane', () => ({
   ),
 }))
 
+vi.mock('@/components/secretary/integrations/ConnectorSyncPane', () => ({
+  ConnectorSyncPane: ({ orgId }: { orgId: string }) => (
+    <div data-testid="connector-sync-pane">{orgId}</div>
+  ),
+}))
+
 vi.mock('@/components/secretary/integrations/SinkDetailPanel', () => ({
   SinkDetailPanel: ({
     sink,
@@ -89,6 +95,12 @@ describe('IntegrationsConsoleClient', () => {
     useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
     render(<IntegrationsConsoleClient orgId="org-1" />)
     expect(screen.queryByTestId('secretary-tab-integrations')).not.toBeInTheDocument()
+  })
+
+  it('双方向同期セクション(ConnectorSyncPane)をorgId付きで描画する', () => {
+    useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    expect(screen.getByTestId('connector-sync-pane')).toHaveTextContent('org-1')
   })
 
   it('sinkが無ければ詳細パネルの代わりに空状態を表示する', () => {

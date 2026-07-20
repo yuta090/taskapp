@@ -47,18 +47,12 @@ export function SinkListPane({
     <div className="flex flex-col h-full overflow-hidden">
       {/*
         外部連携タブは2種類の連携を扱う（docs/spec/MULTICA_CONNECTOR_CONTRACT.md の役割整理）:
-          - 双方向同期: gtasks・multica と相互に同期（完了も両側へ反映）。接続管理UIは後続。
+          - 双方向同期: gtasks・multica と相互に同期（完了も両側へ反映）。接続管理UIは
+            ConnectorSyncPane（IntegrationsConsoleClientが2カラムsink UIの上に独立セクションとして
+            描画。左カラムの本ペインは幅が狭く収まらないため、ここには置かない）。
           - 通知連携 : タスクの発生を外部ツールへ「送りっぱなし」で通知（＝従来の sink）。
         「つなぐ」タブ（チャットとの接続）とは別軸。ここはあくまで“ツールとデータ”の連携。
       */}
-      <div className="px-4 pt-3 pb-2 flex-shrink-0 border-b border-gray-100">
-        <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">双方向同期</span>
-        <p className="mt-1 text-[11px] text-gray-400 leading-relaxed">
-          gtasks・multica と双方向に同期。完了は両側へ反映されます。
-          <span className="text-gray-300">（接続設定は準備中）</span>
-        </p>
-      </div>
-
       <div className="px-4 pt-3 pb-2 flex items-start justify-between flex-shrink-0">
         <div className="min-w-0">
           <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">通知連携</span>
