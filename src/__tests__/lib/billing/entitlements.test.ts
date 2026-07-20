@@ -130,6 +130,12 @@ describe('planHasFeature', () => {
     }
   })
 
+  it('外部チャット連携(external_chat_channels)は Pro専有（LINE以外の他チャット＝Proの売り）', () => {
+    expect(planHasFeature('free', 'external_chat_channels')).toBe(false)
+    expect(planHasFeature('pro', 'external_chat_channels')).toBe(true)
+    expect(planHasFeature('enterprise', 'external_chat_channels')).toBe(true)
+  })
+
   it('自動タスク拾いは free に開放・ただし即時通知は Pro のみ（Free=日次まとめで差別化）', () => {
     expect(planHasFeature('free', 'line_pickup_dual_mode')).toBe(true)
     expect(planHasFeature('free', 'instant_line_notify')).toBe(false)
@@ -138,15 +144,25 @@ describe('planHasFeature', () => {
 })
 
 describe('planLimits', () => {
-  it('free は狭い上限（グループ3・共通LINE送信50）', () => {
-    expect(planLimits('free')).toEqual({ maxLineGroups: 3, monthlySharedPushQuota: 50 })
+  it('free は狭い上限（グループ3・共通LINE送信50・外部チャットは0=Pro専有）', () => {
+    expect(planLimits('free')).toEqual({
+      maxLineGroups: 3,
+      monthlySharedPushQuota: 50,
+      maxExternalChatGroups: 0,
+    })
   })
   it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
     expect(planLimits('pro').maxLineGroups).toBe(50)
     expect(planLimits('pro').monthlySharedPushQuota).toBeNull()
+    // 外部チャット（Discord等）の紐付け上限（安全側の仮値）
+    expect(planLimits('pro').maxExternalChatGroups).toBe(50)
   })
   it('enterprise は無制限', () => {
-    expect(planLimits('enterprise')).toEqual({ maxLineGroups: null, monthlySharedPushQuota: null })
+    expect(planLimits('enterprise')).toEqual({
+      maxLineGroups: null,
+      monthlySharedPushQuota: null,
+      maxExternalChatGroups: null,
+    })
   })
 })
 
