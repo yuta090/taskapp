@@ -347,13 +347,16 @@ describe('handleMulticaInboundEvent', () => {
     expect(state.inboundEvents).toHaveLength(1)
   })
 
-  it('enqueueが一時例外(throw) → 500。再送でgtasks書き戻しenqueueが再実行される(書き戻し消失なし)', async () => {
+  it('初回で遷移(rpc true)後にenqueueが例外→未記録→再送はrpc false(既にdone)でも書き戻しが再駆動される(消失なし)', async () => {
     state.conns = [CONN, { id: 'conn-gtasks', provider: 'google_tasks', status: 'active', metadata: {} }]
     state.links = [
       { connection_id: 'conn-1', task_id: TASK_REF },
       { connection_id: 'conn-gtasks', task_id: TASK_REF },
     ]
-    rpcMock.mockResolvedValue({ data: true, error: null })
+    // 実RPCの遷移意味論を忠実にモデル化する: 初回は 0→1 遷移で true、
+    // 再送時は既に done なので false(v_updated=0)。書き戻し enqueue はこの false でも
+    // 再駆動されねばならない(遷移に条件付けると silent lost する回帰の砦)。
+    rpcMock.mockResolvedValueOnce({ data: true, error: null }).mockResolvedValue({ data: false, error: null })
     enqueueConnectorJobMock.mockRejectedValueOnce(new Error('temporary enqueue error'))
     const raw = body()
     const header = sign(raw)
@@ -364,8 +367,27 @@ describe('handleMulticaInboundEvent', () => {
     enqueueConnectorJobMock.mockResolvedValueOnce(undefined)
     const res = await handleMulticaInboundEvent(raw, header)
     expect(res.status).toBe(200)
+    // rpc は再送で false を返すが、enqueue は無条件駆動なので2回目も呼ばれ書き戻しが確定する。
     expect(enqueueConnectorJobMock).toHaveBeenCalledTimes(2)
     expect(state.inboundEvents).toHaveLength(1)
+  })
+
+  it('チャット返信は真の0→1遷移(rpc true)のときだけ発火し、既にdone(rpc false)では発火しない', async () => {
+    state.conns = [CONN, { id: 'conn-gtasks', provider: 'google_tasks', status: 'active', metadata: {} }]
+    state.links = [
+      { connection_id: 'conn-1', task_id: TASK_REF },
+      { connection_id: 'conn-gtasks', task_id: TASK_REF },
+    ]
+    // 既にdoneのタスクに対する(別event_idの)完了通知: rpc は false。
+    rpcMock.mockResolvedValue({ data: false, error: null })
+    const raw = body()
+    const header = sign(raw)
+
+    const res = await handleMulticaInboundEvent(raw, header)
+    expect(res.status).toBe(200)
+    // 書き戻しは冪等に確定(fold)されるが、チャット返信は遷移していないので二重送信を避けて発火しない。
+    expect(enqueueConnectorJobMock).toHaveBeenCalledTimes(1)
+    expect(notifyChatOnCompletionMock).not.toHaveBeenCalled()
   })
 
   it('全成功後の同一event_id再送 → 200・副作用ゼロ(早期dedupで短絡)', async () => {

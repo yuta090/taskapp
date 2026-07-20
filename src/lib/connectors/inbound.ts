@@ -167,31 +167,38 @@ async function findActiveGoogleTasksConnectionForTask(taskId: string): Promise<s
 }
 
 /**
- * 完了の0→1遷移が真のときだけ呼ばれる副作用(契約 §4.1-3):
- *   (a) origin=external(gtasks正本)なら gtasks へ op='complete' を enqueue して書き戻す
- *   (b) チャットへ完了を返信する(送信アダプタ層は別ストリームの成果物のため現状スタブ)
+ * 完了イベント受理時の副作用(契約 §4.1-3)。呼び出し元は rpc 成功後・記録の前に呼ぶ。
  *
- * (a)の enqueue失敗はここでは意図的に投げる(呼び出し元へ伝播させ500にする)。connector_inbound_events
- * への記録は本関数の呼び出し元がこの関数の成功後にのみ行うため(呼び出し元のdocstring参照)、
- * enqueue失敗時は記録されないままmulticaが同一event_idで再送し、rpc(既にdone→no-op)を経て
- * enqueueが再実行される。enqueueConnectorJobは(connection_id,task_id)につきpending1件へfoldする
- * ため、この再実行は安全(書き戻しの取りこぼしを防ぐ側)。
- * (b)のチャット通知の失敗はDB上の完了確定を巻き戻す必要が無い付随機能のため、ここでは握って
- * 処理を続ける(記録は行われ、再送されても通知は再試行されない=ベストエフォート)。
+ *   (a) gtasks 書き戻し(origin=external の正本 gtasks へ op='complete'):
+ *       **この配信が 0→1 遷移を起こしたか(transitioned)に依存せず** enqueue する。
+ *       理由(取りこぼし防止): rpc_connector_complete_task は「既に done」だと false を返す。
+ *       もし enqueue を transitioned に条件付けると、「初回配信で遷移は起きたが enqueue が例外
+ *       → 未記録 → multica が同一 event_id で再送」という経路で、再送時は rpc=false となり
+ *       propagate 自体が呼ばれない/enqueue が再駆動されず、書き戻しが silent lost する
+ *       (実際 rpc の返りは v_updated>0、= 遷移した時だけ true)。enqueueConnectorJob は
+ *       (connection_id,task_id) 単位で pending 1件へ fold し、gtasks complete 自体も冪等なので、
+ *       無条件 enqueue でも重複は畳まれ at-least-once を満たす。enqueue 失敗は投げて呼び出し元を
+ *       500 にし(未記録)、再送で再駆動させる。
+ *   (b) チャット完了返信: **真の 0→1 遷移(transitioned)のときだけ**・ベストエフォート。
+ *       送信アダプタに冪等キー(event_id)を渡せるようになるまでは、再送での二重送信を避けるため
+ *       遷移を条件にする(現状スタブ)。失敗は握ってログのみ(DB上の完了確定は巻き戻さない)。
  */
 async function propagateTaskCompleted(
   taskRef: string,
   result: { summary: string | null; artifactUrl: string | null },
+  transitioned: boolean,
 ): Promise<void> {
   const gtasksConnectionId = await findActiveGoogleTasksConnectionForTask(taskRef)
   if (gtasksConnectionId) {
     await enqueueConnectorJob(gtasksConnectionId, taskRef, 'complete', {})
   }
 
-  try {
-    await notifyChatOnCompletion(taskRef, result)
-  } catch (error) {
-    console.error('[connectors/inbound] notifyChatOnCompletion failed:', error)
+  if (transitioned) {
+    try {
+      await notifyChatOnCompletion(taskRef, result)
+    } catch (error) {
+      console.error('[connectors/inbound] notifyChatOnCompletion failed:', error)
+    }
   }
 }
 
@@ -265,14 +272,18 @@ export async function handleMulticaInboundEvent(
     })
     if (rpcError) throw new Error(`rpc_connector_complete_task failed: ${rpcError.message}`)
 
-    if (completed === true) {
-      const rawResult = (parsed.result as Record<string, unknown> | undefined) ?? {}
-      await propagateTaskCompleted(taskRef, {
+    // rpc 成功後、この時点でタスクは必ず done(この配信で遷移 or 既に done)。gtasks 書き戻しは
+    // 遷移有無に依存せず at-least-once で駆動し(取りこぼし防止・propagateTaskCompleted 参照)、
+    // チャット返信のみ真の 0→1 遷移(completed===true)のときに行う。
+    const rawResult = (parsed.result as Record<string, unknown> | undefined) ?? {}
+    await propagateTaskCompleted(
+      taskRef,
+      {
         summary: typeof rawResult.summary === 'string' ? rawResult.summary : null,
         artifactUrl: typeof rawResult.artifact_url === 'string' ? rawResult.artifact_url : null,
-      })
-    }
-    // completed===false(既にdone)は二重完了防止のno-op。どちらも副作用は成功として扱い記録する。
+      },
+      completed === true,
+    )
     await recordInboundEventOnce(connectionId, eventId, eventType)
     return { status: 200, body: { ok: true } }
   }
