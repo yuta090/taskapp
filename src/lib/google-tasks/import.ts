@@ -202,8 +202,11 @@ async function updateExternalTask(taskId: string, gt: GoogleTask): Promise<void>
  * 検査しない。誤設定/悪意の import_config で別 org の space にタスク行を作らせないための境界。
  *   - space が接続の org に属さない/存在しない → 接続を skip(取り込み全体を止める)。
  *   - assignee が org メンバーでない → 担当を外す(null)。取り込み自体は続ける。
- * ※ import_config の書き込み権限境界(誰が設定できるか)は後続PRで別途 Fable が全体設計する。
- *   本ワーカーは受け取った値を信用せず、実行時に上記の防御検証を必ず通す。
+ * ※ 書き込み境界(何を設定できるか)は Fable 決定により DB トリガー
+ *   integration_connections_validate_import_config(20260720181730_...) が担い、org 外の
+ *   space/assignee を**書込時に**拒否する。本関数はそれを削除せず**第二防衛**として残す:
+ *   トリガーは書込時点の検証のみで、設定後に space の org 帰属や assignee のメンバーシップが
+ *   変わる drift(TOCTOU)は防げないため、実行時検証が真のセキュリティ境界であることは不変。
  */
 async function validateImportTarget(
   conn: ConnRow,
