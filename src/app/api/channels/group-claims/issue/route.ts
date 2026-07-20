@@ -5,9 +5,11 @@ import {
   findFirstPlatformAccountId,
   createSharedGroupClaimCode,
   orgLineGroupCapacity,
+  getLineSelfServeState,
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
 } from '@/lib/channels/store'
+import { canUseSharedBotClaims } from '@/lib/channels/sharedBotAccess'
 import {
   generateSharedGroupClaimCode,
   hashSharedGroupClaimCode,
@@ -50,6 +52,18 @@ export async function POST(request: NextRequest) {
   // org境界: 他orgのspaceにコードを発行させない
   if (!(await verifySpaceInOrg(orgId, spaceId))) {
     return NextResponse.json({ error: 'space not found in org' }, { status: 404 })
+  }
+
+  // 共通LINE利用の確立境界: 未申込/申込中の org には新規コードを発行しない（既存は切らない）。
+  // 自社bot(own)・開通済み(granted)のみ許可。dead-end にせず申込導線つきで返す。
+  if (!canUseSharedBotClaims(await getLineSelfServeState(orgId))) {
+    return NextResponse.json(
+      {
+        error: '共通LINEのご利用にはお申し込みが必要です。お申し込み後、当社が開通してご案内します。',
+        code: 'shared_bot_access_required',
+      },
+      { status: 403 },
+    )
   }
 
   // プラン上限（相手先グループ数）: 既に上限なら、コードを渡す前に早期に止める（UX）。

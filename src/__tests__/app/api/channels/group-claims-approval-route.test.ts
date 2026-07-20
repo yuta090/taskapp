@@ -40,6 +40,7 @@ const storeMock = {
   orgLineGroupCapacity: vi.fn(),
   orgExternalChatGroupCapacity: vi.fn(),
   orgHasExternalChatChannels: vi.fn(),
+  getLineSelfServeState: vi.fn(),
   GroupClaimActionError,
 }
 vi.mock('@/lib/channels/store', () => storeMock)
@@ -65,6 +66,7 @@ describe('POST /api/channels/group-claims/approval', () => {
     getUserMock.mockResolvedValue({ data: { user: { id: 'approver-1' } }, error: null })
     membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
     storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'line' })
+    storeMock.getLineSelfServeState.mockResolvedValue('granted') // 既定=開通済み
     storeMock.approveGroupClaim.mockResolvedValue(true)
     storeMock.rejectGroupClaim.mockResolvedValue(true)
     storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
@@ -154,6 +156,22 @@ describe('POST /api/channels/group-claims/approval', () => {
     const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
     expect(res.status).toBe(200)
     expect(storeMock.approveGroupClaim).toHaveBeenCalled()
+  })
+
+  it('approve(line): 共通LINE未申込/申込中(non-granted)は403（承認せず・既存は切らない）', async () => {
+    storeMock.getLineSelfServeState.mockResolvedValue('requested')
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    const json = await res.json()
+    expect(res.status).toBe(403)
+    expect(json.code).toBe('shared_bot_access_required')
+    expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
+  })
+
+  it('reject(line): non-granted でも却下は可能（紐付けを作らないため）', async () => {
+    storeMock.getLineSelfServeState.mockResolvedValue('none')
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'reject' })
+    expect(res.status).toBe(200)
+    expect(storeMock.rejectGroupClaim).toHaveBeenCalled()
   })
 
   it('approve(line): LINE経路は外部チャット容量/エンタイトルメントを参照しない', async () => {

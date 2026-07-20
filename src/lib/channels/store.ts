@@ -11,6 +11,7 @@ import {
 } from '@/lib/channels/sharedGroupClaim'
 import { fetchBotInfo } from '@/lib/channels/line/client'
 import { resolveOrgEntitlements, planLimits } from '@/lib/billing/entitlements'
+import { deriveLineSelfServeState, type LineSelfServeState } from '@/lib/channels/sharedBotAccess'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -2564,6 +2565,80 @@ export async function isLineSelfServeReady(orgId: string): Promise<boolean> {
     throw new Error(`channel_accounts: platform line readiness check failed: ${platformErr.message}`)
   }
   return (platformAcc?.length ?? 0) > 0
+}
+
+/**
+ * 共通LINE の org 単位 利用状態（own/granted/requested/none/unavailable）を返す。
+ * isLineSelfServeReady の per-org 版。line-status API・checklist・claim gating が使う。
+ * 判定は純関数 deriveLineSelfServeState に委譲（このフックは3ファクトの取得のみ）。
+ */
+export async function getLineSelfServeState(orgId: string): Promise<LineSelfServeState> {
+  const [ownRes, platformRes, policyRes] = await Promise.all([
+    admin()
+      .from('channel_accounts')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('channel', 'line')
+      .eq('status', 'active')
+      .limit(1),
+    admin()
+      .from('channel_accounts')
+      .select('id')
+      .eq('channel', 'line')
+      .eq('owner_type', 'platform')
+      .eq('status', 'active')
+      .limit(1),
+    admin().from('org_channel_policy').select('shared_bot_access').eq('org_id', orgId).maybeSingle(),
+  ])
+  if (ownRes.error) throw new Error(`channel_accounts: own line readiness failed: ${ownRes.error.message}`)
+  if (platformRes.error) {
+    throw new Error(`channel_accounts: platform line readiness failed: ${platformRes.error.message}`)
+  }
+  if (policyRes.error) {
+    throw new Error(`org_channel_policy: shared_bot_access read failed: ${policyRes.error.message}`)
+  }
+
+  const sharedRaw = (policyRes.data as { shared_bot_access?: string } | null)?.shared_bot_access
+  const sharedBotAccess = sharedRaw === 'granted' || sharedRaw === 'requested' ? sharedRaw : 'none'
+
+  return deriveLineSelfServeState({
+    hasOwnActiveLineAccount: (ownRes.data?.length ?? 0) > 0,
+    hasPlatformActiveLineAccount: (platformRes.data?.length ?? 0) > 0,
+    sharedBotAccess,
+  })
+}
+
+/**
+ * 共通LINE の利用を org 側から申し込む（none→requested）。冪等（granted/requested は no-op）。
+ * granted を絶対に downgrade しない（先に現状を読んでガード）。付与(→granted)は ops(service role)のみ。
+ */
+export async function requestSharedBotAccess(
+  orgId: string,
+  userId: string,
+): Promise<'requested' | 'granted'> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('shared_bot_access')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) throw new Error(`org_channel_policy: read failed: ${error.message}`)
+  const current = (data as { shared_bot_access?: string } | null)?.shared_bot_access
+  if (current === 'granted') return 'granted'
+  if (current === 'requested') return 'requested'
+
+  const { error: upErr } = await admin()
+    .from('org_channel_policy')
+    .upsert(
+      {
+        org_id: orgId,
+        shared_bot_access: 'requested',
+        shared_bot_access_requested_at: new Date().toISOString(),
+        shared_bot_access_requested_by: userId,
+      },
+      { onConflict: 'org_id' },
+    )
+  if (upErr) throw new Error(`org_channel_policy: request upsert failed: ${upErr.message}`)
+  return 'requested'
 }
 
 interface AccountWithBasicIdRow extends AccountRow {

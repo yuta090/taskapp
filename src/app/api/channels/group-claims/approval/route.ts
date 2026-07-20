@@ -7,8 +7,10 @@ import {
   orgLineGroupCapacity,
   orgExternalChatGroupCapacity,
   orgHasExternalChatChannels,
+  getLineSelfServeState,
   GroupClaimActionError,
 } from '@/lib/channels/store'
+import { canUseSharedBotClaims } from '@/lib/channels/sharedBotAccess'
 import { isValidUuid } from '@/lib/uuid'
 
 export const runtime = 'nodejs'
@@ -70,6 +72,17 @@ export async function POST(request: NextRequest) {
       //   （並行承認のTOCTOUレース対策・解決した上限値を渡す）。
       let maxActive: number | null = null
       if (claimRef.channel === 'line') {
+        // 共通LINE利用の確立境界の二重化（issue の 403 を通り抜けた in-flight claim の最後の砦）。
+        // approve=新規active化のみ対象。reject は非granted でも許す（紐付けを作らないため）。own/granted のみ承認可。
+        if (!canUseSharedBotClaims(await getLineSelfServeState(orgId))) {
+          return NextResponse.json(
+            {
+              error: '共通LINEのご利用にはお申し込みが必要です。お申し込み後、当社が開通してご案内します。',
+              code: 'shared_bot_access_required',
+            },
+            { status: 403 },
+          )
+        }
         const cap = await orgLineGroupCapacity(orgId)
         maxActive = cap.maxGroups
         if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {

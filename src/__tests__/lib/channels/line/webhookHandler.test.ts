@@ -101,6 +101,7 @@ const storeMock = {
   findValidSharedGroupClaimCode: vi.fn(),
   findOrCreatePendingGroupClaim: vi.fn(),
   redeemCodeOnlyClaim: vi.fn(),
+  orgLineGroupCapacity: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -273,6 +274,7 @@ beforeEach(() => {
   sinksStoreMock.disableStaleGroupSinks.mockResolvedValue([])
   sinksNotifyMock.notifySinkDisabledForRelink.mockResolvedValue(undefined)
   storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
+  storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 1, maxGroups: 3 })
   groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockResolvedValue(undefined)
   limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(false)
   resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
@@ -2426,19 +2428,23 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
           groupSummaryMock.mockResolvedValue({ groupName: 'ある店舗のグループ' })
         })
 
-        it('linked: 成功文言でreplyし、rpc_redeem_code_only_claimをhash/account/group/表示名で呼び、成立通知をトリガーする', async () => {
+        it('linked: 成功文言でreplyし、rpc_redeem_code_only_claimをhash/account/group/表示名/容量上限で呼び、成立通知をトリガーする', async () => {
           storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+          storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 2, maxGroups: 3 })
 
           const { hashSharedGroupClaimCode } = await import('@/lib/channels/sharedGroupClaim')
           const body = makeBody([groupTextEvent(DISPLAY_FORM)])
           const result = await handleLineWebhook(body, sign(body))
 
           expect(result.status).toBe(200)
+          // ★容量上限を linkCode.orgId で解決して RPC へ渡す（code_only 経路のハード上限を活性化）。
+          expect(storeMock.orgLineGroupCapacity).toHaveBeenCalledWith('org-A')
           expect(storeMock.redeemCodeOnlyClaim).toHaveBeenCalledWith(
             hashSharedGroupClaimCode(CANONICAL),
             'acc-shared-1',
             'G-1',
             'ある店舗のグループ',
+            3,
           )
           // web_approval用のclaim登録(pending)は呼ばない（code_onlyは別経路・pendingを経由しない）
           expect(storeMock.findOrCreatePendingGroupClaim).not.toHaveBeenCalled()
@@ -2450,6 +2456,37 @@ describe('共有bot（owner_type=platform）マルチテナント境界', () => 
             'space-A',
             'ある店舗のグループ',
           )
+        })
+
+        it('容量上限(maxGroups=null=無制限)でも解決値をそのまま渡す（Enterprise非拒否）', async () => {
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+          storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 99, maxGroups: null })
+
+          const { hashSharedGroupClaimCode } = await import('@/lib/channels/sharedGroupClaim')
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          await handleLineWebhook(body, sign(body))
+
+          expect(storeMock.redeemCodeOnlyClaim).toHaveBeenCalledWith(
+            hashSharedGroupClaimCode(CANONICAL),
+            'acc-shared-1',
+            'G-1',
+            'ある店舗のグループ',
+            null,
+          )
+        })
+
+        it('容量上限レース(RPCがrejectedに畳む)は無効コードと同一の固定文言で応答', async () => {
+          // 上限-1から並列償還したレース時、RPCが GC402→rejected に畳む（store側で検証済み）。
+          // webhook 層はそれを既存の rejected と同一文言に扱う（存在/理由を漏らさない）。
+          storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 3, maxGroups: 3 })
+          storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
+          const body = makeBody([groupTextEvent(DISPLAY_FORM)])
+          await handleLineWebhook(body, sign(body))
+
+          expect(storeMock.orgLineGroupCapacity).toHaveBeenCalledWith('org-A')
+          const replyArg = replyMock.mock.calls[0][0] as { messages: { text: string }[] }
+          expect(replyArg.messages[0].text).toBe('コードをお確かめのうえ、もう一度お送りください。ご不明な場合は事務所までご連絡ください。')
+          expect(groupClaimNotifyMock.notifyCodeOnlyGroupLinked).not.toHaveBeenCalled()
         })
 
         it('already_linked: 既に登録済み文言でreplyし、成立通知は呼ばない', async () => {

@@ -14,6 +14,7 @@ import {
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
+import { classifyExtractionSkip, type DigestSkipKind } from '@/lib/ai/digestSkip'
 import {
   buildDigestExtractionPrompt,
   parseLlmDigestExtraction,
@@ -62,7 +63,9 @@ export async function POST(request: NextRequest) {
 
   let extractedTasks = 0
   let digestsSent = 0
-  const skipped: Array<{ groupId: string; reason: string }> = []
+  // AI未設定で抽出が止まっているorgの数。サイレントスキップを止め、応答サマリでも可視化する。
+  let aiUnconfiguredGroups = 0
+  const skipped: Array<{ groupId: string; reason: string; kind?: DigestSkipKind }> = []
   const errors: string[] = []
 
   // digestは同一（共有bot）accountを複数グループが繰り返し引くため、グローバル予算層の読取を
@@ -167,9 +170,23 @@ export async function POST(request: NextRequest) {
                 extractedTasks += await ingestDigestTasks(group.id, newWatermark, candidates)
               }
             } catch (error) {
-              // org_ai_config未設定・LLM API障害等。このグループの抽出だけスキップし、配信(既存open分)は継続する
+              // org_ai_config未設定・LLM API障害等。このグループの抽出だけスキップし、配信(既存open分)は継続する。
+              // ただし黙って握り潰さない: AI未設定(設定ギャップ・要オペ対応)とLLM障害を切り分けて必ずログに残す。
               const reason = error instanceof Error ? error.message : String(error)
-              skipped.push({ groupId: group.id, reason })
+              // 型(AiConfigError)で分類する。復号失敗も設定ギャップ(ai_unconfigured)として可視化する。
+              const kind = classifyExtractionSkip(error)
+              if (kind === 'ai_unconfigured') {
+                aiUnconfiguredGroups += 1
+                // 設定ギャップ = 自動タスク化が止まっている。org単位でgrep可能な運用シグナルを残す。
+                console.warn(
+                  `[channel-digest] ai_unconfigured org=${group.orgId} group=${group.id}: ${reason}`,
+                )
+              } else {
+                console.error(
+                  `[channel-digest] extraction_failed org=${group.orgId} group=${group.id}: ${reason}`,
+                )
+              }
+              skipped.push({ groupId: group.id, reason, kind })
             }
           }
         }
@@ -273,10 +290,18 @@ export async function POST(request: NextRequest) {
     }),
   )
 
+  if (aiUnconfiguredGroups > 0) {
+    // 実行サマリにも1行残す（個別のwarnに加え、1回のcronで何org止まっているかを一目で）。
+    console.warn(
+      `[channel-digest] ${aiUnconfiguredGroups} group(s) skipped extraction: AI未設定（自動タスク化が停止中）`,
+    )
+  }
+
   return NextResponse.json({
     processedGroups: groups.length,
     extractedTasks,
     digestsSent,
+    aiUnconfiguredGroups,
     skipped,
     errors,
   })

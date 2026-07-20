@@ -27,6 +27,7 @@ import {
   findValidSharedGroupClaimCode,
   findOrCreatePendingGroupClaim,
   redeemCodeOnlyClaim,
+  orgLineGroupCapacity,
   type SharedGroupClaimLinkCode,
   type LineAccount,
   type OrgLineAccount,
@@ -1045,7 +1046,18 @@ async function redeemCodeOnlySharedGroupClaim(
   externalGroupId: string,
   groupDisplayName: string | null,
 ): Promise<string> {
-  const result = await redeemCodeOnlyClaim(codeHash, account.id, externalGroupId, groupDisplayName)
+  // ★容量上限のハード適用点（Fable裁定・オプションB）。code_only は外部起点で人間ペースに律速されず、
+  //   枠超のコードを並列償還すれば恒久超過し得る（既存 active は事後に切れず不可逆）。上限を linkCode.orgId で
+  //   解決し RPC へ渡すことで、同一Tx内アトミックに新規確立のみを GC402 で拒否させる（NULL=無制限=現行挙動）。
+  //   共有bot code_only は channel='line' 固定なので LINE 枠(maxLineGroups)で判定する。
+  const { maxGroups } = await orgLineGroupCapacity(linkCode.orgId)
+  const result = await redeemCodeOnlyClaim(
+    codeHash,
+    account.id,
+    externalGroupId,
+    groupDisplayName,
+    maxGroups,
+  )
 
   if (result === 'linked') {
     // ベストエフォート: 通知失敗は紐付け自体を巻き戻さない（設計正本 §4 成立通知は検知的統制）
