@@ -31,6 +31,21 @@ interface AiConfig {
   enabled: boolean
 }
 
+/**
+ * AI設定に起因する失敗の型付き例外。エラーメッセージ文字列に依存せず分類できるようにする
+ * （digest cron のスキップ分類が日本語文言 prefix に依存して脆くなるのを避ける）。
+ * decrypt_failed は「キーは登録されているが復号できない＝再設定が必要」＝設定ギャップ側に寄せる。
+ */
+export type AiConfigErrorKind = 'missing' | 'disabled' | 'decrypt_failed'
+export class AiConfigError extends Error {
+  readonly kind: AiConfigErrorKind
+  constructor(kind: AiConfigErrorKind, message: string) {
+    super(message)
+    this.name = 'AiConfigError'
+    this.kind = kind
+  }
+}
+
 export type AiConfigStatus =
   | { configured: true }
   | { configured: false; reason: 'missing' | 'disabled' | 'error' }
@@ -43,17 +58,22 @@ export type AiConfigStatus =
  * getAiConfig（復号あり・未設定時throw）と違い、こちらは throw せず値で返す＝
  * 「AI未設定で自動タスク化が止まっている」ことを黙って握り潰さないための土台。
  * DBエラー時も throw せず reason:'error' を返す（可視化フロー自体は止めない）。
+ *
+ * enabled だけでなく api_key_encrypted の有無も見る（復号はしない・安価なまま）。
+ * enabled=true でもキーが空の行は cron で必ず失敗するため、"設定済み(緑)" に見せない。
+ * ※キーが「壊れている（復号不能・無効provider）」ケースは復号/疎通が要るためここでは判定しない。
  */
 export async function getAiConfigStatus(orgId: string): Promise<AiConfigStatus> {
   const { data, error } = await (getSupabaseAdmin() as SupabaseClient)
     .from('org_ai_config')
-    .select('enabled')
+    .select('enabled, api_key_encrypted')
     .eq('org_id', orgId)
     .maybeSingle()
 
   if (error) return { configured: false, reason: 'error' }
   if (!data) return { configured: false, reason: 'missing' }
-  const { enabled } = data as { enabled: boolean }
+  const { enabled, api_key_encrypted } = data as { enabled: boolean; api_key_encrypted: string | null }
+  if (!api_key_encrypted || api_key_encrypted.trim() === '') return { configured: false, reason: 'missing' }
   if (!enabled) return { configured: false, reason: 'disabled' }
   return { configured: true }
 }
@@ -69,13 +89,13 @@ async function getAiConfig(orgId: string): Promise<{ provider: string; model: st
     .single()
 
   if (error || !config) {
-    throw new Error('AI未設定: この組織にはAI設定が登録されていません')
+    throw new AiConfigError('missing', 'AI未設定: この組織にはAI設定が登録されていません')
   }
 
   const { provider, model, api_key_encrypted, enabled } = config as AiConfig
 
   if (!enabled) {
-    throw new Error('AI未設定: AI機能が無効になっています')
+    throw new AiConfigError('disabled', 'AI未設定: AI機能が無効になっています')
   }
 
   // Decrypt the API key using the same RPC as Slack tokens
@@ -86,7 +106,7 @@ async function getAiConfig(orgId: string): Promise<{ provider: string; model: st
     })
 
   if (decryptError || !apiKey) {
-    throw new Error('APIキーの復号化に失敗しました')
+    throw new AiConfigError('decrypt_failed', 'APIキーの復号化に失敗しました')
   }
 
   return { provider, model, apiKey }

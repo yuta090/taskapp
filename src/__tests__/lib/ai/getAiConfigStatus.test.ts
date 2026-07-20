@@ -40,14 +40,24 @@ describe('getAiConfigStatus', () => {
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'missing' })
   })
 
-  it('行はあるが enabled=false なら configured:false / reason:disabled', async () => {
-    fromResponse = { data: { enabled: false }, error: null }
+  it('enabled=false なら configured:false / reason:disabled（キーはある）', async () => {
+    fromResponse = { data: { enabled: false, api_key_encrypted: 'enc' }, error: null }
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'disabled' })
   })
 
-  it('行があり enabled=true なら configured:true', async () => {
-    fromResponse = { data: { enabled: true }, error: null }
+  it('enabled=true かつキーあり なら configured:true', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc' }, error: null }
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: true })
+  })
+
+  it('enabled=true でもキーが空なら configured:false / reason:missing（緑表示にしない）', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: '' }, error: null }
+    expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'missing' })
+  })
+
+  it('enabled=true でもキーが null なら configured:false / reason:missing', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: null }, error: null }
+    expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'missing' })
   })
 
   it('DBエラーは throw せず configured:false / reason:error を返す（可視化を止めない）', async () => {
@@ -55,10 +65,10 @@ describe('getAiConfigStatus', () => {
     expect(await ai.getAiConfigStatus('org-1')).toEqual({ configured: false, reason: 'error' })
   })
 
-  it('APIキーは select しない（復号せず安価に判定する）', async () => {
-    fromResponse = { data: { enabled: true }, error: null }
+  it('APIキーは有無だけ select する（復号はしない＝安価）', async () => {
+    fromResponse = { data: { enabled: true, api_key_encrypted: 'enc' }, error: null }
     await ai.getAiConfigStatus('org-1')
     const builder = fromMock.mock.results[0].value
-    expect(builder.select).toHaveBeenCalledWith('enabled')
+    expect(builder.select).toHaveBeenCalledWith('enabled, api_key_encrypted')
   })
 })
