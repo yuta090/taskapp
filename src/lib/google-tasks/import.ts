@@ -2,6 +2,7 @@ import { createClient as createSupabaseClient, type SupabaseClient } from '@supa
 import { getValidTokenDetailed } from '@/lib/integrations/token-manager'
 import { refreshAccessToken } from '@/lib/google-calendar/client'
 import { enqueueConnectorJob } from '@/lib/connectors/enqueue'
+import { CONNECTOR_SYSTEM_USER_ID } from '@/lib/connectors/systemUser'
 import { GOOGLE_TASKS_LIST_TITLE } from './config'
 import { listTaskLists, listTasks, googleDueToDateString, type GoogleTask } from './client'
 
@@ -96,24 +97,6 @@ async function loadMirrorRefIds(connectionId: string): Promise<Set<string>> {
   return new Set(((data as Array<{ google_task_id: string }> | null) ?? []).map((r) => r.google_task_id))
 }
 
-/**
- * 取り込みタスクの created_by 名義。tasks.created_by は NOT NULL・default 無し・auth.users FK で、
- * import ワーカーは service_role 実行(auth.uid()=null)かつ外部起票に対応する対話ユーザーが居ないため、
- * 接続 org の owner を名義に採る(org 内メンバー保証・越境しない。multica 起点 RPC と同一方針)。
- */
-async function resolveOrgOwner(orgId: string): Promise<string | null> {
-  const { data, error } = await admin()
-    .from('org_memberships')
-    .select('user_id')
-    .eq('org_id', orgId)
-    .eq('role', 'owner')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw new Error(`resolveOrgOwner failed: ${error.message}`)
-  return (data as { user_id: string } | null)?.user_id ?? null
-}
-
 /** 外部タスクを新規 TaskApp タスクとして作成し、connector_task_links(origin=external)を張る。 */
 async function createExternalTask(
   conn: ConnRow,
@@ -121,7 +104,6 @@ async function createExternalTask(
   gt: GoogleTask,
   listId: string,
   assigneeId: string | null,
-  creatorId: string,
 ): Promise<string> {
   const { data: task, error: insErr } = await admin()
     .from('tasks')
@@ -140,8 +122,9 @@ async function createExternalTask(
       client_scope: 'internal',
       type: 'task',
       assignee_id: assigneeId,
-      // created_by は NOT NULL。対話ユーザー不在のため接続 org の owner を名義に採る(resolveOrgOwner)。
-      created_by: creatorId,
+      // created_by は NOT NULL。外部起票に対応する対話ユーザーは居ないため専用システムユーザー名義にする
+      // (実ユーザー=org owner の名義にしない。UI には profiles の「外部連携（システム）」が表示される)。
+      created_by: CONNECTOR_SYSTEM_USER_ID,
     })
     .select('id')
     .single()
@@ -290,14 +273,6 @@ async function importConnection(conn: ConnRow, summary: ImportSummary): Promise<
     return
   }
 
-  // created_by 名義(接続 org の owner)を1接続につき1回だけ解決する。owner 不在なら起票不可のため skip。
-  const creatorId = await resolveOrgOwner(conn.org_id)
-  if (!creatorId) {
-    console.error('[gtasks-import] org owner が見つからず created_by を決められない。skip:', conn.id)
-    summary.skipped++
-    return
-  }
-
   const tok = await getValidTokenDetailed(conn.id, refreshAccessToken)
   if (tok.status !== 'ok') {
     summary.skipped++
@@ -381,7 +356,7 @@ async function importConnection(conn: ConnRow, summary: ImportSummary): Promise<
               ).catch((err) => console.error('[gtasks-import] multica upsert enqueue failed(継続):', err))
             }
           } else {
-            const taskId = await createExternalTask(conn, config, gt, listId, effectiveAssignee, creatorId)
+            const taskId = await createExternalTask(conn, config, gt, listId, effectiveAssignee)
             linkMap.set(gt.id, taskId) // 同一バッチ内のカーソル重複再取得を1件に畳む(冪等)
             summary.created++
             // 作成直後に既にcompleted(gt.status=completed)なタスクはmulticaへ送っても即キャンセルに

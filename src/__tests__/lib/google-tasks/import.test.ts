@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { CONNECTOR_SYSTEM_USER_ID } from '@/lib/connectors/systemUser'
 
 /**
  * src/lib/google-tasks/import.ts — gtasks import ワーカー(外部 gtasks → TaskApp 取り込み)。
@@ -177,12 +178,8 @@ function makeChain(table: string) {
       return { data: orgId ? { org_id: orgId } : null, error: null }
     }
     if (table === 'org_memberships') {
-      // resolveOrgOwner: org_id + role='owner' で created_by 名義の owner を1件返す。
-      if (eqFilters.role === 'owner') {
-        const owner = state.orgMembers.find((m) => m.org_id === eqFilters.org_id)
-        return { data: owner ? { user_id: owner.user_id } : null, error: null }
-      }
-      // validateImportTarget: org_id + user_id の存在確認。
+      // validateImportTarget: org_id + user_id の存在確認(default_assignee_id が org メンバーか)。
+      // ※ created_by は専用システムユーザーに一本化したため owner 解決(role='owner')経路は無い。
       const found = state.orgMembers.some(
         (m) => m.org_id === eqFilters.org_id && m.user_id === eqFilters.user_id,
       )
@@ -293,9 +290,10 @@ describe('importGoogleTasksBatch', () => {
     expect(state.tasksInserted).toHaveLength(1)
     expect(state.tasksInserted[0]).toMatchObject({ org_id: 'org-1', space_id: 'space-1', title: '新規タスク' })
     // tasks の NOT NULL/デフォルト制約を満たすこと(実DBで落ちない・顧客ポータルに露出しない):
-    //   created_by=org owner / client_scope='internal'(default 'deliverable' を上書き) / description は非null。
+    //   created_by=専用システムユーザー(実ユーザー名義にしない) / client_scope='internal'(default
+    //   'deliverable' を上書き) / description は非null。
     expect(state.tasksInserted[0]).toMatchObject({
-      created_by: 'user-9',
+      created_by: CONNECTOR_SYSTEM_USER_ID,
       client_scope: 'internal',
       ball: 'internal',
       origin: 'internal',
@@ -308,6 +306,22 @@ describe('importGoogleTasksBatch', () => {
       origin: 'external',
     })
     expect(s.created).toBe(1)
+  })
+
+  it('org owner が居なくても created_by=システムユーザーで起票する(skipしない)', async () => {
+    // 旧挙動は「owner 不在なら created_by を決められず接続を skip」。専用システムユーザーへ一本化した
+    // ことで owner の有無に依らず必ず起票できる(owner 名義に依存しない = Fable 決定 案A改)。
+    state.orgMembers = [] // owner なし
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-new', title: 'x', status: 'needsAction' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    const s = await importGoogleTasksBatch()
+    expect(state.tasksInserted).toHaveLength(1)
+    expect(state.tasksInserted[0]).toMatchObject({ created_by: CONNECTOR_SYSTEM_USER_ID })
+    expect(s.created).toBe(1)
+    expect(s.skipped).toBe(0)
   })
 
   it('カーソルのオーバーラップで同一 external_id を2回取り込んでもタスクは1件(冪等)', async () => {
