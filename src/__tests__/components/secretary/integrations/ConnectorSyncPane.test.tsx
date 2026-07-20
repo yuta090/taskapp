@@ -147,11 +147,30 @@ describe('ConnectorSyncPane — multica', () => {
     expect(screen.getByText('send_rotated')).toBeInTheDocument()
   })
 
-  it('接続済み・member: 鍵ローテボタンを表示しない', () => {
+  it('接続済み・owner: multica起点タスクの取り込み先スペースを選ぶと即時PATCHを呼ぶ(保存ボタンなし)', async () => {
+    connectionsState.connections = [multicaConnection({ importConfig: {} })]
+    updateImportConfigMock.mockResolvedValue({ id: 'conn-multica-1', importConfig: { target_space_id: 'space-1' } })
+    render(<ConnectorSyncPane orgId="org-1" />)
+
+    const select = screen.getByLabelText('multica起点タスクの取り込み先スペース')
+    // 別組織(org-2)のスペースは候補に出ない(org境界)
+    expect(screen.queryByRole('option', { name: '別組織' })).not.toBeInTheDocument()
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'space-1' } })
+    })
+    expect(updateImportConfigMock).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      connectionId: 'conn-multica-1',
+      importConfig: { target_space_id: 'space-1' },
+    })
+  })
+
+  it('接続済み・member: 鍵ローテボタンを表示しない・取り込み先selectは無効', () => {
     connectionsState.connections = [multicaConnection()]
     connectionsState.viewerRole = 'member'
     render(<ConnectorSyncPane orgId="org-1" />)
     expect(screen.queryByRole('button', { name: /鍵を再生成/ })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('multica起点タスクの取り込み先スペース')).toBeDisabled()
   })
 })
 

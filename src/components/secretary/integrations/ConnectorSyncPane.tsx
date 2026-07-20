@@ -195,6 +195,7 @@ function MulticaBlock({ orgId, connection, canManage }: MulticaBlockProps) {
               </button>
             </div>
           )}
+          <MulticaTargetSpaceSelect orgId={orgId} connection={connection} canManage={canManage} />
         </div>
       )}
     </div>
@@ -231,6 +232,67 @@ function GtasksBlock({ orgId, connections, canManage }: GtasksBlockProps) {
       {connections.map((connection) => (
         <ImportConfigEditor key={connection.id} orgId={orgId} connection={connection} canManage={canManage} />
       ))}
+    </div>
+  )
+}
+
+/**
+ * multica 起点タスク(契約 §4.3)の取り込み先スペースを設定する(import_config.target_space_id)。
+ * multica が新規 Issue を作ると task.created で TaskApp 側に起票され、ここで指定した space に入る。
+ * 未設定だと受信側(inbound)が 422 で受け付けない。保存ボタンは持たず、選択即 PATCH(optimistic)。
+ */
+function MulticaTargetSpaceSelect({ orgId, connection, canManage }: ImportConfigEditorProps) {
+  const importConfig = connection.importConfig as ConnectorImportConfig
+  const [targetSpaceId, setTargetSpaceId] = useState(importConfig.target_space_id ?? '')
+  const updateImportConfig = useUpdateImportConfig()
+  const { spaces } = useUserSpaces()
+  const orgSpaces = spaces.filter((space) => space.orgId === orgId)
+
+  const handleChange = async (value: string) => {
+    setTargetSpaceId(value)
+    const next = pruneImportConfig({ ...connection.importConfig, target_space_id: value })
+    try {
+      await updateImportConfig.mutateAsync({ orgId, connectionId: connection.id, importConfig: next })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '取り込み先の更新に失敗しました')
+      setTargetSpaceId(importConfig.target_space_id ?? '') // hook側でキャッシュはロールバック済み
+    }
+  }
+
+  return (
+    <div>
+      <label htmlFor={`multica-target-space-${connection.id}`} className="block text-xs font-medium text-gray-700 mb-1">
+        multica起点タスクの取り込み先スペース
+      </label>
+      {orgSpaces.length > 0 ? (
+        <select
+          id={`multica-target-space-${connection.id}`}
+          value={targetSpaceId}
+          disabled={!canManage}
+          onChange={(e) => void handleChange(e.target.value)}
+          className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          <option value="">未設定(multica起点の起票を受け付けない)</option>
+          {orgSpaces.map((space) => (
+            <option key={space.id} value={space.id}>
+              {space.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          id={`multica-target-space-${connection.id}`}
+          type="text"
+          defaultValue={targetSpaceId}
+          disabled={!canManage}
+          onBlur={(e) => void handleChange(e.target.value.trim())}
+          placeholder="スペースのUUID"
+          className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs font-mono disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      )}
+      <p className="mt-1 text-[11px] text-gray-400">
+        multica が作成したタスクの入り先。未設定だと multica 起点の起票は受け付けません。
+      </p>
     </div>
   )
 }
