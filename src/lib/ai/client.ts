@@ -37,7 +37,8 @@ interface AiConfig {
 // 従来どおり client からも import できるよう re-export する。
 export { AiConfigError, type AiConfigErrorKind } from './errors'
 import { AiConfigError } from './errors'
-import { recordAiUsage } from './usage'
+import { recordAiUsage, getOrgPooledCostJpyThisMonth, type AiKeySource } from './usage'
+import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 
 export type AiConfigStatus =
   | { configured: true }
@@ -89,57 +90,154 @@ export async function verifyAiKey(provider: string, apiKey: string): Promise<AiK
  * false negative で赤くしない。invalid は「保存時にプロバイダーが認証拒否した」確定情報のときだけ。
  */
 export async function getAiConfigStatus(orgId: string): Promise<AiConfigStatus> {
-  const { data, error } = await (getSupabaseAdmin() as SupabaseClient)
+  const admin = getSupabaseAdmin() as SupabaseClient
+  const { data, error } = await admin
     .from('org_ai_config')
     .select('enabled, api_key_encrypted, key_status')
     .eq('org_id', orgId)
     .maybeSingle()
 
   if (error) return { configured: false, reason: 'error' }
-  if (!data) return { configured: false, reason: 'missing' }
-  const { enabled, api_key_encrypted, key_status } = data as {
+
+  const row = data as {
     enabled: boolean
     api_key_encrypted: string | null
     key_status: string | null
+  } | null
+
+  // enabled=false は明示的 opt-out。BYO も pool も使わせない（configured:false のまま）。
+  if (row && row.enabled === false) return { configured: false, reason: 'disabled' }
+
+  const byoUsable =
+    !!row &&
+    !!row.api_key_encrypted &&
+    row.api_key_encrypted.trim() !== '' &&
+    row.key_status !== 'invalid'
+  if (byoUsable) return { configured: true }
+
+  // BYO 不成立（行なし / 鍵空 / invalid）でも、プールAI適用 org は configured 扱いにする
+  //   （セットアップチェックリストで「未設定・赤」に見せない＝有料の崖撤去の趣旨）。
+  if (await isPooledAiEligible(admin, orgId)) return { configured: true }
+
+  if (!row || !row.api_key_encrypted || row.api_key_encrypted.trim() === '') {
+    return { configured: false, reason: 'missing' }
   }
-  if (!api_key_encrypted || api_key_encrypted.trim() === '') return { configured: false, reason: 'missing' }
-  if (key_status === 'invalid') return { configured: false, reason: 'invalid' }
-  if (!enabled) return { configured: false, reason: 'disabled' }
-  return { configured: true }
+  return { configured: false, reason: 'invalid' }
 }
 
 /**
- * Fetch and decrypt the org's AI configuration from DB
+ * プールAI(当社鍵)の設定（環境変数）。PLATFORM_AI_API_KEY が無ければ null＝プール機能OFF
+ *   ＝全 org 従来どおり BYO（ロールアウトの kill switch を兼ねる）。
+ * ⚠ PLATFORM_AI_MODEL は src/lib/ai/cost.ts の MODEL_PRICES に必ず存在すること（cap判定に単価が要る）。
  */
-async function getAiConfig(orgId: string): Promise<{ provider: string; model: string; apiKey: string }> {
-  const { data: config, error } = await (getSupabaseAdmin() as SupabaseClient)
-    .from('org_ai_config')
-    .select('provider, model, api_key_encrypted, enabled')
-    .eq('org_id', orgId)
-    .single()
+export interface PlatformAiConfig {
+  provider: string
+  model: string
+  apiKey: string
+  /** org別・月次の円建てハード上限。未設定(null)なら上限なし（監視のみ）。 */
+  monthlyCapJpyPerOrg: number | null
+}
 
-  if (error || !config) {
-    throw new AiConfigError('missing', 'AI未設定: この組織にはAI設定が登録されていません')
+export function getPlatformAiConfig(): PlatformAiConfig | null {
+  const apiKey = process.env.PLATFORM_AI_API_KEY
+  if (!apiKey || apiKey.trim() === '') return null
+  const capRaw = process.env.PLATFORM_AI_MONTHLY_CAP_JPY_PER_ORG
+  const cap = capRaw != null && capRaw.trim() !== '' && !Number.isNaN(Number(capRaw)) ? Number(capRaw) : null
+  return {
+    provider: process.env.PLATFORM_AI_PROVIDER || 'openai',
+    model: process.env.PLATFORM_AI_MODEL || 'gpt-4o-mini',
+    apiKey,
+    monthlyCapJpyPerOrg: cap,
   }
+}
 
-  const { provider, model, api_key_encrypted, enabled } = config as AiConfig
+/**
+ * org がプールAIに到達できるか（プールONかつ pooled_ai_key entitlement）。
+ * 判定は必ず resolveOrgEntitlements 経由＝past_due猶予/canceled→free/DBエラー→free が他のPro gateと
+ * 同一規則で fail-closed になる（Free は絶対に到達しない）。
+ */
+async function isPooledAiEligible(admin: SupabaseClient, orgId: string): Promise<boolean> {
+  if (!getPlatformAiConfig()) return false
+  const ent = await resolveOrgEntitlements(admin, orgId)
+  return ent.has('pooled_ai_key')
+}
 
-  if (!enabled) {
+export interface ResolvedAiConfig {
+  provider: string
+  model: string
+  apiKey: string
+  source: AiKeySource
+}
+
+/**
+ * org の AI 設定を解決する（復号あり・失敗時 throw）。解決順（fable裁定 2026-07-21）:
+ *   1. enabled=false → disabled（明示 opt-out。プールに落とさない）
+ *   2. BYO 成立（行あり・enabled・鍵あり・key_status≠invalid）→ 自前鍵を復号して使う（source='byo'）
+ *   3. BYO 不成立（行なし/鍵空/invalid）→ pooled_ai_key entitled かつ プールON なら、当月 pooled 原価が
+ *      上限内のときプール鍵を使う（source='pooled'）。上限超過は pool_quota_exhausted。
+ *   4. どれも不成立 → missing（既存の digest skip 経路）
+ */
+export async function getAiConfig(orgId: string): Promise<ResolvedAiConfig> {
+  const admin = getSupabaseAdmin() as SupabaseClient
+  const { data: config } = await admin
+    .from('org_ai_config')
+    .select('provider, model, api_key_encrypted, enabled, key_status')
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  const row = config as
+    | { provider: string; model: string; api_key_encrypted: string | null; enabled: boolean; key_status: string | null }
+    | null
+
+  // 1. enabled=false は明示的 opt-out（プールに落とさない・現状維持）
+  if (row && row.enabled === false) {
     throw new AiConfigError('disabled', 'AI未設定: AI機能が無効になっています')
   }
 
-  // Decrypt the API key using the same RPC as Slack tokens
-  const { data: apiKey, error: decryptError } = await (getSupabaseAdmin() as SupabaseClient)
-    .rpc('decrypt_slack_token', {
-      encrypted: api_key_encrypted,
+  // 2. BYO 成立 → 自前鍵を復号
+  const byoUsable =
+    !!row &&
+    row.enabled &&
+    !!row.api_key_encrypted &&
+    row.api_key_encrypted.trim() !== '' &&
+    row.key_status !== 'invalid'
+  if (byoUsable && row) {
+    const { data: apiKey, error: decryptError } = await admin.rpc('decrypt_slack_token', {
+      encrypted: row.api_key_encrypted,
       secret: SLACK_CONFIG.clientSecret,
     })
-
-  if (decryptError || !apiKey) {
-    throw new AiConfigError('decrypt_failed', 'APIキーの復号化に失敗しました')
+    if (decryptError || !apiKey) {
+      throw new AiConfigError('decrypt_failed', 'APIキーの復号化に失敗しました')
+    }
+    return { provider: row.provider, model: row.model, apiKey: apiKey as string, source: 'byo' }
   }
 
-  return { provider, model, apiKey }
+  // 3. BYO 不成立 → プール判定（entitlement は fail-closed）
+  const platform = getPlatformAiConfig()
+  if (platform) {
+    const ent = await resolveOrgEntitlements(admin, orgId)
+    if (ent.has('pooled_ai_key')) {
+      if (platform.monthlyCapJpyPerOrg != null) {
+        try {
+          const usedJpy = await getOrgPooledCostJpyThisMonth(orgId)
+          if (usedJpy >= platform.monthlyCapJpyPerOrg) {
+            throw new AiConfigError(
+              'pool_quota_exhausted',
+              'プールAIの今月の上限に達しました（自社AIキーを登録すると即時復旧します）',
+            )
+          }
+        } catch (e) {
+          if (e instanceof AiConfigError) throw e
+          // cap 照会失敗は fail-open（テレメトリDB不調で全Pro orgの抽出を止めない）。ログのみ。
+          console.error('[pooled-ai] monthly cap check failed, fail-open:', e)
+        }
+      }
+      return { provider: platform.provider, model: platform.model, apiKey: platform.apiKey, source: 'pooled' }
+    }
+  }
+
+  // 4. どれも不成立 → missing
+  throw new AiConfigError('missing', 'AI未設定: この組織にはAI設定が登録されていません')
 }
 
 /**
@@ -250,7 +348,7 @@ async function callAnthropic(
  */
 export async function callLlm(options: LlmOptions): Promise<LlmResponse> {
   const { orgId, messages, maxTokens = 1000 } = options
-  const { provider, model, apiKey } = await getAiConfig(orgId)
+  const { provider, model, apiKey, source } = await getAiConfig(orgId)
 
   let response: LlmResponse
   switch (provider) {
@@ -273,6 +371,7 @@ export async function callLlm(options: LlmOptions): Promise<LlmResponse> {
       promptTokens: response.usage.prompt_tokens,
       completionTokens: response.usage.completion_tokens,
       purpose: options.purpose,
+      keySource: source,
     })
   }
 
