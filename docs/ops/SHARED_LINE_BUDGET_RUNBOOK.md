@@ -17,16 +17,18 @@
 - 執行は**送信境界**（`decideSharedSendBudget`）が state を読んで行う。**最も厳しい層が勝つ**・fail-closed（読めなければ止める側に倒す）。ここで立てるのは「状態」だけ。
 
 > ⚠ **重要（層で執行が違う）**:
-> - **グローバル層（platform account 200通）は state=hard で必ず抑止する**（`on_exceed` に関係なく `decideSharedSendBudget` が止める）。＝**原価の実ガードはこの層**。
-> - **org 層（無料50通）の執行は `org_channel_policy.on_exceed` 次第**。既定は `none`＝**state が soft/hard でも抑止しない（可視化のみ）**。`degrade`（隔日）/`block`（停止）を設定した org だけ実際に絞られる。現行は「既存を切らない」方針で `none` を既定にしているため、**50通は"見える化"であって、それ単体では送信を止めない**（止めるのは200通のグローバル層）。
+> - **グローバル層（platform account 200通）は state=hard で必ず抑止する**（`on_exceed` に関係なく `decideSharedSendBudget` が止める）。＝**当社アカウント全体の実物理ガード**。
+> - **org 層（無料50通）は `on_exceed` で執行し、`on_exceed` は 2026-07-21 以降プラン由来で自動設定される**（`20260721193407_free_quota_on_exceed_block.sql`）。**無料(quota=50)→`block`／有料(無制限=NULL)→`none`**。よって**無料org は 50 到達(state=hard)で auto-push が実際に停止する**（`block`×`hard`→抑止）。有料は無制限なので state が hard にならず影響なし。
+> - 停止対象は **auto-push（digest／時刻リマインド／承認催促 等）のみ**。対話的push（webhookへの直接応答）・console手動送信は送信境界を通らないため**引き続き送れる**＝顧客体験は切らない。
+> - `on_exceed` はトリガー＋日次フル再同期の**両方**が同期する（drift しても翌日是正）。手動で per-org に `degrade` 等へ寄せる運用は現状しない（プラン由来が正）。
 
 ## state の意味と、層ごとの執行
 
 | state | 意味 | グローバル層(200/account) | org 層(50/org) |
 |---|---|---|---|
 | `ok` | 上限内 | 通常送信 | 通常送信 |
-| `soft` | 80%到達 | 隔日縮退 | `degrade`のみ隔日縮退。`none`/`block`は送信 |
-| `hard` | 100%到達 | **抑止** | `degrade`/`block`のみ抑止。**`none`(既定)は送信継続** |
+| `soft` | 80%到達(40通) | 隔日縮退 | `degrade`のみ隔日縮退。`none`/`block`は送信 |
+| `hard` | 100%到達(50通) | **抑止** | **無料(`block`)は抑止**／有料(`none`)は送信継続 |
 
 ※いずれも auto-push（digest/承認催促）のみ対象。対話的push・console手動送信・既存グループは切らない。
 

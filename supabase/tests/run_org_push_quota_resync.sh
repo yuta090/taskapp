@@ -59,6 +59,7 @@ apply "$TST/harness/org_push_quota_resync_setup.sql"
 
 echo "== target migration (verbatim, unmodified) =="
 apply "$MIG/20260720205553_org_push_quota_resync.sql"
+apply "$MIG/20260721193407_free_quota_on_exceed_block.sql"
 
 echo "== resync checks =="
 OUT="$WORK/o.out"
