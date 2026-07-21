@@ -66,6 +66,44 @@ describe('asanaAdapter — 宣言', () => {
     expect(asanaAdapter.authKind).toBe('api_key')
     expect(asanaAdapter.hostPolicy).toEqual({ kind: 'fixed', host: 'app.asana.com' })
     expect(asanaAdapter.cursorGranularity).toBe('timestamp')
+    // tombstone/is_deleted相当が無く、削除タスクは一覧から単に消えるだけで判別できない。
+    expect(asanaAdapter.deletionMode).toBe('unsupported')
+  })
+})
+
+/**
+ * セキュリティ/レート制限。トークンはヘッダに載るためURLに秘密は無いが、応答本文には
+ * 顧客データが載り得るためログ・例外に出さない。429はAsanaの Retry-After(秒) を運ぶ。
+ */
+describe('asanaAdapter — セキュリティ/レート制限', () => {
+  it('429はRetry-After(秒)をretryAfterMsとして載せる', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '30' }),
+      json: async () => ({}),
+      text: async () => '',
+    } as Response)
+    const err = await asanaAdapter.listChangedTasks(ctx(), '111', {}).catch((e) => e)
+    expect(err.status).toBe(429)
+    expect(err.retryAfterMs).toBe(30_000)
+  })
+
+  it('リダイレクトを自動追跡しない（転送先へAuthorizationヘッダを渡さない）', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }))
+    await asanaAdapter.listContainers(ctx({ asana_workspace_gid: '999' }))
+    const init = lastCall()[1]
+    expect(init?.redirect).toBe('manual')
+  })
+
+  it('エラー時に応答本文をログへ出さない（本文に顧客データが含まれ得る）', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(jsonResponse({ leaked: 'secret-project-data' }, 500))
+    await expect(asanaAdapter.listChangedTasks(ctx(), '111', {})).rejects.toMatchObject({ status: 500 })
+    for (const call of errorSpy.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain('secret-project-data')
+    }
+    errorSpy.mockRestore()
   })
 })
 
@@ -97,7 +135,11 @@ describe('asanaAdapter.listContainers', () => {
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer pat-secret')
   })
 
-  it('asana_workspace_gid が未設定の接続は配線ミスとして弾く', async () => {
+  it('asana_workspace_gid が未設定の接続は配線ミス(permanent)として弾く', async () => {
+    await expect(asanaAdapter.listContainers(ctx())).rejects.toMatchObject({
+      permanent: true,
+      status: 400,
+    })
     await expect(asanaAdapter.listContainers(ctx())).rejects.toThrow(/asana_workspace_gid/)
     expect(fetchMock).not.toHaveBeenCalled()
   })

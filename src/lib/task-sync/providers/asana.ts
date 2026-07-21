@@ -153,13 +153,13 @@ async function asanaFetch(ctx: ProviderContext, url: string, init?: RequestInit)
     console.error('Asana API error:', method, res.status) // 本文とURLは出さない
     throw providerError(`Asana API ${method} failed (${res.status})`, {
       status: res.status,
-      retryAfterMs: res.status === 429 ? retryAfterMsFrom(res.headers) : undefined,
+      retryAfterMs: res.status === 429 || res.status === 503 ? retryAfterMsFrom(res.headers) : undefined,
     })
   }
   return res.json()
 }
 
-/** 429 の復帰待ち時間。Asana は `Retry-After`（秒）を返す。 */
+/** 429/503 の復帰待ち時間。Asana は `Retry-After`（秒）を返す（rate-limits doc で確認）。 */
 function retryAfterMsFrom(headers: Headers | undefined): number | undefined {
   const raw = headers?.get('Retry-After')
   if (!raw) return undefined
@@ -186,6 +186,8 @@ export const asanaAdapter: TaskSyncAdapter = {
   hostPolicy: ASANA_HOST_POLICY,
   // modified_since が秒粒度のISO8601のため（エンジン側 cursor.ts の想定と一致）。
   cursorGranularity: 'timestamp',
+  // tombstone/is_deleted相当のフィールドが定義に存在しない（削除タスクは一覧から単に消える）。
+  deletionMode: 'unsupported',
 
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     const workspace = workspaceGid(ctx)

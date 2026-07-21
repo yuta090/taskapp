@@ -1,5 +1,9 @@
 import { asanaAdapter } from '@/lib/task-sync/providers/asana'
 import { backlogAdapter } from '@/lib/task-sync/providers/backlog'
+import { jiraAdapter } from '@/lib/task-sync/providers/jira'
+import { jootoAdapter } from '@/lib/task-sync/providers/jooto'
+import { linearAdapter } from '@/lib/task-sync/providers/linear'
+import { redmineAdapter } from '@/lib/task-sync/providers/redmine'
 import { trelloAdapter } from '@/lib/task-sync/providers/trello'
 import type { TaskSyncAdapter, TaskSyncProviderId } from '@/lib/task-sync/types'
 
@@ -17,8 +21,12 @@ import type { TaskSyncAdapter, TaskSyncProviderId } from '@/lib/task-sync/types'
  */
 export const TASK_SYNC_ADAPTERS: Partial<Record<TaskSyncProviderId, TaskSyncAdapter>> = {
   backlog: backlogAdapter,
+  jooto: jootoAdapter,
+  jira: jiraAdapter,
+  redmine: redmineAdapter,
   asana: asanaAdapter,
   trello: trelloAdapter,
+  linear: linearAdapter,
 }
 
 /** provider 文字列に対応するアダプタを引く。未対応なら null（呼び出し側が skip する）。 */

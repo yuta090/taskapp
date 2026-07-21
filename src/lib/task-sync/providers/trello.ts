@@ -21,14 +21,24 @@ import type {
  *   - 認証は `key`(アプリのAPIキー)と`token`(ユーザートークン)の2つをクエリで渡す方式
  *     （securitySchemes.APIKey/APIToken ともに `{type: apiKey, in: query}` で確認）。
  *     ProviderCredentials は token を1本しか持たないため、以下のように対応させる:
- *       - credentials.token        = Trello のユーザートークン（秘匿値。アカウントへの
- *         アクセス権そのもの。復号済みの状態でここに渡ってくる契約＝types.tsの定義通り）
- *       - ctx.config.trello_api_key = Trello のAPIキー（アプリケーション識別子。Trello自身が
- *         クライアントID相当として扱う値であり、ProviderContext.config の「運用者が画面で
- *         設定する可視の値」という定義に素直に合致する）
- *     token に区切り文字でキーを埋め込む案は採らない: token は「暗号化列で保管される秘匿値」
- *     という契約に対し、区切り文字連結は複合値であることをコード全体に伝播させ、パース漏れや
- *     ログでの誤マスキングの温床になる。config分離の方が既存の秘匿/可視の境界に素直に乗る。
+ *       - credentials.token = Trello のユーザートークン（秘匿値。アカウントへのアクセス権
+ *         そのもの。復号済みの状態でここに渡ってくる契約＝types.tsの定義通り）
+ *       - APIキーは環境変数 `TRELLO_API_KEY`（TaskApp全体で共有するサーバー保持の値）
+ *     この2つは「誰のものか」が違う。公式ドキュメント(developer.atlassian.com/cloud/trello/
+ *     guides/rest-api/authorization/)で確認した事実:
+ *       - "As an API key is tied to a Power-Up" … キーは**Power-Up(=アプリ)単位**。
+ *         TaskAppという1つのPower-Upを開発者コンソールで登録すれば全接続で共有できる値であり、
+ *         接続（org）ごとに変わるものではない。
+ *       - "It is ok for your API key to be publicly available, but a token should never be
+ *         publicly available." … キーは非秘匿（クライアントID相当）、tokenのみ秘匿。
+ *     この2点から、キーは「接続ごとの可視設定(ctx.config)」にも「接続ごとの秘匿値
+ *     (credentials.token)」にも属さず、**アプリ全体で1つ**という第三の性質を持つ。
+ *     既存の env 設定の流儀（google-tasks/config.ts の getGoogleTasksCredentials 等、
+ *     関数で都度 process.env を読む形）に合わせ、`trelloAppApiKey()` で読む。
+ *     token に区切り文字でキーを埋め込む案・ctx.config に載せる案のいずれも採らない
+ *     （前者はパース漏れ・ログでの誤マスキングの温床になる。後者は「アプリ単位の値」を
+ *     「接続単位の設定」の型に無理に押し込め、org数だけ同じキーを重複登録させることになり、
+ *     実態＝Power-Up識別子という性質と食い違う）。
  *   - ホストは固定（https://api.trello.com/1）。
  *   - 差分取得: `/boards/{boardId}/actions` は `since`(ISO8601 or Mongo ObjectID) で絞れるが
  *     （公式定義で確認）、アクションは変更点の断片（例: updateCardアクションの旧新フィールド）
@@ -85,11 +95,24 @@ interface TrelloCard {
   dateLastActivity?: string | null
 }
 
-/** 接続設定からAPIキーを取り出す。未設定は配線ミスとして弾く（Backlogのbaseurlガードと同じ流儀）。 */
-function apiKey(ctx: ProviderContext): string {
-  const raw = ctx.config?.trello_api_key
-  if (typeof raw !== 'string' || raw.length === 0) {
-    throw new Error('trello: config.trello_api_key が設定されていない接続です')
+/**
+ * Trello APIキー（Power-Up=TaskApp全体で共有する非秘匿の識別子）。接続ごとの値ではないため
+ * ctx.config には置かず、環境変数から都度読む（google-tasks/config.ts の
+ * getGoogleTasksCredentials と同じ流儀。モジュール読み込み時ではなく呼び出し時に読むことで
+ * テストからの差し替え・実行時の未設定検知の両方に対応する）。
+ */
+function trelloAppApiKey(): string {
+  return process.env.TRELLO_API_KEY || ''
+}
+
+/** APIキーを取り出す。未設定は配線ミスとして弾く（Backlogのbaseurlガードと同じ流儀）。 */
+function apiKey(): string {
+  const raw = trelloAppApiKey()
+  if (!raw) {
+    throw providerError('trello: 環境変数 TRELLO_API_KEY が設定されていません', {
+      permanent: true,
+      status: 400,
+    })
   }
   return raw
 }
@@ -112,7 +135,7 @@ function apiUrl(ctx: ProviderContext, path: string, params?: Record<string, stri
   const url = new URL(`${API_BASE}${path}`)
   // 資格情報をクエリに載せる方式のため、送信先が固定ホストであることを実行時に必ず確かめる。
   assertAllowedHost(TRELLO_HOST_POLICY, url.toString(), 'trello')
-  url.searchParams.set('key', apiKey(ctx))
+  url.searchParams.set('key', apiKey())
   url.searchParams.set('token', ctx.credentials.token)
   for (const [key, value] of Object.entries(params ?? {})) {
     url.searchParams.set(key, value)
@@ -151,13 +174,22 @@ async function trelloFetch(url: string, init?: RequestInit): Promise<unknown> {
     console.error('Trello API error:', method, res.status) // 本文とURLは出さない
     throw providerError(`Trello API ${method} failed (${res.status})`, {
       status: res.status,
-      retryAfterMs: res.status === 429 ? retryAfterMsFrom(res.headers) : undefined,
+      retryAfterMs: res.status === 429 || res.status === 503 ? retryAfterMsFrom(res.headers) : undefined,
     })
   }
   return res.json()
 }
 
-/** 429 の復帰待ち時間。Trello は `Retry-After`（秒）を返す場合がある。 */
+/**
+ * 429/503 の復帰待ち時間。
+ *
+ * ⚠ 未確認: Trello公式のレート制限ドキュメント(developer.atlassian.com/cloud/trello/guides/
+ * rest-api/rate-limits/、サーバー描画されたmarkdownを一次情報として確認)には、Asanaと違い
+ * `Retry-After` ヘッダの明記が無い（固定ウィンドウ=APIキー単位300req/10秒・トークン単位
+ * 100req/10秒、という制限値と `{error, message}` 形式のエラーボディの説明のみ）。
+ * それでも一般的なHTTPの慣例としてヘッダが実際には付く可能性があるため防御的に読む
+ * （無くても undefined になるだけで害は無い）。
+ */
 function retryAfterMsFrom(headers: Headers | undefined): number | undefined {
   const raw = headers?.get('Retry-After')
   if (!raw) return undefined
@@ -190,6 +222,19 @@ export const trelloAdapter: TaskSyncAdapter = {
   hostPolicy: TRELLO_HOST_POLICY,
   // /boards/{id}/cards に差分フィルタが無いため毎回全件取得（重複取得は連結先のunique制約で無害）。
   cursorGranularity: 'none',
+  /**
+   * 判断: 'unsupported'（'snapshot'にしない）。
+   *
+   * 全件取得(cursorGranularity='none')であれば理屈上は「今回の応答に無い＝削除された」と
+   * 断定でき、'snapshot' の定義（DeletionMode のコメント参照）を満たせる。実際
+   * `/boards/{id}/cards` に `limit`/`page` 相当のパラメータが公式定義に存在しないことは
+   * 確認済みで、多くのサードパーティ実装もこの前提で動いている。
+   * ただし「ボード単位で常に全件が返ることが確実」という一次情報（公式ドキュメントでの明記）
+   * までは取れなかった。外部システムの実挙動を伴う判断のため、確認が取れるまでは安全側
+   * （見せかけの削除誤検知＝正常なタスクの対応を誤って切ってしまうリスクを避ける）に倒し、
+   * 'unsupported' と宣言する。大規模ボードで検証できれば 'snapshot' への格上げを検討できる。
+   */
+  deletionMode: 'unsupported',
 
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     const boards = (await trelloFetch(

@@ -12,7 +12,10 @@ import type { ProviderContext } from '@/lib/task-sync/types'
  *   - 認証は `key`(アプリのAPIキー)と`token`(ユーザートークン)の2つをクエリで渡す
  *     （securitySchemes.APIKey/APIToken ともに type: apiKey, in: query で確認）。
  *     ProviderCredentials は token 1本しか持たないため、
- *     credentials.token=ユーザートークン(秘匿) / ctx.config.trello_api_key=APIキー(可視) に対応させる。
+ *     credentials.token=ユーザートークン(秘匿・接続ごと) / APIキーは環境変数 TRELLO_API_KEY
+ *     (非秘匿・TaskApp全体で共有。Trello公式ドキュメントで「キーはPower-Up=アプリ単位」
+ *     「キーは公開されてもよいがtokenは秘匿」と確認したため、接続ごとのctx.configには置かない)
+ *     に対応させる。
  *   - ホストは固定（https://api.trello.com/1）。
  *   - 差分取得: `/boards/{boardId}/actions` は `since`(ISO8601 or Mongo ObjectID) で絞れるが
  *     （公式定義で確認）、アクションは変更点の断片（例: updateCardの差分フィールド）しか持たず
@@ -36,7 +39,7 @@ const BASE = 'https://api.trello.com/1'
 function ctx(config?: Record<string, unknown>): ProviderContext {
   return {
     credentials: { kind: 'api_key', token: 'user-token-secret' },
-    config: { trello_api_key: 'app-key-visible', ...config },
+    config,
   }
 }
 
@@ -50,14 +53,19 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 let fetchMock: ReturnType<typeof vi.fn>
+const ORIGINAL_TRELLO_API_KEY = process.env.TRELLO_API_KEY
 
 beforeEach(() => {
   fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
+  // APIキーはPower-Up=アプリ単位の非秘匿値のため環境変数で持つ（ctx.configではない）。
+  process.env.TRELLO_API_KEY = 'app-key-visible'
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  if (ORIGINAL_TRELLO_API_KEY === undefined) delete process.env.TRELLO_API_KEY
+  else process.env.TRELLO_API_KEY = ORIGINAL_TRELLO_API_KEY
 })
 
 function lastCall(): [string, RequestInit | undefined] {
@@ -74,6 +82,8 @@ describe('trelloAdapter — 宣言', () => {
     expect(trelloAdapter.authKind).toBe('api_key')
     expect(trelloAdapter.hostPolicy).toEqual({ kind: 'fixed', host: 'api.trello.com' })
     expect(trelloAdapter.cursorGranularity).toBe('none')
+    // ボード単位で常に全件が返る保証を一次情報で確認できていないため、安全側で'unsupported'。
+    expect(trelloAdapter.deletionMode).toBe('unsupported')
   })
 })
 
@@ -102,11 +112,63 @@ describe('trelloAdapter.listContainers', () => {
     expect(url.searchParams.get('filter')).toBe('open')
   })
 
-  it('trello_api_key が未設定の接続は配線ミスとして弾く', async () => {
+  it('環境変数 TRELLO_API_KEY が未設定なら配線ミス(permanent)として弾く', async () => {
+    delete process.env.TRELLO_API_KEY
     await expect(
       trelloAdapter.listContainers({ credentials: { kind: 'api_key', token: 't' }, config: {} }),
-    ).rejects.toThrow(/trello_api_key/)
+    ).rejects.toMatchObject({ permanent: true, status: 400 })
+    await expect(
+      trelloAdapter.listContainers({ credentials: { kind: 'api_key', token: 't' }, config: {} }),
+    ).rejects.toThrow(/TRELLO_API_KEY/)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * セキュリティ/レート制限。key/tokenはURLクエリに載るため、送信先の誤りがそのまま漏洩になる
+ * （Backlogと同じ懸念）。応答本文にはリクエストURL＝資格情報がechoされ得るためログに出さない。
+ */
+describe('trelloAdapter — セキュリティ/レート制限', () => {
+  it('リダイレクトを自動追跡しない（転送先へ資格情報を渡さない）', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([]))
+    await trelloAdapter.listContainers(ctx())
+    const init = lastCall()[1]
+    expect(init?.redirect).toBe('manual')
+  })
+
+  it('エラー時に応答本文をログへ出さない（本文にURL＝資格情報がechoされ得る）', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(jsonResponse({ leaked: 'token=user-token-secret' }, 500))
+    await expect(trelloAdapter.listContainers(ctx())).rejects.toMatchObject({ status: 500 })
+    for (const call of errorSpy.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain('user-token-secret')
+    }
+    errorSpy.mockRestore()
+  })
+
+  it('429はRetry-After(秒)があればretryAfterMsとして載せる（未確認だが防御的に読む）', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '10' }),
+      json: async () => ({}),
+      text: async () => '',
+    } as Response)
+    const err = await trelloAdapter.listChangedTasks(ctx(), 'b1', {}).catch((e) => e)
+    expect(err.status).toBe(429)
+    expect(err.retryAfterMs).toBe(10_000)
+  })
+
+  it('429でRetry-Afterが無ければretryAfterMsはundefined（固定バックオフに委ねる）', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers(),
+      json: async () => ({ error: 'API_TOKEN_LIMIT_EXCEEDED' }),
+      text: async () => '',
+    } as Response)
+    const err = await trelloAdapter.listChangedTasks(ctx(), 'b1', {}).catch((e) => e)
+    expect(err.retryAfterMs).toBeUndefined()
   })
 })
 
