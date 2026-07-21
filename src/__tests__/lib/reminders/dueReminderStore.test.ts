@@ -227,6 +227,44 @@ describe('findConnectionFreshness', () => {
   })
 })
 
+describe('isDueReminderEnabledForUser（利用者個人ごとの期限リマインドオプトアウト・送信直前の抑止判定）', () => {
+  it('profiles.due_reminder_enabled=falseならfalseを返す', async () => {
+    fromResponse = { data: { due_reminder_enabled: false }, error: null }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    expect(await store.isDueReminderEnabledForUser('user-1')).toBe(false)
+
+    expect(fromMock).toHaveBeenCalledWith('profiles')
+    const call = fromMock.mock.results[0].value
+    expect(call.eq).toHaveBeenCalledWith('id', 'user-1')
+  })
+
+  it('profiles.due_reminder_enabled=trueならtrueを返す', async () => {
+    fromResponse = { data: { due_reminder_enabled: true }, error: null }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    expect(await store.isDueReminderEnabledForUser('user-1')).toBe(true)
+  })
+
+  it('行が無ければfail-open(true)を返す(既定で受け取る)', async () => {
+    fromResponse = { data: null, error: null }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    expect(await store.isDueReminderEnabledForUser('user-x')).toBe(true)
+  })
+
+  it('due_reminder_enabledがnullでもfail-open(true)を返す', async () => {
+    fromResponse = { data: { due_reminder_enabled: null }, error: null }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    expect(await store.isDueReminderEnabledForUser('user-1')).toBe(true)
+  })
+
+  it('DBエラーはthrowする', async () => {
+    fromResponse = { data: null, error: { message: 'boom' } }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    await expect(store.isDueReminderEnabledForUser('user-1')).rejects.toThrow(
+      /due_reminder_enabled lookup failed/,
+    )
+  })
+})
+
 describe('findDueDigestCandidatesForSpace', () => {
   it('space×due window(下限/上限)×assignee/status条件で絞り込む（code review #4是正）', async () => {
     fromResponse = { data: [], error: null }

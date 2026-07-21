@@ -6,6 +6,7 @@ import {
   findTaskSnapshotForReminder,
   findOrgIdForSpace,
   findConnectionFreshness,
+  isDueReminderEnabledForUser,
   type DueReminderOccurrenceRow,
 } from '@/lib/reminders/dueReminderStore'
 import { checkDueReminderStaleness } from '@/lib/reminders/dueReminderStaleness'
@@ -112,6 +113,16 @@ export async function POST(request: NextRequest) {
       if (!entitlements.has('timed_line_reminders')) {
         await finalizeDueReminderOccurrence(occ.id, 'suppressed', 'not_entitled')
         skipped.push({ occurrenceId: occ.id, taskId: task.id, reason: 'not_entitled' })
+        continue
+      }
+
+      // 利用者個人ごとの受信オプトアウト（profiles.due_reminder_enabled）。entitlement再確認と
+      // 同じ位置づけ＝送信境界での抑止。false（明示オプトアウト）のみ suppressed 終端にする
+      // （行が無い/null はfail-open=trueでこの分岐に入らない）。
+      const recipientEnabled = await isDueReminderEnabledForUser(task.assigneeId)
+      if (!recipientEnabled) {
+        await finalizeDueReminderOccurrence(occ.id, 'suppressed', 'recipient_opted_out')
+        skipped.push({ occurrenceId: occ.id, taskId: task.id, reason: 'recipient_opted_out' })
         continue
       }
 
