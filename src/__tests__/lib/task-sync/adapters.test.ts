@@ -38,6 +38,40 @@ describe('アダプタ登録表', () => {
     }
   })
 
+  /**
+   * カタログ（registry）の鮮度SLAと、アダプタが宣言する実ポーリング間隔の整合。
+   *
+   * AI秘書の期限リマインドは `pollFreshnessSlaMinutes` を「この期限は N 分以内に同期済み」の
+   * 根拠に使う（src/lib/reminders/dueReminderStaleness.ts）。ここが実態より甘いと、
+   * **外部ツールで既に完了・期限変更されているタスクについて相手を催促する**という、
+   * 製品として一番やってはいけない誤爆になる。
+   */
+  describe('期限リマインドの鮮度宣言と実ポーリング間隔の整合', () => {
+    it('期限の正本になるツールは、SLAが実ポーリング間隔の2倍以上ある', () => {
+      const CRON_INTERVAL_MINUTES = 15 // supabase/migrations/20260721200902_task_sync_cron.sql
+      for (const [id, adapter] of Object.entries(TASK_SYNC_ADAPTERS)) {
+        const caps = getIntegration(id)?.capabilities
+        if (!caps?.dueImport) continue
+        const effectiveInterval = adapter!.minPollIntervalMinutes ?? CRON_INTERVAL_MINUTES
+        expect(caps.pollFreshnessSlaMinutes, `${id} SLA missing`).toBeGreaterThanOrEqual(
+          effectiveInterval * 2,
+        )
+      }
+    })
+
+    it('半日を超える間隔でしか取り込めないツールは期限の正本にしない（古い期限で催促しない）', () => {
+      // 呼び出し回数の上限が厳しく低頻度でしか回せないツール（Jooto 等）は、期限が古すぎて
+      // 催促の根拠にできない。取り込みと完了の書き戻しはするが、リマインドには使わない。
+      const HALF_DAY = 12 * 60
+      for (const [id, adapter] of Object.entries(TASK_SYNC_ADAPTERS)) {
+        if ((adapter!.minPollIntervalMinutes ?? 0) <= HALF_DAY) continue
+        const caps = getIntegration(id)?.capabilities
+        expect(caps?.dueImport, `${id} polls rarely but claims due authority`).toBe(false)
+        expect(caps?.dueFreshness, `${id} polls rarely but claims freshness`).toBe('none')
+      }
+    })
+  })
+
   it('接続先が可変なアダプタ以外は fixed を宣言する（宣言漏れで任意ホストに開かない）', () => {
     for (const adapter of Object.values(TASK_SYNC_ADAPTERS)) {
       const kind = adapter!.hostPolicy.kind

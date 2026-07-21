@@ -278,13 +278,16 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     featured: true,
     setupUrl: 'https://www.jooto.com/',
     notes: '国産のカンバン型タスク管理。APIキーで接続する（双方向同期は順次対応）。',
-    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
-    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    // ⚠ 期限の正本にしない（dueImport=false）。Jooto は差分APIが無く、標準プランの月次上限
+    // （月100回）に収めるため**1日1回**しか取り込めない。この接続を期限の正本にすると、
+    // 最大48時間古い期限を根拠にAI秘書が催促を送りうる — Jooto側で既に完了/期限変更されている
+    // のに相手を急かす、という一番やってはいけない誤爆になる。「不確かなら送らない」に従い、
+    // タスクの取り込みと完了の書き戻しは行うが、期限リマインドの根拠にはしない。
+    // （ビジネスプラン＝呼び出し無制限なら短間隔にできるので、プラン別に開ける余地は残る）
     capabilities: {
-      dueImport: true,
+      dueImport: false,
       completionWrite: true,
-      dueFreshness: 'poll-sla',
-      pollFreshnessSlaMinutes: 2880,
+      dueFreshness: 'none',
     },
   },
   jira: {
