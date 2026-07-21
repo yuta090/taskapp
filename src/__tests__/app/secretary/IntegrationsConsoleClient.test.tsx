@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { IntegrationsConsoleClient } from '@/app/(internal)/[orgId]/secretary/integrations/IntegrationsConsoleClient'
 import type { SinkMeta } from '@/lib/hooks/useSinks'
+import type { IntegrationId } from '@/lib/integrations/registry'
 
 /**
- * IntegrationsConsoleClient — Main pane内2カラム(左: sink一覧 / 右: 詳細)。
- * Inspectorは使わない。3ペイン規則・モーダル禁止(docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4)。
+ * IntegrationsConsoleClient — 「ツール連携」タブ。左レール(ToolRail)＋右詳細
+ * (surfaceで出し分け: connector→ConnectorSyncPane / sink→SinkProviderPanel /
+ * export・catalog→ToolConnectOverview)。Inspectorは使わない。モーダル禁止・保存ボタンなし。
  */
 
 const { useSinksMock } = vi.hoisted(() => ({ useSinksMock: vi.fn() }))
@@ -15,164 +17,118 @@ vi.mock('@/lib/hooks/useSinks', async (importOriginal) => {
   return { ...actual, useSinks: (...args: unknown[]) => useSinksMock(...args) }
 })
 
-vi.mock('@/components/secretary/integrations/SinkListPane', () => ({
-  SinkListPane: ({
-    sinks,
-    selectedSinkId,
+vi.mock('@/components/secretary/integrations/ToolRail', () => ({
+  ToolRail: ({
+    selectedId,
     onSelect,
-    onCreated,
-    googleSheetsConnection,
   }: {
-    sinks: SinkMeta[]
-    selectedSinkId: string | null
-    onSelect: (id: string) => void
-    onCreated: (sink: SinkMeta, secret: string) => void
-    googleSheetsConnection?: { connected: boolean }
+    selectedId: IntegrationId
+    onSelect: (id: IntegrationId) => void
   }) => (
-    <div data-testid="sink-list-pane">
-      <span data-testid="selected-id">{selectedSinkId ?? 'none'}</span>
-      <span data-testid="list-pane-google-sheets-connected">{String(googleSheetsConnection?.connected)}</span>
-      {sinks.map((s) => (
-        <button key={s.id} onClick={() => onSelect(s.id)}>
-          select-{s.id}
+    <div data-testid="tool-rail">
+      <span data-testid="tool-rail-selected">{selectedId}</span>
+      {(['google_tasks', 'notion', 'backlog', 'csv_export'] as IntegrationId[]).map((id) => (
+        <button key={id} onClick={() => onSelect(id)}>
+          select-{id}
         </button>
       ))}
-      <button onClick={() => onCreated({ ...sinks[0], id: 'sink-new', displayName: '新規' }, 'whsec_created')}>
-        simulate-create
-      </button>
     </div>
   ),
 }))
 
 vi.mock('@/components/secretary/integrations/ConnectorSyncPane', () => ({
-  ConnectorSyncPane: ({ orgId }: { orgId: string }) => (
-    <div data-testid="connector-sync-pane">{orgId}</div>
-  ),
+  ConnectorSyncPane: ({ orgId }: { orgId: string }) => <div data-testid="connector-sync-pane">{orgId}</div>,
 }))
 
-vi.mock('@/components/secretary/integrations/SinkDetailPanel', () => ({
-  SinkDetailPanel: ({
-    sink,
-    googleSheetsConnection,
+vi.mock('@/components/secretary/integrations/SinkProviderPanel', () => ({
+  SinkProviderPanel: ({
+    provider,
+    onCreated,
   }: {
-    sink: SinkMeta
-    googleSheetsConnection?: { connected: boolean }
+    provider: string
+    onCreated: (sink: SinkMeta, secret?: string) => void
   }) => (
-    <div data-testid="sink-detail-panel">
-      {sink.displayName}
-      <span data-testid="detail-panel-google-sheets-connected">{String(googleSheetsConnection?.connected)}</span>
+    <div data-testid="sink-provider-panel">
+      <span data-testid="sink-provider-panel-provider">{provider}</span>
+      <button onClick={() => onCreated({ id: 'sink-new' } as SinkMeta, 'whsec_created')}>simulate-create</button>
     </div>
   ),
 }))
 
-function sink(overrides: Partial<SinkMeta> = {}): SinkMeta {
-  return {
-    id: 'sink-1',
-    orgId: 'org-1',
-    groupId: null,
-    provider: 'webhook',
-    displayName: '自社Webhook',
-    config: { url: 'https://example.com/hook' },
-    connectionId: null,
-    events: ['task.created'],
-    status: 'active',
-    consecutiveFailures: 0,
-    lastDeliveredAt: null,
-    createdBy: 'user-1',
-    createdAt: '2026-07-11T00:00:00.000Z',
-    updatedAt: '2026-07-11T00:00:00.000Z',
-    lastDelivery: null,
-    ...overrides,
-  }
-}
+vi.mock('@/components/secretary/integrations/ToolConnectOverview', () => ({
+  ToolConnectOverview: ({ def }: { def: { id: IntegrationId } }) => (
+    <div data-testid="tool-connect-overview">{def.id}</div>
+  ),
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useSinksMock.mockReturnValue({
+    sinks: [],
+    viewerRole: 'owner',
+    notionConnection: { connected: false, workspaceName: null },
+    googleSheetsConnection: { connected: false },
+    isLoading: false,
+    error: null,
+  })
 })
 
 describe('IntegrationsConsoleClient', () => {
-  it('SecretaryTabNavを自前で描画しない(タブバーは親の secretary/layout.tsx が持つ)', () => {
-    useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
+  it('SecretaryTabNavを自前で描画しない(タブバーは親のsecretary/layout.tsxが持つ)', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
     expect(screen.queryByTestId('secretary-tab-integrations')).not.toBeInTheDocument()
   })
 
-  it('双方向同期セクション(ConnectorSyncPane)をorgId付きで描画する', () => {
-    useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
+  it('左にToolRailを描画する', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
+    expect(screen.getByTestId('tool-rail')).toBeInTheDocument()
+  })
+
+  it('既定でgoogle_tasksが選択され、ConnectorSyncPaneが出る', () => {
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    expect(screen.getByTestId('tool-rail-selected')).toHaveTextContent('google_tasks')
     expect(screen.getByTestId('connector-sync-pane')).toHaveTextContent('org-1')
+    expect(screen.queryByTestId('sink-provider-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tool-connect-overview')).not.toBeInTheDocument()
   })
 
-  it('sinkが無ければ詳細パネルの代わりに空状態を表示する', () => {
-    useSinksMock.mockReturnValue({ sinks: [], viewerRole: 'owner', isLoading: false, error: null })
+  it('sinkサービス(notion)を選択するとSinkProviderPanelが出る', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
-    expect(screen.queryByTestId('sink-detail-panel')).not.toBeInTheDocument()
-    expect(screen.getByText(/連携先を選択するか、新規作成/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText('select-notion'))
+    expect(screen.getByTestId('sink-provider-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('sink-provider-panel-provider')).toHaveTextContent('notion')
+    expect(screen.queryByTestId('connector-sync-pane')).not.toBeInTheDocument()
   })
 
-  it('未選択なら先頭のsinkを既定選択し、詳細パネルへ渡す', () => {
-    useSinksMock.mockReturnValue({
-      sinks: [sink(), sink({ id: 'sink-2', displayName: '2つ目' })],
-      viewerRole: 'owner',
-      isLoading: false,
-      error: null,
-    })
+  it('planned(backlog)を選択するとToolConnectOverviewが出る', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
-    expect(screen.getByTestId('selected-id')).toHaveTextContent('sink-1')
-    expect(screen.getByTestId('sink-detail-panel')).toHaveTextContent('自社Webhook')
+    fireEvent.click(screen.getByText('select-backlog'))
+    expect(screen.getByTestId('tool-connect-overview')).toHaveTextContent('backlog')
   })
 
-  it('googleSheetsConnectionをSinkListPane/SinkDetailPanelの両方へ渡す', () => {
-    useSinksMock.mockReturnValue({
-      sinks: [sink()],
-      viewerRole: 'owner',
-      isLoading: false,
-      error: null,
-      googleSheetsConnection: { connected: true },
-    })
+  it('export(csv_export)を選択するとToolConnectOverviewが出る', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
-    expect(screen.getByTestId('list-pane-google-sheets-connected')).toHaveTextContent('true')
-    expect(screen.getByTestId('detail-panel-google-sheets-connected')).toHaveTextContent('true')
+    fireEvent.click(screen.getByText('select-csv_export'))
+    expect(screen.getByTestId('tool-connect-overview')).toHaveTextContent('csv_export')
   })
 
-  it('一覧からの選択で詳細パネルが切り替わる', () => {
-    useSinksMock.mockReturnValue({
-      sinks: [sink(), sink({ id: 'sink-2', displayName: '2つ目' })],
-      viewerRole: 'owner',
-      isLoading: false,
-      error: null,
-    })
+  it('sinkパネルの作成完了(onCreated)でsecretを一度だけバナー表示する。閉じると消える', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
-    fireEvent.click(screen.getByText('select-sink-2'))
-    expect(screen.getByTestId('sink-detail-panel')).toHaveTextContent('2つ目')
-  })
-
-  it('作成完了で新しいsinkを選択し、secretを一度だけバナー表示する。閉じると消える', () => {
-    useSinksMock.mockReturnValue({ sinks: [sink()], viewerRole: 'owner', isLoading: false, error: null })
-    render(<IntegrationsConsoleClient orgId="org-1" />)
-
+    fireEvent.click(screen.getByText('select-notion'))
     fireEvent.click(screen.getByText('simulate-create'))
-
-    expect(screen.getByTestId('selected-id')).toHaveTextContent('sink-new')
     expect(screen.getByText('whsec_created')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '閉じる' }))
     expect(screen.queryByText('whsec_created')).not.toBeInTheDocument()
   })
 
-  it('作成後に別sinkを選択するとsecretバナーが消える（選択操作でクリアされる）', () => {
-    useSinksMock.mockReturnValue({
-      sinks: [sink(), sink({ id: 'sink-2', displayName: '2つ目' })],
-      viewerRole: 'owner',
-      isLoading: false,
-      error: null,
-    })
+  it('別ツールへ選択を切り替えるとsecretバナーが消える', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
-
+    fireEvent.click(screen.getByText('select-notion'))
     fireEvent.click(screen.getByText('simulate-create'))
     expect(screen.getByText('whsec_created')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('select-sink-2'))
+    fireEvent.click(screen.getByText('select-google_tasks'))
     expect(screen.queryByText('whsec_created')).not.toBeInTheDocument()
   })
 })

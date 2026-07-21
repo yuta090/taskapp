@@ -42,7 +42,7 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
     icon: ClipboardText,
     href: (orgId) => `/${orgId}/secretary/approvals`,
   },
-  { key: 'integrations', label: '外部連携', icon: Plugs, href: (orgId) => `/${orgId}/secretary/integrations` },
+  { key: 'integrations', label: 'ツール連携', icon: Plugs, href: (orgId) => `/${orgId}/secretary/integrations` },
   {
     // 「つなぐ」= チャネル連携ハブ。LINE/Slack/Teams…をチャネル軸で束ね、自分/相手先/
     // グループの各フローはLINE配下(/secretary/connect/line)に集約する。チャネルごとに
