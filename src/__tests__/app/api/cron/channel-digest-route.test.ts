@@ -51,6 +51,12 @@ const dueReminderStoreMock = {
 }
 vi.mock('@/lib/reminders/dueReminderStore', () => dueReminderStoreMock)
 
+// 無料50到達アップグレード促し（共有bot×block×hard時のみ発火）
+const nudgeFreeCapReachedMock = vi.fn()
+vi.mock('@/lib/channels/freeCapNudge', () => ({
+  nudgeFreeCapReached: (...args: unknown[]) => nudgeFreeCapReachedMock(...args),
+}))
+
 const { POST } = await import('@/app/api/cron/channel-digest/route')
 
 function callPost(headers: Record<string, string> = {}) {
@@ -112,6 +118,7 @@ describe('POST /api/cron/channel-digest', () => {
     resolveEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
     dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([])
     dueReminderStoreMock.findConnectionFreshnessBatch.mockResolvedValue(new Map())
+    nudgeFreeCapReachedMock.mockResolvedValue({ nudged: true })
   })
 
   it('CRON_SECRET未設定は500', async () => {
@@ -558,6 +565,34 @@ describe('POST /api/cron/channel-digest', () => {
           expect.objectContaining({ groupId: 'group-1', reason: 'quota_block_suppress' }),
         ]),
       )
+    })
+
+    it('共有bot×block×hard(無料50到達)は nudgeFreeCapReached を発火する（事務所促し＋グループ中立1行）', async () => {
+      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(0)
+      expect(nudgeFreeCapReachedMock).toHaveBeenCalledTimes(1)
+      expect(nudgeFreeCapReachedMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          groupExternalId: 'G-1',
+          globalBudgetHard: false,
+        }),
+      )
+    })
+
+    it('自社bot(owner_type=org)の抑止では促しを発火しない（Pro自社LINEは対象外）', async () => {
+      storeMock.findLineAccountById.mockResolvedValue(ACCOUNT) // ownerType='org'
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+
+      await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(nudgeFreeCapReachedMock).not.toHaveBeenCalled()
     })
 
     it('on_exceed=degrade かつ state=soft は隔日（奇数日は抑止）', async () => {
