@@ -92,17 +92,34 @@ function configuredPollFloor(raw: Record<string, unknown> | null): number | unde
 }
 
 /**
- * 外部を叩く前に試行時刻を書く（楽観的な claim）。
- * cron の実行が重なっても、後発は更新済みの時刻を見て見送る。失敗しても時刻は進むので
- * 呼び出し上限を失敗ループで食い潰さない。書き込み失敗は取り込み自体を止めるほどではないので
- * ログのみで継続する（次サイクルで再度試みる）。
+ * 外部を叩く権利を**条件付き更新で取り合う**（claim）。取れたときだけ true を返す。
+ *
+ * 単に「時刻を書く」だけでは同時実行を防げない: cron が重なると両方が同じ一括SELECTの結果
+ * （古い試行時刻）を見て、両方とも叩いてしまう。1接続あたりの消費が読み取り回数に直結する
+ * ツール（Jooto は月100回）では、これがそのまま上限の食い潰しになる。
+ *
+ * そこで「自分が見た試行時刻から変わっていないこと」を条件に更新し、更新できた1つだけが叩く。
+ * 条件に合う行が無い＝他方が先に取った、なので見送る。
+ *
+ * 書き込みに失敗したときは**叩かない**（fail closed）。ここで通してしまうと、書き込みが
+ * 恒常的に失敗する状況で cron のたびに外部を叩き続け、上限を数時間で使い切る。
  */
-async function markPollAttempt(connectionId: string, at: Date): Promise<void> {
-  const { error } = await admin()
+async function claimPollSlot(conn: ConnectionRow, at: Date): Promise<boolean> {
+  const query = admin()
     .from('integration_connections')
     .update({ last_poll_attempt_at: at.toISOString() })
-    .eq('id', connectionId)
-  if (error) console.error('[task-sync] failed to mark poll attempt:', connectionId, error.message)
+    .eq('id', conn.id)
+  // 「自分が見た値のまま」を条件にする（null は is null で照合する必要がある）。
+  const scoped = conn.last_poll_attempt_at
+    ? query.eq('last_poll_attempt_at', conn.last_poll_attempt_at)
+    : query.is('last_poll_attempt_at', null)
+
+  const { data, error } = await scoped.select('id')
+  if (error) {
+    console.error('[task-sync] failed to claim poll slot:', conn.id, error.message)
+    return false
+  }
+  return ((data as unknown[] | null) ?? []).length > 0
 }
 
 /**
@@ -181,12 +198,10 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
     const startedAt = new Date()
     if (!isPollDue(adapter, conn.last_poll_attempt_at, startedAt, configuredPollFloor(conn.import_config)))
       continue
-    // 叩くと決めた時点で試行時刻を進める（失敗しても上限を食い潰さない・同時実行の後発を弾く）。
-    await markPollAttempt(conn.id, startedAt)
 
     summary.connections++
     try {
-      await runOne(conn, adapter, summary)
+      await runOne(conn, adapter, summary, startedAt)
     } catch (err) {
       // 1接続の想定外エラーで他の接続の取り込みまで止めない。カーソルは前進していないので
       // 次サイクルで同じ範囲を取り直す。
@@ -202,9 +217,12 @@ async function runOne(
   conn: ConnectionRow,
   adapter: NonNullable<ReturnType<typeof getTaskSyncAdapter>>,
   summary: TaskSyncRunSummary,
+  startedAt: Date,
 ): Promise<void> {
   const targets = parseTargets(conn.import_config)
 
+  // ローカルで完結する検証は claim の**前**に済ませる。claim してから落ちると、設定を直した
+  // 直後でも次の間隔まで（Jooto なら丸一日）待たされる — 外部を1回も叩いていないのに。
   // クロステナント境界: 別orgのスペースへ取り込ませない（実行時検証が真の境界）。
   const validated = await validateImportTargets(admin(), conn.org_id, targets)
   if (!validated.ok) {
@@ -218,6 +236,12 @@ async function runOne(
     // 失効・設定不備はここで静かに skip する。毒にはしない（再接続すれば直る）。
     summary.skipped++
     summary.reasons.push(`${conn.provider}: credentials_${cred.status}`)
+    return
+  }
+
+  // 外部を叩く直前に権利を取る。取れなければ（＝実行が重なって他方が先に取った）見送る。
+  if (!(await claimPollSlot(conn, startedAt))) {
+    summary.connections--
     return
   }
 

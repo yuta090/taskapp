@@ -16,6 +16,8 @@ const resolveCredentials = vi.fn()
 const getTaskSyncAdapter = vi.fn()
 
 const pollAttempts: string[] = []
+/** true にすると条件付き更新が0件＝実行が重なって他方に先を越された状況を再現する。 */
+let claimLoses = false
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: () => ({
@@ -24,12 +26,24 @@ vi.mock('@supabase/supabase-js', () => ({
           eq: async () => ({ data: connectionRows, error: null }),
         }),
       }),
-      update: (payload: Record<string, unknown>) => ({
-        eq: async (_col: string, id: string) => {
-          if (payload.last_poll_attempt_at) pollAttempts.push(id)
-          return { error: null }
-        },
-      }),
+      // claimPollSlot は update().eq('id').eq|is('last_poll_attempt_at').select('id') の形で
+      // 条件付き更新を行い、更新できた行数で「叩く権利を取れたか」を判定する。
+      update: (payload: Record<string, unknown>) => {
+        let claimedId = ''
+        const step: Record<string, unknown> = {
+          eq: (col: string, value: string) => {
+            if (col === 'id') claimedId = value
+            return step
+          },
+          is: () => step,
+          select: async () => {
+            if (payload.last_poll_attempt_at) pollAttempts.push(claimedId)
+            // 既定は「取れた」。取り合いに負けるケースは claimLoses で表現する。
+            return { data: claimLoses ? [] : [{ id: claimedId }], error: null }
+          },
+        }
+        return step
+      },
     }),
   }),
 }))
@@ -70,6 +84,7 @@ function row(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   connectionRows.length = 0
   pollAttempts.length = 0
+  claimLoses = false
   importConnection.mockReset().mockResolvedValue(OK_RESULT)
   validateImportTargets.mockReset().mockResolvedValue({ ok: true, assigneeId: null })
   resolveCredentials.mockReset().mockResolvedValue({
@@ -202,6 +217,25 @@ describe('runTaskSyncImport — ツール固有の呼び出し上限', () => {
     connectionRows.push(row())
     await runTaskSyncImport()
     expect(pollAttempts).toEqual(['conn-1'])
+  })
+
+  it('取り合いに負けた（他方が先に取った）ら外部を叩かない', async () => {
+    // 単に時刻を書くだけでは同時実行を防げない（両方が同じ古い値を見て両方叩く）。
+    // 条件付き更新で0件＝先を越された、として見送る。
+    claimLoses = true
+    connectionRows.push(row())
+    await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+  })
+
+  it('claim の書き込みに失敗したら叩かない（fail closed）', async () => {
+    // ここで通すと、書き込みが恒常的に失敗する状況で cron のたびに外部を叩き続け、
+    // 呼び出し上限を数時間で使い切る。
+    claimLoses = true
+    connectionRows.push(row({ provider: 'jooto' }))
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 2880 })
+    await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
   })
 })
 

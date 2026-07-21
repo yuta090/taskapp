@@ -52,6 +52,7 @@ interface ConnectorJob {
 interface ConnectionRow {
   id: string
   provider: string
+  status?: string
   metadata: Record<string, unknown> | null
   // タスク同期アダプタ経由の書き戻しに要る列（gtasks/multica では使わない）。
   auth_kind?: 'oauth' | 'api_key' | 'shared_secret' | null
@@ -254,6 +255,14 @@ async function processTaskSyncJobs(
   jobs: ConnectorJob[],
   summary: ConnectorDispatchSummary,
 ): Promise<void> {
+  if (conn.status && conn.status !== 'active') {
+    // 失効・無効化済みの接続で外部を叩かない（鍵を復号して無効な接続先へ送らない）。
+    // 再接続で直るため毒にはせず一時失敗で寝かせる。
+    for (const j of jobs) await completeJob(j, 'temporary_fail', `connection_${conn.status}`)
+    summary.tempFailed += jobs.length
+    return
+  }
+
   const cred = await resolveCredentials({
     id: conn.id,
     auth_kind: conn.auth_kind ?? 'api_key',
@@ -284,13 +293,15 @@ async function processTaskSyncJobs(
     }
     try {
       const link = await loadTaskSyncLink(j.connection_id, j.task_id)
-      if (!link) {
-        // 書き戻し先が無い。設定不整合であり再試行では解決しないため恒久失敗にする。
-        await completeJob(j, 'permanent_fail', 'connector_task_links missing')
+      if (!link || !link.containerId) {
+        // 書き戻し先が無い（対応が無い／入れ物IDが欠落）。空文字で代用すると、入れ物IDを実際に
+        // 使うツール（Linear のチーム、Jooto のURL）へ不正なIDで投げることになり、失敗の原因が
+        // 分からなくなる。設定不整合であり再試行では解決しないため恒久失敗にする。
+        await completeJob(j, 'permanent_fail', 'connector_task_links missing or has no container')
         summary.dead++
         continue
       }
-      await adapter.completeTask(ctx, { externalId: link.externalId, containerId: link.containerId ?? '' })
+      await adapter.completeTask(ctx, { externalId: link.externalId, containerId: link.containerId })
       await completeJob(j, 'done')
       summary.done++
     } catch (err) {
@@ -340,7 +351,7 @@ function providerConfigOf(
 async function loadConnections(connectionIds: string[]): Promise<Map<string, ConnectionRow>> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, provider, metadata, auth_kind, base_url, access_token_encrypted, import_config')
+    .select('id, provider, status, metadata, auth_kind, base_url, access_token_encrypted, import_config')
     .in('id', connectionIds)
   if (error) throw new Error(`integration_connections lookup failed: ${error.message}`)
   const map = new Map<string, ConnectionRow>()
