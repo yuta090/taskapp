@@ -34,7 +34,8 @@ function fakeStore(links: Array<[string, string]> = []) {
     updated: [] as Array<{ taskId: string; task: ExternalTask }>,
     completed: [] as string[],
     orphaned: [] as string[],
-    cursors: [] as Array<{ cursor: string | null; at: Date }>,
+    cursors: [] as Array<{ cursor: string | null; at: Date; missing: Record<string, string> }>,
+    missingOnly: [] as Array<Record<string, string>>,
   }
   let seq = 0
   const store: TaskSyncStore = {
@@ -53,8 +54,11 @@ function fakeStore(links: Array<[string, string]> = []) {
     markLinkOrphaned: async (_conn, externalId) => {
       calls.orphaned.push(externalId)
     },
-    saveCursor: async (_conn, cursor, at) => {
-      calls.cursors.push({ cursor, at })
+    saveCursor: async (_conn, cursor, at, missing) => {
+      calls.cursors.push({ cursor, at, missing })
+    },
+    saveMissingContainers: async (_conn, missing) => {
+      calls.missingOnly.push(missing)
     },
   }
   return { store, calls }
@@ -290,14 +294,28 @@ describe('importConnection — 取り込み対象の解決', () => {
     expect(spy.mock.calls.map((c) => c[1])).toEqual(['c1'])
   })
 
-  it('指定が全て実在しなければ skip（誤設定で全件取り込みに化けさせない）', async () => {
+  it('指定が全て実在しなければ skip（誤設定で全件取り込みに化けさせない）。欠落台帳には記録する', async () => {
     const { store, calls } = fakeStore()
     const result = await run(fakeAdapter([]), store, {
       targets: { targetSpaceId: 'space-1', readContainerIds: ['ghost'] },
+      storedCursor: '2026-07-05',
     })
+    expect(result.skipped).toBe(true)
+    expect(result.reason).toContain('all_containers_missing')
+    expect(result.reason).toContain('ghost')
+    expect(calls.cursors).toHaveLength(0)
+    expect(calls.missingOnly).toEqual([{ ghost: '2026-07-05' }])
+  })
+
+  it('明示指定が無く、かつ列挙も0件なら従来どおり no_containers（設定待ちで異常ではない）', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([])
+    adapter.listContainers = async () => []
+    const result = await run(adapter, store, { targets: { targetSpaceId: 'space-1' } })
     expect(result.skipped).toBe(true)
     expect(result.reason).toBe('no_containers')
     expect(calls.cursors).toHaveLength(0)
+    expect(calls.missingOnly).toHaveLength(0)
   })
 
   it('コンテナ列挙に失敗したら skip（カーソルは据え置き）', async () => {
@@ -308,5 +326,180 @@ describe('importConnection — 取り込み対象の解決', () => {
     expect(result.skipped).toBe(true)
     expect(result.reason).toContain('list_containers_failed')
     expect(calls.cursors).toHaveLength(0)
+  })
+})
+
+describe('importConnection — 共有解除等でコンテナが無言で対象外になるのを防ぐ（恒久停止の回帰防止）', () => {
+  /**
+   * Notion では共有を外されたDBが search(listContainers) に出てこない。積集合による wedge 防止
+   * （実在しないIDの指定は無視する）は維持しつつ、欠落を無言にせず**欠落台帳へ記録**する。
+   * 恒久的に消えたコンテナが残っていても、利用可能な分は毎サイクル前進し続ける
+   * （＝last_import_success_at が凍結せず、期限リマインドの鮮度証明・催促が止まらない）。
+   * 再共有時は記録値を since にして取り直すことで取りこぼしを閉じる（取り込みは冪等なので、
+   * 重複取得は無害）。
+   */
+
+  it('欠落1件＋正常1件: 正常分は取り込まれ saveCursor が呼ばれ、missing に旧カーソル値が記録される', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([{ items: [task()], nextCursor: null }])
+    const result = await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2-gone'] },
+      storedCursor: '2026-07-01',
+    })
+    expect(result.skipped).toBe(false)
+    expect(result.created).toBe(1)
+    expect(calls.cursors).toHaveLength(1)
+    expect(calls.cursors[0].missing).toEqual({ 'c2-gone': '2026-07-01' })
+    expect(result.missingContainers).toEqual(['c2-gone'])
+  })
+
+  it('欠落台帳の記録値は保存済みカーソルが null なら空文字にする（再出現時フルフェッチの合図）', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([{ items: [], nextCursor: null }])
+    await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2-gone'] },
+      storedCursor: null,
+    })
+    expect(calls.cursors[0].missing).toEqual({ 'c2-gone': '' })
+  })
+
+  it('再出現: listChangedTasks が記録値を since にして呼ばれ、成功後に missing からエントリが消える', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([{ items: [], nextCursor: null }])
+    const spy = vi.fn().mockResolvedValue({ items: [], nextCursor: null })
+    adapter.listChangedTasks = spy
+    const result = await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1'] },
+      storedCursor: '2026-07-10',
+      storedMissing: { c1: '2026-07-01' },
+    })
+    expect(spy).toHaveBeenCalledWith(ctx, 'c1', { since: '2026-07-01', cursor: undefined })
+    expect(result.skipped).toBe(false)
+    expect(calls.cursors[0].missing).toEqual({})
+  })
+
+  it('再出現の取得が途中で失敗したらカーソル前進なし・欠落台帳も書き込まれない（エントリは実質残存）', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([])
+    adapter.listChangedTasks = vi.fn().mockRejectedValue(new Error('boom'))
+    const result = await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1'] },
+      storedMissing: { c1: '2026-07-01' },
+    })
+    expect(result.skipped).toBe(true)
+    expect(calls.cursors).toHaveLength(0)
+    expect(calls.missingOnly).toHaveLength(0)
+  })
+
+  it('恒久削除が続いても missing の記録値は上書きされない（wedgeしない。回帰の中心テスト）', async () => {
+    // サイクル1: c2-gone が初めて欠落と判明。
+    const { store: store1, calls: calls1 } = fakeStore()
+    const adapter1 = fakeAdapter([{ items: [], nextCursor: null }])
+    const result1 = await run(adapter1, store1, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2-gone'] },
+      storedCursor: '2026-07-01',
+    })
+    expect(result1.skipped).toBe(false) // Backlogプロジェクト削除相当でも他コンテナは前進する
+    expect(calls1.cursors[0].missing).toEqual({ 'c2-gone': '2026-07-01' })
+
+    // サイクル2: カーソルは前サイクルで前進済み、c2-gone は引き続き欠落。
+    const { store: store2, calls: calls2 } = fakeStore()
+    const adapter2 = fakeAdapter([{ items: [], nextCursor: null }])
+    const result2 = await run(adapter2, store2, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2-gone'] },
+      storedCursor: '2026-07-20',
+      storedMissing: { 'c2-gone': '2026-07-01' },
+    })
+    expect(result2.skipped).toBe(false)
+    expect(calls2.cursors).toHaveLength(1) // 正常分は前進し続ける＝催促が恒久停止しない
+    expect(calls2.cursors[0].missing).toEqual({ 'c2-gone': '2026-07-01' }) // 上書きされない
+  })
+
+  it('全コンテナ欠落なら saveCursor されず、欠落台帳だけ記録される', async () => {
+    const { store, calls } = fakeStore()
+    const result = await run(fakeAdapter([]), store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1-gone', 'c2-gone'] },
+      storedCursor: '2026-07-05',
+    })
+    expect(result.skipped).toBe(true)
+    expect(result.reason).toContain('all_containers_missing')
+    expect(calls.cursors).toHaveLength(0)
+    expect(calls.missingOnly).toEqual([{ 'c1-gone': '2026-07-05', 'c2-gone': '2026-07-05' }])
+  })
+
+  it('timestamp粒度でも記録値はstoredCursorそのまま(ISO)で記録され、sinceにもそのまま渡る', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([{ items: [], nextCursor: null }], { cursorGranularity: 'timestamp' })
+    await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2-gone'] },
+      storedCursor: '2026-07-01T00:00:00.000Z',
+    })
+    expect(calls.cursors[0].missing).toEqual({ 'c2-gone': '2026-07-01T00:00:00.000Z' })
+
+    const spy = vi.fn().mockResolvedValue({ items: [], nextCursor: null })
+    const adapter2 = fakeAdapter([], { cursorGranularity: 'timestamp' })
+    adapter2.listChangedTasks = spy
+    await run(adapter2, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1'] },
+      storedMissing: { c1: '2026-07-01T00:00:00.000Z' },
+    })
+    expect(spy).toHaveBeenCalledWith(ctx, 'c1', { since: '2026-07-01T00:00:00.000Z', cursor: undefined })
+  })
+
+  it('全件揃っていれば従来どおり前進し、欠落台帳は空のまま', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([
+      { items: [], nextCursor: null },
+      { items: [], nextCursor: null },
+    ])
+    const result = await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2'] },
+    })
+    expect(result.skipped).toBe(false)
+    expect(calls.cursors).toHaveLength(1)
+    expect(calls.cursors[0].missing).toEqual({})
+  })
+
+  describe('設定から外れたコンテナの台帳エントリの掃除（Nit是正: 単調増加の防止）', () => {
+    it('readContainerIdsから外れたキーは成功時に台帳から削除される', async () => {
+      const { store, calls } = fakeStore()
+      const adapter = fakeAdapter([{ items: [], nextCursor: null }])
+      // c2-gone は前サイクルまでの欠落エントリだが、今回の設定(readContainerIds)にはもう含まれない
+      // （運用側が設定からコンテナを外した）。
+      const result = await run(adapter, store, {
+        targets: { targetSpaceId: 'space-1', readContainerIds: ['c1'] },
+        storedCursor: '2026-07-01',
+        storedMissing: { 'c2-gone': '2026-07-01' },
+      })
+      expect(result.skipped).toBe(false)
+      expect(calls.cursors[0].missing).toEqual({})
+    })
+
+    it('全コンテナ欠落のskip経路でも、設定から外れた既存エントリは掃除される', async () => {
+      const { store, calls } = fakeStore()
+      const result = await run(fakeAdapter([]), store, {
+        targets: { targetSpaceId: 'space-1', readContainerIds: ['ghost'] },
+        storedCursor: '2026-07-05',
+        storedMissing: { 'c2-gone': '2026-07-01' },
+      })
+      expect(result.skipped).toBe(true)
+      expect(calls.missingOnly).toEqual([{ ghost: '2026-07-05' }])
+    })
+
+    it('readContainerIdsが未指定なら掃除の基準が無いので、指定から漏れたキーがあっても掃除しない', async () => {
+      const { store, calls } = fakeStore()
+      // fakeAdapter の listContainers は c1/c2 のみを返す。readContainerIds未指定＝列挙全件が対象。
+      const adapter = fakeAdapter([
+        { items: [], nextCursor: null },
+        { items: [], nextCursor: null },
+      ])
+      const result = await run(adapter, store, {
+        targets: { targetSpaceId: 'space-1' },
+        storedCursor: '2026-07-01',
+        storedMissing: { 'stale-gone': '2026-07-01' },
+      })
+      expect(result.skipped).toBe(false)
+      expect(calls.cursors[0].missing).toEqual({ 'stale-gone': '2026-07-01' })
+    })
   })
 })

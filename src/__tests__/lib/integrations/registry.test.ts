@@ -82,12 +82,19 @@ describe('integration (tool) registry', () => {
   })
 })
 
+// sink と task-sync を兼ねる provider（Notion: 送りっぱなし通知 + 双方向タスク同期の両対応）。
+// surface は据え置き（既存の通知連携UI・sink動線を壊さない）のまま connectorKind を持たせる、
+// という設計変更を registry.ts の connectorKind コメントで明文化した唯一の例外。
+const SINK_AND_TASK_SYNC_EXCEPTIONS: readonly string[] = ['notion']
+
 describe('integration registry — surface と実装の整合', () => {
-  it('surface=sink は sinkProvider を持ち、connector種別を持たない', () => {
+  it('surface=sink は sinkProvider を持つ。connectorKindを併せ持つのは明示された例外のみ', () => {
     for (const def of listIntegrations()) {
       if (def.surface === 'sink') {
         expect(def.sinkProvider, `${def.id} sink but no sinkProvider`).toBeTruthy()
-        expect(def.connectorKind).toBeUndefined()
+        if (def.connectorKind) {
+          expect(SINK_AND_TASK_SYNC_EXCEPTIONS, `${def.id} unexpectedly has connectorKind`).toContain(def.id)
+        }
       }
     }
   })

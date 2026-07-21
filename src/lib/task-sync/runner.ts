@@ -52,6 +52,23 @@ interface ConnectionRow extends ConnectionCredentialRow {
   poll_cursor: string | null
   last_import_success_at: string | null
   last_poll_attempt_at: string | null
+  /** 欠落台帳（jsonb）。形式は engine.ts 参照。DB由来の unknown として扱い、ここで検証する。 */
+  import_missing_containers: unknown
+}
+
+/**
+ * 欠落台帳(import_missing_containers)の生値(jsonbから来たunknown)を検証・正規化する。
+ * 壊れた値（配列・非object・値が文字列でないエントリを含む等）はエンジンを落とさず空扱いに
+ * フォールバックする。1行の壊れた値でその接続の取り込みが恒久停止するのを避けるため
+ * （isPollDue の「壊れた時刻は叩く側に倒す」と同じ安全側の考え方）。
+ */
+function parseStoredMissing(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string') out[key] = value
+  }
+  return out
 }
 
 /**
@@ -174,7 +191,9 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
   const { data, error } = await admin()
     .from('integration_connections')
     .select(
-      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor, last_import_success_at, last_poll_attempt_at',
+      // refresh_token_encrypted/refresh_token は resolveCredentials が「更新可能なOAuthか」を
+      // 判定するために必須（無ければ更新不能なOAuth＝Notion等として扱う。credentials.ts 参照）。
+      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, refresh_token_encrypted, refresh_token, import_config, poll_cursor, last_import_success_at, last_poll_attempt_at, import_missing_containers',
     )
     .eq('import_enabled', true)
     .eq('status', 'active')
@@ -258,6 +277,7 @@ async function runOne(
     targets: { ...targets, defaultAssigneeId: validated.assigneeId },
     store: createTaskSyncStore({ admin: admin(), orgId: conn.org_id }),
     storedCursor: conn.poll_cursor,
+    storedMissing: parseStoredMissing(conn.import_missing_containers),
     now: new Date(),
   })
 

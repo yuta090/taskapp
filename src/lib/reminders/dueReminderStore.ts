@@ -108,6 +108,12 @@ export interface DueReminderTaskSnapshot {
   ball: DueReminderBall
   spaceId: string
   dueAuthorityConnectionId: string | null
+  /**
+   * connector_task_links.external_list_id（このタスクの所属コンテナID）。task-sync エンジン経由の
+   * 取り込みで active リンクが有る場合のみ埋まる。external権威が無い/リンクが無い場合は null
+   * （dueReminderStaleness.ts のコンテナ単位抑止をフォールバックさせるための入力）。
+   */
+  externalListId: string | null
 }
 
 /** claimしたoccurrenceのtask_idを送信直前に再読取りする（§6 staleness 3条件の入力）。 */
@@ -134,6 +140,21 @@ export async function findTaskSnapshotForReminder(
     due_authority_connection_id: string | null
   }
 
+  // external権威（due_authority_connection_id有り）のタスクだけ、所属コンテナ(external_list_id)を
+  // 引く。内部管理のタスクにまで問い合わせを増やさない（不要なクエリ・N+1の回避）。
+  let externalListId: string | null = null
+  if (row.due_authority_connection_id) {
+    const { data: linkData, error: linkError } = await admin()
+      .from('connector_task_links')
+      .select('external_list_id')
+      .eq('task_id', row.id)
+      .eq('connection_id', row.due_authority_connection_id)
+      .eq('state', 'active')
+      .maybeSingle()
+    if (linkError) throw new Error(`connector_task_links: external_list_id lookup failed: ${linkError.message}`)
+    externalListId = (linkData as { external_list_id?: string | null } | null)?.external_list_id ?? null
+  }
+
   return {
     id: row.id,
     title: row.title,
@@ -143,6 +164,7 @@ export async function findTaskSnapshotForReminder(
     ball: row.ball === 'client' ? 'client' : 'internal',
     spaceId: row.space_id,
     dueAuthorityConnectionId: row.due_authority_connection_id,
+    externalListId,
   }
 }
 
@@ -164,15 +186,25 @@ export async function findConnectionFreshness(
 ): Promise<DueAuthorityConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('status, provider, last_import_success_at')
+    .select('status, provider, last_import_success_at, import_missing_containers')
     .eq('id', connectionId)
     .maybeSingle()
 
   if (error) throw new Error(`integration_connections: freshness lookup failed: ${error.message}`)
   if (!data) return null
 
-  const row = data as { status: string; provider: string; last_import_success_at: string | null }
-  return { status: row.status, provider: row.provider, lastImportSuccessAt: row.last_import_success_at }
+  const row = data as {
+    status: string
+    provider: string
+    last_import_success_at: string | null
+    import_missing_containers: Record<string, string> | null
+  }
+  return {
+    status: row.status,
+    provider: row.provider,
+    lastImportSuccessAt: row.last_import_success_at,
+    importMissingContainers: row.import_missing_containers ?? {},
+  }
 }
 
 /**
@@ -315,15 +347,26 @@ export async function findConnectionFreshnessBatch(
 
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, status, provider, last_import_success_at')
+    .select('id, status, provider, last_import_success_at, import_missing_containers')
     .in('id', unique)
 
   if (error) throw new Error(`integration_connections: batch freshness lookup failed: ${error.message}`)
 
   const map = new Map<string, DueAuthorityConnectionInfo>()
   for (const row of data ?? []) {
-    const r = row as { id: string; status: string; provider: string; last_import_success_at: string | null }
-    map.set(r.id, { status: r.status, provider: r.provider, lastImportSuccessAt: r.last_import_success_at })
+    const r = row as {
+      id: string
+      status: string
+      provider: string
+      last_import_success_at: string | null
+      import_missing_containers: Record<string, string> | null
+    }
+    map.set(r.id, {
+      status: r.status,
+      provider: r.provider,
+      lastImportSuccessAt: r.last_import_success_at,
+      importMissingContainers: r.import_missing_containers ?? {},
+    })
   }
   return map
 }

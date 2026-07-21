@@ -31,6 +31,7 @@ export type TaskSyncProviderId =
   | 'monday'
   | 'chatwork'
   | 'garoon'
+  | 'notion'
 
 /**
  * 取り込み対象の入れ物（プロジェクト / ボード / リスト / スペース）。ツールによって呼び名が
