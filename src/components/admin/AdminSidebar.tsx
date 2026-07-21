@@ -21,6 +21,7 @@ import {
   PlugsConnected,
   Terminal,
   Article,
+  ChatCircle,
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
@@ -43,6 +44,7 @@ const NAV_ITEMS = [
   { label: '分析', icon: ChartLine, href: '/admin/analytics' },
   { label: 'サイトマップ', icon: TreeStructure, href: '/admin/sitemap' },
   { label: '外部連携', icon: PlugsConnected, href: '/admin/integrations' },
+  { label: '共通LINE開通', icon: ChatCircle, href: '/admin/shared-bot-access' },
   { label: 'CLI利用統計', icon: Terminal, href: '/admin/cli-usage' },
   { label: 'デザインシステム', icon: PaintBrush, href: '/admin/design-system' },
 ]

@@ -2641,6 +2641,82 @@ export async function requestSharedBotAccess(
   return 'requested'
 }
 
+export interface SharedBotAccessRequest {
+  orgId: string
+  orgName: string | null
+  requestedAt: string | null
+  requestedBy: string | null
+}
+
+/**
+ * 共通LINE の開通待ち(requested)org 一覧を返す（superadmin の承認キュー用）。申込が古い順。
+ * granted は開通済みなので含めない（キューは「対応が要るもの」だけ）。
+ */
+export async function listSharedBotAccessRequests(): Promise<SharedBotAccessRequest[]> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('org_id, shared_bot_access_requested_at, shared_bot_access_requested_by')
+    .eq('shared_bot_access', 'requested')
+    .order('shared_bot_access_requested_at', { ascending: true })
+  if (error) throw new Error(`org_channel_policy: list requested failed: ${error.message}`)
+  const rows = (data ?? []) as Array<{
+    org_id: string
+    shared_bot_access_requested_at: string | null
+    shared_bot_access_requested_by: string | null
+  }>
+  if (rows.length === 0) return []
+
+  const orgIds = rows.map((r) => r.org_id)
+  const { data: orgs, error: orgErr } = await admin()
+    .from('organizations')
+    .select('id, name')
+    .in('id', orgIds)
+  if (orgErr) throw new Error(`organizations: name lookup failed: ${orgErr.message}`)
+  const nameById = new Map(
+    ((orgs ?? []) as Array<{ id: string; name: string | null }>).map((o) => [o.id, o.name]),
+  )
+
+  return rows.map((r) => ({
+    orgId: r.org_id,
+    orgName: nameById.get(r.org_id) ?? null,
+    requestedAt: r.shared_bot_access_requested_at,
+    requestedBy: r.shared_bot_access_requested_by,
+  }))
+}
+
+/**
+ * 共通LINE(共有Bot) を org に開通付与する（none/requested → granted）。superadmin(ops)専用。
+ * 冪等（granted は no-op）。granted_at/granted_by を刻む。granted を絶対に downgrade しない。
+ * requestSharedBotAccess と対（none→requested→granted のライフサイクルの last mile）。
+ */
+export async function grantSharedBotAccess(
+  orgId: string,
+  grantedByUserId: string,
+): Promise<'granted'> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('shared_bot_access')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) throw new Error(`org_channel_policy: read failed: ${error.message}`)
+  const current = (data as { shared_bot_access?: string } | null)?.shared_bot_access
+  if (current === 'granted') return 'granted'
+
+  const { error: upErr } = await admin()
+    .from('org_channel_policy')
+    .upsert(
+      {
+        org_id: orgId,
+        shared_bot_access: 'granted',
+        shared_bot_access_granted_at: new Date().toISOString(),
+        shared_bot_access_granted_by: grantedByUserId,
+      },
+      { onConflict: 'org_id' },
+    )
+  if (upErr) throw new Error(`org_channel_policy: grant upsert failed: ${upErr.message}`)
+  return 'granted'
+}
+
 interface AccountWithBasicIdRow extends AccountRow {
   line_basic_id: string | null
 }
