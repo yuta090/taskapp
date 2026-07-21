@@ -2538,6 +2538,32 @@ export async function hasActiveUserLinkForUser(orgId: string, userId: string): P
 }
 
 /**
+ * 現在ユーザー自身の active な LINE 紐付けを値で返す（hasActiveUserLinkForUser の値返し版）。
+ * 期限リマインドの1:1 DM 宛先解決に使う（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
+ * §9 §A・PR-1）。同一ユーザーが同一org内で active にできるのは1件のみ
+ * （channel_user_links_active_user unique index・20260715070647）なので、複数該当時の
+ * 選択は発生しない（決定的）。
+ */
+export async function findActiveUserLinkForUser(
+  orgId: string,
+  userId: string,
+): Promise<{ channelAccountId: string; externalUserId: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('channel_account_id, external_user_id')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .is('revoked_at', null)
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(`channel_user_links: active link lookup failed: ${error.message}`)
+  if (!data) return null
+
+  const row = data as { channel_account_id: string; external_user_id: string }
+  return { channelAccountId: row.channel_account_id, externalUserId: row.external_user_id }
+}
+
+/**
  * org がユーザー自身でLINE秘書を連携し始められる状態か（＝連携先Botが用意されているか）。
  * org専用bot(owner_type='org') か 共有bot(owner_type='platform') のどちらかが active なら true。
  * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）で、オンボーディングでは
