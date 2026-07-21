@@ -14,7 +14,8 @@ import {
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
-import { classifyExtractionSkip, type DigestSkipKind } from '@/lib/ai/digestSkip'
+import { classifyExtractionSkip, isPoolExhaustedSkip, type DigestSkipKind } from '@/lib/ai/digestSkip'
+import { notifyPoolExhausted } from '@/lib/ai/poolExhaustedNudge'
 import {
   buildDigestExtractionPrompt,
   parseLlmDigestExtraction,
@@ -217,6 +218,20 @@ export async function POST(request: NextRequest) {
                 console.warn(
                   `[channel-digest] ai_unconfigured org=${group.orgId} group=${group.id}: ${reason}`,
                 )
+                // プールAI(当社鍵)の当月上限到達だけは、事務所へ「自社AIキー登録で即時復旧」を
+                // 促す（org×月で1回・ベストエフォート）。相手先グループには一切出さない。
+                if (isPoolExhaustedSkip(error)) {
+                  try {
+                    await notifyPoolExhausted({
+                      orgId: group.orgId,
+                      spaceId: group.spaceId,
+                      jstMonthKey: jstDateStr.slice(0, 7),
+                    })
+                  } catch (err) {
+                    // 通知失敗は cron を壊さない（抽出スキップは既に確定・skipped 済み）
+                    console.error('[channel-digest] pool-exhausted notify failed', group.orgId, err)
+                  }
+                }
               } else {
                 console.error(
                   `[channel-digest] extraction_failed org=${group.orgId} group=${group.id}: ${reason}`,
