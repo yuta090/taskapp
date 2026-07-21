@@ -55,6 +55,7 @@ function backlogConnection(overrides: Partial<ConnectorConnection> = {}): Connec
     provider: 'backlog',
     status: 'active',
     baseUrl: 'https://acme.backlog.jp',
+    label: null,
     importEnabled: false,
     importConfig: {},
     createdAt: '2026-07-20T00:00:00.000Z',

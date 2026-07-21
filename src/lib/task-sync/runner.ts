@@ -25,10 +25,13 @@ function admin(): SupabaseClient {
 }
 
 /**
- * この経路の担当**外**であることが正常な provider。既存の専用ワーカーが取り込みを担当しており、
- * ここで処理すると二重取り込みになる。「アダプタが無い＝異常」と「担当外＝正常」を区別するための表。
+ * この経路の担当**外**であることが正常な provider。「アダプタが無い＝異常」と「担当外＝正常」を
+ * 区別するための表。ここに載っていない未知の provider だけを異常として記録する。
+ *   - google_tasks / multica: 既存の専用ワーカーが取り込む（ここで処理すると二重取り込み）
+ *   - generic_inbound: 相手から送ってもらう受信型。こちらから取りに行く対象が無い
+ *     （載せ忘れると、受信口を作った瞬間から毎サイクル「同期されない接続」として誤警告が出る）
  */
-const OTHER_WORKER_PROVIDERS = new Set(['google_tasks', 'multica'])
+const OTHER_WORKER_PROVIDERS = new Set(['google_tasks', 'multica', 'generic_inbound'])
 
 export interface TaskSyncRunSummary {
   connections: number

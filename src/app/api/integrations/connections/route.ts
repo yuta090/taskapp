@@ -14,7 +14,9 @@ export const runtime = 'nodejs'
  * この一覧にも自動で載る**（ここに手で足す運用にすると必ず追従漏れが起きる）。
  */
 function connectorProviders(): string[] {
-  return ['multica', 'google_tasks', ...implementedTaskSyncProviders()]
+  // generic_inbound は受信型でアダプタ登録表には載らないが、接続としては一覧に出す必要がある
+  // （画面から受信口の状態と取り込み先設定を見せるため）。
+  return ['multica', 'google_tasks', 'generic_inbound', ...implementedTaskSyncProviders()]
 }
 
 interface ConnectorConnectionRow {
@@ -34,6 +36,12 @@ interface ConnectorConnectionSummary {
   provider: string
   status: string
   baseUrl: string | null
+  /**
+   * 受信口の呼び名（generic_inbound のみ）。1つのorgが複数の送信元を並べられる設計なので、
+   * これが無いと画面で「どれがどの送信元か」を識別できない（接続IDの断片で代替するしかない）。
+   * metadata には暗号化済みの鍵も入っているため、**呼び名だけを取り出して**返す。
+   */
+  label: string | null
   importEnabled: boolean
   importConfig: Record<string, unknown>
   createdAt: string | null
@@ -44,11 +52,14 @@ function toSummary(row: ConnectorConnectionRow): ConnectorConnectionSummary {
   // （列を足す前に作られた既存接続のため）。列を優先し、無ければ従来の場所を見る。
   const multica = (row.metadata?.multica as Record<string, unknown> | undefined) ?? undefined
   const baseUrl = row.base_url ?? (typeof multica?.base_url === 'string' ? multica.base_url : null)
+  const generic = (row.metadata?.generic_inbound as Record<string, unknown> | undefined) ?? undefined
+  const label = typeof generic?.label === 'string' ? generic.label : null
   return {
     id: row.id,
     provider: row.provider,
     status: row.status,
     baseUrl,
+    label,
     importEnabled: row.import_enabled === true,
     importConfig: (row.import_config as Record<string, unknown> | null) ?? {},
     createdAt: row.created_at,

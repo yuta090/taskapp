@@ -107,12 +107,33 @@ describe('GET /api/integrations/connections', () => {
       provider: 'multica',
       status: 'active',
       baseUrl: 'https://multica.example.com',
+      label: null,
       importEnabled: false,
       importConfig: {},
       createdAt: '2026-07-20T00:00:00Z',
     })
     expect(json.connections[1].importConfig).toEqual({ target_space_id: 's1' })
     expect(json.connections[1].importEnabled).toBe(true)
+  })
+
+  it('汎用Webhook受信は呼び名だけを返す（鍵はmetadataに同居しているので全体を出さない）', async () => {
+    listRows = [
+      {
+        id: 'c9',
+        provider: 'generic_inbound',
+        status: 'active',
+        import_enabled: true,
+        import_config: {},
+        metadata: {
+          generic_inbound: { label: 'ANDPAD経由', receive_secret_encrypted: 'enc-secret-value' },
+        },
+        created_at: '2026-07-21T00:00:00Z',
+      },
+    ]
+    const res = await callGet()
+    const json = await res.json()
+    expect(json.connections[0].label).toBe('ANDPAD経由')
+    expect(JSON.stringify(json)).not.toContain('enc-secret-value')
   })
 
   it('never leaks secrets: serialized response contains no *_secret_encrypted', async () => {

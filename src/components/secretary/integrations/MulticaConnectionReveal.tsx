@@ -17,10 +17,11 @@ interface CopyRowProps {
 }
 
 /**
- * multica接続の作成直後、multica側に貼り付ける設定ブロックを1項目分表示する行。
- * SecretReveal.tsxのコピー導線と同じ実装（このパネル専用のため共通化はしない）。
+ * 接続の作成直後、相手側に貼り付ける設定値を1項目分表示する行(ラベル＋値＋コピー導線)。
+ * SecretReveal.tsxのコピー導線と同じ実装。GenericInboundPanel.tsx(受信口の作成直後の
+ * webhook_url/receive_secret表示)とも共有するためexport(重複実装しない)。
  */
-function CopyRow({ label, value }: CopyRowProps) {
+export function CopyRow({ label, value }: CopyRowProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {

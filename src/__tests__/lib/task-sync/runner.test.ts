@@ -95,12 +95,17 @@ beforeEach(() => {
 })
 
 describe('runTaskSyncImport — 対象の選別', () => {
-  it('専用ワーカー担当(gtasks/multica)は静かに飛ばす（二重取り込みを防ぐ・異常ではない）', async () => {
-    connectionRows.push(row({ provider: 'google_tasks' }))
-    getTaskSyncAdapter.mockReturnValue(null)
-    const summary = await runTaskSyncImport()
-    expect(summary.connections).toBe(0)
-    expect(summary.skipped).toBe(0)
+  it('担当外の provider は静かに飛ばす（二重取り込み防止・異常ではない）', async () => {
+    // gtasks/multica は専用ワーカーが取り込む。generic_inbound は相手から送ってもらう受信型で、
+    // こちらから取りに行く対象そのものが無い（誤って異常扱いすると毎サイクル誤警告が出る）。
+    for (const provider of ['google_tasks', 'multica', 'generic_inbound']) {
+      connectionRows.length = 0
+      connectionRows.push(row({ provider }))
+      getTaskSyncAdapter.mockReturnValue(null)
+      const summary = await runTaskSyncImport()
+      expect(summary.connections, provider).toBe(0)
+      expect(summary.skipped, provider).toBe(0)
+    }
     expect(importConnection).not.toHaveBeenCalled()
   })
 
