@@ -24,16 +24,21 @@ export interface TaskSyncStoreOptions {
   admin: SupabaseClient
   /** 取り込み先の org（クロステナント検証済みであること）。 */
   orgId: string
-  /**
-   * この接続を取り込んだタスクの「期限の正本」にするか。
-   * 期限を取り込むコネクタ（capabilities.dueImport）のみ true。true のとき tasks に
-   * due_authority_connection_id を立て、TaskApp 側からの期限編集を禁じる（DBトリガーが強制）。
-   */
-  dueAuthority: boolean
 }
 
+/**
+ * ⚠ 期限の正本（tasks.due_authority_connection_id）は、**取り込み元の接続を必ず立てる**。
+ * 外部から取り込んだタスクの期限を所有しているのは常に外部ツールだから。
+ *
+ * 「この接続の期限でリマインドしてよいか」は別の判断で、リマインド側がカタログの capabilities
+ * （鮮度SLAの有無）を見て決める（src/lib/reminders/dueReminderStaleness.ts）。
+ * ここで正本を外すと**逆効果**になる: 正本が null のタスクは「TaskApp 内部で管理している期限」
+ * とみなされ、鮮度チェックが一切かからないまま催促が飛ぶ。正本を立てたうえで鮮度SLAを持たない
+ * provider（低頻度ポーリングのツール等）は、そこで確実に抑止される。
+ */
+
 export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
-  const { admin, orgId, dueAuthority } = opts
+  const { admin, orgId } = opts
 
   return {
     async loadLinks(connectionId: string): Promise<Map<string, string>> {
@@ -69,8 +74,10 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
           client_scope: 'internal',
           type: 'task',
           assignee_id: assigneeId,
-          // 期限を取り込むコネクタでは、この接続を期限の正本にする（TaskApp側からの編集を禁じる）。
-          due_authority_connection_id: dueAuthority ? connectionId : null,
+          // 外部から取り込んだタスクの期限は常に外部ツールが所有する。鮮度SLAを持たない
+          // provider（低頻度ポーリング等）はリマインド側の鮮度チェックで抑止されるので、
+          // ここで正本を外してはいけない（外すと無防備な内部期限として催促が飛ぶ）。
+          due_authority_connection_id: connectionId,
           // NOT NULL。外部起票に対応する対話ユーザーは居ないため専用システムユーザー名義にする。
           created_by: CONNECTOR_SYSTEM_USER_ID,
         })
@@ -128,7 +135,7 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
                 title: task.title.trim() || '(無題)',
                 description: task.body ?? '',
                 due_date: task.dueDate,
-                due_authority_connection_id: dueAuthority ? connectionId : null,
+                due_authority_connection_id: connectionId,
               })
               .eq('id', existingTaskId)
             if (refreshErr) throw new Error(`refresh revived task failed: ${refreshErr.message}`)
@@ -181,14 +188,16 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
       if (error) throw new Error(`markLinkOrphaned failed: ${error.message}`)
 
       if (link) {
-        // **期限の正本を外す**。外さないと、外部で消えたタスクの古い期限が残ったまま接続は
-        // 「同期成功」なので鮮度証明を満たし、AI秘書が「もう存在しないタスク」について相手を
-        // 催促してしまう（送るべきでないものを送る＝一番やってはいけない誤爆）。
-        const { error: authErr } = await admin
+        // **期限そのものを外す**。外部で消えたタスクの期限は、もう誰も所有していない。
+        // 期限を残したままだと、接続は「同期成功」なので鮮度証明を満たし、AI秘書が
+        // 「もう存在しないタスク」について相手を催促してしまう（一番やってはいけない誤爆）。
+        // 正本フラグだけ外すのは**逆効果**で、鮮度チェックが一切かからない内部期限に化ける。
+        // タスク行と本文・状態は残す（作業の記録と証跡は消さない）。復活時は現在の内容で戻す。
+        const { error: dueErr } = await admin
           .from('tasks')
-          .update({ due_authority_connection_id: null })
+          .update({ due_date: null, due_authority_connection_id: null })
           .eq('id', (link as { task_id: string }).task_id)
-        if (authErr) throw new Error(`clear due authority failed: ${authErr.message}`)
+        if (dueErr) throw new Error(`clear due on orphan failed: ${dueErr.message}`)
       }
     },
 

@@ -1,5 +1,4 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
-import { getIntegration } from '@/lib/integrations/registry'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { resolveCredentials, type ConnectionCredentialRow } from '@/lib/task-sync/credentials'
 import { importConnection, type ImportTargets } from '@/lib/task-sync/engine'
@@ -222,9 +221,6 @@ async function runOne(
     return
   }
 
-  // 期限の正本にするかはカタログの capabilities が持つ（リマインドの鮮度証明と同じ真実源を使う）。
-  const dueAuthority = getIntegration(conn.provider)?.capabilities?.dueImport === true
-
   const result = await importConnection({
     connectionId: conn.id,
     adapter,
@@ -233,7 +229,7 @@ async function runOne(
       config: parseProviderConfig(conn.import_config, conn.provider),
     },
     targets: { ...targets, defaultAssigneeId: validated.assigneeId },
-    store: createTaskSyncStore({ admin: admin(), orgId: conn.org_id, dueAuthority }),
+    store: createTaskSyncStore({ admin: admin(), orgId: conn.org_id }),
     storedCursor: conn.poll_cursor,
     now: new Date(),
   })
