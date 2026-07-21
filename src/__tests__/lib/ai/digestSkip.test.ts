@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyExtractionSkip } from '@/lib/ai/digestSkip'
+import { classifyExtractionSkip, isPoolExhaustedSkip } from '@/lib/ai/digestSkip'
 import { AiConfigError } from '@/lib/ai/client'
 
 /**
@@ -29,5 +29,20 @@ describe('classifyExtractionSkip', () => {
   it('null/undefined など非Errorは llm_error（安全側）', () => {
     expect(classifyExtractionSkip(null)).toBe('llm_error')
     expect(classifyExtractionSkip(undefined)).toBe('llm_error')
+  })
+})
+
+describe('isPoolExhaustedSkip', () => {
+  it('pool_quota_exhausted のみ true（事務所へ復旧導線を出す対象）', () => {
+    expect(isPoolExhaustedSkip(new AiConfigError('pool_quota_exhausted', 'x'))).toBe(true)
+  })
+
+  it('他の AiConfigError 種別・LLM障害・非Error は false', () => {
+    expect(isPoolExhaustedSkip(new AiConfigError('missing', 'x'))).toBe(false)
+    expect(isPoolExhaustedSkip(new AiConfigError('disabled', 'x'))).toBe(false)
+    expect(isPoolExhaustedSkip(new AiConfigError('decrypt_failed', 'x'))).toBe(false)
+    expect(isPoolExhaustedSkip(new Error('OpenAI API エラー (500)'))).toBe(false)
+    expect(isPoolExhaustedSkip('AI未設定')).toBe(false)
+    expect(isPoolExhaustedSkip(null)).toBe(false)
   })
 })

@@ -57,6 +57,12 @@ vi.mock('@/lib/channels/freeCapNudge', () => ({
   nudgeFreeCapReached: (...args: unknown[]) => nudgeFreeCapReachedMock(...args),
 }))
 
+// プールAI当月上限到達通知（pool_quota_exhausted の抽出スキップ時のみ発火）
+const notifyPoolExhaustedMock = vi.fn()
+vi.mock('@/lib/ai/poolExhaustedNudge', () => ({
+  notifyPoolExhausted: (...args: unknown[]) => notifyPoolExhaustedMock(...args),
+}))
+
 const { POST } = await import('@/app/api/cron/channel-digest/route')
 
 function callPost(headers: Record<string, string> = {}) {
@@ -119,6 +125,7 @@ describe('POST /api/cron/channel-digest', () => {
     dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([])
     dueReminderStoreMock.findConnectionFreshnessBatch.mockResolvedValue(new Map())
     nudgeFreeCapReachedMock.mockResolvedValue({ nudged: true })
+    notifyPoolExhaustedMock.mockResolvedValue({ nudged: true })
   })
 
   it('CRON_SECRET未設定は500', async () => {
@@ -381,6 +388,38 @@ describe('POST /api/cron/channel-digest', () => {
     )
     // group-2は処理が続く
     expect(callLlmMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('プールAI当月上限到達(pool_quota_exhausted)なら notifyPoolExhausted を発火する（事務所へ復旧導線）', async () => {
+    const { AiConfigError } = await import('@/lib/ai/errors')
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.findGroupTextMessagesSince.mockResolvedValue([
+      { id: 'msg-1', body: '発注おねがいします', createdAt: '2026-07-11T05:00:00.000Z' },
+    ])
+    callLlmMock.mockRejectedValue(
+      new AiConfigError('pool_quota_exhausted', 'プールAIの今月の上限に達しました'),
+    )
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+    const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+    expect(response.status).toBe(200)
+    expect(notifyPoolExhaustedMock).toHaveBeenCalledTimes(1)
+    expect(notifyPoolExhaustedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', spaceId: 'space-1' }),
+    )
+  })
+
+  it('通常のAI未設定(missing)では notifyPoolExhausted を発火しない', async () => {
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.findGroupTextMessagesSince.mockResolvedValue([
+      { id: 'msg-1', body: '発注おねがいします', createdAt: '2026-07-11T05:00:00.000Z' },
+    ])
+    callLlmMock.mockRejectedValue(new Error('AI未設定: この組織にはAI設定が登録されていません'))
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+    const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+    expect(response.status).toBe(200)
+    expect(notifyPoolExhaustedMock).not.toHaveBeenCalled()
   })
 
   it('LLM応答が壊れたJSONならそのグループの抽出だけスキップする（例外は投げない）', async () => {
