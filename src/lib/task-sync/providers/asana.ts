@@ -1,4 +1,5 @@
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { jstNow } from '@/lib/datetime/jstNow'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { providerError } from '@/lib/task-sync/types'
 import type {
@@ -108,13 +109,16 @@ function workspaceGid(ctx: ProviderContext): string {
 
 /**
  * 期日を必ずローカル日付 'YYYY-MM-DD' へ落とす。`due_on` は日付のみの値なのでそのまま使う。
- * `due_at` は実時刻を持つため Date を経由して formatDateToLocalString でローカル日付化する
- * （toISOString().slice(0,10) は使わない＝UTC切り出しで日本時間の日付とずれる事故を防ぐ）。
+ * `due_at` は実時刻を持つため jstNow(instant) で JST の日付成分に変換してから
+ * formatDateToLocalString でローカル日付化する。
+ * ⚠ formatDateToLocalString(new Date(dueAt)) だけだと「実行環境のローカルTZ」の日付になり、
+ *   本番Vercel/CIはUTC既定なので日本時間と1日ずれる（jstNow を挟まないと JST に揃わない）。
+ *   toISOString().slice(0,10) も同じ理由で使わない。
  */
 function toLocalDateString(dueOn: string | null | undefined, dueAt: string | null | undefined): string | null {
   if (dueOn) return dueOn
   if (!dueAt) return null
-  return formatDateToLocalString(new Date(dueAt))
+  return formatDateToLocalString(jstNow(new Date(dueAt)))
 }
 
 function apiUrl(path: string, params?: Record<string, string>): string {

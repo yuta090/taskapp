@@ -7,7 +7,10 @@ import {
   useCreateTaskSyncConnection,
 } from '@/lib/hooks/useConnectors'
 import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
-import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
+import {
+  isImplementedTaskSyncProvider,
+  taskSyncProviderNeedsBaseUrl,
+} from '@/lib/task-sync/implemented'
 import { ImportConfigEditor } from '@/components/secretary/integrations/ConnectorSyncPane'
 
 interface TaskSyncConnectPanelProps {
@@ -58,7 +61,7 @@ export function TaskSyncConnectPanel({ orgId, integrationId }: TaskSyncConnectPa
   const { connections, viewerRole, isLoading } = useConnectors(orgId)
   const canManage = viewerRole === 'owner' || viewerRole === 'admin'
   const def = getIntegration(integrationId)
-  const adapter = getTaskSyncAdapter(integrationId)
+  const isImplemented = isImplementedTaskSyncProvider(integrationId)
   const connection = connections.find((c) => c.provider === integrationId) ?? null
 
   if (isLoading) {
@@ -72,7 +75,7 @@ export function TaskSyncConnectPanel({ orgId, integrationId }: TaskSyncConnectPa
 
   // 呼び出し側(IntegrationsConsoleClient)が implementedTaskSyncProviders() で絞ってから
   // このパネルを出す契約のため、通常はここに来ない。防御的にnullを返す。
-  if (!def || !adapter) return null
+  if (!def || !isImplemented) return null
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4 max-w-2xl">
@@ -91,7 +94,7 @@ export function TaskSyncConnectPanel({ orgId, integrationId }: TaskSyncConnectPa
           orgId={orgId}
           integrationId={integrationId}
           canManage={canManage}
-          needsBaseUrl={adapter.hostPolicy.kind !== 'fixed'}
+          needsBaseUrl={taskSyncProviderNeedsBaseUrl(integrationId)}
         />
       )}
     </div>

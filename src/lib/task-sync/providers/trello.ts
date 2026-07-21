@@ -1,4 +1,5 @@
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { jstNow } from '@/lib/datetime/jstNow'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { providerError } from '@/lib/task-sync/types'
 import type {
@@ -124,10 +125,15 @@ function doneListIds(ctx: ProviderContext): string[] {
   return raw.filter((v): v is string => typeof v === 'string' && v.length > 0)
 }
 
-/** カードの期日をローカル日付 'YYYY-MM-DD' へ落とす。実時刻を持つためDateを経由する。 */
+/**
+ * カードの期日をローカル日付 'YYYY-MM-DD' へ落とす。実時刻を持つため jstNow(instant) で
+ * JST の日付成分へ変換してから formatDateToLocalString でローカル日付化する。
+ * ⚠ formatDateToLocalString(new Date(due)) だけだと実行環境のローカルTZ（本番Vercel/CIはUTC）
+ *   の日付になり日本時間と1日ずれる。jstNow を挟んで JST に揃える。
+ */
 function toLocalDateString(due: string | null | undefined): string | null {
   if (!due) return null
-  return formatDateToLocalString(new Date(due))
+  return formatDateToLocalString(jstNow(new Date(due)))
 }
 
 /** key/tokenをクエリに載せてURLを組み立てる。 */

@@ -9,7 +9,7 @@ import { ToolConnectOverview } from '@/components/secretary/integrations/ToolCon
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { useSinks, type SinkMeta } from '@/lib/hooks/useSinks'
 import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
-import { implementedTaskSyncProviders } from '@/lib/task-sync/adapters'
+import { implementedTaskSyncProviders } from '@/lib/task-sync/implemented'
 import type { TaskSyncProviderId } from '@/lib/task-sync/types'
 
 interface IntegrationsConsoleClientProps {
