@@ -27,6 +27,12 @@ const state = {
   recordedEvents: [] as string[],
   rpcCalls: [] as Array<{ name: string; args: unknown }>,
   completeResult: true,
+  /** update が行を返すか（false＝対応が指すタスクが既に無い状況）。 */
+  updateAffects: true,
+  /** 実際に投げた絞り込み条件。テナント境界が「条件として」効いていることを見る。 */
+  predicates: [] as string[],
+  /** 副作用と記録の順序を見るための操作ログ。 */
+  order: [] as string[],
 }
 
 vi.mock('@/lib/connectors/secrets', () => ({
@@ -37,7 +43,8 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: (table: string) => ({
       select: () => ({
-        eq: function eqChain() {
+        eq: function eqChain(col?: string, value?: unknown) {
+          if (col) state.predicates.push(`${table}.${col}=${String(value)}`)
           return {
             eq: eqChain,
             maybeSingle: async () => {
@@ -55,16 +62,26 @@ vi.mock('@supabase/supabase-js', () => ({
         },
       }),
       insert: (payload: Record<string, unknown>) => {
-        if (table === 'connector_inbound_events') state.recordedEvents.push(String(payload.event_id))
+        if (table === 'connector_inbound_events') {
+          state.recordedEvents.push(String(payload.event_id))
+          state.order.push('record')
+        }
         return { then: (resolve: (v: unknown) => void) => resolve({ error: null }) }
       },
       update: (payload: Record<string, unknown>) => {
         if (table === 'tasks') state.taskUpdates.push(payload)
-        return { eq: async () => ({ error: null }) }
+        const step: Record<string, unknown> = {
+          eq: () => step,
+          // 更新できた行数で「空振り」を判定するので、select まで含めてモックする。
+          select: async () => ({ data: state.updateAffects ? [{ id: 'task-1' }] : [], error: null }),
+          then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+        }
+        return step
       },
     }),
     rpc: async (name: string, args: unknown) => {
       state.rpcCalls.push({ name, args })
+      state.order.push(name)
       if (name === 'rpc_connector_create_task') {
         state.createdTasks.push(args as Record<string, unknown>)
         return { data: 'task-new', error: null }
@@ -107,6 +124,9 @@ beforeEach(() => {
   state.recordedEvents = []
   state.rpcCalls = []
   state.completeResult = true
+  state.updateAffects = true
+  state.predicates = []
+  state.order = []
 })
 
 describe('署名（誰が送ってきたかの唯一の根拠）', () => {
@@ -157,6 +177,31 @@ describe('署名（誰が送ってきたかの唯一の根拠）', () => {
   })
 })
 
+describe('無効化された受信口', () => {
+  it('接続の解決条件に import_enabled を含める（止めたのに止まらない状態を作らない）', async () => {
+    const raw = payload()
+    await handleGenericInboundEvent(raw, signed(raw))
+    expect(state.predicates).toContain('integration_connections.import_enabled=true')
+    expect(state.predicates).toContain('integration_connections.status=active')
+  })
+})
+
+describe('未認証の相手にコストを負担しない', () => {
+  it('接続IDの形が不正なら、DBに触れずに401', async () => {
+    const raw = JSON.stringify({ event_id: 'e', event_type: 'task.created', connection_id: 'not-a-uuid', external_id: 'x', title: 't' })
+    const result = await handleGenericInboundEvent(raw, signed(raw))
+    expect(result.status).toBe(401)
+    expect(state.predicates).toHaveLength(0)
+  })
+
+  it('署名ヘッダの形が不正なら、DBに触れずに401', async () => {
+    const raw = payload()
+    const result = await handleGenericInboundEvent(raw, 'garbage')
+    expect(result.status).toBe(401)
+    expect(state.predicates).toHaveLength(0)
+  })
+})
+
 describe('ペイロード', () => {
   it('壊れたJSONは400', async () => {
     const raw = '{not json'
@@ -184,7 +229,16 @@ describe('冪等（再送で二重に起票しない）', () => {
     const raw = payload()
     await handleGenericInboundEvent(raw, signed(raw))
     expect(state.createdTasks).toHaveLength(1)
-    expect(state.recordedEvents).toEqual(['evt-1'])
+    // 順序そのものを見る（配列の中身だけ見ると、記録が先でも通ってしまう）。
+    expect(state.order).toEqual(['rpc_connector_create_task', 'record'])
+  })
+
+  it('副作用が適用されなかったイベントは記録しない（再送で再実行させる）', async () => {
+    state.updateAffects = false
+    const raw = payload({ due_date: '2026-07-31' })
+    const result = await handleGenericInboundEvent(raw, signed(raw))
+    expect(result.status).toBe(409)
+    expect(state.recordedEvents).toHaveLength(0)
   })
 })
 
@@ -221,6 +275,31 @@ describe('task.updated / task.completed — 対応が要る', () => {
     const result = await handleGenericInboundEvent(raw, signed(raw))
     expect(result.status).toBe(404)
     expect(state.taskUpdates).toHaveLength(0)
+  })
+
+  it('対応の検索は接続IDと外部IDの両方で絞る（外部IDは送信側が自由に付けられるため）', async () => {
+    state.links = [{ external_id: 'ext-1', task_id: 'task-1' }]
+    const raw = payload({ event_type: 'task.completed' })
+    await handleGenericInboundEvent(raw, signed(raw))
+    expect(state.predicates).toContain(`connector_task_links.connection_id=${CONNECTION_ID}`)
+    expect(state.predicates).toContain('connector_task_links.external_id=ext-1')
+  })
+
+  it('本文を明示的に空にできる（外部で消したのにTaskAppに残り続けない）', async () => {
+    state.links = [{ external_id: 'ext-1', task_id: 'task-1' }]
+    const raw = payload({ event_type: 'task.updated', body: null })
+    await handleGenericInboundEvent(raw, signed(raw))
+    // NOT NULL 列なので null ではなく空文字で表す。
+    expect(state.taskUpdates[0]).toMatchObject({ description: '' })
+  })
+
+  it('対応が指すタスクが既に消えていたら409（記録して握ると永久に適用されない）', async () => {
+    state.links = [{ external_id: 'ext-1', task_id: 'task-1' }]
+    state.updateAffects = false
+    const raw = payload({ event_type: 'task.updated', title: '新しいタイトル' })
+    const result = await handleGenericInboundEvent(raw, signed(raw))
+    expect(result.status).toBe(409)
+    expect(state.recordedEvents).toHaveLength(0)
   })
 
   it('対応があれば内容を更新する', async () => {

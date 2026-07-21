@@ -51,6 +51,19 @@ describe('受け口の配線', () => {
     expect(await res.json()).toEqual({ error: 'unknown external_id' })
   })
 
+  it('大きすぎるボディは読む前に413（認証の前にバッファされるため上限が要る）', async () => {
+    const res = await POST(req('{}', { 'content-length': String(64 * 1024 + 1) }))
+    expect(res.status).toBe(413)
+    expect(handleGenericInboundEvent).not.toHaveBeenCalled()
+  })
+
+  it('Content-Length を付けない送信側でも実サイズで弾く', async () => {
+    const huge = JSON.stringify({ x: 'あ'.repeat(40000) })
+    const res = await POST(req(huge))
+    expect(res.status).toBe(413)
+    expect(handleGenericInboundEvent).not.toHaveBeenCalled()
+  })
+
   it('想定外の例外は理由を返さず500（内部構造を推測させない）', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     handleGenericInboundEvent.mockRejectedValue(new Error('connection string leaked here'))

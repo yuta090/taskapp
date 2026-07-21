@@ -31,6 +31,7 @@ describe('parseGenericInboundEvent — 受け取る形', () => {
         externalId: 'ext-1',
         title: '請求書を送る',
         body: 'メモ',
+        clearBody: false,
         dueDate: '2026-07-31',
       },
     })
@@ -40,6 +41,19 @@ describe('parseGenericInboundEvent — 受け取る形', () => {
     const result = parseGenericInboundEvent(body({ external_id: '  ext-1  ', title: ' 請求書 ' }))
     expect(result.ok && result.event.externalId).toBe('ext-1')
     expect(result.ok && result.event.title).toBe('請求書')
+  })
+
+  it('本文は「未指定」と「空にする」を区別する（外部で消したのに残り続けないように）', () => {
+    const untouched = parseGenericInboundEvent(body())
+    expect(untouched.ok && untouched.event.clearBody).toBe(false)
+    const cleared = parseGenericInboundEvent(body({ body: null }))
+    expect(cleared.ok && cleared.event.clearBody).toBe(true)
+  })
+
+  it('存在しない日付は拒否する（形式だけ合っている値をDBまで通すと500→再送ループになる）', () => {
+    expect(parseGenericInboundEvent(body({ due_date: '2026-99-99' })).ok).toBe(false)
+    expect(parseGenericInboundEvent(body({ due_date: '2026-02-30' })).ok).toBe(false)
+    expect(parseGenericInboundEvent(body({ due_date: '2028-02-29' })).ok).toBe(true) // 閏年は有効
   })
 
   it('期日は省略できる（未指定と「期日なし」を区別する）', () => {

@@ -37,6 +37,11 @@ export interface GenericInboundResult {
 /** 認証まわりの失敗は理由を明かさない（存在の有無を推測させない）。 */
 const OPAQUE_UNAUTHORIZED: GenericInboundResult = { status: 401, body: { error: 'unauthorized' } }
 
+/** 接続IDは uuid 列。形が違うものをDBに投げると型エラーで500になるため、手前で弾く。 */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** 署名ヘッダの形（src/lib/sinks/signature.ts の正本と同じ形）。中身の検証は復号後に行う。 */
+const SIGNATURE_HEADER_PATTERN = /^t=\d+,v1=[0-9a-f]+$/
+
 let _admin: SupabaseClient | null = null
 function admin(): SupabaseClient {
   if (!_admin) {
@@ -55,6 +60,13 @@ interface ConnectionRow {
   import_config: Record<string, unknown> | null
 }
 
+/**
+ * 受け付ける接続の条件: provider が一致 かつ status='active' かつ **import_enabled=true**。
+ *
+ * import_enabled を見落とすと、作った直後（既定は無効）や運用者が意図的に止めた受信口が
+ * イベントを受け付け続ける。「止めたのに止まらない」は、外部から書き込まれる面では
+ * そのまま事故になる。
+ */
 async function loadActiveConnection(connectionId: string): Promise<ConnectionRow | null> {
   const { data, error } = await admin()
     .from('integration_connections')
@@ -62,6 +74,7 @@ async function loadActiveConnection(connectionId: string): Promise<ConnectionRow
     .eq('id', connectionId)
     .eq('provider', 'generic_inbound')
     .eq('status', 'active')
+    .eq('import_enabled', true)
     .maybeSingle()
   if (error) throw new Error(`integration_connections lookup failed: ${error.message}`)
   return (data as ConnectionRow | null) ?? null
@@ -128,13 +141,18 @@ async function applyDueAndAuthority(
   taskId: string,
   connectionId: string,
   dueDate: string | null | undefined,
-): Promise<void> {
-  if (dueDate === undefined) return
-  const { error } = await admin()
+): Promise<boolean> {
+  if (dueDate === undefined) return true
+  // 更新できた行を必ず確認する。対応表は tasks への FK を張らないため、削除済みタスクを指す
+  // 古い対応が残り得る。0件のまま200を返して記録すると、そのイベントは「適用済み」として
+  // 二度と再送されないのに、実際には何も起きていない。
+  const { data, error } = await admin()
     .from('tasks')
     .update({ due_date: dueDate, due_authority_connection_id: connectionId })
     .eq('id', taskId)
+    .select('id')
   if (error) throw new Error(`apply due failed: ${error.message}`)
+  return ((data as unknown[] | null) ?? []).length > 0
 }
 
 async function handleCreated(conn: ConnectionRow, event: GenericInboundEvent): Promise<GenericInboundResult> {
@@ -154,7 +172,12 @@ async function handleCreated(conn: ConnectionRow, event: GenericInboundEvent): P
   if (error) throw new Error(`rpc_connector_create_task failed: ${error.message}`)
 
   const taskId = typeof data === 'string' ? data : null
-  if (taskId) await applyDueAndAuthority(taskId, conn.id, event.dueDate)
+  if (!taskId) throw new Error('rpc_connector_create_task returned no task id')
+  if (!(await applyDueAndAuthority(taskId, conn.id, event.dueDate))) {
+    // 対応は存在するのにタスクが無い＝対応が古い（タスクが削除済み）。記録して握ると
+    // このイベントは永久に適用されない。送信側に再送させるため非2xxで返す。
+    return { status: 409, body: { error: 'linked task no longer exists' } }
+  }
   return { status: 200, body: { ok: true, task_id: taskId } }
 }
 
@@ -164,16 +187,22 @@ async function handleUpdated(conn: ConnectionRow, event: GenericInboundEvent): P
 
   const patch: Record<string, unknown> = {}
   if (event.title) patch.title = event.title
-  // description は NOT NULL default ''。明示 null は入れない（NOT NULL 違反で取り込みが止まる）。
-  if (event.body !== null && event.body !== undefined) patch.description = event.body
+  // description は NOT NULL default '' なので、空にする指示は null ではなく空文字で表す
+  // （明示 null は NOT NULL 違反で取り込みが止まる）。「変更しない」と「空にする」は別物。
+  if (event.clearBody) patch.description = ''
+  else if (event.body !== null && event.body !== undefined) patch.description = event.body
   if (event.dueDate !== undefined) {
     patch.due_date = event.dueDate
     patch.due_authority_connection_id = conn.id
   }
   if (Object.keys(patch).length === 0) return { status: 200, body: { ok: true, task_id: taskId } }
 
-  const { error } = await admin().from('tasks').update(patch).eq('id', taskId)
+  const { data, error } = await admin().from('tasks').update(patch).eq('id', taskId).select('id')
   if (error) throw new Error(`update task failed: ${error.message}`)
+  if (((data as unknown[] | null) ?? []).length === 0) {
+    // 0件＝対応が指すタスクが既に無い（上の applyDueAndAuthority と同じ理由）。
+    return { status: 409, body: { error: 'linked task no longer exists' } }
+  }
   return { status: 200, body: { ok: true, task_id: taskId } }
 }
 
@@ -213,11 +242,17 @@ export async function handleGenericInboundEvent(
     return { status: 400, body: { error: 'connection_id is required' } }
   }
 
+  // DBに触る前に、明らかに認証を通り得ないものを落とす。狙いは2つ:
+  //   - 未認証の相手にDB問い合わせ・復号を走らせない（費用を負担しない）
+  //   - 接続IDの形が不正なだけで500＋ログを出さない（不正入力で運用ログを溢れさせない・
+  //     500と401の出し分けが「この形式なら存在し得る」というヒントになるのも避ける）
+  if (!UUID_PATTERN.test(connectionId)) return OPAQUE_UNAUTHORIZED
+  if (!signatureHeader || !SIGNATURE_HEADER_PATTERN.test(signatureHeader)) return OPAQUE_UNAUTHORIZED
+
   const conn = await loadActiveConnection(connectionId)
   if (!conn) return OPAQUE_UNAUTHORIZED
   const secret = await receiveSecretOf(conn)
   if (!secret) return OPAQUE_UNAUTHORIZED
-  if (!signatureHeader) return OPAQUE_UNAUTHORIZED
   if (!verifySinkSignature(secret, rawBody, signatureHeader).ok) return OPAQUE_UNAUTHORIZED
 
   // ここから先は「正当な送信元」が確定している。契約違反は理由を返してよい。
