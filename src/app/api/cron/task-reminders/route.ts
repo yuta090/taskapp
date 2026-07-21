@@ -5,7 +5,8 @@ import {
   markTaskReminderSent,
 } from '@/lib/reminders/taskReminderStore'
 import { findLineAccountById } from '@/lib/channels/store'
-import { pushLineMessage } from '@/lib/channels/line/client'
+import { sendSecretaryPush } from '@/lib/channels/send/secretaryPush'
+import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 import {
   selectDueTaskReminders,
   buildTaskReminderText,
@@ -32,6 +33,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  *   - remind_sent_at >= remind_at のタスクは selectDueTaskReminders が除外
  *   - retryKey を (taskId, remindAt) で決定的にし、pg_net二重起動でもLINE側で弾く
  *   - push成功後にのみ remind_sent_at を刻む（失敗は次回cronで再送）
+ *
+ * 送信は統一送信境界 sendSecretaryPush（@/lib/channels/send/secretaryPush）を経由する
+ * （PR-0.5・課金穴是正）。org層(org_channel_policy)＋グローバル層(platform_channel_budget)
+ * の二層予算判定を通過したときだけ push し、billable_push:true で計上する。予算抑止
+ * （delivered:false）を返した候補は remind_sent_at を刻まない（次回cronで再送。
+ * approval-notify の claim戻しと同じ「未処理のまま残す」思想）。
  *
  * 認証: Authorization: Bearer ${CRON_SECRET}（他cronと同一パターン）。
  */
@@ -61,6 +68,7 @@ export async function POST(request: NextRequest) {
 
   const candidates = await findDueTaskReminders(nowISO)
   const due = selectDueTaskReminders({ tasks: candidates, now })
+  const jstDayOfYear = getJstDayOfYear(now)
 
   if (due.length === 0) {
     return NextResponse.json({ due: 0, sent: 0, skipped: [], ...(dryRun ? { dryRun: true, plan: [] } : {}) })
@@ -123,13 +131,28 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        await pushLineMessage({
-          accessToken: account.accessToken,
+        const result = await sendSecretaryPush({
+          account,
+          orgId: link.orgId,
           to: link.externalGroupId,
           messages: [{ type: 'text', text }],
-          retryKey: buildReminderRetryKey(task),
+          retryKey: buildReminderRetryKey(task, link.id),
+          jstDayOfYear,
+          record: {
+            spaceId: task.spaceId,
+            identityId: null,
+            groupId: link.id,
+            externalUserId: null,
+            body: task.title,
+            payload: { kind: 'task-reminder', taskId: task.id },
+          },
         })
-        deliveredAtLeastOnce = true
+        if (result.delivered) {
+          deliveredAtLeastOnce = true
+        } else {
+          // 予算抑止（org層/グローバル層）。remind_sent_at を刻まないので次回cronで再送される。
+          skipped.push({ taskId: task.id, reason: result.reason })
+        }
       } catch (err) {
         skipped.push({
           taskId: task.id,
@@ -165,13 +188,20 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * 決定的な retryKey。(taskId, remindAt) が同じなら同じキーになり、
+ * 決定的な retryKey。(taskId, remindAt, groupId) が同じなら同じキーになり、
  * pg_net の二重起動・手動再実行でもLINE側で二重配信を弾く。remind_at を
  * 変更（再アーム）した場合はキーも変わるので、新しいリマインドは配信される。
  * UUID v5 相当の形にするため、決定的入力を UUID 形式へ整形する。
+ *
+ * groupId（宛先の一意識別子。channel_groups.id を推奨）を必ず含める —
+ * 1つの space が複数の active グループ（同一 account 配下でも別 external_group_id）に
+ * 紐づく場合、宛先を含めないと全リンクへ同一キーが渡り、LINEの
+ * X-Line-Retry-Key idempotency により2件目以降が弾かれて配信欠落する。加えて
+ * insertChannelMessage の externalMessageId(=retryKey) が同一キーになり
+ * channel_messages dedupe 衝突で billable_push が過少計上される（HIGH修正・回帰）。
  */
-function buildReminderRetryKey(task: TaskReminderInput): string {
-  const raw = `${task.id}:${task.remindAt}`
+function buildReminderRetryKey(task: TaskReminderInput, groupId: string): string {
+  const raw = `${task.id}:${task.remindAt}:${groupId}`
   // 単純な決定的ハッシュ（32桁hex）→ UUID形式に整形。衝突耐性より決定性が目的。
   let h1 = 0x811c9dc5
   let h2 = 0x1000193

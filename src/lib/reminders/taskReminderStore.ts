@@ -50,6 +50,8 @@ export async function findDueTaskReminders(nowISO: string): Promise<TaskReminder
 }
 
 export interface ReminderGroupLink {
+  /** channel_groups.id（内部id）。channel_messages.group_id の帰属に使う（統一送信境界 PR-0.5） */
+  id: string
   spaceId: string
   orgId: string
   accountId: string
@@ -67,7 +69,7 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
 
   const { data, error } = await admin()
     .from('channel_groups')
-    .select('space_id, org_id, account_id, external_group_id, channel_accounts!inner(status, owner_type)')
+    .select('id, space_id, org_id, account_id, external_group_id, channel_accounts!inner(status, owner_type)')
     .eq('status', 'active')
     .eq('channel_accounts.status', 'active')
     .in('space_id', spaceIds)
@@ -75,6 +77,7 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
   if (error || !data) return []
 
   type Row = {
+    id: string
     space_id: string | null
     org_id: string
     account_id: string
@@ -87,6 +90,7 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
     .map((row) => {
       const acct = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
       return {
+        id: row.id,
         spaceId: row.space_id,
         orgId: row.org_id,
         accountId: row.account_id,
