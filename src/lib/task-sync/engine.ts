@@ -131,7 +131,13 @@ export async function importConnection(args: {
     if (missing.length > 0) {
       // 明示指定が「全て」欠落している。何も取得を試みていない以上、鮮度を主張する根拠が無いので
       // saveCursor は呼ばない。欠落台帳だけは更新する（再共有時に取りこぼさないための記録）。
-      const updatedMissing = updateMissingMap(storedMissing, missing, available, storedCursor)
+      const updatedMissing = updateMissingMap(
+        storedMissing,
+        missing,
+        available,
+        storedCursor,
+        targets.readContainerIds,
+      )
       await store.saveMissingContainers(connectionId, updatedMissing)
       return {
         ...result,
@@ -190,7 +196,7 @@ export async function importConnection(args: {
   // 恒久停止する回帰を防ぐ）。欠落台帳は「新規欠落を追加（既存エントリは上書きしない＝最初に
   // 欠落と判明した時点の値を保持する）」「再出現して取り切れたコンテナのエントリを削除」を
   // 同時に反映する。
-  const updatedMissing = updateMissingMap(storedMissing, missing, available, storedCursor)
+  const updatedMissing = updateMissingMap(storedMissing, missing, available, storedCursor, targets.readContainerIds)
   await store.saveCursor(connectionId, advanceCursor(adapter.cursorGranularity, now), now, updatedMissing)
   return { ...result, missingContainers: missing.length > 0 ? missing : undefined }
 }
@@ -232,18 +238,29 @@ async function resolveContainers(
  *     再共有時の since がどんどん先送りされて取りこぼす）。
  *   - availableIds に含まれる（＝このサイクルで取り切れた）IDのエントリは削除する
  *     （再出現して取り切れた、または元々欠落していなかった、のどちらも欠落台帳に残す理由が無い）。
+ *   - readContainerIds が明示指定されている場合、その指定に含まれないキーは台帳から削除する
+ *     （設定変更でコンテナが指定から外れると available にも missing にも二度と現れず、上の2つの
+ *     ルールだけでは永久に残って設定変更を繰り返すたびに単調増加するため）。readContainerIds が
+ *     未指定（＝列挙の全件が対象）の場合は「指定から外れた」を判定する基準が無いので掃除しない。
  */
 function updateMissingMap(
   existing: Record<string, string>,
   missingIds: string[],
   availableIds: string[],
   cursorAtDetection: string | null,
+  readContainerIds?: string[],
 ): Record<string, string> {
   const next = { ...existing }
   for (const id of missingIds) {
     if (!(id in next)) next[id] = cursorAtDetection ?? ''
   }
   for (const id of availableIds) delete next[id]
+  if (readContainerIds && readContainerIds.length > 0) {
+    const allowed = new Set(readContainerIds)
+    for (const id of Object.keys(next)) {
+      if (!allowed.has(id)) delete next[id]
+    }
+  }
   return next
 }
 
