@@ -15,6 +15,7 @@ const storeMock = {
   findTaskSnapshotForReminder: vi.fn(),
   findOrgIdForSpace: vi.fn(),
   findConnectionFreshness: vi.fn(),
+  isDueReminderEnabledForUser: vi.fn(),
 }
 vi.mock('@/lib/reminders/dueReminderStore', () => storeMock)
 
@@ -98,6 +99,7 @@ describe('POST /api/cron/due-reminder-sender', () => {
     storeMock.findTaskSnapshotForReminder.mockResolvedValue(TASK_SNAPSHOT)
     storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
     storeMock.findConnectionFreshness.mockResolvedValue(null)
+    storeMock.isDueReminderEnabledForUser.mockResolvedValue(true)
 
     resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: true }))
 
@@ -215,6 +217,39 @@ describe('POST /api/cron/due-reminder-sender', () => {
     expect(sendSecretaryPushMock).not.toHaveBeenCalled()
     expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'not_entitled')
     expect(json.sent).toBe(0)
+  })
+
+  describe('利用者個人ごとの受信オプトアウト(profiles.due_reminder_enabled・送信境界での抑止)', () => {
+    it('assigneeがオプトアウト(false)なら送信せずsuppressed(recipient_opted_out)', async () => {
+      storeMock.isDueReminderEnabledForUser.mockResolvedValue(false)
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(storeMock.isDueReminderEnabledForUser).toHaveBeenCalledWith(TASK_SNAPSHOT.assigneeId)
+      expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith(
+        'occ-1',
+        'suppressed',
+        'recipient_opted_out',
+      )
+      expect(json.sent).toBe(0)
+      expect(json.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ occurrenceId: 'occ-1', reason: 'recipient_opted_out' }),
+        ]),
+      )
+    })
+
+    it('assigneeが受信可(true)なら従来どおり送信する', async () => {
+      storeMock.isDueReminderEnabledForUser.mockResolvedValue(true)
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
+      expect(json.sent).toBe(1)
+    })
   })
 
   it('line_direct_dm を持たなければDMを試さずグループへ配信する', async () => {

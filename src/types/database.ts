@@ -111,6 +111,7 @@ export interface Database {
           avatar_url: string | null
           is_superadmin: boolean
           onboarding_flags: Record<string, boolean>
+          due_reminder_enabled: boolean
           created_at: string
           updated_at: string
         }
@@ -120,6 +121,7 @@ export interface Database {
           avatar_url?: string | null
           is_superadmin?: boolean
           onboarding_flags?: Record<string, boolean>
+          due_reminder_enabled?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -129,6 +131,7 @@ export interface Database {
           avatar_url?: string | null
           is_superadmin?: boolean
           onboarding_flags?: Record<string, boolean>
+          due_reminder_enabled?: boolean
           created_at?: string
           updated_at?: string
         }

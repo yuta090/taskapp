@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { User, Camera, Check, CircleNotch, Key, CaretRight } from '@phosphor-icons/react'
+import { User, Camera, Check, CircleNotch, Key, CaretRight, Bell } from '@phosphor-icons/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -14,6 +14,11 @@ export default function AccountSettingsPage() {
   const [displayName, setDisplayName] = useState('')
   const [originalDisplayName, setOriginalDisplayName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  // 秘書からの期限リマインド(自動due-reminder)の受信可否 (profiles.due_reminder_enabled)。
+  // 既存の表示名/アバターと同じくprofilesを直接fetch/upsertする作りに合わせる
+  // （useReminderPreference系のフックはサーバー側で取得済みの初期値を渡す前提のため、
+  // 本ページのようにクライアント側で非同期fetchする画面ではmount時の初期値ズレが起きうる）。
+  const [dueReminderEnabled, setDueReminderEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -34,7 +39,7 @@ export default function AccountSettingsPage() {
       try {
         const { data, error } = await (supabase as SupabaseClient)
           .from('profiles')
-          .select('display_name, avatar_url')
+          .select('display_name, avatar_url, due_reminder_enabled')
           .eq('id', user.id)
           .maybeSingle()  // Use maybeSingle to handle missing profile gracefully
 
@@ -44,6 +49,7 @@ export default function AccountSettingsPage() {
           setDisplayName(data.display_name || '')
           setOriginalDisplayName(data.display_name || '')
           setAvatarUrl(data.avatar_url || null)
+          setDueReminderEnabled(data.due_reminder_enabled ?? true)
         } else {
           // Profile doesn't exist yet - use defaults from user metadata
           const defaultName = user.user_metadata?.name || user.email?.split('@')[0] || ''
@@ -91,6 +97,25 @@ export default function AccountSettingsPage() {
       setMessage({ type: 'error', text: 'プロフィールの更新に失敗しました' })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleToggleDueReminder = async () => {
+    if (!user) return
+
+    const previous = dueReminderEnabled
+    const next = !previous
+    setDueReminderEnabled(next)  // 楽観的更新（保存ボタン無し・プロジェクト規約）
+
+    try {
+      const { error } = await (supabase as SupabaseClient)
+        .from('profiles')
+        .upsert({ id: user.id, due_reminder_enabled: next }, { onConflict: 'id' })
+
+      if (error) throw error
+    } catch (err) {
+      console.warn('Failed to persist due reminder preference:', err)
+      setDueReminderEnabled(previous)  // 失敗時ロールバック
     }
   }
 
@@ -232,6 +257,34 @@ export default function AccountSettingsPage() {
               )}
               {saving ? '保存中...' : '保存'}
             </button>
+          </div>
+        </div>
+
+        {/* Notification Preferences */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-gray-500" />
+            通知設定
+          </h3>
+          <div className="flex items-center justify-between">
+            <div className="pr-4">
+              <p className="text-sm font-medium text-gray-900">
+                秘書からの期限リマインドを受け取る（LINE）
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                オフにすると、期限が近いタスクの自動リマインドが届かなくなります（手動リマインドやアプリ内通知には影響しません）
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+              <input
+                type="checkbox"
+                aria-label="秘書からの期限リマインドを受け取る（LINE）"
+                checked={dueReminderEnabled}
+                onChange={() => void handleToggleDueReminder()}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
           </div>
         </div>
 
