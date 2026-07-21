@@ -175,6 +175,27 @@ export async function findConnectionFreshness(
   return { status: row.status, provider: row.provider, lastImportSuccessAt: row.last_import_success_at }
 }
 
+/**
+ * 利用者本人の「秘書からの期限リマインドを受け取る」オプトアウト設定
+ * (profiles.due_reminder_enabled)。sender が送信直前（entitlement再確認と同じ位置づけ）に
+ * 参照し、false なら suppressed('recipient_opted_out') にする。
+ *
+ * fail-open: 行が見つからない/列がnull の場合は true（受け取る）を返す。オプトアウトは
+ * 明示的にfalseを立てた場合のみ効く（プロフィール未作成のユーザーを誤って抑止しないため）。
+ */
+export async function isDueReminderEnabledForUser(userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('profiles')
+    .select('due_reminder_enabled')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) throw new Error(`profiles: due_reminder_enabled lookup failed: ${error.message}`)
+
+  const enabled = (data as { due_reminder_enabled?: boolean | null } | null)?.due_reminder_enabled
+  return enabled ?? true
+}
+
 // ---------------------------------------------------------------------------
 // channel-digest: 期限セクション（occurrence非依存の直接クエリ・§9）
 // ---------------------------------------------------------------------------

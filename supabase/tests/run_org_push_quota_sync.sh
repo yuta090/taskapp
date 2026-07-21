@@ -42,6 +42,7 @@ apply "$TST/harness/org_billing_stub.sql"
 
 echo "== target migration (verbatim, unmodified) =="
 apply "$MIG/20260720201858_org_push_quota_from_plan.sql"
+apply "$MIG/20260721193407_free_quota_on_exceed_block.sql"
 
 echo "== quota sync checks =="
 OUT="$WORK/o.out"
