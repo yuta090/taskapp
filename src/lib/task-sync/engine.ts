@@ -1,5 +1,5 @@
 import { advanceCursor, sinceForFetch } from '@/lib/task-sync/cursor'
-import type { ExternalTask, ProviderContext, TaskSyncAdapter } from '@/lib/task-sync/types'
+import type { DeletionMode, ExternalTask, ProviderContext, TaskSyncAdapter } from '@/lib/task-sync/types'
 
 /**
  * 取り込みエンジン（provider 非依存）。
@@ -115,11 +115,14 @@ export async function importConnection(args: {
       do {
         const page = await adapter.listChangedTasks(ctx, containerId, { since, cursor })
         for (const task of page.items) {
-          await applyExternalTask({ connectionId, task, links, targets, store, result })
+          await applyExternalTask({ connectionId, task, deletionMode: adapter.deletionMode, links, targets, store, result })
         }
         cursor = page.nextCursor ?? undefined
         pages++
-        if (pages >= MAX_PAGES_PER_CONTAINER) {
+        // 上限判定は「まだ次ページがある」ときだけ。取り切った最終ページがちょうど上限枚目でも
+        // 失敗にしない（ちょうど上限枚で終わる接続が、毎回完走しても必ず失敗と報告されて
+        // カーソルが永久に前進しなくなるため）。
+        if (cursor && pages >= MAX_PAGES_PER_CONTAINER) {
           // カーソルが進まない実装/異常応答で永久ループするより、今回分を打ち切って次サイクルに回す。
           // カーソルは前進させない（下の throw で成功パスから外れる）ので取りこぼしにはならない。
           throw new Error(`page limit exceeded for container ${containerId}`)
@@ -154,15 +157,28 @@ async function resolveContainers(
 async function applyExternalTask(args: {
   connectionId: string
   task: ExternalTask
+  deletionMode: DeletionMode | undefined
   links: Map<string, string>
   targets: ImportTargets
   store: TaskSyncStore
   result: ImportResult
 }): Promise<void> {
-  const { connectionId, task, links, targets, store, result } = args
+  const { connectionId, task, deletionMode, links, targets, store, result } = args
   const existingTaskId = links.get(task.externalId)
 
   if (task.deleted) {
+    // 削除の扱いは**アダプタの宣言に従う**。宣言が 'tombstone'（削除を確実に知れる）でないのに
+    // deleted が立っていたら、それはアダプタ側の不具合であって外部の事実ではない。宣言を信じずに
+    // 対応を切ると、生きているタスクを同期対象から外してしまう（利用者からは「同期が止まった」
+    // ように見え、原因も分からない）。宣言と矛盾する入力は無視してログに残す。
+    if (deletionMode !== 'tombstone') {
+      console.error(
+        '[task-sync] adapter reported deletion but deletionMode is not tombstone; ignoring:',
+        connectionId,
+        task.externalId,
+      )
+      return
+    }
     // 外部で消えた。TaskApp 側のタスク行は消さない（作業の記録と証跡は残す）。対応だけ切って、
     // 以後この接続の更新対象から外す。
     if (existingTaskId) {

@@ -88,15 +88,37 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
       })
       if (linkErr) {
         if ((linkErr as { code?: string }).code === '23505') {
-          // 並行実行で先に対応が作られた。今作ったタスクを補償削除し、既存の対応へ倒す。
-          const { data: existing } = await admin
+          // 対応が既に存在する。原因は2つあり、どちらもここで吸収する:
+          //   (1) 並行実行で先に作られた
+          //   (2) 過去に外部で削除(orphaned)され、その後**復活**した。loadLinks は active しか
+          //       読まないため未リンク扱いになり、ここへ来る。
+          // (2) を放置すると毎回「作る→一意違反→補償削除」を繰り返し、生きている外部タスクが
+          // 永久に切り離されたままになる。**対応を active に戻して**既存タスクへ倒す。
+          const { data: existing, error: lookupErr } = await admin
             .from('connector_task_links')
             .select('task_id')
             .eq('connection_id', connectionId)
             .eq('external_id', task.externalId)
             .maybeSingle()
-          await admin.from('tasks').delete().eq('id', taskId)
-          if (existing) return (existing as { task_id: string }).task_id
+          // 補償削除の失敗は放置すると「対応の無い孤児タスク」が残るので、必ず結果を見る。
+          const { error: delErr } = await admin.from('tasks').delete().eq('id', taskId)
+          if (delErr) throw new Error(`compensating delete failed: ${delErr.message}`)
+          if (lookupErr) throw new Error(`existing link lookup failed: ${lookupErr.message}`)
+          if (existing) {
+            const existingTaskId = (existing as { task_id: string }).task_id
+            const { error: reviveErr } = await admin
+              .from('connector_task_links')
+              .update({
+                state: 'active',
+                // 外部側で入れ物が変わっている可能性がある（別プロジェクトへ移動して復活等）。
+                external_list_id: task.containerId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('connection_id', connectionId)
+              .eq('external_id', task.externalId)
+            if (reviveErr) throw new Error(`revive link failed: ${reviveErr.message}`)
+            return existingTaskId
+          }
         }
         throw new Error(`create link failed: ${linkErr.message}`)
       }

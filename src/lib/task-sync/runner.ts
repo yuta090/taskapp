@@ -25,6 +25,12 @@ function admin(): SupabaseClient {
   return _admin
 }
 
+/**
+ * この経路の担当**外**であることが正常な provider。既存の専用ワーカーが取り込みを担当しており、
+ * ここで処理すると二重取り込みになる。「アダプタが無い＝異常」と「担当外＝正常」を区別するための表。
+ */
+const OTHER_WORKER_PROVIDERS = new Set(['google_tasks', 'multica'])
+
 export interface TaskSyncRunSummary {
   connections: number
   created: number
@@ -102,8 +108,17 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
 
   for (const conn of (data as ConnectionRow[] | null) ?? []) {
     const adapter = getTaskSyncAdapter(conn.provider)
-    // gtasks/multica を含む「この経路の担当外」はここで落ちる（二重取り込みを防ぐ）。
-    if (!adapter) continue
+    if (!adapter) {
+      // gtasks/multica は既存の専用ワーカーが担当するため、ここで落ちるのが正しい（二重取り込み防止）。
+      if (OTHER_WORKER_PROVIDERS.has(conn.provider)) continue
+      // それ以外の未知 provider は「接続済みに見えるのに永久に同期されない」状態。
+      // DBの provider 列は形式チェックのみになったので、黙って飛ばすと誰も気づけない。
+      // 件数と理由を必ず記録する（運用が原因に辿り着けるようにするのが目的）。
+      console.error('[task-sync] no adapter for provider (connection will never sync):', conn.provider, conn.id)
+      summary.skipped++
+      summary.reasons.push(`${conn.provider}: unknown_provider`)
+      continue
+    }
 
     summary.connections++
     try {

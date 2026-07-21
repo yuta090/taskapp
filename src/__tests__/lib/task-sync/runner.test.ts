@@ -70,12 +70,26 @@ beforeEach(() => {
 })
 
 describe('runTaskSyncImport — 対象の選別', () => {
-  it('アダプタ未実装の provider は触らない（gtasks/multica の二重取り込みを防ぐ）', async () => {
+  it('専用ワーカー担当(gtasks/multica)は静かに飛ばす（二重取り込みを防ぐ・異常ではない）', async () => {
     connectionRows.push(row({ provider: 'google_tasks' }))
     getTaskSyncAdapter.mockReturnValue(null)
     const summary = await runTaskSyncImport()
     expect(summary.connections).toBe(0)
+    expect(summary.skipped).toBe(0)
     expect(importConnection).not.toHaveBeenCalled()
+  })
+
+  it('担当外でもない未知 provider は観測できる形で記録する（永久に同期されない接続を隠さない）', async () => {
+    // DBの provider 列は形式チェックのみになったため、想定外の値が入り得る。黙って飛ばすと
+    // 「接続済みに見えるのに一生同期されない」状態に誰も気づけない。
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    connectionRows.push(row({ provider: 'typo_tool' }))
+    getTaskSyncAdapter.mockReturnValue(null)
+    const summary = await runTaskSyncImport()
+    expect(summary.skipped).toBe(1)
+    expect(summary.reasons[0]).toContain('unknown_provider')
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 
   it('アダプタ実装済みの接続は取り込みを実行する', async () => {

@@ -24,8 +24,13 @@
 --     そのまま格納する。専用テーブルは作らない）
 --   - 各ツールのアダプタ実装・スコープ/権限の検証
 --
--- 適用: アプリ稼働中に本番共用DBへ適用可（列追加＋制約入替＋新規オブジェクトのみ・
---   既存行の値は multica の auth_kind backfill を除いて変更しない）。
+-- 適用: アプリ稼働中に適用可。ただし**完全な無ロックではない**:
+--   4) の unique index 作成は CONCURRENTLY ではないため、作成中は integration_connections への
+--   書き込みが待たされる。この表は「org × provider につき原則1行」で、規模が数千行を超えない
+--   （接続はユーザー数ではなく組織数に比例する）ため、待ちはミリ秒〜秒のオーダーに収まる想定。
+--   将来この表が桁違いに大きくなった場合は CONCURRENTLY への切替が必要（ただし CONCURRENTLY は
+--   トランザクション内で実行できないため、migration ランナー側の対応も要る）。
+--   既存行の値は multica の auth_kind backfill を除いて変更しない。
 --
 -- ロールバック / 不可逆性:
 --   - 列追加・インデックス・トリガーは drop で可逆。
@@ -60,7 +65,7 @@ comment on column public.integration_connections.auth_kind is
 --   metadata jsonb に入れないのは、宛先が「資格情報を送りつける先」という安全上の第一級要素であり、
 --   下の immutable トリガーで守る対象を列として固定したいため。
 comment on column public.integration_connections.base_url is
-  '接続先のベースURL。ホストがテナントごとに可変なツール（Backlog のスペースURL / Redmine の自ホスト）のみ設定。設定済みの値は変更不可（integration_connections_validate_base_url_immutable）。';
+  '接続先のベースURL。ホストがテナントごとに可変なツール（Backlog のスペースURL / Redmine の自ホスト）のみ設定。設定済みの値は変更不可（integration_connections_validate_endpoint_immutable）。';
 
 -- external_account_key: 外部側テナントの正規化識別子。
 --   「どの外部テナントに繋いでいるか」を provider ごとの流儀に依存せず1つの値で表すことで、
@@ -88,8 +93,12 @@ update public.integration_connections
 --    釣り合わず、実質「typo 番兵」以上の仕事をしていない。
 --    真実源は TS 側（src/lib/integrations/registry.ts の IntegrationId とアダプタ登録表）へ一本化し、
 --    DB は識別子の形式（小文字英数とアンダースコア）だけを見る。
---    登録表に無い provider が入っても、ワーカーがアダプタ未解決として dead-letter するため
---    静かに壊れることはない。
+--    ⚠ 緩めた分の担保はアプリ側に移る:
+--      - 接続を作る唯一の経路（/api/integrations/connections/task-sync）が登録表で provider を検証して
+--        弾く（未知の値は 400）。ここが実質の門番。
+--      - それでも未知 provider の行が入り込んだ場合、取り込みワーカーはその接続を「対象外」として
+--        飛ばす。黙って飛ばすと「接続済みに見えるのに永久に同期されない」状態が観測できないため、
+--        ワーカーは skip 理由として記録する（src/lib/task-sync/runner.ts の unknown_provider）。
 -- -----------------------------------------------------------------------------
 alter table public.integration_connections
   drop constraint if exists integration_connections_provider_check;
@@ -152,8 +161,9 @@ comment on index public.integration_connections_provider_owner_account_uniq is
 --    RLS＝誰が書けるか / トリガー＝何を書けるか、の責務分離は
 --    20260720181730_connector_import_config_validation.sql と同じ姿勢。
 --    NULL → 非NULL（初期設定）だけは許可する。非NULL → NULL（クリアして入れ直す抜け道）も拒否する。
+--    external_account_key も同じトリガーで不変にする（理由は関数内コメント）。
 -- -----------------------------------------------------------------------------
-create or replace function public.integration_connections_validate_base_url_immutable()
+create or replace function public.integration_connections_validate_endpoint_immutable()
 returns trigger
 language plpgsql
 security definer
@@ -165,17 +175,27 @@ begin
   if old.base_url is not null and new.base_url is distinct from old.base_url then
     raise exception 'base_url is immutable once set (connection %); recreate the connection to change the endpoint', old.id;
   end if;
+  -- external_account_key も同じ理由で不変にする。可変だと、一意インデックスの意味が崩れる:
+  -- 既存 provider（key=NULL 前提で1接続に制限されている）の行に後から key を付ければ、
+  -- 同じ provider/owner で好きなだけ接続を増やせてしまう（＝二重取り込みの抜け道）。
+  -- 値はサーバー側が接続先URLから決定的に導出するものであり、後から変える正当な理由がない。
+  if old.external_account_key is not null
+     and new.external_account_key is distinct from old.external_account_key then
+    raise exception 'external_account_key is immutable once set (connection %)', old.id;
+  end if;
   return new;
 end;
 $$;
 
 drop trigger if exists integration_connections_validate_base_url_immutable
   on public.integration_connections;
+drop trigger if exists integration_connections_validate_endpoint_immutable
+  on public.integration_connections;
 
-create trigger integration_connections_validate_base_url_immutable
+create trigger integration_connections_validate_endpoint_immutable
   before update on public.integration_connections
   for each row
-  execute function public.integration_connections_validate_base_url_immutable();
+  execute function public.integration_connections_validate_endpoint_immutable();
 
 -- -----------------------------------------------------------------------------
 -- 6) external_account_key の逆引き索引
@@ -191,7 +211,8 @@ create index if not exists integration_connections_provider_account_idx
 --   (a) 既存 provider（key=NULL）で同一 provider/owner の2件目 INSERT は一意違反で失敗する
 --   (b) external_account_key を設定すれば同一 provider/owner でも複数接続でき、
 --       同一 key の重複だけが拒否される
---   (c) 設定済み base_url の UPDATE は例外で拒否される（NULL→非NULL の初期設定は通る）
+--   (c) 設定済み base_url / external_account_key の UPDATE は例外で拒否される
+--       （NULL→非NULL の初期設定は通る）
 --   (d) 既存 multica 行の auth_kind が 'shared_secret' に backfill されている
 --   (e) 本ファイルを再適用しても壊れない（列・索引・トリガー・制約すべて冪等）
 -- =============================================================================
