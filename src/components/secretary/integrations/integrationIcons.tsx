@@ -46,6 +46,7 @@ export const INTEGRATION_ICONS: Record<IntegrationId, typeof GoogleLogo> = {
   monday: CalendarBlank,
   chatwork: ChatCircleText,
   garoon: Buildings,
+  generic_inbound: Broadcast,
   webhook: Broadcast,
   notion: NotionLogo,
   google_sheets: Table,

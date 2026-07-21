@@ -31,6 +31,7 @@ export type IntegrationId =
   | 'monday'
   | 'chatwork'
   | 'garoon'
+  | 'generic_inbound'
   // データ書き出し・通知（送りっぱなし）
   | 'webhook'
   | 'notion'
@@ -61,6 +62,7 @@ export const ALL_INTEGRATION_IDS: readonly IntegrationId[] = [
   'monday',
   'chatwork',
   'garoon',
+  'generic_inbound',
   // data_export
   'webhook',
   'notion',
@@ -91,10 +93,13 @@ export const CATEGORY_LABEL: Record<IntegrationCategory, string> = {
 }
 
 /** 連携の方向。UI表示と役割の説明に使う。 */
-export type IntegrationDirection = 'two_way' | 'notify' | 'export'
+export type IntegrationDirection = 'two_way' | 'inbound' | 'notify' | 'export'
 
 export const DIRECTION_LABEL: Record<IntegrationDirection, string> = {
   two_way: '双方向同期',
+  // 受信のみ＝相手から送ってもらう形。こちらから取りに行かないので、外部の状態を能動的に
+  // 確認できない（完了の書き戻しもできない）。two_way と混ぜると期待値がずれるので分ける。
+  inbound: '取り込み（受信のみ）',
   notify: '通知（送りっぱなし）',
   export: '書き出し',
 }
@@ -464,6 +469,28 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     setupComplexity: 'host_and_key',
     proOnly: true,
     notes: 'サイボウズ Garoon のToDo。企業内グループウェア利用企業向け。',
+  },
+  generic_inbound: {
+    id: 'generic_inbound',
+    label: 'その他のツール（Webhook）',
+    category: 'task_sync',
+    // 受信のみ。こちらから取りに行かないので、完了の書き戻しも外部状態の確認もできない。
+    direction: 'inbound',
+    status: 'beta',
+    surface: 'connector',
+    setupComplexity: 'api_key',
+    connectorKind: 'generic_inbound',
+    proOnly: true,
+    featured: true,
+    notes:
+      '公開APIが無いツールも、Zapier・Make・n8n などから決まった形のWebhookを送れば取り込めます。送り先URLと署名用の鍵を発行します。',
+    // 次にいつ届くかは送信側次第で、こちらからは保証できない。期限の鮮度を証明できないため、
+    // 取り込んだ期限を催促の根拠にはしない（正本は立てるので、鮮度チェックで確実に抑止される）。
+    capabilities: {
+      dueImport: false,
+      completionWrite: false,
+      dueFreshness: 'none',
+    },
   },
   // ---- データ書き出し・通知（送りっぱなし） -----------------------------
   webhook: {

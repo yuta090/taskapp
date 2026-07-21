@@ -14,7 +14,9 @@ export const runtime = 'nodejs'
  * この一覧にも自動で載る**（ここに手で足す運用にすると必ず追従漏れが起きる）。
  */
 function connectorProviders(): string[] {
-  return ['multica', 'google_tasks', ...implementedTaskSyncProviders()]
+  // generic_inbound は受信型でアダプタ登録表には載らないが、接続としては一覧に出す必要がある
+  // （画面から受信口の状態と取り込み先設定を見せるため）。
+  return ['multica', 'google_tasks', 'generic_inbound', ...implementedTaskSyncProviders()]
 }
 
 interface ConnectorConnectionRow {
