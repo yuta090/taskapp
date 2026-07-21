@@ -210,6 +210,15 @@ export interface TaskSyncAdapter {
    * エンジンはこれを見て「差分に出てこないタスク」を消えたとみなすかどうかを決める。
    */
   readonly deletionMode?: DeletionMode
+  /**
+   * この接続を叩いてよい最短間隔（分）。省略時は cron の既定間隔で回す。
+   *
+   * ツールによっては**呼び出し回数そのものに厳しい上限**がある（例: Jooto の標準プランは
+   * 月100回。差分APIが無く毎回全件取得するため、cron の既定間隔で回すと数日で上限に達して
+   * 以後まったく同期できなくなる）。上限はツール固有の事実なので、スケジューラ側に散らさず
+   * アダプタが宣言する。
+   */
+  readonly minPollIntervalMinutes?: number
 
   /** 取り込み対象に選べる入れ物を列挙する。 */
   listContainers(ctx: ProviderContext): Promise<ExternalContainer[]>

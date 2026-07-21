@@ -22,8 +22,8 @@ describe('ToolConnectOverview', () => {
     expect(screen.getByText('Pro')).toBeInTheDocument()
   })
 
-  it('plannedツールは「近日対応」を明示する(backlog)', () => {
-    render(<ToolConnectOverview def={INTEGRATIONS.backlog} />)
+  it('plannedツールは「近日対応」を明示する(microsoft_todo)', () => {
+    render(<ToolConnectOverview def={INTEGRATIONS.microsoft_todo} />)
     expect(screen.getByText(/近日対応/)).toBeInTheDocument()
   })
 

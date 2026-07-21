@@ -48,6 +48,23 @@ interface ConnectionRow extends ConnectionCredentialRow {
   provider: string
   import_config: Record<string, unknown> | null
   poll_cursor: string | null
+  last_import_success_at: string | null
+}
+
+/**
+ * このサイクルでこの接続を叩いてよいか（ツール固有の呼び出し回数上限への配慮）。
+ *
+ * cron は全接続を同じ間隔で起こすが、ツールによっては呼び出し回数そのものに厳しい上限がある。
+ * 上限を超えると以後まったく同期できなくなるため、**アダプタが宣言した最短間隔を過ぎるまでは
+ * 静かに見送る**（失敗ではないので skip 件数にも数えない。毎サイクル「skip」が積み上がると
+ * 本当の異常が埋もれる）。
+ */
+function isPollDue(adapter: { minPollIntervalMinutes?: number }, lastSuccessAt: string | null, now: Date): boolean {
+  if (!adapter.minPollIntervalMinutes || !lastSuccessAt) return true
+  const elapsedMinutes = (now.getTime() - Date.parse(lastSuccessAt)) / 60_000
+  // 時刻が壊れている（未来・パース不能）ときは叩く側に倒す。叩けない方に倒すと、
+  // 1行の壊れた値でその接続が永久に同期されなくなる。
+  return !Number.isFinite(elapsedMinutes) || elapsedMinutes >= adapter.minPollIntervalMinutes
 }
 
 /**
@@ -98,7 +115,9 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
 
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor')
+    .select(
+      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor, last_import_success_at',
+    )
     .eq('import_enabled', true)
     .eq('status', 'active')
   if (error) {
@@ -119,6 +138,9 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
       summary.reasons.push(`${conn.provider}: unknown_provider`)
       continue
     }
+
+    // ツール固有の呼び出し上限に配慮して、まだ叩いてよい時刻でなければ静かに見送る。
+    if (!isPollDue(adapter, conn.last_import_success_at, new Date())) continue
 
     summary.connections++
     try {

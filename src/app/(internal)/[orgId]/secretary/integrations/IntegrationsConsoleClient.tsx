@@ -25,10 +25,10 @@ interface IntegrationsConsoleClientProps {
  *   - sink:      通知連携(webhook/notion/google_sheets) → SinkProviderPanel(provider絞り込み)
  *   - export/catalog: その場書き出し・未実装(planned) → ToolConnectOverview
  *
- * ただし surface=catalog のうち「アダプタが実装済み(implementedTaskSyncProviders())」のツール
- * (Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)だけは例外で TaskSyncConnectPanel を出す。
- * registry.ts の status/surface はここでは変更しない(GA化はcron配線と合わせて別途行う判断のため。
- * planned=surface:catalog の不変条件はテスト側にもあり、それを保ったまま「実装済みなら接続できる」
+ * connector のうち gtasks/multica は専用ワーカー担当なので従来の ConnectorSyncPane、
+ * アダプタ実装済み(implementedTaskSyncProviders())のツール
+ * (Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)は TaskSyncConnectPanel を出す
+ * (同じ「双方向同期」でも接続の作り方が別物のため。前者はOAuth/相互鍵、後者はAPIキー
  * を表現するには registry を触らず呼び出し側で分岐するのが最小差分)。
  *
  * モーダル禁止・保存ボタンなし(optimistic updates)。タブバー(SecretaryTabNav)は親の
@@ -67,7 +67,10 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
           </div>
         )}
 
-        {def.surface === 'connector' && <ConnectorSyncPane orgId={orgId} />}
+        {def.surface === 'connector' && !isImplementedTaskSync && <ConnectorSyncPane orgId={orgId} />}
+        {def.surface === 'connector' && isImplementedTaskSync && (
+          <TaskSyncConnectPanel orgId={orgId} integrationId={selectedId} />
+        )}
 
         {def.surface === 'sink' && (
           <SinkProviderPanel
@@ -87,11 +90,7 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
           />
         )}
 
-        {def.surface === 'catalog' && isImplementedTaskSync && (
-          <TaskSyncConnectPanel orgId={orgId} integrationId={selectedId} />
-        )}
-
-        {(def.surface === 'export' || (def.surface === 'catalog' && !isImplementedTaskSync)) && (
+        {(def.surface === 'export' || def.surface === 'catalog') && (
           <ToolConnectOverview def={def} />
         )}
       </div>

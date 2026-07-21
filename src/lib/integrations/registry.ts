@@ -162,8 +162,12 @@ export interface IntegrationDefinition {
   surface: IntegrationSurface
   /** surface='sink' のとき対応する integration_sinks のプロバイダ */
   sinkProvider?: SinkProvider
-  /** surface='connector' のとき対応する双方向コネクタ種別 */
-  connectorKind?: 'google_tasks' | 'multica'
+  /**
+   * surface='connector' のとき対応する双方向コネクタ種別。
+   * gtasks/multica は専用ワーカー、それ以外は provider 非依存のタスク同期エンジン（src/lib/task-sync/）
+   * が担当する。値はアダプタの id と一致させる。
+   */
+  connectorKind?: IntegrationId
   /**
    * 「Pro」バッジの表示ヒント（課金の真実源ではない・冒頭の注意参照）。
    * CLAUDE.md 方針: 外部連携（双方向のタスク同期・会計連携）は原則 Pro 専有。
@@ -244,76 +248,130 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Backlog',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'backlog',
     setupComplexity: 'host_and_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.nulab.com/ja/docs/backlog/',
     notes: '日本のSMB/受託で普及するプロジェクト管理。スペースURLとAPIキーで接続する（双方向同期は順次対応）。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   jooto: {
     id: 'jooto',
     label: 'Jooto',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'jooto',
     setupComplexity: 'api_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://www.jooto.com/',
     notes: '国産のカンバン型タスク管理。APIキーで接続する（双方向同期は順次対応）。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 2880,
+    },
   },
   jira: {
     id: 'jira',
     label: 'Jira',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'jira',
     setupComplexity: 'host_and_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.atlassian.com/cloud/jira/platform/',
     notes: '課題管理の標準。取り込む課題の範囲（プロジェクト/JQL）を指定して同期する。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   redmine: {
     id: 'redmine',
     label: 'Redmine',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'redmine',
     setupComplexity: 'host_and_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://www.redmine.org/projects/redmine/wiki/Rest_api',
     notes: '自社サーバー運用の定番。サーバーURLとAPIアクセスキーで接続する（自ホストのため接続先の検証を伴う）。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   asana: {
     id: 'asana',
     label: 'Asana',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'asana',
     setupComplexity: 'api_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developers.asana.com/docs',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   trello: {
     id: 'trello',
     label: 'Trello',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'trello',
     setupComplexity: 'api_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.atlassian.com/cloud/trello/rest/',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   microsoft_todo: {
     id: 'microsoft_todo',
@@ -332,11 +390,21 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Linear',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'linear',
     setupComplexity: 'api_key',
     proOnly: true,
+    featured: true,
     setupUrl: 'https://linear.app/developers',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   wrike: {
     id: 'wrike',

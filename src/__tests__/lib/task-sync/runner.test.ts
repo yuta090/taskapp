@@ -54,6 +54,7 @@ function row(over: Record<string, unknown> = {}) {
     access_token_encrypted: 'enc',
     import_config: { target_space_id: 'space-1' },
     poll_cursor: null,
+    last_import_success_at: null,
     ...over,
   }
 }
@@ -97,6 +98,42 @@ describe('runTaskSyncImport — 対象の選別', () => {
     const summary = await runTaskSyncImport()
     expect(summary.connections).toBe(1)
     expect(summary.created).toBe(1)
+    expect(importConnection).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('runTaskSyncImport — ツール固有の呼び出し上限', () => {
+  it('最短間隔を宣言したツールは、その間隔を過ぎるまで叩かない（月次上限のあるツールを守る）', async () => {
+    // Jooto は標準プランで月100回。cronの15分間隔で回すと数日で上限に達し、以後まったく
+    // 同期できなくなる。宣言された最短間隔を過ぎるまでは見送る。
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    connectionRows.push(row({ provider: 'jooto', last_import_success_at: oneHourAgo }))
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
+    const summary = await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+    // 失敗ではないので skip にも数えない（毎サイクル積み上がると本当の異常が埋もれる）。
+    expect(summary.skipped).toBe(0)
+    expect(summary.connections).toBe(0)
+  })
+
+  it('最短間隔を過ぎていれば叩く', async () => {
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    connectionRows.push(row({ provider: 'jooto', last_import_success_at: twoDaysAgo }))
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
+    await runTaskSyncImport()
+    expect(importConnection).toHaveBeenCalledTimes(1)
+  })
+
+  it('一度も成功していない接続は間隔に関係なく叩く（初回同期を待たせない）', async () => {
+    connectionRows.push(row({ provider: 'jooto', last_import_success_at: null }))
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
+    await runTaskSyncImport()
+    expect(importConnection).toHaveBeenCalledTimes(1)
+  })
+
+  it('最短間隔を宣言していないツールは毎サイクル叩く', async () => {
+    connectionRows.push(row({ last_import_success_at: new Date().toISOString() }))
+    await runTaskSyncImport()
     expect(importConnection).toHaveBeenCalledTimes(1)
   })
 })

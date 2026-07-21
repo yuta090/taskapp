@@ -50,9 +50,9 @@ describe('ToolRail (registry-driven)', () => {
     expect(screen.getByTestId(`tool-rail-${hidden}`)).toHaveAttribute('aria-current', 'page')
   })
 
-  it('plannedツール(backlog)は「近日」バッジを表示する', () => {
+  it('plannedツール(microsoft_todo)は「近日」バッジを表示する', () => {
     render(<ToolRail selectedId="google_tasks" onSelect={vi.fn()} />)
-    const row = screen.getByTestId('tool-rail-backlog')
+    const row = screen.getByTestId('tool-rail-microsoft_todo')
     expect(row).toHaveTextContent('近日')
   })
 

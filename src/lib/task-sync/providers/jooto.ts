@@ -189,6 +189,11 @@ export const jootoAdapter: TaskSyncAdapter = {
   // 毎回全件（アーカイブ済み含む）を取得しており、archived フラグが per-item の削除シグナルとして
   // 確実に得られるため 'tombstone' で宣言する。
   deletionMode: 'tombstone',
+  // Jooto は無料プランでAPI不可、標準プランは**月100回**が上限（ビジネスプランは無制限）。
+  // 差分APIが無く毎回全件取得するため、1サイクルで 1(ボード一覧)+コンテナ数 回を消費する。
+  // cron の既定(15分=月約2900回)で回すと数日で上限に達し、以後まったく同期できなくなる。
+  // 1日1回（月約30回＋コンテナ数分）に抑えて、標準プランでも1か月持たせる。
+  minPollIntervalMinutes: 24 * 60,
 
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     // 全ページ取得する: 1ページ目だけだと2ページ目以降のボードがエンジンに一度も渡らないまま
