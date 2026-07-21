@@ -1,6 +1,13 @@
 'use client'
 
-import { integrationsByCategory, CATEGORY_LABEL, type IntegrationId } from '@/lib/integrations/registry'
+import { useState } from 'react'
+import { CaretDown, CaretUp } from '@phosphor-icons/react/dist/ssr'
+import {
+  integrationsByCategory,
+  listIntegrations,
+  CATEGORY_LABEL,
+  type IntegrationId,
+} from '@/lib/integrations/registry'
 import { INTEGRATION_ICONS } from '@/components/secretary/integrations/integrationIcons'
 
 interface ToolRailProps {
@@ -20,6 +27,10 @@ interface ToolRailProps {
  * しない。ChannelRailのplannedとはここが異なる)。
  */
 export function ToolRail({ selectedId, onSelect }: ToolRailProps) {
+  // 対応ツールは数十規模になるため、初期表示は主要(featured)のみ。残りは「すべて表示」で開く。
+  const [showAll, setShowAll] = useState(false)
+  const hiddenCount = listIntegrations().filter((d) => !d.featured).length
+
   return (
     <aside className="w-full md:w-[240px] flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col overflow-x-auto md:overflow-visible">
       {integrationsByCategory().map((group) => (
@@ -31,7 +42,10 @@ export function ToolRail({ selectedId, onSelect }: ToolRailProps) {
             {CATEGORY_LABEL[group.category]}
           </div>
           <nav className="flex flex-row md:flex-col gap-1 px-2 pb-2">
-            {group.items.map((def) => {
+            {group.items
+              // 折り畳み中でも「選択中のツール」だけは必ず出す（選択が画面から消えないため）。
+              .filter((def) => showAll || def.featured || def.id === selectedId)
+              .map((def) => {
               const Icon = INTEGRATION_ICONS[def.id]
               const isSelected = def.id === selectedId
 
@@ -66,11 +80,33 @@ export function ToolRail({ selectedId, onSelect }: ToolRailProps) {
                     </span>
                   )}
                 </button>
-              )
-            })}
+                )
+              })}
           </nav>
         </div>
       ))}
+
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          data-testid="tool-rail-show-all"
+          onClick={() => setShowAll((v) => !v)}
+          aria-expanded={showAll}
+          className="mx-2 mb-3 mt-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors whitespace-nowrap flex-shrink-0"
+        >
+          {showAll ? (
+            <>
+              主要ツールだけ表示
+              <CaretUp className="w-3 h-3" />
+            </>
+          ) : (
+            <>
+              すべて表示（他 {hiddenCount} 件）
+              <CaretDown className="w-3 h-3" />
+            </>
+          )}
+        </button>
+      )}
     </aside>
   )
 }

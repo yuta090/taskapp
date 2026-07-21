@@ -23,11 +23,26 @@ vi.mock('@/lib/integrations/token-manager', () => ({
 }))
 vi.mock('@/lib/google-calendar/client', () => ({ refreshAccessToken: vi.fn() }))
 
+// タスク同期アダプタ経由の完了書き戻し（Backlog等）
+const completeTaskMock = vi.fn()
+const getTaskSyncAdapterMock = vi.fn()
+const resolveCredentialsMock = vi.fn()
+vi.mock('@/lib/task-sync/adapters', () => ({
+  getTaskSyncAdapter: (...a: unknown[]) => getTaskSyncAdapterMock(...a),
+}))
+vi.mock('@/lib/task-sync/credentials', () => ({
+  resolveCredentials: (...a: unknown[]) => resolveCredentialsMock(...a),
+}))
+
 // --- supabase をモック ---
 interface ConnRow {
   id: string
   provider: string
   metadata: Record<string, unknown> | null
+  auth_kind?: string
+  base_url?: string | null
+  access_token_encrypted?: string | null
+  import_config?: Record<string, unknown> | null
 }
 interface LinkRow {
   connection_id: string
@@ -137,12 +152,29 @@ const MULTICA_CONN: ConnRow = {
   metadata: { multica: { base_url: 'https://multica.example.com', send_secret: 'sec' } },
 }
 const GTASKS_CONN: ConnRow = { id: 'conn-gtasks', provider: 'google_tasks', metadata: {} }
+const BACKLOG_CONN: ConnRow = {
+  id: 'conn-backlog',
+  provider: 'backlog',
+  metadata: {},
+  auth_kind: 'api_key',
+  base_url: 'https://e.backlog.jp',
+  access_token_encrypted: 'enc',
+  import_config: { backlog_completion_status_id: 12, trello_done_list_ids: ['x'] },
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
-  state.conns = [MULTICA_CONN, GTASKS_CONN]
+  state.conns = [MULTICA_CONN, GTASKS_CONN, BACKLOG_CONN]
+  completeTaskMock.mockReset().mockResolvedValue(undefined)
+  getTaskSyncAdapterMock.mockReset().mockImplementation((provider: string) =>
+    provider === 'backlog' ? { id: 'backlog', completeTask: completeTaskMock } : null,
+  )
+  resolveCredentialsMock.mockReset().mockResolvedValue({
+    status: 'ok',
+    credentials: { kind: 'api_key', token: 'k', baseUrl: 'https://e.backlog.jp' },
+  })
   state.links = []
   state.upserts = []
   getValidTokenDetailedMock.mockResolvedValue({ status: 'ok', token: 'access-token' })
@@ -255,6 +287,67 @@ describe('dispatchConnectorJobsBatch', () => {
       const s = await dispatchConnectorJobsBatch()
       expect(patchTaskMock).not.toHaveBeenCalled()
       expect(s.tempFailed).toBe(1)
+    })
+  })
+
+  /**
+   * タスク同期アダプタを持つ provider の完了書き戻し。これが無いと、カタログが
+   * completionWrite=true と宣言しているのにジョブが unsupported_provider で即 dead になり、
+   * 「TaskAppで完了しても外部ツールに反映されない」片翼だけの同期になる。
+   */
+  describe('provider=タスク同期アダプタ(backlog)', () => {
+    it('op=complete → アダプタの completeTask で外部へ書き戻す', async () => {
+      state.links = [
+        { connection_id: 'conn-backlog', task_id: 'task-1', external_id: '101', external_list_id: 'proj-1' },
+      ]
+      claimReturns([job('conn-backlog', 'complete')])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ config: { backlog_completion_status_id: 12 } }),
+        { externalId: '101', containerId: 'proj-1' },
+      )
+      expect(s.done).toBe(1)
+    })
+
+    it('外部側が既に消えている(404)なら done 扱い(完了と同義)', async () => {
+      state.links = [
+        { connection_id: 'conn-backlog', task_id: 'task-1', external_id: '101', external_list_id: 'proj-1' },
+      ]
+      completeTaskMock.mockRejectedValue(Object.assign(new Error('gone'), { status: 404 }))
+      claimReturns([job('conn-backlog', 'complete')])
+      const s = await dispatchConnectorJobsBatch()
+      expect(s.done).toBe(1)
+      expect(s.dead).toBe(0)
+    })
+
+    it('書き戻し先の対応が無ければ恒久失敗(再試行では解決しない)', async () => {
+      state.links = []
+      claimReturns([job('conn-backlog', 'complete')])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeTaskMock).not.toHaveBeenCalled()
+      expect(s.dead).toBe(1)
+    })
+
+    it('資格情報の失効は毒にせず一時失敗(再接続すれば直る)', async () => {
+      resolveCredentialsMock.mockResolvedValue({ status: 'auth_failed' })
+      claimReturns([job('conn-backlog', 'complete')])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeTaskMock).not.toHaveBeenCalled()
+      expect(s.tempFailed).toBe(1)
+    })
+
+    it('設定不備は恒久失敗(再試行では直らないものを永久に叩き続けない)', async () => {
+      resolveCredentialsMock.mockResolvedValue({ status: 'misconfigured', reason: 'x' })
+      claimReturns([job('conn-backlog', 'complete')])
+      const s = await dispatchConnectorJobsBatch()
+      expect(s.dead).toBe(1)
+    })
+
+    it('op=upsert/cancel は押し戻さず done(取り込み専用の契約)', async () => {
+      claimReturns([job('conn-backlog', 'upsert', { title: 'x' })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeTaskMock).not.toHaveBeenCalled()
+      expect(s.done).toBe(1)
     })
   })
 

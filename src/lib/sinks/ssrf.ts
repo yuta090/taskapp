@@ -15,6 +15,12 @@ import ipaddr from 'ipaddr.js'
 
 const ALLOWED_PORT = 443
 const DEFAULT_TIMEOUT_MS = 10_000
+/**
+ * 応答本文の既定の読み取り上限(byte)。webhook配送・multica連携（`src/lib/connectors/multica/client.ts`）
+ * は last_error 用の短い確認レスポンスしか読まない前提でこの値に依存しているため、
+ * `maxBodyBytes` 省略時はこの値を変えない（既存呼び出し側の挙動を壊さないため）。
+ */
+const DEFAULT_MAX_BODY_BYTES = 500
 
 export function isDeniedIp(ip: string): boolean {
   let addr: ReturnType<typeof ipaddr.process>
@@ -95,6 +101,12 @@ export interface SafeFetchOptions {
   headers?: Record<string, string>
   body?: string
   timeoutMs?: number
+  /**
+   * 応答本文の読み取り上限(byte)。省略時は {@link DEFAULT_MAX_BODY_BYTES}（=500。既存の
+   * webhook配送・multica連携の挙動を変えない）。まとまったJSON一覧等を読む呼び出し側
+   * （例: task-sync/providers/redmine.ts）は明示的に大きな値を指定すること。
+   */
+  maxBodyBytes?: number
 }
 
 export interface SafeFetchResult {
@@ -102,6 +114,13 @@ export interface SafeFetchResult {
   status?: number
   bodyText?: string
   error?: string
+  /**
+   * 応答ヘッダー（小文字キー）。既存の呼び出し側（webhook配送・multica）は見ないので挙動は変わらない。
+   * レート制限の復帰時刻（`Retry-After` / `X-RateLimit-Reset`）を読む必要がある呼び出し側
+   * （例: task-sync/providers/redmine.ts）のために返す。これが無いと 429 を「ただの一時失敗」に
+   * 潰すしかなく、制限中に固定バックオフで叩き続けて制限を自分で延長してしまう。
+   */
+  responseHeaders?: Record<string, string>
 }
 
 /**
@@ -143,9 +162,25 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
       dispatcher,
       signal: controller.signal,
     })
-    // レスポンスbodyは保存しない方針（last_errorへは先頭数百byteのみ切り詰めて渡す）
+    // レスポンスbodyは保存しない方針（last_errorへは先頭数百byteのみ切り詰めて渡す）。
+    // maxBodyBytes を指定した呼び出し側（bulk JSON一覧取得等）だけ、その上限まで読める。
     const bodyText = await response.text().catch(() => '')
-    return { ok: true, status: response.status, bodyText: bodyText.slice(0, 500) }
+    // ヘッダーの取り出しは best-effort。ここで例外を投げると本文が取れていても配送全体が
+    // 失敗扱いになる（ヘッダーは補助情報であり、無くても配送の成否は判定できる）。
+    const responseHeaders: Record<string, string> = {}
+    try {
+      response.headers?.forEach((value: string, key: string) => {
+        responseHeaders[key.toLowerCase()] = value
+      })
+    } catch {
+      // 取れなくても続行する
+    }
+    return {
+      ok: true,
+      status: response.status,
+      bodyText: bodyText.slice(0, options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES),
+      responseHeaders,
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, error: message }

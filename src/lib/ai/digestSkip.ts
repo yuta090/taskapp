@@ -17,3 +17,12 @@ export function classifyExtractionSkip(error: unknown): DigestSkipKind {
   const msg = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
   return msg.startsWith('AI未設定') ? 'ai_unconfigured' : 'llm_error'
 }
+
+/**
+ * プールAI(当社鍵)の当月org別原価上限に到達したスキップか（BYO登録で即時復旧できる状態）。
+ * classifyExtractionSkip では ai_unconfigured に畳まれる（設定ギャップ扱いで counter に載る）が、
+ * これだけは事務所へ「自社AIキー登録で即時復旧」を促す通知を出したいので型で切り出す。
+ */
+export function isPoolExhaustedSkip(error: unknown): boolean {
+  return error instanceof AiConfigError && error.kind === 'pool_quota_exhausted'
+}
