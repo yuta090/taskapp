@@ -16,11 +16,38 @@ describe('ToolRail (registry-driven)', () => {
     expect(headings).toEqual(expected)
   })
 
-  it('全ツールがレールに並ぶ', () => {
+  it('初期表示は主要ツール(featured)だけ — 対応ツールが増えてもレールが長大にならない', () => {
     render(<ToolRail selectedId="google_tasks" onSelect={vi.fn()} />)
     for (const id of ALL_INTEGRATION_IDS) {
-      expect(screen.getByTestId(`tool-rail-${id}`)).toBeInTheDocument()
+      const row = screen.queryByTestId(`tool-rail-${id}`)
+      if (INTEGRATIONS[id].featured) {
+        expect(row, `${id} is featured but hidden`).toBeInTheDocument()
+      } else {
+        expect(row, `${id} is not featured but shown initially`).not.toBeInTheDocument()
+      }
     }
+  })
+
+  it('「すべて表示」で残りのツールが展開され、全ツールが並ぶ', () => {
+    render(<ToolRail selectedId="google_tasks" onSelect={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('tool-rail-show-all'))
+    for (const id of ALL_INTEGRATION_IDS) {
+      expect(screen.getByTestId(`tool-rail-${id}`), `${id} missing after expand`).toBeInTheDocument()
+    }
+  })
+
+  it('展開後は「閉じる」で主要ツールのみに戻る', () => {
+    render(<ToolRail selectedId="google_tasks" onSelect={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('tool-rail-show-all'))
+    fireEvent.click(screen.getByTestId('tool-rail-show-all'))
+    const hidden = ALL_INTEGRATION_IDS.find((id) => !INTEGRATIONS[id].featured)!
+    expect(screen.queryByTestId(`tool-rail-${hidden}`)).not.toBeInTheDocument()
+  })
+
+  it('選択中のツールが featured でなくても必ず表示される（選択が消えない）', () => {
+    const hidden = ALL_INTEGRATION_IDS.find((id) => !INTEGRATIONS[id].featured)!
+    render(<ToolRail selectedId={hidden} onSelect={vi.fn()} />)
+    expect(screen.getByTestId(`tool-rail-${hidden}`)).toHaveAttribute('aria-current', 'page')
   })
 
   it('plannedツール(backlog)は「近日」バッジを表示する', () => {

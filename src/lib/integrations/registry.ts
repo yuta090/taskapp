@@ -15,13 +15,22 @@ import type { SinkProvider } from '@/lib/sinks/store'
  */
 
 export type IntegrationId =
-  // タスク同期（双方向）
+  // タスク同期（双方向・プロジェクト管理/タスク管理）
   | 'google_tasks'
   | 'multica'
   | 'backlog'
+  | 'jooto'
+  | 'jira'
+  | 'redmine'
   | 'asana'
   | 'trello'
   | 'microsoft_todo'
+  | 'linear'
+  | 'wrike'
+  | 'clickup'
+  | 'monday'
+  | 'chatwork'
+  | 'garoon'
   // データ書き出し・通知（送りっぱなし）
   | 'webhook'
   | 'notion'
@@ -36,13 +45,22 @@ export type IntegrationId =
 
 /** 表示順を保った全ツールID（レール／カタログでの並び順）。 */
 export const ALL_INTEGRATION_IDS: readonly IntegrationId[] = [
-  // task_sync
+  // task_sync（主要 → その他の順。UIは featured を先頭に出し残りを「すべて表示」で開く）
   'google_tasks',
   'multica',
   'backlog',
+  'jooto',
+  'jira',
+  'redmine',
   'asana',
   'trello',
   'microsoft_todo',
+  'linear',
+  'wrike',
+  'clickup',
+  'monday',
+  'chatwork',
+  'garoon',
   // data_export
   'webhook',
   'notion',
@@ -137,6 +155,13 @@ export interface IntegrationDefinition {
    * CLAUDE.md 方針: 外部連携（双方向のタスク同期・会計連携）は原則 Pro 専有。
    */
   proOnly?: boolean
+  /**
+   * 主要ツール。UI（ToolRail / カタログ）は featured だけを初期表示し、残りは「すべて表示」で開く。
+   * 対応ツールが数十規模になっても最初の画面が壊れないようにするための表示制御であり、
+   * 実装状況（status）とは独立（planned でもロードマップの目玉なら featured にしてよい）。
+   * ただし GA/BETA（実際に使えるもの）は必ず featured にする＝使えるものを畳んで隠さない。
+   */
+  featured?: boolean
   /** 開発者コンソール等の外部URL（doc/詳細用） */
   setupUrl?: string
   /** doc/UIの補足 */
@@ -163,6 +188,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     surface: 'connector',
     connectorKind: 'google_tasks',
     proOnly: true,
+    featured: true,
     setupUrl: 'https://developers.google.com/tasks',
     notes:
       '既存のタスク管理を使う企業はそのツール(Google Tasks)が正本、TaskAppは中継（ハブ&スポーク）。完了も両側へ反映。',
@@ -182,6 +208,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     surface: 'connector',
     connectorKind: 'multica',
     proOnly: true,
+    featured: true,
     notes: 'multica と相互に同期。発生元チャットへの完了返信まで配線済み（LINE-first）。',
     // due_date を持たない(rpc_connector_create_task は due を挿入しない・契約上due変更イベントも無い)。
     // §3の実コード事実: multica起票タスクはdueが無いため証明対象が存在せずdueFreshness='none'。
@@ -199,7 +226,45 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
-    notes: '日本のSMBで普及するプロジェクト管理。双方向同期は順次対応。',
+    featured: true,
+    setupUrl: 'https://developer.nulab.com/ja/docs/backlog/',
+    notes: '日本のSMB/受託で普及するプロジェクト管理。スペースURLとAPIキーで接続する（双方向同期は順次対応）。',
+  },
+  jooto: {
+    id: 'jooto',
+    label: 'Jooto',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://www.jooto.com/',
+    notes: '国産のカンバン型タスク管理。APIキーで接続する（双方向同期は順次対応）。',
+  },
+  jira: {
+    id: 'jira',
+    label: 'Jira',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://developer.atlassian.com/cloud/jira/platform/',
+    notes: '課題管理の標準。取り込む課題の範囲（プロジェクト/JQL）を指定して同期する。',
+  },
+  redmine: {
+    id: 'redmine',
+    label: 'Redmine',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://www.redmine.org/projects/redmine/wiki/Rest_api',
+    notes: '自社サーバー運用の定番。サーバーURLとAPIアクセスキーで接続する（自ホストのため接続先の検証を伴う）。',
   },
   asana: {
     id: 'asana',
@@ -209,6 +274,8 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
+    featured: true,
+    setupUrl: 'https://developers.asana.com/docs',
   },
   trello: {
     id: 'trello',
@@ -218,6 +285,8 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
+    featured: true,
+    setupUrl: 'https://developer.atlassian.com/cloud/trello/rest/',
   },
   microsoft_todo: {
     id: 'microsoft_todo',
@@ -227,6 +296,69 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
+    featured: true,
+    notes: 'Microsoft 365 環境の標準タスク。Planner との使い分けは接続時に選ぶ。',
+  },
+  linear: {
+    id: 'linear',
+    label: 'Linear',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    setupUrl: 'https://linear.app/developers',
+  },
+  wrike: {
+    id: 'wrike',
+    label: 'Wrike',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    setupUrl: 'https://developers.wrike.com/',
+  },
+  clickup: {
+    id: 'clickup',
+    label: 'ClickUp',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    setupUrl: 'https://developer.clickup.com/docs',
+  },
+  monday: {
+    id: 'monday',
+    label: 'monday.com',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    setupUrl: 'https://developer.monday.com/api-reference/docs',
+  },
+  chatwork: {
+    id: 'chatwork',
+    label: 'Chatwork タスク',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    setupUrl: 'https://developer.chatwork.com/docs',
+    notes: 'Chatwork のタスク機能と同期する（チャット接続=「つなぐ」タブとは別軸のタスク同期）。',
+  },
+  garoon: {
+    id: 'garoon',
+    label: 'Garoon',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    proOnly: true,
+    notes: 'サイボウズ Garoon のToDo。企業内グループウェア利用企業向け。',
   },
   // ---- データ書き出し・通知（送りっぱなし） -----------------------------
   webhook: {
@@ -237,6 +369,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'webhook',
+    featured: true,
     notes: 'タスクの発生を任意のエンドポイントへ送出（署名付き）。',
   },
   notion: {
@@ -247,6 +380,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'notion',
+    featured: true,
     setupUrl: 'https://www.notion.so/my-integrations',
     notes: 'タスクをNotionデータベースへ送りっぱなしで書き出す。',
   },
@@ -258,6 +392,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'google_sheets',
+    featured: true,
     notes: 'タスクの発生をスプレッドシートへ追記する。',
   },
   kintone: {
@@ -284,6 +419,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'export',
     status: 'ga',
     surface: 'export',
+    featured: true,
     notes: 'freee・マネーフォワード等の会計ソフトへ取り込むためのCSVを書き出す。',
   },
   // ---- 会計・請求 -------------------------------------------------------
@@ -295,6 +431,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
+    featured: true,
     setupUrl: 'https://developer.freee.co.jp/',
     notes: 'API連携は2026年Q4以降に対応予定（それまではCSVエクスポートで取り込み可）。',
   },
@@ -331,6 +468,14 @@ export function integrationsByCategory(): { category: IntegrationCategory; items
     category,
     items: listIntegrations().filter((d) => d.category === category),
   })).filter((g) => g.items.length > 0)
+}
+
+/**
+ * 主要ツールだけ（表示順を保つ）。UIの初期表示に使い、残りは「すべて表示」で開く。
+ * 対応ツールが増えても最初の画面が長大にならないようにするための表示制御。
+ */
+export function featuredIntegrations(): IntegrationDefinition[] {
+  return listIntegrations().filter((d) => d.featured === true)
 }
 
 /** 実際に接続できる（planned を除く）ツールだけ。 */
