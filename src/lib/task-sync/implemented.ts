@@ -25,6 +25,7 @@ export const IMPLEMENTED_TASK_SYNC_PROVIDERS = [
   'asana',
   'trello',
   'linear',
+  'notion',
 ] as const satisfies readonly TaskSyncProviderId[]
 
 /** アダプタ実装済み＝実際に接続できる provider の一覧（接続作成時の検証・UIの絞り込みに使う）。 */
@@ -44,7 +45,8 @@ export function isImplementedTaskSyncProvider(id: string): boolean {
  * 真実源は各アダプタの hostPolicy.kind（server 側）。ここはその派生を client 安全に写した値で、
  * `kind !== 'fixed'` との一致を implemented.test.ts が provider ごとに検証する（drift を落とす）。
  *   vendor-domain / any-https → true（backlog=vendor / jira=vendor / redmine=any-https）
- *   fixed                     → false（jooto / asana / trello / linear）
+ *   fixed                     → false（jooto / asana / trello / linear / notion。Notion は固定ホスト
+ *                               api.notion.com のみで、運用者はスペースURL等を入力しない）
  */
 export const TASK_SYNC_PROVIDER_NEEDS_BASE_URL: Record<
   (typeof IMPLEMENTED_TASK_SYNC_PROVIDERS)[number],
@@ -57,6 +59,7 @@ export const TASK_SYNC_PROVIDER_NEEDS_BASE_URL: Record<
   asana: false,
   trello: false,
   linear: false,
+  notion: false,
 }
 
 /** 接続時に base URL 入力が要るか（未実装/未知IDは false）。 */

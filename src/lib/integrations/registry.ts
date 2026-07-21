@@ -122,8 +122,10 @@ export type IntegrationImplStatus = 'ga' | 'beta' | 'planned'
 export type IntegrationSurface = 'connector' | 'sink' | 'export' | 'catalog'
 
 /**
- * AI秘書 Stage5 期限リマインド用の connector capabilities(docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
- * §4.5/§5.3/§6)。connector surface(gtasks/multica)のみが持つ。値の追加は connector を増やすときのみ。
+ * AI秘書 Stage5 期限リマインド用の capabilities(docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
+ * §4.5/§5.3/§6)。connectorKind を持つ provider（gtasks/multica のような surface='connector' に加え、
+ * sink と task-sync を兼ねる notion のような provider も含む）が持つ。値の追加は connectorKind を
+ * 増やすときのみ。
  *  - dueImport:    この接続が due_date を取り込む(=正本になり得る)か。
  *  - completionWrite: 完了をこの接続へ書き戻す(complete)か。
  *  - dueFreshness: 鮮度証明の方式。'poll-sla'=poll間隔ベースの有界遅延で証明／'webhook-observed'=
@@ -142,6 +144,14 @@ export interface IntegrationCapabilities {
  * 'connector-import' ジョブ)。鮮度SLAはこの間隔×2を許容遅延とする(§6 の根拠と同じ)。
  */
 const GTASKS_IMPORT_POLL_INTERVAL_MINUTES = 15
+
+/**
+ * Notion inbound の想定 poll 間隔（分）。gtasks/multica と同じ汎用タスク同期エンジン
+ * （src/lib/task-sync/）に乗るため cron ジョブは共通だが、実際の cron 間隔・スケジュール登録は
+ * 本PRの対象外（サーバサイド・コアのみ実装。ワーカー配線は別PR）。鮮度SLAは他コネクタと同じ
+ * 「実質的な間隔×2」の考え方で仮置きし、cron 間隔が確定次第ここを合わせる。
+ */
+const NOTION_IMPORT_POLL_INTERVAL_MINUTES = 15
 
 /**
  * 接続の手間（セットアップ摩擦の順序尺度）。**表示と実装優先度付けのヒントのみ**で、
@@ -168,9 +178,12 @@ export interface IntegrationDefinition {
   /** surface='sink' のとき対応する integration_sinks のプロバイダ */
   sinkProvider?: SinkProvider
   /**
-   * surface='connector' のとき対応する双方向コネクタ種別。
+   * 双方向コネクタ種別。surface に依らず設定可（能力の真実源）。
    * gtasks/multica は専用ワーカー、それ以外は provider 非依存のタスク同期エンジン（src/lib/task-sync/）
    * が担当する。値はアダプタの id と一致させる。
+   * sink と task-sync を兼ねる provider（notion）は surface='sink'（通知連携の詳細ペインを使う）の
+   * まま connectorKind を持つ＝この製品では「送りっぱなし通知」と「双方向タスク同期」を
+   * 同じツールに対して両方提供できる（別々の接続として設定する）。
    */
   connectorKind?: IntegrationId
   /**
@@ -508,13 +521,25 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     id: 'notion',
     label: 'Notion',
     category: 'data_export',
-    direction: 'notify',
+    // 送りっぱなし通知(sink)に加え、Notion DBを正本としたタスクの双方向同期(inbound取り込み+
+    // 完了の書き戻し)にも対応する。surface は据え置き(sink)なので既存の通知連携UIは壊さず、
+    // connectorKind でタスク同期エンジン(src/lib/task-sync/providers/notion.ts)にも接続できる。
+    direction: 'two_way',
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'notion',
+    connectorKind: 'notion',
     featured: true,
     setupUrl: 'https://www.notion.so/my-integrations',
-    notes: 'タスクをNotionデータベースへ送りっぱなしで書き出す。',
+    setupComplexity: 'schema_mapping',
+    notes:
+      'タスクをNotionデータベースへ送りっぱなしで書き出せるほか、Notion DBを取り込んでタスク同期もできる（プロパティの対応付けが必要）。',
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: NOTION_IMPORT_POLL_INTERVAL_MINUTES * 2,
+    },
   },
   google_sheets: {
     id: 'google_sheets',
