@@ -27,6 +27,7 @@ export interface DueReminderCandidateTaskRow {
   dueDate: string | null
   status: string
   assigneeId: string | null
+  orgId: string
 }
 
 /**
@@ -35,10 +36,14 @@ export interface DueReminderCandidateTaskRow {
  * （dueReminderPlanner.isDueReminderEligible）にも重複させる（defense-in-depth）。
  *
  * code review #5是正: due_date に窓（今日(JST)−2日 〜 +2日）を掛け、全org・無窓の全件スキャンを
- * 避ける。既定オフセット([-1440,0,+1440]分=1日前/当日/超過1日後)とgrace(24h)を包含する幅
+ * 避ける。既定オフセット([0,+1440]分=当日/超過1日後)とgrace(24h)を包含する幅
  * （例: 明日dueのタスクはdue_soon(-1日)がscheduled_at=今日9時になる → 今日+1日は窓内に必要）。
  * plannerは周期実行（毎時）されるため、遠い未来のdueも「今日」が近づくにつれて自然に窓へ入り、
  * 生成の正しさ（必要なoccurrenceは全て作られる）は変わらない。窓は取得件数を絞るだけの最適化。
+ *
+ * perf是正（org単位オンオフ判定のIN非有界回避）: `spaces!inner(org_id)` をこのクエリ自体に埋め込み、
+ * 別途 space_id → org_id を往復解決する `findOrgIdsForSpaces` は廃止した。呼び出し側
+ * （due-reminder-planner route）は返ってきた orgId をそのまま org 単位オンオフ判定に使える。
  */
 export async function findDueReminderCandidateTasks(
   now: Date = new Date(),
@@ -53,7 +58,7 @@ export async function findDueReminderCandidateTasks(
 
   const { data, error } = await admin()
     .from('tasks')
-    .select('id, due_date, status, assignee_id')
+    .select('id, due_date, status, assignee_id, spaces!inner(org_id)')
     .not('due_date', 'is', null)
     .neq('status', 'done')
     .not('assignee_id', 'is', null)
@@ -63,9 +68,77 @@ export async function findDueReminderCandidateTasks(
   if (error) throw new Error(`tasks: due reminder candidate query failed: ${error.message}`)
 
   return (data ?? []).map((row) => {
-    const r = row as { id: string; due_date: string | null; status: string; assignee_id: string | null }
-    return { id: r.id, dueDate: r.due_date, status: r.status, assigneeId: r.assignee_id }
+    const r = row as unknown as {
+      id: string
+      due_date: string | null
+      status: string
+      assignee_id: string | null
+      spaces: { org_id: string } | null
+    }
+    return {
+      id: r.id,
+      dueDate: r.due_date,
+      status: r.status,
+      assigneeId: r.assignee_id,
+      orgId: r.spaces?.org_id ?? '',
+    }
   })
+}
+
+/**
+ * org単位の自動期限リマインドオンオフ(org_channel_policy.due_reminders_enabled・migration
+ * 20260721215120)が無効(false)なorgの全量取得。
+ *
+ * perf是正: 以前は候補タスクのorgIdを`.in(orgIds)`で都度絞り込んでいたが、これは対象org数に
+ * 比例して非有界に増える。offにしているorgは全体のうちごく少数のはずなので、無条件に
+ * 「due_reminders_enabled=falseの行」だけを全件取得する方が小さく済む
+ * （org数が増えてもこのSELECTの結果セットサイズは増えない）。
+ *
+ * HIGH-2是正（フェイルクローズ退行防止）: 「行が無い/null＝有効」と同じ契約をエラーにも適用する。
+ * DBエラー時（例: migration未反映によるカラム欠如）はthrowせず、空集合（＝無効なorgは無い）を
+ * 返す。ここでthrowすると呼び出し側(planner route)が握り潰さない限り500になり、24hのgrace
+ * （過去期限のoccurrenceを作らない仕様）と相まって障害復旧後も生成が恒久的に失われる
+ * （grace窓を過ぎた分は二度と作られない）。読めない設定は「無効化されていない」の既定に倒す。
+ */
+export async function findOrgIdsWithDueRemindersDisabled(): Promise<Set<string>> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('org_id')
+    .eq('due_reminders_enabled', false)
+  if (error) {
+    console.error(
+      `[dueReminderStore] org_channel_policy: due_reminders_enabled full lookup failed, failing open (no org treated as disabled): ${error.message}`,
+    )
+    return new Set()
+  }
+
+  return new Set((data ?? []).map((row) => (row as { org_id: string }).org_id))
+}
+
+/**
+ * org単位の自動期限リマインドオンオフの単票版。sender の送信直前ゲート（entitlement再確認と
+ * 同じ位置づけ）で使う。fail-open(true) — 行が無い/nullは有効扱い（coalesce）。
+ *
+ * HIGH-2是正（フェイルクローズ退行防止）: DBエラー時もthrowせず true（有効）を返す。行が無い/null
+ * の既定と同じ「読めない＝有効」の契約に揃える。ここでthrowすると呼び出し側(sender)がcatchして
+ * skipするだけでfinalizeされず配信が止まる（lease失効での自己回復は可能だが、そもそも本来
+ * 送るべき正常なoccurrenceまで無差別に止めてしまうのは過剰なフェイルクローズ）。
+ */
+export async function isOrgDueRemindersEnabled(orgId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('org_channel_policy')
+    .select('due_reminders_enabled')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) {
+    console.error(
+      `[dueReminderStore] org_channel_policy: due_reminders_enabled lookup failed for org=${orgId}, failing open (treated as enabled): ${error.message}`,
+    )
+    return true
+  }
+
+  const enabled = (data as { due_reminders_enabled?: boolean | null } | null)?.due_reminders_enabled
+  return enabled ?? true
 }
 
 /**
@@ -196,60 +269,121 @@ export async function isDueReminderEnabledForUser(userId: string): Promise<boole
   return enabled ?? true
 }
 
+/**
+ * isDueReminderEnabledForUser のバッチ版（channel-digestの期限セクションで担当者ごとに
+ * オプトアウト判定するため・§9）。明示的にfalseの行のみ「無効」集合に含める。行が無い/null
+ * はfail-open(有効)扱いなので集合に含めない。
+ */
+export async function findDueReminderDisabledUserIds(userIds: string[]): Promise<Set<string>> {
+  const unique = [...new Set(userIds)]
+  if (unique.length === 0) return new Set()
+
+  const { data, error } = await admin()
+    .from('profiles')
+    .select('id, due_reminder_enabled')
+    .in('id', unique)
+  if (error) throw new Error(`profiles: due_reminder_enabled batch lookup failed: ${error.message}`)
+
+  const disabled = new Set<string>()
+  for (const row of data ?? []) {
+    const r = row as { id: string; due_reminder_enabled: boolean | null }
+    if (r.due_reminder_enabled === false) disabled.add(r.id)
+  }
+  return disabled
+}
+
 // ---------------------------------------------------------------------------
-// channel-digest: 期限セクション（occurrence非依存の直接クエリ・§9）
+// channel-digest: 期限セクション（occurrence非依存の直接クエリ・§9・安全網v2）
 // ---------------------------------------------------------------------------
 
 export interface DueDigestCandidateRow {
   id: string
   title: string
   dueDate: string
-  ball: DueReminderBall
+  assigneeId: string
   dueAuthorityConnectionId: string | null
 }
 
+function mapDueDigestCandidateRow(row: unknown): DueDigestCandidateRow {
+  const r = row as {
+    id: string
+    title: string
+    due_date: string
+    assignee_id: string
+    due_authority_connection_id: string | null
+  }
+  return {
+    id: r.id,
+    title: r.title,
+    dueDate: r.due_date,
+    assigneeId: r.assignee_id,
+    dueAuthorityConnectionId: r.due_authority_connection_id,
+  }
+}
+
 /**
- * digest配信時点の期限window直接クエリ（occurrence非依存・§9）。throughDateJst以前(超過含む)〜
- * 当日〜翌日までを対象にする（planner既定オフセットの粒度に揃える）。呼び出し側で
- * classifyDueForDigest によりさらに絞り込む。
+ * 共通フィルタ（client_scope安全修正・assignee/status/due_date必須）。
  *
- * code review #4是正: fromDateJst で下限も掛ける（既定=今日(JST)−7日想定・呼び出し側が算出）。
- * 下限が無いと何ヶ月も前に超過した古いタスクまで毎日全件並び続け、digestが埋もれる
- * （plannerのoverdue_confirmは+1日1回のみ生成のため、粒度を揃える意味でも古い超過は対象外にする）。
+ * ★安全修正（うざくない秘書 再設計）: client_scope='deliverable' を必ず掛ける。このフィルタが
+ * 無いと内部専用タスク(client_scope='internal')が相手先も見える可能性のあるグループの
+ * digestに漏れる。担当者(assignee_id)は呼び出し側のper-task「DMで届くか」判定に使うため返す。
  */
-export async function findDueDigestCandidatesForSpace(
-  spaceId: string,
-  fromDateJst: string,
-  throughDateJst: string,
-): Promise<DueDigestCandidateRow[]> {
-  const { data, error } = await admin()
+function selectDueDigestCandidateBase(spaceId: string) {
+  return admin()
     .from('tasks')
-    .select('id, title, due_date, ball, due_authority_connection_id')
+    .select('id, title, due_date, assignee_id, due_authority_connection_id')
     .eq('space_id', spaceId)
+    .eq('client_scope', 'deliverable')
     .not('due_date', 'is', null)
     .not('assignee_id', 'is', null)
     .neq('status', 'done')
+}
+
+/**
+ * digest配信時点の「本日が期限」直接クエリ（occurrence非依存・§9）。
+ *
+ * perf是正（page-perf再レビュー是正）: 以前は「本日〜翌日」+「超過(7日前まで)」を1クエリ
+ * `.order('due_date').limit(50)` で取得していたが、超過タスクが50件を超えて積み上がった
+ * spaceでは due_date 昇順の枠を古い超過タスクが食い尽くし、「本日が期限」セクションが
+ * 常に空になっていた（安全網が最も必要な「未整理の事務所」で今日やるべき仕事が1件も
+ * 出ない＝実効性の重大な欠落）。本日分・超過分を別クエリに分割し、各々に専用の
+ * `limit(25)` 枠を与えることで、どちらのセクションも必ず枠を確保できるようにする。
+ * また、due_soon(翌日)は呼び出し側で常に捨てていた（route.ts）ため、翌日までの取得自体を廃止した。
+ */
+export async function findDueDigestTodayCandidatesForSpace(
+  spaceId: string,
+  todayJst: string,
+): Promise<DueDigestCandidateRow[]> {
+  const { data, error } = await selectDueDigestCandidateBase(spaceId).eq('due_date', todayJst).limit(25)
+
+  if (error) throw new Error(`tasks: due digest today candidate query failed: ${error.message}`)
+  return (data ?? []).map(mapDueDigestCandidateRow)
+}
+
+/**
+ * digest配信時点の「期限超過」直接クエリ（occurrence非依存・§9）。todayJst未満(超過)〜
+ * fromDateJst(既定=今日(JST)−7日)までを対象にする。
+ *
+ * code review #4是正: fromDateJst で下限も掛ける。下限が無いと何ヶ月も前に超過した古い
+ * タスクまで毎日全件並び続け、digestが埋もれる（plannerのoverdue_confirmは+1日1回のみ
+ * 生成のため、粒度を揃える意味でも古い超過は対象外にする）。
+ *
+ * perf是正（page-perf再レビュー是正）: findDueDigestTodayCandidatesForSpace と同じ理由で
+ * 専用 `limit(25)` 枠を持つ（本日分の枠を食い尽くさない）。
+ */
+export async function findDueDigestOverdueCandidatesForSpace(
+  spaceId: string,
+  fromDateJst: string,
+  todayJst: string,
+): Promise<DueDigestCandidateRow[]> {
+  const { data, error } = await selectDueDigestCandidateBase(spaceId)
     .gte('due_date', fromDateJst)
-    .lte('due_date', throughDateJst)
+    .lt('due_date', todayJst)
+    .order('due_date', { ascending: true })
+    .limit(25)
 
-  if (error) throw new Error(`tasks: due digest candidate query failed: ${error.message}`)
-
-  return (data ?? []).map((row) => {
-    const r = row as {
-      id: string
-      title: string
-      due_date: string
-      ball: string
-      due_authority_connection_id: string | null
-    }
-    return {
-      id: r.id,
-      title: r.title,
-      dueDate: r.due_date,
-      ball: r.ball === 'client' ? 'client' : 'internal',
-      dueAuthorityConnectionId: r.due_authority_connection_id,
-    }
-  })
+  if (error) throw new Error(`tasks: due digest overdue candidate query failed: ${error.message}`)
+  return (data ?? []).map(mapDueDigestCandidateRow)
 }
 
 // ---------------------------------------------------------------------------

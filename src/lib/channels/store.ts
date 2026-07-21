@@ -2564,6 +2564,34 @@ export async function findActiveUserLinkForUser(
 }
 
 /**
+ * findActiveUserLinkForUser のバッチ版（存在判定のみ・値は返さない）。期限リマインドの
+ * channel-digest 安全網（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md §9）で、
+ * 「担当者にDMルートがあるか」をper-task判定してdigest掲載要否を決めるために使う。
+ *
+ * MEDIUM-1是正（対称化）: sender側の宛先解決(resolveDmCandidate)は
+ * findLineAccountByIdLookup で紐付け先アカウントが status='active' であることまで確認するが、
+ * この関数はrevoked_atのみ見ておりaccountの有効性を見ていなかった（非対称）。account が
+ * disabled（LINEブロック等での無効化を含む運用）だと「DMは届く」と誤判定し、digestの安全網
+ * からタスクが漏れる。channel_accounts!inner(status) を埋め込み、active なaccountのみを
+ * 「DMルートあり」として扱う。
+ */
+export async function findUserIdsWithActiveLink(orgId: string, userIds: string[]): Promise<Set<string>> {
+  const unique = [...new Set(userIds)]
+  if (unique.length === 0) return new Set()
+
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('user_id, channel_accounts!inner(status)')
+    .eq('org_id', orgId)
+    .in('user_id', unique)
+    .is('revoked_at', null)
+    .eq('channel_accounts.status', 'active')
+  if (error) throw new Error(`channel_user_links: batch active link lookup failed: ${error.message}`)
+
+  return new Set((data ?? []).map((row) => (row as { user_id: string }).user_id))
+}
+
+/**
  * org がユーザー自身でLINE秘書を連携し始められる状態か（＝連携先Botが用意されているか）。
  * org専用bot(owner_type='org') か 共有bot(owner_type='platform') のどちらかが active なら true。
  * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）で、オンボーディングでは
