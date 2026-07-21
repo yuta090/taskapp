@@ -113,6 +113,23 @@ export interface ProviderContext {
   config?: Record<string, unknown>
 }
 
+/**
+ * 接続先ホストの信頼境界（SSRF境界）。**「baseUrl が要るか」という真偽値では足りない**:
+ * Backlog（ベンダーのドメイン配下しかあり得ない）と Redmine（顧客が立てた任意のホスト）は
+ * リスクの性質が別物で、必要な防御も別だから。
+ *
+ *  - fixed:         接続先が完全に固定（Asana / Trello / Linear など）。運用者は URL を入力しない。
+ *  - vendor-domain: ベンダーのドメイン配下でテナントごとに変わる（Backlog のスペースURL、
+ *                   Jira の *.atlassian.net）。許可サフィックスの**ドット境界一致**で判定する。
+ *  - any-https:     顧客が任意のホストに立てる（Redmine 等）。許可リストで守れないため、
+ *                   DNS解決結果のIP検査とピン留めを行う safeFetch（src/lib/sinks/ssrf.ts）を
+ *                   必ず経由すること。この宣言をしたアダプタが素の fetch を使ってはいけない。
+ */
+export type HostPolicy =
+  | { kind: 'fixed'; host: string }
+  | { kind: 'vendor-domain'; allowedSuffixes: readonly string[] }
+  | { kind: 'any-https' }
+
 /** 差分取得の起点。ツールの絞り込み精度に合わせてエンジンがカーソルを作る。 */
 export type CursorGranularity = 'timestamp' | 'date' | 'none'
 
@@ -160,18 +177,29 @@ export function providerError(
  * タスク同期アダプタ。1ツール1実装。
  *
  * 実装の約束:
- *   - HTTP 失敗時は `Error & { status?: number }` を throw する（エンジンが 400/404/422=恒久失敗、
- *     それ以外=一時失敗に分類する。既存 dispatch.ts の classifyError と同じ流儀）。
+ *   - **アダプタはDBに触らない**。責務は「外部API ⇄ ExternalTask の純粋変換」だけであり、
+ *     connector_task_links / tasks / poll_cursor への書き込みは全てエンジン側が行う。
+ *     十数のアダプタが各々DBを触ると、苦労して固定した不変条件（全ページ成功時のみカーソル前進・
+ *     一意制約違反の補償・条件付き完了によるループ遮断）がツールごとに劣化コピーされるため。
+ *   - 失敗時は providerError() で status（と 429 の retryAfterMs）を載せて throw する
+ *     （エンジンが 400/404/422=恒久失敗、それ以外=一時失敗に分類する）。
  *   - 副作用のある操作（completeTask）は 404 を「既に消えている＝完了と同義」として
  *     呼び出し側が握れるよう、status を保った例外にする。
- *   - ページングは nextCursor で表現し、内部形式は外へ漏らさない。
+ *   - ページングは nextCursor で表現し、内部形式は外へ漏らさない。カーソルはコンテナ単位の
+ *     不透明文字列を返すだけでよい（接続単位への束ね方＝永続化の形はエンジンの関心事）。
  */
 export interface TaskSyncAdapter {
   readonly id: TaskSyncProviderId
-  /** 資格情報の方式。接続UIの入力項目（APIキー欄を出すか OAuth ボタンを出すか）を駆動する。 */
-  readonly authKind: 'oauth' | 'api_key'
-  /** 接続先ホストがテナントごとに可変か（true なら接続時にURL/サブドメインの入力が要る）。 */
-  readonly requiresBaseUrl: boolean
+  /**
+   * 資格情報の方式。接続UIの入力項目（APIキー欄を出すか OAuth ボタンを出すか）を駆動する。
+   * 'shared_secret' は multica のような相互鍵方式（既存コネクタの取り込み先として型に含める）。
+   */
+  readonly authKind: 'oauth' | 'api_key' | 'shared_secret'
+  /**
+   * 接続先ホストの信頼境界。接続作成時の入力検証と、実行時のリクエスト検証の両方を駆動する。
+   * 'any-https' を宣言したアダプタは素の fetch を使ってはならない（safeFetch 必須）。
+   */
+  readonly hostPolicy: HostPolicy
   /**
    * 差分取得の粒度。'date' のツールは日付単位でしか絞れず取りこぼし防止に前日から取り直す等の
    * 補正がエンジン側で要る。'none' は差分APIが無く全件取得しかできない。

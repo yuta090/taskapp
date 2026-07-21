@@ -1,7 +1,9 @@
+import { assertAllowedHost, requireBaseUrl } from '@/lib/task-sync/hostPolicy'
 import {
   providerError,
   type ExternalContainer,
   type ExternalTask,
+  type HostPolicy,
   type ProviderContext,
   type TaskPage,
   type TaskSyncAdapter,
@@ -40,50 +42,13 @@ const REQUEST_TIMEOUT_MS = 20_000
 
 /**
  * 接続先として許すドメイン。APIキーがURLのクエリに載る認証方式のため、**送信先を間違えることが
- * そのまま鍵の漏洩になる**。接続作成時の検証だけに頼らない（DNSの再解決・過去に保存された行・
- * 別経路からの呼び出しがあるため、実際にリクエストを出すこの層が最後の砦）。
+ * そのまま鍵の漏洩になる**。判定（ドット境界一致・https限定・userinfo拒否・ポート制限）は
+ * 全アダプタ共通の hostPolicy.ts に集約してある。
  */
-const ALLOWED_HOST_SUFFIXES = ['.backlog.jp', '.backlog.com', '.backlogtool.com'] as const
-
-/**
- * baseUrl が Backlog のスペースURLとして妥当かを検証し、正規化した origin を返す。
- * 妥当でなければ permanent なエラー（再試行しても直らない設定不備）を投げる。
- *
- * 弾く対象と理由:
- *   - https 以外 … 平文で鍵が流れる。
- *   - userinfo 付き（https://real.backlog.jp@evil.example) … 実際の接続先は evil.example。
- *   - 許可サフィックス外 … evil-backlog.jp や backlog.jp.evil.com のような紛らわしいドメインを含む。
- *     必ずドット境界で判定する（末尾一致だけだと evil-backlog.jp が通る）。
- *   - 非標準ポート … 正規のBacklogは443のみ。ポート指定は内部ネットワーク探索の手口でもある。
- */
-function assertAllowedBacklogOrigin(baseUrl: string): URL {
-  let url: URL
-  try {
-    url = new URL(baseUrl)
-  } catch {
-    throw providerError('backlog: スペースURLの形式が不正です', { permanent: true, status: 400 })
-  }
-  if (url.protocol !== 'https:') {
-    throw providerError('backlog: スペースURLは https のみ許可します', { permanent: true, status: 400 })
-  }
-  if (url.username || url.password) {
-    throw providerError('backlog: スペースURLに認証情報を含めることはできません', {
-      permanent: true,
-      status: 400,
-    })
-  }
-  if (url.port && url.port !== '443') {
-    throw providerError('backlog: スペースURLに非標準ポートは指定できません', {
-      permanent: true,
-      status: 400,
-    })
-  }
-  const host = url.hostname.toLowerCase()
-  if (!ALLOWED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix) && host.length > suffix.length)) {
-    throw providerError('backlog: Backlog のスペースURLではありません', { permanent: true, status: 400 })
-  }
-  return url
-}
+const BACKLOG_HOST_POLICY = {
+  kind: 'vendor-domain',
+  allowedSuffixes: ['.backlog.jp', '.backlog.com', '.backlogtool.com'],
+} as const satisfies HostPolicy
 
 interface BacklogProject {
   id: number
@@ -145,15 +110,8 @@ function toLocalDateString(due: string | null | undefined): string | null {
 
 /** スペースURL配下のAPI URLを組み立て、APIキーをクエリに載せる。ホスト検証をここで必ず通す。 */
 function apiUrl(ctx: ProviderContext, path: string, params?: Record<string, string | string[]>): string {
-  const base = ctx.credentials.baseUrl
-  if (!base) {
-    // 接続作成時に必須入力のため、ここに来るのは配線ミス。鍵を意図しないホストへ送らないよう即失敗させる。
-    throw providerError('backlog: baseUrl (スペースURL) が設定されていない接続です', {
-      permanent: true,
-      status: 400,
-    })
-  }
-  const origin = assertAllowedBacklogOrigin(base)
+  const base = requireBaseUrl(BACKLOG_HOST_POLICY, ctx.credentials.baseUrl, 'backlog')
+  const origin = assertAllowedHost(BACKLOG_HOST_POLICY, base, 'backlog')
   const url = new URL(`/api/v2${path}`, origin.origin)
   url.searchParams.set('apiKey', ctx.credentials.token)
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -251,7 +209,7 @@ function normalizeIssue(issue: BacklogIssue, containerId: string, doneIds: numbe
 export const backlogAdapter: TaskSyncAdapter = {
   id: 'backlog',
   authKind: 'api_key',
-  requiresBaseUrl: true,
+  hostPolicy: BACKLOG_HOST_POLICY,
   // updatedSince が日付粒度のため。エンジンは「前日から取り直す」補正でこの粒度を吸収する。
   cursorGranularity: 'date',
   // Backlog の課題一覧APIは削除済み課題を返さない（tombstone が無い）。差分に出てこないことを

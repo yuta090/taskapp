@@ -69,7 +69,7 @@ function fakeAdapter(
   return {
     id: 'backlog',
     authKind: 'api_key',
-    requiresBaseUrl: true,
+    hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.backlog.jp'] },
     cursorGranularity: over.cursorGranularity ?? 'date',
     listContainers: async () => [
       { id: 'c1', title: 'コンテナ1' },

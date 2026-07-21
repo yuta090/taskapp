@@ -52,7 +52,7 @@ describe('backlogAdapter — 宣言', () => {
   it('APIキー認証・ベースURL必須・差分は日付粒度', () => {
     expect(backlogAdapter.id).toBe('backlog')
     expect(backlogAdapter.authKind).toBe('api_key')
-    expect(backlogAdapter.requiresBaseUrl).toBe(true)
+    expect(backlogAdapter.hostPolicy).toEqual({ kind: 'vendor-domain', allowedSuffixes: ['.backlog.jp', '.backlog.com', '.backlogtool.com'] })
     expect(backlogAdapter.cursorGranularity).toBe('date')
   })
 })
@@ -91,10 +91,10 @@ describe('backlogAdapter.listContainers', () => {
     expect(url.searchParams.get('apiKey')).toBe('secret-key')
   })
 
-  it('baseUrl が無い接続はプログラミングエラーとして弾く（誤ったホストへ鍵を送らない）', async () => {
+  it('接続先URLが無い接続はプログラミングエラーとして弾く（誤ったホストへ鍵を送らない）', async () => {
     await expect(
       backlogAdapter.listContainers({ credentials: { kind: 'api_key', token: 'k', baseUrl: null } }),
-    ).rejects.toThrow(/baseUrl/)
+    ).rejects.toMatchObject({ permanent: true, status: 400 })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

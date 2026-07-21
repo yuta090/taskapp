@@ -138,6 +138,20 @@ export interface IntegrationCapabilities {
  */
 const GTASKS_IMPORT_POLL_INTERVAL_MINUTES = 15
 
+/**
+ * 接続の手間（セットアップ摩擦の順序尺度）。**表示と実装優先度付けのヒントのみ**で、
+ * ゲートの真実源ではない（proOnly と同じ地位）。SSRF境界を決める hostPolicy
+ * （src/lib/task-sync/types.ts）とは別物: こちらはUX、あちらはセキュリティ境界。混ぜない。
+ *
+ *  - oauth:          同意画面を通すだけ（運用者の入力なし）
+ *  - api_key:        キーを貼るだけ
+ *  - host_and_key:   接続先URL/サブドメインの入力＋キー（Backlog・Redmine・kintone）
+ *  - schema_mapping: 上に加えて項目の対応付けウィザードが要る。外部側のデータ構造が
+ *                    ユーザーごとに違うツール（Notion・kintone・Airtable）はここに入る
+ *  - no_api:         公開APIが無い。汎用Webhook（Zapier等の経由）へ案内するしかない
+ */
+export type IntegrationSetupComplexity = 'oauth' | 'api_key' | 'host_and_key' | 'schema_mapping' | 'no_api'
+
 export interface IntegrationDefinition {
   id: IntegrationId
   /** UI表示名 */
@@ -162,6 +176,11 @@ export interface IntegrationDefinition {
    * ただし GA/BETA（実際に使えるもの）は必ず featured にする＝使えるものを畳んで隠さない。
    */
   featured?: boolean
+  /**
+   * 接続の手間。UIの案内文と、実装の優先度付け（摩擦の小さいものから出す）に使う表示ヒント。
+   * 課金・能力の真実源ではない。
+   */
+  setupComplexity?: IntegrationSetupComplexity
   /** 開発者コンソール等の外部URL（doc/詳細用） */
   setupUrl?: string
   /** doc/UIの補足 */
@@ -186,6 +205,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'ga',
     surface: 'connector',
+    setupComplexity: 'oauth',
     connectorKind: 'google_tasks',
     proOnly: true,
     featured: true,
@@ -206,6 +226,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'ga',
     surface: 'connector',
+    setupComplexity: 'host_and_key',
     connectorKind: 'multica',
     proOnly: true,
     featured: true,
@@ -225,6 +246,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'host_and_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.nulab.com/ja/docs/backlog/',
@@ -237,6 +259,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://www.jooto.com/',
@@ -249,6 +272,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'host_and_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.atlassian.com/cloud/jira/platform/',
@@ -261,6 +285,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'host_and_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://www.redmine.org/projects/redmine/wiki/Rest_api',
@@ -273,6 +298,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developers.asana.com/docs',
@@ -284,6 +310,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.atlassian.com/cloud/trello/rest/',
@@ -295,6 +322,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'oauth',
     proOnly: true,
     featured: true,
     notes: 'Microsoft 365 環境の標準タスク。Planner との使い分けは接続時に選ぶ。',
@@ -306,6 +334,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     setupUrl: 'https://linear.app/developers',
   },
@@ -316,6 +345,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'oauth',
     proOnly: true,
     setupUrl: 'https://developers.wrike.com/',
   },
@@ -326,6 +356,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     setupUrl: 'https://developer.clickup.com/docs',
   },
@@ -336,6 +367,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     setupUrl: 'https://developer.monday.com/api-reference/docs',
   },
@@ -346,6 +378,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'api_key',
     proOnly: true,
     setupUrl: 'https://developer.chatwork.com/docs',
     notes: 'Chatwork のタスク機能と同期する（チャット接続=「つなぐ」タブとは別軸のタスク同期）。',
@@ -357,6 +390,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'host_and_key',
     proOnly: true,
     notes: 'サイボウズ Garoon のToDo。企業内グループウェア利用企業向け。',
   },
@@ -402,6 +436,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'notify',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'schema_mapping',
     notes: '業務アプリ基盤への書き出し。順次対応。',
   },
   airtable: {
@@ -411,6 +446,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'notify',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'schema_mapping',
   },
   csv_export: {
     id: 'csv_export',
