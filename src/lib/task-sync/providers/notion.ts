@@ -257,17 +257,33 @@ function findPropertyById(properties: Record<string, NotionPropertyValue>, propI
 }
 
 /**
+ * 暦日として実在するか（形式だけでなく）を見る。'2026-99-99' や '2026-02-30'（3月2日への
+ * 自動繰り上げ）は正規表現には合致するが実在しない。Date.UTC に通して年月日が変わらないかで
+ * 判定する（UTC固定の比較なのでローカル日付のずれは起きない。既存の
+ * src/lib/connectors/genericPayload.ts の isRealCalendarDate と同じ手書きの往復判定）。
+ * ここはページ応答という信頼境界の検証であり、日付の生成・表示ではないため
+ * CLAUDE.md の toISOString 禁止には抵触しない。
+ */
+function isRealCalendarDate(head: string): boolean {
+  const [y, m, d] = head.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+}
+
+/**
  * 期日を必ずローカル日付 'YYYY-MM-DD' へ落とす。date プロパティの `start` は日付のみ
  * （'2026-07-31'）か、時刻付き（'2026-07-31T23:00:00.000+09:00'）のいずれかで返る。
  * 先頭10文字は常に暦日の表現であるため、そのまま切り出す（Dateを経由しない＝UTC変換で
  * 日本時間が1日ずれる事故が原理的に起きない。CLAUDE.md の toISOString 禁止と同じ理由）。
  *
- * 戻り値 null は「date.start が日付として不正」（呼び出し側が恒久停止扱いに変える）。
- * 「期日が設定されていない」（date自体が null）とは呼び出し側で区別すること。
+ * 戻り値 null は「date.start が日付として不正」（形式不正・存在しない暦日のいずれも含む。
+ * 呼び出し側が恒久停止扱いに変える）。「期日が設定されていない」（date自体が null）とは
+ * 呼び出し側で区別すること。
  */
 function toLocalDateString(start: string): string | null {
   const head = start.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(head)) return null
+  return isRealCalendarDate(head) ? head : null
 }
 
 /**

@@ -87,6 +87,31 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
 
+/**
+ * confirmed_at（監査値）の形式検証。ISO8601（ミリ秒付きUTC。他の provider の cursor と同じ形）の
+ * 正規表現＋実在する暦日かを見る。`new Date(str)` だけに頼ると `July 1, 2026` のような非ISO表記や
+ * `2026-02-30`（3月2日へ自動繰り上げされる）まで妥当として通ってしまうため、形式と暦日を
+ * 別々に検証する。値そのものは書き換えない（保存された文字列をそのまま保持する）ため、
+ * 日付の生成・表示ではなく CLAUDE.md の toISOString 禁止には抵触しない。
+ *
+ * 暦日の実在判定は src/lib/connectors/genericPayload.ts の isRealCalendarDate と同じ往復判定
+ * （Date.UTC に通して年月日が変わらないかを見る）。既存の検証は手書きの流儀で統一しており
+ * （外部ライブラリを増やさない）、この1ファイルのためだけに共有ユーティリティへ切り出すほどの
+ * 重複ではないため、同じ小さな判定をここにも持つ。
+ */
+const ISO_DATETIME_RE =
+  /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(\.\d+)?(Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)$/
+
+function isValidIsoDatetime(value: string): boolean {
+  const m = ISO_DATETIME_RE.exec(value)
+  if (!m) return false
+  const year = Number(m[1])
+  const month = Number(m[2])
+  const day = Number(m[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
 export type StatusMappingParseResult =
   | { ok: true; data: NotionStatusMapping }
   | { ok: false; reason: string }
@@ -105,19 +130,21 @@ function parseNotionStatusMapping(raw: unknown): StatusMappingParseResult {
   if (!Array.isArray(raw.done_option_ids) || !raw.done_option_ids.every((id) => typeof id === 'string')) {
     return { ok: false, reason: 'status.done_option_ids must be an array of strings' }
   }
-  const doneOptionIds = raw.done_option_ids as string[]
-  if (new Set(doneOptionIds).size !== doneOptionIds.length) {
-    return { ok: false, reason: 'status.done_option_ids must not contain duplicates' }
-  }
+  const rawDoneOptionIds = raw.done_option_ids as string[]
+  // 重複は実行結果に影響しない（isCompleted は includes() で判定するため、同じ id が
+  // 2回あっても1回あっても判定結果は変わらない）。コンテナ全体（期日取り込み含む）を
+  // 止めるほどの違反ではないので、Set で一意化して受理する（保存前提のウィザードに直させず、
+  // ここで静かに正規化するのが最も無害）。
+  let doneOptionIds = Array.from(new Set(rawDoneOptionIds))
   if (propType === 'checkbox') {
-    // checkbox は true/false で直接判定するため option id という概念が無い。空配列必須。
-    if (doneOptionIds.length !== 0) {
-      return { ok: false, reason: 'status.done_option_ids must be empty for checkbox (no option id concept)' }
-    }
+    // checkbox は true/false で直接判定するため option id という概念が無い。非空でも実害は無い
+    // （isCompleted は checkbox 型のとき done_option_ids を一切参照しない）ため、拒否はせず
+    // 空配列へ正規化して受理する。
+    doneOptionIds = []
   } else {
     // status/select: 空配列だと「完了とみなす選択肢が無い」＝どのページも永久に completed=false
-    // になる（完了同期が付いているのに一生発火しない設定不備）。完了同期をしないなら
-    // status 自体を null にする契約（parseNotionMapping 側）なので、ここに来た以上1件以上必須。
+    // になる（完了同期が付いているのに一生発火しない設定不備）。これは実害があるため維持する。
+    // 完了同期をしないなら status 自体を null にする契約（parseNotionMapping 側）。
     if (doneOptionIds.length === 0) {
       return {
         ok: false,
@@ -167,10 +194,10 @@ export function parseNotionMapping(raw: unknown): NotionMappingParseResult {
   if (!nonEmptyString(raw.confirmed_at)) {
     return { ok: false, reason: 'confirmed_at must be a non-empty string' }
   }
-  // confirmed_at は監査値（ユーザーがこのマッピングを確認・確定した時刻）。ISO8601として妥当かだけ
-  // を Date に通して見る（値そのものは書き換えない＝ raw.confirmed_at をそのまま保持する。
+  // confirmed_at は監査値（ユーザーがこのマッピングを確認・確定した時刻）。形式(ISO8601)と
+  // 暦日の実在の両方を検証する（値そのものは書き換えない＝ raw.confirmed_at をそのまま保持する。
   // 日付の生成・表示・変換には使わないため CLAUDE.md の toISOString 禁止には抵触しない）。
-  if (Number.isNaN(new Date(raw.confirmed_at).getTime())) {
+  if (!isValidIsoDatetime(raw.confirmed_at)) {
     return { ok: false, reason: 'confirmed_at must be a valid ISO8601 datetime string' }
   }
 

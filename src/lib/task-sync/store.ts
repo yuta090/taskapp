@@ -201,16 +201,37 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
       }
     },
 
-    async saveCursor(connectionId: string, cursor: string | null, succeededAt: Date): Promise<void> {
+    async saveCursor(
+      connectionId: string,
+      cursor: string | null,
+      succeededAt: Date,
+      missingContainers: Record<string, string>,
+    ): Promise<void> {
       // poll_cursor と last_import_success_at は**同じ成功パスでのみ**前進させる。
       // last_import_success_at は AI秘書の期限リマインドが「この接続の期限情報は N 分以内に
       // 同期済み」と主張するための鮮度証明であり、部分成功で進めると嘘の鮮度を主張してしまう。
+      // import_missing_containers も同じ update で書く: 別更新に分けると、片方だけ成功して
+      // 台帳とカーソルの前提が食い違う瞬間が生まれる（成功パスの一貫性が崩れる）。
       // タイムスタンプ用途のため toISOString を使う（ローカル日付表示ではないので禁止対象外）。
       const { error } = await admin
         .from('integration_connections')
-        .update({ poll_cursor: cursor, last_import_success_at: succeededAt.toISOString() })
+        .update({
+          poll_cursor: cursor,
+          last_import_success_at: succeededAt.toISOString(),
+          import_missing_containers: missingContainers,
+        })
         .eq('id', connectionId)
       if (error) throw new Error(`saveCursor failed: ${error.message}`)
+    },
+
+    async saveMissingContainers(connectionId: string, missingContainers: Record<string, string>): Promise<void> {
+      // 明示指定コンテナが全て欠落しており、何も取得を試みていないサイクル用。鮮度を主張できる
+      // 根拠が無いため poll_cursor / last_import_success_at には触れず、欠落台帳だけを更新する。
+      const { error } = await admin
+        .from('integration_connections')
+        .update({ import_missing_containers: missingContainers })
+        .eq('id', connectionId)
+      if (error) throw new Error(`saveMissingContainers failed: ${error.message}`)
     },
   }
 }

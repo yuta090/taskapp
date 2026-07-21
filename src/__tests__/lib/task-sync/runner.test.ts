@@ -296,3 +296,34 @@ describe('runTaskSyncImport — provider固有設定の受け渡し', () => {
     expect(arg.targets.readContainerIds).toEqual(['c1'])
   })
 })
+
+describe('runTaskSyncImport — 欠落コンテナ台帳の受け渡し', () => {
+  /**
+   * import_missing_containers（欠落と判明した時点の poll_cursor 値の台帳）はエンジンが
+   * 再出現時の since 計算・恒久削除時の wedge 防止に使う（engine.ts 参照）。ランナーは
+   * 接続行から読んでそのまま渡すだけの配線だが、jsonb 由来の値は何の保証も無い unknown なので
+   * 壊れていてもエンジンを呼ぶ前に空オブジェクトへフォールバックする（1行の壊れた値で
+   * その接続の取り込みが落ちない・恒久停止しないため）。
+   */
+
+  it('欠落台帳をそのままエンジンへ渡す', async () => {
+    connectionRows.push(row({ import_missing_containers: { c1: '2026-07-01' } }))
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, string> }
+    expect(arg.storedMissing).toEqual({ c1: '2026-07-01' })
+  })
+
+  it('import_missing_containers が壊れていたら空オブジェクトにフォールバックする（落とさない）', async () => {
+    connectionRows.push(row({ import_missing_containers: 'not-an-object' }))
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, string> }
+    expect(arg.storedMissing).toEqual({})
+  })
+
+  it('未設定(null)なら空オブジェクトとして渡す', async () => {
+    connectionRows.push(row({ import_missing_containers: null }))
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, string> }
+    expect(arg.storedMissing).toEqual({})
+  })
+})

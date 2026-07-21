@@ -111,7 +111,10 @@ describe('parseNotionMapping', () => {
     expect((result as { ok: false; reason: string }).reason).toMatch(/done_option_ids/)
   })
 
-  it('checkbox型で done_option_ids が非空配列なら弾く', () => {
+  it('checkbox型で done_option_ids が非空配列でも拒否せず空配列へ正規化して受理する（無害な違反でコンテナ全体を止めない）', () => {
+    // checkbox は isCompleted() が done_option_ids を一切参照しない（checkbox 値で直接判定する）ため、
+    // 非空でも実行結果に影響しない。拒否してコンテナ全体（期日取り込み含む）を止めるのは
+    // 処罰が不均衡なので、静かに正規化して受理する。
     const result = parseNotionMapping(
       baseMapping({
         status: {
@@ -122,12 +125,31 @@ describe('parseNotionMapping', () => {
         },
       }),
     )
-    expect(result.ok).toBe(false)
-    expect((result as { ok: false; reason: string }).reason).toMatch(/done_option_ids/)
+    expect(result.ok).toBe(true)
+    expect((result as { ok: true; data: NotionMapping }).data.status?.done_option_ids).toEqual([])
   })
 
   it('confirmed_at がISO8601として妥当でなければ弾く(監査値のため)', () => {
     const result = parseNotionMapping(baseMapping({ confirmed_at: 'not-a-date' }))
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/confirmed_at/)
+  })
+
+  it('confirmed_at が非ISO8601表記（Dateなら解釈できてしまう形）なら弾く', () => {
+    // 旧実装は new Date(str) が解釈できれば通していたため、こういう非ISO表記まで通っていた。
+    const result = parseNotionMapping(baseMapping({ confirmed_at: 'July 1, 2026' }))
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/confirmed_at/)
+  })
+
+  it('confirmed_at が存在しない暦日（2026-02-30。3月2日へ自動繰り上げされる形）なら弾く', () => {
+    const result = parseNotionMapping(baseMapping({ confirmed_at: '2026-02-30T00:00:00.000Z' }))
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/confirmed_at/)
+  })
+
+  it('confirmed_at が存在しない月日（2026-99-99）なら弾く', () => {
+    const result = parseNotionMapping(baseMapping({ confirmed_at: '2026-99-99T00:00:00.000Z' }))
     expect(result.ok).toBe(false)
     expect((result as { ok: false; reason: string }).reason).toMatch(/confirmed_at/)
   })
@@ -138,7 +160,19 @@ describe('parseNotionMapping', () => {
     expect((result as { ok: true; data: NotionMapping }).data.confirmed_at).toBe('2026-07-21T00:00:00.000Z')
   })
 
-  it('done_option_ids に重複があれば弾く', () => {
+  it('confirmed_at がうるう年の2/29なら通す(閏年の暦日検証)', () => {
+    const result = parseNotionMapping(baseMapping({ confirmed_at: '2028-02-29T00:00:00.000Z' }))
+    expect(result.ok).toBe(true)
+  })
+
+  it('confirmed_at がうるう年でない年の2/29なら弾く', () => {
+    const result = parseNotionMapping(baseMapping({ confirmed_at: '2026-02-29T00:00:00.000Z' }))
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/confirmed_at/)
+  })
+
+  it('done_option_ids に重複があっても拒否せず一意化して受理する（実行結果に影響しない無害な違反）', () => {
+    // isCompleted() は includes() で判定するため、同じ id が1回でも2回でも判定結果は変わらない。
     const result = parseNotionMapping(
       baseMapping({
         status: {
@@ -149,8 +183,8 @@ describe('parseNotionMapping', () => {
         },
       }),
     )
-    expect(result.ok).toBe(false)
-    expect((result as { ok: false; reason: string }).reason).toMatch(/duplicate/)
+    expect(result.ok).toBe(true)
+    expect((result as { ok: true; data: NotionMapping }).data.status?.done_option_ids).toEqual(['opt-done'])
   })
 })
 
