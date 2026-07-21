@@ -100,6 +100,16 @@ beforeEach(() => {
   connectionsState.isLoading = false
 })
 
+describe('ConnectorSyncPane — 初回ロード中', () => {
+  it('isLoading中は空白(return null)ではなく軽量スケルトンを表示する', () => {
+    connectionsState.isLoading = true
+    const { container } = render(<ConnectorSyncPane orgId="org-1" />)
+    expect(container.firstChild).not.toBeNull()
+    expect(screen.getByTestId('connector-sync-pane-skeleton')).toBeInTheDocument()
+    expect(screen.queryByText('双方向同期')).not.toBeInTheDocument()
+  })
+})
+
 describe('ConnectorSyncPane — multica', () => {
   it('未接続・owner: 作成フォームを表示し、送信するとcreateを呼びMulticaConnectionRevealを表示する', async () => {
     createMulticaMock.mockResolvedValue({

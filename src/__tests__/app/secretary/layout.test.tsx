@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 /**
- * secretary/layout.tsx — 秘書4タブ(メッセージ/確認待ち/外部連携/つなぐ)共通の静的シェル。
+ * secretary/layout.tsx — 秘書4タブ(メッセージ/確認待ち/ツール連携/つなぐ)共通の静的シェル。
  * タブバー(SecretaryTabNav)をここで一元描画し、配下のpage切替でタブバーごと
  * remountされないようにする(骨格の永続化)。
  */

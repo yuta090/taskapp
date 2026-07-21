@@ -21,6 +21,12 @@ interface CreateSinkFormProps {
   onCancel: () => void
   notionConnection?: NotionConnectionStatus
   googleSheetsConnection?: GoogleSheetsConnectionStatus
+  /**
+   * 指定時はprovider選択ラジオを表示せず、この値に固定する
+   * （ToolRailで既にツールが確定しているSinkProviderPanel経由の呼び出し用）。
+   * 未指定時は従来通りラジオでprovider選択させる(後方互換)。
+   */
+  lockedProvider?: SinkProvider
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -47,8 +53,9 @@ export function CreateSinkForm({
   onCancel,
   notionConnection = { connected: false, workspaceName: null },
   googleSheetsConnection = { connected: false },
+  lockedProvider,
 }: CreateSinkFormProps) {
-  const [provider, setProvider] = useState<SinkProvider>('webhook')
+  const [provider, setProvider] = useState<SinkProvider>(lockedProvider ?? 'webhook')
   const [displayName, setDisplayName] = useState('')
   const [url, setUrl] = useState('')
   const [databaseId, setDatabaseId] = useState('')
@@ -129,24 +136,26 @@ export function CreateSinkForm({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
-      <div>
-        <span className="block text-xs font-medium text-gray-700 mb-1">連携先の種類</span>
-        <div role="radiogroup" aria-label="連携先の種類" className="flex items-center gap-3">
-          {CREATABLE_PROVIDERS.map((option) => (
-            <label key={option.value} className="flex items-center gap-1.5 text-xs text-gray-700">
-              <input
-                type="radio"
-                name="sink-provider"
-                value={option.value}
-                checked={provider === option.value}
-                onChange={() => setProvider(option.value)}
-                aria-label={option.label}
-              />
-              {option.label}
-            </label>
-          ))}
+      {!lockedProvider && (
+        <div>
+          <span className="block text-xs font-medium text-gray-700 mb-1">連携先の種類</span>
+          <div role="radiogroup" aria-label="連携先の種類" className="flex items-center gap-3">
+            {CREATABLE_PROVIDERS.map((option) => (
+              <label key={option.value} className="flex items-center gap-1.5 text-xs text-gray-700">
+                <input
+                  type="radio"
+                  name="sink-provider"
+                  value={option.value}
+                  checked={provider === option.value}
+                  onChange={() => setProvider(option.value)}
+                  aria-label={option.label}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <div>
         <label htmlFor="sink-display-name" className="block text-xs font-medium text-gray-700 mb-1">
           表示名

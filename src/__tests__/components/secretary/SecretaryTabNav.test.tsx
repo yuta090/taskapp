@@ -19,7 +19,7 @@ const ORG = '11111111-1111-4111-8111-111111111111'
 
 /**
  * チャネル連携ハブ統合(D3+骨格移設)後、トップタブは4本に集約:
- * メッセージ / 確認待ち / 外部連携 / つなぐ(connect)。
+ * メッセージ / 確認待ち / ツール連携 / つなぐ(connect)。
  * 旧「つなぐ(user-links)」「相手先グループ(group-links)」の別タブは廃止し、
  * LINE配下(/secretary/connect/line, /connect/line/groups)へ畳んだ。
  *
@@ -34,6 +34,13 @@ describe('SecretaryTabNav', () => {
     expect(screen.getByTestId('secretary-tab-approvals')).toBeInTheDocument()
     expect(screen.getByTestId('secretary-tab-integrations')).toBeInTheDocument()
     expect(screen.getByTestId('secretary-tab-connect')).toBeInTheDocument()
+  })
+
+  it('integrationsタブのラベルは「ツール連携」（旧「外部連携」から改名）', () => {
+    usePathnameMock.mockReturnValue(`/${ORG}/secretary`)
+    render(<SecretaryTabNav orgId={ORG} />)
+    expect(screen.getByTestId('secretary-tab-integrations')).toHaveTextContent('ツール連携')
+    expect(screen.queryByText('外部連携')).not.toBeInTheDocument()
   })
 
   it('connectタブは /secretary/connect/line を指す', () => {
