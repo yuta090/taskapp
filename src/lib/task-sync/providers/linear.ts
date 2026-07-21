@@ -1,3 +1,4 @@
+import { externalDueToJstDate } from '@/lib/task-sync/dueDate'
 import { assertAllowedHost, requireBaseUrl } from '@/lib/task-sync/hostPolicy'
 import {
   providerError,
@@ -200,24 +201,13 @@ async function linearFetch<T>(
   return body.data
 }
 
-/**
- * `dueDate` は時刻を持たない 'YYYY-MM-DD' 想定(スカラー TimelessDate)だが、防御的に先頭10文字を
- * 検証する（Backlog/Asana/Jiraと同じ考え方。Dateオブジェクトを経由しない＝toISOString由来の
- * タイムゾーンずれが原理的に起きない）。
- */
-function toLocalDateString(due: string | null | undefined): string | null {
-  if (!due) return null
-  const head = due.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
-}
-
 function normalizeIssue(node: LinearIssueNode, containerId: string): ExternalTask {
   return {
     externalId: node.id,
     containerId,
     title: node.title?.trim() || '(無題)',
     body: node.description?.trim() ? node.description : null,
-    dueDate: toLocalDateString(node.dueDate),
+    dueDate: externalDueToJstDate(node.dueDate),
     completed: node.state?.type === COMPLETED_STATE_TYPE,
     deleted: node.trashed === true,
     assigneeKey: node.assignee?.id ?? null,

@@ -1,3 +1,4 @@
+import { externalDueToJstDate } from '@/lib/task-sync/dueDate'
 import { assertAllowedHost, requireBaseUrl } from '@/lib/task-sync/hostPolicy'
 import {
   providerError,
@@ -78,16 +79,6 @@ interface JootoTask {
   status?: 'to_do' | 'done' | 'cancel' | 'pending' | 'in_progress'
   archived?: boolean
   updated_at?: string | null
-}
-
-/**
- * Jooto の deadline_date_time（ISO8601日時）をローカル日付 'YYYY-MM-DD' へ。
- * 先頭10文字を切り出すだけ（Date を経由しない＝ CLAUDE.md の toISOString 禁止と同じ理由）。
- */
-function toLocalDateString(due: string | null | undefined): string | null {
-  if (!due) return null
-  const head = due.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
 }
 
 /** ホストポリシーを通した固定ホスト配下のURLを組み立てる。 */
@@ -171,7 +162,7 @@ function normalizeTask(task: JootoTask, containerId: string): ExternalTask {
     containerId,
     title: task.name?.trim() || '(無題)',
     body: task.description?.trim() ? task.description : null,
-    dueDate: toLocalDateString(task.deadline_date_time),
+    dueDate: externalDueToJstDate(task.deadline_date_time),
     completed: task.status === 'done',
     // 真の削除相当が無いツールのため、アーカイブを削除の代理指標として扱う。
     deleted: task.archived === true,

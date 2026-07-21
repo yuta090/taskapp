@@ -1,4 +1,4 @@
-import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { externalDueToJstDate } from '@/lib/task-sync/dueDate'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { providerError } from '@/lib/task-sync/types'
 import type {
@@ -31,7 +31,7 @@ import type {
  *     互いに排他（"should not be used together"）。`due_on` はそのままローカル日付として使えるが、
  *     `due_at` は実際の時刻を持つため素朴に先頭10文字を切るとUTC日付になり日本時間で1日ずれる
  *     （CLAUDE.md の toISOString 禁止と同じ理由）。`due_at` しか無い場合だけ Date を経由し
- *     formatDateToLocalString でローカル日付に変換する。
+ *     日本時間の暦日へ変換する（実行環境のTZに依存させない）。
  *   - `GET /projects` はワークスペース単位。PATは複数ワークスペースに跨りうるため、
  *     どのワークスペースを見るかは接続ごとに固定する必要がある。ProviderCredentials に
  *     ワークスペースの置き場は無い（baseUrlはホスト可変ツール用でAsanaは固定ホスト）ため、
@@ -108,13 +108,15 @@ function workspaceGid(ctx: ProviderContext): string {
 
 /**
  * 期日を必ずローカル日付 'YYYY-MM-DD' へ落とす。`due_on` は日付のみの値なのでそのまま使う。
- * `due_at` は実時刻を持つため Date を経由して formatDateToLocalString でローカル日付化する
+ * `due_at` は実時刻を持つため、日本時間の暦日へ落とす
  * （toISOString().slice(0,10) は使わない＝UTC切り出しで日本時間の日付とずれる事故を防ぐ）。
  */
 function toLocalDateString(dueOn: string | null | undefined, dueAt: string | null | undefined): string | null {
   if (dueOn) return dueOn
   if (!dueAt) return null
-  return formatDateToLocalString(new Date(dueAt))
+  // 実行環境のタイムゾーンではなく**日本時間の暦日**で切り出す（本番はUTCなので、
+  // ローカル変換だと日本時間 8/1 0:00 の期日が 7/31 として取り込まれ1日ずれる）。
+  return externalDueToJstDate(dueAt)
 }
 
 function apiUrl(path: string, params?: Record<string, string>): string {

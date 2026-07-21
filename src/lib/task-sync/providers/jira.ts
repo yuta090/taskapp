@@ -1,3 +1,4 @@
+import { externalDueToJstDate } from '@/lib/task-sync/dueDate'
 import { assertAllowedHost, requireBaseUrl } from '@/lib/task-sync/hostPolicy'
 import {
   providerError,
@@ -226,17 +227,6 @@ async function jiraFetch(ctx: ProviderContext, url: string, init?: RequestInit):
 }
 
 /**
- * `fields.duedate` は既に時刻を持たない 'YYYY-MM-DD' 文字列で返る想定だが、防御的に先頭10文字を
- * 検証する（Backlog/Asanaと同じ考え方。Dateオブジェクトを経由しない＝toISOString由来の
- * タイムゾーンずれが原理的に起きない）。
- */
-function toLocalDateString(due: string | null | undefined): string | null {
-  if (!due) return null
-  const head = due.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
-}
-
-/**
  * エンジンから渡される `since`(UTCのISO8601、`cursorGranularity='timestamp'`)を、JQLの
  * **相対期間リテラル**('-NNm'。「クエリ実行時のnowからNN分前」)へ変換する。
  *
@@ -281,7 +271,7 @@ function normalizeIssue(issue: JiraIssue, containerId: string): ExternalTask {
     containerId,
     title: issue.fields.summary?.trim() || '(無題)',
     body: issue.fields.description?.trim() ? issue.fields.description : null,
-    dueDate: toLocalDateString(issue.fields.duedate),
+    dueDate: externalDueToJstDate(issue.fields.duedate),
     completed: categoryKey === DONE_STATUS_CATEGORY_KEY,
     assigneeKey: assignee?.accountId ?? assignee?.key ?? assignee?.name ?? null,
     updatedAt: issue.fields.updated ?? null,

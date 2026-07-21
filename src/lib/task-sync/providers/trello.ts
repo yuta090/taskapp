@@ -1,4 +1,4 @@
-import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
+import { externalDueToJstDate } from '@/lib/task-sync/dueDate'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { providerError } from '@/lib/task-sync/types'
 import type {
@@ -56,7 +56,7 @@ import type {
  *   - 期日 `due` は実時刻を持つISO8601（公式スキーマは format:date だが実際は日時。日付のみの
  *     選択でも内部的には特定時刻のタイムスタンプとして返る＝未確認だが安全側に倒し常に
  *     実時刻とみなす）。素朴なUTC切り出しは日本時間で1日ずれうるため、Dateを経由し
- *     formatDateToLocalStringでローカル日付化する（toISOStringは使わない）。
+ *     日本時間の暦日へ変換する（実行環境のTZに依存させない・toISOStringも使わない）。
  *   - 担当者 `idMembers` は複数を返す。ExternalTask.assigneeKey は単一のため先頭のみを採用する
  *     （将来のユーザー対応付けに使う程度の情報であり、複数対応は現状スコープ外という判断）。
  *   - `/members/me/boards` の `me` は「自分自身」を指すショートハンド（Trelloの長年の公開
@@ -127,7 +127,9 @@ function doneListIds(ctx: ProviderContext): string[] {
 /** カードの期日をローカル日付 'YYYY-MM-DD' へ落とす。実時刻を持つためDateを経由する。 */
 function toLocalDateString(due: string | null | undefined): string | null {
   if (!due) return null
-  return formatDateToLocalString(new Date(due))
+  // 実行環境のタイムゾーンではなく**日本時間の暦日**で切り出す（本番はUTCなので、
+  // ローカル変換だと日本時間 8/1 0:00 の期日が 7/31 として取り込まれ1日ずれる）。
+  return externalDueToJstDate(due)
 }
 
 /** key/tokenをクエリに載せてURLを組み立てる。 */

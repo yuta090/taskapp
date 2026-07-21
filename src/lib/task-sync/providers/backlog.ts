@@ -1,3 +1,4 @@
+import { externalDueToJstDate } from '@/lib/task-sync/dueDate'
 import { assertAllowedHost, requireBaseUrl } from '@/lib/task-sync/hostPolicy'
 import {
   providerError,
@@ -97,17 +98,6 @@ function completionStatusId(ctx: ProviderContext): number {
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : DEFAULT_DONE_STATUS_ID
 }
 
-/**
- * Backlog の dueDate（'2026-07-31T00:00:00Z' 形式で返る日付項目）をローカル日付 'YYYY-MM-DD' へ。
- * 日付のみの意味しか持たないため先頭10文字を切り出す（Date を経由しない＝UTC変換で日本時間が
- * 1日ずれる事故が原理的に起きない。CLAUDE.md の toISOString 禁止と同じ理由）。
- */
-function toLocalDateString(due: string | null | undefined): string | null {
-  if (!due) return null
-  const head = due.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
-}
-
 /** スペースURL配下のAPI URLを組み立て、APIキーをクエリに載せる。ホスト検証をここで必ず通す。 */
 function apiUrl(ctx: ProviderContext, path: string, params?: Record<string, string | string[]>): string {
   const base = requireBaseUrl(BACKLOG_HOST_POLICY, ctx.credentials.baseUrl, 'backlog')
@@ -199,7 +189,7 @@ function normalizeIssue(issue: BacklogIssue, containerId: string, doneIds: numbe
     containerId,
     title: issue.summary?.trim() || '(無題)',
     body: issue.description?.trim() ? issue.description : null,
-    dueDate: toLocalDateString(issue.dueDate),
+    dueDate: externalDueToJstDate(issue.dueDate),
     completed: typeof statusId === 'number' && doneIds.includes(statusId),
     assigneeKey: issue.assignee?.id != null ? String(issue.assignee.id) : null,
     updatedAt: issue.updated ?? null,
