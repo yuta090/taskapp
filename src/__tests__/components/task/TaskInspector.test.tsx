@@ -92,6 +92,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     estimate_status: 'none',
     completed_at: null,
     is_sample: false,
+    due_authority_connection_id: null,
     created_at: '2026-07-01T00:00:00',
     updated_at: '2026-07-01T00:00:00',
     ...overrides,
@@ -196,5 +197,49 @@ describe('TaskInspector — ボールの説明を常時表示 (A3)', () => {
     expect(
       screen.getByText('次にアクションを取る側。外部=クライアントの対応待ち')
     ).toBeInTheDocument()
+  })
+})
+
+// AI秘書 Stage5 期限リマインド PR-0(§2.1/§5.2): due_authority_connection_id 非NULL(external権威)の
+// タスクは期限(due_date)を TaskApp から編集不可。UIは読み取り専用表示＋出所の注記にする。
+describe('TaskInspector — 期限の正本境界(due_authority_connection_id)', () => {
+  it('due_authority_connection_id が非NULL のとき、期限は読み取り専用になり編集用の入力を出さない', () => {
+    renderInspector({
+      task: makeTask({ due_date: '2026-07-25', due_authority_connection_id: 'conn-gtasks-1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(screen.queryByTestId('task-inspector-due-date')).not.toBeInTheDocument()
+    expect(screen.getByText('2026/7/25')).toBeInTheDocument()
+    expect(screen.getByText(/連携元ツール|Google Tasks/)).toBeInTheDocument()
+  })
+
+  it('due_authority_connection_id が非NULL でも開始日は引き続き編集できる(期限だけが読取専用)', () => {
+    renderInspector({
+      task: makeTask({ start_date: '2026-07-01', due_authority_connection_id: 'conn-gtasks-1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(screen.getByTestId('task-inspector-start-date')).toBeInTheDocument()
+  })
+
+  it('due_authority_connection_id が null のときは従来通り期限を編集できる', () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    renderInspector({
+      task: makeTask({ due_date: null, due_authority_connection_id: null }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate,
+    })
+
+    expect(screen.getByTestId('task-inspector-due-date')).toBeInTheDocument()
+    expect(screen.queryByText(/連携元ツール|Google Tasks/)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('task-inspector-due-date'), { target: { value: '2026-08-01' } })
+    expect(onUpdate).toHaveBeenCalledWith({ dueDate: '2026-08-01' })
   })
 })

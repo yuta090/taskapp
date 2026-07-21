@@ -98,6 +98,28 @@ export type IntegrationImplStatus = 'ga' | 'beta' | 'planned'
  */
 export type IntegrationSurface = 'connector' | 'sink' | 'export' | 'catalog'
 
+/**
+ * AI秘書 Stage5 期限リマインド用の connector capabilities(docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
+ * §4.5/§5.3/§6)。connector surface(gtasks/multica)のみが持つ。値の追加は connector を増やすときのみ。
+ *  - dueImport:    この接続が due_date を取り込む(=正本になり得る)か。
+ *  - completionWrite: 完了をこの接続へ書き戻す(complete)か。
+ *  - dueFreshness: 鮮度証明の方式。'poll-sla'=poll間隔ベースの有界遅延で証明／'webhook-observed'=
+ *                  webhookのobserved_atで証明(将来)／'none'=証明対象の due が無い(=リマインド対象外)。
+ *  - pollFreshnessSlaMinutes: 'poll-sla' のときの許容遅延(分)。実 cron 間隔×2が目安(§6)。
+ */
+export interface IntegrationCapabilities {
+  dueImport: boolean
+  completionWrite: boolean
+  dueFreshness: 'poll-sla' | 'webhook-observed' | 'none'
+  pollFreshnessSlaMinutes?: number
+}
+
+/**
+ * gtasks import の pg_cron 間隔("15分ごと"。supabase/migrations/20260720180744_connector_cron.sql の
+ * 'connector-import' ジョブ)。鮮度SLAはこの間隔×2を許容遅延とする(§6 の根拠と同じ)。
+ */
+const GTASKS_IMPORT_POLL_INTERVAL_MINUTES = 15
+
 export interface IntegrationDefinition {
   id: IntegrationId
   /** UI表示名 */
@@ -119,6 +141,12 @@ export interface IntegrationDefinition {
   setupUrl?: string
   /** doc/UIの補足 */
   notes?: string
+  /**
+   * AI秘書 Stage5 期限リマインドの connector surface capabilities。connector(gtasks/multica)のみ持つ。
+   * 課金の真実源ではない proOnly と同様、こちらも「送信可否」の真実源ではなく connector の能力宣言のみ
+   * （実際の gating は entitlements.ts・鮮度判定は §6 のsender側ロジックが参照する）。
+   */
+  capabilities?: IntegrationCapabilities
 }
 
 /**
@@ -138,6 +166,12 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     setupUrl: 'https://developers.google.com/tasks',
     notes:
       '既存のタスク管理を使う企業はそのツール(Google Tasks)が正本、TaskAppは中継（ハブ&スポーク）。完了も両側へ反映。',
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: GTASKS_IMPORT_POLL_INTERVAL_MINUTES * 2,
+    },
   },
   multica: {
     id: 'multica',
@@ -149,6 +183,13 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     connectorKind: 'multica',
     proOnly: true,
     notes: 'multica と相互に同期。発生元チャットへの完了返信まで配線済み（LINE-first）。',
+    // due_date を持たない(rpc_connector_create_task は due を挿入しない・契約上due変更イベントも無い)。
+    // §3の実コード事実: multica起票タスクはdueが無いため証明対象が存在せずdueFreshness='none'。
+    capabilities: {
+      dueImport: false,
+      completionWrite: true,
+      dueFreshness: 'none',
+    },
   },
   backlog: {
     id: 'backlog',

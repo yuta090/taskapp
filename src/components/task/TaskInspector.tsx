@@ -936,7 +936,22 @@ export function TaskInspector({
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-gray-500">期限</label>
-            {onUpdate ? (
+            {task.due_authority_connection_id ? (
+              // AI秘書 Stage5 期限リマインド PR-0(§2.1/§5.2): external権威タスクは期限が読み取り専用。
+              // DB層(trg_guard_external_due)が最終防衛線だが、UIでも編集できないことを明示する
+              // (誤操作の一瞬の楽観更新→ロールバックを避け、出所も示す)。
+              <div className="space-y-0.5">
+                {task.due_date ? (
+                  <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                    <Calendar className="text-gray-400 text-sm" />
+                    <span>{new Date(task.due_date).toLocaleDateString('ja-JP')}</span>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-400">未設定</div>
+                )}
+                <p className="text-xs text-gray-400">期限は連携元ツール（Google Tasks など）で管理しています</p>
+              </div>
+            ) : onUpdate ? (
               <div className="flex items-center gap-1.5">
                 <Calendar className="text-gray-400 text-sm flex-shrink-0" />
                 <input

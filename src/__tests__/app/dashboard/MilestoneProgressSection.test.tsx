@@ -45,6 +45,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parent_task_id: null,
     wiki_page_id: null,
     completed_at: '2026-01-01',
+    due_authority_connection_id: null,
     created_at: '2026-01-01',
     updated_at: '2026-01-01',
     ...overrides,
