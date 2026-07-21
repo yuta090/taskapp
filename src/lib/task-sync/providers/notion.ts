@@ -7,6 +7,7 @@ import {
   type NotionLiveProperties,
   type NotionLiveProperty,
 } from '@/lib/task-sync/providers/notion/mapping'
+import { retryAfterMsFrom } from '@/lib/task-sync/providers/notion/retryAfter'
 import { fetchDatabaseSchema, type NotionDatabaseSchema } from '@/lib/task-sync/providers/notion/schema'
 import {
   providerError,
@@ -139,14 +140,6 @@ async function notionFetch(
   return res.json()
 }
 
-/** 429/503 の復帰待ち時間。Notion は `Retry-After`（秒）を返す。 */
-function retryAfterMsFrom(headers: Headers | undefined): number | undefined {
-  const raw = headers?.get('Retry-After')
-  if (!raw) return undefined
-  const sec = Number(raw)
-  return Number.isFinite(sec) && sec > 0 ? sec * 1000 : undefined
-}
-
 // ---- config.notion_mappings の読み取り（rawな値を信用せず、ここで1度だけ検証する） ----
 
 /** databaseId に対応するマッピングを取り出す。未設定/形式不正なら null（呼び出し側がエラーに変える）。 */
@@ -268,18 +261,73 @@ function findPropertyById(properties: Record<string, NotionPropertyValue>, propI
  * （'2026-07-31'）か、時刻付き（'2026-07-31T23:00:00.000+09:00'）のいずれかで返る。
  * 先頭10文字は常に暦日の表現であるため、そのまま切り出す（Dateを経由しない＝UTC変換で
  * 日本時間が1日ずれる事故が原理的に起きない。CLAUDE.md の toISOString 禁止と同じ理由）。
+ *
+ * 戻り値 null は「date.start が日付として不正」（呼び出し側が恒久停止扱いに変える）。
+ * 「期日が設定されていない」（date自体が null）とは呼び出し側で区別すること。
  */
-function toLocalDateString(date: { start: string } | null | undefined): string | null {
-  if (!date?.start) return null
-  const head = date.start.slice(0, 10)
+function toLocalDateString(start: string): string | null {
+  const head = start.slice(0, 10)
   return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
 }
 
-/** マッピングされた完了プロパティから completed を判定する。マッピングが無ければ常に false。 */
+/**
+ * マッピングされた期日プロパティをページ応答から読む。
+ *
+ * ⚠ 信頼境界: due_prop_id が設定されている（＝期日を取り込む契約の）ページで、次のいずれかが
+ * 起きたら「無言で期日なし」にせず一時失敗として throw する（初回ページのライブスキーマ検証
+ * （assertMappingMatchesLiveSchema）を通った後でも、ユーザーがそのすぐ後にプロパティを
+ * 削除/型変更すればページ応答は不整合になり得るため、ページ単位でも防御する）:
+ *   (a) プロパティ自体がページ応答に無い（削除された疑い）
+ *   (b) プロパティはあるが type が 'date' でない（型変更された疑い）
+ *   (c) date.start が日付として不正な形式
+ * 唯一の正常な「期日なし」は (d) `date` プロパティが存在し type='date' で値が null のときだけ。
+ * ここを黙って null に潰すと、期日を正本とする AI秘書の期限リマインドが無言で止まる。
+ */
+function resolveDueDate(mapping: NotionMapping, properties: Record<string, NotionPropertyValue>): string | null {
+  if (!mapping.due_prop_id) return null
+  const prop = findPropertyById(properties, mapping.due_prop_id)
+  if (!prop) {
+    throw providerError(
+      `notion: due_prop_id=${mapping.due_prop_id} のプロパティがページ応答に存在しません(スキーマ変更の疑い)`,
+    )
+  }
+  if (prop.type !== 'date') {
+    throw providerError(
+      `notion: due_prop_id=${mapping.due_prop_id} の型がdateではありません(実際=${prop.type})`,
+    )
+  }
+  if (prop.date === undefined) {
+    throw providerError(`notion: due_prop_id=${mapping.due_prop_id} のdate値がページ応答に欠落しています`)
+  }
+  if (prop.date === null) return null // (d) 正常: 期日未設定
+  const parsed = toLocalDateString(prop.date.start)
+  if (parsed === null) {
+    throw providerError(`notion: due_prop_id=${mapping.due_prop_id} のdate.startが不正な日付形式です`)
+  }
+  return parsed
+}
+
+/**
+ * マッピングされた完了プロパティから completed を判定する。マッピングが無ければ常に false。
+ *
+ * ⚠ 信頼境界: status マッピングがあるのに、プロパティ自体がページ応答に無い／型が食い違う場合は
+ * completed=false に無言で倒さず一時失敗として throw する（resolveDueDate と同じ理由。
+ * 完了が永久に取り込まれない無言の失敗を防ぐ）。プロパティは存在するが値が空/未選択
+ * （checkbox=false・status/select が null）は正常な「未完了」として false を返す。
+ */
 function isCompleted(status: NotionStatusMapping | null, properties: Record<string, NotionPropertyValue>): boolean {
   if (!status) return false
   const prop = findPropertyById(properties, status.prop_id)
-  if (!prop) return false
+  if (!prop) {
+    throw providerError(
+      `notion: status.prop_id=${status.prop_id} のプロパティがページ応答に存在しません(スキーマ変更の疑い)`,
+    )
+  }
+  if (prop.type !== status.prop_type) {
+    throw providerError(
+      `notion: status.prop_id=${status.prop_id} の型が想定と異なります(想定=${status.prop_type}, 実際=${prop.type})`,
+    )
+  }
   if (status.prop_type === 'checkbox') return prop.checkbox === true
   if (status.prop_type === 'status') return prop.status ? status.done_option_ids.includes(prop.status.id) : false
   return prop.select ? status.done_option_ids.includes(prop.select.id) : false
@@ -288,7 +336,6 @@ function isCompleted(status: NotionStatusMapping | null, properties: Record<stri
 function normalizePage(page: NotionPage, containerId: string, mapping: NotionMapping): ExternalTask {
   const titleProp = Object.values(page.properties ?? {}).find((p) => p.type === 'title')
   const title = richTextToPlain(titleProp?.title).trim() || '(無題)'
-  const dueProp = mapping.due_prop_id ? findPropertyById(page.properties, mapping.due_prop_id) : null
 
   return {
     externalId: page.id,
@@ -296,7 +343,7 @@ function normalizePage(page: NotionPage, containerId: string, mapping: NotionMap
     title,
     // 本文はマッピング対象外（取り込まない契約）。
     body: null,
-    dueDate: mapping.due_prop_id ? toLocalDateString(dueProp?.date) : null,
+    dueDate: resolveDueDate(mapping, page.properties ?? {}),
     completed: isCompleted(mapping.status, page.properties ?? {}),
     updatedAt: page.last_edited_time ?? null,
   }
@@ -344,9 +391,21 @@ export const notionAdapter: TaskSyncAdapter = {
       })) as NotionSearchResponse
       databases.push(...(res.results ?? []))
 
-      const nextCursor = res.has_more ? res.next_cursor : null
-      if (!nextCursor || nextCursor === cursor) break // 取り切り、または前進しない異常応答＝打ち切る
-      cursor = nextCursor
+      if (!res.has_more) break // 取り切り
+
+      // Notion 仕様では has_more===true なら next_cursor が来る。無ければ応答不整合であり、
+      // 「取り切った」ものとして黙って打ち切ると一部のDBが対象から静かに漏れる。
+      if (!res.next_cursor) {
+        throw providerError(
+          'notion: listContainers の応答が不整合です(has_more=trueなのにnext_cursorが空)',
+        )
+      }
+      // 次カーソルが現在と同じ＝前進しない異常応答。打ち切ると「全件取れた」ように見えてしまうため
+      // エラーにする（無限ループも防ぐ）。
+      if (res.next_cursor === cursor) {
+        throw providerError('notion: listContainers の応答が不整合です(next_cursorが前進していません)')
+      }
+      cursor = res.next_cursor
     }
     return databases.map((db) => ({ id: db.id, title: richTextToPlain(db.title).trim() || db.id }))
   },
@@ -380,6 +439,15 @@ export const notionAdapter: TaskSyncAdapter = {
       method: 'POST',
       body: JSON.stringify(body),
     })) as NotionQueryResponse
+
+    // Notion 仕様では has_more===true なら next_cursor が来る。無ければ応答不整合であり、
+    // 「取り切った」ものとしてカーソルを前進させてしまうと、まだ残っているはずのページを
+    // 二度と取りに行かない(取りこぼし)。
+    if (res.has_more && !res.next_cursor) {
+      throw providerError(
+        'notion: listChangedTasks の応答が不整合です(has_more=trueなのにnext_cursorが空)',
+      )
+    }
 
     return {
       items: (res.results ?? []).map((p) => normalizePage(p, containerId, mapping)),

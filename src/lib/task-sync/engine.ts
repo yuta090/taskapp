@@ -95,12 +95,16 @@ export async function importConnection(args: {
   }
 
   let containerIds: string[]
+  let missingContainerIds: string[]
   try {
-    containerIds = await resolveContainers(adapter, ctx, targets)
+    const resolved = await resolveContainers(adapter, ctx, targets)
+    containerIds = resolved.containerIds
+    missingContainerIds = resolved.missingContainerIds
   } catch (err) {
     return { ...result, skipped: true, reason: `list_containers_failed: ${message(err)}` }
   }
   if (containerIds.length === 0) {
+    // 指定が全て欠落していても既存どおり: この時点でカーソルは未前進のまま返る（安全側）。
     return { ...result, skipped: true, reason: 'no_containers' }
   }
 
@@ -134,8 +138,34 @@ export async function importConnection(args: {
     return { ...result, skipped: true, reason: `fetch_failed: ${message(err)}` }
   }
 
+  if (missingContainerIds.length > 0) {
+    // 明示指定されたコンテナの一部が listContainers() に現れなかった（Notionでは共有解除された
+    // DBが search に出てこない等）。利用可能な分の取り込みは上のループで既に反映済みだが、ここで
+    // カーソルを前進させると、欠落しているコンテナの変更が「この接続は同期済み」の範囲に無言で
+    // 含まれてしまい、後で再共有しても前進済みカーソルより古い変更を二度と取得できない
+    // （取り込みは冪等なので、カーソルを止めたまま再実行されても害は無い）。
+    return {
+      ...result,
+      skipped: true,
+      reason:
+        `missing_containers: 対象に指定されたコンテナ(${missingContainerIds.join(', ')})が見つかりません。` +
+        '共有が外れているか削除された可能性があります。再共有するか設定から外すまでカーソルを進めません',
+    }
+  }
+
   await store.saveCursor(connectionId, advanceCursor(adapter.cursorGranularity, now), now)
   return result
+}
+
+/** resolveContainers の結果。 */
+interface ContainerResolution {
+  /** 実際に取り込みを行うコンテナID（listContainers() に実在するもの）。 */
+  containerIds: string[]
+  /**
+   * 明示指定されたのに listContainers() に現れなかったコンテナID。
+   * 非空なら、取り込み自体は containerIds 分だけ行うが、呼び出し側はカーソルを前進させない。
+   */
+  missingContainerIds: string[]
 }
 
 /** 取り込み対象コンテナを決める。明示指定があればそれ、無ければ列挙の全件。 */
@@ -143,14 +173,17 @@ async function resolveContainers(
   adapter: TaskSyncAdapter,
   ctx: ProviderContext,
   targets: ImportTargets,
-): Promise<string[]> {
+): Promise<ContainerResolution> {
   if (targets.readContainerIds && targets.readContainerIds.length > 0) {
     // 実在しないIDが混ざると、そのコンテナの取得が毎回失敗し接続全体の取り込みが止まる（wedge）。
     // 実在するものだけに絞ってこれを防ぐ（gtasks import の read_list_ids と同じ防御）。
     const real = new Set((await adapter.listContainers(ctx)).map((c) => c.id))
-    return targets.readContainerIds.filter((id) => real.has(id))
+    return {
+      containerIds: targets.readContainerIds.filter((id) => real.has(id)),
+      missingContainerIds: targets.readContainerIds.filter((id) => !real.has(id)),
+    }
   }
-  return (await adapter.listContainers(ctx)).map((c) => c.id)
+  return { containerIds: (await adapter.listContainers(ctx)).map((c) => c.id), missingContainerIds: [] }
 }
 
 /** 外部タスク1件を TaskApp 側へ反映する。新規/既存/完了/削除の分岐はここだけに置く。 */

@@ -174,7 +174,9 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
   const { data, error } = await admin()
     .from('integration_connections')
     .select(
-      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor, last_import_success_at, last_poll_attempt_at',
+      // refresh_token_encrypted/refresh_token は resolveCredentials が「更新可能なOAuthか」を
+      // 判定するために必須（無ければ更新不能なOAuth＝Notion等として扱う。credentials.ts 参照）。
+      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, refresh_token_encrypted, refresh_token, import_config, poll_cursor, last_import_success_at, last_poll_attempt_at',
     )
     .eq('import_enabled', true)
     .eq('status', 'active')

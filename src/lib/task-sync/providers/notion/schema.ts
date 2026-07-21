@@ -1,6 +1,7 @@
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { providerError, type HostPolicy } from '@/lib/task-sync/types'
 import type { NotionStatusMapping } from '@/lib/task-sync/providers/notion/mapping'
+import { retryAfterMsFrom } from '@/lib/task-sync/providers/notion/retryAfter'
 
 /**
  * Notion DB スキーマ取得＋マッピング提案（純関数側）。
@@ -96,7 +97,13 @@ async function notionGet(token: string, path: string): Promise<unknown> {
   }
   if (!res.ok) {
     console.error('Notion API error:', 'GET', path.split('/')[1] ?? 'GET', res.status) // 本文は出さない
-    throw providerError(`Notion API GET failed (${res.status})`, { status: res.status })
+    // query 側(providers/notion.ts)と同じ扱いに揃える: 429/503 は Retry-After を retryAfterMs に
+    // 載せる。ここで読み落とすと、レート制限中でもスキーマ取得だけ復帰時刻を無視して叩き続け、
+    // 制限を延長してしまう。
+    throw providerError(`Notion API GET failed (${res.status})`, {
+      status: res.status,
+      retryAfterMs: res.status === 429 || res.status === 503 ? retryAfterMsFrom(res.headers) : undefined,
+    })
   }
   return res.json()
 }

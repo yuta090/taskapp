@@ -95,6 +95,63 @@ describe('parseNotionMapping', () => {
     expect(result.ok).toBe(false)
     expect((result as { ok: false; reason: string }).reason).toMatch(/prop_type/)
   })
+
+  it('status/select型で done_option_ids が空配列なら弾く(全ページ永久にcompleted=falseになるため)', () => {
+    const result = parseNotionMapping(
+      baseMapping({
+        status: {
+          prop_id: 'status-1',
+          prop_type: 'status',
+          done_option_ids: [],
+          write_done_option_id: null,
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/done_option_ids/)
+  })
+
+  it('checkbox型で done_option_ids が非空配列なら弾く', () => {
+    const result = parseNotionMapping(
+      baseMapping({
+        status: {
+          prop_id: 'checkbox-1',
+          prop_type: 'checkbox',
+          done_option_ids: ['whatever'],
+          write_done_option_id: null,
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/done_option_ids/)
+  })
+
+  it('confirmed_at がISO8601として妥当でなければ弾く(監査値のため)', () => {
+    const result = parseNotionMapping(baseMapping({ confirmed_at: 'not-a-date' }))
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/confirmed_at/)
+  })
+
+  it('confirmed_at が妥当なISO8601なら値を書き換えずそのまま通す', () => {
+    const result = parseNotionMapping(baseMapping({ confirmed_at: '2026-07-21T00:00:00.000Z' }))
+    expect(result.ok).toBe(true)
+    expect((result as { ok: true; data: NotionMapping }).data.confirmed_at).toBe('2026-07-21T00:00:00.000Z')
+  })
+
+  it('done_option_ids に重複があれば弾く', () => {
+    const result = parseNotionMapping(
+      baseMapping({
+        status: {
+          prop_id: 'status-1',
+          prop_type: 'status',
+          done_option_ids: ['opt-done', 'opt-done'],
+          write_done_option_id: 'opt-done',
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/duplicate/)
+  })
 })
 
 describe('validateMappingAgainstSchema', () => {
@@ -216,5 +273,33 @@ describe('validateMappingAgainstSchema', () => {
     const result = validateMappingAgainstSchema(mapping, liveProps)
     expect(result.valid).toBe(false)
     expect((result as { valid: false; reason: string }).reason).toMatch(/write_done_option_id/)
+  })
+
+  it('status/select型で done_option_ids が空配列なら弾く(全ページ永久にcompleted=falseになる設定不備)', () => {
+    const mapping = baseMapping({
+      status: {
+        prop_id: 'status-1',
+        prop_type: 'status',
+        done_option_ids: [],
+        write_done_option_id: null,
+      },
+    })
+    const result = validateMappingAgainstSchema(mapping, liveProps)
+    expect(result.valid).toBe(false)
+    expect((result as { valid: false; reason: string }).reason).toMatch(/done_option_ids/)
+  })
+
+  it('checkbox型で done_option_ids が非空配列なら弾く', () => {
+    const mapping = baseMapping({
+      status: {
+        prop_id: 'checkbox-1',
+        prop_type: 'checkbox',
+        done_option_ids: ['whatever'],
+        write_done_option_id: null,
+      },
+    })
+    const result = validateMappingAgainstSchema(mapping, liveProps)
+    expect(result.valid).toBe(false)
+    expect((result as { valid: false; reason: string }).reason).toMatch(/done_option_ids/)
   })
 })

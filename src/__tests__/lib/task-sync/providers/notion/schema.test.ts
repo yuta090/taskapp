@@ -71,6 +71,44 @@ describe('fetchDatabaseSchema', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ message: 'not found' }, 404))
     await expect(fetchDatabaseSchema('secret-token', 'ghost-db')).rejects.toMatchObject({ status: 404 })
   })
+
+  it('429は復帰時刻(Retry-After秒)をretryAfterMsとして載せる(query側と同じ扱いに揃える)', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '15' }),
+      json: async () => ({}),
+      text: async () => '',
+    } as Response)
+    const err = await fetchDatabaseSchema('secret-token', 'db-1').catch((e) => e)
+    expect(err.status).toBe(429)
+    expect(err.retryAfterMs).toBe(15_000)
+  })
+
+  it('503も復帰時刻をretryAfterMsとして載せる', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      headers: new Headers({ 'Retry-After': '5' }),
+      json: async () => ({}),
+      text: async () => '',
+    } as Response)
+    const err = await fetchDatabaseSchema('secret-token', 'db-1').catch((e) => e)
+    expect(err.status).toBe(503)
+    expect(err.retryAfterMs).toBe(5_000)
+  })
+
+  it('429でもRetry-Afterヘッダが無ければretryAfterMsは付かない', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers(),
+      json: async () => ({}),
+      text: async () => '',
+    } as Response)
+    const err = await fetchDatabaseSchema('secret-token', 'db-1').catch((e) => e)
+    expect(err.retryAfterMs).toBeUndefined()
+  })
 })
 
 describe('proposeMapping', () => {

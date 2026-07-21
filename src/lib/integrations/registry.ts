@@ -183,7 +183,11 @@ export interface IntegrationDefinition {
    * が担当する。値はアダプタの id と一致させる。
    * sink と task-sync を兼ねる provider（notion）は surface='sink'（通知連携の詳細ペインを使う）の
    * まま connectorKind を持つ＝この製品では「送りっぱなし通知」と「双方向タスク同期」を
-   * 同じツールに対して両方提供できる（別々の接続として設定する）。
+   * 同じツールに対して両方提供できる。ただし接続は別々に作るのではなく、**既存の
+   * integration_connections 1行（notion接続）を sink と inbound の両方が共有する**（誤って
+   * 「別々の接続として設定する」と読める記述をしない。sink送出(src/lib/sinks/adapters/notion.ts)
+   * と inbound取り込み(src/lib/task-sync/providers/notion.ts)は同じ access_token_encrypted を
+   * 読む前提で書かれている）。
    */
   connectorKind?: IntegrationId
   /**

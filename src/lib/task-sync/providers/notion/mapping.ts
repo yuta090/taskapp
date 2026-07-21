@@ -101,8 +101,29 @@ function parseNotionStatusMapping(raw: unknown): StatusMappingParseResult {
   if (typeof raw.prop_type !== 'string' || !PROP_TYPES.includes(raw.prop_type as NotionStatusMapping['prop_type'])) {
     return { ok: false, reason: `status.prop_type must be one of ${PROP_TYPES.join(', ')}` }
   }
+  const propType = raw.prop_type as NotionStatusMapping['prop_type']
   if (!Array.isArray(raw.done_option_ids) || !raw.done_option_ids.every((id) => typeof id === 'string')) {
     return { ok: false, reason: 'status.done_option_ids must be an array of strings' }
+  }
+  const doneOptionIds = raw.done_option_ids as string[]
+  if (new Set(doneOptionIds).size !== doneOptionIds.length) {
+    return { ok: false, reason: 'status.done_option_ids must not contain duplicates' }
+  }
+  if (propType === 'checkbox') {
+    // checkbox は true/false で直接判定するため option id という概念が無い。空配列必須。
+    if (doneOptionIds.length !== 0) {
+      return { ok: false, reason: 'status.done_option_ids must be empty for checkbox (no option id concept)' }
+    }
+  } else {
+    // status/select: 空配列だと「完了とみなす選択肢が無い」＝どのページも永久に completed=false
+    // になる（完了同期が付いているのに一生発火しない設定不備）。完了同期をしないなら
+    // status 自体を null にする契約（parseNotionMapping 側）なので、ここに来た以上1件以上必須。
+    if (doneOptionIds.length === 0) {
+      return {
+        ok: false,
+        reason: 'status.done_option_ids must have at least one entry for status/select (use status: null for no completion sync)',
+      }
+    }
   }
   if (raw.write_done_option_id !== null && typeof raw.write_done_option_id !== 'string') {
     return { ok: false, reason: 'status.write_done_option_id must be a string or null' }
@@ -112,8 +133,8 @@ function parseNotionStatusMapping(raw: unknown): StatusMappingParseResult {
     ok: true,
     data: {
       prop_id: raw.prop_id,
-      prop_type: raw.prop_type as NotionStatusMapping['prop_type'],
-      done_option_ids: raw.done_option_ids as string[],
+      prop_type: propType,
+      done_option_ids: doneOptionIds,
       write_done_option_id: raw.write_done_option_id,
     },
   }
@@ -145,6 +166,12 @@ export function parseNotionMapping(raw: unknown): NotionMappingParseResult {
 
   if (!nonEmptyString(raw.confirmed_at)) {
     return { ok: false, reason: 'confirmed_at must be a non-empty string' }
+  }
+  // confirmed_at は監査値（ユーザーがこのマッピングを確認・確定した時刻）。ISO8601として妥当かだけ
+  // を Date に通して見る（値そのものは書き換えない＝ raw.confirmed_at をそのまま保持する。
+  // 日付の生成・表示・変換には使わないため CLAUDE.md の toISOString 禁止には抵触しない）。
+  if (Number.isNaN(new Date(raw.confirmed_at).getTime())) {
+    return { ok: false, reason: 'confirmed_at must be a valid ISO8601 datetime string' }
   }
 
   return {
@@ -214,15 +241,30 @@ export function validateMappingAgainstSchema(
 
     if (prop_type === 'checkbox') {
       // checkbox に option id という概念は無い。書き戻しは true を書くだけなので null 固定のはず。
-      // done_option_ids は checkbox では使わない値のため検証をスキップする（仕様どおり）。
       if (write_done_option_id !== null) {
         return {
           valid: false,
           reason: 'status.write_done_option_id: checkbox 型では null 以外を指定できません',
         }
       }
+      // done_option_ids も同じ理由で checkbox では空配列必須（任意の文字列配列を通すと、
+      // parseNotionMapping を経由しない保存経路があった場合に不整合な値が紛れ込める）。
+      if (done_option_ids.length !== 0) {
+        return {
+          valid: false,
+          reason: 'status.done_option_ids: checkbox 型では空配列以外を指定できません',
+        }
+      }
     } else {
-      // status/select: done_option_ids / write_done_option_id が実在する option の id か検証する。
+      // status/select: 空配列は「完了とみなす選択肢が無い」＝全ページが永久にcompleted=falseになる
+      // 設定不備。完了同期をしないなら status 自体を null にする契約なので、ここでは1件以上必須。
+      if (done_option_ids.length === 0) {
+        return {
+          valid: false,
+          reason: 'status.done_option_ids: status/select 型では最低1件必要です(完了同期しないなら status を null にしてください)',
+        }
+      }
+      // done_option_ids / write_done_option_id が実在する option の id か検証する。
       const optionIds = new Set(optionsOf(prop).map((o) => o.id))
       const missingDone = done_option_ids.filter((id) => !optionIds.has(id))
       if (missingDone.length > 0) {

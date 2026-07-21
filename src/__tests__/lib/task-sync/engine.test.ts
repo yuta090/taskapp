@@ -310,3 +310,39 @@ describe('importConnection — 取り込み対象の解決', () => {
     expect(calls.cursors).toHaveLength(0)
   })
 })
+
+describe('importConnection — 共有解除等でコンテナが無言で対象外になるのを防ぐ', () => {
+  /**
+   * Notion では共有を外されたDBが search(listContainers) に出てこない。積集合による wedge 防止
+   * （実在しないIDの指定は無視する）は維持しつつ、欠落を無言にせず、カーソルを前進させない
+   * ことで再共有後の取りこぼしを防ぐ（取り込み自体は冪等なので、カーソルが止まったまま
+   * 再実行されても害は無い）。
+   */
+
+  it('指定2件のうち1件が listContainers に出ないとき saveCursor が呼ばれず reason に欠落IDが入る', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([{ items: [task()], nextCursor: null }])
+    const result = await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2-gone'] },
+    })
+    expect(result.skipped).toBe(true)
+    expect(result.reason).toContain('missing_containers')
+    expect(result.reason).toContain('c2-gone')
+    expect(calls.cursors).toHaveLength(0)
+    // 実在する c1 分の取り込みは行われている（利用可能な分は取り込む）。
+    expect(result.created).toBe(1)
+  })
+
+  it('全件揃っていれば従来どおり前進する', async () => {
+    const { store, calls } = fakeStore()
+    const adapter = fakeAdapter([
+      { items: [], nextCursor: null },
+      { items: [], nextCursor: null },
+    ])
+    const result = await run(adapter, store, {
+      targets: { targetSpaceId: 'space-1', readContainerIds: ['c1', 'c2'] },
+    })
+    expect(result.skipped).toBe(false)
+    expect(calls.cursors).toHaveLength(1)
+  })
+})
