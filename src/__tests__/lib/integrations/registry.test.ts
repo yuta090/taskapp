@@ -164,3 +164,53 @@ describe('integration registry — カテゴリ定義', () => {
     expect([...CATEGORY_ORDER]).toEqual(expected)
   })
 })
+
+// AI秘書 Stage5 期限リマインド(PR-0): connector surface(gtasks/multica) の capabilities 不変条件。
+// docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md §4.5/§5.3/§6
+describe('integration registry — capabilities(期限リマインドconnector surface)', () => {
+  it('connector surface(google_tasks/multica)は capabilities を持つ', () => {
+    for (const id of ['google_tasks', 'multica'] as const) {
+      const def = getIntegration(id)
+      expect(def?.capabilities, `${id} should have capabilities`).toBeTruthy()
+    }
+  })
+
+  it('planned(未接続)のツールは capabilities を持たない、または全て無効(false/none)', () => {
+    for (const def of listIntegrations()) {
+      if (def.status === 'planned') {
+        if (def.capabilities) {
+          expect(def.capabilities.dueImport, `${def.id} planned should not import due`).toBe(false)
+          expect(def.capabilities.completionWrite, `${def.id} planned should not write completion`).toBe(false)
+          expect(def.capabilities.dueFreshness, `${def.id} planned dueFreshness should be none`).toBe('none')
+        }
+      }
+    }
+  })
+
+  it('dueImport=true の provider は dueFreshness が none ではない(鮮度証明が必須)', () => {
+    for (const def of listIntegrations()) {
+      if (def.capabilities?.dueImport) {
+        expect(def.capabilities.dueFreshness, `${def.id} dueImport but dueFreshness=none`).not.toBe('none')
+      }
+    }
+  })
+
+  it('google_tasks: dueImport=true・completionWrite=true・poll-sla鮮度＋SLA分数を持つ', () => {
+    const def = getIntegration('google_tasks')
+    expect(def?.capabilities).toMatchObject({
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+    })
+    expect(def?.capabilities?.pollFreshnessSlaMinutes).toBeGreaterThan(0)
+  })
+
+  it('multica: due_dateを持たないため dueImport=false・dueFreshness=none。completionWriteはtrue', () => {
+    const def = getIntegration('multica')
+    expect(def?.capabilities).toMatchObject({
+      dueImport: false,
+      completionWrite: true,
+      dueFreshness: 'none',
+    })
+  })
+})

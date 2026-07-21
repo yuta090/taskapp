@@ -84,6 +84,11 @@ export const GanttRow = memo(function GanttRow({
   const totalWidth = dates.length * dayWidth
   const y = rowIndex * GANTT_CONFIG.ROW_HEIGHT
 
+  // AI秘書 Stage5 期限リマインド PR-0(§2.1/§5.2): external権威タスク(due_authority_connection_id
+  // 非NULL)は期限(due_date)がTaskAppから編集不可。バー移動(start+due両方が動く)と右(終了)リサイズ
+  // (due_dateを変更する)を無効化する。開始日は権威の対象外のため左リサイズは従来通り有効。
+  const dueLocked = !!task.due_authority_connection_id
+
   const getBarColor = () => {
     if (task.status === 'done') return GANTT_CONFIG.COLORS.DONE
     if (task.ball === 'client') return GANTT_CONFIG.COLORS.CLIENT
@@ -109,12 +114,14 @@ export const GanttRow = memo(function GanttRow({
       e.stopPropagation()
       e.preventDefault()
       if (!barPosition || !onDateChange) return
+      // 終了(期限)リサイズは due_authority がある(=期限が読み取り専用の)タスクでは無効。
+      if (edge === 'end' && dueLocked) return
       const preview = { x: barPosition.x, width: barPosition.width }
       setDragState({ edge, startX: e.clientX, originalX: barPosition.x, originalWidth: barPosition.width })
       setDragPreview(preview)
       dragPreviewRef.current = preview
     },
-    [barPosition, onDateChange]
+    [barPosition, onDateChange, dueLocked]
   )
 
   // Handle bar move start (middle area)
@@ -123,12 +130,14 @@ export const GanttRow = memo(function GanttRow({
       e.stopPropagation()
       e.preventDefault()
       if (!barPosition || !onBarMove) return
+      // バー移動はstart+due両方を変更するため、due_authorityがあるタスクでは無効。
+      if (dueLocked) return
       const preview = { x: barPosition.x, width: barPosition.width }
       setDragState({ edge: 'move', startX: e.clientX, originalX: barPosition.x, originalWidth: barPosition.width })
       setDragPreview(preview)
       dragPreviewRef.current = preview
     },
-    [barPosition, onBarMove]
+    [barPosition, onBarMove, dueLocked]
   )
 
   // Snap to nearest day boundary
@@ -395,9 +404,10 @@ export const GanttRow = memo(function GanttRow({
 
           {/* === Interactive handles (layered on top of bar) === */}
 
-          {/* Left resize handle (start date) */}
+          {/* Left resize handle (start date) — due_authority の対象外なので常時有効 */}
           {onDateChange && (
             <rect
+              data-testid="gantt-bar-resize-start"
               x={displayPosition.x - 4}
               y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
               width={12} height={GANTT_CONFIG.BAR_HEIGHT}
@@ -407,9 +417,10 @@ export const GanttRow = memo(function GanttRow({
             />
           )}
 
-          {/* Middle move handle */}
-          {onBarMove && displayPosition.width > 24 && (
+          {/* Middle move handle — start+dueの両方を動かすためdue_authorityがあれば出さない */}
+          {onBarMove && !dueLocked && displayPosition.width > 24 && (
             <rect
+              data-testid="gantt-bar-move"
               x={displayPosition.x + 12}
               y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
               width={Math.max(displayPosition.width - 24, 0)}
@@ -420,9 +431,10 @@ export const GanttRow = memo(function GanttRow({
             />
           )}
 
-          {/* Right resize handle (end date) */}
-          {onDateChange && (
+          {/* Right resize handle (end/due date) — due_authorityがあれば出さない(読取専用) */}
+          {onDateChange && !dueLocked && (
             <rect
+              data-testid="gantt-bar-resize-end"
               x={displayPosition.x + displayPosition.width - 8}
               y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING}
               width={12} height={GANTT_CONFIG.BAR_HEIGHT}
@@ -434,22 +446,22 @@ export const GanttRow = memo(function GanttRow({
 
           {/* Visual resize indicators (hover only, no pointer events) */}
           {(isHovering || isDragging) && onDateChange && (
-            <>
-              <rect
-                x={displayPosition.x + 2}
-                y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
-                width={3} height={GANTT_CONFIG.BAR_HEIGHT - 8} rx={1}
-                fill="white" opacity={0.9}
-                style={{ pointerEvents: 'none' }}
-              />
-              <rect
-                x={displayPosition.x + displayPosition.width - 5}
-                y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
-                width={3} height={GANTT_CONFIG.BAR_HEIGHT - 8} rx={1}
-                fill="white" opacity={0.9}
-                style={{ pointerEvents: 'none' }}
-              />
-            </>
+            <rect
+              x={displayPosition.x + 2}
+              y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
+              width={3} height={GANTT_CONFIG.BAR_HEIGHT - 8} rx={1}
+              fill="white" opacity={0.9}
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
+          {(isHovering || isDragging) && onDateChange && !dueLocked && (
+            <rect
+              x={displayPosition.x + displayPosition.width - 5}
+              y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING + 4}
+              width={3} height={GANTT_CONFIG.BAR_HEIGHT - 8} rx={1}
+              fill="white" opacity={0.9}
+              style={{ pointerEvents: 'none' }}
+            />
           )}
 
           {/* Link handles - visible on hover, not during resize/move drag */}

@@ -271,6 +271,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         wiki_page_id: task.type === 'spec' ? task.wikiPageId ?? null : null,
         decision_state: task.type === 'spec' ? task.decisionState ?? null : null,
         client_scope: task.clientScope ?? 'internal',
+        // 新規作成タスクはTaskApp発。権威はNULL(TaskApp正本)。gtasks importはINSERT時に自身で
+        // 権威列をセットするため、ここ(client起票の楽観更新)がNULL以外を持つことはない。
+        due_authority_connection_id: null,
         created_at: now,
         updated_at: now,
       }
@@ -645,6 +648,14 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         // Targeted rollback — restore previous cache data
         if (previousData) {
           queryClient.setQueryData<TasksQueryData>(['tasks', orgId, spaceId], previousData)
+        }
+        // AI秘書 Stage5 期限リマインド PR-0(§5.2): external権威タスク(due_authority_connection_id
+        // 非NULL)の due_date 変更は DB トリガー trg_guard_external_due が拒否し、'due_managed_externally'
+        // を含む生のPostgresエラーを返す。ロールバック(上)は既存の汎用経路に乗るが、ユーザーには
+        // 生のエラー文言ではなく理由が分かる文言をトーストする。
+        const errMessage = (err as { message?: unknown } | null)?.message
+        if (typeof errMessage === 'string' && errMessage.includes('due_managed_externally')) {
+          toast.error('この期限は連携元ツール（Google Tasks など）が正本のため、TaskApp からは変更できません')
         }
         throw err
       }

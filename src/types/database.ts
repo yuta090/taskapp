@@ -95,6 +95,12 @@ export type RespondentSide = 'client' | 'internal'
 // Video conference provider
 export type VideoProvider = 'zoom' | 'google_meet' | 'teams'
 
+// AI秘書 Stage5 期限リマインド: occurrence のテンプレラベル(offset_minutesとは独立)
+export type DueReminderKind = 'due_soon' | 'due_today' | 'overdue_confirm'
+
+// occurrence のライフサイクル状態
+export type DueReminderOccurrenceStatus = 'pending' | 'leased' | 'sent' | 'suppressed' | 'canceled'
+
 export interface Database {
   public: {
     Tables: {
@@ -439,6 +445,9 @@ export interface Database {
           estimate_status: EstimateStatus
           completed_at: string | null
           is_sample: boolean
+          // 期限(due_date)の正本。NULL=TaskApp正本(編集可)／値=期限を管理する外部import接続のid(編集不可)。
+          // 強制はDBトリガー trg_guard_external_due(AI秘書 Stage5 PR-0)。
+          due_authority_connection_id: string | null
           created_at: string
           updated_at: string
         }
@@ -467,6 +476,7 @@ export interface Database {
           estimate_status?: EstimateStatus
           completed_at?: string | null
           is_sample?: boolean
+          due_authority_connection_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -495,6 +505,7 @@ export interface Database {
           estimate_status?: EstimateStatus
           completed_at?: string | null
           is_sample?: boolean
+          due_authority_connection_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1203,6 +1214,107 @@ export interface Database {
           responded_at?: string
         }
       }
+      // ⚠ integration_connections はこの Database 型に長らく未登録だった(admin clientが
+      // createSupabaseClient<Database>ではなく無型で使われてきたため)。AI秘書 Stage5 PR-0で
+      // last_import_success_at の型を足す必要が出たため、現行スキーマに合わせて最小限を追加する
+      // (実運用のフル列挙ではなく、TaskApp側から参照実績/参照予定のある列のみ)。
+      integration_connections: {
+        Row: {
+          id: string
+          provider: string
+          owner_type: string
+          owner_id: string
+          org_id: string
+          status: string
+          import_enabled: boolean
+          import_config: Json
+          poll_cursor: string | null
+          // 鮮度証明: この接続の import が全ページ取得成功後にのみ前進する(部分失敗では前進しない)。
+          // AI秘書 Stage5 PR-0(§4.3/§6)。
+          last_import_success_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          provider: string
+          owner_type: string
+          owner_id: string
+          org_id: string
+          status?: string
+          import_enabled?: boolean
+          import_config?: Json
+          poll_cursor?: string | null
+          last_import_success_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: string
+          owner_type?: string
+          owner_id?: string
+          org_id?: string
+          status?: string
+          import_enabled?: boolean
+          import_config?: Json
+          poll_cursor?: string | null
+          last_import_success_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      // AI秘書 Stage5 期限リマインド(PR-0でスキーマのみ導入。planner/sender は PR-1・型はここで先取り)。
+      task_due_reminder_occurrences: {
+        Row: {
+          id: string
+          task_id: string
+          kind: DueReminderKind
+          offset_minutes: number
+          due_snapshot: string
+          scheduled_at: string
+          status: DueReminderOccurrenceStatus
+          leased_until: string | null
+          attempt: number
+          send_count: number
+          sent_at: string | null
+          suppress_reason: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          kind: DueReminderKind
+          offset_minutes: number
+          due_snapshot: string
+          scheduled_at: string
+          status?: DueReminderOccurrenceStatus
+          leased_until?: string | null
+          attempt?: number
+          send_count?: number
+          sent_at?: string | null
+          suppress_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          kind?: DueReminderKind
+          offset_minutes?: number
+          due_snapshot?: string
+          scheduled_at?: string
+          status?: DueReminderOccurrenceStatus
+          leased_until?: string | null
+          attempt?: number
+          send_count?: number
+          sent_at?: string | null
+          suppress_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Functions: {
       rpc_pass_ball: {
@@ -1367,3 +1479,8 @@ export type SlotResponseInsert = Tables['slot_responses']['Insert']
 export type SpaceGroup = Tables['space_groups']['Row']
 export type SpaceGroupInsert = Tables['space_groups']['Insert']
 export type SpaceGroupUpdate = Tables['space_groups']['Update']
+export type IntegrationConnectionRow = Tables['integration_connections']['Row']
+export type IntegrationConnectionUpdate = Tables['integration_connections']['Update']
+export type TaskDueReminderOccurrence = Tables['task_due_reminder_occurrences']['Row']
+export type TaskDueReminderOccurrenceInsert = Tables['task_due_reminder_occurrences']['Insert']
+export type TaskDueReminderOccurrenceUpdate = Tables['task_due_reminder_occurrences']['Update']
