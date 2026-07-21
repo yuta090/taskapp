@@ -287,7 +287,7 @@ describe('POST /api/cron/due-reminder-sender', () => {
     it('ball=clientとinternalで文面が異なるが宛先(to)は同一', async () => {
       storeMock.findTaskSnapshotForReminder.mockResolvedValue({ ...TASK_SNAPSHOT, ball: 'client' })
       await callPost()
-      const clientText = sendSecretaryPushMock.mock.calls[0][0].messages[0].text
+      const clientText = sendSecretaryPushMock.mock.calls[0][0].messages[0].altText
       const clientTo = sendSecretaryPushMock.mock.calls[0][0].to
 
       vi.clearAllMocks()
@@ -304,11 +304,47 @@ describe('POST /api/cron/due-reminder-sender', () => {
       sendSecretaryPushMock.mockResolvedValue({ delivered: true })
 
       await callPost()
-      const internalText = sendSecretaryPushMock.mock.calls[0][0].messages[0].text
+      const internalText = sendSecretaryPushMock.mock.calls[0][0].messages[0].altText
       const internalTo = sendSecretaryPushMock.mock.calls[0][0].to
 
       expect(clientText).not.toBe(internalText)
       expect(clientTo).toBe(internalTo)
+    })
+  })
+
+  describe('確認Flex送信（設計正本 §7・PR-2）', () => {
+    it('text単体ではなくFlex（[完了した][まだ][○日後に再通知]ボタン付き）で送信する', async () => {
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
+
+      const message = sendSecretaryPushMock.mock.calls[0][0].messages[0]
+      expect(message.type).toBe('flex')
+      expect(typeof message.altText).toBe('string')
+      expect(message.altText.length).toBeGreaterThan(0)
+
+      const buttons = message.contents.footer.contents as Array<{ action: { label: string; data: string } }>
+      const labels = buttons.map((b) => b.action.label)
+      expect(labels).toEqual(['完了した', 'まだ', '1日後に再通知'])
+      expect(buttons[0].action.data).toBe(`action=due_reminder_done&task=${OCC.taskId}`)
+      expect(buttons[1].action.data).toBe(
+        `action=due_reminder_snooze&occurrence=${OCC.id}&days=1&gen=${OCC.sendCount}`,
+      )
+
+      // audit/record.body には従来のtext本文相当(altText)を残す
+      expect(sendSecretaryPushMock.mock.calls[0][0].record.body).toBe(message.altText)
+    })
+
+    it('claimしたoccurrenceのsend_count(世代)がsnooze postbackのgenに渡る（code review #2是正・リプレイ防止）', async () => {
+      storeMock.claimDueReminderOccurrences.mockResolvedValue([{ ...OCC, sendCount: 3 }])
+
+      const res = await callPost()
+      expect(res.status).toBe(200)
+
+      const message = sendSecretaryPushMock.mock.calls[0][0].messages[0]
+      const buttons = message.contents.footer.contents as Array<{ action: { data: string } }>
+      expect(buttons[1].action.data).toBe(`action=due_reminder_snooze&occurrence=${OCC.id}&days=1&gen=3`)
+      expect(buttons[2].action.data).toBe(`action=due_reminder_snooze&occurrence=${OCC.id}&days=1&gen=3`)
     })
   })
 
