@@ -1,9 +1,10 @@
-import type {
-  ExternalContainer,
-  ExternalTask,
-  ProviderContext,
-  TaskPage,
-  TaskSyncAdapter,
+import {
+  providerError,
+  type ExternalContainer,
+  type ExternalTask,
+  type ProviderContext,
+  type TaskPage,
+  type TaskSyncAdapter,
 } from '@/lib/task-sync/types'
 
 /**
@@ -28,11 +29,61 @@ import type {
  *     `config.backlog_done_status_ids` で置き換えられるようにする。
  */
 
-/** Backlog 標準の「完了」ステータスID。カスタムステータス運用のプロジェクトは設定で上書きする。 */
+/** Backlog 標準の「完了」ステータスID。カスタムステータス運用のプロジェクトは設定で足す。 */
 const DEFAULT_DONE_STATUS_ID = 4
 
 /** 1ページの取得件数（Backlog APIの上限）。満杯なら次ページがあるとみなす。 */
 const PAGE_SIZE = 100
+
+/** リクエストのタイムアウト。応答しないホストにワーカーを占有させない。 */
+const REQUEST_TIMEOUT_MS = 20_000
+
+/**
+ * 接続先として許すドメイン。APIキーがURLのクエリに載る認証方式のため、**送信先を間違えることが
+ * そのまま鍵の漏洩になる**。接続作成時の検証だけに頼らない（DNSの再解決・過去に保存された行・
+ * 別経路からの呼び出しがあるため、実際にリクエストを出すこの層が最後の砦）。
+ */
+const ALLOWED_HOST_SUFFIXES = ['.backlog.jp', '.backlog.com', '.backlogtool.com'] as const
+
+/**
+ * baseUrl が Backlog のスペースURLとして妥当かを検証し、正規化した origin を返す。
+ * 妥当でなければ permanent なエラー（再試行しても直らない設定不備）を投げる。
+ *
+ * 弾く対象と理由:
+ *   - https 以外 … 平文で鍵が流れる。
+ *   - userinfo 付き（https://real.backlog.jp@evil.example) … 実際の接続先は evil.example。
+ *   - 許可サフィックス外 … evil-backlog.jp や backlog.jp.evil.com のような紛らわしいドメインを含む。
+ *     必ずドット境界で判定する（末尾一致だけだと evil-backlog.jp が通る）。
+ *   - 非標準ポート … 正規のBacklogは443のみ。ポート指定は内部ネットワーク探索の手口でもある。
+ */
+function assertAllowedBacklogOrigin(baseUrl: string): URL {
+  let url: URL
+  try {
+    url = new URL(baseUrl)
+  } catch {
+    throw providerError('backlog: スペースURLの形式が不正です', { permanent: true, status: 400 })
+  }
+  if (url.protocol !== 'https:') {
+    throw providerError('backlog: スペースURLは https のみ許可します', { permanent: true, status: 400 })
+  }
+  if (url.username || url.password) {
+    throw providerError('backlog: スペースURLに認証情報を含めることはできません', {
+      permanent: true,
+      status: 400,
+    })
+  }
+  if (url.port && url.port !== '443') {
+    throw providerError('backlog: スペースURLに非標準ポートは指定できません', {
+      permanent: true,
+      status: 400,
+    })
+  }
+  const host = url.hostname.toLowerCase()
+  if (!ALLOWED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix) && host.length > suffix.length)) {
+    throw providerError('backlog: Backlog のスペースURLではありません', { permanent: true, status: 400 })
+  }
+  return url
+}
 
 interface BacklogProject {
   id: number
@@ -52,12 +103,33 @@ interface BacklogIssue {
   updated?: string | null
 }
 
-/** 接続設定から「完了とみなすステータスID」を解決する。未設定・不正値なら標準の 4 に倒す。 */
+/**
+ * 「完了とみなす」ステータスIDの集合（取り込み時の判定用）。
+ *
+ * 設定値は標準の完了(4)を**置き換えず足す**。カスタムステータスを1つ登録しただけで、
+ * 標準の「完了」課題が未完了扱いに化けると、期限リマインドが完了済みの相手を催促してしまう。
+ * 「完了に見えるものを見落とさない」側に倒すのが安全。
+ */
 function doneStatusIds(ctx: ProviderContext): number[] {
   const raw = ctx.config?.backlog_done_status_ids
-  if (!Array.isArray(raw)) return [DEFAULT_DONE_STATUS_ID]
-  const ids = raw.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
-  return ids.length > 0 ? ids : [DEFAULT_DONE_STATUS_ID]
+  const extra = Array.isArray(raw)
+    ? raw.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+    : []
+  return [...new Set([DEFAULT_DONE_STATUS_ID, ...extra])]
+}
+
+/**
+ * TaskApp で完了したときに Backlog へ書き込むステータスID（書き戻し先）。
+ *
+ * 「完了とみなす集合」とは別の関心事なので別設定にする。集合の先頭を流用すると、
+ * 配列の並び順という無関係な事情で書き込み先が決まってしまう。
+ * ⚠ カスタムステータスはプロジェクト単位で定義されるため、複数プロジェクトを1接続で同期する場合、
+ *   ここで指定したIDが対象プロジェクトに存在せず PATCH が 400 で恒久失敗し得る。接続設定UIで
+ *   プロジェクトのステータス一覧（GET /projects/:id/statuses）から選ばせる必要がある（後続PR）。
+ */
+function completionStatusId(ctx: ProviderContext): number {
+  const raw = ctx.config?.backlog_completion_status_id
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : DEFAULT_DONE_STATUS_ID
 }
 
 /**
@@ -71,14 +143,18 @@ function toLocalDateString(due: string | null | undefined): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null
 }
 
-/** スペースURL配下のAPI URLを組み立て、APIキーをクエリに載せる。 */
+/** スペースURL配下のAPI URLを組み立て、APIキーをクエリに載せる。ホスト検証をここで必ず通す。 */
 function apiUrl(ctx: ProviderContext, path: string, params?: Record<string, string | string[]>): string {
   const base = ctx.credentials.baseUrl
   if (!base) {
     // 接続作成時に必須入力のため、ここに来るのは配線ミス。鍵を意図しないホストへ送らないよう即失敗させる。
-    throw new Error('backlog: baseUrl (スペースURL) が設定されていない接続です')
+    throw providerError('backlog: baseUrl (スペースURL) が設定されていない接続です', {
+      permanent: true,
+      status: 400,
+    })
   }
-  const url = new URL(`/api/v2${path}`, base)
+  const origin = assertAllowedBacklogOrigin(base)
+  const url = new URL(`/api/v2${path}`, origin.origin)
   url.searchParams.set('apiKey', ctx.credentials.token)
   for (const [key, value] of Object.entries(params ?? {})) {
     if (Array.isArray(value)) {
@@ -91,22 +167,71 @@ function apiUrl(ctx: ProviderContext, path: string, params?: Record<string, stri
 }
 
 /**
- * 共通 fetch。失敗時は HTTP status を載せた例外を投げる（エンジンが 400/404/422=恒久失敗、
- * それ以外=一時失敗に分類する。既存 connectors/dispatch.ts の classifyError と同じ流儀）。
- * APIキーはURLに載るため、エラーログにURLを出さない。
+ * 429/503 の復帰時刻を ms に変換する。Backlog は `X-RateLimit-Reset`（epoch秒）を返す。
+ * 標準の `Retry-After`（秒）にも対応する。取れなければ undefined（呼び出し側の既定バックオフに委ねる）。
+ */
+function retryAfterMsFrom(headers: Headers | undefined): number | undefined {
+  if (!headers) return undefined
+  const reset = headers.get('X-RateLimit-Reset')
+  if (reset) {
+    const ms = Number(reset) * 1000 - Date.now()
+    if (Number.isFinite(ms) && ms > 0) return ms
+  }
+  const retryAfter = headers.get('Retry-After')
+  if (retryAfter) {
+    const sec = Number(retryAfter)
+    if (Number.isFinite(sec) && sec > 0) return sec * 1000
+  }
+  return undefined
+}
+
+/**
+ * 共通 fetch。失敗時は status（と 429 の復帰時刻）を載せた ProviderError を投げる
+ * （エンジンが 400/404/422=恒久失敗、それ以外=一時失敗に分類する。既存 connectors/dispatch.ts の
+ * classifyError と同じ流儀）。
+ *
+ * 鍵の扱い:
+ *   - APIキーはURLのクエリに載るため、**URLをログにも例外メッセージにも出さない**。
+ *   - 応答本文もログに出さない（外部が返す本文にはリクエストURL（=鍵）や顧客データが載り得る）。
+ *   - `redirect: 'manual'` で転送を追わない（転送先へ鍵を渡さないため）。3xx は失敗として扱う。
  */
 async function backlogFetch(url: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(url, init)
+  const method = init?.method ?? 'GET'
+  let res: Response
+  try {
+    res = await fetch(url, {
+      ...init,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  } catch (err) {
+    // ネットワーク断・タイムアウト。status を持たないため一時失敗として再試行に回る。
+    // 例外の message に URL が含まれ得る実装があるため、こちらで作り直して鍵の露出経路を断つ。
+    throw providerError(`Backlog API ${method} failed (network): ${errName(err)}`)
+  }
+
+  if (res.status >= 300 && res.status < 400) {
+    // 正規のBacklog APIはリダイレクトを返さない。返るのは設定ミスか介在者であり、追跡すると
+    // 鍵を転送先へ渡すことになる。恒久失敗として止める。
+    throw providerError(`Backlog API ${method} unexpected redirect (${res.status})`, {
+      status: 400,
+      permanent: true,
+    })
+  }
+
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    const err = new Error(`Backlog API ${init?.method ?? 'GET'} failed (${res.status})`) as Error & {
-      status?: number
-    }
-    err.status = res.status
-    console.error('Backlog API error:', res.status, body.slice(0, 200))
-    throw err
+    console.error('Backlog API error:', method, res.status) // 本文とURLは出さない
+    throw providerError(`Backlog API ${method} failed (${res.status})`, {
+      status: res.status,
+      retryAfterMs: res.status === 429 || res.status === 503 ? retryAfterMsFrom(res.headers) : undefined,
+    })
   }
   return res.json()
+}
+
+/** 例外の種別だけを安全に文字列化する（message に外部URLや鍵が混ざり得るため使わない）。 */
+function errName(err: unknown): string {
+  return err instanceof Error ? err.name : 'UnknownError'
 }
 
 function normalizeIssue(issue: BacklogIssue, containerId: string, doneIds: number[]): ExternalTask {
@@ -129,6 +254,9 @@ export const backlogAdapter: TaskSyncAdapter = {
   requiresBaseUrl: true,
   // updatedSince が日付粒度のため。エンジンは「前日から取り直す」補正でこの粒度を吸収する。
   cursorGranularity: 'date',
+  // Backlog の課題一覧APIは削除済み課題を返さない（tombstone が無い）。差分に出てこないことを
+  // 削除とみなすと、単に更新が無いだけの課題まで対応を切ってしまうため「知る手段なし」と宣言する。
+  deletionMode: 'unsupported',
 
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     const projects = (await backlogFetch(apiUrl(ctx, '/projects'))) as BacklogProject[] | null
@@ -146,8 +274,13 @@ export const backlogAdapter: TaskSyncAdapter = {
     const params: Record<string, string | string[]> = {
       'projectId[]': [containerId],
       count: String(PAGE_SIZE),
-      // 更新日時の昇順で取る。途中で失敗しても再開位置が単調に進む（カーソル前進の前提）。
-      sort: 'updated',
+      // ソート順の使い分け（offsetページングは「並びが動かない」前提が要るため）:
+      //   - 差分取得(since あり): 更新日時の昇順。対象が狭く、ページ送り中の並び替えで
+      //     取りこぼしても次サイクルの重なり(前日から再取得)で必ず拾い直せる。
+      //   - 初回の全件取得(since なし): 作成順(=不変)の昇順。updated 昇順だとページ送り中に
+      //     更新された課題が後方へ移動し、その分だけ未取得の課題が offset の前へ詰めて飛ばされる。
+      //     初回に飛ばした古い課題は、以後の差分ウィンドウには二度と入らず恒久的に失われる。
+      sort: opts.since ? 'updated' : 'created',
       order: 'asc',
     }
     if (opts.since) params.updatedSince = opts.since
@@ -164,8 +297,8 @@ export const backlogAdapter: TaskSyncAdapter = {
   },
 
   async completeTask(ctx: ProviderContext, ref: { externalId: string; containerId: string }): Promise<void> {
-    // 書き戻しに使う「完了」ステータスは、設定があればその先頭（運用上の完了状態）を使う。
-    const statusId = doneStatusIds(ctx)[0]
+    // 書き戻し先は専用設定（未設定なら標準の完了=4）。検知用の集合とは別物なので流用しない。
+    const statusId = completionStatusId(ctx)
     await backlogFetch(apiUrl(ctx, `/issues/${encodeURIComponent(ref.externalId)}`), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

@@ -105,12 +105,56 @@ export interface ProviderContext {
    * ツールによってはステータスがテナント定義で可変（Backlog のカスタムステータス、Redmine の
    * ステータス、Jira のワークフロー）なため、「完了とみなす値」を固定値で決め打ちできない。
    * その差異をここで吸収する。
+   *
+   * ⚠ キー名は必ず provider 名を接頭辞に付ける（`backlog_done_status_ids` のように）。
+   *   十数のアダプタが同じ袋に設定を入れるため、接頭辞が無いとキーが衝突する。
+   *   各アダプタは raw な値を信用せず、自分の関数で1度だけ検証して既定値に倒すこと。
    */
   config?: Record<string, unknown>
 }
 
 /** 差分取得の起点。ツールの絞り込み精度に合わせてエンジンがカーソルを作る。 */
 export type CursorGranularity = 'timestamp' | 'date' | 'none'
+
+/**
+ * 外部で削除されたタスクをどう知れるか。ツールごとに根本的に違い、**知れないツールが多い**。
+ *  - tombstone: 差分APIが削除済みフラグ付きで返す（Google Tasks の deleted 等）。
+ *  - snapshot:  差分ではなく全件が返るため「今回の応答に無い＝消えた」と断定できる。
+ *  - webhook:   push 通知でのみ削除を知れる（ポーリングでは分からない）。
+ *  - unsupported: 削除を知る手段が無い。TaskApp 側の対応は残り続ける（実害は少ないが、
+ *                 「消したのに残る」ことをUIで説明する必要がある）。
+ *
+ * この宣言が無いと、エンジンは「差分に出てこない＝削除された」と誤解して正常なタスクの対応を
+ * 切ってしまう。区別できないものを区別できると偽らないための型。
+ */
+export type DeletionMode = 'tombstone' | 'snapshot' | 'webhook' | 'unsupported'
+
+/**
+ * アダプタが投げる構造化エラー。HTTP status だけでは再試行の**時刻**を表現できないため分離した。
+ *
+ * 429 を「ただの一時失敗」に潰すと、レート制限中に固定バックオフで叩き続けて制限を延長する。
+ * 外部が教えてくれる復帰時刻（Retry-After / X-RateLimit-Reset）を運べるようにする。
+ */
+export interface ProviderError extends Error {
+  /** HTTP status。呼び出し側が 400/404/422=恒久失敗、他=一時失敗に分類する。 */
+  status?: number
+  /** 再試行して良くなるまでの待ち時間(ms)。429/503 で外部が示した場合のみ入る。 */
+  retryAfterMs?: number
+  /** 設定不備など、再試行では直らないことが確実な失敗（恒久失敗として扱う）。 */
+  permanent?: boolean
+}
+
+/** ProviderError を作る。アダプタはこれを使って例外の形を揃える。 */
+export function providerError(
+  message: string,
+  opts: { status?: number; retryAfterMs?: number; permanent?: boolean } = {},
+): ProviderError {
+  const err = new Error(message) as ProviderError
+  if (opts.status !== undefined) err.status = opts.status
+  if (opts.retryAfterMs !== undefined) err.retryAfterMs = opts.retryAfterMs
+  if (opts.permanent !== undefined) err.permanent = opts.permanent
+  return err
+}
 
 /**
  * タスク同期アダプタ。1ツール1実装。
@@ -133,6 +177,11 @@ export interface TaskSyncAdapter {
    * 補正がエンジン側で要る。'none' は差分APIが無く全件取得しかできない。
    */
   readonly cursorGranularity: CursorGranularity
+  /**
+   * 外部での削除をどう知れるか。省略時は 'unsupported'（知る手段が無い）として扱う。
+   * エンジンはこれを見て「差分に出てこないタスク」を消えたとみなすかどうかを決める。
+   */
+  readonly deletionMode?: DeletionMode
 
   /** 取り込み対象に選べる入れ物を列挙する。 */
   listContainers(ctx: ProviderContext): Promise<ExternalContainer[]>
@@ -150,4 +199,32 @@ export interface TaskSyncAdapter {
 
   /** 外部側のタスクを完了にする（TaskApp で完了 → 外部へ書き戻す経路）。 */
   completeTask(ctx: ProviderContext, ref: { externalId: string; containerId: string }): Promise<void>
+
+  /**
+   * TaskApp で起票したタスクを外部にも作る（真の双方向）。
+   *
+   * 省略可なのは、書き込みまで対応できるかがツールと権限に依存するため。省略＝取り込み専用
+   * （＝外部が正本の片方向＋完了の書き戻しのみ）であり、UIはそのように説明する必要がある。
+   * カタログ上の direction='two_way' は「目指す形」であって、実際の能力はこの有無が真実。
+   */
+  createTask?(
+    ctx: ProviderContext,
+    containerId: string,
+    input: TaskWriteInput,
+  ): Promise<{ externalId: string }>
+
+  /** 外部側のタスク内容（タイトル・本文・期日）を TaskApp の内容に合わせる。 */
+  updateTask?(
+    ctx: ProviderContext,
+    ref: { externalId: string; containerId: string },
+    input: TaskWriteInput,
+  ): Promise<void>
+}
+
+/** 外部へ書き込む内容。undefined のフィールドは「変更しない」を意味する（部分更新）。 */
+export interface TaskWriteInput {
+  title?: string
+  body?: string | null
+  /** ローカル日付 'YYYY-MM-DD'。null は期日を外す。 */
+  dueDate?: string | null
 }
