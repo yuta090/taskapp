@@ -27,6 +27,7 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
+import { nudgeFreeCapReached } from '@/lib/channels/freeCapNudge'
 import { resolveOrgEntitlements, type Feature } from '@/lib/billing/entitlements'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -305,6 +306,24 @@ export async function POST(request: NextRequest) {
         })
         if (!decision.deliver) {
           skipped.push({ groupId: group.id, reason: decision.reason ?? 'quota_suppressed' })
+          // 無料50到達(org層 block×hard = quota_block_suppress)なら、事務所へアップグレード導線＋
+          // 相手先グループへ中立の1行（org×月で1回・ベストエフォート）。共有bot(platform)限定
+          // ＝有料の自社bot(owner_type='org')は on_exceed='none' で block しないため対象外。
+          if (decision.reason === 'quota_block_suppress' && account.ownerType === 'platform') {
+            try {
+              await nudgeFreeCapReached({
+                orgId: group.orgId,
+                spaceId: group.spaceId,
+                account,
+                groupExternalId: group.externalGroupId,
+                jstMonthKey: jstDateStr.slice(0, 7),
+                globalBudgetHard: globalState === 'hard',
+              })
+            } catch (err) {
+              // 促し失敗は cron を壊さない（抑止は既に確定・skipped 済み）
+              console.error('[channel-digest] free-cap nudge failed', group.orgId, err)
+            }
+          }
           return
         }
 
