@@ -1,0 +1,141 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+/**
+ * 取り込みランナー（cron の入口）。ここで固定したいのは配線の正しさ:
+ *   - アダプタ未実装の provider（gtasks/multica を含む）はこの経路が触らない＝二重取り込みしない
+ *   - クロステナント検証を必ず通す
+ *   - 資格情報の失効は毒にせず skip
+ *   - provider 固有設定は `<provider>_` 接頭辞のキーだけをアダプタへ渡す（他ツールの設定が漏れない）
+ *   - 1接続の失敗が他の接続を巻き込まない
+ */
+
+const connectionRows: unknown[] = []
+const importConnection = vi.fn()
+const validateImportTargets = vi.fn()
+const resolveCredentials = vi.fn()
+const getTaskSyncAdapter = vi.fn()
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: async () => ({ data: connectionRows, error: null }),
+        }),
+      }),
+    }),
+  }),
+}))
+vi.mock('@/lib/task-sync/engine', () => ({
+  importConnection: (...args: unknown[]) => importConnection(...args),
+}))
+vi.mock('@/lib/task-sync/store', () => ({
+  createTaskSyncStore: () => ({}),
+  validateImportTargets: (...args: unknown[]) => validateImportTargets(...args),
+}))
+vi.mock('@/lib/task-sync/credentials', () => ({
+  resolveCredentials: (...args: unknown[]) => resolveCredentials(...args),
+}))
+vi.mock('@/lib/task-sync/adapters', () => ({
+  getTaskSyncAdapter: (...args: unknown[]) => getTaskSyncAdapter(...args),
+}))
+
+const { runTaskSyncImport } = await import('@/lib/task-sync/runner')
+
+const OK_RESULT = { created: 1, updated: 0, completed: 0, orphaned: 0, skipped: false }
+
+function row(over: Record<string, unknown> = {}) {
+  return {
+    id: 'conn-1',
+    org_id: 'org-1',
+    provider: 'backlog',
+    auth_kind: 'api_key',
+    base_url: 'https://example.backlog.jp',
+    access_token_encrypted: 'enc',
+    import_config: { target_space_id: 'space-1' },
+    poll_cursor: null,
+    ...over,
+  }
+}
+
+beforeEach(() => {
+  connectionRows.length = 0
+  importConnection.mockReset().mockResolvedValue(OK_RESULT)
+  validateImportTargets.mockReset().mockResolvedValue({ ok: true, assigneeId: null })
+  resolveCredentials.mockReset().mockResolvedValue({
+    status: 'ok',
+    credentials: { kind: 'api_key', token: 'k', baseUrl: 'https://example.backlog.jp' },
+  })
+  getTaskSyncAdapter.mockReset().mockReturnValue({ id: 'backlog', cursorGranularity: 'date' })
+})
+
+describe('runTaskSyncImport — 対象の選別', () => {
+  it('アダプタ未実装の provider は触らない（gtasks/multica の二重取り込みを防ぐ）', async () => {
+    connectionRows.push(row({ provider: 'google_tasks' }))
+    getTaskSyncAdapter.mockReturnValue(null)
+    const summary = await runTaskSyncImport()
+    expect(summary.connections).toBe(0)
+    expect(importConnection).not.toHaveBeenCalled()
+  })
+
+  it('アダプタ実装済みの接続は取り込みを実行する', async () => {
+    connectionRows.push(row())
+    const summary = await runTaskSyncImport()
+    expect(summary.connections).toBe(1)
+    expect(summary.created).toBe(1)
+    expect(importConnection).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('runTaskSyncImport — 境界と失敗の扱い', () => {
+  it('クロステナント検証に落ちたら取り込まない', async () => {
+    connectionRows.push(row())
+    validateImportTargets.mockResolvedValue({ ok: false, assigneeId: null, reason: 'space_org_mismatch' })
+    const summary = await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+    expect(summary.skipped).toBe(1)
+    expect(summary.reasons[0]).toContain('space_org_mismatch')
+  })
+
+  it('資格情報の失効は毒にせず skip する（再接続すれば直るため）', async () => {
+    connectionRows.push(row())
+    resolveCredentials.mockResolvedValue({ status: 'auth_failed' })
+    const summary = await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+    expect(summary.reasons[0]).toContain('credentials_auth_failed')
+  })
+
+  it('1接続の想定外エラーが他の接続を巻き込まない', async () => {
+    connectionRows.push(row({ id: 'conn-1' }), row({ id: 'conn-2' }))
+    importConnection.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(OK_RESULT)
+    const summary = await runTaskSyncImport()
+    expect(summary.connections).toBe(2)
+    expect(summary.created).toBe(1)
+    expect(summary.skipped).toBe(1)
+  })
+})
+
+describe('runTaskSyncImport — provider固有設定の受け渡し', () => {
+  it('`<provider>_` 接頭辞のキーだけをアダプタへ渡す（他ツールの設定を漏らさない）', async () => {
+    connectionRows.push(
+      row({
+        import_config: {
+          target_space_id: 'space-1',
+          backlog_done_status_ids: [9],
+          trello_done_list_ids: ['x'],
+          default_assignee_id: 'user-1',
+        },
+      }),
+    )
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { ctx: { config: Record<string, unknown> } }
+    expect(arg.ctx.config).toEqual({ backlog_done_status_ids: [9] })
+  })
+
+  it('取り込み対象の入れ物は新旧どちらのキー名でも読む（gtasks 由来の read_list_ids も許容）', async () => {
+    connectionRows.push(row({ import_config: { target_space_id: 'space-1', read_list_ids: ['c1'] } }))
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { targets: { readContainerIds?: string[] } }
+    expect(arg.targets.readContainerIds).toEqual(['c1'])
+  })
+})

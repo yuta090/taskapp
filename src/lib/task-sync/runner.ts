@@ -1,0 +1,169 @@
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
+import { getIntegration } from '@/lib/integrations/registry'
+import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
+import { resolveCredentials, type ConnectionCredentialRow } from '@/lib/task-sync/credentials'
+import { importConnection, type ImportTargets } from '@/lib/task-sync/engine'
+import { createTaskSyncStore, validateImportTargets } from '@/lib/task-sync/store'
+
+/**
+ * タスク同期の取り込みランナー（cron から呼ばれる入口）。
+ *
+ * 役割は「接続を集めて、資格情報を解決して、アダプタとエンジンに繋ぐ」ことだけ。
+ * 取り込みの制御は engine.ts、外部APIの叩き方は各アダプタ、DB操作は store.ts が持つ。
+ * ここに条件分岐を溜めないのが、ツールが増えても壊れない前提（gtasks 専用の import.ts が
+ * 1ファイルに全部持っていたのを、この4層に割った）。
+ */
+
+let _admin: SupabaseClient | null = null
+function admin(): SupabaseClient {
+  if (!_admin) {
+    _admin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+  }
+  return _admin
+}
+
+export interface TaskSyncRunSummary {
+  connections: number
+  created: number
+  updated: number
+  completed: number
+  orphaned: number
+  skipped: number
+  /** provider ごとの skip 理由（運用ログ用。件数だけでは原因が分からないため）。 */
+  reasons: string[]
+}
+
+/** 取り込み対象の接続行（必要な列だけ）。 */
+interface ConnectionRow extends ConnectionCredentialRow {
+  org_id: string
+  provider: string
+  import_config: Record<string, unknown> | null
+  poll_cursor: string | null
+}
+
+/**
+ * import_config から共通の取り込み先設定を読む。
+ *
+ * `read_container_ids` は既存 gtasks の `read_list_ids` と同じ役割（取り込み対象の入れ物）。
+ * 新しいキー名にしたのは、ツールによって「リスト/プロジェクト/ボード」と呼び名が違うため
+ * 一般名に寄せたから。既存 gtasks の設定は触らない（別 provider なので衝突しない）。
+ */
+function parseTargets(raw: Record<string, unknown> | null): ImportTargets {
+  const c = raw ?? {}
+  const containers = c.read_container_ids ?? c.read_list_ids
+  return {
+    targetSpaceId: typeof c.target_space_id === 'string' ? c.target_space_id : undefined,
+    readContainerIds: Array.isArray(containers)
+      ? containers.filter((v): v is string => typeof v === 'string')
+      : undefined,
+    defaultAssigneeId: typeof c.default_assignee_id === 'string' ? c.default_assignee_id : null,
+  }
+}
+
+/** provider 固有の設定（`<provider>_` 接頭辞のキー）だけをアダプタへ渡す。 */
+function parseProviderConfig(raw: Record<string, unknown> | null, provider: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (key.startsWith(`${provider}_`)) out[key] = value
+  }
+  return out
+}
+
+/**
+ * 取り込み対象の接続を1バッチ処理する。
+ *
+ * 対象は「アダプタが実装済み・import_enabled・status=active」の接続のみ。
+ * gtasks / multica は既存の専用ワーカー（google-tasks/import.ts・connectors/dispatch.ts）が
+ * 引き続き担当する（二重に取り込まないよう、この経路はアダプタ登録表にあるものだけを見る）。
+ */
+export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
+  const summary: TaskSyncRunSummary = {
+    connections: 0,
+    created: 0,
+    updated: 0,
+    completed: 0,
+    orphaned: 0,
+    skipped: 0,
+    reasons: [],
+  }
+
+  const { data, error } = await admin()
+    .from('integration_connections')
+    .select('id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor')
+    .eq('import_enabled', true)
+    .eq('status', 'active')
+  if (error) {
+    console.error('[task-sync] connection fetch failed:', error)
+    return summary
+  }
+
+  for (const conn of (data as ConnectionRow[] | null) ?? []) {
+    const adapter = getTaskSyncAdapter(conn.provider)
+    // gtasks/multica を含む「この経路の担当外」はここで落ちる（二重取り込みを防ぐ）。
+    if (!adapter) continue
+
+    summary.connections++
+    try {
+      await runOne(conn, adapter, summary)
+    } catch (err) {
+      // 1接続の想定外エラーで他の接続の取り込みまで止めない。カーソルは前進していないので
+      // 次サイクルで同じ範囲を取り直す。
+      console.error('[task-sync] connection failed:', conn.id, err)
+      summary.skipped++
+      summary.reasons.push(`${conn.provider}: unexpected_error`)
+    }
+  }
+  return summary
+}
+
+async function runOne(
+  conn: ConnectionRow,
+  adapter: NonNullable<ReturnType<typeof getTaskSyncAdapter>>,
+  summary: TaskSyncRunSummary,
+): Promise<void> {
+  const targets = parseTargets(conn.import_config)
+
+  // クロステナント境界: 別orgのスペースへ取り込ませない（実行時検証が真の境界）。
+  const validated = await validateImportTargets(admin(), conn.org_id, targets)
+  if (!validated.ok) {
+    summary.skipped++
+    summary.reasons.push(`${conn.provider}: ${validated.reason}`)
+    return
+  }
+
+  const cred = await resolveCredentials(conn)
+  if (cred.status !== 'ok') {
+    // 失効・設定不備はここで静かに skip する。毒にはしない（再接続すれば直る）。
+    summary.skipped++
+    summary.reasons.push(`${conn.provider}: credentials_${cred.status}`)
+    return
+  }
+
+  // 期限の正本にするかはカタログの capabilities が持つ（リマインドの鮮度証明と同じ真実源を使う）。
+  const dueAuthority = getIntegration(conn.provider)?.capabilities?.dueImport === true
+
+  const result = await importConnection({
+    connectionId: conn.id,
+    adapter,
+    ctx: {
+      credentials: cred.credentials,
+      config: parseProviderConfig(conn.import_config, conn.provider),
+    },
+    targets: { ...targets, defaultAssigneeId: validated.assigneeId },
+    store: createTaskSyncStore({ admin: admin(), orgId: conn.org_id, dueAuthority }),
+    storedCursor: conn.poll_cursor,
+    now: new Date(),
+  })
+
+  summary.created += result.created
+  summary.updated += result.updated
+  summary.completed += result.completed
+  summary.orphaned += result.orphaned
+  if (result.skipped) {
+    summary.skipped++
+    summary.reasons.push(`${conn.provider}: ${result.reason ?? 'skipped'}`)
+  }
+}
