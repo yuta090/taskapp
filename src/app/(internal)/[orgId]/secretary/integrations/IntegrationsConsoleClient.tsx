@@ -4,10 +4,13 @@ import { useState } from 'react'
 import { ToolRail } from '@/components/secretary/integrations/ToolRail'
 import { ConnectorSyncPane } from '@/components/secretary/integrations/ConnectorSyncPane'
 import { SinkProviderPanel } from '@/components/secretary/integrations/SinkProviderPanel'
+import { TaskSyncConnectPanel } from '@/components/secretary/integrations/TaskSyncConnectPanel'
 import { ToolConnectOverview } from '@/components/secretary/integrations/ToolConnectOverview'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { useSinks, type SinkMeta } from '@/lib/hooks/useSinks'
 import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
+import { implementedTaskSyncProviders } from '@/lib/task-sync/adapters'
+import type { TaskSyncProviderId } from '@/lib/task-sync/types'
 
 interface IntegrationsConsoleClientProps {
   orgId: string
@@ -22,6 +25,12 @@ interface IntegrationsConsoleClientProps {
  *   - sink:      通知連携(webhook/notion/google_sheets) → SinkProviderPanel(provider絞り込み)
  *   - export/catalog: その場書き出し・未実装(planned) → ToolConnectOverview
  *
+ * connector のうち gtasks/multica は専用ワーカー担当なので従来の ConnectorSyncPane、
+ * アダプタ実装済み(implementedTaskSyncProviders())のツール
+ * (Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)は TaskSyncConnectPanel を出す
+ * (同じ「双方向同期」でも接続の作り方が別物のため。前者はOAuth/相互鍵、後者はAPIキー
+ * を表現するには registry を触らず呼び出し側で分岐するのが最小差分)。
+ *
  * モーダル禁止・保存ボタンなし(optimistic updates)。タブバー(SecretaryTabNav)は親の
  * secretary/layout.tsx が一元描画するため、ここでは自前で描画しない(二重nav禁止)。
  */
@@ -32,6 +41,9 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
 
   const def = getIntegration(selectedId)
   if (!def) return null
+
+  // planned/catalogのうちアダプタ実装済み(=実際にAPIキーで繋げる)ものだけ接続パネルを出す。
+  const isImplementedTaskSync = implementedTaskSyncProviders().includes(selectedId as TaskSyncProviderId)
 
   const handleSelect = (id: IntegrationId) => {
     setSelectedId(id)
@@ -55,7 +67,10 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
           </div>
         )}
 
-        {def.surface === 'connector' && <ConnectorSyncPane orgId={orgId} />}
+        {def.surface === 'connector' && !isImplementedTaskSync && <ConnectorSyncPane orgId={orgId} />}
+        {def.surface === 'connector' && isImplementedTaskSync && (
+          <TaskSyncConnectPanel orgId={orgId} integrationId={selectedId} />
+        )}
 
         {def.surface === 'sink' && (
           <SinkProviderPanel

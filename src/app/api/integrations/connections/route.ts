@@ -2,16 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
 import { isValidUuid } from '@/lib/uuid'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { implementedTaskSyncProviders } from '@/lib/task-sync/adapters'
 
 export const runtime = 'nodejs'
 
-/** 双方向同期タブが扱う provider（sink=通知連携とは別軸）。 */
-const CONNECTOR_PROVIDERS = ['multica', 'google_tasks'] as const
+/**
+ * 「ツール連携」タブが扱う provider（sink=通知連携とは別軸）。
+ *
+ * 従来の2本（multica / google_tasks は専用ワーカーが担当）に加え、アダプタ実装済みの
+ * タスク同期ツールも返す。アダプタ登録表から導出しているので、**ツールを1本足したら
+ * この一覧にも自動で載る**（ここに手で足す運用にすると必ず追従漏れが起きる）。
+ */
+function connectorProviders(): string[] {
+  return ['multica', 'google_tasks', ...implementedTaskSyncProviders()]
+}
 
 interface ConnectorConnectionRow {
   id: string
   provider: string
   status: string
+  base_url: string | null
   import_enabled: boolean | null
   import_config: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
@@ -30,8 +40,10 @@ interface ConnectorConnectionSummary {
 }
 
 function toSummary(row: ConnectorConnectionRow): ConnectorConnectionSummary {
+  // 接続先URLは2箇所にある: 新しいタスク同期は base_url 列、multica は metadata.multica.base_url
+  // （列を足す前に作られた既存接続のため）。列を優先し、無ければ従来の場所を見る。
   const multica = (row.metadata?.multica as Record<string, unknown> | undefined) ?? undefined
-  const baseUrl = typeof multica?.base_url === 'string' ? multica.base_url : null
+  const baseUrl = row.base_url ?? (typeof multica?.base_url === 'string' ? multica.base_url : null)
   return {
     id: row.id,
     provider: row.provider,
@@ -44,7 +56,8 @@ function toSummary(row: ConnectorConnectionRow): ConnectorConnectionSummary {
 }
 
 /**
- * GET /api/integrations/connections?orgId= — org の双方向同期接続（multica / google_tasks）一覧。
+ * GET /api/integrations/connections?orgId= — org の双方向同期接続の一覧
+ * （multica / google_tasks ＋ アダプタ実装済みのタスク同期ツール）。
  * 閲覧は internal member 可。編集（作成/ローテ/import_config）は owner/admin 限定（各変異APIが担保）。
  * **secret は返さない**（metadata から base_url だけ取り出す）。
  */
@@ -62,9 +75,9 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('integration_connections')
-    .select('id, provider, status, import_enabled, import_config, metadata, created_at')
+    .select('id, provider, status, base_url, import_enabled, import_config, metadata, created_at')
     .eq('org_id', orgId)
-    .in('provider', CONNECTOR_PROVIDERS as unknown as string[])
+    .in('provider', connectorProviders())
     .order('created_at', { ascending: true })
 
   if (error) {

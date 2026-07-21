@@ -145,7 +145,7 @@ describe('validateWebhookUrl', () => {
 describe('safeFetch (DNS pinning)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    undiciFetchMock.mockResolvedValue({ status: 200, text: () => Promise.resolve('') })
+    undiciFetchMock.mockResolvedValue({ status: 200, headers: new Headers(), text: () => Promise.resolve('') })
   })
 
   // m4: DNS rebinding対策の核。validateWebhookUrlで確定したIPだけに接続を固定し、
@@ -196,5 +196,49 @@ describe('safeFetch (DNS pinning)', () => {
     expect(result.error).toBe('ssrf_blocked:ip_denied')
     expect(undiciFetchMock).not.toHaveBeenCalled()
     expect(agentConstructorMock).not.toHaveBeenCalled()
+  })
+
+  // m5: maxBodyBytes（bulk一覧取得の呼び出し向け。task-sync/providers/redmine.ts が使う）。
+  // 既存呼び出し側（webhook配送・multica連携）は小さな確認レスポンスしか読まない前提で
+  // 500byte打ち切りに依存しているため、オプション省略時の挙動を変えてはならない。
+  it('caps bodyText at 500 bytes by default when maxBodyBytes is omitted (既存呼び出し側の挙動を変えない)', async () => {
+    mockDns([{ address: '8.8.8.8', family: 4 }])
+    const big = 'x'.repeat(1000)
+    undiciFetchMock.mockResolvedValueOnce({ status: 200, headers: new Headers(), text: () => Promise.resolve(big) })
+    const result = await safeFetch('https://public.example.com/hook')
+    expect(result.ok).toBe(true)
+    expect(result.bodyText).toHaveLength(500)
+  })
+
+  it('honors maxBodyBytes to allow larger bounded reads (bulk JSON一覧取得向け)', async () => {
+    mockDns([{ address: '8.8.8.8', family: 4 }])
+    const big = 'x'.repeat(1000)
+    undiciFetchMock.mockResolvedValueOnce({ status: 200, headers: new Headers(), text: () => Promise.resolve(big) })
+    const result = await safeFetch('https://public.example.com/hook', { maxBodyBytes: 2000 })
+    expect(result.ok).toBe(true)
+    expect(result.bodyText).toHaveLength(1000) // 全文(1000byte)が2000byteの上限内に収まる
+  })
+
+  it('still truncates when the response exceeds an explicitly larger maxBodyBytes', async () => {
+    mockDns([{ address: '8.8.8.8', family: 4 }])
+    const big = 'x'.repeat(3000)
+    undiciFetchMock.mockResolvedValueOnce({ status: 200, headers: new Headers(), text: () => Promise.resolve(big) })
+    const result = await safeFetch('https://public.example.com/hook', { maxBodyBytes: 2000 })
+    expect(result.ok).toBe(true)
+    expect(result.bodyText).toHaveLength(2000)
+  })
+
+  // m5: safeFetch は応答ヘッダーも返す（429/503 の Retry-After を呼び出し側(redmine.ts)が
+  // 読むため。ヘッダーを捨てると制限中に叩き続けて制限期間を自分で延ばしてしまう）。
+  it('returns response headers (lowercased keys) via responseHeaders', async () => {
+    mockDns([{ address: '8.8.8.8', family: 4 }])
+    undiciFetchMock.mockResolvedValueOnce({
+      status: 429,
+      headers: new Headers({ 'Retry-After': '30' }),
+      text: () => Promise.resolve(''),
+    })
+    const result = await safeFetch('https://public.example.com/hook')
+    expect(result.ok).toBe(true)
+    expect(result.responseHeaders?.['retry-after']).toBe('30')
   })
 })

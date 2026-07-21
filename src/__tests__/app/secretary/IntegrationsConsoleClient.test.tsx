@@ -8,6 +8,7 @@ import type { IntegrationId } from '@/lib/integrations/registry'
 /**
  * IntegrationsConsoleClient — 「ツール連携」タブ。左レール(ToolRail)＋右詳細
  * (surfaceで出し分け: connector→ConnectorSyncPane / sink→SinkProviderPanel /
+ * catalogのうちアダプタ実装済み(backlog等)→TaskSyncConnectPanel / それ以外の
  * export・catalog→ToolConnectOverview)。Inspectorは使わない。モーダル禁止・保存ボタンなし。
  */
 
@@ -27,7 +28,7 @@ vi.mock('@/components/secretary/integrations/ToolRail', () => ({
   }) => (
     <div data-testid="tool-rail">
       <span data-testid="tool-rail-selected">{selectedId}</span>
-      {(['google_tasks', 'notion', 'backlog', 'csv_export'] as IntegrationId[]).map((id) => (
+      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export'] as IntegrationId[]).map((id) => (
         <button key={id} onClick={() => onSelect(id)}>
           select-{id}
         </button>
@@ -58,6 +59,14 @@ vi.mock('@/components/secretary/integrations/SinkProviderPanel', () => ({
 vi.mock('@/components/secretary/integrations/ToolConnectOverview', () => ({
   ToolConnectOverview: ({ def }: { def: { id: IntegrationId } }) => (
     <div data-testid="tool-connect-overview">{def.id}</div>
+  ),
+}))
+
+vi.mock('@/components/secretary/integrations/TaskSyncConnectPanel', () => ({
+  TaskSyncConnectPanel: ({ orgId, integrationId }: { orgId: string; integrationId: IntegrationId }) => (
+    <div data-testid="task-sync-connect-panel">
+      {orgId}:{integrationId}
+    </div>
   ),
 }))
 
@@ -100,10 +109,18 @@ describe('IntegrationsConsoleClient', () => {
     expect(screen.queryByTestId('connector-sync-pane')).not.toBeInTheDocument()
   })
 
-  it('planned(backlog)を選択するとToolConnectOverviewが出る', () => {
+  it('planned(backlog)だがアダプタ実装済みのツールを選択するとTaskSyncConnectPanelが出る', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
     fireEvent.click(screen.getByText('select-backlog'))
-    expect(screen.getByTestId('tool-connect-overview')).toHaveTextContent('backlog')
+    expect(screen.getByTestId('task-sync-connect-panel')).toHaveTextContent('org-1:backlog')
+    expect(screen.queryByTestId('tool-connect-overview')).not.toBeInTheDocument()
+  })
+
+  it('planned かつアダプタ未実装(wrike)を選択するとToolConnectOverviewが出る', () => {
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    fireEvent.click(screen.getByText('select-wrike'))
+    expect(screen.getByTestId('tool-connect-overview')).toHaveTextContent('wrike')
+    expect(screen.queryByTestId('task-sync-connect-panel')).not.toBeInTheDocument()
   })
 
   it('export(csv_export)を選択するとToolConnectOverviewが出る', () => {

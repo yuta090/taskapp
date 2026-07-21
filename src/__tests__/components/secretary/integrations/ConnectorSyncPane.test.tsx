@@ -206,11 +206,39 @@ describe('ConnectorSyncPane — google_tasks', () => {
       fireEvent.change(select, { target: { value: '' } })
     })
 
+    // 取り込み先スペースを外す=もう取り込む先が無いので import_enabled も false へ戻す
+    // (「接続できたのに永久に有効化されない」の逆で、「設定を外したのに動き続ける」も避ける)。
     expect(updateImportConfigMock).toHaveBeenCalledWith({
       orgId: 'org-1',
       connectionId: 'conn-gtasks-1',
       importConfig: {},
+      importEnabled: false,
     })
+    expect(screen.queryByRole('button', { name: /保存/ })).not.toBeInTheDocument()
+  })
+
+  it('接続あり・取り込み先スペース未設定: スペースを選ぶとimport_enabledも同時にtrueへ更新する(選択=有効化)', async () => {
+    connectionsState.connections = [gtasksConnection({ importConfig: {}, importEnabled: false })]
+    updateImportConfigMock.mockResolvedValue({
+      id: 'conn-gtasks-1',
+      importConfig: { target_space_id: 'space-1' },
+      importEnabled: true,
+    })
+
+    render(<ConnectorSyncPane orgId="org-1" />)
+
+    const select = screen.getByLabelText('取り込み先スペース') as HTMLSelectElement
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'space-1' } })
+    })
+
+    expect(updateImportConfigMock).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      connectionId: 'conn-gtasks-1',
+      importConfig: { target_space_id: 'space-1' },
+      importEnabled: true,
+    })
+    // 保存ボタンは無いまま、選択のたびにimport_enabledが自動で追従する(手動トグルを別途要求しない)。
     expect(screen.queryByRole('button', { name: /保存/ })).not.toBeInTheDocument()
   })
 

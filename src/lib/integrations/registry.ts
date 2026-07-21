@@ -15,13 +15,22 @@ import type { SinkProvider } from '@/lib/sinks/store'
  */
 
 export type IntegrationId =
-  // タスク同期（双方向）
+  // タスク同期（双方向・プロジェクト管理/タスク管理）
   | 'google_tasks'
   | 'multica'
   | 'backlog'
+  | 'jooto'
+  | 'jira'
+  | 'redmine'
   | 'asana'
   | 'trello'
   | 'microsoft_todo'
+  | 'linear'
+  | 'wrike'
+  | 'clickup'
+  | 'monday'
+  | 'chatwork'
+  | 'garoon'
   // データ書き出し・通知（送りっぱなし）
   | 'webhook'
   | 'notion'
@@ -36,13 +45,22 @@ export type IntegrationId =
 
 /** 表示順を保った全ツールID（レール／カタログでの並び順）。 */
 export const ALL_INTEGRATION_IDS: readonly IntegrationId[] = [
-  // task_sync
+  // task_sync（主要 → その他の順。UIは featured を先頭に出し残りを「すべて表示」で開く）
   'google_tasks',
   'multica',
   'backlog',
+  'jooto',
+  'jira',
+  'redmine',
   'asana',
   'trello',
   'microsoft_todo',
+  'linear',
+  'wrike',
+  'clickup',
+  'monday',
+  'chatwork',
+  'garoon',
   // data_export
   'webhook',
   'notion',
@@ -120,6 +138,20 @@ export interface IntegrationCapabilities {
  */
 const GTASKS_IMPORT_POLL_INTERVAL_MINUTES = 15
 
+/**
+ * 接続の手間（セットアップ摩擦の順序尺度）。**表示と実装優先度付けのヒントのみ**で、
+ * ゲートの真実源ではない（proOnly と同じ地位）。SSRF境界を決める hostPolicy
+ * （src/lib/task-sync/types.ts）とは別物: こちらはUX、あちらはセキュリティ境界。混ぜない。
+ *
+ *  - oauth:          同意画面を通すだけ（運用者の入力なし）
+ *  - api_key:        キーを貼るだけ
+ *  - host_and_key:   接続先URL/サブドメインの入力＋キー（Backlog・Redmine・kintone）
+ *  - schema_mapping: 上に加えて項目の対応付けウィザードが要る。外部側のデータ構造が
+ *                    ユーザーごとに違うツール（Notion・kintone・Airtable）はここに入る
+ *  - no_api:         公開APIが無い。汎用Webhook（Zapier等の経由）へ案内するしかない
+ */
+export type IntegrationSetupComplexity = 'oauth' | 'api_key' | 'host_and_key' | 'schema_mapping' | 'no_api'
+
 export interface IntegrationDefinition {
   id: IntegrationId
   /** UI表示名 */
@@ -130,13 +162,29 @@ export interface IntegrationDefinition {
   surface: IntegrationSurface
   /** surface='sink' のとき対応する integration_sinks のプロバイダ */
   sinkProvider?: SinkProvider
-  /** surface='connector' のとき対応する双方向コネクタ種別 */
-  connectorKind?: 'google_tasks' | 'multica'
+  /**
+   * surface='connector' のとき対応する双方向コネクタ種別。
+   * gtasks/multica は専用ワーカー、それ以外は provider 非依存のタスク同期エンジン（src/lib/task-sync/）
+   * が担当する。値はアダプタの id と一致させる。
+   */
+  connectorKind?: IntegrationId
   /**
    * 「Pro」バッジの表示ヒント（課金の真実源ではない・冒頭の注意参照）。
    * CLAUDE.md 方針: 外部連携（双方向のタスク同期・会計連携）は原則 Pro 専有。
    */
   proOnly?: boolean
+  /**
+   * 主要ツール。UI（ToolRail / カタログ）は featured だけを初期表示し、残りは「すべて表示」で開く。
+   * 対応ツールが数十規模になっても最初の画面が壊れないようにするための表示制御であり、
+   * 実装状況（status）とは独立（planned でもロードマップの目玉なら featured にしてよい）。
+   * ただし GA/BETA（実際に使えるもの）は必ず featured にする＝使えるものを畳んで隠さない。
+   */
+  featured?: boolean
+  /**
+   * 接続の手間。UIの案内文と、実装の優先度付け（摩擦の小さいものから出す）に使う表示ヒント。
+   * 課金・能力の真実源ではない。
+   */
+  setupComplexity?: IntegrationSetupComplexity
   /** 開発者コンソール等の外部URL（doc/詳細用） */
   setupUrl?: string
   /** doc/UIの補足 */
@@ -161,8 +209,10 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'ga',
     surface: 'connector',
+    setupComplexity: 'oauth',
     connectorKind: 'google_tasks',
     proOnly: true,
+    featured: true,
     setupUrl: 'https://developers.google.com/tasks',
     notes:
       '既存のタスク管理を使う企業はそのツール(Google Tasks)が正本、TaskAppは中継（ハブ&スポーク）。完了も両側へ反映。',
@@ -180,8 +230,10 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'ga',
     surface: 'connector',
+    setupComplexity: 'host_and_key',
     connectorKind: 'multica',
     proOnly: true,
+    featured: true,
     notes: 'multica と相互に同期。発生元チャットへの完了返信まで配線済み（LINE-first）。',
     // due_date を持たない(rpc_connector_create_task は due を挿入しない・契約上due変更イベントも無い)。
     // §3の実コード事実: multica起票タスクはdueが無いため証明対象が存在せずdueFreshness='none'。
@@ -196,28 +248,133 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Backlog',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'backlog',
+    setupComplexity: 'host_and_key',
     proOnly: true,
-    notes: '日本のSMBで普及するプロジェクト管理。双方向同期は順次対応。',
+    featured: true,
+    setupUrl: 'https://developer.nulab.com/ja/docs/backlog/',
+    notes: '日本のSMB/受託で普及するプロジェクト管理。スペースURLとAPIキーで接続する（双方向同期は順次対応）。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
+  },
+  jooto: {
+    id: 'jooto',
+    label: 'Jooto',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'jooto',
+    setupComplexity: 'api_key',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://www.jooto.com/',
+    notes: '国産のカンバン型タスク管理。APIキーで接続する（双方向同期は順次対応）。',
+    // ⚠ 期限の正本にしない（dueImport=false）。Jooto は差分APIが無く、標準プランの月次上限
+    // （月100回）に収めるため**1日1回**しか取り込めない。この接続を期限の正本にすると、
+    // 最大48時間古い期限を根拠にAI秘書が催促を送りうる — Jooto側で既に完了/期限変更されている
+    // のに相手を急かす、という一番やってはいけない誤爆になる。「不確かなら送らない」に従い、
+    // タスクの取り込みと完了の書き戻しは行うが、期限リマインドの根拠にはしない。
+    // （ビジネスプラン＝呼び出し無制限なら短間隔にできるので、プラン別に開ける余地は残る）
+    capabilities: {
+      dueImport: false,
+      completionWrite: true,
+      dueFreshness: 'none',
+    },
+  },
+  jira: {
+    id: 'jira',
+    label: 'Jira',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'jira',
+    setupComplexity: 'host_and_key',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://developer.atlassian.com/cloud/jira/platform/',
+    notes: '課題管理の標準。取り込む課題の範囲（プロジェクト/JQL）を指定して同期する。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
+  },
+  redmine: {
+    id: 'redmine',
+    label: 'Redmine',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'redmine',
+    setupComplexity: 'host_and_key',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://www.redmine.org/projects/redmine/wiki/Rest_api',
+    notes: '自社サーバー運用の定番。サーバーURLとAPIアクセスキーで接続する（自ホストのため接続先の検証を伴う）。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   asana: {
     id: 'asana',
     label: 'Asana',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'asana',
+    setupComplexity: 'api_key',
     proOnly: true,
+    featured: true,
+    setupUrl: 'https://developers.asana.com/docs',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   trello: {
     id: 'trello',
     label: 'Trello',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'trello',
+    setupComplexity: 'api_key',
     proOnly: true,
+    featured: true,
+    setupUrl: 'https://developer.atlassian.com/cloud/trello/rest/',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   microsoft_todo: {
     id: 'microsoft_todo',
@@ -226,7 +383,87 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'oauth',
     proOnly: true,
+    featured: true,
+    notes: 'Microsoft 365 環境の標準タスク。Planner との使い分けは接続時に選ぶ。',
+  },
+  linear: {
+    id: 'linear',
+    label: 'Linear',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'linear',
+    setupComplexity: 'api_key',
+    proOnly: true,
+    featured: true,
+    setupUrl: 'https://linear.app/developers',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
+  },
+  wrike: {
+    id: 'wrike',
+    label: 'Wrike',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    setupComplexity: 'oauth',
+    proOnly: true,
+    setupUrl: 'https://developers.wrike.com/',
+  },
+  clickup: {
+    id: 'clickup',
+    label: 'ClickUp',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    setupComplexity: 'api_key',
+    proOnly: true,
+    setupUrl: 'https://developer.clickup.com/docs',
+  },
+  monday: {
+    id: 'monday',
+    label: 'monday.com',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    setupComplexity: 'api_key',
+    proOnly: true,
+    setupUrl: 'https://developer.monday.com/api-reference/docs',
+  },
+  chatwork: {
+    id: 'chatwork',
+    label: 'Chatwork タスク',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    setupComplexity: 'api_key',
+    proOnly: true,
+    setupUrl: 'https://developer.chatwork.com/docs',
+    notes: 'Chatwork のタスク機能と同期する（チャット接続=「つなぐ」タブとは別軸のタスク同期）。',
+  },
+  garoon: {
+    id: 'garoon',
+    label: 'Garoon',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'planned',
+    surface: 'catalog',
+    setupComplexity: 'host_and_key',
+    proOnly: true,
+    notes: 'サイボウズ Garoon のToDo。企業内グループウェア利用企業向け。',
   },
   // ---- データ書き出し・通知（送りっぱなし） -----------------------------
   webhook: {
@@ -237,6 +474,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'webhook',
+    featured: true,
     notes: 'タスクの発生を任意のエンドポイントへ送出（署名付き）。',
   },
   notion: {
@@ -247,6 +485,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'notion',
+    featured: true,
     setupUrl: 'https://www.notion.so/my-integrations',
     notes: 'タスクをNotionデータベースへ送りっぱなしで書き出す。',
   },
@@ -258,6 +497,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'google_sheets',
+    featured: true,
     notes: 'タスクの発生をスプレッドシートへ追記する。',
   },
   kintone: {
@@ -267,6 +507,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'notify',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'schema_mapping',
     notes: '業務アプリ基盤への書き出し。順次対応。',
   },
   airtable: {
@@ -276,6 +517,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'notify',
     status: 'planned',
     surface: 'catalog',
+    setupComplexity: 'schema_mapping',
   },
   csv_export: {
     id: 'csv_export',
@@ -284,6 +526,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     direction: 'export',
     status: 'ga',
     surface: 'export',
+    featured: true,
     notes: 'freee・マネーフォワード等の会計ソフトへ取り込むためのCSVを書き出す。',
   },
   // ---- 会計・請求 -------------------------------------------------------
@@ -295,6 +538,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
+    featured: true,
     setupUrl: 'https://developer.freee.co.jp/',
     notes: 'API連携は2026年Q4以降に対応予定（それまではCSVエクスポートで取り込み可）。',
   },
@@ -331,6 +575,14 @@ export function integrationsByCategory(): { category: IntegrationCategory; items
     category,
     items: listIntegrations().filter((d) => d.category === category),
   })).filter((g) => g.items.length > 0)
+}
+
+/**
+ * 主要ツールだけ（表示順を保つ）。UIの初期表示に使い、残りは「すべて表示」で開く。
+ * 対応ツールが増えても最初の画面が長大にならないようにするための表示制御。
+ */
+export function featuredIntegrations(): IntegrationDefinition[] {
+  return listIntegrations().filter((d) => d.featured === true)
 }
 
 /** 実際に接続できる（planned を除く）ツールだけ。 */

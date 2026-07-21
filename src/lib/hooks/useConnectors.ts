@@ -2,18 +2,27 @@
 
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { IntegrationId } from '@/lib/integrations/registry'
 
 /**
- * 双方向同期コネクタ(multica / google_tasks)の接続一覧・作成・鍵ローテ・import_config更新フック。
+ * 双方向同期コネクタ(multica / google_tasks / backlog等のタスク同期アダプタ実装済みツール)の
+ * 接続一覧・作成・鍵ローテ・import_config更新フック。
  * docs/spec/MULTICA_CONNECTOR_CONTRACT.md（対外契約）/ useSinks.ts と同型。
  *
- * GET /api/integrations/connections はsecretを一切返さない。作成(POST multica)・
- * ローテ(POST multica/[id]/rotate)は平文secretを一度だけ返す(呼び出し側が一度だけ表示・破棄)。
- * import_configの更新は保存ボタンを持たず、呼び出し側のフォーム操作(選択・blur)から
- * 即時にmutateするoptimistic update(useUpdateSinkと同型: 楽観反映→レスポンスで確定→失敗はロールバック)。
+ * GET /api/integrations/connections は connectorProviders()（アダプタ登録表から導出、
+ * src/app/api/integrations/connections/route.ts）が返す provider の接続を返し、secretは
+ * 一切含めない。作成(POST multica / POST task-sync)・ローテ(POST multica/[id]/rotate)は
+ * 平文secret/apiKeyを一度だけ受け渡す(呼び出し側が一度だけ表示・破棄)。import_configの更新は
+ * 保存ボタンを持たず、呼び出し側のフォーム操作(選択・blur)から即時にmutateするoptimistic update
+ * (useUpdateSinkと同型: 楽観反映→レスポンスで確定→失敗はロールバック)。
  */
 
-export type ConnectorProvider = 'multica' | 'google_tasks'
+/**
+ * DBの provider 列自体は形式チェックのみ(src/lib/task-sync/adapters.ts のコメント参照)だが、
+ * 値の妥当性の真実源はTS側の登録表(registry.ts の IntegrationId)にあるため、こちらもそれに
+ * 揃える(素の string にすると「registryに無い値も受け付ける」ように見えてしまうため)。
+ */
+export type ConnectorProvider = IntegrationId
 export type ConnectorViewerRole = 'owner' | 'admin' | 'member'
 
 /** import_config の形状(契約: MULTICA_CONNECTOR_CONTRACT.md §「import 先の space/assignee 決定則」) */
@@ -146,15 +155,75 @@ export function useRotateMulticaSecret() {
   })
 }
 
+export interface CreateTaskSyncConnectionInput {
+  orgId: string
+  provider: IntegrationId
+  apiKey: string
+  /** hostPolicy.kind==='fixed'のツールはURL不要('固定ホスト'なのでbase_urlを送らない)。 */
+  baseUrl?: string
+  /**
+   * ツール固有の追加設定（例: Jira の Basic 認証に要る `jira_email`）。APIキーだけでは
+   * 認証が成立しないツール専用の可視値（秘密はapiKeyの1本に集約する）。
+   * サーバ側(sanitizeProviderConfig)がprovider接頭辞のキーだけを受理するので、キー名は
+   * 呼び出し側(TaskSyncConnectPanel)が provider 名を接頭辞に付けて渡す。
+   */
+  providerConfig?: Record<string, unknown>
+}
+
+export interface CreateTaskSyncConnectionResult {
+  connectionId: string
+  provider: IntegrationId
+}
+
+/**
+ * APIキー方式タスク同期接続の作成（POST /api/integrations/connections/task-sync）。owner/adminのみ
+ * (APIが担保)。成功で一覧(connectorsQueryKey)を無効化する。gtasks/multicaと同じ接続一覧を共有する
+ * ため、既存のqueryKeyへ相乗りさせている(専用のqueryKeyを持つとGET側のフィルタも専用にする必要が
+ * 生まれ、二重管理になる)。
+ */
+export function useCreateTaskSyncConnection() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: CreateTaskSyncConnectionInput): Promise<CreateTaskSyncConnectionResult> => {
+      const response = await fetch('/api/integrations/connections/task-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          provider: input.provider,
+          api_key: input.apiKey,
+          base_url: input.baseUrl,
+          provider_config: input.providerConfig,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? '接続に失敗しました')
+      return { connectionId: json.connection_id, provider: json.provider }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+    },
+  })
+}
+
 export interface UpdateImportConfigInput {
   orgId: string
   connectionId: string
   importConfig: Record<string, unknown>
+  /**
+   * 省略時はimport_enabledを変更しない(既存呼び出し元=multicaの取り込み先スペース選択は
+   * import_enabledと無関係。multica inboundはwebhook駆動でimport_enabledを見ないため)。
+   * 呼び出し側(ImportConfigEditor)が「取り込み先スペースが決まった=動かしてよい」の
+   * 判断材料として渡す。
+   */
+  importEnabled?: boolean
 }
 
 export interface UpdateImportConfigResult {
   id: string
   importConfig: Record<string, unknown>
+  importEnabled?: boolean
 }
 
 /**
@@ -162,6 +231,10 @@ export interface UpdateImportConfigResult {
  * 保存ボタンを持たないため、呼び出し側(select onChange / text onBlur)が都度呼ぶ前提で
  * optimistic updateする(useUpdateSinkと同型)。org境界検証はDBトリガー由来の422、
  * UUID形式不正は400としてAPIが返し、そのままerror.messageに載せる。
+ *
+ * import_enabledも同じPATCHに相乗りさせる(import_configとimport_enabledは同じ接続行の
+ * カラムであり、2回に分けて呼ぶと片方だけ失敗した際に状態が中途半端になるため。API側の対応は
+ * 別途依頼中)。
  */
 export function useUpdateImportConfig() {
   const queryClient = useQueryClient()
@@ -171,11 +244,14 @@ export function useUpdateImportConfig() {
       const response = await fetch(`/api/integrations/connections/${input.connectionId}/import-config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ import_config: input.importConfig }),
+        body: JSON.stringify({
+          import_config: input.importConfig,
+          ...(input.importEnabled !== undefined ? { import_enabled: input.importEnabled } : {}),
+        }),
       })
       const json = await response.json()
       if (!response.ok) throw new Error(json.error ?? '取り込み設定の更新に失敗しました')
-      return { id: json.id, importConfig: json.import_config }
+      return { id: json.id, importConfig: json.import_config, importEnabled: json.import_enabled }
     },
     onMutate: async (input) => {
       const queryKey = connectorsQueryKey(input.orgId)
@@ -188,7 +264,11 @@ export function useUpdateImportConfig() {
           ...old,
           connections: old.connections.map((connection) =>
             connection.id === input.connectionId
-              ? { ...connection, importConfig: input.importConfig }
+              ? {
+                  ...connection,
+                  importConfig: input.importConfig,
+                  ...(input.importEnabled !== undefined ? { importEnabled: input.importEnabled } : {}),
+                }
               : connection,
           ),
         }
@@ -210,7 +290,11 @@ export function useUpdateImportConfig() {
           ...old,
           connections: old.connections.map((connection) =>
             connection.id === result.id
-              ? { ...connection, importConfig: result.importConfig }
+              ? {
+                  ...connection,
+                  importConfig: result.importConfig,
+                  ...(result.importEnabled !== undefined ? { importEnabled: result.importEnabled } : {}),
+                }
               : connection,
           ),
         }
