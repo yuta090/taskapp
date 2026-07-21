@@ -349,3 +349,75 @@ describe('finalizeDueReminderOccurrence', () => {
     )
   })
 })
+
+describe('confirmTaskDoneViaLine（設計正本 §7・PR-2・rpc_confirm_task_done_via_line）', () => {
+  it('p_channel_account_id/p_external_user_id/p_task_idで呼ぶ', async () => {
+    rpcMock.mockResolvedValue({ data: [{ status: 'done' }], error: null })
+    const result = await store.confirmTaskDoneViaLine('acc-1', 'U-1', 'task-1')
+    expect(rpcMock).toHaveBeenCalledWith('rpc_confirm_task_done_via_line', {
+      p_channel_account_id: 'acc-1',
+      p_external_user_id: 'U-1',
+      p_task_id: 'task-1',
+    })
+    expect(result).toEqual({ status: 'done' })
+  })
+
+  it('単票(配列でない)の返りにも対応する', async () => {
+    rpcMock.mockResolvedValue({ data: { status: 'already_done' }, error: null })
+    const result = await store.confirmTaskDoneViaLine('acc-1', 'U-1', 'task-1')
+    expect(result).toEqual({ status: 'already_done' })
+  })
+
+  it('blocked/forbiddenもそのまま伝える', async () => {
+    rpcMock.mockResolvedValue({ data: [{ status: 'blocked' }], error: null })
+    expect(await store.confirmTaskDoneViaLine('acc-1', 'U-1', 'task-1')).toEqual({ status: 'blocked' })
+
+    rpcMock.mockResolvedValue({ data: [{ status: 'forbidden' }], error: null })
+    expect(await store.confirmTaskDoneViaLine('acc-1', 'U-1', 'task-1')).toEqual({ status: 'forbidden' })
+  })
+
+  it('DBエラーはthrowする', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+    await expect(store.confirmTaskDoneViaLine('acc-1', 'U-1', 'task-1')).rejects.toThrow(
+      /rpc_confirm_task_done_via_line failed/,
+    )
+  })
+})
+
+describe('snoozeDueReminderViaLine（設計正本 §7・PR-2・rpc_snooze_due_reminder_via_line・code review #2是正）', () => {
+  it('p_channel_account_id/p_external_user_id/p_occurrence_id/p_snooze_days/p_expected_send_countで呼ぶ', async () => {
+    rpcMock.mockResolvedValue({ data: [{ status: 'snoozed' }], error: null })
+    const result = await store.snoozeDueReminderViaLine('acc-1', 'U-1', 'occ-1', 1, 0)
+    expect(rpcMock).toHaveBeenCalledWith('rpc_snooze_due_reminder_via_line', {
+      p_channel_account_id: 'acc-1',
+      p_external_user_id: 'U-1',
+      p_occurrence_id: 'occ-1',
+      p_snooze_days: 1,
+      p_expected_send_count: 0,
+    })
+    expect(result).toEqual({ status: 'snoozed' })
+  })
+
+  it('capped/forbidden/not_found/already_snoozedもそのまま伝える', async () => {
+    rpcMock.mockResolvedValue({ data: [{ status: 'capped' }], error: null })
+    expect(await store.snoozeDueReminderViaLine('acc-1', 'U-1', 'occ-1', 1, 0)).toEqual({ status: 'capped' })
+
+    rpcMock.mockResolvedValue({ data: [{ status: 'forbidden' }], error: null })
+    expect(await store.snoozeDueReminderViaLine('acc-1', 'U-1', 'occ-1', 1, 0)).toEqual({ status: 'forbidden' })
+
+    rpcMock.mockResolvedValue({ data: [{ status: 'not_found' }], error: null })
+    expect(await store.snoozeDueReminderViaLine('acc-1', 'U-1', 'occ-1', 1, 0)).toEqual({ status: 'not_found' })
+
+    rpcMock.mockResolvedValue({ data: [{ status: 'already_snoozed' }], error: null })
+    expect(await store.snoozeDueReminderViaLine('acc-1', 'U-1', 'occ-1', 1, 0)).toEqual({
+      status: 'already_snoozed',
+    })
+  })
+
+  it('DBエラーはthrowする', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+    await expect(store.snoozeDueReminderViaLine('acc-1', 'U-1', 'occ-1', 1, 0)).rejects.toThrow(
+      /rpc_snooze_due_reminder_via_line failed/,
+    )
+  })
+})

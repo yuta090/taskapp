@@ -9,7 +9,7 @@ import {
   type DueReminderOccurrenceRow,
 } from '@/lib/reminders/dueReminderStore'
 import { checkDueReminderStaleness } from '@/lib/reminders/dueReminderStaleness'
-import { buildDueReminderText } from '@/lib/reminders/dueReminderMessages'
+import { buildDueReminderFlex } from '@/lib/reminders/dueReminderMessages'
 import { resolveOrgEntitlements, type Feature, type PlanId } from '@/lib/billing/entitlements'
 import {
   findActiveUserLinkForUser,
@@ -128,10 +128,14 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const text = buildDueReminderText({
+      // 確認ボタン付きFlex（[完了した][まだ][○日後に再通知]・設計正本 §7・PR-2）。
+      // altText=本文（buildDueReminderTextと同一）でtext版の見た目を保つ。
+      const flexMessage = buildDueReminderFlex({
         kind: occ.kind,
         ball: task.ball,
         title: task.title,
+        taskId: task.id,
+        occurrenceId: occ.id,
         snoozeCount: occ.sendCount,
       })
 
@@ -143,7 +147,7 @@ export async function POST(request: NextRequest) {
           account: destination.account,
           orgId,
           to: destination.to,
-          messages: [{ type: 'text', text }],
+          messages: [flexMessage],
           retryKey,
           jstDayOfYear,
           record: {
@@ -151,7 +155,7 @@ export async function POST(request: NextRequest) {
             identityId: null,
             groupId: destination.record.groupId,
             externalUserId: destination.record.externalUserId,
-            body: text,
+            body: flexMessage.altText,
             payload: {
               kind: 'due-reminder',
               taskId: task.id,

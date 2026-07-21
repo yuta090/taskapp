@@ -105,6 +105,14 @@ const storeMock = {
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
+// 期限リマインド確認ループ（設計正本 §7・PR-2）のRPC呼び出し層
+const dueReminderStoreMock = {
+  confirmTaskDoneViaLine: vi.fn(),
+  snoozeDueReminderViaLine: vi.fn(),
+  findTaskSnapshotForReminder: vi.fn(),
+}
+vi.mock('@/lib/reminders/dueReminderStore', () => dueReminderStoreMock)
+
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({})),
 }))
@@ -278,6 +286,9 @@ beforeEach(() => {
   groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockResolvedValue(undefined)
   limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(false)
   resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+  dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+  dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
+  dueReminderStoreMock.findTaskSnapshotForReminder.mockResolvedValue({ title: '見積書の送付' })
 })
 
 describe('handleLineWebhook', () => {
@@ -1219,6 +1230,288 @@ describe('handleLineWebhook', () => {
       expect(result.status).toBe(200) // バッチは落とさない
       expect(replyMock).not.toHaveBeenCalled()
       expect(storeMock.insertChannelMessage).not.toHaveBeenCalled() // forbidden と同じく行を残さない
+    })
+  })
+
+  describe('postback（期限リマインド確認ループ・設計正本 §7・PR-2・code review #2/#4/#5是正）', () => {
+    const REMINDER_TASK_ID = '33333333-3333-4333-8333-333333333333'
+    const OCCURRENCE_ID = '44444444-4444-4444-8444-444444444444'
+
+    describe('due_reminder_done（[完了した]）', () => {
+      it('done → webhook検証済みの(account.id, externalUserId, taskId)でRPCを呼び、タイトル入りで返信', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+        dueReminderStoreMock.findTaskSnapshotForReminder.mockResolvedValue({ title: '見積書の送付' })
+
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(dueReminderStoreMock.confirmTaskDoneViaLine).toHaveBeenCalledWith(
+          'acc-1',
+          'U-client-1',
+          REMINDER_TASK_ID,
+        )
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            replyToken: 'rt-postback',
+            messages: [{ type: 'text', text: '『見積書の送付』を完了にしました。' }],
+          }),
+        )
+        expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
+      })
+
+      it('タイトル取得に失敗してもフォールバック文言で返信する（ベストエフォート）', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+        dueReminderStoreMock.findTaskSnapshotForReminder.mockRejectedValue(new Error('lookup failed'))
+
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({ messages: [{ type: 'text', text: 'タスクを完了にしました。' }] }),
+        )
+      })
+
+      it('二重押下: 2回目はalready_doneで「すでに完了済みです」と返す', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'already_done' })
+
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(dueReminderStoreMock.findTaskSnapshotForReminder).not.toHaveBeenCalled()
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({ messages: [{ type: 'text', text: 'すでに完了済みです。' }] }),
+        )
+      })
+
+      it('blocked（spec未確定/open review）→「アプリで内容を確認してください」', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'blocked' })
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            messages: [{ type: 'text', text: 'アプリで内容を確認してください。' }],
+          }),
+        )
+      })
+
+      it('code review #5: forbidden（口座束縛の認可失敗）→ 返信も監査行も残さず完全沈黙', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'forbidden' })
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(replyMock).not.toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      })
+
+      it('監査行(channel_messages)にaction/taskId/resultを記録する', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orgId: 'org-1',
+            accountId: 'acc-1',
+            externalUserId: 'U-client-1',
+            payload: { event: 'postback', action: 'due_reminder_done', taskId: REMINDER_TASK_ID, result: 'done' },
+          }),
+        )
+      })
+
+      it('webhook再送(duplicate)ではreplyを再送しない', async () => {
+        storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(replyMock).not.toHaveBeenCalled()
+      })
+
+      it('disabled中はRPCと監査は行うがreplyは止める', async () => {
+        storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        await handleLineWebhook(body, sign(body))
+
+        expect(dueReminderStoreMock.confirmTaskDoneViaLine).toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).toHaveBeenCalled()
+        expect(replyMock).not.toHaveBeenCalled()
+      })
+
+      it('code review #4: 共有bot(owner_type=platform)経由でも処理される（dropしない・org解決はグループ経由）', async () => {
+        storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_ACCOUNT)
+        storeMock.findActiveGroup.mockResolvedValue(PLATFORM_GROUP)
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+        dueReminderStoreMock.findTaskSnapshotForReminder.mockResolvedValue({ title: '見積書の送付' })
+
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(dueReminderStoreMock.confirmTaskDoneViaLine).toHaveBeenCalledWith(
+          'acc-shared-1',
+          'U-client-1',
+          REMINDER_TASK_ID,
+        )
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({ messages: [{ type: 'text', text: '『見積書の送付』を完了にしました。' }] }),
+        )
+        // org_idはaccount.orgId(platformで常にnull)ではなくグループ由来('org-A')
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ orgId: 'org-A', accountId: 'acc-shared-1' }),
+        )
+      })
+
+      it('RPCが一過性失敗 → バッチは継続しつつ、このイベントは返信も監査行も残さない', async () => {
+        dueReminderStoreMock.confirmTaskDoneViaLine.mockRejectedValue(new Error('transient'))
+        const body = makeBody([postbackEvent(`action=due_reminder_done&task=${REMINDER_TASK_ID}`)])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(replyMock).not.toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('due_reminder_snooze（[まだ]/[○日後に再通知]）', () => {
+      it('snoozed → webhook検証済みの(account.id, externalUserId, occurrenceId, days, expectedSendCount)でRPCを呼ぶ', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(dueReminderStoreMock.snoozeDueReminderViaLine).toHaveBeenCalledWith(
+          'acc-1',
+          'U-client-1',
+          OCCURRENCE_ID,
+          1,
+          0,
+        )
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({ messages: [{ type: 'text', text: '1日後に再通知します。' }] }),
+        )
+      })
+
+      it('世代(gen)はpostback dataの値をそのままRPCへ渡す（code review #2・リプレイ防止）', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=3`),
+        ])
+        await handleLineWebhook(body, sign(body))
+
+        expect(dueReminderStoreMock.snoozeDueReminderViaLine).toHaveBeenCalledWith(
+          'acc-1',
+          'U-client-1',
+          OCCURRENCE_ID,
+          1,
+          3,
+        )
+      })
+
+      it('capped（上限到達）→「再通知の上限に達しました」', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'capped' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        await handleLineWebhook(body, sign(body))
+
+        expect(replyMock).toHaveBeenCalledWith(
+          expect.objectContaining({ messages: [{ type: 'text', text: '再通知の上限に達しました。' }] }),
+        )
+      })
+
+      it('code review #5: forbidden → 返信も監査行も残さず完全沈黙', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'forbidden' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(replyMock).not.toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      })
+
+      it('code review #5: not_found（occurrence消滅等）→ 返信も監査行も残さず完全沈黙', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'not_found' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(replyMock).not.toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      })
+
+      it('code review #2/#5: already_snoozed（世代不一致=旧世代Flexの再タップ）→ 返信も監査行も残さず完全沈黙', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'already_snoozed' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(replyMock).not.toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      })
+
+      it('監査行にaction/occurrenceId/days/resultを記録する', async () => {
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        await handleLineWebhook(body, sign(body))
+
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: {
+              event: 'postback',
+              action: 'due_reminder_snooze',
+              occurrenceId: OCCURRENCE_ID,
+              days: 1,
+              result: 'snoozed',
+            },
+          }),
+        )
+      })
+
+      it('code review #4: 共有bot(owner_type=platform)経由でも処理される（dropしない）', async () => {
+        storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_ACCOUNT)
+        storeMock.findActiveGroup.mockResolvedValue(PLATFORM_GROUP)
+        dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
+
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        const result = await handleLineWebhook(body, sign(body))
+
+        expect(result.status).toBe(200)
+        expect(dueReminderStoreMock.snoozeDueReminderViaLine).toHaveBeenCalledWith(
+          'acc-shared-1',
+          'U-client-1',
+          OCCURRENCE_ID,
+          1,
+          0,
+        )
+        expect(replyMock).toHaveBeenCalled()
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ orgId: 'org-A', accountId: 'acc-shared-1' }),
+        )
+      })
+
+      it('done postbackとして解析されない（取り違え防止・doneのRPCは呼ばれない）', async () => {
+        const body = makeBody([
+          postbackEvent(`action=due_reminder_snooze&occurrence=${OCCURRENCE_ID}&days=1&gen=0`),
+        ])
+        await handleLineWebhook(body, sign(body))
+
+        expect(dueReminderStoreMock.confirmTaskDoneViaLine).not.toHaveBeenCalled()
+      })
     })
   })
 

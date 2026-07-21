@@ -7,10 +7,11 @@ import { jstNow } from '@/lib/datetime/jstNow'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 
 /**
- * 期限リマインドのデータアクセス層（service role専用・設計正本 §4.2/§4.3/§6/§9・PR-1）。
- * PR-0 で導入済みのスキーマ（task_due_reminder_occurrences・tasks.due_authority_connection_id・
- * integration_connections.last_import_success_at）を読み書きするだけで、migration/RPC/トリガーは
- * 一切追加しない（本PRのスコープ外）。
+ * 期限リマインドのデータアクセス層（service role専用・設計正本 §4.2/§4.3/§6/§7/§9・PR-1/PR-2）。
+ * PR-0/PR-2 で導入済みのスキーマ・RPC（task_due_reminder_occurrences・
+ * tasks.due_authority_connection_id・integration_connections.last_import_success_at・
+ * rpc_confirm_task_done_via_line・rpc_snooze_due_reminder_via_line）を読み書き/呼び出すだけで、
+ * migration/RPC/トリガーの定義自体は一切追加しない（本PRのスコープ外・別担当が用意）。
  */
 
 function admin(): SupabaseClient {
@@ -304,4 +305,64 @@ export async function findConnectionFreshnessBatch(
     map.set(r.id, { status: r.status, provider: r.provider, lastImportSuccessAt: r.last_import_success_at })
   }
   return map
+}
+
+// ---------------------------------------------------------------------------
+// 完了確認ループ（PR-2・§7）: LINE経路の完了確認/スヌーズ。
+// digestのpromote/reject（rpc_promote_digest_task_via_line等）と同型 — authz（口座束縛・
+// テナント一致）とsingle-winner遷移・監査・connector complete enqueueはRPCが1トランザクション
+// で完結させる。ここではRPCを呼ぶだけで、migration/RPC定義自体は本PRのスコープ外
+// （別PRで導入済みの rpc_confirm_task_done_via_line / rpc_snooze_due_reminder_via_line を叩く）。
+// ---------------------------------------------------------------------------
+
+export type DueReminderConfirmStatus = 'done' | 'already_done' | 'forbidden' | 'blocked'
+/**
+ * already_snoozed（code review #2是正）: 世代不一致（呼び出し側が渡したexpectedSendCountが
+ * occurrence.send_countと一致しない）＝旧世代Flexの再送信・再タップ。既に処理済みの正当な
+ * 無操作として扱う（forbidden/not_foundと同様、handler側は#5方針により沈黙する）。
+ */
+export type DueReminderSnoozeStatus = 'snoozed' | 'capped' | 'forbidden' | 'not_found' | 'already_snoozed'
+
+/**
+ * LINE経路の完了確認。channelAccountId/externalUserId はwebhook検証済みの値のみ渡す
+ * （client供給のp_actor等は受けない・authzはRPC内で完結）。
+ */
+export async function confirmTaskDoneViaLine(
+  channelAccountId: string,
+  externalUserId: string,
+  taskId: string,
+): Promise<{ status: DueReminderConfirmStatus }> {
+  const { data, error } = await admin().rpc('rpc_confirm_task_done_via_line', {
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+    p_task_id: taskId,
+  })
+  if (error) throw new Error(`rpc_confirm_task_done_via_line failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'forbidden') as DueReminderConfirmStatus }
+}
+
+/**
+ * LINE経路のスヌーズ（[まだ]/[○日後に再通知]、いずれも同一RPC呼び出し）。
+ * expectedSendCount（code review #2是正）: postback発行時点のoccurrence.send_count（世代）を
+ * そのまま渡す。RPCがp_expected_send_countと現在のsend_countを比較し、不一致なら
+ * already_snoozed（旧世代Flexのリプレイ防止）を返す。
+ */
+export async function snoozeDueReminderViaLine(
+  channelAccountId: string,
+  externalUserId: string,
+  occurrenceId: string,
+  snoozeDays: number,
+  expectedSendCount: number,
+): Promise<{ status: DueReminderSnoozeStatus }> {
+  const { data, error } = await admin().rpc('rpc_snooze_due_reminder_via_line', {
+    p_channel_account_id: channelAccountId,
+    p_external_user_id: externalUserId,
+    p_occurrence_id: occurrenceId,
+    p_snooze_days: snoozeDays,
+    p_expected_send_count: expectedSendCount,
+  })
+  if (error) throw new Error(`rpc_snooze_due_reminder_via_line failed: ${error.message}`)
+  const row = Array.isArray(data) ? data[0] : data
+  return { status: (row?.status ?? 'not_found') as DueReminderSnoozeStatus }
 }
