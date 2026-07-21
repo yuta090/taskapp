@@ -49,22 +49,61 @@ interface ConnectionRow extends ConnectionCredentialRow {
   import_config: Record<string, unknown> | null
   poll_cursor: string | null
   last_import_success_at: string | null
+  last_poll_attempt_at: string | null
 }
 
 /**
  * このサイクルでこの接続を叩いてよいか（ツール固有の呼び出し回数上限への配慮）。
  *
- * cron は全接続を同じ間隔で起こすが、ツールによっては呼び出し回数そのものに厳しい上限がある。
- * 上限を超えると以後まったく同期できなくなるため、**アダプタが宣言した最短間隔を過ぎるまでは
- * 静かに見送る**（失敗ではないので skip 件数にも数えない。毎サイクル「skip」が積み上がると
- * 本当の異常が埋もれる）。
+ * cron は全接続を同じ間隔で起こすが、ツールによっては呼び出し回数そのものに厳しい上限がある
+ * （Jooto は標準プランで月100回）。上限を超えると以後まったく同期できなくなる。
+ *
+ * 判定には**成功時刻ではなく「試行時刻」**を使う。成功時刻だけで判定すると、失敗し続ける接続に
+ * 間隔が一切効かず、失敗ループがそのまま上限の食い潰しになる（＝一番効かせたい場面で効かない）。
+ * 見送りは失敗ではないので skip 件数にも数えない（毎サイクル積み上がると本当の異常が埋もれる）。
  */
-function isPollDue(adapter: { minPollIntervalMinutes?: number }, lastSuccessAt: string | null, now: Date): boolean {
-  if (!adapter.minPollIntervalMinutes || !lastSuccessAt) return true
-  const elapsedMinutes = (now.getTime() - Date.parse(lastSuccessAt)) / 60_000
-  // 時刻が壊れている（未来・パース不能）ときは叩く側に倒す。叩けない方に倒すと、
-  // 1行の壊れた値でその接続が永久に同期されなくなる。
-  return !Number.isFinite(elapsedMinutes) || elapsedMinutes >= adapter.minPollIntervalMinutes
+function isPollDue(
+  adapter: { minPollIntervalMinutes?: number },
+  lastAttemptAt: string | null,
+  now: Date,
+  configuredFloorMinutes?: number,
+): boolean {
+  // 接続ごとに間隔を**延ばす**設定は許すが、縮める設定は許さない。上限はツール側の事実であり、
+  // 設定で緩めると上限超過＝同期停止を運用者が自分で招くことになる。
+  const floor = Math.max(adapter.minPollIntervalMinutes ?? 0, configuredFloorMinutes ?? 0)
+  if (!floor || !lastAttemptAt) return true
+  const elapsedMinutes = (now.getTime() - Date.parse(lastAttemptAt)) / 60_000
+  // 時刻が壊れている（パース不能・未来＝負の経過）ときは叩く側に倒す。叩けない方に倒すと、
+  // 1行の壊れた値でその接続が永久に同期されなくなる（沈黙して原因も分からない）。
+  if (!Number.isFinite(elapsedMinutes) || elapsedMinutes < 0) return true
+  return elapsedMinutes >= floor
+}
+
+/**
+ * 接続設定で指定された最短ポーリング間隔（分）。アダプタの宣言より**長い**ときだけ効く。
+ *
+ * 必要な理由: ツールの呼び出し上限は「回数」であって「間隔」ではない。1サイクルの消費量は
+ * 取り込み対象の数に比例するため、対象が多い契約では宣言された間隔でも上限を超える
+ * （例: Jooto 標準プランは月100回。1日1回でも対象ボードが3つあれば 30×(1+3)=120回で超過する）。
+ * 対象数はテナントごとに違い、アダプタからは決められないので、運用側が延ばせる余地を残す。
+ */
+function configuredPollFloor(raw: Record<string, unknown> | null): number | undefined {
+  const value = raw?.min_poll_interval_minutes
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+/**
+ * 外部を叩く前に試行時刻を書く（楽観的な claim）。
+ * cron の実行が重なっても、後発は更新済みの時刻を見て見送る。失敗しても時刻は進むので
+ * 呼び出し上限を失敗ループで食い潰さない。書き込み失敗は取り込み自体を止めるほどではないので
+ * ログのみで継続する（次サイクルで再度試みる）。
+ */
+async function markPollAttempt(connectionId: string, at: Date): Promise<void> {
+  const { error } = await admin()
+    .from('integration_connections')
+    .update({ last_poll_attempt_at: at.toISOString() })
+    .eq('id', connectionId)
+  if (error) console.error('[task-sync] failed to mark poll attempt:', connectionId, error.message)
 }
 
 /**
@@ -116,7 +155,7 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
   const { data, error } = await admin()
     .from('integration_connections')
     .select(
-      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor, last_import_success_at',
+      'id, org_id, provider, auth_kind, base_url, access_token_encrypted, import_config, poll_cursor, last_import_success_at, last_poll_attempt_at',
     )
     .eq('import_enabled', true)
     .eq('status', 'active')
@@ -140,7 +179,11 @@ export async function runTaskSyncImport(): Promise<TaskSyncRunSummary> {
     }
 
     // ツール固有の呼び出し上限に配慮して、まだ叩いてよい時刻でなければ静かに見送る。
-    if (!isPollDue(adapter, conn.last_import_success_at, new Date())) continue
+    const startedAt = new Date()
+    if (!isPollDue(adapter, conn.last_poll_attempt_at, startedAt, configuredPollFloor(conn.import_config)))
+      continue
+    // 叩くと決めた時点で試行時刻を進める（失敗しても上限を食い潰さない・同時実行の後発を弾く）。
+    await markPollAttempt(conn.id, startedAt)
 
     summary.connections++
     try {

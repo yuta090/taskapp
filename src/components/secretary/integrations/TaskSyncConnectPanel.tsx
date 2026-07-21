@@ -27,6 +27,24 @@ const BASE_URL_COPY: Partial<Record<IntegrationId, { label: string; placeholder:
 const DEFAULT_BASE_URL_COPY = { label: '接続先URL', placeholder: 'https://example.com' }
 
 /**
+ * ツール固有の追加入力欄の定義。APIキー(+接続先URL)だけでは認証が成立しないツール専用
+ * （例: Jira は Basic 認証にメールアドレスが要る。src/lib/task-sync/providers/jira.ts が
+ * `config.jira_email` を必須で読む）。「どのツールにどの追加入力が要るか」をここ1箇所に
+ * まとめる(ツールが増えてもここへ1行足すだけで済むようにする。フォーム/送信ロジック側は
+ * この表を見るだけで済み、ツールごとの分岐を増やさない)。
+ * key は sanitizeProviderConfig(サーバ側)が要求する「provider_接頭辞」付きのキー名そのもの。
+ */
+interface ProviderExtraField {
+  key: string
+  label: string
+  type?: string
+  placeholder?: string
+}
+const PROVIDER_EXTRA_FIELDS: Partial<Record<IntegrationId, ProviderExtraField[]>> = {
+  jira: [{ key: 'jira_email', label: 'メールアドレス(Basic認証)', type: 'email', placeholder: 'you@example.com' }],
+}
+
+/**
  * APIキー方式のタスク同期ツール(Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)接続パネル。
  * 既存接続があれば状態＋取り込み設定(ImportConfigEditorを再利用=重複実装しない)、
  * 無ければ接続フォームを出す。モーダル禁止・保存ボタン禁止(optimistic update)。
@@ -90,6 +108,8 @@ interface TaskSyncConnectFormProps {
 function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: TaskSyncConnectFormProps) {
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
+  const extraFields = PROVIDER_EXTRA_FIELDS[integrationId] ?? []
+  const [extraValues, setExtraValues] = useState<Record<string, string>>({})
   const createConnection = useCreateTaskSyncConnection()
   const urlCopy = BASE_URL_COPY[integrationId] ?? DEFAULT_BASE_URL_COPY
 
@@ -100,21 +120,31 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      const providerConfig =
+        extraFields.length > 0
+          ? Object.fromEntries(extraFields.map((f) => [f.key, (extraValues[f.key] ?? '').trim()]))
+          : undefined
       await createConnection.mutateAsync({
         orgId,
         provider: integrationId,
         apiKey,
         baseUrl: needsBaseUrl ? baseUrl.trim() : undefined,
+        providerConfig,
       })
-      // APIキーを画面/DOMに残さない(接続後はstateから消す)。
+      // APIキーを画面/DOMに残さない(接続後はstateから消す)。追加欄(メール等)は秘密ではないので
+      // 消さなくてもよいが、フォーム自体が消える(接続済み表示に切り替わる)ため実害はない。
       setApiKey('')
       setBaseUrl('')
+      setExtraValues({})
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '接続に失敗しました')
     }
   }
 
-  const canSubmit = apiKey.trim().length > 0 && (!needsBaseUrl || baseUrl.trim().length > 0)
+  const canSubmit =
+    apiKey.trim().length > 0 &&
+    (!needsBaseUrl || baseUrl.trim().length > 0) &&
+    extraFields.every((f) => (extraValues[f.key] ?? '').trim().length > 0)
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-2 max-w-sm">
@@ -136,6 +166,24 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
           />
         </div>
       )}
+      {extraFields.map((field) => (
+        <div key={field.key}>
+          <label
+            htmlFor={`task-sync-extra-${integrationId}-${field.key}`}
+            className="block text-xs font-medium text-gray-700 mb-1"
+          >
+            {field.label}
+          </label>
+          <input
+            id={`task-sync-extra-${integrationId}-${field.key}`}
+            type={field.type ?? 'text'}
+            value={extraValues[field.key] ?? ''}
+            onChange={(e) => setExtraValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+            placeholder={field.placeholder}
+            className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+      ))}
       <div>
         <label
           htmlFor={`task-sync-api-key-${integrationId}`}

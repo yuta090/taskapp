@@ -161,6 +161,13 @@ export interface CreateTaskSyncConnectionInput {
   apiKey: string
   /** hostPolicy.kind==='fixed'のツールはURL不要('固定ホスト'なのでbase_urlを送らない)。 */
   baseUrl?: string
+  /**
+   * ツール固有の追加設定（例: Jira の Basic 認証に要る `jira_email`）。APIキーだけでは
+   * 認証が成立しないツール専用の可視値（秘密はapiKeyの1本に集約する）。
+   * サーバ側(sanitizeProviderConfig)がprovider接頭辞のキーだけを受理するので、キー名は
+   * 呼び出し側(TaskSyncConnectPanel)が provider 名を接頭辞に付けて渡す。
+   */
+  providerConfig?: Record<string, unknown>
 }
 
 export interface CreateTaskSyncConnectionResult {
@@ -187,6 +194,7 @@ export function useCreateTaskSyncConnection() {
           provider: input.provider,
           api_key: input.apiKey,
           base_url: input.baseUrl,
+          provider_config: input.providerConfig,
         }),
       })
       const json = await response.json()
@@ -203,11 +211,19 @@ export interface UpdateImportConfigInput {
   orgId: string
   connectionId: string
   importConfig: Record<string, unknown>
+  /**
+   * 省略時はimport_enabledを変更しない(既存呼び出し元=multicaの取り込み先スペース選択は
+   * import_enabledと無関係。multica inboundはwebhook駆動でimport_enabledを見ないため)。
+   * 呼び出し側(ImportConfigEditor)が「取り込み先スペースが決まった=動かしてよい」の
+   * 判断材料として渡す。
+   */
+  importEnabled?: boolean
 }
 
 export interface UpdateImportConfigResult {
   id: string
   importConfig: Record<string, unknown>
+  importEnabled?: boolean
 }
 
 /**
@@ -215,6 +231,10 @@ export interface UpdateImportConfigResult {
  * 保存ボタンを持たないため、呼び出し側(select onChange / text onBlur)が都度呼ぶ前提で
  * optimistic updateする(useUpdateSinkと同型)。org境界検証はDBトリガー由来の422、
  * UUID形式不正は400としてAPIが返し、そのままerror.messageに載せる。
+ *
+ * import_enabledも同じPATCHに相乗りさせる(import_configとimport_enabledは同じ接続行の
+ * カラムであり、2回に分けて呼ぶと片方だけ失敗した際に状態が中途半端になるため。API側の対応は
+ * 別途依頼中)。
  */
 export function useUpdateImportConfig() {
   const queryClient = useQueryClient()
@@ -224,11 +244,14 @@ export function useUpdateImportConfig() {
       const response = await fetch(`/api/integrations/connections/${input.connectionId}/import-config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ import_config: input.importConfig }),
+        body: JSON.stringify({
+          import_config: input.importConfig,
+          ...(input.importEnabled !== undefined ? { import_enabled: input.importEnabled } : {}),
+        }),
       })
       const json = await response.json()
       if (!response.ok) throw new Error(json.error ?? '取り込み設定の更新に失敗しました')
-      return { id: json.id, importConfig: json.import_config }
+      return { id: json.id, importConfig: json.import_config, importEnabled: json.import_enabled }
     },
     onMutate: async (input) => {
       const queryKey = connectorsQueryKey(input.orgId)
@@ -241,7 +264,11 @@ export function useUpdateImportConfig() {
           ...old,
           connections: old.connections.map((connection) =>
             connection.id === input.connectionId
-              ? { ...connection, importConfig: input.importConfig }
+              ? {
+                  ...connection,
+                  importConfig: input.importConfig,
+                  ...(input.importEnabled !== undefined ? { importEnabled: input.importEnabled } : {}),
+                }
               : connection,
           ),
         }
@@ -263,7 +290,11 @@ export function useUpdateImportConfig() {
           ...old,
           connections: old.connections.map((connection) =>
             connection.id === result.id
-              ? { ...connection, importConfig: result.importConfig }
+              ? {
+                  ...connection,
+                  importConfig: result.importConfig,
+                  ...(result.importEnabled !== undefined ? { importEnabled: result.importEnabled } : {}),
+                }
               : connection,
           ),
         }

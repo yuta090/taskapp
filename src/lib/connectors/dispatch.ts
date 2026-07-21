@@ -3,6 +3,9 @@ import { getValidTokenDetailed } from '@/lib/integrations/token-manager'
 import { refreshAccessToken } from '@/lib/google-calendar/client'
 import { patchTask } from '@/lib/google-tasks/client'
 import { sendIssueUpsert, sendIssueCancel, type MulticaConnection } from './multica/client'
+import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
+import { resolveCredentials } from '@/lib/task-sync/credentials'
+import type { ProviderContext, TaskSyncAdapter } from '@/lib/task-sync/types'
 
 /**
  * 汎用コネクタ送信ディスパッチャ(TaskApp → 外部)。connector_jobs(アウトボックス)を
@@ -12,6 +15,10 @@ import { sendIssueUpsert, sendIssueCancel, type MulticaConnection } from './mult
  * provider 別の扱い:
  *   - multica: op='upsert'/'cancel' を multica API に送る(issue.upsert / issue.cancel)。
  *     upsert 成功時は返却された issue_id を connector_task_links に保存する。
+ *   - タスク同期アダプタを持つ provider(Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear):
+ *     op='complete' をアダプタの completeTask で外部へ書き戻す。これが無いとカタログが
+ *     completionWrite=true と宣言しているのにジョブが即 dead になり、「TaskAppで完了しても
+ *     外部ツールに反映されない」片翼だけの同期になる。
  *   - google_tasks: op='complete' のみ処理する(multica 完了 → gtasks 完了の書き戻し)。
  *     gtasks は取り込み専用(import.ts)であり、TaskApp からの起票/更新を押し戻すことはしない
  *     ため op='upsert'/'cancel' は no-op(契約: gtasksが正本のタスクは gtasks 側でしか作成/削除されない)。
@@ -46,6 +53,11 @@ interface ConnectionRow {
   id: string
   provider: string
   metadata: Record<string, unknown> | null
+  // タスク同期アダプタ経由の書き戻しに要る列（gtasks/multica では使わない）。
+  auth_kind?: 'oauth' | 'api_key' | 'shared_secret' | null
+  base_url?: string | null
+  access_token_encrypted?: string | null
+  import_config?: Record<string, unknown> | null
 }
 
 export interface ConnectorDispatchSummary {
@@ -213,6 +225,14 @@ async function processConnectionJobs(
     return
   }
 
+  // タスク同期アダプタを持つ provider(Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)。
+  // TaskApp 側で完了したタスクを外部へ書き戻す(op='complete')。
+  const adapter = getTaskSyncAdapter(conn.provider)
+  if (adapter) {
+    await processTaskSyncJobs(conn, adapter, runnable, summary)
+    return
+  }
+
   // 未対応provider(将来の拡張漏れ/データ不整合)。無限リトライさせず恒久失敗として dead 化する。
   for (const j of runnable) {
     await completeJob(j, 'permanent_fail', `unsupported_provider:${conn.provider}`)
@@ -220,11 +240,107 @@ async function processConnectionJobs(
   }
 }
 
+/**
+ * タスク同期アダプタ経由の配達。現状 op='complete' のみ（取り込み専用＝TaskAppからの起票/更新を
+ * 外部へ押し出す契約は multica だけが持つ）。
+ *
+ * これが無いと、カタログが completionWrite=true と宣言しているのに完了ジョブが
+ * unsupported_provider で即 dead になり、「TaskApp で完了しても外部ツールに反映されない」
+ * 片翼だけの同期になる。
+ */
+async function processTaskSyncJobs(
+  conn: ConnectionRow,
+  adapter: TaskSyncAdapter,
+  jobs: ConnectorJob[],
+  summary: ConnectorDispatchSummary,
+): Promise<void> {
+  const cred = await resolveCredentials({
+    id: conn.id,
+    auth_kind: conn.auth_kind ?? 'api_key',
+    base_url: conn.base_url ?? null,
+    access_token_encrypted: conn.access_token_encrypted ?? null,
+  })
+  if (cred.status !== 'ok') {
+    // 失効・設定不備は毒にしない（再接続すれば直る）。設定不備だけは恒久失敗にして、
+    // 直らないものを永久に再試行し続けないようにする。
+    const outcome = cred.status === 'misconfigured' ? 'permanent_fail' : 'temporary_fail'
+    for (const j of jobs) await completeJob(j, outcome, `credentials_${cred.status}`)
+    if (outcome === 'permanent_fail') summary.dead += jobs.length
+    else summary.tempFailed += jobs.length
+    return
+  }
+
+  const ctx: ProviderContext = {
+    credentials: cred.credentials,
+    config: providerConfigOf(conn.import_config, conn.provider),
+  }
+
+  for (const j of jobs) {
+    if (j.op !== 'complete') {
+      // 取り込み専用のため upsert/cancel は押し戻さない（gtasks と同じ契約）。ジョブは消化する。
+      await completeJob(j, 'done')
+      summary.done++
+      continue
+    }
+    try {
+      const link = await loadTaskSyncLink(j.connection_id, j.task_id)
+      if (!link) {
+        // 書き戻し先が無い。設定不整合であり再試行では解決しないため恒久失敗にする。
+        await completeJob(j, 'permanent_fail', 'connector_task_links missing')
+        summary.dead++
+        continue
+      }
+      await adapter.completeTask(ctx, { externalId: link.externalId, containerId: link.containerId ?? '' })
+      await completeJob(j, 'done')
+      summary.done++
+    } catch (err) {
+      // 完了させたい相手が既に消えている(404)なら「完了」と同義として done 扱いにする。
+      if (isNotFound(err)) {
+        await completeJob(j, 'done')
+        summary.done++
+        continue
+      }
+      const outcome = classifyError(err)
+      await completeJob(j, outcome, errMessage(err))
+      if (outcome === 'permanent_fail') summary.dead++
+      else summary.tempFailed++
+    }
+  }
+}
+
+/** 書き戻し先の外部ID/コンテナIDを対応表から引く。 */
+async function loadTaskSyncLink(
+  connectionId: string,
+  taskId: string,
+): Promise<{ externalId: string; containerId: string | null } | null> {
+  const { data, error } = await admin()
+    .from('connector_task_links')
+    .select('external_id, external_list_id')
+    .eq('connection_id', connectionId)
+    .eq('task_id', taskId)
+    .maybeSingle()
+  if (error) throw new Error(`connector_task_links lookup failed: ${error.message}`)
+  const row = data as { external_id: string; external_list_id: string | null } | null
+  return row ? { externalId: row.external_id, containerId: row.external_list_id } : null
+}
+
+/** provider 固有設定（`<provider>_` 接頭辞）だけをアダプタへ渡す（他ツールの設定を混ぜない）。 */
+function providerConfigOf(
+  importConfig: Record<string, unknown> | null | undefined,
+  provider: string,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(importConfig ?? {})) {
+    if (key.startsWith(`${provider}_`)) out[key] = value
+  }
+  return out
+}
+
 /** 接続情報(provider/metadata)をまとめて取得する。1バッチにつき1回だけ叩く。 */
 async function loadConnections(connectionIds: string[]): Promise<Map<string, ConnectionRow>> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, provider, metadata')
+    .select('id, provider, metadata, auth_kind, base_url, access_token_encrypted, import_config')
     .in('id', connectionIds)
   if (error) throw new Error(`integration_connections lookup failed: ${error.message}`)
   const map = new Map<string, ConnectionRow>()

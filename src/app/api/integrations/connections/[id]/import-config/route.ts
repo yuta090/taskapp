@@ -7,6 +7,14 @@ export const runtime = 'nodejs'
 
 interface PatchImportConfigBody {
   import_config?: unknown
+  /**
+   * 取り込みの有効/無効。省略時は変更しない（後方互換）。
+   *
+   * import_config と同じ PATCH で受けるのは、**2回に分けると片方だけ成功して状態が中途半端に
+   * 残る**ため（取り込み先は設定されたのに無効のまま＝永久に同期されない、あるいはその逆で
+   * 取り込み先が消えたのに有効のまま）。設定と有効化は1つの意思決定なので1回の更新にする。
+   */
+  import_enabled?: unknown
 }
 
 async function findConnectionOrgId(id: string): Promise<string | null> {
@@ -23,7 +31,8 @@ async function findConnectionOrgId(id: string): Promise<string | null> {
 /**
  * PATCH /api/integrations/connections/[id]/import-config — owner/adminのみ。
  *
- * import_config( { target_space_id, read_list_ids?, default_assignee_id? } )を更新する
+ * import_config( { target_space_id, read_list_ids?, default_assignee_id? } )と、
+ * 任意で import_enabled(取り込みの有効/無効)を**同じ更新で**変更する
  * (器は 20260720125427_connector_two_way_sync.sql で追加済み)。
  *
  * org境界の検証(target_space_id/default_assignee_idが接続と同じorgを指すか)はDBトリガー
@@ -61,12 +70,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'import_config must be an object' }, { status: 400 })
   }
 
+  if (body.import_enabled !== undefined && typeof body.import_enabled !== 'boolean') {
+    return NextResponse.json({ error: 'import_enabled must be a boolean' }, { status: 400 })
+  }
+
+  const patch: Record<string, unknown> = { import_config: body.import_config }
+  if (typeof body.import_enabled === 'boolean') patch.import_enabled = body.import_enabled
+
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('integration_connections')
-    .update({ import_config: body.import_config })
+    .update(patch)
     .eq('id', id)
-    .select('id, import_config')
+    .select('id, import_config, import_enabled')
     .maybeSingle()
 
   if (error) {
@@ -99,5 +115,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   return NextResponse.json({
     id: (data as { id: string }).id,
     import_config: (data as { import_config: Record<string, unknown> }).import_config,
+    import_enabled: (data as { import_enabled: boolean }).import_enabled,
   })
 }

@@ -122,6 +122,26 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     expect(updatePayload).toEqual({ import_config: validBody.import_config })
   })
 
+  /**
+   * import_enabled を同じ PATCH で受ける理由: 2回に分けると片方だけ成功して状態が中途半端に残る
+   * （取り込み先は設定されたのに無効のまま＝永久に同期されない／取り込み先が消えたのに有効のまま）。
+   */
+  it('import_enabled を同じ更新で変更できる', async () => {
+    const response = await callPatch(CONNECTION_ID, { ...validBody, import_enabled: true })
+    expect(response.status).toBe(200)
+    expect(updatePayload).toEqual({ import_config: validBody.import_config, import_enabled: true })
+  })
+
+  it('import_enabled を省略したときは触らない（後方互換）', async () => {
+    await callPatch(CONNECTION_ID, validBody)
+    expect(updatePayload).toEqual({ import_config: validBody.import_config })
+  })
+
+  it('import_enabled が boolean でなければ 400（曖昧な値で同期の有無を決めない）', async () => {
+    const response = await callPatch(CONNECTION_ID, { ...validBody, import_enabled: 'yes' })
+    expect(response.status).toBe(400)
+  })
+
   it('422 when the DB trigger (P0001) rejects an out-of-org target_space_id (user-facing message)', async () => {
     updateResultMock.mockReturnValue({
       data: null,

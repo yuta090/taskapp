@@ -15,6 +15,7 @@ const validateImportTargets = vi.fn()
 const resolveCredentials = vi.fn()
 const getTaskSyncAdapter = vi.fn()
 
+const pollAttempts: string[] = []
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: () => ({
@@ -22,6 +23,12 @@ vi.mock('@supabase/supabase-js', () => ({
         eq: () => ({
           eq: async () => ({ data: connectionRows, error: null }),
         }),
+      }),
+      update: (payload: Record<string, unknown>) => ({
+        eq: async (_col: string, id: string) => {
+          if (payload.last_poll_attempt_at) pollAttempts.push(id)
+          return { error: null }
+        },
       }),
     }),
   }),
@@ -55,12 +62,14 @@ function row(over: Record<string, unknown> = {}) {
     import_config: { target_space_id: 'space-1' },
     poll_cursor: null,
     last_import_success_at: null,
+    last_poll_attempt_at: null,
     ...over,
   }
 }
 
 beforeEach(() => {
   connectionRows.length = 0
+  pollAttempts.length = 0
   importConnection.mockReset().mockResolvedValue(OK_RESULT)
   validateImportTargets.mockReset().mockResolvedValue({ ok: true, assigneeId: null })
   resolveCredentials.mockReset().mockResolvedValue({
@@ -107,7 +116,7 @@ describe('runTaskSyncImport — ツール固有の呼び出し上限', () => {
     // Jooto は標準プランで月100回。cronの15分間隔で回すと数日で上限に達し、以後まったく
     // 同期できなくなる。宣言された最短間隔を過ぎるまでは見送る。
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-    connectionRows.push(row({ provider: 'jooto', last_import_success_at: oneHourAgo }))
+    connectionRows.push(row({ provider: 'jooto', last_poll_attempt_at: oneHourAgo }))
     getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
     const summary = await runTaskSyncImport()
     expect(importConnection).not.toHaveBeenCalled()
@@ -118,23 +127,81 @@ describe('runTaskSyncImport — ツール固有の呼び出し上限', () => {
 
   it('最短間隔を過ぎていれば叩く', async () => {
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
-    connectionRows.push(row({ provider: 'jooto', last_import_success_at: twoDaysAgo }))
+    connectionRows.push(row({ provider: 'jooto', last_poll_attempt_at: twoDaysAgo }))
     getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
     await runTaskSyncImport()
     expect(importConnection).toHaveBeenCalledTimes(1)
   })
 
-  it('一度も成功していない接続は間隔に関係なく叩く（初回同期を待たせない）', async () => {
-    connectionRows.push(row({ provider: 'jooto', last_import_success_at: null }))
+  it('一度も試行していない接続は間隔に関係なく叩く（初回同期を待たせない）', async () => {
+    connectionRows.push(row({ provider: 'jooto', last_poll_attempt_at: null }))
     getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
     await runTaskSyncImport()
     expect(importConnection).toHaveBeenCalledTimes(1)
   })
 
   it('最短間隔を宣言していないツールは毎サイクル叩く', async () => {
-    connectionRows.push(row({ last_import_success_at: new Date().toISOString() }))
+    connectionRows.push(row({ last_poll_attempt_at: new Date().toISOString() }))
     await runTaskSyncImport()
     expect(importConnection).toHaveBeenCalledTimes(1)
+  })
+
+  it('間隔の判定に「成功時刻」ではなく「試行時刻」を使う（失敗ループで上限を食い潰さない）', async () => {
+    // 一度も成功していないが直前に試行済み＝失敗し続けている接続。成功時刻で判定すると
+    // 毎サイクル叩き続け、呼び出し回数の上限がある相手では一番効かせたい場面で効かない。
+    connectionRows.push(
+      row({
+        provider: 'jooto',
+        last_import_success_at: null,
+        last_poll_attempt_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      }),
+    )
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
+    await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+  })
+
+  it('未来の試行時刻（壊れた値）でも叩く（1行の異常値で永久に同期が止まらない）', async () => {
+    connectionRows.push(
+      row({ provider: 'jooto', last_poll_attempt_at: new Date(Date.now() + 86_400_000).toISOString() }),
+    )
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
+    await runTaskSyncImport()
+    expect(importConnection).toHaveBeenCalledTimes(1)
+  })
+
+  it('接続設定で間隔を「延ばす」ことはできる（対象数が多い契約で上限を超えないため）', async () => {
+    // 呼び出し上限は「回数」であって「間隔」ではない。1サイクルの消費は取り込み対象の数に
+    // 比例するため、対象が多い契約ではアダプタ既定の間隔でも上限を超える。運用側が延ばせる。
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+    connectionRows.push(
+      row({
+        last_poll_attempt_at: sixHoursAgo,
+        import_config: { target_space_id: 'space-1', min_poll_interval_minutes: 720 },
+      }),
+    )
+    await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+  })
+
+  it('接続設定で間隔を「縮める」ことはできない（設定で上限超過＝同期停止を招かせない）', async () => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    connectionRows.push(
+      row({
+        provider: 'jooto',
+        last_poll_attempt_at: oneHourAgo,
+        import_config: { target_space_id: 'space-1', min_poll_interval_minutes: 1 },
+      }),
+    )
+    getTaskSyncAdapter.mockReturnValue({ id: 'jooto', cursorGranularity: 'none', minPollIntervalMinutes: 1440 })
+    await runTaskSyncImport()
+    expect(importConnection).not.toHaveBeenCalled()
+  })
+
+  it('外部を叩く前に試行時刻を進める（実行が重なった後発を弾く）', async () => {
+    connectionRows.push(row())
+    await runTaskSyncImport()
+    expect(pollAttempts).toEqual(['conn-1'])
   })
 })
 

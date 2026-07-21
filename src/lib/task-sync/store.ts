@@ -117,6 +117,21 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
               .eq('connection_id', connectionId)
               .eq('external_id', task.externalId)
             if (reviveErr) throw new Error(`revive link failed: ${reviveErr.message}`)
+
+            // 復活したタスクは、対応を戻すだけでは中身が**削除時点のまま**残る。次のサイクルまで
+            // 古い期限・古いタイトルが正しいものとして扱われる（低頻度ポーリングのツールなら
+            // 丸一日）。同じ取り込みの中で現在のスナップショットへ更新し、期限の正本も戻す
+            // （orphaned 化のときに外しているため）。
+            const { error: refreshErr } = await admin
+              .from('tasks')
+              .update({
+                title: task.title.trim() || '(無題)',
+                description: task.body ?? '',
+                due_date: task.dueDate,
+                due_authority_connection_id: dueAuthority ? connectionId : null,
+              })
+              .eq('id', existingTaskId)
+            if (refreshErr) throw new Error(`refresh revived task failed: ${refreshErr.message}`)
             return existingTaskId
           }
         }
@@ -148,6 +163,15 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
     },
 
     async markLinkOrphaned(connectionId: string, externalId: string): Promise<void> {
+      // 対応を切る前に task_id を控える。期限の正本を外すのに必要（下記）。
+      const { data: link, error: lookupErr } = await admin
+        .from('connector_task_links')
+        .select('task_id')
+        .eq('connection_id', connectionId)
+        .eq('external_id', externalId)
+        .maybeSingle()
+      if (lookupErr) throw new Error(`markLinkOrphaned lookup failed: ${lookupErr.message}`)
+
       // タスク行は消さない（作業の記録と証跡は残す）。対応だけ切って以後の更新対象から外す。
       const { error } = await admin
         .from('connector_task_links')
@@ -155,6 +179,17 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
         .eq('connection_id', connectionId)
         .eq('external_id', externalId)
       if (error) throw new Error(`markLinkOrphaned failed: ${error.message}`)
+
+      if (link) {
+        // **期限の正本を外す**。外さないと、外部で消えたタスクの古い期限が残ったまま接続は
+        // 「同期成功」なので鮮度証明を満たし、AI秘書が「もう存在しないタスク」について相手を
+        // 催促してしまう（送るべきでないものを送る＝一番やってはいけない誤爆）。
+        const { error: authErr } = await admin
+          .from('tasks')
+          .update({ due_authority_connection_id: null })
+          .eq('id', (link as { task_id: string }).task_id)
+        if (authErr) throw new Error(`clear due authority failed: ${authErr.message}`)
+      }
     },
 
     async saveCursor(connectionId: string, cursor: string | null, succeededAt: Date): Promise<void> {

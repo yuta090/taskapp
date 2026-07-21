@@ -357,10 +357,15 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
   const orgSpaces = spaces.filter((space) => space.orgId === orgId)
   const { internalMembers } = useSpaceMembers(targetSpaceId || null)
 
-  const runUpdate = async (patch: Partial<ConnectorImportConfig>) => {
+  const runUpdate = async (patch: Partial<ConnectorImportConfig>, importEnabled?: boolean) => {
     const nextConfig = pruneImportConfig({ ...connection.importConfig, ...patch })
     try {
-      await updateImportConfig.mutateAsync({ orgId, connectionId: connection.id, importConfig: nextConfig })
+      await updateImportConfig.mutateAsync({
+        orgId,
+        connectionId: connection.id,
+        importConfig: nextConfig,
+        importEnabled,
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '取り込み設定の更新に失敗しました')
       // hook側(onError)でキャッシュはロールバック済み。フォームのdraftも直前の確定値へ戻す。
@@ -372,7 +377,12 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
 
   const handleTargetSpaceChange = (value: string) => {
     setTargetSpaceId(value)
-    void runUpdate({ target_space_id: value })
+    // 接続作成時は import_enabled=false で保存される(設定前に大量のタスクが予期しないスペースへ
+    // 流れ込むのを防ぐため)。取り込み先スペースを選ぶ=まさにその設定が終わった瞬間なので、
+    // ここで import_enabled も連動させる(選択=有効化・未設定に戻す=無効化)。手動トグルを
+    // 別に置くと「スペースは選んだのにトグルを押し忘れて永久に同期されない」を生むため、
+    // 派生値として一体で扱う。
+    void runUpdate({ target_space_id: value }, !!value)
   }
 
   const handleAssigneeChange = (value: string) => {

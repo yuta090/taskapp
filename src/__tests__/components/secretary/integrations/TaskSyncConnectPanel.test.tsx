@@ -181,4 +181,84 @@ describe('TaskSyncConnectPanel — 接続済み', () => {
     render(<TaskSyncConnectPanel orgId="org-1" integrationId="backlog" />)
     expect(screen.queryByLabelText('APIキー')).not.toBeInTheDocument()
   })
+
+  it('取り込み先スペースを選ぶとimport_enabledも同時にtrueへ更新する(選択=有効化。接続だけして永久に同期されないバグの回避)', async () => {
+    connectionsState.connections = [backlogConnection({ importConfig: {}, importEnabled: false })]
+    updateImportConfigMock.mockResolvedValue({
+      id: 'conn-backlog-1',
+      importConfig: { target_space_id: 'space-1' },
+      importEnabled: true,
+    })
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="backlog" />)
+
+    const select = screen.getByLabelText('取り込み先スペース')
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'space-1' } })
+    })
+
+    expect(updateImportConfigMock).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      connectionId: 'conn-backlog-1',
+      importConfig: { target_space_id: 'space-1' },
+      importEnabled: true,
+    })
+  })
+})
+
+describe('TaskSyncConnectPanel — Jiraのメールアドレス欄(Basic認証)', () => {
+  it('jira: メールアドレス欄を表示する', () => {
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="jira" />)
+    expect(screen.getByLabelText(/メールアドレス/)).toBeInTheDocument()
+  })
+
+  it('asana: メールアドレス欄を表示しない(Jira固有の入力)', () => {
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="asana" />)
+    expect(screen.queryByLabelText(/メールアドレス/)).not.toBeInTheDocument()
+  })
+
+  it('メール未入力では「接続する」を押せない', () => {
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="jira" />)
+    fireEvent.change(screen.getByLabelText(/サイトURL/), { target: { value: 'https://acme.atlassian.net' } })
+    fireEvent.change(screen.getByLabelText('APIキー'), { target: { value: 'token-abc' } })
+    expect(screen.getByRole('button', { name: '接続する' })).toBeDisabled()
+  })
+
+  it('送信時にprovider_config(jira_email)を渡す', async () => {
+    createTaskSyncMock.mockResolvedValue({ connectionId: 'conn-1', provider: 'jira' })
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="jira" />)
+
+    fireEvent.change(screen.getByLabelText(/サイトURL/), { target: { value: 'https://acme.atlassian.net' } })
+    fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: 'admin@acme.com' } })
+    fireEvent.change(screen.getByLabelText('APIキー'), { target: { value: 'token-abc' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '接続する' }))
+    })
+
+    expect(createTaskSyncMock).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      provider: 'jira',
+      apiKey: 'token-abc',
+      baseUrl: 'https://acme.atlassian.net',
+      providerConfig: { jira_email: 'admin@acme.com' },
+    })
+  })
+
+  it('メール以外のツール(asana)はprovider_configを渡さない', async () => {
+    createTaskSyncMock.mockResolvedValue({ connectionId: 'conn-1', provider: 'asana' })
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="asana" />)
+
+    fireEvent.change(screen.getByLabelText('APIキー'), { target: { value: 'secret-key' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '接続する' }))
+    })
+
+    expect(createTaskSyncMock).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      provider: 'asana',
+      apiKey: 'secret-key',
+      baseUrl: undefined,
+      providerConfig: undefined,
+    })
+  })
 })
