@@ -28,7 +28,7 @@ vi.mock('@/components/secretary/integrations/ToolRail', () => ({
   }) => (
     <div data-testid="tool-rail">
       <span data-testid="tool-rail-selected">{selectedId}</span>
-      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export'] as IntegrationId[]).map((id) => (
+      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export', 'generic_inbound'] as IntegrationId[]).map((id) => (
         <button key={id} onClick={() => onSelect(id)}>
           select-{id}
         </button>
@@ -39,6 +39,10 @@ vi.mock('@/components/secretary/integrations/ToolRail', () => ({
 
 vi.mock('@/components/secretary/integrations/ConnectorSyncPane', () => ({
   ConnectorSyncPane: ({ orgId }: { orgId: string }) => <div data-testid="connector-sync-pane">{orgId}</div>,
+}))
+
+vi.mock('@/components/secretary/integrations/GenericInboundPanel', () => ({
+  GenericInboundPanel: ({ orgId }: { orgId: string }) => <div data-testid="generic-inbound-panel">{orgId}</div>,
 }))
 
 vi.mock('@/components/secretary/integrations/SinkProviderPanel', () => ({
@@ -127,6 +131,14 @@ describe('IntegrationsConsoleClient', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
     fireEvent.click(screen.getByText('select-csv_export'))
     expect(screen.getByTestId('tool-connect-overview')).toHaveTextContent('csv_export')
+  })
+
+  it('connectorだがgeneric_inboundを選択するとGenericInboundPanelが出る(ConnectorSyncPaneやTaskSyncConnectPanelではない)', () => {
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    fireEvent.click(screen.getByText('select-generic_inbound'))
+    expect(screen.getByTestId('generic-inbound-panel')).toHaveTextContent('org-1')
+    expect(screen.queryByTestId('connector-sync-pane')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-sync-connect-panel')).not.toBeInTheDocument()
   })
 
   it('sinkパネルの作成完了(onCreated)でsecretを一度だけバナー表示する。閉じると消える', () => {

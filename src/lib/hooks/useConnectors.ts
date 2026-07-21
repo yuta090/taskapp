@@ -37,6 +37,8 @@ export interface ConnectorConnection {
   provider: ConnectorProvider
   status: string
   baseUrl: string | null
+  /** 受信口の呼び名（generic_inbound のみ・任意設定なのでnullがありうる）。他providerは常にnull。 */
+  label: string | null
   importEnabled: boolean
   importConfig: Record<string, unknown>
   createdAt: string | null
@@ -110,6 +112,50 @@ export function useCreateMulticaConnection() {
         baseUrl: json.base_url,
         webhookUrl: json.webhook_url,
         sendSecret: json.send_secret,
+        receiveSecret: json.receive_secret,
+      }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+    },
+  })
+}
+
+export interface CreateGenericInboundConnectionInput {
+  orgId: string
+  /** 呼び名(任意)。複数の送信元(Zapier経由のANDPAD等)を見分けるためだけに使う。 */
+  label?: string
+}
+
+export interface CreateGenericInboundConnectionResult {
+  connectionId: string
+  webhookUrl: string
+  /** 平文はこの応答でしか返らない(以後の取得経路なし)。呼び出し側が一度だけ表示・破棄する。 */
+  receiveSecret: string
+}
+
+/**
+ * 汎用Webhook受信口の作成（POST /api/integrations/connections/generic-inbound）。owner/adminのみ
+ * (APIが担保)。multicaと違い相互鍵ではなく受信鍵1本だけを一度だけ返す(こちらから外部へは
+ * 取りに行かない受信専用のため)。成功で一覧を無効化する(secretはキャッシュに保存しない)。
+ */
+export function useCreateGenericInboundConnection() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (
+      input: CreateGenericInboundConnectionInput,
+    ): Promise<CreateGenericInboundConnectionResult> => {
+      const response = await fetch('/api/integrations/connections/generic-inbound', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_id: input.orgId, label: input.label }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? '受信口の作成に失敗しました')
+      return {
+        connectionId: json.connection_id,
+        webhookUrl: json.webhook_url,
         receiveSecret: json.receive_secret,
       }
     },

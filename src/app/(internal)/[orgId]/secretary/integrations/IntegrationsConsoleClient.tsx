@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ToolRail } from '@/components/secretary/integrations/ToolRail'
 import { ConnectorSyncPane } from '@/components/secretary/integrations/ConnectorSyncPane'
+import { GenericInboundPanel } from '@/components/secretary/integrations/GenericInboundPanel'
 import { SinkProviderPanel } from '@/components/secretary/integrations/SinkProviderPanel'
 import { TaskSyncConnectPanel } from '@/components/secretary/integrations/TaskSyncConnectPanel'
 import { ToolConnectOverview } from '@/components/secretary/integrations/ToolConnectOverview'
@@ -21,15 +22,16 @@ interface IntegrationsConsoleClientProps {
  *
  * 左レール(ToolRail、ツールレジストリ駆動)＋右詳細(Main pane内、Inspectorは使わない)。
  * 右詳細はレジストリの surface で出し分ける:
- *   - connector: 双方向同期(gtasks/multica) → ConnectorSyncPane
+ *   - connector: 双方向同期(gtasks/multica)・受信専用(generic_inbound) → 下記参照
  *   - sink:      通知連携(webhook/notion/google_sheets) → SinkProviderPanel(provider絞り込み)
  *   - export/catalog: その場書き出し・未実装(planned) → ToolConnectOverview
  *
  * connector のうち gtasks/multica は専用ワーカー担当なので従来の ConnectorSyncPane、
  * アダプタ実装済み(implementedTaskSyncProviders())のツール
- * (Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)は TaskSyncConnectPanel を出す
- * (同じ「双方向同期」でも接続の作り方が別物のため。前者はOAuth/相互鍵、後者はAPIキー
- * を表現するには registry を触らず呼び出し側で分岐するのが最小差分)。
+ * (Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)は TaskSyncConnectPanel、
+ * generic_inbound(公開APIが無いツール向けのWebhook受信口)は GenericInboundPanel を出す
+ * (同じ「双方向同期(connector)」surfaceでも接続の作り方が別物のため。registry を触らず
+ * 呼び出し側で分岐するのが最小差分)。
  *
  * モーダル禁止・保存ボタンなし(optimistic updates)。タブバー(SecretaryTabNav)は親の
  * secretary/layout.tsx が一元描画するため、ここでは自前で描画しない(二重nav禁止)。
@@ -67,8 +69,13 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
           </div>
         )}
 
-        {def.surface === 'connector' && !isImplementedTaskSync && <ConnectorSyncPane orgId={orgId} />}
-        {def.surface === 'connector' && isImplementedTaskSync && (
+        {def.surface === 'connector' && selectedId === 'generic_inbound' && (
+          <GenericInboundPanel orgId={orgId} />
+        )}
+        {def.surface === 'connector' && selectedId !== 'generic_inbound' && !isImplementedTaskSync && (
+          <ConnectorSyncPane orgId={orgId} />
+        )}
+        {def.surface === 'connector' && selectedId !== 'generic_inbound' && isImplementedTaskSync && (
           <TaskSyncConnectPanel orgId={orgId} integrationId={selectedId} />
         )}
 
