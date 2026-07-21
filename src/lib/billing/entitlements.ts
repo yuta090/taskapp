@@ -17,6 +17,7 @@ export type Feature =
   | 'line_direct_dm' // 担当者への1:1個別DM配信（共有botは構造的に不可）
   | 'instant_line_notify' // 即時通知（Freeは日次digest統合のみ）
   | 'external_chat_channels' // LINE以外の他チャット連携（Discord等の共有Bot受信の新規紐付け）＝Proの売り。channel非依存
+  | 'pooled_ai_key' // 当社提供のプールAI鍵を使える（BYO鍵の崖を撤去）。Pro専有。原価は当社持ち→org別月次上限で執行
 
 const PLAN_IDS: ReadonlySet<string> = new Set<PlanId>(['free', 'pro', 'enterprise'])
 
@@ -33,6 +34,7 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
     'line_direct_dm',
     'instant_line_notify',
     'external_chat_channels',
+    'pooled_ai_key',
   ]),
   enterprise: new Set([
     'line_pickup_dual_mode',
@@ -41,6 +43,7 @@ export const PLAN_FEATURES: Record<PlanId, ReadonlySet<Feature>> = {
     'line_direct_dm',
     'instant_line_notify',
     'external_chat_channels',
+    'pooled_ai_key',
   ]),
 }
 
