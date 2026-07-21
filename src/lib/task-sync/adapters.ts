@@ -34,7 +34,9 @@ export function getTaskSyncAdapter(provider: string): TaskSyncAdapter | null {
   return TASK_SYNC_ADAPTERS[provider as TaskSyncProviderId] ?? null
 }
 
-/** アダプタが実装済み＝実際に接続できる provider の一覧（接続作成時の検証に使う）。 */
-export function implementedTaskSyncProviders(): TaskSyncProviderId[] {
-  return Object.keys(TASK_SYNC_ADAPTERS) as TaskSyncProviderId[]
-}
+// 実装済み provider の ID 一覧は client 安全な implemented.ts に置く（adapters.ts を client が
+// import すると redmine → ssrf.ts の node:dns/promises が client バンドルに混入して Turbopack
+// build が落ちるため）。ここでは server 側の既存 import 元を保つため re-export だけする。
+// TASK_SYNC_ADAPTERS のキーと IMPLEMENTED_TASK_SYNC_PROVIDERS の parity は
+// implemented.test.ts が保証する。
+export { implementedTaskSyncProviders } from '@/lib/task-sync/implemented'
