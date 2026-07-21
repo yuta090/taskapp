@@ -27,6 +27,15 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
+import { resolveOrgEntitlements, type Feature } from '@/lib/billing/entitlements'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  findDueDigestCandidatesForSpace,
+  findConnectionFreshnessBatch,
+} from '@/lib/reminders/dueReminderStore'
+import { classifyDueForDigest, isConnectionFresh } from '@/lib/reminders/dueReminderStaleness'
+import { buildDueDigestSectionText } from '@/lib/reminders/dueReminderMessages'
 
 /**
  * POST /api/cron/channel-digest
@@ -60,6 +69,32 @@ export async function POST(request: NextRequest) {
   // JST日付。同日中にcronが再実行されてもretryKeyが同じになりLINE側で二重配信を弾ける
   const jstNowDate = jstNow()
   const jstDateStr = formatDateToLocalString(jstNowDate)
+  // 期限セクション(§9)の対象window。上限=明日まで・下限=7日前まで（code review #4是正・
+  // 古い超過タスクが下限無しで毎日全件並び続けdigestが埋もれるのを防ぐ）。jstNowDateはローカル
+  // getterがJST値を返すDate（jstNow()の契約）なので、setDateして読み戻せばJSTの日付になる
+  // （due.tsのaddDaysと同じ作法）。
+  const dueDigestThroughDate = new Date(jstNowDate)
+  dueDigestThroughDate.setDate(dueDigestThroughDate.getDate() + 1)
+  const dueDigestThroughDateJst = formatDateToLocalString(dueDigestThroughDate)
+  const dueDigestFromDate = new Date(jstNowDate)
+  dueDigestFromDate.setDate(dueDigestFromDate.getDate() - 7)
+  const dueDigestFromDateJst = formatDateToLocalString(dueDigestFromDate)
+  // 鮮度判定(isConnectionFresh)は絶対時刻比較が必要なため、jstNowDate(絶対時刻ではない・
+  // jstNow()の契約上の注意)ではなく素の now を使う。
+  const realNow = new Date()
+
+  const admin = createAdminClient() as SupabaseClient
+  // org単位でエンタイトルメントを1回だけ解決してキャッシュ（期限セクション: timed_line_reminders
+  // 非保持orgのみに出す・Proはpushと二重になるため出さない・§9）。
+  const entitlementCache = new Map<string, Promise<{ has: (f: Feature) => boolean }>>()
+  function getEntitlementsCached(orgId: string) {
+    let cached = entitlementCache.get(orgId)
+    if (!cached) {
+      cached = resolveOrgEntitlements(admin, orgId, realNow)
+      entitlementCache.set(orgId, cached)
+    }
+    return cached
+  }
 
   let extractedTasks = 0
   let digestsSent = 0
@@ -203,7 +238,49 @@ export async function POST(request: NextRequest) {
 
         // 配信: 新規抽出の有無によらず、既存のopenタスクも含めて毎朝再採番してから送る
         const numbered = await clearAndRenumberOpenDigestTasks(group.id)
-        if (numbered.length === 0) return
+
+        // 期限セクション（設計正本 §9・PR-1・code review #1是正）: timed_line_reminders を
+        // 持たない org のみに追記する（Pro は due-reminder-sender の push と二重になるため
+        // 出さない）。occurrence非依存で digest配信時点の due window を直接クエリする。
+        // ⚠ この判定は「申し送りタスク0件」の早期returnより前に置く — 早期returnの後ろだと
+        // 「申し送りは無いが期限は迫っている」Free org（＝タスクツール未使用者への安全網の
+        // 主対象）にリマインドが一切届かなくなり、この機能の狙いそのものが無効化される。
+        let dueSectionText = ''
+        try {
+          const entitlements = await getEntitlementsCached(group.orgId)
+          if (!entitlements.has('timed_line_reminders') && group.spaceId) {
+            const dueCandidates = await findDueDigestCandidatesForSpace(
+              group.spaceId,
+              dueDigestFromDateJst,
+              dueDigestThroughDateJst,
+            )
+            if (dueCandidates.length > 0) {
+              const connectionIds = dueCandidates
+                .map((c) => c.dueAuthorityConnectionId)
+                .filter((id): id is string => id !== null)
+              const freshnessMap = await findConnectionFreshnessBatch(connectionIds)
+              const dueItems = dueCandidates
+                .filter((c) => {
+                  // §6 鮮度抑止: external権威タスクは接続がactive×SLA内のときだけ載せる
+                  if (!c.dueAuthorityConnectionId) return true
+                  return isConnectionFresh(freshnessMap.get(c.dueAuthorityConnectionId) ?? null, realNow)
+                })
+                .map((c) => ({ kind: classifyDueForDigest(c.dueDate, jstDateStr), ball: c.ball, title: c.title }))
+                .filter(
+                  (item): item is { kind: NonNullable<typeof item.kind>; ball: typeof item.ball; title: string } =>
+                    item.kind !== null,
+                )
+              dueSectionText = buildDueDigestSectionText(dueItems)
+            }
+          }
+        } catch (error) {
+          // 期限セクションの取得に失敗しても既存のdigest配信自体は止めない
+          const reason = error instanceof Error ? error.message : String(error)
+          skipped.push({ groupId: group.id, reason: `due_section_failed: ${reason}` })
+        }
+
+        // 申し送りタスクも期限セクションも無ければ何もしない（従来どおり）
+        if (numbered.length === 0 && !dueSectionText) return
 
         const account = await findLineAccountById(group.accountId)
         if (!account) {
@@ -211,8 +288,9 @@ export async function POST(request: NextRequest) {
           return
         }
 
-        // 送信境界の縮退判定（設計正本 §3/§7-10）。digestはauto-push。
-        // gate対象外（webhook対話的push・console手動送信）はここを通らない。
+        // 送信境界の縮退判定（設計正本 §3/§7-10）。digestはauto-push。due-onlyのpush
+        // （申し送り0件・期限セクションのみ）もこのgateを必ず通す（予算境界の外に漏らさない・
+        // code review #1是正）。gate対象外（webhook対話的push・console手動送信）はここを通らない。
         // org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定（fable確定設計）。
         // 専用bot(owner_type='org')は顧客側の枠であり当社の持ち出しではないため常に'ok'扱い。
         const policy = await getOrgChannelPolicyState(group.orgId)
@@ -230,33 +308,44 @@ export async function POST(request: NextRequest) {
           return
         }
 
-        // 期限順（近い順→期限なし）に採番済み。超過は ⚠️ で示す（Stage 2.6 §5）
-        const pushText = buildDigestPushText(
-          numbered.map((task) => ({
-            digestNumber: task.digestNumber,
-            title: task.title,
-            dueDate: task.dueDate,
-            dueTime: task.dueTime,
-            assigneeHint: task.assigneeHint,
-          })),
-          jstDateStr,
-        )
-        const flex = buildDigestFlexMessage(
-          numbered.map((task) => ({
-            digestNumber: task.digestNumber,
-            title: task.title,
-            taskId: task.id,
-          })),
-        )
+        // 期限順（近い順→期限なし）に採番済み。超過は ⚠️ で示す（Stage 2.6 §5）。
+        // 申し送りタスクが0件（due-onlyのpush）なら申し送り本文は作らず期限セクションのみにする。
+        const digestText =
+          numbered.length > 0
+            ? buildDigestPushText(
+                numbered.map((task) => ({
+                  digestNumber: task.digestNumber,
+                  title: task.title,
+                  dueDate: task.dueDate,
+                  dueTime: task.dueTime,
+                  assigneeHint: task.assigneeHint,
+                })),
+                jstDateStr,
+              )
+            : ''
+        const pushText = [digestText, dueSectionText].filter((part) => part.length > 0).join('\n\n')
+        // flex（消し込みボタン）は申し送りタスクが無ければ添付しない（due-onlyのpushはtextのみ）
+        const flex =
+          numbered.length > 0
+            ? buildDigestFlexMessage(
+                numbered.map((task) => ({
+                  digestNumber: task.digestNumber,
+                  title: task.title,
+                  taskId: task.id,
+                })),
+              )
+            : null
 
         // outbound記録のexternalMessageIdと同一キーにする（Fix4: 決定的キーでdedupe。
         // 二重起動(pg_net再送・手動再実行)でもchannel_messages_dedupe unique indexにより
         // 二重計上しない＝誤ってsoft/hardへ遷移して正当な配信を抑止する事故を防ぐ）。
+        // due-onlyのpushもgroup×日で決定的な同じretryKeyを使う＝1グループ1日1通の枠を共有し、
+        // 二重送信はLINE側dedupeが弾く（既存digestとdue-onlyが同時に生じるケースは無い設計）。
         const retryKey = buildDigestRetryKey(group.id, jstDateStr)
         await pushLineMessage({
           accessToken: account.accessToken,
           to: group.externalGroupId,
-          messages: [{ type: 'text', text: pushText }, flex],
+          messages: flex ? [{ type: 'text', text: pushText }, flex] : [{ type: 'text', text: pushText }],
           retryKey,
         })
         digestsSent += 1
