@@ -65,7 +65,30 @@ export function ConnectorSyncPane({ orgId }: ConnectorSyncPaneProps) {
   const multicaConnection = connections.find((c) => c.provider === 'multica') ?? null
   const gtasksConnections = connections.filter((c) => c.provider === 'google_tasks')
 
-  if (isLoading) return null
+  // 既定選択(google_tasks)がconnector surfaceのため、org切替直後は必ずここが最初に
+  // 描画される。return null(空白)だと初回だけ詳細ペインが真っ白に見えるため、
+  // 軽量スケルトンで領域を確保する(モーダル禁止・保存ボタンなしは維持)。
+  if (isLoading) {
+    return (
+      <section
+        data-testid="connector-sync-pane-skeleton"
+        className="border-b border-gray-200 px-4 py-3 flex-shrink-0"
+      >
+        <div className="h-3 w-20 bg-gray-100 rounded animate-pulse mb-2" />
+        <div className="h-2.5 w-64 bg-gray-100 rounded animate-pulse mb-3" />
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1 min-w-0 rounded-lg border border-gray-200 p-3 space-y-2">
+            <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+            <div className="h-8 w-full bg-gray-100 rounded animate-pulse" />
+          </div>
+          <div className="flex-1 min-w-0 rounded-lg border border-gray-200 p-3 space-y-2">
+            <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+            <div className="h-8 w-full bg-gray-100 rounded animate-pulse" />
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="border-b border-gray-200 px-4 py-3 flex-shrink-0">

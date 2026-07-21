@@ -150,6 +150,64 @@ describe('CreateSinkForm', () => {
     expect(onCancel).toHaveBeenCalled()
   })
 
+  describe('lockedProvider（ToolRail経由でproviderが確定している場合）', () => {
+    it('lockedProvider未指定なら従来通りラジオが表示される(後方互換)', () => {
+      render(<CreateSinkForm orgId="org-1" onCreated={vi.fn()} onCancel={vi.fn()} />)
+      expect(screen.getByRole('radiogroup', { name: '連携先の種類' })).toBeInTheDocument()
+    })
+
+    it('lockedProvider指定時はラジオを表示しない', () => {
+      render(<CreateSinkForm orgId="org-1" onCreated={vi.fn()} onCancel={vi.fn()} lockedProvider="notion" />)
+      expect(screen.queryByRole('radiogroup', { name: '連携先の種類' })).not.toBeInTheDocument()
+    })
+
+    it('lockedProvider="notion"指定時はNotion用フィールドが最初から表示される', () => {
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+          lockedProvider="notion"
+          notionConnection={{ connected: true, workspaceName: 'Acme Workspace' }}
+        />,
+      )
+      expect(screen.getByLabelText('データベースID')).toBeInTheDocument()
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+    })
+
+    it('lockedProvider="webhook"指定時に送信するとuseCreateSinkが呼ばれる', async () => {
+      mutateAsyncMock.mockResolvedValue({ sink: SINK, secret: 'whsec_new1' })
+      const onCreated = vi.fn()
+      render(
+        <CreateSinkForm orgId="org-1" onCreated={onCreated} onCancel={vi.fn()} lockedProvider="webhook" />,
+      )
+      fireEvent.change(screen.getByLabelText('表示名'), { target: { value: '自社Webhook' } })
+      fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'https://example.com/hook' } })
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '作成' }))
+      })
+
+      expect(mutateAsyncMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1' }))
+      await waitFor(() => expect(onCreated).toHaveBeenCalledWith(SINK, 'whsec_new1'))
+    })
+
+    it('lockedProvider="google_sheets"指定時はGoogle Sheets用フィールドが最初から表示される', () => {
+      render(
+        <CreateSinkForm
+          orgId="org-1"
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+          lockedProvider="google_sheets"
+          googleSheetsConnection={{ connected: true }}
+        />,
+      )
+      expect(screen.getByLabelText('スプレッドシートID')).toBeInTheDocument()
+      expect(screen.getByLabelText('シート名')).toBeInTheDocument()
+      expect(screen.queryByLabelText('URL')).not.toBeInTheDocument()
+    })
+  })
+
   describe('provider=notion', () => {
     it('Notionを選択するとURL欄が消えデータベースID欄が表示される', () => {
       render(

@@ -1,93 +1,82 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Plugs } from '@phosphor-icons/react'
-import { EmptyState } from '@/components/shared'
-import { SinkListPane } from '@/components/secretary/integrations/SinkListPane'
-import { SinkDetailPanel } from '@/components/secretary/integrations/SinkDetailPanel'
-import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
+import { useState } from 'react'
+import { ToolRail } from '@/components/secretary/integrations/ToolRail'
 import { ConnectorSyncPane } from '@/components/secretary/integrations/ConnectorSyncPane'
+import { SinkProviderPanel } from '@/components/secretary/integrations/SinkProviderPanel'
+import { ToolConnectOverview } from '@/components/secretary/integrations/ToolConnectOverview'
+import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { useSinks, type SinkMeta } from '@/lib/hooks/useSinks'
+import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
 
 interface IntegrationsConsoleClientProps {
   orgId: string
 }
 
 /**
- * 連携タブ — /{orgId}/secretary/integrations
- * Main ペイン内2カラム(左: sink一覧 / 右: 選択中sinkの設定＋配達ログ)。Inspectorは使わない。
- * モーダル禁止・保存ボタンなし(optimistic updates)。docs/spec/AI_SECRETARY_STAGE3_INTEGRATIONS.md §4。
- * タブバー(SecretaryTabNav)は親の secretary/layout.tsx が一元描画するため、
- * ここでは自前で描画しない(二重nav禁止)。
+ * ツール連携タブ — /{orgId}/secretary/integrations
+ *
+ * 左レール(ToolRail、ツールレジストリ駆動)＋右詳細(Main pane内、Inspectorは使わない)。
+ * 右詳細はレジストリの surface で出し分ける:
+ *   - connector: 双方向同期(gtasks/multica) → ConnectorSyncPane
+ *   - sink:      通知連携(webhook/notion/google_sheets) → SinkProviderPanel(provider絞り込み)
+ *   - export/catalog: その場書き出し・未実装(planned) → ToolConnectOverview
+ *
+ * モーダル禁止・保存ボタンなし(optimistic updates)。タブバー(SecretaryTabNav)は親の
+ * secretary/layout.tsx が一元描画するため、ここでは自前で描画しない(二重nav禁止)。
  */
 export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientProps) {
-  const { sinks, viewerRole, notionConnection, googleSheetsConnection, isLoading } = useSinks(orgId)
-  const [selectedSinkId, setSelectedSinkId] = useState<string | null>(null)
+  const { sinks, viewerRole, notionConnection, googleSheetsConnection } = useSinks(orgId)
+  const [selectedId, setSelectedId] = useState<IntegrationId>('google_tasks')
   const [justCreatedSecret, setJustCreatedSecret] = useState<string | null>(null)
 
-  // 未選択時は先頭のsinkを既定にする(SecretaryConsoleClientのeffectiveSpaceIdと同じ考え方)
-  const effectiveSinkId = selectedSinkId ?? sinks[0]?.id ?? null
-  const selectedSink = useMemo(
-    () => sinks.find((s) => s.id === effectiveSinkId) ?? null,
-    [sinks, effectiveSinkId],
-  )
+  const def = getIntegration(selectedId)
+  if (!def) return null
 
-  const handleCreated = (sink: SinkMeta, secret?: string) => {
-    setSelectedSinkId(sink.id)
-    // notionはsecretを持たないため、secretがある場合(webhook)だけ一度きり表示バナーを出す
-    if (secret) setJustCreatedSecret(secret)
-  }
-
-  // 別sinkの選択(一覧操作)でsecretバナーを消す。作成直後のsink以外を見ている間まで
-  // secretが画面に残り続けるのを防ぐ(一度きり表示の意図に合わせる)。
-  const handleSelect = (sinkId: string) => {
-    setSelectedSinkId(sinkId)
+  const handleSelect = (id: IntegrationId) => {
+    setSelectedId(id)
+    // 別ツールの選択(一覧操作)でsecretバナーを消す。選択中のツール以外を見ている間まで
+    // secretが画面に残り続けるのを防ぐ(一度きり表示の意図に合わせる)。
     setJustCreatedSecret(null)
   }
 
+  const handleCreated = (_sink: SinkMeta, secret?: string) => {
+    if (secret) setJustCreatedSecret(secret)
+  }
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      {/*
-        双方向同期(multica/gtasks)の接続管理は左カラム(SinkListPane)に収めるには窮屈なため、
-        通知連携(sink)の2カラムUIの上に独立セクションとして描画する(docs/spec/MULTICA_CONNECTOR_CONTRACT.md)。
-      */}
-      <ConnectorSyncPane orgId={orgId} />
+    <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+      <ToolRail selectedId={selectedId} onSelect={handleSelect} />
 
-      {justCreatedSecret && (
-        <div className="px-4 pt-3 flex-shrink-0">
-          <SecretReveal secret={justCreatedSecret} onDismiss={() => setJustCreatedSecret(null)} />
-        </div>
-      )}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {justCreatedSecret && (
+          <div className="px-4 pt-3 flex-shrink-0">
+            <SecretReveal secret={justCreatedSecret} onDismiss={() => setJustCreatedSecret(null)} />
+          </div>
+        )}
 
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row">
-        <aside className="w-full md:w-[320px] flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col max-h-64 md:max-h-none overflow-hidden">
-          <SinkListPane
+        {def.surface === 'connector' && <ConnectorSyncPane orgId={orgId} />}
+
+        {def.surface === 'sink' && (
+          <SinkProviderPanel
+            // sinkプロバイダ(webhook/notion/google_sheets)を切替えるたびに完全再マウントさせる。
+            // keyが無いと同一インスタンスが再利用され、内部state(isCreating・selectedSinkId)や
+            // 子のCreateSinkFormのuseState初期値(lockedProvider由来)が前providerのまま残ってしまう
+            // (例: webhook作成フォーム入力中にnotionへ切替えてもURL欄が残存し、送信するとwebhook
+            // sinkが作られる回帰バグがあった)。
+            key={def.sinkProvider}
             orgId={orgId}
+            provider={def.sinkProvider!}
             sinks={sinks}
-            selectedSinkId={effectiveSinkId}
-            onSelect={handleSelect}
             viewerRole={viewerRole}
+            notionConnection={notionConnection}
+            googleSheetsConnection={googleSheetsConnection}
             onCreated={handleCreated}
-            notionConnection={notionConnection}
-            googleSheetsConnection={googleSheetsConnection}
           />
-        </aside>
+        )}
 
-        {selectedSink ? (
-          <SinkDetailPanel
-            key={selectedSink.id}
-            orgId={orgId}
-            sink={selectedSink}
-            viewerRole={viewerRole}
-            notionConnection={notionConnection}
-            googleSheetsConnection={googleSheetsConnection}
-          />
-        ) : (
-          !isLoading && (
-            <div className="flex-1 flex items-center justify-center">
-              <EmptyState icon={<Plugs />} message="左の一覧から連携先を選択するか、新規作成してください" />
-            </div>
-          )
+        {(def.surface === 'export' || def.surface === 'catalog') && (
+          <ToolConnectOverview def={def} />
         )}
       </div>
     </div>
