@@ -2,18 +2,27 @@
 
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { IntegrationId } from '@/lib/integrations/registry'
 
 /**
- * 双方向同期コネクタ(multica / google_tasks)の接続一覧・作成・鍵ローテ・import_config更新フック。
+ * 双方向同期コネクタ(multica / google_tasks / backlog等のタスク同期アダプタ実装済みツール)の
+ * 接続一覧・作成・鍵ローテ・import_config更新フック。
  * docs/spec/MULTICA_CONNECTOR_CONTRACT.md（対外契約）/ useSinks.ts と同型。
  *
- * GET /api/integrations/connections はsecretを一切返さない。作成(POST multica)・
- * ローテ(POST multica/[id]/rotate)は平文secretを一度だけ返す(呼び出し側が一度だけ表示・破棄)。
- * import_configの更新は保存ボタンを持たず、呼び出し側のフォーム操作(選択・blur)から
- * 即時にmutateするoptimistic update(useUpdateSinkと同型: 楽観反映→レスポンスで確定→失敗はロールバック)。
+ * GET /api/integrations/connections は connectorProviders()（アダプタ登録表から導出、
+ * src/app/api/integrations/connections/route.ts）が返す provider の接続を返し、secretは
+ * 一切含めない。作成(POST multica / POST task-sync)・ローテ(POST multica/[id]/rotate)は
+ * 平文secret/apiKeyを一度だけ受け渡す(呼び出し側が一度だけ表示・破棄)。import_configの更新は
+ * 保存ボタンを持たず、呼び出し側のフォーム操作(選択・blur)から即時にmutateするoptimistic update
+ * (useUpdateSinkと同型: 楽観反映→レスポンスで確定→失敗はロールバック)。
  */
 
-export type ConnectorProvider = 'multica' | 'google_tasks'
+/**
+ * DBの provider 列自体は形式チェックのみ(src/lib/task-sync/adapters.ts のコメント参照)だが、
+ * 値の妥当性の真実源はTS側の登録表(registry.ts の IntegrationId)にあるため、こちらもそれに
+ * 揃える(素の string にすると「registryに無い値も受け付ける」ように見えてしまうため)。
+ */
+export type ConnectorProvider = IntegrationId
 export type ConnectorViewerRole = 'owner' | 'admin' | 'member'
 
 /** import_config の形状(契約: MULTICA_CONNECTOR_CONTRACT.md §「import 先の space/assignee 決定則」) */
@@ -139,6 +148,50 @@ export function useRotateMulticaSecret() {
       const json = await response.json()
       if (!response.ok) throw new Error(json.error ?? '鍵のローテーションに失敗しました')
       return json as RotateMulticaSecretResult
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+    },
+  })
+}
+
+export interface CreateTaskSyncConnectionInput {
+  orgId: string
+  provider: IntegrationId
+  apiKey: string
+  /** hostPolicy.kind==='fixed'のツールはURL不要('固定ホスト'なのでbase_urlを送らない)。 */
+  baseUrl?: string
+}
+
+export interface CreateTaskSyncConnectionResult {
+  connectionId: string
+  provider: IntegrationId
+}
+
+/**
+ * APIキー方式タスク同期接続の作成（POST /api/integrations/connections/task-sync）。owner/adminのみ
+ * (APIが担保)。成功で一覧(connectorsQueryKey)を無効化する。gtasks/multicaと同じ接続一覧を共有する
+ * ため、既存のqueryKeyへ相乗りさせている(専用のqueryKeyを持つとGET側のフィルタも専用にする必要が
+ * 生まれ、二重管理になる)。
+ */
+export function useCreateTaskSyncConnection() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: CreateTaskSyncConnectionInput): Promise<CreateTaskSyncConnectionResult> => {
+      const response = await fetch('/api/integrations/connections/task-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          provider: input.provider,
+          api_key: input.apiKey,
+          base_url: input.baseUrl,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? '接続に失敗しました')
+      return { connectionId: json.connection_id, provider: json.provider }
     },
     onSuccess: (_result, input) => {
       void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })

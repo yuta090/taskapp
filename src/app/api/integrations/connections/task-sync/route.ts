@@ -34,6 +34,31 @@ interface CreateBody {
   provider?: unknown
   api_key?: unknown
   base_url?: unknown
+  /**
+   * ツール固有の追加設定（例: Jira の Basic 認証に要るメールアドレス `jira_email`）。
+   * 秘密ではない可視の値だけを受ける（秘密は api_key の1本に集約する）。
+   */
+  provider_config?: unknown
+}
+
+/**
+ * provider 固有設定のうち、**そのツールの接頭辞が付いたキーだけ**を採る。
+ *
+ * import_config は全ツール共通の袋であり、他ツールの設定が混ざると
+ * 「なぜかBacklogの設定でJiraの挙動が変わる」類の追跡困難な事故になる。値は文字列/数値/真偽/
+ * 文字列配列のみ許可する（任意のオブジェクトを通すと、後段のDB検証トリガーが見ていない構造が
+ * 紛れ込む）。
+ */
+function sanitizeProviderConfig(raw: unknown, provider: string): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key.startsWith(`${provider}_`)) continue
+    const isScalar = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    const isStringArray = Array.isArray(value) && value.every((v) => typeof v === 'string' || typeof v === 'number')
+    if (isScalar || isStringArray) out[key] = value
+  }
+  return out
 }
 
 export async function POST(request: NextRequest) {
@@ -93,9 +118,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 保存前に鍵を検証する（間違った鍵を保存させない）。
+  const providerConfig = sanitizeProviderConfig(body.provider_config, provider)
+
+  // 保存前に鍵を検証する（間違った鍵を保存させない）。provider固有設定も一緒に渡す
+  // （Jira の Basic 認証はメールアドレスが揃って初めて成立するため、設定込みで検証しないと
+  // 「保存はできたが一度も同期できない」接続ができてしまう）。
   try {
-    await adapter.listContainers({ credentials: { kind: 'api_key', token: apiKey, baseUrl } })
+    await adapter.listContainers({
+      credentials: { kind: 'api_key', token: apiKey, baseUrl },
+      config: providerConfig,
+    })
   } catch (err) {
     const status = (err as { status?: number }).status
     if (status === 401 || status === 403) {
@@ -132,6 +164,9 @@ export async function POST(request: NextRequest) {
       // 取り込みは既定で無効。取り込み先スペースを選ぶまで動かさない（設定前に大量のタスクが
       // 予期しないスペースへ流れ込むのを防ぐ）。
       import_enabled: false,
+      // ツール固有設定は import_config に同居させる（取り込み先スペース等と同じ袋）。
+      // 接頭辞で名前空間を分けているので他ツールの設定と衝突しない。
+      import_config: providerConfig,
     })
     .select('id')
     .single()

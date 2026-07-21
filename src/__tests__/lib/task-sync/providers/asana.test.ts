@@ -135,6 +135,49 @@ describe('asanaAdapter.listContainers', () => {
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer pat-secret')
   })
 
+  it('next_page.offset を追って全ページ分のプロジェクトを取得する', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ gid: '111', name: 'アルファ案件', archived: false }],
+          next_page: { offset: 'page-2' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ gid: '222', name: 'ベータ案件', archived: false }],
+          next_page: null,
+        }),
+      )
+    const containers = await asanaAdapter.listContainers(ctx({ asana_workspace_gid: '999' }))
+    expect(containers).toEqual([
+      { id: '111', title: 'アルファ案件' },
+      { id: '222', title: 'ベータ案件' },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // 2回目のリクエストは1回目のnext_page.offsetをoffsetクエリに渡す。
+    const secondUrl = new URL((fetchMock.mock.calls[1] as [string, RequestInit])[0])
+    expect(secondUrl.searchParams.get('offset')).toBe('page-2')
+    // next_pageを得るにはlimitが必須(Asanaの仕様: limit未指定だとnext_pageが返らない)。
+    const firstUrl = new URL((fetchMock.mock.calls[0] as [string, RequestInit])[0])
+    expect(firstUrl.searchParams.get('limit')).toBeTruthy()
+  })
+
+  it('offsetが前進しない異常応答は打ち切る（無限ループ防止）', async () => {
+    // 常に同じoffsetを返し続ける壊れたページング応答を模擬する。
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: [{ gid: '111', name: 'アルファ案件', archived: false }],
+        next_page: { offset: 'stuck-offset' },
+      }),
+    )
+    await asanaAdapter.listContainers(ctx({ asana_workspace_gid: '999' }))
+    // 1ページ目(offset無し)は next_page.offset='stuck-offset' で前進するため2ページ目を取得する。
+    // 2ページ目も同じ 'stuck-offset' を返す(=直前に使ったoffsetと同一=前進していない)ため、
+    // そこで打ち切る。無限ループにならず高々2回で止まることだけを固定する。
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('asana_workspace_gid が未設定の接続は配線ミス(permanent)として弾く', async () => {
     await expect(asanaAdapter.listContainers(ctx())).rejects.toMatchObject({
       permanent: true,

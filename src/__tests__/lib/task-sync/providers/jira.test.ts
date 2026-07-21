@@ -261,13 +261,38 @@ describe('jiraAdapter.listChangedTasks', () => {
     expect(url.searchParams.get('jql')).toBe('project = 10001 ORDER BY updated ASC')
   })
 
-  it('since(ISO8601) をJQLの日時リテラル(yyyy-MM-dd HH:mm)へタイムゾーン変換なしで渡す', async () => {
+  /**
+   * 回帰テスト: since を絶対日時リテラル('yyyy-MM-dd HH:mm')で渡すと、Jiraはそれを**サイト/
+   * ユーザーのタイムゾーンの壁時計時刻**として解釈する（絶対日時リテラルはタイムゾーン表記を
+   * 受け付けない。実インスタンスで '+0000' サフィックスを付けると
+   * "Date value ... is invalid" で拒否されることを確認済み）。保存カーソルはUTCのため、
+   * サイトがUTCより西（例: US/Pacific, UTC-8）だと実効下限が「後ろ」へ数時間ずれ、その間の
+   * 更新分をカーソル前進後は二度と拾えなくなる（恒久的な取りこぼし）。
+   *
+   * 修正: 絶対時刻の代わりに JQL の**相対期間リテラル**('-NNm'。クエリ実行時の now からの
+   * 経過時間で評価され、タイムゾーンを一切経由しない)を使う。実インスタンスで
+   * '-10080m'（7日相当の分指定）と '-7d' が完全に同じ件数を返すことを検証済み＝
+   * 壁時計変換を通っていない証拠。これによりタイムゾーン解釈の余地自体を無くす。
+   */
+  it('sinceは絶対日時ではなくJQLの相対期間(-Nm)で渡す(タイムゾーンを経由しないため西半球でも取りこぼさない)', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-20T12:00:00.000Z'))
     fetchMock.mockResolvedValueOnce(jsonResponse({ issues: [], isLast: true }))
-    await jiraAdapter.listChangedTasks(ctx(), '10001', { since: '2026-07-19T10:00:00.000Z' })
+    await jiraAdapter.listChangedTasks(ctx(), '10001', { since: '2026-07-20T10:00:00.000Z' })
     const url = lastUrl()
-    expect(url.searchParams.get('jql')).toBe(
-      'project = 10001 AND updated >= "2026-07-19 10:00" ORDER BY updated ASC',
-    )
+    // 2時間(120分)経過。壁時計文字列(タイムゾーン依存)ではなく相対期間(タイムゾーン非依存)で渡す。
+    expect(url.searchParams.get('jql')).toBe('project = 10001 AND updated >= "-120m" ORDER BY updated ASC')
+    vi.useRealTimers()
+  })
+
+  it('経過時間の端数(秒未満)は切り上げる(実際の経過分数より短く見積もって取りこぼす方向には倒れない)', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-20T10:01:30.000Z')) // sinceから1分30秒経過
+    fetchMock.mockResolvedValueOnce(jsonResponse({ issues: [], isLast: true }))
+    await jiraAdapter.listChangedTasks(ctx(), '10001', { since: '2026-07-20T10:00:00.000Z' })
+    // 切り捨てて "-1m" にすると直近30秒の更新を取りこぼす。切り上げて "-2m" にする。
+    expect(lastUrl().searchParams.get('jql')).toBe('project = 10001 AND updated >= "-2m" ORDER BY updated ASC')
+    vi.useRealTimers()
   })
 
   it('cursor(nextPageToken)を渡し、レスポンスの nextPageToken をそのまま次カーソルにする', async () => {

@@ -21,6 +21,13 @@ import {
  *     ⚠未確認: `/rest/api/2/search/jql` は実インスタンス(jira.atlassian.com)で404だったが
  *     `/rest/api/3/search/jql` はパーミッションリダイレクト(302, 404ではない=ルート自体は存在)
  *     だったため、本アダプタは一貫して `/rest/api/3/` を使う（v2は使わない）。
+ *   - 差分の起点(since)はJQLの**相対期間リテラル**('-NNm')で渡す。絶対日時リテラル
+ *     ('yyyy-MM-dd HH:mm')はタイムゾーン表記を受け付けず、サフィックス無しの文字列は
+ *     Jiraサイト/ユーザーのタイムゾーンの壁時計時刻として解釈される。保存カーソルはUTCのため、
+ *     サイトがUTCより西だと実効下限が数時間「後ろ」へずれ、その間の更新を恒久的に取りこぼす
+ *     （codexレビューで指摘・実インスタンスで再現確認）。相対期間リテラルは「クエリ実行時の
+ *     nowからの経過時間」で評価されタイムゾーンを経由しないため、これで取りこぼしを解消した
+ *     （詳細は `toJqlRelativeMinutes` のコメント参照）。
  *   - 完了判定は `fields.status.statusCategory.key === 'done'`。実運用インスタンス
  *     (https://jira.atlassian.com、匿名アクセス可能な公開Jira)の
  *     `/rest/api/2/statuscategory` を実クエリして確認: undefined(1)/new(2)/indeterminate(4)/
@@ -230,23 +237,39 @@ function toLocalDateString(due: string | null | undefined): string | null {
 }
 
 /**
- * エンジンから渡される `since` はコントラクト上 ISO8601（`cursorGranularity='timestamp'`）。
- * JQLの日時リテラルは 'yyyy-MM-dd HH:mm' 形式（実インスタンスで動作確認済み。秒以下は持たない）
- * のため、'T'→半角スペース・分単位への切り詰めだけを文字列操作で行う（Dateオブジェクトを
- * 経由しない＝toISOString的なタイムゾーン変換は一切発生しない）。
- * ⚠未確認: JQLの日時リテラルにタイムゾーン情報が無い場合、Jiraはサイト/ユーザーのタイムゾーン
- * 設定で解釈する（一般的に知られる挙動だが、この差分カーソル用途での実害を実インスタンスで
- * 検証できていない）。ズレても実害は「取りこぼし」ではなく「若干多めに再取得」側に倒れるよう、
- * 変換は保守的（切り捨て）にしている。
+ * エンジンから渡される `since`(UTCのISO8601、`cursorGranularity='timestamp'`)を、JQLの
+ * **相対期間リテラル**('-NNm'。「クエリ実行時のnowからNN分前」)へ変換する。
+ *
+ * 【なぜ絶対日時リテラルを使わないか】JQLの絶対日時リテラル('yyyy-MM-dd HH:mm')は
+ * **タイムゾーン表記を一切受け付けない**（実インスタンスで確認: '+0000'サフィックスを付けると
+ * "Date value ... is invalid" で拒否される）。かつ、サフィックス無しの文字列は**Jiraサイト/
+ * ユーザーのタイムゾーンの壁時計時刻**として解釈される。保存カーソルはUTCのため、サイトが
+ * UTCより西（例: US/Pacific, UTC-8）だと実効下限が「後ろ」へ数時間ずれ、その間に更新された
+ * 課題を取りこぼす。カーソルは前進する一方なので、この取りこぼしは**恒久的**（二度と拾えない）。
+ *
+ * 一方、JQLの相対期間リテラルは「クエリ実行時のnowからの経過時間」で評価され、タイムゾーンの
+ * 概念を一切経由しない（実インスタンスで検証: '-10080m'（7日相当を分指定）と '-7d' が完全に
+ * 同じ件数を返すことを確認済み＝壁時計変換を通っていない証拠）。絶対時刻の代わりにこちらを
+ * 使うことで、タイムゾーン解釈の余地そのものを無くす。
+ *
+ * 経過分数は切り上げる（切り捨て/四捨五入だと、ネットワーク遅延やクロックずれで実際の経過分数
+ * より短く見積もった場合にその差分だけ取りこぼす方向に倒れるため、常に多め＝安全側に倒す）。
+ *
+ * ⚠ ここで使う `Date.parse`/`Date.now()` は「絶対エポック値どうしの差分（経過時間）」の計算にの
+ *   み使っており、CLAUDE.mdが禁止する「ローカル日付を文字列として切り出す」用途
+ *   （toISOString().slice(0,10)等）ではない。経過時間の算出はタイムゾーンに依存しないため、
+ *   toISOString禁止の趣旨（UTC変換によるローカル日付のずれ）には抵触しない。
  */
-function toJqlDateTime(since: string): string {
-  return since.replace('T', ' ').slice(0, 16)
+function toJqlRelativeMinutes(since: string): string {
+  const elapsedMs = Math.max(0, Date.now() - Date.parse(since))
+  const minutes = Math.max(1, Math.ceil(elapsedMs / 60_000))
+  return `-${minutes}m`
 }
 
 /** プロジェクトを絞り込み、更新日時の昇順で取るJQLを組み立てる。 */
 function buildJql(containerId: string, since?: string): string {
   const clauses = [`project = ${containerId}`]
-  if (since) clauses.push(`updated >= "${toJqlDateTime(since)}"`)
+  if (since) clauses.push(`updated >= "${toJqlRelativeMinutes(since)}"`)
   return `${clauses.join(' AND ')} ORDER BY updated ASC`
 }
 

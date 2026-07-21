@@ -236,6 +236,13 @@ export const trelloAdapter: TaskSyncAdapter = {
    */
   deletionMode: 'unsupported',
 
+  // ページングは実装しない: `/members/me/boards` の公式定義（swagger.v3.json）に
+  // limit/before/since/page相当のパラメータは存在せず、1人のメンバーが持てるボード数は
+  // `/boards/{id}/cards` のカード数と違い現実的に有界（Trelloの利用実態上は数十〜数百件規模）。
+  // ページングパラメータが無い＝分割して取る手段自体が無いため、1回のリクエストで
+  // 「そのメンバーの全ボード」が返る前提で実装する（Asanaのプロジェクト一覧のような
+  // codexレビュー指摘＝2ページ目以降が存在するのに1ページ目しか取らない、という事故はここでは
+  // 起こり得ない）。
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     const boards = (await trelloFetch(
       apiUrl(ctx, '/members/me/boards', { filter: 'open', fields: 'id,name' }),

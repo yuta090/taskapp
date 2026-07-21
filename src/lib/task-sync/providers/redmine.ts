@@ -1,6 +1,4 @@
-import { Agent, fetch as undiciFetch } from 'undici'
-import ipaddr from 'ipaddr.js'
-import { validateWebhookUrl } from '@/lib/sinks/ssrf'
+import { safeFetch } from '@/lib/sinks/ssrf'
 import { assertAllowedHost, requireBaseUrl } from '@/lib/task-sync/hostPolicy'
 import {
   providerError,
@@ -19,7 +17,14 @@ import {
  * Rest_Issues, Rest_IssueStatuses, Rest_Projects）の性質と、ここで吸収している差異:
  *   - 接続先ホストは自ホストの任意URL（テナントごとに可変・顧客が立てた任意ホスト）。
  *     `hostPolicy: { kind: 'any-https' }` で宣言する。許可リストで守れない性質のため、
- *     実際のIP検査・DNSピン留めは下記の `fetchAnyHttps` が必ず経由する（後述）。
+ *     形式検証（https/443/userinfo無し）は `hostPolicy.ts` の `assertAllowedHost` で行い、
+ *     実際のIP検査・DNSピン留めは `src/lib/sinks/ssrf.ts` の `safeFetch` を必ず経由する
+ *     （素の fetch を使わない。イントラ内Redmineに到達できない制約は受容済み）。
+ *     `safeFetch` は既定で応答本文を500byteに打ち切る（webhook配送・multica連携の小さな
+ *     確認レスポンス向けの挙動）ため、一覧取得のような大きめのJSONを読むこのアダプタは
+ *     `maxBodyBytes`（後述 `MAX_BODY_BYTES`）を明示して上限を引き上げる。
+ *     応答ヘッダーは `safeFetch` の `responseHeaders` から受け取る（429/503 の `Retry-After` を
+ *     読むため。ヘッダーを捨てると制限中に叩き続けて制限期間を自分で延ばすことになる）。
  *   - 認証はAPIアクセスキーを `key=` クエリ・Basic認証・ヘッダー `X-Redmine-API-Key` の
  *     いずれでも渡せるが、鍵をURLに残さないヘッダー方式を選ぶ。
  *   - 差分は `updated_on=>=<ISO8601>` で絞れ、**秒単位のタイムスタンプ粒度**（Backlogの
@@ -56,11 +61,15 @@ import {
  *     直接の例示が無い（サンプルのissueにたまたま担当者が付いていない）。ただし
  *     project/tracker/status/priority/author/categoryが全て同じ`{id,name}`形式で
  *     一貫しているため、同じ形式だと推定してnull安全に読む（未確認事項として報告）。
- *   - レート制限: セルフホストのため公式な明文化は無い。標準の `Retry-After`（秒）のみ対応する。
+ *   - レート制限: セルフホストのため公式な明文化は無い。429/503 は標準の `Retry-After`
+ *     （秒 or HTTP-date）があれば `retryAfterMs` に変換する。無ければエンジンの既定バックオフに委ねる。
  *   - 書き込みは `application/json`。
+ *   - `listContainers`（プロジェクト一覧）は offset/limit で**全ページ**を取り切る。1ページ目
+ *     しか取らないと、2ページ目以降のプロジェクトがエンジンに一度も渡らないまま「同期成功」
+ *     としてカーソルが前進し、特定プロジェクトだけ永久に取り込まれない事故になるため。
  */
 
-/** ホストが顧客の任意httpsホストであることの宣言。IP検査・DNSピン留めは fetchAnyHttps が行う。 */
+/** ホストが顧客の任意httpsホストであることの宣言。IP検査・DNSピン留めは safeFetch が行う。 */
 const HOST_POLICY: HostPolicy = { kind: 'any-https' }
 
 /** 1ページの取得件数（Redmine APIの上限）。満杯なら次ページがあるとみなす。 */
@@ -68,6 +77,18 @@ const PAGE_SIZE = 100
 
 /** リクエストのタイムアウト。応答しないホストにワーカーを占有させない。 */
 const REQUEST_TIMEOUT_MS = 20_000
+
+/**
+ * 応答本文の読み取り上限(byte)。safeFetchの既定(500byte)は一覧APIには小さすぎるため引き上げる。
+ * 根拠: limit=100件のissueを1件あたり説明文込みで数KBと見積もっても数百KB〜1MB程度で足りるが、
+ * 長大な説明文・カスタムフィールドを持つインスタンスにも耐えられるよう安全マージンを取り5MBとする。
+ * これを超える単一レスポンスは異常（1ページの取得件数を見直すべき状態）とみなし、
+ * 何度再試行しても直らないため恒久失敗として扱う（下記 redmineFetch 参照）。
+ */
+const MAX_BODY_BYTES = 5 * 1024 * 1024
+
+/** listContainers の全ページ取得における安全弁（無限ループ防止。10万件相当まで許容）。 */
+const MAX_CONTAINER_PAGES = 1000
 
 interface RedmineRef {
   id: number
@@ -109,7 +130,7 @@ function configuredCompletionStatusId(ctx: ProviderContext): number | undefined 
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined
 }
 
-/** ホストポリシーを通した自ホスト配下のURLを組み立てる（形式検証のみ。IP検査はfetchAnyHttpsが行う）。 */
+/** ホストポリシーを通した自ホスト配下のURLを組み立てる（形式検証のみ。IP検査は safeFetch が行う）。 */
 function buildUrl(ctx: ProviderContext, path: string, params?: Record<string, string>): string {
   const base = requireBaseUrl(HOST_POLICY, ctx.credentials.baseUrl, 'redmine')
   const url = new URL(path, base)
@@ -118,125 +139,78 @@ function buildUrl(ctx: ProviderContext, path: string, params?: Record<string, st
   return url.toString()
 }
 
-/** 429/503 の復帰時刻を ms に変換する。標準の `Retry-After`（秒）のみ対応（Redmine独自ヘッダーは不明）。 */
-function retryAfterMsFrom(headers: { get(name: string): string | null } | undefined): number | undefined {
-  if (!headers) return undefined
-  const retryAfter = headers.get('Retry-After')
-  if (retryAfter) {
-    const sec = Number(retryAfter)
-    if (Number.isFinite(sec) && sec > 0) return sec * 1000
+/**
+ * 429/503 の復帰待ち時間(ms)。Redmine はセルフホストで独自ヘッダーの規定が無いため、
+ * 標準の `Retry-After`（秒 or HTTP-date）だけを見る。読めなければ undefined＝エンジンの
+ * 既定バックオフに委ねる。
+ */
+function retryAfterMsFrom(headers: Record<string, string> | undefined): number | undefined {
+  const raw = headers?.['retry-after']
+  if (!raw) return undefined
+  const sec = Number(raw)
+  if (Number.isFinite(sec) && sec > 0) return sec * 1000
+  // HTTP-date 形式（"Wed, 21 Jul 2026 07:28:00 GMT"）。過去日時なら待つ意味が無いので無視する。
+  const at = Date.parse(raw)
+  if (Number.isFinite(at)) {
+    const delta = at - Date.now()
+    if (delta > 0) return delta
   }
   return undefined
 }
 
-/** 例外の種別だけを安全に文字列化する（message に外部情報が混ざり得るため使わない）。 */
-function errName(err: unknown): string {
-  return err instanceof Error ? err.name : 'UnknownError'
-}
-
-/** providerError（{status, permanent, retryAfterMs} 付きの Error）かどうかを判定する。 */
-function isProviderError(err: unknown): boolean {
-  return err instanceof Error && ('status' in err || 'permanent' in err || 'retryAfterMs' in err)
-}
-
-interface AnyHttpsResponse {
-  status: number
-  headers: { get(name: string): string | null }
-  text: string
-}
-
-/**
- * any-https（自ホスト任意URL）用のSSRF安全fetch。
- *
- * ⚠ 設計判断（重要・要レビュー / team-leadへ報告済み）: `src/lib/sinks/ssrf.ts` の `safeFetch` を
- * そのまま呼ぶ形にはしていない。`safeFetch` は応答本文を**500byteに打ち切って**返す設計
- * （webhook配送・multica連携の小さな確認レスポンス向け。`src/lib/connectors/multica/client.ts`
- * の利用箇所を参照）で、Redmineの `/issues.json?limit=100` のような一覧取得（容易に数十KBを
- * 超える）には使えない（正当なJSONが途中で切られてパースに失敗する）。
- * そのためSSRFの実際の判定ロジック（`validateWebhookUrl`＝https限定・ポート443限定・DNS解決・
- * private/内部IP拒否。IPv4-mapped IPv6も透過的に判定）はそのまま再利用しつつ、
- * `safeFetch` 内部と同じDNSピン留め手法（検証で確定したIPへ接続を固定し、検証後にDNSが
- * 差し替えられる rebinding を防ぐ）で応答本文を全て読み切る薄いfetchラッパーをここに用意する。
- * 「どのホスト/IPを許すか」という実際のセキュリティ判定は増やしておらず、引き続き ssrf.ts に
- * 一本化されている。恒久対応としては ssrf.ts 側に「本文を打ち切らない一覧取得向けバリアント」を
- * 用意して共通化するのが望ましく、この設計判断自体をteam-leadへ報告している。
- */
-async function fetchAnyHttps(
-  url: string,
-  init: { method: string; headers: Record<string, string>; body?: string },
-): Promise<AnyHttpsResponse> {
-  const validation = await validateWebhookUrl(url)
-  if (!validation.ok) {
-    // 接続作成後のDNS再指定(rebinding)や保存済み不正値を、実際に叩く直前にもう一度弾く。
-    throw providerError(`redmine: 接続先ホストの検証に失敗しました(${validation.reason})`, {
-      permanent: true,
-      status: 400,
-    })
-  }
-
-  const pinnedIp = validation.resolvedIps[0]
-  const family = ipaddr.process(pinnedIp).kind() === 'ipv6' ? 6 : 4
-  const dispatcher = new Agent({
-    connect: {
-      lookup: (_hostname, lookupOptions, callback) => {
-        if ((lookupOptions as { all?: boolean } | undefined)?.all) {
-          callback(null, [{ address: pinnedIp, family }])
-        } else {
-          callback(null, pinnedIp, family)
-        }
-      },
-    },
-  })
-
-  try {
-    const res = await undiciFetch(url, {
-      ...init,
-      // 正規のRedmineインスタンスがリダイレクトを返すことは想定しない。転送先へ鍵を渡さないため追わない。
-      redirect: 'manual',
-      dispatcher,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-    const text = await res.text()
-    return { status: res.status, headers: res.headers, text }
-  } finally {
-    await dispatcher.close().catch(() => {})
-  }
-}
-
-/**
- * 共通 fetch。失敗時は status（と 429/503 の復帰時刻）を載せた ProviderError を投げる
- * （エンジンが 400/404/422=恒久失敗、それ以外=一時失敗に分類する。Backlogと同じ流儀）。
- * 応答本文・URLはログにも例外メッセージにも出さない（顧客データ・自ホストの内部構成が載り得るため）。
- */
 async function redmineFetch(ctx: ProviderContext, url: string, init?: { method?: string; body?: string }): Promise<unknown> {
   const method = init?.method ?? 'GET'
   const headers: Record<string, string> = { 'X-Redmine-API-Key': ctx.credentials.token }
   if (init?.body) headers['Content-Type'] = 'application/json'
 
-  let res: AnyHttpsResponse
-  try {
-    res = await fetchAnyHttps(url, { method, headers, body: init?.body })
-  } catch (err) {
-    // ホスト検証の恒久失敗(providerError)はそのまま伝える。それ以外はネットワーク断・タイムアウト
-    // であり status を持たないため一時失敗として再試行に回す。
-    if (isProviderError(err)) throw err
-    throw providerError(`Redmine API ${method} failed (network): ${errName(err)}`)
+  const result = await safeFetch(url, {
+    method,
+    headers,
+    body: init?.body,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    maxBodyBytes: MAX_BODY_BYTES,
+  })
+
+  if (!result.ok) {
+    // ssrf_blocked（ホスト形式不正・DNS解決失敗・private/内部IP拒否・DNS rebinding含む）は
+    // 再試行しても直らないため恒久失敗にする。それ以外（タイムアウト・接続断）は一時失敗。
+    const isSsrfBlocked = result.error?.startsWith('ssrf_blocked:') ?? false
+    throw providerError(`Redmine API ${method} failed: ${isSsrfBlocked ? result.error : 'network error'}`, {
+      permanent: isSsrfBlocked,
+      status: isSsrfBlocked ? 400 : undefined,
+    })
   }
 
-  if (res.status >= 300 && res.status < 400) {
-    throw providerError(`Redmine API ${method} unexpected redirect (${res.status})`, {
+  const status = result.status ?? 0
+  if (status >= 300 && status < 400) {
+    throw providerError(`Redmine API ${method} unexpected redirect (${status})`, {
       status: 400,
       permanent: true,
     })
   }
-  if (res.status < 200 || res.status >= 300) {
-    console.error('Redmine API error:', method, res.status) // 本文とURLは出さない
-    throw providerError(`Redmine API ${method} failed (${res.status})`, {
-      status: res.status,
-      retryAfterMs: res.status === 429 || res.status === 503 ? retryAfterMsFrom(res.headers) : undefined,
+  if (status < 200 || status >= 300) {
+    console.error('Redmine API error:', method, status) // 本文とURLは出さない
+    throw providerError(`Redmine API ${method} failed (${status})`, {
+      status,
+      // 429/503 の復帰時刻は外部が教えてくれる唯一の手掛かり。これを捨てて固定バックオフで
+      // 叩き続けると、制限中に再試行を重ねて制限期間を自分で延ばしてしまう。
+      retryAfterMs:
+        status === 429 || status === 503 ? retryAfterMsFrom(result.responseHeaders) : undefined,
     })
   }
-  return res.text ? JSON.parse(res.text) : null
+  if (!result.bodyText) return null
+  try {
+    return JSON.parse(result.bodyText)
+  } catch {
+    // 2xxなのに壊れたJSON。本文長がちょうど上限(MAX_BODY_BYTES)に達しているなら打ち切りが
+    // 原因と断定できる。1ページの取得件数(limit)を見直さない限り同じ結果になるため恒久失敗にする。
+    // 上限未満で壊れているのは Redmine 側の一時的な応答不備の可能性が高いため一時失敗にする。
+    const looksTruncated = result.bodyText.length >= MAX_BODY_BYTES
+    throw providerError(
+      `Redmine API ${method} returned invalid JSON${looksTruncated ? ' (response exceeds the body size limit)' : ''}`,
+      looksTruncated ? { permanent: true, status: 500 } : {},
+    )
+  }
 }
 
 /** is_closed なステータスIDの一覧を取得する（プロジェクトごとの再定義に対応するため毎回取り直す）。 */
@@ -275,9 +249,25 @@ export const redmineAdapter: TaskSyncAdapter = {
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     // ⚠ 未確認: Redmineのproject.statusの列挙値(有効/アーカイブ等)は公式ドキュメントに
     // 記載が無いため、Backlogのようなアーカイブ除外はせず全件を返す（推測で絞り込まない）。
-    const url = buildUrl(ctx, '/projects.json', { limit: String(PAGE_SIZE) })
-    const data = (await redmineFetch(ctx, url)) as { projects?: RedmineProject[] } | null
-    return (data?.projects ?? []).map((p) => ({ id: String(p.id), title: p.name ?? p.identifier ?? String(p.id) }))
+    //
+    // 全ページ取得する: 1ページ目だけだと2ページ目以降のプロジェクトがエンジンに一度も
+    // 渡らないまま「同期成功」としてカーソルが前進し、特定プロジェクトだけ永久に
+    // 取り込まれない事故になる（codexレビュー指摘）。
+    const projects: RedmineProject[] = []
+    let offset = 0
+    for (let page = 0; page < MAX_CONTAINER_PAGES; page++) {
+      const url = buildUrl(ctx, '/projects.json', { limit: String(PAGE_SIZE), offset: String(offset) })
+      const data = (await redmineFetch(ctx, url)) as { projects?: RedmineProject[]; total_count?: number } | null
+      const batch = data?.projects ?? []
+      // 空バッチは total_count が不整合(異常応答)でも打ち切る合図にする。offsetが進まない
+      // 異常応答で無限ループしないための安全弁（team-lead指摘）。
+      if (batch.length === 0) break
+      projects.push(...batch)
+      offset += batch.length
+      const total = data?.total_count ?? offset
+      if (offset >= total) break
+    }
+    return projects.map((p) => ({ id: String(p.id), title: p.name ?? p.identifier ?? String(p.id) }))
   },
 
   async listChangedTasks(

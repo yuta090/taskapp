@@ -170,6 +170,40 @@ describe('保存', () => {
     expect(insertCapture.external_account_key).toBe('example.backlog.jp')
   })
 
+  it('ツール固有設定は接頭辞が付いたキーだけを保存する（他ツールの設定を混入させない）', async () => {
+    await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'backlog',
+        api_key: 'k',
+        base_url: 'https://e.backlog.jp',
+        provider_config: {
+          backlog_completion_status_id: 12,
+          trello_done_list_ids: ['x'], // 他ツールの設定は捨てる
+          evil: { nested: true }, // 想定外の構造も捨てる
+        },
+      }),
+    )
+    expect(insertCapture.import_config).toEqual({ backlog_completion_status_id: 12 })
+  })
+
+  it('鍵の検証にはツール固有設定も渡す（Jiraのようにメールと鍵が揃って初めて認証が成立するため）', async () => {
+    const a = adapter({ id: 'jira' })
+    getTaskSyncAdapter.mockReturnValue(a)
+    await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'jira',
+        api_key: 'token',
+        base_url: 'https://e.backlog.jp',
+        provider_config: { jira_email: 'ops@example.com' },
+      }),
+    )
+    expect(a.listContainers).toHaveBeenCalledWith(
+      expect.objectContaining({ config: { jira_email: 'ops@example.com' } }),
+    )
+  })
+
   it('同じ接続先への二重接続は 409（二重取り込みになるため）', async () => {
     insertError = { code: '23505', message: 'duplicate key' }
     const res = await POST(

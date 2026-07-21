@@ -39,7 +39,8 @@ const CONNECTOR_STATUS_CLASS: Record<string, string> = {
   revoked: 'bg-red-50 text-red-600',
 }
 
-function ConnectorStatusPill({ status }: { status: string }) {
+/** TaskSyncConnectPanel(backlog等)とも共有するためexport(重複実装しない)。 */
+export function ConnectorStatusPill({ status }: { status: string }) {
   return (
     <span
       className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
@@ -320,7 +321,7 @@ function MulticaTargetSpaceSelect({ orgId, connection, canManage }: ImportConfig
   )
 }
 
-interface ImportConfigEditorProps {
+export interface ImportConfigEditorProps {
   orgId: string
   connection: ConnectorConnection
   canManage: boolean
@@ -344,7 +345,8 @@ function pruneImportConfig(config: Record<string, unknown>): Record<string, unkn
  * 親組織のspace/member一覧に候補が無ければUUIDテキスト入力にフォールバックし、
  * サーバ側(DBトリガー)の400/422バリデーションに委ねる。
  */
-function ImportConfigEditor({ orgId, connection, canManage }: ImportConfigEditorProps) {
+/** TaskSyncConnectPanel(backlog等)とも共有するためexport(取り込み設定UIを重複実装しない)。 */
+export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfigEditorProps) {
   const importConfig = connection.importConfig as ConnectorImportConfig
   const [targetSpaceId, setTargetSpaceId] = useState(importConfig.target_space_id ?? '')
   const [defaultAssigneeId, setDefaultAssigneeId] = useState(importConfig.default_assignee_id ?? '')

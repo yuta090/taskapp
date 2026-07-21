@@ -46,12 +46,20 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function callAt(i: number): [string, RequestInit | undefined] {
+  return fetchMock.mock.calls[i] as [string, RequestInit | undefined]
+}
+
 function lastCall(): [string, RequestInit | undefined] {
-  return fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit | undefined]
+  return callAt(fetchMock.mock.calls.length - 1)
 }
 
 function lastUrl(): URL {
   return new URL(lastCall()[0])
+}
+
+function urlAt(i: number): URL {
+  return new URL(callAt(i)[0])
 }
 
 describe('jootoAdapter — 宣言', () => {
@@ -94,6 +102,31 @@ describe('jootoAdapter.listContainers', () => {
     expect(url.pathname).toBe('/v1/boards')
     expect(url.searchParams.get('archived')).toBe('false')
     expect((init?.headers as Record<string, string>)['X-Jooto-Api-Key']).toBe('jooto-secret')
+  })
+
+  /**
+   * 1ページ目しか取らないと、2ページ目以降のボードがエンジンに一度も渡らないまま
+   * 「同期成功」としてカーソルが前進し、特定プロジェクトだけ永久に取り込まれない事故になる
+   * （codexレビュー指摘）。全ページ取得を固定する。
+   */
+  it('total_pages が2以上の場合は全ページ取得する', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, title: `プロジェクト${i + 1}` }))
+    const page2 = [{ id: 101, title: 'プロジェクト101' }]
+    fetchMock.mockResolvedValueOnce(jsonResponse({ boards: page1, page: 1, per_page: 100, total: 101, total_pages: 2 }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ boards: page2, page: 2, per_page: 100, total: 101, total_pages: 2 }))
+
+    const containers = await jootoAdapter.listContainers(ctx())
+    expect(containers).toHaveLength(101)
+    expect(containers[100]).toEqual({ id: '101', title: 'プロジェクト101' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(urlAt(1).searchParams.get('page')).toBe('2')
+  })
+
+  it('空バッチが返ったら(total_pagesの不整合等)無限ループせず打ち切る', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ boards: [], page: 1, per_page: 100, total: 999, total_pages: 10 }))
+    const containers = await jootoAdapter.listContainers(ctx())
+    expect(containers).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -63,7 +63,7 @@ function fakeStore(links: Array<[string, string]> = []) {
 /** 指定ページを順に返すだけのアダプタ。 */
 function fakeAdapter(
   pages: TaskPage[],
-  over: Partial<Pick<TaskSyncAdapter, 'cursorGranularity'>> = {},
+  over: Partial<Pick<TaskSyncAdapter, 'cursorGranularity' | 'deletionMode'>> = {},
 ): TaskSyncAdapter {
   let i = 0
   return {
@@ -71,13 +71,14 @@ function fakeAdapter(
     authKind: 'api_key',
     hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.backlog.jp'] },
     cursorGranularity: over.cursorGranularity ?? 'date',
+    deletionMode: over.deletionMode,
     listContainers: async () => [
       { id: 'c1', title: 'コンテナ1' },
       { id: 'c2', title: 'コンテナ2' },
     ],
     listChangedTasks: async () => pages[i++] ?? { items: [], nextCursor: null },
     completeTask: async () => {},
-  } as TaskSyncAdapter & { deletionMode?: TaskSyncAdapter['deletionMode'] }
+  }
 }
 
 const ctx: ProviderContext = { credentials: { kind: 'api_key', token: 'k', baseUrl: 'https://e.backlog.jp' } }
@@ -129,8 +130,9 @@ describe('importConnection — 取り込みの基本分岐', () => {
 
   it('削除を確実に知れるツール(tombstone)では対応だけ切る（タスク行は消さない）', async () => {
     const { store, calls } = fakeStore([['x1', 'task-existing']])
-    const adapter = fakeAdapter([{ items: [task({ deleted: true })], nextCursor: null }])
-    adapter.deletionMode = 'tombstone'
+    const adapter = fakeAdapter([{ items: [task({ deleted: true })], nextCursor: null }], {
+      deletionMode: 'tombstone',
+    })
     const result = await run(adapter, store)
     expect(result.orphaned).toBe(1)
     expect(calls.orphaned).toEqual(['x1'])
@@ -139,8 +141,9 @@ describe('importConnection — 取り込みの基本分岐', () => {
 
   it('未リンクの削除タスクは何もしない（存在しない対応を切らない）', async () => {
     const { store, calls } = fakeStore()
-    const adapter = fakeAdapter([{ items: [task({ deleted: true })], nextCursor: null }])
-    adapter.deletionMode = 'tombstone'
+    const adapter = fakeAdapter([{ items: [task({ deleted: true })], nextCursor: null }], {
+      deletionMode: 'tombstone',
+    })
     const result = await run(adapter, store)
     expect(result.orphaned).toBe(0)
     expect(calls.orphaned).toHaveLength(0)
@@ -152,8 +155,9 @@ describe('importConnection — 取り込みの基本分岐', () => {
     // 止まったように見える。
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { store, calls } = fakeStore([['x1', 'task-existing']])
-    const adapter = fakeAdapter([{ items: [task({ deleted: true })], nextCursor: null }])
-    adapter.deletionMode = 'unsupported'
+    const adapter = fakeAdapter([{ items: [task({ deleted: true })], nextCursor: null }], {
+      deletionMode: 'unsupported',
+    })
     const result = await run(adapter, store)
     expect(result.orphaned).toBe(0)
     expect(calls.orphaned).toHaveLength(0)

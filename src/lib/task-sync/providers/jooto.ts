@@ -46,6 +46,9 @@ import {
  *   - レート制限ヘッダーは `X-RateLimit-Reset`（UNIX時間・秒）で、Backlogと同形式のため
  *     同じ変換ロジックを使う。
  *   - 書き込みは `application/json`（Backlogの`x-www-form-urlencoded`とは異なる）。
+ *   - `listContainers`（ボード一覧）は `total_pages` を見て**全ページ**を取り切る。1ページ目
+ *     しか取らないと、2ページ目以降のボードがエンジンに一度も渡らないまま「同期成功」として
+ *     カーソルが前進し、特定プロジェクトだけ永久に取り込まれない事故になるため。
  */
 
 /** ホストが固定であることの宣言。credentials.baseUrl は無視する（接続時に入力させない）。 */
@@ -56,6 +59,9 @@ const PAGE_SIZE = 100
 
 /** リクエストのタイムアウト。応答しないホストにワーカーを占有させない。 */
 const REQUEST_TIMEOUT_MS = 20_000
+
+/** listContainers の全ページ取得における安全弁（無限ループ防止。10万件相当まで許容）。 */
+const MAX_CONTAINER_PAGES = 1000
 
 interface JootoBoard {
   id: number
@@ -185,9 +191,22 @@ export const jootoAdapter: TaskSyncAdapter = {
   deletionMode: 'tombstone',
 
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
-    const url = buildUrl('/v1/boards', { archived: 'false', per_page: String(PAGE_SIZE) })
-    const data = (await jootoFetch(ctx, url)) as { boards?: JootoBoard[] } | null
-    return (data?.boards ?? []).map((b) => ({ id: String(b.id), title: b.title ?? String(b.id) }))
+    // 全ページ取得する: 1ページ目だけだと2ページ目以降のボードがエンジンに一度も渡らないまま
+    // 「同期成功」としてカーソルが前進し、特定プロジェクトだけ永久に取り込まれない事故になる
+    // （codexレビュー指摘）。
+    const boards: JootoBoard[] = []
+    for (let page = 1; page <= MAX_CONTAINER_PAGES; page++) {
+      const url = buildUrl('/v1/boards', { archived: 'false', per_page: String(PAGE_SIZE), page: String(page) })
+      const data = (await jootoFetch(ctx, url)) as { boards?: JootoBoard[]; total_pages?: number } | null
+      const batch = data?.boards ?? []
+      // 空バッチは total_pages が不整合(異常応答)でも打ち切る合図にする。pageが進んでも
+      // 中身が伸びない異常応答で無限ループしないための安全弁。
+      if (batch.length === 0) break
+      boards.push(...batch)
+      const totalPages = data?.total_pages ?? page
+      if (page >= totalPages) break
+    }
+    return boards.map((b) => ({ id: String(b.id), title: b.title ?? String(b.id) }))
   },
 
   async listChangedTasks(

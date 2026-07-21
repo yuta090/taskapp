@@ -59,6 +59,15 @@ const REQUEST_TIMEOUT_MS = 20_000
 /** 1ページの取得件数上限（Asana APIの上限）。 */
 const PAGE_SIZE = 100
 
+/**
+ * listContainers のページ数上限（安全弁）。エンジン側 engine.ts の MAX_PAGES_PER_CONTAINER と
+ * 同じ考え方: 異常応答でのカーソル無限前進/無限ループを防ぐ。listContainers はエンジンが
+ * 「全部」として扱う（一部だけ返すと、そのプロジェクトは永久に取り込まれないまま接続は
+ * 成功扱いになる）ため、素朴な1ページ目だけの実装は不可（codexレビュー指摘: 2ページ目以降の
+ * プロジェクトが一度もエンジンに渡らない）。
+ */
+const MAX_CONTAINER_PAGES = 100
+
 /** listChangedTasks で取得するフィールド。opt_fieldsを絞ってペイロードを減らす。 */
 const TASK_OPT_FIELDS = 'name,notes,due_on,due_at,completed,assignee,modified_at'
 
@@ -191,11 +200,24 @@ export const asanaAdapter: TaskSyncAdapter = {
 
   async listContainers(ctx: ProviderContext): Promise<ExternalContainer[]> {
     const workspace = workspaceGid(ctx)
-    const res = (await asanaFetch(
-      ctx,
-      apiUrl('/projects', { workspace, archived: 'false' }),
-    )) as AsanaListResponse<AsanaProject>
-    return (res.data ?? []).map((p) => ({ id: p.gid, title: p.name ?? p.gid }))
+    const projects: AsanaProject[] = []
+    let offset: string | undefined
+    for (let page = 0; page < MAX_CONTAINER_PAGES; page++) {
+      const params: Record<string, string> = {
+        workspace,
+        archived: 'false',
+        // next_page は limit を渡した時だけレスポンスに載る（listChangedTasksと同じ理由）。
+        limit: String(PAGE_SIZE),
+      }
+      if (offset) params.offset = offset
+      const res = (await asanaFetch(ctx, apiUrl('/projects', params))) as AsanaListResponse<AsanaProject>
+      projects.push(...(res.data ?? []))
+
+      const nextOffset = res.next_page?.offset
+      if (!nextOffset || nextOffset === offset) break // 取り切り、または前進しない異常応答＝打ち切る
+      offset = nextOffset
+    }
+    return projects.map((p) => ({ id: p.gid, title: p.name ?? p.gid }))
   },
 
   async listChangedTasks(
