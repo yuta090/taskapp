@@ -92,6 +92,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     estimate_status: 'none',
     completed_at: null,
     is_sample: false,
+    due_authority_connection_id: null,
     created_at: '2026-07-01T00:00:00',
     updated_at: '2026-07-01T00:00:00',
     ...overrides,
@@ -489,5 +490,85 @@ describe('useTasks — レビュー整合性: status=done への変更ガード'
     })
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: '新しいタイトル' }))
+  })
+})
+
+// AI秘書 Stage5 期限リマインド PR-0(§5.2): external権威タスク(due_authority_connection_id 非NULL)の
+// due_date 変更は DB トリガー trg_guard_external_due が拒否する(メッセージに 'due_managed_externally' を
+// 含む)。ブラウザ(authenticated)からの直書きはここで弾かれるため、useTasks 側は
+// (a) 楽観的更新をロールバックし (b) 生のPostgresエラーではなく分かりやすい文言をトーストする。
+describe('useTasks — 期限の正本境界(due_authority_connection_id)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockInsert.mockReturnValue({ select: mockInsertSelect })
+    mockInsertSelect.mockReturnValue({ single: mockInsertSingle })
+    mockTaskOwnersInsert.mockResolvedValue({ error: null })
+    mockTaskOwnersSelect.mockReturnValue({ eq: mockTaskOwnersEq })
+    mockTaskOwnersEq.mockResolvedValue({ data: [], error: null })
+    mockPassBall.mockResolvedValue({ ok: true })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('external権威タスクの due_date 変更 → due_managed_externally エラーで楽観更新をロールバックし、分かりやすい文言をトーストする', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', due_date: '2026-07-20', due_authority_connection_id: 'conn-gtasks-1' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
+    mockUpdateEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'due_managed_externally: この期限は外部ツールが正本のため TaskApp からは編集できません' },
+      }),
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await expect(
+      result.current.updateTask('t1', { dueDate: '2026-08-01' })
+    ).rejects.toThrow()
+
+    // 楽観的更新がロールバックされ、画面上の期限は変更前のまま
+    await waitFor(() => expect(result.current.tasks[0].due_date).toBe('2026-07-20'))
+
+    // 生のPostgresエラー文言ではなく、分かりやすい文言でトーストされること
+    expect(mockToastError).toHaveBeenCalledTimes(1)
+    const [message] = mockToastError.mock.calls[0]
+    expect(message).not.toContain('due_managed_externally')
+    expect(message).toMatch(/外部|連携元|Google Tasks/)
+    expect(message).toMatch(/期限/)
+  })
+
+  it('TaskApp正本(due_authority_connection_id=null)の due_date 変更は従来通り成功する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', due_date: '2026-07-20', due_authority_connection_id: null })],
+      owners: {},
+      reviewStatuses: {},
+    })
+    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
+    mockUpdateEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [{ id: 't1', parent_task_id: null }], error: null }),
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { dueDate: '2026-08-01' })
+    })
+
+    await waitFor(() => expect(result.current.tasks[0].due_date).toBe('2026-08-01'))
+    expect(mockToastError).not.toHaveBeenCalled()
   })
 })

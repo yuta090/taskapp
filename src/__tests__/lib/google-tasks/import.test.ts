@@ -308,6 +308,16 @@ describe('importGoogleTasksBatch', () => {
     expect(s.created).toBe(1)
   })
 
+  it('AI秘書Stage5 PR-0: 新規作成タスクにdue_authority_connection_id(=接続id)をセットする(gtasksが正本)', async () => {
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.resolve({ items: [{ id: 'gt-new', title: '新規タスク', status: 'needsAction' }], nextPageToken: null })
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    expect(state.tasksInserted[0]).toMatchObject({ due_authority_connection_id: CONN })
+  })
+
   it('org owner が居なくても created_by=システムユーザーで起票する(skipしない)', async () => {
     // 旧挙動は「owner 不在なら created_by を決められず接続を skip」。専用システムユーザーへ一本化した
     // ことで owner の有無に依らず必ず起票できる(owner 名義に依存しない = Fable 決定 案A改)。
@@ -428,6 +438,16 @@ describe('importGoogleTasksBatch', () => {
     expect(typeof state.cursorUpdates[0].value.poll_cursor).toBe('string')
   })
 
+  it('AI秘書Stage5 PR-0: 全ページ取得成功時のみ last_import_success_at を同じupdateで前進させる(鮮度証明の生命線・§4.3/§6)', async () => {
+    await importGoogleTasksBatch()
+    expect(state.cursorUpdates).toHaveLength(1)
+    expect(state.cursorUpdates[0].id).toBe(CONN)
+    expect(typeof state.cursorUpdates[0].value.last_import_success_at).toBe('string')
+    // 有効なISO文字列であること(toISOString()禁止はローカル日付表示の話。ここはtimestamptzカーソルと
+    // 同じ例外用途・poll_cursorと同じ作法に合わせる)。
+    expect(() => new Date(state.cursorUpdates[0].value.last_import_success_at as string).toISOString()).not.toThrow()
+  })
+
   it('listTasks が失敗したら poll_cursor を進めず skip(取りこぼさない)', async () => {
     listTasksMock.mockImplementation((_tok: string, listId: string) =>
       listId === 'list-other'
@@ -436,6 +456,17 @@ describe('importGoogleTasksBatch', () => {
     )
     const s = await importGoogleTasksBatch()
     expect(s.skipped).toBe(1)
+    expect(state.cursorUpdates).toHaveLength(0)
+  })
+
+  it('AI秘書Stage5 PR-0: 部分失敗(listTasks失敗)では last_import_success_at も前進しない(鮮度証明の不変条件)', async () => {
+    listTasksMock.mockImplementation((_tok: string, listId: string) =>
+      listId === 'list-other'
+        ? Promise.reject(Object.assign(new Error('boom'), { status: 500 }))
+        : Promise.resolve({ items: [], nextPageToken: null }),
+    )
+    await importGoogleTasksBatch()
+    // 更新自体が発生しない = poll_cursorとlast_import_success_atが同じ成功パスに乗っている証明
     expect(state.cursorUpdates).toHaveLength(0)
   })
 

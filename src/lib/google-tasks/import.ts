@@ -122,6 +122,10 @@ async function createExternalTask(
       client_scope: 'internal',
       type: 'task',
       assignee_id: assigneeId,
+      // AI秘書 Stage5 期限リマインド(PR-0・§5.3): dueImportコネクタ(gtasks)の取り込みタスクは
+      // この接続を期限の正本にする(=TaskAppからは編集不可・trg_guard_external_dueで強制)。
+      // INSERTのためBEFORE UPDATEトリガーは発火しない(挿入時点で権威を確定するだけ)。
+      due_authority_connection_id: conn.id,
       // created_by は NOT NULL。外部起票に対応する対話ユーザーは居ないため専用システムユーザー名義にする
       // (実ユーザー=org owner の名義にしない。UI には profiles の「外部連携（システム）」が表示される)。
       created_by: CONNECTOR_SYSTEM_USER_ID,
@@ -378,9 +382,13 @@ async function importConnection(conn: ConnRow, summary: ImportSummary): Promise<
     return
   }
 
+  // AI秘書 Stage5 期限リマインド(PR-0・§4.3/§6): last_import_success_at は poll_cursor と
+  // 「全ページ取得成功後にのみ」同じ成功パスで前進させる(部分失敗ではどちらも進めない)。
+  // これが接続単位の鮮度証明(sender送信直前ガード条件3)の生命線。poll_cursor と同じ理由(タイムスタンプ
+  // カーソル用途)で toISOString() 使用の例外とする(ローカル日付表示ではない)。
   const { error: cursorErr } = await admin()
     .from('integration_connections')
-    .update({ poll_cursor: nextCursor })
+    .update({ poll_cursor: nextCursor, last_import_success_at: new Date().toISOString() })
     .eq('id', conn.id)
   if (cursorErr) {
     console.error('[gtasks-import] cursor 更新に失敗(次回同範囲を再処理):', cursorErr)

@@ -17,6 +17,8 @@ export interface LlmOptions {
   orgId: string
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   maxTokens?: number
+  /** 原価内訳用の用途ラベル（例 'digest_extract'）。ai_usage_events に記録される。 */
+  purpose?: string
 }
 
 export interface LlmResponse {
@@ -35,6 +37,7 @@ interface AiConfig {
 // 従来どおり client からも import できるよう re-export する。
 export { AiConfigError, type AiConfigErrorKind } from './errors'
 import { AiConfigError } from './errors'
+import { recordAiUsage } from './usage'
 
 export type AiConfigStatus =
   | { configured: true }
@@ -249,12 +252,29 @@ export async function callLlm(options: LlmOptions): Promise<LlmResponse> {
   const { orgId, messages, maxTokens = 1000 } = options
   const { provider, model, apiKey } = await getAiConfig(orgId)
 
+  let response: LlmResponse
   switch (provider) {
     case 'openai':
-      return callOpenAi(apiKey, model, messages, maxTokens)
+      response = await callOpenAi(apiKey, model, messages, maxTokens)
+      break
     case 'anthropic':
-      return callAnthropic(apiKey, model, messages, maxTokens)
+      response = await callAnthropic(apiKey, model, messages, maxTokens)
+      break
     default:
       throw new Error(`未対応のAIプロバイダー: ${provider}`)
   }
+
+  // COGS(原価床)実測: トークン使用量を best-effort で記録（失敗しても抽出は壊さない）。
+  if (response.usage) {
+    await recordAiUsage({
+      orgId,
+      provider,
+      model,
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      purpose: options.purpose,
+    })
+  }
+
+  return response
 }
