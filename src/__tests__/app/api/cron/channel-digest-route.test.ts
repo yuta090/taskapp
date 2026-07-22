@@ -840,6 +840,23 @@ describe('POST /api/cron/channel-digest', () => {
       expect(pushed.messages[0].text).toContain('DMで届かない方')
     })
 
+    it('穴是正（§9.1自己回復ループ）: DM恒久失敗でdm_unreachable_atが立った担当者は' +
+      'findUserIdsWithActiveLinkが「DMルート無し」として返す契約のため期限セクションに拾い直される' +
+      '（実際のis(dm_unreachable_at, null)絞り込み自体はactiveUserLinkStore.test.tsで単体検証済み）', async () => {
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-blocked', title: 'ブロックされた担当者宛', dueDate: '2026-07-12', assigneeId: 'user-blocked', dueAuthorityConnectionId: null },
+      ])
+      // channel_user_links は revoked_at=null(active)のままだが dm_unreachable_at が立っている
+      // ケースを模する。findUserIdsWithActiveLink はそのユーザーを含まないSetを返す契約
+      // （store.ts側の is('dm_unreachable_at', null) 絞り込みにより行ごと返らないため）。
+      storeMock.findUserIdsWithActiveLink.mockResolvedValue(new Set())
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+      expect(pushed.messages[0].text).toContain('ブロックされた担当者宛')
+    })
+
     it('perf是正: DMリンク判定とオプトアウト判定を並列で発火する（直列なら後者は前者の解決を待ってしまう）', async () => {
       dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
         { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
