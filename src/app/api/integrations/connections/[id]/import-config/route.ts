@@ -116,6 +116,23 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     delete nextConfig.notion_mappings
   }
 
+  // kintone_mappings/kintone_app_ids: notion_mappings と同じ理由・同じ保護
+  // (フィールドコード＋選択肢名の対応づけは kintone/schema.ts のライブスキーマ検証を経て初めて
+  // 確定する「確定済みデータ」であり、この汎用PATCHでクライアント送信値をそのまま採用すると、
+  // (a) 検証を迂回して実在しないフィールドコードを含むマッピングを永続化できてしまう、
+  // (b) この汎用PATCHで別項目(target_space_id等)を変えただけで確定済みの設定が丸ごと消える、
+  // という同種の2つの事故が起きる)。クライアントが何を送ってきても常にDB上の現在値を引き継ぐ。
+  if (Object.prototype.hasOwnProperty.call(currentConfig, 'kintone_mappings')) {
+    nextConfig.kintone_mappings = currentConfig.kintone_mappings
+  } else {
+    delete nextConfig.kintone_mappings
+  }
+  if (Object.prototype.hasOwnProperty.call(currentConfig, 'kintone_app_ids')) {
+    nextConfig.kintone_app_ids = currentConfig.kintone_app_ids
+  } else {
+    delete nextConfig.kintone_app_ids
+  }
+
   // read_container_ids: キー自体が送られてこなかった場合だけ現在値を保持する(部分更新)。
   if (!Object.prototype.hasOwnProperty.call(bodyConfig, 'read_container_ids')) {
     if (Object.prototype.hasOwnProperty.call(currentConfig, 'read_container_ids')) {

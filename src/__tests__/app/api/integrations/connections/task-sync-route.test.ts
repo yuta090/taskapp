@@ -148,6 +148,63 @@ describe('鍵の検証', () => {
   })
 })
 
+describe('kintone: アプリID(kintone_app_ids)が1件も無い接続は作らせない(死んだ接続防止)', () => {
+  it('kintone_app_idsが未指定なら400で拒否する(保存前に落とす)', async () => {
+    getTaskSyncAdapter.mockReturnValue(adapter({ id: 'kintone', hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.cybozu.com'] } }))
+    const res = await POST(
+      req({ org_id: ORG_ID, provider: 'kintone', api_key: 'k', base_url: 'https://e.cybozu.com' }),
+    )
+    expect(res.status).toBe(400)
+    expect(insertCapture.provider).toBeUndefined()
+  })
+
+  it('kintone_app_idsが空配列なら400で拒否する', async () => {
+    getTaskSyncAdapter.mockReturnValue(adapter({ id: 'kintone', hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.cybozu.com'] } }))
+    const res = await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'kintone',
+        api_key: 'k',
+        base_url: 'https://e.cybozu.com',
+        provider_config: { kintone_app_ids: [] },
+      }),
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('kintone_app_idsが不正な値だけ(数値以外の文字列等)でも実質空扱いで400にする', async () => {
+    getTaskSyncAdapter.mockReturnValue(adapter({ id: 'kintone', hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.cybozu.com'] } }))
+    const res = await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'kintone',
+        api_key: 'k',
+        base_url: 'https://e.cybozu.com',
+        provider_config: { kintone_app_ids: ['not-a-number', ''] },
+      }),
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('kintone_app_idsが1件以上あれば作成できる', async () => {
+    const a = adapter({ id: 'kintone', hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.cybozu.com'] } })
+    getTaskSyncAdapter.mockReturnValue(a)
+    const res = await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'kintone',
+        api_key: 'k',
+        base_url: 'https://e.cybozu.com',
+        provider_config: { kintone_app_ids: ['5', '9'] },
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(a.listContainers).toHaveBeenCalledWith(
+      expect.objectContaining({ config: { kintone_app_ids: ['5', '9'] } }),
+    )
+  })
+})
+
 describe('保存', () => {
   it('鍵は暗号化列にのみ入れ、平文列には残さない', async () => {
     const res = await POST(

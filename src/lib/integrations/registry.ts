@@ -492,22 +492,23 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'kintone',
     category: 'task_sync',
     direction: 'two_way',
-    status: 'beta',
-    surface: 'connector',
-    connectorKind: 'kintone',
+    // ⚠ まだ一般公開しない(status='planned'に据え置く。'beta'に見えても実は繋がらない、を作らない):
+    //   アダプタ本体(src/lib/task-sync/providers/kintone.ts)とマッピングの提案/保存ロジック
+    //   (kintone/mapping.ts・kintone/schema.ts)は実装済みだが、(a) 接続パネル
+    //   (TaskSyncConnectPanel)にアプリID(kintone_app_ids)を入力する欄が無く、(b) マッピングの
+    //   提案/保存API(Notionのconnections/notion/mapping/route.tsに相当するもの)がまだ無い。
+    //   この状態で surface='connector' のまま一般公開すると、運用者は「接続はできたが
+    //   コンテナ0件・マッピング未設定で永久に何も同期しない死んだ接続」を作れてしまう
+    //   （Notionは提案/保存APIが既にマージ済みで状況が違うため、この例外はkintone限定）。
+    //   設定導線(入力欄＋提案/保存API)が揃うまでは status='planned'/surface='catalog' に留め、
+    //   ToolConnectOverview(ロードマップ表示のみ)に出す。揃い次第 'beta'+'connector' に戻す。
+    status: 'planned',
+    surface: 'catalog',
     setupComplexity: 'schema_mapping',
     proOnly: true,
     featured: true,
     notes:
-      '業務アプリ基盤(kintone)のレコードを取り込んでタスク同期する。フィールドコード＋選択肢名で対応づけるウィザードが要る（選択肢名はkintone側で変更されると対応が壊れる）。',
-    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
-    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
-    capabilities: {
-      dueImport: true,
-      completionWrite: true,
-      dueFreshness: 'poll-sla',
-      pollFreshnessSlaMinutes: 30,
-    },
+      '業務アプリ基盤(kintone)のレコードを取り込んでタスク同期する。フィールドコード＋選択肢名で対応づけるウィザードが要る（選択肢名はkintone側で変更されると対応が壊れる）。設定画面（アプリID入力・マッピングの提案/保存）を準備中のため、現時点では接続できません。',
   },
   generic_inbound: {
     id: 'generic_inbound',

@@ -68,8 +68,20 @@ export interface ConnectorDispatchSummary {
   dead: number
 }
 
-/** 400/404/422 は恒久失敗(毒)。それ以外(401/403/5xx/ネットワーク/status無し)は一時失敗として再試行に回す。 */
+/**
+ * 400/404/422 は恒久失敗(毒)。それ以外(401/403/5xx/ネットワーク/status無し)は一時失敗として再試行に回す。
+ *
+ * ⚠ アダプタが明示した `permanent`(ProviderError.permanent。src/lib/task-sync/types.ts)を最優先する。
+ *   以前は HTTP status だけで分類しており、アダプタ側の判断(例: kintoneの GAIA_NO01=権限不足は
+ *   恒久だが status=403 で判定漏れ／GAIA_UN03=同時編集競合は一時失敗にしたいが status=409 に
+ *   `permanent`未設定だと分類が status 頼みで不安定、といった不整合)が dispatch 側で握り潰されていた。
+ *   `permanent` が明示されていればそれに従い、未指定(undefined)のときだけ従来通り status
+ *   フォールバックを使う。
+ */
 function classifyError(err: unknown): 'permanent_fail' | 'temporary_fail' {
+  const permanent = (err as { permanent?: boolean } | undefined)?.permanent
+  if (permanent === true) return 'permanent_fail'
+  if (permanent === false) return 'temporary_fail'
   const status = (err as { status?: number } | undefined)?.status
   if (status === 400 || status === 404 || status === 422) return 'permanent_fail'
   return 'temporary_fail'

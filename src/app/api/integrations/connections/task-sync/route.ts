@@ -7,6 +7,7 @@ import { encryptToken } from '@/lib/integrations/token-crypto'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { deriveExternalAccountKey } from '@/lib/task-sync/accountKey'
+import { normalizeKintoneAppIds } from '@/lib/task-sync/providers/kintone/mapping'
 
 export const runtime = 'nodejs'
 
@@ -119,6 +120,22 @@ export async function POST(request: NextRequest) {
   }
 
   const providerConfig = sanitizeProviderConfig(body.provider_config, provider)
+
+  // kintone: アプリID(kintone_app_ids)が1件も無いまま active な接続を作らせない。
+  // kintoneのAPIトークンはアプリ単位で発行され、listContainers はアプリIDが1件も設定されて
+  // いなくても空配列を返すだけで成功してしまう（providers/kintone.ts の configuredAppIds 参照）。
+  // これを許すと「接続はできたがコンテナ0件・マッピング未設定で永久に何も同期しない死んだ接続」
+  // が作れてしまうため、ここで作成自体を拒否する（UIの新規作成導線は別途整備予定。ここはその前の
+  // 最後の砦としてのサーバ側検証）。
+  if (provider === 'kintone') {
+    const appIds = normalizeKintoneAppIds(providerConfig.kintone_app_ids)
+    if (appIds.length === 0) {
+      return NextResponse.json(
+        { error: 'kintoneはアプリIDを1つ以上指定してください（1つも指定しない接続は取り込みが永久に始まりません）' },
+        { status: 400 },
+      )
+    }
+  }
 
   // 保存前に鍵を検証する（間違った鍵を保存させない）。provider固有設定も一緒に渡す
   // （Jira の Basic 認証はメールアドレスが揃って初めて成立するため、設定込みで検証しないと

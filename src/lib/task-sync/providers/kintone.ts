@@ -1,6 +1,6 @@
 import { KINTONE_HOST_POLICY, apiUrl, kintoneFetch } from '@/lib/task-sync/providers/kintone/client'
 import {
-  isValidKintoneAppId,
+  normalizeKintoneAppIds,
   parseKintoneMapping,
   validateMappingAgainstSchema,
   type KintoneMapping,
@@ -79,14 +79,7 @@ const MAX_OFFSET = 10_000
 
 /** 接続設定で指定されたアプリID一覧（数値文字列のみ）。raw な値を信用せず、ここで検証する。 */
 function configuredAppIds(ctx: ProviderContext): string[] {
-  const raw = ctx.config?.kintone_app_ids
-  if (!Array.isArray(raw)) return []
-  const out: string[] = []
-  for (const v of raw) {
-    const s = typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' ? v : null
-    if (s && isValidKintoneAppId(s)) out.push(s)
-  }
-  return Array.from(new Set(out))
+  return normalizeKintoneAppIds(ctx.config?.kintone_app_ids)
 }
 
 /** appId に対応するマッピングを取り出す。未設定/形式不正なら null（呼び出し側がエラーに変える）。 */
@@ -122,6 +115,9 @@ type KintoneRecord = Record<string, KintoneFieldValue>
 
 interface RawRecordsResponse {
   records?: KintoneRecord[]
+  /** `totalCount=true` を付けたときだけ返る、クエリ条件に合致するレコードの総件数（文字列）。
+   * 公式: Get Records の Response Parameters（2026-07 時点で確認）。 */
+  totalCount?: string
 }
 
 interface RawGetRecordResponse {
@@ -291,6 +287,20 @@ function findUpdatedFieldCode(fields: Awaited<ReturnType<typeof fetchAppFields>>
   return fields.find((f) => f.type === KINTONE_FIELDS_UPDATED_TYPE)?.code ?? null
 }
 
+/**
+ * `totalCount=true` を付けて取得したレコード総件数(文字列)を数値化する。
+ * ⚠ 信頼境界: totalCount=trueを明示的に指定しているため、応答にtotalCountが無い/数値化できない
+ * のは応答不整合(無言でページングを打ち切る/続けるのどちらにも倒さず一時失敗として顕在化させる。
+ * 他のレコード単位の信頼境界(resolveDueDate等)と同じ「無言で握り潰さない」方針)。
+ */
+function parseTotalCount(raw: string | undefined, containerId: string): number {
+  const n = typeof raw === 'string' ? Number(raw) : NaN
+  if (!Number.isFinite(n) || n < 0) {
+    throw providerError(`kintone: appId=${containerId} のtotalCountを取得できませんでした(応答不整合)`)
+  }
+  return n
+}
+
 export const kintoneAdapter: TaskSyncAdapter = {
   id: 'kintone',
   authKind: 'api_key',
@@ -366,16 +376,30 @@ export const kintoneAdapter: TaskSyncAdapter = {
     }
 
     // 差分取得(sinceあり): 更新日時フィールドで絞り込み、同フィールドの昇順にする。
-    // 初回全件取得(sinceなし): $id昇順(不変の作成順相当)にする。ページ送り中の更新による並び替えで
-    // 取りこぼしても、次サイクルの重なりで拾い直せる(backlogアダプタと同じ考え方)。
+    //   ⚠ 同一更新日時のレコードが複数あると、その値だけの order by ではページ間の順序が
+    //   保証されず、ページ境界をまたいで同順位のレコードの重複/欠落が起こり得る（公式ドキュメント
+    //   のQuery Stringに「order byを複数指定するにはカンマで区切る」「orderby省略時は$idの降順」の
+    //   記載があり、$idはレコードごとに一意かつ不変のため、確定的な第2ソートキーとして安全に使える。
+    //   https://kintone.dev/en/docs/kintone/overview/query-string/ 2026-07時点で確認）。
+    //   `$id asc` を第2キーに加えて順序を一意に固定する。
+    // 初回全件取得(sinceなし): $id昇順(不変の作成順相当。単独で既に一意)にする。ページ送り中の
+    // 更新による並び替えで取りこぼしても、次サイクルの重なりで拾い直せる(backlogアダプタと同じ考え方)。
     const query =
       opts.since && updatedFieldCode
-        ? `${updatedFieldCode} > "${opts.since}" order by ${updatedFieldCode} asc limit ${PAGE_SIZE} offset ${offset}`
+        ? `${updatedFieldCode} > "${opts.since}" order by ${updatedFieldCode} asc, $id asc limit ${PAGE_SIZE} offset ${offset}`
         : `order by $id asc limit ${PAGE_SIZE} offset ${offset}`
 
     const url = new URL(apiUrl(ctx.credentials.baseUrl, KINTONE_RECORDS_PATH))
     url.searchParams.set('app', containerId)
     url.searchParams.set('query', query)
+    // totalCount=true: 総件数を毎回取得する(公式: Get Records の Response Parameters。
+    // https://kintone.dev/en/docs/kintone/rest-api/records/get-records/ 2026-07時点で確認)。
+    // 「500件返ってきたら次ページがある」という決め打ちだけでは、ちょうどoffset上限
+    // (10,000)の直前のページが偶然ぴったり500件だった場合に、実際には続きが無いのに
+    // 次ページを要求してしまい(offset=10,500はoffset上限超過で必ず失敗する)、エンジンが
+    // カーソルを進められないまま同じ場所で失敗し続ける恐れがある。総件数と突き合わせて
+    // 「本当に続きがあるか」を判定する。
+    url.searchParams.set('totalCount', 'true')
     const res = (await kintoneFetch(
       url.toString(),
       ctx.credentials.token,
@@ -385,14 +409,49 @@ export const kintoneAdapter: TaskSyncAdapter = {
 
     const records = res.records ?? []
     const items = records.map((r) => normalizeRecord(r, containerId, mapping, updatedFieldCode))
-    const hasMore = records.length === PAGE_SIZE
+    const fetchedSoFar = offset + records.length
 
-    return {
-      items,
-      nextCursor: hasMore ? encodeCursor({ offset: offset + records.length, updatedFieldCode }) : null,
+    // records.length が PAGE_SIZE 未満なら、それだけで「もう続きが無い」と確定できる
+    // (総件数を見るまでもない安全な事実)。ちょうど PAGE_SIZE 件返ってきたときだけ、次ページの
+    // 有無が records.length だけでは決められない(それが偶然ぴったり終端という可能性がある)ため
+    // totalCount で判定する。
+    let nextCursor: string | null = null
+    if (records.length === PAGE_SIZE) {
+      const totalCount = parseTotalCount(res.totalCount, containerId)
+      if (fetchedSoFar < totalCount) {
+        if (fetchedSoFar > MAX_OFFSET) {
+          // 続きは確かにあるが、次に必要なoffsetが上限を超える＝offset方式では原理的に
+          // 全件を取り切れない。黙って打ち切らず、恒久失敗として明示する
+          // (将来的にはCursor API(https://kintone.dev/en/docs/kintone/rest-api/records/get-records-cursor/
+          // 相当)への移行で解消できる想定。今回のスコープ外)。
+          throw providerError(
+            `kintone: appId=${containerId} は対象レコードが${totalCount}件あり、offset方式の上限` +
+              `(offset<=${MAX_OFFSET})では全件を取り込めません。取り込み範囲(query)を絞ってください`,
+            { permanent: true, status: 400 },
+          )
+        }
+        nextCursor = encodeCursor({ offset: fetchedSoFar, updatedFieldCode })
+      }
     }
+
+    return { items, nextCursor }
   },
 
+  /**
+   * ⚠ 既知の制約(未対応。設計判断がスコープ外のため次段のPRへ送る):
+   *   プロセス管理のワークフローで、現在のステータスの「次の作業者(Assignee)」を
+   *   ユーザーに選ばせる設定（公式: Update Status の Request Parameters「assignee: Conditionally
+   *   required. Required if the "Assignee List" of the current status is set to "User chooses one
+   *   assignee from the list to take action"」。2026-07時点で確認: 該当ページに missing-assignee
+   *   専用のエラー`code`の記載は無く、レスポンスのError Response(`{code, id, message}`)の一般形
+   *   以上の情報が公式ドキュメントから確認できなかったため、専用の分類は追加しない
+   *   (裏取りできない`code`を推測で決め打ちしない)）では、この実装は `assignee` を一切渡さない
+   *   ため Update Status API 呼び出しが必ず失敗する。次の作業者の指定をマッピングに追加し、
+   *   ウィザードでユーザーに選ばせる設計が必要（設計判断が要るため本PRのスコープ外）。
+   *   該当ワークフローでは client.ts の汎用エラー分類（未知code・非認証系statusは汎用エラー
+   *   メッセージ）にそのまま落ち、`res.status`（kintoneはこの種の入力エラーを400系で返す想定）は
+   *   運用者に伝わるが、原因(assignee不足)を名指しはできない。
+   */
   async completeTask(ctx: ProviderContext, ref: { externalId: string; containerId: string }): Promise<void> {
     const mapping = readMapping(ctx, ref.containerId)
     if (!mapping?.status) {
@@ -404,6 +463,17 @@ export const kintoneAdapter: TaskSyncAdapter = {
     }
     if (!mapping.status.write_done_action) {
       // 検知(done_values)は設定されていても書き戻し先(プロセス管理アクション)が無い＝読み専用の接続。
+      // field_type!=='STATUS' のマッピングは write_done_action が常に null になる契約
+      // (parseKintoneMapping/validateMappingAgainstSchemaがSTATUS型以外への設定を拒否するため)。
+      // その場合は「なぜ書き戻せないか」を名指しする(選択肢フィールドの検知のみで書き戻しには
+      // プロセス管理(STATUS型)が要ることを伝える。単なる「未設定です」より運用者が次に何を
+      // すればいいか分かる)。
+      if (mapping.status.field_type !== 'STATUS') {
+        throw providerError(
+          'kintone: このアプリは完了の書き戻しに対応していません(プロセス管理のステータス(STATUS型)を完了判定に使う設定が必要です。現在は選択肢フィールドの検知のみで書き戻しはできません)',
+          { permanent: true, status: 400 },
+        )
+      }
       throw providerError(
         'kintone: 完了の書き戻し先(write_done_action)が未設定の接続です(選択肢の検知のみで書き戻しはできません)',
         { permanent: true, status: 400 },

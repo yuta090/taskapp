@@ -116,6 +116,25 @@ export function isValidKintoneAppId(value: string): boolean {
   return APP_ID_RE.test(value) && value.length <= 20 // 桁溢れ防止(kintoneのappIdは実務上10桁未満)
 }
 
+/**
+ * 生の値(config.kintone_app_ids。DBのjsonb由来で何の保証も無い unknown)から、妥当な
+ * アプリIDだけを取り出し重複を除いて返す。
+ *
+ * providers/kintone.ts の listContainers/listChangedTasks（アダプタ本体）と、接続作成時の
+ * サーバ側検証（アプリIDが1件も無い接続を作らせないゲート。POST /api/integrations/connections/
+ * task-sync/route.ts）の両方から使う共通の正規化ロジック（重複実装による drift を避けるため
+ * ここに一本化する）。
+ */
+export function normalizeKintoneAppIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const v of raw) {
+    const s = typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' ? v : null
+    if (s && isValidKintoneAppId(s)) out.push(s)
+  }
+  return Array.from(new Set(out))
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -190,6 +209,22 @@ function parseKintoneStatusMapping(raw: unknown): StatusMappingParseResult {
     return {
       ok: false,
       reason: `status.write_done_action must be a non-empty string of at most ${MAX_ID_LEN} characters, or null`,
+    }
+  }
+  // ⚠ write_done_action(プロセス管理のアクション実行)を指定できるのは field_type==='STATUS' のときだけ。
+  //   completeTask(providers/kintone.ts)の書き戻しは常にプロセス管理の Update Status API を使い、
+  //   これが更新するのは STATUS フィールドの値のみ（公式: Field Types「Status (Process management
+  //   status): Values for this field cannot be created or updated」＝通常のレコード更新APIでは書けない
+  //   一方で、マッピングされた選択肢フィールド(DROP_DOWN/RADIO_BUTTON/CHECK_BOX)はそもそも別物）。
+  //   DROP_DOWN等でwrite_done_actionを許すと「TaskAppで完了→書き戻し成功(に見える)→実際は
+  //   マッピングされた選択肢フィールドが更新されず→次の取り込みで未完了と判定→完了が永久に
+  //   定着しない」という無言の不整合になるため、parse時点で拒否する。
+  if (fieldType !== 'STATUS' && raw.write_done_action !== null) {
+    return {
+      ok: false,
+      reason:
+        'status.write_done_action can only be set when status.field_type is STATUS ' +
+        '(non-STATUS choice fields are read-only for completion sync; use null)',
     }
   }
 
@@ -304,7 +339,7 @@ export function validateMappingAgainstSchema(
   }
 
   if (mapping.status !== null) {
-    const { field_code, field_type, done_values } = mapping.status
+    const { field_code, field_type, done_values, write_done_action } = mapping.status
     const prop = findFieldByCode(liveFields, field_code)
     if (!prop) {
       return { valid: false, reason: `status.field_code: フィールドが見つかりません(code=${field_code})` }
@@ -313,6 +348,16 @@ export function validateMappingAgainstSchema(
       return {
         valid: false,
         reason: `status.field_type: 実際の型と一致しません(code=${field_code}, 宣言=${field_type}, 実際=${prop.type})`,
+      }
+    }
+
+    // ⚠ 防御的二重チェック(parseKintoneMappingと同じ制約): write_done_actionはSTATUS型でのみ許す。
+    //   通常はparse時点で拒否されるため新規保存では起こり得ないが、この制約導入前に保存された
+    //   既存データ（DBのjsonbを直接経由した場合も含む）に対する drift 検証としても効かせる。
+    if (write_done_action !== null && field_type !== 'STATUS') {
+      return {
+        valid: false,
+        reason: `status.write_done_action: STATUS型以外(実際=${field_type})では書き戻し(write_done_action)を設定できません`,
       }
     }
 
