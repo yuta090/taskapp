@@ -18,6 +18,8 @@
  * 永続化は承認RPC側の対応が要るため v1 では未実施＝将来のguild単位機能用に確保）。
  */
 
+import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
+
 export interface DiscordIngestAuthor {
   id: string
   isBot: boolean
@@ -38,6 +40,8 @@ export interface DiscordIngestEvent {
 export interface DiscordPlatformAccount {
   id: string
   botToken: string
+  /** credentials.bot_external_id（DDLゼロ・Fable裁定 論点4）。自分宛メンション判定に使う。未設定なら剥がさない。 */
+  botExternalId?: string
 }
 
 export interface DiscordActiveGroup {
@@ -73,6 +77,22 @@ export interface DiscordInsertInput {
   occurredAt: string
 }
 
+/** 秘書の発話（完了コマンドへの応答）の outbound 記録入力。 */
+export interface DiscordOutboundInput {
+  orgId: string
+  spaceId: string | null
+  accountId: string
+  groupId: string
+  channel: 'discord'
+  direction: 'outbound'
+  actor: 'secretary'
+  body: string
+  payload: Record<string, unknown>
+  status: 'sent' | 'failed'
+  error: string | null
+  occurredAt: string
+}
+
 export interface DiscordIngestDeps {
   loadPlatformAccount: () => Promise<DiscordPlatformAccount | null>
   findActiveGroup: (accountId: string, channelId: string) => Promise<DiscordActiveGroup | null>
@@ -104,6 +124,14 @@ export interface DiscordIngestDeps {
   generateChallengeLabel: () => string
   registerInvalidAttempt: (accountId: string, channelId: string) => boolean
   reply: (botToken: string, channelId: string, text: string) => Promise<void>
+  /** digest_number で当該グループの申し送りタスクを完了する（アトミック）。存在しなければ null */
+  completeDigestTask: (
+    groupId: string,
+    digestNumber: number,
+    externalUserId: string | null,
+  ) => Promise<{ id: string; title: string } | null>
+  /** 秘書の発話を outbound として記録する */
+  insertOutbound: (input: DiscordOutboundInput) => Promise<unknown>
 }
 
 // 返信文言。存在/理由/プランを推測させないため、無効系は同一文言に畳む（LINE §3 と同思想）。
@@ -118,6 +146,18 @@ export function buildAcceptedText(challengeLabel: string): string {
     '受け付けました。管理画面での承認後に、このチャンネルの会話を記録します。' +
     `お問い合わせの際は確認番号「${challengeLabel}」をお伝えください。`
   )
+}
+
+// LINE の ALREADY_DONE_TEXT（line/webhookHandler.ts）と同一文言。line/webhookHandler.ts は
+// LINE client・digest postback 等の重い依存を抱える巨大な処理ファイルで、文言1つのために
+// Discord側からimportすると channel 間に不要な結合が生まれるため、ここで意図的に重複定義する
+// （変更する場合は両方を揃える）。
+export const ALREADY_DONE_TEXT = 'そのタスクは既に完了済みです。'
+
+/** 完了コマンドで実際にタスクを完了できた場合の返信文言。LINEの記名Flexに相当するものは
+ *  Discordには無いため、プレーンテキストで簡潔に伝える。 */
+export function buildDigestDoneText(title: string): string {
+  return `「${title}」を完了にしました。`
 }
 
 export interface DiscordIngestResult {
@@ -161,6 +201,52 @@ function insertRecord(
     error: null,
     occurredAt,
   }
+}
+
+// Discordのユーザー/Botメンション表記。先頭一致のみ剥がす（文中の言及は対象外）。
+const SELF_MENTION_PREFIX_RE = /^<@!?(\d+)>/
+
+/**
+ * 先頭が「自分（Bot）宛」のメンションのときだけ剥がす。botExternalId 未設定、または
+ * 他人宛メンションのときは無加工で返す（fail-safe）。
+ * メンションは宛先の指定であって合図ではない — 剥がした後の文字列を厳格文法
+ * （parseDigestCompleteCommand）にそのまま渡すことで誤爆を防ぐ（呼び出し側の責務）。
+ */
+function stripSelfMentionPrefix(content: string, botExternalId: string | undefined): string {
+  if (!botExternalId) return content
+  const match = content.match(SELF_MENTION_PREFIX_RE)
+  if (!match || match[1] !== botExternalId) return content
+  return content.slice(match[0].length)
+}
+
+/**
+ * claimed グループでの「完了N」処理（LINE の handleDigestCompleteCommand と同骨格）。
+ * 呼び出し元で本文は既に通常発言として記録済み（監査ログ）。ここでは完了実行と返信のみ行う。
+ */
+async function handleDigestCompleteCommand(
+  account: DiscordPlatformAccount,
+  ev: DiscordIngestEvent,
+  group: DiscordActiveGroup,
+  digestNumber: number,
+  deps: DiscordIngestDeps,
+): Promise<void> {
+  const result = await deps.completeDigestTask(group.id, digestNumber, ev.author.id ?? null)
+  const text = result ? buildDigestDoneText(result.title) : ALREADY_DONE_TEXT
+  await deps.reply(account.botToken, ev.channelId, text)
+  await deps.insertOutbound({
+    orgId: group.orgId,
+    spaceId: group.spaceId,
+    accountId: account.id,
+    groupId: group.id,
+    channel: 'discord',
+    direction: 'outbound',
+    actor: 'secretary',
+    body: text,
+    payload: { autoReplyTo: ev.messageId },
+    status: 'sent',
+    error: null,
+    occurredAt: new Date().toISOString(),
+  })
 }
 
 async function processLimbo(
@@ -249,8 +335,18 @@ export async function handleDiscordIngest(
     try {
       const group = await deps.findActiveGroup(account.id, ev.channelId)
       if (group) {
+        // 「完了N」自体も通常の発言としてまず記録する（監査ログ・順序は変えない）
         const recorded = await deps.insertMessage(insertRecord(account.id, group, ev))
-        if (recorded !== 'duplicate') inserted += 1
+        if (recorded !== 'duplicate') {
+          inserted += 1
+          if (ev.content) {
+            const commandText = stripSelfMentionPrefix(ev.content, account.botExternalId)
+            const digestNumber = parseDigestCompleteCommand(commandText)
+            if (digestNumber !== null) {
+              await handleDigestCompleteCommand(account, ev, group, digestNumber, deps)
+            }
+          }
+        }
         continue
       }
 
