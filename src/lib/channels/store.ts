@@ -2665,11 +2665,14 @@ export async function getLineSelfServeState(orgId: string): Promise<LineSelfServ
 /**
  * 共通LINE の利用を org 側から申し込む（none→requested）。冪等（granted/requested は no-op）。
  * granted を絶対に downgrade しない（先に現状を読んでガード）。付与(→granted)は ops(service role)のみ。
+ *
+ * 戻り値の `transitioned` は「今回この呼び出しで実際に none→requested へ遷移したか」。
+ * 呼び出し側は**これが true のときだけ運営へ通知**する（再申込の連打で運営のメールを溢れさせない）。
  */
 export async function requestSharedBotAccess(
   orgId: string,
   userId: string,
-): Promise<'requested' | 'granted'> {
+): Promise<{ access: 'requested' | 'granted'; transitioned: boolean }> {
   const { data, error } = await admin()
     .from('org_channel_policy')
     .select('shared_bot_access')
@@ -2677,8 +2680,8 @@ export async function requestSharedBotAccess(
     .maybeSingle()
   if (error) throw new Error(`org_channel_policy: read failed: ${error.message}`)
   const current = (data as { shared_bot_access?: string } | null)?.shared_bot_access
-  if (current === 'granted') return 'granted'
-  if (current === 'requested') return 'requested'
+  if (current === 'granted') return { access: 'granted', transitioned: false }
+  if (current === 'requested') return { access: 'requested', transitioned: false }
 
   const { error: upErr } = await admin()
     .from('org_channel_policy')
@@ -2692,7 +2695,7 @@ export async function requestSharedBotAccess(
       { onConflict: 'org_id' },
     )
   if (upErr) throw new Error(`org_channel_policy: request upsert failed: ${upErr.message}`)
-  return 'requested'
+  return { access: 'requested', transitioned: true }
 }
 
 export interface SharedBotAccessRequest {

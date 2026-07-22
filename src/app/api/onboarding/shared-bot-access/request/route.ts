@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
 import { requestSharedBotAccess } from '@/lib/channels/store'
+import { notifySharedBotAccessRequested } from '@/lib/channels/sharedBotRequestNotify'
 import { isValidUuid } from '@/lib/uuid'
 
 export const runtime = 'nodejs'
@@ -31,7 +32,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const access = await requestSharedBotAccess(orgId, auth.userId)
+    const { access, transitioned } = await requestSharedBotAccess(orgId, auth.userId)
+
+    // 新規申込のときだけ運営(superadmin)へメールで知らせる。これが無いと
+    // 「申し込んだのに誰も気づかない」で開通が止まる。再申込(transitioned=false)では
+    // 送らない＝連打で運営のメールを溢れさせない。
+    // ベストエフォート: 通知が失敗しても申込自体は成功として返す（記録はもう確定している）。
+    if (transitioned) {
+      try {
+        await notifySharedBotAccessRequested({ orgId })
+      } catch (err) {
+        console.error('shared-bot-access/request: notify failed', orgId, err)
+      }
+    }
+
     return NextResponse.json({ access })
   } catch (error) {
     console.error('shared-bot-access/request: failed', error)
