@@ -51,13 +51,15 @@ export interface KintoneStatusMapping {
   /**
    * 書き: TaskApp で完了したとき実行する、プロセス管理の「アクション」名。null=完了書き戻しなし。
    *
-   * ⚠ kintone は STATUS（プロセス管理）フィールドの値を通常のレコード更新APIでは書けず
+   * ⚠ **field_type === 'STATUS' のときだけ非nullにできる**（それ以外の型で非nullなら
+   * parseKintoneStatusMapping / validateMappingAgainstSchema が拒否する）。
+   * 理由: kintone は STATUS（プロセス管理）フィールドの値を通常のレコード更新APIでは書けず
    * （公式: Field Types「Status (Process management status): Values for this field cannot be
-   * created or updated」）、専用の Update Status API（プロセス管理のアクション実行）でのみ
-   * 前進できる。したがって書き戻しは field_type に関わらず常にこのアクション実行APIを使う
-   * （field_type が DROP_DOWN 等でも、write_done_action が設定されていればそちらを実行する。
-   * その場合そのアプリ自体にプロセス管理が別途有効化されている必要があり、無効なアプリに対して
-   * 実行すると kintone 側がエラーを返す＝設定不備として自然に顕在化する）。
+   * created or updated」）、専用の Update Status API（プロセス管理のアクション実行）でのみ前進できる。
+   * 書き戻し(completeTask)は常にこのアクション実行APIを使うため、更新されるのは STATUS フィールド
+   * だけであり、マッピング先が DROP_DOWN/RADIO_BUTTON/CHECK_BOX のときに書き戻しを許すと
+   * 「書き戻し成功に見えるのにマッピング先は変わらず、次の取り込みで未完了に戻る」という
+   * 無言の不整合になる。詳細は parseKintoneStatusMapping の同名の注意書きを参照。
    */
   write_done_action: string | null
 }

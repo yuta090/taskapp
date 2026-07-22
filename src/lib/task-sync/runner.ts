@@ -1,7 +1,7 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { resolveCredentials, type ConnectionCredentialRow } from '@/lib/task-sync/credentials'
-import { importConnection, type ImportTargets } from '@/lib/task-sync/engine'
+import { importConnection, type ImportTargets, type MissingContainerMap } from '@/lib/task-sync/engine'
 import { createTaskSyncStore, validateImportTargets } from '@/lib/task-sync/store'
 
 /**
@@ -56,17 +56,42 @@ interface ConnectionRow extends ConnectionCredentialRow {
   import_missing_containers: unknown
 }
 
+/** MissingContainerEntry.reason として有効な値。 */
+const VALID_MISSING_REASONS = new Set(['missing', 'pending_config'])
+
 /**
  * 欠落台帳(import_missing_containers)の生値(jsonbから来たunknown)を検証・正規化する。
- * 壊れた値（配列・非object・値が文字列でないエントリを含む等）はエンジンを落とさず空扱いに
+ * 壊れた値（配列・非object・値が不正な形式のエントリを含む等）はエンジンを落とさず空扱いに
  * フォールバックする。1行の壊れた値でその接続の取り込みが恒久停止するのを避けるため
  * （isPollDue の「壊れた時刻は叩く側に倒す」と同じ安全側の考え方）。
+ *
+ * ⚠ 後方互換(欠落台帳へpendingConfigを統合する前に書かれた行への配慮): 統合前は
+ * `{ containerId: string(cursor値) }` という「値が文字列そのもの」の形で書かれていた
+ * （稼働中7アダプタ=Backlog/Jooto/Jira/Redmine/Asana/Trello/Linearが既にこの列を使っている）。
+ * 本番DBのこの列を書き換えるマイグレーションは行わない方針のため、ここで両方の形を読めるように
+ * する: 値が文字列ならレガシー形式とみなし reason='missing' として正規化する（統合前は
+ * 'pending_config' というreasonは存在し得なかったため、レガシーの文字列値は全て'missing'として
+ * 読んで問題ない）。値が新形式(`{cursor, reason}`)ならそのまま使う。次にこの接続が
+ * saveCursor/saveMissingContainers で書き戻されるときに新形式へ自己修復される。
  */
-function parseStoredMissing(raw: unknown): Record<string, string> {
+function parseStoredMissing(raw: unknown): MissingContainerMap {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const out: Record<string, string> = {}
+  const out: MissingContainerMap = {}
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof value === 'string') out[key] = value
+    if (typeof value === 'string') {
+      out[key] = { cursor: value, reason: 'missing' }
+      continue
+    }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      typeof (value as { cursor?: unknown }).cursor === 'string' &&
+      VALID_MISSING_REASONS.has((value as { reason?: unknown }).reason as string)
+    ) {
+      out[key] = value as MissingContainerMap[string]
+    }
+    // それ以外の壊れたエントリ(型不正)は、1件のキーの異常が台帳全体を殺さないよう、そのキーだけ捨てる。
   }
   return out
 }
@@ -288,5 +313,11 @@ async function runOne(
   if (result.skipped) {
     summary.skipped++
     summary.reasons.push(`${conn.provider}: ${result.reason ?? 'skipped'}`)
+  }
+  // 部分成功（他のコンテナは同期できた）でも、設定待ちのコンテナがあることは運用ログに残す
+  // （UI側の「未設定」バッジが主だが、cron ログからも気づけるようにする。skip扱いにはしない
+  // ＝他のコンテナの同期自体は成功しているため）。
+  if (result.pendingConfigContainers && result.pendingConfigContainers.length > 0 && !result.skipped) {
+    summary.reasons.push(`${conn.provider}: pending_config(${result.pendingConfigContainers.join(',')})`)
   }
 }

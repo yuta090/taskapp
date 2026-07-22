@@ -484,6 +484,10 @@ function notionMappingProposalQueryKey(orgId: string, connectionId: string, data
  *
  * ⚠ retry: 0 は必須。QueryProvider既定のretry(1)を継ぐと、失敗時にLLMが2回課金される。
  * ⚠ refetchOnWindowFocus: false。タブ復帰のたびに提案(LLM)を叩き直さない。
+ * ⚠ refetchOnReconnect: false。既定(v5はtrue)のままだと、エディタを開いたままstaleTime(5分)を
+ * 超えてネットワークが一瞬切れて復帰しただけでproposeが自動再実行され、①LLMが再課金される
+ * ②このクエリの結果はuseEffectでフォームへ書き戻すため、利用者が選択中の値が黙って
+ * 上書きされる、という二重の実害がある。
  * ⚠ staleTime を長め(5分)にする: 保存API(notion/mapping route)がライブスキーマへ再検証してから
  * 保存するため、提案キャッシュが多少古くても静かに壊れることはない(型不一致等は理由付きで400
  * になるだけ)。
@@ -527,6 +531,7 @@ export function useNotionMappingProposal({
     staleTime: 5 * 60_000,
     retry: 0,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   return {
@@ -534,6 +539,257 @@ export function useNotionMappingProposal({
     isLoading,
     error: error instanceof Error ? error.message : null,
   }
+}
+
+// ---- ここから: kintone アプリの追加・削除（KintoneConnectPanel.tsx / KintoneAppsPanel.tsx から使う） ----
+
+export interface AddKintoneAppInput {
+  orgId: string
+  connectionId: string
+  appId: string
+  apiToken: string
+}
+
+export interface AddKintoneAppResult {
+  appIds: string[]
+}
+
+/**
+ * kintoneアプリの追加（POST /api/integrations/connections/kintone/apps）。owner/adminのみ。
+ * サーバ側が新しいトークンで疎通確認してから保存する（間違ったトークンを保存させない）。
+ *
+ * ⚠ 判断（実装ランナーへの委任事項への回答。理由を明記のうえ実装する）:
+ * 成功したら接続一覧(kintone_app_ids)だけを無効化し、containers一覧(listContainers。最大9
+ * アプリぶんの直列外部往復)は無効化しない。route.ts が追加時に呼ぶ fetchAppFields はフィールド
+ * 定義(schema)を返すだけでアプリ名を持たないため、レスポンスへ名前を含めるには kintone 側への
+ * 別API往復を新たに追加する必要があり、それは「往復を減らす」目的と矛盾する。
+ * KintoneAppsPanel.tsx の修正（登録済みアプリ一覧の正本を kintone_app_ids にし、containers
+ * 一覧はタイトル解決だけの補助情報にする）により、追加直後は新しいアプリだけ生の app_id で
+ * 表示され（表示が壊れることはない）、手動の「再読み込み」を押せばタイトルへ更新される。
+ */
+export function useAddKintoneApp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: AddKintoneAppInput): Promise<AddKintoneAppResult> => {
+      const response = await fetch('/api/integrations/connections/kintone/apps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          connection_id: input.connectionId,
+          app_id: input.appId,
+          api_token: input.apiToken,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'アプリの追加に失敗しました')
+      return { appIds: json.app_ids }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+    },
+  })
+}
+
+export interface RemoveKintoneAppInput {
+  orgId: string
+  connectionId: string
+  appId: string
+}
+
+export interface RemoveKintoneAppResult {
+  appIds: string[]
+}
+
+/**
+ * kintoneアプリの削除（DELETE /api/integrations/connections/kintone/apps）。owner/adminのみ。
+ * `kintone_mappings[app_id]` は削除しない(Notionと同じ「確定済み設定は残す」挙動。サーバ側の
+ * RPCコメント参照)。
+ *
+ * ⚠ containers一覧はinvalidateしない(表示速度是正)。削除は集合からの純粋な引き算であり、
+ * 外部(kintone)から新しく取ってくる情報を何も必要としない。それにもかかわらずcontainers一覧
+ * (listContainers。最大9アプリぶんの直列外部往復)をinvalidateすると、1件消すたびに残り全
+ * アプリぶんの往復が走ってしまう。ここではcontainersキャッシュへsetQueryDataで直接
+ * 引き算を反映し、外部往復ゼロで整合させる(containers一覧が一度も取得されていない=undefined
+ * のときは何もしない。未取得の状態にキャッシュを新規作成すると、他所のisLoading判定などが
+ * 崩れるため)。
+ */
+export function useRemoveKintoneApp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: RemoveKintoneAppInput): Promise<RemoveKintoneAppResult> => {
+      const response = await fetch('/api/integrations/connections/kintone/apps', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_id: input.orgId, connection_id: input.connectionId, app_id: input.appId }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'アプリの削除に失敗しました')
+      return { appIds: json.app_ids }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+      queryClient.setQueryData<ContainersResponse>(
+        containersQueryKey(input.orgId, input.connectionId),
+        (old) => {
+          if (!old) return old
+          return { ...old, containers: old.containers.filter((c) => c.id !== input.appId) }
+        },
+      )
+    },
+  })
+}
+
+// ---- ここから: kintone マッピングウィザードが要るフック群（KintoneAppsPanel.tsx から使う） ----
+// notion版(useNotionMappingProposal/useSaveNotionMapping)と同じ設計。kintoneはtitleも必須で
+// 選ばせる点、選択肢は選択肢名(文字列)で対応づける点がNotionと異なる(サーバ側の型と揃える)。
+
+/** status サブオブジェクトの入出力形（src/lib/task-sync/providers/kintone/mapping.ts の型と同じ形）。 */
+export interface KintoneStatusMappingInput {
+  field_code: string
+  field_type: 'STATUS' | 'DROP_DOWN' | 'RADIO_BUTTON' | 'CHECK_BOX'
+  done_values: string[]
+  write_done_action: string | null
+}
+
+/** 保存前（confirmed_at を持たない）のマッピング候補・確定候補の共通形。 */
+export interface KintoneMappingCandidate {
+  title_field_code: string | null
+  due_field_code: string | null
+  status: KintoneStatusMappingInput | null
+}
+
+export interface KintoneSchemaField {
+  code: string
+  label: string
+  type: string
+  /** DROP_DOWN/RADIO_BUTTON/CHECK_BOXのときだけ選択肢名の配列を持つ。 */
+  options?: string[]
+}
+
+export type KintoneSchema = KintoneSchemaField[]
+
+export type KintoneProposalSource = 'ai' | 'heuristic'
+export type KintoneAiUnavailableReason = 'ai_unconfigured' | 'llm_error' | 'invalid_response'
+
+export interface ProposeKintoneMappingResult {
+  schema: KintoneSchema
+  proposal: KintoneMappingCandidate
+  proposalSource: KintoneProposalSource
+  aiUnavailableReason?: KintoneAiUnavailableReason
+}
+
+export interface UseKintoneMappingProposalInput {
+  orgId: string
+  connectionId: string
+  appId: string
+  /** 行を展開している間だけtrueにする(エディタが閉じている間はfetchしない)。 */
+  enabled: boolean
+}
+
+function kintoneMappingProposalQueryKey(orgId: string, connectionId: string, appId: string) {
+  return ['kintoneMappingProposal', orgId, connectionId, appId] as const
+}
+
+/**
+ * kintoneマッピング提案の取得（POST /api/integrations/connections/kintone/mapping/propose）。
+ * 「1回確認して確定する」ウィザードの入口。useNotionMappingProposalと同じ理由でuseQuery化する
+ * (開閉のたびにLLMを呼び直さない・StrictModeの二重実行に耐える)。
+ *
+ * ⚠ retry: 0 は必須。QueryProvider既定のretry(1)を継ぐと、失敗時にLLMが2回課金される。
+ * ⚠ refetchOnWindowFocus: false。タブ復帰のたびに提案(LLM)を叩き直さない。
+ * ⚠ refetchOnReconnect: false。既定(v5はtrue)のままだと、エディタを開いたままstaleTime(5分)を
+ * 超えてネットワークが一瞬切れて復帰しただけでproposeが自動再実行され、①LLMが再課金される
+ * ②このクエリの結果はuseEffectでフォームへ書き戻すため、利用者が選択中の値が黙って
+ * 上書きされる、という二重の実害がある(useNotionMappingProposalと同じ理由)。
+ * ⚠ AbortSignalをqueryFnに渡す。エディタを閉じて(enabled:falseになって)クエリが不要になったら
+ * react-queryが進行中のfetchを中断する。
+ */
+export function useKintoneMappingProposal({ orgId, connectionId, appId, enabled }: UseKintoneMappingProposalInput) {
+  const queryKey = useMemo(
+    () => kintoneMappingProposalQueryKey(orgId, connectionId, appId),
+    [orgId, connectionId, appId],
+  )
+
+  const { data, isLoading, error } = useQuery<ProposeKintoneMappingResult>({
+    queryKey,
+    queryFn: async ({ signal }): Promise<ProposeKintoneMappingResult> => {
+      const response = await fetch('/api/integrations/connections/kintone/mapping/propose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_id: orgId, connection_id: connectionId, app_id: appId }),
+        signal,
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'マッピング案の取得に失敗しました')
+      return {
+        schema: json.schema,
+        proposal: json.proposal,
+        proposalSource: json.proposal_source,
+        aiUnavailableReason: json.ai_unavailable_reason,
+      }
+    },
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+
+  return {
+    data,
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+  }
+}
+
+export interface SaveKintoneMappingInput {
+  orgId: string
+  connectionId: string
+  appId: string
+  mapping: KintoneMappingCandidate
+}
+
+export interface SaveKintoneMappingResult {
+  appId: string
+  mapping: KintoneMappingCandidate & { confirmed_at: string }
+}
+
+/**
+ * kintoneマッピングの確認・確定保存（PUT /api/integrations/connections/kintone/mapping）。
+ * owner/adminのみ。成功したら接続一覧(import_config)だけを無効化する。
+ *
+ * ⚠ containers一覧はここで無効化しない(useSaveNotionMappingと同じ理由)。保存APIは
+ * kintone_app_ids(＝登録済みアプリの集合)を一切変更しないため、containers一覧(listContainers。
+ * 高コストな外部往復)を再取得する必要が無い。「設定済み/未設定」バッジは
+ * connection.importConfig.kintone_mappings(上でinvalidateしたconnectorConnections)から
+ * 導出する(バッジの真実源を二重化しない。KintoneAppsPanel.tsxのコメント参照)。
+ */
+export function useSaveKintoneMapping() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: SaveKintoneMappingInput): Promise<SaveKintoneMappingResult> => {
+      const response = await fetch('/api/integrations/connections/kintone/mapping', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          connection_id: input.connectionId,
+          app_id: input.appId,
+          mapping: input.mapping,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'マッピングの保存に失敗しました')
+      return { appId: json.app_id, mapping: json.mapping }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+    },
+  })
 }
 
 export interface SaveNotionMappingInput {

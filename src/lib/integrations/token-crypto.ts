@@ -29,7 +29,14 @@ function admin(): SupabaseClient {
   return _supabaseAdmin
 }
 
-function getEncryptionKey(): string {
+/**
+ * SYSTEM_ENCRYPTION_KEY を読む。encryptToken/decryptToken の内部だけでなく、DB側で
+ * decrypt_system_secret/encrypt_system_secret を直接呼ぶRPC（例: rpc_kintone_apps_add/remove。
+ * 複数アプリのトークンを1トランザクションで束ね直す都合上、暗号鍵をRPC引数として渡す必要がある）
+ * にも同じ鍵を渡す必要があるため、呼び出し元から読めるようここだけexportする。
+ * 鍵そのものはログ・レスポンスに一切出さないこと。
+ */
+export function getEncryptionKey(): string {
   const key = process.env.SYSTEM_ENCRYPTION_KEY
   if (!key) throw new Error('SYSTEM_ENCRYPTION_KEY is not configured')
   return key

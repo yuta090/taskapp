@@ -1,5 +1,6 @@
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { KINTONE_HOST_POLICY } from '@/lib/task-sync/providers/kintone/client'
+import { isValidKintoneAppId } from '@/lib/task-sync/providers/kintone/mapping'
 
 /**
  * kintone アプリURLの解析（純関数） — 接続ウィザードで「アプリIDの数値を探させず、開いている
@@ -31,6 +32,12 @@ function isBareAppId(input: string): boolean {
   return /^\d+$/.test(input)
 }
 
+/** URLのhostnameからkintoneのサブドメイン部分を取り出す(サフィックス無ければnull)。 */
+function subdomainFromHostname(hostname: string): string | null {
+  const suffixMatch = /\.(cybozu\.com|kintone\.com)$/i.exec(hostname)
+  return suffixMatch ? hostname.slice(0, -suffixMatch[0].length) : null
+}
+
 export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
   const trimmed = input.trim()
   if (trimmed.length === 0) {
@@ -38,6 +45,11 @@ export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
   }
 
   if (isBareAppId(trimmed)) {
+    // 数字だけの入力は桁数の上限が無いと、巨大な文字列がそのままアプリIDとして保存され得る
+    // （mapping.ts の isValidKintoneAppId と同じ上限＝20桁。kintoneのappIdは実務上10桁未満）。
+    if (!isValidKintoneAppId(trimmed)) {
+      return { ok: false, reason: 'アプリIDの桁数が多すぎます(20桁以内で指定してください)' }
+    }
     return { ok: true, data: { subdomain: null, appId: trimmed } }
   }
 
@@ -61,11 +73,74 @@ export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
     return { ok: false, reason: 'URLからアプリIDを特定できません(/k/<数字>/ の形式ではありません)' }
   }
 
-  const suffixMatch = /\.(cybozu\.com|kintone\.com)$/i.exec(url.hostname)
-  const subdomain = suffixMatch ? url.hostname.slice(0, -suffixMatch[0].length) : null
+  const subdomain = subdomainFromHostname(url.hostname)
   if (!subdomain) {
     return { ok: false, reason: 'URLからサブドメインを特定できません' }
   }
+  // 抽出したサブドメインにも、裸入力と同じ DNSラベル規則を適用する。
+  // parseKintoneSubdomainInput 側では是正済みだったのにこちらが漏れていた（外部レビュー指摘）。
+  // SSRF境界そのものは assertAllowedHost が別途守るが、ここを緩めると不正な形のサブドメインが
+  // そのまま baseUrl に組み込まれて保存され得る。2つの入力経路で検証がズレていること自体が事故のもと。
+  if (!BARE_SUBDOMAIN_RE.test(subdomain)) {
+    return { ok: false, reason: 'サブドメインの形式が正しくありません' }
+  }
 
   return { ok: true, data: { subdomain, appId: match[1] } }
+}
+
+export type ParseKintoneSubdomainResult =
+  | { ok: true; baseUrl: string; subdomain: string }
+  | { ok: false; reason: string }
+
+/**
+ * 裸のサブドメイン(英数字とハイフンのみ。kintoneのサブドメイン規則に合わせる)かどうか。
+ *
+ * サブドメインは実質DNSラベル1つ分であり、DNSラベルの実際の制約(RFC 1035: 先頭・末尾は
+ * 英数字のみ・ハイフンは中間にのみ許可・最大63文字)に合わせる。この検証が無いと、
+ * 「-foo」のような先頭ハイフンや、異常に長い文字列がそのまま baseUrl に組み込まれて保存され得る
+ * （組み立てた URL 自体は assertAllowedHost が受理してしまい、ここでしか弾けない）。
+ */
+const BARE_SUBDOMAIN_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/
+
+/**
+ * 接続フォームの「サブドメイン」欄の解析（純関数）— parseKintoneAppUrl と違い `/k/<数字>/`
+ * パスを要求しない(サブドメインの入力だけで完結する欄のため)。
+ *
+ * 受理する形:
+ *   - 裸のサブドメイン(例: `my-company`) → `https://my-company.cybozu.com` を組み立てる
+ *   - サブドメインを含む任意のURL(パス有無を問わない。例: `https://foo.cybozu.com/k/123/` を
+ *     誤って貼っても、パスを無視してサブドメインだけ取り出す＝利用者に優しい)
+ *
+ * ホスト境界の検証(vendor-domain・ドット境界一致・https限定・認証情報禁止・標準ポート限定)は
+ * parseKintoneAppUrl と同じ assertAllowedHost に委譲する(境界判定を2箇所に分岐させない)。
+ */
+export function parseKintoneSubdomainInput(input: string): ParseKintoneSubdomainResult {
+  const trimmed = input.trim()
+  if (trimmed.length === 0) {
+    return { ok: false, reason: 'サブドメインを入力してください' }
+  }
+
+  if (BARE_SUBDOMAIN_RE.test(trimmed)) {
+    return { ok: true, baseUrl: `https://${trimmed}.cybozu.com`, subdomain: trimmed }
+  }
+
+  let url: URL
+  try {
+    url = assertAllowedHost(KINTONE_HOST_POLICY, trimmed, 'kintone')
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : 'kintoneの正規ドメインのURLではありません' }
+  }
+
+  const subdomain = subdomainFromHostname(url.hostname)
+  // ⚠ 是正済み(外部レビュー指摘): 裸のサブドメイン入力(BARE_SUBDOMAIN_RE.test(trimmed)の分岐)には
+  // DNSラベル規則(先頭・末尾は英数字のみ・最大63文字)を適用していたが、URL形式で入力されたときは
+  // 抽出後のサブドメインにこの検証を適用していなかった。URLコンストラクタは
+  // "-foo.cybozu.com"(先頭ハイフン)・"foo-.cybozu.com"(末尾ハイフン)・"a.b.cybozu.com"
+  // (複数ラベル)・64文字超のラベルをそのまま受理してしまうため、ここで通さないと不正な形式の
+  // サブドメインがそのまま baseUrl に組み込まれて保存され得る。裸入力と同じ BARE_SUBDOMAIN_RE を通す。
+  if (!subdomain || !BARE_SUBDOMAIN_RE.test(subdomain)) {
+    return { ok: false, reason: 'URLからサブドメインを特定できません' }
+  }
+
+  return { ok: true, baseUrl: url.origin, subdomain }
 }

@@ -82,21 +82,79 @@ function configuredAppIds(ctx: ProviderContext): string[] {
   return normalizeKintoneAppIds(ctx.config?.kintone_app_ids)
 }
 
+/**
+ * kintone_mappings の**親オブジェクト**が「エントリを引ける形」(null/配列でない object)か。
+ *
+ * ⚠ 経緯(外部レビュー指摘・親オブジェクトの型破損が「未設定」に倒れている): kintone_mappings
+ * そのものが null・配列・文字列など壊れた型のとき、以前は `!raw || typeof raw !== 'object'` で
+ * 「エントリが無い」＝ pendingConfig（設定途中の正常な状態）と同列に判定していた。しかし
+ * `typeof null === 'object'` であることに加え、配列も `typeof` は 'object' を返すため、
+ * この判定漏れは「親そのものが異常」というdriftと同じ性質の異常を、正常な設定途中として
+ * 黙って対象外にしてしまっていた（drift検知が弱まる）。
+ *
+ * `undefined`（kintone_mappingsキー自体が無い。まだ1つもマッピングを保存していない接続の
+ * 初期状態）だけは正常とみなす（呼び出し側 requireMapping がその場合だけ hasMappingEntry の
+ * 結果に委ねてpendingConfigに倒す）。`undefined`以外でこの関数が false を返すとき
+ * （null・配列・文字列・数値・真偽値）は、requireMapping が pendingConfig を立てない恒久エラーに
+ * 倒す。
+ */
+function isMappingsParentObject(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+}
+
 /** appId に対応するマッピングを取り出す。未設定/形式不正なら null（呼び出し側がエラーに変える）。 */
 function readMapping(ctx: ProviderContext, appId: string): KintoneMapping | null {
   const raw = ctx.config?.kintone_mappings
-  if (!raw || typeof raw !== 'object') return null
-  const candidate = (raw as Record<string, unknown>)[appId]
+  if (!isMappingsParentObject(raw)) return null
+  const candidate = raw[appId]
   if (candidate === undefined) return null
   const parsed = parseKintoneMapping(candidate)
   return parsed.ok ? parsed.data : null
 }
 
-/** マッピング必須の操作(listChangedTasks)用。無ければ再試行しても直らない設定不備として止める。 */
+/**
+ * appId が kintone_mappings に**エントリとして存在するか**（値の妥当性は問わない）。
+ * readMapping は「無い」と「あるが不正」を区別せず null に潰すため、requireMapping が
+ * 「未マッピング(設定途中の正常な状態)」と「マッピングが壊れている(異常)」を分けるために使う。
+ */
+function hasMappingEntry(ctx: ProviderContext, appId: string): boolean {
+  const raw = ctx.config?.kintone_mappings
+  if (!isMappingsParentObject(raw)) return false
+  return Object.prototype.hasOwnProperty.call(raw, appId)
+}
+
+/**
+ * マッピング必須の操作(listChangedTasks)用。無ければ再試行しても直らない設定不備として止める。
+ *
+ * ⚠ 「未マッピング」と「マッピングが壊れている」は別物として区別する(エンジン engine.ts の
+ * 対応と対で読む): アプリを追加した直後、マッピングウィザードをまだ完了していない状態
+ * （kintone_mappings に appId のエントリ自体が無い）は**設定途中の正常な状態**であり、
+ * このアプリ単体だけを今回のポーリング対象から静かに外せば十分で、接続全体（他の
+ * 設定済みアプリ）まで止める理由が無い。`pendingConfig: true` を立てて区別する。
+ * 一方、エントリはあるのに parseKintoneMapping が拒否する（構造が壊れている）場合や、
+ * kintone_mappings**そのもの**の型が壊れている場合（isMappingsParentObject参照）は
+ * 「設定途中」ではなく想定外の異常なので、従来どおり `pendingConfig` を立てず接続全体を止める。
+ */
 function requireMapping(ctx: ProviderContext, appId: string): KintoneMapping {
+  const raw = ctx.config?.kintone_mappings
+  if (raw !== undefined && !isMappingsParentObject(raw)) {
+    // 親オブジェクトの型そのものが壊れている(null/配列/文字列等)。個々のappIdのエントリ云々では
+    // なく接続の設定全体が異常なので、pendingConfigには倒さず恒久エラーで止める。
+    throw providerError('kintone: kintone_mappingsの形式が不正です(オブジェクトである必要があります)', {
+      permanent: true,
+      status: 400,
+    })
+  }
   const mapping = readMapping(ctx, appId)
   if (!mapping) {
-    throw providerError(`kintone: appId=${appId} のマッピングが未設定/不正な接続です`, {
+    if (!hasMappingEntry(ctx, appId)) {
+      throw providerError(`kintone: appId=${appId} のマッピングが未設定です(設定待ち)`, {
+        permanent: true,
+        status: 400,
+        pendingConfig: true,
+      })
+    }
+    throw providerError(`kintone: appId=${appId} のマッピングが不正な接続です`, {
       permanent: true,
       status: 400,
     })
@@ -326,6 +384,16 @@ export const kintoneAdapter: TaskSyncAdapter = {
         out.push({ id: res.appId ?? appId, title: res.name?.trim() || appId })
       } catch (err) {
         const status = (err as ProviderError | undefined)?.status
+        // ⚠ 既知の制約（未対応。今回のCodexレビューで指摘済みだが、意図的にスコープ外とする）:
+        // 403(このトークンにアクセス権が無い)と404(アプリ自体が削除された)を区別せず、どちらも
+        // 「このアプリは返さない」に握り潰している。この結果、トークンが失効した接続は
+        // listContainers が空配列を返すだけになり、エンジン(engine.ts)からは
+        // 「正常に空のコンテナ一覧を持つ接続」に見えてしまう（本来は再接続が必要な異常なのに、
+        // エラーとして顕在化しない）。
+        // 直さない理由: 正しく直すには「一時的にアクセス不能（後で復活しうる）」と
+        // 「恒久的に消えた（二度と戻らない）」を区別する必要があり、これは欠落コンテナ台帳
+        // (import_missing_containers。engine.ts の updateMissingMap 参照)の設計に踏み込む
+        // 判断が要る（このPRのスコープ外）。後続の課題として残す。
         if (status === 403 || status === 404) continue // トークンが無効/剥奪。このアプリは返さない。
         throw err
       }

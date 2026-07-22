@@ -492,23 +492,32 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'kintone',
     category: 'task_sync',
     direction: 'two_way',
-    // ⚠ まだ一般公開しない(status='planned'に据え置く。'beta'に見えても実は繋がらない、を作らない):
-    //   アダプタ本体(src/lib/task-sync/providers/kintone.ts)とマッピングの提案/保存ロジック
-    //   (kintone/mapping.ts・kintone/schema.ts)は実装済みだが、(a) 接続パネル
-    //   (TaskSyncConnectPanel)にアプリID(kintone_app_ids)を入力する欄が無く、(b) マッピングの
-    //   提案/保存API(Notionのconnections/notion/mapping/route.tsに相当するもの)がまだ無い。
-    //   この状態で surface='connector' のまま一般公開すると、運用者は「接続はできたが
-    //   コンテナ0件・マッピング未設定で永久に何も同期しない死んだ接続」を作れてしまう
-    //   （Notionは提案/保存APIが既にマージ済みで状況が違うため、この例外はkintone限定）。
-    //   設定導線(入力欄＋提案/保存API)が揃うまでは status='planned'/surface='catalog' に留め、
-    //   ToolConnectOverview(ロードマップ表示のみ)に出す。揃い次第 'beta'+'connector' に戻す。
-    status: 'planned',
-    surface: 'catalog',
+    // ⚠ 公開に戻した理由(旧: status='planned'に留めていた理由): アダプタ本体
+    //   (src/lib/task-sync/providers/kintone.ts)とマッピングの提案/保存ロジック
+    //   (kintone/mapping.ts・kintone/schema.ts・kintone/mapping/{propose,route}.ts)に加え、
+    //   (a) 接続パネル(KintoneConnectPanel.tsx。アプリID(kintone_app_ids)＋アプリ単位のAPIトークンを
+    //   複数行で入力させる専用UI)、(b) 接続後にアプリを増減する専用API
+    //   (kintone/apps/route.ts。POST/DELETE。疎通確認してから保存する)、(c) 登録済みアプリの
+    //   一覧＋マッピングウィザードUI(KintoneAppsPanel.tsx)が揃い、「接続はできたがコンテナ0件・
+    //   マッピング未設定で永久に何も同期しない死んだ接続」を作れない導線が完成したため、
+    //   'beta'+'connector' に戻す(この判断は registry.test.ts のkintone専用describeで固定する)。
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'kintone',
     setupComplexity: 'schema_mapping',
     proOnly: true,
     featured: true,
+    setupUrl: 'https://kintone.dev/en/tutorials/introduction-to-kintone-customizations/api-tokens/',
     notes:
-      '業務アプリ基盤(kintone)のレコードを取り込んでタスク同期する。フィールドコード＋選択肢名で対応づけるウィザードが要る（選択肢名はkintone側で変更されると対応が壊れる）。設定画面（アプリID入力・マッピングの提案/保存）を準備中のため、現時点では接続できません。',
+      '業務アプリ基盤(kintone)のレコードを取り込んでタスク同期する。フィールドコード＋選択肢名で対応づけるウィザードが要る（選択肢名はkintone側で変更されると対応が壊れる）。APIトークンはアプリ単位で発行するため、接続後もアプリを1つずつ追加・削除できる。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする(trello/linearと同じ考え方の仮値。cron間隔確定次第合わせる)。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
   },
   generic_inbound: {
     id: 'generic_inbound',

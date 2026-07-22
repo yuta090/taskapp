@@ -4,16 +4,14 @@ import {
   findGroupTextMessagesSince,
   ingestDigestTasks,
   clearAndRenumberOpenDigestTasks,
-  findLineAccountById,
+  findAccountForSecretaryPush,
   findIdentityIdsByExternalUserIds,
   reconcileDigestAssignees,
-  getOrgChannelPolicyState,
   getPlatformBudgetState,
-  insertChannelMessage,
   findExistingDigestTaskSourceMessageIds,
   findUserIdsWithActiveLink,
 } from '@/lib/channels/store'
-import { pushLineMessage } from '@/lib/channels/line/client'
+import { sendSecretaryPush } from '@/lib/channels/send/secretaryPush'
 import { callLlm } from '@/lib/ai/client'
 import { classifyExtractionSkip, isPoolExhaustedSkip, type DigestSkipKind } from '@/lib/ai/digestSkip'
 import { notifyPoolExhausted } from '@/lib/ai/poolExhaustedNudge'
@@ -28,7 +26,6 @@ import {
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
-import { decideSharedSendBudget } from '@/lib/channels/metering/decideSharedSendBudget'
 import { nudgeFreeCapReached } from '@/lib/channels/freeCapNudge'
 import { resolveOrgEntitlements, type Feature } from '@/lib/billing/entitlements'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -125,6 +122,10 @@ export async function POST(request: NextRequest) {
 
   // digestは同一（共有bot）accountを複数グループが繰り返し引くため、グローバル予算層の読取を
   // account単位でメモ化する（同一cron実行内でのDB呼び出し削減。値そのものは同一実行内で不変）。
+  // マルチチャネル化(PR1)後も判定ロジックの権威は sendSecretaryPush 側に残したまま——
+  // ここはあくまで「読み取り方」の差し替え（sendSecretaryPushのresolvePlatformBudgetState）
+  // であり、判定に使う値そのものをcron側から注入するのではない（境界自身はステートレスなまま。
+  // モジュールレベルの永続キャッシュはリクエスト間で状態が漏れるため置かない）。
   const platformBudgetStateCache = new Map<string, Promise<Awaited<ReturnType<typeof getPlatformBudgetState>>>>()
   function getPlatformBudgetStateCached(accountId: string) {
     let cached = platformBudgetStateCache.get(accountId)
@@ -344,47 +345,12 @@ export async function POST(request: NextRequest) {
         // 申し送りタスクも期限セクションも無ければ何もしない（従来どおり）
         if (numbered.length === 0 && !dueSectionText) return
 
-        const account = await findLineAccountById(group.accountId)
-        if (!account) {
-          errors.push(`group ${group.id}: line account not found`)
-          return
-        }
-
-        // 送信境界の縮退判定（設計正本 §3/§7-10）。digestはauto-push。due-onlyのpush
-        // （申し送り0件・期限セクションのみ）もこのgateを必ず通す（予算境界の外に漏らさない・
-        // code review #1是正）。gate対象外（webhook対話的push・console手動送信）はここを通らない。
-        // org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定（fable確定設計）。
-        // 専用bot(owner_type='org')は顧客側の枠であり当社の持ち出しではないため常に'ok'扱い。
-        const policy = await getOrgChannelPolicyState(group.orgId)
-        const globalState =
-          account.ownerType === 'platform' ? await getPlatformBudgetStateCached(account.id) : 'ok'
-        const decision = decideSharedSendBudget({
-          org: { state: policy.state, onExceed: policy.onExceed },
-          global: { state: globalState },
-          // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
-          // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。
-          jstDayOfYear: getJstDayOfYear(),
-        })
-        if (!decision.deliver) {
-          skipped.push({ groupId: group.id, reason: decision.reason ?? 'quota_suppressed' })
-          // 無料50到達(org層 block×hard = quota_block_suppress)なら、事務所へアップグレード導線＋
-          // 相手先グループへ中立の1行（org×月で1回・ベストエフォート）。共有bot(platform)限定
-          // ＝有料の自社bot(owner_type='org')は on_exceed='none' で block しないため対象外。
-          if (decision.reason === 'quota_block_suppress' && account.ownerType === 'platform') {
-            try {
-              await nudgeFreeCapReached({
-                orgId: group.orgId,
-                spaceId: group.spaceId,
-                account,
-                groupExternalId: group.externalGroupId,
-                jstMonthKey: jstDateStr.slice(0, 7),
-                globalBudgetHard: globalState === 'hard',
-              })
-            } catch (err) {
-              // 促し失敗は cron を壊さない（抑止は既に確定・skipped 済み）
-              console.error('[channel-digest] free-cap nudge failed', group.orgId, err)
-            }
-          }
+        // channel条件を付けずidだけで引く（マルチチャネル化・PR1）。findLineAccountByIdは
+        // channel='line'固定の一部クエリと異なり全チャネル対応。資格情報欠落時は理由付きで
+        // 返る（「line account not found」という非LINEには誤解を招く文言はもう出さない）。
+        const accountResult = await findAccountForSecretaryPush(group.accountId)
+        if (!accountResult.ok) {
+          errors.push(`group ${group.id}: account unavailable (${accountResult.reason})`)
           return
         }
 
@@ -404,7 +370,8 @@ export async function POST(request: NextRequest) {
               )
             : ''
         const pushText = [digestText, dueSectionText].filter((part) => part.length > 0).join('\n\n')
-        // flex（消し込みボタン）は申し送りタスクが無ければ添付しない（due-onlyのpushはtextのみ）
+        // flex（消し込みボタン）は申し送りタスクが無ければ添付しない（due-onlyのpushはtextのみ）。
+        // LINE以外はrich(flex)を解釈しないため、非LINEはtext(pushText)のみが送られる。
         const flex =
           numbered.length > 0
             ? buildDigestFlexMessage(
@@ -422,36 +389,77 @@ export async function POST(request: NextRequest) {
         // due-onlyのpushもgroup×日で決定的な同じretryKeyを使う＝1グループ1日1通の枠を共有し、
         // 二重送信はLINE側dedupeが弾く（既存digestとdue-onlyが同時に生じるケースは無い設計）。
         const retryKey = buildDigestRetryKey(group.id, jstDateStr)
-        await pushLineMessage({
-          accessToken: account.accessToken,
+
+        // 送信境界の縮退判定（設計正本 §3/§7-10）は sendSecretaryPush に一本化（マルチチャネル化・
+        // PR1）。org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定は
+        // channel==='line' のときだけ内部で行われる（非LINEは当社の持ち出しが無いため常に配信）。
+        const result = await sendSecretaryPush({
+          account: {
+            id: accountResult.id,
+            ownerType: accountResult.ownerType,
+            channel: accountResult.channel,
+            credentials: accountResult.credentials,
+          },
+          orgId: group.orgId,
           to: group.externalGroupId,
+          text: pushText,
           messages: flex ? [{ type: 'text', text: pushText }, flex] : [{ type: 'text', text: pushText }],
           retryKey,
+          // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
+          // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。
+          jstDayOfYear: getJstDayOfYear(),
+          record: {
+            spaceId: group.spaceId,
+            identityId: null,
+            groupId: group.id,
+            externalUserId: null,
+            body: pushText,
+            payload: {},
+          },
+          // 同一（共有bot）accountを複数グループが引く場合の重複読取をcron側でまとめる
+          // （境界自身はステートレスなまま・上のgetPlatformBudgetStateCachedのコメント参照）。
+          resolvePlatformBudgetState: getPlatformBudgetStateCached,
         })
-        digestsSent += 1
 
-        // push成功後にoutbound記録（billablePush=true）を残す。真実の源=channel_messagesから
-        // メータリングを導出するため（設計正本 §3）。
-        await insertChannelMessage({
-          orgId: group.orgId,
-          spaceId: group.spaceId,
-          identityId: null,
-          accountId: account.id,
-          groupId: group.id,
-          channel: 'line',
-          direction: 'outbound',
-          actor: 'secretary',
-          externalUserId: null,
-          externalMessageId: retryKey,
-          contentType: 'text',
-          body: pushText,
-          payload: {},
-          storagePath: null,
-          status: 'sent',
-          error: null,
-          occurredAt: new Date().toISOString(),
-          billablePush: true,
-        })
+        if (!result.delivered) {
+          skipped.push({ groupId: group.id, reason: result.reason })
+          // 無料50到達(org層 block×hard = quota_block_suppress)なら、事務所へアップグレード導線＋
+          // 相手先グループへ中立の1行（org×月で1回・ベストエフォート）。共有bot(platform)かつ
+          // LINE限定＝有料の自社bot(owner_type='org')は on_exceed='none' で block しないため対象外。
+          // 非LINEはそもそも予算判定を通らないためこの reason には到達しない（channel==='line'は
+          // 明示条件として固定しておく）。
+          if (
+            result.reason === 'quota_block_suppress' &&
+            accountResult.ownerType === 'platform' &&
+            accountResult.channel === 'line'
+          ) {
+            try {
+              // globalBudgetHard は sendSecretaryPush の判定結果からは分からない独立指標
+              // （org層block×同時にglobal層もhardか）なので、この稀な分岐でだけ追加で1回引く。
+              // getPlatformBudgetStateCachedを通すため、上のsendSecretaryPush呼び出しで既に
+              // 同一accountを読んでいれば追加のDB読取は発生しない（メモ化を共有する）。
+              const globalState = await getPlatformBudgetStateCached(accountResult.id)
+              await nudgeFreeCapReached({
+                orgId: group.orgId,
+                spaceId: group.spaceId,
+                account: {
+                  id: accountResult.id,
+                  ownerType: accountResult.ownerType,
+                  accessToken: accountResult.credentials.access_token,
+                },
+                groupExternalId: group.externalGroupId,
+                jstMonthKey: jstDateStr.slice(0, 7),
+                globalBudgetHard: globalState === 'hard',
+              })
+            } catch (err) {
+              // 促し失敗は cron を壊さない（抑止は既に確定・skipped 済み）
+              console.error('[channel-digest] free-cap nudge failed', group.orgId, err)
+            }
+          }
+          return
+        }
+
+        digestsSent += 1
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`group ${group.id}: ${message}`)

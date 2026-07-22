@@ -204,6 +204,7 @@ export async function POST(request: NextRequest) {
           account: destination.account,
           orgId,
           to: destination.to,
+          text: flexMessage.altText,
           messages: [flexMessage],
           retryKey,
           jstDayOfYear,

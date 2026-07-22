@@ -166,4 +166,41 @@ describe('GET /api/integrations/connections', () => {
     const res = await callGet()
     expect(res.status).toBe(500)
   })
+
+  /**
+   * ⚠ 最重要の回帰テスト(Codexレビュー指摘・Critical): kintone_app_tokens(app_idをキーにした、
+   * アプリ単位で個別に暗号化したkintone APIトークンのjsonbオブジェクト)は暗号化済みであっても
+   * ブラウザ・React Queryのキャッシュ・devtoolsへ渡してはならない。一方 kintone_app_ids
+   * (KintoneAppsPanelのアプリ一覧描画の正本)は引き続き返す（サニタイズでUIを壊していないこと
+   * も同時に確認する）。
+   */
+  it('kintone_app_tokensは応答に含まれず、kintone_app_idsは含まれる(暗号化トークン辞書の非公開化)', async () => {
+    listRows = [
+      {
+        id: 'c-kintone',
+        provider: 'kintone',
+        status: 'active',
+        import_enabled: true,
+        import_config: {
+          target_space_id: 'space-1',
+          kintone_app_ids: ['5', '9'],
+          kintone_app_tokens: {
+            '5': 'enc(SUPER-SECRET-TOKEN-5)',
+            '9': 'enc(SUPER-SECRET-TOKEN-9)',
+          },
+        },
+        metadata: {},
+        created_at: '2026-07-21T00:00:00Z',
+      },
+    ]
+    const res = await callGet()
+    const json = await res.json()
+    expect(res.status).toBe(200)
+    expect(json.connections[0].importConfig).not.toHaveProperty('kintone_app_tokens')
+    expect(json.connections[0].importConfig.kintone_app_ids).toEqual(['5', '9'])
+    const text = JSON.stringify(json)
+    expect(text).not.toContain('SUPER-SECRET-TOKEN-5')
+    expect(text).not.toContain('SUPER-SECRET-TOKEN-9')
+    expect(text).not.toContain('kintone_app_tokens')
+  })
 })

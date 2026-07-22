@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   handleDiscordIngest,
   buildAcceptedText,
+  buildDigestDoneText,
+  ALREADY_DONE_TEXT,
   INVALID_TEXT,
   CODE_ONLY_LINKED_TEXT,
   type DiscordIngestDeps,
@@ -38,6 +40,8 @@ function makeDeps(over: Partial<DiscordIngestDeps> = {}): DiscordIngestDeps {
     generateChallengeLabel: vi.fn().mockReturnValue('AB12'),
     registerInvalidAttempt: vi.fn().mockReturnValue(false),
     reply: vi.fn().mockResolvedValue(undefined),
+    completeDigestTask: vi.fn().mockResolvedValue(null),
+    insertOutbound: vi.fn().mockResolvedValue(undefined),
     ...over,
   }
 }
@@ -215,6 +219,122 @@ describe('handleDiscordIngest — limbo（未claim）', () => {
     })
     const res = await handleDiscordIngest([event({ content: 'GC-CODE' })], deps)
     expect(res.claimsCreated).toBe(1)
+  })
+})
+
+describe('handleDiscordIngest — 完了コマンド（claimed経路限定）', () => {
+  const GROUP = { id: 'grp-1', orgId: 'org-1', spaceId: 'space-1' }
+
+  it('claimedグループの「完了1」でタスクを完了し、成功文言で返信・記録する', async () => {
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: '見積書の送付' })
+    const insertOutbound = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask,
+      insertOutbound,
+    })
+    await handleDiscordIngest([event({ content: '完了1' })], deps)
+
+    expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 1, 'U1')
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', buildDigestDoneText('見積書の送付'))
+    expect(insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: 'org-1',
+        spaceId: 'space-1',
+        groupId: 'grp-1',
+        channel: 'discord',
+        direction: 'outbound',
+        actor: 'secretary',
+        body: buildDigestDoneText('見積書の送付'),
+        status: 'sent',
+      }),
+    )
+  })
+
+  it('duplicate（再送）は完了処理を呼ばない', async () => {
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: 'x' })
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage: vi.fn().mockResolvedValue('duplicate'),
+      completeDigestTask,
+    })
+    await handleDiscordIngest([event({ content: '完了1' })], deps)
+
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
+  it('該当タスクが無い（既に完了済み等）場合はALREADY_DONE_TEXTで返信する', async () => {
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask: vi.fn().mockResolvedValue(null),
+    })
+    await handleDiscordIngest([event({ content: '完了1' })], deps)
+
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', ALREADY_DONE_TEXT)
+  })
+
+  it('未claim(limbo)グループでは「完了1」を送っても完了処理も返信も一切起きない（沈黙不変条件）', async () => {
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(null),
+      normalizeClaimCode: vi.fn().mockReturnValue(null), // コード形状でもない通常発言扱い
+      completeDigestTask,
+    })
+    const res = await handleDiscordIngest([event({ content: '完了1' })], deps)
+
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.insertMessage).not.toHaveBeenCalled()
+    expect(res.inserted).toBe(0)
+  })
+
+  it('bot_external_id設定時: 自分宛メンション「<@BOT> 完了1」は発火する', async () => {
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 't', title: 'x' })
+    const deps = makeDeps({
+      loadPlatformAccount: vi.fn().mockResolvedValue({ ...ACCOUNT, botExternalId: '111222333' }),
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask,
+    })
+    await handleDiscordIngest([event({ content: '<@111222333> 完了1' })], deps)
+    expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 1, 'U1')
+  })
+
+  it('他人宛メンション「<@OTHER> 完了1」は剥がさず発火しない', async () => {
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      loadPlatformAccount: vi.fn().mockResolvedValue({ ...ACCOUNT, botExternalId: '111222333' }),
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask,
+    })
+    await handleDiscordIngest([event({ content: '<@999888777> 完了1' })], deps)
+    expect(completeDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('bot_external_id未設定時は素の「完了1」のみ発火し、メンション付きは剥がされず発火しない', async () => {
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 't', title: 'x' })
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask,
+    })
+    await handleDiscordIngest([event({ content: '<@111222333> 完了1', messageId: 'M1' })], deps)
+    expect(completeDigestTask).not.toHaveBeenCalled()
+
+    await handleDiscordIngest([event({ content: '完了1', messageId: 'M2' })], deps)
+    expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 1, 'U1')
+  })
+
+  it('誤爆防止: メンション付き自然文「<@BOT> あの件は完了しました」では発火しない', async () => {
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      loadPlatformAccount: vi.fn().mockResolvedValue({ ...ACCOUNT, botExternalId: '111222333' }),
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask,
+    })
+    await handleDiscordIngest([event({ content: '<@111222333> あの件は完了しました' })], deps)
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    // 通常発言としては記録される（沈黙にはならない・監査ログは保つ）
+    expect(deps.insertMessage).toHaveBeenCalled()
   })
 })
 

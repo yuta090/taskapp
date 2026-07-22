@@ -7,7 +7,8 @@ import { encryptToken } from '@/lib/integrations/token-crypto'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { deriveExternalAccountKey } from '@/lib/task-sync/accountKey'
-import { normalizeKintoneAppIds } from '@/lib/task-sync/providers/kintone/mapping'
+import { validateKintoneAppCredentials } from '@/lib/task-sync/providers/kintone/appCredentials'
+import { fetchAppFields } from '@/lib/task-sync/providers/kintone/schema'
 
 export const runtime = 'nodejs'
 
@@ -62,13 +63,46 @@ function sanitizeProviderConfig(raw: unknown, provider: string): Record<string, 
   return out
 }
 
-export async function POST(request: NextRequest) {
-  let body: CreateBody
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+/**
+ * 受け付けるボディの上限。org_id/provider/api_key/base_url程度に加え、provider_config
+ * （ツール固有の可視設定。kintoneなら複数アプリID等）を含めても十分な余裕を持たせつつ、
+ * 巨大なペイロードでDB/ログに想定外の値を流し込まれないようにする（kintone/apps/route.ts の
+ * 8KB上限と同じ考え方。こちらは provider_config 分だけ少し広めに取る）。
+ */
+const MAX_BODY_BYTES = 16 * 1024
+
+type ReadJsonBodyResult =
+  | { ok: true; body: CreateBody }
+  | { ok: false; status: number; error: string }
+
+async function readJsonBody(request: NextRequest): Promise<ReadJsonBodyResult> {
+  const declaredLength = Number(request.headers.get('content-length') ?? '')
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return { ok: false, status: 413, error: 'payload too large' }
   }
+  const raw = await request.text()
+  if (Buffer.byteLength(raw, 'utf8') > MAX_BODY_BYTES) {
+    return { ok: false, status: 413, error: 'payload too large' }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { ok: false, status: 400, error: 'Invalid JSON' }
+  }
+  // 正当なJSONでも `null`/配列/プリミティブだと以降の body.xxx 参照が例外(→500)になる。
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, status: 400, error: 'body must be a JSON object' }
+  }
+  return { ok: true, body: parsed as CreateBody }
+}
+
+export async function POST(request: NextRequest) {
+  const parsedBody = await readJsonBody(request)
+  if (!parsedBody.ok) {
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status })
+  }
+  const body = parsedBody.body
 
   const orgId = typeof body.org_id === 'string' ? body.org_id : ''
   if (!isValidUuid(orgId)) {
@@ -119,46 +153,105 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const providerConfig = sanitizeProviderConfig(body.provider_config, provider)
+  let providerConfig = sanitizeProviderConfig(body.provider_config, provider)
 
-  // kintone: アプリID(kintone_app_ids)が1件も無いまま active な接続を作らせない。
-  // kintoneのAPIトークンはアプリ単位で発行され、listContainers はアプリIDが1件も設定されて
-  // いなくても空配列を返すだけで成功してしまう（providers/kintone.ts の configuredAppIds 参照）。
-  // これを許すと「接続はできたがコンテナ0件・マッピング未設定で永久に何も同期しない死んだ接続」
-  // が作れてしまうため、ここで作成自体を拒否する（UIの新規作成導線は別途整備予定。ここはその前の
-  // 最後の砦としてのサーバ側検証）。
+  // kintone: アプリID一覧(kintone_app_ids)とAPIキー(カンマ結合トークン)の対応づけを、接続作成の
+  // 時点で厳格に検証する。
+  //
+  // ⚠ 経緯（Codexレビュー指摘・Critical「正本を欠いた接続を成功扱いにできる」）: 以前は
+  // アプリIDが1件以上あることだけを確認し、トークン数との不一致は kintone_app_tokens（後続の
+  // アプリ追加/削除が依存する正本）の書き込みだけを諦めて**接続自体は201で成功させていた**。
+  // これは kintone_app_ids と access_token_encrypted(カンマ結合)はあるのに正本(kintone_app_tokens)
+  // が無い「死んだ接続」そのものであり、以後のアプリ追加/削除が KTGAP で恒久停止し、
+  // どのトークンがどのアプリのものか復元不能になる。以後は不一致・不正な形式・重複・上限超過を
+  // 接続作成そのものの拒否理由にする（このアダプタが依存する「apiKey(カンマ結合)と
+  // kintone_app_idsが同じ1リクエスト内で同じ行配列から同時に組み立てられた」という契約は、
+  // この検証を通ったときだけ信用してよい）。
+  //
+  // 保存する kintone_app_ids は必ずこの検証・正規化後の配列に置き換える（生の providerConfig を
+  // そのまま保存しない。form側の入力ゆらぎ・重複がそのままDBへ残るのを防ぐ）。
+  let kintoneCredentials: { appIds: string[]; tokens: string[] } | undefined
   if (provider === 'kintone') {
-    const appIds = normalizeKintoneAppIds(providerConfig.kintone_app_ids)
-    if (appIds.length === 0) {
-      return NextResponse.json(
-        { error: 'kintoneはアプリIDを1つ以上指定してください（1つも指定しない接続は取り込みが永久に始まりません）' },
-        { status: 400 },
-      )
+    const validated = validateKintoneAppCredentials(providerConfig.kintone_app_ids, apiKey)
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.reason }, { status: 400 })
     }
+    kintoneCredentials = { appIds: validated.appIds, tokens: validated.tokens }
+    providerConfig = { ...providerConfig, kintone_app_ids: validated.appIds }
   }
 
   // 保存前に鍵を検証する（間違った鍵を保存させない）。provider固有設定も一緒に渡す
   // （Jira の Basic 認証はメールアドレスが揃って初めて成立するため、設定込みで検証しないと
   // 「保存はできたが一度も同期できない」接続ができてしまう）。
-  try {
-    await adapter.listContainers({
-      credentials: { kind: 'api_key', token: apiKey, baseUrl },
-      config: providerConfig,
-    })
-  } catch (err) {
-    const status = (err as { status?: number }).status
-    if (status === 401 || status === 403) {
-      return NextResponse.json({ error: 'APIキーが正しくないか、権限が足りません' }, { status: 400 })
+  //
+  // ⚠ kintoneはこの一般経路を使わず、下の専用ブロックで(appId, token)ペアを1組ずつ検証する
+  // （経緯は下のコメント参照）。
+  if (!kintoneCredentials) {
+    try {
+      await adapter.listContainers({
+        credentials: { kind: 'api_key', token: apiKey, baseUrl },
+        config: providerConfig,
+      })
+    } catch (err) {
+      const status = (err as { status?: number }).status
+      if (status === 401 || status === 403) {
+        return NextResponse.json({ error: 'APIキーが正しくないか、権限が足りません' }, { status: 400 })
+      }
+      if (status === 404) {
+        return NextResponse.json({ error: '接続先が見つかりません。URLを確認してください' }, { status: 400 })
+      }
+      // 相手側の一時障害。運用者の設定は正しいかもしれないので、その旨を返す（保存はしない）。
+      console.error('[task-sync/connect] verification failed:', provider, status ?? 'no-status')
+      return NextResponse.json(
+        { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
+        { status: 502 },
+      )
     }
-    if (status === 404) {
-      return NextResponse.json({ error: '接続先が見つかりません。URLを確認してください' }, { status: 400 })
+  } else {
+    // kintone: (appId, token) ペアの対応そのものを検証する（Codexレビュー指摘・Critical
+    // 「アプリとトークンの対応を検証していない」への是正）。
+    //
+    // ⚠ 経緯: adapter.listContainers はカンマ結合済みの全トークンを1つのヘッダに乗せて叩き、
+    // kintone側がそのアプリのものを自動選択する（client.ts の X-Cybozu-API-Token 仕様）。
+    // このため kintone_app_ids[i] とカンマ分割したトークン[i] を**位置で対応づけた**ものが
+    // 実際には食い違っていても（貼り付け順を間違えても）、listContainers による疎通確認は
+    // 成功してしまい対応の誤りに気づけない。後で「アプリBを削除」すると、実際には別アプリ
+    // （順序がずれた先）のトークンが消える「死んだ接続」の一種になる。
+    //
+    // このため接続作成時は、各ペアを1組ずつ**そのトークン単体**で fetchAppFields を叩き、
+    // 対応の正しさそのものを検証する。1組でも失敗したら接続を作らない（400。client.ts の
+    // GAIA_*分類メッセージ——「アプリを更新してください」等——がそのまま運用者に届くようにする。
+    // どのアプリで失敗したかも明示する）。検証を通ったペアだけで kintone_app_tokens と
+    // カンマ結合トークンを組み立てる（下のブロック）。
+    //
+    // N回の外部往復になるが、最大9件（MAX_API_TOKENS_PER_REQUEST）であり、接続作成は
+    // 一度きりの操作なので許容する。
+    for (let i = 0; i < kintoneCredentials.appIds.length; i++) {
+      const appId = kintoneCredentials.appIds[i]
+      const token = kintoneCredentials.tokens[i]
+      try {
+        await fetchAppFields(baseUrl, token, appId)
+      } catch (err) {
+        return NextResponse.json(
+          { error: `アプリID ${appId} のAPIトークンを確認できませんでした: ${errorMessageOf(err)}` },
+          { status: 400 },
+        )
+      }
     }
-    // 相手側の一時障害。運用者の設定は正しいかもしれないので、その旨を返す（保存はしない）。
-    console.error('[task-sync/connect] verification failed:', provider, status ?? 'no-status')
-    return NextResponse.json(
-      { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
-      { status: 502 },
-    )
+  }
+
+  // kintone: kintone_app_tokens(app_id→個別暗号化トークンのjsonbオブジェクト)を接続作成時にも
+  // 一緒に書き込む。「どのトークンがどのアプリのものか」の正本はkintone_app_tokensであり
+  // (20260723014852_kintone_apps_merge_rpc.sql冒頭コメント参照)、後続のアプリ追加/削除
+  // (kintone/apps/route.ts)がこれに依存する。上の validateKintoneAppCredentials を通っているため
+  // appIds と tokens は既に同じ長さ・同じ順序であることが保証されている（位置対応の組み立てに
+  // 推測は要らない）。
+  let kintoneAppTokens: Record<string, string> | undefined
+  if (kintoneCredentials) {
+    kintoneAppTokens = {}
+    for (let i = 0; i < kintoneCredentials.appIds.length; i++) {
+      kintoneAppTokens[kintoneCredentials.appIds[i]] = await encryptToken(kintoneCredentials.tokens[i])
+    }
   }
 
   const encrypted = await encryptToken(apiKey)
@@ -183,7 +276,10 @@ export async function POST(request: NextRequest) {
       import_enabled: false,
       // ツール固有設定は import_config に同居させる（取り込み先スペース等と同じ袋）。
       // 接頭辞で名前空間を分けているので他ツールの設定と衝突しない。
-      import_config: providerConfig,
+      import_config: {
+        ...providerConfig,
+        ...(kintoneAppTokens ? { kintone_app_tokens: kintoneAppTokens } : {}),
+      },
     })
     .select('id')
     .single()
@@ -200,6 +296,11 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ connection_id: (data as { id: string }).id, provider }, { status: 201 })
+}
+
+/** providerError等がthrowするエラーのmessageをそのまま取り出す（client.tsの分類済みメッセージを運用者へ届けるため）。 */
+function errorMessageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function messageOf(err: unknown): string {

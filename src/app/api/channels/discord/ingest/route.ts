@@ -15,6 +15,7 @@ import {
   findOrCreatePendingGroupClaim,
   redeemCodeOnlyClaim,
   orgExternalChatGroupCapacity,
+  markDigestTaskDoneByGroupAndNumberAtomic,
 } from '@/lib/channels/store'
 import {
   hashSharedGroupClaimCode,
@@ -43,7 +44,8 @@ const deps: DiscordIngestDeps = {
     if (!acc || acc.status !== 'active') return null
     const botToken = acc.credentials.bot_token
     if (!botToken) return null
-    return { id: acc.id, botToken }
+    // bot_external_id は自分宛メンション判定用（DDLゼロ・既存credentials JSONのキー）。未設定でも可（fail-safe）。
+    return { id: acc.id, botToken, botExternalId: acc.credentials.bot_external_id || undefined }
   },
   findActiveGroup: async (accountId, channelId) => {
     const g = await findActiveGroup(accountId, channelId)
@@ -68,6 +70,28 @@ const deps: DiscordIngestDeps = {
   reply: async (botToken, channelId, text) => {
     await sendDiscordChannelMessage(botToken, channelId, text)
   },
+  completeDigestTask: (groupId, digestNumber, externalUserId) =>
+    markDigestTaskDoneByGroupAndNumberAtomic(groupId, digestNumber, externalUserId),
+  insertOutbound: (input) =>
+    insertChannelMessage({
+      orgId: input.orgId,
+      spaceId: input.spaceId,
+      identityId: null,
+      accountId: input.accountId,
+      groupId: input.groupId,
+      channel: input.channel,
+      direction: input.direction,
+      actor: input.actor,
+      externalUserId: null,
+      externalMessageId: null,
+      contentType: 'text',
+      body: input.body,
+      payload: input.payload,
+      storagePath: null,
+      status: input.status,
+      error: input.error,
+      occurredAt: input.occurredAt,
+    }),
 }
 
 export async function POST(request: NextRequest) {

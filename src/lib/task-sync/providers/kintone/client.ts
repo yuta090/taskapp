@@ -27,7 +27,7 @@ const REQUEST_TIMEOUT_MS = 20_000
  * ProviderCredentials.token はカンマ結合済みの不透明文字列として渡ってくる契約
  * （src/lib/task-sync/types.ts）。
  */
-const MAX_API_TOKENS_PER_REQUEST = 9
+export const MAX_API_TOKENS_PER_REQUEST = 9
 
 /**
  * トークン列（カンマ結合）を検証し、そのままヘッダ値として返す。上限超過は設定不備

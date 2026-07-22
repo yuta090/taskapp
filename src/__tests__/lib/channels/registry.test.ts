@@ -68,12 +68,20 @@ describe('channel registry', () => {
     }
   })
 
-  it('inbound=true のチャネルは受信Webhookパスを持つ', () => {
+  it('inbound=true のチャネルは受信Webhookパスを持つ（discordを除く）', () => {
+    // discord は例外: 受信は外部登録の webhook URL ではなく、常駐 Gateway ワーカーが
+    // Discord とのWebSocket接続で受け、内部専用の HMAC 口(ingest)へ転送する方式のため、
+    // オペレーターが provider 側に貼り付ける webhookPath 自体が存在しない。
     for (const def of chatChannels()) {
-      if (def.inbound) {
+      if (def.inbound && def.id !== 'discord') {
         expect(def.webhookPath, `${def.id} inbound but no webhookPath`).toBeTruthy()
       }
     }
+  })
+
+  it('discord は inbound=true だが webhookPath を持たない（Gatewayワーカー常駐接続のため）', () => {
+    expect(CHANNELS.discord.inbound).toBe(true)
+    expect(CHANNELS.discord.webhookPath).toBeUndefined()
   })
 
   it('account単位で受ける受信チャネル(telegram/chatwork/whatsapp/slack)は{accountId}を含むパス', () => {

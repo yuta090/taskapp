@@ -28,7 +28,7 @@ vi.mock('@/components/secretary/integrations/ToolRail', () => ({
   }) => (
     <div data-testid="tool-rail">
       <span data-testid="tool-rail-selected">{selectedId}</span>
-      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export', 'generic_inbound', 'webhook'] as IntegrationId[]).map((id) => (
+      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export', 'generic_inbound', 'webhook', 'kintone'] as IntegrationId[]).map((id) => (
         <button key={id} onClick={() => onSelect(id)}>
           select-{id}
         </button>
@@ -76,6 +76,10 @@ vi.mock('@/components/secretary/integrations/TaskSyncConnectPanel', () => ({
 
 vi.mock('@/components/secretary/integrations/NotionImportPanel', () => ({
   NotionImportPanel: ({ orgId }: { orgId: string }) => <div data-testid="notion-import-panel">{orgId}</div>,
+}))
+
+vi.mock('@/components/secretary/integrations/KintoneConnectPanel', () => ({
+  KintoneConnectPanel: ({ orgId }: { orgId: string }) => <div data-testid="kintone-connect-panel">{orgId}</div>,
 }))
 
 beforeEach(() => {
@@ -161,6 +165,19 @@ describe('IntegrationsConsoleClient', () => {
     render(<IntegrationsConsoleClient orgId="org-1" />)
     fireEvent.click(screen.getByText('select-generic_inbound'))
     expect(screen.getByTestId('generic-inbound-panel')).toHaveTextContent('org-1')
+    expect(screen.queryByTestId('connector-sync-pane')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-sync-connect-panel')).not.toBeInTheDocument()
+  })
+
+  /**
+   * kintoneはAPIトークンがアプリ単位で発行されるため、汎用のTaskSyncConnectPanel/
+   * ConnectorSyncPaneではなく専用のKintoneConnectPanelを出す(generic_inboundと同じ「connector
+   * surfaceだが接続の作り方が別物」の扱い)。
+   */
+  it('connectorだがkintoneを選択するとKintoneConnectPanelが出る(TaskSyncConnectPanelやConnectorSyncPaneではない)', () => {
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    fireEvent.click(screen.getByText('select-kintone'))
+    expect(screen.getByTestId('kintone-connect-panel')).toHaveTextContent('org-1')
     expect(screen.queryByTestId('connector-sync-pane')).not.toBeInTheDocument()
     expect(screen.queryByTestId('task-sync-connect-panel')).not.toBeInTheDocument()
   })
