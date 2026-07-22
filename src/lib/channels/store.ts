@@ -175,6 +175,95 @@ export async function findLineAccountById(accountId: string): Promise<LineAccoun
   return decryptAccount(data as AccountRow)
 }
 
+/**
+ * チャネル別の必須資格情報キー（秘書送信境界 sendSecretaryPush 専用の検証）。
+ * registry の credentialFields（受信Webhook検証用のキーも含む・例: slack.signing_secret）とは
+ * 意図的に別集合にする — ここは「送信アダプタが実際に読むキー」だけに絞る
+ * （各 src/lib/channels/adapters/*.ts の ctx.credentials 参照と一致させること）。
+ * line だけは既存の LineAccount 契約（decryptAccount）に合わせ channel_secret も必須にする。
+ *
+ * 各要素は string（そのキーが必須）または string[]（配列内のいずれか1つがあればよい）。
+ * discord は2つの送信経路（共有Bot=bot_token / org自前Webhook=webhook_url）に両対応するため
+ * "いずれか" にする — 共有Bot(owner_type='platform')はbot_tokenのみ保持しwebhook_urlを
+ * 持たない（docs/setup/DISCORD_GATEWAY_PROVISIONING.md L42-48）。
+ */
+const SECRETARY_PUSH_REQUIRED_CREDENTIALS: Record<string, Array<string | string[]>> = {
+  line: ['channel_secret', 'access_token'],
+  slack: ['bot_token'],
+  telegram: ['bot_token'],
+  discord: [['bot_token', 'webhook_url']],
+  chatwork: ['api_token'],
+  google_chat: ['webhook_url'],
+  teams: ['webhook_url'],
+  whatsapp: ['access_token', 'phone_number_id'],
+}
+
+export type FindAccountForSecretaryPushResult =
+  | {
+      ok: true
+      id: string
+      ownerType: 'org' | 'platform'
+      channel: string
+      credentials: Record<string, string>
+      status: 'active' | 'disabled'
+    }
+  | { ok: false; reason: string }
+
+/**
+ * 秘書送信境界(sendSecretaryPush)専用のアカウント解決。findLineAccountByIdと異なり
+ * channel条件を付けずidだけで引く（全チャネル対応・digest cron等がline固定でない
+ * accountを解決できるようにするため）。
+ *
+ * 資格情報はチャネル別の必須キーで検証し、欠落時は理由付きで返す（無言の null で消さない）。
+ * 旧 decryptAccount は「channel_secret/access_tokenが揃わなければ null」しか返さず、非LINE
+ * account を通すと必ず null になり、呼び出し側が「line account not found」と誤表示していた
+ * （digest cronの穴・PR1是正）。既存の decryptAccount / findLineAccountById は他の呼び出し元が
+ * あるため変更しない。
+ */
+export async function findAccountForSecretaryPush(
+  accountId: string,
+): Promise<FindAccountForSecretaryPushResult> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select(`${ACCOUNT_COLUMNS}, channel`)
+    .eq('id', accountId)
+    .maybeSingle()
+  if (error || !data) return { ok: false, reason: 'account_not_found' }
+
+  const row = data as AccountRow & { channel: string }
+  const requirements = SECRETARY_PUSH_REQUIRED_CREDENTIALS[row.channel]
+  if (!requirements) return { ok: false, reason: 'unsupported_channel' }
+
+  const { data: decrypted, error: decryptError } = await admin().rpc('decrypt_system_secret', {
+    encrypted: row.credentials_encrypted,
+    secret: getEncryptionKey(),
+  })
+  if (decryptError || !decrypted) return { ok: false, reason: 'decrypt_failed' }
+
+  let credentials: Record<string, string>
+  try {
+    credentials = JSON.parse(decrypted as string)
+  } catch {
+    return { ok: false, reason: 'credentials_not_json' }
+  }
+
+  const missing = requirements
+    .filter((req) => (Array.isArray(req) ? !req.some((key) => credentials[key]) : !credentials[req]))
+    .map((req) => (Array.isArray(req) ? req.join(' or ') : req))
+  if (missing.length > 0) {
+    return { ok: false, reason: `missing_credentials: ${missing.join(', ')}` }
+  }
+
+  return {
+    ok: true,
+    id: row.id,
+    ownerType: row.owner_type === 'platform' ? 'platform' : 'org',
+    channel: row.channel,
+    credentials,
+    status: row.status === 'disabled' ? 'disabled' : 'active',
+  }
+}
+
 export interface LineAccountLookup {
   id: string
   status: 'active' | 'disabled'
@@ -1827,6 +1916,29 @@ export async function insertChannelMessage(
     throw new Error(`channel_messages: insert failed: ${error.message}`)
   }
   return { id: data!.id as string }
+}
+
+/**
+ * 非LINEチャネルの二重送信防止用（sendSecretaryPush）。LINEはX-Line-Retry-Key(LINE側dedupe)
+ * があるため呼ばない。非LINEはサーバ側idempotencyが無いため、送信前に同一(account, retryKey)
+ * のoutbound記録が既にあれば送信をスキップする。
+ * ⚠ TOCTOU: この確認とinsertChannelMessageは別トランザクションのため、並行実行では
+ * すり抜けて二重送信し得る。被害は「報告の二重送信」に留まり課金二重計上ではない
+ * （channel_messages_dedupe unique indexが二重"記録"は防ぐ）ため許容する（Fable裁定）。
+ */
+export async function findOutboundMessageByExternalId(
+  accountId: string,
+  externalMessageId: string,
+): Promise<{ id: string } | null> {
+  const { data, error } = await admin()
+    .from('channel_messages')
+    .select('id')
+    .eq('account_id', accountId)
+    .eq('external_message_id', externalMessageId)
+    .eq('direction', 'outbound')
+    .maybeSingle()
+  if (error || !data) return null
+  return { id: data.id as string }
 }
 
 export async function updateChannelMessageStatus(

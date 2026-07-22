@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
           account,
           orgId: link.orgId,
           to: link.externalGroupId,
+          text,
           messages: [{ type: 'text', text }],
           retryKey: buildReminderRetryKey(task, link.id),
           jstDayOfYear,

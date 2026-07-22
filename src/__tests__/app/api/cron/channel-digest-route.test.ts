@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 /**
@@ -14,7 +14,8 @@ const storeMock = {
   findGroupTextMessagesSince: vi.fn(),
   ingestDigestTasks: vi.fn(),
   clearAndRenumberOpenDigestTasks: vi.fn(),
-  findLineAccountById: vi.fn(),
+  findAccountForSecretaryPush: vi.fn(),
+  findOutboundMessageByExternalId: vi.fn(),
   findIdentityIdsByExternalUserIds: vi.fn(),
   reconcileDigestAssignees: vi.fn(),
   getOrgChannelPolicyState: vi.fn(),
@@ -31,9 +32,13 @@ vi.mock('@/lib/ai/client', () => ({
 }))
 
 const pushMock = vi.fn()
-vi.mock('@/lib/channels/line/client', () => ({
-  pushLineMessage: (...args: unknown[]) => pushMock(...args),
-}))
+vi.mock('@/lib/channels/line/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/channels/line/client')>()
+  return {
+    ...actual,
+    pushLineMessage: (...args: unknown[]) => pushMock(...args),
+  }
+})
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({}),
@@ -89,24 +94,33 @@ const GROUP = {
   lastExtractedMessageCreatedAt: '2026-07-10T22:00:00.000Z',
 }
 
+// findAccountForSecretaryPush の戻り値（マルチチャネル化・PR1）。channel問わずidだけで引く。
 const ACCOUNT = {
+  ok: true as const,
   id: 'acc-1',
   ownerType: 'org' as const,
-  orgId: 'org-1',
-  displayName: '山田飲食店',
-  channelSecret: 's',
-  accessToken: 'token-1',
+  channel: 'line',
+  credentials: { channel_secret: 's', access_token: 'token-1' },
   status: 'active' as const,
 }
 
 // 共有bot（owner_type='platform'）。グローバル予算層(account軸)のgateが効く対象
 const PLATFORM_ACCOUNT = {
+  ok: true as const,
   id: 'acc-shared-1',
   ownerType: 'platform' as const,
-  orgId: null as string | null,
-  displayName: 'agentpm秘書',
-  channelSecret: 's',
-  accessToken: 'token-shared',
+  channel: 'line',
+  credentials: { channel_secret: 's', access_token: 'token-shared' },
+  status: 'active' as const,
+}
+
+// 非LINE(chatwork)の org account（owner_type='org'は白ラベル資格情報登録の唯一の経路・store.ts参照）
+const CHATWORK_ACCOUNT = {
+  ok: true as const,
+  id: 'acc-chatwork-1',
+  ownerType: 'org' as const,
+  channel: 'chatwork',
+  credentials: { api_token: 'cw-token' },
   status: 'active' as const,
 }
 
@@ -117,7 +131,8 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.findDigestEligibleGroups.mockResolvedValue([])
     storeMock.findGroupTextMessagesSince.mockResolvedValue([])
     storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
-    storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
+    storeMock.findAccountForSecretaryPush.mockResolvedValue(ACCOUNT)
+    storeMock.findOutboundMessageByExternalId.mockResolvedValue(null)
     storeMock.findIdentityIdsByExternalUserIds.mockResolvedValue(new Map())
     storeMock.reconcileDigestAssignees.mockResolvedValue(0)
     storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
@@ -195,6 +210,66 @@ describe('POST /api/cron/channel-digest', () => {
     const firstRetryKey = (pushMock.mock.calls[0][0] as { retryKey: string }).retryKey
     const secondRetryKey = (pushMock.mock.calls[1][0] as { retryKey: string }).retryKey
     expect(firstRetryKey).toBe(secondRetryKey)
+  })
+
+  it('【回帰の固定・Red-1】マルチチャネル化のリファクタ前後でLINE送信内容(pushLineMessage引数・insertChannelMessageの全フィールド)が1バイトも変わらないことを完全一致で凍結する', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 14, 7, 0))
+    storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
+    storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+      { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+    ])
+
+    try {
+      const { buildDigestPushText, buildDigestFlexMessage, buildDigestRetryKey } = await import(
+        '@/lib/channels/digest/compute'
+      )
+      const { jstNow } = await import('@/lib/datetime/jstNow')
+      const { formatDateToLocalString } = await import('@/lib/gantt/dateUtils')
+
+      const jstDateStr = formatDateToLocalString(jstNow())
+      const expectedText = buildDigestPushText(
+        [{ digestNumber: 1, title: '酒屋へ発注', dueDate: null, dueTime: null, assigneeHint: null }],
+        jstDateStr,
+      )
+      const expectedFlex = buildDigestFlexMessage([{ digestNumber: 1, title: '酒屋へ発注', taskId: 'task-1' }])
+      const expectedRetryKey = buildDigestRetryKey('group-1', jstDateStr)
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+
+      expect(pushMock).toHaveBeenCalledTimes(1)
+      expect(pushMock).toHaveBeenCalledWith({
+        accessToken: 'token-1',
+        to: 'G-1',
+        messages: [{ type: 'text', text: expectedText }, expectedFlex],
+        retryKey: expectedRetryKey,
+      })
+
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledTimes(1)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        spaceId: 'space-1',
+        identityId: null,
+        accountId: 'acc-1',
+        groupId: 'group-1',
+        channel: 'line',
+        direction: 'outbound',
+        actor: 'secretary',
+        externalUserId: null,
+        externalMessageId: expectedRetryKey,
+        contentType: 'text',
+        body: expectedText,
+        payload: {},
+        storagePath: null,
+        status: 'sent',
+        error: null,
+        occurredAt: expect.any(String),
+        billablePush: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('配信前に担当の自己修復スイープを走らせる（取りこぼしを毎朝ならす）', async () => {
@@ -616,7 +691,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('共有bot×block×hard(無料50到達)は nudgeFreeCapReached を発火する（事務所促し＋グループ中立1行）', async () => {
-      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(PLATFORM_ACCOUNT)
       storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
 
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
@@ -636,7 +711,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('自社bot(owner_type=org)の抑止では促しを発火しない（Pro自社LINEは対象外）', async () => {
-      storeMock.findLineAccountById.mockResolvedValue(ACCOUNT) // ownerType='org'
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(ACCOUNT) // ownerType='org'
       storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
 
       await callPost({ authorization: 'Bearer test-cron-secret' })
@@ -713,7 +788,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('共有bot(platform)account かつ org層ok・global層hard → 抑止する', async () => {
-      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(PLATFORM_ACCOUNT)
       storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
       storeMock.getPlatformBudgetState.mockResolvedValue('hard')
 
@@ -732,7 +807,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('専用bot(owner_type=org)account は global層を評価しない（getPlatformBudgetStateを呼ばず常送信）', async () => {
-      storeMock.findLineAccountById.mockResolvedValue(ACCOUNT) // ownerType='org'
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(ACCOUNT) // ownerType='org'
       storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
       storeMock.getPlatformBudgetState.mockResolvedValue('hard') // 呼ばれれば抑止されるはずの値
 
@@ -746,12 +821,16 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('同一account(共有bot)を複数グループが引くcron1回内では、グローバル予算層の読取をaccount単位でメモ化する', async () => {
+      // マルチチャネル化(PR1)で予算判定の権威は sendSecretaryPush に一本化したが、
+      // 「cron1回内でDB読取を増やさない」というこのテストの意図は維持する。境界には
+      // モジュールレベルのキャッシュを置かず（リクエスト間の状態汚染を避ける）、cron側の
+      // リクエストスコープのメモ化関数を resolvePlatformBudgetState として注入する形で両立。
       const group2 = { ...GROUP, id: 'group-2', externalGroupId: 'G-2' }
       storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP, group2])
       storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
         { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
       ])
-      storeMock.findLineAccountById.mockResolvedValue(PLATFORM_ACCOUNT)
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(PLATFORM_ACCOUNT)
       storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'ok', onExceed: 'none' })
       storeMock.getPlatformBudgetState.mockResolvedValue('ok')
 
@@ -1070,6 +1149,122 @@ describe('POST /api/cron/channel-digest', () => {
           expect.objectContaining({ groupId: 'group-1', reason: 'quota_block_suppress' }),
         ]),
       )
+    })
+  })
+
+  describe('マルチチャネル化（PR1・sendSecretaryPush経由の非LINE配信）', () => {
+    function mockFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+      const fn = vi.fn(impl)
+      vi.stubGlobal('fetch', fn as unknown as typeof fetch)
+      return fn
+    }
+    function jsonResponse(status: number, body: unknown): Response {
+      return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    // chatworkAdapterはroom_id(=externalGroupId)を数字のみ許容するため、GROUP('G-1')ではなく
+    // 数字のexternalGroupIdを持つグループを使う。
+    const CHATWORK_GROUP = { ...GROUP, externalGroupId: '999' }
+
+    beforeEach(() => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([CHATWORK_GROUP])
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+        { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+      ])
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(CHATWORK_ACCOUNT)
+    })
+
+    it('非LINE(chatwork)グループへdeliverToChannel経由(実chatworkAdapter)で配信され、billable_push:false・channel:chatworkで記録される', async () => {
+      const fetchFn = mockFetch(() => jsonResponse(200, { message_id: '9' }))
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).not.toHaveBeenCalled()
+      const [url] = fetchFn.mock.calls[0]
+      expect(url).toContain('/rooms/999/messages')
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'chatwork',
+          accountId: 'acc-chatwork-1',
+          billablePush: false,
+          status: 'sent',
+        }),
+      )
+    })
+
+    it('非LINEでは org層/グローバル層の予算判定を一切呼ばない（org層 hard×block でも配信される＝境界値）', async () => {
+      storeMock.getOrgChannelPolicyState.mockResolvedValue({ state: 'hard', onExceed: 'block' })
+      storeMock.getPlatformBudgetState.mockResolvedValue('hard')
+      mockFetch(() => jsonResponse(200, { message_id: '9' }))
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(storeMock.getOrgChannelPolicyState).not.toHaveBeenCalled()
+      expect(storeMock.getPlatformBudgetState).not.toHaveBeenCalled()
+    })
+
+    it('アダプタが返したexternalMessageIdはpayload.provider_message_idに載る', async () => {
+      mockFetch(() => jsonResponse(200, { message_id: 'cw-msg-9' }))
+
+      await callPost({ authorization: 'Bearer test-cron-secret' })
+
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: { provider_message_id: 'cw-msg-9' } }),
+      )
+    })
+
+    it('同一(account, retryKey)のoutbound記録が既にあれば非LINEは送信しない（送信前チェック）', async () => {
+      storeMock.findOutboundMessageByExternalId.mockResolvedValue({ id: 'existing-outbound-1' })
+      const fetchFn = mockFetch(() => jsonResponse(200, { message_id: '9' }))
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(0)
+      expect(fetchFn).not.toHaveBeenCalled()
+      expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+      expect(body.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ groupId: 'group-1', reason: 'already_delivered' }),
+        ]),
+      )
+    })
+
+    it('資格情報の必須キー欠落は errors に理由付きで出る（無言で消えない・旧「line account not found」の是正）', async () => {
+      storeMock.findAccountForSecretaryPush.mockResolvedValue({
+        ok: false,
+        reason: 'missing_credentials: api_token',
+      })
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(0)
+      expect(body.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('group-1: account unavailable (missing_credentials: api_token)'),
+        ]),
+      )
+    })
+
+    it('quota_block_suppressのnudge発火条件はLINE限定（非LINEはnudgeFreeCapReachedを呼ばない）', async () => {
+      mockFetch(() => jsonResponse(200, { message_id: '9' }))
+
+      await callPost({ authorization: 'Bearer test-cron-secret' })
+
+      expect(nudgeFreeCapReachedMock).not.toHaveBeenCalled()
     })
   })
 })

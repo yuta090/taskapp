@@ -17,6 +17,11 @@ export interface OutboundContext {
   text: string
   /** 冪等キー（再試行時の二重配信防止。対応チャネルのみ利用） */
   idempotencyKey?: string
+  /**
+   * チャネル固有のリッチ表現（LINEのFlex等）。解釈できるアダプタのみが使う。
+   * 床はあくまで text — rich を解釈しないアダプタは無視して text を送る。
+   */
+  rich?: unknown
 }
 
 export interface OutboundResult {
