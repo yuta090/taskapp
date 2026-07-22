@@ -2,11 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 /**
- * POST /api/cron/due-reminder-sender（設計正本 §6/§6.1/§9・PR-1）
+ * POST /api/cron/due-reminder-sender（設計正本 §6/§6.1/§9・PR-1・うざくない秘書 再設計）
  *
  * - Bearer CRON_SECRET 必須
- * - claim → §6 3条件staleness再確認 → entitlement再確認(timed_line_reminders) →
- *   宛先解決(§A 3段: DM→発生元グループ→spaceグループ→no_route) → 統一送信境界で送信 → finalize
+ * - claim → §6 3条件staleness再確認 → org単位オンオフ再確認 →
+ *   entitlement再確認(timed_line_reminders) → 宛先解決(1:1 DMのみ・無ければno_route) →
+ *   統一送信境界で送信 → finalize
+ * - うざくない秘書 再設計: 「発生元グループ→spaceグループ」への催促フォールバックは廃止。
+ *   グループに催促文面が出る経路がゼロであることを回帰確認する。
  */
 
 const storeMock = {
@@ -16,14 +19,12 @@ const storeMock = {
   findOrgIdForSpace: vi.fn(),
   findConnectionFreshness: vi.fn(),
   isDueReminderEnabledForUser: vi.fn(),
+  isOrgDueRemindersEnabled: vi.fn(),
 }
 vi.mock('@/lib/reminders/dueReminderStore', () => storeMock)
 
 const channelsStoreMock = {
   findActiveUserLinkForUser: vi.fn(),
-  findChatOriginGroupForTask: vi.fn(),
-  findGroupById: vi.fn(),
-  findActiveGroupForSpace: vi.fn(),
   findLineAccountByIdLookup: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => channelsStoreMock)
@@ -80,36 +81,33 @@ const TASK_SNAPSHOT = {
 const ACCOUNT = { id: 'acc-1', ownerType: 'org' as const, accessToken: 'token-1' }
 const ACCOUNT_LOOKUP = { id: 'acc-1', status: 'active' as const, account: ACCOUNT }
 
-const SPACE_GROUP = {
-  id: 'group-space',
-  orgId: 'org-1',
-  spaceId: 'space-1',
-  accountId: 'acc-1',
-  externalGroupId: 'G-SPACE',
-  status: 'active' as const,
+/** DM解決が成立するときの標準セットアップを1関数にまとめる（各itのbeforeEachで使う） */
+function setupDefaultMocks() {
+  vi.clearAllMocks()
+  process.env.CRON_SECRET = 'test-cron-secret'
+
+  storeMock.claimDueReminderOccurrences.mockResolvedValue([OCC])
+  storeMock.finalizeDueReminderOccurrence.mockResolvedValue(undefined)
+  storeMock.findTaskSnapshotForReminder.mockResolvedValue(TASK_SNAPSHOT)
+  storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
+  storeMock.findConnectionFreshness.mockResolvedValue(null)
+  storeMock.isDueReminderEnabledForUser.mockResolvedValue(true)
+  storeMock.isOrgDueRemindersEnabled.mockResolvedValue(true)
+
+  resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: true }))
+
+  channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
+    channelAccountId: 'acc-1',
+    externalUserId: 'U-DM-1',
+  })
+  channelsStoreMock.findLineAccountByIdLookup.mockResolvedValue(ACCOUNT_LOOKUP)
+
+  sendSecretaryPushMock.mockResolvedValue({ delivered: true })
 }
 
 describe('POST /api/cron/due-reminder-sender', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-    process.env.CRON_SECRET = 'test-cron-secret'
-
-    storeMock.claimDueReminderOccurrences.mockResolvedValue([OCC])
-    storeMock.finalizeDueReminderOccurrence.mockResolvedValue(undefined)
-    storeMock.findTaskSnapshotForReminder.mockResolvedValue(TASK_SNAPSHOT)
-    storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
-    storeMock.findConnectionFreshness.mockResolvedValue(null)
-    storeMock.isDueReminderEnabledForUser.mockResolvedValue(true)
-
-    resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: true }))
-
-    channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
-    channelsStoreMock.findChatOriginGroupForTask.mockResolvedValue(null)
-    channelsStoreMock.findGroupById.mockResolvedValue(null)
-    channelsStoreMock.findActiveGroupForSpace.mockResolvedValue(SPACE_GROUP)
-    channelsStoreMock.findLineAccountByIdLookup.mockResolvedValue(ACCOUNT_LOOKUP)
-
-    sendSecretaryPushMock.mockResolvedValue({ delivered: true })
+    setupDefaultMocks()
   })
 
   it('CRON_SECRET未設定は500', async () => {
@@ -124,8 +122,19 @@ describe('POST /api/cron/due-reminder-sender', () => {
     expect(storeMock.claimDueReminderOccurrences).not.toHaveBeenCalled()
   })
 
-  it('宛先皆無(DM無・発生元無・spaceグループ無)ならsuppressed(no_route)', async () => {
-    channelsStoreMock.findActiveGroupForSpace.mockResolvedValue(null)
+  it('DM解決できたときだけ送信し、finalize(sent)する', async () => {
+    const res = await callPost()
+    const json = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
+    expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('U-DM-1')
+    expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'sent')
+    expect(json.sent).toBe(1)
+  })
+
+  it('DM無し(active user linkが無い)ならsuppressed(no_route)で終端し、グループへは一切送らない', async () => {
+    channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
     const res = await callPost()
     const json = await res.json()
 
@@ -137,40 +146,93 @@ describe('POST /api/cron/due-reminder-sender', () => {
     )
   })
 
-  it('発生元グループが無ければspaceのactiveグループへ配信する', async () => {
+  it('line_direct_dm を持たなければDMを試さずno_routeで終端する（グループ・フォールバック無し）', async () => {
+    resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: false }))
+
     const res = await callPost()
+    const json = await res.json()
+
     expect(res.status).toBe(200)
-    expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
-    expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('G-SPACE')
-    expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'sent')
+    expect(channelsStoreMock.findActiveUserLinkForUser).not.toHaveBeenCalled()
+    expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+    expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'no_route')
+    expect(json.sent).toBe(0)
   })
 
-  it('発生元チャットグループがあれば優先する', async () => {
-    channelsStoreMock.findChatOriginGroupForTask.mockResolvedValue({ groupId: 'group-origin', orgId: 'org-1' })
-    channelsStoreMock.findGroupById.mockResolvedValue({
-      id: 'group-origin',
-      orgId: 'org-1',
-      spaceId: 'space-1',
-      accountId: 'acc-1',
-      externalGroupId: 'G-ORIGIN',
-      status: 'active',
+  describe('催促文面がグループ宛に出る経路がゼロであること（うざくない秘書 再設計の中核回帰）', () => {
+    it('チャンネルストア(store.ts)にグループ解決関数を一切呼ばない', async () => {
+      await callPost()
+      // 発生元グループ/spaceグループを引く関数はimportすらしていない
+      // （このテストファイルのmockにも存在しない）ため、呼び出しようがないことを
+      // sendSecretaryPushのtoが常にDM宛(U-DM-1)であることで裏付ける
+      expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('U-DM-1')
+      expect(sendSecretaryPushMock.mock.calls[0][0].record.groupId).toBeNull()
     })
 
-    const res = await callPost()
-    expect(res.status).toBe(200)
-    expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
-    expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('G-ORIGIN')
-    // spaceグループへは問い合わせない(発生元が優先されるため呼ばれても使われない可能性はあるが、
-    // 現実装ではorigin成立時はspace解決を呼ばない)
-    expect(channelsStoreMock.findActiveGroupForSpace).not.toHaveBeenCalled()
+    it('DM不能な複数occurrenceが全てno_routeで終端し、1件もグループ宛のpushが発生しない', async () => {
+      storeMock.claimDueReminderOccurrences.mockResolvedValue([
+        OCC,
+        { ...OCC, id: 'occ-2', taskId: 'task-2' },
+      ])
+      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
+
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+      expect(json.sent).toBe(0)
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'no_route')
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-2', 'suppressed', 'no_route')
+    })
+  })
+
+  describe('org単位の自動期限リマインドオンオフ（org_channel_policy.due_reminders_enabled・§2）', () => {
+    it('org無効(false)なら送信せずsuppressed(org_reminders_disabled)で終端する', async () => {
+      storeMock.isOrgDueRemindersEnabled.mockResolvedValue(false)
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(storeMock.isOrgDueRemindersEnabled).toHaveBeenCalledWith('org-1')
+      expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith(
+        'occ-1',
+        'suppressed',
+        'org_reminders_disabled',
+      )
+      expect(json.sent).toBe(0)
+    })
+
+    it('org有効(true)なら従来どおり送信する', async () => {
+      storeMock.isOrgDueRemindersEnabled.mockResolvedValue(true)
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+    })
+
+    it('perf是正: 同一orgの複数occurrenceではisOrgDueRemindersEnabledを1回しか呼ばない（org単位メモ化）', async () => {
+      storeMock.claimDueReminderOccurrences.mockResolvedValue([
+        OCC,
+        { ...OCC, id: 'occ-2', taskId: 'task-2' },
+        { ...OCC, id: 'occ-3', taskId: 'task-3' },
+      ])
+      storeMock.findTaskSnapshotForReminder.mockImplementation(async (taskId: string) => ({
+        ...TASK_SNAPSHOT,
+        id: taskId,
+      }))
+      storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
+
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(storeMock.isOrgDueRemindersEnabled).toHaveBeenCalledTimes(1)
+      expect(storeMock.isOrgDueRemindersEnabled).toHaveBeenCalledWith('org-1')
+    })
   })
 
   it('Pro＋line_direct_dm＋active user linkがあれば1:1 DMへ配信する（宛先込みretryKey）', async () => {
-    channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
-      channelAccountId: 'acc-1',
-      externalUserId: 'U-DM-1',
-    })
-
     const res = await callPost()
     expect(res.status).toBe(200)
     expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
@@ -178,34 +240,6 @@ describe('POST /api/cron/due-reminder-sender', () => {
     expect(arg.to).toBe('U-DM-1')
     expect(arg.record).toMatchObject({ groupId: null, externalUserId: 'U-DM-1' })
     expect(arg.retryKey).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
-  })
-
-  it('DM宛てとグループ宛てで異なるretryKeyになる（宛先込みretryKey・HIGH修正回帰）', async () => {
-    channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
-      channelAccountId: 'acc-1',
-      externalUserId: 'U-DM-1',
-    })
-    const dmResult = await callPost()
-    expect(dmResult.status).toBe(200)
-    const dmRetryKey = sendSecretaryPushMock.mock.calls[0][0].retryKey
-
-    vi.clearAllMocks()
-    process.env.CRON_SECRET = 'test-cron-secret'
-    storeMock.claimDueReminderOccurrences.mockResolvedValue([OCC])
-    storeMock.findTaskSnapshotForReminder.mockResolvedValue(TASK_SNAPSHOT)
-    storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
-    storeMock.findConnectionFreshness.mockResolvedValue(null)
-    resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: true }))
-    channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
-    channelsStoreMock.findChatOriginGroupForTask.mockResolvedValue(null)
-    channelsStoreMock.findActiveGroupForSpace.mockResolvedValue(SPACE_GROUP)
-    channelsStoreMock.findLineAccountByIdLookup.mockResolvedValue(ACCOUNT_LOOKUP)
-    sendSecretaryPushMock.mockResolvedValue({ delivered: true })
-
-    await callPost()
-    const groupRetryKey = sendSecretaryPushMock.mock.calls[0][0].retryKey
-
-    expect(dmRetryKey).not.toBe(groupRetryKey)
   })
 
   it('Freeなど未entitled(timed_line_reminders無し)は送らずsuppressed(not_entitled)', async () => {
@@ -250,19 +284,6 @@ describe('POST /api/cron/due-reminder-sender', () => {
       expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
       expect(json.sent).toBe(1)
     })
-  })
-
-  it('line_direct_dm を持たなければDMを試さずグループへ配信する', async () => {
-    resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: false }))
-    channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
-      channelAccountId: 'acc-1',
-      externalUserId: 'U-DM-1',
-    })
-
-    const res = await callPost()
-    expect(res.status).toBe(200)
-    expect(channelsStoreMock.findActiveUserLinkForUser).not.toHaveBeenCalled()
-    expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('G-SPACE')
   })
 
   describe('staleness(§6 3条件)', () => {
@@ -318,37 +339,27 @@ describe('POST /api/cron/due-reminder-sender', () => {
     })
   })
 
-  describe('ball×文面（宛先は変えない）', () => {
-    it('ball=clientとinternalで文面が異なるが宛先(to)は同一', async () => {
+  describe('ball非依存（宛先も文面もballで変わらない・うざくない秘書 再設計）', () => {
+    it('ball=clientとinternalで文面・宛先ともに同一になる', async () => {
       storeMock.findTaskSnapshotForReminder.mockResolvedValue({ ...TASK_SNAPSHOT, ball: 'client' })
       await callPost()
       const clientText = sendSecretaryPushMock.mock.calls[0][0].messages[0].altText
       const clientTo = sendSecretaryPushMock.mock.calls[0][0].to
 
-      vi.clearAllMocks()
-      process.env.CRON_SECRET = 'test-cron-secret'
-      storeMock.claimDueReminderOccurrences.mockResolvedValue([OCC])
+      setupDefaultMocks()
       storeMock.findTaskSnapshotForReminder.mockResolvedValue({ ...TASK_SNAPSHOT, ball: 'internal' })
-      storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
-      storeMock.findConnectionFreshness.mockResolvedValue(null)
-      resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: true }))
-      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
-      channelsStoreMock.findChatOriginGroupForTask.mockResolvedValue(null)
-      channelsStoreMock.findActiveGroupForSpace.mockResolvedValue(SPACE_GROUP)
-      channelsStoreMock.findLineAccountByIdLookup.mockResolvedValue(ACCOUNT_LOOKUP)
-      sendSecretaryPushMock.mockResolvedValue({ delivered: true })
 
       await callPost()
       const internalText = sendSecretaryPushMock.mock.calls[0][0].messages[0].altText
       const internalTo = sendSecretaryPushMock.mock.calls[0][0].to
 
-      expect(clientText).not.toBe(internalText)
+      expect(clientText).toBe(internalText)
       expect(clientTo).toBe(internalTo)
     })
   })
 
-  describe('確認Flex送信（設計正本 §7・PR-2）', () => {
-    it('text単体ではなくFlex（[完了した][まだ][○日後に再通知]ボタン付き）で送信する', async () => {
+  describe('確認Flex送信（設計正本 §7・PR-2・うざくない秘書 再設計）', () => {
+    it('text単体ではなくFlex（[完了した][対応中][明日また確認]ボタン付き）で送信する', async () => {
       const res = await callPost()
       expect(res.status).toBe(200)
       expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
@@ -357,10 +368,11 @@ describe('POST /api/cron/due-reminder-sender', () => {
       expect(message.type).toBe('flex')
       expect(typeof message.altText).toBe('string')
       expect(message.altText.length).toBeGreaterThan(0)
+      expect(message.altText).not.toContain('回目')
 
       const buttons = message.contents.footer.contents as Array<{ action: { label: string; data: string } }>
       const labels = buttons.map((b) => b.action.label)
-      expect(labels).toEqual(['完了した', 'まだ', '1日後に再通知'])
+      expect(labels).toEqual(['完了した', '対応中', '明日また確認'])
       expect(buttons[0].action.data).toBe(`action=due_reminder_done&task=${OCC.taskId}`)
       expect(buttons[1].action.data).toBe(
         `action=due_reminder_snooze&occurrence=${OCC.id}&days=1&gen=${OCC.sendCount}`,
@@ -551,18 +563,7 @@ describe('POST /api/cron/due-reminder-sender', () => {
       await callPost()
       const first = sendSecretaryPushMock.mock.calls[0][0].retryKey
 
-      vi.clearAllMocks()
-      process.env.CRON_SECRET = 'test-cron-secret'
-      storeMock.claimDueReminderOccurrences.mockResolvedValue([OCC])
-      storeMock.findTaskSnapshotForReminder.mockResolvedValue(TASK_SNAPSHOT)
-      storeMock.findOrgIdForSpace.mockResolvedValue('org-1')
-      storeMock.findConnectionFreshness.mockResolvedValue(null)
-      resolveEntitlementsMock.mockResolvedValue(entitled({ timed_line_reminders: true, line_direct_dm: true }))
-      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
-      channelsStoreMock.findChatOriginGroupForTask.mockResolvedValue(null)
-      channelsStoreMock.findActiveGroupForSpace.mockResolvedValue(SPACE_GROUP)
-      channelsStoreMock.findLineAccountByIdLookup.mockResolvedValue(ACCOUNT_LOOKUP)
-      sendSecretaryPushMock.mockResolvedValue({ delivered: true })
+      setupDefaultMocks()
 
       await callPost()
       const second = sendSecretaryPushMock.mock.calls[0][0].retryKey
@@ -570,11 +571,7 @@ describe('POST /api/cron/due-reminder-sender', () => {
       expect(first).toBe(second)
     })
 
-    it('宛先違いで異なるretryKeyになる(DM宛て vs グループ宛て・既存テストの再確認)', async () => {
-      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
-        channelAccountId: 'acc-1',
-        externalUserId: 'U-DM-1',
-      })
+    it('宛先違いで異なるretryKeyになる(DM宛て vs DM無しでno_route・既存テストの再確認)', async () => {
       await callPost()
       const dmRetryKey = sendSecretaryPushMock.mock.calls[0][0].retryKey
       expect(dmRetryKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)

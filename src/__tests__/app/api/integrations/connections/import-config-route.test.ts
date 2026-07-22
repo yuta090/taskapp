@@ -67,6 +67,8 @@ const { PATCH } = await import('@/app/api/integrations/connections/[id]/import-c
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
 const CONNECTION_ID = '22222222-2222-4222-8222-222222222222'
 const SPACE_ID = '33333333-3333-4333-8333-333333333333'
+const NEW_SPACE_ID = '55555555-5555-4555-8555-555555555555'
+const NOTION_DATABASE_ID = '44444444-4444-4444-8444-444444444444'
 
 function callPatch(id: string, body: Record<string, unknown>) {
   const request = new NextRequest(`http://localhost:3000/api/integrations/connections/${id}/import-config`, {
@@ -176,5 +178,111 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     expect(response.status).toBe(500)
     // 内部エラー文言は返さない
     expect(data.error).not.toContain('connection failure')
+  })
+
+  it('400 when the JSON body itself is a valid `null` literal (no 500 from body.import_config on null)', async () => {
+    const request = new NextRequest(`http://localhost:3000/api/integrations/connections/${CONNECTION_ID}/import-config`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'null',
+    })
+    const response = await PATCH(request, { params: Promise.resolve({ id: CONNECTION_ID }) })
+    expect(response.status).toBe(400)
+  })
+
+  /**
+   * ⚠ 最重要の回帰テスト(迂回の防止): notion_mappings はサーバ管理フィールド。汎用PATCHが
+   * クライアントの送信値をそのまま採用すると、保存API(mapping/route.ts)のライブスキーマ検証を
+   * 迂回して実在しないprop_idを永続化できてしまう。DBの現在値が保持されることを確認する。
+   */
+  it('汎用PATCHで実在しないprop_idを含むnotion_mappingsを送っても永続化されない(DBの現在値が保持される)', async () => {
+    const currentMappings = {
+      [NOTION_DATABASE_ID]: {
+        due_prop_id: 'due-1',
+        status: null,
+        confirmed_at: '2026-07-01T00:00:00.000Z',
+      },
+    }
+    findResultMock.mockReturnValue({
+      data: {
+        org_id: ORG_ID,
+        import_config: {
+          target_space_id: SPACE_ID,
+          notion_mappings: currentMappings,
+          read_container_ids: [NOTION_DATABASE_ID],
+        },
+      },
+      error: null,
+    })
+
+    const maliciousMappings = {
+      [NOTION_DATABASE_ID]: {
+        due_prop_id: 'ghost-prop-that-does-not-exist',
+        status: null,
+        confirmed_at: '2026-07-01T00:00:00.000Z',
+      },
+    }
+    const response = await callPatch(CONNECTION_ID, {
+      import_config: { target_space_id: SPACE_ID, notion_mappings: maliciousMappings },
+    })
+
+    expect(response.status).toBe(200)
+    expect(updatePayload).not.toBeNull()
+    const config = updatePayload!.import_config as Record<string, unknown>
+    expect(config.notion_mappings).toEqual(currentMappings)
+    expect(config.notion_mappings).not.toEqual(maliciousMappings)
+  })
+
+  /**
+   * ⚠ 最重要の回帰テスト(消失の防止): 別画面でtarget_space_idだけを変更する操作で、
+   * 確定済みのnotion_mappings/read_container_idsが丸ごと消えてはならない。
+   */
+  it('汎用PATCHでtarget_space_idだけ変更してもnotion_mappings/read_container_idsが消えない', async () => {
+    const currentMappings = {
+      [NOTION_DATABASE_ID]: {
+        due_prop_id: 'due-1',
+        status: null,
+        confirmed_at: '2026-07-01T00:00:00.000Z',
+      },
+    }
+    findResultMock.mockReturnValue({
+      data: {
+        org_id: ORG_ID,
+        import_config: {
+          target_space_id: SPACE_ID,
+          notion_mappings: currentMappings,
+          read_container_ids: [NOTION_DATABASE_ID],
+        },
+      },
+      error: null,
+    })
+
+    // クライアントはtarget_space_idの変更だけを意図しており、notion_mappings/read_container_ids
+    // には一切触れていない(キー自体を送っていない)。
+    const response = await callPatch(CONNECTION_ID, { import_config: { target_space_id: NEW_SPACE_ID } })
+
+    expect(response.status).toBe(200)
+    const config = updatePayload!.import_config as Record<string, unknown>
+    expect(config.target_space_id).toBe(NEW_SPACE_ID)
+    expect(config.notion_mappings).toEqual(currentMappings)
+    expect(config.read_container_ids).toEqual([NOTION_DATABASE_ID])
+  })
+
+  it('read_container_idsを明示的に送った場合はその値で上書きされる(意図的なクリアも許す)', async () => {
+    findResultMock.mockReturnValue({
+      data: {
+        org_id: ORG_ID,
+        import_config: { target_space_id: SPACE_ID, read_container_ids: [NOTION_DATABASE_ID] },
+      },
+      error: null,
+    })
+
+    const response = await callPatch(CONNECTION_ID, {
+      import_config: { target_space_id: SPACE_ID, read_container_ids: [] },
+    })
+
+    expect(response.status).toBe(200)
+    const config = updatePayload!.import_config as Record<string, unknown>
+    expect(config.read_container_ids).toEqual([])
   })
 })

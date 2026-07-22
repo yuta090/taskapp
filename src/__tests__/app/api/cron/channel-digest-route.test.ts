@@ -21,6 +21,7 @@ const storeMock = {
   getPlatformBudgetState: vi.fn(),
   insertChannelMessage: vi.fn(),
   findExistingDigestTaskSourceMessageIds: vi.fn(),
+  findUserIdsWithActiveLink: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -38,16 +39,20 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({}),
 }))
 
-// 既定はPro相当(timed_line_reminders保持)にし、既存アサーションに影響しないようにする
-// （期限セクションはtimed_line_reminders非保持orgのみに出す・設計正本 §9）。
+// 既定はPro相当(line_direct_dm保持=DMルートあり)にし、既存アサーションに影響しないように
+// する（期限セクションはper-task「DMで届かない場合」のみ出す・設計正本 §9・うざくない秘書
+// 再設計）。
 const resolveEntitlementsMock = vi.fn()
 vi.mock('@/lib/billing/entitlements', () => ({
   resolveOrgEntitlements: (...args: unknown[]) => resolveEntitlementsMock(...args),
 }))
 
 const dueReminderStoreMock = {
-  findDueDigestCandidatesForSpace: vi.fn(),
+  findDueDigestTodayCandidatesForSpace: vi.fn(),
+  findDueDigestOverdueCandidatesForSpace: vi.fn(),
   findConnectionFreshnessBatch: vi.fn(),
+  isOrgDueRemindersEnabled: vi.fn(),
+  findDueReminderDisabledUserIds: vi.fn(),
 }
 vi.mock('@/lib/reminders/dueReminderStore', () => dueReminderStoreMock)
 
@@ -119,11 +124,15 @@ describe('POST /api/cron/channel-digest', () => {
     storeMock.getPlatformBudgetState.mockResolvedValue('ok')
     storeMock.insertChannelMessage.mockResolvedValue({ id: 'outbound-1' })
     storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set())
+    storeMock.findUserIdsWithActiveLink.mockResolvedValue(new Set())
     pushMock.mockResolvedValue(undefined)
-    // 既定はPro相当（期限セクションを出さない）。Free相当のテストは個別にfalseへ上書きする。
+    // 既定はPro相当（line_direct_dm保持）。期限セクションのテストは個別に上書きする。
     resolveEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
-    dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([])
+    dueReminderStoreMock.findDueDigestTodayCandidatesForSpace.mockResolvedValue([])
+    dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([])
     dueReminderStoreMock.findConnectionFreshnessBatch.mockResolvedValue(new Map())
+    dueReminderStoreMock.isOrgDueRemindersEnabled.mockResolvedValue(true)
+    dueReminderStoreMock.findDueReminderDisabledUserIds.mockResolvedValue(new Set())
     nudgeFreeCapReachedMock.mockResolvedValue({ nudged: true })
     notifyPoolExhaustedMock.mockResolvedValue({ nudged: true })
   })
@@ -755,18 +764,20 @@ describe('POST /api/cron/channel-digest', () => {
     })
   })
 
-  describe('期限セクション（設計正本 §9・PR-1・timed_line_reminders非保持orgのみ）', () => {
+  describe('期限セクション（設計正本 §9・安全網v2・うざくない秘書 再設計）', () => {
     beforeEach(() => {
       storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP])
       storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
         { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
       ])
+      // 既定: DMルート無し(findUserIdsWithActiveLink空集合) → per-task「DMで届かない場合」に
+      // 該当し、期限セクションに載る（各itで上書きする）
+      resolveEntitlementsMock.mockResolvedValue({ planId: 'pro', has: (f: string) => f === 'line_direct_dm' })
     })
 
-    it('Free org（timed_line_reminders無し）には期限セクションが追記される', async () => {
-      resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([
-        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', ball: 'internal', dueAuthorityConnectionId: null },
+    it('DMルートが無い担当者のタスクは中立文面で期限セクションに追記される（Proでも出る）', async () => {
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
       ])
 
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
@@ -775,49 +786,109 @@ describe('POST /api/cron/channel-digest', () => {
       expect(response.status).toBe(200)
       expect(body.digestsSent).toBe(1)
       const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
-      expect(pushed.messages[0].text).toContain('⏰期限のお知らせ')
+      expect(pushed.messages[0].text).toContain('【期限のお知らせ】')
       expect(pushed.messages[0].text).toContain('請求書の送付')
+      // 中立文面（催促/命令調は出さない）
+      expect(pushed.messages[0].text).not.toContain('催促')
     })
 
-    it('due windowは今日(JST)基準で下限7日前・上限明日を渡す（code review #4是正）', async () => {
+    it('page-perf再レビュー是正: 本日分/超過分を別クエリで並列取得し、超過下限7日前・本日=jstDateStrを渡す（+1日上限の無駄取得は廃止）', async () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date(2026, 6, 20, 7, 0)) // 2026-07-20 07:00 JST(ローカル=JST想定のテスト環境)
-      resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([])
 
       try {
         await callPost({ authorization: 'Bearer test-cron-secret' })
-        expect(dueReminderStoreMock.findDueDigestCandidatesForSpace).toHaveBeenCalledWith(
+        expect(dueReminderStoreMock.findDueDigestTodayCandidatesForSpace).toHaveBeenCalledWith(
+          'space-1',
+          '2026-07-20',
+        )
+        expect(dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace).toHaveBeenCalledWith(
           'space-1',
           '2026-07-13',
-          '2026-07-21',
+          '2026-07-20',
         )
       } finally {
         vi.useRealTimers()
       }
     })
 
-    it('Pro org（timed_line_reminders保持）には期限セクションを出さない（pushと二重になるため）', async () => {
-      resolveEntitlementsMock.mockResolvedValue({ planId: 'pro', has: () => true })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([
-        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', ball: 'internal', dueAuthorityConnectionId: null },
+    it('org無効(due_reminders_enabled=false)なら期限セクションを出さない（送信境界と同じキルスイッチ）', async () => {
+      dueReminderStoreMock.isOrgDueRemindersEnabled.mockResolvedValue(false)
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
       ])
 
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       expect(response.status).toBe(200)
-      expect(dueReminderStoreMock.findDueDigestCandidatesForSpace).not.toHaveBeenCalled()
+      expect(dueReminderStoreMock.findDueDigestTodayCandidatesForSpace).not.toHaveBeenCalled()
+      expect(dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace).not.toHaveBeenCalled()
       const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
-      expect(pushed.messages[0].text).not.toContain('⏰期限のお知らせ')
+      expect(pushed.messages[0].text).not.toContain('【期限のお知らせ】')
+    })
+
+    it('担当者にDMルートがある(Pro+line_direct_dm+active link)タスクは期限セクションに出さない（重複防止）', async () => {
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-dm', title: 'DMで届く方', dueDate: '2026-07-12', assigneeId: 'user-dm', dueAuthorityConnectionId: null },
+        { id: 't-nodm', title: 'DMで届かない方', dueDate: '2026-07-12', assigneeId: 'user-nodm', dueAuthorityConnectionId: null },
+      ])
+      storeMock.findUserIdsWithActiveLink.mockResolvedValue(new Set(['user-dm']))
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+      expect(pushed.messages[0].text).not.toContain('DMで届く方')
+      expect(pushed.messages[0].text).toContain('DMで届かない方')
+    })
+
+    it('perf是正: DMリンク判定とオプトアウト判定を並列で発火する（直列なら後者は前者の解決を待ってしまう）', async () => {
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
+      ])
+      // findUserIdsWithActiveLinkを意図的に解決させない（直列実装ならfindDueReminderDisabledUserIdsは
+      // 永久に呼ばれないはず）
+      storeMock.findUserIdsWithActiveLink.mockReturnValue(new Promise(() => {}))
+      dueReminderStoreMock.findDueReminderDisabledUserIds.mockResolvedValue(new Set())
+
+      void callPost({ authorization: 'Bearer test-cron-secret' })
+      // マクロタスクを一巡させ、Promise.allで両方が同時に発火していることを確認する
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(storeMock.findUserIdsWithActiveLink).toHaveBeenCalled()
+      expect(dueReminderStoreMock.findDueReminderDisabledUserIds).toHaveBeenCalled()
+    })
+
+    it('line_direct_dmを持たないorgはDM存在チェック自体を呼ばず全件を期限セクションに出す', async () => {
+      resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
+      ])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      expect(storeMock.findUserIdsWithActiveLink).not.toHaveBeenCalled()
+      const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+      expect(pushed.messages[0].text).toContain('請求書の送付')
+    })
+
+    it('担当者が個人単位でオプトアウト(profiles.due_reminder_enabled=false)していれば期限セクションに出さない', async () => {
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-opted-out', title: 'オプトアウト担当', dueDate: '2026-07-12', assigneeId: 'user-opted-out', dueAuthorityConnectionId: null },
+      ])
+      dueReminderStoreMock.findDueReminderDisabledUserIds.mockResolvedValue(new Set(['user-opted-out']))
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+      expect(pushed.messages[0].text).not.toContain('【期限のお知らせ】')
     })
 
     it('external権威タスクは鮮度SLA超過なら期限セクションから除外する（§6鮮度抑止）', async () => {
-      resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
         {
           id: 't-stale',
           title: 'Google Tasks由来タスク',
           dueDate: '2026-07-12',
-          ball: 'internal',
+          assigneeId: 'user-1',
           dueAuthorityConnectionId: 'conn-1',
         },
       ])
@@ -837,13 +908,12 @@ describe('POST /api/cron/channel-digest', () => {
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       expect(response.status).toBe(200)
       const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
-      expect(pushed.messages[0].text).not.toContain('⏰期限のお知らせ')
+      expect(pushed.messages[0].text).not.toContain('【期限のお知らせ】')
     })
 
     it('期限セクション追加による追加のbillable sendは作らない（既存の単一digest pushのまま）', async () => {
-      resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([
-        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', ball: 'internal', dueAuthorityConnectionId: null },
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
       ])
 
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
@@ -856,8 +926,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('期限セクション取得が失敗しても既存digestの配信は止めない', async () => {
-      resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockRejectedValue(new Error('db down'))
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockRejectedValue(new Error('db down'))
 
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       const body = await response.json()
@@ -871,6 +940,54 @@ describe('POST /api/cron/channel-digest', () => {
         ]),
       )
     })
+
+    describe('page-perf再レビュー是正: 本日分/超過分の専用limit(25)で「本日が期限」の飢餓を防ぐ', () => {
+      it('超過タスクが60件(旧上限50件超)あっても「本日が期限」が飢餓にならず今日のタスクが載る（中核回帰）', async () => {
+        const overdueTasks = Array.from({ length: 60 }, (_, i) => ({
+          id: `t-overdue-${i}`,
+          title: `超過タスク${i + 1}`,
+          dueDate: '2026-07-01',
+          assigneeId: 'user-overdue',
+          dueAuthorityConnectionId: null,
+        }))
+        dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue(overdueTasks)
+        dueReminderStoreMock.findDueDigestTodayCandidatesForSpace.mockResolvedValue([
+          {
+            id: 't-today',
+            title: '今日やるタスク',
+            dueDate: '2026-07-21',
+            assigneeId: 'user-today',
+            dueAuthorityConnectionId: null,
+          },
+        ])
+
+        const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+        expect(response.status).toBe(200)
+        const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+        expect(pushed.messages[0].text).toContain('■ 本日が期限')
+        expect(pushed.messages[0].text).toContain('今日やるタスク')
+        expect(pushed.messages[0].text).toContain('■ 期限超過')
+      })
+
+      it('各セクションが上位10件＋「ほかN件」に丸められる（storeのlimit(25)分がそのまま渡っても丸めは効く）', async () => {
+        const overdueTasks = Array.from({ length: 26 }, (_, i) => ({
+          id: `t-overdue-${i}`,
+          title: `超過タスク${i + 1}`,
+          dueDate: '2026-07-01',
+          assigneeId: 'user-overdue',
+          dueAuthorityConnectionId: null,
+        }))
+        dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue(overdueTasks)
+
+        const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+        expect(response.status).toBe(200)
+        const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+        expect(pushed.messages[0].text).toContain('・超過タスク1')
+        expect(pushed.messages[0].text).toContain('・超過タスク10')
+        expect(pushed.messages[0].text).not.toContain('・超過タスク11')
+        expect(pushed.messages[0].text).toContain('・ほか16件')
+      })
+    })
   })
 
   describe('due-only push（code review #1是正: 申し送り0件でも期限項目だけで送る）', () => {
@@ -879,12 +996,12 @@ describe('POST /api/cron/channel-digest', () => {
       // 申し送りタスクは0件（この一点がこのdescribeの要）
       storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
       resolveEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([
-        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', ball: 'internal', dueAuthorityConnectionId: null },
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([
+        { id: 't-due', title: '請求書の送付', dueDate: '2026-07-12', assigneeId: 'user-1', dueAuthorityConnectionId: null },
       ])
     })
 
-    it('申し送り0件・due項目ありのFree orgへ1通pushする（期限セクションのみ・flexなし）', async () => {
+    it('申し送り0件・due項目ありのorgへ1通pushする（期限セクションのみ・flexなし）', async () => {
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       const body = await response.json()
 
@@ -895,7 +1012,7 @@ describe('POST /api/cron/channel-digest', () => {
       const pushed = pushMock.mock.calls[0][0] as { messages: Array<{ type: string; text?: string }> }
       expect(pushed.messages).toHaveLength(1) // flex(消し込みボタン)は添付しない
       expect(pushed.messages[0].type).toBe('text')
-      expect(pushed.messages[0].text).toContain('⏰期限のお知らせ')
+      expect(pushed.messages[0].text).toContain('【期限のお知らせ】')
       expect(pushed.messages[0].text).toContain('請求書の送付')
     })
 
@@ -912,7 +1029,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
 
     it('申し送り0件・due項目0件なら何もしない（従来どおり）', async () => {
-      dueReminderStoreMock.findDueDigestCandidatesForSpace.mockResolvedValue([])
+      dueReminderStoreMock.findDueDigestOverdueCandidatesForSpace.mockResolvedValue([])
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       const body = await response.json()
 

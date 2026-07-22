@@ -2564,6 +2564,34 @@ export async function findActiveUserLinkForUser(
 }
 
 /**
+ * findActiveUserLinkForUser のバッチ版（存在判定のみ・値は返さない）。期限リマインドの
+ * channel-digest 安全網（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md §9）で、
+ * 「担当者にDMルートがあるか」をper-task判定してdigest掲載要否を決めるために使う。
+ *
+ * MEDIUM-1是正（対称化）: sender側の宛先解決(resolveDmCandidate)は
+ * findLineAccountByIdLookup で紐付け先アカウントが status='active' であることまで確認するが、
+ * この関数はrevoked_atのみ見ておりaccountの有効性を見ていなかった（非対称）。account が
+ * disabled（LINEブロック等での無効化を含む運用）だと「DMは届く」と誤判定し、digestの安全網
+ * からタスクが漏れる。channel_accounts!inner(status) を埋め込み、active なaccountのみを
+ * 「DMルートあり」として扱う。
+ */
+export async function findUserIdsWithActiveLink(orgId: string, userIds: string[]): Promise<Set<string>> {
+  const unique = [...new Set(userIds)]
+  if (unique.length === 0) return new Set()
+
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('user_id, channel_accounts!inner(status)')
+    .eq('org_id', orgId)
+    .in('user_id', unique)
+    .is('revoked_at', null)
+    .eq('channel_accounts.status', 'active')
+  if (error) throw new Error(`channel_user_links: batch active link lookup failed: ${error.message}`)
+
+  return new Set((data ?? []).map((row) => (row as { user_id: string }).user_id))
+}
+
+/**
  * org がユーザー自身でLINE秘書を連携し始められる状態か（＝連携先Botが用意されているか）。
  * org専用bot(owner_type='org') か 共有bot(owner_type='platform') のどちらかが active なら true。
  * false のときは白ラベルBotが未プロビジョニング（運営作業待ち）で、オンボーディングでは
@@ -2637,11 +2665,14 @@ export async function getLineSelfServeState(orgId: string): Promise<LineSelfServ
 /**
  * 共通LINE の利用を org 側から申し込む（none→requested）。冪等（granted/requested は no-op）。
  * granted を絶対に downgrade しない（先に現状を読んでガード）。付与(→granted)は ops(service role)のみ。
+ *
+ * 戻り値の `transitioned` は「今回この呼び出しで実際に none→requested へ遷移したか」。
+ * 呼び出し側は**これが true のときだけ運営へ通知**する（再申込の連打で運営のメールを溢れさせない）。
  */
 export async function requestSharedBotAccess(
   orgId: string,
   userId: string,
-): Promise<'requested' | 'granted'> {
+): Promise<{ access: 'requested' | 'granted'; transitioned: boolean }> {
   const { data, error } = await admin()
     .from('org_channel_policy')
     .select('shared_bot_access')
@@ -2649,8 +2680,8 @@ export async function requestSharedBotAccess(
     .maybeSingle()
   if (error) throw new Error(`org_channel_policy: read failed: ${error.message}`)
   const current = (data as { shared_bot_access?: string } | null)?.shared_bot_access
-  if (current === 'granted') return 'granted'
-  if (current === 'requested') return 'requested'
+  if (current === 'granted') return { access: 'granted', transitioned: false }
+  if (current === 'requested') return { access: 'requested', transitioned: false }
 
   const { error: upErr } = await admin()
     .from('org_channel_policy')
@@ -2664,7 +2695,7 @@ export async function requestSharedBotAccess(
       { onConflict: 'org_id' },
     )
   if (upErr) throw new Error(`org_channel_policy: request upsert failed: ${upErr.message}`)
-  return 'requested'
+  return { access: 'requested', transitioned: true }
 }
 
 export interface SharedBotAccessRequest {
