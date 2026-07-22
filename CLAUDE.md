@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Output Language (厳守)
+
+- **アウトプット（説明・要約・レビュー結果など、ユーザーに見せる文章）は必ず日本語で書く。**
+- **専門用語はなるべく使わない。** 使う場合は、初出時に一言でかみくだいた説明を添える（例: 「RLS（データベース側でユーザーごとに見える行を制限する仕組み）」）。
+- コード・コマンド・ファイル名などはそのまま英語でよい。説明の本文だけ日本語にする。
+
 ## Project Overview
 
 TaskApp is a client-facing project management system with "ball ownership" concept (who needs to act next). Built with Next.js 16 (App Router) + Supabase.
