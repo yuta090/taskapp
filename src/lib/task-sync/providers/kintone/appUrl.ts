@@ -77,6 +77,13 @@ export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
   if (!subdomain) {
     return { ok: false, reason: 'URLからサブドメインを特定できません' }
   }
+  // 抽出したサブドメインにも、裸入力と同じ DNSラベル規則を適用する。
+  // parseKintoneSubdomainInput 側では是正済みだったのにこちらが漏れていた（外部レビュー指摘）。
+  // SSRF境界そのものは assertAllowedHost が別途守るが、ここを緩めると不正な形のサブドメインが
+  // そのまま baseUrl に組み込まれて保存され得る。2つの入力経路で検証がズレていること自体が事故のもと。
+  if (!BARE_SUBDOMAIN_RE.test(subdomain)) {
+    return { ok: false, reason: 'サブドメインの形式が正しくありません' }
+  }
 
   return { ok: true, data: { subdomain, appId: match[1] } }
 }
@@ -125,7 +132,13 @@ export function parseKintoneSubdomainInput(input: string): ParseKintoneSubdomain
   }
 
   const subdomain = subdomainFromHostname(url.hostname)
-  if (!subdomain) {
+  // ⚠ 是正済み(外部レビュー指摘): 裸のサブドメイン入力(BARE_SUBDOMAIN_RE.test(trimmed)の分岐)には
+  // DNSラベル規則(先頭・末尾は英数字のみ・最大63文字)を適用していたが、URL形式で入力されたときは
+  // 抽出後のサブドメインにこの検証を適用していなかった。URLコンストラクタは
+  // "-foo.cybozu.com"(先頭ハイフン)・"foo-.cybozu.com"(末尾ハイフン)・"a.b.cybozu.com"
+  // (複数ラベル)・64文字超のラベルをそのまま受理してしまうため、ここで通さないと不正な形式の
+  // サブドメインがそのまま baseUrl に組み込まれて保存され得る。裸入力と同じ BARE_SUBDOMAIN_RE を通す。
+  if (!subdomain || !BARE_SUBDOMAIN_RE.test(subdomain)) {
     return { ok: false, reason: 'URLからサブドメインを特定できません' }
   }
 

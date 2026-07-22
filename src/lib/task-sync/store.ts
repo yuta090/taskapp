@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { CONNECTOR_SYSTEM_USER_ID } from '@/lib/connectors/systemUser'
-import type { ImportTargets, TaskSyncStore } from '@/lib/task-sync/engine'
+import type { ImportTargets, MissingContainerMap, TaskSyncStore } from '@/lib/task-sync/engine'
 import type { ExternalTask } from '@/lib/task-sync/types'
 
 /**
@@ -205,7 +205,7 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
       connectionId: string,
       cursor: string | null,
       succeededAt: Date,
-      missingContainers: Record<string, string>,
+      missingContainers: MissingContainerMap,
     ): Promise<void> {
       // poll_cursor と last_import_success_at は**同じ成功パスでのみ**前進させる。
       // last_import_success_at は AI秘書の期限リマインドが「この接続の期限情報は N 分以内に
@@ -224,7 +224,7 @@ export function createTaskSyncStore(opts: TaskSyncStoreOptions): TaskSyncStore {
       if (error) throw new Error(`saveCursor failed: ${error.message}`)
     },
 
-    async saveMissingContainers(connectionId: string, missingContainers: Record<string, string>): Promise<void> {
+    async saveMissingContainers(connectionId: string, missingContainers: MissingContainerMap): Promise<void> {
       // 明示指定コンテナが全て欠落しており、何も取得を試みていないサイクル用。鮮度を主張できる
       // 根拠が無いため poll_cursor / last_import_success_at には触れず、欠落台帳だけを更新する。
       const { error } = await admin

@@ -8,6 +8,7 @@ import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { deriveExternalAccountKey } from '@/lib/task-sync/accountKey'
 import { validateKintoneAppCredentials } from '@/lib/task-sync/providers/kintone/appCredentials'
+import { fetchAppFields } from '@/lib/task-sync/providers/kintone/schema'
 
 export const runtime = 'nodejs'
 
@@ -182,25 +183,61 @@ export async function POST(request: NextRequest) {
   // 保存前に鍵を検証する（間違った鍵を保存させない）。provider固有設定も一緒に渡す
   // （Jira の Basic 認証はメールアドレスが揃って初めて成立するため、設定込みで検証しないと
   // 「保存はできたが一度も同期できない」接続ができてしまう）。
-  try {
-    await adapter.listContainers({
-      credentials: { kind: 'api_key', token: apiKey, baseUrl },
-      config: providerConfig,
-    })
-  } catch (err) {
-    const status = (err as { status?: number }).status
-    if (status === 401 || status === 403) {
-      return NextResponse.json({ error: 'APIキーが正しくないか、権限が足りません' }, { status: 400 })
+  //
+  // ⚠ kintoneはこの一般経路を使わず、下の専用ブロックで(appId, token)ペアを1組ずつ検証する
+  // （経緯は下のコメント参照）。
+  if (!kintoneCredentials) {
+    try {
+      await adapter.listContainers({
+        credentials: { kind: 'api_key', token: apiKey, baseUrl },
+        config: providerConfig,
+      })
+    } catch (err) {
+      const status = (err as { status?: number }).status
+      if (status === 401 || status === 403) {
+        return NextResponse.json({ error: 'APIキーが正しくないか、権限が足りません' }, { status: 400 })
+      }
+      if (status === 404) {
+        return NextResponse.json({ error: '接続先が見つかりません。URLを確認してください' }, { status: 400 })
+      }
+      // 相手側の一時障害。運用者の設定は正しいかもしれないので、その旨を返す（保存はしない）。
+      console.error('[task-sync/connect] verification failed:', provider, status ?? 'no-status')
+      return NextResponse.json(
+        { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
+        { status: 502 },
+      )
     }
-    if (status === 404) {
-      return NextResponse.json({ error: '接続先が見つかりません。URLを確認してください' }, { status: 400 })
+  } else {
+    // kintone: (appId, token) ペアの対応そのものを検証する（Codexレビュー指摘・Critical
+    // 「アプリとトークンの対応を検証していない」への是正）。
+    //
+    // ⚠ 経緯: adapter.listContainers はカンマ結合済みの全トークンを1つのヘッダに乗せて叩き、
+    // kintone側がそのアプリのものを自動選択する（client.ts の X-Cybozu-API-Token 仕様）。
+    // このため kintone_app_ids[i] とカンマ分割したトークン[i] を**位置で対応づけた**ものが
+    // 実際には食い違っていても（貼り付け順を間違えても）、listContainers による疎通確認は
+    // 成功してしまい対応の誤りに気づけない。後で「アプリBを削除」すると、実際には別アプリ
+    // （順序がずれた先）のトークンが消える「死んだ接続」の一種になる。
+    //
+    // このため接続作成時は、各ペアを1組ずつ**そのトークン単体**で fetchAppFields を叩き、
+    // 対応の正しさそのものを検証する。1組でも失敗したら接続を作らない（400。client.ts の
+    // GAIA_*分類メッセージ——「アプリを更新してください」等——がそのまま運用者に届くようにする。
+    // どのアプリで失敗したかも明示する）。検証を通ったペアだけで kintone_app_tokens と
+    // カンマ結合トークンを組み立てる（下のブロック）。
+    //
+    // N回の外部往復になるが、最大9件（MAX_API_TOKENS_PER_REQUEST）であり、接続作成は
+    // 一度きりの操作なので許容する。
+    for (let i = 0; i < kintoneCredentials.appIds.length; i++) {
+      const appId = kintoneCredentials.appIds[i]
+      const token = kintoneCredentials.tokens[i]
+      try {
+        await fetchAppFields(baseUrl, token, appId)
+      } catch (err) {
+        return NextResponse.json(
+          { error: `アプリID ${appId} のAPIトークンを確認できませんでした: ${errorMessageOf(err)}` },
+          { status: 400 },
+        )
+      }
     }
-    // 相手側の一時障害。運用者の設定は正しいかもしれないので、その旨を返す（保存はしない）。
-    console.error('[task-sync/connect] verification failed:', provider, status ?? 'no-status')
-    return NextResponse.json(
-      { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
-      { status: 502 },
-    )
   }
 
   // kintone: kintone_app_tokens(app_id→個別暗号化トークンのjsonbオブジェクト)を接続作成時にも
@@ -259,6 +296,11 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ connection_id: (data as { id: string }).id, provider }, { status: 201 })
+}
+
+/** providerError等がthrowするエラーのmessageをそのまま取り出す（client.tsの分類済みメッセージを運用者へ届けるため）。 */
+function errorMessageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function messageOf(err: unknown): string {

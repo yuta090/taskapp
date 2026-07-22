@@ -299,31 +299,71 @@ describe('runTaskSyncImport — provider固有設定の受け渡し', () => {
 
 describe('runTaskSyncImport — 欠落コンテナ台帳の受け渡し', () => {
   /**
-   * import_missing_containers（欠落と判明した時点の poll_cursor 値の台帳）はエンジンが
-   * 再出現時の since 計算・恒久削除時の wedge 防止に使う（engine.ts 参照）。ランナーは
-   * 接続行から読んでそのまま渡すだけの配線だが、jsonb 由来の値は何の保証も無い unknown なので
-   * 壊れていてもエンジンを呼ぶ前に空オブジェクトへフォールバックする（1行の壊れた値で
-   * その接続の取り込みが落ちない・恒久停止しないため）。
+   * import_missing_containers（欠落・設定待ちと判明した時点の poll_cursor 値の台帳。
+   * MissingContainerMap。engine.ts 参照）はエンジンが再出現時の since 計算・恒久削除/設定待ち時の
+   * wedge 防止に使う。ランナーは接続行から読んでそのまま渡すだけの配線だが、jsonb 由来の値は
+   * 何の保証も無い unknown なので壊れていてもエンジンを呼ぶ前に空オブジェクトへフォールバックする
+   * （1行の壊れた値でその接続の取り込みが落ちない・恒久停止しないため）。
    */
 
-  it('欠落台帳をそのままエンジンへ渡す', async () => {
+  it('欠落台帳(新形式)をそのままエンジンへ渡す', async () => {
+    connectionRows.push(
+      row({ import_missing_containers: { c1: { cursor: '2026-07-01', reason: 'missing' } } }),
+    )
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, unknown> }
+    expect(arg.storedMissing).toEqual({ c1: { cursor: '2026-07-01', reason: 'missing' } })
+  })
+
+  it('設定待ち(pending_config)のエントリもそのままエンジンへ渡す', async () => {
+    connectionRows.push(
+      row({ import_missing_containers: { c1: { cursor: '2026-07-01', reason: 'pending_config' } } }),
+    )
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, unknown> }
+    expect(arg.storedMissing).toEqual({ c1: { cursor: '2026-07-01', reason: 'pending_config' } })
+  })
+
+  /**
+   * ⚠ 後方互換: 欠落台帳へpendingConfigを統合する前に書かれた行は「値が文字列そのもの」
+   * （稼働中7アダプタが既にこの形で書いている）。本番DBの書き換えは行わない方針のため、
+   * この旧形式を読んだときは reason='missing' として正規化する（統合前は'pending_config'という
+   * reasonは存在し得なかったため、レガシー値は全てmissingとして読んで問題ない）。
+   */
+  it('欠落台帳(旧形式=値が文字列)は reason=missing として正規化して渡す(後方互換)', async () => {
     connectionRows.push(row({ import_missing_containers: { c1: '2026-07-01' } }))
     await runTaskSyncImport()
-    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, string> }
-    expect(arg.storedMissing).toEqual({ c1: '2026-07-01' })
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, unknown> }
+    expect(arg.storedMissing).toEqual({ c1: { cursor: '2026-07-01', reason: 'missing' } })
   })
 
   it('import_missing_containers が壊れていたら空オブジェクトにフォールバックする（落とさない）', async () => {
     connectionRows.push(row({ import_missing_containers: 'not-an-object' }))
     await runTaskSyncImport()
-    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, string> }
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, unknown> }
     expect(arg.storedMissing).toEqual({})
   })
 
   it('未設定(null)なら空オブジェクトとして渡す', async () => {
     connectionRows.push(row({ import_missing_containers: null }))
     await runTaskSyncImport()
-    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, string> }
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, unknown> }
     expect(arg.storedMissing).toEqual({})
+  })
+
+  it('個々のエントリの型が不正(cursorが文字列でない・reasonが未知)なら、そのキーだけ捨てて他は残す', async () => {
+    connectionRows.push(
+      row({
+        import_missing_containers: {
+          broken1: { cursor: 123, reason: 'missing' },
+          broken2: { cursor: '2026-07-01', reason: 'not-a-real-reason' },
+          broken3: ['not', 'an', 'object'],
+          ok: { cursor: '2026-07-02', reason: 'pending_config' },
+        },
+      }),
+    )
+    await runTaskSyncImport()
+    const arg = importConnection.mock.calls[0][0] as { storedMissing: Record<string, unknown> }
+    expect(arg.storedMissing).toEqual({ ok: { cursor: '2026-07-02', reason: 'pending_config' } })
   })
 })

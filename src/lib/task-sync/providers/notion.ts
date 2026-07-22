@@ -145,11 +145,29 @@ async function notionFetch(
 
 // ---- config.notion_mappings の読み取り（rawな値を信用せず、ここで1度だけ検証する） ----
 
+/**
+ * notion_mappings の**親オブジェクト**が「エントリを引ける形」(null/配列でない object)か。
+ * kintoneアダプタの isMappingsParentObject と同じ設計・同じ理由（コメント参照）。
+ *
+ * ⚠ 経緯(外部レビュー指摘・親オブジェクトの型破損が「未設定」に倒れている): notion_mappings
+ * そのものが null・配列・文字列など壊れた型のとき、以前は `!raw || typeof raw !== 'object'` で
+ * 「エントリが無い」＝ pendingConfig（設定途中の正常な状態）と同列に判定していた。しかし
+ * `typeof null === 'object'` であることに加え、配列も `typeof` は 'object' を返すため、
+ * この判定漏れは「親そのものが異常」というdriftと同じ性質の異常を、正常な設定途中として
+ * 黙って対象外にしてしまっていた（drift検知が弱まる）。
+ *
+ * `undefined`（notion_mappingsキー自体が無い。まだ1つもマッピングを保存していない接続の
+ * 初期状態）だけは正常とみなす。
+ */
+function isMappingsParentObject(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+}
+
 /** databaseId に対応するマッピングを取り出す。未設定/形式不正なら null（呼び出し側がエラーに変える）。 */
 function readMapping(ctx: ProviderContext, databaseId: string): NotionMapping | null {
   const raw = ctx.config?.notion_mappings
-  if (!raw || typeof raw !== 'object') return null
-  const candidate = (raw as Record<string, unknown>)[databaseId]
+  if (!isMappingsParentObject(raw)) return null
+  const candidate = raw[databaseId]
   if (candidate === undefined) return null
   const parsed = parseNotionMapping(candidate)
   return parsed.ok ? parsed.data : null
@@ -163,8 +181,8 @@ function readMapping(ctx: ProviderContext, databaseId: string): NotionMapping | 
  */
 function hasMappingEntry(ctx: ProviderContext, databaseId: string): boolean {
   const raw = ctx.config?.notion_mappings
-  if (!raw || typeof raw !== 'object') return false
-  return Object.prototype.hasOwnProperty.call(raw as Record<string, unknown>, databaseId)
+  if (!isMappingsParentObject(raw)) return false
+  return Object.prototype.hasOwnProperty.call(raw, databaseId)
 }
 
 /**
@@ -175,10 +193,20 @@ function hasMappingEntry(ctx: ProviderContext, databaseId: string): boolean {
  * マッピングウィザードをまだ完了していない状態（notion_mappings に databaseId のエントリ自体が
  * 無い）は**設定途中の正常な状態**であり、このDB単体だけを今回のポーリング対象から静かに外せば
  * 十分で、接続全体（他の設定済みDB）まで止める理由が無い。`pendingConfig: true` を立てて区別する。
- * 一方、エントリはあるのに parseNotionMapping が拒否する（構造が壊れている）場合は「設定途中」
+ * 一方、エントリはあるのに parseNotionMapping が拒否する（構造が壊れている）場合や、
+ * notion_mappings**そのもの**の型が壊れている場合（isMappingsParentObject参照）は「設定途中」
  * ではなく想定外の異常なので、従来どおり `pendingConfig` を立てず接続全体を止める。
  */
 function requireMapping(ctx: ProviderContext, databaseId: string): NotionMapping {
+  const raw = ctx.config?.notion_mappings
+  if (raw !== undefined && !isMappingsParentObject(raw)) {
+    // 親オブジェクトの型そのものが壊れている(null/配列/文字列等)。個々のdatabaseIdのエントリ
+    // 云々ではなく接続の設定全体が異常なので、pendingConfigには倒さず恒久エラーで止める。
+    throw providerError('notion: notion_mappingsの形式が不正です(オブジェクトである必要があります)', {
+      permanent: true,
+      status: 400,
+    })
+  }
   const mapping = readMapping(ctx, databaseId)
   if (!mapping) {
     if (!hasMappingEntry(ctx, databaseId)) {

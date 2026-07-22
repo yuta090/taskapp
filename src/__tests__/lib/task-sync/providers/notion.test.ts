@@ -256,6 +256,58 @@ describe('notionAdapter.listChangedTasks — マッピング未設定', () => {
     expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  /**
+   * ⚠ 是正済み(外部レビュー指摘・親オブジェクトの型破損が「未設定」に倒れている):
+   * notion_mappings**そのもの**が null・配列・文字列など壊れた型のとき、以前は
+   * 「エントリが無い」＝pendingConfig(設定途中の正常な状態)と同列に判定していた。しかしこれは
+   * 個々のdatabaseIdのエントリが無いのではなく接続の設定全体が異常なので、driftと同じく
+   * pendingConfigを立てずに恒久停止させる(kintoneアダプタと同じ是正)。
+   */
+  it('notion_mappingsがnullのときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: null }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('notion_mappingsが配列のときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: [] }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('notion_mappingsが文字列のときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: 'broken' }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('親が正常なobjectでエントリだけ無いときはpendingConfig(notion_mappingsが{}のとき)', async () => {
+    await expect(notionAdapter.listChangedTasks(ctx({ notion_mappings: {} }), 'db-1', {})).rejects.toMatchObject({
+      permanent: true,
+      status: 400,
+      pendingConfig: true,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('notionAdapter.listChangedTasks — 正規化', () => {
