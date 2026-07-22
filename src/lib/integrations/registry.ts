@@ -31,12 +31,12 @@ export type IntegrationId =
   | 'monday'
   | 'chatwork'
   | 'garoon'
+  | 'kintone'
   | 'generic_inbound'
   // データ書き出し・通知（送りっぱなし）
   | 'webhook'
   | 'notion'
   | 'google_sheets'
-  | 'kintone'
   | 'airtable'
   | 'csv_export'
   // 会計・請求
@@ -62,12 +62,12 @@ export const ALL_INTEGRATION_IDS: readonly IntegrationId[] = [
   'monday',
   'chatwork',
   'garoon',
+  'kintone',
   'generic_inbound',
   // data_export
   'webhook',
   'notion',
   'google_sheets',
-  'kintone',
   'airtable',
   'csv_export',
   // accounting
@@ -487,6 +487,29 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     proOnly: true,
     notes: 'サイボウズ Garoon のToDo。企業内グループウェア利用企業向け。',
   },
+  kintone: {
+    id: 'kintone',
+    label: 'kintone',
+    category: 'task_sync',
+    direction: 'two_way',
+    // ⚠ まだ一般公開しない(status='planned'に据え置く。'beta'に見えても実は繋がらない、を作らない):
+    //   アダプタ本体(src/lib/task-sync/providers/kintone.ts)とマッピングの提案/保存ロジック
+    //   (kintone/mapping.ts・kintone/schema.ts)は実装済みだが、(a) 接続パネル
+    //   (TaskSyncConnectPanel)にアプリID(kintone_app_ids)を入力する欄が無く、(b) マッピングの
+    //   提案/保存API(Notionのconnections/notion/mapping/route.tsに相当するもの)がまだ無い。
+    //   この状態で surface='connector' のまま一般公開すると、運用者は「接続はできたが
+    //   コンテナ0件・マッピング未設定で永久に何も同期しない死んだ接続」を作れてしまう
+    //   （Notionは提案/保存APIが既にマージ済みで状況が違うため、この例外はkintone限定）。
+    //   設定導線(入力欄＋提案/保存API)が揃うまでは status='planned'/surface='catalog' に留め、
+    //   ToolConnectOverview(ロードマップ表示のみ)に出す。揃い次第 'beta'+'connector' に戻す。
+    status: 'planned',
+    surface: 'catalog',
+    setupComplexity: 'schema_mapping',
+    proOnly: true,
+    featured: true,
+    notes:
+      '業務アプリ基盤(kintone)のレコードを取り込んでタスク同期する。フィールドコード＋選択肢名で対応づけるウィザードが要る（選択肢名はkintone側で変更されると対応が壊れる）。設定画面（アプリID入力・マッピングの提案/保存）を準備中のため、現時点では接続できません。',
+  },
   generic_inbound: {
     id: 'generic_inbound',
     label: 'その他のツール（Webhook）',
@@ -555,16 +578,6 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     sinkProvider: 'google_sheets',
     featured: true,
     notes: 'タスクの発生をスプレッドシートへ追記する。',
-  },
-  kintone: {
-    id: 'kintone',
-    label: 'kintone',
-    category: 'data_export',
-    direction: 'notify',
-    status: 'planned',
-    surface: 'catalog',
-    setupComplexity: 'schema_mapping',
-    notes: '業務アプリ基盤への書き出し。順次対応。',
   },
   airtable: {
     id: 'airtable',
