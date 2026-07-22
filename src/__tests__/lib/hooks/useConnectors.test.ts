@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import {
   useConnectors,
   useCreateMulticaConnection,
@@ -18,6 +18,13 @@ import {
  * 一覧はreact-query(GETはsecretを返さない)。作成/ローテ/import_configは保存ボタンを持たず、
  * 呼び出し側から即時にmutateするoptimistic update(useSinks.tsと同型)。
  */
+
+// useQueryをvi.fn(actual.useQuery)でラップし、実際の挙動は変えずに呼び出しoptions(第1引数)を
+// 検査できるようにする(useUserSpaces.test.tsと同じパターン)。
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return { ...actual, useQuery: vi.fn(actual.useQuery) }
+})
 
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
@@ -525,6 +532,27 @@ describe('useNotionMappingProposal', () => {
     )
     expect(fetchMock).not.toHaveBeenCalled()
     expect(result.current.data).toBeUndefined()
+  })
+
+  /**
+   * ⚠ refetchOnReconnect: false が無いと、エディタを開いたままstaleTime(5分)を超えてネットワーク
+   * が一瞬切れて復帰しただけでproposeが自動再実行され、①LLMが再課金される
+   * ②結果をuseEffectでフォームへ書き戻すため利用者が選択中の値が黙って上書きされる、という
+   * 二重の実害がある(retry:0/refetchOnWindowFocus:falseだけでは防げないv5の既定trueの穴)。
+   */
+  it('refetchOnReconnect: false が渡されている(再課金と選択中の値の上書きを防ぐため)', () => {
+    renderHook(
+      () =>
+        useNotionMappingProposal({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          enabled: true,
+        }),
+      { wrapper: createWrapper() },
+    )
+    const options = (useQuery as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>
+    expect(options.refetchOnReconnect).toBe(false)
   })
 
   /**

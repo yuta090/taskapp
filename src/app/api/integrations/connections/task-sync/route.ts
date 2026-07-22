@@ -161,6 +161,31 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // kintone: kintone_app_tokens(app_id→個別暗号化トークンのjsonbオブジェクト)を接続作成時にも
+  // 一緒に書き込む。「どのトークンがどのアプリのものか」の正本はkintone_app_tokensであり
+  // (20260723014852_kintone_apps_merge_rpc.sql冒頭コメント参照)、後続のアプリ追加/削除
+  // (kintone/apps/route.ts)がこれに依存する。接続作成時はapiKey(カンマ結合済みトークン)と
+  // kintone_app_idsが**同じ1リクエストの中で、KintoneConnectForm.tsxが同じ行配列から同時に
+  // 組み立てた**ため、この時点でだけ「コンマ分割した順序とkintone_app_idsの順序が一致する」ことが
+  // 仮定ではなく保証された事実になる(以後のAPI呼び出しではこの仮定を一切使わない)。
+  // ⚠ トークン数とアプリ数が一致しない入力(この経路を新UI以外から直接叩いた場合)では対応を
+  // 確定できないため、接続作成自体は拒否せずkintone_app_tokensの書き込みだけを諦める(位置で
+  // 推測して黙って誤対応させない。後続のアプリ追加/削除時はKTGAPで再接続を促す設計に委ねる)。
+  let kintoneAppTokens: Record<string, string> | undefined
+  if (provider === 'kintone') {
+    const appIds = normalizeKintoneAppIds(providerConfig.kintone_app_ids)
+    const tokenParts = apiKey
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+    if (tokenParts.length === appIds.length) {
+      kintoneAppTokens = {}
+      for (let i = 0; i < appIds.length; i++) {
+        kintoneAppTokens[appIds[i]] = await encryptToken(tokenParts[i])
+      }
+    }
+  }
+
   const encrypted = await encryptToken(apiKey)
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -183,7 +208,10 @@ export async function POST(request: NextRequest) {
       import_enabled: false,
       // ツール固有設定は import_config に同居させる（取り込み先スペース等と同じ袋）。
       // 接頭辞で名前空間を分けているので他ツールの設定と衝突しない。
-      import_config: providerConfig,
+      import_config: {
+        ...providerConfig,
+        ...(kintoneAppTokens ? { kintone_app_tokens: kintoneAppTokens } : {}),
+      },
     })
     .select('id')
     .single()

@@ -31,6 +31,12 @@ function isBareAppId(input: string): boolean {
   return /^\d+$/.test(input)
 }
 
+/** URLのhostnameからkintoneのサブドメイン部分を取り出す(サフィックス無ければnull)。 */
+function subdomainFromHostname(hostname: string): string | null {
+  const suffixMatch = /\.(cybozu\.com|kintone\.com)$/i.exec(hostname)
+  return suffixMatch ? hostname.slice(0, -suffixMatch[0].length) : null
+}
+
 export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
   const trimmed = input.trim()
   if (trimmed.length === 0) {
@@ -61,11 +67,54 @@ export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
     return { ok: false, reason: 'URLからアプリIDを特定できません(/k/<数字>/ の形式ではありません)' }
   }
 
-  const suffixMatch = /\.(cybozu\.com|kintone\.com)$/i.exec(url.hostname)
-  const subdomain = suffixMatch ? url.hostname.slice(0, -suffixMatch[0].length) : null
+  const subdomain = subdomainFromHostname(url.hostname)
   if (!subdomain) {
     return { ok: false, reason: 'URLからサブドメインを特定できません' }
   }
 
   return { ok: true, data: { subdomain, appId: match[1] } }
+}
+
+export type ParseKintoneSubdomainResult =
+  | { ok: true; baseUrl: string; subdomain: string }
+  | { ok: false; reason: string }
+
+/** 裸のサブドメイン(英数字とハイフンのみ。kintoneのサブドメイン規則に合わせる)かどうか。 */
+const BARE_SUBDOMAIN_RE = /^[a-zA-Z0-9-]+$/
+
+/**
+ * 接続フォームの「サブドメイン」欄の解析（純関数）— parseKintoneAppUrl と違い `/k/<数字>/`
+ * パスを要求しない(サブドメインの入力だけで完結する欄のため)。
+ *
+ * 受理する形:
+ *   - 裸のサブドメイン(例: `my-company`) → `https://my-company.cybozu.com` を組み立てる
+ *   - サブドメインを含む任意のURL(パス有無を問わない。例: `https://foo.cybozu.com/k/123/` を
+ *     誤って貼っても、パスを無視してサブドメインだけ取り出す＝利用者に優しい)
+ *
+ * ホスト境界の検証(vendor-domain・ドット境界一致・https限定・認証情報禁止・標準ポート限定)は
+ * parseKintoneAppUrl と同じ assertAllowedHost に委譲する(境界判定を2箇所に分岐させない)。
+ */
+export function parseKintoneSubdomainInput(input: string): ParseKintoneSubdomainResult {
+  const trimmed = input.trim()
+  if (trimmed.length === 0) {
+    return { ok: false, reason: 'サブドメインを入力してください' }
+  }
+
+  if (BARE_SUBDOMAIN_RE.test(trimmed)) {
+    return { ok: true, baseUrl: `https://${trimmed}.cybozu.com`, subdomain: trimmed }
+  }
+
+  let url: URL
+  try {
+    url = assertAllowedHost(KINTONE_HOST_POLICY, trimmed, 'kintone')
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : 'kintoneの正規ドメインのURLではありません' }
+  }
+
+  const subdomain = subdomainFromHostname(url.hostname)
+  if (!subdomain) {
+    return { ok: false, reason: 'URLからサブドメインを特定できません' }
+  }
+
+  return { ok: true, baseUrl: url.origin, subdomain }
 }

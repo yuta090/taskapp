@@ -269,3 +269,58 @@ describe('保存', () => {
     expect(res.status).toBe(409)
   })
 })
+
+/**
+ * kintone_app_tokens(app_id→個別暗号化トークンのjsonbオブジェクト。「どのトークンがどのアプリの
+ * ものか」の正本。20260723014852_kintone_apps_merge_rpc.sql参照)を接続作成時にも書き込む。
+ *
+ * ⚠ このトークン対応づけが成立するのは、apiKey(カンマ結合済みトークン)とkintone_app_idsが
+ * 「同じ1リクエストの中で、同じ行配列から同時に組み立てられた」場合だけ(KintoneConnectForm.tsx
+ * がその契約を守る)。トークン数とアプリ数が一致しない入力(この経路を新UI以外から直接叩いた場合)
+ * では対応を確定できないため、接続作成自体は拒否せず、kintone_app_tokensの書き込みだけを諦める
+ * (位置で推測して黙って誤対応させない。後続のアプリ追加/削除時にKTGAPで再接続を促す設計)。
+ */
+describe('kintone: kintone_app_tokens(トークンとアプリの対応)の作成時書き込み', () => {
+  beforeEach(() => {
+    getTaskSyncAdapter.mockReturnValue(
+      adapter({ id: 'kintone', hostPolicy: { kind: 'vendor-domain', allowedSuffixes: ['.cybozu.com'] } }),
+    )
+  })
+
+  it('トークン数とアプリ数が一致するなら、appId→暗号化トークンの対応をimport_configへ書き込む', async () => {
+    encryptToken.mockImplementation(async (plaintext: string) => `enc(${plaintext})`)
+    const res = await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'kintone',
+        api_key: 'token-5,token-9',
+        base_url: 'https://e.cybozu.com',
+        provider_config: { kintone_app_ids: ['5', '9'] },
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(insertCapture.import_config).toMatchObject({
+      kintone_app_ids: ['5', '9'],
+      kintone_app_tokens: { '5': 'enc(token-5)', '9': 'enc(token-9)' },
+    })
+    // 平文トークンをそのまま(暗号化を経ずに)import_configへ残していないこと
+    // (encryptTokenの戻り値をそのまま使っており、生の 'token-5'/'token-9' という値ではない)。
+    const tokens = insertCapture.import_config as { kintone_app_tokens: Record<string, string> }
+    expect(tokens.kintone_app_tokens['5']).not.toBe('token-5')
+    expect(tokens.kintone_app_tokens['9']).not.toBe('token-9')
+  })
+
+  it('トークン数とアプリ数が一致しない場合は、対応が組めないため書き込みを諦める(接続自体は拒否しない)', async () => {
+    const res = await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'kintone',
+        api_key: 'only-one-token',
+        base_url: 'https://e.cybozu.com',
+        provider_config: { kintone_app_ids: ['5', '9'] },
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(insertCapture.import_config).not.toHaveProperty('kintone_app_tokens')
+  })
+})

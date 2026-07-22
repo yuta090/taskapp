@@ -6,6 +6,7 @@ import { ConnectorSyncPane } from '@/components/secretary/integrations/Connector
 import { GenericInboundPanel } from '@/components/secretary/integrations/GenericInboundPanel'
 import { SinkProviderPanel } from '@/components/secretary/integrations/SinkProviderPanel'
 import { TaskSyncConnectPanel } from '@/components/secretary/integrations/TaskSyncConnectPanel'
+import { KintoneConnectPanel } from '@/components/secretary/integrations/KintoneConnectPanel'
 import { NotionImportPanel } from '@/components/secretary/integrations/NotionImportPanel'
 import { ToolConnectOverview } from '@/components/secretary/integrations/ToolConnectOverview'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
@@ -30,9 +31,10 @@ interface IntegrationsConsoleClientProps {
  * connector のうち gtasks/multica は専用ワーカー担当なので従来の ConnectorSyncPane、
  * アダプタ実装済み(implementedTaskSyncProviders())のツール
  * (Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)は TaskSyncConnectPanel、
- * generic_inbound(公開APIが無いツール向けのWebhook受信口)は GenericInboundPanel を出す
- * (同じ「双方向同期(connector)」surfaceでも接続の作り方が別物のため。registry を触らず
- * 呼び出し側で分岐するのが最小差分)。
+ * kintone(APIトークンがアプリ単位で発行されるため専用の入力UI・アプリ追加/削除APIが要る)は
+ * KintoneConnectPanel、generic_inbound(公開APIが無いツール向けのWebhook受信口)は
+ * GenericInboundPanel を出す(同じ「双方向同期(connector)」surfaceでも接続の作り方が別物のため。
+ * registry を触らず呼び出し側で分岐するのが最小差分)。
  *
  * Notion(surface='sink')は書き出し(SinkProviderPanel)に加えて、取り込み(inbound)設定
  * (NotionImportPanel)も並べて出す。書き出しと取り込みは別の関心事であり、surfaceだけでは
@@ -83,12 +85,15 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
         {def.surface === 'connector' && selectedId === 'generic_inbound' && (
           <GenericInboundPanel orgId={orgId} />
         )}
-        {def.surface === 'connector' && selectedId !== 'generic_inbound' && !isImplementedTaskSync && (
-          <ConnectorSyncPane orgId={orgId} />
-        )}
-        {def.surface === 'connector' && selectedId !== 'generic_inbound' && isImplementedTaskSync && (
-          <TaskSyncConnectPanel orgId={orgId} integrationId={selectedId} />
-        )}
+        {def.surface === 'connector' && selectedId === 'kintone' && <KintoneConnectPanel orgId={orgId} />}
+        {def.surface === 'connector' &&
+          selectedId !== 'generic_inbound' &&
+          selectedId !== 'kintone' &&
+          !isImplementedTaskSync && <ConnectorSyncPane orgId={orgId} />}
+        {def.surface === 'connector' &&
+          selectedId !== 'generic_inbound' &&
+          selectedId !== 'kintone' &&
+          isImplementedTaskSync && <TaskSyncConnectPanel orgId={orgId} integrationId={selectedId} />}
 
         {def.surface === 'sink' && (
           <SinkProviderPanel

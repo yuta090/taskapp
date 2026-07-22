@@ -93,13 +93,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'import_enabled must be a boolean' }, { status: 400 })
   }
 
-  // サーバ管理フィールド(notion_mappings/kintone_mappings/kintone_app_ids)はDBへ送らない。
-  // 400で弾かずに黙って落とすのは、現在値をそのまま送り返す正当な実装のクライアントまで
-  // 壊してしまうため（なぜ拒否せず無視するのかを明記する。詳しい理由は
+  // サーバ管理フィールド(notion_mappings/kintone_mappings/kintone_app_ids/kintone_app_tokens)は
+  // DBへ送らない。400で弾かずに黙って落とすのは、現在値をそのまま送り返す正当な実装の
+  // クライアントまで壊してしまうため（なぜ拒否せず無視するのかを明記する。詳しい理由は
   // IMPORT_CONFIG_SERVER_MANAGED_KEYS のコメント参照）。
   // ⚠ 多層防御: 同じキー集合を RPC(rpc_import_config_merge)側でも落とし、さらに DB トリガー
-  // (20260722233606_protect_task_sync_mappings.sql)が service_role 以外からの mappings 変更を
-  // 拒否する。ここで落とすのは「そもそもDBへ送らない」ための最初の層。
+  // (20260722233606_protect_task_sync_mappings.sql で作成し、保護対象キーは
+  // 20260723022033_guard_kintone_app_credentials.sql で kintone のアプリ資格情報まで拡張)が
+  // service_role 以外からの変更を拒否する。ここで落とすのは「そもそもDBへ送らない」最初の層。
   const patch: Record<string, unknown> = { ...(body.import_config as Record<string, unknown>) }
   for (const key of IMPORT_CONFIG_SERVER_MANAGED_KEYS) delete patch[key]
 

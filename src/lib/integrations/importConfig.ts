@@ -3,15 +3,22 @@
  * import_config のサーバ管理フィールド。
  *
  * これらは「サーバがライブスキーマを再取得して検証した結果」(notion_mappings/kintone_mappings)、
- * または「アプリIDとAPIトークンをセットで登録する専用経路」(kintone_app_ids)でしか作れない
- * 確定データ。汎用PATCHから触れると次の2事故が起きる:
+ * または「アプリIDとAPIトークンをセットで登録する専用経路」(kintone_app_ids・kintone_app_tokens)
+ * でしか作れない確定データ。汎用PATCHから触れると次の3事故が起きる:
  *   (a) 保存APIの検証を迂回して実在しない prop_id / フィールドコードを永続化できてしまう
  *       （＝「設定済みに見えるのに取り込みが止まる」状態を作れる）
  *   (b) 別項目(target_space_id等)を変えただけで確定済みマッピングが丸ごと消える
+ *   (c) kintone_app_tokens固有: ImportConfigEditor.tsx等が現在のimport_config全体を
+ *       スプレッドして送るパターン(既存の実装パターン)により、target_space_id変更のような
+ *       無関係な操作が、その時点でクライアントが持っていた(古いかもしれない)
+ *       kintone_app_tokensをそのまま送り返し、並行して走ったアプリ追加/削除
+ *       (rpc_kintone_apps_add/remove)の結果を上書きして消してしまう(lost update)
  *
- * ⚠ 同じキー集合が SQL 側にも現れる(20260722233711_import_config_merge_rpc.sql の
- * c_server_managed_keys)。片方だけ増やすと守れていないキーが静かに生まれるため、
- * importConfigServerManagedKeys.test.ts で両者の一致を回帰として固定している。
+ * ⚠ 同じキー集合が SQL 側にも現れる(20260723014852_kintone_apps_merge_rpc.sql の
+ * c_server_managed_keys。kintone_app_tokens 追加に伴い、この配列を持つ関数定義自体は
+ * 20260722233711_import_config_merge_rpc.sql から同ファイルへ create or replace で
+ * 上書き・移設した)。片方だけ増やすと守れていないキーが静かに生まれるため、
+ * mappingDbGuards.test.ts で両者の一致を回帰として固定している。
  * ルート側ではなくここ(lib)に置くのは、Next.js の route ファイルがハンドラ以外を
  * export できないため（テストから参照できるようにする）。
  */
@@ -19,6 +26,7 @@ export const IMPORT_CONFIG_SERVER_MANAGED_KEYS = [
   'notion_mappings',
   'kintone_mappings',
   'kintone_app_ids',
+  'kintone_app_tokens',
 ] as const
 
 /**
