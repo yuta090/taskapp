@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { CaretDown, CaretRight, CheckCircle } from '@phosphor-icons/react'
+import { ArrowsClockwise, CaretDown, CaretRight, CheckCircle } from '@phosphor-icons/react'
 import {
   useConnectors,
   useConnectionContainers,
-  useProposeNotionMapping,
+  useNotionMappingProposal,
   useSaveNotionMapping,
   useUpdateImportConfig,
   type ConnectorConnection,
@@ -17,7 +17,7 @@ import {
   type NotionStatusMappingInput,
 } from '@/lib/hooks/useConnectors'
 import { useSinks } from '@/lib/hooks/useSinks'
-import { pruneImportConfig } from '@/components/secretary/integrations/ConnectorSyncPane'
+import { pruneImportConfig } from '@/lib/integrations/importConfig'
 
 interface NotionImportPanelProps {
   orgId: string
@@ -89,9 +89,34 @@ interface NotionDatabaseListProps {
   canManage: boolean
 }
 
+/**
+ * ⚠ Notion共有先が非常に多いワークスペースでは、Notionの`/v1/search`ページングを直列に辿る
+ * containers一覧の初回取得に時間がかかることがある(既知の制約。件数上限/名前フィルタは今回未実装)。
+ */
 function NotionDatabaseList({ orgId, connection, canManage }: NotionDatabaseListProps) {
-  const { containers, selectedContainerIds, isLoading, error } = useConnectionContainers(orgId, connection.id)
+  // canManage=falseの間はfetch自体させない(useConnectionContainersのenabled引数)。実環境では
+  // APIがrequireOrgAdminで403を返すだけなので、そもそも呼ばない方がUXも実装もシンプルになる
+  // (認可の唯一の境界はAPI側のrequireOrgAdminであり、ここでの分岐はUXの配慮に過ぎない)。
+  const { containers, isLoading, error, refetch } = useConnectionContainers(orgId, connection.id, canManage)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // 一覧レベルで1つだけ持つ(行ごとに独立したmutationにしない)。行ごとに持つと、2つの行を
+  // 連続して解除したとき両方が「クリック時点のconnection.importConfigの全体」から配列を
+  // 組み立て、後勝ちで片方が復活するlost updateが起きる(実際に起きていた罠)。ここでは
+  // 実行中(isPending)は全行の「取り込みをやめる」ボタンを無効化して操作を直列化した上で、
+  // 送信直前に最新のprops(connection.importConfig。親のuseConnectorsキャッシュに追従して
+  // 常に最新)から配列を組み立てる。
+  const updateImportConfig = useUpdateImportConfig()
+
+  // 「保存中に別DBのエディタへ切り替える」を跨いでも、保存完了時に閉じるのは「保存した本人の
+  // エディタが今も開いていれば」だけにする(container単位で判定。setEditingId(null)を直接
+  // onSavedへ渡すと、切替後に開いている別DBのエディタまで閉じてしまう)。
+  const closeEditorIfCurrent = (containerId: string) => {
+    setEditingId((current) => (current === containerId ? null : current))
+  }
+
+  if (!canManage) {
+    return <p className="text-[11px] text-gray-400">データベースの選択・設定はowner/adminのみ行えます。</p>
+  }
 
   if (isLoading) {
     return <div className="h-8 w-full bg-gray-100 rounded animate-pulse" />
@@ -103,10 +128,45 @@ function NotionDatabaseList({ orgId, connection, canManage }: NotionDatabaseList
 
   if (containers.length === 0) {
     return (
-      <p className="text-[11px] text-gray-400">
-        取り込めるデータベースが見つかりません(Notion側でこの連携にデータベースを共有してください)。
-      </p>
+      <div className="space-y-1.5">
+        <p className="text-[11px] text-gray-400">
+          取り込めるデータベースが見つかりません(Notion側でこの連携にデータベースを共有してください)。
+        </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <ArrowsClockwise className="w-3 h-3" />
+          再読み込み
+        </button>
+      </div>
     )
+  }
+
+  // 取り込み中/未設定の判定はcontainers一覧(selected_container_ids)ではなくconnection.importConfig
+  // から導出する(useConnectionContainersのコメント参照。真実源を1つに揃える)。
+  const readContainerIds = Array.isArray(connection.importConfig.read_container_ids)
+    ? (connection.importConfig.read_container_ids as string[])
+    : []
+
+  /**
+   * 取り込み対象から外す(read_container_idsからこのdatabase_idだけを除く)。軽い操作なので
+   * optimistic update(useUpdateImportConfigが担う)。確認ダイアログは出さない
+   * (モーダル禁止・このUIの操作は取り消し可能な設定変更であり、破壊的操作ではないため)。
+   */
+  const handleRemove = async (containerId: string) => {
+    // pruneImportConfig は read_container_ids の空配列を特別に保持する(他キーの空配列は削除する)。
+    // ここで全解除(結果が空配列)になっても、その意図がサーバへ正しく伝わる。
+    const nextConfig = pruneImportConfig({
+      ...connection.importConfig,
+      read_container_ids: readContainerIds.filter((id) => id !== containerId),
+    })
+    try {
+      await updateImportConfig.mutateAsync({ orgId, connectionId: connection.id, importConfig: nextConfig })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '取り込み対象の変更に失敗しました')
+    }
   }
 
   return (
@@ -118,10 +178,12 @@ function NotionDatabaseList({ orgId, connection, canManage }: NotionDatabaseList
           connection={connection}
           container={container}
           canManage={canManage}
-          isSelected={selectedContainerIds.includes(container.id)}
+          isSelected={readContainerIds.includes(container.id)}
           isEditing={editingId === container.id}
+          isRemoving={updateImportConfig.isPending}
           onStartEdit={() => setEditingId(container.id)}
-          onStopEdit={() => setEditingId(null)}
+          onStopEdit={() => closeEditorIfCurrent(container.id)}
+          onRemove={() => void handleRemove(container.id)}
         />
       ))}
     </ul>
@@ -135,8 +197,11 @@ interface NotionDatabaseRowProps {
   canManage: boolean
   isSelected: boolean
   isEditing: boolean
+  /** 一覧のどこかで「取り込みをやめる」が実行中の間はtrue(全行を無効化して操作を直列化する)。 */
+  isRemoving: boolean
   onStartEdit: () => void
   onStopEdit: () => void
+  onRemove: () => void
 }
 
 function NotionDatabaseRow({
@@ -146,33 +211,11 @@ function NotionDatabaseRow({
   canManage,
   isSelected,
   isEditing,
+  isRemoving,
   onStartEdit,
   onStopEdit,
+  onRemove,
 }: NotionDatabaseRowProps) {
-  const updateImportConfig = useUpdateImportConfig()
-
-  /**
-   * 取り込み対象から外す(read_container_idsからこのdatabase_idを除く)。軽い操作なので
-   * optimistic update(useUpdateImportConfigが担う)。確認ダイアログは出さない
-   * (モーダル禁止・このUIの操作は取り消し可能な設定変更であり、破壊的操作ではないため)。
-   */
-  const handleRemove = async () => {
-    const current = Array.isArray(connection.importConfig.read_container_ids)
-      ? (connection.importConfig.read_container_ids as string[])
-      : []
-    // pruneImportConfig は read_container_ids の空配列を特別に保持する(他キーの空配列は削除する)。
-    // ここで全解除(結果が空配列)になっても、その意図がサーバへ正しく伝わる。
-    const nextConfig = pruneImportConfig({
-      ...connection.importConfig,
-      read_container_ids: current.filter((id) => id !== container.id),
-    })
-    try {
-      await updateImportConfig.mutateAsync({ orgId, connectionId: connection.id, importConfig: nextConfig })
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '取り込み対象の変更に失敗しました')
-    }
-  }
-
   return (
     <li className="rounded-lg border border-gray-200">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -200,8 +243,8 @@ function NotionDatabaseRow({
             {isSelected && (
               <button
                 type="button"
-                onClick={() => void handleRemove()}
-                disabled={updateImportConfig.isPending}
+                onClick={onRemove}
+                disabled={isRemoving}
                 className="text-xs text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
               >
                 取り込みをやめる
@@ -247,13 +290,19 @@ interface NotionMappingEditorProps {
  * 取り込みON/OFF)とは性質が違うため、ここだけ明示的な「この設定で取り込む」ボタンにする。
  */
 function NotionMappingEditor({ orgId, connection, container, onSaved, onCancel }: NotionMappingEditorProps) {
-  const propose = useProposeNotionMapping()
+  // エディタは行の展開/折りたたみで都度マウント/アンマウントされる(NotionDatabaseRowが
+  // 条件付きレンダリングする)。useQuery化しているので、同一(connection,database)を開き直しても
+  // staleTime(5分)内はキャッシュを再利用し、提案API(LLM呼び出し)を叩き直さない
+  // (useNotionMappingProposalのコメント参照。以前はuseMutation+useEffectで開閉のたびに
+  // 必ず呼び直しており、確認のために開閉するだけで課金が漏れていた)。
+  const proposal = useNotionMappingProposal({
+    orgId,
+    connectionId: connection.id,
+    databaseId: container.id,
+    enabled: true,
+  })
   const save = useSaveNotionMapping()
 
-  const [schema, setSchema] = useState<NotionSchema | null>(null)
-  const [proposalSource, setProposalSource] = useState<'ai' | 'heuristic' | null>(null)
-  const [aiUnavailableReason, setAiUnavailableReason] = useState<string | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const [dueId, setDueId] = useState<string>(NONE_VALUE)
@@ -268,35 +317,26 @@ function NotionMappingEditor({ orgId, connection, container, onSaved, onCancel }
     setWriteDoneOptionId(candidate.status?.write_done_option_id ?? NONE_VALUE)
   }
 
-  // マウント時(=行を展開した瞬間)に1回だけ提案を取得する。エディタは行の展開/折りたたみで
-  // 都度マウント/アンマウントされる(NotionDatabaseRowが条件付きレンダリングする)ため、
-  // 「マウントごとに1回」で自然に成立する。propose.mutateAsyncは初回レンダー時の値を
-  // useStateの遅延初期化で1回だけ捕まえて固定する(rerenderのたびに新しい関数が来ても
-  // 再発火しない。refへのrender中の書き込みはReactのルール違反になるため使わない)。
-  const [proposeMutateAsync] = useState(() => propose.mutateAsync)
+  // 提案の取得結果(data)が新しく来たときだけ、フォームへ初期値を反映する
+  // (外部から届いたデータをフォームの初期値として反映する意図的なリセット。データ変更時のみ
+  // 発火し、無限ループにはならない。PortalTaskInspectorの同種パターンと同じ)。
+  const proposalData = proposal.data
   useEffect(() => {
-    let cancelled = false
-    void proposeMutateAsync({ orgId, connectionId: connection.id, databaseId: container.id })
-      .then((result) => {
-        if (cancelled) return
-        setSchema(result.schema)
-        setProposalSource(result.proposalSource)
-        setAiUnavailableReason(result.aiUnavailableReason ?? null)
-        applyCandidate(result.proposal)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setLoadError(err instanceof Error ? err.message : 'マッピング案の取得に失敗しました')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [orgId, connection.id, container.id, proposeMutateAsync])
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (proposalData) applyCandidate(proposalData.proposal)
+  }, [proposalData])
 
-  if (loadError) {
+  // 保存エラーは「保存APIの結果」を表す一過性の表示であり、利用者が対応づけを変更した時点で
+  // 意味を失う(直したのに古いエラー文言が残り続けるのを防ぐ意図的なリセット)。
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSaveError(null)
+  }, [dueId, statusPropId, doneOptionIds, writeDoneOptionId])
+
+  if (proposal.error) {
     return (
       <div className="space-y-2">
-        <p className="text-[11px] text-red-600">{loadError}</p>
+        <p className="text-[11px] text-red-600">{proposal.error}</p>
         <button
           type="button"
           onClick={onCancel}
@@ -308,9 +348,13 @@ function NotionMappingEditor({ orgId, connection, container, onSaved, onCancel }
     )
   }
 
-  if (!schema) {
+  if (!proposalData) {
     return <div className="h-16 w-full bg-gray-50 rounded animate-pulse" />
   }
+
+  const schema: NotionSchema = proposalData.schema
+  const proposalSource = proposalData.proposalSource
+  const aiUnavailableReason = proposalData.aiUnavailableReason ?? null
 
   const dateProps = schema.filter((p) => p.type === 'date')
   const statusCapableProps = schema.filter((p) => STATUS_CAPABLE_TYPES.has(p.type))

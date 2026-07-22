@@ -52,10 +52,6 @@ async function findConnection(connectionId: string, orgId: string): Promise<Conn
   return data as ConnectionRow
 }
 
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
 /**
  * 現在 read_container_ids に入っているIDを取り出す（UIが「取り込み中かどうか」を出せるように）。
  * 値の妥当性はここでは検証しない（表示専用の参考情報であり、保存経路の検証を代替しない）。
@@ -108,9 +104,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     )
   }
 
-  let containers
+  let rawContainers
   try {
-    containers = await adapter.listContainers({
+    rawContainers = await adapter.listContainers({
       credentials: cred.credentials,
       config: connection.import_config ?? {},
     })
@@ -123,18 +119,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (status === 403) {
       return NextResponse.json({ error: 'アクセス権がありません' }, { status: 400 })
     }
-    // トークン・応答本文はログに出さない(既存アダプタの流儀と同じ)。
+    // トークン・応答本文・例外messageはログに出さない(外部の内部情報を残さない)。
+    // provider・statusコード・エラーのコンストラクタ名程度に留める(既存アダプタの流儀と同じ)。
     console.error(
       '[connections/containers] listContainers failed:',
       connection.provider,
       status ?? 'no-status',
-      messageOf(err),
+      err instanceof Error ? err.constructor.name : typeof err,
     )
     return NextResponse.json(
       { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
       { status: 502 },
     )
   }
+
+  // アダプタの戻り値をそのままクライアントへ流さず、{id, title}へ明示的に再マップする
+  // (将来アダプタが認証情報等の余分なフィールドを返すようになっても、境界を1箇所に絞れば
+  // クライアントへ漏れない)。
+  const containers = rawContainers.map((container) => ({ id: container.id, title: container.title }))
 
   return NextResponse.json({
     containers,

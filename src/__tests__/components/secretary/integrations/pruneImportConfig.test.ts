@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pruneImportConfig } from '@/components/secretary/integrations/ConnectorSyncPane'
+import { pruneImportConfig } from '@/lib/integrations/importConfig'
 
 /**
  * pruneImportConfig — import_config の空文字/空配列キーを送らない(≒未設定)ための整形関数。

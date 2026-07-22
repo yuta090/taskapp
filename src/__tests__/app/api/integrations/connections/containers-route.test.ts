@@ -241,4 +241,29 @@ describe('GET /api/integrations/connections/[id]/containers', () => {
     const response = await callGet(CONNECTION_ID, ORG_ID)
     expect(response.status).toBe(502)
   })
+
+  it('アダプタの戻り値をそのまま返さず{id,title}へ再マップする(余分なフィールドを落とす)', async () => {
+    listContainersMock.mockResolvedValue([
+      { id: 'db-1', title: 'タスク一覧', __internal: 'secret-detail', accessToken: 'leak-me' },
+    ])
+    const response = await callGet(CONNECTION_ID, ORG_ID)
+    const data = await response.json()
+    expect(data.containers).toEqual([{ id: 'db-1', title: 'タスク一覧' }])
+    const raw = JSON.stringify(data)
+    expect(raw).not.toContain('secret-detail')
+    expect(raw).not.toContain('leak-me')
+  })
+
+  it('一時障害時、例外messageやトークンをログに出さない(provider/status/エラー名のみ)', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    listContainersMock.mockRejectedValue(
+      Object.assign(new Error('detailed internal failure: token=secret-token-abc'), { status: 500 }),
+    )
+    await callGet(CONNECTION_ID, ORG_ID)
+    expect(consoleErrorSpy).toHaveBeenCalled()
+    const loggedArgs = consoleErrorSpy.mock.calls[0].map((arg) => String(arg))
+    expect(loggedArgs.some((arg) => arg.includes('secret-token-abc'))).toBe(false)
+    expect(loggedArgs.some((arg) => arg.includes('detailed internal failure'))).toBe(false)
+    consoleErrorSpy.mockRestore()
+  })
 })

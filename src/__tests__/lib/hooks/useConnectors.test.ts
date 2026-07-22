@@ -8,7 +8,7 @@ import {
   useRotateMulticaSecret,
   useUpdateImportConfig,
   useConnectionContainers,
-  useProposeNotionMapping,
+  useNotionMappingProposal,
   useSaveNotionMapping,
   type ConnectorConnection,
 } from '@/lib/hooks/useConnectors'
@@ -386,6 +386,14 @@ describe('useConnectionContainers', () => {
     expect(result.current.containers).toEqual([])
   })
 
+  it('enabled引数がfalseの間はfetchしない(canManage=falseの非管理者ではAPIを呼ばない)', () => {
+    const { result } = renderHook(() => useConnectionContainers('org-1', 'conn-notion-1', false), {
+      wrapper: createWrapper(),
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.containers).toEqual([])
+  })
+
   it('失敗時はエラーメッセージを返し、containersは空配列', async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: '接続が失効しています。再接続してください' }) })
 
@@ -399,11 +407,11 @@ describe('useConnectionContainers', () => {
   })
 })
 
-describe('useProposeNotionMapping', () => {
+describe('useNotionMappingProposal', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.restoreAllMocks())
 
-  it('POST proposeを呼び、schema/proposal/proposalSourceを返す', async () => {
+  it('enabled中にPOST proposeを呼び、schema/proposal/proposalSourceを返す', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -413,16 +421,18 @@ describe('useProposeNotionMapping', () => {
       }),
     })
 
-    const { result } = renderHook(() => useProposeNotionMapping(), { wrapper: createWrapper() })
+    const { result } = renderHook(
+      () =>
+        useNotionMappingProposal({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          enabled: true,
+        }),
+      { wrapper: createWrapper() },
+    )
 
-    let response: Awaited<ReturnType<typeof result.current.mutateAsync>> | undefined
-    await act(async () => {
-      response = await result.current.mutateAsync({
-        orgId: 'org-1',
-        connectionId: 'conn-notion-1',
-        databaseId: 'db-1',
-      })
-    })
+    await waitFor(() => expect(result.current.data).toBeDefined())
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/integrations/connections/notion/mapping/propose',
@@ -431,7 +441,7 @@ describe('useProposeNotionMapping', () => {
         body: JSON.stringify({ org_id: 'org-1', connection_id: 'conn-notion-1', database_id: 'db-1' }),
       }),
     )
-    expect(response).toEqual({
+    expect(result.current.data).toEqual({
       schema: [{ id: 'due-1', name: '期日', type: 'date' }],
       proposal: { due_prop_id: 'due-1', status: null },
       proposalSource: 'ai',
@@ -450,27 +460,116 @@ describe('useProposeNotionMapping', () => {
       }),
     })
 
-    const { result } = renderHook(() => useProposeNotionMapping(), { wrapper: createWrapper() })
+    const { result } = renderHook(
+      () =>
+        useNotionMappingProposal({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          enabled: true,
+        }),
+      { wrapper: createWrapper() },
+    )
 
-    let response: Awaited<ReturnType<typeof result.current.mutateAsync>> | undefined
-    await act(async () => {
-      response = await result.current.mutateAsync({ orgId: 'org-1', connectionId: 'conn-notion-1', databaseId: 'db-1' })
-    })
+    await waitFor(() => expect(result.current.data).toBeDefined())
 
-    expect(response?.proposalSource).toBe('heuristic')
-    expect(response?.aiUnavailableReason).toBe('ai_unconfigured')
+    expect(result.current.data?.proposalSource).toBe('heuristic')
+    expect(result.current.data?.aiUnavailableReason).toBe('ai_unconfigured')
   })
 
-  it('失敗時はエラーメッセージを投げる', async () => {
+  it('失敗時はエラーメッセージを返す', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: '接続が失効しています。再接続してください' }) })
 
-    const { result } = renderHook(() => useProposeNotionMapping(), { wrapper: createWrapper() })
+    const { result } = renderHook(
+      () =>
+        useNotionMappingProposal({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          enabled: true,
+        }),
+      { wrapper: createWrapper() },
+    )
 
-    await expect(
-      act(async () => {
-        await result.current.mutateAsync({ orgId: 'org-1', connectionId: 'conn-notion-1', databaseId: 'db-1' })
+    await waitFor(() => expect(result.current.error).toBe('接続が失効しています。再接続してください'))
+  })
+
+  it('失敗してもretryしない(fetchは1回だけ) — retry:0を継がないとLLMが2回課金される', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 502, json: async () => ({ error: '到達できませんでした' }) })
+
+    const { result } = renderHook(
+      () =>
+        useNotionMappingProposal({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          enabled: true,
+        }),
+      { wrapper: createWrapper() },
+    )
+
+    await waitFor(() => expect(result.current.error).toBe('到達できませんでした'))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('enabled=falseの間はfetchしない(行を展開していない間はLLMを呼ばない)', () => {
+    const { result } = renderHook(
+      () =>
+        useNotionMappingProposal({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          enabled: false,
+        }),
+      { wrapper: createWrapper() },
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.data).toBeUndefined()
+  })
+
+  /**
+   * ⚠ これが本丸: 「開く→閉じる→もう一度開く」でも提案API(=LLM呼び出し)の呼び出しは1回だけで
+   * あることを直接assertする。エディタの開閉はマウント/アンマウントに対応する(NotionImportPanel
+   * がisEditingで条件付きレンダリングする)。同一QueryClientを共有した状態で
+   * mount→unmount(閉じる)→再mount(もう一度開く)しても、staleTime(5分)内はreact-queryの
+   * キャッシュを再利用し、再フェッチしない。以前のuseMutation+useEffect実装では、開閉のたびに
+   * 必ず呼び直しており(かつreactStrictModeのeffect二重実行で1回の展開につき2回呼ばれていた)、
+   * 確認のために開閉するだけでLLM課金が漏れていた。
+   */
+  it('開く→閉じる→もう一度開く、で提案APIの呼び出しは1回だけ(useQueryのキャッシュ再利用)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: [{ id: 'due-1', name: '期日', type: 'date' }],
+        proposal: { due_prop_id: 'due-1', status: null },
+        proposal_source: 'ai',
       }),
-    ).rejects.toThrow('接続が失効しています。再接続してください')
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    const input = {
+      orgId: 'org-1',
+      connectionId: 'conn-notion-1',
+      databaseId: 'db-1',
+      enabled: true,
+    }
+
+    // 1回目: 「設定する」で行を展開する(=エディタがマウントされる)
+    const first = renderHook(() => useNotionMappingProposal(input), { wrapper })
+    await waitFor(() => expect(first.result.current.data).toBeDefined())
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // 閉じる(=エディタがアンマウントされる。QueryClient自体は同じインスタンスを共有し続ける
+    // ので、キャッシュは消えない — 実運用でもQueryClientはコンポーネントツリーの外側に1つ)。
+    first.unmount()
+
+    // もう一度開く(=再マウント)。staleTime内なので再フェッチしない。
+    const second = renderHook(() => useNotionMappingProposal(input), { wrapper })
+    await waitFor(() => expect(second.result.current.data).toBeDefined())
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -478,7 +577,7 @@ describe('useSaveNotionMapping', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.restoreAllMocks())
 
-  it('PUT mappingを呼び、成功で接続一覧とcontainers一覧を無効化する', async () => {
+  it('PUT mappingを呼び、成功で接続一覧(import_config)だけを無効化する(containers一覧は無効化しない)', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const wrapper = ({ children }: { children: React.ReactNode }) =>
@@ -521,7 +620,10 @@ describe('useSaveNotionMapping', () => {
       mapping: { due_prop_id: 'due-1', status: null, confirmed_at: '2026-07-21T00:00:00.000Z' },
     })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['connectorConnections', 'org-1'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['connectorContainers', 'org-1', 'conn-notion-1'] })
+    // ⚠ containers一覧(Notionの/v1/search全ページ往復)は無効化しない。「取り込み中」バッジは
+    // connection.importConfig.read_container_ids(上でinvalidateしたconnectorConnections)から
+    // 導出する設計にしたため、バッジ更新のためだけに高コストな外部往復を走らせる必要が無い。
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['connectorContainers', 'org-1', 'conn-notion-1'] })
   })
 
   it('保存APIが400を返したら理由をそのまま投げる(利用者にどのプロパティが不正か伝えるため)', async () => {
