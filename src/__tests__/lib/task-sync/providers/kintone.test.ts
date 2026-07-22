@@ -160,11 +160,96 @@ describe('kintoneAdapter.listContainers', () => {
 })
 
 describe('kintoneAdapter.listChangedTasks', () => {
-  it('マッピング未設定のアプリはfetchする前にpermanentエラーで止める', async () => {
+  /**
+   * ⚠ 「未マッピング(設定途中の正常な状態)」と「マッピングが壊れている(異常)」の区別
+   * （Codexレビュー指摘: 是正前はどちらも同列のpermanentエラーで、エンジン側が接続全体を
+   * 止めていた）。kintone_mappingsにappIdのエントリ自体が無い(=まだウィザードを完了していない)
+   * 場合だけ pendingConfig:true を立てる。エンジン(engine.ts)はこのフラグを見て、この
+   * コンテナだけを対象から外し、他のコンテナの取り込みは続行する。
+   */
+  it('マッピングのエントリ自体が無いアプリ(未設定)はpendingConfig:trueで区別してfetchする前に止める', async () => {
     await expect(kintoneAdapter.listChangedTasks(ctx({}), '5', {})).rejects.toMatchObject({
       permanent: true,
       status: 400,
+      pendingConfig: true,
     })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('kintone_mappingsに他アプリのエントリはあるが、このappId自体のエントリが無い場合もpendingConfig:trueになる', async () => {
+    await expect(
+      kintoneAdapter.listChangedTasks(ctx({ kintone_mappings: { '9': mapping() } }), '5', {}),
+    ).rejects.toMatchObject({ permanent: true, status: 400, pendingConfig: true })
+  })
+
+  /**
+   * ⚠ 是正済み(外部レビュー指摘・親オブジェクトの型破損が「未設定」に倒れている):
+   * kintone_mappings**そのもの**が null・配列・文字列など壊れた型のとき、以前は
+   * 「エントリが無い」＝pendingConfig(設定途中の正常な状態)と同列に判定していた。しかしこれは
+   * 個々のappIdのエントリが無いのではなく接続の設定全体が異常なので、driftと同じくpendingConfig
+   * を立てずに恒久停止させる。
+   */
+  it('kintone_mappingsがnullのときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await kintoneAdapter.listChangedTasks(ctx({ kintone_mappings: null }), '5', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('kintone_mappingsが配列のときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await kintoneAdapter.listChangedTasks(ctx({ kintone_mappings: [] }), '5', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('kintone_mappingsが文字列のときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await kintoneAdapter.listChangedTasks(ctx({ kintone_mappings: 'broken' }), '5', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('親が正常なobjectでエントリだけ無いときはpendingConfig(kintone_mappingsが{}のとき)', async () => {
+    await expect(kintoneAdapter.listChangedTasks(ctx({ kintone_mappings: {} }), '5', {})).rejects.toMatchObject({
+      permanent: true,
+      status: 400,
+      pendingConfig: true,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('エントリはあるが値が不正(壊れている)なアプリは、未設定とは区別しpendingConfigを立てずに止める', async () => {
+    // confirmed_at が不正な形式＝parseKintoneMappingが拒否する壊れたデータ。
+    // 「まだ設定していない」のではなく異常な状態なので、エンジンはこのコンテナだけを
+    // 対象から外さず接続全体を止める（従来どおり）。
+    let caught: unknown
+    try {
+      await kintoneAdapter.listChangedTasks(
+        ctx({ kintone_mappings: { '5': { ...mapping(), confirmed_at: 'not-a-date' } } }),
+        '5',
+        {},
+      )
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 

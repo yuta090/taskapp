@@ -315,4 +315,39 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     await callPatch(CONNECTION_ID, { import_config: { target_space_id: null } })
     expect(rpcArgs!.p_patch).toEqual({ target_space_id: null })
   })
+
+  /**
+   * ⚠ 最重要の回帰テスト(Codexレビュー指摘・Critical): このRPCはDB上のimport_config全体を
+   * merged.import_config として返すため、kintone_app_tokens(app_idをキーにした、アプリ単位で
+   * 個別に暗号化したkintone APIトークンのjsonbオブジェクト)がそのまま応答に載っていた。
+   * 暗号化済みであっても秘密はサーバから出さない。一方 kintone_app_ids
+   * (KintoneAppsPanelのアプリ一覧描画の正本)は引き続き返す(サニタイズでUIを壊していないことも
+   * 同時に確認する)。
+   */
+  it('応答にkintone_app_tokensが含まれない(kintone_app_idsは含まれる)', async () => {
+    rpcResultMock.mockReturnValue({
+      data: {
+        id: CONNECTION_ID,
+        import_config: {
+          target_space_id: SPACE_ID,
+          kintone_app_ids: ['5', '9'],
+          kintone_app_tokens: {
+            '5': 'enc(SUPER-SECRET-TOKEN-5)',
+            '9': 'enc(SUPER-SECRET-TOKEN-9)',
+          },
+        },
+        import_enabled: false,
+      },
+      error: null,
+    })
+    const response = await callPatch(CONNECTION_ID, validBody)
+    const data = await response.json()
+    expect(response.status).toBe(200)
+    expect(data.import_config).not.toHaveProperty('kintone_app_tokens')
+    expect(data.import_config.kintone_app_ids).toEqual(['5', '9'])
+    const text = JSON.stringify(data)
+    expect(text).not.toContain('SUPER-SECRET-TOKEN-5')
+    expect(text).not.toContain('SUPER-SECRET-TOKEN-9')
+    expect(text).not.toContain('kintone_app_tokens')
+  })
 })

@@ -219,18 +219,93 @@ describe('notionAdapter.listContainers', () => {
 })
 
 describe('notionAdapter.listChangedTasks — マッピング未設定', () => {
-  it('databaseId のマッピングが無ければ fetch せず恒久エラーにする', async () => {
+  /**
+   * ⚠ 「未マッピング(設定途中の正常な状態)」と「マッピングが壊れている(異常)」の区別
+   * （kintoneアダプタと同じ是正。共有直後・マッピングウィザード未完了のDBが1つあるだけで
+   * 接続全体の取り込みが止まっていた実バグの再現テスト）。notion_mappingsにdatabaseIdの
+   * エントリ自体が無い(=まだウィザードを完了していない)場合だけ pendingConfig:true を立てる。
+   * エンジン(engine.ts)はこのフラグを見て、このDBだけを対象から外し、他のDBの取り込みは続行する。
+   */
+  it('databaseId のマッピングのエントリ自体が無い(未設定)場合はpendingConfig:trueで区別してfetchする前に止める', async () => {
     await expect(notionAdapter.listChangedTasks(ctx(), 'db-1', {})).rejects.toMatchObject({
       permanent: true,
       status: 400,
+      pendingConfig: true,
     })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('マッピングの形式が不正なら恒久エラーにする', async () => {
+  it('notion_mappingsに他DBのエントリはあるが、このdatabaseId自体のエントリが無い場合もpendingConfig:trueになる', async () => {
     await expect(
-      notionAdapter.listChangedTasks(ctx({ notion_mappings: { 'db-1': { due_prop_id: 123 } } }), 'db-1', {}),
-    ).rejects.toMatchObject({ permanent: true })
+      notionAdapter.listChangedTasks(ctx({ notion_mappings: { 'db-other': { due_prop_id: null, status: null, confirmed_at: '2026-01-01T00:00:00.000Z' } } }), 'db-1', {}),
+    ).rejects.toMatchObject({ permanent: true, status: 400, pendingConfig: true })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('エントリはあるが値が不正(壊れている)なDBは、未設定とは区別しpendingConfigを立てずに止める', async () => {
+    // due_prop_id が数値(不正な形式)＝parseNotionMappingが拒否する壊れたデータ。
+    // 「まだ設定していない」のではなく異常な状態なので、エンジンはこのコンテナだけを
+    // 対象から外さず接続全体を止める(従来どおり)。
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: { 'db-1': { due_prop_id: 123 } } }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  /**
+   * ⚠ 是正済み(外部レビュー指摘・親オブジェクトの型破損が「未設定」に倒れている):
+   * notion_mappings**そのもの**が null・配列・文字列など壊れた型のとき、以前は
+   * 「エントリが無い」＝pendingConfig(設定途中の正常な状態)と同列に判定していた。しかしこれは
+   * 個々のdatabaseIdのエントリが無いのではなく接続の設定全体が異常なので、driftと同じく
+   * pendingConfigを立てずに恒久停止させる(kintoneアダプタと同じ是正)。
+   */
+  it('notion_mappingsがnullのときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: null }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('notion_mappingsが配列のときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: [] }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('notion_mappingsが文字列のときはpendingConfigを立てずに止める(親オブジェクトの型破損)', async () => {
+    let caught: unknown
+    try {
+      await notionAdapter.listChangedTasks(ctx({ notion_mappings: 'broken' }), 'db-1', {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('親が正常なobjectでエントリだけ無いときはpendingConfig(notion_mappingsが{}のとき)', async () => {
+    await expect(notionAdapter.listChangedTasks(ctx({ notion_mappings: {} }), 'db-1', {})).rejects.toMatchObject({
+      permanent: true,
+      status: 400,
+      pendingConfig: true,
+    })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

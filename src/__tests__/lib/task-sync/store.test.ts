@@ -264,12 +264,14 @@ describe('createTaskSyncStore.saveCursor', () => {
       CONNECTION_ID,
       '2026-07-20',
       at,
-      { 'c2-gone': '2026-07-01' },
+      { 'c2-gone': { cursor: '2026-07-01', reason: 'missing' } },
     )
     const update = captured['integration_connections.update'] as Record<string, unknown>
     expect(update.poll_cursor).toBe('2026-07-20')
     expect(update.last_import_success_at).toBe(at.toISOString())
-    expect(update.import_missing_containers).toEqual({ 'c2-gone': '2026-07-01' })
+    expect(update.import_missing_containers).toEqual({
+      'c2-gone': { cursor: '2026-07-01', reason: 'missing' },
+    })
   })
 })
 
@@ -277,10 +279,23 @@ describe('createTaskSyncStore.saveMissingContainers', () => {
   it('全コンテナ欠落時は欠落台帳だけ更新し、カーソル・鮮度証明には触れない', async () => {
     const { admin, captured } = stubAdmin()
     await createTaskSyncStore({ admin, orgId: ORG_ID }).saveMissingContainers(CONNECTION_ID, {
-      'c1-gone': '2026-07-05',
+      'c1-gone': { cursor: '2026-07-05', reason: 'missing' },
     })
     const update = captured['integration_connections.update'] as Record<string, unknown>
-    expect(update).toEqual({ import_missing_containers: { 'c1-gone': '2026-07-05' } })
+    expect(update).toEqual({
+      import_missing_containers: { 'c1-gone': { cursor: '2026-07-05', reason: 'missing' } },
+    })
+  })
+
+  it('設定待ち(pending_config)のコンテナも同じ台帳に記録できる(欠落と統合。理由で区別する)', async () => {
+    const { admin, captured } = stubAdmin()
+    await createTaskSyncStore({ admin, orgId: ORG_ID }).saveMissingContainers(CONNECTION_ID, {
+      'app-9': { cursor: '2026-07-05', reason: 'pending_config' },
+    })
+    const update = captured['integration_connections.update'] as Record<string, unknown>
+    expect(update).toEqual({
+      import_missing_containers: { 'app-9': { cursor: '2026-07-05', reason: 'pending_config' } },
+    })
   })
 })
 

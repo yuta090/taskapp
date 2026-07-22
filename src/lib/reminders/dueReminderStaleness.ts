@@ -15,12 +15,16 @@ export interface DueAuthorityConnectionInfo {
   /** integration_connections.last_import_success_at（全ページ取得成功後にのみ前進する列） */
   lastImportSuccessAt: string | null
   /**
-   * integration_connections.import_missing_containers（欠落台帳・コンテナID -> 欠落判明時点の
-   * カーソル値）。欠落コンテナ以外の同一接続が取り切れると last_import_success_at は前進するが、
-   * それは「欠落コンテナ由来のタスクの期限も鮮度証明済み」を意味しない（台帳はコンテナ単位、
-   * 接続時刻は接続単位でしか無いギャップ）。未指定/取得なしは空扱い（＝コンテナ単位の抑止をしない）。
+   * integration_connections.import_missing_containers（欠落コンテナ台帳。コンテナID ->
+   * 対象外と判明した時点のカーソル値・理由。src/lib/task-sync/engine.ts の MissingContainerMap
+   * 参照。欠落(listContainersに現れない)・設定待ち(pendingConfig)の両方がここに載る）。
+   * 台帳に載っているコンテナ以外の同一接続が取り切れると last_import_success_at は前進するが、
+   * それは「台帳に載っているコンテナ由来のタスクの期限も鮮度証明済み」を意味しない（台帳は
+   * コンテナ単位、接続時刻は接続単位でしか無いギャップ）。未指定/取得なしは空扱い（＝コンテナ単位の
+   * 抑止をしない）。ここでは**キーの存在**しか見ない（値の形は関知しない）ため、
+   * Record<string, unknown> で緩く受ける。
    */
-  importMissingContainers?: Record<string, string> | null
+  importMissingContainers?: Record<string, unknown> | null
 }
 
 /**

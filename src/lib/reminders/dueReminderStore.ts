@@ -270,7 +270,7 @@ export async function findConnectionFreshness(
     status: string
     provider: string
     last_import_success_at: string | null
-    import_missing_containers: Record<string, string> | null
+    import_missing_containers: Record<string, unknown> | null
   }
   return {
     status: row.status,
@@ -493,7 +493,7 @@ export async function findConnectionFreshnessBatch(
       status: string
       provider: string
       last_import_success_at: string | null
-      import_missing_containers: Record<string, string> | null
+      import_missing_containers: Record<string, unknown> | null
     }
     map.set(r.id, {
       status: r.status,
