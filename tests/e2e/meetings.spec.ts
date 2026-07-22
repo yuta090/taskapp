@@ -13,7 +13,9 @@ test.describe('Meetings Page', () => {
   })
 
   test('should have create meeting button', async ({ page }) => {
-    const createBtn = page.getByTestId('meetings-create-dropdown')
+    // .first() の理由は tasks.spec.ts の同名対応と同じ（ランナー内でのみ同一testidが
+    // 2要素に解決される事象。実ブラウザでは4通りの確認で常に1要素・根本原因は未特定）。
+    const createBtn = page.getByTestId('meetings-create-dropdown').first()
     await expect(createBtn).toBeVisible()
     await expect(createBtn).toContainText('新規')
   })

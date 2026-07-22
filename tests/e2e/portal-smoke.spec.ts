@@ -11,8 +11,11 @@ import { test, expect } from './fixtures'
 // the error boundary text.
 test.use({ storageState: { cookies: [], origins: [] } })
 
-const CLIENT_EMAIL = 'client1@client.com'
-const CLIENT_PASSWORD = 'client1234'
+// 資格情報は環境変数で差し替え可能にする（既定はローカルseedの値）。
+// リモート(本番/プレビュー)ではデモアカウントのパスワードが強いものに差し替わっており、
+// ここを固定値にしているとログインできずタイムアウトする。global-setup と同じ流儀。
+const CLIENT_EMAIL = process.env.E2E_CLIENT_EMAIL || 'client1@client.com'
+const CLIENT_PASSWORD = process.env.E2E_CLIENT_PASSWORD || 'client1234'
 
 async function loginAsClient(page: import('@playwright/test').Page) {
   await page.goto('/login')
