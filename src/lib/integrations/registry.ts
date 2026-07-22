@@ -31,12 +31,12 @@ export type IntegrationId =
   | 'monday'
   | 'chatwork'
   | 'garoon'
+  | 'kintone'
   | 'generic_inbound'
   // データ書き出し・通知（送りっぱなし）
   | 'webhook'
   | 'notion'
   | 'google_sheets'
-  | 'kintone'
   | 'airtable'
   | 'csv_export'
   // 会計・請求
@@ -62,12 +62,12 @@ export const ALL_INTEGRATION_IDS: readonly IntegrationId[] = [
   'monday',
   'chatwork',
   'garoon',
+  'kintone',
   'generic_inbound',
   // data_export
   'webhook',
   'notion',
   'google_sheets',
-  'kintone',
   'airtable',
   'csv_export',
   // accounting
@@ -487,6 +487,28 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     proOnly: true,
     notes: 'サイボウズ Garoon のToDo。企業内グループウェア利用企業向け。',
   },
+  kintone: {
+    id: 'kintone',
+    label: 'kintone',
+    category: 'task_sync',
+    direction: 'two_way',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'kintone',
+    setupComplexity: 'schema_mapping',
+    proOnly: true,
+    featured: true,
+    notes:
+      '業務アプリ基盤(kintone)のレコードを取り込んでタスク同期する。フィールドコード＋選択肢名で対応づけるウィザードが要る（選択肢名はkintone側で変更されると対応が壊れる）。',
+    // 期限を取り込む＝この接続がそのタスクの期限の正本になる。リマインドの鮮度証明は
+    // 実ポーリング間隔×2を許容遅延とする（Stage5 §6 と同じ根拠）。
+    capabilities: {
+      dueImport: true,
+      completionWrite: true,
+      dueFreshness: 'poll-sla',
+      pollFreshnessSlaMinutes: 30,
+    },
+  },
   generic_inbound: {
     id: 'generic_inbound',
     label: 'その他のツール（Webhook）',
@@ -555,16 +577,6 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     sinkProvider: 'google_sheets',
     featured: true,
     notes: 'タスクの発生をスプレッドシートへ追記する。',
-  },
-  kintone: {
-    id: 'kintone',
-    label: 'kintone',
-    category: 'data_export',
-    direction: 'notify',
-    status: 'planned',
-    surface: 'catalog',
-    setupComplexity: 'schema_mapping',
-    notes: '業務アプリ基盤への書き出し。順次対応。',
   },
   airtable: {
     id: 'airtable',
