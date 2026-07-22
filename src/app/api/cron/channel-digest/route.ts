@@ -11,6 +11,7 @@ import {
   getPlatformBudgetState,
   insertChannelMessage,
   findExistingDigestTaskSourceMessageIds,
+  findUserIdsWithActiveLink,
 } from '@/lib/channels/store'
 import { pushLineMessage } from '@/lib/channels/line/client'
 import { callLlm } from '@/lib/ai/client'
@@ -33,10 +34,13 @@ import { resolveOrgEntitlements, type Feature } from '@/lib/billing/entitlements
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  findDueDigestCandidatesForSpace,
+  findDueDigestTodayCandidatesForSpace,
+  findDueDigestOverdueCandidatesForSpace,
   findConnectionFreshnessBatch,
+  isOrgDueRemindersEnabled,
+  findDueReminderDisabledUserIds,
 } from '@/lib/reminders/dueReminderStore'
-import { classifyDueForDigest, isConnectionFresh } from '@/lib/reminders/dueReminderStaleness'
+import { isConnectionFresh } from '@/lib/reminders/dueReminderStaleness'
 import { buildDueDigestSectionText } from '@/lib/reminders/dueReminderMessages'
 
 /**
@@ -71,13 +75,13 @@ export async function POST(request: NextRequest) {
   // JST日付。同日中にcronが再実行されてもretryKeyが同じになりLINE側で二重配信を弾ける
   const jstNowDate = jstNow()
   const jstDateStr = formatDateToLocalString(jstNowDate)
-  // 期限セクション(§9)の対象window。上限=明日まで・下限=7日前まで（code review #4是正・
-  // 古い超過タスクが下限無しで毎日全件並び続けdigestが埋もれるのを防ぐ）。jstNowDateはローカル
-  // getterがJST値を返すDate（jstNow()の契約）なので、setDateして読み戻せばJSTの日付になる
-  // （due.tsのaddDaysと同じ作法）。
-  const dueDigestThroughDate = new Date(jstNowDate)
-  dueDigestThroughDate.setDate(dueDigestThroughDate.getDate() + 1)
-  const dueDigestThroughDateJst = formatDateToLocalString(dueDigestThroughDate)
+  // 期限セクション(§9)の「期限超過」下限=7日前まで（code review #4是正・古い超過タスクが
+  // 下限無しで毎日全件並び続けdigestが埋もれるのを防ぐ）。jstNowDateはローカルgetterがJST値を
+  // 返すDate（jstNow()の契約）なので、setDateして読み戻せばJSTの日付になる（due.tsのaddDaysと
+  // 同じ作法）。
+  // page-perf再レビュー是正: 旧版にあった「翌日まで」の上限取得は廃止した。due_soon(翌日)は
+  // 下流で常に捨てていた（無駄な取得だった）うえ、「本日が期限」は
+  // findDueDigestTodayCandidatesForSpace が jstDateStr の一致でピンポイントに取得する。
   const dueDigestFromDate = new Date(jstNowDate)
   dueDigestFromDate.setDate(dueDigestFromDate.getDate() - 7)
   const dueDigestFromDateJst = formatDateToLocalString(dueDigestFromDate)
@@ -86,14 +90,28 @@ export async function POST(request: NextRequest) {
   const realNow = new Date()
 
   const admin = createAdminClient() as SupabaseClient
-  // org単位でエンタイトルメントを1回だけ解決してキャッシュ（期限セクション: timed_line_reminders
-  // 非保持orgのみに出す・Proはpushと二重になるため出さない・§9）。
+  // org単位でエンタイトルメントを1回だけ解決してキャッシュ（期限セクション: per-task「担当者に
+  // DMで届くか」判定に line_direct_dm entitlement を使う・§9.1。旧版コメントの「timed_line_reminders
+  // 非保持orgのみに出す」はv1時点の org 単位判定の名残で、うざくない秘書 再設計後の実装とは
+  // 既にずれていたため是正した）。
   const entitlementCache = new Map<string, Promise<{ has: (f: Feature) => boolean }>>()
   function getEntitlementsCached(orgId: string) {
     let cached = entitlementCache.get(orgId)
     if (!cached) {
       cached = resolveOrgEntitlements(admin, orgId, realNow)
       entitlementCache.set(orgId, cached)
+    }
+    return cached
+  }
+
+  // org単位の自動期限リマインドオンオフ（org_channel_policy.due_reminders_enabled・§2）。
+  // 送信境界(due-reminder-sender)と同じキルスイッチをdigestの期限セクションにも適用する。
+  const orgDueRemindersEnabledCache = new Map<string, Promise<boolean>>()
+  function getOrgDueRemindersEnabledCached(orgId: string) {
+    let cached = orgDueRemindersEnabledCache.get(orgId)
+    if (!cached) {
+      cached = isOrgDueRemindersEnabled(orgId)
+      orgDueRemindersEnabledCache.set(orgId, cached)
     }
     return cached
   }
@@ -255,38 +273,66 @@ export async function POST(request: NextRequest) {
         // 配信: 新規抽出の有無によらず、既存のopenタスクも含めて毎朝再採番してから送る
         const numbered = await clearAndRenumberOpenDigestTasks(group.id)
 
-        // 期限セクション（設計正本 §9・PR-1・code review #1是正）: timed_line_reminders を
-        // 持たない org のみに追記する（Pro は due-reminder-sender の push と二重になるため
-        // 出さない）。occurrence非依存で digest配信時点の due window を直接クエリする。
+        // 期限セクション（設計正本 §9・安全網v2・うざくない秘書 再設計）: 「中立な予定表」として
+        // グループへ出す。旧版は「timed_line_reminders非保持orgのみ」に出していたが、新版は
+        // per-task「DMで届かない場合」に条件を変えた（Proでも担当者にDMルートが無ければ載せる・
+        // 重複防止のためDMルートがあるタスクは除外する）。org単位オンオフ・個人opt-out・
+        // §6鮮度抑止も同様に適用する。
         // ⚠ この判定は「申し送りタスク0件」の早期returnより前に置く — 早期returnの後ろだと
-        // 「申し送りは無いが期限は迫っている」Free org（＝タスクツール未使用者への安全網の
+        // 「申し送りは無いが期限は迫っている」org（＝タスクツール未使用者への安全網の
         // 主対象）にリマインドが一切届かなくなり、この機能の狙いそのものが無効化される。
         let dueSectionText = ''
         try {
-          const entitlements = await getEntitlementsCached(group.orgId)
-          if (!entitlements.has('timed_line_reminders') && group.spaceId) {
-            const dueCandidates = await findDueDigestCandidatesForSpace(
-              group.spaceId,
-              dueDigestFromDateJst,
-              dueDigestThroughDateJst,
-            )
-            if (dueCandidates.length > 0) {
-              const connectionIds = dueCandidates
-                .map((c) => c.dueAuthorityConnectionId)
-                .filter((id): id is string => id !== null)
-              const freshnessMap = await findConnectionFreshnessBatch(connectionIds)
-              const dueItems = dueCandidates
-                .filter((c) => {
+          if (group.spaceId) {
+            const orgDueRemindersEnabled = await getOrgDueRemindersEnabledCached(group.orgId)
+            if (orgDueRemindersEnabled) {
+              // page-perf再レビュー是正: 本日分/超過分を別クエリ・別limit(25)枠で並列取得する。
+              // 旧版は1クエリ`.order('due_date').limit(50)`で両方まとめていたため、超過タスクが
+              // 50件を超えて積み上がったspaceでは due_date昇順の枠を古い超過タスクが食い尽くし、
+              // 「本日が期限」セクションが常に空になっていた（安全網が最も必要な「未整理の事務所」
+              // で今日やるべき仕事が1件も出ない＝実効性の重大な欠落）。分割済みなのでkindは
+              // クエリの出自から自明＝呼び出し側でclassifyDueForDigestを使う必要も無くなった。
+              const [todayCandidates, overdueCandidates] = await Promise.all([
+                findDueDigestTodayCandidatesForSpace(group.spaceId, jstDateStr),
+                findDueDigestOverdueCandidatesForSpace(group.spaceId, dueDigestFromDateJst, jstDateStr),
+              ])
+              const dueCandidates = [
+                ...todayCandidates.map((c) => ({ ...c, kind: 'due_today' as const })),
+                ...overdueCandidates.map((c) => ({ ...c, kind: 'overdue_confirm' as const })),
+              ]
+              if (dueCandidates.length > 0) {
+                const connectionIds = dueCandidates
+                  .map((c) => c.dueAuthorityConnectionId)
+                  .filter((id): id is string => id !== null)
+                const freshnessMap = await findConnectionFreshnessBatch(connectionIds)
+                const freshCandidates = dueCandidates.filter((c) => {
                   // §6 鮮度抑止: external権威タスクは接続がactive×SLA内のときだけ載せる
                   if (!c.dueAuthorityConnectionId) return true
                   return isConnectionFresh(freshnessMap.get(c.dueAuthorityConnectionId) ?? null, realNow)
                 })
-                .map((c) => ({ kind: classifyDueForDigest(c.dueDate, jstDateStr), ball: c.ball, title: c.title }))
-                .filter(
-                  (item): item is { kind: NonNullable<typeof item.kind>; ball: typeof item.ball; title: string } =>
-                    item.kind !== null,
-                )
-              dueSectionText = buildDueDigestSectionText(dueItems)
+
+                if (freshCandidates.length > 0) {
+                  const entitlements = await getEntitlementsCached(group.orgId)
+                  const canDirectDm = entitlements.has('line_direct_dm')
+                  const assigneeIds = [...new Set(freshCandidates.map((c) => c.assigneeId))]
+
+                  // per-task「DMで届くか」判定（届くタスクはdigestに出さない・重複防止）と
+                  // 個人単位のオプトアウト(profiles.due_reminder_enabled)は互いに独立したクエリ
+                  // なので並列実行する（perf是正: 以前は直列awaitで後者が前者の解決を待っていた）。
+                  const [dmLinkedUserIds, optedOutUserIds] = await Promise.all([
+                    canDirectDm
+                      ? findUserIdsWithActiveLink(group.orgId, assigneeIds)
+                      : Promise.resolve(new Set<string>()),
+                    findDueReminderDisabledUserIds(assigneeIds),
+                  ])
+
+                  const dueItems = freshCandidates
+                    .filter((c) => !dmLinkedUserIds.has(c.assigneeId))
+                    .filter((c) => !optedOutUserIds.has(c.assigneeId))
+                    .map((c) => ({ kind: c.kind, title: c.title }))
+                  dueSectionText = buildDueDigestSectionText(dueItems, jstDateStr)
+                }
+              }
             }
           }
         } catch (error) {

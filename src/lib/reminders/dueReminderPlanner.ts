@@ -7,7 +7,8 @@
  * 実際の insert（on conflict do nothing）は dueReminderStore.ts が担う。
  *
  * オフセット群・送信時刻・grace は全て §13（open items・数値のみ実装時確定）の確定値:
- *   - オフセット: [-1440, 0, +1440] 分（1日前 / 当日 / 超過1回）
+ *   - オフセット: [0, +1440] 分（当日 / 超過1回。うざくない秘書 再設計・Fable+Codex一致裁定で
+ *     「1日前」の事前リマインドは既定オフから撤去。反復は同意ベースにする方針のため）
  *   - 送信時刻: 9:00 JST（SEND_HOUR_JST）
  *   - grace: scheduled_at < now - 24h の occurrence は生成しない（ロールアウト時の一斉送信防止）
  */
@@ -15,8 +16,15 @@
 /** テンプレラベル（本文の出し分け用）。offset_minutes と独立（§4.2）。 */
 export type DueReminderKind = 'due_soon' | 'due_today' | 'overdue_confirm'
 
-/** 既定オフセット群（分）。負=期限前・0=当日・正=超過。PR-2で org/project/task 設定に置き換わる（§8）。 */
-export const DUE_REMINDER_OFFSETS_MINUTES = [-1440, 0, 1440] as const
+/**
+ * 既定オフセット群（分）。負=期限前・0=当日・正=超過。PR-2で org/project/task 設定に置き換わる（§8）。
+ *
+ * うざくない秘書 再設計（Fable+Codex一致裁定）: 既定は「当日＋超過1回」のみにし、
+ * 「1日前」の事前リマインド(-1440)は既定オフセットから外した。offsetToKind は引き続き
+ * 負値を due_soon として解釈できる（将来のタスク単位の上書き設定でユーザーが「1日前」を
+ * 個別に有効化できるようにするための後方互換・§8）。
+ */
+export const DUE_REMINDER_OFFSETS_MINUTES = [0, 1440] as const
 
 /** 送信時刻（JST・§13仮値）。offset_minutes とは分離し、日付成分にのみ時刻を焼き込む。 */
 export const SEND_HOUR_JST = 9

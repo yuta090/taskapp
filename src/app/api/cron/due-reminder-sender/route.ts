@@ -7,6 +7,7 @@ import {
   findOrgIdForSpace,
   findConnectionFreshness,
   isDueReminderEnabledForUser,
+  isOrgDueRemindersEnabled,
   type DueReminderOccurrenceRow,
 } from '@/lib/reminders/dueReminderStore'
 import { checkDueReminderStaleness } from '@/lib/reminders/dueReminderStaleness'
@@ -14,9 +15,6 @@ import { buildDueReminderFlex } from '@/lib/reminders/dueReminderMessages'
 import { resolveOrgEntitlements, type Feature, type PlanId } from '@/lib/billing/entitlements'
 import {
   findActiveUserLinkForUser,
-  findChatOriginGroupForTask,
-  findGroupById,
-  findActiveGroupForSpace,
   findLineAccountByIdLookup,
   type LineAccount,
 } from '@/lib/channels/store'
@@ -29,8 +27,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * POST /api/cron/due-reminder-sender
  *
  * pg_cron が定期的に呼ぶ内部API（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
- * §6/§6.1/§9・PR-1）。claim → 送信直前の3条件staleness再確認 → entitlement再確認 →
- * 宛先解決(§A 3段) → 統一送信境界(sendSecretaryPush)で送信 → finalize、を行う。
+ * §6/§6.1/§9・PR-1）。claim → 送信直前の3条件staleness再確認 → org単位オンオフ再確認 →
+ * entitlement再確認 → 宛先解決(1:1 DMのみ) → 統一送信境界(sendSecretaryPush)で送信 → finalize、を行う。
+ *
+ * うざくない秘書 再設計（Fable+Codex一致裁定）: 配信はDM(1:1)私信のみ。旧版にあった
+ * 「発生元チャットグループ→spaceのactiveグループ」への催促文面フォールバックは廃止した
+ * （グループに個人向けの催促を出さない・§2）。DMルートが無ければ suppressed('no_route') で
+ * 終端し、channel-digestの中立な期限セクション（安全網）に委ねる。
  *
  * 認証: Authorization: Bearer ${CRON_SECRET}（他cronと同一パターン）。
  */
@@ -64,6 +67,19 @@ export async function POST(request: NextRequest) {
     if (!cached) {
       cached = resolveOrgEntitlements(admin, orgId, now)
       entitlementCache.set(orgId, cached)
+    }
+    return cached
+  }
+
+  // perf是正: isOrgDueRemindersEnabled も同様にorg単位でメモ化する。以前はoccurrenceごとに
+  // 都度問い合わせており、claim上限(100件)まで同一orgのoccurrenceが並ぶと最大100回の
+  // 無駄クエリになっていた（entitlementCacheと同型）。
+  const orgDueRemindersEnabledCache = new Map<string, Promise<boolean>>()
+  function getOrgDueRemindersEnabledCached(orgId: string) {
+    let cached = orgDueRemindersEnabledCache.get(orgId)
+    if (!cached) {
+      cached = isOrgDueRemindersEnabled(orgId)
+      orgDueRemindersEnabledCache.set(orgId, cached)
     }
     return cached
   }
@@ -108,6 +124,15 @@ export async function POST(request: NextRequest) {
         continue
       }
 
+      // org単位の自動期限リマインドオンオフ（org_channel_policy.due_reminders_enabled・§2）。
+      // entitlement再確認と同じ位置づけ＝送信境界での抑止。falseなら事務所全体で停止する。
+      const orgDueRemindersEnabled = await getOrgDueRemindersEnabledCached(orgId)
+      if (!orgDueRemindersEnabled) {
+        await finalizeDueReminderOccurrence(occ.id, 'suppressed', 'org_reminders_disabled')
+        skipped.push({ occurrenceId: occ.id, taskId: task.id, reason: 'org_reminders_disabled' })
+        continue
+      }
+
       // entitlement 再確認（真実の境界）。not_entitled は suppressed 終端（deferredにしない・§6.1）。
       const entitlements = await getEntitlements(orgId)
       if (!entitlements.has('timed_line_reminders')) {
@@ -128,9 +153,7 @@ export async function POST(request: NextRequest) {
 
       const destination = await resolveDestination({
         orgId,
-        spaceId: task.spaceId,
         assigneeId: task.assigneeId,
-        taskId: task.id,
         canDirectDm: entitlements.has('line_direct_dm'),
       })
       if (!destination) {
@@ -139,11 +162,10 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // 確認ボタン付きFlex（[完了した][まだ][○日後に再通知]・設計正本 §7・PR-2）。
+      // 確認ボタン付きFlex（[完了した][対応中][明日また確認]・設計正本 §7・PR-2）。
       // altText=本文（buildDueReminderTextと同一）でtext版の見た目を保つ。
       const flexMessage = buildDueReminderFlex({
         kind: occ.kind,
-        ball: task.ball,
         title: task.title,
         taskId: task.id,
         occurrenceId: occ.id,
@@ -211,7 +233,7 @@ export async function POST(request: NextRequest) {
 }
 
 // ---------------------------------------------------------------------------
-// 宛先解決（§A 3段固定優先・§9）
+// 宛先解決（DM(1:1)のみ・§9・うざくない秘書 再設計）
 // ---------------------------------------------------------------------------
 
 interface ResolvedDestination {
@@ -232,60 +254,24 @@ async function resolveDmCandidate(orgId: string, assigneeId: string): Promise<Re
   }
 }
 
-async function resolveOriginGroupCandidate(taskId: string): Promise<ResolvedDestination | null> {
-  const origin = await findChatOriginGroupForTask(taskId)
-  if (!origin) return null
-  const group = await findGroupById(origin.groupId)
-  if (!group || group.status !== 'active') return null
-  const lookup = await findLineAccountByIdLookup(group.accountId)
-  if (!lookup?.account) return null
-  return {
-    account: lookup.account,
-    to: group.externalGroupId,
-    record: { groupId: group.id, externalUserId: null },
-  }
-}
-
-async function resolveSpaceGroupCandidate(
-  orgId: string,
-  spaceId: string,
-): Promise<ResolvedDestination | null> {
-  const group = await findActiveGroupForSpace(orgId, spaceId)
-  if (!group) return null
-  const lookup = await findLineAccountByIdLookup(group.accountId)
-  if (!lookup?.account) return null
-  return {
-    account: lookup.account,
-    to: group.externalGroupId,
-    record: { groupId: group.id, externalUserId: null },
-  }
-}
-
 /**
- * 宛先解決（設計正本 §9 §A）:
+ * 宛先解決（設計正本 §9・うざくない秘書 再設計）:
  *   (1) Pro＋line_direct_dm＋active user link → 1:1 DM
- *   (2) 発生元チャットグループ → 無ければ space の active グループ
- *   (3) ルート皆無 → null（呼び出し側が suppressed('no_route') にする）
- * ball は宛先を変えない（宛先はどちらのballでも内側担当者で共通。変わるのは文面のみ）。
+ *   (2) DM不能 → null（呼び出し側が suppressed('no_route') にする）
+ *
+ * 旧版にあった「発生元チャットグループ→spaceのactiveグループ」への催促文面フォールバック
+ * (tier-2) は廃止した。グループに個人向けの督促を出さない契約を配線レベルで保証するため、
+ * この関数はDM以外の宛先を一切返さない。安全網はchannel-digestの中立な期限セクション。
+ * ball は宛先を変えない（ball=client/internalどちらでも内側担当者のDMへ届く）。
  */
 async function resolveDestination(params: {
   orgId: string
-  spaceId: string
   assigneeId: string
-  taskId: string
   canDirectDm: boolean
 }): Promise<ResolvedDestination | null> {
-  const { orgId, spaceId, assigneeId, taskId, canDirectDm } = params
-
-  if (canDirectDm) {
-    const dm = await resolveDmCandidate(orgId, assigneeId)
-    if (dm) return dm
-  }
-
-  const origin = await resolveOriginGroupCandidate(taskId)
-  if (origin) return origin
-
-  return resolveSpaceGroupCandidate(orgId, spaceId)
+  const { orgId, assigneeId, canDirectDm } = params
+  if (!canDirectDm) return null
+  return resolveDmCandidate(orgId, assigneeId)
 }
 
 /**
