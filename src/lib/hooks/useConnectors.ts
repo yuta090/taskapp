@@ -348,3 +348,240 @@ export function useUpdateImportConfig() {
     },
   })
 }
+
+// ---- ここから: 取り込み(inbound)マッピングウィザードが要るフック群 ----
+// (Notion取り込みパネル NotionImportPanel.tsx から使う。provider非依存のcontainers一覧は
+// 将来の他ツール(Backlog等)の取り込みウィザードでも再利用できるようにここへ置く)
+
+/** 取り込み対象に選べる入れ物（Notion=データベース、Backlog=プロジェクト等。provider非依存）。 */
+export interface ConnectorContainer {
+  id: string
+  title: string
+}
+
+interface ContainersResponse {
+  containers: ConnectorContainer[]
+  selected_container_ids: string[]
+}
+
+function containersQueryKey(orgId: string, connectionId: string) {
+  return ['connectorContainers', orgId, connectionId] as const
+}
+
+/**
+ * 接続の取り込み対象に選べる入れ物一覧
+ * （GET /api/integrations/connections/[id]/containers?org_id=）。owner/admin以外も閲覧可
+ * （APIがrequireOrgAdminを課しているため実質owner/adminのみ200になる。呼び出し側は
+ * `enabled` に canManage を渡し、非管理者では実際にfetchしない — 実環境で403になる呼び出しを
+ * 未然に避ける。認可の唯一の境界はAPI側のrequireOrgAdminであり、ここでの enabled はUX上の
+ * 配慮に過ぎない）。
+ *
+ * ⚠ staleTime を5分にする(内部APIの安い読み取りから流用した15秒のままだと、パネル再マウントや
+ * タブ復帰(グローバルのrefetchOnWindowFocus:true)のたびにNotionの/v1/search全ページ往復
+ * (containers一覧の実体)が再実行され、体感速度が悪化する)。
+ *
+ * ⚠ selected_container_ids はUIの真実源にしない(初期表示の補助にとどめる)。「取り込み中/未設定」
+ * バッジの判定は呼び出し側(NotionImportPanel)が connection.importConfig.read_container_ids
+ * (useConnectorsのキャッシュ・楽観更新済み)から導出する。containers一覧を真実源にすると
+ * 「取り込みをやめる」操作(read_container_idsを書き換えるだけ)の反映にcontainers再取得
+ * (Notion往復)を挟む必要が生まれ、①解除してもバッジが古いまま残る ②バッジ更新のためだけに
+ * 高コストな外部往復が走る、の2つの問題を招く。真実源を1つ(connectorConnectionsキャッシュ)に
+ * 揃えることでどちらも解消する。
+ */
+export function useConnectionContainers(orgId: string, connectionId: string | null, enabled: boolean = true) {
+  const queryKey = useMemo(() => containersQueryKey(orgId, connectionId ?? ''), [orgId, connectionId])
+
+  const { data, isLoading, error, refetch } = useQuery<ContainersResponse>({
+    queryKey,
+    queryFn: async (): Promise<ContainersResponse> => {
+      const response = await fetch(
+        `/api/integrations/connections/${connectionId}/containers?org_id=${encodeURIComponent(orgId)}`,
+      )
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? '取り込み対象の一覧取得に失敗しました')
+      return json as ContainersResponse
+    },
+    enabled: !!orgId && !!connectionId && enabled,
+    staleTime: 5 * 60_000,
+  })
+
+  return {
+    containers: data?.containers ?? [],
+    selectedContainerIds: data?.selected_container_ids ?? [],
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+    refetch,
+  }
+}
+
+/** status サブオブジェクトの入出力形（src/lib/task-sync/providers/notion/mapping.ts の型と同じ形）。 */
+export interface NotionStatusMappingInput {
+  prop_id: string
+  prop_type: 'status' | 'select' | 'checkbox'
+  done_option_ids: string[]
+  write_done_option_id: string | null
+}
+
+/** 保存前（confirmed_at を持たない）のマッピング候補・確定候補の共通形。 */
+export interface NotionMappingCandidate {
+  due_prop_id: string | null
+  status: NotionStatusMappingInput | null
+}
+
+export interface NotionSchemaPropertyOption {
+  id: string
+  name: string
+}
+
+export interface NotionSchemaProperty {
+  id: string
+  name: string
+  type: string
+  options?: NotionSchemaPropertyOption[]
+}
+
+export type NotionSchema = NotionSchemaProperty[]
+
+export interface ProposeNotionMappingInput {
+  orgId: string
+  connectionId: string
+  databaseId: string
+}
+
+export type NotionProposalSource = 'ai' | 'heuristic'
+export type NotionAiUnavailableReason = 'ai_unconfigured' | 'llm_error' | 'invalid_response'
+
+export interface ProposeNotionMappingResult {
+  schema: NotionSchema
+  proposal: NotionMappingCandidate
+  proposalSource: NotionProposalSource
+  /** AIによる精緻化が使えなかった理由。あるとき＝ヒューリスティックへフォールバックした。 */
+  aiUnavailableReason?: NotionAiUnavailableReason
+}
+
+export interface UseNotionMappingProposalInput extends ProposeNotionMappingInput {
+  /** 行を展開している間だけtrueにする(エディタが閉じている間はfetchしない)。 */
+  enabled: boolean
+}
+
+function notionMappingProposalQueryKey(orgId: string, connectionId: string, databaseId: string) {
+  return ['notionMappingProposal', orgId, connectionId, databaseId] as const
+}
+
+/**
+ * Notionマッピング提案の取得（POST /api/integrations/connections/notion/mapping/propose）。
+ * 「1回確認して確定する」ウィザードの入口。副作用（保存）は起こさないGET的操作のためuseQuery化
+ * する。
+ *
+ * ⚠ 以前はuseMutation+useEffectで「マウント時に1回だけ呼ぶ」実装だったが、これだと
+ *   ①エディタの開閉(=行の展開/折りたたみ)のたびに毎回LLMを呼び直す(同一(connection,database)の
+ *     結果を使い回せず、確認のために開閉するだけで課金が漏れる)
+ *   ②Next.jsのreactStrictMode(dev既定true)はeffectを2回実行するため、「設定する」1回につき
+ *     Notionスキーマ取得+LLM呼び出しが2回走る(cancelledフラグはsetStateを抑えるだけでリクエスト
+ *     自体は止まらない)
+ * という2つの問題があった。useQueryはqueryKeyでin-flightをdedupeし、staleTime内の再マウントは
+ * 再フェッチしないため、両方を解消する。
+ *
+ * ⚠ retry: 0 は必須。QueryProvider既定のretry(1)を継ぐと、失敗時にLLMが2回課金される。
+ * ⚠ refetchOnWindowFocus: false。タブ復帰のたびに提案(LLM)を叩き直さない。
+ * ⚠ staleTime を長め(5分)にする: 保存API(notion/mapping route)がライブスキーマへ再検証してから
+ * 保存するため、提案キャッシュが多少古くても静かに壊れることはない(型不一致等は理由付きで400
+ * になるだけ)。
+ * ⚠ AbortSignalをqueryFnに渡す。エディタを閉じて(enabled:falseになって)クエリが不要になったら
+ * react-queryが進行中のfetchを中断する。
+ */
+export function useNotionMappingProposal({
+  orgId,
+  connectionId,
+  databaseId,
+  enabled,
+}: UseNotionMappingProposalInput) {
+  const queryKey = useMemo(
+    () => notionMappingProposalQueryKey(orgId, connectionId, databaseId),
+    [orgId, connectionId, databaseId],
+  )
+
+  const { data, isLoading, error } = useQuery<ProposeNotionMappingResult>({
+    queryKey,
+    queryFn: async ({ signal }): Promise<ProposeNotionMappingResult> => {
+      const response = await fetch('/api/integrations/connections/notion/mapping/propose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: orgId,
+          connection_id: connectionId,
+          database_id: databaseId,
+        }),
+        signal,
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'マッピング案の取得に失敗しました')
+      return {
+        schema: json.schema,
+        proposal: json.proposal,
+        proposalSource: json.proposal_source,
+        aiUnavailableReason: json.ai_unavailable_reason,
+      }
+    },
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    data,
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+  }
+}
+
+export interface SaveNotionMappingInput {
+  orgId: string
+  connectionId: string
+  databaseId: string
+  mapping: NotionMappingCandidate
+}
+
+export interface SaveNotionMappingResult {
+  databaseId: string
+  mapping: NotionMappingCandidate & { confirmed_at: string }
+}
+
+/**
+ * Notionマッピングの確認・確定保存（PUT /api/integrations/connections/notion/mapping）。owner/admin
+ * のみ。サーバ側がライブスキーマ再取得での検証を経て保存し、read_container_idsにdatabase_idを
+ * 追加する（src/app/api/integrations/connections/notion/mapping/route.ts参照）。
+ *
+ * 成功したら接続一覧(import_config。安い内部API読み取り)だけを無効化する。
+ *
+ * ⚠ containers一覧はここで無効化しない(以前はしていた)。「取り込み中/未設定」バッジは
+ * connection.importConfig.read_container_ids(=connectorsQueryKeyのキャッシュ、上のinvalidateで
+ * 更新される)から導出する設計にしたため、containers再取得は不要になった
+ * (useConnectionContainersのコメント参照)。containers一覧を無効化すると、バッジを1つ更新したい
+ * だけの操作でNotionの/v1/search全ページ往復(数百ms〜数秒)が毎回走ってしまう。
+ */
+export function useSaveNotionMapping() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: SaveNotionMappingInput): Promise<SaveNotionMappingResult> => {
+      const response = await fetch('/api/integrations/connections/notion/mapping', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          connection_id: input.connectionId,
+          database_id: input.databaseId,
+          mapping: input.mapping,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'マッピングの保存に失敗しました')
+      return { databaseId: json.database_id, mapping: json.mapping }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+    },
+  })
+}
