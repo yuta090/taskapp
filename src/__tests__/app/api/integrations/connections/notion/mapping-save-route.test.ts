@@ -287,6 +287,20 @@ describe('PUT /api/integrations/connections/notion/mapping', () => {
     expect(data.error).not.toContain('connection does not belong to the specified org')
   })
 
+  // 既存 import_config の型が壊れている場合、RPC は 22023 を付けて明示的に失敗する
+  // （黙って配列状の値を作って200を返す＝無言の失敗を防ぐため）。再試行しても直らない
+  // 状態なので、5xx（あとで再試行せよ）ではなく 422 で「作り直せ」と伝える必要がある。
+  it('既存設定の型が壊れている(22023)なら、再試行を促す5xxではなく422になる', async () => {
+    rpcResultMock.mockReturnValue({
+      data: null,
+      error: { code: '22023', message: 'import_config.notion_mappings is not a JSON object (found null)' },
+    })
+    const response = await callPut(VALID_BODY)
+    const data = await response.json()
+    expect(response.status).toBe(422)
+    expect(data.error).not.toContain('notion_mappings is not a JSON object')
+  })
+
   /**
    * ⚠ IDORテストが空振りしないための直接検証(認可境界)。findNotionConnectionが
    * .eq('id', ...) / .eq('org_id', ...) / .eq('provider', 'notion') の3条件で絞っていることを、

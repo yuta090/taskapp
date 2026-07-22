@@ -203,6 +203,15 @@ export async function PUT(request: NextRequest) {
 
   if (rpcError || !mergedConfig) {
     console.error('[notion-mapping/save] rpc_notion_mapping_merge failed:', connectionId, rpcError?.message)
+    // 22023 は RPC 側が「既存の import_config の型が壊れている」と判断したときだけ付ける
+    // SQLSTATE。再試行しても直らない状態なので 5xx（＝あとで再試行せよ）にはしない。
+    // DB の内部文言はそのまま返さず、運用者が次に取るべき行動が分かる文言に置き換える。
+    if ((rpcError as { code?: string } | null)?.code === '22023') {
+      return NextResponse.json(
+        { error: 'この接続の取り込み設定が壊れています。設定を作り直してください' },
+        { status: 422 },
+      )
+    }
     return NextResponse.json({ error: 'マッピングの保存に失敗しました' }, { status: 500 })
   }
 

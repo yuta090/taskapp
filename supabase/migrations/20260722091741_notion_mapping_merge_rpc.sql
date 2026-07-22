@@ -47,17 +47,23 @@ create or replace function public.rpc_notion_mapping_merge(
 ) returns jsonb
 language plpgsql
 security definer
-set search_path = public
+-- search_path は空にする（'public' を入れると、同名オブジェクトを別スキーマに作れる立場から
+-- SECURITY DEFINER の解決先をすり替えられる余地が残る）。参照は全て public. で完全修飾する。
+-- jsonb_* / coalesce 等の組込みは pg_catalog にあり、この設定でも常に解決できる。
+set search_path = ''
 as $$
 declare
   v_org uuid;
   v_provider text;
+  v_config jsonb;
+  v_mappings jsonb;
+  v_containers jsonb;
   v_result jsonb;
 begin
   -- for update: この行を今のトランザクションの間ロックする。直後の UPDATE も同じ行を
   -- 対象にするため、ここから UPDATE 完了までの間、他の並行呼び出しはこの行の更新を待たされる
   -- （＝read(ここ)とwrite(下のUPDATE)の間に他の書込が割り込めない）。
-  select org_id, provider into v_org, v_provider
+  select org_id, provider, import_config into v_org, v_provider, v_config
     from public.integration_connections
     where id = p_connection_id
     for update;
@@ -67,29 +73,60 @@ begin
   end if;
 
   -- 多層防御: 呼び出し側(API)が org_id で絞っている前提に頼らず、関数内でも一致を確認する。
-  if v_org <> p_org_id then
+  -- `<>` ではなく `is distinct from`: p_org_id が NULL だと `v_org <> NULL` は NULL になり
+  -- if が偽扱いになって**検証を素通りする**。NULL を「一致しない」として確実に弾く。
+  if v_org is distinct from p_org_id then
     raise exception 'connection does not belong to the specified org';
   end if;
 
-  if v_provider <> 'notion' then
+  if v_provider is distinct from 'notion' then
     raise exception 'connection is not a notion connection';
   end if;
 
+  -- ---------------------------------------------------------------------------
+  -- 既存 jsonb の型検査。**JSONB の null と「キーが無い」は別物**で、`->` は前者に対して
+  -- SQL NULL ではなく JSONB の 'null' を返すため coalesce が効かない。その状態で `||` を
+  -- 適用すると object ではなく配列状の値が生まれ、しかも UPDATE は成功するので、
+  -- APIは200を返し取り込み側だけがマッピングを見つけられず止まる（＝無言の失敗）。
+  -- 壊れた既存値は黙って直しも進めもせず、何が不正かを示して明示的に失敗させる。
+  -- ---------------------------------------------------------------------------
+  if v_config is not null and jsonb_typeof(v_config) <> 'object' then
+    raise exception 'import_config is not a JSON object (found %)', jsonb_typeof(v_config)
+      using errcode = '22023';
+  end if;
+
+  v_mappings := v_config -> 'notion_mappings';
+  if v_mappings is not null and jsonb_typeof(v_mappings) <> 'object' then
+    raise exception 'import_config.notion_mappings is not a JSON object (found %)', jsonb_typeof(v_mappings)
+      using errcode = '22023';
+  end if;
+  v_mappings := coalesce(v_mappings, '{}'::jsonb);
+
+  v_containers := v_config -> 'read_container_ids';
+  if v_containers is not null and jsonb_typeof(v_containers) <> 'array' then
+    raise exception 'import_config.read_container_ids is not a JSON array (found %)', jsonb_typeof(v_containers)
+      using errcode = '22023';
+  end if;
+  v_containers := coalesce(v_containers, '[]'::jsonb);
+
+  if not (v_containers @> to_jsonb(array[p_database_id])) then
+    v_containers := v_containers || to_jsonb(array[p_database_id]);
+  end if;
+
+  -- 上で型を検証済みの値だけを使って組み立てる。for update で行を掴んだままなので、
+  -- ここまでの読みとこの UPDATE の間に他の並行呼び出しが割り込むことはない。
+  -- 指定された database_id 分のマッピングだけを差し替え、他のキー（target_space_id 等）は
+  -- そのまま残す（部分更新。import_config 全体を置換しない）。
   update public.integration_connections
     set import_config = jsonb_set(
       jsonb_set(
-        coalesce(import_config, '{}'::jsonb),
+        coalesce(v_config, '{}'::jsonb),
         '{notion_mappings}',
-        coalesce(import_config->'notion_mappings', '{}'::jsonb)
-          || jsonb_build_object(p_database_id, p_mapping),
+        v_mappings || jsonb_build_object(p_database_id, p_mapping),
         true
       ),
       '{read_container_ids}',
-      case
-        when coalesce(import_config->'read_container_ids', '[]'::jsonb) @> to_jsonb(array[p_database_id])
-          then coalesce(import_config->'read_container_ids', '[]'::jsonb)
-        else coalesce(import_config->'read_container_ids', '[]'::jsonb) || to_jsonb(array[p_database_id])
-      end,
+      v_containers,
       true
     )
     where id = p_connection_id
