@@ -23,13 +23,32 @@ async function verifySuperadmin() {
   return user
 }
 
-async function fetchUnreadNotificationCount(): Promise<number> {
+/**
+ * サイドバーの件数バッジ（href → 件数）。
+ *
+ * 「未処理がどこに溜まっているか」をサイドバーだけで判るようにする。特に
+ * **共通LINE開通待ち**は収益の律速（承認するまで顧客の製品が動かない）なので、
+ * 申込通知メールを見落としても最上段のバッジで気づけるようにしておく。
+ *
+ * ★必ず superadmin ゲートを通過した後にだけ呼ぶこと（件数も運営専用情報のため）。
+ * 件数は head:true の count クエリだけで、行本体は取らない（表示を遅くしない）。
+ * ポーリング・リアルタイム購読はしない（ページ遷移ごとの再取得で足りる）。
+ */
+async function fetchNavBadges(): Promise<Record<string, number>> {
   const admin = createAdminClient()
-  const { count } = await admin
-    .from('notifications')
-    .select('*', { count: 'exact', head: true })
-    .is('read_at', null)
-  return count ?? 0
+  const [unread, requested, openReviews] = await Promise.all([
+    admin.from('notifications').select('*', { count: 'exact', head: true }).is('read_at', null),
+    admin
+      .from('org_channel_policy')
+      .select('*', { count: 'exact', head: true })
+      .eq('shared_bot_access', 'requested'),
+    admin.from('reviews').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+  ])
+  return {
+    '/admin/notifications': unread.count ?? 0,
+    '/admin/shared-bot-access': requested.count ?? 0,
+    '/admin/reviews': openReviews.count ?? 0,
+  }
 }
 
 export default async function AdminPanelLayout({
@@ -43,11 +62,11 @@ export default async function AdminPanelLayout({
     redirect('/admin/login')
   }
 
-  const unreadCount = await fetchUnreadNotificationCount()
+  const badges = await fetchNavBadges()
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <AdminSidebar unreadCount={unreadCount} />
+      <AdminSidebar badges={badges} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>

@@ -349,6 +349,48 @@ describe('dispatchConnectorJobsBatch', () => {
       expect(completeTaskMock).not.toHaveBeenCalled()
       expect(s.done).toBe(1)
     })
+
+    /**
+     * classifyError は明示された ProviderError.permanent を最優先する(status だけで判定しない)。
+     * kintone の GAIA_NO01(権限不足=恒久。status=403)/GAIA_UN03(同時編集競合=一時。status=409)の
+     * ような「status だけでは意図した分類にならない」ケースを固定する回帰テスト。
+     */
+    describe('classifyError は permanent(明示)を status より優先する', () => {
+      beforeEach(() => {
+        // これらのテストは completeTask 自体の失敗分類を見たいので、書き戻し先の対応は
+        // 揃っている前提にする(対応が無い恒久失敗の分岐に化けないように)。
+        state.links = [
+          { connection_id: 'conn-backlog', task_id: 'task-1', external_id: '101', external_list_id: 'proj-1' },
+        ]
+      })
+
+      it('permanent:true が明示されていれば、status が恒久失敗の判定リストに無くても dead にする', async () => {
+        completeTaskMock.mockRejectedValue(
+          Object.assign(new Error('insufficient permission'), { status: 403, permanent: true }),
+        )
+        claimReturns([job('conn-backlog', 'complete')])
+        const s = await dispatchConnectorJobsBatch()
+        expect(s.dead).toBe(1)
+        expect(s.tempFailed).toBe(0)
+      })
+
+      it('permanent:false が明示されていれば、status が恒久失敗の判定リストに含まれても一時失敗にする', async () => {
+        completeTaskMock.mockRejectedValue(
+          Object.assign(new Error('bad request but retryable'), { status: 400, permanent: false }),
+        )
+        claimReturns([job('conn-backlog', 'complete')])
+        const s = await dispatchConnectorJobsBatch()
+        expect(s.tempFailed).toBe(1)
+        expect(s.dead).toBe(0)
+      })
+
+      it('permanent が未指定なら従来通り status フォールバックで判定する(既存挙動を維持)', async () => {
+        completeTaskMock.mockRejectedValue(Object.assign(new Error('bad request'), { status: 400 }))
+        claimReturns([job('conn-backlog', 'complete')])
+        const s = await dispatchConnectorJobsBatch()
+        expect(s.dead).toBe(1)
+      })
+    })
   })
 
   it('未対応providerの接続はpermanent_fail=deadにする', async () => {

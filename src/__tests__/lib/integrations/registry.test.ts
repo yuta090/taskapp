@@ -139,6 +139,29 @@ describe('integration registry — surface と実装の整合', () => {
   })
 })
 
+/**
+ * kintone は「アダプタ(src/lib/task-sync/providers/kintone.ts)とマッピングの提案/保存ロジック
+ * (kintone/mapping.ts・kintone/schema.ts)は実装済みだが、接続パネルにアプリID入力欄が無く、
+ * マッピングの提案/保存APIも無いため一般には接続させない」provider。
+ * TASK_SYNC_ADAPTERS/IMPLEMENTED_TASK_SYNC_PROVIDERS(src/lib/task-sync/adapters.ts・
+ * implemented.ts)には引き続き載る(「アダプタとしては実装済み」の単一の真実源はそちらのため)が、
+ * 一般公開のゲートは registry の status/surface が持つ。設定導線が揃ったら 'beta'+'connector' に
+ * 戻す（このテストごと更新する）。
+ */
+describe('integration registry — kintone は実装済みだが一般公開しない(死んだ接続を作らせない)', () => {
+  it('kintone は status=planned・surface=catalog に留める(接続導線が未完成なため)', () => {
+    const def = getIntegration('kintone')
+    expect(def?.status).toBe('planned')
+    expect(def?.surface).toBe('catalog')
+  })
+
+  it('kintone は connectorKind/capabilities を宣言しない(catalogのみ・接続能力を掲げない)', () => {
+    const def = getIntegration('kintone')
+    expect(def?.connectorKind).toBeUndefined()
+    expect(def?.capabilities).toBeUndefined()
+  })
+})
+
 describe('integration registry — 課金表示ヒント（proOnly は表示のみ・真実源ではない）', () => {
   it('双方向のタスク同期(two_way)は Pro バッジ表示（CLAUDE.md: 外部連携は原則Pro）', () => {
     for (const def of listIntegrations()) {

@@ -268,6 +268,90 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     expect(config.read_container_ids).toEqual([NOTION_DATABASE_ID])
   })
 
+  /**
+   * ⚠ 最重要の回帰テスト(迂回の防止・kintone版): kintone_mappings/kintone_app_ids も
+   * notion_mappings と同じサーバ管理フィールド。汎用PATCHがクライアントの送信値をそのまま
+   * 採用すると、kintone/mapping.ts のライブスキーマ検証を迂回して実在しないフィールドコード・
+   * アプリIDを永続化できてしまう。DBの現在値が保持されることを確認する。
+   */
+  it('汎用PATCHで実在しないフィールドコードを含むkintone_mappingsを送っても永続化されない(DBの現在値が保持される)', async () => {
+    const currentMappings = {
+      '5': {
+        title_field_code: 'title',
+        due_field_code: 'due',
+        status: null,
+        confirmed_at: '2026-07-01T00:00:00.000Z',
+      },
+    }
+    findResultMock.mockReturnValue({
+      data: {
+        org_id: ORG_ID,
+        import_config: {
+          target_space_id: SPACE_ID,
+          kintone_mappings: currentMappings,
+          kintone_app_ids: ['5'],
+        },
+      },
+      error: null,
+    })
+
+    const maliciousMappings = {
+      '5': {
+        title_field_code: 'ghost-field-that-does-not-exist',
+        due_field_code: null,
+        status: null,
+        confirmed_at: '2026-07-01T00:00:00.000Z',
+      },
+    }
+    const response = await callPatch(CONNECTION_ID, {
+      import_config: {
+        target_space_id: SPACE_ID,
+        kintone_mappings: maliciousMappings,
+        kintone_app_ids: ['999'],
+      },
+    })
+
+    expect(response.status).toBe(200)
+    const config = updatePayload!.import_config as Record<string, unknown>
+    expect(config.kintone_mappings).toEqual(currentMappings)
+    expect(config.kintone_mappings).not.toEqual(maliciousMappings)
+    expect(config.kintone_app_ids).toEqual(['5'])
+  })
+
+  /**
+   * ⚠ 最重要の回帰テスト(消失の防止・kintone版): 別画面でtarget_space_idだけを変更する操作で、
+   * 確定済みのkintone_mappings/kintone_app_idsが丸ごと消えてはならない。
+   */
+  it('汎用PATCHでtarget_space_idだけ変更してもkintone_mappings/kintone_app_idsが消えない', async () => {
+    const currentMappings = {
+      '5': {
+        title_field_code: 'title',
+        due_field_code: 'due',
+        status: null,
+        confirmed_at: '2026-07-01T00:00:00.000Z',
+      },
+    }
+    findResultMock.mockReturnValue({
+      data: {
+        org_id: ORG_ID,
+        import_config: {
+          target_space_id: SPACE_ID,
+          kintone_mappings: currentMappings,
+          kintone_app_ids: ['5'],
+        },
+      },
+      error: null,
+    })
+
+    const response = await callPatch(CONNECTION_ID, { import_config: { target_space_id: NEW_SPACE_ID } })
+
+    expect(response.status).toBe(200)
+    const config = updatePayload!.import_config as Record<string, unknown>
+    expect(config.target_space_id).toBe(NEW_SPACE_ID)
+    expect(config.kintone_mappings).toEqual(currentMappings)
+    expect(config.kintone_app_ids).toEqual(['5'])
+  })
+
   it('read_container_idsを明示的に送った場合はその値で上書きされる(意図的なクリアも許す)', async () => {
     findResultMock.mockReturnValue({
       data: {
