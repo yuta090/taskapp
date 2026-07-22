@@ -64,11 +64,6 @@ export function ToolRail({ selectedId, onSelect }: ToolRailProps) {
                 >
                   <Icon className="w-4 h-4" weight={isSelected ? 'fill' : 'regular'} />
                   <span>{def.label}</span>
-                  {def.status === 'beta' && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200 flex-shrink-0">
-                      BETA
-                    </span>
-                  )}
                   {def.status === 'planned' && (
                     <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0">
                       近日

@@ -3,9 +3,10 @@ import type { ChannelDefinition } from '@/lib/channels/registry'
 import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
 
+// beta は内部区分（要検証）でありユーザーには見せない — 表示上は ga と同じ「利用可能」。
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
   ga: { label: '利用可能', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  beta: { label: 'BETA', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  beta: { label: '利用可能', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   planned: { label: '近日', cls: 'bg-gray-100 text-gray-500 border-gray-200' },
 }
 
