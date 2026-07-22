@@ -23,9 +23,14 @@ const storeMock = {
 }
 vi.mock('@/lib/reminders/dueReminderStore', () => storeMock)
 
+// markDmUnreachable/clearDmUnreachableはA案是正でsender側から呼ばなくなったが、mockには
+// スパイとして残す（route.tsが誤って再importして呼んでしまう回帰をtoHaveBeenCalledWithで
+// 検出できるようにするため。呼ばれないことを積極的に確認する意図）。
 const channelsStoreMock = {
   findActiveUserLinkForUser: vi.fn(),
   findLineAccountByIdLookup: vi.fn(),
+  markDmUnreachable: vi.fn(),
+  clearDmUnreachable: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => channelsStoreMock)
 
@@ -547,6 +552,92 @@ describe('POST /api/cron/due-reminder-sender', () => {
       const res = await callPost()
       expect(res.status).toBe(200)
       expect(storeMock.finalizeDueReminderOccurrence).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('DM到達不能マーク・解除（設計正本 §9.1・A案是正: push結果は到達性の証拠にしない）', () => {
+    // H-1' 是正: LINEはブロック済み宛先へのpushでも2xxを返し黙って捨てる仕様のため、
+    // 「送信成功(delivered:true)」はDMが実際に届いた証拠にはならない。旧実装は成功時に
+    // clearDmUnreachableを呼んでいたため、unfollowで正しくマークされた直後でも当日の送信が
+    // 200を返すだけでマークが消え、翌日から再び恒久的に不可視へ戻ってしまっていた
+    // （unfollow済みの相手からは二度とunfollowイベントが来ないため再検知不能＝致命的）。
+    // 同様に「宛先起因の4xx(400/404)」も、実態はLINE APIのボディ検証エラー（長いタイトル等）が
+    // 大半を占め、宛先の生死とは無関係に最大100件が一斉に誤マークされ得る(M-1')。
+    // 結論: このファイルはmark/clearを一切呼ばない。唯一の真実源は
+    // src/lib/channels/line/webhookHandler.ts の unfollow(mark)/follow(clear)。
+
+    it('DM送信が成功してもclearDmUnreachableを一切呼ばない（push 200は到達の証拠にならない）', async () => {
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      expect(channelsStoreMock.clearDmUnreachable).not.toHaveBeenCalled()
+    })
+
+    it('宛先起因に見える4xx(400/404)でもmarkDmUnreachableを一切呼ばない（誤マーク事故の防止・M-1\'是正）', async () => {
+      for (const status of [400, 404]) {
+        vi.clearAllMocks()
+        setupDefaultMocks()
+        const err = Object.assign(new Error(`LINE push failed (${status})`), { status })
+        sendSecretaryPushMock.mockRejectedValue(err)
+
+        const res = await callPost()
+        expect(res.status).toBe(200)
+        expect(channelsStoreMock.markDmUnreachable).not.toHaveBeenCalled()
+        // finalize(suppressed)自体は従来どおり行う（occurrenceのライフサイクルは変えない）
+        expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith(
+          'occ-1',
+          'suppressed',
+          'push_failed_permanent',
+        )
+      }
+    })
+
+    it('アカウント起因の4xx(401/403)でもfinalize(suppressed)自体は従来どおり行う（isPermanentLinePushFailureは不変）', async () => {
+      for (const status of [401, 403]) {
+        vi.clearAllMocks()
+        setupDefaultMocks()
+        const err = Object.assign(new Error(`LINE push failed (${status})`), { status })
+        sendSecretaryPushMock.mockRejectedValue(err)
+
+        const res = await callPost()
+        expect(res.status).toBe(200)
+        expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith(
+          'occ-1',
+          'suppressed',
+          'push_failed_permanent',
+        )
+        expect(channelsStoreMock.markDmUnreachable).not.toHaveBeenCalled()
+      }
+    })
+
+    it('穴が閉じたことの回帰(end-to-end想定): findActiveUserLinkForUserがdm_unreachable_at相当の状態を返し続けても'
+      + '（=webhookのunfollowでマークされたまま）、送信成功はそのlinkの状態に一切触れない'
+      + '（sender側はfindActiveUserLinkForUserの戻り値からdm_unreachable_atを読みも書きもしない）', async () => {
+      // ここでの「マークされている」はwebhook側(webhookHandler.test.ts)で検証済み。
+      // sender側の責務は「マークの有無に関わらずDM送信を試み続けること」のみ
+      // （resolveDmCandidateは変更しない＝到達不能でも引き続き送信を試みる）。
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      // findActiveUserLinkForUserの戻り値にdm_unreachable_at相当のフィールドを要求しない
+      // （M-4で追加したdmUnreachableAtはA案で不要になったため削除済み）
+      expect(channelsStoreMock.findActiveUserLinkForUser).toHaveBeenCalledWith('org-1', 'user-1')
+    })
+
+    it('DM解決前にno_routeで終端した場合もmark/clear相当の副作用は一切発生しない', async () => {
+      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue(null)
+      const res = await callPost()
+      const json = await res.json()
+      expect(res.status).toBe(200)
+      expect(json.skipped).toEqual(
+        expect.arrayContaining([expect.objectContaining({ occurrenceId: 'occ-1', reason: 'no_route' })]),
+      )
+      expect(channelsStoreMock.markDmUnreachable).not.toHaveBeenCalled()
+      expect(channelsStoreMock.clearDmUnreachable).not.toHaveBeenCalled()
     })
   })
 

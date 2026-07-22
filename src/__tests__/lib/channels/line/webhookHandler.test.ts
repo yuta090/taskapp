@@ -102,6 +102,8 @@ const storeMock = {
   findOrCreatePendingGroupClaim: vi.fn(),
   redeemCodeOnlyClaim: vi.fn(),
   orgLineGroupCapacity: vi.fn(),
+  markDmUnreachable: vi.fn(),
+  clearDmUnreachable: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -283,6 +285,8 @@ beforeEach(() => {
   sinksNotifyMock.notifySinkDisabledForRelink.mockResolvedValue(undefined)
   storeMock.redeemCodeOnlyClaim.mockResolvedValue('rejected')
   storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 1, maxGroups: 3 })
+  storeMock.markDmUnreachable.mockResolvedValue(undefined)
+  storeMock.clearDmUnreachable.mockResolvedValue(undefined)
   groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockResolvedValue(undefined)
   limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(false)
   resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
@@ -489,6 +493,209 @@ describe('handleLineWebhook', () => {
     expect(greeting).toContain('山田会計事務所')
     expect(greeting).toContain('AI')
     expect(greeting).toContain('記録に残ります')
+  })
+
+  describe('DM到達不能マーク・解除（設計正本 §9.1・A案: webhook単独の対称ループ・org account限定）', () => {
+    // イベントの timestamp=1750000000000(ms) は new Date(...).toISOString() で
+    // '2025-06-15T15:06:40.000Z' になる（events.ts の occurredAt 導出と同じ計算）。
+    // L-4是正: mark/clearとも now() ではなく event.occurredAt を書き込む契約を確認する。
+    const EVENT_OCCURRED_AT = '2025-06-15T15:06:40.000Z'
+
+    it('follow: clearDmUnreachableを呼ぶ（org境界＋event.occurredAt付き・ブロック解除時の自己回復）', async () => {
+      const body = makeBody([
+        {
+          type: 'follow',
+          webhookEventId: 'evt-follow-clear',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+          replyToken: 'rt-2',
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.clearDmUnreachable).toHaveBeenCalledWith(
+        'org-1',
+        'acc-1',
+        'U-client-1',
+        EVENT_OCCURRED_AT,
+      )
+      expect(storeMock.markDmUnreachable).not.toHaveBeenCalled()
+    })
+
+    it('unfollow: markDmUnreachableを呼ぶ（org境界＋event.occurredAt付き・ブロック検知の主トリガ）', async () => {
+      const body = makeBody([
+        {
+          type: 'unfollow',
+          webhookEventId: 'evt-unfollow-mark',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.markDmUnreachable).toHaveBeenCalledWith(
+        'org-1',
+        'acc-1',
+        'U-client-1',
+        EVENT_OCCURRED_AT,
+      )
+      expect(storeMock.clearDmUnreachable).not.toHaveBeenCalled()
+    })
+
+    it('M-2是正: unfollowの再送(dedupe)ではmarkDmUnreachableを呼ばない（解除済みマークの復活による恒久固着を防ぐ）', async () => {
+      // シナリオ: T1でunfollow→mark(T1)。応答タイムアウト等でLINEがunfollow(T1)を再送予約した
+      // 直後にT2でユーザーがブロック解除→follow(T2)→clear成立。その後LINEがunfollow(T1)を
+      // 再送すると、dedupeチェック無しではmark側にガードが無いため dm_unreachable_at=T1 が
+      // 復活してしまう。当人は既にfollow済みで次のunfollow/followが起きるまで復旧しない
+      // （恒久固着）。recordSystemEventがexternalMessageId=webhookEventIdでdedupeするため、
+      // 同一webhookEventIdの再送は必ず'duplicate'になる契約を使って未然に防ぐ。
+      storeMock.insertChannelMessage.mockResolvedValue('duplicate')
+      const body = makeBody([
+        {
+          type: 'unfollow',
+          webhookEventId: 'evt-unfollow-resend',
+          deliveryContext: { isRedelivery: true },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.markDmUnreachable).not.toHaveBeenCalled()
+    })
+
+    it('follow: clearDmUnreachableが失敗しても挨拶送信・200応答は継続する（ベストエフォート）', async () => {
+      storeMock.clearDmUnreachable.mockRejectedValue(new Error('db down'))
+      const body = makeBody([
+        {
+          type: 'follow',
+          webhookEventId: 'evt-follow-clear-fail',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+          replyToken: 'rt-2',
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('unfollow: markDmUnreachableが失敗してもwebhook本処理(200・inbound記録)は継続する（ベストエフォート）', async () => {
+      storeMock.markDmUnreachable.mockRejectedValue(new Error('db down'))
+      const body = makeBody([
+        {
+          type: 'unfollow',
+          webhookEventId: 'evt-unfollow-mark-fail',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: { event: 'unfollow' } }),
+      )
+    })
+
+    it('M-3(a)残余リスクの記録: recordSystemEventがthrowするとmarkDmUnreachableは呼ばれない（一過性DB障害でマークを取りこぼす経路。順序修正の代償として正本§9.1に明記済み）', async () => {
+      storeMock.insertChannelMessage.mockRejectedValue(new Error('db down'))
+      const body = makeBody([
+        {
+          type: 'unfollow',
+          webhookEventId: 'evt-unfollow-record-fail',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+        },
+      ])
+      const result = await handleLineWebhook(body, sign(body))
+
+      // processEventの例外はイベント単位で握られ常に200を返す（他イベント・再送ループへの
+      // 巻き込みを避けるため）。LINEはunfollowを再送しない（我々が200を返すため）。
+      expect(result.status).toBe(200)
+      expect(storeMock.markDmUnreachable).not.toHaveBeenCalled()
+    })
+
+    it('共有bot（owner_type=platform）のfollow/unfollowではmark/clearどちらも呼ばない（DM linkはorg account限定）', async () => {
+      storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_ACCOUNT)
+      const body = makeBody([
+        {
+          type: 'follow',
+          webhookEventId: 'evt-follow-shared-dm',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-someone' },
+        },
+      ])
+      await handleLineWebhook(body, sign(body))
+
+      const unfollowBody = makeBody([
+        {
+          type: 'unfollow',
+          webhookEventId: 'evt-unfollow-shared-dm',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-someone' },
+        },
+      ])
+      await handleLineWebhook(unfollowBody, sign(unfollowBody))
+
+      expect(storeMock.markDmUnreachable).not.toHaveBeenCalled()
+      expect(storeMock.clearDmUnreachable).not.toHaveBeenCalled()
+    })
+
+    // 穴が閉じたことの回帰（A案・再発防止の要）: unfollowでマークされたら、以降そのマークは
+    // webhookのfollow以外の何にも触られない。due-reminder-sender側はpush成功時にclearを
+    // 一切呼ばなくなった（src/__tests__/app/api/cron/due-reminder-sender-route.test.ts の
+    // 「DM送信が成功してもclearDmUnreachableを一切呼ばない」で検証済み）ため、
+    // 「unfollowでマーク → 送信成功してもマークは残り続ける → 翌日以降もdigestに載り続ける
+    // （channel-digest-route.test.ts の穴是正テストで検証済み）」というA案の主張は
+    // (1)ここでのunfollow→markDmUnreachable呼び出し、(2)due-reminder-senderがmark/clearに
+    // 一切触れないこと、(3)digestがmark済みlinkを拾うこと、の3テストの組み合わせで
+    // end-to-endに担保される。
+    it('unfollowでマークした後、同じwebhookのfollow以外の経路(postback等)ではmark/clearに一切触れない', async () => {
+      const unfollowBody = makeBody([
+        {
+          type: 'unfollow',
+          webhookEventId: 'evt-unfollow-e2e',
+          deliveryContext: { isRedelivery: false },
+          timestamp: 1750000000000,
+          mode: 'active',
+          source: { type: 'user', userId: 'U-client-1' },
+        },
+      ])
+      await handleLineWebhook(unfollowBody, sign(unfollowBody))
+      expect(storeMock.markDmUnreachable).toHaveBeenCalledTimes(1)
+
+      vi.clearAllMocks()
+      storeMock.findLineAccountByDestination.mockResolvedValue(ACCOUNT)
+      storeMock.insertChannelMessage.mockResolvedValue({ id: 'row-1' })
+      storeMock.claimApprovalNotification.mockResolvedValue(null)
+      dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+
+      const postbackBody = makeBody([postbackEvent('action=due_reminder_done&task=task-1')])
+      await handleLineWebhook(postbackBody, sign(postbackBody))
+
+      expect(storeMock.markDmUnreachable).not.toHaveBeenCalled()
+      expect(storeMock.clearDmUnreachable).not.toHaveBeenCalled()
+    })
   })
 
   it('画像: コンテンツを取得してStorage保存し storagePath 付きで記録', async () => {

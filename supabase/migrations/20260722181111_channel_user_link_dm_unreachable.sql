@@ -1,0 +1,99 @@
+-- =============================================================================
+-- 期限リマインド安全網の穴埋め: DM 到達不能マーク列
+-- 設計正本: docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md §9（安全網＝channel-digest）
+--
+-- 塞ぐ穴（無言・恒久の不可視）:
+--   期限リマインドは担当者へ 1:1 DM で送る（resolveDestination は DM 以外を返さない）。
+--   グループ日次ダイジェストは安全網で、findUserIdsWithActiveLink（src/lib/channels/store.ts）が
+--   「DM ルートがある人」を掲載対象から除外する。
+--   ところが LINE Bot をブロックされると channel_user_links は active のまま（revoked_at is null・
+--   紐付け先 channel_accounts も status='active'）で、DM だけが恒久失敗する
+--   （LINE 4xx → suppressed('push_failed_permanent')・src/app/api/cron/due-reminder-sender/route.ts:215）。
+--   結果、digest は「DM があるから」と除外し続け、DM は永久に届かず、その人の期限が
+--   どこにも出なくなる。既存スキーマには「紐付けは生きているが DM は届かない」を表す状態が無い。
+--
+-- 本 migration の範囲: 列（＋コメント）を1本足すだけ。書き込み/読み出しの配線は TS 側（別担当）。
+--   実際に採用された契約（複数回のレビューを経て確定・A案「webhook単独の対称ループ」）:
+--     - ⚠ push の成功/失敗はどちらもトリガにしない。LINE Messaging API はブロック済み宛先
+--       への push でも 2xx を返し黙って捨てる仕様のため、push 結果は DM の到達性について
+--       何も語らない（設計正本 §9.1 の H-1/H-1' 参照）。push 4xx や push 成功(delivered:true)
+--       を根拠に本列を書き換える実装は過去に2度提案され、いずれもレビューで「片手落ち」
+--       として差し戻された（成功時 clear が残ると unfollow 後の初回送信成功だけでマークが
+--       消え、当人は二度と unfollow イベントを送らないため恒久固着する）。
+--     - 唯一のトリガは src/lib/channels/line/webhookHandler.ts の unfollow(mark)/follow(clear)。
+--       unfollow(ブロック検知)受信で当該 org × channel_account × external_user_id の
+--       active link へ event.occurredAt（LINE イベントの発生時刻。now() ではない）を書く。
+--       follow(ブロック解除)受信で NULL に戻す（自己回復・手作業を要さない）。いずれも
+--       service_role のみが書く。
+--     - clear は「dm_unreachable_at < このfollowイベントのoccurredAt」のときだけ成立させる
+--       （イベント順序ガード）。LINE の再送で新しい unfollow の後に古い follow が遅延到着
+--       しても、新しいマークを誤って消さないため。
+--     - unfollow の再送（同一 webhookEventId）でマークが復活しないよう、webhook 側は
+--       recordSystemEvent の dedupe 結果が 'duplicate' なら本列への書き込み自体を行わない
+--       （TS 側の責務。本 migration はこの列自体には順序保証を持たせない）。
+--     - findUserIdsWithActiveLink に `dm_unreachable_at is null` を足す
+--       → 到達不能な人は「DM ルート無し」と見なされ digest の中立な期限セクションに載る。
+--     - 恒久失敗の判定はグループ送信では使わない（宛先は DM のみ・グループの失敗でこの列を
+--       立てると、個人向け督促をグループへ出さない契約とは無関係に誤マークされる）。
+--     - 残余リスク（設計正本 §9.1 に明記）: (a) unfollow 受信時に一過性 DB 障害で書き込みに
+--       失敗すると、LINE は同じ unfollow を再送しない（webhook は常に200を返すため）ので
+--       マークは永久に失われうる。(b) 本列導入前から既にブロック済みのユーザーはバックフィル
+--       が無いため永久にマークされない。将来的には `GET /v2/bot/profile/{userId}` の404を
+--       使った日次照合ジョブ（別PR）でこの2つを吸収する想定。
+--
+-- ロールバック / 不可逆性:
+--   NULL 許容の列追加のみ＝既存行は全て NULL（＝到達可能）で挙動不変。破壊的変更なし。
+--   `alter table ... drop column dm_unreachable_at` で元に戻せる。ただし drop すると
+--   「誰が到達不能か」の記録が失われるだけでなく、A案（webhook単独トリガ）では
+--   *既にブロック済みのユーザーは次に follow か unfollow が起きるまでマークが復旧しない*
+--   （push結果ではもう再検知しないため、旧列と違って「次回の恒久失敗で自然に再び立つ」
+--   保証は無い）。drop する場合はこの点を運用上の周知事項とすること。
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1) 列追加（冪等）
+-- -----------------------------------------------------------------------------
+alter table public.channel_user_links
+  add column if not exists dm_unreachable_at timestamptz;
+
+comment on column public.channel_user_links.dm_unreachable_at is
+  'LINE 1:1 DM が到達不能（Botブロック）とみなされた時刻。webhookのunfollowで立て、followで解除する。push結果は根拠にしない（LINEはブロック済み宛にも2xxを返すため）。非NULL=日次ダイジェストの安全網が拾い直す。NULL=到達可能。';
+
+-- -----------------------------------------------------------------------------
+-- 2) インデックス: 追加しない（判断の明記）
+--
+-- 安全網クエリ findUserIdsWithActiveLink は
+--   where org_id = $1 and user_id in (...) and revoked_at is null and dm_unreachable_at is null
+--   （＋ channel_accounts!inner(status='active')）
+-- という形。既存の
+--   channel_user_links_active_user unique (org_id, channel_account_id, user_id) where revoked_at is null
+--   （20260715070647）
+-- が org_id を先頭に持つため、org 単位に絞り込む索引はすでに存在する。1 org の active link 数は
+-- 「LINE を紐付けた社内メンバー数」＝高々数十行で、残りの述語（user_id in / dm_unreachable_at）は
+-- その上のフィルタで十分速い。
+--
+-- ここで `... where revoked_at is null and dm_unreachable_at is null` の partial index を足しても、
+-- 削れる行数はほぼゼロな一方、列を更新するたび（＝ブロック検出/回復のたび）に索引更新コストと
+-- 二重管理が増える。よって *足さない*。将来 1 org あたりの紐付けが数千行規模になったら再検討する
+-- （その時は既存の active_user 索引に dm_unreachable_at を含めるか、上記 partial index を1本追加）。
+-- -----------------------------------------------------------------------------
+
+-- -----------------------------------------------------------------------------
+-- 3) RLS: 追加ポリシーなし（判断の明記）
+--
+-- channel_user_links は 20260715070647 で
+--   - alter table ... enable row level security（ポリシーは1本も作らない）
+--   - revoke all from anon, authenticated
+--   - grant all to service_role
+-- という「service_role 専用」構成。テーブル権限は列を追加しても引き継がれる（列レベル ACL は
+-- 使っていない）ため、本列も自動的に service_role のみが読み書きできる。LINE userId を持つ
+-- テーブルであり、org/space 分離は「そもそも anon/authenticated から見えない」ことで担保されている。
+-- 本列は LINE webhookハンドラ（service role）が書く運用なので、authenticated への書込権限は追加しない。
+--
+-- UI 表示への影響なし: 連携状態を出す画面は API 経由でサーバ側の admin クライアントが読む
+-- （src/app/api/onboarding/line-status/route.ts のコメント参照）。クライアントから直接
+-- channel_user_links を select する経路は無いので、select ポリシーの追加も不要。
+-- security definer な既存 RPC（rpc_consume_user_link_code / rpc_revoke_user_link /
+-- rpc_promote_digest_task_via_line / rpc_confirm_task_done_via_line 等）は本テーブルを
+-- 列指定で参照しており（`select *` / %rowtype 依存は無い）、列追加で戻り値型が変わるものは無い。
+-- -----------------------------------------------------------------------------
