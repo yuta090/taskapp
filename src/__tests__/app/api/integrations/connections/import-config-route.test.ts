@@ -5,9 +5,12 @@ import { NextRequest } from 'next/server'
  * PATCH /api/integrations/connections/[id]/import-config
  *
  * - owner/adminのみ(接続のorg_idから解決)
- * - import_config( { target_space_id, read_list_ids?, default_assignee_id? } )を更新
+ * - import_config( { target_space_id, read_list_ids?, default_assignee_id? } )を**部分更新**する
+ * - 更新は RPC(rpc_import_config_merge)で原子的に行う。ルートは import_config 全体を組み立てない
+ *   (read-modify-write だと、読みと書きの間にマッピング保存RPCが走ったとき古い mappings を
+ *    書き戻して確定済みマッピングを消す＝lost update)
  * - org境界検証はDBトリガー(integration_connections_validate_import_config)が担う。
- *   トリガー例外(admin clientのupdateがerrorを返すケース)は422+ユーザー向けメッセージに変換する。
+ *   トリガー例外(P0001)は422+ユーザー向けメッセージに変換する。
  */
 
 const getUserMock = vi.fn()
@@ -26,8 +29,9 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 const findResultMock = vi.fn()
-const updateResultMock = vi.fn()
-let updatePayload: Record<string, unknown> | null = null
+const rpcResultMock = vi.fn()
+let rpcName: string | null = null
+let rpcArgs: Record<string, unknown> | null = null
 
 function makeSelectChain() {
   const chain: Record<string, unknown> = {}
@@ -38,25 +42,19 @@ function makeSelectChain() {
   return chain
 }
 
-function makeUpdateChain() {
-  const chain: Record<string, unknown> = {}
-  Object.assign(chain, {
-    eq: vi.fn(() => chain),
-    select: vi.fn(() => ({
-      maybeSingle: vi.fn(() => Promise.resolve(updateResultMock())),
-    })),
-  })
-  return chain
-}
-
 const createAdminClientMock = vi.fn(() => ({
   from: vi.fn(() => ({
     select: vi.fn(() => makeSelectChain()),
-    update: vi.fn((payload: Record<string, unknown>) => {
-      updatePayload = payload
-      return makeUpdateChain()
+    // update は使わない（使ったら即座に失敗させ、read-modify-write への逆戻りを検出する）。
+    update: vi.fn(() => {
+      throw new Error('import_config must be updated through rpc_import_config_merge, not a table update')
     }),
   })),
+  rpc: vi.fn((name: string, args: Record<string, unknown>) => {
+    rpcName = name
+    rpcArgs = args
+    return Promise.resolve(rpcResultMock())
+  }),
 }))
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => createAdminClientMock(),
@@ -83,12 +81,13 @@ const validBody = { import_config: { target_space_id: SPACE_ID } }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  updatePayload = null
+  rpcName = null
+  rpcArgs = null
   getUserMock.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
   membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
   findResultMock.mockReturnValue({ data: { org_id: ORG_ID }, error: null })
-  updateResultMock.mockReturnValue({
-    data: { id: CONNECTION_ID, import_config: validBody.import_config },
+  rpcResultMock.mockReturnValue({
+    data: { id: CONNECTION_ID, import_config: validBody.import_config, import_enabled: false },
     error: null,
   })
 })
@@ -116,12 +115,17 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     expect(response.status).toBe(400)
   })
 
-  it('200 updates import_config', async () => {
+  it('200 updates import_config via rpc_import_config_merge', async () => {
     const response = await callPatch(CONNECTION_ID, validBody)
     const data = await response.json()
     expect(response.status).toBe(200)
     expect(data.import_config).toEqual(validBody.import_config)
-    expect(updatePayload).toEqual({ import_config: validBody.import_config })
+    expect(rpcName).toBe('rpc_import_config_merge')
+    expect(rpcArgs).toEqual({
+      p_connection_id: CONNECTION_ID,
+      p_patch: validBody.import_config,
+      p_import_enabled: null,
+    })
   })
 
   /**
@@ -131,12 +135,12 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
   it('import_enabled を同じ更新で変更できる', async () => {
     const response = await callPatch(CONNECTION_ID, { ...validBody, import_enabled: true })
     expect(response.status).toBe(200)
-    expect(updatePayload).toEqual({ import_config: validBody.import_config, import_enabled: true })
+    expect(rpcArgs!.p_import_enabled).toBe(true)
   })
 
-  it('import_enabled を省略したときは触らない（後方互換）', async () => {
+  it('import_enabled を省略したときは触らない（RPCへ null＝据え置きを渡す・後方互換）', async () => {
     await callPatch(CONNECTION_ID, validBody)
-    expect(updatePayload).toEqual({ import_config: validBody.import_config })
+    expect(rpcArgs!.p_import_enabled).toBeNull()
   })
 
   it('import_enabled が boolean でなければ 400（曖昧な値で同期の有無を決めない）', async () => {
@@ -145,7 +149,7 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
   })
 
   it('422 when the DB trigger (P0001) rejects an out-of-org target_space_id (user-facing message)', async () => {
-    updateResultMock.mockReturnValue({
+    rpcResultMock.mockReturnValue({
       data: null,
       error: {
         code: 'P0001',
@@ -159,8 +163,28 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     expect(data.error.length).toBeGreaterThan(0)
   })
 
+  it('404 when the RPC reports the connection vanished (P0002 no_data_found)', async () => {
+    rpcResultMock.mockReturnValue({
+      data: null,
+      error: { code: 'P0002', message: 'connection not found' },
+    })
+    const response = await callPatch(CONNECTION_ID, validBody)
+    expect(response.status).toBe(404)
+  })
+
+  it('422 when the stored import_config is structurally broken (22023) — retrying will not fix it', async () => {
+    rpcResultMock.mockReturnValue({
+      data: null,
+      error: { code: '22023', message: 'import_config is not a JSON object (found array)' },
+    })
+    const response = await callPatch(CONNECTION_ID, validBody)
+    const data = await response.json()
+    expect(response.status).toBe(422)
+    expect(data.error).not.toContain('JSON object')
+  })
+
   it('400 when a UUID cast fails (22P02) for target_space_id/default_assignee_id', async () => {
-    updateResultMock.mockReturnValue({
+    rpcResultMock.mockReturnValue({
       data: null,
       error: { code: '22P02', message: 'invalid input syntax for type uuid: "not-a-uuid"' },
     })
@@ -169,7 +193,7 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
   })
 
   it('500 (not 422) for a transient/unknown DB error — never mislabeled as a permanent input error', async () => {
-    updateResultMock.mockReturnValue({
+    rpcResultMock.mockReturnValue({
       data: null,
       error: { code: '08006', message: 'connection failure' },
     })
@@ -191,30 +215,36 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
   })
 
   /**
+   * ⚠ 最重要の回帰テスト(lost update の防止): ルートは import_config 全体を組み立てて置換しない。
+   * 現在値を読んで組み立てると、読みと書きの間にマッピング保存RPCが走ったときに古い mappings を
+   * 書き戻して確定済みマッピングを消す。クライアントが指定したキーだけを p_patch として渡す。
+   */
+  it('import_config 全体を組み立てず、クライアント指定キーだけを p_patch として渡す', async () => {
+    const response = await callPatch(CONNECTION_ID, { import_config: { target_space_id: NEW_SPACE_ID } })
+    expect(response.status).toBe(200)
+    expect(rpcArgs!.p_patch).toEqual({ target_space_id: NEW_SPACE_ID })
+    // テーブル直 update(read-modify-write)へ戻ると createAdminClient の update が throw する。
+    expect(rpcName).toBe('rpc_import_config_merge')
+  })
+
+  /**
+   * PATCHが指定していないキーは保持される（部分更新セマンティクス）。ルート側は「送らない」ことで
+   * それを表現する＝p_patch に現れないキーは RPC 側で現在値のまま残る。
+   */
+  it('PATCHが指定していないキーは p_patch に現れない（＝現在値が保持される）', async () => {
+    await callPatch(CONNECTION_ID, { import_config: { read_container_ids: [NOTION_DATABASE_ID] } })
+    const patch = rpcArgs!.p_patch as Record<string, unknown>
+    expect(patch).toEqual({ read_container_ids: [NOTION_DATABASE_ID] })
+    expect(patch).not.toHaveProperty('target_space_id')
+    expect(patch).not.toHaveProperty('default_assignee_id')
+  })
+
+  /**
    * ⚠ 最重要の回帰テスト(迂回の防止): notion_mappings はサーバ管理フィールド。汎用PATCHが
    * クライアントの送信値をそのまま採用すると、保存API(mapping/route.ts)のライブスキーマ検証を
-   * 迂回して実在しないprop_idを永続化できてしまう。DBの現在値が保持されることを確認する。
+   * 迂回して実在しないprop_idを永続化できてしまう。DBへ一切送らないことを確認する。
    */
-  it('汎用PATCHで実在しないprop_idを含むnotion_mappingsを送っても永続化されない(DBの現在値が保持される)', async () => {
-    const currentMappings = {
-      [NOTION_DATABASE_ID]: {
-        due_prop_id: 'due-1',
-        status: null,
-        confirmed_at: '2026-07-01T00:00:00.000Z',
-      },
-    }
-    findResultMock.mockReturnValue({
-      data: {
-        org_id: ORG_ID,
-        import_config: {
-          target_space_id: SPACE_ID,
-          notion_mappings: currentMappings,
-          read_container_ids: [NOTION_DATABASE_ID],
-        },
-      },
-      error: null,
-    })
-
+  it('汎用PATCHで実在しないprop_idを含むnotion_mappingsを送ってもDBへ送られない', async () => {
     const maliciousMappings = {
       [NOTION_DATABASE_ID]: {
         due_prop_id: 'ghost-prop-that-does-not-exist',
@@ -227,74 +257,17 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(updatePayload).not.toBeNull()
-    const config = updatePayload!.import_config as Record<string, unknown>
-    expect(config.notion_mappings).toEqual(currentMappings)
-    expect(config.notion_mappings).not.toEqual(maliciousMappings)
-  })
-
-  /**
-   * ⚠ 最重要の回帰テスト(消失の防止): 別画面でtarget_space_idだけを変更する操作で、
-   * 確定済みのnotion_mappings/read_container_idsが丸ごと消えてはならない。
-   */
-  it('汎用PATCHでtarget_space_idだけ変更してもnotion_mappings/read_container_idsが消えない', async () => {
-    const currentMappings = {
-      [NOTION_DATABASE_ID]: {
-        due_prop_id: 'due-1',
-        status: null,
-        confirmed_at: '2026-07-01T00:00:00.000Z',
-      },
-    }
-    findResultMock.mockReturnValue({
-      data: {
-        org_id: ORG_ID,
-        import_config: {
-          target_space_id: SPACE_ID,
-          notion_mappings: currentMappings,
-          read_container_ids: [NOTION_DATABASE_ID],
-        },
-      },
-      error: null,
-    })
-
-    // クライアントはtarget_space_idの変更だけを意図しており、notion_mappings/read_container_ids
-    // には一切触れていない(キー自体を送っていない)。
-    const response = await callPatch(CONNECTION_ID, { import_config: { target_space_id: NEW_SPACE_ID } })
-
-    expect(response.status).toBe(200)
-    const config = updatePayload!.import_config as Record<string, unknown>
-    expect(config.target_space_id).toBe(NEW_SPACE_ID)
-    expect(config.notion_mappings).toEqual(currentMappings)
-    expect(config.read_container_ids).toEqual([NOTION_DATABASE_ID])
+    const patch = rpcArgs!.p_patch as Record<string, unknown>
+    expect(patch).not.toHaveProperty('notion_mappings')
+    expect(patch).toEqual({ target_space_id: SPACE_ID })
   })
 
   /**
    * ⚠ 最重要の回帰テスト(迂回の防止・kintone版): kintone_mappings/kintone_app_ids も
-   * notion_mappings と同じサーバ管理フィールド。汎用PATCHがクライアントの送信値をそのまま
-   * 採用すると、kintone/mapping.ts のライブスキーマ検証を迂回して実在しないフィールドコード・
-   * アプリIDを永続化できてしまう。DBの現在値が保持されることを確認する。
+   * notion_mappings と同じサーバ管理フィールド。実在しないフィールドコード・アプリIDを
+   * この経路から永続化できてはならない。
    */
-  it('汎用PATCHで実在しないフィールドコードを含むkintone_mappingsを送っても永続化されない(DBの現在値が保持される)', async () => {
-    const currentMappings = {
-      '5': {
-        title_field_code: 'title',
-        due_field_code: 'due',
-        status: null,
-        confirmed_at: '2026-07-01T00:00:00.000Z',
-      },
-    }
-    findResultMock.mockReturnValue({
-      data: {
-        org_id: ORG_ID,
-        import_config: {
-          target_space_id: SPACE_ID,
-          kintone_mappings: currentMappings,
-          kintone_app_ids: ['5'],
-        },
-      },
-      error: null,
-    })
-
+  it('汎用PATCHで実在しないフィールドコード/アプリIDを含むkintone設定を送ってもDBへ送られない', async () => {
     const maliciousMappings = {
       '5': {
         title_field_code: 'ghost-field-that-does-not-exist',
@@ -312,51 +285,18 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     })
 
     expect(response.status).toBe(200)
-    const config = updatePayload!.import_config as Record<string, unknown>
-    expect(config.kintone_mappings).toEqual(currentMappings)
-    expect(config.kintone_mappings).not.toEqual(maliciousMappings)
-    expect(config.kintone_app_ids).toEqual(['5'])
+    const patch = rpcArgs!.p_patch as Record<string, unknown>
+    expect(patch).not.toHaveProperty('kintone_mappings')
+    expect(patch).not.toHaveProperty('kintone_app_ids')
+    expect(patch).toEqual({ target_space_id: SPACE_ID })
   })
 
-  /**
-   * ⚠ 最重要の回帰テスト(消失の防止・kintone版): 別画面でtarget_space_idだけを変更する操作で、
-   * 確定済みのkintone_mappings/kintone_app_idsが丸ごと消えてはならない。
-   */
-  it('汎用PATCHでtarget_space_idだけ変更してもkintone_mappings/kintone_app_idsが消えない', async () => {
-    const currentMappings = {
-      '5': {
-        title_field_code: 'title',
-        due_field_code: 'due',
-        status: null,
-        confirmed_at: '2026-07-01T00:00:00.000Z',
-      },
-    }
-    findResultMock.mockReturnValue({
+  it('read_container_idsを明示的に送った場合はその値でDBを上書きする(意図的なクリアも許す)', async () => {
+    rpcResultMock.mockReturnValue({
       data: {
-        org_id: ORG_ID,
-        import_config: {
-          target_space_id: SPACE_ID,
-          kintone_mappings: currentMappings,
-          kintone_app_ids: ['5'],
-        },
-      },
-      error: null,
-    })
-
-    const response = await callPatch(CONNECTION_ID, { import_config: { target_space_id: NEW_SPACE_ID } })
-
-    expect(response.status).toBe(200)
-    const config = updatePayload!.import_config as Record<string, unknown>
-    expect(config.target_space_id).toBe(NEW_SPACE_ID)
-    expect(config.kintone_mappings).toEqual(currentMappings)
-    expect(config.kintone_app_ids).toEqual(['5'])
-  })
-
-  it('read_container_idsを明示的に送った場合はその値で上書きされる(意図的なクリアも許す)', async () => {
-    findResultMock.mockReturnValue({
-      data: {
-        org_id: ORG_ID,
-        import_config: { target_space_id: SPACE_ID, read_container_ids: [NOTION_DATABASE_ID] },
+        id: CONNECTION_ID,
+        import_config: { target_space_id: SPACE_ID, read_container_ids: [] },
+        import_enabled: false,
       },
       error: null,
     })
@@ -366,7 +306,13 @@ describe('PATCH /api/integrations/connections/[id]/import-config', () => {
     })
 
     expect(response.status).toBe(200)
-    const config = updatePayload!.import_config as Record<string, unknown>
-    expect(config.read_container_ids).toEqual([])
+    expect((rpcArgs!.p_patch as Record<string, unknown>).read_container_ids).toEqual([])
+    const data = await response.json()
+    expect(data.import_config.read_container_ids).toEqual([])
+  })
+
+  it('null を送ったキーはそのまま RPC へ渡る（未設定に戻す＝キー削除の意図を落とさない）', async () => {
+    await callPatch(CONNECTION_ID, { import_config: { target_space_id: null } })
+    expect(rpcArgs!.p_patch).toEqual({ target_space_id: null })
   })
 })

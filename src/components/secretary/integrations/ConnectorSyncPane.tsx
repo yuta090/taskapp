@@ -16,7 +16,7 @@ import {
 } from '@/lib/hooks/useConnectors'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
-import { pruneImportConfig } from '@/lib/integrations/importConfig'
+import { normalizeImportConfigPatch } from '@/lib/integrations/importConfig'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { MulticaConnectionReveal } from '@/components/secretary/integrations/MulticaConnectionReveal'
 
@@ -275,7 +275,7 @@ function MulticaTargetSpaceSelect({ orgId, connection, canManage }: ImportConfig
 
   const handleChange = async (value: string) => {
     setTargetSpaceId(value)
-    const next = pruneImportConfig({ ...connection.importConfig, target_space_id: value })
+    const next = normalizeImportConfigPatch({ ...connection.importConfig, target_space_id: value })
     try {
       await updateImportConfig.mutateAsync({ orgId, connectionId: connection.id, importConfig: next })
     } catch (err) {
@@ -328,7 +328,8 @@ export interface ImportConfigEditorProps {
   canManage: boolean
 }
 
-// pruneImportConfig は src/lib/integrations/importConfig.ts へ切り出した(NotionImportPanel.tsx と
+// normalizeImportConfigPatch(旧 pruneImportConfig)は src/lib/integrations/importConfig.ts へ
+// 切り出した(NotionImportPanel.tsx と
 // 共有する小さな純粋関数を、将来のcode splittingでこの大きなモジュールごと巻き込まないため)。
 // 呼び出し元は両方ともそこから直接importする(このファイルはre-exportしない)。
 
@@ -351,7 +352,7 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
   const { internalMembers } = useSpaceMembers(targetSpaceId || null)
 
   const runUpdate = async (patch: Partial<ConnectorImportConfig>, importEnabled?: boolean) => {
-    const nextConfig = pruneImportConfig({ ...connection.importConfig, ...patch })
+    const nextConfig = normalizeImportConfigPatch({ ...connection.importConfig, ...patch })
     try {
       await updateImportConfig.mutateAsync({
         orgId,

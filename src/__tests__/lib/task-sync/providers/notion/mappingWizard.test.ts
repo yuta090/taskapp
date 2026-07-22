@@ -278,6 +278,51 @@ describe('refineProposalWithAi', () => {
     expect(serialized).not.toContain('access_token')
   })
 
+  /**
+   * ⚠ 回帰耐性の強化: 上のテストだけでは弱い。SCHEMA には余計なプロパティが1つも無いため、
+   * buildRefinePrompt が「スキーマを丸ごとJSONに載せる」実装に書き換えられても緑のままになる。
+   * ここでは**型を意図的に破って**レコード値・トークン相当のプロパティを混ぜたfixtureを渡し、
+   * 「allowlist(id/name/type/options[id,name])以外はプロンプトに入らない」ことを固定する。
+   * 現実の混入経路: schema.ts の正規化を経ずに Notion API の生レスポンスが渡される、
+   * NotionDatabaseSchema に将来フィールドが足される、など。
+   */
+  it('スキーマに余計なプロパティ(レコード値・トークン)が混ざってもプロンプトに入らない', async () => {
+    const dirtySchema = [
+      {
+        id: 'due-1',
+        name: '期日',
+        type: 'date',
+        // 以下は NotionDatabaseSchema に存在しないプロパティ（意図的に型を破っている）
+        record_value: 'secret-token: 顧客Aの機密メモ',
+        token: 'access_token-abcdef',
+      },
+      {
+        id: 'status-1',
+        name: 'ステータス',
+        type: 'status',
+        options: [
+          { id: 'opt-todo', name: '未着手', record_value: 'secret-token-in-option' },
+          { id: 'opt-done', name: '完了', color: 'green' },
+        ],
+      },
+    ] as unknown as NotionDatabaseSchema
+
+    callLlmMock.mockResolvedValue({ content: JSON.stringify({ due_prop_id: null, status_prop_id: null }) })
+    await refineProposalWithAi({ orgId: 'org-1', schema: dirtySchema, heuristic: HEURISTIC })
+
+    const callArgs = callLlmMock.mock.calls[0][0] as { messages: unknown }
+    const serialized = JSON.stringify(callArgs.messages)
+    expect(serialized).not.toContain('record_value')
+    expect(serialized).not.toContain('secret-token')
+    expect(serialized).not.toContain('access_token')
+    expect(serialized).not.toContain('顧客Aの機密メモ')
+    expect(serialized).not.toContain('green')
+    // 一方で、推定に必要な情報(id・名前・型・選択肢名)は落ちていないこと
+    expect(serialized).toContain('status-1')
+    expect(serialized).toContain('ステータス')
+    expect(serialized).toContain('未着手')
+  })
+
   it('AiConfigError(AI未設定・上限到達)ならヒューリスティックへフォールバックする(source:heuristic)', async () => {
     callLlmMock.mockRejectedValue(new AiConfigError('missing', 'AI未設定'))
     const result = await refineProposalWithAi({ orgId: 'org-1', schema: SCHEMA, heuristic: HEURISTIC })

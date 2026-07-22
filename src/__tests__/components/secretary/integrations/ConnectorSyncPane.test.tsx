@@ -210,10 +210,12 @@ describe('ConnectorSyncPane — google_tasks', () => {
 
     // 取り込み先スペースを外す=もう取り込む先が無いので import_enabled も false へ戻す
     // (「接続できたのに永久に有効化されない」の逆で、「設定を外したのに動き続ける」も避ける)。
+    // ⚠ 未設定は **明示的な null** で送る(キーを消して送らない、ではない)。サーバは部分更新
+    // (rpc_import_config_merge)なので、キーを送らないと「現在値を維持」に化けて解除が反映されない。
     expect(updateImportConfigMock).toHaveBeenCalledWith({
       orgId: 'org-1',
       connectionId: 'conn-gtasks-1',
-      importConfig: {},
+      importConfig: { target_space_id: null },
       importEnabled: false,
     })
     expect(screen.queryByRole('button', { name: /保存/ })).not.toBeInTheDocument()
