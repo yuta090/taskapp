@@ -49,6 +49,50 @@ describe('isConnectionFresh', () => {
     const lastImportSuccessAt = now.toISOString()
     expect(isConnectionFresh({ status: 'active', provider: 'multica', lastImportSuccessAt }, now)).toBe(false)
   })
+
+  it('タスクの所属コンテナが欠落台帳に載っていれば、SLA内でも false（コンテナ単位の抑止）', () => {
+    const lastImportSuccessAt = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+    const info = {
+      status: 'active',
+      provider: 'google_tasks',
+      lastImportSuccessAt,
+      importMissingContainers: { 'list-gone': '2026-07-10' },
+    }
+    expect(isConnectionFresh(info, now, 'list-gone')).toBe(false)
+  })
+
+  it('欠落台帳に載っていないコンテナ由来なら、SLA内は従来どおり true（巻き込まない）', () => {
+    const lastImportSuccessAt = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+    const info = {
+      status: 'active',
+      provider: 'google_tasks',
+      lastImportSuccessAt,
+      importMissingContainers: { 'list-gone': '2026-07-10' },
+    }
+    expect(isConnectionFresh(info, now, 'list-alive')).toBe(true)
+  })
+
+  it('欠落台帳が空なら、externalListIdを渡しても従来どおり true（回帰なし）', () => {
+    const lastImportSuccessAt = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+    const info = {
+      status: 'active',
+      provider: 'google_tasks',
+      lastImportSuccessAt,
+      importMissingContainers: {},
+    }
+    expect(isConnectionFresh(info, now, 'list-any')).toBe(true)
+  })
+
+  it('externalListIdが無い(undefined)場合は台帳を見ずに従来どおり判定する（フォールバック）', () => {
+    const lastImportSuccessAt = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+    const info = {
+      status: 'active',
+      provider: 'google_tasks',
+      lastImportSuccessAt,
+      importMissingContainers: { 'list-gone': '2026-07-10' },
+    }
+    expect(isConnectionFresh(info, now)).toBe(true)
+  })
 })
 
 describe('checkDueReminderStaleness', () => {
@@ -118,6 +162,76 @@ describe('checkDueReminderStaleness', () => {
       now,
     )
     expect(result.ok).toBe(true)
+  })
+
+  describe('欠落コンテナ由来タスクへの誤催促抑止（台帳とexternal_list_idの突き合わせ）', () => {
+    it('欠落台帳に載っているコンテナ由来のタスクは、last_import_success_atがSLA内でも催促されない（本丸）', () => {
+      const connectionInfo = {
+        ...freshConnection,
+        importMissingContainers: { 'list-gone': '2026-07-10' },
+      }
+      const result = checkDueReminderStaleness(
+        {
+          status: 'todo',
+          dueDate: '2026-07-25',
+          dueAuthorityConnectionId: 'conn-1',
+          externalListId: 'list-gone',
+        },
+        '2026-07-25',
+        connectionInfo,
+        now,
+      )
+      expect(result).toEqual({ ok: false, reason: 'stale_external_due' })
+    })
+
+    it('同じ接続でも、台帳に載っていないコンテナ由来のタスクは従来どおり催促される（巻き込み事故を起こさない）', () => {
+      const connectionInfo = {
+        ...freshConnection,
+        importMissingContainers: { 'list-gone': '2026-07-10' },
+      }
+      const result = checkDueReminderStaleness(
+        {
+          status: 'todo',
+          dueDate: '2026-07-25',
+          dueAuthorityConnectionId: 'conn-1',
+          externalListId: 'list-alive',
+        },
+        '2026-07-25',
+        connectionInfo,
+        now,
+      )
+      expect(result).toEqual({ ok: true })
+    })
+
+    it('台帳が空({})なら全タスクが従来どおり催促される（回帰なし）', () => {
+      const connectionInfo = { ...freshConnection, importMissingContainers: {} }
+      const result = checkDueReminderStaleness(
+        {
+          status: 'todo',
+          dueDate: '2026-07-25',
+          dueAuthorityConnectionId: 'conn-1',
+          externalListId: 'list-any',
+        },
+        '2026-07-25',
+        connectionInfo,
+        now,
+      )
+      expect(result).toEqual({ ok: true })
+    })
+
+    it('external_list_idが無いタスク(リンク無し・他コネクタ由来)は従来どおりの判定にフォールバックする', () => {
+      const connectionInfo = {
+        ...freshConnection,
+        importMissingContainers: { 'list-gone': '2026-07-10' },
+      }
+      const result = checkDueReminderStaleness(
+        { status: 'todo', dueDate: '2026-07-25', dueAuthorityConnectionId: 'conn-1' },
+        '2026-07-25',
+        connectionInfo,
+        now,
+      )
+      expect(result).toEqual({ ok: true })
+    })
   })
 })
 

@@ -15,11 +15,24 @@ describe('アダプタ登録表', () => {
     }
   })
 
-  it('登録済みの provider は全てカタログの task_sync に存在する', () => {
+  // sink(通知連携)と task-sync(双方向同期)を兼ねる provider。カタログ上のカテゴリ見出しは
+  // 既存の data_export のまま（sink動線・UIを壊さない）が、アダプタとしては実装済み。
+  const SINK_AND_TASK_SYNC_EXCEPTIONS: readonly string[] = ['notion']
+
+  it('登録済みの provider は全てカタログの task_sync に存在する（明示された例外を除く）', () => {
     for (const id of implementedTaskSyncProviders()) {
+      if (SINK_AND_TASK_SYNC_EXCEPTIONS.includes(id)) continue
       const def = getIntegration(id)
       expect(def, `${id} missing from registry`).not.toBeNull()
       expect(def!.category, `${id} should be task_sync`).toBe('task_sync')
+    }
+  })
+
+  it('例外のprovider(notion)はカタログに存在しconnectorKindでアダプタと結びつく', () => {
+    for (const id of SINK_AND_TASK_SYNC_EXCEPTIONS) {
+      const def = getIntegration(id)
+      expect(def, `${id} missing from registry`).not.toBeNull()
+      expect(def!.connectorKind, `${id} should declare connectorKind`).toBe(id)
     }
   })
 

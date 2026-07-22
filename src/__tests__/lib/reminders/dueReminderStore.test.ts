@@ -182,6 +182,7 @@ describe('findTaskSnapshotForReminder', () => {
       ball: 'internal',
       spaceId: 'space-1',
       dueAuthorityConnectionId: null,
+      externalListId: null,
     })
   })
 
@@ -189,6 +190,78 @@ describe('findTaskSnapshotForReminder', () => {
     fromResponse = { data: null, error: { message: 'boom' } }
     fromMock.mockImplementation(() => chain(fromResponse))
     await expect(store.findTaskSnapshotForReminder('t-1')).rejects.toThrow(/snapshot query failed/)
+  })
+
+  describe('external権威タスクの external_list_id 解決（欠落コンテナ抑止の入力）', () => {
+    it('due_authority_connection_idが有れば connector_task_links から external_list_id を引いて埋める', async () => {
+      const fromResponses: Record<string, unknown> = {
+        tasks: {
+          data: {
+            id: 't-1',
+            title: 'Notion同期タスク',
+            status: 'todo',
+            due_date: '2026-07-25',
+            assignee_id: 'u-1',
+            ball: 'internal',
+            space_id: 'space-1',
+            due_authority_connection_id: 'conn-1',
+          },
+          error: null,
+        },
+        connector_task_links: { data: { external_list_id: 'list-1' }, error: null },
+      }
+      fromMock.mockImplementation((table: string) => chain(fromResponses[table] ?? { data: null, error: null }))
+
+      const snapshot = await store.findTaskSnapshotForReminder('t-1')
+      expect(snapshot?.externalListId).toBe('list-1')
+
+      const linksCall = fromMock.mock.results.find((r, i) => fromMock.mock.calls[i][0] === 'connector_task_links')
+        ?.value
+      expect(linksCall.eq).toHaveBeenCalledWith('task_id', 't-1')
+      expect(linksCall.eq).toHaveBeenCalledWith('connection_id', 'conn-1')
+      expect(linksCall.eq).toHaveBeenCalledWith('state', 'active')
+    })
+
+    it('due_authority_connection_idが無ければ connector_task_links は問い合わせず null のまま', async () => {
+      fromResponse = {
+        data: {
+          id: 't-1',
+          title: '社内タスク',
+          status: 'todo',
+          due_date: '2026-07-25',
+          assignee_id: 'u-1',
+          ball: 'internal',
+          space_id: 'space-1',
+          due_authority_connection_id: null,
+        },
+        error: null,
+      }
+      fromMock.mockImplementation(() => chain(fromResponse))
+      await store.findTaskSnapshotForReminder('t-1')
+      expect(fromMock).toHaveBeenCalledTimes(1)
+      expect(fromMock).not.toHaveBeenCalledWith('connector_task_links')
+    })
+
+    it('connector_task_links側のDBエラーはthrowする', async () => {
+      const fromResponses: Record<string, unknown> = {
+        tasks: {
+          data: {
+            id: 't-1',
+            title: 'Notion同期タスク',
+            status: 'todo',
+            due_date: '2026-07-25',
+            assignee_id: 'u-1',
+            ball: 'internal',
+            space_id: 'space-1',
+            due_authority_connection_id: 'conn-1',
+          },
+          error: null,
+        },
+        connector_task_links: { data: null, error: { message: 'boom' } },
+      }
+      fromMock.mockImplementation((table: string) => chain(fromResponses[table] ?? { data: null, error: null }))
+      await expect(store.findTaskSnapshotForReminder('t-1')).rejects.toThrow(/external_list_id lookup failed/)
+    })
   })
 })
 
@@ -217,6 +290,7 @@ describe('findConnectionFreshness', () => {
       status: 'active',
       provider: 'google_tasks',
       lastImportSuccessAt: '2026-07-20T00:00:00.000Z',
+      importMissingContainers: {},
     })
   })
 
@@ -224,6 +298,25 @@ describe('findConnectionFreshness', () => {
     fromResponse = { data: null, error: null }
     fromMock.mockImplementation(() => chain(fromResponse))
     expect(await store.findConnectionFreshness('conn-x')).toBeNull()
+  })
+
+  it('import_missing_containersをそのままマップする（欠落コンテナ由来タスクの抑止判定に使う台帳）', async () => {
+    fromResponse = {
+      data: {
+        status: 'active',
+        provider: 'notion',
+        last_import_success_at: '2026-07-20T00:00:00.000Z',
+        import_missing_containers: { 'list-gone': '2026-07-10' },
+      },
+      error: null,
+    }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    expect(await store.findConnectionFreshness('conn-1')).toEqual({
+      status: 'active',
+      provider: 'notion',
+      lastImportSuccessAt: '2026-07-20T00:00:00.000Z',
+      importMissingContainers: { 'list-gone': '2026-07-10' },
+    })
   })
 })
 
@@ -323,7 +416,26 @@ describe('findConnectionFreshnessBatch', () => {
       status: 'active',
       provider: 'google_tasks',
       lastImportSuccessAt: '2026-07-20T00:00:00.000Z',
+      importMissingContainers: {},
     })
+  })
+
+  it('import_missing_containersをそのままマップする', async () => {
+    fromResponse = {
+      data: [
+        {
+          id: 'c-1',
+          status: 'active',
+          provider: 'notion',
+          last_import_success_at: '2026-07-20T00:00:00.000Z',
+          import_missing_containers: { 'list-gone': '2026-07-10' },
+        },
+      ],
+      error: null,
+    }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    const result = await store.findConnectionFreshnessBatch(['c-1'])
+    expect(result.get('c-1')?.importMissingContainers).toEqual({ 'list-gone': '2026-07-10' })
   })
 })
 

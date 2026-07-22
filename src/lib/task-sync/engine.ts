@@ -50,8 +50,23 @@ export interface TaskSyncStore {
   completeLinkedTask(connectionId: string, taskId: string): Promise<boolean>
   /** 外部で削除されたタスクの対応を切る（タスク行は消さない）。 */
   markLinkOrphaned(connectionId: string, externalId: string): Promise<void>
-  /** カーソルと「最後に取り込みが成功した時刻」を前進させる。全ページ成功時のみ呼ばれる。 */
-  saveCursor(connectionId: string, cursor: string | null, succeededAt: Date): Promise<void>
+  /**
+   * カーソルと「最後に取り込みが成功した時刻」を前進させる。**利用可能な全コンテナ・全ページが
+   * 成功したときだけ**呼ばれる（一部が明示指定の欠落でも、取れた分が全部取り切れていれば呼ぶ）。
+   * missingContainers は欠落台帳の最新形（新規欠落の追加・再出現分の削除を反映済み）を同一更新で書く
+   * （poll_cursor / last_import_success_at と別更新にすると、成功パスの一貫性が壊れるため）。
+   */
+  saveCursor(
+    connectionId: string,
+    cursor: string | null,
+    succeededAt: Date,
+    missingContainers: Record<string, string>,
+  ): Promise<void>
+  /**
+   * 明示指定されたコンテナが全て欠落しており、何も取得を試みていない（＝鮮度を主張できる根拠が
+   * 無い）ときに、欠落台帳だけを更新する。poll_cursor / last_import_success_at には触れない。
+   */
+  saveMissingContainers(connectionId: string, missingContainers: Record<string, string>): Promise<void>
 }
 
 export interface ImportResult {
@@ -63,6 +78,8 @@ export interface ImportResult {
   skipped: boolean
   /** skipped の理由（運用ログ用）。 */
   reason?: string
+  /** 明示指定されたのに listContainers() に現れなかったコンテナID（このサイクルで検出された分）。 */
+  missingContainers?: string[]
 }
 
 /** 1ページあたりの取得回数の上限。異常なカーソル実装で無限ループしないための安全弁。 */
@@ -83,10 +100,16 @@ export async function importConnection(args: {
   targets: ImportTargets
   store: TaskSyncStore
   storedCursor: string | null
+  /**
+   * 欠落台帳（前サイクルまでに記録された「欠落判明時点で有効だったカーソル値」）。
+   * runner が接続行の import_missing_containers から読んで渡す。未指定は空（＝欠落なし）。
+   */
+  storedMissing?: Record<string, string>
   /** 取り込み開始時刻。カーソル計算に使う（テスト可能にするため注入する）。 */
   now: Date
 }): Promise<ImportResult> {
   const { connectionId, adapter, ctx, targets, store, storedCursor, now } = args
+  const storedMissing = args.storedMissing ?? {}
   const result: ImportResult = { created: 0, updated: 0, completed: 0, orphaned: 0, skipped: false }
 
   if (!targets.targetSpaceId) {
@@ -94,13 +117,36 @@ export async function importConnection(args: {
     return { ...result, skipped: true, reason: 'target_space_unset' }
   }
 
-  let containerIds: string[]
+  let available: string[]
+  let missing: string[]
   try {
-    containerIds = await resolveContainers(adapter, ctx, targets)
+    const resolved = await resolveContainers(adapter, ctx, targets)
+    available = resolved.available
+    missing = resolved.missing
   } catch (err) {
     return { ...result, skipped: true, reason: `list_containers_failed: ${message(err)}` }
   }
-  if (containerIds.length === 0) {
+
+  if (available.length === 0) {
+    if (missing.length > 0) {
+      // 明示指定が「全て」欠落している。何も取得を試みていない以上、鮮度を主張する根拠が無いので
+      // saveCursor は呼ばない。欠落台帳だけは更新する（再共有時に取りこぼさないための記録）。
+      const updatedMissing = updateMissingMap(
+        storedMissing,
+        missing,
+        available,
+        storedCursor,
+        targets.readContainerIds,
+      )
+      await store.saveMissingContainers(connectionId, updatedMissing)
+      return {
+        ...result,
+        skipped: true,
+        reason: `all_containers_missing: ${missing.join(', ')}`,
+        missingContainers: missing,
+      }
+    }
+    // 明示指定が無い（列挙の全件が対象）のに列挙自体が0件。運用側の設定待ちであり異常ではない。
     return { ...result, skipped: true, reason: 'no_containers' }
   }
 
@@ -109,11 +155,20 @@ export async function importConnection(args: {
   const links = await store.loadLinks(connectionId)
 
   try {
-    for (const containerId of containerIds) {
+    for (const containerId of available) {
+      // 再出現したコンテナ（欠落台帳にエントリがある）は、接続カーソルではなく
+      // 「欠落判明時点で有効だった値」を since にして取り直す。これにより、欠落していた間の
+      // 変更を取りこぼさない（記録値が空文字＝一度も同期成功していない状態ならフルフェッチになる。
+      // sinceForFetch は空文字/nullをどちらも undefined に倒すため特別扱いは不要）。
+      const isReappearing = Object.prototype.hasOwnProperty.call(storedMissing, containerId)
+      const containerSince = isReappearing
+        ? sinceForFetch(adapter.cursorGranularity, storedMissing[containerId] || null)
+        : since
+
       let cursor: string | undefined
       let pages = 0
       do {
-        const page = await adapter.listChangedTasks(ctx, containerId, { since, cursor })
+        const page = await adapter.listChangedTasks(ctx, containerId, { since: containerSince, cursor })
         for (const task of page.items) {
           await applyExternalTask({ connectionId, task, deletionMode: adapter.deletionMode, links, targets, store, result })
         }
@@ -130,12 +185,31 @@ export async function importConnection(args: {
       } while (cursor)
     }
   } catch (err) {
-    // 一時失敗。カーソルを進めず次回同じ範囲を取り直す（部分成功でも前進させない）。
+    // 一時失敗。カーソルを進めず次回同じ範囲を取り直す（部分成功でも前進させない）。欠落台帳も
+    // 一切書き込まない（このサイクルで何が起きたかを未確定のまま反映しないため）。
     return { ...result, skipped: true, reason: `fetch_failed: ${message(err)}` }
   }
 
-  await store.saveCursor(connectionId, advanceCursor(adapter.cursorGranularity, now), now)
-  return result
+  // 利用可能な全コンテナが取り切れた。明示指定の一部が欠落していても（missing 非空）、
+  // 取れた分は取れた分として前進させる — 欠落コンテナが恒久的に消えたままでも、他のコンテナの
+  // 取り込みと鮮度証明(last_import_success_at)が凍結してはならない（期限リマインドが接続単位で
+  // 恒久停止する回帰を防ぐ）。欠落台帳は「新規欠落を追加（既存エントリは上書きしない＝最初に
+  // 欠落と判明した時点の値を保持する）」「再出現して取り切れたコンテナのエントリを削除」を
+  // 同時に反映する。
+  const updatedMissing = updateMissingMap(storedMissing, missing, available, storedCursor, targets.readContainerIds)
+  await store.saveCursor(connectionId, advanceCursor(adapter.cursorGranularity, now), now, updatedMissing)
+  return { ...result, missingContainers: missing.length > 0 ? missing : undefined }
+}
+
+/** resolveContainers の結果。 */
+interface ContainerResolution {
+  /** 実際に取り込みを行うコンテナID（listContainers() に実在するもの）。 */
+  available: string[]
+  /**
+   * 明示指定されたのに listContainers() に現れなかったコンテナID。
+   * 非空でも取り込み自体は available 分は必ず行う（欠落は無視ではなく台帳に記録するだけ）。
+   */
+  missing: string[]
 }
 
 /** 取り込み対象コンテナを決める。明示指定があればそれ、無ければ列挙の全件。 */
@@ -143,14 +217,51 @@ async function resolveContainers(
   adapter: TaskSyncAdapter,
   ctx: ProviderContext,
   targets: ImportTargets,
-): Promise<string[]> {
+): Promise<ContainerResolution> {
   if (targets.readContainerIds && targets.readContainerIds.length > 0) {
     // 実在しないIDが混ざると、そのコンテナの取得が毎回失敗し接続全体の取り込みが止まる（wedge）。
     // 実在するものだけに絞ってこれを防ぐ（gtasks import の read_list_ids と同じ防御）。
     const real = new Set((await adapter.listContainers(ctx)).map((c) => c.id))
-    return targets.readContainerIds.filter((id) => real.has(id))
+    return {
+      available: targets.readContainerIds.filter((id) => real.has(id)),
+      missing: targets.readContainerIds.filter((id) => !real.has(id)),
+    }
   }
-  return (await adapter.listContainers(ctx)).map((c) => c.id)
+  return { available: (await adapter.listContainers(ctx)).map((c) => c.id), missing: [] }
+}
+
+/**
+ * 欠落台帳を更新する。
+ *   - missingIds のうち既存エントリが無いものだけ追加する（cursorAtDetection ?? '' を記録。
+ *     既にエントリがあるIDは上書きしない＝「最初に欠落と判明した時点」のカーソル値を保持する。
+ *     これが無いと、恒久削除が続くコンテナのサイクルごとに記録値が新しく上書きされ続け、
+ *     再共有時の since がどんどん先送りされて取りこぼす）。
+ *   - availableIds に含まれる（＝このサイクルで取り切れた）IDのエントリは削除する
+ *     （再出現して取り切れた、または元々欠落していなかった、のどちらも欠落台帳に残す理由が無い）。
+ *   - readContainerIds が明示指定されている場合、その指定に含まれないキーは台帳から削除する
+ *     （設定変更でコンテナが指定から外れると available にも missing にも二度と現れず、上の2つの
+ *     ルールだけでは永久に残って設定変更を繰り返すたびに単調増加するため）。readContainerIds が
+ *     未指定（＝列挙の全件が対象）の場合は「指定から外れた」を判定する基準が無いので掃除しない。
+ */
+function updateMissingMap(
+  existing: Record<string, string>,
+  missingIds: string[],
+  availableIds: string[],
+  cursorAtDetection: string | null,
+  readContainerIds?: string[],
+): Record<string, string> {
+  const next = { ...existing }
+  for (const id of missingIds) {
+    if (!(id in next)) next[id] = cursorAtDetection ?? ''
+  }
+  for (const id of availableIds) delete next[id]
+  if (readContainerIds && readContainerIds.length > 0) {
+    const allowed = new Set(readContainerIds)
+    for (const id of Object.keys(next)) {
+      if (!allowed.has(id)) delete next[id]
+    }
+  }
+  return next
 }
 
 /** 外部タスク1件を TaskApp 側へ反映する。新規/既存/完了/削除の分岐はここだけに置く。 */

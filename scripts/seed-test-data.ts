@@ -34,6 +34,41 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   },
 })
 
+/**
+ * 接続先がローカル(開発機のSupabase)かどうか。
+ * ローカルは外から触れないので、従来どおり覚えやすい既定パスワードで良い。
+ * リモート(本番/ステージング)は**公開リポジトリに書かれた弱いパスワードで
+ * アカウントを作ってはいけない** — 実際に本番へ demo/demo1234 が実在し、
+ * 誰でもログインできる状態になっていた(2026-07-22 是正)。
+ */
+const IS_LOCAL_TARGET =
+  SUPABASE_URL.includes('localhost') ||
+  SUPABASE_URL.includes('127.0.0.1') ||
+  SUPABASE_URL.includes('[::1]')
+
+/**
+ * デモユーザーのパスワード。`DEMO_SEED_PASSWORD` があればそれを使う（全員共通）。
+ * 無い場合、ローカルなら覚えやすい既定値、**リモートなら実行を拒否**する。
+ * これで「本番に弱いパスワードのデモアカウントが生える」経路を構造的に塞ぐ。
+ */
+const DEMO_SEED_PASSWORD = process.env.DEMO_SEED_PASSWORD?.trim() || ''
+
+if (!IS_LOCAL_TARGET && !DEMO_SEED_PASSWORD) {
+  console.error('Error: リモート(非ローカル)のSupabaseに対しては DEMO_SEED_PASSWORD が必須です。')
+  console.error(`  接続先: ${SUPABASE_URL}`)
+  console.error('  例: DEMO_SEED_PASSWORD="$(openssl rand -base64 24)" npm run seed:test')
+  console.error('  （公開リポジトリに書かれた弱いパスワードで本番アカウントを作らないための安全弁）')
+  process.exit(1)
+}
+
+if (!IS_LOCAL_TARGET && DEMO_SEED_PASSWORD.length < 16) {
+  console.error('Error: リモート向けの DEMO_SEED_PASSWORD は16文字以上にしてください。')
+  process.exit(1)
+}
+
+/** `--reset` 指定時は、デモorgのデータとデモユーザーを消してから作り直す。 */
+const RESET = process.argv.includes('--reset')
+
 // Fixed UUIDs for test data
 const IDS = {
   org: '00000000-0000-0000-0000-000000000001',
@@ -108,12 +143,16 @@ const USER_IDS: Record<string, string> = {}
 async function createTestUsers() {
   console.log('Creating test users...')
 
+  // DEMO_SEED_PASSWORD があれば全員それを使う（リモートでは必須・上のガード参照）。
+  // 無い＝ローカルのみ。従来どおりの覚えやすい既定値で開発体験を変えない。
+  const pw = (weakDefault: string) => DEMO_SEED_PASSWORD || weakDefault
+
   const users = [
-    { key: 'demo', email: 'demo@example.com', password: 'demo1234', name: '田中 太郎' },
-    { key: 'staff1', email: 'staff1@example.com', password: 'staff1234', name: '佐藤 花子' },
-    { key: 'staff2', email: 'staff2@example.com', password: 'staff2345', name: '山田 次郎' },
-    { key: 'client1', email: 'client1@client.com', password: 'client1234', name: '鈴木 一郎' },
-    { key: 'client2', email: 'client2@client.com', password: 'client2345', name: '高橋 美咲' },
+    { key: 'demo', email: 'demo@example.com', password: pw('demo1234'), name: '田中 太郎' },
+    { key: 'staff1', email: 'staff1@example.com', password: pw('staff1234'), name: '佐藤 花子' },
+    { key: 'staff2', email: 'staff2@example.com', password: pw('staff2345'), name: '山田 次郎' },
+    { key: 'client1', email: 'client1@client.com', password: pw('client1234'), name: '鈴木 一郎' },
+    { key: 'client2', email: 'client2@client.com', password: pw('client2345'), name: '高橋 美咲' },
   ]
 
   for (const user of users) {
@@ -124,7 +163,17 @@ async function createTestUsers() {
 
       if (existing) {
         USER_IDS[user.key] = existing.id
-        console.log(`  User ${user.email} exists (ID: ${existing.id.slice(0, 8)}...)`)
+        // 既存ユーザーが居ても、明示パスワードが渡されているなら必ず上書きする。
+        // これが無いと「本番に残った弱いパスワードのアカウント」が再実行しても直らない。
+        if (DEMO_SEED_PASSWORD) {
+          const { error: pwErr } = await supabase.auth.admin.updateUserById(existing.id, {
+            password: DEMO_SEED_PASSWORD,
+          })
+          if (pwErr) console.error(`  Failed to rotate password for ${user.email}:`, pwErr.message)
+          else console.log(`  User ${user.email} exists → password rotated`)
+        } else {
+          console.log(`  User ${user.email} exists (ID: ${existing.id.slice(0, 8)}...)`)
+        }
         continue
       }
 
@@ -1158,12 +1207,70 @@ async function seedMeetings() {
   else console.log('  Meetings created')
 }
 
+/**
+ * デモ環境を作り直す前に、デモorgのデータとデモユーザーを消す（`--reset`）。
+ *
+ * ★安全境界: 触るのは **IDS.org（デモorg固定UUID）配下** と、下のデモ用メールアドレス
+ *   だけ。他のorg（実業務org）のデータには一切触れない。org_id を条件にしない削除は書かない。
+ * 削除順は FK 依存の逆順（tasks は created_by が NO ACTION のため、ユーザーより先に消す）。
+ */
+async function resetDemoEnvironment() {
+  console.log('Resetting demo environment (demo org + demo users only)...')
+
+  const { data: spaces } = await supabase.from('spaces').select('id').eq('org_id', IDS.org)
+  const spaceIds = (spaces ?? []).map((s: { id: string }) => s.id)
+
+  if (spaceIds.length > 0) {
+    // spaces 配下の実体を先に消す（tasks.created_by が NO ACTION のため、
+    // ユーザー削除より必ず先。FK違反で落ちるのを防ぐ）。
+    // api_key_usage は space_id を NO ACTION で参照するので、spaces より先に消す
+    // （これが無いと spaces の削除が api_key_usage_space_id_fkey で失敗する）。
+    for (const table of ['tasks', 'meetings', 'milestones', 'notifications', 'api_key_usage']) {
+      const { error } = await supabase.from(table).delete().in('space_id', spaceIds)
+      if (error) console.error(`  delete ${table}:`, error.message)
+    }
+    const { error: spErr } = await supabase.from('spaces').delete().eq('org_id', IDS.org)
+    if (spErr) {
+      // spaces が消せなくても致命ではない（同じIDに upsert し直すため）。
+      // ただし「消えた」と誤解しないよう必ず出す。
+      console.error('  delete spaces:', spErr.message, '→ 既存spacesを再利用します')
+    } else {
+      console.log(`  Removed ${spaceIds.length} demo space(s) and their contents`)
+    }
+  }
+
+  await supabase.from('org_memberships').delete().eq('org_id', IDS.org)
+
+  const demoEmails = [
+    'demo@example.com',
+    'staff1@example.com',
+    'staff2@example.com',
+    'client1@client.com',
+    'client2@client.com',
+    'vendor1@vendor.com',
+    'vendor2@vendor.com',
+  ]
+  const { data: allUsers } = await supabase.auth.admin.listUsers()
+  for (const u of allUsers?.users ?? []) {
+    if (!u.email || !demoEmails.includes(u.email)) continue
+    const { error } = await supabase.auth.admin.deleteUser(u.id)
+    if (error) console.error(`  delete user ${u.email}:`, error.message)
+    else console.log(`  Deleted user: ${u.email}`)
+  }
+
+  console.log('  Reset complete.')
+}
+
 async function main() {
   console.log('='.repeat(50))
   console.log('Seeding comprehensive test data for TaskApp')
+  console.log(`  target   : ${SUPABASE_URL}${IS_LOCAL_TARGET ? ' (local)' : ' (REMOTE)'}`)
+  console.log(`  password : ${DEMO_SEED_PASSWORD ? 'DEMO_SEED_PASSWORD (指定値)' : '既定値(ローカルのみ)'}`)
+  console.log(`  reset    : ${RESET ? 'yes (デモorgを作り直す)' : 'no'}`)
   console.log('='.repeat(50))
 
   try {
+    if (RESET) await resetDemoEnvironment()
     await createTestUsers()
     await seedProfiles()
     await seedOrganization()
@@ -1179,12 +1286,21 @@ async function main() {
     console.log('='.repeat(50))
     console.log('Done! Test data seeded successfully.')
     console.log('')
+    // ⚠ 実際に設定したパスワードを表示する。既定値を刷り込みで出すと
+    //   「DEMO_SEED_PASSWORD で作ったのに demo1234 と表示される」誤解を生む。
+    const shown = (weakDefault: string) =>
+      DEMO_SEED_PASSWORD ? '<DEMO_SEED_PASSWORD の値>' : weakDefault
     console.log('Test accounts:')
-    console.log('  demo@example.com / demo1234 (Internal PM)')
-    console.log('  staff1@example.com / staff1234 (Designer)')
-    console.log('  staff2@example.com / staff2345 (Developer)')
-    console.log('  client1@client.com / client1234 (Client PM)')
-    console.log('  client2@client.com / client2345 (Client Approver)')
+    console.log(`  demo@example.com / ${shown('demo1234')} (Internal PM)`)
+    console.log(`  staff1@example.com / ${shown('staff1234')} (Designer)`)
+    console.log(`  staff2@example.com / ${shown('staff2345')} (Developer)`)
+    console.log(`  client1@client.com / ${shown('client1234')} (Client PM)`)
+    console.log(`  client2@client.com / ${shown('client2345')} (Client Approver)`)
+    if (!IS_LOCAL_TARGET) {
+      console.log('')
+      console.log('  ※ リモート環境です。パスワードは DEMO_SEED_PASSWORD の値のみ有効。')
+      console.log('    既定の弱いパスワード(demo1234 等)は設定されていません。')
+    }
     console.log('='.repeat(50))
   } catch (err) {
     console.error('Fatal error:', err)

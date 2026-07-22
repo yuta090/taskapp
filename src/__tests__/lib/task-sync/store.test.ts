@@ -257,17 +257,30 @@ describe('createTaskSyncStore.completeLinkedTask', () => {
 })
 
 describe('createTaskSyncStore.saveCursor', () => {
-  it('カーソルと鮮度証明(last_import_success_at)を同じ成功パスで前進させる', async () => {
+  it('カーソルと鮮度証明(last_import_success_at)・欠落台帳を同じ成功パスで前進させる', async () => {
     const { admin, captured } = stubAdmin()
     const at = new Date(2026, 6, 21, 12, 0, 0)
     await createTaskSyncStore({ admin, orgId: ORG_ID }).saveCursor(
       CONNECTION_ID,
       '2026-07-20',
       at,
+      { 'c2-gone': '2026-07-01' },
     )
     const update = captured['integration_connections.update'] as Record<string, unknown>
     expect(update.poll_cursor).toBe('2026-07-20')
     expect(update.last_import_success_at).toBe(at.toISOString())
+    expect(update.import_missing_containers).toEqual({ 'c2-gone': '2026-07-01' })
+  })
+})
+
+describe('createTaskSyncStore.saveMissingContainers', () => {
+  it('全コンテナ欠落時は欠落台帳だけ更新し、カーソル・鮮度証明には触れない', async () => {
+    const { admin, captured } = stubAdmin()
+    await createTaskSyncStore({ admin, orgId: ORG_ID }).saveMissingContainers(CONNECTION_ID, {
+      'c1-gone': '2026-07-05',
+    })
+    const update = captured['integration_connections.update'] as Record<string, unknown>
+    expect(update).toEqual({ import_missing_containers: { 'c1-gone': '2026-07-05' } })
   })
 })
 
