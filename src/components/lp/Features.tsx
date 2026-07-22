@@ -7,7 +7,8 @@ import {
     CurrencyJpy,
     Envelope,
     FileCsv,
-    ShieldCheck
+    ShieldCheck,
+    BellRinging
 } from '@phosphor-icons/react'
 
 export function Features() {
@@ -47,6 +48,12 @@ export function Features() {
             title: "監査ログ",
             desc: "誰が・いつ・何を決定したか、証跡付きで記録",
             color: "bg-purple-100 text-purple-600"
+        },
+        {
+            icon: BellRinging,
+            title: "期限リマインド",
+            desc: "期限が近いタスクを担当者に個別確認。完了なら1タップ",
+            color: "bg-rose-100 text-rose-600"
         },
     ]
 

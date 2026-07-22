@@ -3,6 +3,7 @@ import { FeatureTerminal } from '@/components/lp/FeatureTerminal'
 import { FeatureAI } from '@/components/lp/FeatureAI'
 import { FeatureBall } from '@/components/lp/FeatureBall'
 import { FeaturePortal } from '@/components/lp/FeaturePortal'
+import { FeatureReminder } from '@/components/lp/FeatureReminder'
 import { FeatureAgency } from '@/components/lp/FeatureAgency'
 import { DayInLife } from '@/components/lp/DayInLife'
 import { Workflow } from '@/components/lp/Workflow'
@@ -24,6 +25,7 @@ export default function FeaturesPage() {
       <FeatureAI />
       <FeaturePortal />
       <FeatureBall />
+      <FeatureReminder />
       <FeatureAgency />
       <Workflow />
       <Features />
