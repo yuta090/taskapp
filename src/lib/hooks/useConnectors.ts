@@ -348,3 +348,173 @@ export function useUpdateImportConfig() {
     },
   })
 }
+
+// ---- ここから: 取り込み(inbound)マッピングウィザードが要るフック群 ----
+// (Notion取り込みパネル NotionImportPanel.tsx から使う。provider非依存のcontainers一覧は
+// 将来の他ツール(Backlog等)の取り込みウィザードでも再利用できるようにここへ置く)
+
+/** 取り込み対象に選べる入れ物（Notion=データベース、Backlog=プロジェクト等。provider非依存）。 */
+export interface ConnectorContainer {
+  id: string
+  title: string
+}
+
+interface ContainersResponse {
+  containers: ConnectorContainer[]
+  selected_container_ids: string[]
+}
+
+function containersQueryKey(orgId: string, connectionId: string) {
+  return ['connectorContainers', orgId, connectionId] as const
+}
+
+/**
+ * 接続の取り込み対象に選べる入れ物一覧
+ * （GET /api/integrations/connections/[id]/containers?org_id=）。owner/admin以外も閲覧可
+ * （APIがrequireOrgAdminを課しているため実質owner/adminのみ200になる。member呼び出しは
+ * 呼び出し側がcanManageで導線自体を出さない）。
+ */
+export function useConnectionContainers(orgId: string, connectionId: string | null) {
+  const queryKey = useMemo(() => containersQueryKey(orgId, connectionId ?? ''), [orgId, connectionId])
+
+  const { data, isLoading, error, refetch } = useQuery<ContainersResponse>({
+    queryKey,
+    queryFn: async (): Promise<ContainersResponse> => {
+      const response = await fetch(
+        `/api/integrations/connections/${connectionId}/containers?org_id=${encodeURIComponent(orgId)}`,
+      )
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? '取り込み対象の一覧取得に失敗しました')
+      return json as ContainersResponse
+    },
+    enabled: !!orgId && !!connectionId,
+    staleTime: 15_000,
+  })
+
+  return {
+    containers: data?.containers ?? [],
+    selectedContainerIds: data?.selected_container_ids ?? [],
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+    refetch,
+  }
+}
+
+/** status サブオブジェクトの入出力形（src/lib/task-sync/providers/notion/mapping.ts の型と同じ形）。 */
+export interface NotionStatusMappingInput {
+  prop_id: string
+  prop_type: 'status' | 'select' | 'checkbox'
+  done_option_ids: string[]
+  write_done_option_id: string | null
+}
+
+/** 保存前（confirmed_at を持たない）のマッピング候補・確定候補の共通形。 */
+export interface NotionMappingCandidate {
+  due_prop_id: string | null
+  status: NotionStatusMappingInput | null
+}
+
+export interface NotionSchemaPropertyOption {
+  id: string
+  name: string
+}
+
+export interface NotionSchemaProperty {
+  id: string
+  name: string
+  type: string
+  options?: NotionSchemaPropertyOption[]
+}
+
+export type NotionSchema = NotionSchemaProperty[]
+
+export interface ProposeNotionMappingInput {
+  orgId: string
+  connectionId: string
+  databaseId: string
+}
+
+export type NotionProposalSource = 'ai' | 'heuristic'
+export type NotionAiUnavailableReason = 'ai_unconfigured' | 'llm_error' | 'invalid_response'
+
+export interface ProposeNotionMappingResult {
+  schema: NotionSchema
+  proposal: NotionMappingCandidate
+  proposalSource: NotionProposalSource
+  /** AIによる精緻化が使えなかった理由。あるとき＝ヒューリスティックへフォールバックした。 */
+  aiUnavailableReason?: NotionAiUnavailableReason
+}
+
+/**
+ * Notionマッピング提案の取得（POST /api/integrations/connections/notion/mapping/propose）。
+ * 「1回確認して確定する」ウィザードの入口。副作用（保存）は起こさないため、取得のたびに
+ * 何度呼んでも安全 — mutationにしているのは、押した瞬間に叩く(GET的な即時実行)操作であり
+ * キャッシュを持つ必要が無いため(useQueryの自動再フェッチ/キャッシュ共有はここでは不要)。
+ */
+export function useProposeNotionMapping() {
+  return useMutation({
+    mutationFn: async (input: ProposeNotionMappingInput): Promise<ProposeNotionMappingResult> => {
+      const response = await fetch('/api/integrations/connections/notion/mapping/propose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          connection_id: input.connectionId,
+          database_id: input.databaseId,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'マッピング案の取得に失敗しました')
+      return {
+        schema: json.schema,
+        proposal: json.proposal,
+        proposalSource: json.proposal_source,
+        aiUnavailableReason: json.ai_unavailable_reason,
+      }
+    },
+  })
+}
+
+export interface SaveNotionMappingInput {
+  orgId: string
+  connectionId: string
+  databaseId: string
+  mapping: NotionMappingCandidate
+}
+
+export interface SaveNotionMappingResult {
+  databaseId: string
+  mapping: NotionMappingCandidate & { confirmed_at: string }
+}
+
+/**
+ * Notionマッピングの確認・確定保存（PUT /api/integrations/connections/notion/mapping）。owner/admin
+ * のみ。サーバ側がライブスキーマ再取得での検証を経て保存し、read_container_idsにdatabase_idを
+ * 追加する（src/app/api/integrations/connections/notion/mapping/route.ts参照）。成功したら
+ * 接続一覧(import_config)とcontainers一覧の両方を無効化し、「取り込み中」表示に反映させる。
+ */
+export function useSaveNotionMapping() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: SaveNotionMappingInput): Promise<SaveNotionMappingResult> => {
+      const response = await fetch('/api/integrations/connections/notion/mapping', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: input.orgId,
+          connection_id: input.connectionId,
+          database_id: input.databaseId,
+          mapping: input.mapping,
+        }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error ?? 'マッピングの保存に失敗しました')
+      return { databaseId: json.database_id, mapping: json.mapping }
+    },
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: connectorsQueryKey(input.orgId) })
+      void queryClient.invalidateQueries({ queryKey: containersQueryKey(input.orgId, input.connectionId) })
+    },
+  })
+}

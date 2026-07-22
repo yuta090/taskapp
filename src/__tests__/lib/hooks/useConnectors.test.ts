@@ -7,6 +7,9 @@ import {
   useCreateMulticaConnection,
   useRotateMulticaSecret,
   useUpdateImportConfig,
+  useConnectionContainers,
+  useProposeNotionMapping,
+  useSaveNotionMapping,
   type ConnectorConnection,
 } from '@/lib/hooks/useConnectors'
 
@@ -351,5 +354,194 @@ describe('useUpdateImportConfig', () => {
         })
       }),
     ).rejects.toThrow('target_space_id / default_assignee_id は UUID 形式で指定してください')
+  })
+})
+
+describe('useConnectionContainers', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('containers/selected_container_idsを取得する', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        containers: [{ id: 'db-1', title: 'タスク一覧' }],
+        selected_container_ids: ['db-1'],
+      }),
+    })
+
+    const { result } = renderHook(() => useConnectionContainers('org-1', 'conn-notion-1'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/integrations/connections/conn-notion-1/containers?org_id=org-1')
+    expect(result.current.containers).toEqual([{ id: 'db-1', title: 'タスク一覧' }])
+    expect(result.current.selectedContainerIds).toEqual(['db-1'])
+  })
+
+  it('connectionIdがnullの間はfetchしない', () => {
+    const { result } = renderHook(() => useConnectionContainers('org-1', null), { wrapper: createWrapper() })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.containers).toEqual([])
+  })
+
+  it('失敗時はエラーメッセージを返し、containersは空配列', async () => {
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: '接続が失効しています。再接続してください' }) })
+
+    const { result } = renderHook(() => useConnectionContainers('org-1', 'conn-notion-1'), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.error).toBe('接続が失効しています。再接続してください')
+    expect(result.current.containers).toEqual([])
+  })
+})
+
+describe('useProposeNotionMapping', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('POST proposeを呼び、schema/proposal/proposalSourceを返す', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: [{ id: 'due-1', name: '期日', type: 'date' }],
+        proposal: { due_prop_id: 'due-1', status: null },
+        proposal_source: 'ai',
+      }),
+    })
+
+    const { result } = renderHook(() => useProposeNotionMapping(), { wrapper: createWrapper() })
+
+    let response: Awaited<ReturnType<typeof result.current.mutateAsync>> | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync({
+        orgId: 'org-1',
+        connectionId: 'conn-notion-1',
+        databaseId: 'db-1',
+      })
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/integrations/connections/notion/mapping/propose',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ org_id: 'org-1', connection_id: 'conn-notion-1', database_id: 'db-1' }),
+      }),
+    )
+    expect(response).toEqual({
+      schema: [{ id: 'due-1', name: '期日', type: 'date' }],
+      proposal: { due_prop_id: 'due-1', status: null },
+      proposalSource: 'ai',
+      aiUnavailableReason: undefined,
+    })
+  })
+
+  it('AI不調時はaiUnavailableReasonを伝える', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: [],
+        proposal: { due_prop_id: null, status: null },
+        proposal_source: 'heuristic',
+        ai_unavailable_reason: 'ai_unconfigured',
+      }),
+    })
+
+    const { result } = renderHook(() => useProposeNotionMapping(), { wrapper: createWrapper() })
+
+    let response: Awaited<ReturnType<typeof result.current.mutateAsync>> | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync({ orgId: 'org-1', connectionId: 'conn-notion-1', databaseId: 'db-1' })
+    })
+
+    expect(response?.proposalSource).toBe('heuristic')
+    expect(response?.aiUnavailableReason).toBe('ai_unconfigured')
+  })
+
+  it('失敗時はエラーメッセージを投げる', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: '接続が失効しています。再接続してください' }) })
+
+    const { result } = renderHook(() => useProposeNotionMapping(), { wrapper: createWrapper() })
+
+    await expect(
+      act(async () => {
+        await result.current.mutateAsync({ orgId: 'org-1', connectionId: 'conn-notion-1', databaseId: 'db-1' })
+      }),
+    ).rejects.toThrow('接続が失効しています。再接続してください')
+  })
+})
+
+describe('useSaveNotionMapping', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('PUT mappingを呼び、成功で接続一覧とcontainers一覧を無効化する', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        database_id: 'db-1',
+        mapping: { due_prop_id: 'due-1', status: null, confirmed_at: '2026-07-21T00:00:00.000Z' },
+      }),
+    })
+
+    const { result } = renderHook(() => useSaveNotionMapping(), { wrapper })
+
+    let response: Awaited<ReturnType<typeof result.current.mutateAsync>> | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync({
+        orgId: 'org-1',
+        connectionId: 'conn-notion-1',
+        databaseId: 'db-1',
+        mapping: { due_prop_id: 'due-1', status: null },
+      })
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/integrations/connections/notion/mapping',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          org_id: 'org-1',
+          connection_id: 'conn-notion-1',
+          database_id: 'db-1',
+          mapping: { due_prop_id: 'due-1', status: null },
+        }),
+      }),
+    )
+    expect(response).toEqual({
+      databaseId: 'db-1',
+      mapping: { due_prop_id: 'due-1', status: null, confirmed_at: '2026-07-21T00:00:00.000Z' },
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['connectorConnections', 'org-1'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['connectorContainers', 'org-1', 'conn-notion-1'] })
+  })
+
+  it('保存APIが400を返したら理由をそのまま投げる(利用者にどのプロパティが不正か伝えるため)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'due_prop_id: date型ではありません(id=due-1, 実際の型=select)' }),
+    })
+
+    const { result } = renderHook(() => useSaveNotionMapping(), { wrapper: createWrapper() })
+
+    await expect(
+      act(async () => {
+        await result.current.mutateAsync({
+          orgId: 'org-1',
+          connectionId: 'conn-notion-1',
+          databaseId: 'db-1',
+          mapping: { due_prop_id: 'due-1', status: null },
+        })
+      }),
+    ).rejects.toThrow('due_prop_id: date型ではありません(id=due-1, 実際の型=select)')
   })
 })

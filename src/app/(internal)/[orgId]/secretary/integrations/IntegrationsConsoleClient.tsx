@@ -6,11 +6,12 @@ import { ConnectorSyncPane } from '@/components/secretary/integrations/Connector
 import { GenericInboundPanel } from '@/components/secretary/integrations/GenericInboundPanel'
 import { SinkProviderPanel } from '@/components/secretary/integrations/SinkProviderPanel'
 import { TaskSyncConnectPanel } from '@/components/secretary/integrations/TaskSyncConnectPanel'
+import { NotionImportPanel } from '@/components/secretary/integrations/NotionImportPanel'
 import { ToolConnectOverview } from '@/components/secretary/integrations/ToolConnectOverview'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { useSinks, type SinkMeta } from '@/lib/hooks/useSinks'
 import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
-import { implementedTaskSyncProviders } from '@/lib/task-sync/implemented'
+import { implementedTaskSyncProviders, isImplementedTaskSyncProvider } from '@/lib/task-sync/implemented'
 import type { TaskSyncProviderId } from '@/lib/task-sync/types'
 
 interface IntegrationsConsoleClientProps {
@@ -33,6 +34,13 @@ interface IntegrationsConsoleClientProps {
  * (同じ「双方向同期(connector)」surfaceでも接続の作り方が別物のため。registry を触らず
  * 呼び出し側で分岐するのが最小差分)。
  *
+ * Notion(surface='sink')は書き出し(SinkProviderPanel)に加えて、取り込み(inbound)設定
+ * (NotionImportPanel)も並べて出す。書き出しと取り込みは別の関心事であり、surfaceだけでは
+ * 判定できない(Notionはsurface='sink'のまま)ため、出し分けは def.connectorKind が
+ * 設定されていて実装済みか(isImplementedTaskSyncProvider)で判定する
+ * (client安全なimplemented.tsを使う。adapters.tsを直接importするとredmine経由のnode:dns/promises
+ * がclientバンドルに混入しビルドが落ちるため=CLAUDE.mdの既知の罠)。
+ *
  * モーダル禁止・保存ボタンなし(optimistic updates)。タブバー(SecretaryTabNav)は親の
  * secretary/layout.tsx が一元描画するため、ここでは自前で描画しない(二重nav禁止)。
  */
@@ -46,6 +54,9 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
 
   // planned/catalogのうちアダプタ実装済み(=実際にAPIキーで繋げる)ものだけ接続パネルを出す。
   const isImplementedTaskSync = implementedTaskSyncProviders().includes(selectedId as TaskSyncProviderId)
+  // sink surfaceのうち取り込み(inbound)にも対応するツール(現状はNotionのみ)。surfaceでは
+  // 判定できないため、connectorKindの実装状況で判定する(上のクラスコメント参照)。
+  const showNotionImportPanel = !!def.connectorKind && isImplementedTaskSyncProvider(def.connectorKind)
 
   const handleSelect = (id: IntegrationId) => {
     setSelectedId(id)
@@ -96,6 +107,7 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
             onCreated={handleCreated}
           />
         )}
+        {def.surface === 'sink' && showNotionImportPanel && <NotionImportPanel orgId={orgId} />}
 
         {(def.surface === 'export' || def.surface === 'catalog') && (
           <ToolConnectOverview def={def} />
