@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveCredentials, type ConnectionCredentialRow } from '@/lib/task-sync/credentials'
 import { fetchDatabaseSchema, proposeMapping } from '@/lib/task-sync/providers/notion/schema'
 import { refineProposalWithAi, sanitizeProposalAgainstSchema, toLiveProperties } from '@/lib/task-sync/providers/notion/mappingWizard'
+import { isValidNotionDatabaseId } from '@/lib/task-sync/providers/notion/mapping'
 
 export const runtime = 'nodejs'
 
@@ -50,13 +51,45 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export async function POST(request: NextRequest) {
-  let body: ProposeBody
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+/**
+ * 受け付けるボディの上限。org_id/connection_id/database_id程度の小さなJSONで十分。
+ * Content-Length を見た上で、実サイズでも二重に確認する
+ * （src/app/api/connectors/generic/events/route.ts と同じ様式）。
+ */
+const MAX_BODY_BYTES = 8 * 1024
+
+type ReadJsonBodyResult =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; error: string }
+
+async function readJsonBody(request: NextRequest): Promise<ReadJsonBodyResult> {
+  const declaredLength = Number(request.headers.get('content-length') ?? '')
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return { ok: false, status: 413, error: 'payload too large' }
   }
+  const raw = await request.text()
+  if (Buffer.byteLength(raw, 'utf8') > MAX_BODY_BYTES) {
+    return { ok: false, status: 413, error: 'payload too large' }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { ok: false, status: 400, error: 'Invalid JSON' }
+  }
+  // 正当なJSONでも `null`/配列/プリミティブだと以降の body.xxx 参照が例外(→500)になる。
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, status: 400, error: 'body must be a JSON object' }
+  }
+  return { ok: true, body: parsed as Record<string, unknown> }
+}
+
+export async function POST(request: NextRequest) {
+  const parsedBody = await readJsonBody(request)
+  if (!parsedBody.ok) {
+    return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status })
+  }
+  const body = parsedBody.body as ProposeBody
 
   const orgId = typeof body.org_id === 'string' ? body.org_id : ''
   const connectionId = typeof body.connection_id === 'string' ? body.connection_id : ''
@@ -68,8 +101,9 @@ export async function POST(request: NextRequest) {
   if (!isValidUuid(connectionId)) {
     return NextResponse.json({ error: 'connection_id is required' }, { status: 400 })
   }
-  if (!databaseId) {
-    return NextResponse.json({ error: 'database_id is required' }, { status: 400 })
+  if (!databaseId || !isValidNotionDatabaseId(databaseId)) {
+    // 形式外の巨大な文字列がURL構築(fetchDatabaseSchema)・外部呼び出し・ログに流れるのを防ぐ。
+    return NextResponse.json({ error: 'database_id must be a valid Notion database id' }, { status: 400 })
   }
 
   const auth = await requireOrgAdmin(orgId)
@@ -102,7 +136,14 @@ export async function POST(request: NextRequest) {
     schema = await fetchDatabaseSchema(cred.credentials.token, databaseId)
   } catch (err) {
     const status = (err as { status?: number }).status
-    if (status === 401 || status === 403) {
+    if (status === 401) {
+      // 401はトークンそのものが失効/無効（403=トークンは有効だがそのDBが共有されていない、
+      // とは原因も対処も違う）。ここを403と同じ「アクセス権がありません」にすると、
+      // 利用者は再接続すべき場面でNotion側のDB共有をやり直そうとして解決しない。
+      // 保存API・resolveCredentialsのauth_failedと同じ409+再接続導線に揃える。
+      return NextResponse.json({ error: '接続が失効しています。再接続してください' }, { status: 409 })
+    }
+    if (status === 403) {
       return NextResponse.json({ error: 'Notionへのアクセス権がありません' }, { status: 400 })
     }
     if (status === 404) {

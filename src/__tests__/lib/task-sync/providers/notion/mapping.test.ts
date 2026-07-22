@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseNotionMapping,
   validateMappingAgainstSchema,
+  isValidNotionDatabaseId,
   type NotionLiveProperties,
   type NotionMapping,
 } from '@/lib/task-sync/providers/notion/mapping'
@@ -185,6 +186,90 @@ describe('parseNotionMapping', () => {
     )
     expect(result.ok).toBe(true)
     expect((result as { ok: true; data: NotionMapping }).data.status?.done_option_ids).toEqual(['opt-done'])
+  })
+
+  it('due_prop_id が長さ上限(255)を超えると弾く(巨大文字列がURL構築・ログに流れるのを防ぐ)', () => {
+    const result = parseNotionMapping(baseMapping({ due_prop_id: 'a'.repeat(256) }))
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/due_prop_id/)
+  })
+
+  it('status.prop_id が長さ上限(255)を超えると弾く', () => {
+    const result = parseNotionMapping(
+      baseMapping({ status: { prop_id: 'a'.repeat(256), prop_type: 'status', done_option_ids: ['x'], write_done_option_id: 'x' } }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/prop_id/)
+  })
+
+  it('status.write_done_option_id が長さ上限(255)を超えると弾く', () => {
+    const result = parseNotionMapping(
+      baseMapping({
+        status: {
+          prop_id: 'status-1',
+          prop_type: 'status',
+          done_option_ids: ['opt-done'],
+          write_done_option_id: 'a'.repeat(256),
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/write_done_option_id/)
+  })
+
+  it('done_option_ids の各要素が長さ上限(255)を超えると弾く', () => {
+    const result = parseNotionMapping(
+      baseMapping({
+        status: {
+          prop_id: 'status-1',
+          prop_type: 'status',
+          done_option_ids: ['a'.repeat(256)],
+          write_done_option_id: 'opt-done',
+        },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/done_option_ids/)
+  })
+
+  it('done_option_ids が件数上限(200)を超えると弾く(DoS/ログ肥大の防止)', () => {
+    const tooMany = Array.from({ length: 201 }, (_, i) => `opt-${i}`)
+    const result = parseNotionMapping(
+      baseMapping({
+        status: { prop_id: 'status-1', prop_type: 'status', done_option_ids: tooMany, write_done_option_id: 'opt-0' },
+      }),
+    )
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; reason: string }).reason).toMatch(/done_option_ids/)
+  })
+
+  it('done_option_ids がちょうど上限件数(200)なら通る', () => {
+    const exactly = Array.from({ length: 200 }, (_, i) => `opt-${i}`)
+    const result = parseNotionMapping(
+      baseMapping({
+        status: { prop_id: 'status-1', prop_type: 'status', done_option_ids: exactly, write_done_option_id: 'opt-0' },
+      }),
+    )
+    expect(result.ok).toBe(true)
+  })
+})
+
+describe('isValidNotionDatabaseId', () => {
+  it('ハイフン無し32桁hexを受理する', () => {
+    expect(isValidNotionDatabaseId('a'.repeat(32))).toBe(true)
+    expect(isValidNotionDatabaseId('0123456789abcdef0123456789ABCDEF')).toBe(true)
+  })
+
+  it('ハイフン付きUUID表記を受理する', () => {
+    expect(isValidNotionDatabaseId('11111111-1111-4111-8111-111111111111')).toBe(true)
+  })
+
+  it('形式外(短い/hex以外の文字/プレフィックス付き)は拒否する', () => {
+    expect(isValidNotionDatabaseId('db-44444444')).toBe(false)
+    expect(isValidNotionDatabaseId('short')).toBe(false)
+    expect(isValidNotionDatabaseId('g'.repeat(32))).toBe(false) // 'g'はhexでない
+    expect(isValidNotionDatabaseId('a'.repeat(33))).toBe(false) // 長さ超過
+    expect(isValidNotionDatabaseId('')).toBe(false)
   })
 })
 

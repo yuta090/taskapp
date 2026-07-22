@@ -24,6 +24,8 @@
  * この1ファイルのためだけに本番依存を増やす理由が無い。
  */
 
+import { isValidUuid } from '@/lib/uuid'
+
 /** 完了ステータス側の対応づけ（読み＝取り込み判定 / 書き＝完了時の書き戻し）。 */
 export interface NotionStatusMapping {
   /** Notion 側の完了フラグに使うプロパティのID。 */
@@ -79,12 +81,46 @@ export type MappingValidationResult = { valid: true } | { valid: false; reason: 
 
 const PROP_TYPES: readonly NotionStatusMapping['prop_type'][] = ['status', 'select', 'checkbox']
 
+/**
+ * prop_id / option_id 系文字列の長さ上限。Notion のプロパティID・option IDは実際には
+ * base64風の短い文字列（数十文字程度）だが、上限を設けないと巨大な文字列がそのまま
+ * DBのjsonbやログ・エラーメッセージに流れ得る。src/lib/connectors/genericPayload.ts の
+ * MAX_ID(255) と同じ考え方・同じ値に揃える（この種のID文字列に255文字を超える正当な値は無い）。
+ */
+const MAX_ID_LEN = 255
+
+/**
+ * status/select プロパティの done_option_ids の件数上限。Notion の select/status
+ * プロパティの選択肢数はUI上の運用として実務上数十件程度に収まるが、API仕様として
+ * 公開された固定上限は無いため、安全側の余裕を持った値として200を上限に採る
+ * （正当な設定がこれを超えることは通常無く、超える場合は入力異常＝DoS/ログ肥大の防止を優先する）。
+ */
+const MAX_DONE_OPTIONS = 200
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
+}
+
+/** ID系文字列（prop_id・option_id）の検証: 非空・長さ上限内であること。 */
+function validIdString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LEN
+}
+
+/**
+ * Notion のデータベースIDの形式検証。Notion API はハイフン無し32桁hex表記
+ * （URLの末尾セグメント等でよく見る形）とハイフン付きUUID表記（databases.retrieve の
+ * レスポンス等）の両方を受け付ける表記ゆれがあるため、この2形式のみ受理する。
+ * 形式外の巨大な文字列がそのままURL構築（fetchDatabaseSchema）・外部API呼び出し・
+ * ログに流れるのを、入口で形式を絞ることで防ぐ。
+ */
+const NOTION_ID_32HEX_RE = /^[0-9a-f]{32}$/i
+
+export function isValidNotionDatabaseId(value: string): boolean {
+  return NOTION_ID_32HEX_RE.test(value) || isValidUuid(value)
 }
 
 /**
@@ -120,15 +156,22 @@ export type StatusMappingParseResult =
 function parseNotionStatusMapping(raw: unknown): StatusMappingParseResult {
   if (!isRecord(raw)) return { ok: false, reason: 'status must be an object' }
 
-  if (!nonEmptyString(raw.prop_id)) {
-    return { ok: false, reason: 'status.prop_id must be a non-empty string' }
+  if (!validIdString(raw.prop_id)) {
+    return { ok: false, reason: `status.prop_id must be a non-empty string of at most ${MAX_ID_LEN} characters` }
   }
   if (typeof raw.prop_type !== 'string' || !PROP_TYPES.includes(raw.prop_type as NotionStatusMapping['prop_type'])) {
     return { ok: false, reason: `status.prop_type must be one of ${PROP_TYPES.join(', ')}` }
   }
   const propType = raw.prop_type as NotionStatusMapping['prop_type']
-  if (!Array.isArray(raw.done_option_ids) || !raw.done_option_ids.every((id) => typeof id === 'string')) {
-    return { ok: false, reason: 'status.done_option_ids must be an array of strings' }
+  if (!Array.isArray(raw.done_option_ids) || !raw.done_option_ids.every((id) => validIdString(id))) {
+    return {
+      ok: false,
+      reason: `status.done_option_ids must be an array of non-empty strings of at most ${MAX_ID_LEN} characters`,
+    }
+  }
+  if (raw.done_option_ids.length > MAX_DONE_OPTIONS) {
+    // 巨大配列(DoS/ログ肥大対策)。実在するNotionのoption数がこれを超えることは通常無い。
+    return { ok: false, reason: `status.done_option_ids must have at most ${MAX_DONE_OPTIONS} entries` }
   }
   const rawDoneOptionIds = raw.done_option_ids as string[]
   // 重複は実行結果に影響しない（isCompleted は includes() で判定するため、同じ id が
@@ -152,8 +195,11 @@ function parseNotionStatusMapping(raw: unknown): StatusMappingParseResult {
       }
     }
   }
-  if (raw.write_done_option_id !== null && typeof raw.write_done_option_id !== 'string') {
-    return { ok: false, reason: 'status.write_done_option_id must be a string or null' }
+  if (raw.write_done_option_id !== null && !validIdString(raw.write_done_option_id)) {
+    return {
+      ok: false,
+      reason: `status.write_done_option_id must be a non-empty string of at most ${MAX_ID_LEN} characters, or null`,
+    }
   }
 
   return {
@@ -177,8 +223,11 @@ export type NotionMappingParseResult = { ok: true; data: NotionMapping } | { ok:
 export function parseNotionMapping(raw: unknown): NotionMappingParseResult {
   if (!isRecord(raw)) return { ok: false, reason: 'mapping must be an object' }
 
-  if (raw.due_prop_id !== null && !nonEmptyString(raw.due_prop_id)) {
-    return { ok: false, reason: 'due_prop_id must be a non-empty string or null' }
+  if (raw.due_prop_id !== null && !validIdString(raw.due_prop_id)) {
+    return {
+      ok: false,
+      reason: `due_prop_id must be a non-empty string of at most ${MAX_ID_LEN} characters, or null`,
+    }
   }
 
   let status: NotionStatusMapping | null = null

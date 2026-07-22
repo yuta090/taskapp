@@ -17,15 +17,27 @@ interface PatchImportConfigBody {
   import_enabled?: unknown
 }
 
-async function findConnectionOrgId(id: string): Promise<string | null> {
+interface ConnectionOrgAndConfig {
+  orgId: string
+  importConfig: Record<string, unknown>
+}
+
+/**
+ * 接続の org_id と現在の import_config を1回で引く。
+ *
+ * 更新のたびに「今の値」を必要とするのは、import_config の一部フィールドを
+ * サーバ管理・部分更新にするため(PATCH本体の説明を参照)。
+ */
+async function findConnectionOrgAndConfig(id: string): Promise<ConnectionOrgAndConfig | null> {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('integration_connections')
-    .select('org_id')
+    .select('org_id, import_config')
     .eq('id', id)
     .maybeSingle()
   if (error || !data) return null
-  return (data as { org_id: string }).org_id
+  const row = data as { org_id: string; import_config: Record<string, unknown> | null }
+  return { orgId: row.org_id, importConfig: row.import_config ?? {} }
 }
 
 /**
@@ -38,6 +50,20 @@ async function findConnectionOrgId(id: string): Promise<string | null> {
  * org境界の検証(target_space_id/default_assignee_idが接続と同じorgを指すか)はDBトリガー
  * (integration_connections_validate_import_config)が担う。トリガー例外はここで捕捉し、
  * ユーザー向けメッセージに変換して422で返す(内部エラーメッセージをそのまま漏らさない)。
+ *
+ * ⚠ import_config の一部フィールドはサーバ管理・部分更新にする(丸ごと置換による事故を防ぐ):
+ *   - notion_mappings: Notionの確認保存API(connections/notion/mapping/route.ts)だけが、
+ *     ライブスキーマ再取得での検証を経て書ける「確定済みデータ」。この汎用PATCHでクライアントの
+ *     送信値をそのまま採用すると、(a) 保存APIの検証を迂回して実在しないprop_idを含む
+ *     マッピングを永続化できてしまう（＝「設定済みに見えるのに取り込みが止まる」状態を作れる）、
+ *     (b) この汎用PATCHで別項目(target_space_id等)を変えただけで確定済みマッピングが
+ *     丸ごと消えてしまう、という2つの事故が起きる。そのため、クライアントが何を送ってきても
+ *     常にDB上の現在値を引き継ぐ（400で弾かない: 現在値をそのまま送り返す正当な実装の
+ *     クライアントまで壊してしまうため。なぜ拒否せず無視するのかをここに明記する）。
+ *   - read_container_ids: Notion以外のproviderでも運用者が正当に編集する項目なので上書きは
+ *     許すが、「キー自体を送らなかった」場合にまで消えるのは(b)と同種の事故になるため、
+ *     未指定なら現在値を保持する(部分更新セマンティクス。空配列を明示的に送れば
+ *     意図的なクリアとして通る)。
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -45,10 +71,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'invalid connection id' }, { status: 400 })
   }
 
-  const orgId = await findConnectionOrgId(id)
-  if (!orgId) {
+  const found = await findConnectionOrgAndConfig(id)
+  if (!found) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }
+  const { orgId, importConfig: currentConfig } = found
 
   const auth = await requireOrgAdmin(orgId)
   if (!auth.ok) {
@@ -60,6 +87,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  // 正当なJSONでも `null`/配列/プリミティブだと以降の body.import_config 参照が例外(→500)になる。
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return NextResponse.json({ error: 'body must be a JSON object' }, { status: 400 })
   }
 
   if (
@@ -74,7 +106,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'import_enabled must be a boolean' }, { status: 400 })
   }
 
-  const patch: Record<string, unknown> = { import_config: body.import_config }
+  const bodyConfig = body.import_config as Record<string, unknown>
+  const nextConfig: Record<string, unknown> = { ...bodyConfig }
+
+  // notion_mappings: クライアント送信値は無視し、常にDBの現在値を引き継ぐ(上記コメント参照)。
+  if (Object.prototype.hasOwnProperty.call(currentConfig, 'notion_mappings')) {
+    nextConfig.notion_mappings = currentConfig.notion_mappings
+  } else {
+    delete nextConfig.notion_mappings
+  }
+
+  // read_container_ids: キー自体が送られてこなかった場合だけ現在値を保持する(部分更新)。
+  if (!Object.prototype.hasOwnProperty.call(bodyConfig, 'read_container_ids')) {
+    if (Object.prototype.hasOwnProperty.call(currentConfig, 'read_container_ids')) {
+      nextConfig.read_container_ids = currentConfig.read_container_ids
+    } else {
+      delete nextConfig.read_container_ids
+    }
+  }
+
+  const patch: Record<string, unknown> = { import_config: nextConfig }
   if (typeof body.import_enabled === 'boolean') patch.import_enabled = body.import_enabled
 
   const admin = createAdminClient()

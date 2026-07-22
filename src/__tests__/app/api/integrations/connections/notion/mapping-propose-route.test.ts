@@ -27,10 +27,15 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 const connectionResultMock = vi.fn()
+/** findNotionConnection が積んだ .eq() 呼び出しの引数を全て記録する(境界の直接検証に使う)。 */
+let connectionEqCalls: Array<[string, unknown]> = []
 function makeConnectionSelectChain() {
   const chain: Record<string, unknown> = {}
   Object.assign(chain, {
-    eq: vi.fn(() => chain),
+    eq: vi.fn((...args: [string, unknown]) => {
+      connectionEqCalls.push(args)
+      return chain
+    }),
     maybeSingle: vi.fn(() => Promise.resolve(connectionResultMock())),
   })
   return chain
@@ -67,15 +72,20 @@ const { AiConfigError } = await import('@/lib/ai/errors')
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
 const CONNECTION_ID = '22222222-2222-4222-8222-222222222222'
-const DATABASE_ID = 'db-33333333'
+// Notion のデータベースIDはハイフン付きUUID表記(databases.retrieve のレスポンス相当)。
+const DATABASE_ID = '33333333-3333-4333-8333-333333333333'
 
-function callPost(body: Record<string, unknown>) {
+function callPostRaw(rawBody: string, headers: Record<string, string> = { 'Content-Type': 'application/json' }) {
   const request = new NextRequest('http://localhost:3000/api/integrations/connections/notion/mapping/propose', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers,
+    body: rawBody,
   })
   return POST(request)
+}
+
+function callPost(body: Record<string, unknown>) {
+  return callPostRaw(JSON.stringify(body))
 }
 
 const VALID_BODY = { org_id: ORG_ID, connection_id: CONNECTION_ID, database_id: DATABASE_ID }
@@ -96,6 +106,7 @@ const SCHEMA = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  connectionEqCalls = []
   getUserMock.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
   membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
   connectionResultMock.mockReturnValue({
@@ -137,10 +148,28 @@ describe('POST /api/integrations/connections/notion/mapping/propose', () => {
   it('404 when the connection exists but provider is not notion', async () => {
     // provider!=='notion' の接続は findNotionConnection の .eq('provider','notion') で弾かれ、
     // maybeSingle は null を返す(このモックではDB問い合わせの絞り込み自体をシミュレートしないため、
-    // クエリが provider を条件に積んでいることは実装コードのeq呼び出しで担保している)
+    // クエリが provider を条件に積んでいることは実装コードのeq呼び出しで担保している。
+    // 下の「.eq()の引数を直接検証する」テストが、この境界が実際に存在することを固定する)
     connectionResultMock.mockReturnValue({ data: null, error: null })
     const response = await callPost(VALID_BODY)
     expect(response.status).toBe(404)
+  })
+
+  /**
+   * ⚠ IDORテストが空振りしないための直接検証(認可境界)。上の2つの404テストはモックが
+   * 常に同じ結果を返すため、実装から `.eq('org_id', ...)` や `.eq('provider','notion')` を
+   * 消してもテスト自体は通ってしまう(空振り)。ここでは .eq() 呼び出しの実引数を記録して、
+   * id・org_id・provider の3条件で絞っていることを直接assertする。
+   */
+  it('findNotionConnectionはid・org_id・provider=notionの3条件で.eq()を呼ぶ(認可境界の直接検証)', async () => {
+    await callPost(VALID_BODY)
+    const calledKeys = connectionEqCalls.map(([key]) => key)
+    expect(calledKeys).toContain('id')
+    expect(calledKeys).toContain('org_id')
+    expect(calledKeys).toContain('provider')
+    expect(connectionEqCalls).toContainEqual(['id', CONNECTION_ID])
+    expect(connectionEqCalls).toContainEqual(['org_id', ORG_ID])
+    expect(connectionEqCalls).toContainEqual(['provider', 'notion'])
   })
 
   it('422 when credentials are misconfigured', async () => {
@@ -234,5 +263,70 @@ describe('POST /api/integrations/connections/notion/mapping/propose', () => {
     fetchDatabaseSchemaMock.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
     const response = await callPost(VALID_BODY)
     expect(response.status).toBe(404)
+  })
+
+  // 401(トークン失効)と403(DBが共有されていない)は原因も対処も違う。同じ「アクセス権が
+  // ありません」に畳むと、再接続すべき場面で利用者がNotion側の共有をやり直そうとして
+  // 解決しない。保存API・resolveCredentials の auth_failed と同じ導線に揃える。
+  it('401(トークン失効)なら409+再接続導線になる', async () => {
+    fetchDatabaseSchemaMock.mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }))
+    const response = await callPost(VALID_BODY)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toContain('再接続')
+  })
+
+  it('403(DBが共有されていない)はアクセス権無しの400のまま', async () => {
+    fetchDatabaseSchemaMock.mockRejectedValue(Object.assign(new Error('forbidden'), { status: 403 }))
+    const response = await callPost(VALID_BODY)
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toContain('アクセス権')
+  })
+
+  describe('database_id の形式検証', () => {
+    it('Notionのデータベースid形式(32桁hex/ハイフン付きUUID)以外は400', async () => {
+      const response = await callPost({ ...VALID_BODY, database_id: 'db-not-a-real-id' })
+      expect(response.status).toBe(400)
+    })
+
+    it('ハイフン無し32桁hexは受理する', async () => {
+      const hexId = 'a'.repeat(32)
+      const response = await callPost({ ...VALID_BODY, database_id: hexId })
+      expect(response.status).toBe(200)
+      expect(fetchDatabaseSchemaMock).toHaveBeenCalledWith('secret-token', hexId)
+    })
+  })
+
+  describe('JSONボディの検証', () => {
+    it('正当なJSONの`null`リテラルボディは500ではなく400', async () => {
+      const response = await callPostRaw('null')
+      expect(response.status).toBe(400)
+    })
+
+    it('壊れたJSONは400', async () => {
+      const response = await callPostRaw('{not json')
+      expect(response.status).toBe(400)
+    })
+
+    it('配列ボディも400(objectではないため)', async () => {
+      const response = await callPostRaw('[]')
+      expect(response.status).toBe(400)
+    })
+  })
+
+  describe('ボディサイズの上限', () => {
+    it('Content-Lengthが上限超過なら読む前に413', async () => {
+      const response = await callPostRaw('{}', {
+        'Content-Type': 'application/json',
+        'content-length': String(8 * 1024 + 1),
+      })
+      expect(response.status).toBe(413)
+      expect(fetchDatabaseSchemaMock).not.toHaveBeenCalled()
+    })
+
+    it('Content-Lengthを付けない送信でも実サイズで413', async () => {
+      const huge = JSON.stringify({ ...VALID_BODY, padding: 'あ'.repeat(8 * 1024) })
+      const response = await callPostRaw(huge)
+      expect(response.status).toBe(413)
+    })
   })
 })

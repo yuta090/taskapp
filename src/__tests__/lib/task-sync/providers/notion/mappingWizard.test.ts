@@ -51,6 +51,17 @@ describe('toLiveProperties', () => {
       status: { options: [{ id: 'opt-todo', name: '未着手' }, { id: 'opt-done', name: '完了' }] },
     })
   })
+
+  it('プロパティ名が "__proto__" でもown propertyとして保持し検証対象から抜け落ちない（プロトタイプ汚染を防ぐ）', () => {
+    const schema: NotionDatabaseSchema = [{ id: 'evil-1', name: '__proto__', type: 'date' }]
+    const live = toLiveProperties(schema)
+    // 通常の{}への代入だと'__proto__'はオブジェクトのプロトタイプを書き換えるだけでown
+    // propertyにならず、Object.valuesでの列挙(findPropertyByIdが使う)から抜け落ちる。
+    expect(Object.prototype.hasOwnProperty.call(live, '__proto__')).toBe(true)
+    expect(Object.values(live)).toContainEqual({ id: 'evil-1', type: 'date' })
+    // グローバルのObject.prototypeが汚染されていないことも確認する。
+    expect(({} as Record<string, unknown>).id).toBeUndefined()
+  })
 })
 
 describe('sanitizeProposalAgainstSchema', () => {

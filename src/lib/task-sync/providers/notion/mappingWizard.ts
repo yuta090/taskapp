@@ -39,7 +39,11 @@ export interface MappingCandidate {
  * mapping.ts 側の型に手を入れず、ここで橋渡しする。
  */
 export function toLiveProperties(schema: NotionDatabaseSchema): NotionLiveProperties {
-  const out: NotionLiveProperties = {}
+  // Object.create(null): 通常の{}だと、Notion側のプロパティ名が偶然 '__proto__' の場合に
+  // 代入がオブジェクトのプロトタイプを書き換えてしまい own property にならず、
+  // その後の検証（findPropertyById が Object.values で列挙する）から静かに抜け落ちてしまう。
+  // プロトタイプの無いオブジェクトにすることで、どんな名前もそのまま own property として扱える。
+  const out: NotionLiveProperties = Object.create(null) as NotionLiveProperties
   for (const prop of schema) {
     const entry: NotionLiveProperty = { id: prop.id, type: prop.type }
     if (prop.type === 'status' && prop.options) entry.status = { options: prop.options }
