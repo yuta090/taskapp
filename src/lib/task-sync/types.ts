@@ -161,17 +161,30 @@ export interface ProviderError extends Error {
   retryAfterMs?: number
   /** 設定不備など、再試行では直らないことが確実な失敗（恒久失敗として扱う）。 */
   permanent?: boolean
+  /**
+   * コンテナ単位の「まだ設定が完了していない」正常な設定途中状態（例: kintoneのアプリを
+   * 追加したがマッピングウィザードをまだ完了していない）。`permanent: true` と組み合わせて
+   * 使う（再試行しても直らない点は同じ）が、意味は異なる:
+   *   - `permanent: true` のみ: 設定が壊れている/食い違っている(drift)恒久異常。
+   *     エンジンは接続全体の取り込みを止める（従来どおり）。
+   *   - `pendingConfig: true`: 設定途中の正常な状態。エンジンは**このコンテナだけ**を
+   *     今回の対象から外し、他のコンテナの取り込みは続行する（1つの設定待ちが、既に
+   *     動いている他のコンテナの同期まで止めてしまう「死んだ接続」化を防ぐ）。
+   * 未設定（このフラグが無い）は全て「異常」として扱う（安全側＝デフォルトは止める）。
+   */
+  pendingConfig?: boolean
 }
 
 /** ProviderError を作る。アダプタはこれを使って例外の形を揃える。 */
 export function providerError(
   message: string,
-  opts: { status?: number; retryAfterMs?: number; permanent?: boolean } = {},
+  opts: { status?: number; retryAfterMs?: number; permanent?: boolean; pendingConfig?: boolean } = {},
 ): ProviderError {
   const err = new Error(message) as ProviderError
   if (opts.status !== undefined) err.status = opts.status
   if (opts.retryAfterMs !== undefined) err.retryAfterMs = opts.retryAfterMs
   if (opts.permanent !== undefined) err.permanent = opts.permanent
+  if (opts.pendingConfig !== undefined) err.pendingConfig = opts.pendingConfig
   return err
 }
 

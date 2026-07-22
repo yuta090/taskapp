@@ -32,6 +32,16 @@ describe('parseKintoneAppUrl', () => {
     expect(result).toEqual({ ok: true, data: { subdomain: null, appId: '123' } })
   })
 
+  it('数値だけの入力でも桁数が異常に多い(20桁超)場合は拒否する(上限が無いと巨大な文字列がそのまま保存され得る)', () => {
+    const result = parseKintoneAppUrl('1'.repeat(21))
+    expect(result.ok).toBe(false)
+  })
+
+  it('数値だけの入力はちょうど20桁までは受理する', () => {
+    const result = parseKintoneAppUrl('1'.repeat(20))
+    expect(result).toEqual({ ok: true, data: { subdomain: null, appId: '1'.repeat(20) } })
+  })
+
   it('空文字は拒否する', () => {
     const result = parseKintoneAppUrl('')
     expect(result.ok).toBe(false)
@@ -135,5 +145,22 @@ describe('parseKintoneSubdomainInput', () => {
     // かつURLとしても解析できない入力(例: "foo/bar")は理由付きで拒否する。
     const result = parseKintoneSubdomainInput('foo/bar')
     expect(result.ok).toBe(false)
+  })
+
+  it('先頭がハイフンの裸サブドメインは拒否する(DNSラベルとして不正)', () => {
+    expect(parseKintoneSubdomainInput('-my-company').ok).toBe(false)
+  })
+
+  it('末尾がハイフンの裸サブドメインは拒否する(DNSラベルとして不正)', () => {
+    expect(parseKintoneSubdomainInput('my-company-').ok).toBe(false)
+  })
+
+  it('異常に長い裸サブドメイン(DNSラベル上限64文字超)は拒否する', () => {
+    expect(parseKintoneSubdomainInput('a'.repeat(64)).ok).toBe(false)
+  })
+
+  it('DNSラベル上限ちょうど(63文字)の裸サブドメインは受理する', () => {
+    const sub = 'a'.repeat(63)
+    expect(parseKintoneSubdomainInput(sub)).toEqual({ ok: true, baseUrl: `https://${sub}.cybozu.com`, subdomain: sub })
   })
 })

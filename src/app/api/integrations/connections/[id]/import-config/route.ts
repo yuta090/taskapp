@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgAdmin } from '@/lib/channels/authz'
 import { isValidUuid } from '@/lib/uuid'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { IMPORT_CONFIG_SERVER_MANAGED_KEYS } from '@/lib/integrations/importConfig'
+import { IMPORT_CONFIG_SERVER_MANAGED_KEYS, sanitizeImportConfigForClient } from '@/lib/integrations/importConfig'
 
 export const runtime = 'nodejs'
 
@@ -153,7 +153,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const merged = data as { id: string; import_config: Record<string, unknown>; import_enabled: boolean }
   return NextResponse.json({
     id: merged.id,
-    import_config: merged.import_config,
+    // ⚠ kintone_app_tokens 等のクライアント非公開キーは応答からも必ず取り除く（このRPCはDB上の
+    // import_config全体を返すため、ここで通さないと暗号化blobがそのままクライアントへ漏れる。
+    // importConfig.ts 冒頭参照）。
+    import_config: sanitizeImportConfigForClient(merged.import_config),
     import_enabled: merged.import_enabled,
   })
 }

@@ -80,6 +80,12 @@ export interface ImportResult {
   reason?: string
   /** 明示指定されたのに listContainers() に現れなかったコンテナID（このサイクルで検出された分）。 */
   missingContainers?: string[]
+  /**
+   * まだ設定が完了していない（アダプタが `pendingConfig: true` で通知した）ため、今回の
+   * 対象から外したコンテナID（このサイクルで検出された分。運用ログ用。UI側の「未設定」
+   * バッジ等が既に可視化を担うため、ここは補助的な運用ログ用途に留める）。
+   */
+  pendingConfigContainers?: string[]
 }
 
 /** 1ページあたりの取得回数の上限。異常なカーソル実装で無限ループしないための安全弁。 */
@@ -154,6 +160,21 @@ export async function importConnection(args: {
   // 対応表は接続単位で一度だけ読む（タスクごとに問い合わせるとページ数×件数のクエリになる）。
   const links = await store.loadLinks(connectionId)
 
+  // 「まだ設定が完了していない」(pendingConfig)コンテナのID。取得を試みる前にアダプタが
+  // 検知して拒否するため、このサイクルでは0ページも読んでいない（applyExternalTaskは一切呼ばれない）。
+  //
+  // ⚠ 既知のトレードオフ（意図的な設計判断。欠落台帳(missingContainers)へは統合しない）:
+  // pendingConfigのコンテナは「設定済みになるまで存在しないもの」として扱い、欠落台帳のような
+  // 「検知時点のカーソル値を記録して再出現時にそこから取り直す」仕組みは持たせない。そのため、
+  // 後日ユーザーがマッピングを完了すると、その回のポーリングはその時点の接続カーソル（since）を
+  // そのまま使う＝設定完了までに溜まっていた古いレコードの全件バックフィルは保証しない
+  // （設定完了後に更新されたレコードからは正しく拾える）。欠落台帳（実在したコンテナが後から
+  // 消えた場合の再出現since）と同じ仕組みに寄せて厳密にバックフィルを保証することもできるが、
+  // 「まだ一度も設定されたことがない」と「一度動いていたものが消えた」は性質が違う概念であり、
+  // 混ぜると欠落台帳の意味論が濁る。今回のスコープは「1つの設定待ちが他のコンテナの同期を
+  // 止めない」ことの回復に限定し、バックフィル保証は別の判断が要る課題として残す。
+  const pendingConfigContainerIds: string[] = []
+
   try {
     for (const containerId of available) {
       // 再出現したコンテナ（欠落台帳にエントリがある）は、接続カーソルではなく
@@ -165,24 +186,40 @@ export async function importConnection(args: {
         ? sinceForFetch(adapter.cursorGranularity, storedMissing[containerId] || null)
         : since
 
-      let cursor: string | undefined
-      let pages = 0
-      do {
-        const page = await adapter.listChangedTasks(ctx, containerId, { since: containerSince, cursor })
-        for (const task of page.items) {
-          await applyExternalTask({ connectionId, task, deletionMode: adapter.deletionMode, links, targets, store, result })
+      try {
+        let cursor: string | undefined
+        let pages = 0
+        do {
+          const page = await adapter.listChangedTasks(ctx, containerId, { since: containerSince, cursor })
+          for (const task of page.items) {
+            await applyExternalTask({ connectionId, task, deletionMode: adapter.deletionMode, links, targets, store, result })
+          }
+          cursor = page.nextCursor ?? undefined
+          pages++
+          // 上限判定は「まだ次ページがある」ときだけ。取り切った最終ページがちょうど上限枚目でも
+          // 失敗にしない（ちょうど上限枚で終わる接続が、毎回完走しても必ず失敗と報告されて
+          // カーソルが永久に前進しなくなるため）。
+          if (cursor && pages >= MAX_PAGES_PER_CONTAINER) {
+            // カーソルが進まない実装/異常応答で永久ループするより、今回分を打ち切って次サイクルに回す。
+            // カーソルは前進させない（下の throw で成功パスから外れる）ので取りこぼしにはならない。
+            throw new Error(`page limit exceeded for container ${containerId}`)
+          }
+        } while (cursor)
+      } catch (err) {
+        if (isPendingConfigError(err)) {
+          // ⚠ 「未マッピング(設定途中)」と「マッピングが壊れている(drift)」の区別（最重要）:
+          // アダプタが pendingConfig を立てて通知したのは「まだウィザードで設定していない」
+          // 正常な設定途中状態（例: kintoneでアプリを追加したがマッピング未確定）。これは
+          // このコンテナ1つの問題であり、既に設定済みの他のコンテナの同期まで止める理由が
+          // 無い。このコンテナだけを今回の対象から外し、次のコンテナへ進む（接続全体は
+          // 落とさない＝1つの設定待ちで「死んだ接続」化するのを防ぐ）。
+          // 一方 pendingConfig が立っていない恒久失敗（drift等）は、この catch を素通りせず
+          // 下の外側 catch へ再送出し、従来どおり接続全体を止める（挙動は変えない）。
+          pendingConfigContainerIds.push(containerId)
+          continue
         }
-        cursor = page.nextCursor ?? undefined
-        pages++
-        // 上限判定は「まだ次ページがある」ときだけ。取り切った最終ページがちょうど上限枚目でも
-        // 失敗にしない（ちょうど上限枚で終わる接続が、毎回完走しても必ず失敗と報告されて
-        // カーソルが永久に前進しなくなるため）。
-        if (cursor && pages >= MAX_PAGES_PER_CONTAINER) {
-          // カーソルが進まない実装/異常応答で永久ループするより、今回分を打ち切って次サイクルに回す。
-          // カーソルは前進させない（下の throw で成功パスから外れる）ので取りこぼしにはならない。
-          throw new Error(`page limit exceeded for container ${containerId}`)
-        }
-      } while (cursor)
+        throw err
+      }
     }
   } catch (err) {
     // 一時失敗。カーソルを進めず次回同じ範囲を取り直す（部分成功でも前進させない）。欠落台帳も
@@ -190,15 +227,48 @@ export async function importConnection(args: {
     return { ...result, skipped: true, reason: `fetch_failed: ${message(err)}` }
   }
 
-  // 利用可能な全コンテナが取り切れた。明示指定の一部が欠落していても（missing 非空）、
-  // 取れた分は取れた分として前進させる — 欠落コンテナが恒久的に消えたままでも、他のコンテナの
-  // 取り込みと鮮度証明(last_import_success_at)が凍結してはならない（期限リマインドが接続単位で
-  // 恒久停止する回帰を防ぐ）。欠落台帳は「新規欠落を追加（既存エントリは上書きしない＝最初に
-  // 欠落と判明した時点の値を保持する）」「再出現して取り切れたコンテナのエントリを削除」を
+  if (pendingConfigContainerIds.length === available.length) {
+    // 利用可能なはずのコンテナが全て設定待ち(pendingConfig)。1件も取得を試みていない以上、
+    // 鮮度(last_import_success_at)を主張する根拠が無いので saveCursor は呼ばない
+    // （all_containers_missing と同じ考え方。運用ログに理由を残す。UI側の「未設定」バッジが
+    // 個々のコンテナの状態を可視化するため、ここでの追加の台帳書き込みは行わない）。
+    return {
+      ...result,
+      skipped: true,
+      reason: `all_containers_pending_config: ${pendingConfigContainerIds.join(', ')}`,
+      pendingConfigContainers: pendingConfigContainerIds,
+    }
+  }
+
+  // 利用可能な全コンテナ（設定待ちを除く）が取り切れた。明示指定の一部が欠落していても
+  // （missing 非空）、取れた分は取れた分として前進させる — 欠落コンテナが恒久的に消えたままでも、
+  // 他のコンテナの取り込みと鮮度証明(last_import_success_at)が凍結してはならない（期限リマインドが
+  // 接続単位で恒久停止する回帰を防ぐ）。欠落台帳は「新規欠落を追加（既存エントリは上書きしない＝
+  // 最初に欠落と判明した時点の値を保持する）」「再出現して取り切れたコンテナのエントリを削除」を
   // 同時に反映する。
-  const updatedMissing = updateMissingMap(storedMissing, missing, available, storedCursor, targets.readContainerIds)
+  //
+  // ⚠ availableIds には「本当に取得を試みて成功した」コンテナだけを渡す（pendingConfig で今回
+  // 対象から外したコンテナは含めない）。含めてしまうと、そのコンテナが仮に別経路（欠落台帳）にも
+  // 記録されていた場合、実際には何も取得していないのに欠落エントリを誤って消してしまう。
+  const syncedContainerIds = available.filter((id) => !pendingConfigContainerIds.includes(id))
+  const updatedMissing = updateMissingMap(
+    storedMissing,
+    missing,
+    syncedContainerIds,
+    storedCursor,
+    targets.readContainerIds,
+  )
   await store.saveCursor(connectionId, advanceCursor(adapter.cursorGranularity, now), now, updatedMissing)
-  return { ...result, missingContainers: missing.length > 0 ? missing : undefined }
+  return {
+    ...result,
+    missingContainers: missing.length > 0 ? missing : undefined,
+    pendingConfigContainers: pendingConfigContainerIds.length > 0 ? pendingConfigContainerIds : undefined,
+  }
+}
+
+/** err が「まだ設定が完了していない」ことをアダプタが通知した ProviderError かどうか。 */
+function isPendingConfigError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { pendingConfig?: boolean }).pendingConfig === true
 }
 
 /** resolveContainers の結果。 */

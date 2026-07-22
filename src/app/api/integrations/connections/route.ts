@@ -3,6 +3,7 @@ import { requireInternalMember } from '@/lib/channels/authz'
 import { isValidUuid } from '@/lib/uuid'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { implementedTaskSyncProviders } from '@/lib/task-sync/adapters'
+import { sanitizeImportConfigForClient } from '@/lib/integrations/importConfig'
 
 export const runtime = 'nodejs'
 
@@ -61,7 +62,9 @@ function toSummary(row: ConnectorConnectionRow): ConnectorConnectionSummary {
     baseUrl,
     label,
     importEnabled: row.import_enabled === true,
-    importConfig: (row.import_config as Record<string, unknown> | null) ?? {},
+    // ⚠ kintone_app_tokens 等のクライアント非公開キーは絶対にそのまま返さない（暗号化済みでも
+    // ブラウザ・React Queryのキャッシュ・devtoolsへ渡すべきではない。importConfig.ts 冒頭参照）。
+    importConfig: sanitizeImportConfigForClient(row.import_config),
     createdAt: row.created_at,
   }
 }

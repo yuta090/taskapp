@@ -36,9 +36,12 @@ import {
  *   - Notion DB のプロパティ構造・名前はDBごと（ユーザーごと）に違うため固定名では読めない。
  *     `config.notion_mappings[databaseId]`（NotionMapping。mapping.ts）に接続時確定したマッピングを
  *     渡し、プロパティは常に **id で** 特定する（名前はリネームされ得るため使わない）。
- *     マッピングが無いDBは恒久エラーで止める（エンジンがコンテナ単位で停止しカーソル前進しない＝
- *     drift/未設定時の停止方針。マッピングの事前検証＝validateMappingAgainstSchemaは保存API側の責務で、
- *     ここでは「保存済みマッピングの形式が有効か」だけを parseNotionMapping（手書き検証）で再検証する）。
+ *     マッピングのエントリ自体が無いDB（共有直後・ウィザード未完了）は `pendingConfig: true` を
+ *     立てて止め、エンジンはそのDBだけを今回の対象から外す（他の設定済みDBは続行。requireMapping
+ *     参照）。エントリはあるのに形式が不正（壊れている）場合や実スキーマとの drift は、従来どおり
+ *     `pendingConfig` を立てず接続全体を止める。マッピングの事前検証＝validateMappingAgainstSchemaは
+ *     保存API側の責務で、ここでは「保存済みマッピングの形式が有効か」だけを parseNotionMapping
+ *     （手書き検証）で再検証する。
  *   - **実行時のスキーマdrift再検証**: 保存時の検証だけでは不変条件にならない。保存後に顧客が
  *     Notion 側でプロパティを削除・型変更しても TaskApp には何の通知も来ない（webhookではなく
  *     ポーリングのため）。放置すると `findPropertyById` が null を返すだけで、期日が無言でnullになり
@@ -152,11 +155,40 @@ function readMapping(ctx: ProviderContext, databaseId: string): NotionMapping | 
   return parsed.ok ? parsed.data : null
 }
 
-/** マッピング必須の操作(listChangedTasks)用。無ければ再試行しても直らない設定不備として止める。 */
+/**
+ * databaseId が notion_mappings に**エントリとして存在するか**（値の妥当性は問わない）。
+ * readMapping は「無い」と「あるが不正」を区別せず null に潰すため、requireMapping が
+ * 「未マッピング(設定途中の正常な状態)」と「マッピングが壊れている(異常)」を分けるために使う
+ * （kintoneアダプタの hasMappingEntry と同じ設計）。
+ */
+function hasMappingEntry(ctx: ProviderContext, databaseId: string): boolean {
+  const raw = ctx.config?.notion_mappings
+  if (!raw || typeof raw !== 'object') return false
+  return Object.prototype.hasOwnProperty.call(raw as Record<string, unknown>, databaseId)
+}
+
+/**
+ * マッピング必須の操作(listChangedTasks)用。無ければ再試行しても直らない設定不備として止める。
+ *
+ * ⚠ 「未マッピング」と「マッピングが壊れている」は別物として区別する(エンジン engine.ts の
+ * 対応と対で読む。kintoneアダプタの requireMapping と同じ設計): データベースを共有した直後、
+ * マッピングウィザードをまだ完了していない状態（notion_mappings に databaseId のエントリ自体が
+ * 無い）は**設定途中の正常な状態**であり、このDB単体だけを今回のポーリング対象から静かに外せば
+ * 十分で、接続全体（他の設定済みDB）まで止める理由が無い。`pendingConfig: true` を立てて区別する。
+ * 一方、エントリはあるのに parseNotionMapping が拒否する（構造が壊れている）場合は「設定途中」
+ * ではなく想定外の異常なので、従来どおり `pendingConfig` を立てず接続全体を止める。
+ */
 function requireMapping(ctx: ProviderContext, databaseId: string): NotionMapping {
   const mapping = readMapping(ctx, databaseId)
   if (!mapping) {
-    throw providerError(`notion: databaseId=${databaseId} のマッピングが未設定/不正な接続です`, {
+    if (!hasMappingEntry(ctx, databaseId)) {
+      throw providerError(`notion: databaseId=${databaseId} のマッピングが未設定です(設定待ち)`, {
+        permanent: true,
+        status: 400,
+        pendingConfig: true,
+      })
+    }
+    throw providerError(`notion: databaseId=${databaseId} のマッピングが不正な接続です`, {
       permanent: true,
       status: 400,
     })

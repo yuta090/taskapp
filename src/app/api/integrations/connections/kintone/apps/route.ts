@@ -6,6 +6,7 @@ import { getEncryptionKey } from '@/lib/integrations/token-crypto'
 import { fetchAppFields } from '@/lib/task-sync/providers/kintone/schema'
 import { MAX_API_TOKENS_PER_REQUEST } from '@/lib/task-sync/providers/kintone/client'
 import { isValidKintoneAppId, normalizeKintoneAppIds } from '@/lib/task-sync/providers/kintone/mapping'
+import { validateKintoneApiToken } from '@/lib/task-sync/providers/kintone/appCredentials'
 
 export const runtime = 'nodejs'
 
@@ -133,8 +134,12 @@ export async function POST(request: NextRequest) {
   const { orgId, connectionId, appId } = common
 
   const apiToken = typeof body.api_token === 'string' ? body.api_token.trim() : ''
-  if (!apiToken) {
-    return NextResponse.json({ error: 'APIトークンを入力してください' }, { status: 400 })
+  // 接続作成時(validateKintoneAppCredentials)と同じ形式検証(長さ上限・制御文字)を、単一トークン
+  // 追加のこの経路にも適用する(以前はここに上限が無く、ボディサイズ上限(8KB)で間接的に縛られて
+  // いるだけだった非対称の是正。二重定義を避けappCredentials.tsの共通関数を再利用する)。
+  const tokenCheck = validateKintoneApiToken(apiToken)
+  if (!tokenCheck.ok) {
+    return NextResponse.json({ error: tokenCheck.reason }, { status: 400 })
   }
 
   const auth = await requireOrgAdmin(orgId)

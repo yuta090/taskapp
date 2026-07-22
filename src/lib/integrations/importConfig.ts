@@ -54,6 +54,40 @@ export const IMPORT_CONFIG_SERVER_MANAGED_KEYS = [
  * 契約のままなので null に変換する(「空配列に意味があるキー」と「無いキー」の違い)。
  * 取り込み対象コンテナのON/OFFトグルはこの関数を経由して呼ぶこと。
  */
+/**
+ * import_config のうち、クライアント（ブラウザ）へは絶対に返してはならないキー。
+ *
+ * ⚠ IMPORT_CONFIG_SERVER_MANAGED_KEYS（クライアントから**書けない**が**表示は必要**なキー。
+ * kintone_app_ids はUIがアプリ一覧を描く正本、kintone_mappings/notion_mappings は
+ * KintoneAppsPanel/NotionImportPanel の「設定済み/未設定」バッジの正本）とは**別概念**。
+ * IMPORT_CONFIG_SERVER_MANAGED_KEYS を流用してAPI応答からも消すと、上記のUIが壊れる
+ * （事故の実例: kintone_app_tokensを塞ぐついでにkintone_app_idsまで消すと、KintoneAppsPanel が
+ * 「登録済みアプリが無い」ように見えてしまう）。
+ *
+ * ここに載るのは「暗号化済みであっても平文と同じ扱いで守るべき秘密そのもの」だけ:
+ *   - kintone_app_tokens: app_id をキーにした、アプリ単位で個別に暗号化した kintone APIトークン
+ *     の jsonb オブジェクト（暗号化列 access_token_encrypted に載るヘッダ用複合値の元データ）。
+ *     暗号化されていても、復号鍵(SYSTEM_ENCRYPTION_KEY)が将来漏洩した場合に備え、平文が
+ *     ブラウザ・React Queryのキャッシュ・devtoolsへ渡る経路をそもそも作らない（多層防御）。
+ *
+ * 接続一覧(GET /api/integrations/connections)・取り込み設定PATCH応答の**両方**が
+ * sanitizeImportConfigForClient を必ず通す(1箇所に集約し、経路ごとに個別実装しない)。
+ */
+const IMPORT_CONFIG_CLIENT_PRIVATE_KEYS = ['kintone_app_tokens'] as const
+
+/**
+ * import_config をAPI応答としてクライアントへ返す前に必ず通すサニタイザ。
+ * 呼び出し側の入力オブジェクトは変更しない（新しいオブジェクトを返す）。
+ */
+export function sanitizeImportConfigForClient(
+  config: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return {}
+  const out: Record<string, unknown> = { ...config }
+  for (const key of IMPORT_CONFIG_CLIENT_PRIVATE_KEYS) delete out[key]
+  return out
+}
+
 export function normalizeImportConfigPatch(config: Record<string, unknown>): Record<string, unknown> {
   const next: Record<string, unknown> = { ...config }
   Object.keys(next).forEach((key) => {

@@ -1,5 +1,6 @@
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { KINTONE_HOST_POLICY } from '@/lib/task-sync/providers/kintone/client'
+import { isValidKintoneAppId } from '@/lib/task-sync/providers/kintone/mapping'
 
 /**
  * kintone アプリURLの解析（純関数） — 接続ウィザードで「アプリIDの数値を探させず、開いている
@@ -44,6 +45,11 @@ export function parseKintoneAppUrl(input: string): ParseKintoneAppUrlResult {
   }
 
   if (isBareAppId(trimmed)) {
+    // 数字だけの入力は桁数の上限が無いと、巨大な文字列がそのままアプリIDとして保存され得る
+    // （mapping.ts の isValidKintoneAppId と同じ上限＝20桁。kintoneのappIdは実務上10桁未満）。
+    if (!isValidKintoneAppId(trimmed)) {
+      return { ok: false, reason: 'アプリIDの桁数が多すぎます(20桁以内で指定してください)' }
+    }
     return { ok: true, data: { subdomain: null, appId: trimmed } }
   }
 
@@ -79,8 +85,15 @@ export type ParseKintoneSubdomainResult =
   | { ok: true; baseUrl: string; subdomain: string }
   | { ok: false; reason: string }
 
-/** 裸のサブドメイン(英数字とハイフンのみ。kintoneのサブドメイン規則に合わせる)かどうか。 */
-const BARE_SUBDOMAIN_RE = /^[a-zA-Z0-9-]+$/
+/**
+ * 裸のサブドメイン(英数字とハイフンのみ。kintoneのサブドメイン規則に合わせる)かどうか。
+ *
+ * サブドメインは実質DNSラベル1つ分であり、DNSラベルの実際の制約(RFC 1035: 先頭・末尾は
+ * 英数字のみ・ハイフンは中間にのみ許可・最大63文字)に合わせる。この検証が無いと、
+ * 「-foo」のような先頭ハイフンや、異常に長い文字列がそのまま baseUrl に組み込まれて保存され得る
+ * （組み立てた URL 自体は assertAllowedHost が受理してしまい、ここでしか弾けない）。
+ */
+const BARE_SUBDOMAIN_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/
 
 /**
  * 接続フォームの「サブドメイン」欄の解析（純関数）— parseKintoneAppUrl と違い `/k/<数字>/`

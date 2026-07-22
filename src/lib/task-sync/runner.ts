@@ -289,4 +289,10 @@ async function runOne(
     summary.skipped++
     summary.reasons.push(`${conn.provider}: ${result.reason ?? 'skipped'}`)
   }
+  // 部分成功（他のコンテナは同期できた）でも、設定待ちのコンテナがあることは運用ログに残す
+  // （UI側の「未設定」バッジが主だが、cron ログからも気づけるようにする。skip扱いにはしない
+  // ＝他のコンテナの同期自体は成功しているため）。
+  if (result.pendingConfigContainers && result.pendingConfigContainers.length > 0 && !result.skipped) {
+    summary.reasons.push(`${conn.provider}: pending_config(${result.pendingConfigContainers.join(',')})`)
+  }
 }

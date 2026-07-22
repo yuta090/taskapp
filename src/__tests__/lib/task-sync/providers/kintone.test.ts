@@ -160,11 +160,44 @@ describe('kintoneAdapter.listContainers', () => {
 })
 
 describe('kintoneAdapter.listChangedTasks', () => {
-  it('マッピング未設定のアプリはfetchする前にpermanentエラーで止める', async () => {
+  /**
+   * ⚠ 「未マッピング(設定途中の正常な状態)」と「マッピングが壊れている(異常)」の区別
+   * （Codexレビュー指摘: 是正前はどちらも同列のpermanentエラーで、エンジン側が接続全体を
+   * 止めていた）。kintone_mappingsにappIdのエントリ自体が無い(=まだウィザードを完了していない)
+   * 場合だけ pendingConfig:true を立てる。エンジン(engine.ts)はこのフラグを見て、この
+   * コンテナだけを対象から外し、他のコンテナの取り込みは続行する。
+   */
+  it('マッピングのエントリ自体が無いアプリ(未設定)はpendingConfig:trueで区別してfetchする前に止める', async () => {
     await expect(kintoneAdapter.listChangedTasks(ctx({}), '5', {})).rejects.toMatchObject({
       permanent: true,
       status: 400,
+      pendingConfig: true,
     })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('kintone_mappingsに他アプリのエントリはあるが、このappId自体のエントリが無い場合もpendingConfig:trueになる', async () => {
+    await expect(
+      kintoneAdapter.listChangedTasks(ctx({ kintone_mappings: { '9': mapping() } }), '5', {}),
+    ).rejects.toMatchObject({ permanent: true, status: 400, pendingConfig: true })
+  })
+
+  it('エントリはあるが値が不正(壊れている)なアプリは、未設定とは区別しpendingConfigを立てずに止める', async () => {
+    // confirmed_at が不正な形式＝parseKintoneMappingが拒否する壊れたデータ。
+    // 「まだ設定していない」のではなく異常な状態なので、エンジンはこのコンテナだけを
+    // 対象から外さず接続全体を止める（従来どおり）。
+    let caught: unknown
+    try {
+      await kintoneAdapter.listChangedTasks(
+        ctx({ kintone_mappings: { '5': { ...mapping(), confirmed_at: 'not-a-date' } } }),
+        '5',
+        {},
+      )
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toMatchObject({ permanent: true, status: 400 })
+    expect((caught as { pendingConfig?: boolean }).pendingConfig).toBeUndefined()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
