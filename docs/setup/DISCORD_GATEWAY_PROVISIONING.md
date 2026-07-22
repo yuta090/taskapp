@@ -45,12 +45,20 @@ values (
   'discord',
   'agentpm秘書 (Discord共有Bot)',
   encrypt_system_secret(
-    '{"bot_token":"<DISCORD_BOT_TOKEN>"}',
+    '{"bot_token":"<DISCORD_BOT_TOKEN>","bot_external_id":"<DISCORD_APPLICATION_ID>"}',
     '<SYSTEM_ENCRYPTION_KEY>'
   ),
   'active'
 );
 ```
+
+> **`bot_external_id` は必須ではないが、入れないとメンション形式の完了指示が動かない。**
+> 値は Discord Developer Portal の **Application ID**（＝Bot のユーザーID。`General Information`
+> に表示される数字列。秘密ではない）。これを入れると、グループ内で `@agentpm秘書 完了1` の
+> ように**Bot宛メンション付きでも**完了指示が通るようになる（先頭の `<@Application ID>` だけを
+> 剥がしてから厳格文法で判定する）。未設定なら剥がさないため、素の `完了1` のみが動く
+> ＝**未設定でも壊れないが、メンション形式は無言で効かない**。後から
+> `update ... set credentials_encrypted = encrypt_system_secret(...)` で足してもよい。
 制約により `owner_type='platform'` は `org_id` を持てない（自動で NULL）。`org` を誤って入れると
 整合CHECK（`channel_accounts_owner_org_consistency`）で拒否される。
 

@@ -188,7 +188,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     kind: 'chat',
     status: 'beta',
     outbound: true,
-    inbound: false,
+    inbound: true,
     group: true,
     directMessage: false,
     signatureScheme: 'ed25519',
@@ -197,7 +197,11 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
       { key: 'webhook_url', label: 'Channel Webhook URL', secret: true, help: '各チャンネル設定→連携サービス→Webhookで発行' },
     ],
     setupUrl: 'https://discord.com/developers/applications',
-    notes: 'まずはチャンネルWebhook送信。Bot(受信/署名Ed25519)は後続。',
+    // 受信: 常駐Gatewayワーカー(worker/discord-gateway)がWebSocketで受け、内部専用の
+    // HMAC口(/api/channels/discord/ingest)へ転送する方式（他チャネルのような、
+    // オペレーターがprovider側に貼り付ける外部向けwebhookは無い＝webhookPathは持たせない）。
+    // 送信: 共有Bot(bot_token)優先、無ければチャンネルWebhookにフォールバック。
+    notes: '送信は共有Bot優先（無ければチャンネルWebhook）。受信は常駐Gatewayワーカー経由で対応済み。',
   },
   telegram: {
     id: 'telegram',
