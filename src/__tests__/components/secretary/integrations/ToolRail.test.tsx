@@ -56,11 +56,11 @@ describe('ToolRail (registry-driven)', () => {
     expect(row).toHaveTextContent('近日')
   })
 
-  it('betaツールがあれば「BETA」バッジを表示する', () => {
+  it('betaツールに「BETA」バッジを出さない（statusは内部区分でありユーザーには見せない）', () => {
     const betaId = ALL_INTEGRATION_IDS.find((id) => INTEGRATIONS[id].status === 'beta')
     if (!betaId) return // 現状betaステータスのツールが無ければスキップ(registryの将来変更に強くする)
     render(<ToolRail selectedId="google_tasks" onSelect={vi.fn()} />)
-    expect(screen.getByTestId(`tool-rail-${betaId}`)).toHaveTextContent('BETA')
+    expect(screen.getByTestId(`tool-rail-${betaId}`)).not.toHaveTextContent('BETA')
   })
 
   it('proOnlyツール(google_tasks)は「Pro」バッジを表示する', () => {

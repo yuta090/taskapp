@@ -2574,6 +2574,19 @@ export async function findActiveUserLinkForUser(
  * disabled（LINEブロック等での無効化を含む運用）だと「DMは届く」と誤判定し、digestの安全網
  * からタスクが漏れる。channel_accounts!inner(status) を埋め込み、active なaccountのみを
  * 「DMルートあり」として扱う。
+ *
+ * 穴是正（設計正本 §9.1・A案: webhook単独の対称ループ）: 上記の判定は account/紐付けの
+ * *状態*（active/revoked）のみを見ており、LINE側で相手がBotをブロックした等の理由で
+ * *実際には届かない*ケースを検知できなかった（channel_user_linksはactiveのまま＝
+ * 「DMルートあり」と誤判定されdigestからも除外される。DM・digestどちらからも見えなくなる
+ * 恒久的な可視性喪失）。
+ *
+ * ⚠ M-1是正: マーク/解除の唯一のトリガは webhook の `unfollow`(mark)/`follow`(clear)
+ * （src/lib/channels/line/webhookHandler.ts）。push結果は成功・失敗いずれも根拠にしない
+ * （LINEはブロック済み宛先にも2xxを返す仕様のため、push成功はDMが実際に届いた証拠に
+ * ならない・H-1/H-1'）。ここで dm_unreachable_at is null を条件に加えることで、
+ * webhookでマーク済みのlinkは「DMルート無し」とみなし、digestが拾い直す
+ * （followで解除された時点でdigestの安全網から自動的に外れる）。
  */
 export async function findUserIdsWithActiveLink(orgId: string, userIds: string[]): Promise<Set<string>> {
   const unique = [...new Set(userIds)]
@@ -2585,10 +2598,89 @@ export async function findUserIdsWithActiveLink(orgId: string, userIds: string[]
     .eq('org_id', orgId)
     .in('user_id', unique)
     .is('revoked_at', null)
+    .is('dm_unreachable_at', null)
     .eq('channel_accounts.status', 'active')
   if (error) throw new Error(`channel_user_links: batch active link lookup failed: ${error.message}`)
 
   return new Set((data ?? []).map((row) => (row as { user_id: string }).user_id))
+}
+
+/**
+ * DMの到達不能マーク（設計正本 §9.1・A案: webhook単独の対称ループ）。
+ *
+ * 唯一のトリガは src/lib/channels/line/webhookHandler.ts の unfollow（LINEブロック）。
+ * push結果（成功/失敗いずれも）はトリガにしない — LINEはブロック済み宛先へのpushでも
+ * 2xxを返し黙って捨てる仕様のため、push結果は到達性について何も語らない（H-1）。
+ * findUserIdsWithActiveLink はこのフラグが立ったlinkを「DMルート無し」とみなし、
+ * digestの期限セクション（安全網）に拾い直す。呼び出し側（webhook）はベストエフォートで
+ * 呼ぶ想定（失敗しても本処理は継続する）。
+ *
+ * L-3是正: orgIdでも絞り込む。DM linkを持ちうるのは現状owner_type='org'のみで越境の実害は
+ * 無いが、将来共通LINEで1:1が解禁され同一external_user_idが複数orgに跨る行を持つように
+ * なった場合、1回のupdateが他orgの行まで書き換える事故を予防する（安価なうちに入れておく）。
+ *
+ * L-4是正: nowではなくevent.occurredAt（LINEイベントの発生時刻）を書く。followによる
+ * clear側にイベント順序ガード（clearDmUnreachable参照）を掛けられるようにするための前提。
+ * mark側自体には対称のガードを掛けていない — clearはNULLへ戻すため「いつ解除されたか」を
+ * 保持する列が無く（追加は migration 対象で本PRの範囲外）、mark側で同等の順序保証をするには
+ * 別列が要る。この列単独での順序保証が無い代わりに、呼び出し側
+ * （src/lib/channels/line/webhookHandler.ts の unfollow 分岐・M-2是正）が
+ * `recordSystemEvent`（externalMessageId=webhookEventIdでdedupe）を先に呼び、
+ * `'duplicate'`（＝同一webhookEventIdの再送）ならmark自体を呼ばないことで、
+ * 「followでclear済みのマークが同一unfollowの再送で復活し恒久固着する」事故を防いでいる。
+ * つまり再送耐性はこの関数の呼び出し側の責務であり、この関数自体は「呼ばれたら書く」だけの
+ * 薄いラッパに留める。
+ */
+export async function markDmUnreachable(
+  orgId: string,
+  channelAccountId: string,
+  externalUserId: string,
+  occurredAt: string,
+): Promise<void> {
+  const { error } = await admin()
+    .from('channel_user_links')
+    .update({ dm_unreachable_at: occurredAt })
+    .eq('org_id', orgId)
+    .eq('channel_account_id', channelAccountId)
+    .eq('external_user_id', externalUserId)
+    // L-0是正: 失効済み(revoked)linkは対象外にする（生きているlinkのみ状態を持たせる）。
+    .is('revoked_at', null)
+  if (error) throw new Error(`channel_user_links: mark dm_unreachable failed: ${error.message}`)
+}
+
+/**
+ * DMの到達不能マーク解除（設計正本 §9.1・A案）。唯一のトリガは webhookHandler.ts の
+ * follow（ブロック解除・再フォロー）。push成功はトリガにしない（markDmUnreachableのコメント
+ * 参照・H-1/H-1'）。ブロック解除で再び届くようになった場合、followイベント受信時点で
+ * digestの安全網から自動的に外れ元の経路（DM）へ戻る。
+ *
+ * L-3是正: orgIdでも絞り込む（markDmUnreachableと同じ理由）。
+ * L-4是正: イベント順序ガード。`dm_unreachable_at < event.occurredAt` のときだけ解除する
+ * ＝現在のマークがこのfollowイベントより*前*に付けられたときのみ解除が成立する。これにより、
+ * LINEの再送等で「新しいunfollow」の後に「古いfollow」が遅延到着しても、新しいマークを
+ * 誤って消さない（古いfollowのoccurredAtはマーク時刻より前なので条件を満たさず解除されない）。
+ * NULL行は `<` 比較を満たさないため、既にNULLの行を無駄に更新することもない
+ * （旧`.not('dm_unreachable_at','is',null)`と等価以上の絞り込みを1条件で兼ねる）。
+ */
+export async function clearDmUnreachable(
+  orgId: string,
+  channelAccountId: string,
+  externalUserId: string,
+  occurredAt: string,
+): Promise<void> {
+  const { error } = await admin()
+    .from('channel_user_links')
+    .update({ dm_unreachable_at: null })
+    .eq('org_id', orgId)
+    .eq('channel_account_id', channelAccountId)
+    .eq('external_user_id', externalUserId)
+    // L-0是正: 失効済み(revoked)linkは対象外にする（生きているlinkのみ状態を持たせる）。
+    .is('revoked_at', null)
+    // L-1: `.lt`（`<`・`<=`ではない）なので同一ミリ秒（mark時刻 === このfollowのoccurredAt）
+    // では解除されない。LINEのtimestampはミリ秒精度で、同一ユーザーのunfollowとfollowが
+    // 同一ミリ秒に一致するのは実務上発生しない前提（もし発生しても次のイベントで解消する）。
+    .lt('dm_unreachable_at', occurredAt)
+  if (error) throw new Error(`channel_user_links: clear dm_unreachable failed: ${error.message}`)
 }
 
 /**

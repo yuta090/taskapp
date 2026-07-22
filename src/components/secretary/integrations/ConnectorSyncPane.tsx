@@ -16,6 +16,7 @@ import {
 } from '@/lib/hooks/useConnectors'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { pruneImportConfig } from '@/lib/integrations/importConfig'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { MulticaConnectionReveal } from '@/components/secretary/integrations/MulticaConnectionReveal'
 
@@ -327,17 +328,9 @@ export interface ImportConfigEditorProps {
   canManage: boolean
 }
 
-/** import_configの空文字/空配列のキーは送らない(target_space_id未設定＝importをskipする契約) */
-function pruneImportConfig(config: Record<string, unknown>): Record<string, unknown> {
-  const next: Record<string, unknown> = { ...config }
-  Object.keys(next).forEach((key) => {
-    const value = next[key]
-    if (value === '' || value === undefined || (Array.isArray(value) && value.length === 0)) {
-      delete next[key]
-    }
-  })
-  return next
-}
+// pruneImportConfig は src/lib/integrations/importConfig.ts へ切り出した(NotionImportPanel.tsx と
+// 共有する小さな純粋関数を、将来のcode splittingでこの大きなモジュールごと巻き込まないため)。
+// 呼び出し元は両方ともそこから直接importする(このファイルはre-exportしない)。
 
 /**
  * gtasks接続1件分のimport_configエディタ(target_space_id/read_list_ids/default_assignee_id)。

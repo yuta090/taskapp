@@ -46,6 +46,12 @@ vi.mock('@/components/secretary/integrations/ConnectorSyncPane', () => ({
   ConnectorSyncPane: () => <div data-testid="connector-sync-pane" />,
 }))
 
+// NotionImportPanel(取り込み設定)もuseConnectors(react-query)を要求するため、本回帰
+// (SinkProviderPanel/CreateSinkFormの完全再マウント)には無関係な軽量モックに差し替える。
+vi.mock('@/components/secretary/integrations/NotionImportPanel', () => ({
+  NotionImportPanel: () => <div data-testid="notion-import-panel" />,
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
 })

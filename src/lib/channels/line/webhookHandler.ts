@@ -43,6 +43,8 @@ import {
   clearApprovalNotifiedAt,
   getOrgChannelPolicyState,
   getPlatformBudgetState,
+  markDmUnreachable,
+  clearDmUnreachable,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -318,6 +320,12 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
       }
       return
     }
+    // 穴是正（設計正本 §9.1・A案: webhook単独の対称ループの主トリガ）: push結果は到達性の
+    // 証拠にならない（LINEはブロック済み宛先へのpushでも2xxを返し黙って捨てる仕様）ため、
+    // followを「DMが再び届くようになった」シグナルの唯一のトリガにする。recordSystemEvent/
+    // 挨拶より先に呼び、dedupe(再送)・disabledでも必ず解除を試みる（ベストエフォート・
+    // 失敗は握って続行）。event.occurredAtを渡す（L-4是正・clear側のイベント順序ガードの前提）。
+    await clearDmUnreachableBestEffort(account.orgId, account.id, event.externalUserId, event.occurredAt)
     // webhook再送(dedupe)時は挨拶も再送しない
     const recorded = await recordSystemEvent(account, event, 'follow')
     if (recorded === 'duplicate' || disabled) return
@@ -328,7 +336,20 @@ async function processEvent(account: LineAccount, event: NormalizedLineEvent): P
   }
   if (event.kind === 'unfollow') {
     if (account.ownerType === 'platform') return // 保存しない（org解決不能）
-    await recordSystemEvent(account, event, 'unfollow')
+    // M-2是正: recordSystemEventを先に呼び、dedupe結果が'duplicate'ならmarkをスキップする。
+    // 旧実装は「recordSystemEventがthrowしてもマークに到達できるよう」mark→recordの順だったが、
+    // これだとLINEのunfollow再送（応答タイムアウト等）で以下の恒久固着が起きる:
+    //   T1 unfollow→mark(T1) / 再送予約 → T2 でユーザーがブロック解除→follow(T2)→clear成立
+    //   → 再送されたunfollow(T1)がガード無しのmarkを再実行→dm_unreachable_atがT1で復活
+    //   → 当人は既にfollow済みで次のunfollow/followが来るまで復旧しない（恒久固着）。
+    // recordSystemEventはexternalMessageId=webhookEventIdでdedupeするため、同一イベントの
+    // 再送は必ず'duplicate'になる（follow側の挨拶抑止と同じ機構）契約を使って未然に防ぐ。
+    // 代償（M-3(a)・設計正本§9.1に明記）: recordSystemEvent自体がthrowするとmarkに到達
+    // できず、一過性DB障害でマークを取りこぼしうる。それでも「恒久固着」より
+    // 「取りこぼし（次回の別イベントで再度チャンスがある）」の方が実害が小さいと判断した。
+    const recorded = await recordSystemEvent(account, event, 'unfollow')
+    if (recorded === 'duplicate') return
+    await markDmUnreachableBestEffort(account.orgId, account.id, event.externalUserId, event.occurredAt)
     return
   }
 
@@ -565,6 +586,60 @@ async function recordSystemEvent(
     error: null,
     occurredAt: event.occurredAt,
   })
+}
+
+/**
+ * DM到達不能マーク・解除（設計正本 §9.1・A案: webhook単独の対称ループ・唯一のトリガ）。
+ *
+ * LINE Messaging API は「フォロー後にブロックしたユーザー」宛のpushでも2xxを返し
+ * メッセージを黙って捨てる仕様のため、push結果（成功/失敗いずれも）からブロックを観測
+ * できない（H-1/H-1'是正: push結果で判定していた旧実装は誤り。旧実装は成功時に解除も
+ * 行っていたため、unfollowで正しくマークされても当日中の送信成功でマークが消え、
+ * unfollow済みの相手は二度とunfollowイベントが来ないため再検知不能な恒久不可視に
+ * 復帰していた）。正しいトリガはこのwebhookの unfollow（ブロック）/ follow（再開・解除）
+ * イベントのみ。src/app/api/cron/due-reminder-sender/route.ts はmark/clearに一切関与しない。
+ *
+ * L-3是正: account.orgId を渡しorg境界を掛ける（将来共通LINEで1:1が解禁されたときの越境更新
+ * 予防）。L-4是正: now()ではなく event.occurredAt を渡す（clear側のイベント順序ガードの前提・
+ * store.ts の markDmUnreachable/clearDmUnreachable 参照）。
+ *
+ * M-2是正: unfollow分岐は`recordSystemEvent`の後に呼ぶ（dedupeで'duplicate'ならスキップする・
+ * unfollow呼び出し側のコメント参照）。これはLINEのunfollow再送でclear済みマークが復活し
+ * 恒久固着する事故を防ぐため。代償（M-3(a)・設計正本§9.1に明記）: recordSystemEvent自体が
+ * throwすると（このcatchに来る前に）markに到達できず、一過性DB障害でマークを取りこぼしうる。
+ * follow分岐は従来どおり`recordSystemEvent`より先に呼ぶ（clearは冪等かつ`.lt`ガードで
+ * 誤操作しないため、先出しの実害が無い）。
+ *
+ * どちらもベストエフォート — マーキング自体が失敗しても、webhookの主処理（inbound記録・
+ * 再送dedupe・自動応答等）を止めない。DM linkを持ちうるのは owner_type='org'
+ * （自社LINE）のみ（platformは呼び出し元で早期returnし、ここに来ない）。
+ */
+async function markDmUnreachableBestEffort(
+  orgId: string,
+  channelAccountId: string,
+  externalUserId: string | null,
+  occurredAt: string,
+): Promise<void> {
+  if (!externalUserId) return
+  try {
+    await markDmUnreachable(orgId, channelAccountId, externalUserId, occurredAt)
+  } catch (err) {
+    console.error('LINE webhook: markDmUnreachable failed', orgId, channelAccountId, externalUserId, err)
+  }
+}
+
+async function clearDmUnreachableBestEffort(
+  orgId: string,
+  channelAccountId: string,
+  externalUserId: string | null,
+  occurredAt: string,
+): Promise<void> {
+  if (!externalUserId) return
+  try {
+    await clearDmUnreachable(orgId, channelAccountId, externalUserId, occurredAt)
+  } catch (err) {
+    console.error('LINE webhook: clearDmUnreachable failed', orgId, channelAccountId, externalUserId, err)
+  }
 }
 
 async function sendSecretaryText(

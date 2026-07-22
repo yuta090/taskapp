@@ -51,6 +51,11 @@ describe('ChannelRail (registry-driven)', () => {
     expect(screen.getByText('近日')).toBeInTheDocument()
   })
 
+  it('betaチャネルに「BETA」バッジを出さない（statusは内部区分でありユーザーには見せない）', () => {
+    render(<ChannelRail orgId={ORG} activeChannel="line" />)
+    expect(screen.queryByText('BETA')).toBeNull()
+  })
+
   it('emailはチャット系でないためレールに出さない', () => {
     render(<ChannelRail orgId={ORG} activeChannel="line" />)
     expect(screen.queryByTestId('channel-rail-email')).toBeNull()

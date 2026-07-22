@@ -17,7 +17,7 @@ interface ChannelRailProps {
  * 表示はチャネルレジストリ(src/lib/channels/registry.ts)を単一の真実の源として駆動する。
  * チャット系チャネルを縦に並べ、実装状況で振る舞いを変える:
  *   - GA/BETA: /secretary/connect/<channel> へのリンク（LINEは既存の専用route、
- *     それ以外は汎用の [channel] セットアップページ）。BETAはバッジ表示。
+ *     それ以外は汎用の [channel] セットアップページ）。beta は内部区分でありバッジは出さない。
  *   - PLANNED: 遷移不可の「近日」行（routeを持たせない）。
  *
  * チャネル追加＝registryに1エントリ足すだけでこのレールに自動で並ぶ（配列の手編集不要）。
@@ -71,11 +71,6 @@ export function ChannelRail({ orgId, activeChannel }: ChannelRailProps) {
             >
               <Icon className="w-4 h-4" weight={isActive ? 'fill' : 'regular'} />
               <span>{ch.label}</span>
-              {ch.status === 'beta' && (
-                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
-                  BETA
-                </span>
-              )}
             </Link>
           )
         })}

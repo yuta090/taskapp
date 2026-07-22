@@ -35,6 +35,30 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * （グループに個人向けの催促を出さない・§2）。DMルートが無ければ suppressed('no_route') で
  * 終端し、channel-digestの中立な期限セクション（安全網）に委ねる。
  *
+ * 穴是正・自己回復ループ（§9.1・A案・H-1/H-1'是正）: channel_user_links がactiveのまま
+ * DMだけ恒久失敗する（LINEブロック等）と、digest安全網の「DMルートあり」判定も誤って
+ * 成立し続け、DM・digestのどちらからもタスクが見えなくなる（`dm_unreachable_at`・
+ * `markDmUnreachable`/`clearDmUnreachable`・`findUserIdsWithActiveLink`参照）。
+ *
+ * ⚠ このファイルは到達不能マーク・解除に一切関与しない（A案・push結果を到達性の証拠に
+ * 使わない）。理由:
+ *   - LINE Messaging API は「フォロー後にブロックしたユーザー」宛のpushでも
+ *     **2xxを返しメッセージを黙って捨てる**仕様のため、`delivered:true`（push成功）は
+ *     DMが実際に届いた証拠にならない（H-1）。旧実装は成功時に`clearDmUnreachable`を
+ *     呼んでいたため、webhookのunfollowで正しくマークされた直後でも当日の送信が200を
+ *     返すだけでマークが消え、翌日から再び恒久的に不可視へ戻っていた
+ *     （unfollow済みの相手からは二度とunfollowイベントが来ないため再検知不能・H-1'）。
+ *   - push失敗側も同様: 400/404等の「宛先起因に見える」4xxは実態としてLINE API側の
+ *     ボディ検証エラー（タイトル長超過等）が大半を占め、宛先の生死とは無関係に同一cronで
+ *     最大100件が一斉に誤マークされ、相手先も見えるグループのdigestへ一斉掲載される
+ *     事故になり得る（M-1'）。
+ * 到達不能マーク（`markDmUnreachable`）/解除（`clearDmUnreachable`）の唯一のトリガは
+ * `src/lib/channels/line/webhookHandler.ts` の unfollow（ブロック）/ follow（解除）
+ * ＝webhook単独の対称ループ。`resolveDmCandidate`（本ファイルの宛先解決）は変更しない
+ * — 到達不能マークの有無に関わらずDM送信を試み続ける（マークの有無を読みも書きもしない）。
+ * `isPermanentLinePushFailure` と `finalizeDueReminderOccurrence('suppressed',
+ * 'push_failed_permanent')` の関係（occurrenceのライフサイクル）は不変。
+ *
  * 認証: Authorization: Bearer ${CRON_SECRET}（他cronと同一パターン）。
  */
 const DEFAULT_CLAIM_LIMIT = 100
@@ -201,6 +225,9 @@ export async function POST(request: NextRequest) {
         if (result.delivered) {
           await finalizeDueReminderOccurrence(occ.id, 'sent')
           sent += 1
+          // A案: push成功(delivered:true)は到達性の証拠にならない（LINEはブロック済み宛先にも
+          // 2xxを返す）ため、ここでclearDmUnreachableは呼ばない。解除の唯一のトリガは
+          // webhookHandler.tsのfollowイベント（ファイル冒頭のコメント参照）。
         } else {
           // 予算/縮退による抑止のみ deferred（pending差戻し・翌窓再送・attempt上限で打ち止め・§6.1）。
           await finalizeDueReminderOccurrence(occ.id, 'deferred', result.reason)
@@ -208,10 +235,17 @@ export async function POST(request: NextRequest) {
         }
       } catch (err) {
         if (isPermanentLinePushFailure(err)) {
+          // A案: push失敗（400/404含む全ての恒久4xx）でもmarkDmUnreachableは呼ばない
+          // （旧M-1是正は「宛先起因の4xxに限定」だったが、その400/404自体が実態としては
+          // LINE APIのボディ検証エラー等が大半を占め宛先の生死と無関係なため、対象を絞る
+          // のではなくpush失敗経路そのものを到達性判定から外した＝M-1'。詳細はファイル
+          // 冒頭のコメント参照）。マークの唯一のトリガはwebhookHandler.tsのunfollow。
+          //
           // code review #2(b): 恒久失敗（トークン失効等のLINE 4xx・429除く）はfinalizeせずに
           // 放置すると lease失効→再claim→再push→再throw を無限に繰り返す
           // （attempt上限はdeferred経路のRPCでしか効かないため、finalizeしないと打ち止まらない）。
-          // suppressed終端にして再claim対象から外す。
+          // suppressed終端にして再claim対象から外す（isPermanentLinePushFailure・finalizeの
+          // 関係は不変。occurrenceのライフサイクルは変えない）。
           await finalizeDueReminderOccurrence(occ.id, 'suppressed', 'push_failed_permanent')
           skipped.push({ occurrenceId: occ.id, taskId: task.id, reason: 'push_failed_permanent' })
         } else {
@@ -242,6 +276,13 @@ interface ResolvedDestination {
   record: { groupId: string | null; externalUserId: string | null }
 }
 
+/**
+ * A案是正: 到達不能マークの有無（channel_user_links.dm_unreachable_at）はこの関数の
+ * 戻り値に含めない。以前(M-4)は送信成功時のclearDmUnreachable要否判定に使うため
+ * dmUnreachableAtを保持していたが、A案でsender側のclear呼び出し自体を廃止したため不要
+ * になった（ファイル冒頭のコメント参照）。到達不能マークの有無に関わらずDM送信を試みる
+ * ＝この関数の宛先解決ロジックは変えない。
+ */
 async function resolveDmCandidate(orgId: string, assigneeId: string): Promise<ResolvedDestination | null> {
   const link = await findActiveUserLinkForUser(orgId, assigneeId)
   if (!link) return null

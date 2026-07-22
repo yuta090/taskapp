@@ -28,7 +28,7 @@ vi.mock('@/components/secretary/integrations/ToolRail', () => ({
   }) => (
     <div data-testid="tool-rail">
       <span data-testid="tool-rail-selected">{selectedId}</span>
-      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export', 'generic_inbound'] as IntegrationId[]).map((id) => (
+      {(['google_tasks', 'notion', 'backlog', 'wrike', 'csv_export', 'generic_inbound', 'webhook'] as IntegrationId[]).map((id) => (
         <button key={id} onClick={() => onSelect(id)}>
           select-{id}
         </button>
@@ -74,6 +74,10 @@ vi.mock('@/components/secretary/integrations/TaskSyncConnectPanel', () => ({
   ),
 }))
 
+vi.mock('@/components/secretary/integrations/NotionImportPanel', () => ({
+  NotionImportPanel: ({ orgId }: { orgId: string }) => <div data-testid="notion-import-panel">{orgId}</div>,
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
   useSinksMock.mockReturnValue({
@@ -111,6 +115,26 @@ describe('IntegrationsConsoleClient', () => {
     expect(screen.getByTestId('sink-provider-panel')).toBeInTheDocument()
     expect(screen.getByTestId('sink-provider-panel-provider')).toHaveTextContent('notion')
     expect(screen.queryByTestId('connector-sync-pane')).not.toBeInTheDocument()
+  })
+
+  /**
+   * Notionはsurface='sink'のまま(書き出しUIを壊さない)、connectorKindも持つ唯一のツール。
+   * 書き出し(SinkProviderPanel)に加えて取り込み(NotionImportPanel)も出す。出し分けはsurfaceでは
+   * なくconnectorKind(実装済みか)で判定するため、他のsinkツール(webhook等・connectorKind無し)では
+   * 出ないことも併せて固定する。
+   */
+  it('Notion選択時はSinkProviderPanelに加えてNotionImportPanelも出す(書き出しと取り込みは別の関心事)', () => {
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    fireEvent.click(screen.getByText('select-notion'))
+    expect(screen.getByTestId('sink-provider-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('notion-import-panel')).toHaveTextContent('org-1')
+  })
+
+  it('connectorKindを持たないsinkツール(webhook)ではNotionImportPanelを出さない', () => {
+    render(<IntegrationsConsoleClient orgId="org-1" />)
+    fireEvent.click(screen.getByText('select-webhook'))
+    expect(screen.getByTestId('sink-provider-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('notion-import-panel')).not.toBeInTheDocument()
   })
 
   it('planned(backlog)だがアダプタ実装済みのツールを選択するとTaskSyncConnectPanelが出る', () => {
