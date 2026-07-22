@@ -42,6 +42,11 @@ vi.mock('@/lib/channels/chatwork/client', () => ({
   fetchChatworkAccountId: (...args: unknown[]) => fetchChatworkAccountIdMock(...args),
 }))
 
+const verifySlackTokenMock = vi.fn()
+vi.mock('@/lib/channels/slack/probe', () => ({
+  verifySlackToken: (...args: unknown[]) => verifySlackTokenMock(...args),
+}))
+
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 
 const { POST } = await import('@/app/api/channels/accounts/route')
@@ -83,6 +88,7 @@ beforeEach(() => {
   membershipSingleMock.mockResolvedValue({ data: { role: 'owner' }, error: null })
   resolveEntitlementsMock.mockResolvedValue(entitled(true))
   fetchChatworkAccountIdMock.mockResolvedValue('363')
+  verifySlackTokenMock.mockResolvedValue({ ok: true, botUserId: 'Ubot0000' })
   storeMock.generateChannelWebhookSecret.mockReturnValue('whsec_generated')
   storeMock.registerOrgChannelAccount.mockResolvedValue({
     account: accountMeta(),
@@ -206,6 +212,69 @@ describe('POST /api/channels/accounts — Chatwork bot_account_id 解決（自�
   it('telegram登録では /me 解決を呼ばない（チャネル固有処理）', async () => {
     await callPost({ orgId: ORG_A, channel: 'telegram', credentials: { bot_token: 't' } })
     expect(fetchChatworkAccountIdMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/channels/accounts — Slack bot_user_id 解決＋scope検証（自己ループ防止）', () => {
+  beforeEach(() => {
+    storeMock.registerOrgChannelAccount.mockResolvedValue({
+      account: accountMeta({ channel: 'slack' }),
+      created: true,
+      generatedSecrets: {},
+    })
+  })
+
+  it('登録時にauth.testでbot自身のuser_idを解決しoperatorCredentialsに注入する', async () => {
+    verifySlackTokenMock.mockResolvedValue({ ok: true, botUserId: 'Ubot0000' })
+    const res = await callPost({
+      orgId: ORG_A,
+      channel: 'slack',
+      credentials: { bot_token: 'xoxb-1', signing_secret: 'sig' },
+    })
+    expect(res.status).toBe(201)
+    expect(verifySlackTokenMock).toHaveBeenCalledWith('xoxb-1')
+    const arg = storeMock.registerOrgChannelAccount.mock.calls[0][0]
+    expect(arg.operatorCredentials).toMatchObject({
+      bot_token: 'xoxb-1',
+      signing_secret: 'sig',
+      bot_user_id: 'Ubot0000',
+    })
+  })
+
+  it('bot_tokenが無効(token_unverified)なら400 slack_token_unverified・登録しない', async () => {
+    verifySlackTokenMock.mockResolvedValue({ ok: false, code: 'slack_token_unverified' })
+    const res = await callPost({
+      orgId: ORG_A,
+      channel: 'slack',
+      credentials: { bot_token: 'bad', signing_secret: 'sig' },
+    })
+    const json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.code).toBe('slack_token_unverified')
+    expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
+  })
+
+  it('必要scope不足(missing_scope)なら400 slack_missing_scope・不足scope名を含む・登録しない', async () => {
+    verifySlackTokenMock.mockResolvedValue({
+      ok: false,
+      code: 'slack_missing_scope',
+      detail: 'chat:write',
+    })
+    const res = await callPost({
+      orgId: ORG_A,
+      channel: 'slack',
+      credentials: { bot_token: 'xoxb-1', signing_secret: 'sig' },
+    })
+    const json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.code).toBe('slack_missing_scope')
+    expect(json.error).toContain('chat:write')
+    expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
+  })
+
+  it('telegram登録ではauth.test検証を呼ばない（チャネル固有処理）', async () => {
+    await callPost({ orgId: ORG_A, channel: 'telegram', credentials: { bot_token: 't' } })
+    expect(verifySlackTokenMock).not.toHaveBeenCalled()
   })
 })
 

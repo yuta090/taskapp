@@ -16,6 +16,7 @@ import {
   generatedCredentialFields,
 } from '@/lib/channels/registry'
 import { fetchChatworkAccountId } from '@/lib/channels/chatwork/client'
+import { verifySlackToken } from '@/lib/channels/slack/probe'
 import { isValidUuid } from '@/lib/uuid'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -239,6 +240,33 @@ export async function POST(request: NextRequest) {
       )
     }
     operatorCredentials.bot_account_id = botAccountId
+  }
+
+  // Slack: 受信Webの自己ループ防止・自分宛メンション判定のため、Bot自身の user_id を
+  // auth.test で解決して控える（Chatwork の bot_account_id と同役割）。
+  // 併せて必要scope（chat:write・メッセージ読取）の付与も検証する（fail-closed）。
+  // bot_token の有効性検証にもなる。
+  if (channel === 'slack') {
+    const probe = await verifySlackToken(operatorCredentials.bot_token)
+    if (!probe.ok && probe.code === 'slack_missing_scope') {
+      return NextResponse.json(
+        {
+          error: `Slack Botに必要な権限(scope)が不足しています: ${probe.detail}`,
+          code: 'slack_missing_scope',
+        },
+        { status: 400 },
+      )
+    }
+    if (!probe.ok) {
+      return NextResponse.json(
+        {
+          error: 'Slack Bot Tokenを検証できませんでした。トークンを確認して再試行してください',
+          code: 'slack_token_unverified',
+        },
+        { status: 400 },
+      )
+    }
+    operatorCredentials.bot_user_id = probe.botUserId
   }
 
   // サーバー生成フィールド（webhook_secret 等）を生成する。
