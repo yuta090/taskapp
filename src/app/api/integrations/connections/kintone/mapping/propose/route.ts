@@ -37,6 +37,10 @@ export const runtime = 'nodejs'
  *
  * ⚠ Notion との違い(3) — app_id は kintone_app_ids に登録済みのものしか受け付けない:
  * 下の findKintoneConnection 呼び出し直後のコメント参照。
+ *
+ * ⚠ このルート専用のレート制限は**意図的に置かない**（notion/mapping/propose/route.ts と同じ判断。
+ * LLM費用の歯止めは callLlm 側の org 単位の月次コスト上限・プール上限を唯一の予算境界とし、
+ * 境界を2箇所に分散させない）。
  */
 
 interface ProposeBody {

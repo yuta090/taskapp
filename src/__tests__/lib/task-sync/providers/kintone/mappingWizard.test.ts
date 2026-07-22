@@ -339,6 +339,52 @@ describe('refineProposalWithAi', () => {
     expect(serialized).not.toContain('access_token')
   })
 
+  /**
+   * ⚠ 回帰耐性の強化: 上のテストだけでは弱い。FIELDS には余計なプロパティが1つも無いため、
+   * buildRefinePrompt が「フィールドを丸ごとJSONに載せる」実装に書き換えられても緑のままになる。
+   * ここでは**型を意図的に破って**レコード値・トークン相当のプロパティを混ぜたfixtureを渡し、
+   * 「allowlist(code/label/type/options)以外はプロンプトに入らない」ことを固定する。
+   * 現実の混入経路: schema.ts の正規化を経ずに fields.json 由来の生オブジェクトが渡される、
+   * KintoneLiveField に将来フィールドが足される、など。
+   */
+  it('フィールドに余計なプロパティ(レコード値・トークン)が混ざってもプロンプトに入らない', async () => {
+    const dirtyFields = [
+      {
+        code: 'title',
+        label: '件名',
+        type: 'SINGLE_LINE_TEXT',
+        // 以下は KintoneLiveField に存在しないプロパティ（意図的に型を破っている）
+        record_value: 'secret-token: 顧客Aの機密メモ',
+        token: 'access_token-abcdef',
+        defaultValue: '取引先名を入れる',
+      },
+      {
+        code: 'select_status',
+        label: '進捗',
+        type: 'DROP_DOWN',
+        options: ['未着手', '完了'],
+        record_value: ['secret-token-in-array'],
+      },
+    ] as unknown as KintoneLiveField[]
+
+    callLlmMock.mockResolvedValue({
+      content: JSON.stringify({ title_field_code: null, due_field_code: null, status_field_code: null }),
+    })
+    await refineProposalWithAi({ orgId: 'org-1', fields: dirtyFields, heuristic: HEURISTIC })
+
+    const callArgs = callLlmMock.mock.calls[0][0] as { messages: unknown }
+    const serialized = JSON.stringify(callArgs.messages)
+    expect(serialized).not.toContain('record_value')
+    expect(serialized).not.toContain('secret-token')
+    expect(serialized).not.toContain('access_token')
+    expect(serialized).not.toContain('defaultValue')
+    expect(serialized).not.toContain('顧客Aの機密メモ')
+    // 一方で、推定に必要な情報(コード・表示名・型・選択肢名)は落ちていないこと
+    expect(serialized).toContain('select_status')
+    expect(serialized).toContain('進捗')
+    expect(serialized).toContain('未着手')
+  })
+
   it('AiConfigError(AI未設定・上限到達)ならヒューリスティックへフォールバックする(source:heuristic)', async () => {
     callLlmMock.mockRejectedValue(new AiConfigError('missing', 'AI未設定'))
     const result = await refineProposalWithAi({ orgId: 'org-1', fields: FIELDS, heuristic: HEURISTIC })

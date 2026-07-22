@@ -232,10 +232,20 @@ export async function PUT(request: NextRequest) {
     // 22023 は RPC 側が「既存の import_config の型が壊れている」と判断したときだけ付ける
     // SQLSTATE。再試行しても直らない状態なので 5xx（＝あとで再試行せよ）にはしない。
     // DB の内部文言はそのまま返さず、運用者が次に取るべき行動が分かる文言に置き換える。
-    if ((rpcError as { code?: string } | null)?.code === '22023') {
+    const rpcCode = (rpcError as { code?: string } | null)?.code
+    if (rpcCode === '22023') {
       return NextResponse.json(
         { error: 'この接続の取り込み設定が壊れています。設定を作り直してください' },
         { status: 422 },
+      )
+    }
+    // KTAPP は RPC 側の TOCTOU 再確認（行ロック後の最新 kintone_app_ids に app_id が無い）。
+    // 上の事前チェックと同じ状況が、外部API呼び出しの間に接続編集で発生したときに到達する。
+    // 事前チェックと同じ文言・同じ 400 を返す（利用者から見て「登録してから保存する」で同じ）。
+    if (rpcCode === 'KTAPP') {
+      return NextResponse.json(
+        { error: 'このアプリは接続に登録されていません。先にアプリIDとAPIトークンを追加してください' },
+        { status: 400 },
       )
     }
     return NextResponse.json({ error: 'マッピングの保存に失敗しました' }, { status: 500 })

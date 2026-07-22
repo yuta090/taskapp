@@ -17,7 +17,7 @@ import {
   type NotionStatusMappingInput,
 } from '@/lib/hooks/useConnectors'
 import { useSinks } from '@/lib/hooks/useSinks'
-import { pruneImportConfig } from '@/lib/integrations/importConfig'
+import { normalizeImportConfigPatch } from '@/lib/integrations/importConfig'
 
 interface NotionImportPanelProps {
   orgId: string
@@ -156,9 +156,10 @@ function NotionDatabaseList({ orgId, connection, canManage }: NotionDatabaseList
    * (モーダル禁止・このUIの操作は取り消し可能な設定変更であり、破壊的操作ではないため)。
    */
   const handleRemove = async (containerId: string) => {
-    // pruneImportConfig は read_container_ids の空配列を特別に保持する(他キーの空配列は削除する)。
+    // normalizeImportConfigPatch は read_container_ids の空配列を値としてそのまま送る
+    // (他キーの空文字/空配列は「未設定」を意味する null に変換される)。
     // ここで全解除(結果が空配列)になっても、その意図がサーバへ正しく伝わる。
-    const nextConfig = pruneImportConfig({
+    const nextConfig = normalizeImportConfigPatch({
       ...connection.importConfig,
       read_container_ids: readContainerIds.filter((id) => id !== containerId),
     })

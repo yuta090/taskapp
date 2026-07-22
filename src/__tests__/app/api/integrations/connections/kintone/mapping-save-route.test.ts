@@ -326,6 +326,25 @@ describe('PUT /api/integrations/connections/kintone/mapping', () => {
   })
 
   /**
+   * ⚠ TOCTOU: 事前チェック(kintone_app_idsにapp_idがあるか)は kintone への外部API呼び出しの
+   * **前**に行うため、その間に接続編集でアプリが外されると古くなる。RPCは行ロック後に最新値で
+   * 再確認し、外れていれば errcode='KTAPP' で拒否する。これは「設定が壊れている(22023)」とは
+   * 別物で、利用者の次の行動も違う（先にアプリIDとAPIトークンを登録すれば解決する）ため、
+   * 422 ではなく事前チェックと同じ 400・同じ文言に写像する。
+   */
+  it('保存直前にアプリが登録から外れた(KTAPP)なら、事前チェックと同じ400・同じ文言になる', async () => {
+    rpcResultMock.mockReturnValue({
+      data: null,
+      error: { code: 'KTAPP', message: 'app_id 5 is not registered in import_config.kintone_app_ids' },
+    })
+    const response = await callPut(VALID_BODY)
+    const data = await response.json()
+    expect(response.status).toBe(400)
+    expect(data.error).toBe('このアプリは接続に登録されていません。先にアプリIDとAPIトークンを追加してください')
+    expect(data.error).not.toContain('kintone_app_ids')
+  })
+
+  /**
    * ⚠ IDORテストが空振りしないための直接検証(認可境界)。findKintoneConnectionが
    * .eq('id', ...) / .eq('org_id', ...) / .eq('provider', 'kintone') の3条件で絞っていることを、
    * モックの.eq()呼び出し引数を記録して直接assertする(常に同じchainを返すだけのモックだと、

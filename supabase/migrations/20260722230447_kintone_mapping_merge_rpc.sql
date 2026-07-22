@@ -25,6 +25,16 @@
 --   - 検証済みの mapping（parseKintoneMapping + validateMappingAgainstSchema を通過済み）を
 --     呼び出し側が渡す前提。本関数自身はマッピングの中身（field_code 等）を検証しない
 --     （ライブスキーマ検証はDBの責務ではなくAPI層の責務のまま）。
+--   - p_app_id は**この関数が行ロックを取った時点の** import_config.kintone_app_ids に
+--     登録済みであること（下記 TOCTOU 対策）。
+--
+-- ⚠ TOCTOU（保存APIの事前チェックが古くなる問題）:
+--   保存API(kintone/mapping/route.ts)は「app_id が kintone_app_ids に登録済みか」を
+--   **kintone へのスキーマ再取得(外部API呼び出し)の前**に確認する。その外部呼び出しの間に
+--   接続編集(task-sync/route.ts 等)で当該アプリが kintone_app_ids から外されると、RPC 到達時には
+--   事前チェックの結果が古くなっている。そのまま保存すると、ポーリング対象に永久に含まれない
+--   「死んだマッピング」が生まれる（fable裁定 2026-07-22 で拒否と決めた状態そのもの）。
+--   → for update で行を掴んだ**後**に、最新の kintone_app_ids で再確認する。
 --
 -- 適用: 新規関数のみ（列・既存オブジェクト不変）。アプリ稼働中に適用可。
 -- ロールバック（可逆）:
@@ -50,6 +60,7 @@ declare
   v_provider text;
   v_config jsonb;
   v_mappings jsonb;
+  v_app_ids jsonb;
   v_result jsonb;
 begin
   -- for update: この行を今のトランザクションの間ロックする。直後の UPDATE も同じ行を
@@ -93,6 +104,43 @@ begin
       using errcode = '22023';
   end if;
   v_mappings := coalesce(v_mappings, '{}'::jsonb);
+
+  -- ---------------------------------------------------------------------------
+  -- TOCTOU 対策: 行ロック取得後の最新値で「app_id が登録済みか」を再確認する（冒頭コメント参照）。
+  --
+  -- ⚠ 正規化の意味は normalizeKintoneAppIds(src/lib/task-sync/providers/kintone/mapping.ts)と
+  --   揃える。揃っていないと「アプリ側では登録済みなのにRPCが拒否する」食い違いになる:
+  --     - 配列でなければ「1件も登録されていない」とみなす（TS: Array.isArray でなければ []）
+  --     - 要素は **JSON の文字列と数値の双方**を同じ意味で扱う（TS: number は String() で文字列化）。
+  --       jsonb の `#>> '{}'` は string/number どちらもテキストにするため、両者を等価に比較できる。
+  --     - 妥当なアプリID形式（^\d+$ かつ20桁以内。TS: isValidKintoneAppId）以外は無視する。
+  --       p_app_id 側も同じ形式を要求することで、「不正な要素は無視する」TS の挙動と一致する
+  --       （不正な要素は妥当な p_app_id と等しくなり得ないため、無視と同義）。
+  -- ---------------------------------------------------------------------------
+  if p_app_id !~ '^\d+$' or length(p_app_id) > 20 then
+    raise exception 'app_id is not a valid kintone app id (%)', p_app_id
+      using errcode = 'KTAPP';
+  end if;
+
+  v_app_ids := v_config -> 'kintone_app_ids';
+  if v_app_ids is not null and jsonb_typeof(v_app_ids) <> 'array' then
+    raise exception 'import_config.kintone_app_ids is not a JSON array (found %)', jsonb_typeof(v_app_ids)
+      using errcode = '22023';
+  end if;
+
+  -- errcode は 22023（＝既存の「import_config が壊れている」）と分ける。ここは設定が壊れているのでは
+  -- なく「先にアプリIDとAPIトークンを登録すれば解決する」運用上の順序の問題であり、API 側は
+  -- 別メッセージ・別ステータス(400)に写像する必要があるため。'KTAPP' はカスタム SQLSTATE
+  -- （既存の 'DUEXT'（20260721133427_due_reminder_pr0.sql）と同じ流儀）。
+  if not exists (
+    select 1
+      from jsonb_array_elements(coalesce(v_app_ids, '[]'::jsonb)) as e(v)
+     where jsonb_typeof(e.v) in ('string', 'number')
+       and e.v #>> '{}' = p_app_id
+  ) then
+    raise exception 'app_id % is not registered in import_config.kintone_app_ids', p_app_id
+      using errcode = 'KTAPP';
+  end if;
 
   -- 上で型を検証済みの値だけを使って組み立てる。for update で行を掴んだままなので、
   -- ここまでの読みとこの UPDATE の間に他の並行呼び出しが割り込むことはない。

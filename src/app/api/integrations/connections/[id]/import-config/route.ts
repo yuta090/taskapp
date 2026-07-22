@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgAdmin } from '@/lib/channels/authz'
 import { isValidUuid } from '@/lib/uuid'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { IMPORT_CONFIG_SERVER_MANAGED_KEYS } from '@/lib/integrations/importConfig'
 
 export const runtime = 'nodejs'
 
@@ -17,27 +18,16 @@ interface PatchImportConfigBody {
   import_enabled?: unknown
 }
 
-interface ConnectionOrgAndConfig {
-  orgId: string
-  importConfig: Record<string, unknown>
-}
-
-/**
- * 接続の org_id と現在の import_config を1回で引く。
- *
- * 更新のたびに「今の値」を必要とするのは、import_config の一部フィールドを
- * サーバ管理・部分更新にするため(PATCH本体の説明を参照)。
- */
-async function findConnectionOrgAndConfig(id: string): Promise<ConnectionOrgAndConfig | null> {
+/** 接続の org_id を引く（認可の対象orgを決めるためだけ。import_config は読まない）。 */
+async function findConnectionOrg(id: string): Promise<string | null> {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('integration_connections')
-    .select('org_id, import_config')
+    .select('org_id')
     .eq('id', id)
     .maybeSingle()
   if (error || !data) return null
-  const row = data as { org_id: string; import_config: Record<string, unknown> | null }
-  return { orgId: row.org_id, importConfig: row.import_config ?? {} }
+  return (data as { org_id: string }).org_id
 }
 
 /**
@@ -47,23 +37,21 @@ async function findConnectionOrgAndConfig(id: string): Promise<ConnectionOrgAndC
  * 任意で import_enabled(取り込みの有効/無効)を**同じ更新で**変更する
  * (器は 20260720125427_connector_two_way_sync.sql で追加済み)。
  *
+ * ⚠ 更新は RPC(rpc_import_config_merge)で原子的に行う。read-modify-write にしない理由:
+ * 「現在値を読む → import_config 全体を組み立てる → 置換」だと、読みと書きの間に
+ * マッピング保存RPC(notion/kintone)が走ったとき、**古い mappings を書き戻して確定した
+ * ばかりのマッピングを消す**（lost update）。RPCは行ロックの内側で読み書きするためこれが起きない。
+ * このルートは import_config 全体を組み立てない（クライアントが指定したキーだけを p_patch で渡す）。
+ *
+ * 部分更新のセマンティクス:
+ *   - 送られたキーだけを更新する。送られなかったキーは現在値のまま残る。
+ *   - 値が null のキーは「未設定に戻す」＝DB上からキーを削除する。
+ *     (従来の「キーを送らない＝未設定」は、部分更新では「現在値維持」と区別できないため、
+ *      未設定は明示的な null で表す契約に変えた。UI側は normalizeImportConfigPatch が変換する。)
+ *
  * org境界の検証(target_space_id/default_assignee_idが接続と同じorgを指すか)はDBトリガー
  * (integration_connections_validate_import_config)が担う。トリガー例外はここで捕捉し、
  * ユーザー向けメッセージに変換して422で返す(内部エラーメッセージをそのまま漏らさない)。
- *
- * ⚠ import_config の一部フィールドはサーバ管理・部分更新にする(丸ごと置換による事故を防ぐ):
- *   - notion_mappings: Notionの確認保存API(connections/notion/mapping/route.ts)だけが、
- *     ライブスキーマ再取得での検証を経て書ける「確定済みデータ」。この汎用PATCHでクライアントの
- *     送信値をそのまま採用すると、(a) 保存APIの検証を迂回して実在しないprop_idを含む
- *     マッピングを永続化できてしまう（＝「設定済みに見えるのに取り込みが止まる」状態を作れる）、
- *     (b) この汎用PATCHで別項目(target_space_id等)を変えただけで確定済みマッピングが
- *     丸ごと消えてしまう、という2つの事故が起きる。そのため、クライアントが何を送ってきても
- *     常にDB上の現在値を引き継ぐ（400で弾かない: 現在値をそのまま送り返す正当な実装の
- *     クライアントまで壊してしまうため。なぜ拒否せず無視するのかをここに明記する）。
- *   - read_container_ids: Notion以外のproviderでも運用者が正当に編集する項目なので上書きは
- *     許すが、「キー自体を送らなかった」場合にまで消えるのは(b)と同種の事故になるため、
- *     未指定なら現在値を保持する(部分更新セマンティクス。空配列を明示的に送れば
- *     意図的なクリアとして通る)。
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -71,11 +59,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'invalid connection id' }, { status: 400 })
   }
 
-  const found = await findConnectionOrgAndConfig(id)
-  if (!found) {
+  const orgId = await findConnectionOrg(id)
+  if (!orgId) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }
-  const { orgId, importConfig: currentConfig } = found
 
   const auth = await requireOrgAdmin(orgId)
   if (!auth.ok) {
@@ -106,64 +93,46 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'import_enabled must be a boolean' }, { status: 400 })
   }
 
-  const bodyConfig = body.import_config as Record<string, unknown>
-  const nextConfig: Record<string, unknown> = { ...bodyConfig }
-
-  // notion_mappings: クライアント送信値は無視し、常にDBの現在値を引き継ぐ(上記コメント参照)。
-  if (Object.prototype.hasOwnProperty.call(currentConfig, 'notion_mappings')) {
-    nextConfig.notion_mappings = currentConfig.notion_mappings
-  } else {
-    delete nextConfig.notion_mappings
-  }
-
-  // kintone_mappings/kintone_app_ids: notion_mappings と同じ理由・同じ保護
-  // (フィールドコード＋選択肢名の対応づけは kintone/schema.ts のライブスキーマ検証を経て初めて
-  // 確定する「確定済みデータ」であり、この汎用PATCHでクライアント送信値をそのまま採用すると、
-  // (a) 検証を迂回して実在しないフィールドコードを含むマッピングを永続化できてしまう、
-  // (b) この汎用PATCHで別項目(target_space_id等)を変えただけで確定済みの設定が丸ごと消える、
-  // という同種の2つの事故が起きる)。クライアントが何を送ってきても常にDB上の現在値を引き継ぐ。
-  if (Object.prototype.hasOwnProperty.call(currentConfig, 'kintone_mappings')) {
-    nextConfig.kintone_mappings = currentConfig.kintone_mappings
-  } else {
-    delete nextConfig.kintone_mappings
-  }
-  if (Object.prototype.hasOwnProperty.call(currentConfig, 'kintone_app_ids')) {
-    nextConfig.kintone_app_ids = currentConfig.kintone_app_ids
-  } else {
-    delete nextConfig.kintone_app_ids
-  }
-
-  // read_container_ids: キー自体が送られてこなかった場合だけ現在値を保持する(部分更新)。
-  if (!Object.prototype.hasOwnProperty.call(bodyConfig, 'read_container_ids')) {
-    if (Object.prototype.hasOwnProperty.call(currentConfig, 'read_container_ids')) {
-      nextConfig.read_container_ids = currentConfig.read_container_ids
-    } else {
-      delete nextConfig.read_container_ids
-    }
-  }
-
-  const patch: Record<string, unknown> = { import_config: nextConfig }
-  if (typeof body.import_enabled === 'boolean') patch.import_enabled = body.import_enabled
+  // サーバ管理フィールド(notion_mappings/kintone_mappings/kintone_app_ids)はDBへ送らない。
+  // 400で弾かずに黙って落とすのは、現在値をそのまま送り返す正当な実装のクライアントまで
+  // 壊してしまうため（なぜ拒否せず無視するのかを明記する。詳しい理由は
+  // IMPORT_CONFIG_SERVER_MANAGED_KEYS のコメント参照）。
+  // ⚠ 多層防御: 同じキー集合を RPC(rpc_import_config_merge)側でも落とし、さらに DB トリガー
+  // (20260722233606_protect_task_sync_mappings.sql)が service_role 以外からの mappings 変更を
+  // 拒否する。ここで落とすのは「そもそもDBへ送らない」ための最初の層。
+  const patch: Record<string, unknown> = { ...(body.import_config as Record<string, unknown>) }
+  for (const key of IMPORT_CONFIG_SERVER_MANAGED_KEYS) delete patch[key]
 
   const admin = createAdminClient()
-  const { data, error } = await admin
-    .from('integration_connections')
-    .update(patch)
-    .eq('id', id)
-    .select('id, import_config, import_enabled')
-    .maybeSingle()
+  const { data, error } = await admin.rpc('rpc_import_config_merge', {
+    p_connection_id: id,
+    p_patch: patch,
+    // 省略時は null を渡す＝RPC側で「import_enabled は変更しない」に写像される。
+    p_import_enabled: typeof body.import_enabled === 'boolean' ? body.import_enabled : null,
+  })
 
   if (error) {
     // DBエラーは SQLSTATE で切り分ける(全DBエラーを恒久422に潰さない。一時障害を誤って
     // 「入力が恒久的に不正」と誤認させないため):
     //   - P0001: トリガー integration_connections_validate_import_config の raise exception
     //            (org 外の space/assignee 指定 / import_config が object でない)→ 422
+    //   - P0002: RPCの no_data_found(接続が消えていた)→ 404
+    //   - 22023: 既存の import_config / p_patch の型が壊れている(再試行しても直らない)→ 422
     //   - 22P02: target_space_id/default_assignee_id が UUID 形式でない(::uuid キャスト失敗)→ 400
     //   - それ以外(一時障害・想定外)→ 500(内部文言は返さずログのみ)
     const code = (error as { code?: string }).code
     if (code === 'P0001') {
       return NextResponse.json(
         { error: '取り込み先はこの組織のスペース/メンバーのみ指定できます' },
+        { status: 422 },
+      )
+    }
+    if (code === 'P0002') {
+      return NextResponse.json({ error: 'connection not found' }, { status: 404 })
+    }
+    if (code === '22023') {
+      return NextResponse.json(
+        { error: 'この接続の取り込み設定が壊れています。設定を作り直してください' },
         { status: 422 },
       )
     }
@@ -180,9 +149,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
   }
 
+  const merged = data as { id: string; import_config: Record<string, unknown>; import_enabled: boolean }
   return NextResponse.json({
-    id: (data as { id: string }).id,
-    import_config: (data as { import_config: Record<string, unknown> }).import_config,
-    import_enabled: (data as { import_enabled: boolean }).import_enabled,
+    id: merged.id,
+    import_config: merged.import_config,
+    import_enabled: merged.import_enabled,
   })
 }
