@@ -39,31 +39,71 @@ async function encryptSecret(plaintext: string): Promise<string> {
   return data as string
 }
 
+/**
+ * 秘密(sink の secret_encrypted / 接続の access_token_encrypted)を復号する。
+ *
+ * token-crypto.decryptToken と同じ思想で「一時障害」と「恒久破損」を区別する(共有せず独立に持つのは
+ * この層が service_role の別クライアント admin() を使い、sink secret も復号する汎用経路のため):
+ *   - RPC が error を返した → **throw**(一時的なRPC/DB障害の可能性)。呼び出し側はこれを
+ *     transient_error に写して dispatcher の temporary_fail(再試行)へ載せる。null にすると
+ *     一時障害が unavailable→permanent_fail→dead に化けて配達が永久に失われる(Critical)。
+ *   - error は無いが data も無い → null(暗号文が復号結果を持たない=恒久破損。再接続を促す)。
+ * 例外メッセージに秘密(暗号文・トークン・鍵)を一切含めないこと。
+ */
 async function decryptSecret(encrypted: string): Promise<string | null> {
   const { data, error } = await admin().rpc('decrypt_system_secret', {
     encrypted,
     secret: getEncryptionKey(),
   })
-  if (error || !data) return null
+  if (error) throw new Error('decrypt_system_secret failed')
+  if (!data) return null
   return data as string
+}
+
+/**
+ * 復号/接続フェッチの一時障害(throw)を、秘密を含めずに warn ログへ出す。
+ * 「単一接続だけ連続失敗 vs DB全体障害」を後から切り分けられるよう sink id / provider / 種別を
+ * 残す。連続失敗回数の集計・隔離・通知は今回やらない(別PR)。ログで運用が気づけるのを最低ラインにする。
+ * トークン・暗号文・鍵は絶対に出さない。
+ */
+function warnSinkResolveTransient(sinkId: string, provider: string, kind: 'sink_secret' | 'connection_access'): void {
+  console.warn('[sink-decrypt] transient resolve failure', { sink_id: sinkId, provider, kind })
+}
+
+/**
+ * 恒久破損(復号結果が空＝暗号文破損の疑い。鍵不一致/blob破損)を、秘密を含めずに warn ログへ出す。
+ * これは再接続で直る恒久失敗(unavailable)だが、sink_not_deliverable だけでは「復号破損／接続不存在／
+ * 設定不正」を切り分けられないため専用コードを残す。トークン・暗号文・鍵は絶対に出さない。
+ */
+function warnSecretCorrupt(id: string | undefined, provider: string, kind: 'sink_secret' | 'connection_access'): void {
+  console.warn('[sink-decrypt] corrupt ciphertext (empty decrypt result)', {
+    id,
+    provider,
+    kind,
+    code: 'decrypt_empty_result',
+  })
 }
 
 /**
  * integration_connections の access_token を平文で得る。
  *
- * 暗号化列(20260717075717)を優先し、無い/復号できない場合のみ平文列へフォールバックする
- * (expand/contract の移行期。詳細は token-manager.decryptConnectionRow のコメント参照)。
- * ここは token-manager を経由しない生SELECTの経路なので、同じ解決を独立に持つ必要がある。
+ * 【contract フェーズ】暗号化列(20260717075717)*だけ* から解決する。平文列フォールバックは
+ * 撤去済み(M2 = empty_plaintext_connection_tokens.sql で平文は '' に空化される)。
+ * ここは token-manager を経由しない生SELECTの経路なので、token-manager.decryptConnectionRow と
+ * 同じ解決を独立に持つ。decryptSecret は「RPC error=一時障害(throw)」「復号結果が空=恒久破損(null)」を
+ * 区別する。throw は呼び出し側(findActive→toDeliverableSinkResult)が transient_error に写す。
+ * 暗号化列 null / 恒久破損(null)は「トークン無し」= null を返し呼び出し側が再接続を促す。
+ * `?? ''`/`?? row.access_token` のようなフォールバックを新設しないこと(平文の '' を素通しするバグ芽を残さない)。
+ * この経路は service_role(createAdminClient)なので、秘密列の列レベル revoke(M3)の影響は受けない。
  */
-async function resolveConnectionAccessToken(row: {
-  access_token: string | null
-  access_token_encrypted: string | null
-}): Promise<string | null> {
-  if (row.access_token_encrypted) {
-    const decrypted = await decryptSecret(row.access_token_encrypted)
-    if (decrypted) return decrypted
-  }
-  return row.access_token ?? null
+async function resolveConnectionAccessToken(
+  row: { id?: string; access_token_encrypted: string | null },
+  provider: string,
+): Promise<string | null> {
+  if (!row.access_token_encrypted) return null
+  const token = await decryptSecret(row.access_token_encrypted) // error は throw(一時障害)
+  if (!token) warnSecretCorrupt(row.id, provider, 'connection_access') // 復号結果が空＝恒久破損の疑い
+  return token
 }
 
 // ---------------------------------------------------------------------------
@@ -299,9 +339,12 @@ interface DeliverableSinkRow {
 const DELIVERABLE_SINK_COLUMNS = 'id, org_id, provider, config, secret_encrypted'
 
 /**
- * sink解決結果。'unavailable' は恒久(接続なし・config不正・secret復号失敗等、従来の
- * sink_not_deliverable)、'transient_error' はGoogle Sheetsのtoken refreshが5xx/ネットワーク等の
- * 一時障害で失敗したケース(呼び出し側でtemporary_fail=再試行に落とす。レビュー回帰対応)。
+ * sink解決結果。
+ *   'unavailable'     = 恒久(接続なし・config不正・復号結果が空=暗号文破損等、従来の sink_not_deliverable)。
+ *   'transient_error' = 一時障害。全経路(webhook/notion/google_sheets)の以下を含む:
+ *                       復号のRPC/DB error(throw)・接続行フェッチのDB error(throw)・
+ *                       google_sheets の token refresh の 5xx/ネットワーク等(getValidTokenDetailed)。
+ *                       呼び出し側で temporary_fail=再試行に落とし、dead 化させない。
  */
 type ToDeliverableSinkResult =
   | { outcome: 'ok'; sink: DeliverableSink }
@@ -311,8 +354,18 @@ type ToDeliverableSinkResult =
 async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliverableSinkResult> {
   if (row.provider === 'webhook') {
     if (!row.secret_encrypted) return { outcome: 'unavailable' }
-    const secret = await decryptSecret(row.secret_encrypted)
-    if (!secret) return { outcome: 'unavailable' }
+    // 復号の一時障害(throw)は transient_error に写す(dead化させない)。恒久破損(null)は unavailable。
+    let secret: string | null
+    try {
+      secret = await decryptSecret(row.secret_encrypted)
+    } catch {
+      warnSinkResolveTransient(row.id, 'webhook', 'sink_secret')
+      return { outcome: 'transient_error' }
+    }
+    if (!secret) {
+      warnSecretCorrupt(row.id, 'webhook', 'sink_secret') // 復号結果が空＝暗号文破損の疑い(恒久)
+      return { outcome: 'unavailable' }
+    }
     return {
       outcome: 'ok',
       sink: { id: row.id, provider: 'webhook', config: row.config as { url: string }, secret },
@@ -321,8 +374,15 @@ async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliv
   if (row.provider === 'notion') {
     const databaseId = typeof row.config.database_id === 'string' ? row.config.database_id : ''
     if (!databaseId) return { outcome: 'unavailable' }
-    // 接続が無い/revokedのnotion sinkは配達不能(呼び出し側でsink_not_deliverableの恒久失敗になる)
-    const connection = await findActiveNotionConnection(row.org_id)
+    // 接続トークン復号の一時障害(throw)は transient_error に写す(dead化させない)。
+    // 接続が無い/revoked/恒久破損は unavailable(呼び出し側で sink_not_deliverable の恒久失敗)。
+    let connection
+    try {
+      connection = await findActiveNotionConnection(row.org_id)
+    } catch {
+      warnSinkResolveTransient(row.id, 'notion', 'connection_access')
+      return { outcome: 'transient_error' }
+    }
     if (!connection) return { outcome: 'unavailable' }
     return {
       outcome: 'ok',
@@ -333,7 +393,14 @@ async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliv
     const spreadsheetId = typeof row.config.spreadsheet_id === 'string' ? row.config.spreadsheet_id : ''
     const sheetName = typeof row.config.sheet_name === 'string' ? row.config.sheet_name : ''
     if (!isValidSpreadsheetId(spreadsheetId) || !isValidSheetName(sheetName)) return { outcome: 'unavailable' }
-    const connection = await findActiveGoogleSheetsConnection(row.org_id)
+    // 接続の解決(暗号列の復号)一時障害(throw)は transient_error に写す(dead化させない)。
+    let connection
+    try {
+      connection = await findActiveGoogleSheetsConnection(row.org_id)
+    } catch {
+      warnSinkResolveTransient(row.id, 'google_sheets', 'connection_access')
+      return { outcome: 'transient_error' }
+    }
     if (!connection) return { outcome: 'unavailable' }
     // Googleのアクセストークンは1時間で失効するため、生のaccess_token列を直接使わず
     // token-managerでrefresh込みの有効なトークンを都度解決する(notionは無期限トークンのため不要)。
@@ -383,7 +450,15 @@ export async function findDeliverableSinksByIds(sinkIds: string[]): Promise<Deli
     .from('integration_sinks')
     .select(DELIVERABLE_SINK_COLUMNS)
     .in('id', uniqueIds)
-  if (error || !data) return { sinks: new Map(), transientSinkIds: new Set() }
+  if (error || !data) {
+    // sink一覧の読み取り自体が一時失敗した。0件(=このバッチの claim 済み配達が全部 permanent_fail→dead)に
+    // 倒さず、バッチ全体を transient にして temporary_fail(次サイクルで再試行)へ載せる。
+    // 「一時障害を恒久失敗に化けさせない」の一貫(Critical)。秘密は含めずに warn ログを出す。
+    console.warn('[sink-list] transient DB read failure; treating batch as retryable', {
+      requested: uniqueIds.length,
+    })
+    return { sinks: new Map(), transientSinkIds: new Set(uniqueIds) }
+  }
 
   const rows = data as DeliverableSinkRow[]
 
@@ -414,20 +489,23 @@ export interface NotionConnectionInfo {
 export async function findActiveNotionConnection(orgId: string): Promise<NotionConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, access_token, access_token_encrypted, metadata')
+    // contract: 平文 access_token 列は読まない(M2 で空化)。トークンは暗号化列から復号する。
+    .select('id, access_token_encrypted, metadata')
     .eq('provider', 'notion')
     .eq('owner_type', 'org')
     .eq('owner_id', orgId)
     .eq('status', 'active')
     .maybeSingle()
-  if (error || !data) return null
+  // DB error(一時障害)は throw して呼び出し側(toDeliverableSinkResult)で transient_error に写す。
+  // row 不在(error 無し・data 無し=接続が存在しない)は従来どおり null(恒久=unavailable)。
+  if (error) throw new Error('integration_connections read failed')
+  if (!data) return null
   const row = data as {
     id: string
-    access_token: string | null
     access_token_encrypted: string | null
     metadata: Record<string, unknown> | null
   }
-  const accessToken = await resolveConnectionAccessToken(row)
+  const accessToken = await resolveConnectionAccessToken(row, 'notion')
   if (!accessToken) return null
   const metadata = row.metadata ?? {}
   return {
@@ -494,15 +572,18 @@ export async function findActiveGoogleSheetsConnection(
 ): Promise<GoogleSheetsConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, access_token, access_token_encrypted')
+    // contract: 平文 access_token 列は読まない(M2 で空化)。トークンは暗号化列から復号する。
+    .select('id, access_token_encrypted')
     .eq('provider', 'google_sheets')
     .eq('owner_type', 'org')
     .eq('owner_id', orgId)
     .eq('status', 'active')
     .maybeSingle()
-  if (error || !data) return null
-  const row = data as { id: string; access_token: string | null; access_token_encrypted: string | null }
-  const accessToken = await resolveConnectionAccessToken(row)
+  // DB error(一時障害)は throw、row 不在(恒久=接続なし)は null(notion と同じ扱い)。
+  if (error) throw new Error('integration_connections read failed')
+  if (!data) return null
+  const row = data as { id: string; access_token_encrypted: string | null }
+  const accessToken = await resolveConnectionAccessToken(row, 'google_sheets')
   if (!accessToken) return null
   return { id: row.id, accessToken }
 }

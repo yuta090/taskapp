@@ -79,8 +79,29 @@ describe('decryptToken', () => {
     await expect(decryptToken('x')).rejects.toThrow('SYSTEM_ENCRYPTION_KEY')
   })
 
-  it('復号に失敗したら null を返す(鍵ローテ・不正blob。呼び出し側が再接続へ倒せるようにする)', async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { message: 'wrong key' } })
+  // 一時的なRPC/DB障害(errorセット)と、暗号文が復号結果を持たない恒久破損(errorなし・dataなし)を
+  // 区別する。前者を null にすると「トークン無し」と誤認され、平文フォールバック撤去後は正当な接続が
+  // 一時障害で expired 化されたり null が外部APIへ渡ったりする。よって error は throw、!data は null。
+  it('【本丸】RPCが error を返したら throw する(一時障害の可能性。null=トークン無しと誤認させない)', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+    await expect(decryptToken('ENCRYPTED_BLOB')).rejects.toThrow()
+  })
+
+  it('例外メッセージに暗号文・トークン・鍵を含めない', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+    let caught: unknown
+    try {
+      await decryptToken('SUPER_SECRET_BLOB')
+    } catch (e) {
+      caught = e
+    }
+    const msg = (caught as Error)?.message ?? ''
+    expect(msg).not.toContain('SUPER_SECRET_BLOB')
+    expect(msg).not.toContain('test-encryption-key')
+  })
+
+  it('error は無いが data も無いなら null(暗号文が復号結果を持たない=恒久破損。再接続を促す)', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: null })
     expect(await decryptToken('ENCRYPTED_BLOB')).toBeNull()
   })
 

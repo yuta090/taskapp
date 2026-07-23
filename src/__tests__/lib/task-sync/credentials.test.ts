@@ -131,6 +131,18 @@ describe('resolveCredentials — OAuth（refresh_token 無し＝更新不能。N
     expect(res.status).toBe('misconfigured')
     expect(getValidTokenDetailed).not.toHaveBeenCalled()
   })
+
+  it('【回帰】復号が throw（一時障害）なら transient_error にする（misconfigured で恒久失敗にしない）', async () => {
+    decryptToken.mockRejectedValue(new Error('decrypt_system_secret failed'))
+    const res = await resolveCredentials({
+      id: 'c1',
+      auth_kind: 'oauth',
+      base_url: null,
+      access_token_encrypted: 'enc',
+      refresh_token_encrypted: null,
+    })
+    expect(res.status).toBe('transient_error')
+  })
 })
 
 describe('resolveCredentials — APIキー/PAT', () => {
@@ -158,7 +170,7 @@ describe('resolveCredentials — APIキー/PAT', () => {
     expect(refreshFn).not.toHaveBeenCalled()
   })
 
-  it('復号できない鍵は設定不備（鍵ローテ・空・不正blob）。再試行では直らない', async () => {
+  it('復号できない鍵は設定不備（error無し・data無し＝恒久破損）。再試行では直らない', async () => {
     decryptToken.mockResolvedValue(null)
     const res = await resolveCredentials({
       id: 'c1',
@@ -167,6 +179,17 @@ describe('resolveCredentials — APIキー/PAT', () => {
       access_token_encrypted: null,
     })
     expect(res.status).toBe('misconfigured')
+  })
+
+  it('【回帰】復号が throw（一時障害）なら transient_error にする（misconfigured にしない）', async () => {
+    decryptToken.mockRejectedValue(new Error('decrypt_system_secret failed'))
+    const res = await resolveCredentials({
+      id: 'c1',
+      auth_kind: 'api_key',
+      base_url: null,
+      access_token_encrypted: 'enc',
+    })
+    expect(res.status).toBe('transient_error')
   })
 })
 
