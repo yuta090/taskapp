@@ -713,10 +713,15 @@ export async function createLinkCode(
 /**
  * リンクコードで identity を作成（期限内マルチユース）。
  * 同一人物×同一spaceで既にactiveなら既存を返す（再送や2台目端末）。
+ *
+ * 突合コード（channel_link_codes）はチャネル横断（発行済みの1コードがLINEでもWhatsAppでも通る）。
+ * `channel` は「どのチャネルで償還したか」＝作る identity のチャネルを指定する引数で、
+ * 既定は 'line'（既存呼び出し元の挙動を変えない）。
  */
 export async function linkIdentityViaCode(
   linkCode: ValidLinkCode,
   externalUserId: string,
+  channel: string = 'line',
 ): Promise<ActiveIdentity> {
   const client = admin()
   const { data, error } = await client
@@ -724,7 +729,7 @@ export async function linkIdentityViaCode(
     .insert({
       org_id: linkCode.orgId,
       space_id: linkCode.spaceId,
-      channel: 'line',
+      channel,
       external_id: externalUserId,
       linked_via: 'link_code',
       link_code_id: linkCode.id,
@@ -743,7 +748,7 @@ export async function linkIdentityViaCode(
       .select('id, space_id')
       .eq('org_id', linkCode.orgId)
       .eq('space_id', linkCode.spaceId)
-      .eq('channel', 'line')
+      .eq('channel', channel)
       .eq('external_id', externalUserId)
       .eq('status', 'active')
       .single()

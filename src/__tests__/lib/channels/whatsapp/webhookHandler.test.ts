@@ -3,8 +3,12 @@ import { createHmac } from 'node:crypto'
 import {
   handleWhatsappWebhook,
   verifyWhatsappSubscription,
+  WHATSAPP_LINK_CONFIRMED_TEXT,
+  WHATSAPP_LINK_FAILED_TEXT,
   type WhatsappWebhookDeps,
+  type WhatsappValidLinkCode,
 } from '@/lib/channels/whatsapp/webhookHandler'
+import { generateUserLinkCode } from '@/lib/channels/userLink'
 
 const APP_SECRET = 'meta-app-secret'
 const VERIFY_TOKEN = 'whsec_verify_abc'
@@ -245,5 +249,160 @@ describe('handleWhatsappWebhook (POST ingest)', () => {
     const body = messagePayload()
     const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
     expect(res.status).toBe(200)
+  })
+})
+
+describe('handleWhatsappWebhook: DM紐付け床（突合コード償還）', () => {
+  const LINK_CODE: WhatsappValidLinkCode = {
+    id: 'lc-1',
+    orgId: 'org-1',
+    spaceId: 'space-1',
+    firstUsedAt: null,
+  }
+
+  function linkCodePayload(text: string) {
+    return messagePayload({
+      messages: [
+        {
+          from: '819012345678',
+          id: 'wamid.LINK1',
+          timestamp: '1700000000',
+          type: 'text',
+          text: { body: text },
+        },
+      ],
+    })
+  }
+
+  it('正orgの有効コード: linkIdentity呼び出し・spaceId/identityId付きで記録・確認返信1回', async () => {
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const linkIdentity = vi.fn().mockResolvedValue({ id: 'idn-1', spaceId: 'space-1' })
+    const deps = makeDeps({
+      findLinkCode: vi.fn().mockResolvedValue(LINK_CODE),
+      linkIdentity,
+      sendReply,
+    })
+    const body = linkCodePayload('ABCDEFGH')
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    expect(linkIdentity).toHaveBeenCalledWith(LINK_CODE, '819012345678')
+    const arg = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(arg).toMatchObject({ spaceId: 'space-1', identityId: 'idn-1', body: 'ABCDEFGH' })
+    expect(sendReply).toHaveBeenCalledTimes(1)
+    expect(sendReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'acc-wa-1' }),
+      '819012345678',
+      WHATSAPP_LINK_CONFIRMED_TEXT,
+    )
+  })
+
+  it('他orgのコード: 紐付けせずspace=null記録・確認返信なし（越境拒否）', async () => {
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const linkIdentity = vi.fn()
+    const deps = makeDeps({
+      findLinkCode: vi.fn().mockResolvedValue({ ...LINK_CODE, orgId: 'org-OTHER' }),
+      linkIdentity,
+      sendReply,
+    })
+    const body = linkCodePayload('ABCDEFGH')
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    expect(linkIdentity).not.toHaveBeenCalled()
+    const arg = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(arg).toMatchObject({ spaceId: null, identityId: null })
+    expect(sendReply).not.toHaveBeenCalled()
+  })
+
+  it('無効コード(見つからない) × 未突合ユーザー(identity 0件): 案内文を1回返す', async () => {
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({
+      findLinkCode: vi.fn().mockResolvedValue(null),
+      findIdentities: vi.fn().mockResolvedValue([]),
+      sendReply,
+    })
+    const body = linkCodePayload('ABCDEFGH')
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    const arg = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(arg).toMatchObject({ spaceId: null, identityId: null })
+    expect(sendReply).toHaveBeenCalledTimes(1)
+    expect(sendReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'acc-wa-1' }),
+      '819012345678',
+      WHATSAPP_LINK_FAILED_TEXT,
+    )
+  })
+
+  it('既存identity 1件のユーザー: コード処理に入らず通常帰属（フォールスルー・返信なし）', async () => {
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const linkIdentity = vi.fn()
+    const deps = makeDeps({
+      findLinkCode: vi.fn().mockResolvedValue(null),
+      findIdentities: vi.fn().mockResolvedValue([{ id: 'idn-existing', spaceId: 'space-existing' }]),
+      linkIdentity,
+      sendReply,
+    })
+    const body = linkCodePayload('ABCDEFGH')
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    expect(linkIdentity).not.toHaveBeenCalled()
+    const arg = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(arg).toMatchObject({ spaceId: 'space-existing', identityId: 'idn-existing', body: 'ABCDEFGH' })
+    expect(sendReply).not.toHaveBeenCalled()
+  })
+
+  it('内部TA-コード: 本文をマスクして記録・identity付与なし・expireLeakedUserCode呼び出し', async () => {
+    const code = generateUserLinkCode()
+    const expireLeakedUserCode = vi.fn().mockResolvedValue(undefined)
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({
+      findLinkCode: vi.fn(),
+      expireLeakedUserCode,
+      sendReply,
+    })
+    const body = linkCodePayload(`このコードです ${code} よろしく`)
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    expect(expireLeakedUserCode).toHaveBeenCalledWith(`このコードです ${code} よろしく`)
+    const arg = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(arg).toMatchObject({ spaceId: null, identityId: null, body: '[認証コード]' })
+    expect(sendReply).not.toHaveBeenCalled()
+    expect((deps.findLinkCode as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+  })
+
+  it('dedupe(同一wamid=duplicate)は確認返信を再送しない', async () => {
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const linkIdentity = vi.fn().mockResolvedValue({ id: 'idn-1', spaceId: 'space-1' })
+    const deps = makeDeps({
+      findLinkCode: vi.fn().mockResolvedValue(LINK_CODE),
+      linkIdentity,
+      sendReply,
+      insertMessage: vi.fn().mockResolvedValue('duplicate'),
+    })
+    const body = linkCodePayload('ABCDEFGH')
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    expect(linkIdentity).toHaveBeenCalledTimes(1)
+    expect(sendReply).not.toHaveBeenCalled()
+  })
+
+  it('未紐付けの通常テキスト（コード形状ですらない）は沈黙: space=null記録・返信なし', async () => {
+    const sendReply = vi.fn().mockResolvedValue(undefined)
+    const findLinkCode = vi.fn()
+    const deps = makeDeps({ findLinkCode, sendReply })
+    const body = messagePayload() // '見積もりお願いします'
+    const res = await handleWhatsappWebhook('acc-wa-1', body, sign(body), deps)
+
+    expect(res.status).toBe(200)
+    expect(findLinkCode).not.toHaveBeenCalled()
+    const arg = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(arg).toMatchObject({ spaceId: null, identityId: null })
+    expect(sendReply).not.toHaveBeenCalled()
   })
 })

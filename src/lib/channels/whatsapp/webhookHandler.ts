@@ -15,9 +15,23 @@
  *     0件/複数は null 記録（人力トリアージ）— 他チャネルと一致させる。
  *   - v1はテキストのみ取り込む（image/audio/status 等は無視）。dedupeは wamid（グローバル一意）。
  *
+ * DM紐付け床（1:1で突合コードを送ると相手先(space)に紐付く。LINEの processDirectMessage/
+ * processLinkCode と同型）:
+ *   - 突合コード（channel_link_codes）はチャネル横断。発行済みの1コードがLINEでもWhatsAppでも通り、
+ *     償還したチャネルで identity を作る（findLinkCode/linkIdentity はどちらも optional dep。
+ *     未指定なら従来どおりコード償還なしで挙動不変）。
+ *   - 内部ユーザーのTA-コード（本人紐付け）はここでは償還しない（v1は本人紐付け未対応）。
+ *     本文はマスクして記録し、漏洩失効だけ試みる（グループ誤爆と同じ安全策）。
+ *   - 他org（別事務所）の判別に成功したコードは、常に無反応（越境拒否。存在/理由を推測させない
+ *     — 「見つからない」場合と区別できる案内を出さない）。コードが見つからない場合のみ、
+ *     未突合ユーザー(identity 0件)に案内を1回返す。既存identityがあるユーザーへは
+ *     コード形状テキストでも通常メッセージとしてフォールスルーする（帰属を失わない）。
+ *
  * Meta の再送を避けるため、署名不一致(401)/platform(400) 以外は常に200を返す。
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { normalizeLinkCode } from '@/lib/channels/linkCode'
+import { looksLikeUserLinkCode, maskUserLinkCode } from '@/lib/channels/userLink'
 
 export interface WhatsappAccount {
   id: string
@@ -47,6 +61,14 @@ export interface WhatsappInsertInput {
   occurredAt: string
 }
 
+/** チャネル横断の突合コード（channel_link_codes）。findValidLinkCode の戻り値と同形。 */
+export interface WhatsappValidLinkCode {
+  id: string
+  orgId: string
+  spaceId: string
+  firstUsedAt: string | null
+}
+
 export interface WhatsappWebhookDeps {
   loadAccount: (accountId: string) => Promise<WhatsappAccount | null>
   findIdentities: (
@@ -54,7 +76,26 @@ export interface WhatsappWebhookDeps {
     externalId: string,
   ) => Promise<Array<{ id: string; spaceId: string }>>
   insertMessage: (input: WhatsappInsertInput) => Promise<{ id: string } | 'duplicate'>
+  /** 顧客突合コードの検証（optional・未指定ならコード償還フローを行わず従来どおりの挙動） */
+  findLinkCode?: (code: string) => Promise<WhatsappValidLinkCode | null>
+  /** 突合コードで identity を作成/取得する（linkIdentityViaCode(..., 'whatsapp') 相当） */
+  linkIdentity?: (
+    linkCode: WhatsappValidLinkCode,
+    externalUserId: string,
+  ) => Promise<{ id: string; spaceId: string }>
+  /** 確認/案内の返信（best-effort。失敗しても webhook 処理は継続する） */
+  sendReply?: (account: WhatsappAccount, to: string, text: string) => Promise<void>
+  /** グループ等に誤って貼られた内部TA-コードの失効（best-effort） */
+  expireLeakedUserCode?: (bodyText: string) => Promise<void>
 }
+
+/** 突合コード成立時の確認返信 */
+export const WHATSAPP_LINK_CONFIRMED_TEXT =
+  '確認コードを受け付けました。ご登録ありがとうございます。今後のご連絡はこのトークにお送りします。'
+
+/** 有効コードでない場合、未突合ユーザーにのみ返す案内（LINEの LINK_CODE_FAILED_TEXT 相当） */
+export const WHATSAPP_LINK_FAILED_TEXT =
+  '確認コードをお確かめのうえ、もう一度お送りください。ご不明な場合は事務所までご連絡ください。'
 
 export interface WebhookResult {
   status: number
@@ -157,44 +198,123 @@ export async function handleWhatsappWebhook(
         // v1はテキストのみ。image/audio/document 等は取り込まない。
         if (msg.type !== 'text' || typeof msg.text?.body !== 'string' || !msg.id) continue
         const senderId = typeof msg.from === 'string' ? msg.from : null
-
-        let spaceId: string | null = null
-        let identityId: string | null = null
-        if (senderId) {
-          const identities = await deps.findIdentities(orgId, senderId)
-          if (identities.length === 1) {
-            spaceId = identities[0].spaceId
-            identityId = identities[0].id
-          }
-        }
+        const body = msg.text.body
+        const messageId = msg.id
 
         const ts = Number(msg.timestamp)
         const occurredAt = Number.isFinite(ts) && ts > 0
           ? new Date(ts * 1000).toISOString()
           : new Date(0).toISOString()
 
-        await deps.insertMessage({
+        const buildInsert = (
+          insertSpaceId: string | null,
+          insertIdentityId: string | null,
+          recordBody: string | null,
+        ): WhatsappInsertInput => ({
           orgId,
-          spaceId,
-          identityId,
+          spaceId: insertSpaceId,
+          identityId: insertIdentityId,
           accountId: account.id,
           channel: 'whatsapp',
           direction: 'inbound',
           actor: 'client',
           externalUserId: senderId,
-          externalMessageId: msg.id, // wamid はグローバル一意
+          externalMessageId: messageId, // wamid はグローバル一意
           contentType: 'text',
-          body: msg.text.body,
+          body: recordBody,
           payload: { message: msg },
           storagePath: null,
           status: 'received',
           error: null,
           occurredAt,
         })
+
+        // コード判定と通常フォールスルーで findIdentities を共有する（二重往復回避）。
+        let knownIdentities: Array<{ id: string; spaceId: string }> | undefined
+
+        // (1) 内部ユーザーのTA-コード。v1は本人紐付け未対応（成立させない）。
+        // グループ誤爆(LINE)と同じ安全策: 本文はマスクして記録し、漏洩失効だけ試みる。
+        if (looksLikeUserLinkCode(body)) {
+          await deps.insertMessage(buildInsert(null, null, maskUserLinkCode(body)))
+          if (deps.expireLeakedUserCode) {
+            try {
+              await deps.expireLeakedUserCode(body)
+            } catch (error) {
+              console.error('WhatsApp webhook: expireLeakedUserCode failed', error)
+            }
+          }
+          ingested += 1
+          continue
+        }
+
+        // (2) 顧客突合コード（optional dep。未指定なら従来どおり素通り）
+        if (deps.findLinkCode) {
+          const code = normalizeLinkCode(body)
+          if (code) {
+            const linkCode = await deps.findLinkCode(code)
+            if (linkCode) {
+              if (linkCode.orgId === orgId && senderId && deps.linkIdentity) {
+                const identity = await deps.linkIdentity(linkCode, senderId)
+                const recorded = await deps.insertMessage(
+                  buildInsert(identity.spaceId, identity.id, body),
+                )
+                if (recorded !== 'duplicate' && deps.sendReply) {
+                  await safeSendReply(deps, account, senderId, WHATSAPP_LINK_CONFIRMED_TEXT)
+                }
+                ingested += 1
+                continue
+              }
+              // 他org（別事務所）のコード: 越境拒否・常に無反応（存在/理由を推測させない）。
+              // 成立させず、下の通常メッセージ処理へフォールスルーする。
+            } else {
+              // コードが見つからない: 未突合ユーザー(identity 0件)にだけ案内を返す。
+              // 既存identityがあるユーザーへのコード形状テキストは通常メッセージとして
+              // フォールスルーし、帰属を失わない。
+              knownIdentities = senderId ? await deps.findIdentities(orgId, senderId) : []
+              if (knownIdentities.length === 0) {
+                const recorded = await deps.insertMessage(buildInsert(null, null, body))
+                if (recorded !== 'duplicate' && senderId && deps.sendReply) {
+                  await safeSendReply(deps, account, senderId, WHATSAPP_LINK_FAILED_TEXT)
+                }
+                ingested += 1
+                continue
+              }
+              // identities.length > 0 のまま下のフォールスルーへ進む（取得済みを再利用）
+            }
+          }
+        }
+
+        // (3) 通常メッセージ: 既存identityでの帰属（1件なら確定、0件/複数はnull）
+        // 上のコード判定で取得済みなら再利用し、findIdentities の二重呼び出しを避ける。
+        let spaceId: string | null = null
+        let identityId: string | null = null
+        if (senderId) {
+          const identities = knownIdentities ?? (await deps.findIdentities(orgId, senderId))
+          if (identities.length === 1) {
+            spaceId = identities[0].spaceId
+            identityId = identities[0].id
+          }
+        }
+
+        await deps.insertMessage(buildInsert(spaceId, identityId, body))
         ingested += 1
       }
     }
   }
 
   return { status: 200, body: { ok: true, ingested } }
+}
+
+/** 返信はbest-effort — 失敗しても webhook 処理（記録・200応答）は継続する */
+async function safeSendReply(
+  deps: WhatsappWebhookDeps,
+  account: WhatsappAccount,
+  to: string,
+  text: string,
+): Promise<void> {
+  try {
+    await deps.sendReply!(account, to, text)
+  } catch (error) {
+    console.error('WhatsApp webhook: sendReply failed', account.id, error)
+  }
 }
