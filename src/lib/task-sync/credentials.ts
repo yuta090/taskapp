@@ -67,7 +67,14 @@ export async function resolveCredentials(
       // refresh を試みる手段が無いので、api_key と同じく復号するだけで良い。ここを
       // refreshFn 必須のまま扱うと、この種の接続が永久に misconfigured skip される
       // （実際に Notion 接続が一度も取り込まれない断線を起こした）。
-      const token = await decryptToken(row.access_token_encrypted)
+      // decryptToken は一時障害(RPC/DB error)を throw、恒久破損(復号結果なし)を null で返す。
+      // 一時障害を misconfigured(恒久)にすると次サイクルで直る接続を殺すため transient_error に写す。
+      let token: string | null
+      try {
+        token = await decryptToken(row.access_token_encrypted)
+      } catch {
+        return { status: 'transient_error' }
+      }
       if (!token) {
         return { status: 'misconfigured', reason: 'oauth access token is missing or undecryptable' }
       }
@@ -92,9 +99,15 @@ export async function resolveCredentials(
   }
 
   if (row.auth_kind === 'api_key') {
-    const token = await decryptToken(row.access_token_encrypted)
+    // decryptToken は一時障害を throw、恒久破損を null で返す(上の oauth 分岐と同じ扱い)。
+    let token: string | null
+    try {
+      token = await decryptToken(row.access_token_encrypted)
+    } catch {
+      return { status: 'transient_error' }
+    }
     if (!token) {
-      // 復号できない（鍵ローテ・空・不正blob）。再試行しても直らないので接続の作り直しを促す。
+      // error無し・data無し＝暗号文が復号結果を持たない恒久破損。再試行では直らないので作り直しを促す。
       return { status: 'misconfigured', reason: 'api_key is missing or undecryptable' }
     }
     return { status: 'ok', credentials: { kind: 'api_key', token, baseUrl: row.base_url } }

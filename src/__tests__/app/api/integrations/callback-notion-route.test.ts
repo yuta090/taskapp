@@ -88,7 +88,8 @@ describe('GET /api/integrations/callback/notion', () => {
         owner_type: 'org',
         owner_id: ORG_ID,
         org_id: ORG_ID,
-        access_token: 'secret_abc',
+        // contract: 平文列は空文字、正本は暗号化列。
+        access_token: '',
         access_token_encrypted: 'enc(secret_abc)',
         token_expires_at: null,
         status: 'active',

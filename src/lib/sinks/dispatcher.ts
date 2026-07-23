@@ -112,9 +112,9 @@ export async function dispatchBatch(options: DispatchBatchOptions = {}): Promise
 
     try {
       if (!sink) {
-        // レビュー回帰対応(修正2): Google Sheetsのtoken refreshが5xx/ネットワーク等の一時障害で
-        // 失敗した場合はsink_not_deliverable(恒久)にせずtemporary_fail(再試行)に落とす。
-        // それ以外(未対応provider・secret復号失敗・接続なし・失効)は従来通り恒久失敗。
+        // 一時障害(sink復号/接続フェッチ/DB read/google_sheets token refresh の 5xx等)は store が
+        // transientSinkIds に載せる。これは sink_not_deliverable(恒久)にせず temporary_fail(再試行)に
+        // 落とし dead 化させない。それ以外(未対応provider・恒久破損・接続なし・失効)は従来通り恒久失敗。
         const isTransient = transientSinkIds.has(delivery.sinkId)
         const completion = await completeSinkDelivery({
           deliveryId: delivery.id,
@@ -122,6 +122,13 @@ export async function dispatchBatch(options: DispatchBatchOptions = {}): Promise
           error: isTransient ? 'sink_connection_transient_error' : 'sink_not_deliverable',
           countsTowardFailures: isTransient,
         })
+        // 恒久破損を一時障害扱いにした戦略の自己完結: 連続失敗で sink が今回 error 化したら、
+        // dispatchClaimedDelivery と同じ導線で既存の停止通知を発火する(20回リトライ→停止→通知→再接続)。
+        if (completion.justBecameError) {
+          await notifySinkBecameError(delivery.sinkId, delivery.orgId).catch((error) => {
+            console.error('dispatchBatch: notifySinkBecameError failed', error)
+          })
+        }
         if (completion.deliveryStatus === 'dead') summary.dead += 1
         else summary.failed += 1
         continue

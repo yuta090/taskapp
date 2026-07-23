@@ -39,7 +39,10 @@ type RefreshCoreResult =
   | { status: 'auth_failed' }
   | { status: 'transient_error' }
 
-/** DBの生行(暗号化列 + 移行期の平文列)。 */
+/**
+ * DBの生行。トークンは暗号化列(access_token_encrypted/refresh_token_encrypted)から解決する
+ * (contract 済み。平文列はもう select せず読まない)。平文列の型は互換のため残すが未使用。
+ */
 type ConnectionRow = Record<string, unknown> & {
   access_token?: string | null
   refresh_token?: string | null
@@ -48,28 +51,60 @@ type ConnectionRow = Record<string, unknown> & {
 }
 
 /**
+ * integration_connections から取得する列(明示指定)。平文の access_token/refresh_token は
+ * **取得しない**(M2 で空化され、解決には使わない)。トークンは *_encrypted 列から復号する。
+ * service_role なので M3 の列 revoke では壊れないが、平文列に依存する経路を残さないため明示する。
+ */
+const CONNECTION_SELECT_COLUMNS =
+  'id, provider, owner_type, owner_id, org_id, token_expires_at, scopes, metadata, status, ' +
+  'last_refreshed_at, created_at, updated_at, access_token_encrypted, refresh_token_encrypted'
+
+/**
  * DB行のトークンを平文に解決して IntegrationConnection を組み立てる。
  *
- * 暗号化列(20260717075717)を優先し、無い場合のみ平文列へフォールバックする。
- * フォールバックが必要なのは expand/contract の移行期の2ケース:
- *   1) マイグレーション適用前(暗号化列そのものが存在しない)
- *   2) マイグレーション適用〜デプロイの間に現行コードが作った新規接続(平文列にしか入らない)
- * 復号失敗(鍵ローテ・不正blob)でも平文へ倒す。contract フェーズで平文列を落とした後は
- * フォールバック先が無くなり、復号失敗はそのまま「トークン無し」= 再接続要求になる。
+ * 【contract フェーズ】暗号化列(20260717075717)*だけ* から解決する。平文列への
+ * フォールバック(`?? row.access_token`)は撤去した。理由:
+ *   - 暗号化列は本番全行でバックフィル済み(access/refresh とも平文と一致検証済み)。
+ *   - 平文列は M2 migration で空化される。フォールバックを残すと復号失敗時に空文字を
+ *     トークンとして素通ししてしまう(`??` は '' を落とさない)。
+ * decryptToken は「一時障害(RPC/DB error)= throw」「恒久破損(復号結果が空)= null」を区別する。
+ * throw は呼び出し側(refreshIfNeededCore)が transient_error に写し、暗号化列 null / 恒久破損は
+ * 「トークン無し」= null を返して呼び出し側が再接続を促す。※pgcrypto は鍵不一致/破損blobも error
+ * として返すため、それらは一時障害(throw)側に入る(安全側: 稼働中の接続を自動失効させない)。
+ * ここで `?? ''` のような空文字フォールバックを新設しないこと(null を返す)。
  *
- * IntegrationConnection.access_token は *平文* のままにしておく(呼び出し側の契約を変えない)。
+ * IntegrationConnection.access_token は復号後の *平文* を返す(呼び出し側の契約を変えない)。
  * 暗号化列名がこのモジュールの外に漏れないようにするのが狙い。
  */
 async function decryptConnectionRow(row: ConnectionRow): Promise<IntegrationConnection> {
-  const accessToken = (await decryptToken(row.access_token_encrypted)) ?? row.access_token ?? null
-  const refreshToken = (await decryptToken(row.refresh_token_encrypted)) ?? row.refresh_token ?? null
+  const accessToken = await decryptToken(row.access_token_encrypted)
+  const refreshToken = await decryptToken(row.refresh_token_encrypted)
+  // 恒久破損の観測性: 暗号文はあるのに復号結果が空＝暗号文破損の疑い(鍵不一致/blob破損)。
+  // 一時障害(decryptToken の throw)とは別に、再接続で直る恒久破損をログで切り分けられるようにする。
+  // refresh は「暗号化列 null=正常(refresh 無しの接続)」なので、列がある場合だけ対象にする。秘密は出さない。
+  if (row.access_token_encrypted && !accessToken) {
+    console.warn('[token-decrypt] corrupt ciphertext (empty decrypt result)', {
+      connection_id: (row as { id?: string }).id,
+      provider: (row as { provider?: string }).provider,
+      kind: 'access_token',
+      code: 'decrypt_empty_result',
+    })
+  }
+  if (row.refresh_token_encrypted && !refreshToken) {
+    console.warn('[token-decrypt] corrupt ciphertext (empty decrypt result)', {
+      connection_id: (row as { id?: string }).id,
+      provider: (row as { provider?: string }).provider,
+      kind: 'refresh_token',
+      code: 'decrypt_empty_result',
+    })
+  }
   return { ...row, access_token: accessToken, refresh_token: refreshToken } as IntegrationConnection
 }
 
 async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): Promise<RefreshCoreResult> {
   const { data: row, error } = await getSupabaseAdmin()
     .from('integration_connections')
-    .select('*')
+    .select(CONNECTION_SELECT_COLUMNS)
     .eq('id', connectionId)
     .single()
 
@@ -80,7 +115,23 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     return { status: 'transient_error' }
   }
 
-  const connection = await decryptConnectionRow(row as ConnectionRow)
+  // decryptConnectionRow は復号の一時障害(RPC/DB error)を throw、恒久破損を null 化して返す。
+  // 一時障害を expired 化しないよう transient_error に写す(誤って稼働中の接続を失効させない)。
+  let connection: IntegrationConnection
+  try {
+    // 明示列 select は string 変数のため PostgREST の型推論が効かない。unknown 経由でキャストする。
+    connection = await decryptConnectionRow(row as unknown as ConnectionRow)
+  } catch {
+    // 恒久破損が永久リトライで回復しないリスクへの最低限の観測性。秘密(トークン・暗号文・鍵)は出さない。
+    // 「単一接続だけ連続失敗 vs DB全体障害」を後から切り分けられるよう connection_id / provider を残す。
+    // 連続失敗の集計・隔離・通知は別PR。ログで運用が気づけるのを最低ラインにする。
+    console.warn('[token-decrypt] transient decrypt failure', {
+      connection_id: connectionId,
+      provider: (row as { provider?: string }).provider,
+      kind: 'connection_token',
+    })
+    return { status: 'transient_error' }
+  }
 
   // Check if token is still valid (with buffer)
   if (connection.token_expires_at) {
@@ -104,11 +155,11 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
   try {
     const refreshed = await refreshFn(connection.refresh_token)
 
-    // 移行期(expandフェーズ)は暗号化列と平文列の両方へ書く。平文列を読んでいる現行デプロイを
-    // 壊さないため。contractフェーズ(後続PR)で平文側の書き込みを止めてから列をDROPする。
+    // contractフェーズ: 平文列には実値を書かない。access_token は NOT NULL 制約を満たすため
+    // 空文字で埋め、トークンの正本は暗号化列にだけ入れる。refresh 平文キーは出さない。
     // encryptTokenは失敗時にthrowする(「暗号化できなかったので平文だけ保存」に倒さない)。
     const updateData: Record<string, unknown> = {
-      access_token: refreshed.accessToken,
+      access_token: '',
       access_token_encrypted: await encryptToken(refreshed.accessToken),
       token_expires_at: refreshed.expiresAt ? refreshed.expiresAt.toISOString() : null,
       last_refreshed_at: new Date().toISOString(),
@@ -116,10 +167,8 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     }
 
     // 回帰修正(修正1): refresh_tokenがtruthyな時だけ上書きする。null/undefinedは
-    // 「ローテートされなかった」を意味し、既存のrefresh_tokenを保持する。
-    // 暗号化列も同じ条件で揃えないと、平文だけ残って暗号化列がnullに潰れる。
+    // 「ローテートされなかった」を意味し、既存のrefresh_token_encryptedを保持する。
     if (refreshed.refreshToken) {
-      updateData.refresh_token = refreshed.refreshToken
       updateData.refresh_token_encrypted = await encryptToken(refreshed.refreshToken)
     }
 
@@ -127,7 +176,7 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
       .from('integration_connections')
       .update(updateData)
       .eq('id', connectionId)
-      .select('*')
+      .select(CONNECTION_SELECT_COLUMNS)
       .single()
 
     if (updateError) {
@@ -136,7 +185,7 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
       return { status: 'transient_error' }
     }
 
-    return { status: 'refreshed', connection: await decryptConnectionRow(updated as ConnectionRow) }
+    return { status: 'refreshed', connection: await decryptConnectionRow(updated as unknown as ConnectionRow) }
   } catch (err) {
     const httpStatus = (err as { status?: number } | undefined)?.status
     if (httpStatus === 400 || httpStatus === 401) {
@@ -194,7 +243,13 @@ export async function getValidTokenDetailed(
 ): Promise<ValidTokenDetailedResult> {
   const result = await refreshIfNeededCore(connectionId, refreshFn)
   if (result.status === 'valid' || result.status === 'refreshed') {
-    return { status: 'ok', token: result.connection.access_token }
+    const token = result.connection.access_token
+    // 恒久破損(復号が null 化)で access_token が空/null のまま status:'ok' を返すと、
+    // 呼び出し側が null/空トークンを有効とみなして外部APIへ渡してしまう。トークンが無いなら
+    // auth_failed(再接続要求)に分類する。※一時障害は refreshIfNeededCore が transient_error に
+    // 分類済みなのでここには来ない(=ok/token=null は恒久破損だけ)。
+    if (!token) return { status: 'auth_failed' }
+    return { status: 'ok', token }
   }
   return { status: result.status }
 }
@@ -225,7 +280,7 @@ export async function findConnection(
 ): Promise<IntegrationConnection | null> {
   const { data, error } = await getSupabaseAdmin()
     .from('integration_connections')
-    .select('*')
+    .select(CONNECTION_SELECT_COLUMNS)
     .eq('provider', provider)
     .eq('owner_type', ownerType)
     .eq('owner_id', ownerId)
@@ -233,27 +288,40 @@ export async function findConnection(
     .single()
 
   if (error || !data) return null
-  return decryptConnectionRow(data as ConnectionRow)
+  // 復号の一時障害(throw)は「見つからない」(null)に倒す。この関数の既存契約は null|接続 で、
+  // 呼び出し側(google-meet 等)は null を未接続として扱う。トークンの実解決は getValidToken 経由の
+  // refreshIfNeededCore が別途行う(そこでは transient を正しく区別する)。
+  try {
+    return await decryptConnectionRow(data as unknown as ConnectionRow)
+  } catch {
+    // 一時障害。秘密は出さず、後から切り分け可能な最小情報(id/provider)だけ warn する。
+    console.warn('[token-decrypt] transient decrypt failure', {
+      connection_id: (data as { id?: string }).id,
+      provider,
+      kind: 'connection_token',
+    })
+    return null
+  }
 }
 
 /**
  * 接続を新規作成/更新する際のトークン列を組み立てる。
  *
- * 暗号化列と平文列の両方を返す(移行期)。呼び出し側(OAuthコールバック)が生の
+ * 【contract フェーズ】平文列には実値を書かない。呼び出し側(OAuthコールバック)が生の
  * access_token/refresh_token を直接 upsert ペイロードへ書かないようにするための唯一の入口。
- * refreshToken が null の場合は refresh_token 系のキー自体を含めない
- * (upsertのon conflict時に既存の有効なrefresh_tokenを潰さないため)。
+ * access_token 平文列は NOT NULL 制約を満たすため空文字で埋め、トークンの正本は暗号化列に
+ * だけ入れる。refreshToken が null の場合は refresh_token 系のキー自体を含めない
+ * (upsertのon conflict時に既存の有効なrefresh_token_encryptedを潰さないため)。
  */
 export async function buildTokenColumns(params: {
   accessToken: string
   refreshToken?: string | null
 }): Promise<Record<string, unknown>> {
   const columns: Record<string, unknown> = {
-    access_token: params.accessToken,
+    access_token: '',
     access_token_encrypted: await encryptToken(params.accessToken),
   }
   if (params.refreshToken) {
-    columns.refresh_token = params.refreshToken
     columns.refresh_token_encrypted = await encryptToken(params.refreshToken)
   }
   return columns

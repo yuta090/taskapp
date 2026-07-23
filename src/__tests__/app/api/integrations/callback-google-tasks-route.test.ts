@@ -86,9 +86,9 @@ describe('GET /api/integrations/callback/google_tasks', () => {
         owner_type: 'user',
         owner_id: USER_ID,
         org_id: ORG_ID,
-        access_token: 'access-abc',
+        // contract: 平文列には実値を書かず、暗号化列にだけ入れる。
+        access_token: '',
         access_token_encrypted: 'enc(access-abc)',
-        refresh_token: 'refresh-abc',
         refresh_token_encrypted: 'enc(refresh-abc)',
         token_expires_at: '2026-07-20T01:00:00.000Z',
         scopes: 'https://www.googleapis.com/auth/tasks',

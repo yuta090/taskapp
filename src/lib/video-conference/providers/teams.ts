@@ -65,7 +65,8 @@ export class TeamsProvider implements VideoConferenceProvider {
 
       const { data: conn } = await supabaseAdmin
         .from('integration_connections')
-        .select('*')
+        // contract: 平文 access_token/refresh_token 列は取得しない。トークンは暗号化列から復号する。
+        .select('id, access_token_encrypted, refresh_token_encrypted, token_expires_at')
         .eq('provider', 'teams')
         .eq('owner_type', 'user')
         .eq('owner_id', userId)
@@ -74,9 +75,10 @@ export class TeamsProvider implements VideoConferenceProvider {
 
       if (!conn) return null
 
-      // 暗号化列(20260717075717)を優先し、無ければ平文列へフォールバックする(移行期)。
-      const accessToken = (await decryptToken(conn.access_token_encrypted)) ?? conn.access_token
-      const refreshToken = (await decryptToken(conn.refresh_token_encrypted)) ?? conn.refresh_token
+      // 暗号化列のみから解決する(平文フォールバックは撤去)。decryptToken は一時障害を throw、
+      // 恒久破損を null で返す。throw はこの関数の catch が拾い null を返す(client credentials へ)。
+      const accessToken = await decryptToken(conn.access_token_encrypted)
+      const refreshToken = await decryptToken(conn.refresh_token_encrypted)
 
       // トークンの有効期限を確認（1分の余裕）
       const expiresAt = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0
