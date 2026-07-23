@@ -17,6 +17,7 @@ import {
 } from '@/lib/channels/registry'
 import { fetchChatworkAccountId } from '@/lib/channels/chatwork/client'
 import { verifySlackToken } from '@/lib/channels/slack/probe'
+import { verifyTelegramToken } from '@/lib/channels/telegram/probe'
 import { isValidUuid } from '@/lib/uuid'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -267,6 +268,36 @@ export async function POST(request: NextRequest) {
       )
     }
     operatorCredentials.bot_user_id = probe.botUserId
+  }
+
+  // Telegram: 受信の拾い漏れ防止のため、getMe で privacy mode（グループ全発言を読めるか）と
+  // bot_token の有効性を検証する。privacy mode ON（can_read_all_group_messages=false）だと
+  // グループでの拾いが成立しないため fail-closed で登録させない。
+  // 併せて自分宛メンション判定に使う bot_username を解決して控える。
+  if (channel === 'telegram') {
+    const probe = await verifyTelegramToken(operatorCredentials.bot_token)
+    if (!probe.ok && probe.code === 'telegram_privacy_mode') {
+      return NextResponse.json(
+        {
+          error:
+            'このBotはグループの全発言を読み取れません（プライバシーモードが有効です）。' +
+            '@BotFather で該当Botの /setprivacy を Disable にしてから再試行してください',
+          code: 'telegram_privacy_mode',
+        },
+        { status: 400 },
+      )
+    }
+    if (!probe.ok) {
+      return NextResponse.json(
+        {
+          error: 'Telegram Bot Tokenを検証できませんでした。トークンを確認して再試行してください',
+          code: 'telegram_token_unverified',
+        },
+        { status: 400 },
+      )
+    }
+    operatorCredentials.bot_username = probe.botUsername
+    operatorCredentials.bot_id = probe.botId
   }
 
   // サーバー生成フィールド（webhook_secret 等）を生成する。
