@@ -137,7 +137,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     ],
     setupUrl: 'https://api.slack.com/apps',
     notes:
-      '自社Slackアプリ（白ラベル）を account 単位URLで接続。受信はEvents API（v0署名+5分リプレイ窓）、message のテキストを取り込む。旧統合 /api/slack/webhook（slack_workspaces）とは別系統。scopes: chat:write, channels:read, groups:read, event: message.channels 等。',
+      '自社Slackアプリ（白ラベル）を account 単位URLで接続。受信はEvents API（v0署名+5分リプレイ窓）で claim（合言葉）方式のグループ紐付けと「完了N」コマンドに対応（discordと同じ骨格）。登録時にauth.testでbot_token検証・scope確認（chat:write必須、channels:history/groups:historyのいずれか必須）・bot自身のuser_idを解決。旧統合 /api/slack/webhook（slack_workspaces）とは別系統。',
   },
   chatwork: {
     id: 'chatwork',
@@ -163,7 +163,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     ],
     setupUrl: 'https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php',
     notes:
-      '日本のSMBで普及。受信はWebhook v2（HMAC-SHA256/Base64）。account単位URLで受け、webhook_tokenで署名検証。message_created/mention_to_meのテキストを取り込む。',
+      '日本のSMBで普及。受信はWebhook v2（HMAC-SHA256/Base64）。account単位URLで受け、webhook_tokenで署名検証。message_created/mention_to_meのテキストを取り込み、claim（合言葉）方式のルーム紐付けと「完了N」コマンドに対応（Slack/Discordと同じ骨格）。',
   },
   google_chat: {
     id: 'google_chat',
@@ -220,7 +220,11 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
       { key: 'webhook_secret', label: 'Webhook Secret Token', secret: true, generated: true, help: '登録時にサーバーが自動生成。setWebhook の secret_token に設定する' },
     ],
     setupUrl: 'https://core.telegram.org/bots#botfather',
-    notes: 'sendMessage で送信。受信は setWebhook + X-Telegram-Bot-Api-Secret-Token 照合。',
+    notes:
+      'sendMessage で送信。受信は setWebhook + X-Telegram-Bot-Api-Secret-Token 照合で account 単位URLに対応。' +
+      'claim（合言葉）方式のチャット紐付けと「完了N」コマンドに対応（Slack/Discord/Chatworkと同じ骨格）。' +
+      '登録時にgetMeでbot_token検証・privacy mode（グループ全発言の読み取り可否）を確認しfail-closed、' +
+      'bot自身のusernameを解決（自分宛メンション判定に使用）。',
   },
   teams: {
     id: 'teams',
