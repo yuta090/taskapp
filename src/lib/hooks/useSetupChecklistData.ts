@@ -23,6 +23,7 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
   hasLineLinked: false,
   lineAccess: 'unavailable',
   aiConfigured: false,
+  dmUnreachable: false,
 }
 
 /**
@@ -33,9 +34,14 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
  */
 async function fetchLineStatus(
   orgId: string
-): Promise<Pick<SetupChecklistData, 'hasLineLinked' | 'lineAccess' | 'aiConfigured'>> {
+): Promise<Pick<SetupChecklistData, 'hasLineLinked' | 'lineAccess' | 'aiConfigured' | 'dmUnreachable'>> {
   const VALID = ['own', 'granted', 'requested', 'none', 'unavailable'] as const
-  const fail = { hasLineLinked: false, lineAccess: 'unavailable' as const, aiConfigured: false }
+  const fail = {
+    hasLineLinked: false,
+    lineAccess: 'unavailable' as const,
+    aiConfigured: false,
+    dmUnreachable: false,
+  }
   try {
     const res = await fetch(`/api/onboarding/line-status?orgId=${encodeURIComponent(orgId)}`)
     if (!res.ok) return fail
@@ -43,6 +49,7 @@ async function fetchLineStatus(
       hasLineLinked?: unknown
       lineAccess?: unknown
       aiConfigured?: unknown
+      dmUnreachable?: unknown
     }
     const lineAccess = VALID.includes(json.lineAccess as (typeof VALID)[number])
       ? (json.lineAccess as SetupChecklistData['lineAccess'])
@@ -51,6 +58,7 @@ async function fetchLineStatus(
       hasLineLinked: json.hasLineLinked === true,
       lineAccess,
       aiConfigured: json.aiConfigured === true,
+      dmUnreachable: json.dmUnreachable === true,
     }
   } catch {
     return fail
@@ -145,6 +153,7 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         hasLineLinked: lineStatus.hasLineLinked,
         lineAccess: lineStatus.lineAccess,
         aiConfigured: lineStatus.aiConfigured,
+        dmUnreachable: lineStatus.dmUnreachable,
       }
     },
     staleTime: 30_000,

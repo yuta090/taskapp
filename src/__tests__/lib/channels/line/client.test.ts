@@ -7,6 +7,7 @@ import {
   fetchGroupMemberProfile,
   fetchGroupSummary,
   fetchBotInfo,
+  fetchLineUserProfile,
   LinePushError,
 } from '@/lib/channels/line/client'
 
@@ -285,5 +286,45 @@ describe('fetchBotInfo（LINE友だち追加QR導線: basic_id取得用）', () 
     fetchMock.mockRejectedValueOnce(new Error('network down'))
     const result = await fetchBotInfo('token-123')
     expect(result).toBeNull()
+  })
+})
+
+describe('fetchLineUserProfile（DM到達不能の日次照合ジョブ専用）', () => {
+  it('200 → reachable（1:1 profile エンドポイントをBearer認証で叩く）', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ displayName: '田中太郎', userId: 'U-1' }), { status: 200 }),
+    )
+
+    const result = await fetchLineUserProfile('token-123', 'U-1')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.line.me/v2/bot/profile/U-1')
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer token-123')
+    expect(result).toBe('reachable')
+  })
+
+  it('404 → unreachable（ブロック済み/未フォロー）', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
+    const result = await fetchLineUserProfile('token-123', 'U-blocked')
+    expect(result).toBe('unreachable')
+  })
+
+  it('429 → error（判定保留・レート制限）', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Too Many Requests', { status: 429 }))
+    const result = await fetchLineUserProfile('token-123', 'U-1')
+    expect(result).toBe('error')
+  })
+
+  it('500 → error（判定保留）', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }))
+    const result = await fetchLineUserProfile('token-123', 'U-1')
+    expect(result).toBe('error')
+  })
+
+  it('ネットワーク例外 → error（判定保留）', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('network down'))
+    const result = await fetchLineUserProfile('token-123', 'U-1')
+    expect(result).toBe('error')
   })
 })

@@ -2660,6 +2660,26 @@ export async function hasActiveUserLinkForUser(orgId: string, userId: string): P
 }
 
 /**
+ * 現在ユーザー自身の active な LINE 紐付けが「DM到達不能」マーク済み(dm_unreachable_at 非NULL)か。
+ * オンボーディング/秘書コンソールのLINE連携状態表示（line-status API）向け。webhookの
+ * unfollow/follow(markDmUnreachable/clearDmUnreachable)と日次照合ジョブ
+ * （dmReachabilityReconcile）が唯一の書き手で、ここは読み取り専用（存在判定のみ）。
+ * 該当する active な紐付けが無い（未連携）場合も false（誤って「到達不能」を出さない）。
+ */
+export async function isDmUnreachableForUser(orgId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .is('revoked_at', null)
+    .not('dm_unreachable_at', 'is', null)
+    .limit(1)
+  if (error) throw new Error(`channel_user_links: dm unreachable check failed: ${error.message}`)
+  return (data?.length ?? 0) > 0
+}
+
+/**
  * 現在ユーザー自身の active な LINE 紐付けを値で返す（hasActiveUserLinkForUser の値返し版）。
  * 期限リマインドの1:1 DM 宛先解決に使う（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
  * §9 §A・PR-1）。同一ユーザーが同一org内で active にできるのは1件のみ
@@ -2803,6 +2823,73 @@ export async function clearDmUnreachable(
     // 同一ミリ秒に一致するのは実務上発生しない前提（もし発生しても次のイベントで解消する）。
     .lt('dm_unreachable_at', occurredAt)
   if (error) throw new Error(`channel_user_links: clear dm_unreachable failed: ${error.message}`)
+}
+
+export interface ActiveOrgDmLink {
+  orgId: string
+  accountId: string
+  /** 復号済みの channel access token（既存の decryptAccount と同じ復号作法） */
+  accessToken: string
+  externalUserId: string
+  dmUnreachableAt: string | null
+}
+
+/**
+ * 日次照合ジョブ（dmReachabilityReconcile・安全網の仕上げ）専用: owner_type='org'
+ * （自社LINE。DMは自社LINEアカウントのみが持つ・設計正本 §7）配下の active な1:1紐付け
+ * (channel_user_links, revoked_at is null)を、復号済みaccessToken付きで一覧する。
+ *
+ * webhookのunfollow/follow（markDmUnreachable/clearDmUnreachableの唯一のトリガ）は
+ * 「導入前から既にブロック済み」「unfollowイベント自体の取りこぼし」を拾えない。この一覧を
+ * 使い、LINE 1:1 profile取得（fetchLineUserProfile）で実際の到達可否を照合し直す。
+ *
+ * account側はstatus='active'のみ対象（disabledはpush自体が止まっており照合の意味が無い）。
+ * 同一accountを指す行が複数あっても復号(decrypt_system_secret RPC)は1回にまとめる
+ * （accountCacheで重複排除）。復号に失敗したaccountの行はベストエフォートでスキップする
+ * （他accountの行の処理は継続する）。
+ */
+export async function listActiveOrgDmLinks(): Promise<ActiveOrgDmLink[]> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select(
+      'org_id, channel_account_id, external_user_id, dm_unreachable_at, channel_accounts!inner(id, org_id, display_name, credentials_encrypted, status, owner_type)',
+    )
+    .is('revoked_at', null)
+    .eq('channel_accounts.owner_type', 'org')
+    .eq('channel_accounts.status', 'active')
+  if (error) throw new Error(`channel_user_links: list active org dm links failed: ${error.message}`)
+  if (!data) return []
+
+  type Row = {
+    org_id: string
+    channel_account_id: string
+    external_user_id: string
+    dm_unreachable_at: string | null
+    channel_accounts: AccountRow | AccountRow[] | null
+  }
+
+  const accountCache = new Map<string, LineAccount | null>()
+  const results: ActiveOrgDmLink[] = []
+  for (const row of data as unknown as Row[]) {
+    const accRow = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
+    if (!accRow) continue
+
+    let account = accountCache.get(accRow.id)
+    if (account === undefined) {
+      account = await decryptAccount(accRow)
+      accountCache.set(accRow.id, account)
+    }
+    if (!account) continue
+
+    results.push({
+      orgId: row.org_id,
+      accountId: row.channel_account_id,
+      accessToken: account.accessToken,
+      externalUserId: row.external_user_id,
+      dmUnreachableAt: row.dm_unreachable_at,
+    })
+  }
+  return results
 }
 
 /**
