@@ -51,7 +51,11 @@ function delivery(overrides: Partial<Record<string, unknown>> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  findDeliverableSinksByIdsMock.mockResolvedValue({ sinks: new Map([['sink-1', SINK]]), transientSinkIds: new Set() })
+  findDeliverableSinksByIdsMock.mockResolvedValue({
+    sinks: new Map([['sink-1', SINK]]),
+    transientSinkIds: new Set(),
+    refreshTransientSinkIds: new Set(),
+  })
 })
 
 describe('dispatchBatch', () => {
@@ -173,14 +177,20 @@ describe('dispatchBatch', () => {
     expect(summary.dead).toBe(1)
   })
 
-  // レビュー回帰(Major修正2): Google Sheetsのtoken refreshが一時障害(5xx/ネットワーク)で
-  // 失敗した場合、sink_not_deliverable(恒久)ではなくtemporary_fail(再試行)に落とす。
-  // store.findDeliverableSinksByIdsがtransientSinkIdsで区別して返す。
-  it('treats a sink whose resolution failed transiently (e.g. Google Sheets token refresh 5xx) as temporary_fail, not permanent', async () => {
-    claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient' })])
+  // defer 強化(Fable 裁定 2026-07-23): 自分側インフラ由来の一時障害(復号RPC/DB read の瞬断)は
+  // sink_not_deliverable(恒久)にも temporary_fail(予算消費)にもせず、**defer**(attempt 不変・5分後再試行)で
+  // 完了させる。attempt 不変そのものは RPC(rpc_complete_sink_delivery の defer 分岐)が保証する。
+  // ここでは dispatcher が outcome:'defer' を要求することを固定する。
+  it('sink の infra 一時障害(復号/DB)は defer で完了させ、dead/temporary_fail にしない', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([
+      delivery({ id: 'd-a', sinkId: 'sink-a' }),
+      delivery({ id: 'd-b', sinkId: 'sink-b' }),
+    ])
+    // store が sink一覧DB error / 復号一時障害でバッチ全体を infra transient として返した状態。
     findDeliverableSinksByIdsMock.mockResolvedValue({
       sinks: new Map(),
-      transientSinkIds: new Set(['sink-transient']),
+      transientSinkIds: new Set(['sink-a', 'sink-b']),
+      refreshTransientSinkIds: new Set(),
     })
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'failed',
@@ -193,24 +203,25 @@ describe('dispatchBatch', () => {
 
     expect(deliverWebhookMock).not.toHaveBeenCalled()
     expect(deliverGoogleSheetsMock).not.toHaveBeenCalled()
-    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
-    )
-    expect(summary.failed).toBe(1)
+    expect(completeSinkDeliveryMock).toHaveBeenCalledTimes(2)
+    for (const call of completeSinkDeliveryMock.mock.calls) {
+      expect(call[0]).toEqual(
+        expect.objectContaining({ outcome: 'defer', countsTowardFailures: true }),
+      )
+      expect(call[0]).not.toEqual(expect.objectContaining({ outcome: 'permanent_fail' }))
+      expect(call[0]).not.toEqual(expect.objectContaining({ outcome: 'temporary_fail' }))
+    }
     expect(summary.dead).toBe(0)
   })
 
-  // 【Critical】sink復号/DB一時障害(store側で transientSinkIds に載る)を dead にしない。
-  // 一時障害バッチは全件 temporary_fail で、1件も permanent_fail/dead にしないことを固定する。
-  it('sink の一時障害(復号/DB)は temporary_fail になり dead にならない', async () => {
-    claimSinkDeliveriesMock.mockResolvedValue([
-      delivery({ id: 'd-a', sinkId: 'sink-a' }),
-      delivery({ id: 'd-b', sinkId: 'sink-b' }),
-    ])
-    // store が sink一覧DB error / 復号一時障害でバッチ全体を transient として返した状態。
+  // 外部refresh起因(Google Sheets の token refresh 5xx)は defer にせず、従来どおり temporary_fail
+  // (attempt 消費・バックオフ)にする。配達先/外部プロバイダ起因はカテゴリが違うため。
+  it('google_sheets の token refresh 5xx(refreshTransientSinkIds)は従来どおり temporary_fail(defer にしない)', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-refresh' })])
     findDeliverableSinksByIdsMock.mockResolvedValue({
       sinks: new Map(),
-      transientSinkIds: new Set(['sink-a', 'sink-b']),
+      transientSinkIds: new Set(),
+      refreshTransientSinkIds: new Set(['sink-refresh']),
     })
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'failed',
@@ -221,24 +232,24 @@ describe('dispatchBatch', () => {
 
     const summary = await dispatchBatch()
 
-    expect(completeSinkDeliveryMock).toHaveBeenCalledTimes(2)
-    for (const call of completeSinkDeliveryMock.mock.calls) {
-      expect(call[0]).toEqual(
-        expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
-      )
-      expect(call[0]).not.toEqual(expect.objectContaining({ outcome: 'permanent_fail' }))
-    }
+    expect(deliverGoogleSheetsMock).not.toHaveBeenCalled()
+    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
+    )
+    expect(completeSinkDeliveryMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'defer' }),
+    )
     expect(summary.dead).toBe(0)
-    expect(summary.failed).toBe(2)
   })
 
-  // 恒久破損を transient 扱いにした戦略を運用的に完結させる: 20連続失敗で sink が自動停止(error)した
-  // とき、既存の停止通知(notifySinkBecameError)を transient 分岐でも発火する。
-  it('transient失敗が連続してsinkがerror化(justBecameError)したら停止通知を発火する', async () => {
+  // defer を運用的に完結させる: 20連続 defer で sink が自動停止(error)したとき、
+  // 既存の停止通知(notifySinkBecameError)を defer 分岐でも発火する(20回→停止→通知→再接続)。
+  it('defer が連続してsinkがerror化(justBecameError)したら停止通知を発火する', async () => {
     claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient', orgId: 'org-9' })])
     findDeliverableSinksByIdsMock.mockResolvedValue({
       sinks: new Map(),
       transientSinkIds: new Set(['sink-transient']),
+      refreshTransientSinkIds: new Set(),
     })
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'failed',
@@ -249,14 +260,18 @@ describe('dispatchBatch', () => {
 
     await dispatchBatch()
 
+    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'defer' }),
+    )
     expect(notifySinkBecameErrorMock).toHaveBeenCalledWith('sink-transient', 'org-9')
   })
 
-  it('transient失敗でもjustBecameErrorがfalseなら停止通知を発火しない', async () => {
+  it('defer でもjustBecameErrorがfalseなら停止通知を発火しない', async () => {
     claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient' })])
     findDeliverableSinksByIdsMock.mockResolvedValue({
       sinks: new Map(),
       transientSinkIds: new Set(['sink-transient']),
+      refreshTransientSinkIds: new Set(),
     })
     completeSinkDeliveryMock.mockResolvedValue({
       deliveryStatus: 'failed',

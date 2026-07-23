@@ -802,8 +802,38 @@ describe('findDeliverableSinksByIds (google_sheets transient error handling)', (
 
     expect(result.sinks.has('sink-ok')).toBe(true)
     expect(result.sinks.has('sink-transient')).toBe(false)
+    // kind 不在(=インフラ由来)は transientSinkIds に入り、dispatcher が defer する。
     expect(result.transientSinkIds.has('sink-transient')).toBe(true)
     expect(result.transientSinkIds.has('sink-ok')).toBe(false)
+    expect(result.refreshTransientSinkIds.has('sink-transient')).toBe(false)
+  })
+
+  // defer 強化(Fable 裁定 2026-07-23): 外部refresh起因(transientKind='refresh')は
+  // transientSinkIds(=defer)ではなく refreshTransientSinkIds(=従来の temporary_fail)に分離する。
+  it('separates a refresh-transient (token refresh 5xx) google_sheets sink into refreshTransientSinkIds, not transientSinkIds', async () => {
+    rpcResponses['decrypt_system_secret'] = { data: 'stale-token', error: null }
+    fromMock.mockImplementation((table: string) => {
+      fromCalls.push({ table, args: [] })
+      if (table === 'integration_sinks') {
+        return chain({
+          data: [
+            { id: 'sink-refresh', org_id: ORG_ID, provider: 'google_sheets', config: VALID_CONFIG, secret_encrypted: null },
+          ],
+          error: null,
+        })
+      }
+      if (table === 'integration_connections') {
+        return chain({ data: { id: 'conn-gs-1', access_token_encrypted: 'ENC_STALE' }, error: null })
+      }
+      return chain({ data: null, error: null })
+    })
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error', transientKind: 'refresh' })
+
+    const result = await store.findDeliverableSinksByIds(['sink-refresh'])
+
+    expect(result.sinks.has('sink-refresh')).toBe(false)
+    expect(result.refreshTransientSinkIds.has('sink-refresh')).toBe(true)
+    expect(result.transientSinkIds.has('sink-refresh')).toBe(false)
   })
 
   it('does not add auth_failed/unavailable sinks to transientSinkIds (stays permanent)', async () => {

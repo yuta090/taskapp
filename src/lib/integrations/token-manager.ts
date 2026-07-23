@@ -34,10 +34,23 @@ type RefreshFn = (refreshToken: string) => Promise<{
  *    HTTP statusを持たない例外)に分類する。失効時のみstatus='expired'化してDBに残す。
  *    一時障害ではDBを一切更新しない(呼び出し側の再試行に委ねる)。
  */
+/**
+ * 一時障害の由来。'refresh' = **外部プロバイダ**(Googleのrefreshエンドポイント等)への呼び出しが
+ * 5xx/ネットワークで一時的に落ちた(＝配達先/外部起因)。**それ以外(field 不在)は自分側インフラの
+ * 一時障害**(接続行のDB読取・トークン復号RPC/vault の瞬断)を意味する。
+ *
+ * この区別が要る理由(Fable 裁定 2026-07-23): 「配達を試みる前に自分のDB/秘密が読めない」インフラ
+ * 一時障害は、アウトボックスの attempt 予算を消費すべきでない(defer)。一方 refresh 5xx は外部起因で
+ * カテゴリが違い、従来どおり temporary_fail(予算消費・バックオフ)にする。
+ * 呼び出し側(sinks/store・task-sync/credentials)がこの kind を見て defer/temporary_fail を振り分ける。
+ * field を省略した(= undefined)場合は安全側で「インフラ」として扱う(既存の呼び出し互換)。
+ */
+export type TransientKind = 'infra' | 'refresh'
+
 type RefreshCoreResult =
   | { status: 'valid' | 'refreshed'; connection: IntegrationConnection }
   | { status: 'auth_failed' }
-  | { status: 'transient_error' }
+  | { status: 'transient_error'; transientKind?: TransientKind }
 
 /**
  * DBの生行。トークンは暗号化列(access_token_encrypted/refresh_token_encrypted)から解決する
@@ -196,8 +209,10 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     }
     // 5xx・ネットワークエラー・timeout等statusを持たない失敗は一時障害。
     // DBを触らずactiveのまま残し、呼び出し側の再試行に委ねる。
+    // これは**外部プロバイダ起因**(refresh エンドポイント)なので transientKind='refresh' を付す
+    // (呼び出し側は defer せず従来どおり temporary_fail=予算消費で扱う)。
     console.error('Token refresh failed (transient):', err)
-    return { status: 'transient_error' }
+    return { status: 'transient_error', transientKind: 'refresh' }
   }
 }
 
@@ -229,7 +244,8 @@ export async function getValidToken(connectionId: string, refreshFn: RefreshFn):
 export type ValidTokenDetailedResult =
   | { status: 'ok'; token: string }
   | { status: 'auth_failed' }
-  | { status: 'transient_error' }
+  // transientKind='refresh' は外部refresh起因(temporary_fail)。field 不在=インフラ一時障害(defer 対象)。
+  | { status: 'transient_error'; transientKind?: TransientKind }
 
 /**
  * getValidTokenの詳細版。失効(auth_failed)と一時障害(transient_error)を呼び出し側へ
@@ -250,6 +266,13 @@ export async function getValidTokenDetailed(
     // 分類済みなのでここには来ない(=ok/token=null は恒久破損だけ)。
     if (!token) return { status: 'auth_failed' }
     return { status: 'ok', token }
+  }
+  if (result.status === 'transient_error') {
+    // 由来(refresh=外部起因)が判っているときだけ transientKind を付す。インフラ由来は field を
+    // 付けない(= defer 対象。呼び出し側は transientKind !== 'refresh' で判定する)。
+    return result.transientKind
+      ? { status: 'transient_error', transientKind: result.transientKind }
+      : { status: 'transient_error' }
   }
   return { status: result.status }
 }

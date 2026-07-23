@@ -187,7 +187,7 @@ describe('dispatchConnectorJobsBatch', () => {
   it('ジョブが無ければ何もしない', async () => {
     claimReturns([])
     const s = await dispatchConnectorJobsBatch()
-    expect(s).toEqual({ claimed: 0, done: 0, tempFailed: 0, dead: 0 })
+    expect(s).toEqual({ claimed: 0, done: 0, tempFailed: 0, dead: 0, deferred: 0 })
     expect(sendIssueUpsertMock).not.toHaveBeenCalled()
   })
 
@@ -390,6 +390,88 @@ describe('dispatchConnectorJobsBatch', () => {
         const s = await dispatchConnectorJobsBatch()
         expect(s.dead).toBe(1)
       })
+    })
+  })
+
+  /**
+   * defer 強化(Fable 裁定 2026-07-23): 配達を試みる前の**自分側インフラ**一時障害(トークン復号RPC/
+   * DB read の瞬断=transientKind 不在)は attempt を消費せず defer(5分後再試行)。attempt 不変そのものは
+   * RPC(rpc_complete_connector_job の defer 分岐)が保証する。ここでは dispatch が outcome:'defer' を
+   * 要求すること・72h キャップで temporary_fail へ降格すること・外部起因は従来どおり temporary_fail を固定する。
+   */
+  describe('インフラ一時障害の defer と 72h キャップ', () => {
+    const recentCreatedAt = () => new Date(Date.now() - 60 * 60 * 1000).toISOString() // 1h前
+    const staleCreatedAt = () => new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString() // 73h前
+
+    it('google_tasks: インフラ一時障害(transient_error, kind無し)は attempt を消費せず defer', async () => {
+      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(completeCall('temporary_fail')).toBeFalsy()
+      expect(patchTaskMock).not.toHaveBeenCalled()
+      expect(s.deferred).toBe(1)
+      expect(s.tempFailed).toBe(0)
+      expect(s.dead).toBe(0)
+    })
+
+    it('google_tasks: 外部refresh起因(transientKind=refresh)は defer せず従来どおり temporary_fail', async () => {
+      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error', transientKind: 'refresh' })
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('temporary_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.tempFailed).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+
+    it('google_tasks: created_at から72h超のインフラ一時障害は temporary_fail に降格(=最終的にdeadへ収束・無限defer防止)', async () => {
+      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: staleCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('temporary_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.tempFailed).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+
+    it('backlog(task-sync): 資格情報のインフラ一時障害(transient_error, kind無し)は defer', async () => {
+      resolveCredentialsMock.mockResolvedValue({ status: 'transient_error' })
+      claimReturns([job('conn-backlog', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(completeTaskMock).not.toHaveBeenCalled()
+      expect(s.deferred).toBe(1)
+      expect(s.tempFailed).toBe(0)
+    })
+
+    it('backlog(task-sync): 72h超のインフラ一時障害は temporary_fail に降格', async () => {
+      resolveCredentialsMock.mockResolvedValue({ status: 'transient_error' })
+      claimReturns([job('conn-backlog', 'complete', {}, { created_at: staleCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('temporary_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.tempFailed).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+
+    it('backlog(task-sync): 外部refresh起因(transientKind=refresh)は defer せず temporary_fail', async () => {
+      resolveCredentialsMock.mockResolvedValue({ status: 'transient_error', transientKind: 'refresh' })
+      claimReturns([job('conn-backlog', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('temporary_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.tempFailed).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+
+    it('created_at が無い異常時は defer せず temporary_fail(安全側=寝かせ続けない)', async () => {
+      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+      claimReturns([job('conn-gtasks', 'complete', {})]) // created_at 未設定
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('temporary_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.tempFailed).toBe(1)
     })
   })
 

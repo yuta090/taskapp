@@ -47,6 +47,28 @@ interface ConnectorJob {
   attempt: number
   version: number
   leased_until: string | null
+  // 72h defer キャップの基準(rpc_claim_connector_jobs は j.* を返すため常に含まれる)。
+  created_at?: string | null
+}
+
+/**
+ * defer(インフラ一時障害で attempt を消費しない)の経過時間キャップ。
+ * connector_jobs には sink の 20連続自動停止に相当する circuit breaker が無いため、無限 defer を
+ * 防ぐ歯止めをコード側に置く(Fable 裁定 2026-07-23)。job の created_at から 72h を超えた defer 対象は
+ * temporary_fail に降格し、従来のバックオフ予算消費(最終的に dead へ収束)に戻す。
+ */
+const INFRA_DEFER_MAX_AGE_MS = 72 * 60 * 60 * 1000
+
+/**
+ * インフラ一時障害の完了 outcome を決める。72h 以内なら defer(attempt 不変)、超過なら
+ * temporary_fail に降格する(無限ループ防止=最終的に dead へ収束)。created_at が無い異常時も
+ * 安全側で temporary_fail(予算消費)にし、defer で寝かせ続けない。
+ */
+function infraTransientOutcome(job: ConnectorJob, now: number): 'defer' | 'temporary_fail' {
+  if (!job.created_at) return 'temporary_fail'
+  const createdMs = new Date(job.created_at).getTime()
+  if (Number.isNaN(createdMs)) return 'temporary_fail'
+  return now - createdMs > INFRA_DEFER_MAX_AGE_MS ? 'temporary_fail' : 'defer'
 }
 
 interface ConnectionRow {
@@ -66,6 +88,8 @@ export interface ConnectorDispatchSummary {
   done: number
   tempFailed: number
   dead: number
+  // 自分側インフラの一時障害で attempt を消費せず defer(5分後再試行)した件数。
+  deferred: number
 }
 
 /**
@@ -219,8 +243,17 @@ async function processConnectionJobs(
     if (tok.status !== 'ok') {
       // 失効(auth_failed)は token-manager が connection を expired 化済み。一時失敗で寝かせ、
       // 再接続後に再試行させる(毒にはしない)。
-      for (const j of runnable) await completeJob(j, 'temporary_fail', `token_${tok.status}`)
-      summary.tempFailed += runnable.length
+      // defer 強化(Fable 裁定 2026-07-23): **自分側インフラ**由来の一時障害(接続行復号/DB read の瞬断=
+      // transientKind 不在)は attempt を消費せず defer(72h キャップ超は temporary_fail に降格)。
+      // 外部refresh起因(transientKind='refresh')・失効(auth_failed)は従来どおり temporary_fail。
+      const isInfraTransient = tok.status === 'transient_error' && tok.transientKind !== 'refresh'
+      const now = Date.now()
+      for (const j of runnable) {
+        const outcome = isInfraTransient ? infraTransientOutcome(j, now) : 'temporary_fail'
+        await completeJob(j, outcome, `token_${tok.status}`)
+        if (outcome === 'defer') summary.deferred++
+        else summary.tempFailed++
+      }
       return
     }
     for (const j of runnable) {
@@ -282,12 +315,24 @@ async function processTaskSyncJobs(
     access_token_encrypted: conn.access_token_encrypted ?? null,
   })
   if (cred.status !== 'ok') {
-    // 失効・設定不備は毒にしない（再接続すれば直る）。設定不備だけは恒久失敗にして、
-    // 直らないものを永久に再試行し続けないようにする。
-    const outcome = cred.status === 'misconfigured' ? 'permanent_fail' : 'temporary_fail'
-    for (const j of jobs) await completeJob(j, outcome, `credentials_${cred.status}`)
-    if (outcome === 'permanent_fail') summary.dead += jobs.length
-    else summary.tempFailed += jobs.length
+    // 設定不備だけは恒久失敗にして、直らないものを永久に再試行し続けないようにする。
+    if (cred.status === 'misconfigured') {
+      for (const j of jobs) await completeJob(j, 'permanent_fail', `credentials_${cred.status}`)
+      summary.dead += jobs.length
+      return
+    }
+    // 失効(auth_failed)・一時障害(transient_error)は毒にしない(再接続/次サイクルで直る)。
+    // defer 強化(Fable 裁定 2026-07-23): **自分側インフラ**由来の一時障害(トークン復号RPC/DB read の
+    // 瞬断=transientKind 不在)は attempt を消費せず defer(72h キャップ超は temporary_fail に降格)。
+    // 外部refresh起因(transientKind='refresh')・失効(auth_failed)は従来どおり temporary_fail。
+    const isInfraTransient = cred.status === 'transient_error' && cred.transientKind !== 'refresh'
+    const now = Date.now()
+    for (const j of jobs) {
+      const outcome = isInfraTransient ? infraTransientOutcome(j, now) : 'temporary_fail'
+      await completeJob(j, outcome, `credentials_${cred.status}`)
+      if (outcome === 'defer') summary.deferred++
+      else summary.tempFailed++
+    }
     return
   }
 
@@ -375,7 +420,7 @@ async function loadConnections(connectionIds: string[]): Promise<Map<string, Con
 
 /** コネクタ送信ジョブを1バッチ処理する。cron 起動配線は後続PR(このワーカーは呼び出されるだけ)。 */
 export async function dispatchConnectorJobsBatch(limit = 100): Promise<ConnectorDispatchSummary> {
-  const summary: ConnectorDispatchSummary = { claimed: 0, done: 0, tempFailed: 0, dead: 0 }
+  const summary: ConnectorDispatchSummary = { claimed: 0, done: 0, tempFailed: 0, dead: 0, deferred: 0 }
 
   const { data: jobs, error } = await admin().rpc('rpc_claim_connector_jobs', { p_total_limit: limit })
   if (error) {

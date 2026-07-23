@@ -105,22 +105,41 @@ export async function dispatchBatch(options: DispatchBatchOptions = {}): Promise
   const summary: DispatchSummary = { claimed: claimed.length, sent: 0, failed: 0, dead: 0, errors: [] }
   if (claimed.length === 0) return summary
 
-  const { sinks, transientSinkIds } = await findDeliverableSinksByIds(claimed.map((d) => d.sinkId))
+  const resolution = await findDeliverableSinksByIds(claimed.map((d) => d.sinkId))
+  const { sinks } = resolution
+  // 旧シェイプ(refreshTransientSinkIds 無し)のモック/呼び出しに耐えるようデフォルトを与える。
+  const transientSinkIds = resolution.transientSinkIds ?? new Set<string>()
+  const refreshTransientSinkIds = resolution.refreshTransientSinkIds ?? new Set<string>()
 
   for (const delivery of claimed) {
     const sink = sinks.get(delivery.sinkId)
 
     try {
       if (!sink) {
-        // 一時障害(sink復号/接続フェッチ/DB read/google_sheets token refresh の 5xx等)は store が
-        // transientSinkIds に載せる。これは sink_not_deliverable(恒久)にせず temporary_fail(再試行)に
-        // 落とし dead 化させない。それ以外(未対応provider・恒久破損・接続なし・失効)は従来通り恒久失敗。
-        const isTransient = transientSinkIds.has(delivery.sinkId)
+        // 解決できなかった配達の3分岐(Fable 裁定 2026-07-23):
+        //   - infra 一時障害(sink復号/接続フェッチ/DB read の瞬断) → **defer**: attempt を消費せず
+        //     5分後に再試行。配達を試みる前に自分のDB/秘密が読めない障害は予算を食わせない。
+        //     consecutive_failures は加算し 20連続で自動停止(circuit breaker)へ収束する(RPC 側)。
+        //   - 外部refresh 一時障害(google_sheets の refresh 5xx) → 従来どおり temporary_fail(予算消費)。
+        //   - それ以外(未対応provider・恒久破損・接続なし・失効) → 従来どおり permanent_fail(恒久)。
+        const isInfraTransient = transientSinkIds.has(delivery.sinkId)
+        const isRefreshTransient = refreshTransientSinkIds.has(delivery.sinkId)
+        const outcome: 'defer' | 'temporary_fail' | 'permanent_fail' = isInfraTransient
+          ? 'defer'
+          : isRefreshTransient
+            ? 'temporary_fail'
+            : 'permanent_fail'
+        const error = isInfraTransient
+          ? 'sink_infra_transient_error'
+          : isRefreshTransient
+            ? 'sink_token_refresh_transient_error'
+            : 'sink_not_deliverable'
         const completion = await completeSinkDelivery({
           deliveryId: delivery.id,
-          outcome: isTransient ? 'temporary_fail' : 'permanent_fail',
-          error: isTransient ? 'sink_connection_transient_error' : 'sink_not_deliverable',
-          countsTowardFailures: isTransient,
+          outcome,
+          error,
+          // defer/temporary_fail は circuit breaker のため failures にカウントする。permanent は従来どおり非カウント。
+          countsTowardFailures: isInfraTransient || isRefreshTransient,
         })
         // 恒久破損を一時障害扱いにした戦略の自己完結: 連続失敗で sink が今回 error 化したら、
         // dispatchClaimedDelivery と同じ導線で既存の停止通知を発火する(20回リトライ→停止→通知→再接続)。

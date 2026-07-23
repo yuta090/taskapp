@@ -269,22 +269,25 @@ describe('getValidTokenDetailed (Google Sheets store.ts専用の詳細版)', () 
     expect(result).toEqual({ status: 'auth_failed' })
   })
 
-  it('refreshFnが500で失敗したら{status:"transient_error"}でDBを触らない', async () => {
+  it('refreshFnが500で失敗したら{status:"transient_error", transientKind:"refresh"}でDBを触らない', async () => {
+    // 外部refresh起因(5xx)は transientKind='refresh'。呼び出し側は defer せず temporary_fail に回す。
     const result = await getValidTokenDetailed(CONNECTION_ID, refreshFnError(500))
-    expect(result).toEqual({ status: 'transient_error' })
+    expect(result).toEqual({ status: 'transient_error', transientKind: 'refresh' })
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it('refreshFnがネットワークエラー(status無し)で失敗したら{status:"transient_error"}でDBを触らない', async () => {
+  it('refreshFnがネットワークエラー(status無し)で失敗したら{status:"transient_error", transientKind:"refresh"}でDBを触らない', async () => {
     const result = await getValidTokenDetailed(CONNECTION_ID, refreshFnError())
-    expect(result).toEqual({ status: 'transient_error' })
+    expect(result).toEqual({ status: 'transient_error', transientKind: 'refresh' })
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it('DB読み取り自体が失敗したら{status:"transient_error"}を返す(接続行のレース、DBは触らない)', async () => {
+  it('DB読み取り自体が失敗したら{status:"transient_error"}(インフラ由来=kind無し)を返す(接続行のレース、DBは触らない)', async () => {
+    // 自分側インフラの一時障害(接続行DB読取)は transientKind を付けない(=defer 対象)。
     selectResponse = { data: null, error: { message: 'timeout' } }
     const result = await getValidTokenDetailed(CONNECTION_ID, vi.fn())
     expect(result).toEqual({ status: 'transient_error' })
+    expect(result).not.toHaveProperty('transientKind')
   })
 })
 
