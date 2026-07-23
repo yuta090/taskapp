@@ -169,6 +169,23 @@ describe('computeSetupChecklist', () => {
       expect(result.totalCount).toBe(7)
     })
 
+    it('連携済み(done)かつDM到達不能なら step.dmUnreachable が true（安全網の可視化）', () => {
+      const result = computeSetupChecklist(
+        { ...allFalse, hasLineLinked: true, dmUnreachable: true },
+        SPACE_ID,
+        ORG_ID
+      )
+      const step = result.steps.find((s) => s.key === 'connect_line')!
+      expect(step.done).toBe(true)
+      expect(step.dmUnreachable).toBe(true)
+    })
+
+    it('連携済みだがDM到達不能でなければ step.dmUnreachable は false', () => {
+      const result = computeSetupChecklist({ ...allFalse, hasLineLinked: true }, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'connect_line')!
+      expect(step.dmUnreachable).toBe(false)
+    })
+
     it('lineAccess=requested（申込中）なら pending・当社の開通待ち文言・分母から除外', () => {
       const result = computeSetupChecklist({ ...allFalse, lineAccess: 'requested' }, SPACE_ID, ORG_ID)
       const step = result.steps.find((s) => s.key === 'connect_line')!

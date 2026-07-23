@@ -182,6 +182,35 @@ export async function fetchBotInfo(accessToken: string): Promise<BotInfo | null>
   }
 }
 
+export type LineUserProfileReachability = 'reachable' | 'unreachable' | 'error'
+
+/**
+ * DM到達可否の日次照合（dmReachabilityReconcile）専用。1:1 profile取得
+ * `GET /v2/bot/profile/{userId}` はフォロー中なら200、ブロック済み/未フォローなら404を返す
+ * （LINE Messaging API仕様）。webhookのunfollow/followが唯一のトリガである
+ * markDmUnreachable/clearDmUnreachable（設計正本 §9.1）を、導入前からのブロック・
+ * unfollow取りこぼしについても補完するため、この関数の結果を使って回収する。
+ *
+ * 429/5xx・ネットワーク例外は「判定保留」として 'error' を返す。呼び出し側はこの結果を
+ * mark/clearどちらのトリガにもしない（一時的なAPI不調で誤って到達不能マークを付け外し
+ * しないため）。
+ */
+export async function fetchLineUserProfile(
+  accessToken: string,
+  userId: string,
+): Promise<LineUserProfileReachability> {
+  try {
+    const response = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (response.ok) return 'reachable'
+    if (response.status === 404) return 'unreachable'
+    return 'error'
+  } catch {
+    return 'error'
+  }
+}
+
 /**
  * 添付コンテンツの取得。LINE側は一定期間で消えるため受信時に呼び、Storageへ保存する。
  */

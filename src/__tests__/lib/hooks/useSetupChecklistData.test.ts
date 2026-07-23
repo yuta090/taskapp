@@ -95,6 +95,7 @@ describe('useSetupChecklistData', () => {
     expect(result.current.hasPublishedTask).toBe(false)
     expect(result.current.hasPreviewedPortal).toBe(false)
     expect(result.current.currentUserRole).toBeNull()
+    expect(result.current.dmUnreachable).toBe(false)
   })
 
   it('reads currentUserRole from space_memberships', async () => {
@@ -216,6 +217,47 @@ describe('useSetupChecklistData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.hasClientInvite).toBe(true)
+  })
+
+  it('reads dmUnreachable from the line-status response (piggybacks on the existing fetch)', async () => {
+    mockSupabaseFrom({
+      space_memberships: () => ({ data: null, error: null }),
+      tasks: () => ({ data: [], error: null }),
+      org_memberships: () => ({ data: [], error: null }),
+      invites: () => ({ data: [], error: null }),
+      profiles: () => ({ data: { onboarding_flags: {} }, error: null }),
+    })
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        hasLineLinked: true,
+        lineAccess: 'granted',
+        aiConfigured: true,
+        dmUnreachable: true,
+      }),
+    })
+
+    const { result } = renderHook(() => useSetupChecklistData(ORG_ID, SPACE_ID), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.dmUnreachable).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('defaults dmUnreachable to false when the line-status fetch fails', async () => {
+    mockSupabaseFrom({
+      space_memberships: () => ({ data: null, error: null }),
+      tasks: () => ({ data: [], error: null }),
+      org_memberships: () => ({ data: [], error: null }),
+      invites: () => ({ data: [], error: null }),
+      profiles: () => ({ data: { onboarding_flags: {} }, error: null }),
+    })
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false })
+
+    const { result } = renderHook(() => useSetupChecklistData(ORG_ID, SPACE_ID), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.dmUnreachable).toBe(false)
   })
 
   it('reads hasPreviewedPortal from profiles.onboarding_flags.portal_preview_seen', async () => {
