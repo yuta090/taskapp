@@ -163,7 +163,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     ],
     setupUrl: 'https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php',
     notes:
-      '日本のSMBで普及。受信はWebhook v2（HMAC-SHA256/Base64）。account単位URLで受け、webhook_tokenで署名検証。message_created/mention_to_meのテキストを取り込む。',
+      '日本のSMBで普及。受信はWebhook v2（HMAC-SHA256/Base64）。account単位URLで受け、webhook_tokenで署名検証。message_created/mention_to_meのテキストを取り込み、claim（合言葉）方式のルーム紐付けと「完了N」コマンドに対応（Slack/Discordと同じ骨格）。',
   },
   google_chat: {
     id: 'google_chat',
