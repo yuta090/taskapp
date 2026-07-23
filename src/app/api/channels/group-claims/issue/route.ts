@@ -6,6 +6,7 @@ import {
   createSharedGroupClaimCode,
   orgLineGroupCapacity,
   getLineSelfServeState,
+  orgExternalChatGroupCapacity,
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
 } from '@/lib/channels/store'
@@ -17,21 +18,31 @@ import {
   WEB_APPROVAL_CLAIM_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
 import { isValidUuid } from '@/lib/uuid'
+import { getChannel } from '@/lib/channels/registry'
+import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
 /**
  * POST /api/channels/group-claims/issue — 共有botグループ紐付けコード発行（web_approval・Stage 4・PR3a）
  *
- * 事務所が顧問先へ渡し、顧問先がLINEグループに投入する。投入されると
+ * 事務所が顧問先へ渡し、顧問先がLINEグループ等に投入する。投入されると
  * /api/channels/group-claims/pending に確認待ちとして現れ、内部ユーザーが承認/却下する
  * （promoteのdigest承認とは別概念・別route。GroupClaim系で命名を統一）。
  *
- * 対象accountはPR3aでは単一のplatform account（共有bot）を前提とし、クライアントからは
- * 受け取らずサーバ側で解決する（複数account選択はPR3bで詰める。設計正本 §10）。
+ * 対象accountは単一のplatform account（共有bot）を前提とし、クライアントからは
+ * 受け取らずサーバ側で解決する（複数account選択は未対応。設計正本 §10）。
+ *
+ * channel対応（PR-b追補）: body.channel 省略時は 'line'（既定・挙動は完全に不変）。
+ * 'line' 以外（google_chat 等の platform Pro チャネル）は、共通LINEの申込ゲート
+ * （canUseSharedBotClaims/orgLineGroupCapacity）ではなく、Pro entitlement
+ * （external_chat_channels）＋別枠の容量（orgExternalChatGroupCapacity）で判定する。
+ * LINE経路の分岐・関数・エラー文言は1バイトも変えない。
  */
 export async function POST(request: NextRequest) {
-  let body: { orgId?: unknown; spaceId?: unknown }
+  let body: { orgId?: unknown; spaceId?: unknown; channel?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -44,6 +55,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'orgId and spaceId are required' }, { status: 400 })
   }
 
+  // channel省略時は 'line'（既定・後方互換）。未知チャネルは400。
+  const channel = typeof body.channel === 'string' && body.channel ? body.channel : 'line'
+  if (!getChannel(channel)) {
+    return NextResponse.json({ error: 'unknown channel' }, { status: 400 })
+  }
+
   const auth = await requireInternalMember(orgId)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -54,35 +71,64 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'space not found in org' }, { status: 404 })
   }
 
-  // 共通LINE利用の確立境界: 未申込/申込中の org には新規コードを発行しない（既存は切らない）。
-  // 自社bot(own)・開通済み(granted)のみ許可。dead-end にせず申込導線つきで返す。
-  if (!canUseSharedBotClaims(await getLineSelfServeState(orgId))) {
-    return NextResponse.json(
-      {
-        error: '共通LINEのご利用にはお申し込みが必要です。お申し込み後、当社が開通してご案内します。',
-        code: 'shared_bot_access_required',
-      },
-      { status: 403 },
-    )
-  }
+  if (channel === 'line') {
+    // 共通LINE利用の確立境界: 未申込/申込中の org には新規コードを発行しない（既存は切らない）。
+    // 自社bot(own)・開通済み(granted)のみ許可。dead-end にせず申込導線つきで返す。
+    if (!canUseSharedBotClaims(await getLineSelfServeState(orgId))) {
+      return NextResponse.json(
+        {
+          error: '共通LINEのご利用にはお申し込みが必要です。お申し込み後、当社が開通してご案内します。',
+          code: 'shared_bot_access_required',
+        },
+        { status: 403 },
+      )
+    }
 
-  // プラン上限（相手先グループ数）: 既に上限なら、コードを渡す前に早期に止める（UX）。
-  // ハードな上限適用は承認時（active化の瞬間）に行う。既存グループは切らない。
-  const cap = await orgLineGroupCapacity(orgId)
-  if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
-    return NextResponse.json(
-      {
-        error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
-        code: 'group_limit_reached',
-        limit: cap.maxGroups,
-      },
-      { status: 402 },
-    )
+    // プラン上限（相手先グループ数）: 既に上限なら、コードを渡す前に早期に止める（UX）。
+    // ハードな上限適用は承認時（active化の瞬間）に行う。既存グループは切らない。
+    const cap = await orgLineGroupCapacity(orgId)
+    if (cap.maxGroups !== null && cap.activeCount >= cap.maxGroups) {
+      return NextResponse.json(
+        {
+          error: '接続できる相手先グループ数の上限に達しています。Proにアップグレードすると増やせます。',
+          code: 'group_limit_reached',
+          limit: cap.maxGroups,
+        },
+        { status: 402 },
+      )
+    }
+  } else {
+    // LINE以外（google_chat 等）はPro専有の外部チャット枠。共通LINE申込ゲートは掛けず、
+    // entitlement(external_chat_channels)と別枠の容量(orgExternalChatGroupCapacity)で判定する。
+    const admin = createAdminClient() as SupabaseClient
+    const ent = await resolveOrgEntitlements(admin, orgId)
+    if (!ent.has('external_chat_channels')) {
+      return NextResponse.json(
+        {
+          error: 'このチャットの利用にはProプランへのアップグレードが必要です。',
+          code: 'external_chat_channels_required',
+        },
+        { status: 402 },
+      )
+    }
+
+    const cap = await orgExternalChatGroupCapacity(orgId, channel)
+    if (cap.max !== null && cap.activeCount >= cap.max) {
+      return NextResponse.json(
+        {
+          error: '接続できる相手先グループ数の上限に達しています。上限の追加はお問い合わせください。',
+          code: 'group_limit_reached',
+          limit: cap.max,
+        },
+        { status: 402 },
+      )
+    }
   }
 
   let targetAccountId: string | null
   try {
-    targetAccountId = await findFirstPlatformAccountId()
+    // channelは省略時'line'（既定値と一致）。line経路は findFirstPlatformAccountId() と等価。
+    targetAccountId = await findFirstPlatformAccountId(channel)
   } catch (error) {
     if (error instanceof MultiplePlatformAccountsError) {
       // L2ガード（設計正本 §10）: 複数botの明示選択は未対応。沈黙のdead-endにせず明確に拒否する
