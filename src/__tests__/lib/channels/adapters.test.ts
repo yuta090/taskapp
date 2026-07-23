@@ -261,6 +261,30 @@ describe('webhook-url adapters', () => {
     expect(payload.type).toBe('message')
     expect(payload.attachments[0].content.body[0].text).toBe('card body')
   })
+
+  it('teams: 現行 Power Automate Workflows URL(api.powerplatform.com)を許可する', async () => {
+    mockFetch(() => new Response('1', { status: 202 }))
+    const r = await teamsAdapter({
+      credentials: {
+        webhook_url:
+          'https://x.y.environment.api.powerplatform.com/powerautomate/automations/direct/workflows/abc/triggers/manual/paths/invoke?sig=SECRET',
+      },
+      to: 't',
+      text: 'card body',
+    })
+    expect(r.ok).toBe(true)
+  })
+
+  it('teams: 未許可ホストは恒久失敗（SSRF防止・fetchしない）', async () => {
+    const fetchFn = mockFetch(() => new Response('1', { status: 200 }))
+    const r = await teamsAdapter({
+      credentials: { webhook_url: 'https://evil.example.com/hook' },
+      to: 't',
+      text: 'x',
+    })
+    expect(r).toMatchObject({ ok: false, permanent: true })
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
 })
 
 describe('whatsappAdapter', () => {
