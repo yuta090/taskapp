@@ -9,7 +9,12 @@ import {
   findChannelAccountCredentials,
   findActiveIdentitiesByExternalId,
   insertChannelMessage,
+  findValidLinkCode,
+  linkIdentityViaCode,
+  expireUserLinkCode,
 } from '@/lib/channels/store'
+import { extractUserLinkCode, hashUserLinkCode } from '@/lib/channels/userLink'
+import { whatsappAdapter } from '@/lib/channels/adapters/whatsapp'
 
 export const runtime = 'nodejs'
 
@@ -20,6 +25,10 @@ export const runtime = 'nodejs'
  *        account の verify_token と一致すれば challenge をプレーンテキストで返す。
  * POST : イベント。X-Hub-Signature-256 を account の app_secret と照合して認証する（handler内）。
  *        署名検証は生ボディに対して行うため text() で受ける。
+ *
+ * DM紐付け床: findLinkCode/linkIdentity/sendReply/expireLeakedUserCode を配線し、1:1で
+ * 突合コードを送ると相手先(space)に紐付くフローを有効化する（handler内の分岐は
+ * webhookHandler.ts のコメント参照）。linkIdentity は 'whatsapp' チャネルで identity を作る。
  */
 const deps: WhatsappWebhookDeps = {
   loadAccount: async (accountId): Promise<WhatsappAccount | null> => {
@@ -37,6 +46,19 @@ const deps: WhatsappWebhookDeps = {
   findIdentities: (orgId, externalId) =>
     findActiveIdentitiesByExternalId(orgId, 'whatsapp', externalId),
   insertMessage: (input) => insertChannelMessage(input),
+  findLinkCode: (code) => findValidLinkCode(code),
+  linkIdentity: (linkCode, externalUserId) => linkIdentityViaCode(linkCode, externalUserId, 'whatsapp'),
+  sendReply: async (account, to, text) => {
+    // ベストエフォート: 送信失敗はwebhook処理を止めない（呼び出し元(safeSendReply)もcatchする）
+    const result = await whatsappAdapter({ credentials: account.credentials, to, text })
+    if (!result.ok) {
+      console.error('WhatsApp webhook: sendReply adapter failed', account.id, result.error)
+    }
+  },
+  expireLeakedUserCode: async (bodyText) => {
+    const code = extractUserLinkCode(bodyText)
+    if (code) await expireUserLinkCode(hashUserLinkCode(code))
+  },
 }
 
 export async function GET(

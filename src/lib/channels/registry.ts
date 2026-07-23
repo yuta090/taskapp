@@ -279,7 +279,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     ],
     setupUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
     notes:
-      'Meta Cloud API。ビジネス認証が必須。24時間ウィンドウ外はテンプレートのみ。受信はaccount単位URL: GET(verify_token検証)+POST(X-Hub-Signature-256をapp_secretで検証)。テキストを取り込む。',
+      'Meta Cloud API。ビジネス認証が必須。24時間ウィンドウ外はテンプレートのみ。受信はaccount単位URL: GET(verify_token検証)+POST(X-Hub-Signature-256をapp_secretで検証)。テキストを取り込む。1:1 DMで突合コードを送ると相手先(space)に紐付く。',
     proOnly: true,
   },
   messenger: {
