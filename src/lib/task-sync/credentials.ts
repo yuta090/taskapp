@@ -1,5 +1,5 @@
 import { decryptToken } from '@/lib/integrations/token-crypto'
-import { getValidTokenDetailed } from '@/lib/integrations/token-manager'
+import { getValidTokenDetailed, type TransientKind } from '@/lib/integrations/token-manager'
 import type { ProviderCredentials } from '@/lib/task-sync/types'
 
 /**
@@ -33,8 +33,12 @@ export type CredentialResolution =
   | { status: 'ok'; credentials: ProviderCredentials }
   /** 資格情報が失効している（再接続が必要）。呼び出し側は毒にせず接続を skip する。 */
   | { status: 'auth_failed' }
-  /** DB瞬断など一時的な障害。次サイクルで再試行する。 */
-  | { status: 'transient_error' }
+  /**
+   * DB瞬断・トークン復号RPC/vault 瞬断など一時的な障害。次サイクルで再試行する。
+   * transientKind='refresh' は外部refresh起因(temporary_fail 相当)。field 不在=自分側インフラ由来
+   * (呼び出し側は attempt を消費しない defer に回してよい対象)。
+   */
+  | { status: 'transient_error'; transientKind?: TransientKind }
   /** 設定不備（暗号化列が空・auth_kind 不整合）。再試行では直らない。 */
   | { status: 'misconfigured'; reason: string }
 
@@ -67,7 +71,14 @@ export async function resolveCredentials(
       // refresh を試みる手段が無いので、api_key と同じく復号するだけで良い。ここを
       // refreshFn 必須のまま扱うと、この種の接続が永久に misconfigured skip される
       // （実際に Notion 接続が一度も取り込まれない断線を起こした）。
-      const token = await decryptToken(row.access_token_encrypted)
+      // decryptToken は一時障害(RPC/DB error)を throw、恒久破損(復号結果なし)を null で返す。
+      // 一時障害を misconfigured(恒久)にすると次サイクルで直る接続を殺すため transient_error に写す。
+      let token: string | null
+      try {
+        token = await decryptToken(row.access_token_encrypted)
+      } catch {
+        return { status: 'transient_error' }
+      }
       if (!token) {
         return { status: 'misconfigured', reason: 'oauth access token is missing or undecryptable' }
       }
@@ -83,7 +94,11 @@ export async function resolveCredentials(
     if (result.status !== 'ok') {
       // token-manager は失効(auth_failed)と一時障害(transient_error)を既に区別している。
       // その判断をここで作り直さず素通しする（失効判定の二重実装は事故のもと）。
-      return { status: result.status === 'auth_failed' ? 'auth_failed' : 'transient_error' }
+      // transient のときは infra/refresh の由来(transientKind)もそのまま伝える(呼び出し側が defer 判定に使う)。
+      if (result.status === 'auth_failed') return { status: 'auth_failed' }
+      return result.transientKind
+        ? { status: 'transient_error', transientKind: result.transientKind }
+        : { status: 'transient_error' }
     }
     return {
       status: 'ok',
@@ -92,9 +107,15 @@ export async function resolveCredentials(
   }
 
   if (row.auth_kind === 'api_key') {
-    const token = await decryptToken(row.access_token_encrypted)
+    // decryptToken は一時障害を throw、恒久破損を null で返す(上の oauth 分岐と同じ扱い)。
+    let token: string | null
+    try {
+      token = await decryptToken(row.access_token_encrypted)
+    } catch {
+      return { status: 'transient_error' }
+    }
     if (!token) {
-      // 復号できない（鍵ローテ・空・不正blob）。再試行しても直らないので接続の作り直しを促す。
+      // error無し・data無し＝暗号文が復号結果を持たない恒久破損。再試行では直らないので作り直しを促す。
       return { status: 'misconfigured', reason: 'api_key is missing or undecryptable' }
     }
     return { status: 'ok', credentials: { kind: 'api_key', token, baseUrl: row.base_url } }

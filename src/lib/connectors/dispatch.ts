@@ -5,6 +5,7 @@ import { patchTask } from '@/lib/google-tasks/client'
 import { sendIssueUpsert, sendIssueCancel, type MulticaConnection } from './multica/client'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
 import { resolveCredentials } from '@/lib/task-sync/credentials'
+import { infraTransientError, isInfraTransientError } from '@/lib/connectors/infraTransient'
 import type { ProviderContext, TaskSyncAdapter } from '@/lib/task-sync/types'
 
 /**
@@ -47,6 +48,52 @@ interface ConnectorJob {
   attempt: number
   version: number
   leased_until: string | null
+  // 72h defer キャップの基準(rpc_claim_connector_jobs は j.* を返すため常に含まれる)。
+  created_at?: string | null
+}
+
+/**
+ * defer(インフラ一時障害で attempt を消費しない)の経過時間キャップ。
+ * connector_jobs には sink の 20連続自動停止に相当する circuit breaker が無いため、無限 defer を
+ * 防ぐ歯止めをコード側に置く(Fable 裁定 2026-07-23)。job の created_at から 72h を超えた defer 対象は
+ * temporary_fail に降格し、従来のバックオフ予算消費(最終的に dead へ収束)に戻す。
+ */
+const INFRA_DEFER_MAX_AGE_MS = 72 * 60 * 60 * 1000
+
+/**
+ * 許容するクロックスキュー。created_at がこの幅を超えて未来にある場合は「若いジョブ」ではなく
+ * 不正値(DB/enqueue 側の時計ずれ・壊れた値)とみなす。軽微なスキュー(数十秒〜数分)は温存し、
+ * これを超える未来値だけを弾く。
+ */
+const INFRA_CLOCK_SKEW_MS = 5 * 60 * 1000
+
+/**
+ * インフラ一時障害の完了 outcome を決める。72h 以内なら defer(attempt 不変)、超過なら
+ * temporary_fail に降格する(無限ループ防止=最終的に dead へ収束)。
+ *
+ * 【age の基準は created_at(最初の enqueue 時刻)】connector_jobs は (connection,task) 単位で pending を
+ *   1件に fold する(enqueue.ts)。fold は op/payload/version/next_attempt_at/updated_at を更新するが
+ *   **created_at は据え置く**。よって created_at は「この配達チャネルが最初に詰まってから経過した総時間」
+ *   を表す。あえて updated_at(最新 op 時刻)を使わないのは、そうすると task が繰り返し更新される限り
+ *   時計がリセットされ、長期インフラ障害中に無限 defer し得る(72h キャップが無力化する)ため。
+ *   fold で新しい op が古い created_at を継ぐのは意図どおり(チャネル単位の総詰まり時間で頭打ちにする)。
+ *
+ * 【異常な created_at の方針(安全側を明示)】
+ *   - 無い / パース不能(NaN): age を確定できない → temporary_fail(予算消費)。defer で寝かせ続けない。
+ *   - クロックスキュー超の未来(now - created < -SKEW): 不正値として temporary_fail に倒す。負の age を
+ *     素通しすると 72h キャップに永遠に掛からず**無期限 defer**になり得るため(安全側=寝かせ続けない)。
+ *   - 軽微スキュー内の未来 / たった今 enqueue(-SKEW <= now - created <= 0): 「若いジョブ」とみなし
+ *     defer(attempt を温存)。数十秒〜数分の時計ずれを temporary_fail にしないため。
+ *   - ちょうど 72h(now - created === MAX): 境界は defer(> MAX で初めて temporary_fail)。
+ */
+function infraTransientOutcome(job: ConnectorJob, now: number): 'defer' | 'temporary_fail' {
+  if (!job.created_at) return 'temporary_fail'
+  const createdMs = new Date(job.created_at).getTime()
+  if (Number.isNaN(createdMs)) return 'temporary_fail'
+  const age = now - createdMs
+  // クロックスキュー許容を超える未来の created_at は不正値 → temporary_fail(無期限 defer にしない)。
+  if (age < -INFRA_CLOCK_SKEW_MS) return 'temporary_fail'
+  return age > INFRA_DEFER_MAX_AGE_MS ? 'temporary_fail' : 'defer'
 }
 
 interface ConnectionRow {
@@ -66,6 +113,8 @@ export interface ConnectorDispatchSummary {
   done: number
   tempFailed: number
   dead: number
+  // 自分側インフラの一時障害で attempt を消費せず defer(5分後再試行)した件数。
+  deferred: number
 }
 
 /**
@@ -158,7 +207,9 @@ async function loadGoogleTasksLink(
     .eq('connection_id', connectionId)
     .eq('task_id', taskId)
     .maybeSingle()
-  if (error) throw new Error(`connector_task_links lookup failed: ${error.message}`)
+  // 対応表(自分側DB)の read は外部送信より前の**自分側**処理。read 自体の失敗(DB瞬断)は infra 一時障害
+  // として投げ、dispatch が attempt 不変の defer に回す(row 不在=null は別: 書き戻し先未設定=恒久失敗)。
+  if (error) throw infraTransientError(`connector_task_links lookup failed: ${error.message}`)
   const row = data as { external_id: string; external_list_id: string | null } | null
   return row ? { externalId: row.external_id, externalListId: row.external_list_id } : null
 }
@@ -189,7 +240,15 @@ async function processConnectionJobs(
   conn: ConnectionRow,
   jobs: ConnectorJob[],
   summary: ConnectorDispatchSummary,
+  completedIds: Set<string>,
 ): Promise<void> {
+  // completeJob が成功した(=RPC を通した)ジョブだけを completedIds に記録する。呼び出し側(バッチ)の
+  // 外側 catch が、想定外 throw で救済 defer を打つ際に**未完了のジョブだけ**を対象にするための台帳。
+  // completeJob が throw した場合は add に到達しない(=未完了として扱われる)ので二重計上しない。
+  const complete = async (j: ConnectorJob, outcome: string, error?: string): Promise<void> => {
+    await completeJob(j, outcome, error)
+    completedIds.add(j.id)
+  }
   const runnable = jobs.filter((j) => {
     // 処理直前の lease チェック: 長時間バッチで lease(10分)が切れていたら、この行は既に別 worker が
     // 再取得しうる。complete を呼ばずスキップし、二重確定の窓を局所化する(次サイクルで拾い直す)。
@@ -199,14 +258,25 @@ async function processConnectionJobs(
 
   if (conn.provider === 'multica') {
     const multicaConn: MulticaConnection = { id: conn.id, metadata: conn.metadata }
+    const now = Date.now()
     for (const j of runnable) {
       try {
         await processMulticaJob(j, multicaConn)
-        await completeJob(j, 'done')
+        await complete(j, 'done')
         summary.done++
       } catch (err) {
+        // 外部送信より前の**自分側**インフラ一時障害(send_secret 復号RPC/vault の瞬断)は attempt を
+        // 消費せず defer(72h キャップ超は temporary_fail)。send_secret の恒久破損(422)や multica API
+        // 応答(400/404/422/5xx)は従来どおり classifyError で扱う(配達先起因を defer に流さない)。
+        if (isInfraTransientError(err)) {
+          const outcome = infraTransientOutcome(j, now)
+          await complete(j, outcome, errMessage(err))
+          if (outcome === 'defer') summary.deferred++
+          else summary.tempFailed++
+          continue
+        }
         const outcome = classifyError(err)
-        await completeJob(j, outcome, errMessage(err))
+        await complete(j, outcome, errMessage(err))
         if (outcome === 'permanent_fail') summary.dead++
         else summary.tempFailed++
       }
@@ -219,18 +289,38 @@ async function processConnectionJobs(
     if (tok.status !== 'ok') {
       // 失効(auth_failed)は token-manager が connection を expired 化済み。一時失敗で寝かせ、
       // 再接続後に再試行させる(毒にはしない)。
-      for (const j of runnable) await completeJob(j, 'temporary_fail', `token_${tok.status}`)
-      summary.tempFailed += runnable.length
+      // defer 強化(Fable 裁定 2026-07-23): **自分側インフラ**由来の一時障害(接続行復号/DB read の瞬断=
+      // transientKind 不在)は attempt を消費せず defer(72h キャップ超は temporary_fail に降格)。
+      // 外部refresh起因(transientKind='refresh')・失効(auth_failed)は従来どおり temporary_fail。
+      const isInfraTransient = tok.status === 'transient_error' && tok.transientKind !== 'refresh'
+      const now = Date.now()
+      for (const j of runnable) {
+        const outcome = isInfraTransient ? infraTransientOutcome(j, now) : 'temporary_fail'
+        await complete(j, outcome, `token_${tok.status}`)
+        if (outcome === 'defer') summary.deferred++
+        else summary.tempFailed++
+      }
       return
     }
+    const now = Date.now()
     for (const j of runnable) {
       try {
         await processGoogleTasksJob(j, tok.token)
-        await completeJob(j, 'done')
+        await complete(j, 'done')
         summary.done++
       } catch (err) {
+        // link read(connector_task_links)の DB 瞬断など**外部送信より前の自分側**インフラ一時障害は
+        // attempt を消費せず defer(72h キャップ)。link 不在(書き戻し先未設定=404)や gtasks API の失敗は
+        // 従来どおり classifyError(配達先起因を defer に流さない)。
+        if (isInfraTransientError(err)) {
+          const outcome = infraTransientOutcome(j, now)
+          await complete(j, outcome, errMessage(err))
+          if (outcome === 'defer') summary.deferred++
+          else summary.tempFailed++
+          continue
+        }
         const outcome = classifyError(err)
-        await completeJob(j, outcome, errMessage(err))
+        await complete(j, outcome, errMessage(err))
         if (outcome === 'permanent_fail') summary.dead++
         else summary.tempFailed++
       }
@@ -242,13 +332,13 @@ async function processConnectionJobs(
   // TaskApp 側で完了したタスクを外部へ書き戻す(op='complete')。
   const adapter = getTaskSyncAdapter(conn.provider)
   if (adapter) {
-    await processTaskSyncJobs(conn, adapter, runnable, summary)
+    await processTaskSyncJobs(conn, adapter, runnable, summary, completedIds)
     return
   }
 
   // 未対応provider(将来の拡張漏れ/データ不整合)。無限リトライさせず恒久失敗として dead 化する。
   for (const j of runnable) {
-    await completeJob(j, 'permanent_fail', `unsupported_provider:${conn.provider}`)
+    await complete(j, 'permanent_fail', `unsupported_provider:${conn.provider}`)
     summary.dead++
   }
 }
@@ -266,11 +356,17 @@ async function processTaskSyncJobs(
   adapter: TaskSyncAdapter,
   jobs: ConnectorJob[],
   summary: ConnectorDispatchSummary,
+  completedIds: Set<string>,
 ): Promise<void> {
+  // processConnectionJobs と同じ台帳。completeJob 成功時だけ記録し、外側 catch の二重救済を防ぐ。
+  const complete = async (j: ConnectorJob, outcome: string, error?: string): Promise<void> => {
+    await completeJob(j, outcome, error)
+    completedIds.add(j.id)
+  }
   if (conn.status && conn.status !== 'active') {
     // 失効・無効化済みの接続で外部を叩かない（鍵を復号して無効な接続先へ送らない）。
     // 再接続で直るため毒にはせず一時失敗で寝かせる。
-    for (const j of jobs) await completeJob(j, 'temporary_fail', `connection_${conn.status}`)
+    for (const j of jobs) await complete(j, 'temporary_fail', `connection_${conn.status}`)
     summary.tempFailed += jobs.length
     return
   }
@@ -282,12 +378,24 @@ async function processTaskSyncJobs(
     access_token_encrypted: conn.access_token_encrypted ?? null,
   })
   if (cred.status !== 'ok') {
-    // 失効・設定不備は毒にしない（再接続すれば直る）。設定不備だけは恒久失敗にして、
-    // 直らないものを永久に再試行し続けないようにする。
-    const outcome = cred.status === 'misconfigured' ? 'permanent_fail' : 'temporary_fail'
-    for (const j of jobs) await completeJob(j, outcome, `credentials_${cred.status}`)
-    if (outcome === 'permanent_fail') summary.dead += jobs.length
-    else summary.tempFailed += jobs.length
+    // 設定不備だけは恒久失敗にして、直らないものを永久に再試行し続けないようにする。
+    if (cred.status === 'misconfigured') {
+      for (const j of jobs) await complete(j, 'permanent_fail', `credentials_${cred.status}`)
+      summary.dead += jobs.length
+      return
+    }
+    // 失効(auth_failed)・一時障害(transient_error)は毒にしない(再接続/次サイクルで直る)。
+    // defer 強化(Fable 裁定 2026-07-23): **自分側インフラ**由来の一時障害(トークン復号RPC/DB read の
+    // 瞬断=transientKind 不在)は attempt を消費せず defer(72h キャップ超は temporary_fail に降格)。
+    // 外部refresh起因(transientKind='refresh')・失効(auth_failed)は従来どおり temporary_fail。
+    const isInfraTransient = cred.status === 'transient_error' && cred.transientKind !== 'refresh'
+    const now = Date.now()
+    for (const j of jobs) {
+      const outcome = isInfraTransient ? infraTransientOutcome(j, now) : 'temporary_fail'
+      await complete(j, outcome, `credentials_${cred.status}`)
+      if (outcome === 'defer') summary.deferred++
+      else summary.tempFailed++
+    }
     return
   }
 
@@ -296,10 +404,11 @@ async function processTaskSyncJobs(
     config: providerConfigOf(conn.import_config, conn.provider),
   }
 
+  const now = Date.now()
   for (const j of jobs) {
     if (j.op !== 'complete') {
       // 取り込み専用のため upsert/cancel は押し戻さない（gtasks と同じ契約）。ジョブは消化する。
-      await completeJob(j, 'done')
+      await complete(j, 'done')
       summary.done++
       continue
     }
@@ -309,22 +418,31 @@ async function processTaskSyncJobs(
         // 書き戻し先が無い（対応が無い／入れ物IDが欠落）。空文字で代用すると、入れ物IDを実際に
         // 使うツール（Linear のチーム、Jooto のURL）へ不正なIDで投げることになり、失敗の原因が
         // 分からなくなる。設定不整合であり再試行では解決しないため恒久失敗にする。
-        await completeJob(j, 'permanent_fail', 'connector_task_links missing or has no container')
+        await complete(j, 'permanent_fail', 'connector_task_links missing or has no container')
         summary.dead++
         continue
       }
       await adapter.completeTask(ctx, { externalId: link.externalId, containerId: link.containerId })
-      await completeJob(j, 'done')
+      await complete(j, 'done')
       summary.done++
     } catch (err) {
+      // link read(connector_task_links)の DB 瞬断など**外部送信より前の自分側**インフラ一時障害は
+      // attempt を消費せず defer(72h キャップ)。link 不在(書き戻し先未設定)は上の分岐で恒久失敗済み。
+      if (isInfraTransientError(err)) {
+        const outcome = infraTransientOutcome(j, now)
+        await complete(j, outcome, errMessage(err))
+        if (outcome === 'defer') summary.deferred++
+        else summary.tempFailed++
+        continue
+      }
       // 完了させたい相手が既に消えている(404)なら「完了」と同義として done 扱いにする。
       if (isNotFound(err)) {
-        await completeJob(j, 'done')
+        await complete(j, 'done')
         summary.done++
         continue
       }
       const outcome = classifyError(err)
-      await completeJob(j, outcome, errMessage(err))
+      await complete(j, outcome, errMessage(err))
       if (outcome === 'permanent_fail') summary.dead++
       else summary.tempFailed++
     }
@@ -342,7 +460,9 @@ async function loadTaskSyncLink(
     .eq('connection_id', connectionId)
     .eq('task_id', taskId)
     .maybeSingle()
-  if (error) throw new Error(`connector_task_links lookup failed: ${error.message}`)
+  // loadGoogleTasksLink と同じ: DB read 自体の失敗は infra 一時障害として投げ defer に回す
+  // (row 不在=null は呼び出し側で恒久失敗=書き戻し先未設定として扱う)。
+  if (error) throw infraTransientError(`connector_task_links lookup failed: ${error.message}`)
   const row = data as { external_id: string; external_list_id: string | null } | null
   return row ? { externalId: row.external_id, containerId: row.external_list_id } : null
 }
@@ -359,23 +479,51 @@ function providerConfigOf(
   return out
 }
 
-/** 接続情報(provider/metadata)をまとめて取得する。1バッチにつき1回だけ叩く。 */
-async function loadConnections(connectionIds: string[]): Promise<Map<string, ConnectionRow>> {
-  const { data, error } = await admin()
-    .from('integration_connections')
-    .select('id, provider, status, metadata, auth_kind, base_url, access_token_encrypted, import_config')
-    .in('id', connectionIds)
-  if (error) throw new Error(`integration_connections lookup failed: ${error.message}`)
+/**
+ * 接続情報(provider/metadata)をまとめて取得する。1バッチにつき1回だけ叩く。
+ *
+ * ⚠ DB error では **throw しない**。throw するとバッチ全体(dispatchConnectorJobsBatch)が中断し、
+ * claim 済み(lease 済み)のジョブが completion RPC を通らないまま lease 失効 → 次サイクルで無限に
+ * 再 claim され、attempt が進まず 72h キャップも迂回される(Codex 指摘 Critical1)。代わりに
+ * `dbError` フラグを返し、呼び出し側が claim 済み全ジョブを infra 一時障害として completion に通す。
+ *
+ * ⚠ select が **reject(通信断で throw)** した場合も同様に危険(呼び出しは per-connection の try/catch の
+ *   外にあるため、reject が伝播するとバッチ全体が abort → claim 済み全ジョブが orphan になる)。よって
+ *   `.error` を拾うだけでなく select 全体を try/catch で囲み、**reject も `.error` と同じく dbError=true に
+ *   倒す**(throw しない)。これで呼び出し側の既存 dbError 分岐(claim 済み全ジョブを infra defer に通す)に乗る。
+ *
+ * dbError(=接続行が「取得できない」自分側DBの瞬断)と、取得成功だが row 不在(=削除済み)は**別物**:
+ *   - dbError=true          → 呼び出し側で infra defer(72hキャップ)。
+ *   - dbError=false・row 不在 → 呼び出し側で permanent_fail(connection_not_found)。
+ */
+async function loadConnections(
+  connectionIds: string[],
+): Promise<{ connections: Map<string, ConnectionRow>; dbError: boolean }> {
   const map = new Map<string, ConnectionRow>()
-  for (const row of (data as ConnectionRow[] | null) ?? []) {
-    map.set(row.id, row)
+  try {
+    const { data, error } = await admin()
+      .from('integration_connections')
+      .select('id, provider, status, metadata, auth_kind, base_url, access_token_encrypted, import_config')
+      .in('id', connectionIds)
+    if (error) {
+      console.error('[connector-dispatch] integration_connections lookup failed:', error)
+      return { connections: map, dbError: true }
+    }
+    for (const row of (data as ConnectionRow[] | null) ?? []) {
+      map.set(row.id, row)
+    }
+    return { connections: map, dbError: false }
+  } catch (err) {
+    // select 自体が reject(通信断で throw)。.error と同じく dbError=true に倒し、呼び出し側の
+    // infra defer 分岐に乗せる(バッチ全体を abort させない)。
+    console.error('[connector-dispatch] integration_connections lookup threw:', err)
+    return { connections: map, dbError: true }
   }
-  return map
 }
 
 /** コネクタ送信ジョブを1バッチ処理する。cron 起動配線は後続PR(このワーカーは呼び出されるだけ)。 */
 export async function dispatchConnectorJobsBatch(limit = 100): Promise<ConnectorDispatchSummary> {
-  const summary: ConnectorDispatchSummary = { claimed: 0, done: 0, tempFailed: 0, dead: 0 }
+  const summary: ConnectorDispatchSummary = { claimed: 0, done: 0, tempFailed: 0, dead: 0, deferred: 0 }
 
   const { data: jobs, error } = await admin().rpc('rpc_claim_connector_jobs', { p_total_limit: limit })
   if (error) {
@@ -393,17 +541,69 @@ export async function dispatchConnectorJobsBatch(limit = 100): Promise<Connector
     byConn.set(j.connection_id, arr)
   }
 
-  const connMap = await loadConnections([...byConn.keys()])
+  const { connections: connMap, dbError: connLoadError } = await loadConnections([...byConn.keys()])
+  const now = Date.now()
 
   for (const [connId, connJobs] of byConn) {
-    const conn = connMap.get(connId)
-    if (!conn) {
-      // 接続が消えている(削除済み)。書き戻し先が存在しないため恒久失敗にする。
-      for (const j of connJobs) await completeJob(j, 'permanent_fail', 'connection_not_found')
-      summary.dead += connJobs.length
-      continue
+    // 【不変条件】claim 済みの各ジョブは必ず completion(done/temporary_fail/permanent_fail/defer)を
+    // 試みる。per-connection ループ本体の**全分岐**(connLoadError / not-found / processConnectionJobs)を
+    // 1つの try/catch 境界に入れ、どの分岐で想定外 throw が起きても、この接続のジョブだけを infra defer に
+    // 落として次の接続へ進む(Codex 指摘 Critical1: 以前は connLoadError / not-found 分岐の completeJob が
+    // try の外にあり、completion RPC が瞬断で throw するとバッチ全体が abort → 他接続の claim 済みジョブが
+    // orphan(completion を通らず lease 失効 → 無限再 claim)になった)。
+    //
+    // completedIds: この接続で **completeJob が成功した** ジョブの id 台帳。processConnectionJobs が一部の
+    // ジョブを完了させてから throw した場合でも、外側 catch は completedIds に無い(=未完了の)ジョブだけを
+    // 救済 defer する。完了済みを再度 completeJob するとバッチ summary を二重計上し、無駄な RPC も打つため
+    // (Codex 指摘: RPC は version で二重を弾くが、数え間違いと余計な RPC は起きる)。
+    const completedIds = new Set<string>()
+    try {
+      if (connLoadError) {
+        // 接続行が「取得できない」=自分側DBの瞬断。配達を試みる前の自分側障害なので attempt を消費せず
+        // defer(72h キャップ超は temporary_fail に降格)。
+        for (const j of connJobs) {
+          const outcome = infraTransientOutcome(j, now)
+          await completeJob(j, outcome, 'integration_connections_lookup_failed')
+          completedIds.add(j.id)
+          if (outcome === 'defer') summary.deferred++
+          else summary.tempFailed++
+        }
+        continue
+      }
+      const conn = connMap.get(connId)
+      if (!conn) {
+        // loadConnections 成功で該当 row が無い=接続が削除済み。書き戻し先が存在しないため恒久失敗。
+        // (DB error と違い、これは「無い」ことが確定しているので defer しない。)
+        for (const j of connJobs) {
+          await completeJob(j, 'permanent_fail', 'connection_not_found')
+          completedIds.add(j.id)
+          summary.dead++
+        }
+        continue
+      }
+      await processConnectionJobs(conn, connJobs, summary, completedIds)
+    } catch (err) {
+      // 1接続の処理が想定外に throw しても**バッチ全体を落とさない**(他接続の claim 済みジョブを
+      // orphan にしない)。想定外 throw の主因は completion RPC(rpc_complete_connector_job)自体の瞬断など
+      // 自分側インフラなので、**まだ完了していない**この接続のジョブを infra 一時障害として defer(72h キャップ)
+      // に通す。既に completeJob 済みのジョブ(completedIds)は再確定しない(summary 二重計上・無駄な RPC 回避)。
+      // completion RPC が続けて落ちる場合は次サイクルで再度ここに来る(at-least-once + 冪等で吸収)。
+      console.error('[connector-dispatch] connection batch failed, defer-ing its jobs:', connId, err)
+      for (const j of connJobs) {
+        if (completedIds.has(j.id)) continue
+        try {
+          const outcome = infraTransientOutcome(j, now)
+          await completeJob(j, outcome, 'connection_batch_infra_error')
+          completedIds.add(j.id)
+          if (outcome === 'defer') summary.deferred++
+          else summary.tempFailed++
+        } catch (completeErr) {
+          // completion 自体が落ちるなら lease 失効で次サイクルに回す(消せるものが無い=不変条件が許容する
+          // 唯一の例外: completion RPC 自体の失敗のみ lease 失効に委ねる)。
+          console.error('[connector-dispatch] defer completion also failed:', j.id, completeErr)
+        }
+      }
     }
-    await processConnectionJobs(conn, connJobs, summary)
   }
   return summary
 }
