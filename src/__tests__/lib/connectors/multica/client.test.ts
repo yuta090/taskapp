@@ -10,14 +10,15 @@ vi.mock('@/lib/sinks/ssrf', () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }))
 
-const decryptConnectorSecretMock = vi.fn()
+const resolveConnectorSecretMock = vi.fn()
 vi.mock('@/lib/connectors/secrets', () => ({
-  decryptConnectorSecret: (...args: unknown[]) => decryptConnectorSecretMock(...args),
+  resolveConnectorSecret: (...args: unknown[]) => resolveConnectorSecretMock(...args),
 }))
 
 const { sendIssueUpsert, sendIssueCancel, formatLocalTimestampWithOffset } = await import(
   '@/lib/connectors/multica/client'
 )
+const { isInfraTransientError } = await import('@/lib/connectors/infraTransient')
 
 const CONN = {
   id: 'conn-multica-1',
@@ -36,7 +37,7 @@ const TASK = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  decryptConnectorSecretMock.mockResolvedValue('sec_test')
+  resolveConnectorSecretMock.mockResolvedValue({ status: 'ok', secret: 'sec_test' })
 })
 
 describe('formatLocalTimestampWithOffset', () => {
@@ -84,7 +85,7 @@ describe('sendIssueUpsert', () => {
     const conn = { id: 'conn-no-config', metadata: {} }
     await expect(sendIssueUpsert(conn, TASK)).rejects.toMatchObject({ status: 422 })
     expect(safeFetchMock).not.toHaveBeenCalled()
-    expect(decryptConnectorSecretMock).not.toHaveBeenCalled()
+    expect(resolveConnectorSecretMock).not.toHaveBeenCalled()
   })
 
   it('metadata.multica が無い接続も同様に422', async () => {
@@ -92,9 +93,19 @@ describe('sendIssueUpsert', () => {
     await expect(sendIssueUpsert(conn, TASK)).rejects.toMatchObject({ status: 422 })
   })
 
-  it('send_secretの復号に失敗したら422で投げる(平文フォールバックはしない)', async () => {
-    decryptConnectorSecretMock.mockResolvedValue(null)
+  it('send_secretが恒久破損(corrupt=結果空)なら422で投げる(平文フォールバックはしない・permanent)', async () => {
+    resolveConnectorSecretMock.mockResolvedValue({ status: 'corrupt' })
     await expect(sendIssueUpsert(CONN, TASK)).rejects.toMatchObject({ status: 422 })
+    expect(safeFetchMock).not.toHaveBeenCalled()
+  })
+
+  it('send_secretの復号が一時障害(transient_error)なら infra 一時障害マーカー付きで投げる(defer 対象・422にしない)', async () => {
+    // 復号RPC/vault の瞬断は外部送信より前の自分側インフラ障害。dispatch が attempt 不変の defer に回せるよう、
+    // status=422(permanent)ではなく infraTransient マーカー付きの Error を投げる。
+    resolveConnectorSecretMock.mockResolvedValue({ status: 'transient_error' })
+    const err = await sendIssueUpsert(CONN, TASK).catch((e) => e)
+    expect(isInfraTransientError(err)).toBe(true)
+    expect((err as { status?: number }).status).toBeUndefined()
     expect(safeFetchMock).not.toHaveBeenCalled()
   })
 

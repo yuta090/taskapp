@@ -165,9 +165,32 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     return { status: 'auth_failed' }
   }
 
+  // ⚠ 外部refresh呼び出し(refreshFn)と、その後の**自分側**処理(暗号化・DB更新・再復号)を
+  // 分けて try する。両者を同じ catch に入れると、自前の encryptToken/decryptConnectionRow(自分側
+  // インフラ)の失敗まで transientKind='refresh'(外部起因)に化け、defer 対象のインフラ障害が
+  // temporary_fail(予算消費)に誤分類される(Codex 指摘 Important2)。'refresh' を付けるのは
+  // **外部への refresh HTTP 呼び出しの失敗だけ**に限定する。
+  let refreshed: Awaited<ReturnType<RefreshFn>>
   try {
-    const refreshed = await refreshFn(connection.refresh_token)
+    refreshed = await refreshFn(connection.refresh_token)
+  } catch (err) {
+    const httpStatus = (err as { status?: number } | undefined)?.status
+    if (httpStatus === 400 || httpStatus === 401) {
+      // 失効(invalid_grant等) — 再認可が必要。DBへ反映しユーザーに再接続を促す。
+      console.error('Token refresh failed (auth):', err)
+      await getSupabaseAdmin().from('integration_connections').update({ status: 'expired' }).eq('id', connectionId)
+      return { status: 'auth_failed' }
+    }
+    // 5xx・ネットワークエラー・timeout等statusを持たない失敗は一時障害。DBを触らずactiveのまま残す。
+    // これは**外部プロバイダ起因**(refresh エンドポイント)なので transientKind='refresh' を付す
+    // (呼び出し側は defer せず従来どおり temporary_fail=予算消費で扱う)。
+    console.error('Token refresh failed (transient):', err)
+    return { status: 'transient_error', transientKind: 'refresh' }
+  }
 
+  // ここから先は**自分側**処理(暗号化・DB更新・再復号)。失敗は自分側インフラ一時障害
+  // (transientKind を付けない=defer 対象)。DBを触らずactiveのまま残し、呼び出し側の再試行に委ねる。
+  try {
     // contractフェーズ: 平文列には実値を書かない。access_token は NOT NULL 制約を満たすため
     // 空文字で埋め、トークンの正本は暗号化列にだけ入れる。refresh 平文キーは出さない。
     // encryptTokenは失敗時にthrowする(「暗号化できなかったので平文だけ保存」に倒さない)。
@@ -194,25 +217,16 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
 
     if (updateError) {
       console.error('Failed to update refreshed token:', updateError)
-      // 更新自体が失敗した(何も永続化されていない)。状態は変わっていないため一時障害扱い。
+      // 更新自体が失敗した(何も永続化されていない)。状態は変わっていないため一時障害扱い(インフラ)。
       return { status: 'transient_error' }
     }
 
     return { status: 'refreshed', connection: await decryptConnectionRow(updated as unknown as ConnectionRow) }
   } catch (err) {
-    const httpStatus = (err as { status?: number } | undefined)?.status
-    if (httpStatus === 400 || httpStatus === 401) {
-      // 失効(invalid_grant等) — 再認可が必要。DBへ反映しユーザーに再接続を促す。
-      console.error('Token refresh failed (auth):', err)
-      await getSupabaseAdmin().from('integration_connections').update({ status: 'expired' }).eq('id', connectionId)
-      return { status: 'auth_failed' }
-    }
-    // 5xx・ネットワークエラー・timeout等statusを持たない失敗は一時障害。
-    // DBを触らずactiveのまま残し、呼び出し側の再試行に委ねる。
-    // これは**外部プロバイダ起因**(refresh エンドポイント)なので transientKind='refresh' を付す
-    // (呼び出し側は defer せず従来どおり temporary_fail=予算消費で扱う)。
-    console.error('Token refresh failed (transient):', err)
-    return { status: 'transient_error', transientKind: 'refresh' }
+    // 自前の暗号化(encryptToken)・再復号(decryptConnectionRow)の失敗=自分側インフラ一時障害。
+    // 外部refresh は既に成功しているので 'refresh' ではない。transientKind を付けず defer 対象にする。
+    console.error('Token persist/re-decrypt after refresh failed (infra transient):', err)
+    return { status: 'transient_error' }
   }
 }
 

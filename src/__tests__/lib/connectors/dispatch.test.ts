@@ -56,6 +56,9 @@ const state = {
   conns: [] as ConnRow[],
   links: [] as LinkRow[],
   upserts: [] as Array<{ table: string; value: unknown }>,
+  // 自分側DBの瞬断を撃ち分けるフラグ(接続行 read / 対応表 read)。
+  connError: false,
+  linkError: false,
 }
 
 function makeChain(table: string) {
@@ -65,6 +68,8 @@ function makeChain(table: string) {
 
   function resolveNow(): { data: unknown; error: unknown } {
     if (table === 'integration_connections') {
+      // 接続行 read の DB 瞬断を模す(loadConnections が throw せず dbError を返す経路)。
+      if (state.connError) return { data: null, error: { message: 'integration_connections db down' } }
       if (inFilter) {
         const rows = state.conns.filter((c) => inFilter!.vals.includes(c.id))
         return { data: rows, error: null }
@@ -72,6 +77,10 @@ function makeChain(table: string) {
       return { data: state.conns, error: null }
     }
     if (table === 'connector_task_links') {
+      // 対応表 read の DB 瞬断を模す(ただし upsert=saveMulticaLink には出さない)。
+      if (state.linkError && mode !== 'upsert') {
+        return { data: null, error: { message: 'connector_task_links db down' } }
+      }
       const rows = state.links.filter((l) => {
         if (eqFilters.connection_id && l.connection_id !== eqFilters.connection_id) return false
         if (eqFilters.task_id && l.task_id !== eqFilters.task_id) return false
@@ -112,6 +121,8 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 const { dispatchConnectorJobsBatch } = await import('@/lib/connectors/dispatch')
+// infraTransient は mock しない(実ヘルパーを使って multica クライアントの infra 一時障害を模す)。
+const { infraTransientError } = await import('@/lib/connectors/infraTransient')
 
 function job(
   connectionId: string,
@@ -177,6 +188,8 @@ beforeEach(() => {
   })
   state.links = []
   state.upserts = []
+  state.connError = false
+  state.linkError = false
   getValidTokenDetailedMock.mockResolvedValue({ status: 'ok', token: 'access-token' })
   sendIssueUpsertMock.mockResolvedValue({ issueId: 'iss-1' })
   sendIssueCancelMock.mockResolvedValue(undefined)
@@ -473,6 +486,148 @@ describe('dispatchConnectorJobsBatch', () => {
       expect(completeCall('defer')).toBeFalsy()
       expect(s.tempFailed).toBe(1)
     })
+
+    it('created_at が未来(たった今 enqueue・クロックスキュー)は「若いジョブ」として defer', async () => {
+      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+      const future = new Date(Date.now() + 60 * 1000).toISOString()
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: future })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(s.deferred).toBe(1)
+      expect(s.tempFailed).toBe(0)
+    })
+
+    it('created_at がちょうど72h(境界)は defer(> MAX で初めて降格)', async () => {
+      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+      const exactly72h = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: exactly72h })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(completeCall('temporary_fail')).toBeFalsy()
+      expect(s.deferred).toBe(1)
+    })
+  })
+
+  /**
+   * Codex 指摘 Critical1: loadConnections のバッチ DB read 失敗。以前は throw してバッチ全体を中断し、
+   * claim(lease)済みジョブが completion RPC を通らず lease 失効で無限に再 claim され、attempt が進まず
+   * 72h キャップも迂回された。DB error は throw せず、claim 済み全ジョブを infra 一時障害として
+   * completion に通す(72h 以内 defer / 超過 temporary_fail)。「row 不在(削除済み)」は別で permanent_fail。
+   */
+  describe('loadConnections の DB read 失敗(バッチを落とさず infra→defer)', () => {
+    const recentCreatedAt = () => new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const staleCreatedAt = () => new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString()
+
+    it('接続行 read が DB error のとき、throw せず claim 済み全ジョブを defer にする(無限再claim しない)', async () => {
+      state.connError = true
+      claimReturns([
+        job('conn-multica', 'upsert', { title: 'x' }, { created_at: recentCreatedAt() }),
+        job('conn-gtasks', 'complete', {}, { created_at: recentCreatedAt() }),
+      ])
+      // throw しないこと(バッチが最後まで走り summary を返す)を担保する。
+      const s = await dispatchConnectorJobsBatch()
+      expect(s.deferred).toBe(2)
+      expect(s.dead).toBe(0)
+      expect(s.tempFailed).toBe(0)
+      // 全ジョブが completion(defer)を通っている=lease 失効での無限再claim を起こさない。
+      const deferCalls = rpcMock.mock.calls.filter(
+        (c) => c[0] === 'rpc_complete_connector_job' && (c[1] as { p_outcome: string }).p_outcome === 'defer',
+      )
+      expect(deferCalls).toHaveLength(2)
+      // 外部送信は一切試みない(接続行が読めていない)。
+      expect(sendIssueUpsertMock).not.toHaveBeenCalled()
+      expect(patchTaskMock).not.toHaveBeenCalled()
+    })
+
+    it('接続行 read が DB error かつ 72h 超のジョブは temporary_fail に降格(無限 defer 防止)', async () => {
+      state.connError = true
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: staleCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('temporary_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.tempFailed).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+
+    it('loadConnections 成功で該当 row が無い(削除済み)ジョブは従来どおり permanent_fail(connection_not_found)', async () => {
+      // connError=false・row 不在 → DB error とは別物として恒久失敗。
+      state.conns = []
+      claimReturns([job('conn-gone', 'upsert', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      const permCall = completeCall('permanent_fail')
+      expect(permCall).toBeTruthy()
+      expect((permCall?.[1] as { p_error: string }).p_error).toBe('connection_not_found')
+      expect(s.dead).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+  })
+
+  /**
+   * Codex 指摘 Critical2: multica の send_secret 復号一時障害が恒久破損と区別されず即 permanent_fail/dead。
+   * multica クライアントは復号一時障害を infraTransient マーカー付きで投げる(client.test.ts で担保)。
+   * dispatch はそのマーカーを見て defer(72h キャップ)に回す。恒久破損(422)は従来どおり permanent。
+   */
+  describe('multica: 復号一時障害は defer / 恒久破損(422)は permanent', () => {
+    const recentCreatedAt = () => new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
+    it('send_secret 復号一時障害(infraTransient マーカー)は attempt を消費せず defer', async () => {
+      sendIssueUpsertMock.mockRejectedValue(infraTransientError('send_secret decrypt transient failure'))
+      claimReturns([job('conn-multica', 'upsert', { title: 'x' }, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(completeCall('permanent_fail')).toBeFalsy()
+      expect(s.deferred).toBe(1)
+      expect(s.dead).toBe(0)
+    })
+
+    it('send_secret 恒久破損(422)は従来どおり permanent_fail=dead(defer に流さない)', async () => {
+      sendIssueUpsertMock.mockRejectedValue(Object.assign(new Error('corrupt'), { status: 422 }))
+      claimReturns([job('conn-multica', 'upsert', { title: 'x' }, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('permanent_fail')).toBeTruthy()
+      expect(completeCall('defer')).toBeFalsy()
+      expect(s.dead).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
+  })
+
+  /**
+   * Codex 指摘 Important1: connector_task_links(対応表)read の DB 瞬断=外部送信より前の自分側障害。
+   * 以前は temporary_fail(予算消費→最終 dead)だった。infra→defer に揃える。row 不在(書き戻し先未設定)は
+   * 従来どおり permanent(別分岐)であり、これを defer に流さないことも固定する。
+   */
+  describe('link read(対応表)の DB 瞬断は infra→defer', () => {
+    const recentCreatedAt = () => new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
+    it('google_tasks: link read が DB error なら defer(dead にしない・外部を叩かない)', async () => {
+      state.linkError = true
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(patchTaskMock).not.toHaveBeenCalled()
+      expect(s.deferred).toBe(1)
+      expect(s.dead).toBe(0)
+      expect(s.tempFailed).toBe(0)
+    })
+
+    it('backlog(task-sync): link read が DB error なら defer(dead にしない・外部を叩かない)', async () => {
+      state.linkError = true
+      claimReturns([job('conn-backlog', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(completeCall('defer')).toBeTruthy()
+      expect(completeTaskMock).not.toHaveBeenCalled()
+      expect(s.deferred).toBe(1)
+      expect(s.dead).toBe(0)
+      expect(s.tempFailed).toBe(0)
+    })
+
+    it('google_tasks: link 不在(DB error ではない・書き戻し先未設定)は従来どおり permanent_fail=dead', async () => {
+      state.links = [] // linkError=false・row 不在
+      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: recentCreatedAt() })])
+      const s = await dispatchConnectorJobsBatch()
+      expect(s.dead).toBe(1)
+      expect(s.deferred).toBe(0)
+    })
   })
 
   it('未対応providerの接続はpermanent_fail=deadにする', async () => {
@@ -504,3 +659,39 @@ describe('dispatchConnectorJobsBatch', () => {
     expect((done?.[1] as { p_version: number }).p_version).toBe(7)
   })
 })
+
+describe('dispatchConnectorJobsBatch — per-connection 分離 (Critical1 同型)', () => {
+  it('1接続の completion RPC が throw してもバッチは落ちず、他接続は処理される', async () => {
+    // multica と gtasks の2接続。multica のジョブの完了RPCだけを一時的に落とす。
+    claimReturns([job('conn-multica', 'upsert'), job('conn-gtasks', 'complete')])
+    rpcMock.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === 'rpc_claim_connector_jobs') {
+        return Promise.resolve({
+          data: [job('conn-multica', 'upsert'), job('conn-gtasks', 'complete')],
+          error: null,
+        })
+      }
+      if (name === 'rpc_complete_connector_job') {
+        const jobId = (args as { p_job_id?: string } | undefined)?.p_job_id
+        // multica のジョブの完了だけ throw(RPC瞬断を模す)。gtasks は成功。
+        if (typeof jobId === 'string' && jobId.includes('conn-multica')) {
+          return Promise.reject(new Error('rpc_complete_connector_job transient'))
+        }
+      }
+      return Promise.resolve({ data: null, error: null })
+    })
+
+    // バッチが throw せず summary を返す(=1接続の失敗で全体が中断しない)。
+    const s = await dispatchConnectorJobsBatch()
+    expect(s).toBeDefined()
+
+    // gtasks 接続のジョブの completion が呼ばれている(=multica で中断せず後続に進んだ)。
+    const gtasksCompleted = rpcMock.mock.calls.some(
+      (c) => c[0] === 'rpc_complete_connector_job' &&
+        typeof (c[1] as { p_job_id?: string })?.p_job_id === 'string' &&
+        (c[1] as { p_job_id: string }).p_job_id.includes('conn-gtasks'),
+    )
+    expect(gtasksCompleted).toBe(true)
+  })
+})
+
