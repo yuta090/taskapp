@@ -33,28 +33,52 @@ export async function dispatchClaimedDelivery(
   delivery: ClaimedDelivery,
   sink: DeliverableSink,
 ): Promise<DeliveryOutcomeResult> {
-  const result =
-    sink.provider === 'notion'
-      ? await deliverNotion(sink, {
-          id: delivery.id,
-          digestTaskId: delivery.digestTaskId,
-          eventType: delivery.eventType,
-          eventKey: delivery.eventKey,
-          payload: delivery.payload,
-        })
-      : sink.provider === 'google_sheets'
-        ? await deliverGoogleSheets(sink, {
+  let result: Awaited<ReturnType<typeof deliverWebhook>>
+  try {
+    result =
+      sink.provider === 'notion'
+        ? await deliverNotion(sink, {
             id: delivery.id,
+            digestTaskId: delivery.digestTaskId,
             eventType: delivery.eventType,
             eventKey: delivery.eventKey,
             payload: delivery.payload,
           })
-        : await deliverWebhook(sink, {
-            id: delivery.id,
-            eventType: delivery.eventType,
-            eventKey: delivery.eventKey,
-            payload: delivery.payload,
-          })
+        : sink.provider === 'google_sheets'
+          ? await deliverGoogleSheets(sink, {
+              id: delivery.id,
+              eventType: delivery.eventType,
+              eventKey: delivery.eventKey,
+              payload: delivery.payload,
+            })
+          : await deliverWebhook(sink, {
+              id: delivery.id,
+              eventType: delivery.eventType,
+              eventKey: delivery.eventKey,
+              payload: delivery.payload,
+            })
+  } catch (error) {
+    // 【不変条件】アダプタ処理が想定外に throw しても delivery を orphan(completion を通らず lease 失効→
+    // 再 claim→重複ページ)にしない。必ず completion を通す。ここに来る throw は「外部送信より前の**自分側**
+    // インフラ障害」(例: notion adapter の findExternalRef=ref lookup の DB read 失敗。Important1)か、
+    // 予期しないバグ。いずれも配達先起因ではないので **defer**(attempt 不変・circuit breaker で収束)に落とす。
+    //   ⚠ **外部送信そのもの**の失敗(notion/webhook/sheets の fetch reject=ネットワーク障害)はアダプタ内で
+    //     status 無しの AdapterResult(ok:false)に正規化済みで、ここには throw で来ない。よって外部起因を
+    //     defer に流さない(それらは下の分類経路で temporary_fail=予算消費になる)。
+    console.error('dispatchClaimedDelivery: adapter threw; defer-ing delivery', delivery.id, error)
+    const completion = await completeSinkDelivery({
+      deliveryId: delivery.id,
+      outcome: 'defer',
+      error: 'sink_deliver_infra_error',
+      countsTowardFailures: true,
+    })
+    if (completion.justBecameError) {
+      await notifySinkBecameError(delivery.sinkId, delivery.orgId).catch((notifyError) => {
+        console.error('dispatchClaimedDelivery: notifySinkBecameError failed', notifyError)
+      })
+    }
+    return completion.deliveryStatus === 'dead' ? 'dead' : 'failed'
+  }
 
   if (result.ok) {
     await completeSinkDelivery({
@@ -105,7 +129,40 @@ export async function dispatchBatch(options: DispatchBatchOptions = {}): Promise
   const summary: DispatchSummary = { claimed: claimed.length, sent: 0, failed: 0, dead: 0, errors: [] }
   if (claimed.length === 0) return summary
 
-  const resolution = await findDeliverableSinksByIds(claimed.map((d) => d.sinkId))
+  // 【不変条件】resolver(findDeliverableSinksByIds)が想定外に throw すると、claim 済み**全** delivery が
+  // orphan(completion を通らず lease 失効→無限再 claim)になる(Codex 指摘 Critical2)。resolver は DB read
+  // error を handled に返す(transientSinkIds)が、その外の想定外 throw(例: 復号経路のバグ)を境界で受け止め、
+  // claim 済み全 delivery を infra defer(attempt 不変・circuit breaker で収束)に落としてバッチを継続する。
+  // これは配達を試みる前の自分側障害なので defer で正しい(外部起因ではない)。
+  let resolution: Awaited<ReturnType<typeof findDeliverableSinksByIds>>
+  try {
+    resolution = await findDeliverableSinksByIds(claimed.map((d) => d.sinkId))
+  } catch (error) {
+    console.error('dispatchBatch: resolver threw; defer-ing all claimed deliveries', error)
+    for (const delivery of claimed) {
+      try {
+        const completion = await completeSinkDelivery({
+          deliveryId: delivery.id,
+          outcome: 'defer',
+          error: 'sink_resolver_infra_error',
+          countsTowardFailures: true,
+        })
+        if (completion.justBecameError) {
+          await notifySinkBecameError(delivery.sinkId, delivery.orgId).catch((notifyError) => {
+            console.error('dispatchBatch: notifySinkBecameError failed', notifyError)
+          })
+        }
+        if (completion.deliveryStatus === 'dead') summary.dead += 1
+        else summary.failed += 1
+      } catch (completeError) {
+        // completion 自体が落ちるなら lease 失効で次サイクルに委ねる(不変条件が許容する唯一の例外)。
+        summary.errors.push(
+          `${delivery.id}: ${completeError instanceof Error ? completeError.message : String(completeError)}`,
+        )
+      }
+    }
+    return summary
+  }
   const { sinks } = resolution
   // 旧シェイプ(refreshTransientSinkIds 無し)のモック/呼び出しに耐えるようデフォルトを与える。
   const transientSinkIds = resolution.transientSinkIds ?? new Set<string>()

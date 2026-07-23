@@ -563,6 +563,60 @@ describe('dispatchConnectorJobsBatch', () => {
   })
 
   /**
+   * Codex 指摘 Critical1(不変条件): connLoadError / not-found 分岐の completeJob が瞬断で throw しても、
+   * per-connection の try/catch 境界に入っているためバッチ全体が abort せず、他接続の claim 済みジョブは
+   * completion を通る(orphan にしない)。completion RPC 自体が続けて落ちる接続のジョブだけ lease 失効に委ねる。
+   */
+  describe('completion RPC 瞬断でも per-connection 境界でバッチを落とさない(不変条件)', () => {
+    const recentCreatedAt = () => new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
+    // 指定 job_id の rpc_complete_connector_job だけ error を返す(completion RPC 瞬断を模す)。
+    function claimReturnsWithCompleteError(jobs: unknown[], failJobId: string) {
+      rpcMock.mockImplementation((name: string, args?: unknown) => {
+        if (name === 'rpc_claim_connector_jobs') return Promise.resolve({ data: jobs, error: null })
+        if (name === 'rpc_complete_connector_job' && (args as { p_job_id: string }).p_job_id === failJobId) {
+          return Promise.resolve({ data: null, error: { message: 'completion rpc down' } })
+        }
+        return Promise.resolve({ data: null, error: null })
+      })
+    }
+
+    it('connLoadError 分岐で completeJob が throw しても他接続は defer される', async () => {
+      state.connError = true
+      const jobs = [
+        job('conn-a', 'upsert', { title: 'x' }, { created_at: recentCreatedAt() }),
+        job('conn-b', 'upsert', { title: 'y' }, { created_at: recentCreatedAt() }),
+      ]
+      claimReturnsWithCompleteError(jobs, 'job-conn-a-upsert')
+      // throw せずに完走すること(バッチが abort しない)。
+      const s = await dispatchConnectorJobsBatch()
+      // conn-b の defer completion は通っている(他接続を巻き込まない)。
+      const deferB = rpcMock.mock.calls.find(
+        (c) =>
+          c[0] === 'rpc_complete_connector_job' &&
+          (c[1] as { p_job_id: string }).p_job_id === 'job-conn-b-upsert' &&
+          (c[1] as { p_outcome: string }).p_outcome === 'defer',
+      )
+      expect(deferB).toBeTruthy()
+      expect(s.deferred).toBe(1)
+    })
+
+    it('not-found 分岐で completeJob が throw しても他接続(multica)は done まで処理される', async () => {
+      // conn-gone は不在(=not-found 分岐)、conn-multica は存在。
+      state.conns = [MULTICA_CONN]
+      const jobs = [
+        job('conn-gone', 'upsert', {}, { created_at: recentCreatedAt() }),
+        job('conn-multica', 'upsert', { title: 'x' }, { created_at: recentCreatedAt() }),
+      ]
+      claimReturnsWithCompleteError(jobs, 'job-conn-gone-upsert')
+      const s = await dispatchConnectorJobsBatch()
+      // multica は完走して done。not-found 側の completion 瞬断に巻き込まれない。
+      expect(sendIssueUpsertMock).toHaveBeenCalled()
+      expect(s.done).toBe(1)
+    })
+  })
+
+  /**
    * Codex 指摘 Critical2: multica の send_secret 復号一時障害が恒久破損と区別されず即 permanent_fail/dead。
    * multica クライアントは復号一時障害を infraTransient マーカー付きで投げる(client.test.ts で担保)。
    * dispatch はそのマーカーを見て defer(72h キャップ)に回す。恒久破損(422)は従来どおり permanent。

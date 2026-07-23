@@ -175,6 +175,30 @@ describe('deliverNotion', () => {
     expect(saveExternalRefMock).toHaveBeenCalledTimes(2)
   })
 
+  // Codex 指摘 Critical3: 外部 fetch reject(ネットワーク障害)は status 無しの一時失敗として正規化し
+  // AdapterResult で返す(throw しない)。dispatcher が temporary_fail(予算消費)に分類する=defer に流さない。
+  it('normalizes a fetch reject (network failure) into a status-less temporary AdapterResult (no throw)', async () => {
+    findExternalRefMock.mockResolvedValue(null)
+    fetchMock.mockRejectedValue(new Error('ECONNRESET'))
+
+    const result = await deliverNotion(SINK, delivery())
+
+    expect(result.ok).toBe(false)
+    expect(result.responseStatus).toBeUndefined()
+    expect(result.permanent).toBeUndefined()
+    // 秘密(トークン/URL/body)を含めない固定文言。
+    expect(result.error).toBe('notion_fetch_network_error')
+  })
+
+  // Codex 指摘 Important1: ref lookup の DB read 障害は「ref 不在」に化けさせず throw。新規 POST を打たない
+  // (=重複/孤児ページを作らない)。dispatcher の per-delivery 境界がこれを defer に落とす。
+  it('propagates a ref-lookup DB read error without POSTing a new page (no duplicate page)', async () => {
+    findExternalRefMock.mockRejectedValue(new Error('sink_external_refs read failed'))
+
+    await expect(deliverNotion(SINK, delivery())).rejects.toThrow('sink_external_refs read failed')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('acceptance #13: a done delivery arriving before created creates the page in done state, and the later created delivery is absorbed into an update (no duplicate page)', async () => {
     // 1st delivery: task.done arrives first, no ref yet -> creates page in done state
     findExternalRefMock.mockResolvedValueOnce(null)

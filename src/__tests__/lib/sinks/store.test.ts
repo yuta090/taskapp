@@ -413,10 +413,17 @@ describe('findExternalRef', () => {
     expect(ref).toBe('page-1')
   })
 
-  it('returns null when no row exists', async () => {
+  it('returns null when no row exists (read succeeded, genuinely absent → caller creates a new page)', async () => {
     fromResponses['sink_external_refs'] = { data: null, error: null }
     const ref = await store.findExternalRef(SINK_ID, 'task-1')
     expect(ref).toBeNull()
+  })
+
+  // Codex 指摘 Important1: DB read error を null(ref 不在)に化けさせない。error 時は throw して、呼び出し側
+  // (deliverNotion→dispatcher の per-delivery 境界)が defer に落とす=新規ページを作らせない(重複防止)。
+  it('throws on a DB read error instead of masking it as ref-absent (prevents duplicate pages)', async () => {
+    fromResponses['sink_external_refs'] = { data: null, error: { message: 'db down' } }
+    await expect(store.findExternalRef(SINK_ID, 'task-1')).rejects.toThrow('sink_external_refs read failed')
   })
 })
 

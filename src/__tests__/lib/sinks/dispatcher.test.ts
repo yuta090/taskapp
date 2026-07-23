@@ -385,4 +385,87 @@ describe('dispatchBatch', () => {
     expect(summary.errors[0]).toContain('db down')
     expect(summary.sent).toBe(1)
   })
+
+  /**
+   * Codex 指摘 Critical2(不変条件): resolver(findDeliverableSinksByIds)が想定外に throw すると、claim 済み
+   * 全 delivery が orphan(completion を通らず lease 失効→無限再 claim)になる。境界で受け止め、全 delivery を
+   * infra defer(attempt 不変・circuit breaker で収束)に落としてバッチを継続する。
+   */
+  it('resolver の想定外 throw で claim 済み全 delivery を defer にしバッチを落とさない', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ id: 'd1' }), delivery({ id: 'd2' })])
+    findDeliverableSinksByIdsMock.mockRejectedValue(new Error('resolver boom'))
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 1,
+      justBecameError: false,
+    })
+
+    const summary = await dispatchBatch()
+
+    expect(completeSinkDeliveryMock).toHaveBeenCalledTimes(2)
+    expect(completeSinkDeliveryMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ deliveryId: 'd1', outcome: 'defer', countsTowardFailures: true }),
+    )
+    expect(completeSinkDeliveryMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ deliveryId: 'd2', outcome: 'defer' }),
+    )
+    expect(summary.failed).toBe(2)
+    expect(summary.errors).toHaveLength(0)
+  })
+
+  /**
+   * 不変条件(per-delivery): アダプタが想定外に throw(例: notion の findExternalRef=ref lookup の DB read
+   * 障害、Important1)しても delivery を orphan にしない。必ず completion を通す(=defer)。外部送信そのもの
+   * ではないので defer(自分側インフラ)。他の delivery は巻き込まれない。
+   */
+  it('per-delivery のアダプタ想定外 throw は orphan にせず defer で completion を通す', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ id: 'd1' }), delivery({ id: 'd2' })])
+    deliverWebhookMock
+      .mockRejectedValueOnce(new Error('adapter boom'))
+      .mockResolvedValueOnce({ ok: true, responseStatus: 200 })
+    completeSinkDeliveryMock
+      .mockResolvedValueOnce({ deliveryStatus: 'failed', sinkStatus: 'active', consecutiveFailures: 1, justBecameError: false })
+      .mockResolvedValueOnce({ deliveryStatus: 'sent', sinkStatus: 'active', consecutiveFailures: 0, justBecameError: false })
+
+    const summary = await dispatchBatch()
+
+    expect(completeSinkDeliveryMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ deliveryId: 'd1', outcome: 'defer', countsTowardFailures: true }),
+    )
+    expect(summary.failed).toBe(1)
+    expect(summary.sent).toBe(1)
+  })
+
+  /**
+   * Codex 指摘 Critical3: notion アダプタの外部 fetch reject(ネットワーク障害)は temporary_fail(予算消費)
+   * に分類され completion を通る。defer(自分側インフラ)ではない=外部起因を defer に流さない。
+   */
+  it('notion の fetch reject(status 無し)は temporary_fail で completion を通す(defer にしない)', async () => {
+    const NOTION_SINK = { id: 'sink-1', provider: 'notion' as const, accessToken: 'tok', databaseId: 'db' }
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map([['sink-1', NOTION_SINK]]),
+      transientSinkIds: new Set(),
+      refreshTransientSinkIds: new Set(),
+    })
+    claimSinkDeliveriesMock.mockResolvedValue([delivery()])
+    // アダプタは fetch reject を status 無しの AdapterResult に正規化して返す(throw しない)。
+    deliverNotionMock.mockResolvedValue({ ok: false, error: 'notion_fetch_network_error' })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 1,
+      justBecameError: false,
+    })
+
+    await dispatchBatch()
+
+    expect(completeSinkDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
+    )
+    expect(completeSinkDeliveryMock).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: 'defer' }))
+  })
 })

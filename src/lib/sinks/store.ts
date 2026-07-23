@@ -654,7 +654,14 @@ export async function findExternalRef(sinkId: string, digestTaskId: string): Pro
     .eq('sink_id', sinkId)
     .eq('digest_task_id', digestTaskId)
     .maybeSingle()
-  if (error || !data) return null
+  // DB read error と row 不在を区別する(Codex 指摘 Important1)。error 時に null を返すと、呼び出し側の
+  // deliverNotion が「ref 無し」と誤認して新規ページを POST し、孤児/重複ページを作る(データ破損)。
+  // read 自体の失敗は「外部送信より前の自分側インフラ障害」として throw し、dispatcher の per-delivery
+  // 境界(dispatchClaimedDelivery の catch)が defer(送信せず attempt 不変で再試行)に落とす。
+  // 「ref が本当に無い(read 成功・row 無し)」ときだけ null を返し、新規作成に進ませる。
+  // 例外メッセージに秘密や識別子を含めない(固定文言のみ)。
+  if (error) throw new Error('sink_external_refs read failed')
+  if (!data) return null
   return (data as { external_ref: string }).external_ref
 }
 

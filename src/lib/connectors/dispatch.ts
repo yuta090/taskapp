@@ -507,33 +507,37 @@ export async function dispatchConnectorJobsBatch(limit = 100): Promise<Connector
   const now = Date.now()
 
   for (const [connId, connJobs] of byConn) {
-    if (connLoadError) {
-      // 接続行が「取得できない」=自分側DBの瞬断(Codex 指摘 Critical1)。配達を試みる前の自分側障害
-      // なので attempt を消費せず defer(72h キャップ超は temporary_fail に降格)。バッチは落とさない。
-      for (const j of connJobs) {
-        const outcome = infraTransientOutcome(j, now)
-        await completeJob(j, outcome, 'integration_connections_lookup_failed')
-        if (outcome === 'defer') summary.deferred++
-        else summary.tempFailed++
-      }
-      continue
-    }
-    const conn = connMap.get(connId)
-    if (!conn) {
-      // loadConnections 成功で該当 row が無い=接続が削除済み。書き戻し先が存在しないため恒久失敗。
-      // (DB error と違い、これは「無い」ことが確定しているので defer しない。)
-      for (const j of connJobs) await completeJob(j, 'permanent_fail', 'connection_not_found')
-      summary.dead += connJobs.length
-      continue
-    }
+    // 【不変条件】claim 済みの各ジョブは必ず completion(done/temporary_fail/permanent_fail/defer)を
+    // 試みる。per-connection ループ本体の**全分岐**(connLoadError / not-found / processConnectionJobs)を
+    // 1つの try/catch 境界に入れ、どの分岐で想定外 throw が起きても、この接続のジョブだけを infra defer に
+    // 落として次の接続へ進む(Codex 指摘 Critical1: 以前は connLoadError / not-found 分岐の completeJob が
+    // try の外にあり、completion RPC が瞬断で throw するとバッチ全体が abort → 他接続の claim 済みジョブが
+    // orphan(completion を通らず lease 失効 → 無限再 claim)になった)。
     try {
+      if (connLoadError) {
+        // 接続行が「取得できない」=自分側DBの瞬断。配達を試みる前の自分側障害なので attempt を消費せず
+        // defer(72h キャップ超は temporary_fail に降格)。
+        for (const j of connJobs) {
+          const outcome = infraTransientOutcome(j, now)
+          await completeJob(j, outcome, 'integration_connections_lookup_failed')
+          if (outcome === 'defer') summary.deferred++
+          else summary.tempFailed++
+        }
+        continue
+      }
+      const conn = connMap.get(connId)
+      if (!conn) {
+        // loadConnections 成功で該当 row が無い=接続が削除済み。書き戻し先が存在しないため恒久失敗。
+        // (DB error と違い、これは「無い」ことが確定しているので defer しない。)
+        for (const j of connJobs) await completeJob(j, 'permanent_fail', 'connection_not_found')
+        summary.dead += connJobs.length
+        continue
+      }
       await processConnectionJobs(conn, connJobs, summary)
     } catch (err) {
       // 1接続の処理が想定外に throw しても**バッチ全体を落とさない**(他接続の claim 済みジョブを
-      // orphan にしない)。Critical1 と同型: ここで throw が抜けると、この接続の claim 済みジョブが
-      // completion RPC を通らず lease 失効 → 無限再 claim になり、後続の接続も処理されない。
-      // 想定外 throw の主因は completion RPC(rpc_complete_connector_job)自体の瞬断など自分側インフラ
-      // なので、この接続のジョブを infra 一時障害として defer(72h キャップ)に通す。
+      // orphan にしない)。想定外 throw の主因は completion RPC(rpc_complete_connector_job)自体の瞬断など
+      // 自分側インフラなので、この接続のジョブを infra 一時障害として defer(72h キャップ)に通す。
       // completion RPC が続けて落ちる場合は次サイクルで再度ここに来る(at-least-once + 冪等で吸収)。
       console.error('[connector-dispatch] connection batch failed, defer-ing its jobs:', connId, err)
       for (const j of connJobs) {
@@ -543,7 +547,8 @@ export async function dispatchConnectorJobsBatch(limit = 100): Promise<Connector
           if (outcome === 'defer') summary.deferred++
           else summary.tempFailed++
         } catch (completeErr) {
-          // completion 自体が落ちるなら lease 失効で次サイクルに回す(消せるものが無い)。
+          // completion 自体が落ちるなら lease 失効で次サイクルに回す(消せるものが無い=不変条件が許容する
+          // 唯一の例外: completion RPC 自体の失敗のみ lease 失効に委ねる)。
           console.error('[connector-dispatch] defer completion also failed:', j.id, completeErr)
         }
       }
