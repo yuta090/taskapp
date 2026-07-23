@@ -232,6 +232,44 @@ describe('dispatchBatch', () => {
     expect(summary.failed).toBe(2)
   })
 
+  // 恒久破損を transient 扱いにした戦略を運用的に完結させる: 20連続失敗で sink が自動停止(error)した
+  // とき、既存の停止通知(notifySinkBecameError)を transient 分岐でも発火する。
+  it('transient失敗が連続してsinkがerror化(justBecameError)したら停止通知を発火する', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient', orgId: 'org-9' })])
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map(),
+      transientSinkIds: new Set(['sink-transient']),
+    })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'error',
+      consecutiveFailures: 20,
+      justBecameError: true,
+    })
+
+    await dispatchBatch()
+
+    expect(notifySinkBecameErrorMock).toHaveBeenCalledWith('sink-transient', 'org-9')
+  })
+
+  it('transient失敗でもjustBecameErrorがfalseなら停止通知を発火しない', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([delivery({ sinkId: 'sink-transient' })])
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map(),
+      transientSinkIds: new Set(['sink-transient']),
+    })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 3,
+      justBecameError: false,
+    })
+
+    await dispatchBatch()
+
+    expect(notifySinkBecameErrorMock).not.toHaveBeenCalled()
+  })
+
   it('routes notion sinks to deliverNotion instead of deliverWebhook (and passes digestTaskId through)', async () => {
     const NOTION_SINK = {
       id: 'sink-1',

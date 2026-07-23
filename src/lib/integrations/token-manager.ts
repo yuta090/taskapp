@@ -79,6 +79,25 @@ const CONNECTION_SELECT_COLUMNS =
 async function decryptConnectionRow(row: ConnectionRow): Promise<IntegrationConnection> {
   const accessToken = await decryptToken(row.access_token_encrypted)
   const refreshToken = await decryptToken(row.refresh_token_encrypted)
+  // 恒久破損の観測性: 暗号文はあるのに復号結果が空＝暗号文破損の疑い(鍵不一致/blob破損)。
+  // 一時障害(decryptToken の throw)とは別に、再接続で直る恒久破損をログで切り分けられるようにする。
+  // refresh は「暗号化列 null=正常(refresh 無しの接続)」なので、列がある場合だけ対象にする。秘密は出さない。
+  if (row.access_token_encrypted && !accessToken) {
+    console.warn('[token-decrypt] corrupt ciphertext (empty decrypt result)', {
+      connection_id: (row as { id?: string }).id,
+      provider: (row as { provider?: string }).provider,
+      kind: 'access_token',
+      code: 'decrypt_empty_result',
+    })
+  }
+  if (row.refresh_token_encrypted && !refreshToken) {
+    console.warn('[token-decrypt] corrupt ciphertext (empty decrypt result)', {
+      connection_id: (row as { id?: string }).id,
+      provider: (row as { provider?: string }).provider,
+      kind: 'refresh_token',
+      code: 'decrypt_empty_result',
+    })
+  }
   return { ...row, access_token: accessToken, refresh_token: refreshToken } as IntegrationConnection
 }
 

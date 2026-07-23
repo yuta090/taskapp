@@ -900,6 +900,68 @@ describe('findDeliverableSinksByIds — 一時障害を dead にしない (Criti
     expect(result.transientSinkIds.has('sink-a')).toBe(true)
     expect(result.transientSinkIds.has('sink-b')).toBe(true)
   })
+
+  // 第3の変種: 接続行フェッチ(integration_connections)自体の DB error。null→unavailable→dead を避ける。
+  it('notion: 接続行フェッチが DB error(一時障害)のとき transientSinkIds に入る(dead化しない)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-n', org_id: ORG_ID, provider: 'notion', config: { database_id: '12345678-1234-1234-1234-123456789012' }, secret_encrypted: null }],
+      error: null,
+    }
+    fromResponses['integration_connections'] = { data: null, error: { message: 'db timeout' } }
+    const result = await store.findDeliverableSinksByIds(['sink-n'])
+    expect(result.sinks.has('sink-n')).toBe(false)
+    expect(result.transientSinkIds.has('sink-n')).toBe(true)
+  })
+
+  it('notion: 接続行が存在しない(error無し・row無し)は従来どおり unavailable(恒久・transientでない)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-n', org_id: ORG_ID, provider: 'notion', config: { database_id: '12345678-1234-1234-1234-123456789012' }, secret_encrypted: null }],
+      error: null,
+    }
+    fromResponses['integration_connections'] = { data: null, error: null }
+    const result = await store.findDeliverableSinksByIds(['sink-n'])
+    expect(result.sinks.has('sink-n')).toBe(false)
+    expect(result.transientSinkIds.has('sink-n')).toBe(false)
+  })
+
+  it('google_sheets: 接続行フェッチが DB error(一時障害)のとき transientSinkIds に入る(dead化しない)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-gs', org_id: ORG_ID, provider: 'google_sheets', config: GS_CONFIG, secret_encrypted: null }],
+      error: null,
+    }
+    fromResponses['integration_connections'] = { data: null, error: { message: 'db timeout' } }
+    const result = await store.findDeliverableSinksByIds(['sink-gs'])
+    expect(result.sinks.has('sink-gs')).toBe(false)
+    expect(result.transientSinkIds.has('sink-gs')).toBe(true)
+  })
+
+  it('google_sheets: 接続行が存在しない(error無し・row無し)は従来どおり unavailable(恒久・transientでない)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-gs', org_id: ORG_ID, provider: 'google_sheets', config: GS_CONFIG, secret_encrypted: null }],
+      error: null,
+    }
+    fromResponses['integration_connections'] = { data: null, error: null }
+    const result = await store.findDeliverableSinksByIds(['sink-gs'])
+    expect(result.sinks.has('sink-gs')).toBe(false)
+    expect(result.transientSinkIds.has('sink-gs')).toBe(false)
+  })
+
+  it('webhook: secret復号の結果が空(恒久破損)は秘密を含まない warn を出す(切り分け用)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-wh', org_id: ORG_ID, provider: 'webhook', config: { url: 'https://e.com/h' }, secret_encrypted: 'ENC_SECRET_BLOB' }],
+      error: null,
+    }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: null }
+    await store.findDeliverableSinksByIds(['sink-wh'])
+    const corruptWarn = warnSpy.mock.calls.find((c) => String(c[0]).includes('corrupt'))
+    expect(corruptWarn).toBeDefined()
+    const logged = JSON.stringify(corruptWarn)
+    expect(logged).toContain('sink-wh')
+    expect(logged).toContain('webhook')
+    expect(logged).not.toContain('ENC_SECRET_BLOB')
+    warnSpy.mockRestore()
+  })
 })
 
 describe('listDeliveries', () => {
