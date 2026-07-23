@@ -269,22 +269,47 @@ describe('getValidTokenDetailed (Google Sheets store.ts専用の詳細版)', () 
     expect(result).toEqual({ status: 'auth_failed' })
   })
 
-  it('refreshFnが500で失敗したら{status:"transient_error"}でDBを触らない', async () => {
+  it('refreshFnが500で失敗したら{status:"transient_error", transientKind:"refresh"}でDBを触らない', async () => {
+    // 外部refresh起因(5xx)は transientKind='refresh'。呼び出し側は defer せず temporary_fail に回す。
     const result = await getValidTokenDetailed(CONNECTION_ID, refreshFnError(500))
-    expect(result).toEqual({ status: 'transient_error' })
+    expect(result).toEqual({ status: 'transient_error', transientKind: 'refresh' })
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it('refreshFnがネットワークエラー(status無し)で失敗したら{status:"transient_error"}でDBを触らない', async () => {
+  it('refreshFnがネットワークエラー(status無し)で失敗したら{status:"transient_error", transientKind:"refresh"}でDBを触らない', async () => {
     const result = await getValidTokenDetailed(CONNECTION_ID, refreshFnError())
-    expect(result).toEqual({ status: 'transient_error' })
+    expect(result).toEqual({ status: 'transient_error', transientKind: 'refresh' })
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it('DB読み取り自体が失敗したら{status:"transient_error"}を返す(接続行のレース、DBは触らない)', async () => {
+  it('DB読み取り自体が失敗したら{status:"transient_error"}(インフラ由来=kind無し)を返す(接続行のレース、DBは触らない)', async () => {
+    // 自分側インフラの一時障害(接続行DB読取)は transientKind を付けない(=defer 対象)。
     selectResponse = { data: null, error: { message: 'timeout' } }
     const result = await getValidTokenDetailed(CONNECTION_ID, vi.fn())
     expect(result).toEqual({ status: 'transient_error' })
+    expect(result).not.toHaveProperty('transientKind')
+  })
+
+  it('refresh成功後の自前 encryptToken 失敗は infra 一時障害(kind無し)で返す(refreshに化けさせない)', async () => {
+    // Codex 指摘 Important2: 外部refresh は成功したが、その後の**自分側**暗号化(encrypt_system_secret)が
+    // 落ちるケース。以前は同じ catch で transientKind='refresh'(外部起因)に誤分類し defer 対象から外れていた。
+    // 自前の encrypt/decrypt 失敗は infra(transientKind 無し=defer 対象)であることを固定する。
+    // decrypt は成功(refresh 前の復号)・encrypt だけ失敗させる。
+    rpcMock.mockImplementation((fn: string, args: Record<string, string>) => {
+      if (fn === 'encrypt_system_secret') return Promise.resolve({ data: null, error: { message: 'vault down' } })
+      return fakeCryptoRpc(fn, args)
+    })
+    const refreshFn = vi.fn().mockResolvedValue({
+      accessToken: 'new-access-token',
+      refreshToken: 'rotated',
+      expiresAt: new Date(Date.now() + 3600_000),
+    })
+    const result = await getValidTokenDetailed(CONNECTION_ID, refreshFn)
+    expect(refreshFn).toHaveBeenCalled()
+    expect(result).toEqual({ status: 'transient_error' })
+    expect(result).not.toHaveProperty('transientKind')
+    // 自前障害では expired 化しない(DBを触らない)。
+    expect(updateSpy).not.toHaveBeenCalledWith({ status: 'expired' })
   })
 })
 

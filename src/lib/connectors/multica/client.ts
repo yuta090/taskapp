@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { safeFetch } from '@/lib/sinks/ssrf'
 import { buildSignatureHeader } from '@/lib/sinks/signature'
-import { decryptConnectorSecret } from '@/lib/connectors/secrets'
+import { resolveConnectorSecret } from '@/lib/connectors/secrets'
+import { infraTransientError } from '@/lib/connectors/infraTransient'
 
 /**
  * multica API クライアント(送信側)。契約: docs/spec/MULTICA_CONNECTOR_CONTRACT.md §3(送信) / §5(署名)。
@@ -64,12 +65,18 @@ async function requireMulticaMetadata(conn: MulticaConnection): Promise<MulticaM
       422,
     )
   }
-  const sendSecret = await decryptConnectorSecret(sendSecretEncrypted)
-  if (!sendSecret) {
-    // 復号不能(鍵の不一致・データ破損等)も設定待ちと同様に恒久失敗として扱う。
+  // 復号は外部送信より前の**自分側**処理。一時障害(復号RPC/vault の瞬断)と恒久破損(鍵不一致/
+  // データ破損)を区別する(Fable 裁定 2026-07-23):
+  //   - 一時障害 → infraTransientError を投げ、dispatch が attempt 不変の defer(72hキャップ)に回す。
+  //   - 恒久破損 → 従来どおり 422(permanent_fail)。設定待ちのジョブを無限リトライさせない。
+  const resolved = await resolveConnectorSecret(sendSecretEncrypted)
+  if (resolved.status === 'transient_error') {
+    throw infraTransientError(`multica connection ${conn.id} send_secret decrypt transient failure`)
+  }
+  if (resolved.status === 'corrupt') {
     throw httpError(`multica connection ${conn.id} send_secret could not be decrypted`, 422)
   }
-  return { baseUrl, sendSecret }
+  return { baseUrl, sendSecret: resolved.secret }
 }
 
 /**

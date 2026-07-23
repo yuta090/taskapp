@@ -34,10 +34,23 @@ type RefreshFn = (refreshToken: string) => Promise<{
  *    HTTP statusを持たない例外)に分類する。失効時のみstatus='expired'化してDBに残す。
  *    一時障害ではDBを一切更新しない(呼び出し側の再試行に委ねる)。
  */
+/**
+ * 一時障害の由来。'refresh' = **外部プロバイダ**(Googleのrefreshエンドポイント等)への呼び出しが
+ * 5xx/ネットワークで一時的に落ちた(＝配達先/外部起因)。**それ以外(field 不在)は自分側インフラの
+ * 一時障害**(接続行のDB読取・トークン復号RPC/vault の瞬断)を意味する。
+ *
+ * この区別が要る理由(Fable 裁定 2026-07-23): 「配達を試みる前に自分のDB/秘密が読めない」インフラ
+ * 一時障害は、アウトボックスの attempt 予算を消費すべきでない(defer)。一方 refresh 5xx は外部起因で
+ * カテゴリが違い、従来どおり temporary_fail(予算消費・バックオフ)にする。
+ * 呼び出し側(sinks/store・task-sync/credentials)がこの kind を見て defer/temporary_fail を振り分ける。
+ * field を省略した(= undefined)場合は安全側で「インフラ」として扱う(既存の呼び出し互換)。
+ */
+export type TransientKind = 'infra' | 'refresh'
+
 type RefreshCoreResult =
   | { status: 'valid' | 'refreshed'; connection: IntegrationConnection }
   | { status: 'auth_failed' }
-  | { status: 'transient_error' }
+  | { status: 'transient_error'; transientKind?: TransientKind }
 
 /**
  * DBの生行。トークンは暗号化列(access_token_encrypted/refresh_token_encrypted)から解決する
@@ -152,9 +165,32 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     return { status: 'auth_failed' }
   }
 
+  // ⚠ 外部refresh呼び出し(refreshFn)と、その後の**自分側**処理(暗号化・DB更新・再復号)を
+  // 分けて try する。両者を同じ catch に入れると、自前の encryptToken/decryptConnectionRow(自分側
+  // インフラ)の失敗まで transientKind='refresh'(外部起因)に化け、defer 対象のインフラ障害が
+  // temporary_fail(予算消費)に誤分類される(Codex 指摘 Important2)。'refresh' を付けるのは
+  // **外部への refresh HTTP 呼び出しの失敗だけ**に限定する。
+  let refreshed: Awaited<ReturnType<RefreshFn>>
   try {
-    const refreshed = await refreshFn(connection.refresh_token)
+    refreshed = await refreshFn(connection.refresh_token)
+  } catch (err) {
+    const httpStatus = (err as { status?: number } | undefined)?.status
+    if (httpStatus === 400 || httpStatus === 401) {
+      // 失効(invalid_grant等) — 再認可が必要。DBへ反映しユーザーに再接続を促す。
+      console.error('Token refresh failed (auth):', err)
+      await getSupabaseAdmin().from('integration_connections').update({ status: 'expired' }).eq('id', connectionId)
+      return { status: 'auth_failed' }
+    }
+    // 5xx・ネットワークエラー・timeout等statusを持たない失敗は一時障害。DBを触らずactiveのまま残す。
+    // これは**外部プロバイダ起因**(refresh エンドポイント)なので transientKind='refresh' を付す
+    // (呼び出し側は defer せず従来どおり temporary_fail=予算消費で扱う)。
+    console.error('Token refresh failed (transient):', err)
+    return { status: 'transient_error', transientKind: 'refresh' }
+  }
 
+  // ここから先は**自分側**処理(暗号化・DB更新・再復号)。失敗は自分側インフラ一時障害
+  // (transientKind を付けない=defer 対象)。DBを触らずactiveのまま残し、呼び出し側の再試行に委ねる。
+  try {
     // contractフェーズ: 平文列には実値を書かない。access_token は NOT NULL 制約を満たすため
     // 空文字で埋め、トークンの正本は暗号化列にだけ入れる。refresh 平文キーは出さない。
     // encryptTokenは失敗時にthrowする(「暗号化できなかったので平文だけ保存」に倒さない)。
@@ -181,22 +217,15 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
 
     if (updateError) {
       console.error('Failed to update refreshed token:', updateError)
-      // 更新自体が失敗した(何も永続化されていない)。状態は変わっていないため一時障害扱い。
+      // 更新自体が失敗した(何も永続化されていない)。状態は変わっていないため一時障害扱い(インフラ)。
       return { status: 'transient_error' }
     }
 
     return { status: 'refreshed', connection: await decryptConnectionRow(updated as unknown as ConnectionRow) }
   } catch (err) {
-    const httpStatus = (err as { status?: number } | undefined)?.status
-    if (httpStatus === 400 || httpStatus === 401) {
-      // 失効(invalid_grant等) — 再認可が必要。DBへ反映しユーザーに再接続を促す。
-      console.error('Token refresh failed (auth):', err)
-      await getSupabaseAdmin().from('integration_connections').update({ status: 'expired' }).eq('id', connectionId)
-      return { status: 'auth_failed' }
-    }
-    // 5xx・ネットワークエラー・timeout等statusを持たない失敗は一時障害。
-    // DBを触らずactiveのまま残し、呼び出し側の再試行に委ねる。
-    console.error('Token refresh failed (transient):', err)
+    // 自前の暗号化(encryptToken)・再復号(decryptConnectionRow)の失敗=自分側インフラ一時障害。
+    // 外部refresh は既に成功しているので 'refresh' ではない。transientKind を付けず defer 対象にする。
+    console.error('Token persist/re-decrypt after refresh failed (infra transient):', err)
     return { status: 'transient_error' }
   }
 }
@@ -229,7 +258,8 @@ export async function getValidToken(connectionId: string, refreshFn: RefreshFn):
 export type ValidTokenDetailedResult =
   | { status: 'ok'; token: string }
   | { status: 'auth_failed' }
-  | { status: 'transient_error' }
+  // transientKind='refresh' は外部refresh起因(temporary_fail)。field 不在=インフラ一時障害(defer 対象)。
+  | { status: 'transient_error'; transientKind?: TransientKind }
 
 /**
  * getValidTokenの詳細版。失効(auth_failed)と一時障害(transient_error)を呼び出し側へ
@@ -250,6 +280,13 @@ export async function getValidTokenDetailed(
     // 分類済みなのでここには来ない(=ok/token=null は恒久破損だけ)。
     if (!token) return { status: 'auth_failed' }
     return { status: 'ok', token }
+  }
+  if (result.status === 'transient_error') {
+    // 由来(refresh=外部起因)が判っているときだけ transientKind を付す。インフラ由来は field を
+    // 付けない(= defer 対象。呼び出し側は transientKind !== 'refresh' で判定する)。
+    return result.transientKind
+      ? { status: 'transient_error', transientKind: result.transientKind }
+      : { status: 'transient_error' }
   }
   return { status: result.status }
 }

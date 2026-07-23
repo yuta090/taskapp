@@ -85,9 +85,12 @@ function notionHeaders(accessToken: string): Record<string, string> {
 
 interface NotionFetchResult {
   ok: boolean
-  status: number
+  /** ネットワーク障害(fetch reject)のときは undefined。dispatcher が status 無し=一時失敗と分類する。 */
+  status?: number
   json: unknown
   text: string
+  /** fetch そのものが reject した(DNS/接続/タイムアウト等の外部ネットワーク障害)。 */
+  networkError?: boolean
 }
 
 async function notionFetch(
@@ -96,11 +99,21 @@ async function notionFetch(
   init: { method: string; body?: unknown },
 ): Promise<NotionFetchResult> {
   await throttle()
-  const response = await fetch(`${NOTION_API_BASE}${path}`, {
-    method: init.method,
-    headers: notionHeaders(accessToken),
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-  })
+  let response: Response
+  try {
+    response = await fetch(`${NOTION_API_BASE}${path}`, {
+      method: init.method,
+      headers: notionHeaders(accessToken),
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+    })
+  } catch {
+    // 外部ネットワーク障害(fetch reject: DNS/接続/タイムアウト)。**外部送信そのもの**の一時失敗として
+    // 正規化する(google_sheets アダプタと同方針。Codex 指摘 Critical3)。status を持たせず AdapterResult に
+    // 落とし、dispatcher の classifyDeliveryFailure(status=undefined→一時)が temporary_fail(通常のバックオフ
+    // 予算消費)に分類する。⚠ これは配達先起因なので **defer ではない**(自分側インフラ障害ではない)。
+    // 例外メッセージに秘密(トークン・URL・body)を含めない(固定文言のみ)。
+    return { ok: false, json: null, text: 'notion_fetch_network_error', networkError: true }
+  }
   const text = await response.text().catch(() => '')
   let json: unknown = null
   try {
@@ -113,6 +126,10 @@ async function notionFetch(
 
 function toAdapterResult(result: NotionFetchResult): AdapterResult {
   if (result.ok) return { ok: true, responseStatus: result.status }
+  if (result.networkError) {
+    // status 無しで dispatcher へ渡す → classifyDeliveryFailure が一時失敗(temporary_fail)に分類する。
+    return { ok: false, error: result.text.slice(0, 500) }
+  }
   // レスポンスbodyは保存しない方針(last_errorへは先頭数百byteのみ切り詰め)。
   return { ok: false, responseStatus: result.status, error: result.text.slice(0, 500) }
 }

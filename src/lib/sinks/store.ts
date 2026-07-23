@@ -340,16 +340,21 @@ const DELIVERABLE_SINK_COLUMNS = 'id, org_id, provider, config, secret_encrypted
 
 /**
  * sink解決結果。
- *   'unavailable'     = 恒久(接続なし・config不正・復号結果が空=暗号文破損等、従来の sink_not_deliverable)。
- *   'transient_error' = 一時障害。全経路(webhook/notion/google_sheets)の以下を含む:
- *                       復号のRPC/DB error(throw)・接続行フェッチのDB error(throw)・
- *                       google_sheets の token refresh の 5xx/ネットワーク等(getValidTokenDetailed)。
- *                       呼び出し側で temporary_fail=再試行に落とし、dead 化させない。
+ *   'unavailable'       = 恒久(接続なし・config不正・復号結果が空=暗号文破損等、従来の sink_not_deliverable)。
+ *   'transient_error'   = **自分側インフラ**の一時障害。全経路(webhook/notion/google_sheets)の以下を含む:
+ *                         復号のRPC/DB error(throw)・接続行フェッチのDB error(throw)・
+ *                         google_sheets の token 解決のうち**インフラ由来**(接続行復号 等)の一時障害。
+ *                         呼び出し側は attempt を消費しない **defer** に落とす(配達を試みる前に自分の
+ *                         DB/秘密が読めない障害は予算を食わせない。Fable 裁定 2026-07-23)。
+ *   'transient_refresh' = **外部プロバイダ**(Google の refresh エンドポイント)への呼び出しが 5xx/
+ *                         ネットワークで一時的に落ちた(getValidTokenDetailed の transientKind='refresh')。
+ *                         配達先/外部起因でカテゴリが違うため、従来どおり temporary_fail(予算消費)にする。
  */
 type ToDeliverableSinkResult =
   | { outcome: 'ok'; sink: DeliverableSink }
   | { outcome: 'unavailable' }
   | { outcome: 'transient_error' }
+  | { outcome: 'transient_refresh' }
 
 async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliverableSinkResult> {
   if (row.provider === 'webhook') {
@@ -408,7 +413,11 @@ async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliv
     // 区別する。一時障害はsink_not_deliverable(恒久)にせず、呼び出し側で再試行に回す
     // (レビュー回帰対応: refreshのtemporary障害でsinkを恒久に殺さない)。
     const result = await getValidTokenDetailed(connection.id, refreshAccessToken)
-    if (result.status === 'transient_error') return { outcome: 'transient_error' }
+    if (result.status === 'transient_error') {
+      // 外部refresh起因(transientKind='refresh')は従来どおり temporary_fail(予算消費)。
+      // インフラ由来(kind 不在: 接続行復号の瞬断等)は attempt を消費しない defer に回す。
+      return { outcome: result.transientKind === 'refresh' ? 'transient_refresh' : 'transient_error' }
+    }
     if (result.status !== 'ok') return { outcome: 'unavailable' }
     return {
       outcome: 'ok',
@@ -436,28 +445,34 @@ export async function findDeliverableSink(sinkId: string): Promise<DeliverableSi
 
 export interface DeliverableSinksResolution {
   sinks: Map<string, DeliverableSink>
-  /** google_sheetsのtoken refreshが一時障害で失敗したsinkId。dispatcher側でtemporary_fail
-   *  (再試行)として扱う。sinksにもunavailable集合にも含まれない(排他)。 */
+  /** **自分側インフラ**の一時障害(復号RPC/DB read の瞬断等)で解決に失敗した sinkId。
+   *  dispatcher 側で **defer**(attempt を消費せず 5分後に再試行)として扱う。
+   *  sinks にも refreshTransientSinkIds にも unavailable にも含まれない(排他)。 */
   transientSinkIds: Set<string>
+  /** **外部refresh**起因(Google の refresh 5xx/ネットワーク)の一時障害で解決に失敗した sinkId。
+   *  dispatcher 側で従来どおり temporary_fail(予算消費・バックオフ)として扱う。transientSinkIds と排他。 */
+  refreshTransientSinkIds: Set<string>
 }
 
 /** dispatch用: 複数sinkIdの配達可能シンクをまとめて取得する（重複sink_idを1回で解決） */
 export async function findDeliverableSinksByIds(sinkIds: string[]): Promise<DeliverableSinksResolution> {
   const uniqueIds = Array.from(new Set(sinkIds))
-  if (uniqueIds.length === 0) return { sinks: new Map(), transientSinkIds: new Set() }
+  if (uniqueIds.length === 0) {
+    return { sinks: new Map(), transientSinkIds: new Set(), refreshTransientSinkIds: new Set() }
+  }
 
   const { data, error } = await admin()
     .from('integration_sinks')
     .select(DELIVERABLE_SINK_COLUMNS)
     .in('id', uniqueIds)
   if (error || !data) {
-    // sink一覧の読み取り自体が一時失敗した。0件(=このバッチの claim 済み配達が全部 permanent_fail→dead)に
-    // 倒さず、バッチ全体を transient にして temporary_fail(次サイクルで再試行)へ載せる。
-    // 「一時障害を恒久失敗に化けさせない」の一貫(Critical)。秘密は含めずに warn ログを出す。
-    console.warn('[sink-list] transient DB read failure; treating batch as retryable', {
+    // sink一覧の読み取り自体が一時失敗した(=自分側インフラの瞬断)。0件(=このバッチの claim 済み配達が
+    // 全部 permanent_fail→dead)に倒さず、バッチ全体を infra transient にして **defer**(attempt を消費せず
+    // 次サイクルで再試行)へ載せる。「一時障害を恒久失敗に化けさせない」の一貫(Critical)。秘密は含めない。
+    console.warn('[sink-list] transient DB read failure; treating batch as deferrable', {
       requested: uniqueIds.length,
     })
-    return { sinks: new Map(), transientSinkIds: new Set(uniqueIds) }
+    return { sinks: new Map(), transientSinkIds: new Set(uniqueIds), refreshTransientSinkIds: new Set() }
   }
 
   const rows = data as DeliverableSinkRow[]
@@ -468,11 +483,13 @@ export async function findDeliverableSinksByIds(sinkIds: string[]): Promise<Deli
 
   const sinks = new Map<string, DeliverableSink>()
   const transientSinkIds = new Set<string>()
+  const refreshTransientSinkIds = new Set<string>()
   for (const [id, result] of entries) {
     if (result.outcome === 'ok') sinks.set(id, result.sink)
     else if (result.outcome === 'transient_error') transientSinkIds.add(id)
+    else if (result.outcome === 'transient_refresh') refreshTransientSinkIds.add(id)
   }
-  return { sinks, transientSinkIds }
+  return { sinks, transientSinkIds, refreshTransientSinkIds }
 }
 
 // ---------------------------------------------------------------------------
@@ -637,7 +654,14 @@ export async function findExternalRef(sinkId: string, digestTaskId: string): Pro
     .eq('sink_id', sinkId)
     .eq('digest_task_id', digestTaskId)
     .maybeSingle()
-  if (error || !data) return null
+  // DB read error と row 不在を区別する(Codex 指摘 Important1)。error 時に null を返すと、呼び出し側の
+  // deliverNotion が「ref 無し」と誤認して新規ページを POST し、孤児/重複ページを作る(データ破損)。
+  // read 自体の失敗は「外部送信より前の自分側インフラ障害」として throw し、dispatcher の per-delivery
+  // 境界(dispatchClaimedDelivery の catch)が defer(送信せず attempt 不変で再試行)に落とす。
+  // 「ref が本当に無い(read 成功・row 無し)」ときだけ null を返し、新規作成に進ませる。
+  // 例外メッセージに秘密や識別子を含めない(固定文言のみ)。
+  if (error) throw new Error('sink_external_refs read failed')
+  if (!data) return null
   return (data as { external_ref: string }).external_ref
 }
 
@@ -717,7 +741,9 @@ export async function claimSinkDeliveries(
   return ((data as DeliveryRow[]) ?? []).map(toClaimedDelivery)
 }
 
-export type DeliveryOutcome = 'sent' | 'temporary_fail' | 'permanent_fail'
+// 'defer' = 自分側インフラの一時障害。attempt を消費せず 5分後に再試行する(dead 化させない)。
+// consecutive_failures は加算し、20連続で sink 自動停止(circuit breaker)へ収束する(RPC 側で実装)。
+export type DeliveryOutcome = 'sent' | 'temporary_fail' | 'permanent_fail' | 'defer'
 
 export interface CompleteSinkDeliveryInput {
   deliveryId: string
