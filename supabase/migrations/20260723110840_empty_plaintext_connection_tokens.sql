@@ -16,6 +16,18 @@
 -- インスタンスの refresh 処理が平文を書き戻し、消したそばから平文が復活する競合が起きる。
 -- 全インスタンスが新コード(平文を書かない)に入れ替わってから消すこと。
 --
+-- 【⚠⚠ 必須 PRECONDITION — defer 強化のデプロイ確認（Fable 裁定 2026-07-23）】
+-- **この M2 を適用する前に、outbox の「defer」強化（別PR）が本番にデプロイ済みであることを
+--   必ず確認する。** M2 で平文列を空化すると、「主DBは健全だが復号RPC/vault だけが一時的に
+--   落ちる」障害モードで、復号失敗が temporary_fail として attempt 予算を消費し、8.6時間の
+--   持続で個別配達が dead(永久喪失)になり得る。今日の本番は平文フォールバックがこの1スライスを
+--   マスクしているが、M2 でそれが構造的に消える。defer 強化(復号/接続fetchの一時障害は
+--   attempt を消費せず defer する)がこの穴を塞ぐ。順序は「本コード＋M1 → defer PR → M2 → M3」。
+-- 機械検証(M2 適用直前に実行し、defer 分岐が入っていることを確認してから流す):
+--   select (prosrc like '%defer%') as defer_deployed
+--     from pg_proc where proname = 'rpc_complete_sink_delivery';
+--   -- defer_deployed が t でなければ M2 を適用しない(先に defer PR をデプロイする)。
+--
 -- 【可逆性】
 -- 平文の実値は失われるが、トークンの正本は暗号化列(access_token_encrypted /
 -- refresh_token_encrypted)に残る。万一平文へ戻す必要が出ても、現行鍵(SYSTEM_ENCRYPTION_KEY)
