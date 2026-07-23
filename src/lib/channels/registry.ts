@@ -171,16 +171,25 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     kind: 'chat',
     status: 'beta',
     outbound: true,
-    inbound: false,
+    inbound: true,
     group: true,
     directMessage: false,
+    webhookPath: '/api/channels/google-chat/webhook',
     signatureScheme: 'bearer',
     targetHint: 'スペースの Incoming Webhook URL',
     credentialFields: [
       { key: 'webhook_url', label: 'Incoming Webhook URL', secret: true, help: 'スペース設定で発行したWebhook URL' },
     ],
     setupUrl: 'https://developers.google.com/chat/how-tos/webhooks',
-    notes: 'Incoming Webhook方式（サービスアカウント不要）で送信。双方向はChat API + サービスアカウントが別途必要。',
+    // 受信は2系統: (1) Chat アプリ HTTP 入口（@メンション合言葉の claim bootstrap のみ・実装済み・
+    // PR-b）。全メッセージ購読には Workspace Events API + Pub/Sub が要り、それが張られるまでは
+    // @メンション時の MESSAGE event しか届かない。(2) Pub/Sub 購読経由の全メッセージ取り込み
+    // （claimed スペースのみ対象・PR-c以降）。webhookPath は account単位URLではなくアプリ単一の
+    // HTTP 入口（他チャネルの {accountId} 付きURLとは意味が違う）。
+    notes:
+      'Incoming Webhook方式（サービスアカウント不要）で送信。受信はChatアプリ経由: @メンション合言葉での' +
+      'グループ紐付け（claim bootstrap）に対応済み。全メッセージの自動購読はWorkspace Events API + Pub/Sub' +
+      '（PR-c以降）で追って対応。',
   },
   discord: {
     id: 'discord',

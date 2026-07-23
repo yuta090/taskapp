@@ -233,6 +233,11 @@ export async function findAccountForSecretaryPush(
   const row = data as AccountRow & { channel: string }
   const requirements = SECRETARY_PUSH_REQUIRED_CREDENTIALS[row.channel]
   if (!requirements) return { ok: false, reason: 'unsupported_channel' }
+  // google_chat の共有Bot(owner_type='platform')はSA(サービスアカウント)認証のみで送る
+  // （env GOOGLE_CHAT_SA_KEY・DB資格情報は不要）。webhook_urlを要求すると朝の報告(digest)が
+  // missing_credentialで弾かれる穴があった（PR-f）。org所有(webhook_url必須)は現行のまま。
+  const effectiveRequirements: Array<string | string[]> =
+    row.channel === 'google_chat' && row.owner_type === 'platform' ? [] : requirements
 
   const { data: decrypted, error: decryptError } = await admin().rpc('decrypt_system_secret', {
     encrypted: row.credentials_encrypted,
@@ -247,7 +252,7 @@ export async function findAccountForSecretaryPush(
     return { ok: false, reason: 'credentials_not_json' }
   }
 
-  const missing = requirements
+  const missing = effectiveRequirements
     .filter((req) => (Array.isArray(req) ? !req.some((key) => credentials[key]) : !credentials[req]))
     .map((req) => (Array.isArray(req) ? req.join(' or ') : req))
   if (missing.length > 0) {
@@ -3341,4 +3346,282 @@ export async function findActiveIdentitiesByExternalId(
     id: r.id,
     spaceId: r.space_id,
   }))
+}
+
+// =============================================================================
+// Google Chat 全メッセージ購読状態（channel_event_subscriptions / PR-a）
+//
+// Workspace Events API の subscription の生存状態を持つ薄いCRUD。後続 PR-b 以降
+// （Pub/Sub 受信・cron renew・create-missing）が使う。書込は全て service role 経由。
+// updated_at は UPDATE 系で明示セットする（channel 表は auto-trigger を持たない慣行）。
+// =============================================================================
+
+/** channel_event_subscriptions の1行（row対応・camelCase） */
+export interface ChannelEventSubscription {
+  id: string
+  orgId: string
+  groupId: string
+  accountId: string
+  /** Google Chat 空間名 "spaces/XXX" */
+  spaceName: string
+  /** Events API subscription 名 "subscriptions/XXX"。作成前は null */
+  subscriptionResourceName: string | null
+  status: 'active' | 'expired' | 'broken' | 'deleted'
+  expireTime: string | null
+  lastRenewError: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface EventSubscriptionRow {
+  id: string
+  org_id: string
+  group_id: string
+  account_id: string
+  space_name: string
+  subscription_resource_name: string | null
+  status: string
+  expire_time: string | null
+  last_renew_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+const EVENT_SUBSCRIPTION_COLUMNS =
+  'id, org_id, group_id, account_id, space_name, subscription_resource_name, status, expire_time, last_renew_error, created_at, updated_at'
+
+function toEventSubscriptionStatus(value: string): ChannelEventSubscription['status'] {
+  return value === 'expired' || value === 'broken' || value === 'deleted' ? value : 'active'
+}
+
+function toChannelEventSubscription(row: EventSubscriptionRow): ChannelEventSubscription {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    groupId: row.group_id,
+    accountId: row.account_id,
+    spaceName: row.space_name,
+    subscriptionResourceName: row.subscription_resource_name,
+    status: toEventSubscriptionStatus(row.status),
+    expireTime: row.expire_time,
+    lastRenewError: row.last_renew_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+/**
+ * 購読行を status='active'・resource_name=null で立てる（Events API 作成の直前）。
+ * 部分unique(channel_event_subscriptions_active_group_unique)により、同一 group に
+ * active が2件立つと 23505 になる。呼び出し側はそれを「既に購読あり」として扱う。
+ */
+export async function createEventSubscription(input: {
+  orgId: string
+  groupId: string
+  accountId: string
+  spaceName: string
+}): Promise<{ id: string }> {
+  const { data, error } = await admin()
+    .from('channel_event_subscriptions')
+    .insert({
+      org_id: input.orgId,
+      group_id: input.groupId,
+      account_id: input.accountId,
+      space_name: input.spaceName,
+    })
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`channel_event_subscriptions: insert failed: ${error?.message ?? 'no row'}`)
+  }
+  return { id: (data as { id: string }).id }
+}
+
+/**
+ * Events API 作成成功後に subscription リソース名と失効時刻を埋める（NULL→値）。
+ */
+export async function setEventSubscriptionResource(
+  id: string,
+  subscriptionResourceName: string,
+  expireTime: string | null,
+): Promise<void> {
+  const { error } = await admin()
+    .from('channel_event_subscriptions')
+    .update({
+      subscription_resource_name: subscriptionResourceName,
+      expire_time: expireTime,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  if (error) {
+    throw new Error(`channel_event_subscriptions: set resource failed: ${error.message}`)
+  }
+}
+
+/** group の active 購読を1件返す（status='active' のみ。無ければ null）。 */
+export async function findActiveSubscriptionByGroup(
+  groupId: string,
+): Promise<ChannelEventSubscription | null> {
+  const { data, error } = await admin()
+    .from('channel_event_subscriptions')
+    .select(EVENT_SUBSCRIPTION_COLUMNS)
+    .eq('group_id', groupId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toChannelEventSubscription(data as EventSubscriptionRow)
+}
+
+/**
+ * lifecycle イベント（購読の期限/削除通知）の逆引き。subscription リソース名は
+ * 部分unique のため高々1件。
+ */
+export async function findSubscriptionByResourceName(
+  resourceName: string,
+): Promise<ChannelEventSubscription | null> {
+  const { data, error } = await admin()
+    .from('channel_event_subscriptions')
+    .select(EVENT_SUBSCRIPTION_COLUMNS)
+    .eq('subscription_resource_name', resourceName)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toChannelEventSubscription(data as EventSubscriptionRow)
+}
+
+/**
+ * 購読を非activeへ落とす（expired/broken/deleted）。broken は拾いだけ止め、記録・digest・
+ * 完了ループは壊さない（DDL コメント参照）。lastRenewError は診断用に任意で残す。
+ */
+export async function markSubscriptionStatus(
+  id: string,
+  status: 'expired' | 'broken' | 'deleted',
+  lastRenewError?: string | null,
+): Promise<void> {
+  const patch: Record<string, unknown> = {
+    status,
+    updated_at: new Date().toISOString(),
+  }
+  if (lastRenewError !== undefined) patch.last_renew_error = lastRenewError
+
+  const { error } = await admin()
+    .from('channel_event_subscriptions')
+    .update(patch)
+    .eq('id', id)
+
+  if (error) {
+    throw new Error(`channel_event_subscriptions: mark ${status} failed: ${error.message}`)
+  }
+}
+
+/**
+ * cron の create-missing 用: 購読を張るべきなのにまだ active 購読が無い
+ * google_chat の claimed group（channel_groups の active 行）を列挙する。
+ *
+ * space_name の出所は channel_groups.external_group_id（Google Chat は "spaces/XXX" を
+ * external_group_id に入れる）。active 購読の有無は、全 active 購読の group_id 集合との
+ * 差分で判定する（google_chat スケールで有界。埋め込みJOINに依存せずモックしやすい）。
+ */
+export async function listActiveClaimedGroupsWithoutActiveSubscription(): Promise<
+  Array<{ groupId: string; orgId: string; accountId: string; spaceName: string }>
+> {
+  const { data: groups, error: groupsError } = await admin()
+    .from('channel_groups')
+    .select('id, org_id, account_id, external_group_id')
+    .eq('channel', 'google_chat')
+    .eq('status', 'active')
+    // Fable裁定: space確定（TaskApp space に紐付いた）claimed group のみ購読対象。
+    // 拾ったメッセージの帰属先 space が無い group には購読を張らない（縮退の予防）。
+    .not('space_id', 'is', null)
+
+  if (groupsError) {
+    throw new Error(`channel_groups: google_chat lookup failed: ${groupsError.message}`)
+  }
+  if (!groups || groups.length === 0) return []
+
+  const { data: subs, error: subsError } = await admin()
+    .from('channel_event_subscriptions')
+    .select('group_id')
+    .eq('status', 'active')
+
+  if (subsError) {
+    throw new Error(`channel_event_subscriptions: active lookup failed: ${subsError.message}`)
+  }
+  const claimed = new Set(
+    ((subs ?? []) as Array<{ group_id: string }>).map((s) => s.group_id),
+  )
+
+  return (
+    groups as Array<{
+      id: string
+      org_id: string
+      account_id: string
+      external_group_id: string
+    }>
+  )
+    .filter((g) => !claimed.has(g.id))
+    .map((g) => ({
+      groupId: g.id,
+      orgId: g.org_id,
+      accountId: g.account_id,
+      spaceName: g.external_group_id,
+    }))
+}
+
+/**
+ * cron の renew 用: 失効間近の active 購読を列挙する（status='active' かつ
+ * expire_time < beforeIso）。expire_time が null（未設定）の行は対象外。
+ */
+export async function listSubscriptionsToRenew(
+  beforeIso: string,
+): Promise<ChannelEventSubscription[]> {
+  const { data, error } = await admin()
+    .from('channel_event_subscriptions')
+    .select(EVENT_SUBSCRIPTION_COLUMNS)
+    .eq('status', 'active')
+    .lt('expire_time', beforeIso)
+
+  if (error || !data) return []
+  return (data as EventSubscriptionRow[]).map(toChannelEventSubscription)
+}
+
+/**
+ * cron の delete-orphaned 用（PR-d）: status='active' の購読のうち、対応する
+ * channel_groups が「space確定・active な google_chat グループ」でなくなったものを返す
+ * （unlink/削除/space未紐付け化等で orphan 化したもの）。listActiveClaimedGroupsWithoutActiveSubscription
+ * と対称の差分判定（active購読のgroup_id集合 − active claimed google_chat groupのid集合）。
+ */
+export async function listOrphanedActiveSubscriptions(): Promise<
+  Array<{ id: string; subscriptionResourceName: string | null }>
+> {
+  const { data: subs, error: subsError } = await admin()
+    .from('channel_event_subscriptions')
+    .select('id, group_id, subscription_resource_name')
+    .eq('status', 'active')
+
+  if (subsError) {
+    throw new Error(`channel_event_subscriptions: active lookup failed: ${subsError.message}`)
+  }
+  if (!subs || subs.length === 0) return []
+
+  const { data: groups, error: groupsError } = await admin()
+    .from('channel_groups')
+    .select('id')
+    .eq('channel', 'google_chat')
+    .eq('status', 'active')
+    .not('space_id', 'is', null)
+
+  if (groupsError) {
+    throw new Error(`channel_groups: google_chat lookup failed: ${groupsError.message}`)
+  }
+  const claimedGroupIds = new Set(((groups ?? []) as Array<{ id: string }>).map((g) => g.id))
+
+  return (
+    subs as Array<{ id: string; group_id: string; subscription_resource_name: string | null }>
+  )
+    .filter((s) => !claimedGroupIds.has(s.group_id))
+    .map((s) => ({ id: s.id, subscriptionResourceName: s.subscription_resource_name }))
 }
