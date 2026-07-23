@@ -3582,3 +3582,41 @@ export async function listSubscriptionsToRenew(
   if (error || !data) return []
   return (data as EventSubscriptionRow[]).map(toChannelEventSubscription)
 }
+
+/**
+ * cron の delete-orphaned 用（PR-d）: status='active' の購読のうち、対応する
+ * channel_groups が「space確定・active な google_chat グループ」でなくなったものを返す
+ * （unlink/削除/space未紐付け化等で orphan 化したもの）。listActiveClaimedGroupsWithoutActiveSubscription
+ * と対称の差分判定（active購読のgroup_id集合 − active claimed google_chat groupのid集合）。
+ */
+export async function listOrphanedActiveSubscriptions(): Promise<
+  Array<{ id: string; subscriptionResourceName: string | null }>
+> {
+  const { data: subs, error: subsError } = await admin()
+    .from('channel_event_subscriptions')
+    .select('id, group_id, subscription_resource_name')
+    .eq('status', 'active')
+
+  if (subsError) {
+    throw new Error(`channel_event_subscriptions: active lookup failed: ${subsError.message}`)
+  }
+  if (!subs || subs.length === 0) return []
+
+  const { data: groups, error: groupsError } = await admin()
+    .from('channel_groups')
+    .select('id')
+    .eq('channel', 'google_chat')
+    .eq('status', 'active')
+    .not('space_id', 'is', null)
+
+  if (groupsError) {
+    throw new Error(`channel_groups: google_chat lookup failed: ${groupsError.message}`)
+  }
+  const claimedGroupIds = new Set(((groups ?? []) as Array<{ id: string }>).map((g) => g.id))
+
+  return (
+    subs as Array<{ id: string; group_id: string; subscription_resource_name: string | null }>
+  )
+    .filter((s) => !claimedGroupIds.has(s.group_id))
+    .map((s) => ({ id: s.id, subscriptionResourceName: s.subscription_resource_name }))
+}

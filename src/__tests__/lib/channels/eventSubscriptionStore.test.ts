@@ -11,6 +11,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * - listActiveClaimedGroupsWithoutActiveSubscription: google_chat・active group のうち
  *   active 購読が無いものだけを差分で返す（space_name = external_group_id）。
  * - listSubscriptionsToRenew: active かつ expire_time < before を返す。
+ * - listOrphanedActiveSubscriptions: active 購読のうち、対応する claimed google_chat
+ *   グループ（active・space_id非null）がもう無いものを返す（PR-d: cron の delete-orphaned 用）。
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -233,5 +235,62 @@ describe('listSubscriptionsToRenew', () => {
     const call = fromMock.mock.results[0].value
     expect(call.eq).toHaveBeenCalledWith('status', 'active')
     expect(call.lt).toHaveBeenCalledWith('expire_time', '2026-08-01T00:00:00.000Z')
+  })
+})
+
+describe('listOrphanedActiveSubscriptions', () => {
+  it('claimedなgoogle_chatグループが無くなったactive購読だけを返す', async () => {
+    // sub-1: grp-1(orphan・もうclaimedでない) / sub-2: grp-2(まだclaimed=空配列に含まれない)
+    fromResponses['channel_event_subscriptions#1'] = {
+      data: [
+        { id: 'sub-1', group_id: 'grp-1', subscription_resource_name: 'subscriptions/AAA' },
+        { id: 'sub-2', group_id: 'grp-2', subscription_resource_name: 'subscriptions/BBB' },
+      ],
+      error: null,
+    }
+    fromResponses['channel_groups#2'] = {
+      data: [{ id: 'grp-2' }],
+      error: null,
+    }
+
+    const result = await store.listOrphanedActiveSubscriptions()
+
+    expect(result).toEqual([{ id: 'sub-1', subscriptionResourceName: 'subscriptions/AAA' }])
+
+    const subsCall = fromMock.mock.results[0].value
+    expect(subsCall.eq).toHaveBeenCalledWith('status', 'active')
+    const groupsCall = fromMock.mock.results[1].value
+    expect(groupsCall.eq).toHaveBeenCalledWith('channel', 'google_chat')
+    expect(groupsCall.eq).toHaveBeenCalledWith('status', 'active')
+    expect(groupsCall.not).toHaveBeenCalledWith('space_id', 'is', null)
+  })
+
+  it('resource_nameがnullの行もそのまま返す(未確立のまま孤立した購読行)', async () => {
+    fromResponses['channel_event_subscriptions#1'] = {
+      data: [{ id: 'sub-3', group_id: 'grp-3', subscription_resource_name: null }],
+      error: null,
+    }
+    fromResponses['channel_groups#2'] = { data: [], error: null }
+
+    const result = await store.listOrphanedActiveSubscriptions()
+    expect(result).toEqual([{ id: 'sub-3', subscriptionResourceName: null }])
+  })
+
+  it('active購読が無ければgroupsテーブルを引かずに空配列', async () => {
+    fromResponses['channel_event_subscriptions#1'] = { data: [], error: null }
+    const result = await store.listOrphanedActiveSubscriptions()
+    expect(result).toEqual([])
+    expect(fromMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('全active購読がまだclaimed groupに紐づいていれば空配列', async () => {
+    fromResponses['channel_event_subscriptions#1'] = {
+      data: [{ id: 'sub-1', group_id: 'grp-1', subscription_resource_name: 'subscriptions/AAA' }],
+      error: null,
+    }
+    fromResponses['channel_groups#2'] = { data: [{ id: 'grp-1' }], error: null }
+
+    const result = await store.listOrphanedActiveSubscriptions()
+    expect(result).toEqual([])
   })
 })
