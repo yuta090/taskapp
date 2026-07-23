@@ -2,6 +2,7 @@ import { ArrowSquareOut } from '@phosphor-icons/react/dist/ssr'
 import type { ChannelDefinition } from '@/lib/channels/registry'
 import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
+import { GoogleChatConnectPanel } from '@/components/secretary/GoogleChatConnectPanel'
 
 // beta は内部区分（要検証）でありユーザーには見せない — 表示上は ga と同じ「利用可能」。
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
@@ -19,8 +20,11 @@ const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: st
 export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition; orgId: string }) {
   const Icon = CHANNEL_ICONS[def.id]
   const status = STATUS_LABEL[def.status]
-  // 実際に接続できる（送信可能・LINE以外）チャネルにのみ資格情報登録フォームを出す。
-  const canRegister = def.outbound && def.status !== 'planned' && def.id !== 'line'
+  // google_chat は platform 共有bot（org は認証情報を登録しない）のため、LINEと同様に
+  // 汎用の資格情報登録フォームは出さない（代わりに専用の GoogleChatConnectPanel を描画する）。
+  const isGoogleChat = def.id === 'google_chat'
+  // 実際に接続できる（送信可能・LINE/Google Chat以外）チャネルにのみ資格情報登録フォームを出す。
+  const canRegister = def.outbound && def.status !== 'planned' && def.id !== 'line' && !isGoogleChat
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6 max-w-2xl">
@@ -56,8 +60,12 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       </dl>
 
       <h2 className="text-sm font-semibold text-gray-700 mb-2">用意する資格情報</h2>
-      {def.credentialFields.length === 0 ? (
-        <p className="text-sm text-gray-500">このチャネルに追加の資格情報は不要です。</p>
+      {isGoogleChat || def.credentialFields.length === 0 ? (
+        <p className="text-sm text-gray-500">
+          {isGoogleChat
+            ? '追加の資格情報は不要です（運営がGoogle Chatアプリを提供します）。'
+            : 'このチャネルに追加の資格情報は不要です。'}
+        </p>
       ) : (
         <ul className="space-y-2 mb-6">
           {def.credentialFields.map((f) => (
@@ -73,7 +81,9 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
         </ul>
       )}
 
-      {def.setupUrl && (
+      {/* google_chat は資格情報を貼り付ける開発者コンソールを持たない（運営がアプリを提供する）ため、
+          他チャネル向けの「開発者コンソールを開く」リンク（webhook設定手順）は出さない。 */}
+      {!isGoogleChat && def.setupUrl && (
         <a
           href={def.setupUrl}
           target="_blank"
@@ -85,6 +95,7 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
         </a>
       )}
 
+      {isGoogleChat && <GoogleChatConnectPanel orgId={orgId} />}
       {canRegister && <ChannelCredentialForm orgId={orgId} def={def} />}
 
       <p className="mt-8 text-xs text-gray-400 border-t border-gray-100 pt-4">
