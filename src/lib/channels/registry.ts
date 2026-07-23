@@ -245,12 +245,19 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     group: true,
     directMessage: false,
     signatureScheme: 'hmac-sha256',
-    targetHint: 'チャンネルの Incoming Webhook URL（Workflows/コネクタ）',
+    targetHint: 'Power Automate Workflows の Webhook URL（api.powerplatform.com）',
     credentialFields: [
-      { key: 'webhook_url', label: 'Incoming Webhook URL', secret: true, help: 'Teamsチャンネル→ワークフロー/コネクタで発行' },
+      {
+        key: 'webhook_url',
+        label: 'Workflows Webhook URL',
+        secret: true,
+        help: 'Teamsチャンネル→ワークフロー（Power Automate）の「Webhook 要求受信時にチャネルに投稿」テンプレートで発行。旧「コネクタ」経路は2026年に廃止済み。',
+      },
     ],
-    setupUrl: 'https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook',
-    notes: 'Incoming Webhook(Adaptive Card)で送信。双方向はBot Framework + Azure登録が別途必要。',
+    setupUrl: 'https://support.microsoft.com/office/browse-and-add-workflows-in-microsoft-teams-4998095c-8b72-4b0e-984c-f2ad39e6ba9a',
+    notes:
+      '送信は Power Automate Workflows の Incoming Webhook(Adaptive Card)。旧O365コネクタ(webhook.office.com)は' +
+      '2026-05廃止済みで、現行URLは api.powerplatform.com。双方向(受信/拾い)はBot Framework + Azure Bot登録が別途必要。',
     proOnly: true,
   },
   whatsapp: {
