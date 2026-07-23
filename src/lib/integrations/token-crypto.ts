@@ -52,11 +52,25 @@ export async function encryptToken(plaintext: string): Promise<string> {
   return data as string
 }
 
-/** 暗号化トークンを復号する。復号不能(鍵ローテ・不正blob)なら null。 */
+/**
+ * 暗号化トークンを復号する。
+ *
+ * 【一時障害と恒久破損を区別する — 重要】平文フォールバックを撤去した contract フェーズでは、
+ * この戻り値がそのまま「トークンの有無」の判断に使われる。両者を同一視すると、一時的な
+ * RPC/DB障害で正当な接続が expired 化されたり、null が外部APIへ渡ったりする。よって:
+ *   - encrypted が falsy(null/空) → null(トークンが無い、は正常な状態)。RPCも呼ばない。
+ *   - RPC が error を返した → **throw**(一時的なインフラ障害の可能性。呼び出し側が
+ *     「トークン無し」ではなく「一時障害」として扱えるように)。※pgcrypto は鍵不一致/破損blobも
+ *     error として返すため、鍵ローテ中もここに入る＝一時障害扱いになる(安全側: 稼働中の接続を
+ *     自動失効させない。鍵ローテは再暗号化マイグレーションで解消する運用前提)。
+ *   - error は無いが data も無い → null(暗号文が復号結果を持たない=恒久破損。再接続を促す)。
+ * 例外メッセージにトークン・暗号文・鍵を一切含めないこと。
+ */
 export async function decryptToken(encrypted: string | null | undefined): Promise<string | null> {
   if (!encrypted) return null
   const secret = getEncryptionKey()
   const { data, error } = await admin().rpc('decrypt_system_secret', { encrypted, secret })
-  if (error || !data) return null
+  if (error) throw new Error('decrypt_system_secret failed')
+  if (!data) return null
   return data as string
 }

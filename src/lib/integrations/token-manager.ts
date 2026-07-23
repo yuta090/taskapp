@@ -39,13 +39,25 @@ type RefreshCoreResult =
   | { status: 'auth_failed' }
   | { status: 'transient_error' }
 
-/** DBの生行(暗号化列 + 移行期の平文列)。 */
+/**
+ * DBの生行。トークンは暗号化列(access_token_encrypted/refresh_token_encrypted)から解決する
+ * (contract 済み。平文列はもう select せず読まない)。平文列の型は互換のため残すが未使用。
+ */
 type ConnectionRow = Record<string, unknown> & {
   access_token?: string | null
   refresh_token?: string | null
   access_token_encrypted?: string | null
   refresh_token_encrypted?: string | null
 }
+
+/**
+ * integration_connections から取得する列(明示指定)。平文の access_token/refresh_token は
+ * **取得しない**(M2 で空化され、解決には使わない)。トークンは *_encrypted 列から復号する。
+ * service_role なので M3 の列 revoke では壊れないが、平文列に依存する経路を残さないため明示する。
+ */
+const CONNECTION_SELECT_COLUMNS =
+  'id, provider, owner_type, owner_id, org_id, token_expires_at, scopes, metadata, status, ' +
+  'last_refreshed_at, created_at, updated_at, access_token_encrypted, refresh_token_encrypted'
 
 /**
  * DB行のトークンを平文に解決して IntegrationConnection を組み立てる。
@@ -71,7 +83,7 @@ async function decryptConnectionRow(row: ConnectionRow): Promise<IntegrationConn
 async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): Promise<RefreshCoreResult> {
   const { data: row, error } = await getSupabaseAdmin()
     .from('integration_connections')
-    .select('*')
+    .select(CONNECTION_SELECT_COLUMNS)
     .eq('id', connectionId)
     .single()
 
@@ -82,7 +94,15 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     return { status: 'transient_error' }
   }
 
-  const connection = await decryptConnectionRow(row as ConnectionRow)
+  // decryptConnectionRow は復号の一時障害(RPC/DB error)を throw、恒久破損を null 化して返す。
+  // 一時障害を expired 化しないよう transient_error に写す(誤って稼働中の接続を失効させない)。
+  let connection: IntegrationConnection
+  try {
+    // 明示列 select は string 変数のため PostgREST の型推論が効かない。unknown 経由でキャストする。
+    connection = await decryptConnectionRow(row as unknown as ConnectionRow)
+  } catch {
+    return { status: 'transient_error' }
+  }
 
   // Check if token is still valid (with buffer)
   if (connection.token_expires_at) {
@@ -127,7 +147,7 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
       .from('integration_connections')
       .update(updateData)
       .eq('id', connectionId)
-      .select('*')
+      .select(CONNECTION_SELECT_COLUMNS)
       .single()
 
     if (updateError) {
@@ -136,7 +156,7 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
       return { status: 'transient_error' }
     }
 
-    return { status: 'refreshed', connection: await decryptConnectionRow(updated as ConnectionRow) }
+    return { status: 'refreshed', connection: await decryptConnectionRow(updated as unknown as ConnectionRow) }
   } catch (err) {
     const httpStatus = (err as { status?: number } | undefined)?.status
     if (httpStatus === 400 || httpStatus === 401) {
@@ -194,7 +214,13 @@ export async function getValidTokenDetailed(
 ): Promise<ValidTokenDetailedResult> {
   const result = await refreshIfNeededCore(connectionId, refreshFn)
   if (result.status === 'valid' || result.status === 'refreshed') {
-    return { status: 'ok', token: result.connection.access_token }
+    const token = result.connection.access_token
+    // 恒久破損(復号が null 化)で access_token が空/null のまま status:'ok' を返すと、
+    // 呼び出し側が null/空トークンを有効とみなして外部APIへ渡してしまう。トークンが無いなら
+    // auth_failed(再接続要求)に分類する。※一時障害は refreshIfNeededCore が transient_error に
+    // 分類済みなのでここには来ない(=ok/token=null は恒久破損だけ)。
+    if (!token) return { status: 'auth_failed' }
+    return { status: 'ok', token }
   }
   return { status: result.status }
 }
@@ -225,7 +251,7 @@ export async function findConnection(
 ): Promise<IntegrationConnection | null> {
   const { data, error } = await getSupabaseAdmin()
     .from('integration_connections')
-    .select('*')
+    .select(CONNECTION_SELECT_COLUMNS)
     .eq('provider', provider)
     .eq('owner_type', ownerType)
     .eq('owner_id', ownerId)
@@ -233,7 +259,14 @@ export async function findConnection(
     .single()
 
   if (error || !data) return null
-  return decryptConnectionRow(data as ConnectionRow)
+  // 復号の一時障害(throw)は「見つからない」(null)に倒す。この関数の既存契約は null|接続 で、
+  // 呼び出し側(google-meet 等)は null を未接続として扱う。トークンの実解決は getValidToken 経由の
+  // refreshIfNeededCore が別途行う(そこでは transient を正しく区別する)。
+  try {
+    return await decryptConnectionRow(data as unknown as ConnectionRow)
+  } catch {
+    return null
+  }
 }
 
 /**

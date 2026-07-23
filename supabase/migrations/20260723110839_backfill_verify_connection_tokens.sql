@@ -59,10 +59,11 @@ begin
   get diagnostics v_rows = row_count;
   raise notice 'access_token を暗号化した行数: %', v_rows;
 
-  -- 2) refresh_token のバックフィル。
+  -- 2) refresh_token のバックフィル。access_token と同じく「非空」を対象条件に揃える
+  --    (refresh_token <> '' は SQL 上 null も除外する = 「refresh を持つ行だけ」)。
   update public.integration_connections
      set refresh_token_encrypted = public.encrypt_system_secret(refresh_token, v_key)
-   where refresh_token is not null
+   where refresh_token <> ''
      and refresh_token_encrypted is null;
   get diagnostics v_rows = row_count;
   raise notice 'refresh_token を暗号化した行数: %', v_rows;
@@ -78,7 +79,7 @@ begin
     from public.integration_connections
    where (access_token <> ''
           and public.decrypt_system_secret(access_token_encrypted, v_key) is distinct from access_token)
-      or (refresh_token is not null
+      or (refresh_token <> ''
           and public.decrypt_system_secret(refresh_token_encrypted, v_key) is distinct from refresh_token);
 
   if v_bad > 0 then
