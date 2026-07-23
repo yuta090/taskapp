@@ -65,8 +65,9 @@ export async function decryptConnectorSecret(encrypted: string): Promise<string 
  *   pgcrypto(decrypt_system_secret)は**鍵不一致・blob 破損でも RPC を error で返す**。よって現実の破損は
  *   ほぼ全て下の `if (error)` に落ち、`transient_error`(=呼び出し側で defer)に分類される。これは
  *   token-crypto.decryptToken で既に是認した「破損も一時障害＝安全側」設計と同一で、破損 blob は defer で
- *   寝ても connector_jobs 側の 20回停止 / 72h キャップ(infraTransientOutcome)で temporary_fail へ降格し、
- *   最終的に dead へ**収束する**(無限には残らない)。
+ *   寝ても connector_jobs 側の 72h キャップ(infraTransientOutcome)で temporary_fail へ降格し、最終的に
+ *   dead へ**収束する**(無限には残らない)。connector には sink のような 20連続失敗での自動停止機構は無く、
+ *   収束は 72h キャップだけが担う(20連続停止は sink 側の機構)。
  *   下の `if (!data)`(error 無し・結果が空)= `corrupt` 分岐は「error を返さずに空文字を返す」pgcrypto の
  *   実挙動ではほぼ発火しない。ここを「即 permanent(dead)にしたい」と将来誤修正しないこと——それをやると
  *   復号 RPC/vault の一時瞬断で破損と断定して job を永久喪失させる退行になる(安全側を崩す)。
