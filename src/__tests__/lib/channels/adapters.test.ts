@@ -11,6 +11,11 @@ import { whatsappAdapter } from '@/lib/channels/adapters/whatsapp'
 import { isAllowedWebhookUrl } from '@/lib/channels/adapters/webhookUrl'
 import { classifyStatus } from '@/lib/channels/adapters/types'
 
+const sendChatMessageMock = vi.fn()
+vi.mock('@/lib/channels/google-chat/client', () => ({
+  sendChatMessage: (...args: unknown[]) => sendChatMessageMock(...args),
+}))
+
 function mockFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const fn = vi.fn(impl)
   vi.stubGlobal('fetch', fn as unknown as typeof fetch)
@@ -209,7 +214,7 @@ describe('webhook-url adapters', () => {
     expect(r.error).toContain('webhook_url')
   })
 
-  it('googleChat: text ペイロードで送信', async () => {
+  it('googleChat: webhook_url があれば Incoming Webhook 経路（既存挙動）', async () => {
     const fetchFn = mockFetch(() => jsonResponse(200, {}))
     const r = await googleChatAdapter({
       credentials: { webhook_url: 'https://chat.googleapis.com/v1/spaces/x/messages?key=k' },
@@ -218,6 +223,30 @@ describe('webhook-url adapters', () => {
     })
     expect(r.ok).toBe(true)
     expect(JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string)).toEqual({ text: '完了' })
+    expect(sendChatMessageMock).not.toHaveBeenCalled()
+  })
+
+  /**
+   * PR-f: platform 共有bot（SA認証・webhook_url を持たない）の報告送信の穴を塞ぐ。
+   * webhook_url が無い場合は SA 送信(sendChatMessage)にフォールバックする。
+   */
+  it('googleChat: webhook_url が無ければ SA送信(sendChatMessage)にフォールバックし成功時は externalMessageId を返す', async () => {
+    sendChatMessageMock.mockResolvedValue({ messageName: 'spaces/AAA/messages/BBB' })
+    const r = await googleChatAdapter({ credentials: {}, to: 'spaces/AAA', text: '完了' })
+    expect(r).toMatchObject({ ok: true, externalMessageId: 'spaces/AAA/messages/BBB' })
+    expect(sendChatMessageMock).toHaveBeenCalledWith('spaces/AAA', '完了')
+  })
+
+  it('googleChat: SA送信が失敗(messageName:null)なら一時失敗として返す（再試行余地あり）', async () => {
+    sendChatMessageMock.mockResolvedValue({ messageName: null })
+    const r = await googleChatAdapter({ credentials: {}, to: 'spaces/AAA', text: '完了' })
+    expect(r).toMatchObject({ ok: false, permanent: false })
+  })
+
+  it('googleChat: SA送信(sendChatMessage)が例外を投げても route/cron を落とさず失敗として畳む', async () => {
+    sendChatMessageMock.mockRejectedValue(new Error('GOOGLE_CHAT_SA_KEY is not configured'))
+    const r = await googleChatAdapter({ credentials: {}, to: 'spaces/AAA', text: '完了' })
+    expect(r).toMatchObject({ ok: false, permanent: false })
   })
 
   it('teams: Adaptive Card で送信', async () => {
