@@ -27,6 +27,7 @@ const findFirstPlatformAccountIdMock = vi.fn()
 const createSharedGroupClaimCodeMock = vi.fn()
 const orgLineGroupCapacityMock = vi.fn()
 const getLineSelfServeStateMock = vi.fn()
+const orgExternalChatGroupCapacityMock = vi.fn()
 
 class DuplicateSharedGroupClaimCodeError extends Error {}
 class MultiplePlatformAccountsError extends Error {}
@@ -37,9 +38,16 @@ vi.mock('@/lib/channels/store', () => ({
   createSharedGroupClaimCode: (...args: unknown[]) => createSharedGroupClaimCodeMock(...args),
   orgLineGroupCapacity: (...args: unknown[]) => orgLineGroupCapacityMock(...args),
   getLineSelfServeState: (...args: unknown[]) => getLineSelfServeStateMock(...args),
+  orgExternalChatGroupCapacity: (...args: unknown[]) => orgExternalChatGroupCapacityMock(...args),
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
 }))
+
+const resolveOrgEntitlementsMock = vi.fn()
+vi.mock('@/lib/billing/entitlements', () => ({
+  resolveOrgEntitlements: (...args: unknown[]) => resolveOrgEntitlementsMock(...args),
+}))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 
 const { POST } = await import('@/app/api/channels/group-claims/issue/route')
 
@@ -66,6 +74,8 @@ describe('POST /api/channels/group-claims/issue', () => {
     verifySpaceInOrgMock.mockResolvedValue(true)
     getLineSelfServeStateMock.mockResolvedValue('granted') // 既定=開通済み
     orgLineGroupCapacityMock.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
+    orgExternalChatGroupCapacityMock.mockResolvedValue({ activeCount: 0, max: null }) // 既定=無制限
+    resolveOrgEntitlementsMock.mockResolvedValue({ has: (f: string) => f === 'external_chat_channels' })
     findFirstPlatformAccountIdMock.mockResolvedValue('acc-platform-1')
     createSharedGroupClaimCodeMock.mockResolvedValue({
       id: 'code-1',
@@ -180,5 +190,102 @@ describe('POST /api/channels/group-claims/issue', () => {
     const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
     expect(res.status).toBe(500)
     expect(createSharedGroupClaimCodeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('channel省略時は line 経路になる（findFirstPlatformAccountIdに"line"が渡る）', async () => {
+    await callPost({ orgId: ORG_ID, spaceId: SPACE_ID })
+    expect(findFirstPlatformAccountIdMock).toHaveBeenCalledWith('line')
+    // line経路のゲート関数が呼ばれる（google_chat側のゲートは呼ばれない）
+    expect(getLineSelfServeStateMock).toHaveBeenCalledWith(ORG_ID)
+    expect(orgLineGroupCapacityMock).toHaveBeenCalledWith(ORG_ID)
+    expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+    expect(orgExternalChatGroupCapacityMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/channels/group-claims/issue — channel対応(google_chat等)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.SHARED_GROUP_CLAIM_PEPPER = 'test-pepper'
+    getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    verifySpaceInOrgMock.mockResolvedValue(true)
+    orgExternalChatGroupCapacityMock.mockResolvedValue({ activeCount: 0, max: null })
+    resolveOrgEntitlementsMock.mockResolvedValue({ has: (f: string) => f === 'external_chat_channels' })
+    findFirstPlatformAccountIdMock.mockResolvedValue('acc-gchat-platform-1')
+    createSharedGroupClaimCodeMock.mockResolvedValue({
+      id: 'code-1',
+      expiresAt: '2026-07-16T00:30:00.000Z',
+    })
+  })
+
+  afterEach(() => {
+    delete process.env.SHARED_GROUP_CLAIM_PEPPER
+  })
+
+  it('不明channelは400', async () => {
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'bogus_channel' })
+    expect(res.status).toBe(400)
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('entitled＋容量内: google_chat の platform account を対象にコード発行成功（LINEゲートは呼ばれない）', async () => {
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.code).toMatch(/^GC-/)
+
+    expect(findFirstPlatformAccountIdMock).toHaveBeenCalledWith('google_chat')
+    expect(orgExternalChatGroupCapacityMock).toHaveBeenCalledWith(ORG_ID, 'google_chat')
+    expect(createSharedGroupClaimCodeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: ORG_ID,
+        spaceId: SPACE_ID,
+        targetAccountId: 'acc-gchat-platform-1',
+        createdBy: 'staff-1',
+      }),
+    )
+    // LINE専用のゲート関数は一切呼ばれない
+    expect(getLineSelfServeStateMock).not.toHaveBeenCalled()
+    expect(orgLineGroupCapacityMock).not.toHaveBeenCalled()
+  })
+
+  it('未entitled(external_chat_channels無し)は402 external_chat_channels_required', async () => {
+    resolveOrgEntitlementsMock.mockResolvedValue({ has: () => false })
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    const json = await res.json()
+    expect(res.status).toBe(402)
+    expect(json.code).toBe('external_chat_channels_required')
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('容量超過は402 group_limit_reached（コードを発行しない）', async () => {
+    orgExternalChatGroupCapacityMock.mockResolvedValue({ activeCount: 5, max: 5 })
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    const json = await res.json()
+    expect(res.status).toBe(402)
+    expect(json.code).toBe('group_limit_reached')
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('platform accountが無ければ400「共有bot未設定」', async () => {
+    findFirstPlatformAccountIdMock.mockResolvedValue(null)
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    expect(res.status).toBe(400)
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('複数のactive platform accountが存在する場合は409', async () => {
+    findFirstPlatformAccountIdMock.mockRejectedValue(new MultiplePlatformAccountsError())
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    expect(res.status).toBe(409)
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('spaceが自org内でなければ404', async () => {
+    verifySpaceInOrgMock.mockResolvedValue(false)
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    expect(res.status).toBe(404)
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
   })
 })
