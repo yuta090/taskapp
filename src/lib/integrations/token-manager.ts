@@ -67,8 +67,10 @@ const CONNECTION_SELECT_COLUMNS =
  *   - 暗号化列は本番全行でバックフィル済み(access/refresh とも平文と一致検証済み)。
  *   - 平文列は M2 migration で空化される。フォールバックを残すと復号失敗時に空文字を
  *     トークンとして素通ししてしまう(`??` は '' を落とさない)。
- * 復号失敗(鍵ローテ・不正blob)や暗号化列 null は「トークン無し」= null を返し、
- * 呼び出し側が再接続を促す(この設計は expand フェーズのコメントで予告済み)。
+ * decryptToken は「一時障害(RPC/DB error)= throw」「恒久破損(復号結果が空)= null」を区別する。
+ * throw は呼び出し側(refreshIfNeededCore)が transient_error に写し、暗号化列 null / 恒久破損は
+ * 「トークン無し」= null を返して呼び出し側が再接続を促す。※pgcrypto は鍵不一致/破損blobも error
+ * として返すため、それらは一時障害(throw)側に入る(安全側: 稼働中の接続を自動失効させない)。
  * ここで `?? ''` のような空文字フォールバックを新設しないこと(null を返す)。
  *
  * IntegrationConnection.access_token は復号後の *平文* を返す(呼び出し側の契約を変えない)。
@@ -101,6 +103,14 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     // 明示列 select は string 変数のため PostgREST の型推論が効かない。unknown 経由でキャストする。
     connection = await decryptConnectionRow(row as unknown as ConnectionRow)
   } catch {
+    // 恒久破損が永久リトライで回復しないリスクへの最低限の観測性。秘密(トークン・暗号文・鍵)は出さない。
+    // 「単一接続だけ連続失敗 vs DB全体障害」を後から切り分けられるよう connection_id / provider を残す。
+    // 連続失敗の集計・隔離・通知は別PR。ログで運用が気づけるのを最低ラインにする。
+    console.warn('[token-decrypt] transient decrypt failure', {
+      connection_id: connectionId,
+      provider: (row as { provider?: string }).provider,
+      kind: 'connection_token',
+    })
     return { status: 'transient_error' }
   }
 
@@ -265,6 +275,12 @@ export async function findConnection(
   try {
     return await decryptConnectionRow(data as unknown as ConnectionRow)
   } catch {
+    // 一時障害。秘密は出さず、後から切り分け可能な最小情報(id/provider)だけ warn する。
+    console.warn('[token-decrypt] transient decrypt failure', {
+      connection_id: (data as { id?: string }).id,
+      provider,
+      kind: 'connection_token',
+    })
     return null
   }
 }

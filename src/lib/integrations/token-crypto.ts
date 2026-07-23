@@ -13,9 +13,10 @@ import { createClient as createSupabaseClient, type SupabaseClient } from '@supa
  *
  * 暗号化(書き込み)は失敗したら必ず throw する。「暗号化できなかったので平文で保存」に
  * 倒れると、この変更の目的そのものが無効になるため。
- * 復号(読み取り)は失敗したら null を返す。鍵ローテや不正blobで例外を投げると
- * 呼び出し側(sink配達のcron等)が恒久失敗するため、呼び出し側が
- * 「再接続が必要」へ倒せるようにする。
+ * 復号(読み取り)は一時障害と恒久破損を区別する: RPC が error を返したら **throw**(一時障害。
+ * 呼び出し側が transient として再試行できる)、error は無いが復号結果が空なら **null**(恒久破損。
+ * 呼び出し側が「再接続が必要」へ倒せる)。両者を一律 null にすると、一時的なDB/RPC障害が
+ * 「トークン無し」に化けて正当な接続を失効させたり配達を永久に失ったりする(詳細は decryptToken)。
  */
 
 let _supabaseAdmin: SupabaseClient | null = null

@@ -200,6 +200,38 @@ describe('dispatchBatch', () => {
     expect(summary.dead).toBe(0)
   })
 
+  // 【Critical】sink復号/DB一時障害(store側で transientSinkIds に載る)を dead にしない。
+  // 一時障害バッチは全件 temporary_fail で、1件も permanent_fail/dead にしないことを固定する。
+  it('sink の一時障害(復号/DB)は temporary_fail になり dead にならない', async () => {
+    claimSinkDeliveriesMock.mockResolvedValue([
+      delivery({ id: 'd-a', sinkId: 'sink-a' }),
+      delivery({ id: 'd-b', sinkId: 'sink-b' }),
+    ])
+    // store が sink一覧DB error / 復号一時障害でバッチ全体を transient として返した状態。
+    findDeliverableSinksByIdsMock.mockResolvedValue({
+      sinks: new Map(),
+      transientSinkIds: new Set(['sink-a', 'sink-b']),
+    })
+    completeSinkDeliveryMock.mockResolvedValue({
+      deliveryStatus: 'failed',
+      sinkStatus: 'active',
+      consecutiveFailures: 1,
+      justBecameError: false,
+    })
+
+    const summary = await dispatchBatch()
+
+    expect(completeSinkDeliveryMock).toHaveBeenCalledTimes(2)
+    for (const call of completeSinkDeliveryMock.mock.calls) {
+      expect(call[0]).toEqual(
+        expect.objectContaining({ outcome: 'temporary_fail', countsTowardFailures: true }),
+      )
+      expect(call[0]).not.toEqual(expect.objectContaining({ outcome: 'permanent_fail' }))
+    }
+    expect(summary.dead).toBe(0)
+    expect(summary.failed).toBe(2)
+  })
+
   it('routes notion sinks to deliverNotion instead of deliverWebhook (and passes digestTaskId through)', async () => {
     const NOTION_SINK = {
       id: 'sink-1',

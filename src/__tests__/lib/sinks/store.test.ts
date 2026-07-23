@@ -467,14 +467,14 @@ describe('findActiveNotionConnection', () => {
     expect(connection).toEqual({ id: 'conn-1', accessToken: 'secret_abc', workspaceName: 'Acme Workspace' })
   })
 
-  it('【回帰】暗号列が復号できなければnull（平文access_tokenに値があっても返さない）', async () => {
-    // contract フェーズ: 平文フォールバックを撤去。復号失敗＝トークン無し＝再接続要求。
+  it('【回帰】暗号列が復号できなければ(恒久破損)null（平文access_tokenに値があっても返さない）', async () => {
+    // contract フェーズ: 平文フォールバックを撤去。恒久破損(error無し・data無し)＝トークン無し＝再接続要求。
     // M2 で平文が '' になるため、フォールバックが残ると '' を素通しするバグ芽になる。
     fromResponses['integration_connections'] = {
-      data: { id: 'conn-1', access_token: 'stale-plaintext', access_token_encrypted: 'GARBAGE', metadata: {} },
+      data: { id: 'conn-1', access_token: 'stale-plaintext', access_token_encrypted: 'BROKEN', metadata: {} },
       error: null,
     }
-    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'wrong key' } }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: null }
     expect(await store.findActiveNotionConnection(ORG_ID)).toBeNull()
   })
 
@@ -612,12 +612,12 @@ describe('findActiveGoogleSheetsConnection', () => {
     expect(connection).toEqual({ id: 'conn-gs-1', accessToken: 'access-abc' })
   })
 
-  it('【回帰】暗号列が復号できなければnull（平文access_tokenに値があっても返さない）', async () => {
+  it('【回帰】暗号列が復号できなければ(恒久破損)null（平文access_tokenに値があっても返さない）', async () => {
     fromResponses['integration_connections'] = {
-      data: { id: 'conn-gs-1', access_token: 'stale-plaintext', access_token_encrypted: 'GARBAGE' },
+      data: { id: 'conn-gs-1', access_token: 'stale-plaintext', access_token_encrypted: 'BROKEN' },
       error: null,
     }
-    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'wrong key' } }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: null }
     expect(await store.findActiveGoogleSheetsConnection(ORG_ID)).toBeNull()
   })
 
@@ -832,6 +832,73 @@ describe('findDeliverableSinksByIds (google_sheets transient error handling)', (
     const result = await store.findDeliverableSinksByIds([])
     expect(result.sinks.size).toBe(0)
     expect(result.transientSinkIds.size).toBe(0)
+  })
+})
+
+/**
+ * 【Critical回帰】一時障害(復号RPC error / sink一覧のDB query error)を配達の永久喪失にしない。
+ *
+ * decryptSecret を「RPC error=throw(一時障害) / 復号結果が空=null(恒久破損)」に変えた結果、
+ * 3経路(webhook/notion/google_sheets)の一時障害は transientSinkIds に入り、dispatcher が
+ * temporary_fail(再試行)にする。恒久破損は従来どおり unavailable(=permanent)。
+ * sink一覧のDB query error 自体も 0件(=全部permanent_fail→dead)に倒さず、バッチ全体を transient にする。
+ */
+describe('findDeliverableSinksByIds — 一時障害を dead にしない (Critical)', () => {
+  const GS_CONFIG = {
+    spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
+    sheet_name: 'タスク',
+  }
+
+  it('webhook: secret復号のRPC error(一時障害)は transientSinkIds に入る(dead化しない)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-wh', org_id: ORG_ID, provider: 'webhook', config: { url: 'https://e.com/h' }, secret_encrypted: 'ENC' }],
+      error: null,
+    }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'db timeout' } }
+    const result = await store.findDeliverableSinksByIds(['sink-wh'])
+    expect(result.sinks.has('sink-wh')).toBe(false)
+    expect(result.transientSinkIds.has('sink-wh')).toBe(true)
+  })
+
+  it('webhook: secret復号の結果が空(恒久破損)は従来どおり unavailable(transientでない)', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-wh', org_id: ORG_ID, provider: 'webhook', config: { url: 'https://e.com/h' }, secret_encrypted: 'ENC' }],
+      error: null,
+    }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: null }
+    const result = await store.findDeliverableSinksByIds(['sink-wh'])
+    expect(result.sinks.has('sink-wh')).toBe(false)
+    expect(result.transientSinkIds.has('sink-wh')).toBe(false)
+  })
+
+  it('notion: 接続トークン復号のRPC error(一時障害)は transientSinkIds に入る', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-n', org_id: ORG_ID, provider: 'notion', config: { database_id: '12345678-1234-1234-1234-123456789012' }, secret_encrypted: null }],
+      error: null,
+    }
+    fromResponses['integration_connections'] = { data: { id: 'conn-1', access_token_encrypted: 'ENC', metadata: {} }, error: null }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'db timeout' } }
+    const result = await store.findDeliverableSinksByIds(['sink-n'])
+    expect(result.transientSinkIds.has('sink-n')).toBe(true)
+  })
+
+  it('google_sheets: 接続トークン復号のRPC error(一時障害)は transientSinkIds に入る', async () => {
+    fromResponses['integration_sinks'] = {
+      data: [{ id: 'sink-gs', org_id: ORG_ID, provider: 'google_sheets', config: GS_CONFIG, secret_encrypted: null }],
+      error: null,
+    }
+    fromResponses['integration_connections'] = { data: { id: 'conn-gs', access_token_encrypted: 'ENC' }, error: null }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'db timeout' } }
+    const result = await store.findDeliverableSinksByIds(['sink-gs'])
+    expect(result.transientSinkIds.has('sink-gs')).toBe(true)
+  })
+
+  it('sink一覧のDB query error はバッチ全体を transient にする(permanent_fail/dead を避ける)', async () => {
+    fromResponses['integration_sinks'] = { data: null, error: { message: 'db down' } }
+    const result = await store.findDeliverableSinksByIds(['sink-a', 'sink-b'])
+    expect(result.sinks.size).toBe(0)
+    expect(result.transientSinkIds.has('sink-a')).toBe(true)
+    expect(result.transientSinkIds.has('sink-b')).toBe(true)
   })
 })
 

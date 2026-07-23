@@ -39,13 +39,35 @@ async function encryptSecret(plaintext: string): Promise<string> {
   return data as string
 }
 
+/**
+ * 秘密(sink の secret_encrypted / 接続の access_token_encrypted)を復号する。
+ *
+ * token-crypto.decryptToken と同じ思想で「一時障害」と「恒久破損」を区別する(共有せず独立に持つのは
+ * この層が service_role の別クライアント admin() を使い、sink secret も復号する汎用経路のため):
+ *   - RPC が error を返した → **throw**(一時的なRPC/DB障害の可能性)。呼び出し側はこれを
+ *     transient_error に写して dispatcher の temporary_fail(再試行)へ載せる。null にすると
+ *     一時障害が unavailable→permanent_fail→dead に化けて配達が永久に失われる(Critical)。
+ *   - error は無いが data も無い → null(暗号文が復号結果を持たない=恒久破損。再接続を促す)。
+ * 例外メッセージに秘密(暗号文・トークン・鍵)を一切含めないこと。
+ */
 async function decryptSecret(encrypted: string): Promise<string | null> {
   const { data, error } = await admin().rpc('decrypt_system_secret', {
     encrypted,
     secret: getEncryptionKey(),
   })
-  if (error || !data) return null
+  if (error) throw new Error('decrypt_system_secret failed')
+  if (!data) return null
   return data as string
+}
+
+/**
+ * 復号の一時障害(throw)を、秘密を含めずに warn ログへ出す。
+ * 「単一接続だけ連続失敗 vs DB全体障害」を後から切り分けられるよう sink id / provider / 復号対象種別を
+ * 残す。連続失敗回数の集計・隔離・通知は今回やらない(別PR)。ログで運用が気づけるのを最低ラインにする。
+ * トークン・暗号文・鍵は絶対に出さない。
+ */
+function warnSinkDecryptTransient(sinkId: string, provider: string, kind: 'sink_secret' | 'connection_access'): void {
+  console.warn('[sink-decrypt] transient decrypt failure', { sink_id: sinkId, provider, kind })
 }
 
 /**
@@ -311,7 +333,14 @@ type ToDeliverableSinkResult =
 async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliverableSinkResult> {
   if (row.provider === 'webhook') {
     if (!row.secret_encrypted) return { outcome: 'unavailable' }
-    const secret = await decryptSecret(row.secret_encrypted)
+    // 復号の一時障害(throw)は transient_error に写す(dead化させない)。恒久破損(null)は unavailable。
+    let secret: string | null
+    try {
+      secret = await decryptSecret(row.secret_encrypted)
+    } catch {
+      warnSinkDecryptTransient(row.id, 'webhook', 'sink_secret')
+      return { outcome: 'transient_error' }
+    }
     if (!secret) return { outcome: 'unavailable' }
     return {
       outcome: 'ok',
@@ -321,8 +350,15 @@ async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliv
   if (row.provider === 'notion') {
     const databaseId = typeof row.config.database_id === 'string' ? row.config.database_id : ''
     if (!databaseId) return { outcome: 'unavailable' }
-    // 接続が無い/revokedのnotion sinkは配達不能(呼び出し側でsink_not_deliverableの恒久失敗になる)
-    const connection = await findActiveNotionConnection(row.org_id)
+    // 接続トークン復号の一時障害(throw)は transient_error に写す(dead化させない)。
+    // 接続が無い/revoked/恒久破損は unavailable(呼び出し側で sink_not_deliverable の恒久失敗)。
+    let connection
+    try {
+      connection = await findActiveNotionConnection(row.org_id)
+    } catch {
+      warnSinkDecryptTransient(row.id, 'notion', 'connection_access')
+      return { outcome: 'transient_error' }
+    }
     if (!connection) return { outcome: 'unavailable' }
     return {
       outcome: 'ok',
@@ -333,7 +369,14 @@ async function toDeliverableSinkResult(row: DeliverableSinkRow): Promise<ToDeliv
     const spreadsheetId = typeof row.config.spreadsheet_id === 'string' ? row.config.spreadsheet_id : ''
     const sheetName = typeof row.config.sheet_name === 'string' ? row.config.sheet_name : ''
     if (!isValidSpreadsheetId(spreadsheetId) || !isValidSheetName(sheetName)) return { outcome: 'unavailable' }
-    const connection = await findActiveGoogleSheetsConnection(row.org_id)
+    // 接続の解決(暗号列の復号)一時障害(throw)は transient_error に写す(dead化させない)。
+    let connection
+    try {
+      connection = await findActiveGoogleSheetsConnection(row.org_id)
+    } catch {
+      warnSinkDecryptTransient(row.id, 'google_sheets', 'connection_access')
+      return { outcome: 'transient_error' }
+    }
     if (!connection) return { outcome: 'unavailable' }
     // Googleのアクセストークンは1時間で失効するため、生のaccess_token列を直接使わず
     // token-managerでrefresh込みの有効なトークンを都度解決する(notionは無期限トークンのため不要)。
@@ -383,7 +426,15 @@ export async function findDeliverableSinksByIds(sinkIds: string[]): Promise<Deli
     .from('integration_sinks')
     .select(DELIVERABLE_SINK_COLUMNS)
     .in('id', uniqueIds)
-  if (error || !data) return { sinks: new Map(), transientSinkIds: new Set() }
+  if (error || !data) {
+    // sink一覧の読み取り自体が一時失敗した。0件(=このバッチの claim 済み配達が全部 permanent_fail→dead)に
+    // 倒さず、バッチ全体を transient にして temporary_fail(次サイクルで再試行)へ載せる。
+    // 「一時障害を恒久失敗に化けさせない」の一貫(Critical)。秘密は含めずに warn ログを出す。
+    console.warn('[sink-list] transient DB read failure; treating batch as retryable', {
+      requested: uniqueIds.length,
+    })
+    return { sinks: new Map(), transientSinkIds: new Set(uniqueIds) }
+  }
 
   const rows = data as DeliverableSinkRow[]
 
