@@ -233,6 +233,11 @@ export async function findAccountForSecretaryPush(
   const row = data as AccountRow & { channel: string }
   const requirements = SECRETARY_PUSH_REQUIRED_CREDENTIALS[row.channel]
   if (!requirements) return { ok: false, reason: 'unsupported_channel' }
+  // google_chat の共有Bot(owner_type='platform')はSA(サービスアカウント)認証のみで送る
+  // （env GOOGLE_CHAT_SA_KEY・DB資格情報は不要）。webhook_urlを要求すると朝の報告(digest)が
+  // missing_credentialで弾かれる穴があった（PR-f）。org所有(webhook_url必須)は現行のまま。
+  const effectiveRequirements: Array<string | string[]> =
+    row.channel === 'google_chat' && row.owner_type === 'platform' ? [] : requirements
 
   const { data: decrypted, error: decryptError } = await admin().rpc('decrypt_system_secret', {
     encrypted: row.credentials_encrypted,
@@ -247,7 +252,7 @@ export async function findAccountForSecretaryPush(
     return { ok: false, reason: 'credentials_not_json' }
   }
 
-  const missing = requirements
+  const missing = effectiveRequirements
     .filter((req) => (Array.isArray(req) ? !req.some((key) => credentials[key]) : !credentials[req]))
     .map((req) => (Array.isArray(req) ? req.join(' or ') : req))
   if (missing.length > 0) {
