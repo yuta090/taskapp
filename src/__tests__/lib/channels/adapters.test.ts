@@ -8,6 +8,7 @@ import { discordAdapter } from '@/lib/channels/adapters/discord'
 import { googleChatAdapter } from '@/lib/channels/adapters/googleChat'
 import { teamsAdapter } from '@/lib/channels/adapters/teams'
 import { whatsappAdapter } from '@/lib/channels/adapters/whatsapp'
+import { messengerAdapter } from '@/lib/channels/adapters/messenger'
 import { isAllowedWebhookUrl } from '@/lib/channels/adapters/webhookUrl'
 import { classifyStatus } from '@/lib/channels/adapters/types'
 
@@ -307,9 +308,30 @@ describe('whatsappAdapter', () => {
   })
 })
 
+describe('messengerAdapter', () => {
+  it('page_access_token 欠落は恒久失敗', async () => {
+    const r = await messengerAdapter({ credentials: {}, to: 'PSID1', text: 'x' })
+    expect(r).toMatchObject({ ok: false, permanent: true })
+  })
+
+  it('成功時に message_id を返す・トークンはBearerヘッダで送る(URLに載せない)', async () => {
+    const fetchFn = mockFetch(() => jsonResponse(200, { recipient_id: 'PSID1', message_id: 'mid.X' }))
+    const r = await messengerAdapter({
+      credentials: { page_access_token: 'PAGE_TOKEN' },
+      to: 'PSID1',
+      text: 'hi',
+    })
+    expect(r.ok).toBe(true)
+    expect(r.externalMessageId).toBe('mid.X')
+    const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit]
+    expect(url).not.toContain('access_token') // トークンをURLクエリに載せない
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer PAGE_TOKEN' })
+  })
+})
+
 describe('deliverToChannel dispatch', () => {
-  it('未対応チャネル(messenger)は恒久失敗', async () => {
-    const r = await deliverToChannel('messenger', { credentials: {}, to: 'x', text: 'y' })
+  it('未対応チャネル(email)は恒久失敗', async () => {
+    const r = await deliverToChannel('email', { credentials: {}, to: 'x', text: 'y' })
     expect(r).toMatchObject({ ok: false, permanent: true })
   })
 

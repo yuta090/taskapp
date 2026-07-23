@@ -18,8 +18,10 @@ const ORG = '11111111-1111-4111-8111-111111111111'
 
 /**
  * 「つなぐ」ハブの左レール（チャネル軸）。レジストリ駆動。
- * GA/BETAはリンク、PLANNED(messenger)は遷移不可の「近日」行。チャネル追加＝registryに
+ * GA/BETAはリンク、PLANNEDは遷移不可の「近日」行。チャネル追加＝registryに
  * 1エントリ足すだけでレールに並ぶ。
+ * 現状チャット系は全て ga/beta（messenger も beta 昇格済み）で、PLANNED は email のみ＝
+ * チャット系レールには「近日」行が出ない。
  */
 describe('ChannelRail (registry-driven)', () => {
   it('LINEはリンクで /secretary/connect/line を指す', () => {
@@ -29,9 +31,9 @@ describe('ChannelRail (registry-driven)', () => {
     expect(line).toHaveAttribute('href', `/${ORG}/secretary/connect/line`)
   })
 
-  it('主要チャット(slack/chatwork/telegram/discord/teams/whatsapp)がリンクとして並ぶ', () => {
+  it('主要チャット(slack/chatwork/telegram/discord/teams/whatsapp/messenger)がリンクとして並ぶ', () => {
     render(<ChannelRail orgId={ORG} activeChannel="line" />)
-    for (const id of ['slack', 'chatwork', 'telegram', 'discord', 'teams', 'whatsapp']) {
+    for (const id of ['slack', 'chatwork', 'telegram', 'discord', 'teams', 'whatsapp', 'messenger']) {
       const el = screen.getByTestId(`channel-rail-${id}`)
       expect(el.tagName).toBe('A')
       expect(el).toHaveAttribute('href', `/${ORG}/secretary/connect/${id}`)
@@ -43,12 +45,10 @@ describe('ChannelRail (registry-driven)', () => {
     expect(screen.getByTestId('channel-rail-line')).toHaveAttribute('aria-current', 'page')
   })
 
-  it('PLANNED(messenger)は遷移不可・aria-disabled・「近日」表示', () => {
+  it('現状チャット系にPLANNEDは無く「近日」行が出ない（messengerもbeta昇格済み）', () => {
     render(<ChannelRail orgId={ORG} activeChannel="line" />)
-    const messenger = screen.getByTestId('channel-rail-messenger')
-    expect(messenger.tagName).not.toBe('A')
-    expect(messenger).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getByText('近日')).toBeInTheDocument()
+    // messenger は beta 昇格でリンク化。email(planned)はチャット系でないためレール対象外。
+    expect(screen.queryByText('近日')).toBeNull()
   })
 
   it('betaチャネルに「BETA」バッジを出さない（statusは内部区分でありユーザーには見せない）', () => {

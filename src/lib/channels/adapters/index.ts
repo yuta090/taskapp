@@ -1,7 +1,7 @@
 /**
  * 送信アダプタのディスパッチ。registry の outbound=true チャネルを実アダプタに繋ぐ。
  *
- * ここに載っていないチャネル（planned=messenger/email）は canSendTo=false として弾かれる。
+ * ここに載っていないチャネル（planned=email）は canSendTo=false として弾かれる。
  * 新チャネル追加時は registry に 1 エントリ＋ここに 1 行足すだけで送信可能になる。
  */
 import type { ChannelId } from '@/lib/channels/registry'
@@ -15,6 +15,7 @@ import { discordAdapter } from './discord'
 import { googleChatAdapter } from './googleChat'
 import { teamsAdapter } from './teams'
 import { whatsappAdapter } from './whatsapp'
+import { messengerAdapter } from './messenger'
 
 export const OUTBOUND_ADAPTERS: Partial<Record<ChannelId, OutboundAdapter>> = {
   line: lineAdapter,
@@ -25,6 +26,7 @@ export const OUTBOUND_ADAPTERS: Partial<Record<ChannelId, OutboundAdapter>> = {
   google_chat: googleChatAdapter,
   teams: teamsAdapter,
   whatsapp: whatsappAdapter,
+  messenger: messengerAdapter,
 }
 
 export function getOutboundAdapter(channel: string): OutboundAdapter | null {
