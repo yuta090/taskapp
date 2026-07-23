@@ -12,6 +12,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  *
  * 既存のrefreshIfNeeded/getValidTokenのシグネチャ・null挙動は変えない
  * (呼び出し元: google-meet.ts, freebusy/route.ts, sinks/store.ts)。
+ *
+ * 【contract フェーズ】平文列(access_token/refresh_token)への書き込みを止め、
+ * 読み取りは暗号化列(access_token_encrypted/refresh_token_encrypted)のみから解決する。
+ * 平文へのフォールバックは撤去した(復号失敗=トークン無し=再接続要求)。
+ * IntegrationConnection.access_token は復号後の *平文* を返す契約は不変。
  */
 
 const fromMock = vi.fn()
@@ -23,16 +28,22 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ from: fromMock, rpc: rpcMock })),
 }))
 
-const { refreshIfNeeded, getValidToken, getValidTokenDetailed } = await import(
+const { refreshIfNeeded, getValidToken, getValidTokenDetailed, buildTokenColumns } = await import(
   '@/lib/integrations/token-manager'
 )
 
 const CONNECTION_ID = 'conn-1'
+/**
+ * contract フェーズの行の形: 平文列は空(access_token='')/無し(refresh_token=null)で、
+ * トークンの正本は暗号化列にある。fakeCrypto では enc(X) を復号すると X が返る。
+ */
 const ACTIVE_CONNECTION = {
   id: CONNECTION_ID,
   provider: 'google_sheets',
-  access_token: 'old-access-token',
-  refresh_token: 'refresh-token-1',
+  access_token: '',
+  refresh_token: null,
+  access_token_encrypted: 'enc(old-access-token)',
+  refresh_token_encrypted: 'enc(refresh-token-1)',
   // 期限切れ(bufferの5分を過ぎている)
   token_expires_at: new Date(Date.now() - 60_000).toISOString(),
   status: 'active',
@@ -44,7 +55,7 @@ let updateResponse: unknown
 /**
  * 疑似暗号: encrypt_system_secret -> `enc(<平文>)`, decrypt_system_secret -> 中身を取り出す。
  * 実物は pgcrypto (pgp_sym_encrypt + base64) だが、ここで検証したいのは
- * 「暗号化列を読み書きしているか」「平文へフォールバックするか」であって暗号強度ではない。
+ * 「暗号化列だけを読み書きしているか」「復号失敗でnullに倒れるか」であって暗号強度ではない。
  */
 function fakeCryptoRpc(fn: string, args: Record<string, string>) {
   if (fn === 'encrypt_system_secret') {
@@ -127,7 +138,10 @@ describe('refreshIfNeeded / getValidToken (既存の契約を維持)', () => {
   })
 
   it('refresh_tokenが無ければexpired化してnullを返す', async () => {
-    selectResponse = { data: { ...ACTIVE_CONNECTION, refresh_token: null }, error: null }
+    selectResponse = {
+      data: { ...ACTIVE_CONNECTION, refresh_token: null, refresh_token_encrypted: null },
+      error: null,
+    }
     const refreshFn = vi.fn()
     const connection = await refreshIfNeeded(CONNECTION_ID, refreshFn)
     expect(connection).toBeNull()
@@ -136,7 +150,7 @@ describe('refreshIfNeeded / getValidToken (既存の契約を維持)', () => {
 
   it('refresh成功でaccess_token/token_expires_atを更新し、新しいconnectionを返す', async () => {
     updateResponse = {
-      data: { ...ACTIVE_CONNECTION, access_token: 'new-access-token' },
+      data: { ...ACTIVE_CONNECTION, access_token_encrypted: 'enc(new-access-token)' },
       error: null,
     }
     const refreshFn = vi.fn().mockResolvedValue({
@@ -148,12 +162,14 @@ describe('refreshIfNeeded / getValidToken (既存の契約を維持)', () => {
     expect(connection?.access_token).toBe('new-access-token')
 
     const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
-    expect(updateArg.refresh_token).toBe('rotated-refresh-token')
+    // contract: 平文refreshキーは書かず暗号化列だけ更新する
+    expect(updateArg.refresh_token_encrypted).toBe('enc(rotated-refresh-token)')
+    expect(updateArg).not.toHaveProperty('refresh_token')
     expect(updateArg.status).toBe('active')
   })
 
   it('【回帰】refresh応答にrefresh_tokenが無い(null)場合、DBのrefresh_tokenを上書きしない', async () => {
-    updateResponse = { data: { ...ACTIVE_CONNECTION, access_token: 'new-access-token' }, error: null }
+    updateResponse = { data: { ...ACTIVE_CONNECTION, access_token_encrypted: 'enc(new-access-token)' }, error: null }
     // GoogleのOAuth refresh grantはrefresh_tokenを通常返さない(refreshAccessTokenは
     // data.refresh_token ?? null で null を返す実装)
     const refreshFn = vi.fn().mockResolvedValue({
@@ -165,6 +181,7 @@ describe('refreshIfNeeded / getValidToken (既存の契約を維持)', () => {
 
     const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
     expect(updateArg).not.toHaveProperty('refresh_token')
+    expect(updateArg).not.toHaveProperty('refresh_token_encrypted')
   })
 
   it('refreshFnがstatus=401で失敗したらexpired化してnullを返す(失効)', async () => {
@@ -216,7 +233,7 @@ describe('getValidTokenDetailed (Google Sheets store.ts専用の詳細版)', () 
   })
 
   it('refresh成功で{status:"ok", token}を返す', async () => {
-    updateResponse = { data: { ...ACTIVE_CONNECTION, access_token: 'new-access-token' }, error: null }
+    updateResponse = { data: { ...ACTIVE_CONNECTION, access_token_encrypted: 'enc(new-access-token)' }, error: null }
     const refreshFn = vi.fn().mockResolvedValue({
       accessToken: 'new-access-token',
       refreshToken: 'rotated',
@@ -227,7 +244,10 @@ describe('getValidTokenDetailed (Google Sheets store.ts専用の詳細版)', () 
   })
 
   it('refresh_tokenが無ければ{status:"auth_failed"}(expired化する)', async () => {
-    selectResponse = { data: { ...ACTIVE_CONNECTION, refresh_token: null }, error: null }
+    selectResponse = {
+      data: { ...ACTIVE_CONNECTION, refresh_token: null, refresh_token_encrypted: null },
+      error: null,
+    }
     const result = await getValidTokenDetailed(CONNECTION_ID, vi.fn())
     expect(result).toEqual({ status: 'auth_failed' })
     expect(updateSpy).toHaveBeenCalledWith({ status: 'expired' })
@@ -264,19 +284,18 @@ describe('getValidTokenDetailed (Google Sheets store.ts専用の詳細版)', () 
 })
 
 /**
- * トークン暗号化 (20260717075717_encrypt_integration_connection_tokens.sql)
+ * トークン暗号化 (contract フェーズ)
  *
- * expand/contract の expand フェーズ中は、平文列と暗号化列が両方存在する:
- *   - 読み: 暗号化列があれば復号して使う。無ければ平文列へフォールバックする
- *     (マイグレーション適用前の現行デプロイ / 適用〜デプロイ間に作られた新規接続)。
- *   - 書き: 両方へ書く。平文列を読んでいる現行デプロイを壊さないため。
- * 平文列のDROPと平文書き込みの停止は contract フェーズ(後続PR)で行う。
+ * contract フェーズでは平文列を書かず、読み取りは暗号化列だけから解決する:
+ *   - 読み: 暗号化列を復号して使う。無い/復号失敗なら null(平文へフォールバックしない)。
+ *   - 書き: access_token 平文列は空文字、refresh 平文列キーは出さない。暗号化列だけ書く。
+ * 復号失敗=トークン無し=呼び出し側が再接続を促す。
  */
-describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平文へフォールバック)', () => {
+describe('トークン暗号化 (contractフェーズ: 暗号化列のみ・平文フォールバック無し)', () => {
   const ENCRYPTED_CONNECTION = {
     ...ACTIVE_CONNECTION,
-    access_token: 'stale-plaintext',
-    refresh_token: 'stale-plaintext-refresh',
+    access_token: '',
+    refresh_token: null,
     access_token_encrypted: 'enc(real-access-token)',
     refresh_token_encrypted: 'enc(real-refresh-token)',
     token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
@@ -288,29 +307,35 @@ describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平
     expect(connection?.access_token).toBe('real-access-token')
   })
 
-  it('暗号化列が無ければ平文列へフォールバックする(マイグレーション適用前でも動く)', async () => {
-    selectResponse = {
-      data: { ...ACTIVE_CONNECTION, token_expires_at: new Date(Date.now() + 3600_000).toISOString() },
-      error: null,
-    }
-    const connection = await refreshIfNeeded(CONNECTION_ID, vi.fn())
-    expect(connection?.access_token).toBe('old-access-token')
-  })
-
-  it('復号に失敗したら(鍵ローテ等)平文列へフォールバックする', async () => {
+  it('暗号化列が無ければaccess_tokenはnull(平文列へフォールバックしない)', async () => {
     selectResponse = {
       data: {
         ...ACTIVE_CONNECTION,
+        access_token: 'stale-plaintext',
+        access_token_encrypted: null,
+        token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
+      },
+      error: null,
+    }
+    const connection = await refreshIfNeeded(CONNECTION_ID, vi.fn())
+    expect(connection?.access_token).toBeNull()
+  })
+
+  it('復号に失敗したら(鍵ローテ等)access_tokenはnull(平文列へフォールバックしない)', async () => {
+    selectResponse = {
+      data: {
+        ...ACTIVE_CONNECTION,
+        access_token: 'stale-plaintext',
         access_token_encrypted: 'GARBAGE_NOT_DECRYPTABLE',
         token_expires_at: new Date(Date.now() + 3600_000).toISOString(),
       },
       error: null,
     }
     const connection = await refreshIfNeeded(CONNECTION_ID, vi.fn())
-    expect(connection?.access_token).toBe('old-access-token')
+    expect(connection?.access_token).toBeNull()
   })
 
-  it('refresh_tokenも暗号化列を優先して復号し、refreshFnへ渡す', async () => {
+  it('refresh_tokenも暗号化列を復号し、refreshFnへ渡す', async () => {
     selectResponse = {
       data: { ...ENCRYPTED_CONNECTION, token_expires_at: new Date(Date.now() - 60_000).toISOString() },
       error: null,
@@ -325,7 +350,7 @@ describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平
     expect(refreshFn).toHaveBeenCalledWith('real-refresh-token')
   })
 
-  it('refresh成功時、access_tokenを暗号化列と平文列の両方へ書く', async () => {
+  it('refresh成功時、access_tokenは暗号化列にだけ書き、平文列は空文字にする', async () => {
     updateResponse = { data: ENCRYPTED_CONNECTION, error: null }
     const refreshFn = vi.fn().mockResolvedValue({
       accessToken: 'new-access-token',
@@ -336,10 +361,10 @@ describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平
 
     const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
     expect(updateArg.access_token_encrypted).toBe('enc(new-access-token)')
-    expect(updateArg.access_token).toBe('new-access-token')
+    expect(updateArg.access_token).toBe('')
   })
 
-  it('refresh_tokenがローテートされたら暗号化列と平文列の両方へ書く', async () => {
+  it('refresh_tokenがローテートされたら暗号化列にだけ書き、平文refreshキーは出さない', async () => {
     updateResponse = { data: ENCRYPTED_CONNECTION, error: null }
     const refreshFn = vi.fn().mockResolvedValue({
       accessToken: 'new-access-token',
@@ -350,7 +375,7 @@ describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平
 
     const updateArg = updateSpy.mock.calls[0][0] as Record<string, unknown>
     expect(updateArg.refresh_token_encrypted).toBe('enc(rotated-refresh-token)')
-    expect(updateArg.refresh_token).toBe('rotated-refresh-token')
+    expect(updateArg).not.toHaveProperty('refresh_token')
   })
 
   it('【回帰】refresh_tokenが返らなければ暗号化列も平文列も上書きしない', async () => {
@@ -382,5 +407,34 @@ describe('トークン暗号化 (expandフェーズ: 暗号化列を優先し平
     selectResponse = { data: ENCRYPTED_CONNECTION, error: null }
     const result = await getValidTokenDetailed(CONNECTION_ID, vi.fn())
     expect(result).toEqual({ status: 'ok', token: 'real-access-token' })
+  })
+})
+
+/**
+ * buildTokenColumns (OAuthコールバックがトークン列を組み立てる唯一の入口)
+ *
+ * contract フェーズ: 平文列に実値を書かない。access_token は空文字で NOT NULL 制約を満たし、
+ * refresh_token 平文キーは出さない。トークンの正本は暗号化列にだけ入れる。
+ */
+describe('buildTokenColumns (contractフェーズ: 平文列に実値を書かない)', () => {
+  it('access_tokenは平文列に空文字、暗号化列に暗号文を書く', async () => {
+    const columns = await buildTokenColumns({ accessToken: 'the-access-token' })
+    expect(columns.access_token).toBe('')
+    expect(columns.access_token_encrypted).toBe('enc(the-access-token)')
+  })
+
+  it('refresh_tokenは平文列キーを出さず暗号化列だけ書く', async () => {
+    const columns = await buildTokenColumns({
+      accessToken: 'the-access-token',
+      refreshToken: 'the-refresh-token',
+    })
+    expect(columns).not.toHaveProperty('refresh_token')
+    expect(columns.refresh_token_encrypted).toBe('enc(the-refresh-token)')
+  })
+
+  it('refreshToken未指定なら refresh 系キーを一切出さない', async () => {
+    const columns = await buildTokenColumns({ accessToken: 'the-access-token' })
+    expect(columns).not.toHaveProperty('refresh_token')
+    expect(columns).not.toHaveProperty('refresh_token_encrypted')
   })
 })

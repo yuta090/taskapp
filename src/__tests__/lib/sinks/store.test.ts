@@ -457,13 +457,34 @@ describe('saveExternalRef', () => {
 })
 
 describe('findActiveNotionConnection', () => {
-  it('returns the access token and workspace name for an active org connection', async () => {
+  it('暗号列を復号してaccessTokenとworkspace名を返す', async () => {
     fromResponses['integration_connections'] = {
-      data: { id: 'conn-1', access_token: 'secret_abc', metadata: { workspace_name: 'Acme Workspace' } },
+      data: { id: 'conn-1', access_token_encrypted: 'ENC_ABC', metadata: { workspace_name: 'Acme Workspace' } },
       error: null,
     }
+    rpcResponses['decrypt_system_secret'] = { data: 'secret_abc', error: null }
     const connection = await store.findActiveNotionConnection(ORG_ID)
     expect(connection).toEqual({ id: 'conn-1', accessToken: 'secret_abc', workspaceName: 'Acme Workspace' })
+  })
+
+  it('【回帰】暗号列が復号できなければnull（平文access_tokenに値があっても返さない）', async () => {
+    // contract フェーズ: 平文フォールバックを撤去。復号失敗＝トークン無し＝再接続要求。
+    // M2 で平文が '' になるため、フォールバックが残ると '' を素通しするバグ芽になる。
+    fromResponses['integration_connections'] = {
+      data: { id: 'conn-1', access_token: 'stale-plaintext', access_token_encrypted: 'GARBAGE', metadata: {} },
+      error: null,
+    }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'wrong key' } }
+    expect(await store.findActiveNotionConnection(ORG_ID)).toBeNull()
+  })
+
+  it('select句に平文access_token列を要求しない（暗号列のみ）', async () => {
+    fromResponses['integration_connections'] = { data: null, error: null }
+    await store.findActiveNotionConnection(ORG_ID)
+    const call = fromMock.mock.results[0].value
+    const selectArg = call.select.mock.calls[0][0] as string
+    expect(selectArg).not.toMatch(/(^|[,\s])access_token([,\s]|$)/)
+    expect(selectArg).toContain('access_token_encrypted')
   })
 
   it('returns null when there is no active connection (not connected / revoked)', async () => {
@@ -516,6 +537,8 @@ describe('createNotionSink', () => {
 
 describe('findDeliverableSink (notion)', () => {
   it('resolves a notion sink using the org active connection access token', async () => {
+    // contract: 平文列は読まず暗号列を復号する。
+    rpcResponses['decrypt_system_secret'] = { data: 'secret_abc', error: null }
     fromMock.mockImplementation((table: string) => {
       fromCalls.push({ table, args: [] })
       if (table === 'integration_sinks') {
@@ -532,7 +555,7 @@ describe('findDeliverableSink (notion)', () => {
       }
       if (table === 'integration_connections') {
         return chain({
-          data: { id: 'conn-1', access_token: 'secret_abc', metadata: { workspace_name: 'Acme' } },
+          data: { id: 'conn-1', access_token_encrypted: 'ENC_ABC', metadata: { workspace_name: 'Acme' } },
           error: null,
         })
       }
@@ -579,13 +602,32 @@ describe('findDeliverableSink (notion)', () => {
 })
 
 describe('findActiveGoogleSheetsConnection', () => {
-  it('returns the connection id and access token for an active org connection', async () => {
+  it('暗号列を復号してconnection idとaccessTokenを返す', async () => {
     fromResponses['integration_connections'] = {
-      data: { id: 'conn-gs-1', access_token: 'access-abc' },
+      data: { id: 'conn-gs-1', access_token_encrypted: 'ENC_ABC' },
       error: null,
     }
+    rpcResponses['decrypt_system_secret'] = { data: 'access-abc', error: null }
     const connection = await store.findActiveGoogleSheetsConnection(ORG_ID)
     expect(connection).toEqual({ id: 'conn-gs-1', accessToken: 'access-abc' })
+  })
+
+  it('【回帰】暗号列が復号できなければnull（平文access_tokenに値があっても返さない）', async () => {
+    fromResponses['integration_connections'] = {
+      data: { id: 'conn-gs-1', access_token: 'stale-plaintext', access_token_encrypted: 'GARBAGE' },
+      error: null,
+    }
+    rpcResponses['decrypt_system_secret'] = { data: null, error: { message: 'wrong key' } }
+    expect(await store.findActiveGoogleSheetsConnection(ORG_ID)).toBeNull()
+  })
+
+  it('select句に平文access_token列を要求しない（暗号列のみ）', async () => {
+    fromResponses['integration_connections'] = { data: null, error: null }
+    await store.findActiveGoogleSheetsConnection(ORG_ID)
+    const call = fromMock.mock.results[0].value
+    const selectArg = call.select.mock.calls[0][0] as string
+    expect(selectArg).not.toMatch(/(^|[,\s])access_token([,\s]|$)/)
+    expect(selectArg).toContain('access_token_encrypted')
   })
 
   it('returns null when there is no active connection (not connected / revoked / expired)', async () => {
@@ -648,6 +690,9 @@ describe('findDeliverableSink (google_sheets)', () => {
   }
 
   function mockGoogleSheetsSinkRow() {
+    // contract: findActiveGoogleSheetsConnection は暗号列を復号して接続を1件解決する
+    // (実トークンは後段の getValidTokenDetailed が返す。ここは接続の存在確認に足りればよい)。
+    rpcResponses['decrypt_system_secret'] = { data: 'stale-token', error: null }
     fromMock.mockImplementation((table: string) => {
       fromCalls.push({ table, args: [] })
       if (table === 'integration_sinks') {
@@ -657,7 +702,7 @@ describe('findDeliverableSink (google_sheets)', () => {
         })
       }
       if (table === 'integration_connections') {
-        return chain({ data: { id: 'conn-gs-1', access_token: 'stale-token' }, error: null })
+        return chain({ data: { id: 'conn-gs-1', access_token_encrypted: 'ENC_STALE' }, error: null })
       }
       return chain({ data: null, error: null })
     })
@@ -729,6 +774,8 @@ describe('findDeliverableSinksByIds (google_sheets transient error handling)', (
   }
 
   it('separates a transiently-failed google_sheets sink into transientSinkIds instead of dropping it silently', async () => {
+    // contract: 接続解決は暗号列の復号で行う。
+    rpcResponses['decrypt_system_secret'] = { data: 'stale-token', error: null }
     fromMock.mockImplementation((table: string) => {
       fromCalls.push({ table, args: [] })
       if (table === 'integration_sinks') {
@@ -741,7 +788,7 @@ describe('findDeliverableSinksByIds (google_sheets transient error handling)', (
         })
       }
       if (table === 'integration_connections') {
-        return chain({ data: { id: 'conn-gs-1', access_token: 'stale-token' }, error: null })
+        return chain({ data: { id: 'conn-gs-1', access_token_encrypted: 'ENC_STALE' }, error: null })
       }
       return chain({ data: null, error: null })
     })

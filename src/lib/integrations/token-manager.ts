@@ -50,19 +50,21 @@ type ConnectionRow = Record<string, unknown> & {
 /**
  * DB行のトークンを平文に解決して IntegrationConnection を組み立てる。
  *
- * 暗号化列(20260717075717)を優先し、無い場合のみ平文列へフォールバックする。
- * フォールバックが必要なのは expand/contract の移行期の2ケース:
- *   1) マイグレーション適用前(暗号化列そのものが存在しない)
- *   2) マイグレーション適用〜デプロイの間に現行コードが作った新規接続(平文列にしか入らない)
- * 復号失敗(鍵ローテ・不正blob)でも平文へ倒す。contract フェーズで平文列を落とした後は
- * フォールバック先が無くなり、復号失敗はそのまま「トークン無し」= 再接続要求になる。
+ * 【contract フェーズ】暗号化列(20260717075717)*だけ* から解決する。平文列への
+ * フォールバック(`?? row.access_token`)は撤去した。理由:
+ *   - 暗号化列は本番全行でバックフィル済み(access/refresh とも平文と一致検証済み)。
+ *   - 平文列は M2 migration で空化される。フォールバックを残すと復号失敗時に空文字を
+ *     トークンとして素通ししてしまう(`??` は '' を落とさない)。
+ * 復号失敗(鍵ローテ・不正blob)や暗号化列 null は「トークン無し」= null を返し、
+ * 呼び出し側が再接続を促す(この設計は expand フェーズのコメントで予告済み)。
+ * ここで `?? ''` のような空文字フォールバックを新設しないこと(null を返す)。
  *
- * IntegrationConnection.access_token は *平文* のままにしておく(呼び出し側の契約を変えない)。
+ * IntegrationConnection.access_token は復号後の *平文* を返す(呼び出し側の契約を変えない)。
  * 暗号化列名がこのモジュールの外に漏れないようにするのが狙い。
  */
 async function decryptConnectionRow(row: ConnectionRow): Promise<IntegrationConnection> {
-  const accessToken = (await decryptToken(row.access_token_encrypted)) ?? row.access_token ?? null
-  const refreshToken = (await decryptToken(row.refresh_token_encrypted)) ?? row.refresh_token ?? null
+  const accessToken = await decryptToken(row.access_token_encrypted)
+  const refreshToken = await decryptToken(row.refresh_token_encrypted)
   return { ...row, access_token: accessToken, refresh_token: refreshToken } as IntegrationConnection
 }
 
@@ -104,11 +106,11 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
   try {
     const refreshed = await refreshFn(connection.refresh_token)
 
-    // 移行期(expandフェーズ)は暗号化列と平文列の両方へ書く。平文列を読んでいる現行デプロイを
-    // 壊さないため。contractフェーズ(後続PR)で平文側の書き込みを止めてから列をDROPする。
+    // contractフェーズ: 平文列には実値を書かない。access_token は NOT NULL 制約を満たすため
+    // 空文字で埋め、トークンの正本は暗号化列にだけ入れる。refresh 平文キーは出さない。
     // encryptTokenは失敗時にthrowする(「暗号化できなかったので平文だけ保存」に倒さない)。
     const updateData: Record<string, unknown> = {
-      access_token: refreshed.accessToken,
+      access_token: '',
       access_token_encrypted: await encryptToken(refreshed.accessToken),
       token_expires_at: refreshed.expiresAt ? refreshed.expiresAt.toISOString() : null,
       last_refreshed_at: new Date().toISOString(),
@@ -116,10 +118,8 @@ async function refreshIfNeededCore(connectionId: string, refreshFn: RefreshFn): 
     }
 
     // 回帰修正(修正1): refresh_tokenがtruthyな時だけ上書きする。null/undefinedは
-    // 「ローテートされなかった」を意味し、既存のrefresh_tokenを保持する。
-    // 暗号化列も同じ条件で揃えないと、平文だけ残って暗号化列がnullに潰れる。
+    // 「ローテートされなかった」を意味し、既存のrefresh_token_encryptedを保持する。
     if (refreshed.refreshToken) {
-      updateData.refresh_token = refreshed.refreshToken
       updateData.refresh_token_encrypted = await encryptToken(refreshed.refreshToken)
     }
 
@@ -239,21 +239,21 @@ export async function findConnection(
 /**
  * 接続を新規作成/更新する際のトークン列を組み立てる。
  *
- * 暗号化列と平文列の両方を返す(移行期)。呼び出し側(OAuthコールバック)が生の
+ * 【contract フェーズ】平文列には実値を書かない。呼び出し側(OAuthコールバック)が生の
  * access_token/refresh_token を直接 upsert ペイロードへ書かないようにするための唯一の入口。
- * refreshToken が null の場合は refresh_token 系のキー自体を含めない
- * (upsertのon conflict時に既存の有効なrefresh_tokenを潰さないため)。
+ * access_token 平文列は NOT NULL 制約を満たすため空文字で埋め、トークンの正本は暗号化列に
+ * だけ入れる。refreshToken が null の場合は refresh_token 系のキー自体を含めない
+ * (upsertのon conflict時に既存の有効なrefresh_token_encryptedを潰さないため)。
  */
 export async function buildTokenColumns(params: {
   accessToken: string
   refreshToken?: string | null
 }): Promise<Record<string, unknown>> {
   const columns: Record<string, unknown> = {
-    access_token: params.accessToken,
+    access_token: '',
     access_token_encrypted: await encryptToken(params.accessToken),
   }
   if (params.refreshToken) {
-    columns.refresh_token = params.refreshToken
     columns.refresh_token_encrypted = await encryptToken(params.refreshToken)
   }
   return columns

@@ -88,8 +88,10 @@ describe('GET /api/integrations/callback/google_sheets', () => {
         owner_type: 'org',
         owner_id: ORG_ID,
         org_id: ORG_ID,
-        access_token: 'access-abc',
-        refresh_token: 'refresh-abc',
+        // contract: 平文列には実値を書かず、暗号化列にだけ入れる。
+        access_token: '',
+        access_token_encrypted: 'enc(access-abc)',
+        refresh_token_encrypted: 'enc(refresh-abc)',
         token_expires_at: '2026-07-12T01:00:00.000Z',
         scopes: 'https://www.googleapis.com/auth/spreadsheets',
         status: 'active',
@@ -119,8 +121,10 @@ describe('GET /api/integrations/callback/google_sheets', () => {
 
     const upsertPayload = upsertMock.mock.calls[0][0] as Record<string, unknown>
     expect(upsertPayload).not.toHaveProperty('refresh_token')
+    expect(upsertPayload).not.toHaveProperty('refresh_token_encrypted')
     expect(upsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({ access_token: 'access-abc' }),
+      // contract: 平文は空文字、正本は暗号化列。
+      expect.objectContaining({ access_token: '', access_token_encrypted: 'enc(access-abc)' }),
       { onConflict: 'provider,owner_type,owner_id' },
     )
     expect(response.status).toBe(307)

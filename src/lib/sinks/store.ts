@@ -51,19 +51,19 @@ async function decryptSecret(encrypted: string): Promise<string | null> {
 /**
  * integration_connections の access_token を平文で得る。
  *
- * 暗号化列(20260717075717)を優先し、無い/復号できない場合のみ平文列へフォールバックする
- * (expand/contract の移行期。詳細は token-manager.decryptConnectionRow のコメント参照)。
- * ここは token-manager を経由しない生SELECTの経路なので、同じ解決を独立に持つ必要がある。
+ * 【contract フェーズ】暗号化列(20260717075717)*だけ* から解決する。平文列フォールバックは
+ * 撤去済み(M2 = empty_plaintext_connection_tokens.sql で平文は '' に空化される)。
+ * ここは token-manager を経由しない生SELECTの経路なので、token-manager.decryptConnectionRow と
+ * 同じ解決を独立に持つ。復号失敗(鍵ローテ・不正blob)や暗号化列 null は「トークン無し」= null を
+ * 返し、呼び出し側が再接続を促す。`?? ''`/`?? row.access_token` のようなフォールバックを
+ * 新設しないこと(平文の '' を素通しするバグ芽を残さない)。
+ * この経路は service_role(createAdminClient)なので、秘密列の列レベル revoke(M3)の影響は受けない。
  */
 async function resolveConnectionAccessToken(row: {
-  access_token: string | null
   access_token_encrypted: string | null
 }): Promise<string | null> {
-  if (row.access_token_encrypted) {
-    const decrypted = await decryptSecret(row.access_token_encrypted)
-    if (decrypted) return decrypted
-  }
-  return row.access_token ?? null
+  if (!row.access_token_encrypted) return null
+  return decryptSecret(row.access_token_encrypted)
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +414,8 @@ export interface NotionConnectionInfo {
 export async function findActiveNotionConnection(orgId: string): Promise<NotionConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, access_token, access_token_encrypted, metadata')
+    // contract: 平文 access_token 列は読まない(M2 で空化)。トークンは暗号化列から復号する。
+    .select('id, access_token_encrypted, metadata')
     .eq('provider', 'notion')
     .eq('owner_type', 'org')
     .eq('owner_id', orgId)
@@ -423,7 +424,6 @@ export async function findActiveNotionConnection(orgId: string): Promise<NotionC
   if (error || !data) return null
   const row = data as {
     id: string
-    access_token: string | null
     access_token_encrypted: string | null
     metadata: Record<string, unknown> | null
   }
@@ -494,14 +494,15 @@ export async function findActiveGoogleSheetsConnection(
 ): Promise<GoogleSheetsConnectionInfo | null> {
   const { data, error } = await admin()
     .from('integration_connections')
-    .select('id, access_token, access_token_encrypted')
+    // contract: 平文 access_token 列は読まない(M2 で空化)。トークンは暗号化列から復号する。
+    .select('id, access_token_encrypted')
     .eq('provider', 'google_sheets')
     .eq('owner_type', 'org')
     .eq('owner_id', orgId)
     .eq('status', 'active')
     .maybeSingle()
   if (error || !data) return null
-  const row = data as { id: string; access_token: string | null; access_token_encrypted: string | null }
+  const row = data as { id: string; access_token_encrypted: string | null }
   const accessToken = await resolveConnectionAccessToken(row)
   if (!accessToken) return null
   return { id: row.id, accessToken }

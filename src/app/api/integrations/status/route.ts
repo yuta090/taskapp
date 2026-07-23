@@ -19,6 +19,10 @@ export async function GET() {
     }
 
     // ユーザー自身の接続を取得
+    // ⚠ この表は authenticated ロールの列SELECTが制限されている
+    //   (<...>_restrict_connection_secret_columns.sql で秘密4列 access_token/refresh_token/
+    //    access_token_encrypted/refresh_token_encrypted を revoke)。
+    //   `select('*')` は permission denied になるので、必要な列は必ず明示的に列挙すること。
     const { data: connections, error } = await (supabase as SupabaseClient)
       .from('integration_connections')
       .select('id, provider, owner_type, owner_id, org_id, scopes, metadata, status, token_expires_at, last_refreshed_at, created_at, updated_at')
