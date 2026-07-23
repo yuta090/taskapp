@@ -47,6 +47,11 @@ vi.mock('@/lib/channels/slack/probe', () => ({
   verifySlackToken: (...args: unknown[]) => verifySlackTokenMock(...args),
 }))
 
+const verifyTelegramTokenMock = vi.fn()
+vi.mock('@/lib/channels/telegram/probe', () => ({
+  verifyTelegramToken: (...args: unknown[]) => verifyTelegramTokenMock(...args),
+}))
+
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 
 const { POST } = await import('@/app/api/channels/accounts/route')
@@ -89,6 +94,7 @@ beforeEach(() => {
   resolveEntitlementsMock.mockResolvedValue(entitled(true))
   fetchChatworkAccountIdMock.mockResolvedValue('363')
   verifySlackTokenMock.mockResolvedValue({ ok: true, botUserId: 'Ubot0000' })
+  verifyTelegramTokenMock.mockResolvedValue({ ok: true, botUsername: 'my_bot', botId: '123456' })
   storeMock.generateChannelWebhookSecret.mockReturnValue('whsec_generated')
   storeMock.registerOrgChannelAccount.mockResolvedValue({
     account: accountMeta(),
@@ -278,6 +284,57 @@ describe('POST /api/channels/accounts — Slack bot_user_id 解決＋scope検証
   })
 })
 
+describe('POST /api/channels/accounts — Telegram bot_username解決＋privacy mode検証（拾い漏れ防止）', () => {
+  it('登録時にgetMeでbot自身のusername/idを解決しoperatorCredentialsに注入する', async () => {
+    verifyTelegramTokenMock.mockResolvedValue({ ok: true, botUsername: 'my_bot', botId: '123456' })
+    const res = await callPost({
+      orgId: ORG_A,
+      channel: 'telegram',
+      credentials: { bot_token: '123:abc' },
+    })
+    expect(res.status).toBe(201)
+    expect(verifyTelegramTokenMock).toHaveBeenCalledWith('123:abc')
+    const arg = storeMock.registerOrgChannelAccount.mock.calls[0][0]
+    expect(arg.operatorCredentials).toMatchObject({
+      bot_token: '123:abc',
+      bot_username: 'my_bot',
+      bot_id: '123456',
+    })
+  })
+
+  it('bot_tokenが無効(token_unverified)なら400 telegram_token_unverified・登録しない', async () => {
+    verifyTelegramTokenMock.mockResolvedValue({ ok: false, code: 'telegram_token_unverified' })
+    const res = await callPost({ orgId: ORG_A, channel: 'telegram', credentials: { bot_token: 'bad' } })
+    const json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.code).toBe('telegram_token_unverified')
+    expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
+  })
+
+  it('privacy mode有効(グループ全発言を読めない)なら400 telegram_privacy_mode・登録しない', async () => {
+    verifyTelegramTokenMock.mockResolvedValue({ ok: false, code: 'telegram_privacy_mode' })
+    const res = await callPost({ orgId: ORG_A, channel: 'telegram', credentials: { bot_token: 't' } })
+    const json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.code).toBe('telegram_privacy_mode')
+    expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
+  })
+
+  it('slack登録ではgetMe検証を呼ばない（チャネル固有処理）', async () => {
+    storeMock.registerOrgChannelAccount.mockResolvedValue({
+      account: accountMeta({ channel: 'slack' }),
+      created: true,
+      generatedSecrets: {},
+    })
+    await callPost({
+      orgId: ORG_A,
+      channel: 'slack',
+      credentials: { bot_token: 'xoxb-1', signing_secret: 'sig' },
+    })
+    expect(verifyTelegramTokenMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /api/channels/accounts — 登録成功', () => {
   it('Telegram: webhook_secret を生成し、accountId込みの受信Webhook URLを返す', async () => {
     const res = await callPost({
@@ -290,8 +347,13 @@ describe('POST /api/channels/accounts — 登録成功', () => {
 
     expect(res.status).toBe(201)
     // store には operator+generated を分けて渡す
+    // （bot_username/bot_id はgetMeプローブが解決してoperatorCredentialsに注入したもの）
     const arg = storeMock.registerOrgChannelAccount.mock.calls[0][0]
-    expect(arg.operatorCredentials).toEqual({ bot_token: '123:abc' })
+    expect(arg.operatorCredentials).toEqual({
+      bot_token: '123:abc',
+      bot_username: 'my_bot',
+      bot_id: '123456',
+    })
     expect(arg.generatedCredentials).toEqual({ webhook_secret: 'whsec_generated' })
     expect(arg.owner_type).toBeUndefined() // owner_type はstore側で固定（route から渡さない）
 

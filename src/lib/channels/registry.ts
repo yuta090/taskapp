@@ -220,7 +220,11 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
       { key: 'webhook_secret', label: 'Webhook Secret Token', secret: true, generated: true, help: '登録時にサーバーが自動生成。setWebhook の secret_token に設定する' },
     ],
     setupUrl: 'https://core.telegram.org/bots#botfather',
-    notes: 'sendMessage で送信。受信は setWebhook + X-Telegram-Bot-Api-Secret-Token 照合。',
+    notes:
+      'sendMessage で送信。受信は setWebhook + X-Telegram-Bot-Api-Secret-Token 照合で account 単位URLに対応。' +
+      'claim（合言葉）方式のチャット紐付けと「完了N」コマンドに対応（Slack/Discord/Chatworkと同じ骨格）。' +
+      '登録時にgetMeでbot_token検証・privacy mode（グループ全発言の読み取り可否）を確認しfail-closed、' +
+      'bot自身のusernameを解決（自分宛メンション判定に使用）。',
   },
   teams: {
     id: 'teams',
