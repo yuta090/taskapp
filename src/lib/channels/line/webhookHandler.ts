@@ -45,6 +45,9 @@ import {
   getPlatformBudgetState,
   markDmUnreachable,
   clearDmUnreachable,
+  findActiveUserLinkByExternalId,
+  findActiveUserLinkForUser,
+  findLineAccountByIdLookup,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -80,7 +83,19 @@ import {
   confirmTaskDoneViaLine,
   snoozeDueReminderViaLine,
   findTaskSnapshotForReminder,
+  isOrgDueRemindersEnabled,
 } from '@/lib/reminders/dueReminderStore'
+import { isCompletionDeclaration } from '@/lib/channels/doneSuggest/detector'
+import { findOpenPromotedTaskForGroup } from '@/lib/channels/doneSuggest/matcher'
+import { buildDoneSuggestFlex, buildDoneSuggestRetryKey } from '@/lib/channels/doneSuggest/messages'
+import { parseDoneSuggestDismissPostback } from '@/lib/channels/doneSuggest/postback'
+import {
+  insertDoneSuggestion,
+  markDoneSuggestionConfirmed,
+  markDoneSuggestionDismissed,
+  isTaskVisibleToActor,
+} from '@/lib/channels/doneSuggest/store'
+import { sendSecretaryPush } from '@/lib/channels/send/secretaryPush'
 import {
   buildMentionTaskTitle,
   buildTaskDoneFlexMessage,
@@ -167,6 +182,9 @@ const DUE_REMINDER_DONE_FALLBACK_TEXT = 'タスクを完了にしました。'
 const DUE_REMINDER_ALREADY_DONE_TEXT = 'すでに完了済みです。'
 const DUE_REMINDER_BLOCKED_TEXT = 'アプリで内容を確認してください。'
 const DUE_REMINDER_SNOOZE_CAPPED_TEXT = '再通知の上限に達しました。'
+
+/** 完了サジェスト（Fable裁定 v1）[まだ]押下の返信。台帳はdismissedのまま残り再サジェストしない */
+const DONE_SUGGEST_DISMISS_TEXT = '承知しました。'
 
 function buildDueReminderDoneReplyText(title: string): string {
   return `『${title}』を完了にしました。`
@@ -1024,9 +1042,126 @@ async function processGroupMessage(
     }
   }
 
-  await insertChannelMessage(
+  const inserted = await insertChannelMessage(
     groupMessageRecord(group.orgId, account.id, event, group, identityId, storagePath, status, errorText),
   )
+
+  // 完了サジェスト（Fable裁定 v1）: 保存が新規(非duplicate)のときだけ判定する。
+  // webhook再配送でも重複起動しない（台帳のtask_id uniqueと合わせた二重防御）。
+  if (inserted !== 'duplicate' && event.contentType === 'text' && event.body) {
+    await maybeSuggestTaskDone(account, event, group, disabled, inserted.id)
+  }
+}
+
+/**
+ * 完了サジェスト（Fable裁定・精度優先の最小構成 v1）。
+ *
+ * LINEグループで内部メンバー本人が完了宣言テキストを送り、発生元チャットに紐づく未完了タスクが
+ * ちょうど1件のとき、その本人へのDM私信で「『X』は完了しましたか？[完了した][まだ]」を1回だけ出す。
+ * 自動完了はしない（[完了した]は既存の rpc_confirm_task_done_via_line を再利用）。
+ * 曖昧（0件/2件以上）・束縛なし・DMルート無し・ゲートOFFはすべて沈黙（グループには一切出さない）。
+ *
+ * ゲート順序（詳細検査ほど後段に置き、無駄なDB問い合わせを避ける）:
+ *   disabled → detector(純関数) → org自動リマインドON/OFF・line_direct_dm entitlement
+ *   → 内部メンバー本人性解決(テナント一致) → matcher(ちょうど1件) → DMルート解決
+ */
+async function maybeSuggestTaskDone(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  disabled: boolean,
+  triggerMessageId: string,
+): Promise<void> {
+  if (disabled) return // 自動応答停止中は他の自動応答系と同様に出さない
+
+  if (!isCompletionDeclaration(event.body)) return
+
+  const externalUserId = event.externalUserId
+  if (!externalUserId) return
+
+  // 完了サジェストはリマインド機能群の一部＝同じ制御下（org単位オンオフ＋line_direct_dm entitlement）。
+  const orgId = group.orgId
+  const [remindersEnabled, entitlements] = await Promise.all([
+    isOrgDueRemindersEnabled(orgId),
+    resolveOrgEntitlements(createAdminClient(), orgId),
+  ])
+  if (!remindersEnabled) return
+  if (!entitlements.has('line_direct_dm')) return
+
+  // 送信者の内部メンバー解決。束縛なし（顧問先メンバー等）は沈黙。
+  // テナント一致も確認する（同一物理LINEユーザーが別orgのグループに参加者として居るケースの越境防止）。
+  const senderLink = await findActiveUserLinkByExternalId(account.id, externalUserId)
+  if (!senderLink || senderLink.orgId !== orgId) return
+
+  // 発生元グループの未完了promotedタスクがちょうど1件のときだけ。
+  const candidate = await findOpenPromotedTaskForGroup(group.id)
+  if (!candidate) {
+    console.info('[doneSuggest] silent: ambiguous or no open promoted task', { groupId: group.id })
+    return
+  }
+
+  // L-1是正（code review）: 送信者がorg内部メンバーであることまでは確認済みだが、対象タスク自体が
+  // その人から可視（spaceアクセス・client_scope/ballマトリクス）とは限らない（別spaceのタスク等）。
+  // rpc_confirm_task_done_via_line 自体は app_task_visible_to_actor で fail-closed するため
+  // 漏洩/誤完了は起きないが、不可視だと[完了した]が空振りするだけになる。送出前に沈黙させ、
+  // 台帳にも書かない（将来可視になったときにサジェストを出せる余地を残す）。
+  const visible = await isTaskVisibleToActor(candidate.taskId, senderLink.userId)
+  if (!visible) {
+    console.info('[doneSuggest] silent: task not visible to sender', {
+      taskId: candidate.taskId,
+      userId: senderLink.userId,
+    })
+    return
+  }
+
+  // DMルート解決（1:1個別DM=line_direct_dm専有。グループへのfallbackはしない）。
+  const dmLink = await findActiveUserLinkForUser(orgId, senderLink.userId)
+  if (!dmLink) return
+  const dmAccountLookup = await findLineAccountByIdLookup(dmLink.channelAccountId)
+  if (!dmAccountLookup?.account) return
+
+  // 台帳へon conflict(task_id) do nothing。送信勝者(inserted=true)のときだけpushする
+  // ＝「1タスク=生涯1サジェスト」の実効担保（webhook再配送・複数worker競合を含む）。
+  const { inserted } = await insertDoneSuggestion({
+    taskId: candidate.taskId,
+    channelGroupId: group.id,
+    triggerMessageId,
+    suggestedToUserId: senderLink.userId,
+  })
+  if (!inserted) {
+    console.info('[doneSuggest] silent: already suggested (ledger conflict)', { taskId: candidate.taskId })
+    return
+  }
+
+  const flexMessage = buildDoneSuggestFlex({ title: candidate.title, taskId: candidate.taskId })
+  const retryKey = buildDoneSuggestRetryKey(candidate.taskId)
+
+  try {
+    const result = await sendSecretaryPush({
+      account: dmAccountLookup.account,
+      orgId,
+      to: dmLink.externalUserId,
+      text: flexMessage.altText,
+      messages: [flexMessage],
+      retryKey,
+      jstDayOfYear: getJstDayOfYear(new Date()),
+      record: {
+        spaceId: group.spaceId,
+        identityId: null,
+        groupId: null,
+        externalUserId: dmLink.externalUserId,
+        body: flexMessage.altText,
+        payload: { kind: 'done-suggest', taskId: candidate.taskId, groupId: group.id },
+      },
+    })
+    if (result.delivered) {
+      console.info('[doneSuggest] sent', { taskId: candidate.taskId })
+    } else {
+      console.info('[doneSuggest] suppressed', { taskId: candidate.taskId, reason: result.reason })
+    }
+  } catch (err) {
+    console.error('[doneSuggest] push failed', candidate.taskId, err)
+  }
 }
 
 /**
@@ -1596,6 +1731,15 @@ async function processPostback(
     return
   }
 
+  // 完了サジェスト（Fable裁定 v1）の[まだ]。[完了した]は上のdue reminder done postbackを
+  // 再利用しているためここには来ない（processDueReminderPostback側でconfirmedを台帳へ反映する）。
+  // DM専用（1:1）で届くため、due reminder postbackと同様activeGroup検証には乗せない。
+  const doneSuggestDismissAction = parseDoneSuggestDismissPostback(data)
+  if (doneSuggestDismissAction) {
+    await processDoneSuggestDismissPostback(account, event, disabled, doneSuggestDismissAction.taskId)
+    return
+  }
+
   // 責任者確認（Stage 2.7-B）は 1:1 トークに届く別系統。アクター解決・テナント/認可は
   // _via_line RPC が完結させるため、消し込み系の検証チェーンには乗せず専用ハンドラへ委ねる。
   const promoteAction = parseDigestPromotePostback(data)
@@ -1890,6 +2034,15 @@ async function processDueReminderPostback(
         console.error('LINE webhook: due reminder title lookup failed', doneAction.taskId, e)
       }
       replyText = title ? buildDueReminderDoneReplyText(title) : DUE_REMINDER_DONE_FALLBACK_TEXT
+
+      // 完了サジェスト（Fable裁定 v1）: このpostbackは done-suggest Flexの[完了した]も共用する。
+      // 台帳（task_id基準）が存在すれば confirmed に反映する（ベストエフォート・
+      // 通常の期限リマインドFlex経由の完了でも害はない＝該当task_idの台帳が無ければ0行で終わる）。
+      try {
+        await markDoneSuggestionConfirmed(doneAction.taskId)
+      } catch (e) {
+        console.error('LINE webhook: done suggestion mark confirmed failed', doneAction.taskId, e)
+      }
     } else if (status === 'already_done') {
       replyText = DUE_REMINDER_ALREADY_DONE_TEXT
     } else {
@@ -1971,5 +2124,63 @@ async function processDueReminderPostback(
     accessToken: account.accessToken,
     replyToken: event.replyToken,
     messages: [{ type: 'text', text: replyText }],
+  })
+}
+
+/**
+ * 完了サジェスト（Fable裁定 v1）の[まだ]postback。DM(1:1)専用で届く
+ * （完了サジェストのDMルート自体がline_direct_dm=owner_type='org'限定のため account.orgId は
+ * 常に非null。processDueReminderPostbackのDM文脈解決と同じ前提）。
+ *
+ * authz: webhook検証済みの(account.id, external_user_id)を内部ユーザーへ解決し、
+ * markDoneSuggestionDismissedが (task_id, suggested_to_user_id, status='sent') の完全一致でのみ
+ * 更新する（本人以外のタップ・二度目のタップ・既にconfirmed済みはすべて0行=沈黙）。
+ * forbidden/not_found相当の非成立は他のpostbackハンドラと同様、返信も監査行も残さない。
+ */
+async function processDoneSuggestDismissPostback(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  disabled: boolean,
+  taskId: string,
+): Promise<void> {
+  const externalUserId = event.externalUserId
+  if (!externalUserId) return
+
+  const senderLink = await findActiveUserLinkByExternalId(account.id, externalUserId)
+  if (!senderLink) return // 束縛なし → 沈黙
+
+  const dismissed = await markDoneSuggestionDismissed(taskId, senderLink.userId)
+  if (!dismissed) return // 別人/既に処理済み/行なし → 沈黙
+
+  const orgId = account.orgId
+  if (orgId) {
+    const recorded = await insertChannelMessage({
+      orgId,
+      spaceId: null,
+      identityId: null,
+      accountId: account.id,
+      channel: 'line',
+      direction: 'inbound',
+      actor: 'system',
+      externalUserId,
+      externalMessageId: event.webhookEventId,
+      contentType: 'system',
+      body: null,
+      payload: { event: 'postback', action: 'done_suggest_dismiss', taskId },
+      storagePath: null,
+      status: 'received',
+      error: null,
+      occurredAt: event.occurredAt,
+    })
+    if (recorded === 'duplicate' || disabled) return
+  } else if (disabled) {
+    return
+  }
+
+  if (!event.replyToken) return
+  await replyLineMessage({
+    accessToken: account.accessToken,
+    replyToken: event.replyToken,
+    messages: [{ type: 'text', text: DONE_SUGGEST_DISMISS_TEXT }],
   })
 }

@@ -104,6 +104,9 @@ const storeMock = {
   orgLineGroupCapacity: vi.fn(),
   markDmUnreachable: vi.fn(),
   clearDmUnreachable: vi.fn(),
+  findActiveUserLinkByExternalId: vi.fn(),
+  findActiveUserLinkForUser: vi.fn(),
+  findLineAccountByIdLookup: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -112,8 +115,25 @@ const dueReminderStoreMock = {
   confirmTaskDoneViaLine: vi.fn(),
   snoozeDueReminderViaLine: vi.fn(),
   findTaskSnapshotForReminder: vi.fn(),
+  isOrgDueRemindersEnabled: vi.fn(),
 }
 vi.mock('@/lib/reminders/dueReminderStore', () => dueReminderStoreMock)
+
+// 完了サジェスト（Fable裁定 v1）: matcher/store(台帳)/統一送信境界はI/O層としてモックする。
+// detector/postback/messagesは純関数のため実物をそのまま使う。
+const doneSuggestMatcherMock = { findOpenPromotedTaskForGroup: vi.fn() }
+vi.mock('@/lib/channels/doneSuggest/matcher', () => doneSuggestMatcherMock)
+
+const doneSuggestStoreMock = {
+  insertDoneSuggestion: vi.fn(),
+  markDoneSuggestionConfirmed: vi.fn(),
+  markDoneSuggestionDismissed: vi.fn(),
+  isTaskVisibleToActor: vi.fn(),
+}
+vi.mock('@/lib/channels/doneSuggest/store', () => doneSuggestStoreMock)
+
+const secretaryPushMock = { sendSecretaryPush: vi.fn() }
+vi.mock('@/lib/channels/send/secretaryPush', () => secretaryPushMock)
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({})),
@@ -293,6 +313,16 @@ beforeEach(() => {
   dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
   dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
   dueReminderStoreMock.findTaskSnapshotForReminder.mockResolvedValue({ title: '見積書の送付' })
+  dueReminderStoreMock.isOrgDueRemindersEnabled.mockResolvedValue(true)
+  storeMock.findActiveUserLinkByExternalId.mockResolvedValue(null)
+  storeMock.findActiveUserLinkForUser.mockResolvedValue(null)
+  storeMock.findLineAccountByIdLookup.mockResolvedValue(null)
+  doneSuggestMatcherMock.findOpenPromotedTaskForGroup.mockResolvedValue(null)
+  doneSuggestStoreMock.insertDoneSuggestion.mockResolvedValue({ inserted: true })
+  doneSuggestStoreMock.markDoneSuggestionConfirmed.mockResolvedValue(undefined)
+  doneSuggestStoreMock.markDoneSuggestionDismissed.mockResolvedValue(true)
+  doneSuggestStoreMock.isTaskVisibleToActor.mockResolvedValue(true)
+  secretaryPushMock.sendSecretaryPush.mockResolvedValue({ delivered: true })
 })
 
 describe('handleLineWebhook', () => {
@@ -690,7 +720,7 @@ describe('handleLineWebhook', () => {
       storeMock.claimApprovalNotification.mockResolvedValue(null)
       dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
 
-      const postbackBody = makeBody([postbackEvent('action=due_reminder_done&task=task-1')])
+      const postbackBody = makeBody([postbackEvent('action=due_reminder_done&task=11111111-1111-4111-8111-111111111111')])
       await handleLineWebhook(postbackBody, sign(postbackBody))
 
       expect(storeMock.markDmUnreachable).not.toHaveBeenCalled()
@@ -3296,5 +3326,272 @@ describe('グループ送信メッセージ処理: group.account_idの不変条�
 
     expect(storeMock.markDigestTaskDoneAtomic).not.toHaveBeenCalled()
     expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('完了サジェスト（Fable裁定・精度優先の最小構成 v1）', () => {
+  const OPEN_TASK = { taskId: 'task-1', title: '見積書送付' }
+  const SENDER_LINK = {
+    id: 'link-1',
+    orgId: 'org-1',
+    userId: 'user-1',
+    channelAccountId: 'acc-1',
+    externalUserId: 'U-client-1',
+    linkedAt: '2026-01-01T00:00:00Z',
+  }
+  const DM_LINK = { channelAccountId: 'acc-1', externalUserId: 'U-internal-1' }
+
+  function setupSuccessfulDoneSuggestMocks() {
+    resolveOrgEntitlementsMock.mockResolvedValue({
+      planId: 'pro',
+      has: (f: string) => f === 'line_direct_dm',
+    })
+    dueReminderStoreMock.isOrgDueRemindersEnabled.mockResolvedValue(true)
+    storeMock.findActiveUserLinkByExternalId.mockResolvedValue(SENDER_LINK)
+    doneSuggestMatcherMock.findOpenPromotedTaskForGroup.mockResolvedValue(OPEN_TASK)
+    storeMock.findActiveUserLinkForUser.mockResolvedValue(DM_LINK)
+    storeMock.findLineAccountByIdLookup.mockResolvedValue({ id: 'acc-1', status: 'active', account: ACCOUNT })
+    doneSuggestStoreMock.insertDoneSuggestion.mockResolvedValue({ inserted: true })
+  }
+
+  describe('送出（全ゲート通過）', () => {
+    it('完了宣言テキスト・内部メンバー本人・未完了promotedタスク1件・DMルートあり → 本人へDMでサジェストを送る', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      const body = makeBody([groupTextEvent('対応しました')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(secretaryPushMock.sendSecretaryPush).toHaveBeenCalledTimes(1)
+      const call = secretaryPushMock.sendSecretaryPush.mock.calls[0][0]
+      expect(call.orgId).toBe('org-1')
+      expect(call.to).toBe('U-internal-1')
+      expect(call.messages[0].type).toBe('flex')
+      expect(JSON.stringify(call.messages[0].contents)).toContain('task-1')
+      expect(call.text).toBe('「見積書送付」は完了しましたか？')
+    })
+
+    it('台帳へ insert する（channelGroupId/suggestedToUserId/triggerMessageIdを積む）', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.insertChannelMessage.mockResolvedValue({ id: 'trigger-msg-1' })
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(doneSuggestStoreMock.insertDoneSuggestion).toHaveBeenCalledWith({
+        taskId: 'task-1',
+        channelGroupId: 'group-1',
+        triggerMessageId: 'trigger-msg-1',
+        suggestedToUserId: 'user-1',
+      })
+    })
+
+    it('グループには一切出さない（sendSecretaryPushのtoはDMの個人external_user_idのみ・group宛のpushは無い）', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+
+      const call = secretaryPushMock.sendSecretaryPush.mock.calls[0][0]
+      expect(call.record.groupId).toBeNull()
+      expect(call.to).not.toBe('G-1')
+    })
+  })
+
+  describe('沈黙（曖昧・束縛なし・ゲートOFF等）', () => {
+    it('完了語彙でないテキスト → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      const body = makeBody([groupTextEvent('こんにちは')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('否定形（未完了） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      const body = makeBody([groupTextEvent('まだ完了してないです')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('org自動リマインドがOFF → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      dueReminderStoreMock.isOrgDueRemindersEnabled.mockResolvedValue(false)
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('line_direct_dm entitlementが無い（Free等） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('送信者が内部メンバーとして束縛されていない（顧問先メンバー等） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.findActiveUserLinkByExternalId.mockResolvedValue(null)
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('束縛先org と グループのorgが不一致（越境） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.findActiveUserLinkByExternalId.mockResolvedValue({ ...SENDER_LINK, orgId: 'org-other' })
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('発生元グループの未完了promotedタスクが0件（matcherがnull） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      doneSuggestMatcherMock.findOpenPromotedTaskForGroup.mockResolvedValue(null)
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('DMルートが無い（findActiveUserLinkForUserがnull） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.findActiveUserLinkForUser.mockResolvedValue(null)
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('DM先accountが解決できない（disabled等） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.findLineAccountByIdLookup.mockResolvedValue({ id: 'acc-1', status: 'disabled', account: null })
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('account.status=disabled（自動応答停止中） → 送らない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('既に台帳がある（insertDoneSuggestion inserted:false） → 送らない（1タスク=生涯1サジェストの担保）', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      doneSuggestStoreMock.insertDoneSuggestion.mockResolvedValue({ inserted: false })
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+
+    it('対象タスクが送信者から不可視（別space等・L-1是正） → 送らない・台帳にも書かない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      doneSuggestStoreMock.isTaskVisibleToActor.mockResolvedValue(false)
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(doneSuggestStoreMock.isTaskVisibleToActor).toHaveBeenCalledWith('task-1', 'user-1')
+      expect(doneSuggestStoreMock.insertDoneSuggestion).not.toHaveBeenCalled()
+      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('冪等（webhook再配送で二重送信しない）', () => {
+    it('同一メッセージの再配送(insertChannelMessageが2回目duplicate)では2回目は判定自体を行わない', async () => {
+      setupSuccessfulDoneSuggestMocks()
+      storeMock.insertChannelMessage
+        .mockResolvedValueOnce({ id: 'row-1' })
+        .mockResolvedValueOnce('duplicate')
+
+      const body = makeBody([groupTextEvent('対応しました')])
+      await handleLineWebhook(body, sign(body))
+      await handleLineWebhook(body, sign(body))
+
+      expect(secretaryPushMock.sendSecretaryPush).toHaveBeenCalledTimes(1)
+      expect(doneSuggestMatcherMock.findOpenPromotedTaskForGroup).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('[完了した]postback（既存due reminder doneを再利用）', () => {
+    it('rpc結果がdoneのとき台帳をconfirmedへ反映する（ベストエフォート）', async () => {
+      dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+      const body = makeBody([postbackEvent('action=due_reminder_done&task=11111111-1111-4111-8111-111111111111')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(doneSuggestStoreMock.markDoneSuggestionConfirmed).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+      )
+    })
+
+    it('already_done/blocked/forbiddenでは台帳を更新しない', async () => {
+      dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'already_done' })
+      const body = makeBody([postbackEvent('action=due_reminder_done&task=11111111-1111-4111-8111-111111111111')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(doneSuggestStoreMock.markDoneSuggestionConfirmed).not.toHaveBeenCalled()
+    })
+
+    it('台帳更新が失敗してもreply自体はブロックされない（ベストエフォート）', async () => {
+      dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
+      doneSuggestStoreMock.markDoneSuggestionConfirmed.mockRejectedValue(new Error('boom'))
+      const body = makeBody([postbackEvent('action=due_reminder_done&task=11111111-1111-4111-8111-111111111111')])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(replyMock).toHaveBeenCalled()
+    })
+  })
+
+  describe('[まだ]postback（done_suggest_dismiss・新規）', () => {
+    function dismissEvent(overrides: Record<string, unknown> = {}) {
+      return postbackEvent('action=done_suggest_dismiss&task=22222222-2222-4222-8222-222222222222', {
+        source: { type: 'user', userId: 'U-client-1' },
+        ...overrides,
+      })
+    }
+
+    it('本人の紐付けがあれば台帳をdismissedにし、確認テキストを返信する', async () => {
+      storeMock.findActiveUserLinkByExternalId.mockResolvedValue(SENDER_LINK)
+      doneSuggestStoreMock.markDoneSuggestionDismissed.mockResolvedValue(true)
+      const body = makeBody([dismissEvent()])
+      const result = await handleLineWebhook(body, sign(body))
+
+      expect(result.status).toBe(200)
+      expect(doneSuggestStoreMock.markDoneSuggestionDismissed).toHaveBeenCalledWith(
+        '22222222-2222-4222-8222-222222222222',
+        'user-1',
+      )
+      expect(replyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [{ type: 'text', text: '承知しました。' }],
+        }),
+      )
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          payload: {
+            event: 'postback',
+            action: 'done_suggest_dismiss',
+            taskId: '22222222-2222-4222-8222-222222222222',
+          },
+        }),
+      )
+    })
+
+    it('束縛なし（内部メンバーでない）は沈黙（返信も台帳更新もしない）', async () => {
+      storeMock.findActiveUserLinkByExternalId.mockResolvedValue(null)
+      const body = makeBody([dismissEvent()])
+      await handleLineWebhook(body, sign(body))
+
+      expect(doneSuggestStoreMock.markDoneSuggestionDismissed).not.toHaveBeenCalled()
+      expect(replyMock).not.toHaveBeenCalled()
+    })
+
+    it('対象行が無い（別人・既に処理済み等）は沈黙（返信もしない）', async () => {
+      storeMock.findActiveUserLinkByExternalId.mockResolvedValue(SENDER_LINK)
+      doneSuggestStoreMock.markDoneSuggestionDismissed.mockResolvedValue(false)
+      const body = makeBody([dismissEvent()])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).not.toHaveBeenCalled()
+    })
   })
 })
