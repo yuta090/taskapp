@@ -11,9 +11,8 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({ rpc: rpcMock }),
 }))
 
-const { encryptConnectorSecret, decryptConnectorSecret, generateConnectorSecret } = await import(
-  '@/lib/connectors/secrets'
-)
+const { encryptConnectorSecret, decryptConnectorSecret, resolveConnectorSecret, generateConnectorSecret } =
+  await import('@/lib/connectors/secrets')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -74,5 +73,34 @@ describe('decryptConnectorSecret', () => {
     rpcMock.mockResolvedValue({ data: null, error: null })
     const result = await decryptConnectorSecret('x')
     expect(result).toBeNull()
+  })
+})
+
+/**
+ * resolveConnectorSecret — 送信経路(multica/client.ts)専用の詳細版。
+ * 一時障害(RPC error)と恒久破損(結果空)を区別する(defer と permanent_fail の振り分けの根拠)。
+ * decryptConnectorSecret(null 集約)とは別入口で、inbound の署名検証は従来どおり後者を使う。
+ */
+describe('resolveConnectorSecret (一時障害と恒久破損を区別する)', () => {
+  it('復号成功なら{status:"ok", secret}を返す', async () => {
+    rpcMock.mockResolvedValue({ data: 'plain-secret', error: null })
+    const result = await resolveConnectorSecret('enc_abc')
+    expect(result).toEqual({ status: 'ok', secret: 'plain-secret' })
+    expect(rpcMock).toHaveBeenCalledWith('decrypt_system_secret', {
+      encrypted: 'enc_abc',
+      secret: 'test-key',
+    })
+  })
+
+  it('RPCがエラー(一時障害)なら{status:"transient_error"}を返す(defer 対象・投げない)', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'rpc down' } })
+    const result = await resolveConnectorSecret('enc_abc')
+    expect(result).toEqual({ status: 'transient_error' })
+  })
+
+  it('error無し・結果空(恒久破損)なら{status:"corrupt"}を返す(permanent_fail 相当)', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: null })
+    const result = await resolveConnectorSecret('enc_abc')
+    expect(result).toEqual({ status: 'corrupt' })
   })
 })
