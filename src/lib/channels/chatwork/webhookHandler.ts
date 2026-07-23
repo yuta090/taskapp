@@ -29,6 +29,16 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
+import {
+  processClaimLimbo,
+  runDigestCompletion,
+  INVALID_TEXT,
+  CODE_ONLY_LINKED_TEXT,
+  CODE_ONLY_ALREADY_TEXT,
+  buildAcceptedText,
+  ALREADY_DONE_TEXT,
+  buildDigestDoneText,
+} from '@/lib/channels/claimLimboCore'
 
 export interface ChatworkAccount {
   id: string
@@ -146,28 +156,15 @@ export interface WebhookResult {
   body: Record<string, unknown>
 }
 
-// 返信文言。存在/理由/プランを推測させないため、無効系は同一文言に畳む
-// （slack/webhookHandler.ts・discord/ingestHandler.ts・LINE §3 と同思想）。文言1つのために
-// import すると channel 間に不要な結合が生まれるため、ここで意図的に重複定義する
-// （変更する場合は全チャネルを揃える）。
-export const INVALID_TEXT =
-  'コードを確認できませんでした。番号が正しいか、期限切れでないかをご確認ください。'
-export const CODE_ONLY_LINKED_TEXT =
-  'このチャンネルを登録しました。以降のやり取りを記録します。'
-export const CODE_ONLY_ALREADY_TEXT =
-  'このチャンネルは既に別のコードで登録済みです。'
-export function buildAcceptedText(challengeLabel: string): string {
-  return (
-    '受け付けました。管理画面での承認後に、このチャンネルの会話を記録します。' +
-    `お問い合わせの際は確認番号「${challengeLabel}」をお伝えください。`
-  )
-}
-
-export const ALREADY_DONE_TEXT = 'そのタスクは既に完了済みです。'
-
-/** 完了コマンドで実際にタスクを完了できた場合の返信文言。 */
-export function buildDigestDoneText(title: string): string {
-  return `「${title}」を完了にしました。`
+// 返信文言・完了処理・limbo償還ロジックの正本は claimLimboCore.ts（Discord/Slack/Chatwork 共通）。
+// 各テストが本ファイルから直接 import しているため re-export する（ローカル重複定義はしない）。
+export {
+  INVALID_TEXT,
+  CODE_ONLY_LINKED_TEXT,
+  CODE_ONLY_ALREADY_TEXT,
+  buildAcceptedText,
+  ALREADY_DONE_TEXT,
+  buildDigestDoneText,
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -230,9 +227,9 @@ function stripChatworkSelfMention(content: string, botAccountId: string | undefi
 }
 
 /**
- * claimed ルームでの「完了N」処理（slack/webhookHandler.ts の
- * handleDigestCompleteCommand と同骨格）。呼び出し元で本文は既に通常発言として記録済み
- * （監査ログ）。ここでは完了実行と返信のみ行う。
+ * claimed ルームでの「完了N」処理。中身は claimLimboCore.runDigestCompletion（Discord/Slack/
+ * Chatwork 共通）。reply はテキストのみ受ける形に束縛し、送信メッセージの message_id を
+ * providerMessageId として返す。
  */
 async function handleDigestCompleteCommand(
   account: ChatworkAccount,
@@ -244,23 +241,24 @@ async function handleDigestCompleteCommand(
   deps: ChatworkWebhookDeps,
 ): Promise<void> {
   const apiToken = account.credentials.api_token
-  const result = await deps.completeDigestTask(group.id, digestNumber, senderId)
-  const text = result ? buildDigestDoneText(result.title) : ALREADY_DONE_TEXT
-  const replyResult = await deps.reply(apiToken, roomId, text)
-  await deps.insertOutbound({
-    orgId: group.orgId,
-    spaceId: group.spaceId,
-    accountId: account.id,
-    groupId: group.id,
-    channel: 'chatwork',
-    direction: 'outbound',
-    actor: 'secretary',
-    body: text,
-    payload: { autoReplyTo, provider_message_id: replyResult.messageId },
-    status: 'sent',
-    error: null,
-    occurredAt: new Date().toISOString(),
-  })
+  await runDigestCompletion(
+    {
+      orgId: group.orgId,
+      spaceId: group.spaceId,
+      accountId: account.id,
+      groupId: group.id,
+      channel: 'chatwork',
+      externalUserId: senderId,
+      autoReplyTo,
+    },
+    digestNumber,
+    {
+      completeDigestTask: deps.completeDigestTask,
+      reply: (text) =>
+        deps.reply(apiToken, roomId, text).then((r) => ({ providerMessageId: r.messageId })),
+      insertOutbound: deps.insertOutbound,
+    },
+  )
 }
 
 async function processLimbo(
@@ -272,58 +270,21 @@ async function processLimbo(
   const apiToken = account.credentials.api_token
   const text = body ?? ''
 
-  // (1) 本文がコード正準形ですらない通常発言は完全沈黙（無保存・無返信）
-  if (!text) return { claimCreated: false }
-  const code = deps.normalizeClaimCode(text)
-  if (!code) return { claimCreated: false }
-
-  const codeHash = deps.hashClaimCode(code)
-  const linkCode = await deps.findValidClaimCode(codeHash, account.id)
-  if (!linkCode) {
-    // (2) 見つからない/期限切れ/消費済み/対象不一致は同一文言＋レート制限
-    const limited = deps.registerInvalidAttempt(account.id, roomId)
-    if (!limited) await deps.reply(apiToken, roomId, INVALID_TEXT)
-    return { claimCreated: false }
-  }
-
-  // Chatwork固有Proゲート: 新規紐付けの確立直前。満たさなければ確立させず無効文言に畳む（漏らさない）。
-  const entitled = await deps.hasExternalChatChannels(linkCode.orgId)
-  if (!entitled) {
-    await deps.reply(apiToken, roomId, INVALID_TEXT)
-    return { claimCreated: false }
-  }
-  const cap = await deps.externalChatGroupCapacity(linkCode.orgId)
-  if (cap.max !== null && cap.activeCount >= cap.max) {
-    await deps.reply(apiToken, roomId, INVALID_TEXT)
-    return { claimCreated: false }
-  }
-
-  if (linkCode.bindingMode === 'code_only') {
-    // 上のソフトチェックに加え、RPC へ上限を渡して確立をアトミックに強制（並行償還のレース対策）。
-    const result = await deps.redeemCodeOnly(codeHash, account.id, roomId, null, cap.max)
-    const replyText =
-      result === 'linked'
-        ? CODE_ONLY_LINKED_TEXT
-        : result === 'already_linked'
-          ? CODE_ONLY_ALREADY_TEXT
-          : INVALID_TEXT
-    await deps.reply(apiToken, roomId, replyText)
-    return { claimCreated: result === 'linked' }
-  }
-
-  // web_approval: pending claim を作り確認番号を返す（実際の紐付けは管理画面の承認RPC）
-  const challengeLabel = deps.generateChallengeLabel()
-  const claim = await deps.createPendingClaim({
-    linkCodeId: linkCode.id,
-    accountId: account.id,
-    externalGroupId: roomId,
-    orgId: linkCode.orgId,
-    spaceId: linkCode.spaceId,
-    challengeLabel,
-    groupDisplayNameSnapshot: null,
-  })
-  await deps.reply(apiToken, roomId, buildAcceptedText(claim.challengeLabel ?? challengeLabel))
-  return { claimCreated: true }
+  return processClaimLimbo(
+    { accountId: account.id, externalGroupId: roomId, text },
+    {
+      normalizeClaimCode: deps.normalizeClaimCode,
+      hashClaimCode: deps.hashClaimCode,
+      findValidClaimCode: deps.findValidClaimCode,
+      hasExternalChatChannels: deps.hasExternalChatChannels,
+      externalChatGroupCapacity: deps.externalChatGroupCapacity,
+      createPendingClaim: deps.createPendingClaim,
+      redeemCodeOnly: deps.redeemCodeOnly,
+      generateChallengeLabel: deps.generateChallengeLabel,
+      registerInvalidAttempt: deps.registerInvalidAttempt,
+      reply: (t) => deps.reply(apiToken, roomId, t).then(() => undefined),
+    },
+  )
 }
 
 export async function handleChatworkWebhook(
