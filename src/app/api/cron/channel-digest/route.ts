@@ -390,6 +390,16 @@ export async function POST(request: NextRequest) {
         // 二重送信はLINE側dedupeが弾く（既存digestとdue-onlyが同時に生じるケースは無い設計）。
         const retryKey = buildDigestRetryKey(group.id, jstDateStr)
 
+        // teamsのplatform proactive送信（PR-3）が使うper-group文脈。他チャネルのグループは
+        // metadata.serviceUrlを持たないためproviderContextはundefinedのまま（無害・他アダプタは
+        // 無視する）。claim直後でまだ受信が無いteamsグループはserviceUrl未保存のためundefined
+        // になり、teamsAdapter側が一時失敗として扱う（次回の受信でmetadataが埋まれば送れる）。
+        const groupServiceUrl = group.metadata?.serviceUrl
+        const providerContext =
+          typeof groupServiceUrl === 'string' && groupServiceUrl.length > 0
+            ? { serviceUrl: groupServiceUrl }
+            : undefined
+
         // 送信境界の縮退判定（設計正本 §3/§7-10）は sendSecretaryPush に一本化（マルチチャネル化・
         // PR1）。org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定は
         // channel==='line' のときだけ内部で行われる（非LINEは当社の持ち出しが無いため常に配信）。
@@ -404,6 +414,7 @@ export async function POST(request: NextRequest) {
           to: group.externalGroupId,
           text: pushText,
           messages: flex ? [{ type: 'text', text: pushText }, flex] : [{ type: 'text', text: pushText }],
+          providerContext,
           retryKey,
           // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
           // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。

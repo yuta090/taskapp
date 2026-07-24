@@ -119,6 +119,32 @@ describe('handleTeamsWebhook — claimed グループ', () => {
     expect(deps.reply).not.toHaveBeenCalled()
   })
 
+  it('【PR-2レビュー是正】duplicate（webhook再送）は updateGroupMetadata も呼ばない（無駄なselect+updateを避ける）', async () => {
+    const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage: vi.fn().mockResolvedValue('duplicate'),
+      updateGroupMetadata,
+    })
+    await handleTeamsWebhook(activity({ text: '完了3' }), deps)
+    expect(updateGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  it('【PR-2レビュー是正】claimedグループでもBot発言（isBot:true）は記録も完了もされない（多層防御の回帰）', async () => {
+    const insertMessage = vi.fn().mockResolvedValue({ id: 'msg-1' })
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage,
+      completeDigestTask,
+    })
+    await handleTeamsWebhook(activity({ isBot: true, text: '完了3' }), deps)
+    expect(deps.findActiveGroup).not.toHaveBeenCalled()
+    expect(insertMessage).not.toHaveBeenCalled()
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
   it('「完了3」は申し送りタスクを完了して返信・outbound記録する', async () => {
     const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' })
     const insertOutbound = vi.fn().mockResolvedValue({ id: 'out-1' })

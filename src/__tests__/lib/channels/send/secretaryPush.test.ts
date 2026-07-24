@@ -296,5 +296,47 @@ describe('sendSecretaryPush（統一送信境界）', () => {
         ),
       ).rejects.toThrow()
     })
+
+    it('PR-3: providerContextはdeliverToChannel(実teamsAdapter)へそのまま素通しされる（境界自身は判定ロジックを持たない）', async () => {
+      const fetchFn = mockFetch((url) =>
+        String(url).includes('login.microsoftonline.com')
+          ? jsonResponse(200, { access_token: 'bearer-token-1', expires_in: 3600 })
+          : jsonResponse(201, { id: 'conv-1', activityId: 'act-out-1' }),
+      )
+      const originalAppId = process.env.TEAMS_BOT_APP_ID
+      const originalAppPassword = process.env.TEAMS_BOT_APP_PASSWORD
+      process.env.TEAMS_BOT_APP_ID = 'app-id-1'
+      process.env.TEAMS_BOT_APP_PASSWORD = 'app-secret-1'
+
+      try {
+        const result = await sendSecretaryPush(
+          chatworkInput({
+            account: {
+              id: 'acc-teams-plat',
+              ownerType: 'platform' as const,
+              channel: 'teams',
+              credentials: {},
+            },
+            to: '19:abcd1234@thread.tacv2',
+            providerContext: { serviceUrl: 'https://smba.trafficmanager.net/amer/' },
+          }),
+        )
+
+        expect(result).toEqual({ delivered: true })
+        // token取得＋proactive投稿の2回fetchが呼ばれ、投稿先URLがserviceUrl由来であること
+        const proactiveCall = fetchFn.mock.calls.find(([url]) =>
+          String(url).includes('smba.trafficmanager.net'),
+        )
+        expect(proactiveCall).toBeDefined()
+        expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ channel: 'teams', accountId: 'acc-teams-plat' }),
+        )
+      } finally {
+        if (originalAppId === undefined) delete process.env.TEAMS_BOT_APP_ID
+        else process.env.TEAMS_BOT_APP_ID = originalAppId
+        if (originalAppPassword === undefined) delete process.env.TEAMS_BOT_APP_PASSWORD
+        else process.env.TEAMS_BOT_APP_PASSWORD = originalAppPassword
+      }
+    })
   })
 })

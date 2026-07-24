@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   getAppToken,
   sendTeamsReply,
+  sendTeamsProactiveToChannel,
   __resetAppTokenCacheForTest,
 } from '@/lib/channels/teams/connectorClient'
 
@@ -170,5 +171,95 @@ describe('sendTeamsReply', () => {
       { getToken },
     )
     expect(result).toEqual({ ok: false, error: 'token unavailable' })
+  })
+})
+
+describe('sendTeamsProactiveToChannel（PR-3・能動送信）', () => {
+  const CHANNEL_ID = '19:abcd1234@thread.tacv2'
+
+  function makeProactiveFetchMock(opts?: { ok?: boolean; status?: number; body?: unknown }) {
+    const ok = opts?.ok ?? true
+    return vi.fn(async (_url: string, _init?: RequestInit) =>
+      ok
+        ? ({
+            ok: true,
+            status: 201,
+            json: async () => opts?.body ?? { id: 'conv-1', activityId: 'act-out-1' },
+          } as unknown as Response)
+        : ({ ok: false, status: opts?.status ?? 403, text: async () => 'forbidden' } as unknown as Response),
+    )
+  }
+
+  it('POST {serviceUrl}/v3/conversations に isGroup/channelData.channel.id/activity 形式のbodyを送る', async () => {
+    const fetchMock = makeProactiveFetchMock()
+    const getToken = vi.fn().mockResolvedValue('bearer-token-1')
+    const result = await sendTeamsProactiveToChannel(
+      { serviceUrl: SERVICE_URL, channelId: CHANNEL_ID, text: '朝のまとめ' },
+      { getToken, fetchImpl: fetchMock as unknown as typeof fetch },
+    )
+
+    expect(result).toEqual({ ok: true, externalMessageId: 'act-out-1', status: 201 })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe(`${SERVICE_URL}v3/conversations`)
+    expect(init?.method).toBe('POST')
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer bearer-token-1')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      isGroup: true,
+      channelData: { channel: { id: CHANNEL_ID } },
+      activity: { type: 'message', text: '朝のまとめ' },
+    })
+  })
+
+  it('★トークンはヘッダのみに載り、URL/クエリには一切現れない', async () => {
+    const fetchMock = makeProactiveFetchMock()
+    const getToken = vi.fn().mockResolvedValue('secret-bearer-token-xyz')
+    await sendTeamsProactiveToChannel(
+      { serviceUrl: SERVICE_URL, channelId: CHANNEL_ID, text: 'hi' },
+      { getToken, fetchImpl: fetchMock as unknown as typeof fetch },
+    )
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).not.toContain('secret-bearer-token-xyz')
+  })
+
+  it('serviceUrlの余分な末尾スラッシュは1つに畳んでURLを組み立てる', async () => {
+    const fetchMock = makeProactiveFetchMock()
+    const getToken = vi.fn().mockResolvedValue('t')
+    await sendTeamsProactiveToChannel(
+      { serviceUrl: 'https://smba.trafficmanager.net/amer//', channelId: CHANNEL_ID, text: 'hi' },
+      { getToken, fetchImpl: fetchMock as unknown as typeof fetch },
+    )
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe(`${SERVICE_URL}v3/conversations`)
+  })
+
+  it('送信APIが失敗してもthrowせず status付きの ok:false を返す', async () => {
+    const fetchMock = makeProactiveFetchMock({ ok: false, status: 404 })
+    const getToken = vi.fn().mockResolvedValue('t')
+    const result = await sendTeamsProactiveToChannel(
+      { serviceUrl: SERVICE_URL, channelId: CHANNEL_ID, text: 'hi' },
+      { getToken, fetchImpl: fetchMock as unknown as typeof fetch },
+    )
+    expect(result).toEqual({ ok: false, status: 404, error: expect.stringContaining('404') })
+  })
+
+  it('getTokenが例外を投げてもthrowせず ok:false を返す', async () => {
+    const getToken = vi.fn().mockRejectedValue(new Error('token unavailable'))
+    const result = await sendTeamsProactiveToChannel(
+      { serviceUrl: SERVICE_URL, channelId: CHANNEL_ID, text: 'hi' },
+      { getToken },
+    )
+    expect(result).toEqual({ ok: false, error: 'token unavailable' })
+  })
+
+  it('レスポンスbodyがactivityId無し/非JSONでも送信成功として扱う', async () => {
+    const fetchMock = vi.fn(
+      async () => ({ ok: true, status: 201, json: async () => { throw new Error('no body') } }) as unknown as Response,
+    )
+    const getToken = vi.fn().mockResolvedValue('t')
+    const result = await sendTeamsProactiveToChannel(
+      { serviceUrl: SERVICE_URL, channelId: CHANNEL_ID, text: 'hi' },
+      { getToken, fetchImpl: fetchMock as unknown as typeof fetch },
+    )
+    expect(result).toEqual({ ok: true, externalMessageId: undefined, status: 201 })
   })
 })

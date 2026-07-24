@@ -101,6 +101,16 @@ describe('normalizeTeamsActivity', () => {
     const result = normalizeTeamsActivity(baseActivity())
     expect(result?.externalUserId).toBe('29:user-1')
   })
+
+  it('id（activityId）が欠落した message は null（PR-2レビュー是正: dedupeキーの安定生成不能）', () => {
+    const result = normalizeTeamsActivity(baseActivity({ id: undefined }))
+    expect(result).toBeNull()
+  })
+
+  it('idが空文字のmessageもnull', () => {
+    const result = normalizeTeamsActivity(baseActivity({ id: '' }))
+    expect(result).toBeNull()
+  })
 })
 
 describe('stripTeamsMention', () => {

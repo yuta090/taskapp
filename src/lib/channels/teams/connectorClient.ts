@@ -126,3 +126,78 @@ export async function sendTeamsReply(
     return { ok: false, error: error instanceof Error ? error.message : 'unknown error' }
   }
 }
+
+export interface SendTeamsProactiveParams {
+  /**
+   * ★呼び出し側（アダプタ）が group.metadata.serviceUrl（過去に検証済みのactivityから保存した
+   * 値）由来のものだけを渡す責務を持つ。ここでは検証しない（jwtVerify.tsのSSRF防御はreply系
+   * ＝同一リクエスト内のactivity.serviceUrlに対するもので、proactiveは別のリクエストで送る
+   * ため対象外。DB保存値なので任意入力ではない）。
+   */
+  serviceUrl: string
+  /** 送信先チャネル（Teamsの external_group_id = channelData.channel.id）。 */
+  channelId: string
+  text: string
+}
+
+export interface SendTeamsProactiveDeps {
+  getToken: () => Promise<string>
+  /** テスト注入用。未指定時はグローバル fetch を使う。 */
+  fetchImpl?: typeof fetch
+}
+
+export type SendTeamsProactiveResult =
+  | { ok: true; externalMessageId?: string; status?: number }
+  | { ok: false; status?: number; error: string }
+
+/**
+ * Connector REST の POST /v3/conversations を叩き、チャンネルへ新規会話を作成して同時に
+ * 最初のactivityを投稿する（proactive送信。Bot Frameworkでは能動的にメッセージを送るには
+ * 既存conversationIdが無いため、reply(sendTeamsReply)とは別APIが要る）。
+ *
+ * best-effort（例外は投げない・呼び出し側=アダプタが{ok,permanent}へ畳む）。
+ */
+export async function sendTeamsProactiveToChannel(
+  params: SendTeamsProactiveParams,
+  deps: SendTeamsProactiveDeps,
+): Promise<SendTeamsProactiveResult> {
+  try {
+    const token = await deps.getToken()
+    const base = params.serviceUrl.replace(/\/+$/, '')
+    const url = `${base}/v3/conversations`
+    const fetchImpl = deps.fetchImpl ?? fetch
+
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        isGroup: true,
+        channelData: { channel: { id: params.channelId } },
+        activity: { type: 'message', text: params.text },
+      }),
+    })
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: `teams connectorClient: proactive send failed (${res.status})`,
+      }
+    }
+
+    // 成功時のボディは ConversationResourceResponse {id, activityId, serviceUrl} が正だが、
+    // 万一パースできなくても送信自体は成功として扱う（provider_message_idが載らないだけ）。
+    let activityId: string | undefined
+    try {
+      const json = (await res.json()) as { activityId?: string }
+      activityId = typeof json.activityId === 'string' ? json.activityId : undefined
+    } catch {
+      // ボディ無し/非JSON。実害なし。
+    }
+    return { ok: true, externalMessageId: activityId, status: res.status }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'unknown error' }
+  }
+}

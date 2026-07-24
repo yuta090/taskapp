@@ -7,9 +7,11 @@
  * 既存チャネルを触らないための意図的な重複）。
  *   - claimed（active channel_groups がある）→ まず通常発言として insertMessage（group_id
  *     付き・identityId常にnull・dedupe=`${channelId}:${activityId}`）。記録が duplicate なら
- *     以降の完了処理はしない（Bot Framework 再送で二重完了しないため）。
- *   - 記録と併せて serviceUrl/teamId/tenantId を group.metadata へ best-effort で反映する
- *     （PR-3 の能動送信が metadata.serviceUrl を使う前提。失敗しても記録・沈黙は壊さない）。
+ *     以降の metadata 反映・完了処理は一切しない（Bot Framework 再送で二重完了・無駄な
+ *     select+updateを避けるため・PR-2レビュー是正）。
+ *   - 記録が新規なら、続けて serviceUrl/teamId/tenantId を group.metadata へ best-effort で
+ *     反映する（PR-3 の能動送信（adapters/teams.ts の platform proactive 経路）が
+ *     metadata.serviceUrl を読む。失敗しても記録・沈黙は壊さない）。
  *   - 記録が新規なら、mention除去後テキスト（activity.text。stripTeamsMentionはactivity.ts側で
  *     適用済み）を parseDigestCompleteCommand にかけ、マッチすれば runDigestCompletion で
  *     申し送りタスクを完了→返信→outbound記録する。
@@ -185,7 +187,9 @@ async function recordGroupMetadata(
 
 /**
  * claimed グループでの通常発言取り込み＋「完了N」処理（PR-2）。
- * 順序: ①まず通常発言として記録 → ②metadata反映(best-effort) → ③記録が新規なら完了コマンド判定。
+ * 順序: ①まず通常発言として記録 → ②記録が新規なら metadata反映(best-effort) → ③完了コマンド判定。
+ * duplicate（webhook再送）は②③とも行わない（PR-2レビュー是正: 再送のたびの無駄な
+ * select+updateを避ける。metadataの中身は同一グループなら毎回同じ値が再送されるため実害も無い）。
  */
 async function handleClaimedGroup(
   account: TeamsPlatformAccount,
@@ -214,9 +218,11 @@ async function handleClaimedGroup(
     occurredAt: activity.occurredAt,
   })
 
+  if (recorded === 'duplicate') return
+
   await recordGroupMetadata(group.id, activity, deps)
 
-  if (recorded === 'duplicate' || activity.text === null) return
+  if (activity.text === null) return
 
   // メンションは宛先の指定であって合図ではない。剥がした後の文字列（activity.text。除去は
   // activity.ts の normalizeTeamsActivity が済ませている）を厳格文法にそのまま渡すことで
