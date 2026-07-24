@@ -24,6 +24,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Enterprise はセルフサーブ購入不可＝営業主導(sales-led)契約の受け皿。
+    // 課金モデル裁定(2026-07-24・Fable): checkout に出さず「お問い合わせ」へ誘導する。
+    // priceId が env に設定済みでも、ここで拒否する（自動購入を構造的に塞ぐ）。
+    if (plan_id === 'enterprise') {
+      return NextResponse.json(
+        {
+          error: 'Enterprise は営業窓口での個別契約です。お問い合わせください。',
+          code: 'enterprise_contact_sales',
+        },
+        { status: 400 }
+      )
+    }
+
     // プランの存在確認
     const plan = PLANS[plan_id as PlanId]
     if (!plan || !plan.priceId) {

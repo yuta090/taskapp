@@ -167,3 +167,23 @@ export async function resolveOrgEntitlements(
     has: (f: Feature) => planHasFeature(planId, f),
   }
 }
+
+/**
+ * org の実効数量上限（PlanLimits）を1点で解決する seam。
+ *
+ * 現状はプラン由来（resolveOrgEntitlements → planLimits）と同値＝**挙動不変**。
+ * この関数を用意する目的は、将来「相手追加パック」等で org 単位に上限を上書きする際、
+ * 上書きロジックをここ1箇所に閉じ込めるため（呼び出し側=容量判定は resolveOrgLimits だけを見る）。
+ * 課金モデル裁定（2026-07-24・Fable）: 真の従量(metered)は作らず、必要になったら
+ * このseamの中で org 別 override（Stripe quantity パック由来）を足す二段構え。
+ *
+ * DBエラー/行なしは resolveOrgEntitlements 経由で fail-closed（free の上限）に倒れる。
+ */
+export async function resolveOrgLimits(
+  admin: SupabaseClient,
+  orgId: string,
+  now: Date = new Date()
+): Promise<PlanLimits> {
+  const { planId } = await resolveOrgEntitlements(admin, orgId, now)
+  return planLimits(planId)
+}

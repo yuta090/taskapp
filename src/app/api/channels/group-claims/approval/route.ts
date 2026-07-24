@@ -110,9 +110,11 @@ export async function POST(request: NextRequest) {
         const cap = await orgExternalChatGroupCapacity(orgId, claimRef.channel)
         maxActive = cap.max
         if (cap.max !== null && cap.activeCount >= cap.max) {
+          // 有料(external_chat_channels 所持=Pro以上)の上限到達。追加枠はセルフ増設でなく
+          // 営業窓口での個別契約（課金モデル裁定 2026-07-24・Fable）。既存は切らない。
           return NextResponse.json(
             {
-              error: '接続できる相手先グループ数の上限に達しています。Proの上限を増やすと追加できます。',
+              error: '接続できる相手先グループ数の上限に達しています。追加はお問い合わせください（営業窓口でご案内します）。',
               code: 'group_limit_reached',
               limit: cap.max,
             },

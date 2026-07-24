@@ -209,6 +209,8 @@ describe('POST /api/channels/group-claims/approval', () => {
     const json = await res.json()
     expect(res.status).toBe(402)
     expect(json.code).toBe('group_limit_reached')
+    // 有料の上限到達は「営業窓口へ」導線（セルフ増設でなく個別契約）。
+    expect(json.error).toContain('お問い合わせ')
     expect(storeMock.approveGroupClaim).not.toHaveBeenCalled()
   })
 

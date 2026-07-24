@@ -10,7 +10,7 @@ import {
   CODE_ONLY_CLAIM_DEFAULT_TTL_MS,
 } from '@/lib/channels/sharedGroupClaim'
 import { fetchBotInfo } from '@/lib/channels/line/client'
-import { resolveOrgEntitlements, planLimits } from '@/lib/billing/entitlements'
+import { resolveOrgEntitlements, resolveOrgLimits } from '@/lib/billing/entitlements'
 import { deriveLineSelfServeState, type LineSelfServeState } from '@/lib/channels/sharedBotAccess'
 
 /**
@@ -1540,8 +1540,9 @@ export async function orgLineGroupCapacity(
     //   （逆も orgExternalChatGroupCapacity が channel で絞る）。両枠は独立カウント。
     .eq('channel', 'line')
     .eq('status', 'active')
-  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
-  return { activeCount: count ?? 0, maxGroups: planLimits(ent.planId).maxLineGroups }
+  // 上限は org 単位 seam で解決（将来のパック override を1点に閉じ込める。現状は挙動不変）。
+  const limits = await resolveOrgLimits(admin(), orgId)
+  return { activeCount: count ?? 0, maxGroups: limits.maxLineGroups }
 }
 
 /**
@@ -1568,8 +1569,8 @@ export async function orgExternalChatGroupCapacity(
     .eq('org_id', orgId)
     .eq('channel', channel)
     .eq('status', 'active')
-  const ent = await resolveOrgEntitlements(admin(), orgId, new Date())
-  return { activeCount: count ?? 0, max: planLimits(ent.planId).maxExternalChatGroups }
+  const limits = await resolveOrgLimits(admin(), orgId)
+  return { activeCount: count ?? 0, max: limits.maxExternalChatGroups }
 }
 
 /**
