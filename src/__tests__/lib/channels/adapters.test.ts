@@ -17,6 +17,13 @@ vi.mock('@/lib/channels/google-chat/client', () => ({
   sendChatMessage: (...args: unknown[]) => sendChatMessageMock(...args),
 }))
 
+const getAppTokenMock = vi.fn()
+const sendTeamsProactiveMock = vi.fn()
+vi.mock('@/lib/channels/teams/connectorClient', () => ({
+  getAppToken: (...args: unknown[]) => getAppTokenMock(...args),
+  sendTeamsProactiveToChannel: (...args: unknown[]) => sendTeamsProactiveMock(...args),
+}))
+
 function mockFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const fn = vi.fn(impl)
   vi.stubGlobal('fetch', fn as unknown as typeof fetch)
@@ -285,6 +292,94 @@ describe('webhook-url adapters', () => {
     })
     expect(r).toMatchObject({ ok: false, permanent: true })
     expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  /**
+   * PR-3: platform 共有bot（Bot Framework Connector・serviceUrlを持たないenvではなく per-group
+   * のmetadataから受ける）の能動送信経路。webhook_urlが無ければこちらへフォールバックする
+   * （googleChatAdapterのwebhook_url優先→SA経路フォールバックと同じ構造）。
+   */
+  describe('teams: platform proactive経路（webhook_url無し）', () => {
+    const ORIGINAL_APP_ID = process.env.TEAMS_BOT_APP_ID
+    const ORIGINAL_APP_PASSWORD = process.env.TEAMS_BOT_APP_PASSWORD
+
+    beforeEach(() => {
+      process.env.TEAMS_BOT_APP_ID = 'app-id-1'
+      process.env.TEAMS_BOT_APP_PASSWORD = 'app-secret-1'
+      getAppTokenMock.mockResolvedValue('bearer-token-1')
+    })
+
+    afterEach(() => {
+      if (ORIGINAL_APP_ID === undefined) delete process.env.TEAMS_BOT_APP_ID
+      else process.env.TEAMS_BOT_APP_ID = ORIGINAL_APP_ID
+      if (ORIGINAL_APP_PASSWORD === undefined) delete process.env.TEAMS_BOT_APP_PASSWORD
+      else process.env.TEAMS_BOT_APP_PASSWORD = ORIGINAL_APP_PASSWORD
+    })
+
+    it('webhook_url無し＋providerContext.serviceUrlありは sendTeamsProactiveToChannel を正しい引数で呼ぶ（URL/クエリにtokenは載らない）', async () => {
+      sendTeamsProactiveMock.mockResolvedValue({ ok: true, externalMessageId: 'act-out-1', status: 201 })
+
+      const r = await teamsAdapter({
+        credentials: {},
+        to: '19:abcd1234@thread.tacv2',
+        text: '朝のまとめ',
+        providerContext: { serviceUrl: 'https://smba.trafficmanager.net/amer/' },
+      })
+
+      expect(r).toEqual({ ok: true, status: 201, externalMessageId: 'act-out-1' })
+      expect(sendTeamsProactiveMock).toHaveBeenCalledWith(
+        {
+          serviceUrl: 'https://smba.trafficmanager.net/amer/',
+          channelId: '19:abcd1234@thread.tacv2',
+          text: '朝のまとめ',
+        },
+        expect.objectContaining({ getToken: expect.any(Function) }),
+      )
+      // getToken経由でgetAppTokenが正しいapp資格情報で呼ばれる（envから読む・DBには置かない）
+      const deps = sendTeamsProactiveMock.mock.calls[0][1] as { getToken: () => Promise<string> }
+      await deps.getToken()
+      expect(getAppTokenMock).toHaveBeenCalledWith('app-id-1', 'app-secret-1')
+    })
+
+    it('serviceUrl未保存（claim直後でまだ受信が無い等）は一時失敗（次回受信で入れば送れるため）', async () => {
+      const r = await teamsAdapter({ credentials: {}, to: 'ch-1', text: 'x' })
+      expect(r).toMatchObject({ ok: false, permanent: false })
+      expect(sendTeamsProactiveMock).not.toHaveBeenCalled()
+    })
+
+    it('env(TEAMS_BOT_APP_ID/PASSWORD)欠落は一時失敗（サーバ設定待ち・cronを落とさない）', async () => {
+      delete process.env.TEAMS_BOT_APP_ID
+      delete process.env.TEAMS_BOT_APP_PASSWORD
+
+      const r = await teamsAdapter({
+        credentials: {},
+        to: 'ch-1',
+        text: 'x',
+        providerContext: { serviceUrl: 'https://smba.trafficmanager.net/amer/' },
+      })
+      expect(r).toMatchObject({ ok: false, permanent: false })
+      expect(sendTeamsProactiveMock).not.toHaveBeenCalled()
+    })
+
+    it('Connector送信自体の失敗はstatusから恒久/一時を分類する（401=恒久・429=一時）', async () => {
+      sendTeamsProactiveMock.mockResolvedValue({ ok: false, status: 401, error: 'teams connectorClient: proactive send failed (401)' })
+      const r1 = await teamsAdapter({
+        credentials: {},
+        to: 'ch-1',
+        text: 'x',
+        providerContext: { serviceUrl: 'https://smba.trafficmanager.net/amer/' },
+      })
+      expect(r1).toMatchObject({ ok: false, permanent: true, status: 401 })
+
+      sendTeamsProactiveMock.mockResolvedValue({ ok: false, status: 429, error: 'teams connectorClient: proactive send failed (429)' })
+      const r2 = await teamsAdapter({
+        credentials: {},
+        to: 'ch-1',
+        text: 'x',
+        providerContext: { serviceUrl: 'https://smba.trafficmanager.net/amer/' },
+      })
+      expect(r2).toMatchObject({ ok: false, permanent: false, status: 429 })
+    })
   })
 })
 

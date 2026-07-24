@@ -7,13 +7,21 @@
  * 既存チャネルを触らないための意図的な重複）。
  *   - claimed（active channel_groups がある）→ まず通常発言として insertMessage（group_id
  *     付き・identityId常にnull・dedupe=`${channelId}:${activityId}`）。記録が duplicate なら
- *     以降の完了処理はしない（Bot Framework 再送で二重完了しないため）。
- *   - 記録と併せて serviceUrl/teamId/tenantId を group.metadata へ best-effort で反映する
- *     （PR-3 の能動送信が metadata.serviceUrl を使う前提。失敗しても記録・沈黙は壊さない）。
+ *     以降の metadata 反映・完了処理は一切しない（Bot Framework 再送で二重完了・無駄な
+ *     select+updateを避けるため・PR-2レビュー是正）。
+ *   - 記録が新規なら、続けて serviceUrl/teamId/tenantId を group.metadata へ best-effort で
+ *     反映する（PR-3 の能動送信（adapters/teams.ts の platform proactive 経路）が
+ *     metadata.serviceUrl を読む。失敗しても記録・沈黙は壊さない）。
  *   - 記録が新規なら、mention除去後テキスト（activity.text。stripTeamsMentionはactivity.ts側で
  *     適用済み）を parseDigestCompleteCommand にかけ、マッチすれば runDigestCompletion で
  *     申し送りタスクを完了→返信→outbound記録する。
- *   - limbo（未claim）→ 本文が claim コード正準形なら償還を試みる（変更なし）。
+ *   - limbo（未claim）→ 本文が claim コード正準形なら償還を試みる（claimLimboCore.ts・変更なし）。
+ *     code_only 償還が成立した場合はグループがこの呼び出しの中で即 active 化されるため、
+ *     償還メッセージ自身の activity（serviceUrl 等を持つ）を使って metadata へ即反映する
+ *     （PR-3 是正・Medium: 反映しないと「claim済みだが一度も発言が無い静かなグループ」への
+ *     能動送信が初回発言まで無期限に届かない＝拾い漏れゼロの約束に反する穴だった）。
+ *     web_approval（pending作成のみ）はこの時点でグループがまだ active 化されないため対象外
+ *     （承認後の初回発言で recordGroupMetadata が反映する・従来どおり）。
  *
  * v1 は platform account のみ対応（google-chat 同型。owner_type='platform'・channel='teams' の
  * 共通行を deps.loadPlatformAccount で引く。単一の messaging endpoint が全 org 共有）。
@@ -171,7 +179,10 @@ async function recordGroupMetadata(
   deps: TeamsWebhookDeps,
 ): Promise<void> {
   const patch: TeamsGroupMetadataPatch = {}
-  if (activity.serviceUrl) patch.serviceUrl = activity.serviceUrl
+  // trim揃え（Lowレビュー是正）: jwtVerify.tsのSSRF突合（claimed/providedとも比較前にtrimのみ
+  // 行う）と正本を揃える。Teamsは実際には空白付きserviceUrlを送らないため実害は無いが、
+  // 保存経路と検証経路の正規化ルールを一致させておく。
+  if (activity.serviceUrl) patch.serviceUrl = activity.serviceUrl.trim()
   if (activity.teamId) patch.teamId = activity.teamId
   if (activity.tenantId) patch.tenantId = activity.tenantId
   if (Object.keys(patch).length === 0) return
@@ -185,7 +196,9 @@ async function recordGroupMetadata(
 
 /**
  * claimed グループでの通常発言取り込み＋「完了N」処理（PR-2）。
- * 順序: ①まず通常発言として記録 → ②metadata反映(best-effort) → ③記録が新規なら完了コマンド判定。
+ * 順序: ①まず通常発言として記録 → ②記録が新規なら metadata反映(best-effort) → ③完了コマンド判定。
+ * duplicate（webhook再送）は②③とも行わない（PR-2レビュー是正: 再送のたびの無駄な
+ * select+updateを避ける。metadataの中身は同一グループなら毎回同じ値が再送されるため実害も無い）。
  */
 async function handleClaimedGroup(
   account: TeamsPlatformAccount,
@@ -214,9 +227,11 @@ async function handleClaimedGroup(
     occurredAt: activity.occurredAt,
   })
 
+  if (recorded === 'duplicate') return
+
   await recordGroupMetadata(group.id, activity, deps)
 
-  if (recorded === 'duplicate' || activity.text === null) return
+  if (activity.text === null) return
 
   // メンションは宛先の指定であって合図ではない。剥がした後の文字列（activity.text。除去は
   // activity.ts の normalizeTeamsActivity が済ませている）を厳格文法にそのまま渡すことで
@@ -267,7 +282,7 @@ export async function handleTeamsWebhook(
     return
   }
 
-  await processClaimLimbo(
+  const limboResult = await processClaimLimbo(
     { accountId: account.id, externalGroupId: activity.externalGroupId, text: activity.text },
     {
       normalizeClaimCode: deps.normalizeClaimCode,
@@ -282,4 +297,40 @@ export async function handleTeamsWebhook(
       reply: deps.reply,
     },
   )
+
+  await backfillServiceUrlAfterClaim(account, activity, limboResult, deps)
+}
+
+/**
+ * code_only 償還直後の serviceUrl 即時反映（PR-3 是正・Medium）。
+ *
+ * claimLimboCore.ts の processClaimLimbo は claimCreated:true を code_only(linked) と
+ * web_approval(pending作成) の両方で返すため、戻り値だけでは判別できない
+ * （claimLimboCore.ts は変更しない方針＝teamsローカルで判別する）。そこで claimCreated:true の
+ * ときだけ findActiveGroup を再クエリし、直前まで limbo（null）だったグループが今 active に
+ * なっていれば「この受信で code_only 償還が成立した」とみなして即 metadata へ反映する
+ * （web_approval はこの時点でまだ active 化されないため、再クエリは自然に null を返し何もしない
+ * ＝bindingMode を明示的に分岐する必要が無い）。
+ *
+ * claimCreated:false（無効コード・レート制限・容量超過等）では再クエリ自体を行わない
+ * （limbo宛の雑多な発言の大半はここに落ちるため、無駄なDB読み取りを増やさない）。
+ *
+ * best-effort: 失敗しても claim 償還・沈黙不変条件・返信は既に確定しているため壊さない。
+ */
+async function backfillServiceUrlAfterClaim(
+  account: TeamsPlatformAccount,
+  activity: NormalizedTeamsActivity,
+  limboResult: { claimCreated: boolean },
+  deps: TeamsWebhookDeps,
+): Promise<void> {
+  if (!limboResult.claimCreated) return
+
+  try {
+    const nowActiveGroup = await deps.findActiveGroup(account.id, activity.externalGroupId)
+    if (nowActiveGroup) {
+      await recordGroupMetadata(nowActiveGroup.id, activity, deps)
+    }
+  } catch (error) {
+    console.error('teams webhook: post-claim metadata backfill failed', error)
+  }
 }

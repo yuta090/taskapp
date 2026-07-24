@@ -1199,6 +1199,12 @@ export interface DigestEligibleGroup {
   externalGroupId: string
   pickupMode: PickupMode
   lastExtractedMessageCreatedAt: string | null
+  /**
+   * チャネル固有の付帯情報（現状はteamsのserviceUrl/teamId/tenantIdのみ・PR-1/PR-2）。
+   * teams以外のチャネルは常にnull（書き込み経路が無いため）。PR-3: cronがteamsグループへ
+   * providerContext.serviceUrlを渡すために追加（既存フィールドの意味・他呼び出し元は変えない）。
+   */
+  metadata: Record<string, unknown> | null
 }
 
 /**
@@ -1209,7 +1215,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
   const { data, error } = await admin()
     .from('channel_groups')
     .select(
-      'id, org_id, space_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, channel_accounts!inner(status)',
+      'id, org_id, space_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, metadata, channel_accounts!inner(status)',
     )
     .eq('status', 'active')
     .neq('pickup_mode', 'off')
@@ -1224,6 +1230,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     external_group_id: string
     pickup_mode: string
     last_extracted_message_created_at: string | null
+    metadata: Record<string, unknown> | null
   }
   return (data as unknown as EligibleRow[]).map((row) => ({
     id: row.id,
@@ -1233,6 +1240,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     externalGroupId: row.external_group_id,
     pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
+    metadata: row.metadata ?? null,
   }))
 }
 

@@ -1267,4 +1267,108 @@ describe('POST /api/cron/channel-digest', () => {
       expect(nudgeFreeCapReachedMock).not.toHaveBeenCalled()
     })
   })
+
+  describe('Teams platform proactive送信（PR-3）', () => {
+    function mockFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+      const fn = vi.fn(impl)
+      vi.stubGlobal('fetch', fn as unknown as typeof fetch)
+      return fn
+    }
+    function jsonResponse(status: number, body: unknown): Response {
+      return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    }
+
+    const TEAMS_ACCOUNT = {
+      ok: true as const,
+      id: 'acc-teams-plat',
+      ownerType: 'platform' as const,
+      channel: 'teams',
+      credentials: {},
+      status: 'active' as const,
+    }
+
+    const TEAMS_GROUP = {
+      ...GROUP,
+      externalGroupId: '19:abcd1234@thread.tacv2',
+      metadata: { serviceUrl: 'https://smba.trafficmanager.net/amer/' },
+    }
+
+    const ORIGINAL_APP_ID = process.env.TEAMS_BOT_APP_ID
+    const ORIGINAL_APP_PASSWORD = process.env.TEAMS_BOT_APP_PASSWORD
+
+    beforeEach(() => {
+      process.env.TEAMS_BOT_APP_ID = 'app-id-1'
+      process.env.TEAMS_BOT_APP_PASSWORD = 'app-secret-1'
+      storeMock.findDigestEligibleGroups.mockResolvedValue([TEAMS_GROUP])
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([
+        { id: 'task-1', title: '酒屋へ発注', digestNumber: 1, dueDate: null, dueTime: null, assigneeHint: null },
+      ])
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(TEAMS_ACCOUNT)
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      if (ORIGINAL_APP_ID === undefined) delete process.env.TEAMS_BOT_APP_ID
+      else process.env.TEAMS_BOT_APP_ID = ORIGINAL_APP_ID
+      if (ORIGINAL_APP_PASSWORD === undefined) delete process.env.TEAMS_BOT_APP_PASSWORD
+      else process.env.TEAMS_BOT_APP_PASSWORD = ORIGINAL_APP_PASSWORD
+    })
+
+    function mockTeamsFetch() {
+      return mockFetch((url) =>
+        String(url).includes('login.microsoftonline.com')
+          ? jsonResponse(200, { access_token: 'bearer-token-1', expires_in: 3600 })
+          : jsonResponse(201, { id: 'conv-1', activityId: 'act-out-1' }),
+      )
+    }
+
+    it('metadata.serviceUrlがあれば providerContext 付きでproactive送信され、実際に検証済みserviceUrlへPOSTする', async () => {
+      const fetchFn = mockTeamsFetch()
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).not.toHaveBeenCalled()
+      const proactiveCall = fetchFn.mock.calls.find(([url]) => String(url).includes('smba.trafficmanager.net'))
+      expect(proactiveCall).toBeDefined()
+      const [url, init] = proactiveCall!
+      expect(url).toBe('https://smba.trafficmanager.net/amer/v3/conversations')
+      expect(JSON.parse(String((init as RequestInit).body)).channelData).toEqual({
+        channel: { id: '19:abcd1234@thread.tacv2' },
+      })
+      expect(storeMock.insertChannelMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'teams', accountId: 'acc-teams-plat', status: 'sent' }),
+      )
+    })
+
+    it('metadata.serviceUrlが無いteamsグループ（claim直後で未受信）は一時失敗としてerrorsに記録され、cron全体は200で完走する', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([{ ...TEAMS_GROUP, metadata: null }])
+      const fetchFn = mockTeamsFetch()
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(0)
+      expect(body.errors).toEqual(
+        expect.arrayContaining([expect.stringContaining('group-1')]),
+      )
+      const proactiveCall = fetchFn.mock.calls.find(([url]) => String(url).includes('smba.trafficmanager.net'))
+      expect(proactiveCall).toBeUndefined()
+    })
+
+    it('他チャネル(line)グループは無関係にmetadataが無くても影響しない（providerContext=undefinedは無害）', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([{ ...GROUP, metadata: null }])
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(ACCOUNT)
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.digestsSent).toBe(1)
+      expect(pushMock).toHaveBeenCalledTimes(1)
+    })
+  })
 })

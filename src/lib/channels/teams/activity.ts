@@ -37,7 +37,12 @@ export interface NormalizedTeamsActivity {
   externalUserId: string | null
   /** activity.from.id が 28: prefix（Bot Framework の bot ID 規約）なら true。 */
   isBot: boolean
-  activityId: string | null
+  /**
+   * activity.id。dedupeキー（`${externalGroupId}:${activityId}`）の安定生成に必須のため、
+   * type==='message' で欠落している activity は正規化しない（null を返す・下記参照）。
+   * Telegram の `message_id == null` 入口ゲートと同じ思想（PR-2レビュー是正）。
+   */
+  activityId: string
   /** mention除去後の本文。activity.text が string でなければ null（=コードになり得ず沈黙）。 */
   text: string | null
   serviceUrl: string | null
@@ -93,7 +98,13 @@ function resolveExternalGroupId(activity: TeamsActivity): string | null {
 
 /**
  * Bot Framework activity を正規化する。type !== 'message'（conversationUpdate 等）や
- * グループIDが解決できないものは null を返す（呼び出し側が入口で無処理200に畳む）。
+ * グループIDが解決できないもの、**id（activityId）が欠落しているもの**は null を返す
+ * （呼び出し側が入口で無処理200に畳む）。
+ *
+ * id 欠落を入口で弾く理由（PR-2レビュー是正）: dedupeキー（webhookHandler.ts の
+ * `${externalGroupId}:${activityId}`）を安定生成できない活動を通すと、id無し活動が複数回
+ * 届いたとき同一キー（例: "group:null"）に衝突し、2件目以降が誤って"duplicate"扱いされ
+ * 取りこぼす。Telegram の `msg.message_id == null` 入口ゲート（webhookHandler.ts）と同じ思想。
  */
 export function normalizeTeamsActivity(activity: TeamsActivity): NormalizedTeamsActivity | null {
   if (activity.type !== 'message') return null
@@ -101,9 +112,11 @@ export function normalizeTeamsActivity(activity: TeamsActivity): NormalizedTeams
   const externalGroupId = resolveExternalGroupId(activity)
   if (!externalGroupId) return null
 
+  const activityId = typeof activity.id === 'string' ? activity.id : null
+  if (!activityId) return null
+
   const externalUserId = typeof activity.from?.id === 'string' ? activity.from.id : null
   const isBot = typeof externalUserId === 'string' && externalUserId.startsWith(BOT_ID_PREFIX)
-  const activityId = typeof activity.id === 'string' ? activity.id : null
   const rawText = typeof activity.text === 'string' ? activity.text : null
   const text =
     rawText !== null ? stripTeamsMention(rawText, activity.entities, activity.recipient?.id) : null

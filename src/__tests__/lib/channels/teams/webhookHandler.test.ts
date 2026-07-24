@@ -119,6 +119,32 @@ describe('handleTeamsWebhook — claimed グループ', () => {
     expect(deps.reply).not.toHaveBeenCalled()
   })
 
+  it('【PR-2レビュー是正】duplicate（webhook再送）は updateGroupMetadata も呼ばない（無駄なselect+updateを避ける）', async () => {
+    const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage: vi.fn().mockResolvedValue('duplicate'),
+      updateGroupMetadata,
+    })
+    await handleTeamsWebhook(activity({ text: '完了3' }), deps)
+    expect(updateGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  it('【PR-2レビュー是正】claimedグループでもBot発言（isBot:true）は記録も完了もされない（多層防御の回帰）', async () => {
+    const insertMessage = vi.fn().mockResolvedValue({ id: 'msg-1' })
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage,
+      completeDigestTask,
+    })
+    await handleTeamsWebhook(activity({ isBot: true, text: '完了3' }), deps)
+    expect(deps.findActiveGroup).not.toHaveBeenCalled()
+    expect(insertMessage).not.toHaveBeenCalled()
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
   it('「完了3」は申し送りタスクを完了して返信・outbound記録する', async () => {
     const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' })
     const insertOutbound = vi.fn().mockResolvedValue({ id: 'out-1' })
@@ -192,6 +218,18 @@ describe('handleTeamsWebhook — claimed グループ', () => {
       serviceUrl: 'https://smba.trafficmanager.net/amer/',
       teamId: '19:team-abc@thread.tacv2',
       tenantId: 'tenant-1',
+    })
+  })
+
+  it('【Lowレビュー是正】serviceUrlはtrimしてmetadataへ保存する（jwtVerify.tsのSSRF突合の正規化ルールと揃える）', async () => {
+    const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), updateGroupMetadata })
+    await handleTeamsWebhook(
+      activity({ serviceUrl: '  https://smba.trafficmanager.net/amer/  ', teamId: null, tenantId: null }),
+      deps,
+    )
+    expect(updateGroupMetadata).toHaveBeenCalledWith('grp-1', {
+      serviceUrl: 'https://smba.trafficmanager.net/amer/',
     })
   })
 
@@ -324,6 +362,130 @@ describe('handleTeamsWebhook — limbo（未claim）', () => {
       }),
     )
     expect(deps.reply).toHaveBeenCalledWith(buildAcceptedText('AB12'))
+  })
+
+  describe('PR-3是正（Medium）: code_only償還直後のserviceUrl即時反映', () => {
+    it('code_only償還が成立(linked)し、直後の再取得でグループがactiveになっていればserviceUrl等をmetadataへ即反映する', async () => {
+      const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+      const findActiveGroup = vi
+        .fn()
+        .mockResolvedValueOnce(null) // 1回目: limbo判定（まだ未claim）
+        .mockResolvedValueOnce(GROUP) // 2回目: code_only償還後の再取得（今activeになった）
+      const deps = makeDeps({
+        findActiveGroup,
+        normalizeClaimCode: vi.fn().mockReturnValue('CODE26'),
+        findValidClaimCode: vi.fn().mockResolvedValue({
+          id: 'lc-1',
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          bindingMode: 'code_only',
+        }),
+        redeemCodeOnly: vi.fn().mockResolvedValue('linked'),
+        updateGroupMetadata,
+      })
+
+      await handleTeamsWebhook(
+        activity({
+          text: 'GC-CODE',
+          serviceUrl: 'https://smba.trafficmanager.net/amer/',
+          teamId: '19:team-abc@thread.tacv2',
+          tenantId: 'tenant-1',
+        }),
+        deps,
+      )
+
+      expect(findActiveGroup).toHaveBeenCalledTimes(2)
+      expect(updateGroupMetadata).toHaveBeenCalledWith('grp-1', {
+        serviceUrl: 'https://smba.trafficmanager.net/amer/',
+        teamId: '19:team-abc@thread.tacv2',
+        tenantId: 'tenant-1',
+      })
+      // claim償還の返信は既存どおり成立する（backfillはあくまで追加のbest-effort）
+      expect(deps.reply).toHaveBeenCalledWith(CODE_ONLY_LINKED_TEXT)
+    })
+
+    it('web_approval（pending作成）はこの時点でグループがactive化されないため metadata を書かない', async () => {
+      const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+      // findActiveGroupは1回目(limbo判定)・2回目(claimCreated:trueによる再取得)とも null
+      // （web_approvalは承認RPCが別途走るまでactive化しないため、再取得しても未claimのまま）。
+      const findActiveGroup = vi.fn().mockResolvedValue(null)
+      const createPendingClaim = vi.fn().mockResolvedValue({ challengeLabel: 'AB12' })
+      const deps = makeDeps({
+        findActiveGroup,
+        normalizeClaimCode: vi.fn().mockReturnValue('CODE26'),
+        findValidClaimCode: vi.fn().mockResolvedValue({
+          id: 'lc-1',
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          bindingMode: 'web_approval',
+        }),
+        createPendingClaim,
+        updateGroupMetadata,
+      })
+
+      await handleTeamsWebhook(activity({ text: 'GC-CODE' }), deps)
+
+      expect(findActiveGroup).toHaveBeenCalledTimes(2)
+      expect(updateGroupMetadata).not.toHaveBeenCalled()
+      expect(deps.reply).toHaveBeenCalledWith(buildAcceptedText('AB12'))
+    })
+
+    it('claimCreated:false（無効コード等）は再取得クエリ自体を行わない（無駄なDB読み取りを増やさない）', async () => {
+      const findActiveGroup = vi.fn().mockResolvedValue(null)
+      const deps = makeDeps({
+        findActiveGroup,
+        normalizeClaimCode: vi.fn().mockReturnValue('CODE26'),
+        findValidClaimCode: vi.fn().mockResolvedValue(null),
+        registerInvalidAttempt: vi.fn().mockReturnValue(false),
+      })
+
+      await handleTeamsWebhook(activity({ text: 'GC-XXXX' }), deps)
+
+      // limbo判定の1回のみ（backfillのための再取得は発生しない）
+      expect(findActiveGroup).toHaveBeenCalledTimes(1)
+    })
+
+    it('metadataのbackfillが失敗してもclaim償還・返信は成立し、例外は外へ漏れない（沈黙不変条件が保たれる）', async () => {
+      const updateGroupMetadata = vi.fn().mockRejectedValue(new Error('db down'))
+      const findActiveGroup = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(GROUP)
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const deps = makeDeps({
+        findActiveGroup,
+        normalizeClaimCode: vi.fn().mockReturnValue('CODE26'),
+        findValidClaimCode: vi.fn().mockResolvedValue({
+          id: 'lc-1',
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          bindingMode: 'code_only',
+        }),
+        redeemCodeOnly: vi.fn().mockResolvedValue('linked'),
+        updateGroupMetadata,
+      })
+
+      await expect(handleTeamsWebhook(activity({ text: 'GC-CODE' }), deps)).resolves.toBeUndefined()
+      expect(deps.reply).toHaveBeenCalledWith(CODE_ONLY_LINKED_TEXT)
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('findActiveGroupの再取得自体が例外を投げても claim 償還・返信は成立する（best-effort）', async () => {
+      const findActiveGroup = vi.fn().mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('timeout'))
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const deps = makeDeps({
+        findActiveGroup,
+        normalizeClaimCode: vi.fn().mockReturnValue('CODE26'),
+        findValidClaimCode: vi.fn().mockResolvedValue({
+          id: 'lc-1',
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          bindingMode: 'code_only',
+        }),
+        redeemCodeOnly: vi.fn().mockResolvedValue('linked'),
+      })
+
+      await expect(handleTeamsWebhook(activity({ text: 'GC-CODE' }), deps)).resolves.toBeUndefined()
+      expect(deps.reply).toHaveBeenCalledWith(CODE_ONLY_LINKED_TEXT)
+      consoleErrorSpy.mockRestore()
+    })
   })
 
   it('Proゲート: external_chat_channels 不所持は確立させずINVALID文言に畳む', async () => {
