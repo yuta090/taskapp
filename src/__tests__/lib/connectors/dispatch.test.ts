@@ -527,13 +527,23 @@ describe('dispatchConnectorJobsBatch', () => {
     })
 
     it('created_at がちょうど72h(境界)は defer(> MAX で初めて降格)', async () => {
-      getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
-      const exactly72h = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
-      claimReturns([job('conn-gtasks', 'complete', {}, { created_at: exactly72h })])
-      const s = await dispatchConnectorJobsBatch()
-      expect(completeCall('defer')).toBeTruthy()
-      expect(completeCall('temporary_fail')).toBeFalsy()
-      expect(s.deferred).toBe(1)
+      // 境界の厳密検証には時刻の固定が要る。固定しないと「テストが created_at を作った時刻」と
+      // 「実装が age=now-created を測る時刻(dispatch 内部の Date.now())」の間に数ミリ秒経過し、
+      // age=72h+ε>MAX となって temporary_fail に転ぶ(ローカルは速く 0ms で通るが CI で断続失敗する
+      // フレーキー)。両者を同一 now に固定すれば age===MAX ちょうど → `> MAX` は偽 → defer が決定的。
+      const nowMs = new Date('2026-07-24T00:00:00.000Z').getTime()
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(nowMs)
+      try {
+        getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+        const exactly72h = new Date(nowMs - 72 * 60 * 60 * 1000).toISOString()
+        claimReturns([job('conn-gtasks', 'complete', {}, { created_at: exactly72h })])
+        const s = await dispatchConnectorJobsBatch()
+        expect(completeCall('defer')).toBeTruthy()
+        expect(completeCall('temporary_fail')).toBeFalsy()
+        expect(s.deferred).toBe(1)
+      } finally {
+        nowSpy.mockRestore()
+      }
     })
   })
 
