@@ -30,7 +30,8 @@ export const PRIMARY_AUTHOR: Task6Author = {
     '2020年、株式会社ソレカラを設立。「会社の『それから』を、AIとつくる」を掲げ、中小企業のAI活用を伴走型で支援している（タスク完遂の統合コンサルティング、業務自動化の受託開発、AI内製化教育、採用支援）。',
     'タスク管理サービス「agentpm」とAI秘書の開発・運営に携わる。TASK6では、実際にあった出来事をもとに書くこと、ツールを使わなくても解決できる方法まで書くことを編集方針として、全記事の企画・監修を行っている。',
   ],
-  sameAs: ['https://skara.co.jp/company', 'https://agentpm.app/company'],
+  // agentpm.app/company はskara.co.jpトップへの転送のため裏付けにならず含めない
+  sameAs: ['https://skara.co.jp/company'],
 }
 
 /**

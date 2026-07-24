@@ -11,7 +11,7 @@ const SITE = 'https://agentpm.app'
 const PAGE_URL = `${SITE}/task6/author`
 
 export const metadata: Metadata = {
-  title: `${PRIMARY_AUTHOR.name}（${PRIMARY_AUTHOR.title}） | TASK6`,
+  title: `${PRIMARY_AUTHOR.name}（TASK6 編集責任者） | TASK6`,
   description:
     'TASK6（タスクシックス）の記事を執筆・監修している著者のプロフィールです。',
   alternates: { canonical: PAGE_URL },
@@ -31,6 +31,8 @@ export default function AuthorPage() {
     '@type': 'ProfilePage',
     mainEntity: {
       '@type': 'Person',
+      // 記事側のArticle authorと同じ@idで「同一人物」を機械的に結合できるようにする
+      '@id': `${PAGE_URL}#person`,
       name: author.name,
       alternateName: author.legalName,
       jobTitle: author.title,
@@ -50,7 +52,8 @@ export default function AuthorPage() {
       <LPHeader />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        // JSON.stringifyは"<"をエスケープしないため</script>混入によるscript脱出を防ぐ
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
       <div className="mx-auto max-w-2xl px-5 pb-20 pt-24">
         <p className="text-sm font-semibold text-amber-600">TASK6の著者</p>

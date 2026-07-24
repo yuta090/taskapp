@@ -58,8 +58,9 @@ export default async function BlogArticlePage({ params }: Props) {
           '@type': 'Person',
           name: post.author_name,
           // 著者プロフィールに紐づけて「誰が書いたか」を機械可読にする(E-E-A-T)
+          // @idはプロフィール側のPersonと同一(検索エンジンが同一人物と結合できる)
           ...(isKnownAuthorName(post.author_name)
-            ? { url: `${SITE}/task6/author` }
+            ? { '@id': `${SITE}/task6/author#person`, url: `${SITE}/task6/author` }
             : {}),
         }
       : undefined,
@@ -72,7 +73,8 @@ export default async function BlogArticlePage({ params }: Props) {
       <LPHeader />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        // DB由来のtitle等が混ざるため、</script>混入によるscript脱出を防ぐ
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
       <article className="mx-auto max-w-3xl px-5 pb-20 pt-24">
         <header className="mb-8">
