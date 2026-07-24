@@ -59,8 +59,7 @@ create index if not exists channel_event_subscriptions_renew
   on public.channel_event_subscriptions(status, expire_time);
 
 comment on table public.channel_event_subscriptions is
-  'Google Chat 空間の全メッセージ購読状態（Workspace Events API）。1 claimed group = 1 active。'
-  || ' limbo購読は作らない(group_id NOT NULL)。書込は service role のみ・SELECTは内部メンバー。';
+  'Google Chat 空間の全メッセージ購読状態（Workspace Events API）。1 claimed group = 1 active。 limbo購読は作らない(group_id NOT NULL)。書込は service role のみ・SELECTは内部メンバー。';
 comment on column public.channel_event_subscriptions.group_id is
   'channel_groups(active)への参照。limbo（未承認）グループには購読を作らないため NOT NULL';
 comment on column public.channel_event_subscriptions.space_name is

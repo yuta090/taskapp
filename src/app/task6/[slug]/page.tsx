@@ -17,11 +17,11 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const post = await getPublishedPost(slug)
-  if (!post) return { title: '記事が見つかりません | AgentPM' }
+  if (!post) return { title: '記事が見つかりません | TASK6' }
 
-  const url = `${SITE}/blog/${post.slug}`
+  const url = `${SITE}/task6/${post.slug}`
   return {
-    title: `${post.title} | AgentPM`,
+    title: `${post.title} | TASK6`,
     description: post.description ?? undefined,
     alternates: { canonical: url },
     robots: post.noindex ? { index: false, follow: false } : undefined,
@@ -52,7 +52,7 @@ export default async function BlogArticlePage({ params }: Props) {
     description: post.description ?? undefined,
     datePublished: post.published_at ?? undefined,
     author: post.author_name ? { '@type': 'Person', name: post.author_name } : undefined,
-    mainEntityOfPage: `${SITE}/blog/${post.slug}`,
+    mainEntityOfPage: `${SITE}/task6/${post.slug}`,
     ...(post.cover_image_url ? { image: post.cover_image_url } : {}),
   }
 

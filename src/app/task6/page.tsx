@@ -7,22 +7,22 @@ import { listPublishedPosts } from '@/lib/blog/posts'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'ブログ | AgentPM',
+  title: 'TASK6（タスクシックス） | 仕事がまわる学びのメディア',
   description:
-    '税理士・士業事務所の資料回収や業務効率化に役立つ記事をお届けします。',
-  alternates: { canonical: 'https://agentpm.app/blog' },
+    'タスク管理・プロジェクト管理・仕事の進め方を、実際にあった話から学べるメディア。ツールを入れたのに回らない、を直します。',
+  alternates: { canonical: 'https://agentpm.app/task6' },
 }
 
-export default async function BlogIndexPage() {
+export default async function Task6IndexPage() {
   const posts = await listPublishedPosts()
 
   return (
     <main className="font-sans antialiased text-slate-900 bg-white">
       <LPHeader />
       <div className="mx-auto max-w-3xl px-5 pb-20 pt-24">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">ブログ</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">TASK6</h1>
         <p className="mt-2 text-slate-600">
-          資料回収・催促・士業事務所の業務効率化にまつわる記事。
+          仕事がまわる学びのメディア。タスク管理・プロジェクト管理・仕事の進め方を、実話から学ぶ。
         </p>
 
         {posts.length === 0 ? (
@@ -31,7 +31,7 @@ export default async function BlogIndexPage() {
           <ul className="mt-10 divide-y divide-slate-100">
             {posts.map((p) => (
               <li key={p.slug} className="py-6">
-                <Link href={`/blog/${p.slug}`} className="group block">
+                <Link href={`/task6/${p.slug}`} className="group block">
                   <h2 className="text-lg font-semibold text-slate-900 group-hover:text-amber-600">
                     {p.title}
                   </h2>

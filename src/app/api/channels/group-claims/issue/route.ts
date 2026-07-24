@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     if (cap.max !== null && cap.activeCount >= cap.max) {
       return NextResponse.json(
         {
-          error: '接続できる相手先グループ数の上限に達しています。上限の追加はお問い合わせください。',
+          error: '接続できる相手先グループ数の上限に達しています。追加はお問い合わせください（営業窓口でご案内します）。',
           code: 'group_limit_reached',
           limit: cap.max,
         },

@@ -4,6 +4,8 @@ import {
   planHasFeature,
   planLimits,
   resolveOrgEntitlements,
+  resolveOrgLimits,
+  PLAN_LIMITS,
   type OrgBillingRow,
 } from '@/lib/billing/entitlements'
 
@@ -213,5 +215,51 @@ describe('resolveOrgEntitlements', () => {
     const result = await resolveOrgEntitlements(admin, 'org-1', NOW)
     // fail-closed = free。Pro専有機能は持たない（拾いは free でも持つ）
     expect(result.has('instant_line_notify')).toBe(false)
+  })
+})
+
+// resolveOrgLimits = 「org の実効数量上限」を1点で解決する seam。
+// 現状はプラン由来（resolveOrgEntitlements → planLimits）と同値＝挙動不変。
+// 将来の org 別 override（相手追加パック）はこの関数の中だけで足せるようにする。
+describe('resolveOrgLimits (数量上限の seam)', () => {
+  function makeAdmin(result: { data: unknown; error: unknown }) {
+    const maybeSingle = vi.fn(() => Promise.resolve(result))
+    const eq = vi.fn(() => ({ maybeSingle }))
+    const select = vi.fn(() => ({ eq }))
+    const from = vi.fn(() => ({ select }))
+    return { from } as unknown as import('@supabase/supabase-js').SupabaseClient
+  }
+
+  it('pro row -> pro の上限（planLimits と同値・挙動不変）', async () => {
+    const admin = makeAdmin({
+      data: {
+        plan_id: 'pro',
+        status: 'active',
+        current_period_end: null,
+        cancel_at_period_end: false,
+      },
+      error: null,
+    })
+
+    const limits = await resolveOrgLimits(admin, 'org-1', NOW)
+
+    expect(limits).toEqual(PLAN_LIMITS.pro)
+    expect(limits.maxLineGroups).toBe(50)
+  })
+
+  it('no row -> free の上限（fail-closed）', async () => {
+    const admin = makeAdmin({ data: null, error: null })
+
+    const limits = await resolveOrgLimits(admin, 'org-1', NOW)
+
+    expect(limits).toEqual(PLAN_LIMITS.free)
+    expect(limits.maxLineGroups).toBe(3)
+    expect(limits.maxExternalChatGroups).toBe(0)
+  })
+
+  it('DB error -> free の上限に fail-closed（throw しない）', async () => {
+    const admin = makeAdmin({ data: null, error: { message: 'boom' } })
+
+    await expect(resolveOrgLimits(admin, 'org-1', NOW)).resolves.toEqual(PLAN_LIMITS.free)
   })
 })

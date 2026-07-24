@@ -14,6 +14,48 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // 学びのメディア「TASK6」への引っ越し（docs/blog/MEDIA_DESIGN.md）。
+      // 旧 /blog のURLを外部リンク・検索結果ごと /task6 へ 301 で引き継ぐ。
+      {
+        source: "/blog",
+        destination: "/task6",
+        permanent: true,
+      },
+      {
+        source: "/blog/:slug",
+        destination: "/task6/:slug",
+        permanent: true,
+      },
+      // 看板ドメイン task6.jp → 本体 agentpm.app/task6（SEO評価を一箇所に集約）。
+      // Vercel 側で task6.jp / www.task6.jp をこのプロジェクトに追加すると効く。
+      {
+        source: "/",
+        has: [{ type: "host", value: "task6.jp" }],
+        destination: "https://agentpm.app/task6",
+        permanent: true,
+      },
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "task6.jp" }],
+        destination: "https://agentpm.app/task6/:path*",
+        permanent: true,
+      },
+      {
+        source: "/",
+        has: [{ type: "host", value: "www.task6.jp" }],
+        destination: "https://agentpm.app/task6",
+        permanent: true,
+      },
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.task6.jp" }],
+        destination: "https://agentpm.app/task6/:path*",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {
