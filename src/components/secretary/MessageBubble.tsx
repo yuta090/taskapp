@@ -11,6 +11,7 @@ import {
 } from '@phosphor-icons/react'
 import type { ChannelMessageRow } from '@/lib/hooks/useChannelTimeline'
 import { channelBadgeLabel } from '@/lib/channels/channelBadge'
+import { ChannelIcon } from '@/components/secretary/ChannelIcon'
 
 const ACTOR_LABEL: Record<ChannelMessageRow['actor'], string> = {
   client: '顧問先',
@@ -102,7 +103,8 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
           }`}
         >
           {badge && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">
+            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500">
+              <ChannelIcon channel={message.channel} />
               {badge}
             </span>
           )}
