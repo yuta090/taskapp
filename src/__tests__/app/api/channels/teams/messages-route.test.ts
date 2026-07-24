@@ -16,6 +16,20 @@ vi.mock('@/lib/channels/teams/webhookHandler', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
   return { ...actual, handleTeamsWebhook: (...a: unknown[]) => handleTeamsWebhookMock(...a) }
 })
+// claimed側のdeps配線（insertMessage/completeDigestTask/updateGroupMetadata）検証用。
+// それ以外のstore関数はactualのまま（handler mockで未実行のため呼ばれない）。
+const insertChannelMessageMock = vi.fn()
+const markDigestTaskDoneMock = vi.fn()
+const updateChannelGroupMetadataMock = vi.fn()
+vi.mock('@/lib/channels/store', async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>
+  return {
+    ...actual,
+    insertChannelMessage: (...a: unknown[]) => insertChannelMessageMock(...a),
+    markDigestTaskDoneByGroupAndNumberAtomic: (...a: unknown[]) => markDigestTaskDoneMock(...a),
+    updateChannelGroupMetadata: (...a: unknown[]) => updateChannelGroupMetadataMock(...a),
+  }
+})
 // store/entitlements/admin は deps 構築時に参照されるだけ（handler mock で未実行）。
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 
@@ -175,5 +189,93 @@ describe('POST /api/channels/teams/messages', () => {
     // MESSAGE_ACTIVITY の生の serviceUrl (amer/) ではなく、verify が返した VERIFIED_URL が使われる。
     expect(params.serviceUrl).toBe(VERIFIED_URL)
     expect(params.serviceUrl).not.toBe('https://smba.trafficmanager.net/amer/')
+  })
+
+  // ---------------------------------------------------------------------------
+  // claimed側のdeps配線（PR-2）: handler本体はwebhookHandler.test.tsで網羅するため、
+  // ここは buildDeps が正しい store 関数へ委譲しているかだけを検証する。
+  // ---------------------------------------------------------------------------
+  describe('claimed側のdeps配線', () => {
+    it('deps.insertMessageはinsertChannelMessageへ委譲される', async () => {
+      insertChannelMessageMock.mockResolvedValue({ id: 'msg-1' })
+      handleTeamsWebhookMock.mockImplementation(
+        async (_activity: unknown, deps: { insertMessage: (input: unknown) => Promise<unknown> }) => {
+          await deps.insertMessage({
+            orgId: 'org-1',
+            spaceId: 'space-1',
+            identityId: null,
+            accountId: 'acc-1',
+            groupId: 'grp-1',
+            channel: 'teams',
+            direction: 'inbound',
+            actor: 'client',
+            externalUserId: '29:user-1',
+            externalMessageId: '19:abcd@thread.tacv2:act-1',
+            contentType: 'text',
+            body: 'こんにちは',
+            payload: {},
+            storagePath: null,
+            status: 'received',
+            error: null,
+            occurredAt: '2026-07-24T00:00:00.000Z',
+          })
+        },
+      )
+      await post(MESSAGE_ACTIVITY, { authorization: 'Bearer good-token' })
+      expect(insertChannelMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupId: 'grp-1',
+          channel: 'teams',
+          externalMessageId: '19:abcd@thread.tacv2:act-1',
+        }),
+      )
+    })
+
+    it('deps.completeDigestTaskはmarkDigestTaskDoneByGroupAndNumberAtomicへ委譲される', async () => {
+      markDigestTaskDoneMock.mockResolvedValue({ id: 'task-1', title: 'タスクA' })
+      handleTeamsWebhookMock.mockImplementation(
+        async (
+          _activity: unknown,
+          deps: {
+            completeDigestTask: (
+              groupId: string,
+              n: number,
+              externalUserId: string | null,
+            ) => Promise<unknown>
+          },
+        ) => {
+          await deps.completeDigestTask('grp-1', 3, '29:user-1')
+        },
+      )
+      await post(MESSAGE_ACTIVITY, { authorization: 'Bearer good-token' })
+      expect(markDigestTaskDoneMock).toHaveBeenCalledWith('grp-1', 3, '29:user-1')
+    })
+
+    it('deps.updateGroupMetadataはupdateChannelGroupMetadataへ委譲される', async () => {
+      updateChannelGroupMetadataMock.mockResolvedValue(undefined)
+      handleTeamsWebhookMock.mockImplementation(
+        async (
+          _activity: unknown,
+          deps: { updateGroupMetadata: (groupId: string, patch: unknown) => Promise<void> },
+        ) => {
+          await deps.updateGroupMetadata('grp-1', { serviceUrl: 'https://smba.trafficmanager.net/amer/' })
+        },
+      )
+      await post(MESSAGE_ACTIVITY, { authorization: 'Bearer good-token' })
+      expect(updateChannelGroupMetadataMock).toHaveBeenCalledWith('grp-1', {
+        serviceUrl: 'https://smba.trafficmanager.net/amer/',
+      })
+    })
+
+    it('claimedの正常系はhandlerが例外を投げなければ200を返す', async () => {
+      insertChannelMessageMock.mockResolvedValue({ id: 'msg-1' })
+      handleTeamsWebhookMock.mockImplementation(
+        async (_activity: unknown, deps: { insertMessage: (input: unknown) => Promise<unknown> }) => {
+          await deps.insertMessage({} as never)
+        },
+      )
+      const res = await post(MESSAGE_ACTIVITY, { authorization: 'Bearer good-token' })
+      expect(res.status).toBe(200)
+    })
   })
 })
