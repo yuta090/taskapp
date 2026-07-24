@@ -80,6 +80,25 @@ describe('getAppToken', () => {
       getAppToken(APP_ID, APP_PASSWORD, fetchMock as unknown as typeof fetch),
     ).rejects.toThrow(/missing access_token/)
   })
+
+  it('appIdが異なればキャッシュを共有せず、それぞれ別トークンを取得する（キーはappId単位）', async () => {
+    const fetchMockA = makeTokenFetchMock({ accessToken: 'token-app-a' })
+    const fetchMockB = makeTokenFetchMock({ accessToken: 'token-app-b' })
+
+    const tokenA = await getAppToken('app-a', 'secret-a', fetchMockA as unknown as typeof fetch)
+    const tokenB = await getAppToken('app-b', 'secret-b', fetchMockB as unknown as typeof fetch)
+    expect(tokenA).toBe('token-app-a')
+    expect(tokenB).toBe('token-app-b')
+    expect(fetchMockA).toHaveBeenCalledTimes(1)
+    expect(fetchMockB).toHaveBeenCalledTimes(1)
+
+    // app-a を再度呼んでもapp-aのキャッシュのみ再利用され、app-bのfetchは呼ばれない
+    // （別appIdのトークン取得を誘発しない＝混同していないことの確認）。
+    const tokenAAgain = await getAppToken('app-a', 'secret-a', fetchMockA as unknown as typeof fetch)
+    expect(tokenAAgain).toBe('token-app-a')
+    expect(fetchMockA).toHaveBeenCalledTimes(1)
+    expect(fetchMockB).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('sendTeamsReply', () => {

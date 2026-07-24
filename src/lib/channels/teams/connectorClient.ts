@@ -20,9 +20,10 @@ interface CachedAppToken {
   expiresAt: number
 }
 
-// プロセス内キャッシュ。expires_in を尊重し、期限の30秒前で再取得する（雑な有効期限判定による
-// 401連鎖を避ける）。
-let cachedToken: CachedAppToken | null = null
+// プロセス内キャッシュ。appId単位（Map）で分ける — v1は共有アプリ1つ前提だが、将来2つ目の
+// appが増えても別appのトークンを誤って返さないようにキー化しておく（code-reviewer指摘）。
+// expires_in を尊重し、期限の30秒前で再取得する（雑な有効期限判定による401連鎖を避ける）。
+const tokenCacheByAppId = new Map<string, CachedAppToken>()
 const EXPIRY_SAFETY_MARGIN_MS = 30_000
 
 interface TokenResponse {
@@ -42,8 +43,9 @@ export async function getAppToken(
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   const now = Date.now()
-  if (cachedToken && cachedToken.expiresAt - EXPIRY_SAFETY_MARGIN_MS > now) {
-    return cachedToken.accessToken
+  const cached = tokenCacheByAppId.get(appId)
+  if (cached && cached.expiresAt - EXPIRY_SAFETY_MARGIN_MS > now) {
+    return cached.accessToken
   }
 
   const body = new URLSearchParams({
@@ -68,13 +70,14 @@ export async function getAppToken(
   }
 
   const expiresInMs = (json.expires_in ?? 3600) * 1000
-  cachedToken = { accessToken: json.access_token, expiresAt: now + expiresInMs }
-  return cachedToken.accessToken
+  const token: CachedAppToken = { accessToken: json.access_token, expiresAt: now + expiresInMs }
+  tokenCacheByAppId.set(appId, token)
+  return token.accessToken
 }
 
 /** テストからキャッシュをリセットするための内部エクスポート。 */
 export function __resetAppTokenCacheForTest(): void {
-  cachedToken = null
+  tokenCacheByAppId.clear()
 }
 
 export interface SendTeamsReplyParams {

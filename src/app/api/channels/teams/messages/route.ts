@@ -36,11 +36,17 @@ export const runtime = 'nodejs'
  *     同じ思想。既知鍵で黙って通さない）。
  *   - トークン無し/検証失敗（★SSRF防御のserviceurl不一致を含む）は 401。
  *
- * 処理順序（重要）: rawBody取得 → JSON parse → verifyTeamsActivityRequest（activity.serviceUrl を
- * 突合するため、JWT検証にはボディの解釈が先に要る）。したがって不正JSONは認証結果を問わず400。
+ * 処理順序（重要）: rawBody取得 → JSON parse → 非nullオブジェクトであることの検証 →
+ * verifyTeamsActivityRequest（activity.serviceUrl を突合するため、JWT検証にはボディの解釈が
+ * 先に要る）。したがって不正JSON・非オブジェクト（null/文字列/数値/真偽値等）は認証結果を
+ * 問わず400（JSON.parse("null")は例外を投げず null を返すため、オブジェクト検証を明示的に
+ * 行わないと直後の activity.serviceUrl アクセスで未捕捉500になる＝code-reviewer指摘）。
  *
  * Teams（Bot Framework）はGoogle Chatと異なりHTTPレスポンス自体は返信にならない（非同期
  * チャネル）。返信はConnector REST（connectorClient.ts）への明示的なPOSTで行う。
+ * ★SSRF防御の正本化: Connectorへの送信先serviceUrlは、生のactivity.serviceUrlではなく
+ *   verifyTeamsActivityRequestが返す検証済みのserviceUrl（JWTのserviceurlクレーム値）を使う
+ *   （「検証した値だけを送る」を型で保証する）。
  *
  * Bot Framework の再送ループを避けるため、非message/内容起因の失敗は常に200を返す。
  */
@@ -93,12 +99,20 @@ function buildDeps(serviceUrl: string, conversationId: string): TeamsWebhookDeps
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
 
-  let activity: TeamsActivity
+  let parsed: unknown
   try {
-    activity = JSON.parse(rawBody)
+    parsed = JSON.parse(rawBody)
   } catch {
     return NextResponse.json({ error: 'invalid json' }, { status: 400 })
   }
+  // JSON.parse("null")/("123")/('"str"')/("false") は例外を投げずそれぞれ null/数値/文字列/真偽値を
+  // 返す。非オブジェクトのままだと直後の activity.serviceUrl アクセスで未捕捉例外(500)になるため、
+  // ここで一律400に弾く（配列は typeof 'object' で通るが、後続の normalizeTeamsActivity が
+  // type!=='message' でnull扱いにするため実害はない）。
+  if (typeof parsed !== 'object' || parsed === null) {
+    return NextResponse.json({ error: 'invalid json' }, { status: 400 })
+  }
+  const activity = parsed as TeamsActivity
 
   const verification = await verifyTeamsActivityRequest(
     request.headers.get('authorization'),
@@ -122,7 +136,8 @@ export async function POST(request: NextRequest) {
   try {
     await handleTeamsWebhook(
       normalized,
-      buildDeps(normalized.serviceUrl ?? '', normalized.conversationId ?? ''),
+      // Connector送信先は検証済みのverification.serviceUrl（生のactivity.serviceUrlではない）。
+      buildDeps(verification.serviceUrl, normalized.conversationId ?? ''),
     )
     return NextResponse.json({})
   } catch (error) {

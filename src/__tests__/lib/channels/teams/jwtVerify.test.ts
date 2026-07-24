@@ -65,13 +65,24 @@ afterEach(() => {
 })
 
 describe('verifyTeamsActivityRequest', () => {
-  it('正当なJWT・正しいissuer/audience・serviceurl一致は ok:true', async () => {
+  it('正当なJWT・正しいissuer/audience・serviceurl一致は ok:true・serviceUrlを返す', async () => {
     const token = await signToken({})
     const result = await verifyTeamsActivityRequest(`Bearer ${token}`, SERVICE_URL, {
       appId: APP_ID,
       jwks,
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, serviceUrl: SERVICE_URL })
+  })
+
+  it('★正本一本化: 返り値のserviceUrlはJWTのserviceurlクレーム値（trim後）と一致する', async () => {
+    // クレーム側に前後空白があっても、trim後の値が返り値として返る（route側は生のactivity.
+    // serviceUrlではなく、この検証済み値だけをConnector送信先に使う契約）。
+    const token = await signToken({ serviceurl: `  ${SERVICE_URL}  ` })
+    const result = await verifyTeamsActivityRequest(`Bearer ${token}`, SERVICE_URL, {
+      appId: APP_ID,
+      jwks,
+    })
+    expect(result).toEqual({ ok: true, serviceUrl: SERVICE_URL })
   })
 
   it('audience違いは invalid', async () => {
@@ -162,6 +173,6 @@ describe('verifyTeamsActivityRequest', () => {
     process.env.TEAMS_BOT_APP_ID = APP_ID
     const token = await signToken({})
     const result = await verifyTeamsActivityRequest(`Bearer ${token}`, SERVICE_URL, { jwks })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, serviceUrl: SERVICE_URL })
   })
 })

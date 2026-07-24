@@ -25,7 +25,10 @@ export const BOT_FRAMEWORK_ISSUER = 'https://api.botframework.com'
 export const BOT_FRAMEWORK_JWKS_URL = 'https://login.botframework.com/v1/.well-known/keys'
 
 export type VerifyTeamsActivityResult =
-  | { ok: true }
+  // serviceUrl は検証済みのJWT serviceurlクレーム値（trim後）。SSRF防御の正本をここに一本化する
+  // ため、呼び出し側（route）はConnectorへの送信先にこの値だけを使う（生のactivity.serviceUrlは
+  // 使わない）。
+  | { ok: true; serviceUrl: string }
   | { ok: false; reason: 'env_missing' | 'no_token' | 'invalid' }
 
 export interface VerifyTeamsActivityOptions {
@@ -78,7 +81,7 @@ export async function verifyTeamsActivityRequest(
       return { ok: false, reason: 'invalid' }
     }
 
-    return { ok: true }
+    return { ok: true, serviceUrl: claimed }
   } catch {
     return { ok: false, reason: 'invalid' }
   }
