@@ -4,6 +4,8 @@
  * 配布物は Supabase Storage の非公開バケット `task6-templates` に置き、
  * メール登録と引き換えに署名URL（期限付き）で配る。
  * ファイル本体は管理者が Supabase ダッシュボードから storagePath へアップロードする。
+ * ⚠ ファイル未配置のまま /task6/dl/[key] へのリンクを記事に張らないこと
+ * （申込は保存されるが署名URL発行が失敗し、本人に何も届かない）。
  *
  * key は URL(/task6/dl/[key]) と DB(template_leads.template_key,
  * check制約 ^[a-z0-9-]{1,64}$) の両方に使うため英小文字・数字・ハイフンのみ。

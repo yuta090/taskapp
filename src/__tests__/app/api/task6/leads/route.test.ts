@@ -52,8 +52,15 @@ vi.mock('@/lib/email/lead', () => ({
 }))
 
 let rateLimitAllowed = true
+let emailRateLimitAllowed = true
+let globalRateLimitAllowed = true
 vi.mock('@/lib/rate-limit', () => ({
-  checkRateLimit: vi.fn(() => ({ allowed: rateLimitAllowed, remaining: 0, resetAt: 0 })),
+  checkRateLimit: vi.fn((key: string) => {
+    let allowed = rateLimitAllowed
+    if (key.startsWith('task6-leads:email:')) allowed = emailRateLimitAllowed
+    else if (key === 'task6-leads:global') allowed = globalRateLimitAllowed
+    return { allowed, remaining: 0, resetAt: 0 }
+  }),
   getClientIp: vi.fn(() => '203.0.113.1'),
 }))
 
@@ -82,6 +89,8 @@ describe('POST /api/task6/leads', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     rateLimitAllowed = true
+    emailRateLimitAllowed = true
+    globalRateLimitAllowed = true
   })
 
   it('保存して署名URL入りメールを本人へ送り200(emailSent:true)', async () => {
@@ -158,6 +167,22 @@ describe('POST /api/task6/leads', () => {
     const response = await callPost(validBody)
     expect(response.status).toBe(429)
     expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('同一宛先の1日上限を超えたら429で保存もメールもしない(送信リレー悪用対策)', async () => {
+    emailRateLimitAllowed = false
+    const response = await callPost(validBody)
+    expect(response.status).toBe(429)
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(sendTemplateDownloadEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('全体の1日送信上限を超えたら429で保存もメールもしない', async () => {
+    globalRateLimitAllowed = false
+    const response = await callPost(validBody)
+    expect(response.status).toBe(429)
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(sendTemplateDownloadEmailMock).not.toHaveBeenCalled()
   })
 
   it('重複登録(23505)はエラーにせずlast_requested_atを更新して再送する', async () => {
