@@ -72,6 +72,12 @@ export interface SendSecretaryPushInput {
   text: string
   /** LINEのリッチ表現（Flex等）。指定時はLINEアダプタがそのまま messages として送る */
   messages?: LineMessage[]
+  /**
+   * チャネル固有の送信文脈（teamsのgroup.metadata.serviceUrl等）。deliverToChannelへそのまま
+   * 素通しするだけ（判定ロジックは持たない）。省略時はundefined（既存呼び出し元の後方互換）。
+   * 解釈するアダプタのみが使う。
+   */
+  providerContext?: Record<string, string>
   /** 決定的キー。HTTPリトライ・cron二重起動でも二重配信/二重計上しない */
   retryKey: string
   /** JST基準の通算日（1..366）。org層・global層の隔日縮退が使う（LINEのみ参照） */
@@ -93,7 +99,7 @@ export type SendSecretaryPushResult = { delivered: true } | { delivered: false; 
 export async function sendSecretaryPush(
   input: SendSecretaryPushInput,
 ): Promise<SendSecretaryPushResult> {
-  const { account, orgId, to, text, messages, retryKey, jstDayOfYear, record } = input
+  const { account, orgId, to, text, messages, retryKey, jstDayOfYear, record, providerContext } = input
   const channel = account.channel ?? 'line'
   const credentials = account.credentials ?? (account.accessToken ? { access_token: account.accessToken } : {})
   const resolvePlatformBudgetState = input.resolvePlatformBudgetState ?? getPlatformBudgetState
@@ -123,6 +129,7 @@ export async function sendSecretaryPush(
     text,
     rich: messages,
     idempotencyKey: retryKey,
+    providerContext,
   })
 
   if (!result.ok) {

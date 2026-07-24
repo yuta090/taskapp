@@ -128,6 +128,11 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 truncate">{step.description}</p>
+                  {step.dmUnreachable && (
+                    <p className="text-[11px] text-amber-600">
+                      現在DMが届いていません（ブロックの可能性があります）
+                    </p>
+                  )}
                 </div>
                 {!step.done && !step.pending && step.href && (
                   <Link

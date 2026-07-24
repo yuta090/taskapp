@@ -22,6 +22,13 @@ export interface OutboundContext {
    * 床はあくまで text — rich を解釈しないアダプタは無視して text を送る。
    */
   rich?: unknown
+  /**
+   * チャネル固有の送信文脈（group metadata 由来・serviceUrl 等）。解釈するアダプタのみ使う
+   * （例: teams の platform proactive 送信が providerContext.serviceUrl を読む）。
+   * env のような静的値では表せない per-group の情報を運ぶための任意フィールド。
+   * 未指定時は undefined（既存呼び出し元・既存アダプタの後方互換。他アダプタは無視する）。
+   */
+  providerContext?: Record<string, string>
 }
 
 export interface OutboundResult {

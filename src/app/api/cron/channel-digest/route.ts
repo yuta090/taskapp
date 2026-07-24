@@ -390,6 +390,16 @@ export async function POST(request: NextRequest) {
         // 二重送信はLINE側dedupeが弾く（既存digestとdue-onlyが同時に生じるケースは無い設計）。
         const retryKey = buildDigestRetryKey(group.id, jstDateStr)
 
+        // teamsのplatform proactive送信（PR-3）が使うper-group文脈。他チャネルのグループは
+        // metadata.serviceUrlを持たないためproviderContextはundefinedのまま（無害・他アダプタは
+        // 無視する）。claim直後でまだ受信が無いteamsグループはserviceUrl未保存のためundefined
+        // になり、teamsAdapter側が一時失敗として扱う（次回の受信でmetadataが埋まれば送れる）。
+        const groupServiceUrl = group.metadata?.serviceUrl
+        const providerContext =
+          typeof groupServiceUrl === 'string' && groupServiceUrl.length > 0
+            ? { serviceUrl: groupServiceUrl }
+            : undefined
+
         // 送信境界の縮退判定（設計正本 §3/§7-10）は sendSecretaryPush に一本化（マルチチャネル化・
         // PR1）。org層(policy)＋グローバル予算層(共有bot account軸の実物理上限)の二層判定は
         // channel==='line' のときだけ内部で行われる（非LINEは当社の持ち出しが無いため常に配信）。
@@ -404,6 +414,7 @@ export async function POST(request: NextRequest) {
           to: group.externalGroupId,
           text: pushText,
           messages: flex ? [{ type: 'text', text: pushText }, flex] : [{ type: 'text', text: pushText }],
+          providerContext,
           retryKey,
           // getJstDayOfYear は内部で jstNow() を掛けるため、素の now を渡す。
           // jstNowDate（既に jstNow 済み）を渡すと二重変換で UTC 環境だけ1日ずれる。
@@ -461,6 +472,14 @@ export async function POST(request: NextRequest) {
 
         digestsSent += 1
       } catch (error) {
+        // Lowレビュー是正の判断メモ（PR-3・見送り）: teamsのserviceUrl未保存/env未設定のような
+        // 「既知の一時失敗」だけをここで skipped 相当へ回す案を検討したが、この catch は
+        // sendSecretaryPush の throw 契約（全チャネル共通）を含む「このグループ処理全体」の
+        // 汎用フォールバックであり、原因をここでエラーメッセージ文字列突合で teams だけ判別する
+        // のは脆い（sendSecretaryPush 側のエラー文言が変わると静かに壊れる）。共有境界
+        // （sendSecretaryPushの throw 契約・この catch 自体）には手を入れない方針を優先し、
+        // teams の一時失敗も他チャネル同様 errors[] に理由付きで残す（運用上は
+        // "teams: missing serviceUrl" / "TEAMS_BOT_APP_ID..." の文言で判別可能）。
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`group ${group.id}: ${message}`)
       }

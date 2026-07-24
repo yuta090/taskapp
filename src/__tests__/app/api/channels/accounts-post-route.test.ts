@@ -131,9 +131,13 @@ describe('POST /api/channels/accounts — 入力検証', () => {
     expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
   })
 
-  it('planned チャネル(messenger)は接続不可400', async () => {
-    const res = await callPost({ orgId: ORG_A, channel: 'messenger', credentials: {} })
+  it('チャット系でないチャネル(email)は接続不可400', async () => {
+    // messenger は beta 昇格で接続可能になり、planned なチャット系チャネルは現存しない。
+    // email は kind='email' のため汎用接続経路の対象外（unknown_channel で弾く）。
+    const res = await callPost({ orgId: ORG_A, channel: 'email', credentials: {} })
+    const json = await res.json()
     expect(res.status).toBe(400)
+    expect(json.code).toBe('unknown_channel')
     expect(storeMock.registerOrgChannelAccount).not.toHaveBeenCalled()
   })
 })

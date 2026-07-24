@@ -27,7 +27,7 @@ describe('channel registry', () => {
   })
 
   it('主要チャットが全て登録されている', () => {
-    for (const id of ['line', 'slack', 'chatwork', 'google_chat', 'discord', 'telegram', 'teams', 'whatsapp']) {
+    for (const id of ['line', 'slack', 'chatwork', 'google_chat', 'discord', 'telegram', 'teams', 'whatsapp', 'messenger']) {
       expect(getChannel(id)).not.toBeNull()
     }
   })
@@ -43,8 +43,8 @@ describe('channel registry', () => {
 
   it('outboundChannels は outbound=true のみ', () => {
     expect(outboundChannels().every((c) => c.outbound)).toBe(true)
-    // messenger/email は planned で送信不可
-    expect(outboundChannels().some((c) => c.id === 'messenger')).toBe(false)
+    // messenger は beta で送信可能・email は planned で送信不可
+    expect(outboundChannels().some((c) => c.id === 'messenger')).toBe(true)
     expect(outboundChannels().some((c) => c.id === 'email')).toBe(false)
   })
 
@@ -52,7 +52,7 @@ describe('channel registry', () => {
     expect(isChannelId('line')).toBe(true)
     expect(isChannelId('nope')).toBe(false)
     expect(canSendTo('slack')).toBe(true)
-    expect(canSendTo('messenger')).toBe(false) // planned
+    expect(canSendTo('messenger')).toBe(true) // beta・outbound可
     expect(canSendTo('unknown')).toBe(false)
   })
 

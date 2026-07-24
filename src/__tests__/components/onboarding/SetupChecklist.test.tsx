@@ -30,6 +30,7 @@ const ALL_UNDONE = {
   // 既定は「共通LINE開通済み（granted）＝自分で連携できる」状態。準備中は個別に lineAccess:'unavailable' を渡す
   lineAccess: 'granted',
   aiConfigured: false,
+  dmUnreachable: false,
 }
 
 function setup(dataOverrides: Partial<typeof ALL_UNDONE> = {}, shouldShow: boolean | null = true) {
@@ -118,6 +119,20 @@ describe('SetupChecklist', () => {
     expect(screen.getByText('はじめての設定 2/6')).toBeInTheDocument()
     expect(screen.getByText('準備中')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'LINEを連携' })).not.toBeInTheDocument()
+  })
+
+  it('shows a subdued DM-unreachable note when connect_line is done but the user\'s DM is unreachable', () => {
+    setup({ hasLineLinked: true, dmUnreachable: true })
+    render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    expect(screen.getByText(/現在DMが届いていません/)).toBeInTheDocument()
+  })
+
+  it('shows no DM-unreachable note when the DM is reachable', () => {
+    setup({ hasLineLinked: true, dmUnreachable: false })
+    render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    expect(screen.queryByText(/現在DMが届いていません/)).not.toBeInTheDocument()
   })
 
   it('dismisses the checklist via markDone when "非表示にする" is clicked', () => {

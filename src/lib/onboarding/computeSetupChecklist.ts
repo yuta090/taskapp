@@ -32,6 +32,13 @@ export interface SetupChecklistData {
    * これを可視化するため configure_ai ステップで警告＋設定導線を出す。
    */
   aiConfigured: boolean
+  /**
+   * DM到達不能「安全網」の可視化（任意項目）。現在ユーザー自身のLINE 1:1紐付けが
+   * dm_unreachable_at 非NULL(ブロック等で到達不能とマーク済み)か。マーク/解除の書き手は
+   * webhookのunfollow/follow・日次照合ジョブ（dmReachabilityReconcile）。connect_line
+   * ステップが連携済み(done)のときのみ、控えめな注記として表示する。
+   */
+  dmUnreachable?: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -58,6 +65,8 @@ export interface SetupChecklistStep {
    * 完了不能なステップで allDone に到達できなくなるのを防ぐため。
    */
   pending?: boolean
+  /** true のとき、connect_line ステップに控えめなDM到達不能の注記を出す（SetupChecklist参照） */
+  dmUnreachable?: boolean
 }
 
 export interface SetupChecklistResult {
@@ -218,6 +227,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
       done: true,
       href: null,
       ctaLabel: null,
+      dmUnreachable: data.dmUnreachable === true,
     }
   }
 

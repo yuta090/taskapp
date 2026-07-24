@@ -241,16 +241,26 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     kind: 'chat',
     status: 'beta',
     outbound: true,
-    inbound: false,
+    inbound: true,
     group: true,
     directMessage: false,
-    signatureScheme: 'hmac-sha256',
-    targetHint: 'チャンネルの Incoming Webhook URL（Workflows/コネクタ）',
+    webhookPath: '/api/channels/teams/messages',
+    // 受信はBot Framework ConnectorのBearer JWT検証（HMAC署名ではない。google_chatと同型）。
+    signatureScheme: 'bearer',
+    targetHint: 'Power Automate Workflows の Webhook URL（api.powerplatform.com）',
     credentialFields: [
-      { key: 'webhook_url', label: 'Incoming Webhook URL', secret: true, help: 'Teamsチャンネル→ワークフロー/コネクタで発行' },
+      {
+        key: 'webhook_url',
+        label: 'Workflows Webhook URL',
+        secret: true,
+        help: 'Teamsチャンネル→ワークフロー（Power Automate）の「Webhook 要求受信時にチャネルに投稿」テンプレートで発行。旧「コネクタ」経路は2026年に廃止済み。',
+      },
     ],
-    setupUrl: 'https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook',
-    notes: 'Incoming Webhook(Adaptive Card)で送信。双方向はBot Framework + Azure登録が別途必要。',
+    setupUrl: 'https://support.microsoft.com/office/browse-and-add-workflows-in-microsoft-teams-4998095c-8b72-4b0e-984c-f2ad39e6ba9a',
+    notes:
+      '送信は Power Automate Workflows の Incoming Webhook(Adaptive Card)。旧O365コネクタ(webhook.office.com)は' +
+      '2026-05廃止済みで、現行URLは api.powerplatform.com。受信(拾い)はBot Framework + Azure Bot登録の' +
+      '単一 messaging endpoint（標準チャネルのみ対応・プライベート/共有チャネルは対象外）。',
     proOnly: true,
   },
   whatsapp: {
@@ -279,26 +289,35 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     ],
     setupUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api',
     notes:
-      'Meta Cloud API。ビジネス認証が必須。24時間ウィンドウ外はテンプレートのみ。受信はaccount単位URL: GET(verify_token検証)+POST(X-Hub-Signature-256をapp_secretで検証)。テキストを取り込む。',
+      'Meta Cloud API。ビジネス認証が必須。24時間ウィンドウ外はテンプレートのみ。受信はaccount単位URL: GET(verify_token検証)+POST(X-Hub-Signature-256をapp_secretで検証)。テキストを取り込む。1:1 DMで突合コードを送ると相手先(space)に紐付く。',
     proOnly: true,
   },
   messenger: {
     id: 'messenger',
     label: 'Facebook Messenger',
     kind: 'chat',
-    status: 'planned',
-    outbound: false,
-    inbound: false,
+    status: 'beta',
+    outbound: true,
+    inbound: true,
     group: false,
     directMessage: true,
+    webhookPath: '/api/channels/messenger/webhook/{accountId}',
     signatureScheme: 'hmac-sha256',
     targetHint: 'PSID（Page-Scoped User ID）',
     credentialFields: [
       { key: 'page_access_token', label: 'Page Access Token', secret: true },
       { key: 'app_secret', label: 'App Secret', secret: true },
+      {
+        key: 'verify_token',
+        label: 'Webhook Verify Token',
+        secret: true,
+        generated: true,
+        help: '登録時にサーバーが自動生成。Meta App Dashboard の Webhook 設定で「確認トークン」に貼り付ける',
+      },
     ],
     setupUrl: 'https://developers.facebook.com/docs/messenger-platform',
-    notes: 'ロードマップ。Page/アプリのMetaレビューが必要。',
+    notes:
+      'Send API送信・受信はaccount単位URL(GET verify_token / POST X-Hub-Signature-256)・1:1 DMで突合コード償還による相手先紐付けに対応。Meta app review(pages_messaging Advanced Access)＋ビジネス認証が本番稼働の前提。',
     proOnly: true,
   },
   email: {

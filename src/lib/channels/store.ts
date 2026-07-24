@@ -713,10 +713,15 @@ export async function createLinkCode(
 /**
  * リンクコードで identity を作成（期限内マルチユース）。
  * 同一人物×同一spaceで既にactiveなら既存を返す（再送や2台目端末）。
+ *
+ * 突合コード（channel_link_codes）はチャネル横断（発行済みの1コードがLINEでもWhatsAppでも通る）。
+ * `channel` は「どのチャネルで償還したか」＝作る identity のチャネルを指定する引数で、
+ * 既定は 'line'（既存呼び出し元の挙動を変えない）。
  */
 export async function linkIdentityViaCode(
   linkCode: ValidLinkCode,
   externalUserId: string,
+  channel: string = 'line',
 ): Promise<ActiveIdentity> {
   const client = admin()
   const { data, error } = await client
@@ -724,7 +729,7 @@ export async function linkIdentityViaCode(
     .insert({
       org_id: linkCode.orgId,
       space_id: linkCode.spaceId,
-      channel: 'line',
+      channel,
       external_id: externalUserId,
       linked_via: 'link_code',
       link_code_id: linkCode.id,
@@ -743,7 +748,7 @@ export async function linkIdentityViaCode(
       .select('id, space_id')
       .eq('org_id', linkCode.orgId)
       .eq('space_id', linkCode.spaceId)
-      .eq('channel', 'line')
+      .eq('channel', channel)
       .eq('external_id', externalUserId)
       .eq('status', 'active')
       .single()
@@ -1130,6 +1135,44 @@ export async function updateChannelGroup(
   if (error) throw new Error(`channel_groups: update failed: ${error.message}`)
 }
 
+export interface ChannelGroupMetadataPatch {
+  serviceUrl?: string
+  teamId?: string
+  tenantId?: string
+}
+
+/**
+ * channel_groups.metadata（jsonb・teams専用の付帯情報。PR-1で追加した器）へのマージ更新。
+ * 既存キーを壊さず patch のキーだけ上書きする（Teams claimed 発言のたびに serviceUrl/teamId/
+ * tenantId を反映し、PR-3の能動送信が使えるようにするため）。
+ *
+ * ⚠ TOCTOU: select→update は同一トランザクションではないため、並行webhookでは後勝ちの
+ * 上書きが起こり得る。値は同一グループなら毎回同じ内容が再送されるため実害は無い（許容・
+ * group_capacity-hardlimit-decisionと同種のFable許容範囲）。呼び出し側（webhookHandler）で
+ * best-effort（失敗は握りつぶし、記録・完了処理を壊さない）として使う想定。
+ */
+export async function updateChannelGroupMetadata(
+  groupId: string,
+  patch: ChannelGroupMetadataPatch,
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return
+
+  const { data: existing, error: selectError } = await admin()
+    .from('channel_groups')
+    .select('metadata')
+    .eq('id', groupId)
+    .maybeSingle()
+  if (selectError) {
+    throw new Error(`channel_groups: metadata select failed: ${selectError.message}`)
+  }
+
+  const current = (existing?.metadata as Record<string, unknown> | null) ?? {}
+  const merged = { ...current, ...patch }
+
+  const { error } = await admin().from('channel_groups').update({ metadata: merged }).eq('id', groupId)
+  if (error) throw new Error(`channel_groups: metadata update failed: ${error.message}`)
+}
+
 /**
  * unlink（誤紐付けの是正）。旧世代のopenな申し送りタスクはauto-dismissする
  * （新世代へは引き継がない設計。§2.1参照）。
@@ -1156,6 +1199,12 @@ export interface DigestEligibleGroup {
   externalGroupId: string
   pickupMode: PickupMode
   lastExtractedMessageCreatedAt: string | null
+  /**
+   * チャネル固有の付帯情報（現状はteamsのserviceUrl/teamId/tenantIdのみ・PR-1/PR-2）。
+   * teams以外のチャネルは常にnull（書き込み経路が無いため）。PR-3: cronがteamsグループへ
+   * providerContext.serviceUrlを渡すために追加（既存フィールドの意味・他呼び出し元は変えない）。
+   */
+  metadata: Record<string, unknown> | null
 }
 
 /**
@@ -1166,7 +1215,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
   const { data, error } = await admin()
     .from('channel_groups')
     .select(
-      'id, org_id, space_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, channel_accounts!inner(status)',
+      'id, org_id, space_id, account_id, external_group_id, pickup_mode, last_extracted_message_created_at, metadata, channel_accounts!inner(status)',
     )
     .eq('status', 'active')
     .neq('pickup_mode', 'off')
@@ -1181,6 +1230,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     external_group_id: string
     pickup_mode: string
     last_extracted_message_created_at: string | null
+    metadata: Record<string, unknown> | null
   }
   return (data as unknown as EligibleRow[]).map((row) => ({
     id: row.id,
@@ -1190,6 +1240,7 @@ export async function findDigestEligibleGroups(): Promise<DigestEligibleGroup[]>
     externalGroupId: row.external_group_id,
     pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
+    metadata: row.metadata ?? null,
   }))
 }
 
@@ -2655,6 +2706,26 @@ export async function hasActiveUserLinkForUser(orgId: string, userId: string): P
 }
 
 /**
+ * 現在ユーザー自身の active な LINE 紐付けが「DM到達不能」マーク済み(dm_unreachable_at 非NULL)か。
+ * オンボーディング/秘書コンソールのLINE連携状態表示（line-status API）向け。webhookの
+ * unfollow/follow(markDmUnreachable/clearDmUnreachable)と日次照合ジョブ
+ * （dmReachabilityReconcile）が唯一の書き手で、ここは読み取り専用（存在判定のみ）。
+ * 該当する active な紐付けが無い（未連携）場合も false（誤って「到達不能」を出さない）。
+ */
+export async function isDmUnreachableForUser(orgId: string, userId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .is('revoked_at', null)
+    .not('dm_unreachable_at', 'is', null)
+    .limit(1)
+  if (error) throw new Error(`channel_user_links: dm unreachable check failed: ${error.message}`)
+  return (data?.length ?? 0) > 0
+}
+
+/**
  * 現在ユーザー自身の active な LINE 紐付けを値で返す（hasActiveUserLinkForUser の値返し版）。
  * 期限リマインドの1:1 DM 宛先解決に使う（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
  * §9 §A・PR-1）。同一ユーザーが同一org内で active にできるのは1件のみ
@@ -2798,6 +2869,73 @@ export async function clearDmUnreachable(
     // 同一ミリ秒に一致するのは実務上発生しない前提（もし発生しても次のイベントで解消する）。
     .lt('dm_unreachable_at', occurredAt)
   if (error) throw new Error(`channel_user_links: clear dm_unreachable failed: ${error.message}`)
+}
+
+export interface ActiveOrgDmLink {
+  orgId: string
+  accountId: string
+  /** 復号済みの channel access token（既存の decryptAccount と同じ復号作法） */
+  accessToken: string
+  externalUserId: string
+  dmUnreachableAt: string | null
+}
+
+/**
+ * 日次照合ジョブ（dmReachabilityReconcile・安全網の仕上げ）専用: owner_type='org'
+ * （自社LINE。DMは自社LINEアカウントのみが持つ・設計正本 §7）配下の active な1:1紐付け
+ * (channel_user_links, revoked_at is null)を、復号済みaccessToken付きで一覧する。
+ *
+ * webhookのunfollow/follow（markDmUnreachable/clearDmUnreachableの唯一のトリガ）は
+ * 「導入前から既にブロック済み」「unfollowイベント自体の取りこぼし」を拾えない。この一覧を
+ * 使い、LINE 1:1 profile取得（fetchLineUserProfile）で実際の到達可否を照合し直す。
+ *
+ * account側はstatus='active'のみ対象（disabledはpush自体が止まっており照合の意味が無い）。
+ * 同一accountを指す行が複数あっても復号(decrypt_system_secret RPC)は1回にまとめる
+ * （accountCacheで重複排除）。復号に失敗したaccountの行はベストエフォートでスキップする
+ * （他accountの行の処理は継続する）。
+ */
+export async function listActiveOrgDmLinks(): Promise<ActiveOrgDmLink[]> {
+  const { data, error } = await admin()
+    .from('channel_user_links')
+    .select(
+      'org_id, channel_account_id, external_user_id, dm_unreachable_at, channel_accounts!inner(id, org_id, display_name, credentials_encrypted, status, owner_type)',
+    )
+    .is('revoked_at', null)
+    .eq('channel_accounts.owner_type', 'org')
+    .eq('channel_accounts.status', 'active')
+  if (error) throw new Error(`channel_user_links: list active org dm links failed: ${error.message}`)
+  if (!data) return []
+
+  type Row = {
+    org_id: string
+    channel_account_id: string
+    external_user_id: string
+    dm_unreachable_at: string | null
+    channel_accounts: AccountRow | AccountRow[] | null
+  }
+
+  const accountCache = new Map<string, LineAccount | null>()
+  const results: ActiveOrgDmLink[] = []
+  for (const row of data as unknown as Row[]) {
+    const accRow = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
+    if (!accRow) continue
+
+    let account = accountCache.get(accRow.id)
+    if (account === undefined) {
+      account = await decryptAccount(accRow)
+      accountCache.set(accRow.id, account)
+    }
+    if (!account) continue
+
+    results.push({
+      orgId: row.org_id,
+      accountId: row.channel_account_id,
+      accessToken: account.accessToken,
+      externalUserId: row.external_user_id,
+      dmUnreachableAt: row.dm_unreachable_at,
+    })
+  }
+  return results
 }
 
 /**
