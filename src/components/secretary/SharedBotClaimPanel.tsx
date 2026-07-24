@@ -4,9 +4,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Copy, Check, Warning } from '@phosphor-icons/react'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+import { getChannel } from '@/lib/channels/registry'
 
-interface GoogleChatConnectPanelProps {
+interface SharedBotClaimPanelProps {
   orgId: string
+  /** google_chat / discord 等の platform 共有Botチャネル */
+  channel: string
 }
 
 interface IssuedCode {
@@ -14,21 +17,80 @@ interface IssuedCode {
   expiresAt: string
 }
 
+/** チャネル別の案内文（つなぎ方ステップ・投稿指示・Pro文言・相手先の呼称）。 */
+interface ClaimGuide {
+  steps: React.ReactNode
+  /** 発行済みコードの上に出す投稿指示 */
+  postInstruction: string
+  /** Pro 必須(402)時の見出し */
+  proLabel: string
+  /** 有効期限メモの相手先呼称（スペース/チャンネル 等） */
+  targetNoun: string
+}
+
+const CLAIM_GUIDES: Record<string, ClaimGuide> = {
+  google_chat: {
+    steps: (
+      <>
+        <li>運営のGoogle Chatアプリを、相手先のスペースに追加してもらいます。</li>
+        <li>
+          <strong>Workspace管理者が権限を一度だけ承認</strong>してもらう必要があります
+          （これが無いとメッセージを受け取れません）。
+        </li>
+        <li>
+          下で合言葉を発行し、スペースで<strong>@bot をメンションして</strong>合言葉を投稿してもらいます
+          （承認前は@メンション宛のメッセージしか届きません）。内部で承認すると、以降の会話の記録が始まります。
+        </li>
+      </>
+    ),
+    postInstruction: 'このコードをGoogle Chatのスペースで@botメンションと一緒に投稿してください。',
+    proLabel: 'Google Chat との接続は Pro プランで使えます。',
+    targetNoun: 'スペース',
+  },
+  discord: {
+    steps: (
+      <>
+        <li>運営の共有Bot（agentpm）を、相手先の Discord サーバーに招待してもらいます（招待済みならスキップ）。</li>
+        <li>下で合言葉を発行し、記録したい<strong>チャンネルにこの合言葉を投稿</strong>してもらいます。</li>
+        <li>
+          投稿されると<strong>「確認待ち」</strong>に現れます。内部で承認すると、以降そのチャンネルの会話の記録が始まります。
+        </li>
+      </>
+    ),
+    postInstruction: 'このコードを Discord の記録したいチャンネルに投稿してください。',
+    proLabel: 'Discord との接続は Pro プランで使えます。',
+    targetNoun: 'チャンネル',
+  },
+}
+
+// 案内文を持たないチャネルの安全なフォールバック（挙動は保つ・チャネル名だけ差し込む）。
+function fallbackGuide(channel: string): ClaimGuide {
+  const label = getChannel(channel)?.label ?? channel
+  return {
+    steps: (
+      <>
+        <li>運営の共有Botを、相手先の{label}に追加してもらいます。</li>
+        <li>下で合言葉を発行し、記録したい{label}のチャンネルに投稿してもらいます。</li>
+        <li>「確認待ち」に現れるので、内部で承認すると会話の記録が始まります。</li>
+      </>
+    ),
+    postInstruction: `このコードを ${label} の記録したいチャンネルに投稿してください。`,
+    proLabel: `${label} との接続は Pro プランで使えます。`,
+    targetNoun: 'チャンネル',
+  }
+}
+
 /**
- * Google Chat 接続パネル（PR-e・全5PR完了）。
+ * platform 共有Bot（google_chat / discord 等）の接続パネル。
  *
- * Google Chat は platform 共有bot（Discord/LINE と同じく org は認証情報を登録しない）。
- * 接続手順は「①運営のChatアプリをスペースに追加 ②Workspace管理者が権限を一度承認
- * ③合言葉を@botメンションで投稿」の3ステップで、承認コンソール（pending一覧の承認/却下）は
- * channel非依存の既存route(/api/channels/group-claims/pending, /approval)がそのまま拾う。
- *
- * ChannelConnectOverview の汎用資格情報フォーム(ChannelCredentialForm)は google_chat には
- * 出さず、代わりにこのウィジェット（設定ガイド＋合言葉発行）を描画する。
- * 発行APIは PR-b で channel 対応済みの POST /api/channels/group-claims/issue
- * （body: {orgId, spaceId, channel:'google_chat'}）をそのまま叩く（line用GroupLinksClientの
- * 発行部分と同じ挙動・見た目に揃えるが、複製はせずこのチャネル専用の小さいコンポーネントとして書く）。
+ * これらは org が認証情報を登録せず、合言葉（web_approval コード）を発行 → 相手先チャネルに投稿 →
+ * 「確認待ち」で内部承認、という共通フローで紐付ける。発行APIは channel 対応済みの
+ * POST /api/channels/group-claims/issue（body: {orgId, spaceId, channel}）。承認/却下は
+ * channel 非依存の既存 route（/api/channels/group-claims/pending, /approval）がそのまま拾う。
+ * チャネル固有の案内文だけ CLAIM_GUIDES で差し替える（ロジック・見た目は共通）。
  */
-export function GoogleChatConnectPanel({ orgId }: GoogleChatConnectPanelProps) {
+export function SharedBotClaimPanel({ orgId, channel }: SharedBotClaimPanelProps) {
+  const guide = CLAIM_GUIDES[channel] ?? fallbackGuide(channel)
   const { spaces } = useUserSpaces()
   const orgSpaces = spaces.filter((s) => s.orgId === orgId)
 
@@ -52,7 +114,7 @@ export function GoogleChatConnectPanel({ orgId }: GoogleChatConnectPanelProps) {
       const res = await fetch('/api/channels/group-claims/issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgId, spaceId: selectedSpaceId, channel: 'google_chat' }),
+        body: JSON.stringify({ orgId, spaceId: selectedSpaceId, channel }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -85,17 +147,7 @@ export function GoogleChatConnectPanel({ orgId }: GoogleChatConnectPanelProps) {
   return (
     <div className="mt-6 border-t border-gray-100 pt-6">
       <h2 className="text-sm font-semibold text-gray-700 mb-3">つなぎ方</h2>
-      <ol className="mb-6 list-decimal list-inside space-y-2 text-sm text-gray-700">
-        <li>運営のGoogle Chatアプリを、相手先のスペースに追加してもらいます。</li>
-        <li>
-          <strong>Workspace管理者が権限を一度だけ承認</strong>してもらう必要があります
-          （これが無いとメッセージを受け取れません）。
-        </li>
-        <li>
-          下で合言葉を発行し、スペースで<strong>@bot をメンションして</strong>合言葉を投稿してもらいます
-          （承認前は@メンション宛のメッセージしか届きません）。内部で承認すると、以降の会話の記録が始まります。
-        </li>
-      </ol>
+      <ol className="mb-6 list-decimal list-inside space-y-2 text-sm text-gray-700">{guide.steps}</ol>
 
       <h2 className="text-sm font-semibold text-gray-700 mb-2">合言葉の発行</h2>
 
@@ -108,7 +160,7 @@ export function GoogleChatConnectPanel({ orgId }: GoogleChatConnectPanelProps) {
 
       {proRequired && (
         <div className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2">
-          <p className="text-xs text-amber-800">Google Chat との接続は Pro プランで使えます。</p>
+          <p className="text-xs text-amber-800">{guide.proLabel}</p>
           <p className="mt-1 text-xs text-amber-700">
             <Link href="/settings/billing" className="underline hover:text-amber-800">
               プランを見る
@@ -130,9 +182,7 @@ export function GoogleChatConnectPanel({ orgId }: GoogleChatConnectPanelProps) {
 
       {issued ? (
         <div className="rounded border border-amber-300 bg-amber-50 p-4">
-          <p className="text-xs font-semibold text-amber-900">
-            このコードをGoogle Chatのスペースで@botメンションと一緒に投稿してください。
-          </p>
+          <p className="text-xs font-semibold text-amber-900">{guide.postInstruction}</p>
           <div className="mt-2 flex items-center gap-2">
             <code className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
               {issued.code}
@@ -147,7 +197,7 @@ export function GoogleChatConnectPanel({ orgId }: GoogleChatConnectPanelProps) {
             </button>
           </div>
           <ul className="mt-3 space-y-1 text-xs text-amber-900">
-            <li>・有効期限は30分です。1スペースのみ紐付けできます。</li>
+            <li>・有効期限は30分です。1{guide.targetNoun}のみ紐付けできます。</li>
             <li>・この画面を離れると再表示できません（再発行してください）。</li>
           </ul>
           <button
