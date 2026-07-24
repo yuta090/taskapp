@@ -78,4 +78,28 @@ describe('MessageBubble', () => {
     retryButton.click()
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
+
+  it('チャネルのバッジ（LINE/Discord等）をメタ行に表示する（横断で追える）', () => {
+    render(<MessageBubble message={makeMessage({ channel: 'discord' })} />)
+    expect(screen.getByText('Discord')).toBeInTheDocument()
+  })
+
+  it('LINE も同様にバッジ表示する', () => {
+    render(<MessageBubble message={makeMessage({ channel: 'line' })} />)
+    expect(screen.getByText('LINE')).toBeInTheDocument()
+  })
+
+  it('未知チャネルはバッジを出さない（壊さない）', () => {
+    render(<MessageBubble message={makeMessage({ channel: 'mystery' })} />)
+    expect(screen.queryByText('mystery')).not.toBeInTheDocument()
+    // 本文と発言者は従来どおり出る
+    expect(screen.getByText('こんにちは')).toBeInTheDocument()
+    expect(screen.getByText('顧問先')).toBeInTheDocument()
+  })
+
+  it('redacted(墓標)ではバッジも出さない（本文同様に隠す）', () => {
+    render(<MessageBubble message={makeMessage({ channel: 'discord', redacted_at: '2026-07-11T10:00:00.000Z' })} />)
+    expect(screen.queryByText('Discord')).not.toBeInTheDocument()
+    expect(screen.getByText('削除済み（機微情報）')).toBeInTheDocument()
+  })
 })

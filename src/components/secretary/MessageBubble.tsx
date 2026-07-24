@@ -10,6 +10,7 @@ import {
   SpinnerGap,
 } from '@phosphor-icons/react'
 import type { ChannelMessageRow } from '@/lib/hooks/useChannelTimeline'
+import { channelBadgeLabel } from '@/lib/channels/channelBadge'
 
 const ACTOR_LABEL: Record<ChannelMessageRow['actor'], string> = {
   client: '顧問先',
@@ -63,6 +64,8 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
     hour: '2-digit',
     minute: '2-digit',
   })
+  // どのチャット（LINE/Discord等）由来かのバッジ。未知チャネルは null＝非表示。
+  const badge = channelBadgeLabel(message.channel)
 
   if (message.redacted_at) {
     return (
@@ -98,6 +101,11 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
             isOutbound ? 'flex-row-reverse' : ''
           }`}
         >
+          {badge && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">
+              {badge}
+            </span>
+          )}
           <span>{ACTOR_LABEL[message.actor] ?? message.actor}</span>
           <span>{time}</span>
           {message.status === 'queued' && <SpinnerGap className="animate-spin" />}
