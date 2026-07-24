@@ -92,6 +92,12 @@ export interface ChannelDefinition {
   setupUrl?: string
   /** 白ラベル/即時が要る等でPro専有の接続か */
   proOnly?: boolean
+  /**
+   * platform 共有Bot方式か（org は認証情報を登録せず、合言葉=web_approvalコードの発行で紐付ける）。
+   * true のチャネルは接続UIで資格情報フォームではなく SharedBotClaimPanel（合言葉発行）を出す。
+   * 例: google_chat / discord。line は専用routeで別扱い。
+   */
+  sharedBotClaim?: boolean
   /** doc/UIの補足 */
   notes?: string
 }
@@ -181,6 +187,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
       { key: 'webhook_url', label: 'Incoming Webhook URL', secret: true, help: 'スペース設定で発行したWebhook URL' },
     ],
     setupUrl: 'https://developers.google.com/chat/how-tos/webhooks',
+    sharedBotClaim: true,
     // 受信は2系統: (1) Chat アプリ HTTP 入口（@メンション合言葉の claim bootstrap のみ・実装済み・
     // PR-b）。全メッセージ購読には Workspace Events API + Pub/Sub が要り、それが張られるまでは
     // @メンション時の MESSAGE event しか届かない。(2) Pub/Sub 購読経由の全メッセージ取り込み
@@ -206,6 +213,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
       { key: 'webhook_url', label: 'Channel Webhook URL', secret: true, help: '各チャンネル設定→連携サービス→Webhookで発行' },
     ],
     setupUrl: 'https://discord.com/developers/applications',
+    sharedBotClaim: true,
     // 受信: 常駐Gatewayワーカー(worker/discord-gateway)がWebSocketで受け、内部専用の
     // HMAC口(/api/channels/discord/ingest)へ転送する方式（他チャネルのような、
     // オペレーターがprovider側に貼り付ける外部向けwebhookは無い＝webhookPathは持たせない）。

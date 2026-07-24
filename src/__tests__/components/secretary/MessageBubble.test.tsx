@@ -84,6 +84,12 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Discord')).toBeInTheDocument()
   })
 
+  it('ロゴを持つチャネルはバッジ内にブランドアイコン(svg)も表示する', () => {
+    const { container } = render(<MessageBubble message={makeMessage({ channel: 'discord' })} />)
+    // バッジ内に svg（ブランドロゴ）が描画される
+    expect(container.querySelector('svg')).not.toBeNull()
+  })
+
   it('LINE も同様にバッジ表示する', () => {
     render(<MessageBubble message={makeMessage({ channel: 'line' })} />)
     expect(screen.getByText('LINE')).toBeInTheDocument()

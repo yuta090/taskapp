@@ -2,7 +2,7 @@ import { ArrowSquareOut } from '@phosphor-icons/react/dist/ssr'
 import type { ChannelDefinition } from '@/lib/channels/registry'
 import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
-import { GoogleChatConnectPanel } from '@/components/secretary/GoogleChatConnectPanel'
+import { SharedBotClaimPanel } from '@/components/secretary/SharedBotClaimPanel'
 
 // beta は内部区分（要検証）でありユーザーには見せない — 表示上は ga と同じ「利用可能」。
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
@@ -20,11 +20,12 @@ const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: st
 export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition; orgId: string }) {
   const Icon = CHANNEL_ICONS[def.id]
   const status = STATUS_LABEL[def.status]
-  // google_chat は platform 共有bot（org は認証情報を登録しない）のため、LINEと同様に
-  // 汎用の資格情報登録フォームは出さない（代わりに専用の GoogleChatConnectPanel を描画する）。
-  const isGoogleChat = def.id === 'google_chat'
-  // 実際に接続できる（送信可能・LINE/Google Chat以外）チャネルにのみ資格情報登録フォームを出す。
-  const canRegister = def.outbound && def.status !== 'planned' && def.id !== 'line' && !isGoogleChat
+  // platform 共有bot（google_chat / discord 等・org は認証情報を登録しない）は、LINEと同様に
+  // 汎用の資格情報登録フォームは出さず、合言葉発行の SharedBotClaimPanel を描画する。
+  const isSharedBotClaim = !!def.sharedBotClaim
+  // 実際に接続できる（送信可能・LINE/共有Bot以外）チャネルにのみ資格情報登録フォームを出す。
+  const canRegister =
+    def.outbound && def.status !== 'planned' && def.id !== 'line' && !isSharedBotClaim
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6 max-w-2xl">
@@ -60,10 +61,10 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       </dl>
 
       <h2 className="text-sm font-semibold text-gray-700 mb-2">用意する資格情報</h2>
-      {isGoogleChat || def.credentialFields.length === 0 ? (
+      {isSharedBotClaim || def.credentialFields.length === 0 ? (
         <p className="text-sm text-gray-500">
-          {isGoogleChat
-            ? '追加の資格情報は不要です（運営がGoogle Chatアプリを提供します）。'
+          {isSharedBotClaim
+            ? '追加の資格情報は不要です（運営が共有Botを提供します）。'
             : 'このチャネルに追加の資格情報は不要です。'}
         </p>
       ) : (
@@ -81,9 +82,9 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
         </ul>
       )}
 
-      {/* google_chat は資格情報を貼り付ける開発者コンソールを持たない（運営がアプリを提供する）ため、
-          他チャネル向けの「開発者コンソールを開く」リンク（webhook設定手順）は出さない。 */}
-      {!isGoogleChat && def.setupUrl && (
+      {/* 共有Botチャネル（google_chat/discord等）は org が資格情報を貼り付ける開発者コンソールを
+          持たない（運営がBotを提供する）ため、「開発者コンソールを開く」リンクは出さない。 */}
+      {!isSharedBotClaim && def.setupUrl && (
         <a
           href={def.setupUrl}
           target="_blank"
@@ -95,7 +96,7 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
         </a>
       )}
 
-      {isGoogleChat && <GoogleChatConnectPanel orgId={orgId} />}
+      {isSharedBotClaim && <SharedBotClaimPanel orgId={orgId} channel={def.id} />}
       {canRegister && <ChannelCredentialForm orgId={orgId} def={def} />}
 
       <p className="mt-8 text-xs text-gray-400 border-t border-gray-100 pt-4">
