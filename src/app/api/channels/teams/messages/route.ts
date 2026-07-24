@@ -7,6 +7,9 @@ import {
   findFirstPlatformAccountId,
   findChannelAccountCredentials,
   findActiveGroup,
+  insertChannelMessage,
+  markDigestTaskDoneByGroupAndNumberAtomic,
+  updateChannelGroupMetadata,
   findValidSharedGroupClaimCode,
   findOrCreatePendingGroupClaim,
   redeemCodeOnlyClaim,
@@ -26,10 +29,11 @@ export const runtime = 'nodejs'
 
 /**
  * POST /api/channels/teams/messages — Microsoft Teams（Bot Framework Connector）の単一
- * messaging endpoint（claim bootstrap・PR-1）。
+ * messaging endpoint。
  *
- * このPRのゴールは未 claim グループでの合言葉償還（claim bootstrap）だけ。claimed グループの
- * 通常発言取り込み・「完了N」は PR-2 の役目（二重処理を避けるため webhookHandler が無処理で返す）。
+ * PR-1: 未 claim グループでの合言葉償還（claim bootstrap）。
+ * PR-2: claimed グループの通常発言取り込み＋「完了N」（deps.insertMessage/completeDigestTask/
+ * insertOutbound/updateGroupMetadata。中身は webhookHandler.ts の handleClaimedGroup）。
  *
  * 認証: Authorization: Bearer <JWT>（Bot Framework Connector が署名）。
  *   - env(TEAMS_BOT_APP_ID) 未設定はサーバー誤設定 → fail-closed で 500（google-chat webhook と
@@ -63,6 +67,30 @@ function buildDeps(serviceUrl: string, conversationId: string): TeamsWebhookDeps
       const g = await findActiveGroup(accountId, channelId)
       return g ? { id: g.id, orgId: g.orgId, spaceId: g.spaceId } : null
     },
+    insertMessage: (input) => insertChannelMessage(input),
+    completeDigestTask: (groupId, digestNumber, externalUserId) =>
+      markDigestTaskDoneByGroupAndNumberAtomic(groupId, digestNumber, externalUserId),
+    insertOutbound: (input) =>
+      insertChannelMessage({
+        orgId: input.orgId,
+        spaceId: input.spaceId,
+        identityId: null,
+        accountId: input.accountId,
+        groupId: input.groupId,
+        channel: input.channel,
+        direction: input.direction,
+        actor: input.actor,
+        externalUserId: null,
+        externalMessageId: null,
+        contentType: 'text',
+        body: input.body,
+        payload: input.payload,
+        storagePath: null,
+        status: input.status,
+        error: input.error,
+        occurredAt: input.occurredAt,
+      }),
+    updateGroupMetadata: (groupId, patch) => updateChannelGroupMetadata(groupId, patch),
     normalizeClaimCode: (content) => normalizeClaimCode(content),
     hashClaimCode: (canonical) => hashSharedGroupClaimCode(canonical),
     findValidClaimCode: (codeHash, accountId) => findValidSharedGroupClaimCode(codeHash, accountId),

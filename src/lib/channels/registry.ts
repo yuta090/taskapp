@@ -241,10 +241,12 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     kind: 'chat',
     status: 'beta',
     outbound: true,
-    inbound: false,
+    inbound: true,
     group: true,
     directMessage: false,
-    signatureScheme: 'hmac-sha256',
+    webhookPath: '/api/channels/teams/messages',
+    // 受信はBot Framework ConnectorのBearer JWT検証（HMAC署名ではない。google_chatと同型）。
+    signatureScheme: 'bearer',
     targetHint: 'Power Automate Workflows の Webhook URL（api.powerplatform.com）',
     credentialFields: [
       {
@@ -257,7 +259,8 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     setupUrl: 'https://support.microsoft.com/office/browse-and-add-workflows-in-microsoft-teams-4998095c-8b72-4b0e-984c-f2ad39e6ba9a',
     notes:
       '送信は Power Automate Workflows の Incoming Webhook(Adaptive Card)。旧O365コネクタ(webhook.office.com)は' +
-      '2026-05廃止済みで、現行URLは api.powerplatform.com。双方向(受信/拾い)はBot Framework + Azure Bot登録が別途必要。',
+      '2026-05廃止済みで、現行URLは api.powerplatform.com。受信(拾い)はBot Framework + Azure Bot登録の' +
+      '単一 messaging endpoint（標準チャネルのみ対応・プライベート/共有チャネルは対象外）。',
     proOnly: true,
   },
   whatsapp: {

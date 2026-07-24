@@ -1135,6 +1135,44 @@ export async function updateChannelGroup(
   if (error) throw new Error(`channel_groups: update failed: ${error.message}`)
 }
 
+export interface ChannelGroupMetadataPatch {
+  serviceUrl?: string
+  teamId?: string
+  tenantId?: string
+}
+
+/**
+ * channel_groups.metadata（jsonb・teams専用の付帯情報。PR-1で追加した器）へのマージ更新。
+ * 既存キーを壊さず patch のキーだけ上書きする（Teams claimed 発言のたびに serviceUrl/teamId/
+ * tenantId を反映し、PR-3の能動送信が使えるようにするため）。
+ *
+ * ⚠ TOCTOU: select→update は同一トランザクションではないため、並行webhookでは後勝ちの
+ * 上書きが起こり得る。値は同一グループなら毎回同じ内容が再送されるため実害は無い（許容・
+ * group_capacity-hardlimit-decisionと同種のFable許容範囲）。呼び出し側（webhookHandler）で
+ * best-effort（失敗は握りつぶし、記録・完了処理を壊さない）として使う想定。
+ */
+export async function updateChannelGroupMetadata(
+  groupId: string,
+  patch: ChannelGroupMetadataPatch,
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return
+
+  const { data: existing, error: selectError } = await admin()
+    .from('channel_groups')
+    .select('metadata')
+    .eq('id', groupId)
+    .maybeSingle()
+  if (selectError) {
+    throw new Error(`channel_groups: metadata select failed: ${selectError.message}`)
+  }
+
+  const current = (existing?.metadata as Record<string, unknown> | null) ?? {}
+  const merged = { ...current, ...patch }
+
+  const { error } = await admin().from('channel_groups').update({ metadata: merged }).eq('id', groupId)
+  if (error) throw new Error(`channel_groups: metadata update failed: ${error.message}`)
+}
+
 /**
  * unlink（誤紐付けの是正）。旧世代のopenな申し送りタスクはauto-dismissする
  * （新世代へは引き継がない設計。§2.1参照）。

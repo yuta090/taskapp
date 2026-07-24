@@ -27,10 +27,16 @@ function activity(over: Partial<NormalizedTeamsActivity> = {}): NormalizedTeamsA
   }
 }
 
+const GROUP = { id: 'grp-1', orgId: 'org-1', spaceId: 'space-1' }
+
 function makeDeps(over: Partial<TeamsWebhookDeps> = {}): TeamsWebhookDeps {
   return {
     loadPlatformAccount: vi.fn().mockResolvedValue(ACCOUNT),
     findActiveGroup: vi.fn().mockResolvedValue(null),
+    insertMessage: vi.fn().mockResolvedValue({ id: 'msg-1' }),
+    completeDigestTask: vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' }),
+    insertOutbound: vi.fn().mockResolvedValue({ id: 'out-1' }),
+    updateGroupMetadata: vi.fn().mockResolvedValue(undefined),
     normalizeClaimCode: vi.fn().mockReturnValue(null),
     hashClaimCode: vi.fn((c: string) => `hash(${c})`),
     findValidClaimCode: vi.fn().mockResolvedValue(null),
@@ -65,14 +71,11 @@ describe('handleTeamsWebhook — platform account', () => {
 })
 
 describe('handleTeamsWebhook — claimed グループ', () => {
-  it('claimed（findActiveGroup有）は無処理・processClaimLimbo系のdepsを一切呼ばない（PR-2の役目）', async () => {
-    const deps = makeDeps({
-      findActiveGroup: vi.fn().mockResolvedValue({ id: 'grp-1', orgId: 'org-1', spaceId: 'space-1' }),
-    })
+  it('claimed（findActiveGroup有）はlimbo系のdepsを一切呼ばない（claim/limboとの二重処理防止）', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP) })
     await handleTeamsWebhook(activity({ text: 'GC-XXXX' }), deps)
     expect(deps.normalizeClaimCode).not.toHaveBeenCalled()
     expect(deps.findValidClaimCode).not.toHaveBeenCalled()
-    expect(deps.reply).not.toHaveBeenCalled()
   })
 
   it('findActiveGroupにはaccountIdとexternalGroupId(channelId)が渡る', async () => {
@@ -80,6 +83,149 @@ describe('handleTeamsWebhook — claimed グループ', () => {
     const deps = makeDeps({ findActiveGroup })
     await handleTeamsWebhook(activity(), deps)
     expect(findActiveGroup).toHaveBeenCalledWith('acc-teams-plat', '19:abcd1234@thread.tacv2')
+  })
+
+  it('通常発言は insertMessage で group_id 付き・正しい dedupe 値で記録される', async () => {
+    const insertMessage = vi.fn().mockResolvedValue({ id: 'msg-1' })
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), insertMessage })
+    await handleTeamsWebhook(activity({ text: 'こんにちは', activityId: 'act-42' }), deps)
+    expect(insertMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: 'org-1',
+        spaceId: 'space-1',
+        identityId: null,
+        accountId: 'acc-teams-plat',
+        groupId: 'grp-1',
+        channel: 'teams',
+        direction: 'inbound',
+        actor: 'client',
+        externalUserId: '29:user-1',
+        externalMessageId: '19:abcd1234@thread.tacv2:act-42',
+        body: 'こんにちは',
+        occurredAt: '2026-07-24T00:00:00.000Z',
+      }),
+    )
+  })
+
+  it('duplicate（webhook再送）は以降の完了処理を一切しない', async () => {
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage: vi.fn().mockResolvedValue('duplicate'),
+      completeDigestTask,
+    })
+    await handleTeamsWebhook(activity({ text: '完了3' }), deps)
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
+  it('「完了3」は申し送りタスクを完了して返信・outbound記録する', async () => {
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' })
+    const insertOutbound = vi.fn().mockResolvedValue({ id: 'out-1' })
+    const reply = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      completeDigestTask,
+      insertOutbound,
+      reply,
+    })
+    await handleTeamsWebhook(activity({ text: '完了3', activityId: 'act-42' }), deps)
+    expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 3, '29:user-1')
+    expect(reply).toHaveBeenCalledTimes(1)
+    expect(insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: 'org-1',
+        spaceId: 'space-1',
+        accountId: 'acc-teams-plat',
+        groupId: 'grp-1',
+        channel: 'teams',
+        direction: 'outbound',
+        actor: 'secretary',
+        payload: expect.objectContaining({ autoReplyTo: '19:abcd1234@thread.tacv2:act-42' }),
+      }),
+    )
+  })
+
+  it('mention除去後のテキスト（activity.text。剥がすのはactivity.ts側）が「完了N」ならそのまま発火する', async () => {
+    // activity.ts の normalizeTeamsActivity が mention を既に剥がした後の text がここに届く前提
+    // （stripTeamsMentionの単体網羅は activity.test.ts）。ここでは「剥がされた後の文字列」を
+    // 厳格文法にそのまま渡して発火することだけを確認する（誤爆防止の境界確認）。
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' })
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), completeDigestTask })
+    await handleTeamsWebhook(activity({ text: '完了3' }), deps)
+    expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 3, '29:user-1')
+  })
+
+  it('自然文（"完了しました"等）は完了コマンドとして発火しない（誤爆防止）', async () => {
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), completeDigestTask })
+    await handleTeamsWebhook(activity({ text: '完了しました' }), deps)
+    expect(completeDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
+  it('textがnullでも記録・metadata更新はされるが完了処理はしない', async () => {
+    const insertMessage = vi.fn().mockResolvedValue({ id: 'msg-1' })
+    const completeDigestTask = vi.fn()
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage,
+      completeDigestTask,
+    })
+    await handleTeamsWebhook(activity({ text: null }), deps)
+    expect(insertMessage).toHaveBeenCalledWith(expect.objectContaining({ body: null }))
+    expect(completeDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('serviceUrl/teamId/tenantId が updateGroupMetadata に渡る', async () => {
+    const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), updateGroupMetadata })
+    await handleTeamsWebhook(
+      activity({
+        serviceUrl: 'https://smba.trafficmanager.net/amer/',
+        teamId: '19:team-abc@thread.tacv2',
+        tenantId: 'tenant-1',
+      }),
+      deps,
+    )
+    expect(updateGroupMetadata).toHaveBeenCalledWith('grp-1', {
+      serviceUrl: 'https://smba.trafficmanager.net/amer/',
+      teamId: '19:team-abc@thread.tacv2',
+      tenantId: 'tenant-1',
+    })
+  })
+
+  it('serviceUrl等が全て無ければ updateGroupMetadata を呼ばない（空更新で既存metadataを壊さない）', async () => {
+    const updateGroupMetadata = vi.fn().mockResolvedValue(undefined)
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), updateGroupMetadata })
+    await handleTeamsWebhook(
+      activity({ serviceUrl: null, teamId: null, tenantId: null }),
+      deps,
+    )
+    expect(updateGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  it('updateGroupMetadataが失敗しても記録・完了処理は継続する（best-effort・沈黙が保たれる）', async () => {
+    const updateGroupMetadata = vi.fn().mockRejectedValue(new Error('db down'))
+    const completeDigestTask = vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' })
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      updateGroupMetadata,
+      completeDigestTask,
+    })
+    await expect(handleTeamsWebhook(activity({ text: '完了3' }), deps)).resolves.toBeUndefined()
+    expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 3, '29:user-1')
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('replyが失敗（例外を投げない設計）でも記録は既に残っている（沈黙が保たれる）', async () => {
+    const insertMessage = vi.fn().mockResolvedValue({ id: 'msg-1' })
+    const reply = vi.fn().mockResolvedValue(undefined) // connectorClient.sendTeamsReplyはbest-effortで例外を投げない設計
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP), insertMessage, reply })
+    await handleTeamsWebhook(activity({ text: '完了3' }), deps)
+    expect(insertMessage).toHaveBeenCalledTimes(1)
+    expect(reply).toHaveBeenCalledTimes(1)
   })
 })
 
