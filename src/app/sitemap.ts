@@ -17,7 +17,7 @@ const STATIC_PATHS = [
   '/privacy',
   '/terms',
   '/tokushoho',
-  '/blog',
+  '/task6',
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -31,7 +31,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const posts = await listPublishedPosts()
     postEntries = posts.map((p) => ({
-      url: `${SITE}/blog/${p.slug}`,
+      url: `${SITE}/task6/${p.slug}`,
       lastModified: p.published_at ? new Date(p.published_at) : undefined,
       changeFrequency: 'monthly',
       priority: 0.6,
