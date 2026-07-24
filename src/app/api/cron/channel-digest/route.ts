@@ -472,6 +472,14 @@ export async function POST(request: NextRequest) {
 
         digestsSent += 1
       } catch (error) {
+        // Lowレビュー是正の判断メモ（PR-3・見送り）: teamsのserviceUrl未保存/env未設定のような
+        // 「既知の一時失敗」だけをここで skipped 相当へ回す案を検討したが、この catch は
+        // sendSecretaryPush の throw 契約（全チャネル共通）を含む「このグループ処理全体」の
+        // 汎用フォールバックであり、原因をここでエラーメッセージ文字列突合で teams だけ判別する
+        // のは脆い（sendSecretaryPush 側のエラー文言が変わると静かに壊れる）。共有境界
+        // （sendSecretaryPushの throw 契約・この catch 自体）には手を入れない方針を優先し、
+        // teams の一時失敗も他チャネル同様 errors[] に理由付きで残す（運用上は
+        // "teams: missing serviceUrl" / "TEAMS_BOT_APP_ID..." の文言で判別可能）。
         const message = error instanceof Error ? error.message : String(error)
         errors.push(`group ${group.id}: ${message}`)
       }

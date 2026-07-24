@@ -47,6 +47,7 @@ Teams は2部構成です。**送信・受信ともコード実装済み**（送
 - **fail-closed**：env 欠落＝500／Bot Framework JWT の署名・issuer(`https://api.botframework.com`)・audience(App ID)・期限が不正＝401。**JWT の `serviceurl` クレームと `activity.serviceUrl` の一致検証必須**（偽 serviceUrl への返信＝トークン持ち出し/SSRF を塞ぐ）。内容起因の失敗は 200（Bot Framework 再送のループ回避）。
 - **能動送信（PR-3）**：Teams（Bot Framework）は Google Chat と異なり HTTP レスポンス自体が返信にならない非同期チャネルのため、朝の申し送り digest（channel-digest cron）は claimed グループの `channel_groups.metadata.serviceUrl`（PR-2 が受信のたびに保存）を使い、Connector REST（`POST {serviceUrl}/v3/conversations`）へ明示的に投稿する。org 自社接続（Part 1・Power Automate Workflows／`webhook_url`）は本 PR で一切変更していない——共通Bot（platform）だけが webhook_url を持たないため、この能動送信経路にフォールバックする。
   - claim 直後でまだ一度も受信していないグループは `serviceUrl` が未保存のため、その回の digest 送信だけ一時失敗としてスキップされる（次回いずれかの発言を受信すれば `metadata.serviceUrl` が埋まり、以降の digest から送れるようになる）。
+  - **紐づけ方法による差（重要）**：**限定合言葉（code_only）で自動紐づけした場合は、償還メッセージ自身の `serviceUrl` をその場で保存するため、初回の朝の申し送りから届く**。一方、**承認制（web_approval）で紐づけたグループは、グループがまだ active化されていない時点では保存できないため、承認後にそのグループで最初の発言があるまで能動送信（朝の申し送り）が届かない**（発言のタイミングで `serviceUrl` が保存され、以降の digest から届くようになる）。紐づけ方法を選べる場面では、これを踏まえて案内すること。
 
 ### 運用者タスク（本番稼働させるための前提）
 1. **Entra アプリ登録（マルチテナント）** ＋ client secret 発行 → env `TEAMS_BOT_APP_ID` / `TEAMS_BOT_APP_PASSWORD` へ。
