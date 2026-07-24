@@ -54,7 +54,7 @@ function makeRequest(path: string): NextRequest {
 }
 
 describe('/task6 は未ログインで読める公開パス', () => {
-  it.each(['/task6', '/task6/some-post'])('%s がログインへ飛ばされない', async (path) => {
+  it.each(['/task6', '/task6/some-post', '/task6/author'])('%s がログインへ飛ばされない', async (path) => {
     const response = await proxy(makeRequest(path))
     const location = response.headers.get('location')
     expect(location ?? '').not.toContain('/login')
@@ -91,6 +91,8 @@ describe('sitemap は /task6 配下を載せる', () => {
     const urls = entries.map((e) => e.url)
     expect(urls).toContain('https://agentpm.app/task6')
     expect(urls).toContain('https://agentpm.app/task6/hello-task6')
+    // 著者プロフィール(E-E-A-T)は検索エンジンに見つけてほしいページ
+    expect(urls).toContain('https://agentpm.app/task6/author')
     expect(urls.some((u) => u.includes('/blog'))).toBe(false)
   })
 })

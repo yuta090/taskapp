@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { LPHeader } from '@/components/lp/Header'
 import { LPFooter } from '@/components/lp/Footer'
 import { CtaBlock } from '@/components/blog/CtaBlock'
 import { getPublishedPost } from '@/lib/blog/posts'
+import { isKnownAuthorName } from '@/lib/task6/authors'
 import { renderMarkdownToHtml, splitOnCtaPlaceholder } from '@/lib/markdown'
 
 export const dynamic = 'force-dynamic'
@@ -51,7 +53,16 @@ export default async function BlogArticlePage({ params }: Props) {
     headline: post.title,
     description: post.description ?? undefined,
     datePublished: post.published_at ?? undefined,
-    author: post.author_name ? { '@type': 'Person', name: post.author_name } : undefined,
+    author: post.author_name
+      ? {
+          '@type': 'Person',
+          name: post.author_name,
+          // 著者プロフィールに紐づけて「誰が書いたか」を機械可読にする(E-E-A-T)
+          ...(isKnownAuthorName(post.author_name)
+            ? { url: `${SITE}/task6/author` }
+            : {}),
+        }
+      : undefined,
     mainEntityOfPage: `${SITE}/task6/${post.slug}`,
     ...(post.cover_image_url ? { image: post.cover_image_url } : {}),
   }
@@ -74,7 +85,17 @@ export default async function BlogArticlePage({ params }: Props) {
                 {new Date(post.published_at).toLocaleDateString('ja-JP')}
               </time>
             )}
-            {post.author_name && <span>{post.author_name}</span>}
+            {post.author_name &&
+              (isKnownAuthorName(post.author_name) ? (
+                <Link
+                  href="/task6/author"
+                  className="underline decoration-slate-300 underline-offset-2 hover:text-slate-700"
+                >
+                  {post.author_name}
+                </Link>
+              ) : (
+                <span>{post.author_name}</span>
+              ))}
           </div>
         </header>
 
