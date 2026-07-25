@@ -94,10 +94,11 @@ export function PortalWikiClient({
           ) : (
             <div className="space-y-3">
               {wikiPages.map(page => (
-                <div
+                <button
                   key={page.id}
+                  type="button"
                   onClick={() => setSelectedPage(page)}
-                  className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all"
+                  className="w-full text-left bg-white rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-semibold text-gray-900">{page.title}</h3>
@@ -105,7 +106,7 @@ export function PortalWikiClient({
                       {formatDate(page.publishedAt)}
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}

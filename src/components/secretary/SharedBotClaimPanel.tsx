@@ -50,7 +50,7 @@ const CLAIM_GUIDES: Record<string, ClaimGuide> = {
   discord: {
     steps: (
       <>
-        <li>運営の共有Bot（agentpm）を、相手先の Discord サーバーに招待してもらいます（招待済みならスキップ）。</li>
+        <li>運営の共通アカウント（agentpm）を、相手先の Discord サーバーに招待してもらいます（招待済みならスキップ）。</li>
         <li>下で合言葉を発行し、記録したい<strong>チャンネルにこの合言葉を投稿</strong>してもらいます。</li>
         <li>
           投稿されると<strong>「確認待ち」</strong>に現れます。内部で承認すると、以降そのチャンネルの会話の記録が始まります。
@@ -69,7 +69,7 @@ function fallbackGuide(channel: string): ClaimGuide {
   return {
     steps: (
       <>
-        <li>運営の共有Botを、相手先の{label}に追加してもらいます。</li>
+        <li>運営の共通アカウントを、相手先の{label}に追加してもらいます。</li>
         <li>下で合言葉を発行し、記録したい{label}のチャンネルに投稿してもらいます。</li>
         <li>「確認待ち」に現れるので、内部で承認すると会話の記録が始まります。</li>
       </>

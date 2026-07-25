@@ -108,7 +108,7 @@ export default function UserIntegrationsPage() {
           <div className="flex items-center gap-4">
             <SettingsBackButton />
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">個人の外部連携</h1>
+              <h1 className="text-xl font-semibold text-gray-900">個人のツール連携</h1>
               <p className="text-sm text-gray-500">あなた個人のアカウント接続（Google カレンダー・ビデオ会議）</p>
             </div>
           </div>

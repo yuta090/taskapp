@@ -6,6 +6,7 @@ import { Breadcrumb } from '@/components/shared'
 import { BurndownChart, BurndownControls } from '@/components/burndown'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useBurndown } from '@/lib/hooks/useBurndown'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { ViewsTabNav } from '@/components/shared/ViewsTabNav'
 
 interface BurndownPageClientProps {
@@ -38,10 +39,11 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
   }, [])
 
   const loading = milestonesLoading
+  const spaceName = useSpaceName(spaceId)
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
   const breadcrumbItems = [
-    { label: 'Webリニューアル', href: projectBasePath },
+    { label: spaceName || 'プロジェクト', href: projectBasePath },
     { label: 'バーンダウン' },
   ]
 
@@ -69,6 +71,14 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
 
       {/* Views Tab Nav */}
       <ViewsTabNav orgId={orgId} spaceId={spaceId} activeView="burndown" />
+
+      {/* Mobile hint: chart is readable but cramped on small screens (gantt と足並みを揃える) */}
+      <div className="md:hidden flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+        <ChartLine className="text-base text-amber-600 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-amber-800">
+          バーンダウンは画面幅が広いPCでの表示を推奨します。スマホでは横スクロールでご覧ください。
+        </p>
+      </div>
 
       {/* Content */}
       <div className="flex-1 p-4 overflow-auto">

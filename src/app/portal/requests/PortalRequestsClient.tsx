@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { PaperPlaneTilt, Plus, Circle, CheckCircle, Clock, CaretRight } from '@phosphor-icons/react'
 import { PortalShell, PortalTaskInspector } from '@/components/portal'
 import { PortalRequestSheet } from '@/components/portal/PortalRequestSheet'
+import { usePortalTaskActions } from '@/lib/hooks/usePortalTaskActions'
 
 interface Project {
   id: string
@@ -83,6 +84,10 @@ export function PortalRequestsClient({
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null)
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
+  const { handleApprove, handleRequestChanges } = usePortalTaskActions({
+    onActionStart: () => setSelectedRequest(null),
+  })
+
   const filteredRequests = requests.filter(r => {
     if (filter === 'active') return r.status !== 'done'
     if (filter === 'done') return r.status === 'done'
@@ -91,6 +96,12 @@ export function PortalRequestsClient({
 
   const activeCount = requests.filter(r => r.status !== 'done').length
   const doneCount = requests.filter(r => r.status === 'done').length
+
+  // 「要確認」バッジと同じ条件（相手先ボール・未完了）のときだけ承認導線を出す。
+  const isApprovable =
+    selectedRequest != null &&
+    selectedRequest.ball === 'client' &&
+    selectedRequest.status !== 'done'
 
   const inspector = selectedRequest ? (
     <PortalTaskInspector
@@ -104,6 +115,8 @@ export function PortalRequestsClient({
         createdAt: selectedRequest.createdAt,
       }}
       onClose={() => setSelectedRequest(null)}
+      onApprove={isApprovable ? handleApprove : undefined}
+      onRequestChanges={isApprovable ? handleRequestChanges : undefined}
     />
   ) : null
 
