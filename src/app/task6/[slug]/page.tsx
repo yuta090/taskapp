@@ -112,13 +112,15 @@ export default async function BlogArticlePage({ params }: Props) {
 
         <div className="prose prose-slate max-w-none prose-headings:scroll-mt-24">
           <div dangerouslySetInnerHTML={{ __html: beforeHtml }} />
-          {hasPlaceholder && post.inline_cta && <CtaBlock cta={post.inline_cta} />}
+          {hasPlaceholder && post.inline_cta && (
+            <CtaBlock cta={post.inline_cta} articleSlug={post.slug} />
+          )}
           {hasPlaceholder && <div dangerouslySetInnerHTML={{ __html: afterHtml }} />}
         </div>
 
         {post.footer_cta && (
           <div className="mt-12">
-            <CtaBlock cta={post.footer_cta} />
+            <CtaBlock cta={post.footer_cta} articleSlug={post.slug} />
           </div>
         )}
       </article>
