@@ -1,16 +1,22 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import {
+  sanitizeAttribution,
+  parseStoredAttribution,
+  ATTRIBUTION_STORAGE_KEY,
+} from '@/lib/task6/attribution'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const RESEND_COOLDOWN_SECONDS = 60
 
 function SignupForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [orgName, setOrgName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -29,6 +35,23 @@ function SignupForm() {
     return () => clearInterval(timer)
   }, [resendCooldown])
 
+  // 流入計測: ?ref=task6&art=<記事slug> を first-touch で保存
+  // (一度離脱して後日直接 /signup に来ても最初の記事が分かる。上書きしない)
+  useEffect(() => {
+    const attribution = sanitizeAttribution(searchParams.get('ref'), searchParams.get('art'))
+    if (!attribution) return
+    try {
+      if (!localStorage.getItem(ATTRIBUTION_STORAGE_KEY)) {
+        localStorage.setItem(
+          ATTRIBUTION_STORAGE_KEY,
+          JSON.stringify({ ref: attribution.signup_ref, art: attribution.signup_art })
+        )
+      }
+    } catch {
+      // localStorage不可(プライベートモード等)でも登録は妨げない
+    }
+  }, [searchParams])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -45,6 +68,17 @@ function SignupForm() {
     try {
       const supabase = createClient()
 
+      // 流入計測: URLパラメータ優先、無ければfirst-touch保存分を使う
+      let attribution = sanitizeAttribution(searchParams.get('ref'), searchParams.get('art'))
+      if (!attribution) {
+        try {
+          const stored = parseStoredAttribution(localStorage.getItem(ATTRIBUTION_STORAGE_KEY))
+          if (stored) attribution = sanitizeAttribution(stored.ref, stored.art ?? null)
+        } catch {
+          // localStorage不可でも登録は妨げない
+        }
+      }
+
       // 1. ユーザー作成
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
@@ -52,6 +86,8 @@ function SignupForm() {
         options: {
           data: {
             org_name: orgName,
+            // どの記事から来た登録かをユーザーmetadataに永続(SQLで集計可能)
+            ...(attribution ?? {}),
           },
         },
       })

@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { appendAttribution } from '@/lib/task6/attribution'
 
 export interface CtaBlockData {
   heading: string
@@ -8,12 +9,18 @@ export interface CtaBlockData {
   variant: 'inline' | 'band' | 'card'
 }
 
-/** 記事に差し込むCTA。variant で見た目を出し分ける。 */
-export function CtaBlock({ cta }: { cta: CtaBlockData }) {
+/**
+ * 記事に差し込むCTA。variant で見た目を出し分ける。
+ * articleSlug を渡すと内部リンクに ?ref=task6&art=<slug> を付与し、
+ * どの記事から登録が生まれたかを計測できる。
+ */
+export function CtaBlock({ cta, articleSlug }: { cta: CtaBlockData; articleSlug?: string }) {
   const isExternal = cta.button_url.startsWith('https://')
+  const href =
+    articleSlug && !isExternal ? appendAttribution(cta.button_url, articleSlug) : cta.button_url
   const button = (
     <Link
-      href={cta.button_url}
+      href={href}
       {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       className="inline-flex items-center justify-center rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-600"
     >
