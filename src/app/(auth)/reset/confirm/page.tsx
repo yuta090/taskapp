@@ -18,11 +18,46 @@ export default function ResetConfirmPage() {
   const [isValidSession, setIsValidSession] = useState<boolean | null>(null)
 
   useEffect(() => {
-    // URLからトークンを検証
+    // リカバリトークンは非同期で処理されるため、一発 getSession の結果だけで
+    // 判定すると正規リンクでも「無効」を誤表示しうる（Fable裁定・論点3）。
+    // (1) URLハッシュのエラーは待たず即判定 (2) 認証イベント(トークン処理完了)を待つ
+    // (3) 既に処理済みのケースを getSession で拾う (4) 猶予切れで無効判定、の4点で対処。
     const supabase = createClient()
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsValidSession(!!session)
+
+    // (1) 期限切れ/エラーはハッシュで即「無効」
+    const hash = new URLSearchParams(window.location.hash.slice(1))
+    if (hash.get('error') || hash.get('error_code')) {
+      setIsValidSession(false)
+      return
+    }
+
+    // (4) 猶予切れフォールバック（トークンもエラーも無い直踏み等）。リトライループは作らない。
+    const timer = setTimeout(() => {
+      setIsValidSession((prev) => (prev === null ? false : prev))
+    }, 5000)
+
+    // (2) トークン処理完了の同期点。PASSWORD_RECOVERY / SIGNED_IN / INITIAL_SESSION で発火
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setIsValidSession(true)
+        clearTimeout(timer)
+      }
     })
+
+    // (3) 既に処理済みなら即拾う
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setIsValidSession(true)
+        clearTimeout(timer)
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timer)
+    }
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
