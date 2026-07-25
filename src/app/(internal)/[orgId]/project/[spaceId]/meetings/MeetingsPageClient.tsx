@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Notebook, CalendarCheck, Plus, CaretDown, FunnelSimple, CalendarBlank, X } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
 import { toast } from 'sonner'
-import { Breadcrumb } from '@/components/shared'
+import { Breadcrumb, ErrorRetry } from '@/components/shared'
 import { MeetingRow } from '@/components/meeting/MeetingRow'
 import { MeetingInspector } from '@/components/meeting/MeetingInspector'
 import { MeetingCreateSheet, type MeetingCreateData } from '@/components/meeting'
 import { ProposalRow, ProposalInspector, ProposalCreateSheet } from '@/components/scheduling'
 import { useMeetings } from '@/lib/hooks/useMeetings'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 import type { Meeting } from '@/types/database'
 import { MEETING_QUERY_PARAM, PROPOSAL_QUERY_PARAM } from '@/lib/navigation/meetingLinks'
@@ -42,6 +43,7 @@ const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
 ]
 
 export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) {
+  const spaceName = useSpaceName(spaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
@@ -64,6 +66,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
     participants,
     loading,
     error,
+    fetchMeetings,
     fetchMeetingDetail,
     createMeeting,
     deleteMeeting,
@@ -334,7 +337,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
   }
 
   const breadcrumbItems = [
-    { label: 'Webリニューアル', href: `/${orgId}/project/${spaceId}` },
+    { label: spaceName || 'プロジェクト', href: `/${orgId}/project/${spaceId}` },
     { label: '議事録' },
   ]
 
@@ -479,9 +482,12 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             <div className="text-center text-gray-400 py-16">読み込み中...</div>
           )}
           {!isLoading && hasError && (
-            <div className="text-center text-red-500 py-16">
-              読み込みに失敗しました
-            </div>
+            <ErrorRetry
+              onRetry={() => {
+                fetchMeetings()
+                fetchProposals()
+              }}
+            />
           )}
           {!isLoading && !hasError && unifiedItems.length === 0 && (
             <div className="text-center text-gray-400 py-20">

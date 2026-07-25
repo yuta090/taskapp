@@ -46,6 +46,12 @@ export default function BillingSettingsPage() {
   }
 
   async function handleUpgrade(planId: 'pro' | 'enterprise') {
+    // Enterprise は決済ではなく営業窓口での個別契約。問い合わせページへ誘導する。
+    if (planId === 'enterprise') {
+      window.location.href = '/contact?plan=enterprise'
+      return
+    }
+
     if (!serverConfigured || !orgId) return
 
     setUpgradeLoading(true)
@@ -153,16 +159,14 @@ export default function BillingSettingsPage() {
                 </button>
                 <button
                   onClick={() => handleUpgrade('enterprise')}
-                  disabled={!serverConfigured || !orgId || upgradeLoading}
-                  className={`px-4 py-2 font-medium rounded-lg transition-colors ${
-                    serverConfigured && orgId
-                      ? 'bg-white/20 text-white hover:bg-white/30'
-                      : 'bg-white/10 text-white/40 cursor-not-allowed'
-                  }`}
+                  className="px-4 py-2 font-medium rounded-lg transition-colors bg-white/20 text-white hover:bg-white/30"
                 >
-                  Enterprise
+                  Enterpriseを相談する
                 </button>
               </div>
+              <p className="mt-3 text-white/70 text-xs">
+                Enterprise は営業窓口での個別契約です。ボタンからお問い合わせください。
+              </p>
               {!serverConfigured && (
                 <p className="mt-3 text-white/60 text-xs flex items-center gap-1">
                   <Warning className="w-4 h-4" />

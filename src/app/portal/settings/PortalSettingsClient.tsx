@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { User, Envelope, Bell, Shield, CalendarCheck, Trash, Info } from '@phosphor-icons/react'
 import { PortalShell } from '@/components/portal'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
@@ -324,12 +325,15 @@ export function PortalSettingsClient({
               </div>
             </div>
             <div className="p-4">
-              <button
-                type="button"
+              <Link
+                href="/reset"
                 className="text-sm text-amber-600 hover:text-amber-700 font-medium"
               >
                 パスワードを変更
-              </button>
+              </Link>
+              <p className="mt-1 text-xs text-gray-500">
+                ご登録のメールアドレスに再設定用のリンクをお送りします。
+              </p>
             </div>
           </div>
         </div>

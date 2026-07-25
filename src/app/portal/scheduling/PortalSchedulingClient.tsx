@@ -49,10 +49,12 @@ export function PortalSchedulingClient({
 }: PortalSchedulingClientProps) {
   const [proposals, setProposals] = useState<PortalProposal[]>([])
   const [loading, setLoading] = useState(true)
+  const [hasError, setHasError] = useState(false)
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
 
   const fetchProposals = useCallback(async () => {
     setLoading(true)
+    setHasError(false)
     try {
       const res = await fetch(
         `/api/portal/scheduling/proposals?spaceId=${currentProject.id}`
@@ -61,7 +63,9 @@ export function PortalSchedulingClient({
       const data = await res.json()
       setProposals(data.proposals || [])
     } catch (err) {
+      // 取得失敗を「日程調整はありません」と誤表示しないよう、明示的にエラー状態にする
       console.error('Portal scheduling fetch error:', err)
+      setHasError(true)
     } finally {
       setLoading(false)
     }
@@ -111,14 +115,31 @@ export function PortalSchedulingClient({
       actionCount={actionCount}
       inspector={inspector}
     >
-      <div className="p-6">
+      <div className="flex-1 overflow-y-auto p-6">
         <h1 className="text-lg font-semibold text-gray-900 mb-4">日程調整</h1>
 
         {loading && (
           <div className="text-center text-gray-400 py-16">読み込み中...</div>
         )}
 
-        {!loading && proposals.length === 0 && (
+        {!loading && hasError && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <CalendarBlank className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-700">日程調整を読み込めませんでした</p>
+            <p className="text-sm text-gray-400 mt-1">
+              通信が不安定な可能性があります。時間をおいて再度お試しください。
+            </p>
+            <button
+              type="button"
+              onClick={() => void fetchProposals()}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              再試行
+            </button>
+          </div>
+        )}
+
+        {!loading && !hasError && proposals.length === 0 && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
             <CalendarBlank className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-600">日程調整はありません</p>
@@ -128,7 +149,7 @@ export function PortalSchedulingClient({
           </div>
         )}
 
-        {!loading && proposals.length > 0 && (
+        {!loading && !hasError && proposals.length > 0 && (
           <div className="space-y-3">
             {proposals.map((proposal) => (
               <PortalProposalCard

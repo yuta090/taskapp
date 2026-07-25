@@ -64,7 +64,7 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       {isSharedBotClaim || def.credentialFields.length === 0 ? (
         <p className="text-sm text-gray-500">
           {isSharedBotClaim
-            ? '追加の資格情報は不要です（運営が共有Botを提供します）。'
+            ? '追加の資格情報は不要です（運営が共通の受け取り口を用意します）。'
             : 'このチャネルに追加の資格情報は不要です。'}
         </p>
       ) : (

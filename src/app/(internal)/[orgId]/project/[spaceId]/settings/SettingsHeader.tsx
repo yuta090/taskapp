@@ -2,6 +2,7 @@
 
 import { Gear } from '@phosphor-icons/react'
 import { Breadcrumb } from '@/components/shared'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 
 interface SettingsHeaderProps {
   orgId: string
@@ -9,8 +10,9 @@ interface SettingsHeaderProps {
 }
 
 export function SettingsHeader({ orgId, spaceId }: SettingsHeaderProps) {
+  const spaceName = useSpaceName(spaceId)
   const breadcrumbItems = [
-    { label: 'Webリニューアル', href: `/${orgId}/project/${spaceId}` },
+    { label: spaceName || 'プロジェクト', href: `/${orgId}/project/${spaceId}` },
     { label: '設定' },
   ]
 
