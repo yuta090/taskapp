@@ -109,7 +109,9 @@ describe('BillingSettingsPage', () => {
     expect(screen.queryByText('Stripe決済の設定が必要です')).not.toBeInTheDocument()
   })
 
-  it('should disable upgrade buttons when Stripe is not configured', () => {
+  // Enterprise は Stripe 決済ではなく営業窓口での個別契約（/contact?plan=enterprise へ誘導）。
+  // よって Stripe 未設定でも押せる必要がある。Stripe 設定に連動するのは Pro だけ。
+  it('should disable only the Pro button when Stripe is not configured', () => {
     mockUseStripeStatus.mockReturnValue({
       serverConfigured: false,
       loading: false,
@@ -119,11 +121,8 @@ describe('BillingSettingsPage', () => {
 
     render(<BillingSettingsPage />)
 
-    const proButton = screen.getByRole('button', { name: 'Proにアップグレード' })
-    const enterpriseButton = screen.getByRole('button', { name: 'Enterprise' })
-
-    expect(proButton).toBeDisabled()
-    expect(enterpriseButton).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Proにアップグレード' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Enterpriseを相談する' })).not.toBeDisabled()
   })
 
   it('should enable upgrade buttons when Stripe is configured and org is loaded', () => {
@@ -136,11 +135,8 @@ describe('BillingSettingsPage', () => {
 
     render(<BillingSettingsPage />)
 
-    const proButton = screen.getByRole('button', { name: 'Proにアップグレード' })
-    const enterpriseButton = screen.getByRole('button', { name: 'Enterprise' })
-
-    expect(proButton).not.toBeDisabled()
-    expect(enterpriseButton).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Proにアップグレード' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Enterpriseを相談する' })).not.toBeDisabled()
   })
 
   it('should show warning message when Stripe is not configured', () => {

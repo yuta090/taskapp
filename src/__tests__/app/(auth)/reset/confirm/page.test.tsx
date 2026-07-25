@@ -11,12 +11,19 @@ vi.mock('next/navigation', () => ({
 
 const mockGetSession = vi.fn()
 const mockUpdateUser = vi.fn()
+// ページはトークン処理完了の同期点として onAuthStateChange を購読する（購読解除まで行う）。
+// unsubscribe まで含めた形を返さないとアンマウント時に落ちるため、購読オブジェクトごと模す。
+const mockUnsubscribe = vi.fn()
+const mockOnAuthStateChange = vi.fn(() => ({
+  data: { subscription: { unsubscribe: mockUnsubscribe } },
+}))
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: {
       getSession: mockGetSession,
       updateUser: mockUpdateUser,
+      onAuthStateChange: mockOnAuthStateChange,
     },
   }),
 }))

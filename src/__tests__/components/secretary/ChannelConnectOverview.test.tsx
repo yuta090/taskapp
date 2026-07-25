@@ -40,7 +40,7 @@ describe('ChannelConnectOverview', () => {
     render(<ChannelConnectOverview def={CHANNELS.google_chat} orgId={ORG} />)
     expect(screen.queryByText('資格情報を登録する')).not.toBeInTheDocument()
     expect(screen.queryByText('開発者コンソールを開く')).not.toBeInTheDocument()
-    expect(screen.getByText('追加の資格情報は不要です（運営が共有Botを提供します）。')).toBeInTheDocument()
+    expect(screen.getByText('追加の資格情報は不要です（運営が共通の受け取り口を用意します）。')).toBeInTheDocument()
     expect(screen.getByText('つなぎ方')).toBeInTheDocument()
     expect(screen.getByText(/Workspace管理者が権限を一度だけ承認/)).toBeInTheDocument()
   })
@@ -48,7 +48,7 @@ describe('ChannelConnectOverview', () => {
   it('Discord: 共有Bot扱いで、資格情報フォームは出さず接続パネル(合言葉発行)を出す', () => {
     render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
     expect(screen.queryByText('資格情報を登録する')).not.toBeInTheDocument()
-    expect(screen.getByText('追加の資格情報は不要です（運営が共有Botを提供します）。')).toBeInTheDocument()
+    expect(screen.getByText('追加の資格情報は不要です（運営が共通の受け取り口を用意します）。')).toBeInTheDocument()
     expect(screen.getByText('つなぎ方')).toBeInTheDocument()
     // Discord固有の案内（チャンネルに投稿）
     expect(screen.getByText(/チャンネルにこの合言葉を投稿/)).toBeInTheDocument()
