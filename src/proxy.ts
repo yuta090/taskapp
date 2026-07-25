@@ -34,6 +34,8 @@ const publicPaths = [
   // 学びのメディア「TASK6」: SEO記事。未ログインの検索流入が読む
   // （旧 /blog は next.config の redirects で /task6 へ 301 済み。proxy には来ない）
   '/task6',
+  // タスク滞留診断: 未ログインのリード獲得ツール(multica-prj/shindan-appから移植)
+  '/shindan',
   '/portal/email-action',
 ]
 

@@ -56,6 +56,10 @@ describe('sanitizeAttribution', () => {
     expect(sanitizeAttribution('task6', null)).toEqual({ signup_ref: 'task6' })
   })
 
+  it('診断(shindan)もホワイトリストに含まれる', () => {
+    expect(sanitizeAttribution('shindan', null)).toEqual({ signup_ref: 'shindan' })
+  })
+
   it('未知のref・不正な形式はnull(何も記録しない)', () => {
     expect(sanitizeAttribution('evil', 'x')).toBeNull()
     expect(sanitizeAttribution('task6<script>', 'x')).toBeNull()
