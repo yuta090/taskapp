@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { constructWebhookEvent } from '@/lib/stripe'
-import { mapStripeSubscriptionStatus, subscriptionPeriodEndUnix, type SubscriptionLike } from '@/lib/billing/stripeSync'
+import { mapStripeSubscriptionStatus, subscriptionPeriodEndUnix, stripePriceMapFromEnv, type SubscriptionLike } from '@/lib/billing/stripeSync'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -118,8 +118,13 @@ async function handleSubscriptionUpdate(
   // 未知ステータスの既定は 'active'＝従来 webhook 挙動を保持）
   const status = mapStripeSubscriptionStatus(subscription.status)
 
-  // current_period_end を安全に取得（Clover 以降は item 側にあるため共有ヘルパで解決）
-  const currentPeriodEnd = subscriptionPeriodEndUnix(subscription as unknown as SubscriptionLike)
+  // current_period_end を安全に取得（Clover 以降は item 側にあるため共有ヘルパで解決）。
+  // 枠追加アドオンで item が複数になるため priceMap を渡し、**プランの item 側**を優先する
+  // （渡さないとアドオンの期間で上書きされ得る）。
+  const currentPeriodEnd = subscriptionPeriodEndUnix(
+    subscription as unknown as SubscriptionLike,
+    stripePriceMapFromEnv(),
+  )
   const cancelAtPeriodEnd = (subscription as unknown as { cancel_at_period_end?: boolean }).cancel_at_period_end
 
   await (supabase as SupabaseClient)
