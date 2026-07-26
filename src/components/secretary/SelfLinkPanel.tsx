@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Warning, LinkBreak } from '@phosphor-icons/react'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { ConnectionFlowSection, type ConnectState } from '@/components/secretary/ConnectionFlowSection'
+import { Hint } from '@/components/secretary/Hint'
 
 interface UserLink {
   id: string
@@ -119,13 +120,13 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
     </div>
   ) : undefined
 
-  const qr = (
-    <>
-      <LineFriendQr orgId={orgId} />
-      <p className="text-xs text-gray-500">
-        すでに友だち追加済みなら、下のボタンでコードを発行し、秘書との1:1トークに送るだけです。
-      </p>
-    </>
+  const qr = <LineFriendQr orgId={orgId} />
+
+  // 手順は1行。詳しい注意はQR側のヒントに寄せる（画面には「いま何をするか」だけ残す）。
+  const stepsHint = (
+    <p className="text-[11px] text-gray-500">
+      友だち追加のあと、発行したコードを1:1トークに送ると完了です。
+    </p>
   )
 
   const action = issuedCode ? (
@@ -148,6 +149,9 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       </div>
       <p className="mt-2 text-[11px] text-amber-900">
         15分で失効・1回のみ。<strong>グループには貼らないでください。</strong>
+        <Hint label="コードの扱い">
+          このコードはあなた本人を見分けるためのものです。グループに貼ると別の人に使われてしまうため、必ず秘書との1:1トークに送ってください。
+        </Hint>
       </p>
     </section>
   ) : !account ? (
@@ -204,6 +208,10 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       qr={qr}
       action={action}
       detail={detail}
+      stepsHint={stepsHint}
+      // 同じ画面の「グループLINEから拾う」カードで同一BotのQRを既に見せているため、
+      // ここでは畳んでおく（QRが2つ並ぶだけで一気に読む量が増える）。
+      collapseQr
     />
   )
 }

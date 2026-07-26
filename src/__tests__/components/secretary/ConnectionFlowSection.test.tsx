@@ -66,6 +66,29 @@ describe('ConnectionFlowSection', () => {
     expect(screen.queryByTestId('connect-showqr-toggle')).not.toBeInTheDocument()
   })
 
+  // 同じページにQRが二重に出ると、それだけで文字と画像が倍になり認知負荷が跳ね上がる。
+  // すでに他のカードでQRを見せている画面では、未接続でもQRだけ畳めるようにする。
+  it('collapseQr: 未接続でもQRだけ畳み、アクションは常時表示する', () => {
+    render(<ConnectionFlowSection kind="self" state="ready" collapseQr {...slots} />)
+    expect(screen.queryByTestId('slot-qr')).not.toBeInTheDocument()
+    expect(screen.getByTestId('slot-action')).toBeInTheDocument()
+    expect(screen.getByTestId('slot-hint')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('connect-showqr-toggle'))
+    expect(screen.getByTestId('slot-qr')).toBeInTheDocument()
+  })
+
+  it('collapseQr: 接続済みなら従来どおり「別の端末をつなぐ」に畳む（挙動不変）', () => {
+    render(<ConnectionFlowSection kind="self" state="connected" collapseQr {...slots} />)
+    expect(screen.getByTestId('connect-reopen-toggle')).toBeInTheDocument()
+  })
+
+  it('QRを畳むモードでは、アクションを連携済み一覧より前に出す', () => {
+    render(<ConnectionFlowSection kind="self" state="ready" collapseQr {...slots} />)
+    const action = screen.getByTestId('slot-action')
+    const detail = screen.getByTestId('slot-detail')
+    expect(action.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('data-mode属性で解決モードを公開する', () => {
     const { rerender } = render(<ConnectionFlowSection kind="self" state="connected" {...slots} />)
     expect(screen.getByTestId('connection-flow-section')).toHaveAttribute('data-mode', 'collapse-onboarding')

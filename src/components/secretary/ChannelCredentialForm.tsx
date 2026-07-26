@@ -98,7 +98,7 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
   const generatedEntries = result ? Object.entries(result.generatedSecrets) : []
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 border-t border-gray-100 pt-6">
+    <form onSubmit={onSubmit}>
       <h2 className="text-sm font-semibold text-gray-700 mb-1">資格情報を登録する</h2>
       <p className="text-xs text-gray-500 mb-4">
         自社アカウント（白ラベル）接続は Pro プラン限定です。保存した資格情報は暗号化され、画面には再表示されません。

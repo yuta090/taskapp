@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { SelfLinkPanel } from '@/components/secretary/SelfLinkPanel'
 import { GroupLinkPanel } from '@/components/secretary/GroupLinkPanel'
 import { DirectConnectDisclosure } from '@/components/secretary/DirectConnectDisclosure'
+import { Hint } from '@/components/secretary/Hint'
 import type { LineSelfServeState } from '@/lib/channels/sharedBotAccess'
 
 /**
@@ -54,10 +55,12 @@ export function UserLinksClient({
           <h1 className="text-sm font-semibold text-gray-900">LINE秘書につなぐ</h1>
 
           <section className="rounded border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-900">グループLINEから拾う</h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-              いつものグループLINEに秘書を招待すると、そこでの決めごと・お願いを自動でタスクにします。
-            </p>
+            <h2 className="text-sm font-semibold text-gray-900">
+              グループLINEから拾う
+              <Hint label="グループLINEから拾う">
+                いつものグループLINEに秘書を招待しておくと、そこで交わされた決めごと・お願いを秘書が自動でタスクにします。新しくグループを作り直す必要はありません。
+              </Hint>
+            </h2>
             <div className="mt-3">
               <GroupLinkPanel orgId={orgId} />
             </div>
@@ -65,10 +68,12 @@ export function UserLinksClient({
           </section>
 
           <section className="rounded border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-900">自分のLINEで受け取る</h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-              承認のお願いやお知らせが、あなたのLINEに届きます。
-            </p>
+            <h2 className="text-sm font-semibold text-gray-900">
+              自分のLINEで受け取る
+              <Hint label="自分のLINEで受け取る">
+                承認のお願いやお知らせが、あなたのLINEに届きます。つないだ本人しか承認できないので、必ずご自身のLINEでつないでください。
+              </Hint>
+            </h2>
             <div className="mt-3">
               <SelfLinkPanel orgId={orgId} />
             </div>
@@ -86,10 +91,12 @@ export function UserLinksClient({
 
         {access === 'none' && (
           <section className="rounded border border-amber-300 bg-amber-50 p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-gray-900">共通LINEの利用を申し込む</h2>
-            <p className="text-xs text-gray-600">
-              いつものグループLINEに秘書を入れて、会話の決めごと・お願いを自動でタスクにできます。まずは利用をお申し込みください。お申し込み後、当社が開通してご登録のメールでご案内します。
-            </p>
+            <h2 className="text-sm font-semibold text-gray-900">
+              共通LINEの利用を申し込む
+              <Hint label="共通LINEの利用申込">
+                いつものグループLINEに秘書を入れて、会話の決めごと・お願いを自動でタスクにできます。お申し込み後、当社が開通してご登録のメールでご案内します。
+              </Hint>
+            </h2>
             <button
               type="button"
               onClick={onRequest}

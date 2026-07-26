@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { toDataURL } from 'qrcode'
 import { Copy, Check } from '@phosphor-icons/react'
+import { Hint } from '@/components/secretary/Hint'
 
 interface LineFriendQrProps {
   orgId: string
@@ -149,7 +150,10 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
               <li>発行したコードをグループのトークに送信</li>
             </ol>
             <p className="mt-1.5 text-[11px] font-medium text-amber-900">
-              コード送信で連携完了です。QRは秘書を見つけて友だち追加するためのもので、追加・招待だけでは連携されません。
+              追加・招待だけでは連携されません。
+              <Hint label="連携が完了するタイミング">
+                QRは秘書を見つけて友だち追加するためのものです。発行したコードをグループのトークに送った時点で、はじめて連携が完了します。
+              </Hint>
             </p>
           </>
         ) : (
