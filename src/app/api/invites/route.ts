@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
+import { seatLimitFromRpcError } from '@/lib/billing/seatLimitMessage'
 // Email format validation
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -130,6 +131,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { error: '既にメンバーです' },
           { status: 409 }
+        )
+      }
+      // 人数枠（plans.members_limit / clients_limit）由来は日本語の案内＋402に畳む
+      const seat = seatLimitFromRpcError(error.message, 'create')
+      if (seat) {
+        return NextResponse.json(
+          { error: seat.message, code: seat.code },
+          { status: seat.status }
         )
       }
       return NextResponse.json(

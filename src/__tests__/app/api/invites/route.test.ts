@@ -160,15 +160,40 @@ describe('POST /api/invites', () => {
     expect(response.status).toBe(403)
   })
 
-  it('returns the RPC error message when invite creation fails (e.g. plan limit)', async () => {
+  // 人数枠に当たったときは「英語の例外そのまま・400」ではなく、日本語の案内＋402（要アップグレード）で返す。
+  // 402 は課金起因の拒否として相手先グループ枠と揃える（クライアントは code で分岐できる）。
+  it('人数枠に達したら402＋日本語の案内＋code=member_limit_reached を返す', async () => {
     rpcResponse = { data: null, error: { message: 'Organization has reached member limit. Please upgrade your plan.' } }
 
     const response = await callPost(baseBody)
     const data = await response.json()
 
-    expect(response.status).toBe(400)
-    expect(data.error).toBe('Organization has reached member limit. Please upgrade your plan.')
+    expect(response.status).toBe(402)
+    expect(data.code).toBe('member_limit_reached')
+    expect(data.error).toContain('メンバー')
+    expect(data.error).not.toMatch(/Organization has reached/)
     expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('相手先(client)枠のメッセージも日本語＋402に畳む', async () => {
+    rpcResponse = { data: null, error: { message: 'Organization has reached client limit. Please upgrade your plan.' } }
+
+    const response = await callPost(baseBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(402)
+    expect(data.code).toBe('client_limit_reached')
+    expect(data.error).not.toMatch(/Organization has reached/)
+  })
+
+  it('人数枠以外のRPCエラーは従来どおり400でメッセージを返す', async () => {
+    rpcResponse = { data: null, error: { message: 'something else went wrong' } }
+
+    const response = await callPost(baseBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toBe('something else went wrong')
   })
 
   it('returns 409 with a Japanese message when the invitee is already a member (RPC dedup guard)', async () => {
