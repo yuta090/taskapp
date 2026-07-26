@@ -25,7 +25,7 @@ import Link from 'next/link'
 
 type Plan = {
   name: string
-  price: { annual: string; monthly: string }
+  price: string
   period: string
   target: string
   description: string
@@ -33,115 +33,86 @@ type Plan = {
   features: string[]
   notIncluded: string[]
   cta: string
+  ctaHref?: string
   primary: boolean
   tag?: string
-  subText?: { annual: string; monthly: string }
+  subText?: string
   extraNote?: string
 }
 
+/**
+ * 実装（src/lib/billing/entitlements.ts の PLAN_LIMITS / PLAN_FEATURES）と一致させること。
+ * ここに書いた上限がそのまま製品の挙動になる。数値を変えるときは両方直す。
+ */
 const plans: Plan[] = [
   {
     name: 'Free',
-    price: { annual: '¥0', monthly: '¥0' },
+    price: '¥0',
     period: '/月',
     target: '個人・お試し',
-    description: 'AIタスク管理の快適さを、まずは個人で体験。',
+    description: 'まずは無料で、チームの仕事を1か所にまとめる。',
     icon: User,
     features: [
-      '内部メンバー5名まで',
-      '1プロジェクト',
-      'ポータル参加者: 無制限',
-      'CLI基本操作',
-      'スキル2種（回数制限あり）',
+      'プロジェクト 3件',
+      '社内メンバー 5名',
+      '相手先（クライアント）は無制限',
+      'チャット連携 3グループ',
+      'AIが会話からタスクを拾う（夜間まとめ）',
       'ポータル（閲覧・承認・起票・見積もり）',
-      'ボール管理',
-      'Wiki・議事録（30日保持）',
-      'レビュー・承認（1段階）',
-      'テンプレート3件',
-      '日程調整（1対1のみ）',
-      '監査ログ（7日保持）',
+      'ボール管理（次に動く人が一目で分かる）',
+      'ツール連携（Google Tasks・Notion 等）',
     ],
-    notIncluded: ['CSVエクスポート', '多段階承認', '全スキル'],
+    notIncluded: ['自社LINEでの配信', '即時通知', '1対1の個別メッセージ'],
     cta: '無料で始める',
+    ctaHref: '/signup',
     primary: false,
   },
   {
-    name: 'Team',
-    price: { annual: '¥4,980', monthly: '¥6,480' },
+    name: 'Pro',
+    price: '¥14,800',
     period: '/月',
-    target: '小規模チーム（受託開発・Web制作）',
-    description: 'Freeの全機能+制限解除。チーム運用を本格化。',
-    icon: UsersThree,
-    features: [
-      '内部メンバー10名（超過 +¥380/人）',
-      '5プロジェクト',
-      'ポータル参加者: 無制限',
-      '全スキル',
-      'Wiki・議事録（無制限保持）',
-      '多段階レビュー・承認フロー',
-      'テンプレート無制限',
-      '日程調整（複数候補・自動通知）',
-      '監査ログ（1年保持）',
-      'CSVエクスポート',
-      'チャットサポート',
-    ],
-    notIncluded: [],
-    cta: '無料トライアルを始める',
-    primary: true,
-    tag: 'おすすめ',
-    subText: {
-      annual: '年払いで年間¥17,760お得',
-      monthly: '14日間無料トライアル',
-    },
-  },
-  {
-    name: 'Business',
-    price: { annual: '¥14,800', monthly: '¥18,800' },
-    period: '/月',
-    target: '中規模チーム・全社導入',
-    description: 'Teamの全機能。大規模チーム向け。',
+    target: '事務所・制作会社・受託開発',
+    description: '自社の名前で、相手先に即時で届く。仕事の取りこぼしをなくす。',
     icon: Buildings,
     features: [
-      '内部メンバー30名（超過 +¥330/人）',
-      'プロジェクト無制限',
-      'ポータル参加者: 無制限',
-      'Teamの全機能',
-      '監査ログ（3年保持）',
-      '優先チャットサポート',
+      'プロジェクト 30件',
+      '社内メンバー 30名',
+      '相手先（クライアント）は無制限',
+      'チャット連携 50グループ',
+      '自社のLINE公式アカウントで配信（白ラベル）',
+      '担当者への1対1メッセージ',
+      '即時通知・時刻リマインド',
+      'LINE以外のチャット（Slack / Teams 等）',
+      'ツール連携は追加料金なし',
+      '枠が足りなくなったら見積もりで追加',
     ],
     notIncluded: [],
-    cta: '無料トライアルを始める',
-    primary: false,
-    subText: {
-      annual: '年払いで年間¥48,000お得',
-      monthly: '14日間無料トライアル',
-    },
+    cta: '申し込む',
+    ctaHref: '/contact?plan=pro',
+    primary: true,
+    tag: 'おすすめ',
+    subText: '税別 / 開通は当社が代行します',
   },
   {
-    name: 'Agency',
-    price: { annual: '¥24,800', monthly: '¥31,800' },
-    period: '/月',
-    target: '代理店・複数社管理',
-    description: 'Businessの全機能+代理店モード。複数社を一元管理。',
+    name: 'Enterprise',
+    price: '個別見積り',
+    period: '',
+    target: '大規模・複数社管理',
+    description: '上限なし。請求書払い・導入支援・個別の条件に対応します。',
     icon: Briefcase,
     features: [
-      '内部メンバー50名（超過 +¥280/人）',
-      'プロジェクト無制限',
-      'ポータル参加者: 無制限',
-      'Businessの全機能',
+      'プロジェクト・メンバー・グループすべて無制限',
+      'Proの全機能',
       '代理店モード（原価・マージン・売値）',
-      'ベンダーポータル',
-      '3段階承認フロー',
-      '複数組織管理',
+      '複数組織の管理',
+      '請求書払い',
       '導入支援',
     ],
     notIncluded: [],
-    cta: '無料トライアルを始める',
+    cta: '相談する',
+    ctaHref: '/contact?plan=enterprise',
     primary: false,
-    subText: {
-      annual: '年払いで年間¥84,000お得',
-      monthly: '14日間無料トライアル',
-    },
+    subText: '内容に応じてお見積もりします',
   },
 ]
 
@@ -150,11 +121,10 @@ const plans: Plan[] = [
 /* ------------------------------------------------------------------ */
 
 const backlogRows = [
-  { team: '5名', agentpm: '¥4,980 (Team)', backlog: '¥2,970 (Starter)', diff: '+¥2,010', positive: false },
-  { team: '10名', agentpm: '¥4,980 (Team)', backlog: '¥17,600 (Standard)', diff: '-¥12,620', positive: true },
-  { team: '15名', agentpm: '¥6,880 (Team+超過)', backlog: '¥17,600 (Standard)', diff: '-¥10,720', positive: true },
-  { team: '20名', agentpm: '¥14,800 (Business)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
-  { team: '30名', agentpm: '¥14,800 (Business)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
+  { team: '5名', agentpm: '¥14,800 (Pro)', backlog: '¥2,970 (Starter)', diff: '+¥11,830', positive: false },
+  { team: '10名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
+  { team: '20名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
+  { team: '30名', agentpm: '¥14,800 (Pro)', backlog: '¥17,600 (Standard)', diff: '-¥2,800', positive: true },
 ]
 
 /* ------------------------------------------------------------------ */
@@ -162,12 +132,12 @@ const backlogRows = [
 /* ------------------------------------------------------------------ */
 
 const upgradeTriggers = [
-  '2案件目のプロジェクトを作りたい',
-  'メンバーが6名以上になった',
-  '承認を「担当者→PM→クライアント」の多段階にしたい',
-  'タスクや工数データをCSVで出力したい',
-  '監査ログを7日以上保持したい',
-  '/meeting-flow や /scheduling-wizard を使いたい',
+  '4つ目のプロジェクトを作りたい',
+  '社内メンバーが6人目になった',
+  'チャット連携を4件以上つなぎたい',
+  '自社のLINE公式アカウントで届けたい',
+  'まとめてではなく、すぐに通知してほしい',
+  'LINE以外のチャット（Slack / Teams 等）も取り込みたい',
 ]
 
 /* ------------------------------------------------------------------ */
@@ -175,10 +145,11 @@ const upgradeTriggers = [
 /* ------------------------------------------------------------------ */
 
 const commonFeatures = [
-  'クライアントのポータル利用は無料（人数制限なし）',
-  'クレジットカード登録不要で無料プラン開始可能',
-  'いつでもアップグレード/ダウングレード可能',
-  '解約後も請求期間終了まで利用可能',
+  '相手先（クライアント）の利用は全プラン無料・人数制限なし',
+  'ツール連携（Google Tasks・Notion・kintone 等）は追加料金なし',
+  '上限に達しても、今あるものは止まりません（新しく作るときだけご案内します）',
+  '枠が足りなくなったら、お見積もりで追加できます',
+  'クレジットカード登録不要で無料プランを開始できます',
   'データのエクスポートはいつでも可能',
 ]
 
@@ -188,28 +159,32 @@ const commonFeatures = [
 
 const faqItems = [
   {
-    q: 'クライアントのポータル利用に追加料金はかかりますか？',
-    a: 'いいえ。全プランで無料です。招待数の制限もありません。',
+    q: '相手先（クライアント）の利用に追加料金はかかりますか？',
+    a: 'いいえ。全プランで無料です。人数の制限もありません。',
   },
   {
-    q: '「ユーザー」にはクライアントも含まれますか？',
-    a: 'いいえ。ユーザーはプロジェクトを管理する側（PM・エンジニア等）のみです。',
+    q: '「メンバー」に相手先も含まれますか？',
+    a: 'いいえ。数えるのは自社のスタッフだけです。相手先の方は何人招いても無料です。',
+  },
+  {
+    q: '上限に達したらどうなりますか？',
+    a: '今あるプロジェクトやつないだグループが止まることはありません。新しく作るときだけご案内が出ます。枠を増やしたい場合は、画面から見積もりをご依頼いただけます（承認いただくとその場で枠が増えます）。',
+  },
+  {
+    q: 'ツール連携（Google Tasks・Notion・kintone 等）は別料金ですか？',
+    a: 'いいえ。Proに全部含まれています。連携の数で金額は変わりません。',
   },
   {
     q: '無料プランからの移行は簡単ですか？',
-    a: 'はい。設定画面からワンクリック。データはそのまま引き継がれます。',
+    a: 'はい。データはそのまま引き継がれます。自社LINEでの配信は当社が開通を代行します。',
   },
   {
-    q: 'プランをアップグレードしたら、クライアントに共有済みのポータルURLは変わりますか？',
-    a: 'いいえ。URLはそのまま継続します。クライアントへの再共有は不要です。',
+    q: 'プランを上げたら、相手先に共有済みのポータルURLは変わりますか？',
+    a: 'いいえ。URLはそのまま継続します。相手先への再共有は不要です。',
   },
   {
-    q: '年払いの場合、途中解約の返金はありますか？',
-    a: '月割りでの返金に対応しています。',
-  },
-  {
-    q: '代理店モードだけ試したい場合は？',
-    a: 'Agencyプランの14日間無料トライアルで全機能をお試しいただけます。',
+    q: '支払い方法は？',
+    a: 'クレジットカードのほか、Enterpriseでは請求書払いにも対応します。お申し込み後にご案内します。',
   },
   {
     q: 'セキュリティの対応状況を教えてください。',
@@ -307,16 +282,18 @@ function PlanDiagnosis() {
           )}
           {step === 1 && (
             <div>
-              <p className="text-slate-700 font-medium mb-4">Q2. メンバーは10名以下ですか？</p>
+              <p className="text-slate-700 font-medium mb-4">
+                Q2. 社内メンバー5名以内・プロジェクト3件以内で収まりますか？
+              </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep(2)}
                   className="flex-1 py-3 px-4 rounded-lg border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
                 >
-                  いいえ（11名以上）
+                  いいえ（もっと必要）
                 </button>
                 <button
-                  onClick={() => setResult('Team')}
+                  onClick={() => setResult('Free')}
                   className="flex-1 py-3 px-4 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors"
                 >
                   はい
@@ -326,16 +303,18 @@ function PlanDiagnosis() {
           )}
           {step === 2 && (
             <div>
-              <p className="text-slate-700 font-medium mb-4">Q3. 制作会社の原価管理が必要ですか？</p>
+              <p className="text-slate-700 font-medium mb-4">
+                Q3. 上限なし・請求書払い・代理店モードが必要ですか？
+              </p>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setResult('Business')}
+                  onClick={() => setResult('Pro')}
                   className="flex-1 py-3 px-4 rounded-lg border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
                 >
                   いいえ
                 </button>
                 <button
-                  onClick={() => setResult('Agency')}
+                  onClick={() => setResult('Enterprise')}
                   className="flex-1 py-3 px-4 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors"
                 >
                   はい
@@ -354,7 +333,6 @@ function PlanDiagnosis() {
 /* ================================================================== */
 
 export default function PricingPage() {
-  const [isAnnual, setIsAnnual] = useState(true)
 
   return (
     <main className="font-sans antialiased text-slate-900 bg-slate-50 min-h-screen">
@@ -387,48 +365,20 @@ export default function PricingPage() {
               transition={{ delay: 0.2 }}
               className="text-xl text-slate-600 mb-8"
             >
-              クライアントのポータル利用は全プラン無料。
+              相手先（クライアント）の利用は全プラン無料・人数制限なし。
               <br />
               まずは無料で試して、チームに合うか確認できます。
             </motion.p>
 
-            {/* Toggle */}
-            <div className="inline-flex items-center bg-surface p-1 rounded-xl border border-slate-200 shadow-sm relative mb-8">
-              <button
-                onClick={() => setIsAnnual(false)}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all relative z-10 ${
-                  !isAnnual
-                    ? 'text-slate-900 shadow-sm bg-surface ring-1 ring-slate-200'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                月払い
-              </button>
-              <button
-                onClick={() => setIsAnnual(true)}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all relative z-10 ${
-                  isAnnual
-                    ? 'text-slate-900 shadow-sm bg-surface ring-1 ring-slate-200'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                年払い{' '}
-                <span className="text-amber-600 text-xs ml-1">-2ヶ月分お得</span>
-              </button>
-            </div>
           </div>
 
           {/* ======================================================== */}
           {/*  PLAN CARDS                                               */}
           {/* ======================================================== */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto items-start">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto items-start">
             {plans.map((plan, index) => {
-              const price = isAnnual ? plan.price.annual : plan.price.monthly
-              const sub = plan.subText
-                ? isAnnual
-                  ? plan.subText.annual
-                  : plan.subText.monthly
-                : ''
+              const price = plan.price
+              const sub = plan.subText ?? ''
 
               return (
                 <motion.div
@@ -481,7 +431,7 @@ export default function PricingPage() {
                     </p>
 
                     <Link
-                      href="/signup"
+                      href={plan.ctaHref ?? '/signup'}
                       className={`block w-full py-3 px-6 rounded-lg font-bold transition-all text-center text-sm ${
                         plan.primary
                           ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/40 transform hover:-translate-y-0.5'
@@ -543,7 +493,7 @@ export default function PricingPage() {
             className="max-w-4xl mx-auto"
           >
             <h2 className="text-2xl lg:text-3xl font-bold text-center mb-3 text-slate-900">
-              チーム規模別の月額比較（年払い）
+              チーム規模別の月額比較
             </h2>
             <p className="text-center text-slate-500 text-sm mb-10">
               ※ Backlog Starterは30名/5PJまで。ガントチャート等はStandard以上が必要です。
@@ -672,14 +622,14 @@ export default function PricingPage() {
                 <p className="text-slate-500 text-xs mt-1">/月</p>
               </div>
               <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6 text-center">
-                <p className="text-slate-400 text-xs mb-2">ツール費用（Team）</p>
-                <p className="text-2xl font-bold text-white">¥4,980</p>
-                <p className="text-slate-500 text-xs mt-1">/月（年払い）</p>
+                <p className="text-slate-400 text-xs mb-2">ツール費用（Pro）</p>
+                <p className="text-2xl font-bold text-white">¥14,800</p>
+                <p className="text-slate-500 text-xs mt-1">/月（税別）</p>
               </div>
               <div className="bg-amber-500/10 rounded-xl border border-amber-500/30 p-6 text-center">
-                <p className="text-amber-400 text-xs mb-2">ROI（保守的でも）</p>
-                <p className="text-2xl font-bold text-amber-400">3.6x</p>
-                <p className="text-amber-400/60 text-xs mt-1">ツール代の3.6倍の効果</p>
+                <p className="text-amber-400 text-xs mb-2">ROI</p>
+                <p className="text-2xl font-bold text-amber-400">1.2〜3.2x</p>
+                <p className="text-amber-400/60 text-xs mt-1">保守的に見てもツール代を上回る</p>
               </div>
             </div>
 
@@ -705,7 +655,7 @@ export default function PricingPage() {
               Freeプランの上限に達した時
             </h2>
             <p className="text-center text-slate-600 text-sm mb-10">
-              以下のどれかに当てはまったら、Team（¥4,980/月）への移行をご検討ください。
+              以下のどれかに当てはまったら、Pro（¥14,800/月・税別）への移行をご検討ください。
             </p>
 
             <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8">
@@ -720,7 +670,7 @@ export default function PricingPage() {
 
               <div className="mt-8 pt-6 border-t border-slate-200 text-center">
                 <p className="text-amber-600 font-bold text-sm mb-2">
-                  1つでもチェック → Teamがおすすめ
+                  1つでもチェック → Proがおすすめ
                 </p>
                 <p className="text-slate-500 text-xs">
                   すべて当てはまらない → Freeのままで十分です
