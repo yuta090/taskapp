@@ -40,7 +40,6 @@ describe('ChannelConnectOverview', () => {
     render(<ChannelConnectOverview def={CHANNELS.google_chat} orgId={ORG} />)
     expect(screen.queryByText('資格情報を登録する')).not.toBeInTheDocument()
     expect(screen.queryByText('開発者コンソールを開く')).not.toBeInTheDocument()
-    expect(screen.getByText('追加の資格情報は不要です（運営が共有Botを提供します）。')).toBeInTheDocument()
     expect(screen.getByText('つなぎ方')).toBeInTheDocument()
     expect(screen.getByText(/Workspace管理者が権限を一度だけ承認/)).toBeInTheDocument()
   })
@@ -48,9 +47,46 @@ describe('ChannelConnectOverview', () => {
   it('Discord: 共有Bot扱いで、資格情報フォームは出さず接続パネル(合言葉発行)を出す', () => {
     render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
     expect(screen.queryByText('資格情報を登録する')).not.toBeInTheDocument()
-    expect(screen.getByText('追加の資格情報は不要です（運営が共有Botを提供します）。')).toBeInTheDocument()
     expect(screen.getByText('つなぎ方')).toBeInTheDocument()
     // Discord固有の案内（チャンネルに投稿）
     expect(screen.getByText(/チャンネルにこの合言葉を投稿/)).toBeInTheDocument()
+  })
+})
+
+/**
+ * 認知負荷の是正 — 画面には「いま何をするか」だけを出し、開発者向けのメタ情報は畳む。
+ * 「つなぐ」の各チャネルページは文字が多すぎて主アクションが埋もれていた。
+ */
+describe('ChannelConnectOverview — 主アクション優先の情報設計', () => {
+  it('技術的な設定内容は既定で畳まれている', () => {
+    render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    const details = screen.getByText('技術的な設定内容').closest('details')
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute('open')
+  })
+
+  it('主アクション（資格情報フォーム）は技術的な設定内容より前に置く', () => {
+    render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    const action = screen.getByText('資格情報を登録する')
+    const details = screen.getByText('技術的な設定内容')
+    // action が details より前 = details は action の後方にある
+    expect(action.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('主アクション（合言葉の発行）も技術的な設定内容より前に置く', () => {
+    render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
+    const action = screen.getByText('つなぎ方')
+    const details = screen.getByText('技術的な設定内容')
+    expect(action.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('registry の notes（開発者向けの長文メモ）は画面に出さない', () => {
+    render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    expect(screen.queryByText(CHANNELS.slack.notes!)).not.toBeInTheDocument()
+  })
+
+  it('社内ドキュメントのファイルパスは画面に出さない', () => {
+    render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    expect(screen.queryByText(/CHANNEL_CONNECTIONS_SETUP/)).not.toBeInTheDocument()
   })
 })

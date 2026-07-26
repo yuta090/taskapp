@@ -19,6 +19,7 @@ const STATIC_PATHS = [
   '/tokushoho',
   '/task6',
   '/task6/author',
+  '/shindan',
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

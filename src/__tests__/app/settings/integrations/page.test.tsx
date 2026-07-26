@@ -57,7 +57,8 @@ describe('UserIntegrationsPage', () => {
   it('labels the page as the personal integrations page', () => {
     render(<UserIntegrationsPage />)
 
-    expect(screen.getByText('個人の外部連携')).toBeInTheDocument()
+    // 用語は「外部連携」→「ツール連携」に統一済み（UIの言葉のルール）
+    expect(screen.getByText('個人のツール連携')).toBeInTheDocument()
     expect(screen.getByText('あなた個人のアカウント接続（Google カレンダー・ビデオ会議）')).toBeInTheDocument()
   })
 

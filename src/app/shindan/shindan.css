@@ -1,0 +1,198 @@
+/* タスク滞留診断のスタイル(shindan-appから移植・全セレクタを.shindanにスコープ)
+   元の正本: multica-prj/shindan-app/app/globals.css + design.md(SmartHR DS準拠)
+   配色のみ agentpm ブランド(amber)へ変更 */
+/* トークン・規約の正本は design.md — 変更時は必ず参照すること */
+.shindan {
+  --main: #d97706; --main-dark: #b45309; --main-tint: #fef3c7;
+  --text-black: #23221e; --text-grey: #706d65; --text-disabled: #c1bdb7;
+  --white: #fff; --background: #f8f7f6; --over-background: #f2f1f0; --head: #edebe8;
+  --border: #d6d3d0; --danger: #e01e5a; --danger-tint: #fdf2f6;
+  --warning-yellow: #ffcc17; --warning-text: #8f6e00;
+  --overlay: rgba(3, 3, 2, .15); --scrim: rgba(3, 3, 2, .5);
+  --shadow-1: 0 1px 4px rgba(35,34,30,.12); --shadow-2: 0 4px 12px rgba(35,34,30,.16); --shadow-3: 0 8px 24px rgba(35,34,30,.20);
+  --ease: cubic-bezier(.16,1,.3,1); --bounce: cubic-bezier(.34,1.4,.64,1);
+  --mesh-ivory: #fffaf0; --mesh-willow: #fde68a; --mesh-celadon: #fcd34d; --mesh-pale: #fef3c7;
+}
+.shindan {
+  font-family: "Yu Gothic UI", "YuGothic", "Yu Gothic", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color: var(--text-black); background: var(--mesh-ivory); line-height: 1.8; font-feature-settings: "palt";
+}
+.shindan :focus-visible { outline: 2px solid var(--main); outline-offset: 2px; }
+
+/* ===== 背景メッシュ（design.md §1 Matcha air）===== */
+.shindan .mesh { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; filter: blur(72px) saturate(1.05); }
+.shindan .mesh i { position: absolute; border-radius: 50%; will-change: transform; }
+.shindan .mesh .m1 { width: 55vmax; height: 55vmax; left: -12vmax; top: -18vmax; background: var(--mesh-willow); opacity: .45;
+  animation: sdDrift1 14s ease-in-out infinite alternate; }
+.shindan .mesh .m2 { width: 60vmax; height: 60vmax; right: -20vmax; top: 8vmax; background: var(--mesh-celadon); opacity: .4;
+  animation: sdDrift2 18s ease-in-out infinite alternate; }
+.shindan .mesh .m3 { width: 50vmax; height: 50vmax; left: 10vmax; bottom: -22vmax; background: var(--mesh-pale); opacity: .6;
+  animation: sdDrift3 11s ease-in-out infinite alternate; }
+@keyframes sdDrift1 { from { transform: translate(0, 0) scale(1); } to { transform: translate(16vmax, 10vmax) scale(1.25); } }
+@keyframes sdDrift2 { from { transform: translate(0, 0) scale(1.15); } to { transform: translate(-14vmax, -9vmax) scale(.9); } }
+@keyframes sdDrift3 { from { transform: translate(0, 0) scale(1); } to { transform: translate(12vmax, -12vmax) scale(1.3); } }
+
+.shindan .wrap { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+.shindan .brand { text-align: center; font-size: 12px; letter-spacing: .14em; color: var(--text-grey); margin-bottom: 16px; }
+.shindan .card { background: rgba(255,255,255,.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,.7); border-radius: 8px; padding: 32px; box-shadow: var(--shadow-1);
+  animation: sdFadeUp .45s var(--ease) both; }
+@media (max-width: 560px) { .shindan .card { padding: 24px 20px; } }
+.shindan h1 { font-size: 26px; color: var(--text-black); line-height: 1.5; margin-bottom: 12px; font-weight: 700; }
+.shindan .lead { font-size: 15px; color: var(--text-black); margin-bottom: 14px; }
+.shindan .subnote { font-size: 12.5px; line-height: 1.7; color: var(--text-grey); margin-bottom: 24px; }
+.shindan .meta { font-size: 12px; color: var(--text-grey); }
+
+/* ===== 設問フロー ===== */
+.shindan .prog { height: 6px; background: var(--head); border-radius: 999px; margin-bottom: 24px; overflow: hidden; }
+.shindan .prog i { display: block; height: 100%; background: linear-gradient(90deg, var(--main), #f59e0b); border-radius: 999px;
+  transition: width .45s cubic-bezier(.22,1,.36,1); }
+.shindan .qslide { animation: sdFadeUp .3s var(--ease) both; }
+.shindan .qno { font-size: 12px; font-weight: 700; color: var(--main); letter-spacing: .12em; margin-bottom: 8px; }
+.shindan .qtext { font-size: 18px; font-weight: 700; color: var(--text-black); line-height: 1.6; margin-bottom: 24px; min-height: 3.2em; }
+.shindan .opts { display: grid; gap: 12px; }
+
+/* 選択肢: 左ラジオ円 + MAIN淡色スイープ + 浮上 */
+.shindan .opt { display: block; width: 100%; text-align: left; cursor: pointer; border: 2px solid var(--border); border-radius: 6px;
+  background-color: var(--white); padding: 16px 16px 16px 52px; font-size: 16px; font-weight: 600; color: var(--text-black); position: relative;
+  background-image: linear-gradient(90deg, var(--main-tint), var(--main-tint));
+  background-repeat: no-repeat; background-size: 0% 100%;
+  transition: border-color .2s, background-size .25s var(--ease), transform .15s, box-shadow .2s; }
+.shindan .opt::before { content: ""; position: absolute; left: 18px; top: 50%; translate: 0 -50%; width: 20px; height: 20px;
+  border: 2px solid var(--border); border-radius: 50%; background: var(--white);
+  transition: border-color .2s, background .2s, box-shadow .25s; }
+.shindan .opt:hover { border-color: var(--main); background-size: 100% 100%; transform: translateY(-1px); box-shadow: var(--shadow-2); }
+.shindan .opt:hover::before { border-color: var(--main); box-shadow: 0 0 0 4px rgba(217,119,6,.16); }
+.shindan .opt:active { transform: scale(.985); }
+.shindan .opt.sel { border-color: var(--main); background-size: 100% 100%; animation: sdOptPulse .35s var(--bounce); }
+.shindan .opt.sel::before { border-color: var(--main); background: var(--main); box-shadow: 0 0 0 4px rgba(217,119,6,.16); }
+.shindan .opt.sel::after { content: "✓"; position: absolute; left: 22px; top: 50%; translate: 0 -50%; color: var(--white);
+  font-weight: 800; font-size: 13px; line-height: 1; animation: sdCheckPop .3s cubic-bezier(.34,1.56,.64,1) both; }
+.shindan .back { margin-top: 20px; font-size: 13px; color: var(--text-grey); background: none; border: none; cursor: pointer; text-decoration: underline; }
+
+/* 自由回答 */
+.shindan .freebox { width: 100%; border: 1.5px solid var(--border); border-radius: 4px; padding: 12px 14px; font-size: 14px;
+  font-family: inherit; line-height: 1.7; color: var(--text-black); background: var(--white); resize: vertical;
+  margin-bottom: 16px; transition: border-color .2s, box-shadow .2s; }
+.shindan .freebox:focus { outline: none; border-color: var(--main); box-shadow: 0 0 0 3px rgba(217,119,6,.16); }
+
+/* ===== ボタン ===== */
+.shindan .cta { display: inline-block; width: 100%; text-align: center; cursor: pointer; background: var(--main);
+  color: var(--white); font-weight: 700; font-size: 16px; padding: 15px 20px; border: none; border-radius: 6px; text-decoration: none;
+  transition: background .2s, transform .15s, box-shadow .2s; }
+.shindan .cta:hover:not(:disabled) { background: var(--main-dark); transform: translateY(-1px); box-shadow: var(--shadow-2); }
+.shindan .cta:active:not(:disabled) { transform: scale(.985); }
+.shindan .cta:disabled { opacity: .5; cursor: default; }
+.shindan .cta.blue { background: var(--main); color: var(--white); }
+
+/* ===== 結果 ===== */
+.shindan .res-kicker { font-size: 12px; font-weight: 700; letter-spacing: .16em; color: var(--main); margin-bottom: 8px; }
+.shindan .res-title { font-size: 22px; font-weight: 700; color: var(--text-black); line-height: 1.5; margin-bottom: 16px; }
+.shindan .chartbox { text-align: center; margin: 8px 0; }
+.shindan .chartwrap { position: relative; display: inline-block; width: 100%; max-width: 340px; }
+.shindan .axis-label { fill: var(--text-grey); cursor: help; transition: fill .15s; }
+.shindan .axis-label--strong { fill: var(--text-black); }
+.shindan .axis-label:hover { fill: var(--main); }
+.shindan .chart-tip { position: absolute; z-index: 5; background: var(--white); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: var(--shadow-2); padding: 10px 12px; font-size: 12px; line-height: 1.6; color: var(--text-black);
+  width: max-content; max-width: 220px; text-align: left; pointer-events: none; animation: sdTipIn .15s var(--ease) both; }
+.shindan .chart-tip b { display: block; color: var(--main); font-size: 12.5px; margin-bottom: 2px; }
+@keyframes sdTipIn { from { opacity: 0; } to { opacity: 1; } }
+.shindan .chart2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
+.shindan .chart2 h4 { text-align: center; font-size: 12px; color: var(--text-grey); margin-bottom: 2px; font-weight: 600; }
+@media (max-width: 560px) { .shindan .chart2 { grid-template-columns: 1fr; } }
+.shindan .gauge-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-grey); margin: 16px 0 6px; font-weight: 700; }
+.shindan .gauge { height: 14px; background: var(--head); border-radius: 999px; overflow: hidden; }
+.shindan .gauge i { display: block; height: 100%; border-radius: 999px; animation: sdGaugeFill 1.1s var(--ease) .45s both; }
+
+.shindan .tsum { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: var(--white); overflow: hidden; }
+.shindan .tsum summary { list-style: none; cursor: pointer; padding: 14px 16px; font-size: 15px; font-weight: 700; color: var(--text-black); display: flex; align-items: center; }
+.shindan .tsum summary::-webkit-details-marker { display: none; }
+.shindan .tsum summary::after { content: "＋"; margin-left: auto; color: var(--main); font-weight: 400; }
+.shindan .tsum[open] summary::after { content: "－"; }
+.shindan .tsum .tbody { padding: 0 16px 16px; font-size: 13.5px; color: var(--text-black); border-top: 1px dashed var(--border); }
+
+.shindan .verdict { border-radius: 8px; padding: 20px 24px; margin-top: 20px; font-size: 13.5px; background: var(--white); border: 2px solid var(--main); }
+.shindan .verdict h3 { font-size: 15px; margin-bottom: 8px; color: var(--main); }
+.shindan .verdict.vb { border-color: var(--warning-yellow); background: #fffbeb; } .shindan .verdict.vb h3 { color: var(--warning-text); }
+.shindan .verdict.vc { border-color: var(--danger); background: var(--danger-tint); } .shindan .verdict.vc h3 { color: var(--danger); }
+
+/* ===== ゲート ===== */
+.shindan .gate { position: relative; margin-top: 24px; }
+.shindan .gate .blurred { filter: blur(5px); pointer-events: none; user-select: none; }
+.shindan .gate .gform { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.shindan .gform-inner { background: var(--white); border: 2px solid var(--main); border-radius: 8px; padding: 24px; width: 100%; max-width: 420px;
+  box-shadow: var(--shadow-3); animation: sdGatePop .5s var(--bounce) .8s both; }
+.shindan .gform-inner h3 { font-size: 15px; color: var(--text-black); margin-bottom: 4px; }
+.shindan .gform-inner p { font-size: 12px; color: var(--text-grey); margin-bottom: 12px; }
+.shindan .gform-inner input { width: 100%; border: 1.5px solid var(--border); border-radius: 4px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px;
+  color: var(--text-black); transition: border-color .2s, box-shadow .2s; }
+.shindan .gform-inner input:focus { outline: none; border-color: var(--main); box-shadow: 0 0 0 3px rgba(217,119,6,.16); }
+.shindan .err { color: var(--danger); font-size: 12px; margin-bottom: 8px; animation: sdShake .28s; }
+
+/* ===== トップ ===== */
+.shindan .rolebtns { display: grid; gap: 12px; }
+.shindan .rolebtn { display: block; text-align: left; border: 2px solid var(--border); border-radius: 6px; background-color: var(--white); padding: 18px 20px;
+  cursor: pointer; text-decoration: none; position: relative;
+  background-image: linear-gradient(90deg, var(--main-tint), var(--main-tint));
+  background-repeat: no-repeat; background-size: 0% 100%;
+  transition: border-color .2s, background-size .25s var(--ease), transform .18s, box-shadow .2s; }
+.shindan .rolebtn::after { content: "→"; position: absolute; right: 18px; top: 50%; translate: 0 -50%; color: var(--main);
+  font-weight: 700; opacity: 0; transition: opacity .2s, right .25s var(--ease); }
+.shindan .rolebtn:hover { border-color: var(--main); background-size: 100% 100%; transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.shindan .rolebtn:hover::after { opacity: 1; right: 14px; }
+.shindan .rolebtn:active { transform: translateY(0) scale(.99); }
+.shindan .rolebtn b { color: var(--text-black); font-size: 16px; display: block; }
+.shindan .rolebtn span { font-size: 12px; color: var(--text-grey); }
+
+/* 分析中の間（ま） */
+.shindan .analyzing { text-align: center; padding: 64px 32px; }
+.shindan .analyzing p { font-size: 15px; font-weight: 600; color: var(--text-black); margin-top: 16px; }
+.shindan .spinner { width: 36px; height: 36px; margin: 0 auto; border-radius: 50%;
+  border: 3px solid var(--head); border-top-color: var(--main); animation: sdSpin .8s linear infinite; }
+@keyframes sdSpin { to { transform: rotate(360deg); } }
+
+/* あなたが書いてくれたこと（自由回答の引用） */
+.shindan .yourwords { background: var(--over-background); border-radius: 8px; padding: 18px 20px; margin-top: 20px; }
+.shindan .yourwords h4 { font-size: 12px; color: var(--text-grey); letter-spacing: .08em; margin-bottom: 10px; font-weight: 700; }
+.shindan .yourwords blockquote { border-left: 3px solid var(--main); padding: 2px 0 2px 12px; margin-bottom: 10px;
+  font-size: 14px; font-weight: 600; color: var(--text-black); }
+.shindan .yourwords p { font-size: 13px; color: var(--text-black); margin-top: 6px; }
+
+/* 実演受付の確認 */
+.shindan .confirm { background: #eef7ee; border: 1.5px solid #3f9c35; border-radius: 6px; padding: 12px 16px;
+  font-size: 13.5px; font-weight: 600; color: #205c1a; }
+
+/* フォーム部品（ゲート/直接案内 共通） */
+.shindan .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.shindan .gsel, .shindan .ginput { width: 100%; border: 1.5px solid var(--border); border-radius: 4px; padding: 10px 12px; font-size: 14px;
+  margin-bottom: 8px; background: var(--white); color: var(--text-black); transition: border-color .2s, box-shadow .2s; }
+.shindan .gsel:focus, .shindan .ginput:focus { outline: none; border-color: var(--main); box-shadow: 0 0 0 3px rgba(217,119,6,.16); }
+.shindan .privacy { font-size: 11px; color: var(--text-grey); margin-top: 8px; }
+.shindan .privacy-link { color: var(--text-grey); text-decoration: underline; margin-left: 4px; }
+.shindan .footer-note { text-align: center; margin-top: 22px; font-size: 12px; }
+.shindan .footer-note a { color: var(--text-grey); text-decoration: underline; }
+.shindan .crosslink { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.shindan .crosslink a { color: var(--main); font-weight: 700; text-decoration: none; }
+.shindan .crosslink a:hover { text-decoration: underline; }
+.shindan .crosslink span { color: var(--text-grey); font-size: 12px; }
+
+.shindan .disclaimer { font-size: 11px; color: var(--text-grey); margin-top: 24px; }
+.shindan .restart { display: block; text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-grey); background: none; border: none; cursor: pointer; text-decoration: underline; width: 100%; }
+
+/* ===== モーション（規約: design.md §4） ===== */
+.shindan .rv { animation: sdFadeUp .5s var(--ease) both; }
+.shindan .poly-anim { animation: sdChartGrow .9s cubic-bezier(.22,1.3,.36,1) .25s both; }
+
+@keyframes sdFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes sdChartGrow { from { opacity: 0; transform: scale(.1); } to { opacity: 1; transform: scale(1); } }
+@keyframes sdGaugeFill { from { width: 0; } }
+@keyframes sdOptPulse { 0% { transform: scale(1); } 40% { transform: scale(.97); } 100% { transform: scale(1); } }
+@keyframes sdCheckPop { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
+@keyframes sdGatePop { from { opacity: 0; transform: translateY(10px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes sdShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .shindan *, .shindan *::before, .shindan *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
+}
+

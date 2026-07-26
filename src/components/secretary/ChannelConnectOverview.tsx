@@ -12,10 +12,12 @@ const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: st
 }
 
 /**
- * 「つなぐ」ハブの汎用チャネル・セットアップ概要（LINE以外）。
- * レジストリの定義（実装状況・資格情報フィールド・受信Webhook・Pro区分）を表示し、
- * 「運用者が何を設定するか」をアプリ内でも参照できるようにする。
- * 実接続の登録UI(資格情報の保存)は各チャネルのAPI整備に合わせて順次追加する。
+ * 「つなぐ」ハブの汎用チャネル・セットアップ画面（LINE以外）。
+ *
+ * 情報設計は「主アクション優先」— 画面を開いた人が最初に見るのは *いま何をするか*
+ * （合言葉を発行する / 資格情報を登録する）。送受信の対応状況・Webhookパス・資格情報の
+ * JSONキーといった開発者向けメタ情報は、既定で畳んだ「技術的な設定内容」の中に置く。
+ * registry の notes は doc生成用の内部メモなので画面には出さない。
  */
 export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition; orgId: string }) {
   const Icon = CHANNEL_ICONS[def.id]
@@ -29,7 +31,7 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6 max-w-2xl">
-      <div className="flex items-center gap-3 mb-1">
+      <div className="flex items-center gap-3 mb-5">
         <Icon className="w-7 h-7 text-gray-700" />
         <h1 className="text-lg font-semibold text-gray-900">{def.label}</h1>
         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${status.cls}`}>
@@ -41,67 +43,73 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
           </span>
         )}
       </div>
-      {def.notes && <p className="text-sm text-gray-500 mb-5">{def.notes}</p>}
 
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm mb-6">
-        <dt className="text-gray-400">送信</dt>
-        <dd className="text-gray-800">{def.outbound ? '対応' : '未対応'}</dd>
-        <dt className="text-gray-400">受信</dt>
-        <dd className="text-gray-800">{def.inbound ? '対応' : '準備中'}</dd>
-        <dt className="text-gray-400">送信先</dt>
-        <dd className="text-gray-800">{def.targetHint}</dd>
-        {def.webhookPath && (
-          <>
-            <dt className="text-gray-400">受信Webhook</dt>
-            <dd className="text-gray-800 break-all">
-              <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{def.webhookPath}</code>
-            </dd>
-          </>
-        )}
-      </dl>
-
-      <h2 className="text-sm font-semibold text-gray-700 mb-2">用意する資格情報</h2>
-      {isSharedBotClaim || def.credentialFields.length === 0 ? (
-        <p className="text-sm text-gray-500">
-          {isSharedBotClaim
-            ? '追加の資格情報は不要です（運営が共通の受け取り口を用意します）。'
-            : 'このチャネルに追加の資格情報は不要です。'}
-        </p>
-      ) : (
-        <ul className="space-y-2 mb-6">
-          {def.credentialFields.map((f) => (
-            <li key={f.key} className="flex items-start gap-2 text-sm">
-              <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded shrink-0 mt-0.5">{f.key}</code>
-              <div>
-                <span className="text-gray-800">{f.label}</span>
-                {f.secret && <span className="ml-2 text-[10px] font-semibold text-red-500">機密</span>}
-                {f.help && <p className="text-xs text-gray-500">{f.help}</p>}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* 共有Botチャネル（google_chat/discord等）は org が資格情報を貼り付ける開発者コンソールを
-          持たない（運営がBotを提供する）ため、「開発者コンソールを開く」リンクは出さない。 */}
-      {!isSharedBotClaim && def.setupUrl && (
-        <a
-          href={def.setupUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700"
-        >
-          開発者コンソールを開く
-          <ArrowSquareOut className="w-4 h-4" />
-        </a>
-      )}
-
+      {/* 主アクション — 開いた人が最初にやることを最上部に置く */}
       {isSharedBotClaim && <SharedBotClaimPanel orgId={orgId} channel={def.id} />}
       {canRegister && <ChannelCredentialForm orgId={orgId} def={def} />}
+      {!isSharedBotClaim && !canRegister && (
+        <p className="text-sm text-gray-500">このチャネルは準備中です。開通しましたらご案内します。</p>
+      )}
 
-      <p className="mt-8 text-xs text-gray-400 border-t border-gray-100 pt-4">
-        接続手順の詳細は <code>docs/setup/CHANNEL_CONNECTIONS_SETUP.html</code> を参照。
-      </p>
+      {/* 開発者向けメタ情報 — 既定は畳む（運用者が必要なときだけ開く） */}
+      <details className="mt-8 border-t border-gray-100 pt-4">
+        <summary className="cursor-pointer text-xs font-medium text-gray-500 hover:text-gray-700">
+          技術的な設定内容
+        </summary>
+
+        <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt className="text-gray-400">送信</dt>
+          <dd className="text-gray-800">{def.outbound ? '対応' : '未対応'}</dd>
+          <dt className="text-gray-400">受信</dt>
+          <dd className="text-gray-800">{def.inbound ? '対応' : '準備中'}</dd>
+          <dt className="text-gray-400">送信先</dt>
+          <dd className="text-gray-800">{def.targetHint}</dd>
+          {def.webhookPath && (
+            <>
+              <dt className="text-gray-400">受信Webhook</dt>
+              <dd className="text-gray-800 break-all">
+                <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{def.webhookPath}</code>
+              </dd>
+            </>
+          )}
+        </dl>
+
+        {!isSharedBotClaim && def.credentialFields.length > 0 && (
+          <>
+            <h2 className="mt-5 mb-2 text-xs font-semibold text-gray-500">資格情報のキー</h2>
+            <ul className="space-y-2">
+              {def.credentialFields.map((f) => (
+                <li key={f.key} className="flex items-start gap-2 text-sm">
+                  <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+                    {f.key}
+                  </code>
+                  <div>
+                    <span className="text-gray-800">{f.label}</span>
+                    {f.secret && (
+                      <span className="ml-2 text-[10px] font-semibold text-red-500">機密</span>
+                    )}
+                    {f.help && <p className="text-xs text-gray-500">{f.help}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {/* 共有Botチャネル（google_chat/discord等）は org が資格情報を貼り付ける開発者コンソールを
+            持たない（運営がBotを提供する）ため、「開発者コンソールを開く」リンクは出さない。 */}
+        {!isSharedBotClaim && def.setupUrl && (
+          <a
+            href={def.setupUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700"
+          >
+            開発者コンソールを開く
+            <ArrowSquareOut className="w-4 h-4" />
+          </a>
+        )}
+      </details>
     </div>
   )
 }
