@@ -264,15 +264,29 @@ describe('POST /api/invites/[token]/accept', () => {
     expect(adminRpcMock).toHaveBeenCalled()
   })
 
-  it('returns 400 with the RPC error message when rpc_accept_invite fails', async () => {
+  // 受諾側は「招待された人」が見る画面。英語の例外をそのまま見せず、
+  // 本人にできること（管理者に連絡）が分かる日本語にする。402=課金起因。
+  it('人数枠に達していたら402＋日本語の案内＋code=member_limit_reached を返す', async () => {
     authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
     acceptRpcResponse = { data: null, error: { message: 'Organization has reached member limit' } }
 
     const response = await callPost(VALID_TOKEN, {})
     const data = await response.json()
 
+    expect(response.status).toBe(402)
+    expect(data.code).toBe('member_limit_reached')
+    expect(data.error).not.toMatch(/Organization has reached/)
+  })
+
+  it('人数枠以外のRPCエラーは従来どおり400でメッセージを返す', async () => {
+    authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+    acceptRpcResponse = { data: null, error: { message: 'invite expired' } }
+
+    const response = await callPost(VALID_TOKEN, {})
+    const data = await response.json()
+
     expect(response.status).toBe(400)
-    expect(data.error).toBe('Organization has reached member limit')
+    expect(data.error).toBe('invite expired')
   })
 
   it('returns 429 when the rate limit is exceeded', async () => {

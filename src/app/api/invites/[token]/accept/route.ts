@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { emailsMatch } from '@/lib/invite/emailMatch'
+import { seatLimitFromRpcError } from '@/lib/billing/seatLimitMessage'
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -151,6 +152,12 @@ export async function POST(
     })
 
     if (acceptError) {
+      // 人数枠（plans.members_limit / clients_limit）由来は、招待された本人が読んで
+      // 次にできること（管理者に連絡）が分かる日本語＋402に畳む
+      const seat = seatLimitFromRpcError(acceptError.message, 'accept')
+      if (seat) {
+        return NextResponse.json({ error: seat.message, code: seat.code }, { status: seat.status })
+      }
       return NextResponse.json({ error: acceptError.message }, { status: 400 })
     }
 
