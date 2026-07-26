@@ -34,6 +34,7 @@ const store = {
   cancelQuote: vi.fn(),
   terminateQuote: vi.fn(),
   markStripeSyncApplied: vi.fn(),
+  listApprovedQuotesWithOrg: vi.fn(),
 }
 vi.mock('@/lib/billing/quoteStore', async () => {
   const actual = await vi.importActual<typeof import('@/lib/billing/quoteStore')>(
@@ -52,6 +53,7 @@ vi.mock('@/lib/billing/quoteStore', async () => {
     cancelQuote: (...a: unknown[]) => store.cancelQuote(...a),
     terminateQuote: (...a: unknown[]) => store.terminateQuote(...a),
     markStripeSyncApplied: (...a: unknown[]) => store.markStripeSyncApplied(...a),
+    listApprovedQuotesWithOrg: (...a: unknown[]) => store.listApprovedQuotesWithOrg(...a),
   }
 })
 
@@ -62,6 +64,7 @@ import {
   POST as adminOffer,
   PATCH as adminPatch,
 } from '@/app/api/admin/quotes/route'
+import { GET as exportCsv } from '@/app/api/admin/quotes/export/route'
 import { QuoteConflictError } from '@/lib/billing/quoteStore'
 
 const ORG_ID = '11111111-2222-3333-4444-555555555555'
@@ -310,5 +313,50 @@ describe('/api/admin/quotes（当社側）', () => {
     mockVerifySuperadmin.mockResolvedValue('admin-1')
     const res = await adminPatch(patch(url, { quoteId: QUOTE_ID, action: 'delete' }))
     expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/admin/quotes/export（経理向けCSV）', () => {
+  it('superadmin でなければ403（金額の一覧は運営だけのもの）', async () => {
+    mockVerifySuperadmin.mockResolvedValue(null)
+    const res = await exportCsv()
+    expect(res.status).toBe(403)
+    expect(store.listApprovedQuotesWithOrg).not.toHaveBeenCalled()
+  })
+
+  it('CSVをダウンロードとして返す（ファイル名つき・Excel想定）', async () => {
+    mockVerifySuperadmin.mockResolvedValue('admin-1')
+    store.listApprovedQuotesWithOrg.mockResolvedValue([
+      {
+        id: 'q1',
+        orgId: 'org-1',
+        orgName: 'テスト事務所',
+        amountMonthlyJpy: 5000,
+        addMembers: 10,
+        addLineGroups: 0,
+        addExternalChatGroups: 0,
+        approvedAt: '2026-07-26T01:23:45.000Z',
+        stripeSyncStatus: 'pending',
+      },
+    ])
+
+    const res = await exportCsv()
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('text/csv')
+    expect(res.headers.get('Content-Disposition')).toContain('attachment')
+    const body = await res.text()
+    expect(body).toContain('テスト事務所')
+    expect(body).toContain('5000')
+  })
+
+  it('0件でも見出しだけのCSVを返す（空レスポンスにしない）', async () => {
+    mockVerifySuperadmin.mockResolvedValue('admin-1')
+    store.listApprovedQuotesWithOrg.mockResolvedValue([])
+
+    const res = await exportCsv()
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('組織名')
   })
 })

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { BillingQuoteRow } from '@/lib/billing/quotes'
+import { monthlyTotalJpy, type ApprovedQuoteWithOrg } from '@/lib/billing/quotesCsv'
 
 /**
  * 枠追加のお見積もり（当社側）。
@@ -42,9 +43,11 @@ const EMPTY_DRAFT: OfferDraft = {
 export function QuotesClient({
   initialOpen,
   initialPendingSync,
+  initialApproved,
 }: {
   initialOpen: BillingQuoteRow[]
   initialPendingSync: BillingQuoteRow[]
+  initialApproved: ApprovedQuoteWithOrg[]
 }) {
   const [open, setOpen] = useState(initialOpen)
   const [pendingSync, setPendingSync] = useState(initialPendingSync)
@@ -221,6 +224,68 @@ export function QuotesClient({
             </div>
           ))
         )}
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">請求すべき追加枠（承認済み）</h2>
+            <p className="text-xs text-gray-500">
+              毎月これを請求します。請求書の作成に使えるよう CSV で書き出せます（Excelで開けます）。
+            </p>
+          </div>
+          <a
+            href="/api/admin/quotes/export"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            CSVをダウンロード
+          </a>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="border-b border-gray-100 px-4 py-3 text-sm text-gray-700">
+            合計 <span className="font-semibold">月額 ¥{monthlyTotalJpy(initialApproved).toLocaleString()}</span>
+            <span className="text-gray-500">（{initialApproved.length}件・税別）</span>
+          </div>
+          {initialApproved.length === 0 ? (
+            <p className="px-4 py-3 text-sm text-gray-500">承認済みの追加枠はありません。</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-xs text-gray-500">
+                  <th className="px-4 py-2 font-medium">組織</th>
+                  <th className="px-4 py-2 font-medium">月額</th>
+                  <th className="px-4 py-2 font-medium">内訳</th>
+                  <th className="px-4 py-2 font-medium">承認日時</th>
+                  <th className="px-4 py-2 font-medium">請求反映</th>
+                </tr>
+              </thead>
+              <tbody>
+                {initialApproved.map((q) => (
+                  <tr key={q.id} className="border-b border-gray-50 last:border-0">
+                    <td className="px-4 py-2 text-gray-900">{q.orgName}</td>
+                    <td className="px-4 py-2 text-gray-900">
+                      ¥{(q.amountMonthlyJpy ?? 0).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {[
+                        q.addMembers > 0 ? `メンバー+${q.addMembers}` : null,
+                        q.addLineGroups > 0 ? `グループ+${q.addLineGroups}` : null,
+                        q.addExternalChatGroups > 0 ? `他チャット+${q.addExternalChatGroups}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' / ')}
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">{formatJst(q.approvedAt)}</td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {q.stripeSyncStatus === 'applied' ? '反映済み' : '未反映'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </section>
 
       <section className="space-y-3">
