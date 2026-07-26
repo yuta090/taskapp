@@ -160,18 +160,9 @@ export default function InviteAcceptPage({
             プロジェクト担当者に再招待を依頼してください。既に参加済みの場合はログインしてください。
           </p>
           <div className="flex flex-col gap-3">
-            <a
-              href="mailto:"
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              メールで連絡する
-            </a>
             <Link
               href="/login"
-              className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors"
             >
               ログインページへ
             </Link>
