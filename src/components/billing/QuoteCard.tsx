@@ -135,7 +135,7 @@ export function QuoteCard({ orgId, isOwner }: QuoteCardProps) {
               type="button"
               disabled={submitting}
               onClick={() => respond(open, 'approve')}
-              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-gray-100 bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
             >
               {submitting ? <CircleNotch size={16} className="animate-spin" /> : 'この内容で承認する'}
             </button>
@@ -171,7 +171,7 @@ export function QuoteCard({ orgId, isOwner }: QuoteCardProps) {
             type="button"
             disabled={submitting || !note.trim()}
             onClick={submitRequest}
-            className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-gray-100 bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
           >
             お見積もりを依頼する
           </button>

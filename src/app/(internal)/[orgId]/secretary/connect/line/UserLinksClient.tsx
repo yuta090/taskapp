@@ -104,7 +104,7 @@ export function UserLinksClient({
               type="button"
               onClick={onRequest}
               disabled={requesting}
-              className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-100 hover:bg-gray-800 disabled:opacity-50"
             >
               {requesting ? '送信中…' : '共通LINEを申し込む'}
             </button>

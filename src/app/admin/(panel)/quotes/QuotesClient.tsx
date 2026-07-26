@@ -207,7 +207,7 @@ export function QuotesClient({
                     type="button"
                     disabled={busyId === q.id}
                     onClick={() => offer(q)}
-                    className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-100 hover:bg-gray-800 disabled:opacity-50"
                   >
                     この内容で提示する
                   </button>
@@ -309,7 +309,7 @@ export function QuotesClient({
                   type="button"
                   disabled={busyId === q.id}
                   onClick={() => act(q.id, 'markApplied')}
-                  className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                  className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-100 hover:bg-gray-800 disabled:opacity-50"
                 >
                   反映済みにする
                 </button>
