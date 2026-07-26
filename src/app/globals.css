@@ -562,3 +562,41 @@ body {
     padding-bottom: max(4rem, calc(env(safe-area-inset-bottom) + 1.5rem));
   }
 }
+/* ============================================
+   TASK6 記事の「書き出し」（リード）
+   エッセイ調の書き出しと、解説本文を、読み手が一目で切り替えられるようにする。
+   記事本文の Markdown は rehype-sanitize を通り class も生HTMLも落ちるため、
+   執筆側では面も字送りも作れない。ここが唯一当てられる場所。
+
+   規約: 書き出しの直後に `---`（hr）を1本置く。
+   `p:has(~ hr):not(hr ~ p)` = 「後ろに hr があり、前に hr が無い段落」＝最初の hr より前の段落だけ。
+   記事中に別の `---` があっても、この選択は最初の1本にしか効かない。
+   ============================================ */
+.task6-body > p:has(~ hr):not(hr ~ p) {
+  font-size: 1.0625rem;
+  line-height: 2.15;
+  color: #3f3a34;
+}
+
+/* 1行目（掴みの一文）だけ、さらに一段大きく置く */
+.task6-body > p:has(~ hr):not(hr ~ p):first-of-type {
+  font-size: 1.3125rem;
+  font-weight: 600;
+  line-height: 1.9;
+  color: #221d18;
+  letter-spacing: 0.01em;
+}
+
+/* 書き出しの終わりの合図。罫線を渡しきらず、短い印にとどめる */
+.task6-body > hr:first-of-type {
+  width: 3rem;
+  margin: 2.75rem 0 2.25rem;
+  border: 0;
+  border-top: 2px solid #fbbf24;
+}
+
+@media (max-width: 640px) {
+  .task6-body > p:has(~ hr):not(hr ~ p):first-of-type {
+    font-size: 1.1875rem;
+  }
+}
