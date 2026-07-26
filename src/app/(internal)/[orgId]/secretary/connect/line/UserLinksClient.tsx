@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { SelfLinkPanel } from '@/components/secretary/SelfLinkPanel'
 import { GroupLinkPanel } from '@/components/secretary/GroupLinkPanel'
 import { DirectConnectDisclosure } from '@/components/secretary/DirectConnectDisclosure'
+import { SharedLineUsagePanel } from '@/components/secretary/SharedLineUsagePanel'
 import { Hint } from '@/components/secretary/Hint'
 import type { LineSelfServeState } from '@/lib/channels/sharedBotAccess'
 
@@ -53,6 +54,8 @@ export function UserLinksClient({
       <div className="flex flex-col flex-1 min-h-0">
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <h1 className="text-sm font-semibold text-gray-900">LINE秘書につなぐ</h1>
+
+          <SharedLineUsagePanel orgId={orgId} />
 
           <section className="rounded border border-gray-200 p-4">
             <h2 className="text-sm font-semibold text-gray-900">
