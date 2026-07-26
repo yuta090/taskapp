@@ -106,7 +106,7 @@ export function AdminSidebar({ badges }: AdminSidebarProps) {
   }
 
   return (
-    <aside className="w-60 h-screen bg-white border-r border-gray-200 flex flex-col shrink-0">
+    <aside className="w-60 h-screen bg-surface border-r border-gray-200 flex flex-col shrink-0">
       {/* Header */}
       <div className="px-4 py-4 border-b border-gray-200">
         <div className="flex items-center gap-2">

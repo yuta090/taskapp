@@ -185,7 +185,7 @@ function ProviderCard({ def }: { def: ProviderDef }) {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <Icon className={`w-5 h-5 ${def.iconColor}`} weight="bold" />

@@ -33,7 +33,7 @@ export function FeatureReminder() {
             {/* Reassurance */}
             <div className="flex flex-wrap gap-3">
               {reassurancePoints.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-slate-600 bg-white px-4 py-2 rounded-lg border border-slate-200">
+                <div key={i} className="flex items-center gap-2 text-sm text-slate-600 bg-surface px-4 py-2 rounded-lg border border-slate-200">
                   <item.icon size={16} className="text-green-600 shrink-0" weight="bold" />
                   <span>{item.text}</span>
                 </div>
@@ -47,10 +47,10 @@ export function FeatureReminder() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
           >
-            <div className="max-w-sm mx-auto bg-white rounded-3xl shadow-2xl border border-slate-200/60 overflow-hidden">
+            <div className="max-w-sm mx-auto bg-surface rounded-3xl shadow-2xl border border-slate-200/60 overflow-hidden">
               {/* Chat Header */}
               <div className="bg-green-500 px-5 py-3 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                <div className="w-8 h-8 rounded-full bg-surface/20 flex items-center justify-center text-white font-bold text-sm shrink-0">
                   秘
                 </div>
                 <div>
@@ -61,7 +61,7 @@ export function FeatureReminder() {
 
               {/* Chat Body */}
               <div className="p-5 bg-slate-50">
-                <div className="bg-white rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 p-4">
+                <div className="bg-surface rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 p-4">
                   <p className="text-sm text-slate-700 leading-relaxed">
                     「見積書の提出」が本日期限です。<br />
                     ・完了済みでしたら、下の[完了した]を押してください。<br />
@@ -75,10 +75,10 @@ export function FeatureReminder() {
                     完了した
                   </span>
                   <div className="grid grid-cols-2 gap-2">
-                    <span className="bg-white text-slate-600 text-xs font-bold text-center px-3 py-2 rounded-xl border border-slate-200 pointer-events-none select-none">
+                    <span className="bg-surface text-slate-600 text-xs font-bold text-center px-3 py-2 rounded-xl border border-slate-200 pointer-events-none select-none">
                       対応中
                     </span>
-                    <span className="bg-white text-slate-600 text-xs font-bold text-center px-3 py-2 rounded-xl border border-slate-200 pointer-events-none select-none">
+                    <span className="bg-surface text-slate-600 text-xs font-bold text-center px-3 py-2 rounded-xl border border-slate-200 pointer-events-none select-none">
                       明日また確認
                     </span>
                   </div>

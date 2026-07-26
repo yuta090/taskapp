@@ -251,7 +251,7 @@ export default function ApiKeysSettingsPage() {
     <div className="min-h-screen bg-gray-50">
       {ConfirmDialog}
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton fallbackHref="/settings/account" />
@@ -277,7 +277,7 @@ export default function ApiKeysSettingsPage() {
         {/* Newly created key modal */}
         {newlyCreatedKey && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
+            <div className="bg-surface rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
               <div className="flex items-center gap-2 text-amber-600 mb-4">
                 <Warning className="text-xl" weight="fill" />
                 <h4 className="font-medium">APIキーを保存してください</h4>
@@ -320,7 +320,7 @@ export default function ApiKeysSettingsPage() {
 
         {/* Create form */}
         {showCreateForm ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-5">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-5">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-gray-900">新規APIキー作成</h3>
               <button
@@ -431,7 +431,7 @@ export default function ApiKeysSettingsPage() {
                     className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                       allowedActions.includes(action.value)
                         ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                        : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                        : 'border-gray-200 bg-surface text-gray-600 hover:bg-gray-50'
                     } ${action.value === 'read' ? 'cursor-not-allowed' : ''}`}
                     title={action.description}
                   >
@@ -463,7 +463,7 @@ export default function ApiKeysSettingsPage() {
         ) : (
           <button
             onClick={() => setShowCreateForm(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-indigo-600 bg-surface border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
             新しいAPIキーを作成
@@ -471,7 +471,7 @@ export default function ApiKeysSettingsPage() {
         )}
 
         {/* API keys list */}
-        <div className="bg-white rounded-lg border border-gray-200">
+        <div className="bg-surface rounded-lg border border-gray-200">
           <div className="px-4 py-3 border-b border-gray-100">
             <h3 className="font-medium text-gray-900 flex items-center gap-2">
               <Key className="text-gray-500" />
@@ -579,7 +579,7 @@ export default function ApiKeysSettingsPage() {
         </div>
 
         {/* Setup instructions */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
             <h3 className="font-medium text-gray-900">セットアップ</h3>
             <p className="text-xs text-gray-500 mt-0.5">

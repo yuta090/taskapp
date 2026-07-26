@@ -92,7 +92,7 @@ function ConfirmDialogUI({
         role="alertdialog"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        className="relative w-full max-w-sm bg-white rounded-xl shadow-xl p-5 animate-dialog-in"
+        className="relative w-full max-w-sm bg-surface rounded-xl shadow-xl p-5 animate-dialog-in"
       >
         <div className="flex items-start gap-3">
           <WarningCircle

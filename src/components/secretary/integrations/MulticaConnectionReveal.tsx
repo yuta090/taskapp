@@ -34,7 +34,7 @@ export function CopyRow({ label, value }: CopyRowProps) {
     <div>
       <span className="block text-[11px] font-medium text-red-600">{label}</span>
       <div className="mt-1 flex items-center gap-1.5">
-        <code className="flex-1 min-w-0 truncate rounded bg-white border border-red-100 px-2 py-1 text-xs font-mono text-gray-900">
+        <code className="flex-1 min-w-0 truncate rounded bg-surface border border-red-100 px-2 py-1 text-xs font-mono text-gray-900">
           {value}
         </code>
         <button

@@ -164,7 +164,7 @@ export default function OrganizationSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -191,7 +191,7 @@ export default function OrganizationSettingsPage() {
         )}
 
         {/* Organization Card */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-6">
           {/* Header with icon */}
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-orange-600 rounded-lg flex items-center justify-center">
@@ -276,7 +276,7 @@ export default function OrganizationSettingsPage() {
         </div>
 
         {/* AI秘書: 自動期限リマインドの事務所単位オンオフ */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-2">
             <Bell className="w-4 h-4 text-gray-500" />
             AI秘書の自動期限リマインド
@@ -297,7 +297,7 @@ export default function OrganizationSettingsPage() {
                 disabled={!isOwner || dueRemindersLoading || dueRemindersFetchError || dueRemindersSaving}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
+              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
             </label>
           </div>
           {!isOwner && <p className="text-xs text-gray-500 mt-3">オーナーのみ変更できます</p>}
@@ -317,7 +317,7 @@ export default function OrganizationSettingsPage() {
           <div className="space-y-3">
             <Link
               href="/settings/members"
-              className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+              className="flex items-center justify-between bg-surface rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-50 rounded-lg">
@@ -333,7 +333,7 @@ export default function OrganizationSettingsPage() {
 
             <Link
               href="/settings/org-integrations"
-              className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+              className="flex items-center justify-between bg-surface rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-50 rounded-lg">
@@ -349,7 +349,7 @@ export default function OrganizationSettingsPage() {
 
             <Link
               href="/settings/billing"
-              className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+              className="flex items-center justify-between bg-surface rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-50 rounded-lg">

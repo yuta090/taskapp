@@ -194,7 +194,7 @@ export default function OrgIntegrationsPage() {
     <div className="min-h-screen bg-gray-50">
       {ConfirmDialog}
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -218,7 +218,7 @@ export default function OrgIntegrationsPage() {
 
         {/* GitHub */}
         {gitHubConfigured && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
             <div className="flex items-center gap-2 text-gray-700">
               <GithubLogo className="text-lg" weight="bold" />
               <h3 className="font-medium">GitHub</h3>
@@ -269,7 +269,7 @@ export default function OrgIntegrationsPage() {
 
         {/* Slack */}
         {slackConfigured && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
             <div className="flex items-center gap-2 text-gray-700">
               <ChatCircleDots className="text-lg" weight="bold" />
               <h3 className="font-medium">Slack</h3>
@@ -370,7 +370,7 @@ export default function OrgIntegrationsPage() {
         )}
 
         {/* AI Settings */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2 text-gray-700">
             <Brain className="text-lg" weight="bold" />
             <h3 className="font-medium">AI設定</h3>

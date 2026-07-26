@@ -704,7 +704,7 @@ export function NotificationInspector({
   const hasTypeSpecificAction = isActionable && !actionCompleted
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header */}
       <div className="flex-shrink-0 h-12 border-b border-gray-100 flex items-center px-4 gap-2">
         <div className="flex-1 flex items-center gap-2 min-w-0">
@@ -822,7 +822,7 @@ export function NotificationInspector({
                       type="button"
                       onClick={() => setShowStatusMenu(!showStatusMenu)}
                       disabled={statusUpdating}
-                      className="flex items-center gap-2 px-2 py-1.5 text-sm bg-white border border-gray-200 rounded-md hover:border-gray-300 transition-colors w-full"
+                      className="flex items-center gap-2 px-2 py-1.5 text-sm bg-surface border border-gray-200 rounded-md hover:border-gray-300 transition-colors w-full"
                     >
                       {statusUpdating ? (
                         <Spinner className="animate-spin text-gray-400" />
@@ -841,7 +841,7 @@ export function NotificationInspector({
                           className="fixed inset-0 z-10"
                           onClick={() => setShowStatusMenu(false)}
                         />
-                        <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-full">
+                        <div className="absolute left-0 top-full mt-1 z-20 bg-surface border border-gray-200 rounded-lg shadow-lg py-1 min-w-full">
                           {STATUS_OPTIONS.map((option) => (
                             <button
                               key={option.value}

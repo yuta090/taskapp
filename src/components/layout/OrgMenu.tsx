@@ -58,7 +58,7 @@ export function OrgMenu({ isOpen, onClose, collapsed }: OrgMenuProps) {
       <div
         role="menu"
         aria-orientation="vertical"
-        className={`absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-popover py-1.5 z-50 ${
+        className={`absolute top-full mt-1 bg-surface border border-gray-200 rounded-lg shadow-popover py-1.5 z-50 ${
           collapsed ? 'left-0 w-56' : 'left-3 right-3'
         }`}
       >

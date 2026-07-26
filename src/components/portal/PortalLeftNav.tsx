@@ -50,7 +50,7 @@ function NavItem({ href, icon, label, badge, active, collapsed }: NavItemProps) 
       } ${
         active
           ? 'text-indigo-900 bg-indigo-50/80 font-medium ring-1 ring-indigo-200'
-          : 'text-gray-600 hover:bg-white/50 hover:text-gray-900'
+          : 'text-gray-600 hover:bg-surface/50 hover:text-gray-900'
       }`}
       title={collapsed ? label : undefined}
     >
@@ -90,7 +90,7 @@ function SubNavItem({ href, icon, label, badge, active, collapsed }: SubNavItemP
       } ${
         active
           ? 'text-indigo-900 bg-indigo-50/60 font-medium ring-1 ring-indigo-100'
-          : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+          : 'text-gray-500 hover:text-gray-900 hover:bg-surface/50'
       }`}
       title={collapsed ? label : undefined}
     >
@@ -131,7 +131,7 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2 rounded hover:bg-white/50 transition-colors group`}
+        className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2 rounded hover:bg-surface/50 transition-colors group`}
         title={collapsed ? displayName : undefined}
       >
         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-medium shadow-md flex-shrink-0">
@@ -159,7 +159,7 @@ function UserMenu({ collapsed, userName, userEmail }: { collapsed?: boolean; use
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className={`absolute bottom-full mb-1 bg-white/90 backdrop-blur-xl border border-white/60 rounded-lg shadow-xl py-1 z-50 ${
+          <div className={`absolute bottom-full mb-1 bg-surface/90 backdrop-blur-xl border border-white/60 rounded-lg shadow-xl py-1 z-50 ${
             collapsed ? 'left-0 w-48' : 'left-3 right-3'
           }`}>
             <Link
@@ -303,7 +303,7 @@ export function PortalLeftNav({
     <aside
       className={`${
         collapsed ? 'w-16' : 'w-[240px] 2xl:w-[280px]'
-      } bg-white/60 backdrop-blur-xl border-r border-white/40 flex flex-col flex-shrink-0 select-none z-20 shadow-sm transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
+      } bg-surface/60 backdrop-blur-xl border-r border-white/40 flex flex-col flex-shrink-0 select-none z-20 shadow-sm transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
     >
       {/* Logo + Project Switcher + Request Button */}
       <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>
@@ -311,7 +311,7 @@ export function PortalLeftNav({
           type="button"
           onClick={() => showProjectSwitcher && setProjectMenuOpen(!projectMenuOpen)}
           className={`flex items-center gap-2 ${collapsed ? 'p-1.5' : 'px-2 py-1.5'} rounded transition-colors group flex-1 min-w-0 ${
-            showProjectSwitcher ? 'hover:bg-white/50 cursor-pointer' : 'cursor-default'
+            showProjectSwitcher ? 'hover:bg-surface/50 cursor-pointer' : 'cursor-default'
           }`}
           title={collapsed ? (currentProject?.name || 'AgentPM') : undefined}
         >
@@ -352,7 +352,7 @@ export function PortalLeftNav({
         {projectMenuOpen && showProjectSwitcher && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setProjectMenuOpen(false)} />
-            <div className={`absolute top-full mt-1 bg-white/90 backdrop-blur-xl border border-white/50 rounded-lg shadow-xl py-1 z-50 ${
+            <div className={`absolute top-full mt-1 bg-surface/90 backdrop-blur-xl border border-white/50 rounded-lg shadow-xl py-1 z-50 ${
               collapsed ? 'left-0 w-48' : 'left-3 right-3'
             }`}>
               <div className="px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide">
@@ -428,7 +428,7 @@ export function PortalLeftNav({
           onClick={toggleCollapsed}
           className={`flex items-center ${
             collapsed ? 'justify-center w-full' : 'gap-2'
-          } px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white/50 transition-colors w-full`}
+          } px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-surface/50 transition-colors w-full`}
           title={collapsed ? 'サイドバーを展開 (⌘\\)' : undefined}
           aria-label={collapsed ? 'サイドバーを展開' : 'サイドバーを折りたたむ'}
         >

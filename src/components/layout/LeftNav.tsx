@@ -234,7 +234,7 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+          <div className={`absolute bottom-full mb-1 bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
             collapsed ? 'left-0 w-48' : 'left-3 right-3'
           }`}>
             <Link
@@ -338,7 +338,7 @@ function HelpMenu({ collapsed }: { collapsed?: boolean }) {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div
-            className={`absolute bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+            className={`absolute bottom-full mb-1 bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
               collapsed ? 'left-0 w-56' : 'left-3 right-3'
             }`}
           >
@@ -464,7 +464,7 @@ function SpaceGroupHeader({
               }
               setRenaming(false)
             }}
-            className="flex-1 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            className="flex-1 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 bg-surface border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-300"
             autoFocus
           />
         </div>
@@ -498,7 +498,7 @@ function SpaceGroupHeader({
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
               <div
-                className="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-44"
+                className="fixed bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-44"
                 style={{ top: menuPos.top, right: menuPos.right }}
               >
                 <button
@@ -606,7 +606,7 @@ function SpaceMoveMenu({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
-            className="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-40"
+            className="fixed bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-50 w-40"
             style={{ top: menuPos.top, right: menuPos.right }}
           >
             <div className="px-3 py-1 text-[10px] font-medium text-gray-400 uppercase">
@@ -987,7 +987,7 @@ export const LeftNav = memo(function LeftNav() {
               className="fixed inset-0 z-40"
               onClick={() => setIsOrgSwitcherOpen(false)}
             />
-            <div className={`absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
+            <div className={`absolute top-full mt-1 bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-50 ${
               collapsed ? 'left-0 w-56' : 'left-3 right-3'
             }`}>
               {/* Org switcher (multi-org only) */}
@@ -1161,7 +1161,7 @@ export const LeftNav = memo(function LeftNav() {
                   setIsCreatingGroup(false)
                 }}
                 placeholder="グループ名..."
-                className="w-full px-2 py-1 text-[11px] text-gray-700 bg-white border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                className="w-full px-2 py-1 text-[11px] text-gray-700 bg-surface border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-300"
                 autoFocus
               />
             </div>

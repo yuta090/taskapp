@@ -17,7 +17,7 @@ export default async function Task6IndexPage() {
   const posts = await listPublishedPosts()
 
   return (
-    <main className="font-sans antialiased text-slate-900 bg-white">
+    <main className="font-sans antialiased text-slate-900 bg-surface">
       <LPHeader />
       <div className="mx-auto max-w-3xl px-5 pb-20 pt-24">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">TASK6</h1>

@@ -83,7 +83,7 @@ export default function ApprovalEmail({
             </Section>
 
             {/* Content */}
-            <Section className="bg-white px-10 py-10">
+            <Section className="bg-surface px-10 py-10">
               <Heading as="h2" className="text-gray-900 text-[20px] font-semibold m-0 mb-4">
                 {heading}
               </Heading>

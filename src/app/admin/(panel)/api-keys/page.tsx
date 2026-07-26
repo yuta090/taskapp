@@ -25,7 +25,7 @@ export default async function AdminApiKeysPage() {
         description={`${keys?.length ?? 0} キー (アクティブ: ${activeCount})`}
       />
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

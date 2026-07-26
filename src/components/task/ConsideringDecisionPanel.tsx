@@ -81,7 +81,7 @@ export function ConsideringDecisionPanel({
           data-testid="considering-evidence"
           value={evidence}
           onChange={(e) => setEvidence(e.target.value as Exclude<EvidenceType, 'meeting'>)}
-          className="flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+          className="flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-surface focus:outline-none focus:ring-1 focus:ring-amber-400"
           aria-label="根拠"
         >
           {EVIDENCE_OPTIONS.map((opt) => (
@@ -95,7 +95,7 @@ export function ConsideringDecisionPanel({
           data-testid="considering-confirmed-by"
           value={clientConfirmedBy}
           onChange={(e) => setClientConfirmedBy(e.target.value)}
-          className="flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+          className="flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-surface focus:outline-none focus:ring-1 focus:ring-amber-400"
           aria-label="確認相手"
         >
           <option value="">確認相手（必須）</option>

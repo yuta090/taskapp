@@ -233,7 +233,7 @@ function SignupForm() {
           <div className="w-full border-t border-gray-200" />
         </div>
         <div className="relative flex justify-center text-xs">
-          <span className="bg-white px-2 text-gray-500">またはメールで登録</span>
+          <span className="bg-surface px-2 text-gray-500">またはメールで登録</span>
         </div>
       </div>
 

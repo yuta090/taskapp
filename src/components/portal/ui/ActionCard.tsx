@@ -151,7 +151,7 @@ export function ActionCard({
                   e.stopPropagation()
                   setShowInput(true)
                 }}
-                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-white rounded-md transition-all border border-transparent hover:border-gray-200 hover:shadow-sm"
+                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-surface rounded-md transition-all border border-transparent hover:border-gray-200 hover:shadow-sm"
               >
                 修正依頼
               </button>
@@ -175,7 +175,7 @@ export function ActionCard({
             onChange={(e) => setComment(e.target.value)}
             placeholder="コメントを入力..."
             rows={2}
-            className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
+            className="w-full px-3 py-2 text-sm bg-surface border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
             autoFocus
           />
           <div className="flex justify-end gap-2 mt-2">

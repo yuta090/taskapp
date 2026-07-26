@@ -138,7 +138,7 @@ export function PortalShell({
         <div className="flex-1 min-h-0 flex w-full overflow-hidden">
 
           {/* Mobile header bar */}
-          <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 bg-white/90 backdrop-blur-xl border-b border-gray-200 flex items-center px-4 gap-3">
+          <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 bg-surface/90 backdrop-blur-xl border-b border-gray-200 flex items-center px-4 gap-3">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
@@ -211,8 +211,8 @@ export function PortalShell({
                     aria-modal="true"
                     aria-label="詳細パネル"
                     className={`
-                      fixed inset-0 z-50 bg-white overflow-y-auto
-                      md:static md:z-auto md:bg-white/90 md:backdrop-blur-xl md:border md:border-white/50
+                      fixed inset-0 z-50 bg-surface overflow-y-auto
+                      md:static md:z-auto md:bg-surface/90 md:backdrop-blur-xl md:border md:border-white/50
                       md:shadow-2xl md:rounded-2xl md:ml-4 md:mb-4
                       md:w-[400px] 2xl:md:w-[440px] md:flex-shrink-0
                       transition-all duration-300 ease-out ${

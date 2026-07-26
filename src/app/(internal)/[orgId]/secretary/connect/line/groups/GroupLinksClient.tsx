@@ -502,13 +502,13 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                   このコードをLINEグループに貼り付けてください。承認するとここに確認待ちが出ます。
                 </p>
                 <div className="mt-2 flex items-center gap-2">
-                  <code className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
+                  <code className="flex-1 rounded border border-amber-200 bg-surface px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
                     {issuedCode.code}
                   </code>
                   <button
                     type="button"
                     onClick={() => void copy()}
-                    className="flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    className="flex items-center gap-1 rounded border border-gray-300 bg-surface px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
                   >
                     {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                     {copied ? 'コピー済み' : 'コピー'}
@@ -535,7 +535,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                     <select
                       value={selectedSpaceId}
                       onChange={(e) => setSelectedSpaceId(e.target.value)}
-                      className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="rounded-md border border-gray-200 bg-surface px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
                     >
                       <option value="">プロジェクトを選択</option>
                       {orgSpaces.map((s) => (
@@ -584,7 +584,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                       return (
                         <li
                           key={it.spaceId}
-                          className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-white px-3 py-2"
+                          className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-surface px-3 py-2"
                         >
                           <span className="text-xs font-medium text-gray-700">{spaceName}</span>
                           <code className="font-mono text-xs tracking-wider text-gray-900">{it.displayCode}</code>
@@ -596,7 +596,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                     <button
                       type="button"
                       onClick={() => void copyBatch()}
-                      className="flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      className="flex items-center gap-1 rounded border border-gray-300 bg-surface px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
                     >
                       {batchCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                       {batchCopied ? 'コピー済み' : 'まとめてコピー'}
@@ -681,7 +681,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                   const err = rowError[item.id]
                   const limitReached = rowGroupLimitReached[item.id]
                   return (
-                    <li key={item.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                    <li key={item.id} className="rounded-lg border border-gray-200 bg-surface p-4">
                       <p className="text-sm font-medium text-gray-900">
                         {item.groupDisplayNameSnapshot ?? '(グループ名不明)'}
                       </p>

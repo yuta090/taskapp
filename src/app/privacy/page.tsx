@@ -8,7 +8,7 @@ export default function PrivacyPage() {
     const date = '2026年2月15日'
 
     return (
-        <div className="font-sans antialiased text-slate-900 bg-white">
+        <div className="font-sans antialiased text-slate-900 bg-surface">
             <LPHeader />
             <div className="container mx-auto px-6 py-32 max-w-4xl">
                 <h1 className="text-3xl font-bold mb-8 text-slate-900 border-b border-slate-200 pb-4">プライバシーポリシー</h1>

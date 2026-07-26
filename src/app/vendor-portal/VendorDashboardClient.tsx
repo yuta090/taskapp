@@ -33,17 +33,17 @@ export function VendorDashboardClient({
 
         {/* Stats cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="bg-surface border border-gray-200 rounded-xl p-5">
             <div className="text-xs text-gray-500 mb-1">自社対応中</div>
             <div className="text-3xl font-bold text-indigo-600">{stats.vendorBall}</div>
             <div className="text-xs text-gray-400 mt-1">自社の対応待ちのタスク</div>
           </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="bg-surface border border-gray-200 rounded-xl p-5">
             <div className="text-xs text-gray-500 mb-1">代理店対応中</div>
             <div className="text-3xl font-bold text-amber-600">{stats.agencyBall}</div>
             <div className="text-xs text-gray-400 mt-1">代理店の確認待ち</div>
           </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="bg-surface border border-gray-200 rounded-xl p-5">
             <div className="text-xs text-gray-500 mb-1">全タスク</div>
             <div className="text-3xl font-bold text-gray-700">{stats.total}</div>
             <div className="text-xs text-gray-400 mt-1">進行中の全タスク</div>
@@ -56,7 +56,7 @@ export function VendorDashboardClient({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Link
               href="/vendor-portal/tasks"
-              className="flex items-center gap-3 p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all group"
+              className="flex items-center gap-3 p-4 bg-surface border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all group"
             >
               <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
                 <ListChecks className="text-indigo-600" size={20} />
@@ -69,7 +69,7 @@ export function VendorDashboardClient({
             </Link>
             <Link
               href="/vendor-portal/estimates"
-              className="flex items-center gap-3 p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all group"
+              className="flex items-center gap-3 p-4 bg-surface border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all group"
             >
               <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center">
                 <CurrencyJpy className="text-amber-600" size={20} />

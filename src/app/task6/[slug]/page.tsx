@@ -69,7 +69,7 @@ export default async function BlogArticlePage({ params }: Props) {
   }
 
   return (
-    <main className="font-sans antialiased text-slate-900 bg-white">
+    <main className="font-sans antialiased text-slate-900 bg-surface">
       <LPHeader />
       <script
         type="application/ld+json"

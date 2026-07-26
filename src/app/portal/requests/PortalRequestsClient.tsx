@@ -139,15 +139,15 @@ export function PortalRequestsClient({
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-gray-900">{requests.length}</div>
               <div className="text-sm text-gray-500">全体</div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-blue-600">{activeCount}</div>
               <div className="text-sm text-gray-500">対応中</div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-green-600">{doneCount}</div>
               <div className="text-sm text-gray-500">完了</div>
             </div>
@@ -166,7 +166,7 @@ export function PortalRequestsClient({
                 onClick={() => setFilter(tab.key)}
                 className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
                   filter === tab.key
-                    ? 'bg-white text-gray-900 shadow-sm'
+                    ? 'bg-surface text-gray-900 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
@@ -182,7 +182,7 @@ export function PortalRequestsClient({
 
           {/* Request List */}
           {filteredRequests.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <PaperPlaneTilt className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">
                 {filter === 'all'
@@ -203,7 +203,7 @@ export function PortalRequestsClient({
               )}
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
               {filteredRequests.map(request => {
                 const statusDisplay = getStatusDisplay(request.status, request.ball)
                 const category = getCategoryFromTitle(request.title)

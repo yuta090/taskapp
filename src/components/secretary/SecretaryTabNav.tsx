@@ -67,7 +67,7 @@ export function SecretaryTabNav({ orgId }: SecretaryTabNavProps) {
   const activeTab = resolveActiveTab(pathname ?? '', orgId)
 
   return (
-    <div className="flex items-center gap-1 px-4 pt-2 bg-white border-b border-gray-200 flex-shrink-0">
+    <div className="flex items-center gap-1 px-4 pt-2 bg-surface border-b border-gray-200 flex-shrink-0">
       {tabs.map((tab) => {
         const isActive = tab.key === activeTab
         const Icon = tab.icon

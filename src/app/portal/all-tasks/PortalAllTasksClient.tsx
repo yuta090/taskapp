@@ -205,7 +205,7 @@ export function PortalAllTasksClient({
 
           {/* Task List with Milestone Groups */}
           {filteredTasks.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <ListChecks className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">タスクはありません</p>
               <p className="text-sm text-gray-400 mt-1">
@@ -213,7 +213,7 @@ export function PortalAllTasksClient({
               </p>
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               {groupedTasks.map(({ milestone, tasks: groupTasks }) => {
                 const groupKey = milestone?.id || '__none__'
                 const isCollapsed = collapsedGroups.has(groupKey)

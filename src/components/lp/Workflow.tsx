@@ -13,7 +13,7 @@ export function Workflow() {
     ]
 
     return (
-        <section className="py-20 bg-white border-t border-slate-100">
+        <section className="py-20 bg-surface border-t border-slate-100">
             <div className="container mx-auto px-6">
                 <div className="text-center mb-16">
                     <h2 className="text-3xl font-bold text-slate-900 pb-4 relative inline-block">

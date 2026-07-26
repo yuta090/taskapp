@@ -26,7 +26,7 @@ export function AdminFilterBar({ filters, activeFilters, onFilterChange }: Admin
           <select
             value={activeFilters[f.key] ?? ''}
             onChange={(e) => onFilterChange(f.key, e.target.value)}
-            className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-surface text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           >
             <option value="">すべて</option>
             {f.options.map((opt) => (

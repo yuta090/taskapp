@@ -146,7 +146,7 @@ export function PortalMeetingsClient({
           </div>
 
           {meetings.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">議事録はまだありません</p>
               <p className="text-sm text-gray-400 mt-1">
@@ -159,7 +159,7 @@ export function PortalMeetingsClient({
                 <button
                   key={meeting.id}
                   onClick={() => setSelectedMeeting(meeting)}
-                  className={`w-full text-left bg-white rounded-xl border shadow-sm p-4 hover:shadow-md transition-all ${
+                  className={`w-full text-left bg-surface rounded-xl border shadow-sm p-4 hover:shadow-md transition-all ${
                     selectedMeeting?.id === meeting.id
                       ? 'border-amber-500 ring-1 ring-amber-500'
                       : 'border-gray-200'

@@ -74,7 +74,7 @@ export default function NotificationSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -89,7 +89,7 @@ export default function NotificationSettingsPage() {
       {/* Content */}
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         {/* Browser Push Notifications */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {push.isSubscribed ? (
@@ -116,7 +116,7 @@ export default function NotificationSettingsPage() {
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${
                   push.isSubscribed ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
@@ -152,7 +152,7 @@ export default function NotificationSettingsPage() {
         </div>
 
         {/* Email Master Toggle */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {settings.email_enabled ? (
@@ -180,7 +180,7 @@ export default function NotificationSettingsPage() {
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${
                   settings.email_enabled ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
@@ -189,7 +189,7 @@ export default function NotificationSettingsPage() {
         </div>
 
         {/* Individual Settings */}
-        <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+        <div className="bg-surface rounded-lg border border-gray-200 divide-y divide-gray-100">
           <div className="p-4">
             <h3 className="text-sm font-medium text-gray-900 flex items-center gap-2">
               <Envelope className="w-4 h-4" />
@@ -244,7 +244,7 @@ export default function NotificationSettingsPage() {
         </div>
 
         {/* Digest Settings */}
-        <fieldset className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <fieldset className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <legend className="text-sm font-medium text-gray-900">ダイジェストメール</legend>
           <p className="text-xs text-gray-500">
             未読通知のまとめメールを受け取る頻度を選択します
@@ -295,7 +295,7 @@ function DueReminderToggle({ userId }: { userId: string }) {
   if (loading) return null
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
+    <div className="bg-surface rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {enabled ? (
@@ -322,7 +322,7 @@ function DueReminderToggle({ userId }: { userId: string }) {
           }`}
         >
           <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${
               enabled ? 'translate-x-6' : 'translate-x-1'
             }`}
           />
@@ -368,7 +368,7 @@ function SettingRow({
         } ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <span
-          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-surface transition-transform ${
             enabled ? 'translate-x-5' : 'translate-x-0.5'
           }`}
         />

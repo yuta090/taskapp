@@ -71,7 +71,7 @@ export function ErrorFallback({
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-25 p-4">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8 shadow-subtle">
+      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-surface p-8 shadow-subtle">
         {content}
       </div>
     </div>

@@ -36,7 +36,7 @@ export function AdminStatCard({ label, value, sub, href, trend }: AdminStatCardP
     </>
   )
 
-  const className = `bg-white rounded-xl border border-gray-200 p-5 ${
+  const className = `bg-surface rounded-xl border border-gray-200 p-5 ${
     href ? 'hover:border-indigo-300 hover:shadow-sm transition-all' : ''
   }`
 

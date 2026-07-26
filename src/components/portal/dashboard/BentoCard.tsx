@@ -11,7 +11,7 @@ interface BentoCardProps {
 
 export function BentoCard({ children, className = '', title, action }: BentoCardProps) {
     return (
-        <div className={`bg-white/90 backdrop-blur-sm rounded-3xl border border-white/60 shadow-lg p-6 flex flex-col ${className}`}>
+        <div className={`bg-surface/90 backdrop-blur-sm rounded-3xl border border-white/60 shadow-lg p-6 flex flex-col ${className}`}>
             {(title || action) && (
                 <div className="flex items-center justify-between mb-4">
                     {title && (

@@ -219,21 +219,21 @@ export default async function AdminCliUsagePage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-4 mb-8">
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">総実行数</p>
           <p className="text-2xl font-bold text-gray-900">{totalCount.toLocaleString()}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">ユニークユーザー</p>
           <p className="text-2xl font-bold text-gray-900">{uniqueUsers}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">エラー率</p>
           <p className={`text-2xl font-bold ${Number(errorRate) > 5 ? 'text-red-600' : 'text-gray-900'}`}>
             {errorRate}%
           </p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">平均応答時間</p>
           <p className="text-2xl font-bold text-gray-900">{avgResponseMs.toLocaleString()}ms</p>
         </div>
@@ -241,7 +241,7 @@ export default async function AdminCliUsagePage() {
 
       {/* Daily Chart */}
       <h2 className="text-sm font-medium text-gray-700 mb-3">日別実行数（直近30日）</h2>
-      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-8">
+      <div className="bg-surface border border-gray-200 rounded-xl p-5 mb-8">
         <div className="flex items-end gap-1" style={{ height: 160 }}>
           {dailyEntries.map(([date, count]) => (
             <div key={date} className="flex-1 flex flex-col items-center gap-1">
@@ -263,7 +263,7 @@ export default async function AdminCliUsagePage() {
         {/* Command Ranking */}
         <div>
           <h2 className="text-sm font-medium text-gray-700 mb-3">機能別ランキング</h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
+          <div className="bg-surface border border-gray-200 rounded-xl p-5 space-y-2">
             {commandRanking.length === 0 && (
               <p className="text-sm text-gray-400">データなし</p>
             )}
@@ -287,7 +287,7 @@ export default async function AdminCliUsagePage() {
         {/* Org Ranking */}
         <div>
           <h2 className="text-sm font-medium text-gray-700 mb-3">組織別ランキング</h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
+          <div className="bg-surface border border-gray-200 rounded-xl p-5 space-y-2">
             {orgRanking.length === 0 && (
               <p className="text-sm text-gray-400">データなし</p>
             )}
@@ -309,7 +309,7 @@ export default async function AdminCliUsagePage() {
 
       {/* Recent Logs Table */}
       <h2 className="text-sm font-medium text-gray-700 mb-3">直近のログ</h2>
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">

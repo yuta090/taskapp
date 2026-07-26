@@ -313,7 +313,7 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
+      <div className="flex items-center gap-3 px-4 py-3 bg-surface border-b border-gray-200">
         <div className="flex items-center gap-2">
           <SquaresFour className="text-lg text-gray-500" />
           <Breadcrumb items={breadcrumbItems} />

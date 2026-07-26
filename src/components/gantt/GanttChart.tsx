@@ -527,7 +527,7 @@ export function GanttChart({
   )
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-surface rounded-lg border border-gray-200 overflow-hidden">
       {/* Toolbar */}
       <div
         className="flex flex-col gap-2 px-4 py-2 border-b flex-shrink-0"
@@ -685,7 +685,7 @@ export function GanttChart({
         {/* Sidebar (plain divs, no DnD) */}
         <div
           ref={sidebarRef}
-          className="flex-shrink-0 border-r bg-white overflow-y-auto overflow-x-hidden"
+          className="flex-shrink-0 border-r bg-surface overflow-y-auto overflow-x-hidden"
           style={{
             width: GANTT_CONFIG.SIDEBAR_WIDTH,
             borderColor: GANTT_CONFIG.COLORS.GRID_LINE,

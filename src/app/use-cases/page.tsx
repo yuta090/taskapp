@@ -303,7 +303,7 @@ function SceneTabNav({ activeId, onSelect }: { activeId: string; onSelect: (id: 
                     }}
                     className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all ${activeId === scene.id
                             ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:border-amber-300 hover:text-amber-600'
+                            : 'bg-surface text-slate-600 border border-slate-200 hover:border-amber-300 hover:text-amber-600'
                         }`}
                 >
                     {scene.icon}
@@ -486,7 +486,7 @@ export default function UseCasesPage() {
     }, [])
 
     return (
-        <main className="font-sans antialiased text-slate-900 bg-white min-h-screen">
+        <main className="font-sans antialiased text-slate-900 bg-surface min-h-screen">
             <LPHeader />
 
             {/* ─── Hero ─── */}
@@ -619,7 +619,7 @@ export default function UseCasesPage() {
                                 key={idx}
                                 {...stagger}
                                 transition={{ delay: idx * 0.1 + 0.1 }}
-                                className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6"
+                                className="bg-surface rounded-2xl shadow-lg border border-slate-200 p-6"
                             >
                                 <h3 className="text-lg font-bold text-slate-900 mb-1">{mc.title}</h3>
                                 <p className="text-xs text-slate-400 mb-6">{mc.context}</p>

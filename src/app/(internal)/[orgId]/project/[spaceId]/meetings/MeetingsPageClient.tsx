@@ -361,14 +361,14 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border ${
                 kindFilter !== 'all'
                   ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-white'
+                  : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-surface'
               }`}
             >
               <FunnelSimple weight={kindFilter !== 'all' ? 'fill' : 'regular'} className="text-sm" />
               <span>{KIND_OPTIONS.find((o) => o.value === kindFilter)?.label ?? '種別'}</span>
             </button>
             {showKindMenu && (
-              <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[140px] py-1">
+              <div className="absolute top-full left-0 mt-1 z-50 bg-surface rounded-lg shadow-lg border border-gray-200 min-w-[140px] py-1">
                 {KIND_OPTIONS.map((option) => (
                   <button
                     key={option.value}
@@ -394,14 +394,14 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border ${
                 dateFilter !== 'all'
                   ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-white'
+                  : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-surface'
               }`}
             >
               <CalendarBlank weight={dateFilter !== 'all' ? 'fill' : 'regular'} className="text-sm" />
               <span>{dateFilter !== 'all' ? DATE_OPTIONS.find((o) => o.value === dateFilter)?.label ?? '日付' : '日付'}</span>
             </button>
             {showDateMenu && (
-              <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] py-1">
+              <div className="absolute top-full left-0 mt-1 z-50 bg-surface rounded-lg shadow-lg border border-gray-200 min-w-[120px] py-1">
                 {DATE_OPTIONS.map((option) => (
                   <button
                     key={option.value}
@@ -445,7 +445,7 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
             <CaretDown className="text-[10px]" />
           </button>
           {showCreateMenu && (
-            <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-popover border border-gray-200 py-1 z-10">
+            <div className="absolute right-0 mt-1 w-48 bg-surface rounded-lg shadow-popover border border-gray-200 py-1 z-10">
               <button
                 type="button"
                 data-testid="create-from-scheduling"

@@ -103,7 +103,7 @@ export default function UserIntegrationsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -134,7 +134,7 @@ export default function UserIntegrationsPage() {
 
         {/* Google Calendar */}
         {isGCalEnabled && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
             <div className="flex items-center gap-2 text-gray-700">
               <CalendarCheck className="text-lg" weight="bold" />
               <h3 className="font-medium">Google Calendar</h3>
@@ -234,7 +234,7 @@ export default function UserIntegrationsPage() {
 
         {/* Google Tasks (Google ToDo リスト) */}
         {isGTasksEnabled && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
             <div className="flex items-center gap-2 text-gray-700">
               <ListChecks className="text-lg" weight="bold" />
               <h3 className="font-medium">Google ToDo リスト</h3>
@@ -310,7 +310,7 @@ export default function UserIntegrationsPage() {
 
         {/* Video Conference Accounts */}
         {(isZoomEnabled || isTeamsEnabled || isGCalEnabled) && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
             <div className="flex items-center gap-2 text-gray-700">
               <VideoCamera className="text-lg" weight="bold" />
               <h3 className="font-medium">ビデオ会議アカウント</h3>
@@ -431,7 +431,7 @@ export default function UserIntegrationsPage() {
 
         {/* Empty state */}
         {!isGCalEnabled && !isZoomEnabled && !isTeamsEnabled && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 text-center">
+          <div className="bg-surface rounded-lg border border-gray-200 p-6 text-center">
             <PlugsConnected className="w-8 h-8 text-gray-300 mx-auto mb-3" />
             <p className="text-sm text-gray-500">
               外部サービス連携は現在無効です。管理者に連絡してください。

@@ -2,54 +2,15 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constants'
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
+// 公開パス定義はダークテーマ判定と単一ソース化（src/lib/routes/publicPaths.ts）
+import { isPublicPathMatch } from '@/lib/routes/publicPaths'
 
 // このファイルは必ず src/ 直下に置く（src/app と同階層）。
 // リポジトリルートに置くと `next dev` が読み込まず、認証ゲートがローカルだけ無効になる
 // （ビルドは拾うため本番との差分に気づけない）。Next 16 で middleware.ts → proxy.ts に改称。
 
-// 認証不要のパス（ホワイトリスト — ここに無いページは全て認証必須）
-// NOTE: /api は静的ファイルスキップで除外済みのためここに不要
-const publicPaths = [
-  '/',
-  '/login',
-  '/signup',
-  '/reset',
-  '/invite',
-  '/auth/callback',
-  '/docs',
-  '/admin/login',
-  '/contact',
-  '/pricing',
-  '/privacy',
-  '/terms',
-  // 特商法表示は購入前の誰もが閲覧できる必要がある（法令要件）
-  '/tokushoho',
-  '/company',
-  // マーケティングページ: ヘッダー・フッターから導線があるため未認証で開けないと集客が成立しない
-  '/features',
-  '/compare',
-  '/use-cases',
-  // ヘルプ: 顧客・クライアント（アカウントを持たない相手を含む）が参照する
-  '/help',
-  // 学びのメディア「TASK6」: SEO記事。未ログインの検索流入が読む
-  // （旧 /blog は next.config の redirects で /task6 へ 301 済み。proxy には来ない）
-  '/task6',
-  // タスク滞留診断: 未ログインのリード獲得ツール(multica-prj/shindan-appから移植)
-  '/shindan',
-  '/portal/email-action',
-]
-
-// 静的LP: /lp1, /lp2, ... （public/lp<N>/index.html へ rewrite）。番号付きのみ公開
-const STATIC_LP_PATTERN = /^\/lp\d+(\/|$)/
-
-/** セグメント境界を考慮したパスマッチ（/privacy が /privacy-policy にマッチしない） */
-function isPublicPathMatch(pathname: string): boolean {
-  if (STATIC_LP_PATTERN.test(pathname)) return true
-  return publicPaths.some(path => {
-    if (path === '/') return pathname === '/'
-    return pathname === path || pathname.startsWith(path + '/')
-  })
-}
+// 公開パス（publicPaths / STATIC_LP_PATTERN / isPublicPathMatch）は
+// src/lib/routes/publicPaths.ts に集約（ダークテーマ判定と単一ソース）。
 
 /** redirect レスポンスに activeOrgId cookie を付与 */
 function redirectWithOrgCookie(url: URL, orgId: string): NextResponse {
