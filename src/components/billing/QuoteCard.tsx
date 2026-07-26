@@ -104,7 +104,7 @@ export function QuoteCard({ orgId, isOwner }: QuoteCardProps) {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+    <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
       <div className="flex items-center gap-2">
         <Receipt size={20} className="text-gray-500" />
         <h3 className="text-sm font-semibold text-gray-900">枠の追加（お見積もり）</h3>
@@ -143,7 +143,7 @@ export function QuoteCard({ orgId, isOwner }: QuoteCardProps) {
               type="button"
               disabled={submitting}
               onClick={() => respond(open, 'reject')}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
             >
               見送る
             </button>

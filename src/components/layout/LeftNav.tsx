@@ -942,7 +942,7 @@ export const LeftNav = memo(function LeftNav() {
     <aside
       className={`${
         collapsed ? 'w-16' : 'w-[240px] 2xl:w-[280px]'
-      } bg-[#F7F8F9] border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
+      } bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
     >
       {/* Workspace + Quick Create */}
       <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>

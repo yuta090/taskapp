@@ -32,7 +32,22 @@ const LIGHT_ONLY = [
   path.join('src', 'components', 'portal'),
   path.join('src', 'app', 'task6'),
   path.join('src', 'app', 'shindan'),
+  path.join('src', 'components', 'lp'),
+  // メールはテーマトークンが効かない（受信側のクライアントが描画する）
+  path.join('src', 'lib', 'email'),
 ]
+
+/** `bg-white` 直書き。text-white と変数を共有するため単独で暗転できない → bg-surface を使う */
+const BG_WHITE = /\bbg-white\b/
+
+/** 色の直書き（arbitrary value）。トークンを経由しないのでテーマ切替が効かない */
+const HEX_LITERAL = /\b(?:bg|text|border|ring|from|via|to|fill|stroke)-\[#[0-9A-Fa-f]{3,8}\]/g
+
+/**
+ * 例外として直書きを許すブランド色。
+ * 他社サービスの色はテーマで反転させてはいけない（Slack の紫は暗くしても Slack の紫）。
+ */
+const BRAND_HEX = new Set(['#4A154B', '#611f64'])
 
 function collectTsx(dir: string, acc: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -44,24 +59,48 @@ function collectTsx(dir: string, acc: string[] = []): string[] {
   return acc
 }
 
+/** ダーク対象（ログイン後のアプリ画面）の tsx を、行番号つきで走査する */
+function scanAppTsx(check: (line: string) => boolean): string[] {
+  const root = path.resolve(__dirname, '../../..')
+  const violations: string[] = []
+  for (const file of collectTsx(path.join(root, 'src'))) {
+    const rel = path.relative(root, file)
+    if (LIGHT_ONLY.some((p) => rel.startsWith(p))) continue
+
+    fs.readFileSync(file, 'utf8')
+      .split('\n')
+      .forEach((line, i) => {
+        if (check(line)) violations.push(`${rel}:${i + 1}`)
+      })
+  }
+  return violations
+}
+
 describe('ダークテーマのコントラスト規約', () => {
   it('反転するグレー地に text-white を重ねない（ダークで文字が消えるため）', () => {
-    const root = path.resolve(__dirname, '../../..')
-    const files = collectTsx(path.join(root, 'src'))
-
-    const violations: string[] = []
-    for (const file of files) {
-      const rel = path.relative(root, file)
-      if (LIGHT_ONLY.some((p) => rel.startsWith(p))) continue
-
-      const lines = fs.readFileSync(file, 'utf8').split('\n')
-      lines.forEach((line, i) => {
-        if (VIOLATION.test(line)) violations.push(`${rel}:${i + 1}`)
-      })
-    }
+    const violations = scanAppTsx((line) => VIOLATION.test(line))
 
     expect(violations, `gray地×白文字（ダークで読めなくなる）:\n${violations.join('\n')}`).toEqual(
       [],
     )
+  })
+
+  it('面の色は bg-white ではなく bg-surface を使う（bg-white は暗転しない）', () => {
+    const violations = scanAppTsx((line) => BG_WHITE.test(line))
+
+    expect(violations, `bg-white 直書き（ダークで白いまま残る）:\n${violations.join('\n')}`).toEqual(
+      [],
+    )
+  })
+
+  it('色は直書きせずトークンを経由する（直書きはテーマ切替が効かない）', () => {
+    const violations = scanAppTsx((line) => {
+      const hits = line.match(HEX_LITERAL)
+      if (!hits) return false
+      // ブランド色だけの行は許す
+      return hits.some((h) => !BRAND_HEX.has(h.slice(h.indexOf('#'), -1)))
+    })
+
+    expect(violations, `色の直書き（テーマ切替が効かない）:\n${violations.join('\n')}`).toEqual([])
   })
 })

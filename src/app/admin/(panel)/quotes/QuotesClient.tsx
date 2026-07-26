@@ -130,7 +130,7 @@ export function QuotesClient({
           <p className="text-sm text-gray-500">対応待ちの依頼はありません。</p>
         ) : (
           open.map((q) => (
-            <div key={q.id} className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+            <div key={q.id} className="rounded-lg border border-gray-200 bg-surface p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-gray-500">org: {q.org_id}</p>
@@ -216,7 +216,7 @@ export function QuotesClient({
                   type="button"
                   disabled={busyId === q.id}
                   onClick={() => act(q.id, 'cancel')}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-lg border border-gray-300 bg-surface px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
                   取り下げる
                 </button>
@@ -236,13 +236,13 @@ export function QuotesClient({
           </div>
           <a
             href="/api/admin/quotes/export"
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+            className="rounded-lg border border-gray-300 bg-surface px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           >
             CSVをダウンロード
           </a>
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white">
+        <div className="rounded-lg border border-gray-200 bg-surface">
           <div className="border-b border-gray-100 px-4 py-3 text-sm text-gray-700">
             合計 <span className="font-semibold">月額 ¥{monthlyTotalJpy(initialApproved).toLocaleString()}</span>
             <span className="text-gray-500">（{initialApproved.length}件・税別）</span>
@@ -317,7 +317,7 @@ export function QuotesClient({
                   type="button"
                   disabled={busyId === q.id}
                   onClick={() => act(q.id, 'terminate')}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-lg border border-gray-300 bg-surface px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
                   枠を終了する
                 </button>
