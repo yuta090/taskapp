@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { BillingUsageCard, InvoiceHistory, PlanFeatureTable } from '@/components/billing'
+import { BillingUsageCard, InvoiceHistory, PlanFeatureTable, QuoteCard } from '@/components/billing'
 import { useStripeStatus } from '@/lib/hooks/useStripeStatus'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
@@ -128,6 +128,9 @@ export default function BillingSettingsPage() {
 
         {/* プラン別の機能一覧（②③の可否） */}
         <PlanFeatureTable orgId={orgId ?? undefined} />
+
+        {/* 枠の追加（お見積もり → 承認 → 枠が増える）。owner のみ表示 */}
+        <QuoteCard orgId={orgId ?? undefined} isOwner={isOwner} />
 
         {/* Upgrade Card */}
         <div className={`rounded-lg p-6 text-white ${

@@ -271,3 +271,83 @@ describe('resolveOrgLimits (数量上限の seam)', () => {
     await expect(resolveOrgLimits(admin, 'org-1', NOW)).resolves.toEqual(PLAN_LIMITS.free)
   })
 })
+
+/**
+ * 枠追加(見積もり承認)の加算が resolveOrgLimits に乗ることを固定する。
+ * override テーブルは作らず、approved な billing_quotes の合算をここで足す設計。
+ * fail-closed: quote の取得に失敗したら「加算しない」＝必ず狭い側に倒れる。
+ */
+describe('resolveOrgLimits × 承認済み見積もりの加算', () => {
+  function makeAdmin(opts: {
+    billing: { data: unknown; error?: unknown }
+    quotes?: { data: unknown; error?: unknown }
+  }) {
+    const from = vi.fn((table: string) => {
+      if (table === 'org_billing') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve(opts.billing) }) }),
+        }
+      }
+      // billing_quotes: select().eq().eq() で終端（await される）
+      const result = opts.quotes ?? { data: [], error: null }
+      const terminal = {
+        eq: () => terminal,
+        then: (resolve: (v: unknown) => unknown) => resolve(result),
+      }
+      return { select: () => terminal }
+    })
+    return { from } as unknown as import('@supabase/supabase-js').SupabaseClient
+  }
+
+  const PRO_ROW = {
+    plan_id: 'pro',
+    status: 'active',
+    current_period_end: null,
+    cancel_at_period_end: false,
+  }
+
+  it('pro + 承認済み(10人/10グループ) → 上限が加算される', async () => {
+    const admin = makeAdmin({
+      billing: { data: PRO_ROW, error: null },
+      quotes: {
+        data: [
+          { status: 'approved', add_members: 10, add_line_groups: 10, add_external_chat_groups: 0 },
+        ],
+        error: null,
+      },
+    })
+
+    const limits = await resolveOrgLimits(admin, 'org-1', NOW)
+
+    expect(limits.maxMembers).toBe(40)
+    expect(limits.maxLineGroups).toBe(60)
+    // 課金しない軸は変わらない
+    expect(limits.maxProjects).toBe(PLAN_LIMITS.pro.maxProjects)
+  })
+
+  it('free は加算しない（解約後に枠だけ残らない）', async () => {
+    const admin = makeAdmin({
+      billing: { data: null, error: null },
+      quotes: {
+        data: [{ status: 'approved', add_members: 10, add_line_groups: 10, add_external_chat_groups: 0 }],
+        error: null,
+      },
+    })
+
+    await expect(resolveOrgLimits(admin, 'org-1', NOW)).resolves.toEqual(PLAN_LIMITS.free)
+  })
+
+  it('quote の取得に失敗したら加算しない（fail-closed・throwもしない）', async () => {
+    const admin = makeAdmin({
+      billing: { data: PRO_ROW, error: null },
+      quotes: { data: null, error: { message: 'boom' } },
+    })
+
+    await expect(resolveOrgLimits(admin, 'org-1', NOW)).resolves.toEqual(PLAN_LIMITS.pro)
+  })
+
+  it('承認済みが無ければ挙動不変（プラン由来と同値）', async () => {
+    const admin = makeAdmin({ billing: { data: PRO_ROW, error: null }, quotes: { data: [], error: null } })
+    await expect(resolveOrgLimits(admin, 'org-1', NOW)).resolves.toEqual(PLAN_LIMITS.pro)
+  })
+})
