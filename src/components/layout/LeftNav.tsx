@@ -103,7 +103,7 @@ function NavItem({ href, icon, label, tooltip, badge, active, collapsed, onNavig
         <TruncatedText className="text-sm 2xl:text-base">{label}</TruncatedText>
       )}
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-white">
+        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-gray-100">
           {badge}
         </span>
       )}

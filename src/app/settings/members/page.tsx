@@ -460,7 +460,7 @@ export default function MembersSettingsPage() {
                         unoptimized
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-medium flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-gray-700 text-gray-100 flex items-center justify-center text-xs font-medium flex-shrink-0">
                         {initial}
                       </div>
                     )}

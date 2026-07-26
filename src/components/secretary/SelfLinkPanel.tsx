@@ -163,7 +163,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       type="button"
       disabled={loading}
       onClick={() => issue(account.id)}
-      className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+      className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-gray-100 hover:bg-gray-700 disabled:opacity-50"
     >
       コードを発行してつなぐ
     </button>

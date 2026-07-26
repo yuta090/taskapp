@@ -240,7 +240,7 @@ export default function AccountSettingsPage() {
                   unoptimized
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-gray-700 text-white flex items-center justify-center text-2xl font-bold">
+                <div className="w-20 h-20 rounded-full bg-gray-700 text-gray-100 flex items-center justify-center text-2xl font-bold">
                   {userInitial}
                 </div>
               )}

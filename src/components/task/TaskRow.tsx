@@ -358,7 +358,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           }}
           className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${
             task.status === 'done'
-              ? 'bg-gray-900 border-gray-900 text-white'
+              ? 'bg-gray-900 border-gray-900 text-gray-100'
               : 'border-gray-300 hover:border-gray-400 text-transparent hover:text-gray-400'
           }`}
           title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
