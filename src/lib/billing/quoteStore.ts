@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { BillingQuoteRow, BillingQuoteStatus } from './quotes'
+import type { ApprovedQuoteWithOrg } from './quotesCsv'
 
 /**
  * billing_quotes のデータアクセス。
@@ -189,6 +190,43 @@ export async function listPendingSyncQuotes(): Promise<BillingQuoteRow[]> {
 
   if (error || !data) return []
   return data as unknown as BillingQuoteRow[]
+}
+
+/**
+ * 承認済み（＝毎月請求すべき）追加枠の一覧。組織名を添えて返す。
+ * 請求書払いが中心のため「金額が分かれば足りる」運用の主データ（CSVで経理へ渡す）。
+ * terminated は含めない（終了＝もう請求しない）。
+ */
+export async function listApprovedQuotesWithOrg(): Promise<ApprovedQuoteWithOrg[]> {
+  const client = admin()
+  const { data, error } = await client
+    .from('billing_quotes')
+    .select(SELECT_COLUMNS)
+    .eq('status', 'approved')
+    .order('approved_at', { ascending: false })
+    .limit(500)
+
+  if (error || !data) return []
+  const rows = data as unknown as BillingQuoteRow[]
+  if (rows.length === 0) return []
+
+  const orgIds = Array.from(new Set(rows.map((r) => r.org_id)))
+  const { data: orgs } = await client.from('organizations').select('id,name').in('id', orgIds)
+  const nameById = new Map<string, string>(
+    ((orgs as Array<{ id: string; name: string }> | null) ?? []).map((o) => [o.id, o.name]),
+  )
+
+  return rows.map((r) => ({
+    id: r.id,
+    orgId: r.org_id,
+    orgName: nameById.get(r.org_id) ?? '(不明な組織)',
+    amountMonthlyJpy: r.amount_monthly_jpy,
+    addMembers: r.add_members,
+    addLineGroups: r.add_line_groups,
+    addExternalChatGroups: r.add_external_chat_groups,
+    approvedAt: r.approved_at ?? null,
+    stripeSyncStatus: r.stripe_sync_status ?? 'n/a',
+  }))
 }
 
 /** 当社の作業対象（依頼中/提示中）の一覧。 */
