@@ -10,9 +10,14 @@ import type { HostPolicy } from '@/lib/task-sync/types'
  * 各アダプタに書き写すと、再試行の分類（何が恒久失敗か・429をどう待つか）が3通りに劣化する。
  *
  * 失敗の分類は task-sync と同じ約束に揃える:
- *   - 400 / 404 / 422 は恒久失敗（設定不備・存在しない・内容が通らない。再試行で直らない）
+ *   - 400 / 403 / 404 / 422 は恒久失敗（設定不備・権限不足・存在しない・内容が通らない）
  *   - それ以外の非2xxは一時失敗（呼び出し側がバックオフして再試行）
  *   - ネットワーク断・タイムアウトは status を付けない一時失敗
+ *
+ * 403 を恒久失敗に含めるのが要点。会計サービスの権限は**契約プランと連携アプリの権限設定**で
+ * 決まり、時間が経っても勝手に付与されない（例: freee請求書の無料プランでは見積書を作れない）。
+ * 一時失敗として再試行に回すと、通らないリクエストを延々と投げ続けたうえ、利用者には
+ * 「一時的に接続できません」と出てしまい、本当の原因（権限が足りない）に辿り着けない。
  */
 
 const DEFAULT_TIMEOUT_MS = 20_000
@@ -68,10 +73,23 @@ export async function accountingFetch(
   if (!response.ok) {
     const retryAfter = response.headers.get('retry-after')
     const detail = await response.text().catch(() => '')
-    throw providerError(`${label}: APIエラー (${response.status}) ${detail.slice(0, 200)}`, {
+
+    // 403 は「何が足りないか」を利用者の言葉で言う。生のAPIエラーだけ出しても、
+    // 契約プランと連携アプリの権限設定のどちらを見ればよいか分からない。
+    const message =
+      response.status === 403
+        ? `${label}: この操作の権限がありません。連携アプリの権限設定か、ご契約のプランで` +
+          `この書類を扱えるかを確認してください。 (403) ${detail.slice(0, 160)}`
+        : `${label}: APIエラー (${response.status}) ${detail.slice(0, 200)}`
+
+    throw providerError(message, {
       status: response.status,
       retryAfterMs: retryAfter ? Number(retryAfter) * 1000 : undefined,
-      permanent: response.status === 400 || response.status === 404 || response.status === 422,
+      permanent:
+        response.status === 400 ||
+        response.status === 403 ||
+        response.status === 404 ||
+        response.status === 422,
     })
   }
 
