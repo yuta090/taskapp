@@ -133,7 +133,21 @@ export default async function BlogArticlePage({ params }: Props) {
           />
         )}
 
-        <div className="prose prose-slate max-w-none prose-headings:scroll-mt-24">
+        {/*
+          読みやすさのリズム: 地の文が続くページは内容が良くても読み飛ばされる。箇条書きと引用に
+          「面」を当てて、スクロール中に一定間隔で見た目が変わるようにする。
+          記事本文のMarkdownはサニタイザ(rehype-sanitize)を通り class や生HTMLが落ちるため、
+          執筆側では面を作れない。ここ(テンプレート)で当てるのが唯一の場所。
+          ※純粋な見た目の指定のためテストは書かない(CLAUDE.mdのTDD例外)。
+        */}
+        <div
+          className="prose prose-slate max-w-none prose-headings:scroll-mt-24
+            prose-ul:my-6 prose-ul:rounded-xl prose-ul:bg-slate-50 prose-ul:py-4 prose-ul:pr-6 prose-ul:pl-10
+            prose-ol:my-6 prose-ol:rounded-xl prose-ol:bg-slate-50 prose-ol:py-4 prose-ol:pr-6 prose-ol:pl-10
+            prose-li:my-1
+            prose-blockquote:not-italic prose-blockquote:rounded-r-xl prose-blockquote:border-l-4
+            prose-blockquote:border-amber-400 prose-blockquote:bg-amber-50 prose-blockquote:py-2 prose-blockquote:pr-4"
+        >
           <div dangerouslySetInnerHTML={{ __html: beforeHtml }} />
           {hasPlaceholder && post.inline_cta && (
             <CtaBlock cta={post.inline_cta} articleSlug={post.slug} />
