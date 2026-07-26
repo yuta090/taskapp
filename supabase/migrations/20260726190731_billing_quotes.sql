@@ -165,7 +165,6 @@ set search_path = public
 as $$
 declare
   v_plan plans%rowtype;
-  v_plan_id text;
   v_projects_count integer;
   v_members_count integer;
   v_clients_count integer;
@@ -173,7 +172,9 @@ declare
   v_add_members integer := 0;
   v_members_limit integer;
 begin
-  select p.*, ob.plan_id into v_plan, v_plan_id
+  -- ⚠ record 変数はスカラーと同じ INTO リストに並べられない（実PGでエラー）。
+  --   plans.id は org_billing.plan_id と join 済みなので v_plan.id が実効プランID。
+  select p.* into v_plan
   from org_billing ob
   join plans p on p.id = ob.plan_id
   where ob.org_id = p_org_id;
@@ -181,11 +182,10 @@ begin
   if v_plan.id is null then
     -- No billing record, assume free
     select * into v_plan from plans where id = 'free';
-    v_plan_id := 'free';
   end if;
 
   -- 承認済み見積もりの加算（有料プランのときのみ・非負のみ）
-  if v_plan_id in ('pro', 'enterprise') then
+  if v_plan.id in ('pro', 'enterprise') then
     select coalesce(sum(add_members), 0) into v_add_members
     from billing_quotes
     where org_id = p_org_id and status = 'approved';
