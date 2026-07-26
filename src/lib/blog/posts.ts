@@ -77,6 +77,24 @@ export async function getPublishedPost(slug: string): Promise<PublicPost | null>
   }
 }
 
+/** OG画像生成用の軽量取得(本文・CTAは取らない)。公開条件は getPublishedPost と同じ。 */
+export async function getPublishedPostSummary(
+  slug: string
+): Promise<{ title: string; author_name: string | null } | null> {
+  const admin = createAdminClient()
+  const { data } = await (admin as SupabaseClient)
+    .from('blog_posts')
+    .select('title, author_name')
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .not('published_at', 'is', null)
+    .lte('published_at', new Date().toISOString())
+    .maybeSingle()
+
+  if (!data) return null
+  return { title: data.title as string, author_name: (data.author_name as string | null) ?? null }
+}
+
 /** 公開済み記事の一覧（公開日降順）。 */
 export async function listPublishedPosts(): Promise<PostListItem[]> {
   const admin = createAdminClient()
