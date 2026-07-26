@@ -36,7 +36,7 @@ export default async function TemplateDownloadPage({ params }: Props) {
   if (!magnet) notFound()
 
   return (
-    <main className="font-sans antialiased text-slate-900 bg-white">
+    <main className="font-sans antialiased text-slate-900 bg-surface">
       <LPHeader />
       <div className="mx-auto max-w-xl px-5 pb-20 pt-24">
         <p className="text-sm font-semibold text-amber-600">無料テンプレート</p>

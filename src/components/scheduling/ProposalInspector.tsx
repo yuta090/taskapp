@@ -279,7 +279,7 @@ export function ProposalInspector({
                       </div>
                       <button
                         onClick={() => setConfirmingSlotId(slot.id)}
-                        className="px-3 py-1.5 text-xs font-medium bg-white border border-green-300 text-green-700 rounded-lg hover:bg-green-50"
+                        className="px-3 py-1.5 text-xs font-medium bg-surface border border-green-300 text-green-700 rounded-lg hover:bg-green-50"
                         data-testid={`select-confirm-${slot.id}`}
                       >
                         この日で確定

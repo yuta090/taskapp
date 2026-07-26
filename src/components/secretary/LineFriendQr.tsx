@@ -93,7 +93,7 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="rounded-lg border border-gray-200 bg-surface p-4">
         <div className="h-4 w-32 rounded bg-gray-100 animate-pulse" />
       </div>
     )
@@ -112,7 +112,7 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="rounded-lg border border-gray-200 bg-surface p-4">
       {ownerType === 'platform' && (
         <p className="text-xs font-semibold text-gray-900">
           共通の秘書アカウントです。コード送信が必ず必要です。
@@ -133,7 +133,7 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
           <button
             type="button"
             onClick={() => void copy()}
-            className="mt-2 flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="mt-2 flex items-center gap-1 rounded border border-gray-300 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             {copied ? 'コピー済み' : 'URLをコピー'}

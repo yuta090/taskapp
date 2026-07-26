@@ -428,7 +428,7 @@ export function TaskCreateSheet({
           Height-capped with a scrollable body so long forms stay reachable. */}
       <div
         data-testid="task-create-sheet"
-        className="relative w-full max-w-2xl bg-white rounded-t-2xl md:rounded-xl shadow-xl animate-dialog-in flex flex-col max-h-[92dvh] md:max-h-[88vh]"
+        className="relative w-full max-w-2xl bg-surface rounded-t-2xl md:rounded-xl shadow-xl animate-dialog-in flex flex-col max-h-[92dvh] md:max-h-[88vh]"
       >
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -473,7 +473,7 @@ export function TaskCreateSheet({
                   estimation.clear()
                 }}
                 data-testid="task-create-space"
-                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                 autoFocus
               >
                 <option value="">プロジェクトを選択...</option>
@@ -537,7 +537,7 @@ export function TaskCreateSheet({
                   {estimation.result.similarTasks.map((t) => (
                     <div
                       key={t.id}
-                      className="flex items-center justify-between text-xs text-gray-700 bg-white rounded px-2 py-1.5"
+                      className="flex items-center justify-between text-xs text-gray-700 bg-surface rounded px-2 py-1.5"
                     >
                       <span className="truncate mr-2">{t.title}</span>
                       <span className="flex-shrink-0 text-blue-600 font-medium">
@@ -695,7 +695,7 @@ export function TaskCreateSheet({
                 value={assigneeId}
                 onChange={(e) => handleAssigneeChange(e.target.value)}
                 data-testid="task-create-assignee"
-                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                 disabled={membersLoading}
               >
                 <option value="">{membersLoading ? '読み込み中...' : '未設定'}</option>
@@ -718,7 +718,7 @@ export function TaskCreateSheet({
                   value={milestoneId}
                   onChange={(e) => setMilestoneId(e.target.value)}
                   data-testid="task-create-milestone"
-                  className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                 >
                   <option value="">未設定</option>
                   {milestones.map((ms) => (
@@ -742,7 +742,7 @@ export function TaskCreateSheet({
               {showMilestonePopover && (
                 <div
                   ref={milestonePopoverRef}
-                  className="absolute z-50 top-full mt-1 right-0 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
+                  className="absolute z-50 top-full mt-1 right-0 w-64 bg-surface rounded-lg shadow-lg border border-gray-200 p-3"
                 >
                   <div className="text-xs font-medium text-gray-700 mb-2">
                     新規マイルストーン
@@ -934,7 +934,7 @@ export function TaskCreateSheet({
                     }`}
                   >
                     <span
-                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-surface rounded-full shadow transition-transform ${
                         clientScope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
@@ -943,7 +943,7 @@ export function TaskCreateSheet({
 
                 {/* Portal preview tooltip */}
                 {showPortalPreview && (
-                  <div className="absolute z-50 top-full mt-2 left-0 right-0 bg-white rounded-lg shadow-lg border border-gray-200 p-3">
+                  <div className="absolute z-50 top-full mt-2 left-0 right-0 bg-surface rounded-lg shadow-lg border border-gray-200 p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-medium text-gray-700">クライアントポータルのイメージ</span>
                       <button
@@ -957,13 +957,13 @@ export function TaskCreateSheet({
                     {/* Mini portal mockup */}
                     <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
                       {/* Mock header */}
-                      <div className="bg-white px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+                      <div className="bg-surface px-3 py-2 border-b border-gray-100 flex items-center gap-2">
                         <div className="w-4 h-4 rounded bg-blue-500" />
                         <span className="text-[10px] font-medium text-gray-700">クライアントポータル</span>
                       </div>
                       {/* Mock task list */}
                       <div className="p-2 space-y-1.5">
-                        <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
+                        <div className="bg-surface rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-green-400" />
                           <span className="text-[10px] text-gray-600">完了済みタスク</span>
                           <span className="ml-auto text-[9px] text-green-700 bg-green-50 px-1 rounded">完了</span>
@@ -973,7 +973,7 @@ export function TaskCreateSheet({
                           <span className="text-[10px] text-blue-700 font-medium">このタスク ← 公開される</span>
                           <span className="ml-auto text-[9px] text-blue-700 bg-blue-100 px-1 rounded">進行中</span>
                         </div>
-                        <div className="bg-white rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
+                        <div className="bg-surface rounded px-2 py-1.5 border border-gray-100 flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full border-2 border-amber-400" />
                           <span className="text-[10px] text-gray-600">確認待ちタスク</span>
                           <span className="ml-auto text-[9px] text-amber-700 bg-amber-50 px-1 rounded">確認待ち</span>
@@ -998,7 +998,7 @@ export function TaskCreateSheet({
                     value={parentTaskId}
                     onChange={(e) => setParentTaskId(e.target.value)}
                     data-testid="task-create-parent"
-                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                   >
                     <option value="">なし（トップレベル）</option>
                     {parentTasks.map((pt) => (
@@ -1024,7 +1024,7 @@ export function TaskCreateSheet({
                     value={wikiPageId}
                     onChange={(e) => setWikiPageId(e.target.value)}
                     data-testid="task-create-wiki-page"
-                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                   >
                     <option value="">紐付けなし</option>
                     {specWikiPages.map((page) => (

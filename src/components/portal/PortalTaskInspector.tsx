@@ -209,7 +209,7 @@ export function PortalTaskInspector({
                 placeholder={isEstimatePending
                   ? 'コメントを入力（再見積もり依頼時は必須）'
                   : 'コメントを入力（修正依頼時は必須）'}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-surface"
                 rows={2}
                 disabled={isSubmitting}
               />

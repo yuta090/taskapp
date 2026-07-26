@@ -62,7 +62,7 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
+      <div className="flex items-center gap-3 px-4 py-3 bg-surface border-b border-gray-200">
         <div className="flex items-center gap-2">
           <ChartLine className="text-lg text-gray-500" />
           <Breadcrumb items={breadcrumbItems} />
@@ -120,7 +120,7 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
                 </div>
               </div>
             ) : data ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="bg-surface rounded-lg border border-gray-200 p-4">
                 <BurndownChart data={data} />
               </div>
             ) : null}

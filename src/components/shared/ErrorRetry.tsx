@@ -18,7 +18,7 @@ export function ErrorRetry({
       <button
         type="button"
         onClick={onRetry}
-        className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
       >
         <ArrowCounterClockwise className="text-sm" />
         再試行

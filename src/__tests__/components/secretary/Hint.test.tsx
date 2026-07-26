@@ -28,4 +28,16 @@ describe('Hint', () => {
     fireEvent.click(toggle)
     expect(screen.queryByText('15分で失効します')).not.toBeInTheDocument()
   })
+
+  // 見た目の細部（色・大きさ）はテストしない（スタイルのみでテストが脆くなるため）。
+  // ただし「開いている?が見分けられる」ことは操作上の要件なので、状態が見た目に
+  // 反映されていること自体は確認する。
+  it('開いている間は閉じているときと見た目が変わる', () => {
+    render(<Hint label="合言葉">15分で失効します</Hint>)
+    const toggle = screen.getByRole('button', { name: /合言葉/ })
+    const closedClass = toggle.className
+
+    fireEvent.click(toggle)
+    expect(toggle.className).not.toBe(closedClass)
+  })
 })

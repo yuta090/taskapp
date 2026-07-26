@@ -12,7 +12,7 @@ const implementedFeatures = [
 
 export function FeatureAgency() {
   return (
-    <section id="for-agencies" className="py-20 bg-white relative overflow-hidden">
+    <section id="for-agencies" className="py-20 bg-surface relative overflow-hidden">
       <div className="container mx-auto px-6">
         <div className="max-w-5xl mx-auto">
           <motion.div

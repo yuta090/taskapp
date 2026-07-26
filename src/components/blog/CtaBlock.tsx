@@ -40,7 +40,7 @@ export function CtaBlock({ cta, articleSlug }: { cta: CtaBlockData; articleSlug?
 
   if (cta.variant === 'card') {
     return (
-      <div className="not-prose my-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="not-prose my-8 rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
         <p className="text-lg font-bold text-slate-900">{cta.heading}</p>
         {cta.body && <p className="mt-2 text-sm text-slate-600">{cta.body}</p>}
         <div className="mt-4">{button}</div>

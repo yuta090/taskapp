@@ -89,7 +89,7 @@ export function EmailActionClient({ token }: { token: string }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-surface rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           {state === 'loading' && <LoadingView />}
           {state === 'ready' && data && (
             <ReadyView data={data} onApprove={handleApprove} />

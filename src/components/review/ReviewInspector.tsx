@@ -60,7 +60,7 @@ export function ReviewInspector({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
         <h2 className="text-sm font-medium text-gray-900 truncate">

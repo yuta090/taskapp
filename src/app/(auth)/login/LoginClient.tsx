@@ -177,7 +177,7 @@ export default function LoginClient() {
           <div className="w-full border-t border-gray-200" />
         </div>
         <div className="relative flex justify-center text-xs">
-          <span className="bg-white px-2 text-gray-500">またはメールでログイン</span>
+          <span className="bg-surface px-2 text-gray-500">またはメールでログイン</span>
         </div>
       </div>
 
@@ -242,7 +242,7 @@ export default function LoginClient() {
                   <div className="font-medium text-sm">{account.name}</div>
                   <div className="text-xs opacity-75">{account.email}</div>
                 </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-white/50">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-surface/50">
                   {quickLoginLoading === account.email ? 'ログイン中...' : account.label}
                 </span>
               </div>

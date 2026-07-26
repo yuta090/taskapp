@@ -137,7 +137,7 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
                 {!readOnly && (
                   <button
                     onClick={() => handleUnlink(link.id)}
-                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 bg-white rounded opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 bg-surface rounded opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
                     title="紐付けを解除"
                   >
                     <X className="text-xs" />

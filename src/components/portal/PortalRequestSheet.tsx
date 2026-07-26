@@ -206,7 +206,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
         ref={sheetRef}
         role="dialog"
         aria-labelledby="request-sheet-title"
-        className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right"
+        className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-surface shadow-2xl z-50 flex flex-col animate-slide-in-right"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">

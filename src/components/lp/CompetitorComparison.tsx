@@ -37,7 +37,7 @@ export function CompetitorComparison() {
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
               viewport={{ once: true }}
-              className="bg-white rounded-xl p-5 border border-slate-200 flex items-center justify-between gap-4"
+              className="bg-surface rounded-xl p-5 border border-slate-200 flex items-center justify-between gap-4"
             >
               <div className="flex items-center gap-3">
                 <span className="text-amber-500 font-bold text-lg">◎</span>

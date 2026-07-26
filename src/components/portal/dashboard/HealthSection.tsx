@@ -13,7 +13,7 @@ interface HealthSectionProps {
 
 export function HealthSection({ status, reason, nextMilestone }: HealthSectionProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+    <div className="bg-surface rounded-xl border border-gray-200 shadow-sm px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <HealthBadge status={status} size="lg" />

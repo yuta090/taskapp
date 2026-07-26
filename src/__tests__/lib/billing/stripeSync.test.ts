@@ -6,6 +6,7 @@ import {
   billingPatchDiffers,
   deletedSubscriptionPatch,
   subscriptionPeriodEndUnix,
+  stripePriceMapFromEnv,
 } from '@/lib/billing/stripeSync'
 
 const PRICE_MAP = { pro: 'price_pro', enterprise: 'price_ent' }
@@ -168,5 +169,77 @@ describe('buildBillingPatchFromSubscription: past_due の period_end を item �
     expect(patch.status).toBe('past_due')
     expect(patch.plan_id).toBe('pro')
     expect(patch.current_period_end).toBe(new Date(1893456000 * 1000).toISOString())
+  })
+})
+
+/**
+ * アドオン(枠追加のquote)が承認されると、サブスクに **2つ目の item** が付く。
+ * 現行は items.data[0] 決め打ちだったため、先頭がアドオンになると
+ *   - plan 逆引きが外れて plan_id が patch から落ちる（＝プラン判定が効かなくなる）
+ *   - period_end をアドオン item から拾ってしまう
+ * という静かな事故が起きる。アドオン price は priceMap に載らない（＝未知priceは無視）が
+ * 正しい挙動なので、**全item走査して priceMap 一致の price から plan を決める**ことを固定する。
+ */
+describe('複数 item のサブスク（枠追加アドオンが乗った状態）', () => {
+  const ADDON = { price: { id: 'price_addon_adhoc_1' }, current_period_end: 1700000000 }
+  const BASE = { price: { id: 'price_pro' }, current_period_end: 1893456000 }
+
+  it('アドオンが先頭でも plan は base(price_pro) から解決する', () => {
+    const patch = buildBillingPatchFromSubscription(
+      { status: 'active', cancel_at_period_end: false, items: { data: [ADDON, BASE] } },
+      { priceMap: PRICE_MAP, unknownFallback: 'canceled' },
+    )
+    expect(patch.plan_id).toBe('pro')
+  })
+
+  it('period_end は plan price を持つ item 側を優先する（アドオンの期間で上書きしない）', () => {
+    const sub = { status: 'active', items: { data: [ADDON, BASE] } }
+    expect(subscriptionPeriodEndUnix(sub, PRICE_MAP)).toBe(1893456000)
+    const patch = buildBillingPatchFromSubscription(sub, {
+      priceMap: PRICE_MAP,
+      unknownFallback: 'canceled',
+    })
+    expect(patch.current_period_end).toBe(new Date(1893456000 * 1000).toISOString())
+  })
+
+  it('enterprise price がアドオンより後ろにあっても解決する', () => {
+    const patch = buildBillingPatchFromSubscription(
+      { status: 'active', items: { data: [ADDON, { price: { id: 'price_ent' } }] } },
+      { priceMap: PRICE_MAP, unknownFallback: 'canceled' },
+    )
+    expect(patch.plan_id).toBe('enterprise')
+  })
+
+  it('全 item が未知 price なら metadata.plan_id へフォールバックする（現行維持）', () => {
+    const patch = buildBillingPatchFromSubscription(
+      {
+        status: 'active',
+        items: { data: [ADDON, { price: { id: 'price_unknown' } }] },
+        metadata: { plan_id: 'pro' },
+      },
+      { priceMap: PRICE_MAP, unknownFallback: 'canceled' },
+    )
+    expect(patch.plan_id).toBe('pro')
+  })
+
+  it('priceMap を渡さない従来呼び出しは先頭 item を見る（後方互換・挙動不変）', () => {
+    expect(
+      subscriptionPeriodEndUnix({ status: 'active', items: { data: [ADDON, BASE] } }),
+    ).toBe(1700000000)
+  })
+})
+
+describe('stripePriceMapFromEnv', () => {
+  it('env から priceMap を組み立てる（webhook と reconcile で同じ写像を使うための共有ヘルパ）', () => {
+    expect(
+      stripePriceMapFromEnv({
+        STRIPE_PRO_PRICE_ID: 'price_pro',
+        STRIPE_ENTERPRISE_PRICE_ID: 'price_ent',
+      }),
+    ).toEqual({ pro: 'price_pro', enterprise: 'price_ent' })
+  })
+
+  it('未設定は null（Stripe未設定環境で落ちない）', () => {
+    expect(stripePriceMapFromEnv({})).toEqual({ pro: null, enterprise: null })
   })
 })

@@ -241,7 +241,7 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                         }`}
                       >
                         <span
-                          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-surface rounded-full shadow transition-transform ${
                             isClientVisible ? 'translate-x-4' : 'translate-x-0'
                           }`}
                         />

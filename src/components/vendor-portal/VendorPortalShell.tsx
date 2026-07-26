@@ -67,7 +67,7 @@ export function VendorPortalShell({
     <InspectorContext.Provider value={inspectorValue}>
       <div className="h-screen flex flex-col bg-gray-50">
         {/* Header */}
-        <header className="h-12 flex-shrink-0 border-b border-gray-200 bg-white flex items-center px-4 gap-3">
+        <header className="h-12 flex-shrink-0 border-b border-gray-200 bg-surface flex items-center px-4 gap-3">
           {/* Mobile hamburger */}
           <button
             className="md:hidden p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
@@ -110,7 +110,7 @@ export function VendorPortalShell({
           <div
             ref={navRef}
             className={`
-              w-[240px] flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto
+              w-[240px] flex-shrink-0 bg-surface border-r border-gray-200 overflow-y-auto
               md:relative md:block
               ${mobileNavOpen ? 'fixed inset-y-0 left-0 z-50 pt-12' : 'hidden md:block'}
             `}
@@ -130,8 +130,8 @@ export function VendorPortalShell({
           {activeInspector && (
             <>
               {/* Mobile: full-screen overlay */}
-              <div className="fixed inset-0 bg-white z-50 md:hidden overflow-y-auto">
-                <div className="sticky top-0 flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
+              <div className="fixed inset-0 bg-surface z-50 md:hidden overflow-y-auto">
+                <div className="sticky top-0 flex items-center justify-between px-4 py-2 bg-surface border-b border-gray-200">
                   <span className="text-sm font-medium text-gray-700">詳細</span>
                   <button
                     onClick={handleClose}
@@ -143,8 +143,8 @@ export function VendorPortalShell({
                 <div className="p-4">{activeInspector}</div>
               </div>
               {/* Desktop: right panel */}
-              <aside className="hidden md:block w-[400px] flex-shrink-0 border-l border-gray-200 bg-white overflow-y-auto">
-                <div className="sticky top-0 flex items-center justify-between px-4 py-2 bg-white border-b border-gray-100">
+              <aside className="hidden md:block w-[400px] flex-shrink-0 border-l border-gray-200 bg-surface overflow-y-auto">
+                <div className="sticky top-0 flex items-center justify-between px-4 py-2 bg-surface border-b border-gray-100">
                   <span className="text-xs font-medium text-gray-500">詳細</span>
                   <button
                     onClick={handleClose}

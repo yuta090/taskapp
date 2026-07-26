@@ -158,7 +158,7 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
                 {generatedEntries.map(([key, value]) => (
                   <li key={key} className="text-xs text-gray-700">
                     <span className="text-gray-500">{key}: </span>
-                    <code className="break-all rounded bg-white px-1.5 py-0.5">{value}</code>
+                    <code className="break-all rounded bg-surface px-1.5 py-0.5">{value}</code>
                   </li>
                 ))}
               </ul>
@@ -168,7 +168,7 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
           {result.webhookUrl && (
             <div className="mt-3">
               <p className="text-xs font-semibold text-emerald-700">受信Webhook URL</p>
-              <code className="mt-1 block break-all rounded bg-white px-1.5 py-0.5 text-xs text-gray-700">
+              <code className="mt-1 block break-all rounded bg-surface px-1.5 py-0.5 text-xs text-gray-700">
                 {result.webhookUrl}
               </code>
             </div>

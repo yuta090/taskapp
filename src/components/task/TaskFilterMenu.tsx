@@ -406,7 +406,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
         className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border ${
           activeFilterCount > 0
             ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-            : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-white'
+            : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-surface'
         }`}
       >
         <FunnelSimple weight={activeFilterCount > 0 ? 'fill' : 'regular'} className="text-sm" />
@@ -422,7 +422,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
       {isOpen && (
         <div className="absolute top-full left-0 mt-1 z-50 flex">
           {/* Main menu */}
-          <div className="bg-white rounded-lg shadow-lg border border-gray-200 min-w-[200px]">
+          <div className="bg-surface rounded-lg shadow-lg border border-gray-200 min-w-[200px]">
             {/* Clear all button */}
             {activeFilterCount > 0 && (
               <div className="px-3 py-2 border-b border-gray-100">
@@ -467,7 +467,7 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
 
           {/* Sub menu */}
           {activeCategory && (
-            <div className="bg-white rounded-lg shadow-lg border border-gray-200 ml-1 min-w-[180px]">
+            <div className="bg-surface rounded-lg shadow-lg border border-gray-200 ml-1 min-w-[180px]">
               {renderSubMenu()}
             </div>
           )}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { BillingUsageCard, InvoiceHistory, PlanFeatureTable } from '@/components/billing'
+import { BillingUsageCard, InvoiceHistory, PlanFeatureTable, QuoteCard } from '@/components/billing'
 import { useStripeStatus } from '@/lib/hooks/useStripeStatus'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
@@ -82,7 +82,7 @@ export default function BillingSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -117,7 +117,7 @@ export default function BillingSettingsPage() {
 
         {/* 組織名表示 */}
         {!orgLoading && orgId && orgName && (
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-surface rounded-lg border border-gray-200 p-4">
             <p className="text-sm text-gray-500">組織</p>
             <p className="text-lg font-semibold text-gray-900">{orgName}</p>
           </div>
@@ -129,6 +129,9 @@ export default function BillingSettingsPage() {
         {/* プラン別の機能一覧（②③の可否） */}
         <PlanFeatureTable orgId={orgId ?? undefined} />
 
+        {/* 枠の追加（お見積もり → 承認 → 枠が増える）。owner のみ表示 */}
+        <QuoteCard orgId={orgId ?? undefined} isOwner={isOwner} />
+
         {/* Upgrade Card */}
         <div className={`rounded-lg p-6 text-white ${
           serverConfigured
@@ -136,7 +139,7 @@ export default function BillingSettingsPage() {
             : 'bg-gray-400'
         }`}>
           <div className="flex items-start gap-4">
-            <div className={`p-3 rounded-lg ${serverConfigured ? 'bg-white/20' : 'bg-white/10'}`}>
+            <div className={`p-3 rounded-lg ${serverConfigured ? 'bg-surface/20' : 'bg-surface/10'}`}>
               <Sparkle className="w-6 h-6" weight="fill" />
             </div>
             <div className="flex-1">
@@ -151,15 +154,15 @@ export default function BillingSettingsPage() {
                   disabled={!serverConfigured || !orgId || upgradeLoading}
                   className={`px-4 py-2 font-medium rounded-lg transition-colors ${
                     serverConfigured && orgId
-                      ? 'bg-white text-indigo-600 hover:bg-white/90'
-                      : 'bg-white/20 text-white/60 cursor-not-allowed'
+                      ? 'bg-surface text-indigo-600 hover:bg-surface/90'
+                      : 'bg-surface/20 text-white/60 cursor-not-allowed'
                   }`}
                 >
                   {upgradeLoading ? '処理中...' : 'Proにアップグレード'}
                 </button>
                 <button
                   onClick={() => handleUpgrade('enterprise')}
-                  className="px-4 py-2 font-medium rounded-lg transition-colors bg-white/20 text-white hover:bg-white/30"
+                  className="px-4 py-2 font-medium rounded-lg transition-colors bg-surface/20 text-white hover:bg-surface/30"
                 >
                   Enterpriseを相談する
                 </button>
@@ -178,7 +181,7 @@ export default function BillingSettingsPage() {
         </div>
 
         {/* Payment Method / Subscription Management */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <CreditCard className="w-5 h-5 text-gray-400" />
@@ -248,7 +251,7 @@ function StripeSetupGuide() {
           </p>
 
           <div className="mt-4 space-y-3">
-            <div className="bg-white rounded-lg p-4 border border-amber-200">
+            <div className="bg-surface rounded-lg p-4 border border-amber-200">
               <h4 className="font-medium text-gray-900 mb-2">設定手順</h4>
               <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
                 <li>

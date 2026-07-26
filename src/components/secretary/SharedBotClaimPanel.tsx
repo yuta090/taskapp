@@ -197,13 +197,13 @@ export function SharedBotClaimPanel({ orgId, channel }: SharedBotClaimPanelProps
         <div className="rounded border border-amber-300 bg-amber-50 p-4">
           <p className="text-xs font-semibold text-amber-900">{guide.postInstruction}</p>
           <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
+            <code className="flex-1 rounded border border-amber-200 bg-surface px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
               {issued.code}
             </code>
             <button
               type="button"
               onClick={() => void copy()}
-              className="flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="flex items-center gap-1 rounded border border-gray-300 bg-surface px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
             >
               {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
               {copied ? 'コピー済み' : 'コピー'}
@@ -232,7 +232,7 @@ export function SharedBotClaimPanel({ orgId, channel }: SharedBotClaimPanelProps
               <select
                 value={selectedSpaceId}
                 onChange={(e) => setSelectedSpaceId(e.target.value)}
-                className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="rounded-md border border-gray-200 bg-surface px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
               >
                 <option value="">プロジェクトを選択</option>
                 {orgSpaces.map((s) => (

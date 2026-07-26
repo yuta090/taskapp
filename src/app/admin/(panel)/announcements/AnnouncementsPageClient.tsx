@@ -97,7 +97,7 @@ function CreateForm({ orgs, onCreated }: CreateFormProps) {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+    <div className="bg-surface border border-gray-200 rounded-xl p-5 mb-6">
       <h3 className="text-sm font-semibold text-gray-900 mb-4">お知らせを作成</h3>
       <div className="space-y-3">
         <div className="flex gap-3">
@@ -215,7 +215,7 @@ export default function AnnouncementsPageClient({ initialData, orgs }: Props) {
           const count = rows.filter((r) => r.category === opt.value).length
           const Icon = opt.icon
           return (
-            <div key={opt.value} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3">
+            <div key={opt.value} className="bg-surface border border-gray-200 rounded-xl p-4 flex items-center gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${opt.color}`}>
                 <Icon size={18} weight="duotone" />
               </div>
@@ -229,7 +229,7 @@ export default function AnnouncementsPageClient({ initialData, orgs }: Props) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

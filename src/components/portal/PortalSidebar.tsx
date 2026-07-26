@@ -57,7 +57,7 @@ export function PortalSidebar({ actionCount = 0, className = '' }: PortalSidebar
     <aside
       className={`
         ${collapsed ? 'w-16' : 'w-60'}
-        flex flex-col bg-white border-r border-gray-200
+        flex flex-col bg-surface border-r border-gray-200
         transition-all duration-200 ease-in-out
         ${className}
       `}

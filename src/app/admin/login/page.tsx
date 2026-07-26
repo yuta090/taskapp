@@ -66,7 +66,7 @@ export default function AdminLoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-surface rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-gray-900">管理者ログイン</h1>
             <p className="mt-2 text-sm text-gray-600">システム管理者アカウントでログイン</p>

@@ -32,7 +32,7 @@ export default async function AdminTablesPage() {
               <Link
                 key={tableName}
                 href={`/admin/tables/${tableName}`}
-                className="bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm transition-all group"
+                className="bg-surface border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm transition-all group"
               >
                 <div className="flex items-center gap-2 mb-1">
                   <Table size={16} className="text-gray-400 group-hover:text-indigo-500" />

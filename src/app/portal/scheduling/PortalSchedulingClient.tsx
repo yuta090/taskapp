@@ -123,7 +123,7 @@ export function PortalSchedulingClient({
         )}
 
         {!loading && hasError && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+          <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
             <CalendarBlank className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-700">日程調整を読み込めませんでした</p>
             <p className="text-sm text-gray-400 mt-1">
@@ -132,7 +132,7 @@ export function PortalSchedulingClient({
             <button
               type="button"
               onClick={() => void fetchProposals()}
-              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               再試行
             </button>
@@ -140,7 +140,7 @@ export function PortalSchedulingClient({
         )}
 
         {!loading && !hasError && proposals.length === 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+          <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
             <CalendarBlank className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-600">日程調整はありません</p>
             <p className="text-sm text-gray-400 mt-1">
@@ -183,7 +183,7 @@ function PortalProposalCard({
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-xl border p-4 cursor-pointer transition-colors ${
+      className={`bg-surface rounded-xl border p-4 cursor-pointer transition-colors ${
         isSelected
           ? 'border-blue-300 shadow-sm'
           : needsResponse
