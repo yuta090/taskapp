@@ -152,6 +152,8 @@ describe('planLimits', () => {
       monthlySharedPushQuota: 50,
       maxExternalChatGroups: 0,
       maxProjects: 3,
+      maxMembers: 5,
+      maxClientUsers: null,
     })
   })
   it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
@@ -168,6 +170,8 @@ describe('planLimits', () => {
       monthlySharedPushQuota: null,
       maxExternalChatGroups: null,
       maxProjects: null,
+      maxMembers: null,
+      maxClientUsers: null,
     })
   })
 })
