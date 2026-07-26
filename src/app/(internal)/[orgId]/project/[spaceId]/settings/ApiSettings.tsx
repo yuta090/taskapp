@@ -287,7 +287,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       {/* Newly created key modal */}
       {newlyCreatedKey && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
+          <div className="bg-surface rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
             <div className="flex items-center gap-2 text-amber-600 mb-4">
               <Warning className="text-xl" weight="fill" />
               <h4 className="font-medium">APIキーを保存してください</h4>

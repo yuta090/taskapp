@@ -50,7 +50,7 @@ export default function OrgScopedLayout({
             </Link>
             <Link
               href="/inbox"
-              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               受信箱を開く
             </Link>

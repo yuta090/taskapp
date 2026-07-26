@@ -147,7 +147,7 @@ export default async function AdminDashboardPage() {
         {activities.length === 0 ? (
           <p className="text-sm text-gray-400">アクティビティはありません</p>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+          <div className="bg-surface rounded-xl border border-gray-200 divide-y divide-gray-100">
             {activities.map((log) => (
               <div key={log.id} className="px-4 py-3 flex items-start gap-3">
                 <div className="flex-1 min-w-0">

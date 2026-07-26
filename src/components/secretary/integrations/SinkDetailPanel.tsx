@@ -168,7 +168,7 @@ export function SinkDetailPanel({
               <button
                 type="button"
                 onClick={handleReactivate}
-                className="mt-1.5 h-7 rounded-md px-2.5 text-xs font-medium bg-white text-red-600 border border-gray-200 hover:bg-red-50 transition-colors"
+                className="mt-1.5 h-7 rounded-md px-2.5 text-xs font-medium bg-surface text-red-600 border border-gray-200 hover:bg-red-50 transition-colors"
               >
                 再度有効化
               </button>
@@ -297,7 +297,7 @@ export function SinkDetailPanel({
               <button
                 type="button"
                 onClick={handleToggleStatus}
-                className="h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="h-7 rounded-md px-2.5 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
               >
                 {sink.status === 'active' ? '無効にする' : '有効にする'}
               </button>
@@ -306,7 +306,7 @@ export function SinkDetailPanel({
               <button
                 type="button"
                 onClick={() => void handleRotateSecret()}
-                className="h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="h-7 rounded-md px-2.5 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
               >
                 secretを再生成
               </button>
@@ -315,7 +315,7 @@ export function SinkDetailPanel({
               type="button"
               onClick={() => void handleTestDelivery()}
               disabled={testSinkDelivery.isPending}
-              className="flex items-center gap-1 h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1 h-7 rounded-md px-2.5 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               <PaperPlaneTilt className="w-3.5 h-3.5" />
               テスト配達

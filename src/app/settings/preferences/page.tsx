@@ -72,7 +72,7 @@ export default function PreferencesSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -86,7 +86,7 @@ export default function PreferencesSettingsPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         {/* Theme */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Sun className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">テーマ</h3>
@@ -106,7 +106,7 @@ export default function PreferencesSettingsPage() {
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   theme === opt.value
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    : 'border-gray-200 bg-surface text-gray-700 hover:bg-gray-50'
                 } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.icon}
@@ -121,7 +121,7 @@ export default function PreferencesSettingsPage() {
         </div>
 
         {/* Language */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">言語</h3>
@@ -140,7 +140,7 @@ export default function PreferencesSettingsPage() {
                 className={`px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   language === opt.value
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    : 'border-gray-200 bg-surface text-gray-700 hover:bg-gray-50'
                 } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.label}
@@ -154,7 +154,7 @@ export default function PreferencesSettingsPage() {
         </div>
 
         {/* Timezone */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">タイムゾーン</h3>
@@ -174,7 +174,7 @@ export default function PreferencesSettingsPage() {
         </div>
 
         {/* Sidebar Default State */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <SidebarSimple className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">サイドバー</h3>
@@ -193,7 +193,7 @@ export default function PreferencesSettingsPage() {
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 rounded-full bg-surface transition-transform ${
                   sidebarCollapsed ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />

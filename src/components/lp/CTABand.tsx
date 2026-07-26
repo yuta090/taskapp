@@ -30,7 +30,7 @@ export function CTABand() {
             </Link>
             <Link
               href="/contact"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white/10 text-white font-bold rounded-xl border border-white/20 hover:bg-white/20 transition-colors"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-surface/10 text-white font-bold rounded-xl border border-white/20 hover:bg-surface/20 transition-colors"
             >
               導入相談をする
             </Link>

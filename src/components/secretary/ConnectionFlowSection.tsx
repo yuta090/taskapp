@@ -74,7 +74,7 @@ function Disclosure({
         aria-expanded={open}
         aria-controls={panelId}
         data-testid={`${testId}-toggle`}
-        className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        className="flex items-center gap-1.5 rounded border border-gray-300 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
       >
         {open ? <CaretDown className="h-3.5 w-3.5" /> : <CaretRight className="h-3.5 w-3.5" />}
         {icon}

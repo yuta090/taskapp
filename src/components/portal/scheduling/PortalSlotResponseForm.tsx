@@ -221,7 +221,7 @@ export function PortalSlotResponseForm({
                 return (
                   <div
                     key={slot.id}
-                    className="bg-white border border-gray-200 rounded-xl p-4 space-y-3"
+                    className="bg-surface border border-gray-200 rounded-xl p-4 space-y-3"
                     data-testid={`portal-slot-${idx}`}
                   >
                     <div className="flex items-center gap-2 text-sm font-medium text-gray-900">

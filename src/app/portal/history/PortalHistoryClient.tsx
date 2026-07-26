@@ -89,7 +89,7 @@ export function PortalHistoryClient({
             onClick={() => setActiveTab('actions')}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               activeTab === 'actions'
-                ? 'bg-white text-gray-900 shadow-sm'
+                ? 'bg-surface text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -104,7 +104,7 @@ export function PortalHistoryClient({
             onClick={() => setActiveTab('completed')}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               activeTab === 'completed'
-                ? 'bg-white text-gray-900 shadow-sm'
+                ? 'bg-surface text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -119,7 +119,7 @@ export function PortalHistoryClient({
 
         {/* Content */}
         {activeTab === 'actions' ? (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <div className="bg-surface rounded-xl border border-gray-200 shadow-sm">
             {historyError ? (
               <div className="p-8 text-center">
                 <WarningCircle className="w-12 h-12 text-red-300 mx-auto mb-3" />
@@ -202,7 +202,7 @@ export function PortalHistoryClient({
             )}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <div className="bg-surface rounded-xl border border-gray-200 shadow-sm">
             {completedTasks.length === 0 ? (
               <div className="p-8 text-center">
                 <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />

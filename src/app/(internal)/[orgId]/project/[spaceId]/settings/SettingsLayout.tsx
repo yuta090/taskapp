@@ -328,7 +328,7 @@ export function SettingsLayout({ orgId, spaceId }: SettingsLayoutProps) {
             onNavigate={handleNavigate}
             activeConnectionCount={activeConnectionCount}
           />
-          <section className="bg-white border border-gray-200 rounded-xl p-6">
+          <section className="bg-surface border border-gray-200 rounded-xl p-6">
             <SettingsSection sectionId={activeSection} orgId={orgId} spaceId={spaceId} />
           </section>
         </div>

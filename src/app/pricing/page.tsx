@@ -267,7 +267,7 @@ function PlanDiagnosis() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-8 max-w-xl mx-auto">
+    <div className="bg-surface rounded-2xl border border-slate-200 p-8 max-w-xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <TreeStructure weight="fill" className="text-amber-500" size={24} />
         <h3 className="text-lg font-bold text-slate-900">プラン診断</h3>
@@ -393,12 +393,12 @@ export default function PricingPage() {
             </motion.p>
 
             {/* Toggle */}
-            <div className="inline-flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-sm relative mb-8">
+            <div className="inline-flex items-center bg-surface p-1 rounded-xl border border-slate-200 shadow-sm relative mb-8">
               <button
                 onClick={() => setIsAnnual(false)}
                 className={`px-4 py-2 rounded-lg text-sm font-bold transition-all relative z-10 ${
                   !isAnnual
-                    ? 'text-slate-900 shadow-sm bg-white ring-1 ring-slate-200'
+                    ? 'text-slate-900 shadow-sm bg-surface ring-1 ring-slate-200'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -408,7 +408,7 @@ export default function PricingPage() {
                 onClick={() => setIsAnnual(true)}
                 className={`px-4 py-2 rounded-lg text-sm font-bold transition-all relative z-10 ${
                   isAnnual
-                    ? 'text-slate-900 shadow-sm bg-white ring-1 ring-slate-200'
+                    ? 'text-slate-900 shadow-sm bg-surface ring-1 ring-slate-200'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -436,7 +436,7 @@ export default function PricingPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.08 + 0.3 }}
-                  className={`relative bg-white rounded-2xl shadow-xl overflow-hidden border transition-all duration-300 flex flex-col ${
+                  className={`relative bg-surface rounded-2xl shadow-xl overflow-hidden border transition-all duration-300 flex flex-col ${
                     plan.primary
                       ? 'border-amber-500 ring-4 ring-amber-500/20 lg:scale-105 z-10'
                       : 'border-slate-200 hover:border-amber-200'
@@ -534,7 +534,7 @@ export default function PricingPage() {
       {/* ============================================================ */}
       {/*  BACKLOG COMPARISON TABLE                                     */}
       {/* ============================================================ */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-surface">
         <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -693,7 +693,7 @@ export default function PricingPage() {
       {/* ============================================================ */}
       {/*  FREE → TEAM UPGRADE TRIGGERS                                 */}
       {/* ============================================================ */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-surface">
         <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -758,7 +758,7 @@ export default function PricingPage() {
       {/* ============================================================ */}
       {/*  APPROVAL PACK CTA                                            */}
       {/* ============================================================ */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-surface">
         <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -804,7 +804,7 @@ export default function PricingPage() {
       {/* ============================================================ */}
       {/*  FAQ                                                          */}
       {/* ============================================================ */}
-      <section id="faq" className="py-20 bg-white">
+      <section id="faq" className="py-20 bg-surface">
         <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -815,7 +815,7 @@ export default function PricingPage() {
             <h2 className="text-2xl lg:text-3xl font-bold text-center mb-10 text-slate-900">
               よくある質問
             </h2>
-            <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-200 px-6">
+            <div className="bg-surface rounded-2xl border border-slate-200 divide-y divide-slate-200 px-6">
               {faqItems.map((item) => (
                 <FAQItem key={item.q} item={item} />
               ))}

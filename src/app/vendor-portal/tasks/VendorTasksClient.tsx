@@ -115,7 +115,7 @@ export function VendorTasksClient({
             <button
               onClick={() => setFilter('all')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                filter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                filter === 'all' ? 'bg-surface text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               全て ({tasks.length})
@@ -123,7 +123,7 @@ export function VendorTasksClient({
             <button
               onClick={() => setFilter('vendor')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                filter === 'vendor' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                filter === 'vendor' ? 'bg-surface text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               自社 ({vendorCount})
@@ -131,7 +131,7 @@ export function VendorTasksClient({
             <button
               onClick={() => setFilter('agency')}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                filter === 'agency' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                filter === 'agency' ? 'bg-surface text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               代理店 ({agencyCount})
@@ -140,7 +140,7 @@ export function VendorTasksClient({
         </div>
 
         {/* Task list */}
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
           {filteredTasks.length === 0 ? (
             <div className="px-6 py-12 text-center text-sm text-gray-500">
               {filter === 'all' ? 'タスクがありません' : '該当するタスクがありません'}

@@ -113,7 +113,7 @@ export function MeetingCreateSheet({
       {/* Sheet */}
       <div
         data-testid="meeting-create-sheet"
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl animate-dialog-in"
+        className="relative w-full max-w-lg bg-surface rounded-xl shadow-xl animate-dialog-in"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -204,7 +204,7 @@ export function MeetingCreateSheet({
                         className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                           isSelected
                             ? 'bg-amber-200 border-amber-400 text-amber-800 font-medium'
-                            : 'bg-white border-amber-300 text-amber-700 hover:bg-amber-100'
+                            : 'bg-surface border-amber-300 text-amber-700 hover:bg-amber-100'
                         }`}
                       >
                         {member.displayName}
@@ -242,7 +242,7 @@ export function MeetingCreateSheet({
                         className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                           isSelected
                             ? 'bg-gray-200 border-gray-400 text-gray-800 font-medium'
-                            : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'
+                            : 'bg-surface border-gray-300 text-gray-600 hover:bg-gray-100'
                         }`}
                       >
                         {member.displayName}

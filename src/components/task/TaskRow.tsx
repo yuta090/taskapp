@@ -129,7 +129,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[140px]">
+        <div className="absolute left-0 top-full mt-1 z-50 bg-surface rounded-lg shadow-lg border border-gray-200 py-1 min-w-[140px]">
           {STATUS_OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -478,7 +478,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
             e.stopPropagation()
             onClick?.(task.id)
           }}
-          className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+          className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-surface border border-gray-200 rounded hover:bg-gray-50 transition-colors"
         >
           社内承認を依頼
         </button>

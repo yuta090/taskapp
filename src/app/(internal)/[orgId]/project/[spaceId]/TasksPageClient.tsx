@@ -970,7 +970,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               onClick={() => handleFilterChange('all')}
               className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
                 activeFilter === 'all'
-                  ? 'text-gray-900 bg-white shadow-sm'
+                  ? 'text-gray-900 bg-surface shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -982,7 +982,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               onClick={() => handleFilterChange('active')}
               className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
                 activeFilter === 'active'
-                  ? 'text-gray-900 bg-white shadow-sm'
+                  ? 'text-gray-900 bg-surface shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -994,7 +994,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               onClick={() => handleFilterChange('backlog')}
               className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
                 activeFilter === 'backlog'
-                  ? 'text-gray-900 bg-white shadow-sm'
+                  ? 'text-gray-900 bg-surface shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -1060,7 +1060,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             {showPresetMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowPresetMenu(false)} />
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[180px]">
+                <div className="absolute top-full left-0 mt-1 bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[180px]">
                   {filterPresets.length === 0 && (
                     <div className="px-3 py-2 text-xs text-gray-400">保存済みプリセットなし</div>
                   )}
@@ -1111,7 +1111,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="検索... (/)"
-              className="w-full md:w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 md:focus:w-56 transition-all bg-white placeholder-gray-400"
+              className="w-full md:w-40 pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 md:focus:w-56 transition-all bg-surface placeholder-gray-400"
             />
             {searchQuery && (
               <button
@@ -1132,7 +1132,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => setShowSortMenu(!showSortMenu)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors bg-white"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors bg-surface"
             >
               <SortAscending className="text-sm" />
               <span className="hidden sm:inline">{currentSortLabel}</span>
@@ -1144,7 +1144,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                   className="fixed inset-0 z-10"
                   onClick={() => setShowSortMenu(false)}
                 />
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[140px]">
+                <div className="absolute top-full left-0 mt-1 bg-surface border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[140px]">
                   {sortOptions.map((option) => (
                     <button
                       key={option.key}
@@ -1294,8 +1294,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               role="menu"
               className={
                 isMobile
-                  ? 'fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-modal border-t border-gray-200 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] animate-slide-down'
-                  : 'fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px] animate-dialog-in'
+                  ? 'fixed inset-x-0 bottom-0 z-50 bg-surface rounded-t-2xl shadow-modal border-t border-gray-200 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] animate-slide-down'
+                  : 'fixed z-50 bg-surface rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px] animate-dialog-in'
               }
               style={isMobile ? undefined : { left: contextMenu.x, top: contextMenu.y }}
             >
@@ -1348,7 +1348,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => handleBulkStatusChange('todo')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
               title="Todoに変更"
             >
               <Circle className="text-sm text-gray-400" />
@@ -1357,7 +1357,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => handleBulkStatusChange('in_progress')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
               title="進行中に変更"
             >
               <Circle weight="fill" className="text-sm text-blue-400" />
@@ -1366,7 +1366,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => handleBulkStatusChange('done')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
               title="完了に変更"
             >
               <CheckCircle weight="fill" className="text-sm text-green-500" />
@@ -1381,7 +1381,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => handleBulkBallChange('internal')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-white rounded border border-transparent hover:border-gray-200 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
               title="ボールを社内に"
             >
               <ArrowRight weight="bold" className="text-xs text-blue-500" />
@@ -1404,7 +1404,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           <button
             type="button"
             onClick={handleDeselectAll}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-white rounded transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-surface rounded transition-colors"
           >
             <XIcon className="text-xs" />
             選択解除

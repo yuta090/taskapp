@@ -77,15 +77,15 @@ export default async function AdminAnalyticsPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">総ユーザー</p>
           <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">総組織</p>
           <p className="text-2xl font-bold text-gray-900">{totalOrgs}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="bg-surface border border-gray-200 rounded-xl p-5">
           <p className="text-sm text-gray-500">直近30日の新規登録</p>
           <p className="text-2xl font-bold text-gray-900">{recentCount}</p>
         </div>
@@ -93,7 +93,7 @@ export default async function AdminAnalyticsPage() {
 
       {/* Daily Chart (30 days) */}
       <h2 className="text-sm font-medium text-gray-700 mb-3">日別新規登録 (直近30日)</h2>
-      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-8">
+      <div className="bg-surface border border-gray-200 rounded-xl p-5 mb-8">
         <div className="flex items-end gap-1" style={{ height: 160 }}>
           {dailyEntries.map(([date, count]) => (
             <div key={date} className="flex-1 flex flex-col items-center gap-1">
@@ -112,7 +112,7 @@ export default async function AdminAnalyticsPage() {
 
       {/* Monthly Chart */}
       <h2 className="text-sm font-medium text-gray-700 mb-3">月別新規登録 (直近6ヶ月)</h2>
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="bg-surface border border-gray-200 rounded-xl p-5">
         <div className="flex items-end gap-4" style={{ height: 160 }}>
           {monthlyEntries.map(([month, count]) => (
             <div key={month} className="flex-1 flex flex-col items-center gap-1">

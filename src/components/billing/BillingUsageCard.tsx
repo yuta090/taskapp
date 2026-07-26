@@ -30,7 +30,7 @@ export function BillingUsageCard({ orgId, showWarnings = true }: BillingUsageCar
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="bg-surface rounded-lg border border-gray-200 p-6">
         <div className="animate-pulse space-y-4">
           <div className="h-5 bg-gray-200 rounded w-1/3" />
           <div className="space-y-3">
@@ -45,7 +45,7 @@ export function BillingUsageCard({ orgId, showWarnings = true }: BillingUsageCar
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg border border-red-200 p-6">
+      <div className="bg-surface rounded-lg border border-red-200 p-6">
         <div className="flex items-center justify-between">
           <p className="text-sm text-red-600">使用状況の読み込みに失敗しました</p>
           <button
@@ -65,7 +65,7 @@ export function BillingUsageCard({ orgId, showWarnings = true }: BillingUsageCar
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+    <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-900">使用状況</h3>

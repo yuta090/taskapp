@@ -247,7 +247,7 @@ export default function VendorInvitePage({
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-surface rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-gray-900">
               {inviteInfo.org_name} に招待されました

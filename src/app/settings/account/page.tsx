@@ -147,7 +147,7 @@ export default function AccountSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -175,7 +175,7 @@ export default function AccountSettingsPage() {
         )}
 
         {/* Profile Card */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-6">
           {/* Avatar */}
           <div className="flex items-center gap-6">
             <div className="relative">
@@ -195,7 +195,7 @@ export default function AccountSettingsPage() {
               )}
               <button
                 type="button"
-                className="absolute bottom-0 right-0 p-1.5 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors"
+                className="absolute bottom-0 right-0 p-1.5 bg-surface border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors"
                 title="アバターを変更（準備中）"
                 disabled
               >
@@ -261,7 +261,7 @@ export default function AccountSettingsPage() {
         </div>
 
         {/* Notification Preferences */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-2">
             <Bell className="w-4 h-4 text-gray-500" />
             通知設定
@@ -283,7 +283,7 @@ export default function AccountSettingsPage() {
                 onChange={() => void handleToggleDueReminder()}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
             </label>
           </div>
         </div>
@@ -291,7 +291,7 @@ export default function AccountSettingsPage() {
         {/* API Keys Link */}
         <Link
           href="/settings/api-keys"
-          className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+          className="flex items-center justify-between bg-surface rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
         >
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-50 rounded-lg">
@@ -306,7 +306,7 @@ export default function AccountSettingsPage() {
         </Link>
 
         {/* Account Info */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-900 mb-4">アカウント情報</h3>
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between">

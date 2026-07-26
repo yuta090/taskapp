@@ -227,7 +227,7 @@ const RESPONSE_CODES: Array<{ code: string; meaning: string }> = [
  */
 function SendingSetupGuide() {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2.5">
+    <div className="rounded-lg border border-gray-200 bg-surface p-3 space-y-2.5">
       <h3 className="text-xs font-semibold text-gray-900">送信側の設定手順</h3>
       <div className="text-[11px] text-gray-600 leading-relaxed space-y-2">
         <p>

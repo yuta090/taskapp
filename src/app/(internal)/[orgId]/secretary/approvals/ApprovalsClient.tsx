@@ -130,7 +130,7 @@ export function GroupApproverRow({
           value={pickup}
           disabled={pickupSaving}
           onChange={(e) => void savePickup(e.target.value as PickupMode)}
-          className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="rounded-md border border-gray-200 bg-surface px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
         >
           {PICKUP_MODE_OPTIONS.map((opt) => {
             const state = resolvePickupOptionState(opt, {
@@ -153,7 +153,7 @@ export function GroupApproverRow({
           value={value}
           disabled={saving || loading}
           onChange={(e) => void save(e.target.value)}
-          className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="rounded-md border border-gray-200 bg-surface px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
         >
           <option value="">承認フローなし</option>
           {eligible.map((m) => (
@@ -332,7 +332,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
                 return (
                   <li
                     key={item.taskId}
-                    className="rounded-lg border border-gray-200 bg-white p-4"
+                    className="rounded-lg border border-gray-200 bg-surface p-4"
                   >
                     <p className="text-sm font-medium text-gray-900">{item.title}</p>
 

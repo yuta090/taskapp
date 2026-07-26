@@ -135,7 +135,7 @@ export function CreateSinkForm({
       : createSink.isPending
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+    <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg border border-gray-200 bg-surface p-3 space-y-3">
       {!lockedProvider && (
         <div>
           <span className="block text-xs font-medium text-gray-700 mb-1">連携先の種類</span>
@@ -300,7 +300,7 @@ export function CreateSinkForm({
         <button
           type="button"
           onClick={onCancel}
-          className="h-8 rounded-md px-3 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+          className="h-8 rounded-md px-3 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
         >
           キャンセル
         </button>

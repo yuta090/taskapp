@@ -146,7 +146,7 @@ function KpiCard({
           : 'text-gray-900'
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 min-w-0">
+    <div className="bg-surface border border-gray-200 rounded-lg p-4 min-w-0">
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className={`text-2xl font-semibold ${accentColor}`}>{value}</p>
       {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
@@ -168,7 +168,7 @@ function ClientFollowUpSection({
 
   if (items.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="bg-surface border border-gray-200 rounded-lg p-6">
         <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-1.5">
           <Eye className="text-base text-gray-500" />
           クライアント確認が必要
@@ -179,7 +179,7 @@ function ClientFollowUpSection({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-1.5">
         <Eye className="text-base text-gray-500" />
         クライアント確認が必要
@@ -276,7 +276,7 @@ export function MilestoneProgressSection({
 
   if (activeMilestones.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="bg-surface border border-gray-200 rounded-lg p-6">
         <h3 className="text-sm font-medium text-gray-900 mb-3">マイルストーン進捗</h3>
         <p className="text-sm text-gray-400">マイルストーンがありません</p>
       </div>
@@ -284,7 +284,7 @@ export function MilestoneProgressSection({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4">マイルストーン進捗</h3>
       <div className="space-y-3">
         {activeMilestones.map((ms) => {
@@ -342,7 +342,7 @@ function BallDistributionSection({ tasks }: { tasks: Task[] }) {
   const total = internal + client
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4">ボール所在</h3>
       {total === 0 ? (
         <p className="text-sm text-gray-400">アクティブなタスクなし</p>
@@ -399,7 +399,7 @@ function UpcomingDeadlinesSection({
     .slice(0, 8)
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-1.5">
         <CalendarBlank className="text-base text-gray-500" />
         期限が近いタスク
@@ -459,7 +459,7 @@ function UpcomingMeetingsSection({
     .slice(0, 5)
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="bg-surface border border-gray-200 rounded-lg p-6">
       <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-1.5">
         <Users className="text-base text-gray-500" />
         直近の予定

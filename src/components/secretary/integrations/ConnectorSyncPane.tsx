@@ -207,14 +207,14 @@ function MulticaBlock({ orgId, connection, canManage }: MulticaBlockProps) {
               <button
                 type="button"
                 onClick={() => void handleRotate('send')}
-                className="h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="h-7 rounded-md px-2.5 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
               >
                 送信鍵を再生成
               </button>
               <button
                 type="button"
                 onClick={() => void handleRotate('receive')}
-                className="h-7 rounded-md px-2.5 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="h-7 rounded-md px-2.5 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
               >
                 受信鍵を再生成
               </button>

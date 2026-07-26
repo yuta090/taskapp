@@ -95,7 +95,7 @@ function TypeFilterDropdown({
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+        <div className="absolute top-full right-0 mt-1 w-48 bg-surface border border-gray-200 rounded-lg shadow-lg z-50 py-1">
           {NOTIFICATION_TYPE_GROUPS.map(group => {
             const allSelected = group.types.every(t => selectedTypes.has(t))
             return (

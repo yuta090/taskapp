@@ -48,7 +48,7 @@ export function FeaturePortal() {
                 height={384}
                 className="w-full h-auto drop-shadow-xl mask-image-gradient-b-transparent"
               />
-              <div className="absolute -left-4 top-10 bg-white px-4 py-2 rounded-full shadow-lg border border-slate-100 flex items-center gap-2">
+              <div className="absolute -left-4 top-10 bg-surface px-4 py-2 rounded-full shadow-lg border border-slate-100 flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-green-500" />
                 <span className="font-bold text-slate-700 text-sm">クライアント</span>
               </div>
@@ -59,7 +59,7 @@ export function FeaturePortal() {
               initial={{ y: 40, opacity: 0 }}
               whileInView={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="absolute -right-4 bottom-20 w-full max-w-md bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/60 p-6 z-10 font-sans"
+              className="absolute -right-4 bottom-20 w-full max-w-md bg-surface/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/60 p-6 z-10 font-sans"
             >
               <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
                 <div>
@@ -108,7 +108,7 @@ export function FeaturePortal() {
 
               <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="bg-white p-2 rounded-lg text-rose-500 shadow-sm">
+                  <div className="bg-surface p-2 rounded-lg text-rose-500 shadow-sm">
                     <CurrencyJpy size={20} weight="bold" />
                   </div>
                   <div>

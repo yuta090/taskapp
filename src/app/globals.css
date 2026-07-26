@@ -16,6 +16,12 @@
   --text-base: 14px;
   --text-lg: 16px;
 
+  /* Surface (card / raised panel background).
+     Light では白。ダーク基盤PRで .dark 側に暗色面を割り当てる中央レバー。
+     tsx では bg-white を使わず bg-surface を使う（bg-white は text-white と
+     変数を共有するため単独で暗転できない）。 */
+  --color-surface: #FFFFFF;
+
   /* Gray Scale (refined) */
   --color-gray-25: #FCFCFD;
   --color-gray-50: #F9FAFB;

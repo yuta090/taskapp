@@ -87,7 +87,7 @@ export function PortalLayout({
       <aside
         className={`
           hidden md:flex flex-col border-r border-white/20
-          bg-white/70 backdrop-blur-xl shadow-sm z-10
+          bg-surface/70 backdrop-blur-xl shadow-sm z-10
           ${sidebarCollapsed ? 'w-20' : 'w-64'}
           transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)] shrink-0
         `}
@@ -128,7 +128,7 @@ export function PortalLayout({
                 )}
               </button>
               {projectMenuOpen && showProjectSwitcher && (
-                <div className="absolute left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                <div className="absolute left-0 right-0 mt-1 bg-surface rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                   {projects.map((project) => (
                     <button
                       key={project.id}
@@ -244,7 +244,7 @@ export function PortalLayout({
       {/* Mobile Header + Content */}
       <div className="flex-1 flex flex-col min-w-0 relative z-10">
         {/* Mobile Header */}
-        <header className="md:hidden sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200/50">
+        <header className="md:hidden sticky top-0 z-50 bg-surface/80 backdrop-blur-md border-b border-gray-200/50">
           <div className="flex items-center justify-between h-14 px-4">
             <Link href="/portal" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
@@ -262,7 +262,7 @@ export function PortalLayout({
 
           {/* Mobile Menu */}
           {mobileMenuOpen && (
-            <div className="border-t border-gray-200 bg-white/95 backdrop-blur-xl">
+            <div className="border-t border-gray-200 bg-surface/95 backdrop-blur-xl">
               {currentProject && (
                 <div className="px-4 py-3 border-b border-gray-100">
                   <div className="text-xs text-gray-500 mb-1">プロジェクト</div>

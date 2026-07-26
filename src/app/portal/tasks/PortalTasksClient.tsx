@@ -94,21 +94,21 @@ export function PortalTasksClient({
 
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-gray-900">{visibleTasks.length}</div>
               <div className="text-sm text-gray-500">全体</div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-amber-600">{consideringTasks.length}</div>
               <div className="text-sm text-gray-500">要確認</div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-red-600">
                 {visibleTasks.filter(t => t.isOverdue).length}
               </div>
               <div className="text-sm text-gray-500">期限切れ</div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="text-2xl font-semibold text-gray-600">{otherTasks.length}</div>
               <div className="text-sm text-gray-500">チーム対応中</div>
             </div>
@@ -116,7 +116,7 @@ export function PortalTasksClient({
 
           {/* Task List */}
           {visibleTasks.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">確認が必要なタスクはありません</p>
               <p className="text-sm text-gray-400 mt-1">

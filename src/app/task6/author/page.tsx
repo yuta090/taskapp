@@ -48,7 +48,7 @@ export default function AuthorPage() {
   }
 
   return (
-    <main className="font-sans antialiased text-slate-900 bg-white">
+    <main className="font-sans antialiased text-slate-900 bg-surface">
       <LPHeader />
       <script
         type="application/ld+json"
