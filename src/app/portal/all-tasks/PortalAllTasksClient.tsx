@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { ListChecks, Clock, CheckCircle, Circle, CaretRight, CaretDown } from '@phosphor-icons/react'
 import { PortalShell, PortalTaskInspector, getPortalStatusLabel } from '@/components/portal'
+import { usePortalTaskActions } from '@/lib/hooks/usePortalTaskActions'
 
 interface Project {
   id: string
@@ -83,6 +84,10 @@ export function PortalAllTasksClient({
   const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
+  const { handleApprove, handleRequestChanges } = usePortalTaskActions({
+    onActionStart: () => setSelectedTask(null),
+  })
+
   const filteredTasks = tasks.filter(task => {
     if (filter === 'active') return task.status !== 'done'
     if (filter === 'done') return task.status === 'done'
@@ -146,10 +151,17 @@ export function PortalAllTasksClient({
     isOverdue: selectedTask.dueDate ? new Date(selectedTask.dueDate) < new Date() : false,
   } : null
 
+  // 「要確認」バッジと同じ条件（相手先ボール・未完了）のときだけ承認導線を出す。
+  // ハンドラを渡すとインスペクタが承認パネルを表示するため、対象外のタスクには渡さない。
+  const isApprovable =
+    selectedTask != null && selectedTask.ball === 'client' && selectedTask.status !== 'done'
+
   const inspector = inspectorTask ? (
     <PortalTaskInspector
       task={inspectorTask}
       onClose={() => setSelectedTask(null)}
+      onApprove={isApprovable ? handleApprove : undefined}
+      onRequestChanges={isApprovable ? handleRequestChanges : undefined}
     />
   ) : null
 

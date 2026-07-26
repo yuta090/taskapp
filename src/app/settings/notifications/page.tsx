@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Bell, BellSlash, Envelope, CircleNotch, Check } from '@phosphor-icons/react'
+import { Bell, BellSlash, Envelope, CircleNotch } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
@@ -32,8 +32,6 @@ export default function NotificationSettingsPage() {
   const { user, loading: userLoading } = useCurrentUser()
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const push = usePushNotifications()
 
   const supabase = useMemo(() => createClient(), [])
@@ -85,25 +83,6 @@ export default function NotificationSettingsPage() {
     }))
   }
 
-  const handleSave = async () => {
-    if (!user) return
-
-    setSaving(true)
-    setMessage(null)
-
-    try {
-      // Note: Would save to user_notification_settings table
-      // For now, just show success message
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      setMessage({ type: 'success', text: '通知設定を保存しました（デモ）' })
-    } catch (err) {
-      console.error('Failed to save notification settings:', err)
-      setMessage({ type: 'error', text: '通知設定の保存に失敗しました' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
   if (userLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -142,20 +121,6 @@ export default function NotificationSettingsPage() {
 
       {/* Content */}
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-        {/* Message */}
-        {message && (
-          <div
-            role={message.type === 'error' ? 'alert' : 'status'}
-            className={`p-4 rounded-lg ${
-              message.type === 'success'
-                ? 'bg-green-50 border border-green-200 text-green-700'
-                : 'bg-red-50 border border-red-200 text-red-700'
-            }`}
-          >
-            {message.text}
-          </div>
-        )}
-
         {/* Browser Push Notifications */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between">
@@ -237,8 +202,10 @@ export default function NotificationSettingsPage() {
               role="switch"
               aria-checked={settings.email_enabled}
               aria-label="メール通知を有効にする"
+              disabled
+              title="準備中"
               onClick={() => handleToggle('email_enabled')}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors opacity-50 cursor-not-allowed ${
                 settings.email_enabled ? 'bg-indigo-600' : 'bg-gray-200'
               }`}
             >
@@ -265,7 +232,7 @@ export default function NotificationSettingsPage() {
             label="タスク割り当て"
             description="タスクがあなたに割り当てられた時"
             enabled={settings.email_enabled && settings.email_on_task_assigned}
-            disabled={!settings.email_enabled}
+            disabled
             onChange={() => handleToggle('email_on_task_assigned')}
           />
 
@@ -274,7 +241,7 @@ export default function NotificationSettingsPage() {
             label="メンション"
             description="コメントであなたがメンションされた時"
             enabled={settings.email_enabled && settings.email_on_task_mentioned}
-            disabled={!settings.email_enabled}
+            disabled
             onChange={() => handleToggle('email_on_task_mentioned')}
           />
 
@@ -283,7 +250,7 @@ export default function NotificationSettingsPage() {
             label="社内承認依頼"
             description="社内承認を依頼された時"
             enabled={settings.email_enabled && settings.email_on_review_request}
-            disabled={!settings.email_enabled}
+            disabled
             onChange={() => handleToggle('email_on_review_request')}
           />
 
@@ -292,7 +259,7 @@ export default function NotificationSettingsPage() {
             label="クライアント応答"
             description="クライアントが確認・回答した時"
             enabled={settings.email_enabled && settings.email_on_client_response}
-            disabled={!settings.email_enabled}
+            disabled
             onChange={() => handleToggle('email_on_client_response')}
           />
 
@@ -301,7 +268,7 @@ export default function NotificationSettingsPage() {
             label="会議リマインダー"
             description="予定された会議の前日"
             enabled={settings.email_enabled && settings.email_on_meeting_reminder}
-            disabled={!settings.email_enabled}
+            disabled
             onChange={() => handleToggle('email_on_meeting_reminder')}
           />
         </div>
@@ -320,11 +287,11 @@ export default function NotificationSettingsPage() {
             ].map((opt) => (
               <label
                 key={opt.value}
-                className={`px-4 py-2 text-sm rounded-lg border transition-colors cursor-pointer ${
+                className={`px-4 py-2 text-sm rounded-lg border opacity-50 cursor-not-allowed ${
                   settings.email_digest_frequency === opt.value
                     ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-medium'
-                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                } ${!settings.email_enabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    : 'border-gray-200 text-gray-700'
+                }`}
               >
                 <input
                   type="radio"
@@ -332,7 +299,7 @@ export default function NotificationSettingsPage() {
                   value={opt.value}
                   checked={settings.email_digest_frequency === opt.value}
                   onChange={() => handleDigestChange(opt.value as 'none' | 'daily' | 'weekly')}
-                  disabled={!settings.email_enabled}
+                  disabled
                   className="sr-only"
                 />
                 {opt.label}
@@ -341,21 +308,6 @@ export default function NotificationSettingsPage() {
           </div>
         </fieldset>
 
-        {/* Save Button */}
-        <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
-          >
-            {saving ? (
-              <CircleNotch className="w-4 h-4 animate-spin" />
-            ) : (
-              <Check className="w-4 h-4" />
-            )}
-            {saving ? '保存中...' : '設定を保存'}
-          </button>
-        </div>
       </main>
     </div>
   )

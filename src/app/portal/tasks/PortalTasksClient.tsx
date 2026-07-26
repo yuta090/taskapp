@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useCallback, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
-import { toast } from 'sonner'
+import { useState } from 'react'
 import { CheckCircle } from '@phosphor-icons/react'
 import { PortalShell, ActionCard, PortalTaskInspector } from '@/components/portal'
+import { usePortalTaskActions } from '@/lib/hooks/usePortalTaskActions'
 
 interface Project {
   id: string
@@ -34,161 +33,24 @@ interface PortalTasksClientProps {
   actionCount?: number
 }
 
-// Task processing states for visual feedback
-type TaskState = 'processing' | 'done' | 'error'
-
 export function PortalTasksClient({
   currentProject,
   projects,
   tasks,
   actionCount = 0,
 }: PortalTasksClientProps) {
-  const router = useRouter()
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  // Track per-task processing state for visual feedback
-  const [taskStates, setTaskStates] = useState<Map<string, TaskState>>(new Map())
-  const [, startTransition] = useTransition()
+
+  const {
+    taskStates,
+    handleApprove,
+    handleRequestChanges,
+    handleEstimateApprove,
+    handleEstimateReject,
+  } = usePortalTaskActions({ onActionStart: () => setSelectedTask(null) })
 
   // Filter out completed tasks, show processing ones with animation
   const visibleTasks = tasks.filter(t => taskStates.get(t.id) !== 'done')
-
-  const setTaskState = (taskId: string, state: TaskState | null) => {
-    setTaskStates(prev => {
-      const next = new Map(prev)
-      if (state === null) {
-        next.delete(taskId)
-      } else {
-        next.set(taskId, state)
-      }
-      return next
-    })
-  }
-
-  const handleApprove = useCallback(async (taskId: string, comment: string) => {
-    // Guard: prevent duplicate submissions
-    if (taskStates.get(taskId) === 'processing') return
-
-    // Phase 1: Show processing state (brief visual feedback)
-    setTaskState(taskId, 'processing')
-    setSelectedTask(null)
-
-    try {
-      const response = await fetch(`/api/portal/tasks/${taskId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve', comment }),
-      })
-
-      if (!response.ok) {
-        // Revert: show task again
-        setTaskState(taskId, null)
-        if (response.status === 409) {
-          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
-        }
-        startTransition(() => router.refresh())
-        return
-      }
-
-      // Phase 2: Success — mark done then fade out
-      setTaskState(taskId, 'done')
-      startTransition(() => router.refresh())
-    } catch (error) {
-      console.error('Approve failed:', error)
-      setTaskState(taskId, null)
-      startTransition(() => router.refresh())
-    }
-  }, [router, taskStates])
-
-  const handleRequestChanges = useCallback(async (taskId: string, comment: string) => {
-    if (taskStates.get(taskId) === 'processing') return
-
-    setTaskState(taskId, 'processing')
-    setSelectedTask(null)
-
-    try {
-      const response = await fetch(`/api/portal/tasks/${taskId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'request_changes', comment }),
-      })
-
-      if (!response.ok) {
-        setTaskState(taskId, null)
-        const error = await response.json()
-        if (response.status === 409) {
-          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
-        } else if (response.status === 400) {
-          toast.error(error.error || 'コメントを入力してください。')
-        }
-        startTransition(() => router.refresh())
-        return
-      }
-
-      setTaskState(taskId, 'done')
-      startTransition(() => router.refresh())
-    } catch (error) {
-      console.error('Request changes failed:', error)
-      setTaskState(taskId, null)
-      startTransition(() => router.refresh())
-    }
-  }, [router, taskStates])
-
-  const handleEstimateApprove = useCallback(async (taskId: string, comment: string) => {
-    if (taskStates.get(taskId) === 'processing') return
-    setTaskState(taskId, 'processing')
-    setSelectedTask(null)
-    try {
-      const response = await fetch(`/api/portal/tasks/${taskId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'estimate_approve', comment }),
-      })
-      if (!response.ok) {
-        setTaskState(taskId, null)
-        if (response.status === 409) {
-          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
-        }
-        startTransition(() => router.refresh())
-        return
-      }
-      setTaskState(taskId, 'done')
-      startTransition(() => router.refresh())
-    } catch (error) {
-      console.error('Estimate approve failed:', error)
-      setTaskState(taskId, null)
-      startTransition(() => router.refresh())
-    }
-  }, [router, taskStates])
-
-  const handleEstimateReject = useCallback(async (taskId: string, comment: string) => {
-    if (taskStates.get(taskId) === 'processing') return
-    setTaskState(taskId, 'processing')
-    setSelectedTask(null)
-    try {
-      const response = await fetch(`/api/portal/tasks/${taskId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'estimate_reject', comment }),
-      })
-      if (!response.ok) {
-        setTaskState(taskId, null)
-        const error = await response.json()
-        if (response.status === 409) {
-          toast.error('タスクの状態が変更されました。ページを再読み込みします。')
-        } else if (response.status === 400) {
-          toast.error(error.error || 'コメントを入力してください。')
-        }
-        startTransition(() => router.refresh())
-        return
-      }
-      setTaskState(taskId, 'done')
-      startTransition(() => router.refresh())
-    } catch (error) {
-      console.error('Estimate reject failed:', error)
-      setTaskState(taskId, null)
-      startTransition(() => router.refresh())
-    }
-  }, [router, taskStates])
 
   const handleSelectTask = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId)

@@ -30,11 +30,11 @@ function makeMessage(overrides: Partial<ChannelMessageRow> = {}): ChannelMessage
 }
 
 describe('MessageBubble', () => {
-  it('inbound(顧問先発言)は左寄せのクラスになる', () => {
+  it('inbound(相手先発言)は左寄せのクラスになる', () => {
     const { container } = render(<MessageBubble message={makeMessage()} />)
     expect(container.querySelector('.justify-start')).not.toBeNull()
     expect(screen.getByText('こんにちは')).toBeInTheDocument()
-    expect(screen.getByText('顧問先')).toBeInTheDocument()
+    expect(screen.getByText('相手先')).toBeInTheDocument()
   })
 
   it('outbound(秘書発言)は右寄せのクラスになる', () => {
@@ -100,7 +100,7 @@ describe('MessageBubble', () => {
     expect(screen.queryByText('mystery')).not.toBeInTheDocument()
     // 本文と発言者は従来どおり出る
     expect(screen.getByText('こんにちは')).toBeInTheDocument()
-    expect(screen.getByText('顧問先')).toBeInTheDocument()
+    expect(screen.getByText('相手先')).toBeInTheDocument()
   })
 
   it('redacted(墓標)ではバッジも出さない（本文同様に隠す）', () => {

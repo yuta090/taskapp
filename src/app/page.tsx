@@ -1,5 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import {
+  connectedChatServices,
+  connectedToolServices,
+  type ConnectedService,
+} from '@/lib/lp/connectedServices'
 
 export const metadata: Metadata = {
   title: 'agentpm ｜ 本来の仕事に、戻ろう。',
@@ -56,7 +61,34 @@ const FEATURES = [
   },
 ]
 
+/**
+ * 連携サービスの流れる帯。1本のレールに同じ並びを3回敷き、1/3ぶん動かして無限ループに見せる
+ * （2回だと横幅の広い画面で切れ目が見えるため3回）。2本目以降は読み上げ対象から外す。
+ */
+function ServiceRail({ items, variant }: { items: ConnectedService[]; variant: 'a' | 'b' }) {
+  return (
+    <div className={`rail rail-${variant}`}>
+      <div className="rail-in">
+        {[0, 1, 2].map((copy) => (
+          <span key={copy} aria-hidden={copy > 0 ? true : undefined}>
+            {items.map((s) => (
+              <span key={s.id} className="chip">
+                {s.label}
+              </span>
+            ))}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Home() {
+  // 掲載一覧はレジストリ由来（実装済みだけが自動的に並ぶ）。LP側で名前を書かない。
+  const chatServices = connectedChatServices()
+  const toolServices = connectedToolServices()
+
+
   return (
     <main className="top">
       <style>{`
@@ -139,6 +171,33 @@ export default function Home() {
 .hub-card .arw{position:absolute;right:12px;bottom:10px;color:var(--shu);font-weight:800}
 .hub-note{margin-top:22px;font-size:13px;color:#d8cfc0}
 .hub-note a{color:var(--neon);font-weight:700}
+
+/* connected services */
+.conn{background:#fff;border-top:3px solid var(--sumi);border-bottom:3px solid var(--sumi);padding:66px 0 70px;overflow:hidden}
+.conn h2{font-size:clamp(30px,6.2vw,54px);font-weight:800;line-height:1.24;margin-top:10px}
+.conn h2 .o{color:transparent;-webkit-text-stroke:2px var(--sumi)}
+.conn .lead{max-width:37em;font-size:15px;font-weight:500;margin-top:14px}
+/* grid/flexにしない: レール中身(inline-block・数千px)にトラック幅を引っ張られ、
+   同じ箱に入れた見出し(.pin)が画面外へ飛ぶ。block なら幅はセクション幅に従う */
+.conn-rails{margin-top:36px}
+.conn-rails>div+div{margin-top:16px}
+.rail-hd{font-family:"Helvetica Neue",Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:.26em;color:var(--soft);margin-bottom:8px}
+.rail{overflow:hidden;white-space:nowrap;padding:6px 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}
+.rail-in{display:inline-block;will-change:transform}
+.rail-a .rail-in{animation:rl 40s linear infinite}
+.rail-b .rail-in{animation:rl 48s linear infinite reverse}
+@keyframes rl{from{transform:translateX(0)}to{transform:translateX(-33.3333%)}}
+.conn .chip{display:inline-block;border:2.5px solid var(--sumi);background:var(--cream);font-weight:800;font-size:14px;letter-spacing:.02em;padding:9px 18px;margin-right:12px;box-shadow:4px 4px 0 var(--sumi)}
+.rail-b .chip{background:#fff;box-shadow:4px 4px 0 var(--tq)}
+@media(max-width:560px){.conn .chip{font-size:13px;padding:8px 14px;margin-right:9px;box-shadow:3px 3px 0 var(--sumi)}.rail-b .chip{box-shadow:3px 3px 0 var(--tq)}}
+.conn-note{margin-top:26px;font-size:13px;font-weight:500;color:var(--soft)}
+.conn-note a{color:var(--shu);font-weight:700}
+@media(prefers-reduced-motion:reduce){
+  .rail-in{animation:none!important}
+  .rail{overflow-x:auto;-webkit-mask-image:none;mask-image:none}
+}
 
 /* original features */
 .feat{background:var(--cream);padding:80px 0}
@@ -283,6 +342,35 @@ export default function Home() {
           </div>
           <p className="hub-note">
             あなたの業種がありませんか？ <Link href="/contact">15分の相談</Link>で、貴社の「回収するもの」に合わせてご提案します。
+          </p>
+        </div>
+      </section>
+
+      {/* connected services */}
+      <section className="conn" aria-label="連携できるサービス">
+        <div className="pin">
+          <span className="en" style={{ color: 'var(--tq)' }}>CONNECTS WITH</span>
+          <h2>
+            いまの道具は、<br />
+            <span className="o">そのままで。</span>
+          </h2>
+          <p className="lead">
+            秘書は、あなたと相手がすでに使っているチャットに入り、いま動いているタスク管理とつながります。乗り換えも、相手に新しい道具を覚えてもらう必要もありません。
+          </p>
+        </div>
+        <div className="conn-rails">
+          <div>
+            <p className="rail-hd pin">CHAT — 会話に入る</p>
+            <ServiceRail items={chatServices} variant="a" />
+          </div>
+          <div>
+            <p className="rail-hd pin">TASK &amp; DATA — 仕事とつながる</p>
+            <ServiceRail items={toolServices} variant="b" />
+          </div>
+        </div>
+        <div className="pin">
+          <p className="conn-note">
+            LINEは無料プランから。ほかのチャットとタスク連携はProプランの機能です。対応サービスは順次追加しています。<Link href="/contact">お使いのツールをご相談ください</Link>。
           </p>
         </div>
       </section>

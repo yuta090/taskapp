@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Copy, Check, Warning } from '@phosphor-icons/react'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { getChannel } from '@/lib/channels/registry'
+import { Hint } from '@/components/secretary/Hint'
 
 interface SharedBotClaimPanelProps {
   orgId: string
@@ -32,14 +33,18 @@ const CLAIM_GUIDES: Record<string, ClaimGuide> = {
   google_chat: {
     steps: (
       <>
-        <li>運営のGoogle Chatアプリを、相手先のスペースに追加してもらいます。</li>
+        <li>運営のGoogle Chatアプリを相手先のスペースに追加してもらう</li>
         <li>
-          <strong>Workspace管理者が権限を一度だけ承認</strong>してもらう必要があります
-          （これが無いとメッセージを受け取れません）。
+          <strong>Workspace管理者が権限を一度だけ承認</strong>
+          <Hint label="管理者の承認">
+            この承認が無いと、スペースのメッセージを受け取れません。一度きりの操作です。
+          </Hint>
         </li>
         <li>
-          下で合言葉を発行し、スペースで<strong>@bot をメンションして</strong>合言葉を投稿してもらいます
-          （承認前は@メンション宛のメッセージしか届きません）。内部で承認すると、以降の会話の記録が始まります。
+          合言葉を発行し、スペースで<strong>@bot をメンションして</strong>投稿してもらう
+          <Hint label="合言葉の投稿">
+            管理者の承認前は、@メンション宛のメッセージしか届きません。投稿されたら社内で承認すると、以降の会話の記録が始まります。
+          </Hint>
         </li>
       </>
     ),
@@ -50,10 +55,16 @@ const CLAIM_GUIDES: Record<string, ClaimGuide> = {
   discord: {
     steps: (
       <>
-        <li>運営の共有Bot（agentpm）を、相手先の Discord サーバーに招待してもらいます（招待済みならスキップ）。</li>
-        <li>下で合言葉を発行し、記録したい<strong>チャンネルにこの合言葉を投稿</strong>してもらいます。</li>
         <li>
-          投稿されると<strong>「確認待ち」</strong>に現れます。内部で承認すると、以降そのチャンネルの会話の記録が始まります。
+          運営の共通アカウント（agentpm）を相手先のDiscordサーバーに招待してもらう
+          <Hint label="サーバーへの招待">すでに招待済みなら、この手順はとばせます。</Hint>
+        </li>
+        <li>
+          合言葉を発行し、記録したい<strong>チャンネルにこの合言葉を投稿</strong>してもらう
+        </li>
+        <li>
+          <strong>「確認待ち」</strong>に出てくるので、社内で承認する
+          <Hint label="承認のあと">承認すると、以降そのチャンネルの会話の記録が始まります。</Hint>
         </li>
       </>
     ),
@@ -69,9 +80,9 @@ function fallbackGuide(channel: string): ClaimGuide {
   return {
     steps: (
       <>
-        <li>運営の共有Botを、相手先の{label}に追加してもらいます。</li>
-        <li>下で合言葉を発行し、記録したい{label}のチャンネルに投稿してもらいます。</li>
-        <li>「確認待ち」に現れるので、内部で承認すると会話の記録が始まります。</li>
+        <li>運営の共通アカウントを相手先の{label}に追加してもらう</li>
+        <li>合言葉を発行し、記録したい{label}のチャンネルに投稿してもらう</li>
+        <li>「確認待ち」に出てくるので、社内で承認する</li>
       </>
     ),
     postInstruction: `このコードを ${label} の記録したいチャンネルに投稿してください。`,
@@ -145,9 +156,11 @@ export function SharedBotClaimPanel({ orgId, channel }: SharedBotClaimPanelProps
   }
 
   return (
-    <div className="mt-6 border-t border-gray-100 pt-6">
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">つなぎ方</h2>
-      <ol className="mb-6 list-decimal list-inside space-y-2 text-sm text-gray-700">{guide.steps}</ol>
+    <div>
+      <h2 className="text-sm font-semibold text-gray-700 mb-2">つなぎ方</h2>
+      <ol className="mb-6 list-decimal list-inside space-y-1.5 text-sm text-gray-700">
+        {guide.steps}
+      </ol>
 
       <h2 className="text-sm font-semibold text-gray-700 mb-2">合言葉の発行</h2>
 
@@ -196,10 +209,12 @@ export function SharedBotClaimPanel({ orgId, channel }: SharedBotClaimPanelProps
               {copied ? 'コピー済み' : 'コピー'}
             </button>
           </div>
-          <ul className="mt-3 space-y-1 text-xs text-amber-900">
-            <li>・有効期限は30分です。1{guide.targetNoun}のみ紐付けできます。</li>
-            <li>・この画面を離れると再表示できません（再発行してください）。</li>
-          </ul>
+          <p className="mt-2 text-[11px] text-amber-900">
+            30分で失効・1{guide.targetNoun}のみ・再表示不可
+            <Hint label="合言葉の有効期限">
+              発行から30分で使えなくなります。紐付けできるのは1{guide.targetNoun}だけです。この画面を離れると再表示できないので、必要なら発行し直してください。
+            </Hint>
+          </p>
           <button
             type="button"
             onClick={() => setIssued(null)}

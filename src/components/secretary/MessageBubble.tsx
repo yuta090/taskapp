@@ -14,7 +14,7 @@ import { channelBadgeLabel } from '@/lib/channels/channelBadge'
 import { ChannelIcon } from '@/components/secretary/ChannelIcon'
 
 const ACTOR_LABEL: Record<ChannelMessageRow['actor'], string> = {
-  client: '顧問先',
+  client: '相手先',
   secretary: '秘書',
   staff: '担当者',
   system: 'システム',

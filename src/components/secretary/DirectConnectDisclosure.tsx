@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { CaretDown, CaretRight } from '@phosphor-icons/react'
 import { ClientLinkPanel } from '@/components/secretary/ClientLinkPanel'
+import { Hint } from '@/components/secretary/Hint'
 
 /**
  * 「相手と1対1でつなぐ（Pro）」の控えめな副導線。
@@ -17,22 +18,25 @@ export function DirectConnectDisclosure({ orgId }: { orgId: string }) {
 
   return (
     <div className="mt-4 border-t border-gray-100 pt-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        data-testid="direct-connect-toggle"
-        className="flex w-full items-center gap-1.5 text-left text-xs font-medium text-gray-600 hover:text-gray-900"
-      >
-        {open ? <CaretDown className="h-3.5 w-3.5" /> : <CaretRight className="h-3.5 w-3.5" />}
-        <span>相手と1対1でつなぐ</span>
-        <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-          Pro
-        </span>
-      </button>
-      <p className="mt-1 pl-5 text-[11px] text-gray-500">
-        グループを使わず、相手の担当者へ直接つなぎたいときに。
-      </p>
+      {/* Hint はトグルの *外側* に置く（buttonの入れ子はHTML的に不正で、クリックも競合する） */}
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          data-testid="direct-connect-toggle"
+          className="flex items-center gap-1.5 text-left text-xs font-medium text-gray-600 hover:text-gray-900"
+        >
+          {open ? <CaretDown className="h-3.5 w-3.5" /> : <CaretRight className="h-3.5 w-3.5" />}
+          <span>相手と1対1でつなぐ</span>
+          <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+            Pro
+          </span>
+        </button>
+        <Hint label="1対1でつなぐ">
+          グループを使わず、相手の担当者へ直接つなぎたいときに使います。Proプランの機能です。
+        </Hint>
+      </div>
       {open && (
         <div className="mt-3 pl-5">
           <ClientLinkPanel orgId={orgId} />

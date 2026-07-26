@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Robot, ToggleLeft, ToggleRight, PlugsConnected } from '@phosphor-icons/react'
+import Link from 'next/link'
+import { Robot, ToggleLeft, ToggleRight, PlugsConnected, ArrowRight } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { ChannelAccountMeta, ViewerRole } from '@/lib/hooks/useChannelAccount'
 
@@ -56,6 +57,13 @@ export function BotStatusHeader({
           <p className="text-xs text-gray-400 truncate">
             TaskApp共通のLINEから届きます・相手先とはグループ単位でつながります
           </p>
+          <Link
+            href="/contact?plan=pro&topic=own-line"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+          >
+            自社の名前で届く「自社LINE」に切り替える
+            <ArrowRight className="text-xs" />
+          </Link>
         </div>
       </div>
     )
@@ -72,6 +80,13 @@ export function BotStatusHeader({
             <br />
             <b className="text-gray-600">自社LINE（自社の名前で）</b>：公式アカウントの接続はサポートが代行します。
           </p>
+          <Link
+            href="/contact?plan=pro&topic=own-line"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+          >
+            自社LINEを申し込む（サポートに相談）
+            <ArrowRight className="text-xs" />
+          </Link>
         </div>
       </div>
     )

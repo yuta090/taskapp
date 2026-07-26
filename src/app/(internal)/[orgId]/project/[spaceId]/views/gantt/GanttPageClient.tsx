@@ -13,6 +13,7 @@ import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { BallSide, TaskStatus } from '@/types/database'
 
@@ -302,9 +303,10 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
   const error = tasksError || milestonesError
 
   const projectListPath = `/${orgId}/project/${spaceId}`
+  const spaceName = useSpaceName(spaceId)
 
   const breadcrumbItems = [
-    { label: 'Webリニューアル', href: projectListPath },
+    { label: spaceName || 'プロジェクト', href: projectListPath },
     { label: 'ガントチャート' },
   ]
 

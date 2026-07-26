@@ -236,7 +236,8 @@ export default function MyTasksClient() {
             .insert(ownerRows as Record<string, unknown>[])
           if (ownerError) {
             console.error('Failed to insert task owners:', ownerError)
-            // Task created but owners failed - still add to list but warn
+            // Task created but owners failed - still add to list but warn the user
+            toast.warning('タスクは作成しましたが、担当者の設定に失敗しました。担当者を再設定してください。')
           }
         }
 

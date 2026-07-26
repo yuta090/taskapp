@@ -468,7 +468,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl space-y-8">
           <section>
-            <h2 className="text-sm font-semibold text-gray-900">共有botグループを追加</h2>
+            <h2 className="text-sm font-semibold text-gray-900">共通LINEのグループを追加</h2>
             <p className="mt-1 text-xs text-gray-500">
               相手先がまだ秘書を友だち追加していない場合は、下のQRで秘書を友だち追加してもらい、
               その秘書を<strong>LINEグループに招待</strong>してもらいます。そのうえでプロジェクトを選んでコードを発行し、

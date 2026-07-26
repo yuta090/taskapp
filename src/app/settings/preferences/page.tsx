@@ -94,26 +94,29 @@ export default function PreferencesSettingsPage() {
           <p className="text-xs text-gray-500">アプリの外観を選択します</p>
           <div className="flex gap-3">
             {([
-              { value: 'light' as Theme, label: 'ライト', icon: <Sun className="w-4 h-4" /> },
-              { value: 'dark' as Theme, label: 'ダーク', icon: <Moon className="w-4 h-4" /> },
-              { value: 'system' as Theme, label: 'システム', icon: <Desktop className="w-4 h-4" /> },
+              { value: 'light' as Theme, label: 'ライト', icon: <Sun className="w-4 h-4" />, disabled: false },
+              { value: 'dark' as Theme, label: 'ダーク', icon: <Moon className="w-4 h-4" />, disabled: true },
+              { value: 'system' as Theme, label: 'システム', icon: <Desktop className="w-4 h-4" />, disabled: true },
             ]).map(opt => (
               <button
                 key={opt.value}
                 onClick={() => updatePref('theme', opt.value)}
+                disabled={opt.disabled}
+                title={opt.disabled ? '準備中' : undefined}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   theme === opt.value
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                     : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
+                } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.icon}
                 {opt.label}
+                {opt.disabled && <span className="text-[10px] text-gray-400">準備中</span>}
               </button>
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            ダークモードは現在準備中です。設定は保存されますが、テーマの切替はまだ反映されません。
+            ダーク／システムのテーマは現在準備中です。今は「ライト」のみご利用いただけます。
           </p>
         </div>
 
@@ -126,24 +129,27 @@ export default function PreferencesSettingsPage() {
           <p className="text-xs text-gray-500">UIの表示言語を選択します</p>
           <div className="flex gap-3">
             {([
-              { value: 'ja' as Language, label: '日本語' },
-              { value: 'en' as Language, label: 'English' },
+              { value: 'ja' as Language, label: '日本語', disabled: false },
+              { value: 'en' as Language, label: 'English', disabled: true },
             ]).map(opt => (
               <button
                 key={opt.value}
                 onClick={() => updatePref('language', opt.value)}
+                disabled={opt.disabled}
+                title={opt.disabled ? '準備中' : undefined}
                 className={`px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   language === opt.value
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                     : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
+                } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.label}
+                {opt.disabled && <span className="ml-1 text-[10px] text-gray-400">準備中</span>}
               </button>
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            英語UIは現在準備中です。設定は保存されますが、表示言語の切替はまだ反映されません。
+            英語UIは現在準備中です。今は「日本語」のみご利用いただけます。
           </p>
         </div>
 

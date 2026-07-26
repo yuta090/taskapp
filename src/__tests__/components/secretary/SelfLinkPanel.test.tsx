@@ -106,14 +106,27 @@ describe('SelfLinkPanel', () => {
     expect(screen.queryByText('まだ連携されていません。')).not.toBeInTheDocument()
   })
 
-  it('すでに友だち追加済みならコード送信だけでよい旨を案内する', async () => {
+  it('手順リマインドは1行だけ出す（長い説明文は置かない）', async () => {
     mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
     render(<SelfLinkPanel orgId={ORG} />)
 
     await waitFor(() => screen.getByText(/コードを発行してつなぐ/))
+    expect(screen.getByText(/発行したコードを1:1トークに送ると完了/)).toBeInTheDocument()
+    // 旧: 44文字の説明文。QRの手順と重複していたので置かない
     expect(
-      screen.getByText(/すでに友だち追加済みなら、下のボタンでコードを発行し/),
-    ).toBeInTheDocument()
+      screen.queryByText(/すでに友だち追加済みなら、下のボタンでコードを発行し/),
+    ).not.toBeInTheDocument()
+  })
+
+  // 同じページの「グループLINEから拾う」カードで同一BotのQRを既に出しているため、
+  // ここでQRを二重に出さない（画面の情報量が倍になる）。
+  it('未接続でもQRは畳み、発行ボタンを主役にする', async () => {
+    mockApis({ account: { id: 'acc-1', displayName: 'OA' } })
+    render(<SelfLinkPanel orgId={ORG} />)
+
+    await waitFor(() => screen.getByText(/コードを発行してつなぐ/))
+    expect(screen.queryByRole('img', { name: /QR/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('connect-showqr-toggle')).toBeInTheDocument()
   })
 
   // 接続済み(自分のLINEが連携済み)なら、QR＋発行ボタンは畳んで「別の端末をつなぐ」の裏に。
