@@ -47,6 +47,20 @@ export interface StripePriceMap {
 }
 
 /**
+ * env から priceMap を組み立てる共有ヘルパ。
+ * webhook と reconcile が別々に組み立てると片方だけ古くなるため1点に寄せる。
+ * 未設定は null（Stripe未設定環境でも落ちない）。
+ */
+export function stripePriceMapFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): StripePriceMap {
+  return {
+    pro: env.STRIPE_PRO_PRICE_ID || null,
+    enterprise: env.STRIPE_ENTERPRISE_PRICE_ID || null,
+  }
+}
+
+/**
  * Stripe の price id を PlanId へ写像する。未知/null は undefined（plan_id を変更しない）。
  */
 export function resolvePlanIdFromPriceId(
@@ -79,12 +93,36 @@ export interface SubscriptionLike {
 }
 
 /**
- * サブスクの現在の課金期間終了(unix秒)を取得する。Clover 以降は item 側にあるため、
- * item(先頭) → 直下 の順で解決する。どこにも無ければ null。
- * webhook・reconcile 双方がこれを使い、past_due の猶予判定が null で潰れないようにする。
+ * サブスクの item のうち、priceMap に載っている（＝プランを表す）ものを探す。
+ *
+ * 枠追加(quote承認)のアドオンが乗ると item が2つ以上になり、**先頭がアドオンになり得る**。
+ * アドオンの price は priceMap に載らない＝「未知price は無視」が正しい挙動なので、
+ * 全item を走査して最初に一致した item を「プランの item」とみなす。
  */
-export function subscriptionPeriodEndUnix(subscription: SubscriptionLike): number | null {
+function findPlanItem(
+  subscription: SubscriptionLike,
+  priceMap: StripePriceMap,
+): { price?: { id?: string | null } | null; current_period_end?: number | null } | undefined {
+  const items = subscription.items?.data
+  if (!items?.length) return undefined
+  return items.find((item) => resolvePlanIdFromPriceId(item?.price?.id, priceMap) !== undefined)
+}
+
+/**
+ * サブスクの現在の課金期間終了(unix秒)を取得する。Clover 以降は item 側にあるため、
+ * item → 直下 の順で解決する。どこにも無ければ null。
+ * webhook・reconcile 双方がこれを使い、past_due の猶予判定が null で潰れないようにする。
+ *
+ * priceMap を渡した場合は **プランの item を優先**する（アドオンの期間で上書きしない）。
+ * 渡さない場合は従来どおり先頭 item を見る（後方互換・挙動不変）。
+ */
+export function subscriptionPeriodEndUnix(
+  subscription: SubscriptionLike,
+  priceMap?: StripePriceMap,
+): number | null {
+  const planItem = priceMap ? findPlanItem(subscription, priceMap) : undefined
   return (
+    planItem?.current_period_end ??
     subscription.items?.data?.[0]?.current_period_end ??
     subscription.current_period_end ??
     null
@@ -102,14 +140,16 @@ export function buildBillingPatchFromSubscription(
   subscription: SubscriptionLike,
   opts: { priceMap: StripePriceMap; unknownFallback?: BillingStatus },
 ): BillingReconcilePatch {
-  const priceId = subscription.items?.data?.[0]?.price?.id ?? null
-  let planId = resolvePlanIdFromPriceId(priceId, opts.priceMap)
+  // 枠追加アドオンで item が複数になっても壊れないよう、全item から plan price を探す
+  // （先頭決め打ちだと、先頭がアドオンのとき plan_id が patch から落ちる）。
+  const planItem = findPlanItem(subscription, opts.priceMap)
+  let planId = resolvePlanIdFromPriceId(planItem?.price?.id, opts.priceMap)
   if (!planId) {
     const metaPlan = subscription.metadata?.plan_id
     if (metaPlan && PLAN_IDS.has(metaPlan)) planId = metaPlan as PlanId
   }
 
-  const cpe = subscriptionPeriodEndUnix(subscription)
+  const cpe = subscriptionPeriodEndUnix(subscription, opts.priceMap)
   const patch: BillingReconcilePatch = {
     status: mapStripeSubscriptionStatus(subscription.status, {
       unknownFallback: opts.unknownFallback,
