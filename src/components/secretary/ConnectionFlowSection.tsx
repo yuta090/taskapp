@@ -24,6 +24,11 @@ interface ConnectionFlowSectionProps {
    * 「友だち追加だけで連携できる」誤解を防ぐため、コード発行ボタン単体を出さない。
    */
   stepsHint?: ReactNode
+  /**
+   * 未接続でもQRだけ畳む。同じページの別カードですでにQRを見せている場合に使う
+   * （同一Botの同じQRが1画面に2つ出ると、それだけで認知負荷が倍になる）。
+   */
+  collapseQr?: boolean
 }
 
 /**
@@ -41,8 +46,8 @@ interface ConnectionFlowSectionProps {
  */
 type DisplayMode = 'loading' | 'expanded' | 'collapse-onboarding' | 'collapse-qr'
 
-function resolveMode(kind: ConnectKind, state: ConnectState): DisplayMode {
-  if (state !== 'connected') return 'expanded'
+function resolveMode(kind: ConnectKind, state: ConnectState, collapseQr = false): DisplayMode {
+  if (state !== 'connected') return collapseQr ? 'collapse-qr' : 'expanded'
   if (kind === 'self') return 'collapse-onboarding'
   if (kind === 'counterparty') return 'collapse-qr'
   return 'expanded' // group: 接続済みでも展開のまま
@@ -93,10 +98,11 @@ export function ConnectionFlowSection({
   detail,
   error,
   stepsHint,
+  collapseQr,
 }: ConnectionFlowSectionProps) {
   // loading中は接続済みか未接続かがまだ確定しないため、QR/アクションを出さない
   // （出すと接続済みの相手先で「展開→畳む」のちらつき＋レイアウトシフトが起きる）。
-  const mode = state === 'loading' ? 'loading' : resolveMode(kind, state)
+  const mode = state === 'loading' ? 'loading' : resolveMode(kind, state, collapseQr)
 
   return (
     <div className="space-y-4" data-testid="connection-flow-section" data-kind={kind} data-state={state} data-mode={mode}>
@@ -134,12 +140,13 @@ export function ConnectionFlowSection({
 
       {mode === 'collapse-qr' && (
         <>
-          {detail}
+          {/* 主アクションを最初に。連携済み一覧は「済んだこと」なので後ろに置く。 */}
           {stepsHint}
           {action}
           <Disclosure label="QRを表示" icon={<QrCode className="h-3.5 w-3.5" />} testId="connect-showqr">
             {qr}
           </Disclosure>
+          {detail}
         </>
       )}
     </div>

@@ -14,8 +14,7 @@ import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 export function GroupLinkPanel({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-500">かんたん3ステップで、グループの会話を秘書が見張れます。</p>
-
+      {/* 「3ステップで…」の前置きは置かない — この下に3ステップそのものが並ぶ（同じことを2回言わない）。 */}
       <LineFriendQr orgId={orgId} purpose="group" />
 
       <Link
