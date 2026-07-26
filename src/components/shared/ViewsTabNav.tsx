@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { SquaresFour, ChartLine } from '@phosphor-icons/react'
+import { SquaresFour, ChartLine, Receipt } from '@phosphor-icons/react'
 
-type ViewType = 'gantt' | 'burndown'
+type ViewType = 'gantt' | 'burndown' | 'billing'
 
 interface ViewsTabNavProps {
   orgId: string
@@ -14,6 +14,8 @@ interface ViewsTabNavProps {
 const tabs: { key: ViewType; label: string; icon: typeof SquaresFour }[] = [
   { key: 'gantt', label: 'ガントチャート', icon: SquaresFour },
   { key: 'burndown', label: 'バーンダウン', icon: ChartLine },
+  // 「会計」ではなく「見積・請求」。会計データ全般が繋がると誤解させないための表記。
+  { key: 'billing', label: '見積・請求', icon: Receipt },
 ]
 
 export function ViewsTabNav({ orgId, spaceId, activeView }: ViewsTabNavProps) {
