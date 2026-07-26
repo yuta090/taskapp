@@ -66,17 +66,43 @@ export function isAccountingOAuthProvider(id: string): id is AccountingProviderI
   return id in ACCOUNTING_OAUTH
 }
 
-/** 鍵が揃っているか。揃っていない provider は接続ボタン自体を出さない。 */
+/**
+ * 接続に必要な設定が揃っているか。揃っていない provider は接続ボタン自体を出さない。
+ *
+ * 戻り先URLまで見るのは、鍵だけあって戻り先が無い状態でボタンを出すと、押した先で
+ * 初めて失敗するため。設定漏れは押す前に分かるほうがよい。
+ */
 export function isAccountingOAuthConfigured(provider: AccountingProviderId): boolean {
   const cfg = ACCOUNTING_OAUTH[provider]
-  return Boolean(cfg.clientId && cfg.clientSecret)
+  if (!cfg.clientId || !cfg.clientSecret) return false
+  try {
+    return Boolean(getAccountingRedirectUri(provider))
+  } catch {
+    return false
+  }
 }
 
+/**
+ * 認可後の戻り先。**各社の管理画面に登録した文字列と完全一致**していなければならない
+ * （1文字でも違うと認可の時点で弾かれる）。
+ *
+ * 明示指定（FREEE_REDIRECT_URI 等）を先に見るのは、このプロジェクトの .env に
+ * NEXT_PUBLIC_APP_URL が無く、Zoom/Teams も *_REDIRECT_URI を直接置く運用になっているため。
+ * どちらも無いときは組み立てずに落とす。`undefined/api/...` という壊れたURLで認可へ飛ばすと、
+ * 各社の画面には「リダイレクトURIが一致しません」としか出ず、原因の切り分けに時間を溶かす。
+ */
 export function getAccountingRedirectUri(provider: AccountingProviderId): string {
-  return (
-    process.env[`${provider.toUpperCase()}_REDIRECT_URI`] ||
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/callback/${provider}`
-  )
+  const explicit = process.env[`${provider.toUpperCase()}_REDIRECT_URI`]
+  if (explicit) return explicit
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl) {
+    throw new Error(
+      `${provider}: 戻り先URLが未設定です。${provider.toUpperCase()}_REDIRECT_URI に、` +
+        `${provider} の管理画面へ登録したコールバックURLと同じ文字列を設定してください。`,
+    )
+  }
+  return `${appUrl.replace(/\/$/, '')}/api/integrations/callback/${provider}`
 }
 
 /** 認可画面へのURL。state は呼び出し側が署名済みのものを渡す（CSRF対策）。 */
