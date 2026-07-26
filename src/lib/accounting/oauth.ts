@@ -46,7 +46,9 @@ export const ACCOUNTING_OAUTH: Record<AccountingProviderId, AccountingOAuthProvi
     tokenUrl: 'https://invoice.moneyforward.com/oauth/token',
     clientId: env('MONEY_FORWARD_CLIENT_ID'),
     clientSecret: env('MONEY_FORWARD_CLIENT_SECRET'),
-    scope: env('MONEY_FORWARD_OAUTH_SCOPE') || 'write',
+    // クラウド請求書APIv3のスコープは名前空間付き（公式ガイド a04 で確認）。
+    // 'write' だけでは通らない。read のみなら mfc/invoice/data.read。
+    scope: env('MONEY_FORWARD_OAUTH_SCOPE') || 'mfc/invoice/data.write',
     sendScope: true,
   },
   misoca: {
