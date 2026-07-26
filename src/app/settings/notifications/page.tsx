@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState } from 'react'
 import { Bell, BellSlash, Envelope, CircleNotch } from '@phosphor-icons/react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
+import { useDueReminderPreference } from '@/lib/hooks/useDueReminderPreference'
 import { SettingsBackButton } from '@/components/shared'
 
 interface NotificationSettings {
@@ -30,42 +30,9 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 
 export default function NotificationSettingsPage() {
   const { user, loading: userLoading } = useCurrentUser()
+  // 種類別メール通知（下部の各トグル）は送信実装が未着手のため defaults のまま無効表示。
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS)
-  const [loading, setLoading] = useState(true)
   const push = usePushNotifications()
-
-  const supabase = useMemo(() => createClient(), [])
-
-  // Fetch notification settings
-  useEffect(() => {
-    if (!userLoading && !user) {
-      setLoading(false)
-      return
-    }
-    if (!user) return
-
-    const fetchSettings = async () => {
-      setLoading(true)
-      try {
-        // Note: notification_settings table would need to be created
-        // For now, use defaults and show as "準備中"
-        // const { data, error } = await (supabase as SupabaseClient)
-        //   .from('user_notification_settings')
-        //   .select('*')
-        //   .eq('user_id', user.id)
-        //   .maybeSingle()
-
-        // Use defaults for now
-        setSettings(DEFAULT_SETTINGS)
-      } catch (err) {
-        console.error('Failed to fetch notification settings:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    void fetchSettings()
-  }, [user, userLoading, supabase])
 
   const handleToggle = (key: keyof NotificationSettings) => {
     if (typeof settings[key] === 'boolean') {
@@ -83,7 +50,7 @@ export default function NotificationSettingsPage() {
     }))
   }
 
-  if (userLoading || loading) {
+  if (userLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <CircleNotch className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -113,7 +80,7 @@ export default function NotificationSettingsPage() {
             <SettingsBackButton />
             <div>
               <h1 className="text-xl font-semibold text-gray-900">通知設定</h1>
-              <p className="text-sm text-gray-500">ブラウザ通知とメール通知の設定</p>
+              <p className="text-sm text-gray-500">通知の受け取り設定</p>
             </div>
           </div>
         </div>
@@ -170,14 +137,17 @@ export default function NotificationSettingsPage() {
           )}
         </div>
 
+        {/* 期限リマインド受信（実装済み・実際に効く設定） */}
+        <DueReminderToggle userId={user.id} />
+
         {/* Coming soon notice */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center gap-2 text-blue-700">
             <Bell className="w-5 h-5" />
-            <span className="font-medium">メール通知機能は準備中です</span>
+            <span className="font-medium">以下のメール通知は準備中です</span>
           </div>
           <p className="text-sm text-blue-600 mt-1">
-            以下の設定は今後のアップデートで有効になります。
+            種類別のメール通知は今後のアップデートで有効になります。
           </p>
         </div>
 
@@ -309,6 +279,55 @@ export default function NotificationSettingsPage() {
         </fieldset>
 
       </main>
+    </div>
+  )
+}
+
+/**
+ * 期限リマインド受信トグル（実装済み・実際に効く設定）。
+ * profiles.due_reminder_enabled を楽観更新する。sender が送信直前に参照し、
+ * false なら自動リマインドを送らない。保存ボタンは無い（規約）。
+ */
+function DueReminderToggle({ userId }: { userId: string }) {
+  const { enabled, toggle, saving, loading } = useDueReminderPreference(userId)
+
+  // 取得中はこのカードだけ非表示（ページ全体はブロックしない）。永続キャッシュ在庫があれば即描画。
+  if (loading) return null
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {enabled ? (
+            <Bell className="w-6 h-6 text-indigo-600" />
+          ) : (
+            <BellSlash className="w-6 h-6 text-gray-400" />
+          )}
+          <div>
+            <h3 className="text-sm font-medium text-gray-900">期限リマインド</h3>
+            <p className="text-xs text-gray-500">
+              期限が近いタスクの自動リマインドを受け取ります（手動リマインドやアプリ内通知には影響しません）
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="期限リマインドを受け取る"
+          disabled={saving}
+          onClick={() => void toggle()}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            enabled ? 'bg-indigo-600' : 'bg-gray-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              enabled ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
     </div>
   )
 }
