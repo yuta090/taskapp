@@ -8,7 +8,7 @@ import { UUID_REGEX } from '@/lib/uuid'
 const FORMULA_PREFIXES = ['=', '+', '-', '@', '\t', '\r']
 
 // デフォルトヘッダー設定
-const DEFAULT_HEADERS: Record<string, string> = {
+const BASE_HEADERS: Record<string, string> = {
   id: 'ID',
   title: 'タイトル',
   description: '説明',
@@ -31,6 +31,80 @@ const DEFAULT_COLUMNS = [
   'due_date', 'ball', 'origin', 'assignee', 'milestone',
   'spec_path', 'decision_state', 'created_at', 'updated_at'
 ]
+
+/**
+ * 金額列（task_pricing 由来）— 会計ソフトへ取り込むために要る列。
+ *
+ * DEFAULT_COLUMNS には**入れない**。既定の書き出しに金額が突然現れると、既にこのCSVを
+ * 定型業務に組み込んでいる利用者の取り込み設定が壊れるため、明示指定でのみ出す。
+ */
+const MONEY_COLUMNS = [
+  'cost_hours', 'cost_unit_price', 'cost_total',
+  'margin_rate', 'sell_total', 'pricing_status',
+] as const
+
+const MONEY_HEADERS: Record<string, string> = {
+  cost_hours: '工数(時間)',
+  cost_unit_price: '原価単価',
+  cost_total: '原価合計',
+  margin_rate: '利益率(%)',
+  sell_total: '請求金額',
+  pricing_status: '見積状態',
+}
+
+/** 指定を受け付ける全カラム（既定＋金額）。 */
+const ALL_COLUMNS: string[] = [...DEFAULT_COLUMNS, ...MONEY_COLUMNS]
+
+/** ヘッダーの既定値（既定列＋金額列）。どの列を実際に出すかは columns 側で決まる。 */
+const DEFAULT_HEADERS: Record<string, string> = { ...BASE_HEADERS, ...MONEY_HEADERS }
+
+/**
+ * 金額列を書き出してよい役割。
+ *
+ * 原価（制作会社が入れた値）と売値（顧客に出す値）が1枚のCSVに並ぶため、役割で切る必要がある。
+ * とくに vendor に売値が渡ると利益率がそのまま知られ、取引事故になる。viewer も含め、
+ * 編集権限のない役割には出さない（緩めるのは後からできるが、漏れたら取り消せない）。
+ */
+const MONEY_ALLOWED_ROLES = new Set(['admin', 'editor'])
+
+function isMoneyColumn(column: string): boolean {
+  return (MONEY_COLUMNS as readonly string[]).includes(column)
+}
+
+/**
+ * 数値セルの整形。金額は会計ソフトが数値として読める素の形で出す。
+ *
+ * escapeCSV に通さないのは、負数（'-1000'）が formula injection 対策のクォート付与に
+ * 引っかかって "'-1000" になり、取り込み側で数値として読めなくなるため。純粋な数値文字列は
+ * 数式になり得ないので、有限数と確認できた場合だけ素通しする。
+ */
+function formatNumericCSV(value: unknown): string {
+  if (value === null || value === undefined || value === '') return ''
+  const num = Number(value)
+  if (!Number.isFinite(num)) return escapeCSV(String(value))
+  return String(num)
+}
+
+/** 見積の進み具合を1語で表す（どこまで承認が取れているか）。 */
+function pricingStatusLabel(pricing: PricingRow | undefined): string {
+  if (!pricing) return '未入力'
+  if (pricing.client_approved_at) return '顧客承認済'
+  if (pricing.agency_approved_at) return '社内承認済'
+  if (pricing.vendor_submitted_at) return '見積提出済'
+  return '入力中'
+}
+
+interface PricingRow {
+  task_id: string
+  cost_hours: string | number | null
+  cost_unit_price: string | number | null
+  cost_total: string | number | null
+  margin_rate: string | number | null
+  sell_total: string | number | null
+  vendor_submitted_at: string | null
+  agency_approved_at: string | null
+  client_approved_at: string | null
+}
 
 // 日付をローカルタイムゾーンでYYYY-MM-DD形式に変換
 function formatDateToLocalString(date: Date | string | null): string {
@@ -79,8 +153,29 @@ function getTaskValue(
   task: any,
   column: string,
   profileMap: Map<string, string>,
-  milestoneMap: Map<string, string>
+  milestoneMap: Map<string, string>,
+  pricingMap: Map<string, PricingRow>
 ): string {
+  if (isMoneyColumn(column)) {
+    const pricing = pricingMap.get(task.id)
+    switch (column) {
+      case 'cost_hours':
+        return formatNumericCSV(pricing?.cost_hours)
+      case 'cost_unit_price':
+        return formatNumericCSV(pricing?.cost_unit_price)
+      case 'cost_total':
+        return formatNumericCSV(pricing?.cost_total)
+      case 'margin_rate':
+        return formatNumericCSV(pricing?.margin_rate)
+      case 'sell_total':
+        return formatNumericCSV(pricing?.sell_total)
+      case 'pricing_status':
+        return escapeCSV(pricingStatusLabel(pricing))
+      default:
+        return ''
+    }
+  }
+
   switch (column) {
     case 'id':
       return escapeCSV(task.id)
@@ -182,7 +277,7 @@ export async function GET(request: NextRequest) {
         headers = { ...DEFAULT_HEADERS, ...template.headers }
         // テンプレートのカラムも有効なカラムのみフィルタ
         const templateColumns = (template.columns || []).filter(
-          (c: string) => DEFAULT_COLUMNS.includes(c)
+          (c: string) => ALL_COLUMNS.includes(c)
         )
         columns = templateColumns.length > 0 ? templateColumns : DEFAULT_COLUMNS
       }
@@ -199,7 +294,7 @@ export async function GET(request: NextRequest) {
       if (defaultTemplate) {
         headers = { ...DEFAULT_HEADERS, ...defaultTemplate.headers }
         const templateColumns = (defaultTemplate.columns || []).filter(
-          (c: string) => DEFAULT_COLUMNS.includes(c)
+          (c: string) => ALL_COLUMNS.includes(c)
         )
         columns = templateColumns.length > 0 ? templateColumns : DEFAULT_COLUMNS
       }
@@ -222,9 +317,16 @@ export async function GET(request: NextRequest) {
       const parsed = customColumns.split(',').map(c => c.trim()).filter(c => c)
       if (parsed.length > 0) {
         // 有効なカラムのみフィルタ
-        const validColumns = parsed.filter(c => DEFAULT_COLUMNS.includes(c))
+        const validColumns = parsed.filter(c => ALL_COLUMNS.includes(c))
         columns = validColumns.length > 0 ? validColumns : DEFAULT_COLUMNS
       }
+    }
+
+    // 金額列の役割ゲート — 権限のない役割では列ごと落とす（空欄で残すと「金額が0/未入力」と
+    // 誤読されるため、そもそも列を出さない）。テンプレート経由の指定もここで一律に効かせる。
+    if (!MONEY_ALLOWED_ROLES.has(membership.role)) {
+      const gated = columns.filter(c => !isMoneyColumn(c))
+      columns = gated.length > 0 ? gated : DEFAULT_COLUMNS
     }
 
     // タスク取得
@@ -289,6 +391,25 @@ export async function GET(request: NextRequest) {
       (milestones || []).map((m: { id: string; title: string }) => [m.id, m.title])
     )
 
+    // 見積・請求金額を取得（金額列が選ばれているときだけ。通常の書き出しに余計なクエリを足さない）
+    const pricingMap = new Map<string, PricingRow>()
+    if (columns.some(isMoneyColumn)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const taskIds = (tasks || []).map((t: any) => t.id)
+      if (taskIds.length > 0) {
+        const { data: pricingRows } = await (supabase as SupabaseClient)
+          .from('task_pricing')
+          .select(
+            'task_id, cost_hours, cost_unit_price, cost_total, margin_rate, sell_total, vendor_submitted_at, agency_approved_at, client_approved_at',
+          )
+          .in('task_id', taskIds)
+
+        for (const row of (pricingRows || []) as PricingRow[]) {
+          pricingMap.set(row.task_id, row)
+        }
+      }
+    }
+
     // スペース名取得（ファイル名用）
     const { data: space } = await (supabase as SupabaseClient)
       .from('spaces')
@@ -304,7 +425,7 @@ export async function GET(request: NextRequest) {
     // CSV行生成
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (tasks || []).map((task: any) =>
-      columns.map(col => getTaskValue(task, col, profileMap, milestoneMap)).join(',')
+      columns.map(col => getTaskValue(task, col, profileMap, milestoneMap, pricingMap)).join(',')
     )
 
     // CSV組み立て（BOM付きUTF-8）
