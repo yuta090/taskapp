@@ -77,12 +77,33 @@ export interface PlanLimits {
    * NOTE(要決定・数値): 価格未確定方針と同様、安全側の仮値。実運用の集計を見て確定する。
    */
   maxExternalChatGroups: number | null
+  /**
+   * 作成できるプロジェクト(spaces.type='project')数の上限。null=無制限。
+   *
+   * 課金モデルの第2の物差し（2026-07-26 決定・案A）。秘書用途（士業/事務所）は「相手先グループ数」で
+   * tier が上がるが、タスク管理単体で使う層（開発会社等）はグループを繋がないため、そちらは
+   * 「同時に走るプロジェクト数」で規模に比例させる。**値段の階段は Free/Pro/Enterprise の1本のまま**、
+   * 各プランに2枠を置き「足りない方」で tier が上がる（用途別プラン分割はしない＝案A）。
+   *
+   * 数え方と執行（正本は projectCapacity.ts / 本文はその要約）:
+   *   - type='project' かつ archived_at IS NULL のみカウント（personal は課金対象外・片付ければ空く）
+   *   - **新規作成のみ拒否**。既存プロジェクトは上限超過でも絶対に止めない/隠さない
+   *   - タスク数では絶対に課金しない（使うほど高い＝プロダクトの価値を殺す）
+   *
+   * NOTE(要決定・数値): 仮値。狭く始めて広げる（増やすのは無風・減らすのは炎上）。
+   */
+  maxProjects: number | null
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
-  free: { maxLineGroups: 3, monthlySharedPushQuota: 50, maxExternalChatGroups: 0 },
-  pro: { maxLineGroups: 50, monthlySharedPushQuota: null, maxExternalChatGroups: 50 },
-  enterprise: { maxLineGroups: null, monthlySharedPushQuota: null, maxExternalChatGroups: null },
+  free: { maxLineGroups: 3, monthlySharedPushQuota: 50, maxExternalChatGroups: 0, maxProjects: 3 },
+  pro: { maxLineGroups: 50, monthlySharedPushQuota: null, maxExternalChatGroups: 50, maxProjects: 30 },
+  enterprise: {
+    maxLineGroups: null,
+    monthlySharedPushQuota: null,
+    maxExternalChatGroups: null,
+    maxProjects: null,
+  },
 }
 
 export function planLimits(plan: PlanId): PlanLimits {

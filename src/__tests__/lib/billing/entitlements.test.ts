@@ -146,11 +146,12 @@ describe('planHasFeature', () => {
 })
 
 describe('planLimits', () => {
-  it('free は狭い上限（グループ3・共通LINE送信50・外部チャットは0=Pro専有）', () => {
+  it('free は狭い上限（グループ3・共通LINE送信50・外部チャットは0=Pro専有・プロジェクト3）', () => {
     expect(planLimits('free')).toEqual({
       maxLineGroups: 3,
       monthlySharedPushQuota: 50,
       maxExternalChatGroups: 0,
+      maxProjects: 3,
     })
   })
   it('pro はグループ枠あり・共通LINE送信は無制限（自社LINEは原価が顧客側）', () => {
@@ -158,12 +159,15 @@ describe('planLimits', () => {
     expect(planLimits('pro').monthlySharedPushQuota).toBeNull()
     // 外部チャット（Discord等）の紐付け上限（安全側の仮値）
     expect(planLimits('pro').maxExternalChatGroups).toBe(50)
+    // 第2の物差し: タスク管理単体用途（開発会社等）のプロジェクト数枠
+    expect(planLimits('pro').maxProjects).toBe(30)
   })
   it('enterprise は無制限', () => {
     expect(planLimits('enterprise')).toEqual({
       maxLineGroups: null,
       monthlySharedPushQuota: null,
       maxExternalChatGroups: null,
+      maxProjects: null,
     })
   })
 })
