@@ -30,10 +30,15 @@ export function Hint({ label, children }: HintProps) {
         onClick={() => setOpen((v) => !v)}
         /* 「そこに補足がある」と気づかれないと隠した意味がないので、地色を敷いて視認性を上げる。
            開いている間は反転させ、どの?を開いたか一目で分かるようにする。
-           amber は「相手先に見える要素」を表す予約色（UI_RULES）なのでここでは使わない。 */
+           amber は「相手先に見える要素」を表す予約色（UI_RULES）なのでここでは使わない。
+
+           反転は bg-gray-900 × text-gray-100 で組む。グレーはダークで役割が入れ替わる
+           （gray-900 が明・gray-100 が暗）ため、この組み合わせなら両テーマで自動的に
+           「濃い地 × 薄い文字」になる。text-white は白のまま反転しないので使えない
+           （ダークでは明るい地に白文字となり読めなくなる）。 */
         className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition-colors ${
           open
-            ? 'border-gray-700 bg-gray-700 text-white'
+            ? 'border-gray-900 bg-gray-900 text-gray-100'
             : 'border-gray-300 bg-gray-100 text-gray-500 hover:border-gray-400 hover:bg-gray-200 hover:text-gray-700'
         }`}
       >
