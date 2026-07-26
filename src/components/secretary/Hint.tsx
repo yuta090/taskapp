@@ -28,9 +28,16 @@ export function Hint({ label, children }: HintProps) {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-gray-300 text-gray-400 hover:border-gray-400 hover:text-gray-600"
+        /* 「そこに補足がある」と気づかれないと隠した意味がないので、地色を敷いて視認性を上げる。
+           開いている間は反転させ、どの?を開いたか一目で分かるようにする。
+           amber は「相手先に見える要素」を表す予約色（UI_RULES）なのでここでは使わない。 */
+        className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition-colors ${
+          open
+            ? 'border-gray-700 bg-gray-700 text-white'
+            : 'border-gray-300 bg-gray-100 text-gray-500 hover:border-gray-400 hover:bg-gray-200 hover:text-gray-700'
+        }`}
       >
-        <Question className="h-2.5 w-2.5" weight="bold" />
+        <Question className="h-3 w-3" weight="bold" />
       </button>
       {open && (
         <span
