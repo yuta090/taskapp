@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserLinksClient } from '@/app/(internal)/[orgId]/secretary/connect/line/UserLinksClient'
 
 /**
@@ -51,9 +52,21 @@ beforeEach(() => {
   })
 })
 
+/**
+ * ハブ内の SharedLineUsagePanel が react-query を使うため、Provider 無しで render すると
+ * 「No QueryClient set」で落ちる。アプリ側では QueryProvider が上位にいるので、テストでも
+ * 同じ前提を再現する（他の client テストと同じ流儀）。
+ */
+function renderHub(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
+}
+
 describe('UserLinksClient (連携ハブ)', () => {
   it('主役2カードを平易な見出しで、順番はグループ→自分で表示する', () => {
-    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
+    renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     const group = screen.getByText('グループLINEから拾う')
     const self = screen.getByText('自分のLINEで受け取る')
@@ -72,7 +85,7 @@ describe('UserLinksClient (連携ハブ)', () => {
       error: null,
       refetch: vi.fn(),
     })
-    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
+    renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     // トグルは見えるが、中身(相手先の選択UI)は開くまで出さない
     expect(screen.getByTestId('direct-connect-toggle')).toHaveTextContent('相手と1対1でつなぐ')
@@ -84,13 +97,13 @@ describe('UserLinksClient (連携ハブ)', () => {
   })
 
   it('タブ・チャネルレールはlayoutが持つため、Client自身はタブを描画しない(二重nav禁止)', () => {
-    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
+    renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     expect(screen.queryByTestId('secretary-tab-connect')).not.toBeInTheDocument()
   })
 
   it('グループカードのCTAは connect/line/groups ページへリンクする', () => {
-    render(<UserLinksClient orgId={ORG} lineAccess="granted" />)
+    renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
     expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)
