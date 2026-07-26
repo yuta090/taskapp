@@ -89,7 +89,10 @@ export const CATEGORY_ORDER: readonly IntegrationCategory[] = [
 export const CATEGORY_LABEL: Record<IntegrationCategory, string> = {
   task_sync: 'タスク同期',
   data_export: 'データ書き出し・通知',
-  accounting: '会計・請求',
+  // ⚠ 「会計・請求」と書くと、仕訳・入出金・決算まで含む会計データ全般が繋がるように読める。
+  //   実際に繋がるのは「タスクの金額から見積書・請求書を作る」ことだけなので、カテゴリ名の
+  //   時点で範囲を言い切る（各エントリの notes だけに頼ると、一覧では見出ししか読まれない）。
+  accounting: '見積書・請求書の作成',
 }
 
 /** 連携の方向。UI表示と役割の説明に使う。 */
@@ -607,7 +610,12 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     featured: true,
     notes: 'freee・マネーフォワード等の会計ソフトへ取り込むためのCSVを書き出す。',
   },
-  // ---- 会計・請求 -------------------------------------------------------
+  // ---- 見積書・請求書の作成 ---------------------------------------------
+  //
+  // ⚠ 表現の約束（厳守）: ここで繋がるのは **見積書・請求書の作成と、その状態の取り込み**だけ。
+  //   仕訳・入出金・経費・決算といった会計データ全般は一切やり取りしない。UI・LP・営業資料で
+  //   「freeeと連携」「マネーフォワードと連携」とだけ書くと、会計データ全般が同期されるように
+  //   読まれる。必ず「見積書・請求書の作成」まで書き切ること。
   freee: {
     id: 'freee',
     label: 'freee',
@@ -618,27 +626,30 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     proOnly: true,
     featured: true,
     setupUrl: 'https://developer.freee.co.jp/',
-    notes: 'API連携は2026年Q4以降に対応予定（それまではCSVエクスポートで取り込み可）。',
+    notes:
+      'freee請求書の見積書・請求書を作成します。会計帳簿・仕訳・入出金は連携しません。API連携は開発中（現在はCSVエクスポートで取り込み可）。',
   },
   money_forward: {
     id: 'money_forward',
-    label: 'マネーフォワード',
+    label: 'マネーフォワード クラウド請求書',
     category: 'accounting',
     direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
-    notes: 'API連携は順次対応（当面はCSVエクスポート）。',
+    notes:
+      'クラウド請求書の見積書・請求書を作成します。クラウド会計の帳簿データは連携しません。API連携は開発中（現在はCSVエクスポートで取り込み可）。',
   },
   misoca: {
     id: 'misoca',
     label: 'Misoca',
     category: 'accounting',
-    direction: 'notify',
+    direction: 'two_way',
     status: 'planned',
     surface: 'catalog',
     proOnly: true,
-    notes: '請求書発行との連携。順次対応。',
+    notes:
+      'Misocaの見積書・請求書を作成します。API連携は開発中（現在はCSVエクスポートで取り込み可）。',
   },
 }
 
