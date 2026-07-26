@@ -35,9 +35,11 @@ type ShindanTypeKey = (typeof PROCESS_KEYS)[number]
  */
 export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[]> = {
   t1: [],
-  t2: [],
+  // 副処方: 仕掛かりが多すぎて動けない状態にも、容量から引く考え方が効く
+  t2: ['multitask-nigate-capacity'],
   t3: [],
-  t4: [],
+  // 主処方: 同時進行型そのものへの処方箋（分解した後に当たる「1日の容量」の壁）
+  t4: ['multitask-nigate-capacity'],
   t5: ['tax-document-collection-workflow'],
   t6: ['tax-document-collection-workflow'],
   t7: [],
