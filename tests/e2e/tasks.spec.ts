@@ -33,12 +33,12 @@ test.describe('Tasks Page', () => {
     const activeButton = page.getByTestId('tasks-filter-active')
 
     // Default: "all" is active
-    await expect(allButton).toHaveClass(/bg-white shadow-sm/)
+    await expect(allButton).toHaveClass(/bg-surface shadow-sm/)
 
     // Click active filter
     await activeButton.click()
     await expect(page).toHaveURL(/filter=active/)
-    await expect(activeButton).toHaveClass(/bg-white shadow-sm/)
+    await expect(activeButton).toHaveClass(/bg-surface shadow-sm/)
   })
 
   test('clicking "all" filter should clear filter param', async ({ page }) => {
