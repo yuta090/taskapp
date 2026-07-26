@@ -1,5 +1,6 @@
 import { asanaAdapter } from '@/lib/task-sync/providers/asana'
 import { backlogAdapter } from '@/lib/task-sync/providers/backlog'
+import { chatworkTaskAdapter } from '@/lib/task-sync/providers/chatwork'
 import { jiraAdapter } from '@/lib/task-sync/providers/jira'
 import { jootoAdapter } from '@/lib/task-sync/providers/jooto'
 import { kintoneAdapter } from '@/lib/task-sync/providers/kintone'
@@ -31,6 +32,7 @@ export const TASK_SYNC_ADAPTERS: Partial<Record<TaskSyncProviderId, TaskSyncAdap
   linear: linearAdapter,
   notion: notionAdapter,
   kintone: kintoneAdapter,
+  chatwork: chatworkTaskAdapter,
 }
 
 /** provider 文字列に対応するアダプタを引く。未対応なら null（呼び出し側が skip する）。 */

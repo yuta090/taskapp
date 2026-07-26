@@ -27,6 +27,7 @@ export const IMPLEMENTED_TASK_SYNC_PROVIDERS = [
   'linear',
   'notion',
   'kintone',
+  'chatwork',
 ] as const satisfies readonly TaskSyncProviderId[]
 
 /** アダプタ実装済み＝実際に接続できる provider の一覧（接続作成時の検証・UIの絞り込みに使う）。 */
@@ -64,6 +65,8 @@ export const TASK_SYNC_PROVIDER_NEEDS_BASE_URL: Record<
   linear: false,
   notion: false,
   kintone: true,
+  // Chatwork は固定ホスト api.chatwork.com のみ（運用者はURLを入力しない）
+  chatwork: false,
 }
 
 /** 接続時に base URL 入力が要るか（未実装/未知IDは false）。 */
