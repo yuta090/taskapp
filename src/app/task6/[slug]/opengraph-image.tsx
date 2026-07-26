@@ -20,8 +20,15 @@ interface Props {
 export default async function Image({ params }: Props) {
   const { slug } = await params
   const post = await getPublishedPostSummary(slug)
-  const title = post?.title ?? 'TASK6 — 仕事がまわる学びのメディア'
-  const author = post?.author_name ?? ''
+  // 未公開・不在slugはサイト共通OGへ寄せる(任意slug連打でのフォント取得・重描画・キャッシュ肥大を防ぐ)
+  if (!post) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/task6/opengraph-image' },
+    })
+  }
+  const title = post.title
+  const author = post.author_name ?? ''
 
   const font = await loadNotoSansJP(`${title}${author}${BRAND_TEXT}`, 700)
   // 長いタイトルは文字を小さくして3行に収める

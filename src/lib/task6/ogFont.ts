@@ -4,7 +4,10 @@
  * (日本語フルセットは数MBあるため全量は埋め込めない)。
  * 取得失敗時は null を返し、呼び出し側はデフォルトフォントで描画を続行する
  * (ローカルのオフラインビルドでもOG生成自体は失敗させない)。
+ * ⚠ null時は日本語が描画されない(豆腐)ため、warnで観測可能にしておく。
  */
+
+const FETCH_TIMEOUT_MS = 3000
 
 export async function loadNotoSansJP(
   text: string,
@@ -16,16 +19,25 @@ export async function loadNotoSansJP(
     const cssUrl = `https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@${weight}&text=${encodeURIComponent(unique)}`
     const css = await (
       await fetch(cssUrl, {
-        // woff2でなくttf/otfを返させる(ImageResponseはwoff2非対応)
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; og-image-generator)' },
+        // woff2でなくttf/otf/woffを返させる(ImageResponse=satoriはwoff2非対応)。
+        // 古いUAを名乗るとGoogle Fontsは静的フォーマットを返す
+        headers: { 'User-Agent': 'Mozilla/4.0 (compatible; og-image-generator)' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
     ).text()
-    const match = css.match(/src: url\((.+?)\) format\('(opentype|truetype)'\)/)
-    if (!match) return null
-    const res = await fetch(match[1])
-    if (!res.ok) return null
+    const match = css.match(/src: url\((.+?)\) format\('(opentype|truetype|woff)'\)/)
+    if (!match) {
+      console.warn('[ogFont] font format not found in css response (woff2 only?)')
+      return null
+    }
+    const res = await fetch(match[1], { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    if (!res.ok) {
+      console.warn(`[ogFont] font fetch failed: ${res.status}`)
+      return null
+    }
     return await res.arrayBuffer()
-  } catch {
+  } catch (e) {
+    console.warn('[ogFont] font load failed, falling back to default font:', e)
     return null
   }
 }
