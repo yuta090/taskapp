@@ -22,6 +22,7 @@ import {
   Terminal,
   Article,
   ChatCircle,
+  Receipt,
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
@@ -49,6 +50,7 @@ const NAV_GROUPS: {
     heading: '運用',
     items: [
       { label: '共通LINE開通', icon: ChatCircle, href: '/admin/shared-bot-access' },
+      { label: '枠追加の見積もり', icon: Receipt, href: '/admin/quotes' },
       { label: 'ダッシュボード', icon: ChartBar, href: '/admin/dashboard' },
       { label: 'レビュー', icon: CheckCircle, href: '/admin/reviews' },
       { label: '通知', icon: Bell, href: '/admin/notifications' },

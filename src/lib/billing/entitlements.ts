@@ -1,4 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  applyQuoteDeltasToLimits,
+  sumApprovedQuoteDeltas,
+  type BillingQuoteRow,
+} from './quotes'
 
 /**
  * Entitlement layer (phase 1).
@@ -239,5 +244,23 @@ export async function resolveOrgLimits(
   now: Date = new Date()
 ): Promise<PlanLimits> {
   const { planId } = await resolveOrgEntitlements(admin, orgId, now)
-  return planLimits(planId)
+  const base = planLimits(planId)
+
+  // 枠追加（見積もり承認）の加算。override テーブルは作らず billing_quotes の
+  // approved 行の合算をここで足す（quote 行が唯一の正本）。
+  // free は加算しない＝解約後に枠だけ残らない。取得失敗は「加算しない」＝fail-closed。
+  if (planId === 'free') return base
+
+  try {
+    const { data, error } = await admin
+      .from('billing_quotes')
+      .select('status,add_members,add_line_groups,add_external_chat_groups')
+      .eq('org_id', orgId)
+      .eq('status', 'approved')
+
+    if (error || !data) return base
+    return applyQuoteDeltasToLimits(base, sumApprovedQuoteDeltas(data as BillingQuoteRow[]), planId)
+  } catch {
+    return base
+  }
 }

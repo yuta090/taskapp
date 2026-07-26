@@ -16,6 +16,8 @@ vi.mock('@/components/billing', () => ({
   InvoiceHistory: ({ orgId }: { orgId?: string }) => (
     <div data-testid="invoice-history">InvoiceHistory orgId={orgId}</div>
   ),
+  QuoteCard: ({ orgId, isOwner }: { orgId?: string; isOwner?: boolean }) =>
+    isOwner ? <div data-testid="quote-card">QuoteCard orgId={orgId}</div> : null,
   PlanFeatureTable: ({ orgId }: { orgId?: string }) => (
     <div data-testid="plan-feature-table">PlanFeatureTable orgId={orgId}</div>
   ),

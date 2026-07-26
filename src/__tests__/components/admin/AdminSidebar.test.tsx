@@ -17,7 +17,7 @@ vi.mock('next/navigation', () => ({
 }))
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { signOut: vi.fn() } }) }))
 
-/** 変更前(フラット19項目)と完全一致すべきURL集合。1つでも欠けたら外部リンクが死ぬ。 */
+/** 変更前(フラット19項目)＋追加分と完全一致すべきURL集合。1つでも欠けたら外部リンクが死ぬ。 */
 const EXPECTED_HREFS = [
   '/admin/dashboard',
   '/admin/tables',
@@ -36,6 +36,8 @@ const EXPECTED_HREFS = [
   '/admin/sitemap',
   '/admin/integrations',
   '/admin/shared-bot-access',
+  // 枠追加のお見積もり（2026-07-26 追加）。既存URLは1つも変えていない。
+  '/admin/quotes',
   '/admin/cli-usage',
   '/admin/design-system',
 ]
@@ -48,11 +50,11 @@ function hrefsInOrder(): string[] {
 }
 
 describe('AdminSidebar — ナビ体系', () => {
-  it('19項目すべてのURLが変更前と完全一致する（外部の直リンクを壊さない）', () => {
+  it('既存19項目のURLが1つも欠けない（外部の直リンクを壊さない）', () => {
     render(<AdminSidebar />)
     const hrefs = hrefsInOrder()
     expect(hrefs.slice().sort()).toEqual(EXPECTED_HREFS.slice().sort())
-    expect(hrefs).toHaveLength(19)
+    expect(hrefs).toHaveLength(EXPECTED_HREFS.length)
   })
 
   it('4つのグループ見出しを出す', () => {
