@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { User, Camera, Check, CircleNotch, Key, CaretRight, Bell } from '@phosphor-icons/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { SettingsBackButton } from '@/components/shared'
+import { validateAvatarFile, buildAvatarPath, parseAvatarObjectPath, ACCEPTED_AVATAR_MIME } from '@/lib/avatar/avatarUpload'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function AccountSettingsPage() {
@@ -21,7 +22,9 @@ export default function AccountSettingsPage() {
   const [dueReminderEnabled, setDueReminderEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -97,6 +100,54 @@ export default function AccountSettingsPage() {
       setMessage({ type: 'error', text: 'プロフィールの更新に失敗しました' })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 同じファイルを続けて選び直せるようにリセット
+    if (!file || !user) return
+
+    const valid = validateAvatarFile(file)
+    if (!valid.ok) {
+      setMessage({ type: 'error', text: valid.error })
+      return
+    }
+
+    setUploadingAvatar(true)
+    setMessage(null)
+    const previousUrl = avatarUrl
+    try {
+      const client = supabase as SupabaseClient
+      // 保存パス {uid}/{timestamp}.{ext}（先頭フォルダ=uid が storage RLS の本人判定）
+      const path = buildAvatarPath(user.id, file, Date.now())
+      const { error: uploadError } = await client.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (uploadError) throw uploadError
+
+      // 公開URL＋キャッシュバスター（差し替えを即反映）
+      const { data: pub } = client.storage.from('avatars').getPublicUrl(path)
+      const publicUrl = `${pub.publicUrl}?t=${Date.now()}`
+
+      const { error: profileError } = await client
+        .from('profiles')
+        .upsert({ id: user.id, avatar_url: publicUrl }, { onConflict: 'id' })
+      if (profileError) throw profileError
+
+      setAvatarUrl(publicUrl)
+      setMessage({ type: 'success', text: 'プロフィール画像を更新しました' })
+
+      // 旧アバターを後始末（fire-and-forget。best-effort なので完了を待たずスピナーを閉じる）
+      const oldPath = parseAvatarObjectPath(previousUrl)
+      if (oldPath && oldPath !== path) {
+        void client.storage.from('avatars').remove([oldPath]).catch(() => {})
+      }
+    } catch (err) {
+      console.error('Failed to upload avatar:', err)
+      setMessage({ type: 'error', text: '画像のアップロードに失敗しました。時間をおいて再度お試しください' })
+    } finally {
+      setUploadingAvatar(false)
     }
   }
 
@@ -189,22 +240,39 @@ export default function AccountSettingsPage() {
                   unoptimized
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-2xl font-bold">
+                <div className="w-20 h-20 rounded-full bg-gray-700 text-white flex items-center justify-center text-2xl font-bold">
                   {userInitial}
                 </div>
               )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_AVATAR_MIME.join(',')}
+                onChange={handleAvatarSelect}
+                className="sr-only"
+                aria-hidden="true"
+                tabIndex={-1}
+              />
               <button
                 type="button"
-                className="absolute bottom-0 right-0 p-1.5 bg-surface border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors"
-                title="アバターを変更（準備中）"
-                disabled
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                className="absolute bottom-0 right-0 p-1.5 bg-surface border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors disabled:cursor-not-allowed"
+                title="プロフィール画像を変更"
+                aria-label="プロフィール画像を変更"
               >
-                <Camera className="w-4 h-4 text-gray-500" />
+                {uploadingAvatar ? (
+                  <CircleNotch className="w-4 h-4 text-indigo-500 animate-spin" />
+                ) : (
+                  <Camera className="w-4 h-4 text-gray-500" />
+                )}
               </button>
             </div>
             <div>
               <p className="text-sm text-gray-500">プロフィール画像</p>
-              <p className="text-xs text-gray-400 mt-1">画像アップロードは準備中です</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {uploadingAvatar ? 'アップロード中…' : 'クリックして変更（JPEG / PNG / WebP / GIF・2MBまで）'}
+              </p>
             </div>
           </div>
 
