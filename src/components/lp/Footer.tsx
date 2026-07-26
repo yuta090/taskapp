@@ -7,6 +7,8 @@ import Link from 'next/link'
 const productLinks = [
     { href: '/#features', label: '機能' },
     { href: '/pricing', label: '料金プラン' },
+    { href: '/shindan', label: 'タスク滞留診断（無料）' },
+    { href: '/task6', label: '学びのメディア TASK6' },
     { href: '/contact', label: 'お問い合わせ' },
 ]
 

@@ -372,6 +372,27 @@ function HelpMenu({ collapsed }: { collapsed?: boolean }) {
               <Question className="text-base text-gray-500" />
               使い方マニュアル
             </Link>
+            <div className="my-1 border-t border-gray-100" />
+            <Link
+              href="/shindan"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <ChartBar className="text-base text-gray-500" />
+              タスク滞留診断（無料）
+            </Link>
+            <Link
+              href="/task6"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="text-base text-gray-500" />
+              学びのメディア TASK6
+            </Link>
           </div>
         </>
       )}

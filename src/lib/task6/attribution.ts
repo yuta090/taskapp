@@ -14,7 +14,8 @@
 export const TASK6_REF = 'task6'
 
 // ref はホワイトリスト方式(将来 lp1 等を足すならここに追加)
-const KNOWN_REFS = new Set([TASK6_REF])
+// shindan = タスク滞留診断(/shindan)の結果画面からの登録
+const KNOWN_REFS = new Set([TASK6_REF, 'shindan'])
 // art は記事slugの形式(blog_posts.slug / URLに使える文字だけ)
 const ART_RE = /^[a-z0-9-]{1,64}$/
 
