@@ -14,6 +14,7 @@ import {
   VERB_KEYS,
 } from '@/lib/shindan/model'
 import { TypeRadar, VerbHexagon, LoadGauge } from '@/components/shindan/charts'
+import { ArticlePrescriptions } from '@/components/shindan/ArticlePrescriptions'
 
 // タスク滞留診断のフロー(multica-prj/shindan-app q/page.tsx から移植)。
 // 変更点: リード送信は既存の /api/leads(lp_leads) に相乗り(source: shindan / shindan-demo)、
@@ -429,6 +430,8 @@ function DetailSection({
               <br />
               <b style={{ color: 'var(--main)' }}>仕組みで対応する場合の例:</b> {t.how}
             </div>
+            {/* そのタイプに効くTASK6記事（処方箋）。該当記事が未公開なら何も出ない */}
+            <ArticlePrescriptions type={k} typeName={t.name} />
           </details>
         )
       })}
