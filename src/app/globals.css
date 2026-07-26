@@ -1,11 +1,19 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* ダークモードは <html class="dark"> で駆動（描画前inline scriptが付与）。
+   :where() で詳細度0にし、既存の任意の .dark 記述と競合しない。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================
    TaskApp Design Tokens (from prototype v29)
    ============================================ */
 
-@theme inline {
+/* ⚠ inline を付けない。inline だと utility に色の値が直接埋め込まれ、
+   .dark でのトークン上書きが一切効かなくなる（ダーク全壊）。
+   非inlineにすることで bg-gray-50 等が var(--color-gray-50) 参照になり、
+   下部の .dark ブロックでの再割当がアプリ全体に反映される。 */
+@theme {
   /* Font Family - System fonts for performance & consistency */
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
 
@@ -104,6 +112,56 @@
   --foreground: #111827;
 }
 
+/* ============================================
+   Dark theme palette (html.dark)
+   中央トークン再割当だけで全画面が反転する（bg-gray や text-gray などは
+   @theme のトークンを var() 参照するため）。個々の画面に dark: を書かない。
+   グレーは単純反転ではなく設計: 低番=暗面/境界、高番=明文字（AA配慮）。
+   アクセント(amber/blue/green/red/orange)の 400-600 は色相維持
+   （塗りボタンの白文字と amber-500=クライアント可視シグナルを両テーマで保つ）。
+   50/100/200 ティントのみ暗色化。色付き文字×色付き背景の微調整は後続PRで磨く。
+   ============================================ */
+.dark {
+  color-scheme: dark;
+  --background: #13161D;
+  --foreground: #F2F4F7;
+
+  /* Gray ramp (role-reversed): 低番=暗面/境界, 高番=明文字 */
+  --color-gray-25:  #0E1117;
+  --color-gray-50:  #13161D;
+  --color-gray-100: #1B2028;
+  --color-gray-200: #272D38;
+  --color-gray-300: #3A414E;
+  --color-gray-400: #8A93A2;
+  --color-gray-500: #9DA6B4;
+  --color-gray-600: #B6BDC9;
+  --color-gray-700: #CDD3DC;
+  --color-gray-800: #E3E7EC;
+  --color-gray-900: #F2F4F7;
+  --color-gray-950: #FAFBFC;
+
+  /* Surface: ページ背景より一段明るいカード面（elevation維持） */
+  --color-surface: #191E27;
+
+  /* Accent tints (bg のみ暗色化)。有彩色本体(400-600)は色相維持。 */
+  --color-amber-50:  #2A2109;
+  --color-amber-100: #3A2E0C;
+  --color-amber-200: #574512;
+  --color-orange-50:  #2A1B0C;
+  --color-orange-100: #3A2510;
+  --color-orange-200: #57381A;
+  --color-indigo-50:  #1E2140;
+  --color-red-50:  #2E1416;
+  --color-red-100: #43191C;
+  --color-blue-50:  #101F35;
+  --color-blue-100: #16294A;
+  --color-green-50:  #0F2417;
+  --color-green-100: #14351F;
+
+  /* 影はダークで見えないため境界線ベースへ */
+  --shadow-pane: -1px 0 0 0 #272D38;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -169,7 +227,8 @@ body {
 
   .inspector-pane.open {
     width: 100%;
-    background: #fff;
+    /* トークン参照でダーク時も自動で暗色面になる（#fff 直書きだと白のまま残る） */
+    background: var(--color-surface);
   }
 }
 

@@ -60,6 +60,10 @@ export default function PreferencesSettingsPage() {
     setPrefs(prev => ({ ...prev, [key]: value }))
     const storageKey = PREFS_KEYS[key === 'sidebarCollapsed' ? 'sidebarCollapsed' : key]
     localStorage.setItem(storageKey, String(value))
+    // テーマ変更は同一タブの ThemeSync に即時反映させる（保存ボタン無し・楽観適用）
+    if (key === 'theme') {
+      window.dispatchEvent(new Event('taskapp:theme-change'))
+    }
   }
 
   if (!mounted) {
@@ -95,8 +99,8 @@ export default function PreferencesSettingsPage() {
           <div className="flex gap-3">
             {([
               { value: 'light' as Theme, label: 'ライト', icon: <Sun className="w-4 h-4" />, disabled: false },
-              { value: 'dark' as Theme, label: 'ダーク', icon: <Moon className="w-4 h-4" />, disabled: true },
-              { value: 'system' as Theme, label: 'システム', icon: <Desktop className="w-4 h-4" />, disabled: true },
+              { value: 'dark' as Theme, label: 'ダーク', icon: <Moon className="w-4 h-4" />, disabled: false },
+              { value: 'system' as Theme, label: 'システム', icon: <Desktop className="w-4 h-4" />, disabled: false },
             ]).map(opt => (
               <button
                 key={opt.value}
@@ -116,7 +120,7 @@ export default function PreferencesSettingsPage() {
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            ダーク／システムのテーマは現在準備中です。今は「ライト」のみご利用いただけます。
+            「システム」はお使いの端末の設定に自動で合わせます。ダークはログイン後のアプリ画面に適用されます（マーケ・診断・クライアント向けポータルは常にライトです）。
           </p>
         </div>
 
