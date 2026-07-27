@@ -586,6 +586,19 @@ body {
   line-break: strict;
 }
 
+/* 長い記事の地図として、H2の前に極薄の罫を1本引く。
+   スクロール中に「ここで話が変わった」が分かればよく、意識に上る濃さにはしない
+   （濃くすると途端に「装飾」に見え、読む速度が落ちる）。
+   最初のH2だけは、書き出しの区切り（琥珀の短い罫）と近接して二重線に見えるため引かない。 */
+.task6-body h2 {
+  border-top: 1px solid rgb(241 245 249);
+  padding-top: 1.75rem;
+}
+.task6-body h2:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
 /* 見出しは最終行に1〜2文字だけ残る「泣き別れ」を避ける */
 .task6-body :is(h2, h3),
 .task6-lead-heading {

@@ -8,6 +8,7 @@ import { getPublishedPost } from '@/lib/blog/posts'
 import { isKnownAuthorName, PRIMARY_AUTHOR } from '@/lib/task6/authors'
 import { renderMarkdownToHtml, splitOnCtaPlaceholder } from '@/lib/markdown'
 import { renderTask6BodyHtml } from '@/lib/task6/dialogue'
+import { extractH2Headings, splitAfterLead, TOC_MIN_HEADINGS } from '@/lib/task6/toc'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +49,12 @@ export default async function BlogArticlePage({ params }: Props) {
   // 会話劇(**ガント**「…」)とキャラ紹介({{characters}})はサニタイズ後にテンプレート側で変換する
   const beforeHtml = renderTask6BodyHtml(await renderMarkdownToHtml(before))
   const afterHtml = hasPlaceholder ? renderTask6BodyHtml(await renderMarkdownToHtml(after)) : ''
+
+  // 長い記事だけ目次を出す（短い記事に付けると重い読み物に見える）。
+  // 置き場所は書き出し（最初の `---`）の直後。冒頭に置くと書き出しの余韻を潰す。
+  const headings = extractH2Headings(beforeHtml + afterHtml)
+  const showToc = headings.length >= TOC_MIN_HEADINGS
+  const { lead, rest } = showToc ? splitAfterLead(beforeHtml) : { lead: '', rest: beforeHtml }
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -150,7 +157,29 @@ export default async function BlogArticlePage({ params }: Props) {
             prose-blockquote:not-italic prose-blockquote:rounded-r-xl prose-blockquote:border-l-4
             prose-blockquote:border-amber-400 prose-blockquote:bg-amber-50 prose-blockquote:py-2 prose-blockquote:pr-4"
         >
-          <div dangerouslySetInnerHTML={{ __html: beforeHtml }} />
+          {showToc ? (
+            <>
+              <div dangerouslySetInnerHTML={{ __html: lead }} />
+              {/* 目次は装飾ではなく地図。囲みも背景も付けず、小さな文字と余白だけで示す */}
+              <nav aria-label="この記事の内容" className="not-prose my-10">
+                <p className="mb-3 text-xs font-semibold tracking-wide text-slate-400">
+                  この記事の内容
+                </p>
+                <ol className="space-y-2 border-l border-slate-200 pl-4 text-sm text-slate-600">
+                  {headings.map((h) => (
+                    <li key={h.id}>
+                      <a href={`#${h.id}`} className="hover:text-amber-600">
+                        {h.text}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+              <div dangerouslySetInnerHTML={{ __html: rest }} />
+            </>
+          ) : (
+            <div dangerouslySetInnerHTML={{ __html: beforeHtml }} />
+          )}
           {hasPlaceholder && post.inline_cta && (
             <CtaBlock cta={post.inline_cta} articleSlug={post.slug} />
           )}
