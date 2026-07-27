@@ -15,6 +15,7 @@ import {
   CaretRight,
 } from '@phosphor-icons/react'
 import { useState } from 'react'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 interface NavItem {
   href: string
@@ -67,7 +68,7 @@ export function PortalSidebar({ actionCount = 0, className = '' }: PortalSidebar
         {!collapsed && (
           <Link href="/portal" className="flex items-center gap-2">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">A</span>
+              <AgentPmMark size={24} />
             </div>
             <span className="text-lg font-semibold text-gray-900">AgentPM</span>
           </Link>
@@ -75,7 +76,7 @@ export function PortalSidebar({ actionCount = 0, className = '' }: PortalSidebar
         {collapsed && (
           <Link href="/portal" className="mx-auto">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">A</span>
+              <AgentPmMark size={24} />
             </div>
           </Link>
         )}

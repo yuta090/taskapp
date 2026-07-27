@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { ArrowRight, List, X, CaretDown, Terminal, Briefcase, Buildings, Code, GitBranch, FileText, ChartBar, Shield, CheckCircle, Notebook, TreeStructure, Handshake, Globe, Laptop, UserCircle, ChatCircle, ArrowsLeftRight, Question } from '@phosphor-icons/react'
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 /* ─── Menu Data ─── */
 
@@ -279,7 +280,7 @@ export function LPHeader() {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 mr-8 shrink-0">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-              <span className="text-white font-bold text-sm">A</span>
+              <AgentPmMark size={24} />
             </div>
             <span className="font-bold text-xl text-slate-900 tracking-tight">AgentPM</span>
           </Link>

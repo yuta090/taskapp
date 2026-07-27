@@ -15,6 +15,7 @@ import {
   SignOut,
 } from '@phosphor-icons/react'
 import { resetPortalOnboarding } from '@/components/portal/PortalOnboardingWalkthrough'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 interface Project {
   id: string
@@ -77,7 +78,7 @@ export function PortalHeader({
             {/* Logo */}
             <Link href="/portal" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-semibold text-sm">A</span>
+                <AgentPmMark size={24} />
               </div>
               <span className="text-lg font-semibold text-gray-900 hidden sm:inline">
                 AgentPM

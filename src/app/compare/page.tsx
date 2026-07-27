@@ -6,6 +6,7 @@ import { CTABand } from '@/components/lp/CTABand'
 import { motion } from 'framer-motion'
 import { Check, X, ArrowRight, FileArrowDown, ShieldCheck, Lock, ClockCounterClockwise, ChatCircle, ArrowSquareOut } from '@phosphor-icons/react'
 import Link from 'next/link'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 /* ─── Rating badge component ─── */
 
@@ -351,7 +352,7 @@ export default function ComparePage() {
               <div className="bg-amber-50/50 rounded-2xl border border-amber-200 p-6">
                 <div className="flex items-center gap-2 mb-6">
                   <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-xs">A</span>
+                    <AgentPmMark size={24} />
                   </div>
                   <span className="font-bold text-lg text-slate-900">AgentPM</span>
                 </div>
@@ -564,7 +565,7 @@ export default function ComparePage() {
             >
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
-                  <span className="text-white font-bold text-sm">A</span>
+                  <AgentPmMark size={30} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">AgentPMが向いているチーム</h3>
