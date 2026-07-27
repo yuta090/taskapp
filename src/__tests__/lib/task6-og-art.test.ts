@@ -49,3 +49,17 @@ describe('loadOgArtDataUri', () => {
     expect(await loadOgArtDataUri('https://x/c.jpg')).toBeNull()
   })
 })
+
+describe('toOgSafeImageUrl', () => {
+  it('webpは同名のjpgへ振り替える(シェア画像のWebP非対応サービス対策)', async () => {
+    const { toOgSafeImageUrl } = await import('@/lib/task6/ogArt')
+    expect(toOgSafeImageUrl('https://x/task6-covers/a-banner.webp')).toBe(
+      'https://x/task6-covers/a-banner.jpg',
+    )
+  })
+
+  it('jpg等はそのまま', async () => {
+    const { toOgSafeImageUrl } = await import('@/lib/task6/ogArt')
+    expect(toOgSafeImageUrl('https://x/c.jpg')).toBe('https://x/c.jpg')
+  })
+})
