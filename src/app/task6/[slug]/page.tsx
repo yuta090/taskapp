@@ -8,6 +8,7 @@ import { getPublishedPost } from '@/lib/blog/posts'
 import { isKnownAuthorName, PRIMARY_AUTHOR } from '@/lib/task6/authors'
 import { renderMarkdownToHtml, splitOnCtaPlaceholder } from '@/lib/markdown'
 import { renderTask6BodyHtml } from '@/lib/task6/dialogue'
+import { toOgSafeImageUrl } from '@/lib/task6/ogArt'
 import { extractH2Headings, splitAfterLead, TOC_MIN_HEADINGS } from '@/lib/task6/toc'
 
 export const dynamic = 'force-dynamic'
@@ -37,7 +38,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       locale: 'ja_JP',
       // カバーは文字入りの完成バナーなのでそのままog:imageに使う(合成で二重加工しない)。
       // カバー未設定の記事のみファイル規約のopengraph-image(自動合成)に任せる
-      ...(post.cover_image_url ? { images: [{ url: post.cover_image_url }] } : {}),
+      // サイト表示はWebPだがシェア画像はJPEG(WebP非対応サービス対策・同名で併置)
+      ...(post.cover_image_url ? { images: [{ url: toOgSafeImageUrl(post.cover_image_url) }] } : {}),
     },
   }
 }

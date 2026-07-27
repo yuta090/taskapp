@@ -20,3 +20,11 @@ export async function loadOgArtDataUri(url: string): Promise<string | null> {
     return null
   }
 }
+
+/**
+ * og:image用のURLに変換する。サイト表示はWebPだが、シェア画像は一部サービス
+ * (LINE等)がWebPを表示できないため、同名で併置してあるJPEGを使う。
+ */
+export function toOgSafeImageUrl(url: string): string {
+  return url.replace(/\.webp$/, '.jpg')
+}

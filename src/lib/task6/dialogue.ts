@@ -32,7 +32,8 @@ export function characterImageUrl(
   variant: 'full' | 'face' = 'full',
 ): string {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-  const file = variant === 'face' ? `${key}-face.jpg` : `${key}.jpg`
+  // 画像はWebP(JPEGの半分以下のサイズ)。バケットには両形式あるが表示はwebpを使う
+  const file = variant === 'face' ? `${key}-face.webp` : `${key}.webp`
   return `${base}/storage/v1/object/public/task6-covers/characters/${file}`
 }
 
