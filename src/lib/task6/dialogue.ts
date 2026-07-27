@@ -24,7 +24,7 @@ export interface Task6Character {
 export const TASK6_CHARACTERS: Record<string, Task6Character> = {
   ガント: { key: 'gantt', displayName: 'ガント先生', role: '全体を見わたす係。ガントチャートの考案者' },
   アイビー: { key: 'ivy', displayName: 'アイビー先生', role: '「明日やる6つ」を教えた実行の係' },
-  ゆあ: { key: 'yua', displayName: 'ゆあ', role: 'いっしょに学ぶ新米社員。読者の代弁者' },
+  ゆあ: { key: 'yua', displayName: 'ゆあ', role: '入社1年目の新米社員。今日も書類の山と格闘中' },
 }
 
 export function characterImageUrl(
