@@ -97,7 +97,7 @@ describe('getPublishedPostSummary', () => {
   })
 
   it('公開条件(published・公開日あり・未来日でない)で絞り込む', async () => {
-    const { chain, calls } = makeChain({ data: { title: 'T', author_name: 'A' } })
+    const { chain, calls } = makeChain({ data: { title: 'T', author_name: 'A', cover_image_url: 'https://x/c.jpg' } })
     vi.doMock('@/lib/supabase/admin', () => ({
       createAdminClient: () => ({ from: () => chain }),
     }))
@@ -105,7 +105,9 @@ describe('getPublishedPostSummary', () => {
     const { getPublishedPostSummary } = await import('@/lib/blog/posts')
     const result = await getPublishedPostSummary('some-slug')
 
-    expect(result).toEqual({ title: 'T', author_name: 'A' })
+    expect(result).toEqual({ title: 'T', author_name: 'A', cover_image_url: 'https://x/c.jpg' })
+    // バナー合成用にカバー画像も取得している
+    expect(calls).toContainEqual({ method: 'select', args: ['title, author_name, cover_image_url'] })
     expect(calls).toContainEqual({ method: 'eq', args: ['slug', 'some-slug'] })
     expect(calls).toContainEqual({ method: 'eq', args: ['status', 'published'] })
     expect(calls).toContainEqual({ method: 'not', args: ['published_at', 'is', null] })
