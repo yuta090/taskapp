@@ -165,15 +165,24 @@ export default async function BlogArticlePage({ params }: Props) {
           {showToc ? (
             <>
               <div dangerouslySetInnerHTML={{ __html: lead }} />
-              {/* 目次は装飾ではなく地図。囲みも背景も付けず、小さな文字と余白だけで示す */}
-              <nav aria-label="この記事の内容" className="not-prose my-10">
-                <p className="mb-3 text-xs font-semibold tracking-wide text-slate-400">
+              {/* 目次は装飾ではなく地図。ただし行の切れ目と「いまどれを指しているか」は
+                  はっきり分かる必要がある（読み飛ばす前提の要素なので、迷わせない）。
+                  薄いグレーの面＋行ごとの区切り線＋行全体のホバーで示す。 */}
+              <nav
+                aria-label="この記事の内容"
+                className="not-prose my-10 rounded-xl bg-slate-50 px-5 py-4"
+              >
+                <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500">
                   この記事の内容
                 </p>
-                <ol className="space-y-2 border-l border-slate-200 pl-4 text-sm text-slate-600">
+                <ol className="divide-y divide-slate-200 text-sm text-slate-600">
                   {headings.map((h) => (
                     <li key={h.id}>
-                      <a href={`#${h.id}`} className="hover:text-amber-600">
+                      {/* リンク領域を行全体に広げる（文字だけだと押しにくい） */}
+                      <a
+                        href={`#${h.id}`}
+                        className="-mx-2 block rounded-lg px-2 py-2.5 transition-colors hover:bg-white hover:text-amber-700"
+                      >
                         {h.text}
                       </a>
                     </li>
