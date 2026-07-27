@@ -235,7 +235,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 flex flex-col gap-6">
           {/* 範囲の明示。会計データ全般が繋がると誤解させない */}
-          <div className="rounded-lg border border-gray-200 bg-white p-4 flex flex-col gap-1">
+          <div className="rounded-lg border border-gray-200 bg-surface p-4 flex flex-col gap-1">
             <h1 className="text-lg font-semibold text-gray-900">見積書・請求書の作成</h1>
             <p className="text-xs text-gray-500">
               選んだタスクをまとめて1枚の書類にします。作成するのは見積書・請求書だけで、会計帳簿や仕訳は連携しません。
@@ -243,7 +243,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
           </div>
 
           {/* 発行の条件 */}
-          <div className="rounded-lg border border-gray-200 bg-white p-4 flex flex-col gap-4">
+          <div className="rounded-lg border border-gray-200 bg-surface p-4 flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex flex-col gap-1">
                 <span className="text-2xs font-medium text-gray-500">書類</span>
@@ -255,7 +255,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
                       className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${
                         docType === type
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                          : 'bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50'
                       }`}
                     >
                       {DOC_TYPE_LABEL[type]}
@@ -269,7 +269,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
                 <select
                   value={provider}
                   onChange={(e) => setProvider(e.target.value)}
-                  className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-700"
+                  className="h-8 rounded-md border border-gray-200 bg-surface px-2 text-xs text-gray-700"
                 >
                   {IMPLEMENTED_ACCOUNTING_PROVIDERS.map((id) => (
                     <option key={id} value={id}>
@@ -284,7 +284,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
                 <select
                   value={taxRate}
                   onChange={(e) => setTaxRate(Number(e.target.value) as 10 | 8 | 0)}
-                  className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-700"
+                  className="h-8 rounded-md border border-gray-200 bg-surface px-2 text-xs text-gray-700"
                 >
                   <option value={10}>10%</option>
                   <option value={8}>8%（軽減）</option>
@@ -300,7 +300,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
                   </span>
                   <button
                     onClick={() => setPickerOpen((v) => !v)}
-                    className="h-8 rounded-md px-3 text-xs font-medium bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors flex-none"
+                    className="h-8 rounded-md px-3 text-xs font-medium bg-surface text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors flex-none"
                   >
                     {currentLink ? '変更' : '選ぶ'}
                   </button>
@@ -339,7 +339,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
           </div>
 
           {/* タスク選択 */}
-          <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+          <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
               <span className="text-xs font-medium text-gray-700">書類に入れるタスク</span>
               <span className="text-2xs text-gray-500">{selected.size}件を選択中</span>
@@ -421,7 +421,7 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
           </div>
 
           {/* 発行履歴 */}
-          <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+          <div className="rounded-lg border border-gray-200 bg-surface overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100">
               <span className="text-xs font-medium text-gray-700">発行した書類</span>
             </div>
