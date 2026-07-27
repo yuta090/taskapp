@@ -7,6 +7,7 @@ import { CtaBlock } from '@/components/blog/CtaBlock'
 import { getPublishedPost } from '@/lib/blog/posts'
 import { isKnownAuthorName, PRIMARY_AUTHOR } from '@/lib/task6/authors'
 import { renderMarkdownToHtml, splitOnCtaPlaceholder } from '@/lib/markdown'
+import { renderTask6BodyHtml } from '@/lib/task6/dialogue'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,8 +45,9 @@ export default async function BlogArticlePage({ params }: Props) {
   if (!post) notFound()
 
   const { before, after, hasPlaceholder } = splitOnCtaPlaceholder(post.body_md)
-  const beforeHtml = await renderMarkdownToHtml(before)
-  const afterHtml = hasPlaceholder ? await renderMarkdownToHtml(after) : ''
+  // 会話劇(**ガント**「…」)とキャラ紹介({{characters}})はサニタイズ後にテンプレート側で変換する
+  const beforeHtml = renderTask6BodyHtml(await renderMarkdownToHtml(before))
+  const afterHtml = hasPlaceholder ? renderTask6BodyHtml(await renderMarkdownToHtml(after)) : ''
 
   const jsonLd = {
     '@context': 'https://schema.org',
