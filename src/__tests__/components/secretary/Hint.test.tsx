@@ -40,4 +40,17 @@ describe('Hint', () => {
     fireEvent.click(toggle)
     expect(toggle.className).not.toBe(closedClass)
   })
+
+  // ダークテーマはグレーの役割が入れ替わる（gray-900 が明・gray-100 が暗）ため、
+  // 反転チップは gray の対で組む必要がある。text-white は白のまま反転しないので、
+  // ダークでは「明るい地に白文字」になり読めなくなる。
+  it('開いた状態の反転は両テーマで反転するトークンで組む（text-white を使わない）', () => {
+    render(<Hint label="合言葉">15分で失効します</Hint>)
+    const toggle = screen.getByRole('button', { name: /合言葉/ })
+
+    fireEvent.click(toggle)
+    expect(toggle.className).not.toMatch(/\btext-white\b/)
+    expect(toggle.className).toMatch(/\bbg-gray-900\b/)
+    expect(toggle.className).toMatch(/\btext-gray-100\b/)
+  })
 })

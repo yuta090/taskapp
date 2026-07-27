@@ -145,7 +145,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClick={closeMobileNav}
             >
               <div className="relative h-full">
-                <Suspense fallback={<div className="w-full h-full bg-surface border-r border-gray-100" />}>
+                <Suspense fallback={<div className="w-full h-full bg-gray-50 border-r border-gray-100" />}>
                   <LeftNav />
                 </Suspense>
                 <button
@@ -162,7 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
 
         {/* 1) Left Nav - Fixed 240px on desktop, hidden on mobile */}
-        <Suspense fallback={<div className="hidden md:block w-60 flex-shrink-0 bg-surface border-r border-gray-100" />}>
+        <Suspense fallback={<div className="hidden md:block w-60 flex-shrink-0 bg-gray-50 border-r border-gray-100" />}>
           <div className="hidden md:flex">
             <LeftNav />
           </div>

@@ -103,7 +103,7 @@ function NavItem({ href, icon, label, tooltip, badge, active, collapsed, onNavig
         <TruncatedText className="text-sm 2xl:text-base">{label}</TruncatedText>
       )}
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-white">
+        <span aria-live="polite" className="ml-auto text-[10px] 2xl:text-xs px-1.5 py-0.5 rounded bg-gray-900 text-gray-100">
           {badge}
         </span>
       )}
@@ -942,7 +942,7 @@ export const LeftNav = memo(function LeftNav() {
     <aside
       className={`${
         collapsed ? 'w-16' : 'w-[240px] 2xl:w-[280px]'
-      } bg-[#F7F8F9] border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
+      } bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 select-none z-20 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]`}
     >
       {/* Workspace + Quick Create */}
       <div className={`h-12 flex items-center ${collapsed ? 'px-2 justify-center' : 'px-3'} gap-2 mt-1 relative`}>

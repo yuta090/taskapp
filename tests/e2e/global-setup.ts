@@ -1,6 +1,7 @@
 import { chromium, type FullConfig } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
+import { fillLoginAndSubmit } from './login'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4000'
 const STORAGE_STATE = path.join(__dirname, '.auth/state.json')
@@ -18,11 +19,8 @@ export default async function globalSetup(_config: FullConfig) {
   const page = await context.newPage()
 
   try {
-    await page.goto(`${BASE_URL}/login`, { waitUntil: 'domcontentloaded' })
-
-    await page.locator('input[type="email"]').fill(DEMO_EMAIL)
-    await page.locator('input[type="password"]').fill(DEMO_PASSWORD)
-    await page.getByRole('button', { name: 'ログイン', exact: true }).click()
+    // hydration 前に入力すると値が消え、送信自体が起きない（tests/e2e/login.ts 参照）
+    await fillLoginAndSubmit(page, BASE_URL, DEMO_EMAIL, DEMO_PASSWORD)
 
     // Wait until the client-side redirect moves us away from /login.
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), {

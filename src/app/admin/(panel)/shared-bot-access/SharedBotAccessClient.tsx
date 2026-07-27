@@ -90,7 +90,7 @@ export function SharedBotAccessClient({
                       type="button"
                       onClick={() => grant(r.orgId)}
                       disabled={pendingOrgId === r.orgId}
-                      className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+                      className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-100 hover:bg-gray-700 disabled:opacity-50"
                     >
                       {pendingOrgId === r.orgId ? '開通中…' : '開通する'}
                     </button>

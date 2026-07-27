@@ -411,7 +411,7 @@ TASKAPP_API_URL=${typeof window !== 'undefined' ? window.location.origin : 'http
               setConfigCopied(true)
               setTimeout(() => setConfigCopied(false), 2000)
             }}
-            className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+            className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700 rounded"
             title="コピー"
           >
             {configCopied ? <Check className="text-green-400" /> : <Copy />}

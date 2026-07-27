@@ -1,5 +1,17 @@
 import { defineConfig, devices } from '@playwright/test'
 import path from 'path'
+import dotenv from 'dotenv'
+
+/**
+ * `.env.local` を読み込む。
+ *
+ * **実際に踏んだ落とし穴**: 以前はここで env を読んでいなかったため、E2E_PASSWORD 等を
+ * コマンドラインで手渡す必要があった。渡し忘れるとテスト側の弱い既定値
+ * （client1234 等）が使われ、「メールアドレスまたはパスワードが正しくありません」で
+ * 落ちる。原因が資格情報の渡し忘れだと分かりにくく、実際に誤診した。
+ * ローカルで `npm run test:e2e` と打つだけで通る状態にしておく。
+ */
+dotenv.config({ path: path.join(__dirname, '.env.local'), quiet: true })
 
 const STORAGE_STATE = path.join(__dirname, 'tests/e2e/.auth/state.json')
 

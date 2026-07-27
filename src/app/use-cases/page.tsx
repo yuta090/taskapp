@@ -254,9 +254,9 @@ const teamSizes: {
         },
         {
             size: '10-30名',
-            recommendation: 'Team（¥4,980/月）またはBusiness（¥14,800/月）。Backlog Standardより安く、ポータル・ボール・証跡管理がフル機能。',
+            recommendation: 'Pro（¥14,800/月・税別）。30名まで定額で、Backlog Standardより安く、ポータル・ボール・証跡管理がフル機能。',
             reasons: [
-                'Backlog Standardより安い（10名で¥12,620/月の差）',
+                'Backlog Standardより安い（30名まで定額で¥2,800/月の差）',
                 'ポータルで報告作業が不要。PMの時間を案件管理に集中',
                 'Wiki・議事録・レビュー承認で仕様の証跡が一元管理',
             ],
@@ -264,11 +264,11 @@ const teamSizes: {
         },
         {
             size: '50名以上',
-            recommendation: 'Business以上でSSO/SAML認証に対応。部門導入から始めて、全社展開にスケールできます。',
+            recommendation: 'Enterprise（個別見積り）。上限なし・請求書払い・導入支援に対応。部門導入から始めて、全社展開にスケールできます。',
             reasons: [
-                'SSO/SAML対応で情シスの管理負担を軽減',
+                'メンバー数・プロジェクト数の上限なしで全社展開できる',
                 '部門パイロット → 効果実証 → 全社展開のステップが踏める',
-                'Business（¥14,800/月/30名）はBacklog Standardと同等以下の費用',
+                'Pro（¥14,800/月・30名まで）はBacklog Standardと同等以下の費用',
             ],
             cta: { label: '導入について相談する', href: '/contact' },
         },
