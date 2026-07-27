@@ -7,6 +7,7 @@ import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 interface InviteInfo {
   valid: boolean
@@ -249,7 +250,7 @@ export default function PortalInvitePage({
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">A</span>
+              <AgentPmMark size={24} />
             </div>
             <span className="text-xl font-semibold text-gray-900">AgentPM</span>
           </Link>

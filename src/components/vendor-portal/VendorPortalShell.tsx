@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { List, X } from '@phosphor-icons/react'
 import { VendorLeftNav } from './VendorLeftNav'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 interface VendorPortalShellProps {
   children: ReactNode
@@ -78,7 +79,7 @@ export function VendorPortalShell({
           {/* Logo */}
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center">
-              <span className="text-white font-bold text-[10px]">A</span>
+              <AgentPmMark size={18} className="text-white" />
             </div>
             <span className="text-sm font-semibold text-gray-900 hidden sm:inline">AgentPM</span>
             <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-medium rounded">

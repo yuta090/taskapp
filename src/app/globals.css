@@ -52,6 +52,12 @@
   --color-amber-500: #F59E0B;
   --color-amber-600: #D97706;
 
+  /* Brand ink — ロゴマークを amber バッジの上に置くときの色。
+     amber-500 は両テーマで色相を保つ固定色なので、その上に載る文字色も
+     固定でなければならない。gray-900 は .dark で明色に反転するため使えない。
+     .dark 側で意図的に再割当しない（反転させない）こと。 */
+  --color-brand-ink: #1C1917;
+
   /* Orange (Warning / 要対応 / 接続異常) — amber をクライアント可視専用に保つための別トークン */
   --color-orange-50: #FFF7ED;
   --color-orange-100: #FFEDD5;
