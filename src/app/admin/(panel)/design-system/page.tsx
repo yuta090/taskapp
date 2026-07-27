@@ -47,7 +47,7 @@ export default function AdminDesignSystemPage() {
               >
                 <span className="text-xs font-medium">{c.name}</span>
               </div>
-              <div className="bg-white px-2 py-1.5">
+              <div className="bg-surface px-2 py-1.5">
                 <span className="text-xs font-mono text-gray-500">{c.value}</span>
               </div>
             </div>
@@ -63,7 +63,7 @@ export default function AdminDesignSystemPage() {
       {/* Typography */}
       <section className="mb-10">
         <h2 className="text-sm font-medium text-gray-700 mb-3">タイポグラフィ</h2>
-        <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+        <div className="bg-surface border border-gray-200 rounded-xl p-6 space-y-4">
           {FONT_SIZES.map((f) => (
             <div key={f.name} className="flex items-baseline gap-4">
               <span className="text-xs text-gray-400 w-16 shrink-0 font-mono">{f.name} ({f.size})</span>
@@ -78,7 +78,7 @@ export default function AdminDesignSystemPage() {
       {/* Badges */}
       <section className="mb-10">
         <h2 className="text-sm font-medium text-gray-700 mb-3">バッジ</h2>
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
+        <div className="bg-surface border border-gray-200 rounded-xl p-6">
           <div className="flex flex-wrap gap-3">
             <AdminBadge variant="default">default</AdminBadge>
             <AdminBadge variant="success">success</AdminBadge>
@@ -103,12 +103,12 @@ export default function AdminDesignSystemPage() {
       {/* Buttons */}
       <section className="mb-10">
         <h2 className="text-sm font-medium text-gray-700 mb-3">ボタン</h2>
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
+        <div className="bg-surface border border-gray-200 rounded-xl p-6">
           <div className="flex flex-wrap gap-3">
             <button className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">
               プライマリ
             </button>
-            <button className="px-3 py-1.5 bg-white text-gray-700 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
+            <button className="px-3 py-1.5 bg-surface text-gray-700 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
               セカンダリ
             </button>
             <button className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors">
@@ -125,15 +125,15 @@ export default function AdminDesignSystemPage() {
       <section className="mb-10">
         <h2 className="text-sm font-medium text-gray-700 mb-3">シャドウ</h2>
         <div className="grid grid-cols-3 gap-6 p-6">
-          <div className="bg-white rounded-xl p-6 shadow-subtle border border-gray-100">
+          <div className="bg-surface rounded-xl p-6 shadow-subtle border border-gray-100">
             <p className="text-sm font-medium">shadow-subtle</p>
             <p className="text-xs text-gray-500 mt-1">カード、バッジ</p>
           </div>
-          <div className="bg-white rounded-xl p-6 shadow-popover">
+          <div className="bg-surface rounded-xl p-6 shadow-popover">
             <p className="text-sm font-medium">shadow-popover</p>
             <p className="text-xs text-gray-500 mt-1">ドロップダウン、ポップオーバー</p>
           </div>
-          <div className="bg-white rounded-xl p-6 shadow-modal">
+          <div className="bg-surface rounded-xl p-6 shadow-modal">
             <p className="text-sm font-medium">shadow-modal</p>
             <p className="text-xs text-gray-500 mt-1">モーダル、ダイアログ</p>
           </div>
@@ -143,7 +143,7 @@ export default function AdminDesignSystemPage() {
       {/* Layout Rules */}
       <section className="mb-10">
         <h2 className="text-sm font-medium text-gray-700 mb-3">レイアウトルール</h2>
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
+        <div className="bg-surface border border-gray-200 rounded-xl p-6">
           <div className="space-y-3 text-sm text-gray-700">
             <p><strong>3ペインレイアウト (メインアプリ):</strong> LeftNav 240px | Main flex-1 | Inspector 400px</p>
             <p><strong>管理パネル:</strong> AdminSidebar 240px | Main flex-1 (Inspector なし)</p>

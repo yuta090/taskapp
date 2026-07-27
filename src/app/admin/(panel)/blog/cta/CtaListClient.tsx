@@ -182,7 +182,7 @@ export default function CtaListClient({ initialData }: { initialData: CtaRow[] }
             </button>
             <button
               onClick={() => setEditing(null)}
-              className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-white"
+              className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-surface"
             >
               キャンセル
             </button>

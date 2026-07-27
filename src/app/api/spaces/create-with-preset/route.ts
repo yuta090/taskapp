@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
 import { updateHomePageSpecLinks } from '@/lib/presets/homeLinks'
 import { createSampleTasks } from '@/lib/presets/sampleTasks'
+import { orgProjectCapacity, isProjectLimitReached } from '@/lib/billing/projectCapacity'
 import type { PresetGenre } from '@/lib/presets'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -42,6 +43,27 @@ export async function POST(request: NextRequest) {
   }
   if (!presetGenre || !isValidPresetGenre(presetGenre)) {
     return NextResponse.json({ error: 'Invalid presetGenre' }, { status: 400 })
+  }
+
+  // 2.5 プラン枠（プロジェクト数）— 作成境界だけで効かせる。
+  //     既存プロジェクトは上限超過でも絶対に止めない/隠さない（拒否するのは新規作成のみ）。
+  //     容量判定そのものが落ちた場合は作成を止めない（fail-open）: プロジェクト作成は
+  //     タスク管理の中核導線であり、課金判定のインフラ障害で止めるのは損失が大きい。
+  //     プラン解決自体は resolveOrgLimits 側で free に fail-closed する。
+  try {
+    const cap = await orgProjectCapacity(orgId)
+    if (isProjectLimitReached(cap)) {
+      return NextResponse.json(
+        {
+          error: '作成できるプロジェクト数の上限に達しています。使わないプロジェクトをアーカイブするか、プランのアップグレードで増やせます。',
+          code: 'project_limit_reached',
+          limit: cap.maxProjects,
+        },
+        { status: 402 },
+      )
+    }
+  } catch (e) {
+    console.error('[create-with-preset] project capacity check failed (fail-open):', e)
   }
 
   const genre = presetGenre as PresetGenre

@@ -33,7 +33,7 @@ export function SecretReveal({ secret, onDismiss }: SecretRevealProps) {
             このsecretは今だけ表示されます。二度と表示されないため、今すぐ控えてください。
           </p>
           <div className="mt-2 flex items-center gap-1.5">
-            <code className="flex-1 min-w-0 truncate rounded bg-white border border-red-100 px-2 py-1 text-xs font-mono text-gray-900">
+            <code className="flex-1 min-w-0 truncate rounded bg-surface border border-red-100 px-2 py-1 text-xs font-mono text-gray-900">
               {secret}
             </code>
             <button

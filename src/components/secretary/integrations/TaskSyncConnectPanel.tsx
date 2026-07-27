@@ -48,7 +48,7 @@ const PROVIDER_EXTRA_FIELDS: Partial<Record<IntegrationId, ProviderExtraField[]>
 }
 
 /**
- * APIキー方式のタスク同期ツール(Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear)接続パネル。
+ * APIキー方式のタスク同期ツール(Backlog/Jooto/Jira/Redmine/Asana/Trello/Linear/Chatwork)接続パネル。
  * 既存接続があれば状態＋取り込み設定(ImportConfigEditorを再利用=重複実装しない)、
  * 無ければ接続フォームを出す。モーダル禁止・保存ボタン禁止(optimistic update)。
  * amberはクライアント可視要素専用のためここでは使わない(秘書内部専用画面・クライアント非到達)。

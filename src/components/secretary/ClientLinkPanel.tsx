@@ -52,7 +52,7 @@ export function ClientLinkPanel({ orgId }: { orgId: string }) {
       <select
         value={selectedSpaceId}
         onChange={(e) => setSelectedSpaceId(e.target.value)}
-        className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+        className="rounded-md border border-gray-200 bg-surface px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
       >
         <option value="">プロジェクトを選択</option>
         {orgSpaces.map((s) => (

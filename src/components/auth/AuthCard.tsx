@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 interface AuthCardProps {
   title: string
@@ -17,14 +18,14 @@ export function AuthCard({ title, description, children, footer }: AuthCardProps
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">A</span>
+              <AgentPmMark size={24} />
             </div>
             <span className="text-xl font-bold text-gray-900">AgentPM</span>
           </Link>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-surface rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-gray-900">{title}</h1>
             {description && (

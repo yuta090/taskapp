@@ -22,10 +22,12 @@ import {
   Terminal,
   Article,
   ChatCircle,
+  Receipt,
   SignOut,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 /**
  * 運営(superadmin)パネルのナビゲーション。
@@ -49,6 +51,7 @@ const NAV_GROUPS: {
     heading: '運用',
     items: [
       { label: '共通LINE開通', icon: ChatCircle, href: '/admin/shared-bot-access' },
+      { label: '枠追加の見積もり', icon: Receipt, href: '/admin/quotes' },
       { label: 'ダッシュボード', icon: ChartBar, href: '/admin/dashboard' },
       { label: 'レビュー', icon: CheckCircle, href: '/admin/reviews' },
       { label: '通知', icon: Bell, href: '/admin/notifications' },
@@ -106,12 +109,12 @@ export function AdminSidebar({ badges }: AdminSidebarProps) {
   }
 
   return (
-    <aside className="w-60 h-screen bg-white border-r border-gray-200 flex flex-col shrink-0">
+    <aside className="w-60 h-screen bg-surface border-r border-gray-200 flex flex-col shrink-0">
       {/* Header */}
       <div className="px-4 py-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-xs">A</span>
+            <AgentPmMark size={21} className="text-white" />
           </div>
           <span className="text-sm font-bold text-gray-900">Admin</span>
         </div>

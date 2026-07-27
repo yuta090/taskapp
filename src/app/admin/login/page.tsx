@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -59,14 +60,14 @@ export default function AdminLoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">A</span>
+              <AgentPmMark size={24} className="text-white" />
             </div>
             <span className="text-xl font-bold text-gray-900">AgentPM Admin</span>
           </div>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-surface rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-gray-900">管理者ログイン</h1>
             <p className="mt-2 text-sm text-gray-600">システム管理者アカウントでログイン</p>

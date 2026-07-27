@@ -260,6 +260,8 @@ export default function Home() {
         <nav className="top-nav">
           <Link href="/features" className="hide-m">機能</Link>
           <Link href="/pricing" className="hide-m">料金</Link>
+          <Link href="/shindan" className="hide-m">無料診断</Link>
+          <Link href="/task6" className="hide-m">学ぶ</Link>
           <Link href="/contact" className="hide-m">相談する</Link>
           <Link href="/login" className="login">ログイン</Link>
         </nav>
@@ -457,6 +459,8 @@ export default function Home() {
           <span>agentpm ｜ 運営: skara（クライアントワークのタスク管理＋AI秘書）</span>
           <nav>
             <Link href="/pricing">料金</Link>
+            <Link href="/shindan">タスク滞留診断</Link>
+            <Link href="/task6">学びのメディア TASK6</Link>
             <Link href="/company">会社概要</Link>
             <Link href="/terms">利用規約</Link>
             <Link href="/privacy">プライバシー</Link>

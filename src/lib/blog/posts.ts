@@ -23,6 +23,8 @@ export interface PostListItem {
   description: string | null
   published_at: string | null
   cover_image_url: string | null
+  /** サムネ画像に重ねる短いキャッチコピー(記事タイトルとは別物) */
+  cover_caption: string | null
   tags: string[]
 }
 
@@ -77,12 +79,34 @@ export async function getPublishedPost(slug: string): Promise<PublicPost | null>
   }
 }
 
+/** OG画像生成用の軽量取得(本文・CTAは取らない)。公開条件は getPublishedPost と同じ。 */
+export async function getPublishedPostSummary(
+  slug: string
+): Promise<{ title: string; author_name: string | null; cover_image_url: string | null } | null> {
+  const admin = createAdminClient()
+  const { data } = await (admin as SupabaseClient)
+    .from('blog_posts')
+    .select('title, author_name, cover_image_url')
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .not('published_at', 'is', null)
+    .lte('published_at', new Date().toISOString())
+    .maybeSingle()
+
+  if (!data) return null
+  return {
+    title: data.title as string,
+    author_name: (data.author_name as string | null) ?? null,
+    cover_image_url: (data.cover_image_url as string | null) ?? null,
+  }
+}
+
 /** 公開済み記事の一覧（公開日降順）。 */
 export async function listPublishedPosts(): Promise<PostListItem[]> {
   const admin = createAdminClient()
   const { data } = await (admin as SupabaseClient)
     .from('blog_posts')
-    .select('slug, title, description, published_at, cover_image_url, tags, status')
+    .select('slug, title, description, published_at, cover_image_url, cover_caption, tags, status')
     .eq('status', 'published')
     .not('published_at', 'is', null)
     .lte('published_at', new Date().toISOString())
@@ -95,6 +119,7 @@ export async function listPublishedPosts(): Promise<PostListItem[]> {
     description: p.description ?? null,
     published_at: p.published_at,
     cover_image_url: p.cover_image_url ?? null,
+    cover_caption: p.cover_caption ?? null,
     tags: p.tags ?? [],
   }))
 }

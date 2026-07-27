@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { ArrowRight, List, X, CaretDown, Terminal, Briefcase, Buildings, Code, GitBranch, FileText, ChartBar, Shield, CheckCircle, Notebook, TreeStructure, Handshake, Globe, Laptop, UserCircle, ChatCircle, ArrowsLeftRight, Question } from '@phosphor-icons/react'
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 /* ─── Menu Data ─── */
 
@@ -112,7 +113,7 @@ function NavDropdown({ label, children, wide }: { label: string; children: React
           className={`absolute top-full left-1/2 pt-3 ${wide ? '-translate-x-1/2' : '-translate-x-1/2'}`}
           style={wide ? { width: 'min(56rem, 90vw)' } : { width: '20rem' }}
         >
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-surface rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             {children}
           </div>
         </div>
@@ -274,12 +275,12 @@ export function LPHeader() {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/50">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-surface/80 backdrop-blur-md border-b border-slate-200/50">
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 mr-8 shrink-0">
             <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-              <span className="text-white font-bold text-sm">A</span>
+              <AgentPmMark size={24} />
             </div>
             <span className="font-bold text-xl text-slate-900 tracking-tight">AgentPM</span>
           </Link>
@@ -349,7 +350,7 @@ export function LPHeader() {
             role="dialog"
             aria-modal="true"
             aria-label="メニュー"
-            className="absolute right-0 top-0 h-full w-80 bg-white shadow-2xl flex flex-col overflow-y-auto"
+            className="absolute right-0 top-0 h-full w-80 bg-surface shadow-2xl flex flex-col overflow-y-auto"
           >
             <div className="flex items-center justify-between px-6 h-16 border-b border-slate-100 shrink-0">
               <span className="font-bold text-lg text-slate-900">メニュー</span>

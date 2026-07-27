@@ -135,13 +135,13 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
         このコードを、秘書との1:1トークに送ってください
       </p>
       <div className="mt-2 flex items-center gap-2">
-        <code className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
+        <code className="flex-1 rounded border border-amber-200 bg-surface px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
           {issuedCode}
         </code>
         <button
           type="button"
           onClick={copy}
-          className="flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          className="flex items-center gap-1 rounded border border-gray-300 bg-surface px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
         >
           {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           {copied ? 'コピー済み' : 'コピー'}
@@ -163,7 +163,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       type="button"
       disabled={loading}
       onClick={() => issue(account.id)}
-      className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+      className="rounded bg-gray-900 px-4 py-2 text-xs font-medium text-gray-100 hover:bg-gray-700 disabled:opacity-50"
     >
       コードを発行してつなぐ
     </button>

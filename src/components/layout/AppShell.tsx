@@ -59,7 +59,7 @@ function InspectorPane() {
   const { inspector } = useInspector()
   return (
     <aside
-      className={`inspector-pane flex-shrink-0 bg-white ${
+      className={`inspector-pane flex-shrink-0 bg-surface ${
         inspector ? 'open' : ''
       }`}
     >
@@ -115,9 +115,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <InspectorProvider>
       {/* h-[100dvh] avoids the iOS Safari 100vh/url-bar gap on mobile */}
-      <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900">
+      <div className="flex h-[100dvh] w-full overflow-hidden bg-surface text-gray-900">
         {/* Mobile header bar (md:hidden) — hamburger + title + bell */}
-        <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 bg-white/90 backdrop-blur-xl border-b border-gray-200 flex items-center px-4 gap-3">
+        <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 bg-surface/90 backdrop-blur-xl border-b border-gray-200 flex items-center px-4 gap-3">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
@@ -145,7 +145,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClick={closeMobileNav}
             >
               <div className="relative h-full">
-                <Suspense fallback={<div className="w-full h-full bg-white border-r border-gray-100" />}>
+                <Suspense fallback={<div className="w-full h-full bg-gray-50 border-r border-gray-100" />}>
                   <LeftNav />
                 </Suspense>
                 <button
@@ -162,7 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
 
         {/* 1) Left Nav - Fixed 240px on desktop, hidden on mobile */}
-        <Suspense fallback={<div className="hidden md:block w-60 flex-shrink-0 bg-white border-r border-gray-100" />}>
+        <Suspense fallback={<div className="hidden md:block w-60 flex-shrink-0 bg-gray-50 border-r border-gray-100" />}>
           <div className="hidden md:flex">
             <LeftNav />
           </div>
@@ -172,7 +172,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex-1 min-h-0 flex justify-center bg-gray-50/50 pt-12 md:pt-0">
           <div className="flex h-full min-h-0 w-full max-w-[1600px]">
             {/* Main Content */}
-            <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-white relative z-0">
+            <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface relative z-0">
               {/* Desktop top bar with announcement bell (mobile bell lives in the header) */}
               <div className="hidden md:flex items-center justify-end px-4 py-1.5 flex-shrink-0">
                 <AnnouncementBell />

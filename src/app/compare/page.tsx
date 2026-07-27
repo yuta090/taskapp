@@ -6,6 +6,7 @@ import { CTABand } from '@/components/lp/CTABand'
 import { motion } from 'framer-motion'
 import { Check, X, ArrowRight, FileArrowDown, ShieldCheck, Lock, ClockCounterClockwise, ChatCircle, ArrowSquareOut } from '@phosphor-icons/react'
 import Link from 'next/link'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 /* ─── Rating badge component ─── */
 
@@ -60,11 +61,10 @@ const backlogGapRows = [
 ]
 
 const priceComparisonRows = [
-  { size: '5名', agentpm: '¥4,980', agentpmPlan: 'Team', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥12,620' },
-  { size: '10名', agentpm: '¥4,980', agentpmPlan: 'Team', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥12,620' },
-  { size: '15名', agentpm: '¥6,880', agentpmPlan: 'Team', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥10,720' },
-  { size: '20名', agentpm: '¥14,800', agentpmPlan: 'Business', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
-  { size: '30名', agentpm: '¥14,800', agentpmPlan: 'Business', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '5名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '10名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '20名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '30名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
 ]
 
 const fitForAgentPM = [
@@ -145,7 +145,7 @@ const enterprisePlanned = [
 
 export default function ComparePage() {
   return (
-    <main className="font-sans antialiased text-slate-900 bg-white min-h-screen">
+    <main className="font-sans antialiased text-slate-900 bg-surface min-h-screen">
       <LPHeader />
 
       {/* ──── Hero ──── */}
@@ -192,7 +192,7 @@ export default function ComparePage() {
       </section>
 
       {/* ──── TCO概要 ──── */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-surface">
         <div className="container mx-auto px-6 max-w-3xl">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -243,7 +243,7 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="hidden lg:block max-w-5xl mx-auto"
           >
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
@@ -259,7 +259,7 @@ export default function ComparePage() {
                   <tbody>
                     {mainComparisonRows.map((row, i) => (
                       <tr key={i} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 text-sm text-slate-700 font-medium sticky left-0 bg-white z-10">{row.feature}</td>
+                        <td className="p-4 text-sm text-slate-700 font-medium sticky left-0 bg-surface z-10">{row.feature}</td>
                         <td className="p-4 text-center bg-amber-50/30"><RatingBadge value={row.agentpm} /></td>
                         <td className="p-4 text-center"><RatingBadge value={row.backlog} /></td>
                         <td className="p-4 text-center"><RatingBadge value={row.jira} /></td>
@@ -288,7 +288,7 @@ export default function ComparePage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
                 viewport={{ once: true }}
-                className="bg-white rounded-xl p-4 border border-slate-200"
+                className="bg-surface rounded-xl p-4 border border-slate-200"
               >
                 <div className="text-sm text-slate-700 font-medium mb-2">{row.feature}</div>
                 <div className="grid grid-cols-5 gap-2 text-center">
@@ -326,7 +326,7 @@ export default function ComparePage() {
       </section>
 
       {/* ──── 代理店モード詳細比較 ──── */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-surface">
         <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -352,7 +352,7 @@ export default function ComparePage() {
               <div className="bg-amber-50/50 rounded-2xl border border-amber-200 p-6">
                 <div className="flex items-center gap-2 mb-6">
                   <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-xs">A</span>
+                    <AgentPmMark size={24} />
                   </div>
                   <span className="font-bold text-lg text-slate-900">AgentPM</span>
                 </div>
@@ -414,7 +414,7 @@ export default function ComparePage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm mb-6">
+            <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm mb-6">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -480,7 +480,7 @@ export default function ComparePage() {
       </section>
 
       {/* ──── 料金比較 ──── */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-surface">
         <div className="container mx-auto px-6 max-w-4xl">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -500,7 +500,7 @@ export default function ComparePage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-surface rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
@@ -533,7 +533,7 @@ export default function ComparePage() {
               </div>
             </div>
             <p className="text-xs text-slate-400 mt-4 text-center">
-              ※ AgentPM Team: ¥4,980/月（10名まで）、Business: ¥14,800/月（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
+              ※ AgentPM Pro: ¥14,800/月・税別（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
             </p>
             <p className="text-xs text-slate-400 mt-1 text-center">
               ※ 2026年3月時点の当社調査。各社の価格・条件は変更される場合があります。
@@ -561,11 +561,11 @@ export default function ComparePage() {
               initial={{ opacity: 0, x: -20 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
-              className="bg-white rounded-2xl border border-amber-200 p-8"
+              className="bg-surface rounded-2xl border border-amber-200 p-8"
             >
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
-                  <span className="text-white font-bold text-sm">A</span>
+                  <AgentPmMark size={30} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">AgentPMが向いているチーム</h3>
@@ -599,7 +599,7 @@ export default function ComparePage() {
               className="space-y-4"
             >
               {fitForOthers.map((item) => (
-                <div key={item.tool} className="bg-white rounded-2xl border border-slate-200 p-6">
+                <div key={item.tool} className="bg-surface rounded-2xl border border-slate-200 p-6">
                   <h3 className="text-base font-bold text-slate-700 mb-3">{item.tool} が向いているケース</h3>
                   <ul className="space-y-2">
                     {item.reasons.map((reason) => (
@@ -639,7 +639,7 @@ export default function ComparePage() {
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              className="bg-white/5 backdrop-blur rounded-2xl border border-white/10 p-6"
+              className="bg-surface/5 backdrop-blur rounded-2xl border border-white/10 p-6"
             >
               <div className="flex items-center gap-2 mb-5">
                 <ShieldCheck weight="fill" className="text-emerald-400" size={20} />
@@ -661,7 +661,7 @@ export default function ComparePage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: 0.1 }}
-              className="bg-white/5 backdrop-blur rounded-2xl border border-white/10 p-6"
+              className="bg-surface/5 backdrop-blur rounded-2xl border border-white/10 p-6"
             >
               <div className="flex items-center gap-2 mb-5">
                 <ClockCounterClockwise weight="fill" className="text-amber-400" size={20} />
@@ -683,7 +683,7 @@ export default function ComparePage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.2 }}
-            className="mt-8 bg-white/5 backdrop-blur rounded-2xl border border-white/10 p-6"
+            className="mt-8 bg-surface/5 backdrop-blur rounded-2xl border border-white/10 p-6"
           >
             <h3 className="font-bold text-white mb-3">導入パターン</h3>
             <div className="flex flex-col md:flex-row items-start md:items-center gap-4 text-sm text-slate-300">
@@ -707,7 +707,7 @@ export default function ComparePage() {
       </section>
 
       {/* ──── 稟議パック ──── */}
-      <section id="approval-pack" className="py-20 bg-white">
+      <section id="approval-pack" className="py-20 bg-surface">
         <div className="container mx-auto px-6 max-w-4xl">
           <motion.div
             initial={{ opacity: 0, y: 20 }}

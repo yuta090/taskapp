@@ -64,11 +64,11 @@ export function SharedBotAccessClient({
       )}
 
       {requests.length === 0 ? (
-        <div className="rounded-md border border-gray-200 bg-white px-4 py-12 text-center text-sm text-gray-500">
+        <div className="rounded-md border border-gray-200 bg-surface px-4 py-12 text-center text-sm text-gray-500">
           開通待ちの申込はありません。
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
+        <div className="overflow-x-auto rounded-md border border-gray-200 bg-surface">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -90,7 +90,7 @@ export function SharedBotAccessClient({
                       type="button"
                       onClick={() => grant(r.orgId)}
                       disabled={pendingOrgId === r.orgId}
-                      className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+                      className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-100 hover:bg-gray-700 disabled:opacity-50"
                     >
                       {pendingOrgId === r.orgId ? '開通中…' : '開通する'}
                     </button>

@@ -71,7 +71,7 @@ export function MilestoneTimeline({ milestones, className = '' }: MilestoneTimel
                   }`}
               >
                 {isCurrent && (
-                  <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite]" />
+                  <div className="absolute inset-0 bg-surface/20 animate-[shimmer_2s_infinite]" />
                 )}
               </div>
             </div>

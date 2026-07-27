@@ -55,7 +55,7 @@ export function FeatureAI() {
             {/* Safety */}
             <div className="flex flex-wrap gap-4">
               {safetyItems.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-slate-600 bg-white px-4 py-2 rounded-lg border border-slate-200">
+                <div key={i} className="flex items-center gap-2 text-sm text-slate-600 bg-surface px-4 py-2 rounded-lg border border-slate-200">
                   <item.icon size={16} className="text-green-600 shrink-0" weight="bold" />
                   <span>{item.text}</span>
                 </div>

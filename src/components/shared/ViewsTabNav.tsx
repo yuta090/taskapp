@@ -22,7 +22,7 @@ export function ViewsTabNav({ orgId, spaceId, activeView }: ViewsTabNavProps) {
   const basePath = `/${orgId}/project/${spaceId}/views`
 
   return (
-    <div className="flex items-center gap-1 px-4 pt-2 bg-white border-b border-gray-200">
+    <div className="flex items-center gap-1 px-4 pt-2 bg-surface border-b border-gray-200">
       {tabs.map((tab) => {
         const isActive = tab.key === activeView
         const Icon = tab.icon

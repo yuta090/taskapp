@@ -129,7 +129,7 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[140px]">
+        <div className="absolute left-0 top-full mt-1 z-50 bg-surface rounded-lg shadow-lg border border-gray-200 py-1 min-w-[140px]">
           {STATUS_OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -358,7 +358,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
           }}
           className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-all opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${
             task.status === 'done'
-              ? 'bg-gray-900 border-gray-900 text-white'
+              ? 'bg-gray-900 border-gray-900 text-gray-100'
               : 'border-gray-300 hover:border-gray-400 text-transparent hover:text-gray-400'
           }`}
           title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
@@ -478,7 +478,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
             e.stopPropagation()
             onClick?.(task.id)
           }}
-          className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+          className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-surface border border-gray-200 rounded hover:bg-gray-50 transition-colors"
         >
           社内承認を依頼
         </button>

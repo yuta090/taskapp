@@ -24,7 +24,7 @@ export function PlanFeatureTable({ orgId }: { orgId?: string }) {
   const matrix = buildPlanFeatureMatrix()
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
+    <div className="bg-surface rounded-lg border border-gray-200 p-6">
       <h3 className="text-lg font-semibold text-gray-900">プラン別の機能</h3>
       <p className="mt-1 text-sm text-gray-500">
         Pro 以上で使える機能の一覧です。現在のプランはハイライトされています。

@@ -54,7 +54,7 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
   }
 
   return (
-    <div data-testid="setup-checklist" className="mx-5 mt-3 mb-1 rounded-lg border border-gray-200 bg-white">
+    <div data-testid="setup-checklist" className="mx-5 mt-3 mb-1 rounded-lg border border-gray-200 bg-surface">
       <div className="flex items-center gap-3 px-4 py-2.5">
         <button
           type="button"

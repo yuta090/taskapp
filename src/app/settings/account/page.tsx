@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { User, Camera, Check, CircleNotch, Key, CaretRight, Bell } from '@phosphor-icons/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { SettingsBackButton } from '@/components/shared'
+import { validateAvatarFile, buildAvatarPath, parseAvatarObjectPath, ACCEPTED_AVATAR_MIME } from '@/lib/avatar/avatarUpload'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function AccountSettingsPage() {
@@ -21,7 +22,9 @@ export default function AccountSettingsPage() {
   const [dueReminderEnabled, setDueReminderEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -100,6 +103,54 @@ export default function AccountSettingsPage() {
     }
   }
 
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 同じファイルを続けて選び直せるようにリセット
+    if (!file || !user) return
+
+    const valid = validateAvatarFile(file)
+    if (!valid.ok) {
+      setMessage({ type: 'error', text: valid.error })
+      return
+    }
+
+    setUploadingAvatar(true)
+    setMessage(null)
+    const previousUrl = avatarUrl
+    try {
+      const client = supabase as SupabaseClient
+      // 保存パス {uid}/{timestamp}.{ext}（先頭フォルダ=uid が storage RLS の本人判定）
+      const path = buildAvatarPath(user.id, file, Date.now())
+      const { error: uploadError } = await client.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (uploadError) throw uploadError
+
+      // 公開URL＋キャッシュバスター（差し替えを即反映）
+      const { data: pub } = client.storage.from('avatars').getPublicUrl(path)
+      const publicUrl = `${pub.publicUrl}?t=${Date.now()}`
+
+      const { error: profileError } = await client
+        .from('profiles')
+        .upsert({ id: user.id, avatar_url: publicUrl }, { onConflict: 'id' })
+      if (profileError) throw profileError
+
+      setAvatarUrl(publicUrl)
+      setMessage({ type: 'success', text: 'プロフィール画像を更新しました' })
+
+      // 旧アバターを後始末（fire-and-forget。best-effort なので完了を待たずスピナーを閉じる）
+      const oldPath = parseAvatarObjectPath(previousUrl)
+      if (oldPath && oldPath !== path) {
+        void client.storage.from('avatars').remove([oldPath]).catch(() => {})
+      }
+    } catch (err) {
+      console.error('Failed to upload avatar:', err)
+      setMessage({ type: 'error', text: '画像のアップロードに失敗しました。時間をおいて再度お試しください' })
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
   const handleToggleDueReminder = async () => {
     if (!user) return
 
@@ -147,7 +198,7 @@ export default function AccountSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -175,7 +226,7 @@ export default function AccountSettingsPage() {
         )}
 
         {/* Profile Card */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-6">
           {/* Avatar */}
           <div className="flex items-center gap-6">
             <div className="relative">
@@ -189,22 +240,39 @@ export default function AccountSettingsPage() {
                   unoptimized
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-2xl font-bold">
+                <div className="w-20 h-20 rounded-full bg-gray-700 text-gray-100 flex items-center justify-center text-2xl font-bold">
                   {userInitial}
                 </div>
               )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_AVATAR_MIME.join(',')}
+                onChange={handleAvatarSelect}
+                className="sr-only"
+                aria-hidden="true"
+                tabIndex={-1}
+              />
               <button
                 type="button"
-                className="absolute bottom-0 right-0 p-1.5 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors"
-                title="アバターを変更（準備中）"
-                disabled
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                className="absolute bottom-0 right-0 p-1.5 bg-surface border border-gray-200 rounded-full shadow-sm hover:bg-gray-50 transition-colors disabled:cursor-not-allowed"
+                title="プロフィール画像を変更"
+                aria-label="プロフィール画像を変更"
               >
-                <Camera className="w-4 h-4 text-gray-500" />
+                {uploadingAvatar ? (
+                  <CircleNotch className="w-4 h-4 text-indigo-500 animate-spin" />
+                ) : (
+                  <Camera className="w-4 h-4 text-gray-500" />
+                )}
               </button>
             </div>
             <div>
               <p className="text-sm text-gray-500">プロフィール画像</p>
-              <p className="text-xs text-gray-400 mt-1">画像アップロードは準備中です</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {uploadingAvatar ? 'アップロード中…' : 'クリックして変更（JPEG / PNG / WebP / GIF・2MBまで）'}
+              </p>
             </div>
           </div>
 
@@ -261,7 +329,7 @@ export default function AccountSettingsPage() {
         </div>
 
         {/* Notification Preferences */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-900 mb-4 flex items-center gap-2">
             <Bell className="w-4 h-4 text-gray-500" />
             通知設定
@@ -283,7 +351,7 @@ export default function AccountSettingsPage() {
                 onChange={() => void handleToggleDueReminder()}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
             </label>
           </div>
         </div>
@@ -291,7 +359,7 @@ export default function AccountSettingsPage() {
         {/* API Keys Link */}
         <Link
           href="/settings/api-keys"
-          className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
+          className="flex items-center justify-between bg-surface rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors group"
         >
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-50 rounded-lg">
@@ -306,7 +374,7 @@ export default function AccountSettingsPage() {
         </Link>
 
         {/* Account Info */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-900 mb-4">アカウント情報</h3>
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between">

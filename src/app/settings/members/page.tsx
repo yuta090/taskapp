@@ -360,7 +360,7 @@ export default function MembersSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {ConfirmDialog}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -381,7 +381,7 @@ export default function MembersSettingsPage() {
         )}
 
         {/* Members list */}
-        <div className="bg-white rounded-lg border border-gray-200">
+        <div className="bg-surface rounded-lg border border-gray-200">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-2 text-gray-700">
               <Users className="w-4 h-4" />
@@ -460,7 +460,7 @@ export default function MembersSettingsPage() {
                         unoptimized
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-medium flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-gray-700 text-gray-100 flex items-center justify-center text-xs font-medium flex-shrink-0">
                         {initial}
                       </div>
                     )}
@@ -526,7 +526,7 @@ export default function MembersSettingsPage() {
 
         {/* Invite form (owner only) */}
         {isOwner && (
-          <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+          <div className="bg-surface rounded-lg border border-gray-200 p-4 space-y-3">
             <div className="text-xs font-medium text-gray-500">メンバーを招待</div>
 
             {inviteMessage && (
@@ -552,7 +552,7 @@ export default function MembersSettingsPage() {
                 />
                 <button
                   onClick={handleCopyInviteLink}
-                  className="flex items-center gap-1 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors"
+                  className="flex items-center gap-1 px-3 py-2 text-xs text-gray-700 bg-surface border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   コピー
@@ -630,7 +630,7 @@ export default function MembersSettingsPage() {
 
         {/* Pending invites (owner only, hidden when empty) */}
         {isOwner && pendingInvites.length > 0 && (
-          <div className="bg-white rounded-lg border border-gray-200">
+          <div className="bg-surface rounded-lg border border-gray-200">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2 text-gray-700">
                 <span className="text-sm font-medium">保留中の招待</span>

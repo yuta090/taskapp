@@ -5,8 +5,10 @@ import { LPHeader } from '@/components/lp/Header'
 import { LPFooter } from '@/components/lp/Footer'
 import { CtaBlock } from '@/components/blog/CtaBlock'
 import { getPublishedPost } from '@/lib/blog/posts'
-import { isKnownAuthorName } from '@/lib/task6/authors'
+import { isKnownAuthorName, PRIMARY_AUTHOR } from '@/lib/task6/authors'
 import { renderMarkdownToHtml, splitOnCtaPlaceholder } from '@/lib/markdown'
+import { renderTask6BodyHtml } from '@/lib/task6/dialogue'
+import { extractH2Headings, splitAfterLead, TOC_MIN_HEADINGS } from '@/lib/task6/toc'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,7 +35,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url,
       type: 'article',
       locale: 'ja_JP',
-      ...(post.cover_image_url ? { images: [{ url: post.cover_image_url }] } : {}),
+      // og:image はファイル規約の opengraph-image.tsx(イラスト+タイトルの合成バナー)に任せる
     },
   }
 }
@@ -44,8 +46,15 @@ export default async function BlogArticlePage({ params }: Props) {
   if (!post) notFound()
 
   const { before, after, hasPlaceholder } = splitOnCtaPlaceholder(post.body_md)
-  const beforeHtml = await renderMarkdownToHtml(before)
-  const afterHtml = hasPlaceholder ? await renderMarkdownToHtml(after) : ''
+  // 会話劇(**ガント**「…」)とキャラ紹介({{characters}})はサニタイズ後にテンプレート側で変換する
+  const beforeHtml = renderTask6BodyHtml(await renderMarkdownToHtml(before))
+  const afterHtml = hasPlaceholder ? renderTask6BodyHtml(await renderMarkdownToHtml(after)) : ''
+
+  // 長い記事だけ目次を出す（短い記事に付けると重い読み物に見える）。
+  // 置き場所は書き出し（最初の `---`）の直後。冒頭に置くと書き出しの余韻を潰す。
+  const headings = extractH2Headings(beforeHtml + afterHtml)
+  const showToc = headings.length >= TOC_MIN_HEADINGS
+  const { lead, rest } = showToc ? splitAfterLead(beforeHtml) : { lead: '', rest: beforeHtml }
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -69,22 +78,45 @@ export default async function BlogArticlePage({ params }: Props) {
   }
 
   return (
-    <main className="font-sans antialiased text-slate-900 bg-white">
+    <main className="font-sans antialiased text-slate-900 bg-surface">
       <LPHeader />
       <script
         type="application/ld+json"
         // DB由来のtitle等が混ざるため、</script>混入によるscript脱出を防ぐ
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
-      <article className="mx-auto max-w-3xl px-5 pb-20 pt-24">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold leading-tight tracking-tight text-slate-900">
+      <article className="mx-auto max-w-3xl px-5 pb-20 pt-28">
+        <header className="mb-10">
+          <div className="mb-4 flex items-center gap-2 text-sm">
+            <Link href="/task6" className="font-bold tracking-tight">
+              <span className="text-slate-900">TASK</span>
+              <span className="text-amber-500">6</span>
+            </Link>
+            {post.tags.slice(0, 3).map((t) => (
+              <span
+                key={t}
+                className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+          <h1 className="text-3xl font-bold leading-snug tracking-tight text-slate-900 md:text-4xl">
             {post.title}
           </h1>
-          <div className="mt-3 flex items-center gap-3 text-sm text-slate-500">
+          {post.description && (
+            <p className="mt-4 border-l-4 border-amber-300 pl-4 text-lg leading-relaxed text-slate-600">
+              {post.description}
+            </p>
+          )}
+          <div className="mt-5 flex items-center gap-3 text-sm text-slate-500">
             {post.published_at && (
               <time dateTime={post.published_at}>
-                {new Date(post.published_at).toLocaleDateString('ja-JP')}
+                {new Date(post.published_at).toLocaleDateString('ja-JP', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
               </time>
             )}
             {post.author_name &&
@@ -110,8 +142,44 @@ export default async function BlogArticlePage({ params }: Props) {
           />
         )}
 
-        <div className="prose prose-slate max-w-none prose-headings:scroll-mt-24">
-          <div dangerouslySetInnerHTML={{ __html: beforeHtml }} />
+        {/*
+          読みやすさのリズム: 地の文が続くページは内容が良くても読み飛ばされる。箇条書きと引用に
+          「面」を当てて、スクロール中に一定間隔で見た目が変わるようにする。
+          記事本文のMarkdownはサニタイザ(rehype-sanitize)を通り class や生HTMLが落ちるため、
+          執筆側では面を作れない。ここ(テンプレート)で当てるのが唯一の場所。
+          ※純粋な見た目の指定のためテストは書かない(CLAUDE.mdのTDD例外)。
+        */}
+        <div
+          className="task6-body prose prose-slate max-w-none prose-headings:scroll-mt-24
+            prose-ul:my-6 prose-ul:rounded-xl prose-ul:bg-slate-50 prose-ul:py-4 prose-ul:pr-6 prose-ul:pl-10
+            prose-ol:my-6 prose-ol:rounded-xl prose-ol:bg-slate-50 prose-ol:py-4 prose-ol:pr-6 prose-ol:pl-10
+            prose-li:my-1
+            prose-blockquote:not-italic prose-blockquote:rounded-r-xl prose-blockquote:border-l-4
+            prose-blockquote:border-amber-400 prose-blockquote:bg-amber-50 prose-blockquote:py-2 prose-blockquote:pr-4"
+        >
+          {showToc ? (
+            <>
+              <div dangerouslySetInnerHTML={{ __html: lead }} />
+              {/* 目次は装飾ではなく地図。囲みも背景も付けず、小さな文字と余白だけで示す */}
+              <nav aria-label="この記事の内容" className="not-prose my-10">
+                <p className="mb-3 text-xs font-semibold tracking-wide text-slate-400">
+                  この記事の内容
+                </p>
+                <ol className="space-y-2 border-l border-slate-200 pl-4 text-sm text-slate-600">
+                  {headings.map((h) => (
+                    <li key={h.id}>
+                      <a href={`#${h.id}`} className="hover:text-amber-600">
+                        {h.text}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+              <div dangerouslySetInnerHTML={{ __html: rest }} />
+            </>
+          ) : (
+            <div dangerouslySetInnerHTML={{ __html: beforeHtml }} />
+          )}
           {hasPlaceholder && post.inline_cta && (
             <CtaBlock cta={post.inline_cta} articleSlug={post.slug} />
           )}
@@ -123,6 +191,36 @@ export default async function BlogArticlePage({ params }: Props) {
             <CtaBlock cta={post.footer_cta} articleSlug={post.slug} />
           </div>
         )}
+
+        {/* 著者カード(E-E-A-T: 誰が書いたかを記事末尾でも示す) */}
+        {post.author_name && isKnownAuthorName(post.author_name) && (
+          <aside className="mt-14 flex items-start gap-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-6">
+            <div
+              aria-hidden="true"
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-lg font-bold text-white"
+            >
+              {PRIMARY_AUTHOR.name.slice(0, 1)}
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-900">
+                この記事を書いた人:{' '}
+                <Link href="/task6/author" className="text-amber-600 hover:text-amber-700">
+                  {PRIMARY_AUTHOR.name}
+                </Link>
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">{PRIMARY_AUTHOR.title}</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                実際にあった出来事をもとに、ツールを使わなくても解決できる方法まで書くのがTASK6の方針です。
+              </p>
+            </div>
+          </aside>
+        )}
+
+        <div className="mt-10">
+          <Link href="/task6" className="text-sm font-semibold text-amber-600 hover:text-amber-700">
+            ← TASK6の記事一覧へ
+          </Link>
+        </div>
       </article>
       <LPFooter />
     </main>

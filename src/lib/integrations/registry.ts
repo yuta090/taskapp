@@ -471,13 +471,30 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     id: 'chatwork',
     label: 'Chatwork タスク',
     category: 'task_sync',
+    // 取り込み＋完了の書き戻しに対応（TaskApp発の起票=createTaskは未対応。Chatworkの
+    // タスク作成は担当者(to_ids)必須で、担当者の対応付けの仕組みがまだ無いため）。
     direction: 'two_way',
-    status: 'planned',
-    surface: 'catalog',
+    status: 'beta',
+    surface: 'connector',
+    connectorKind: 'chatwork',
     setupComplexity: 'api_key',
     proOnly: true,
+    featured: true,
     setupUrl: 'https://developer.chatwork.com/docs',
-    notes: 'Chatwork のタスク機能と同期する（チャット接続=「つなぐ」タブとは別軸のタスク同期）。',
+    notes:
+      'Chatwork のタスク機能と同期する（チャット接続=「つなぐ」タブとは別軸のタスク同期）。APIトークンを貼るだけで接続でき、取り込みと完了の書き戻しに対応する。',
+    // ⚠ 期限の正本にしない（dueImport=false）。Chatworkのタスク一覧APIは**最大100件・
+    // ページング無し**で、100件を超えるチャットではどの100件が返るかが仕様上不明。完了済み
+    // タスクが100件の外に落ちると「Chatwork側では終わっているのにTaskAppでは未完了」の
+    // まま残り得る。その状態で期限リマインドの正本にすると、終わっている仕事の催促を
+    // 相手に送る — 一番やってはいけない誤爆になる。取り込みと完了の書き戻しは行うが、
+    // 期限リマインドの根拠にはしない（「不確かなら送らない」）。
+    // 実運用のデータで「100件超のチャットが実際にどう返るか」を確認できたら開ける。
+    capabilities: {
+      dueImport: false,
+      completionWrite: true,
+      dueFreshness: 'none',
+    },
   },
   garoon: {
     id: 'garoon',

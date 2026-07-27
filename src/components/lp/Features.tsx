@@ -80,7 +80,7 @@ export function Features() {
                             transition={{ delay: i * 0.05 }}
                             viewport={{ once: true }}
                             whileHover={{ y: -4 }}
-                            className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 cursor-default"
+                            className="bg-surface rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 cursor-default"
                         >
                             <div className={`w-12 h-12 rounded-xl ${feature.color} flex items-center justify-center mb-4`}>
                                 <feature.icon size={24} weight="duotone" />

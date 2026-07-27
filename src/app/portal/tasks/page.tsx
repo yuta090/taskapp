@@ -26,7 +26,7 @@ export default async function PortalTasksPage({ searchParams }: PageProps) {
   if (!currentProject) {
     return (
       <div className="min-h-screen bg-[#F7F7F5] flex items-center justify-center">
-        <div className="text-center bg-white rounded-xl border border-gray-200 shadow-sm p-8 max-w-md">
+        <div className="text-center bg-surface rounded-xl border border-gray-200 shadow-sm p-8 max-w-md">
           <h1 className="text-xl font-semibold text-gray-900 mb-2">アクセス権限がありません</h1>
           <p className="text-gray-600">招待リンクからアクセスしてください</p>
         </div>

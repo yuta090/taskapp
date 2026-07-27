@@ -1,11 +1,19 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* ダークモードは <html class="dark"> で駆動（描画前inline scriptが付与）。
+   :where() で詳細度0にし、既存の任意の .dark 記述と競合しない。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================
    TaskApp Design Tokens (from prototype v29)
    ============================================ */
 
-@theme inline {
+/* ⚠ inline を付けない。inline だと utility に色の値が直接埋め込まれ、
+   .dark でのトークン上書きが一切効かなくなる（ダーク全壊）。
+   非inlineにすることで bg-gray-50 等が var(--color-gray-50) 参照になり、
+   下部の .dark ブロックでの再割当がアプリ全体に反映される。 */
+@theme {
   /* Font Family - System fonts for performance & consistency */
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
 
@@ -15,6 +23,12 @@
   --text-sm: 13px;
   --text-base: 14px;
   --text-lg: 16px;
+
+  /* Surface (card / raised panel background).
+     Light では白。ダーク基盤PRで .dark 側に暗色面を割り当てる中央レバー。
+     tsx では bg-white を使わず bg-surface を使う（bg-white は text-white と
+     変数を共有するため単独で暗転できない）。 */
+  --color-surface: #FFFFFF;
 
   /* Gray Scale (refined) */
   --color-gray-25: #FCFCFD;
@@ -37,6 +51,12 @@
   --color-amber-400: #FBBF24;
   --color-amber-500: #F59E0B;
   --color-amber-600: #D97706;
+
+  /* Brand ink — ロゴマークを amber バッジの上に置くときの色。
+     amber-500 は両テーマで色相を保つ固定色なので、その上に載る文字色も
+     固定でなければならない。gray-900 は .dark で明色に反転するため使えない。
+     .dark 側で意図的に再割当しない（反転させない）こと。 */
+  --color-brand-ink: #1C1917;
 
   /* Orange (Warning / 要対応 / 接続異常) — amber をクライアント可視専用に保つための別トークン */
   --color-orange-50: #FFF7ED;
@@ -96,6 +116,56 @@
 :root {
   --background: #ffffff;
   --foreground: #111827;
+}
+
+/* ============================================
+   Dark theme palette (html.dark)
+   中央トークン再割当だけで全画面が反転する（bg-gray や text-gray などは
+   @theme のトークンを var() 参照するため）。個々の画面に dark: を書かない。
+   グレーは単純反転ではなく設計: 低番=暗面/境界、高番=明文字（AA配慮）。
+   アクセント(amber/blue/green/red/orange)の 400-600 は色相維持
+   （塗りボタンの白文字と amber-500=クライアント可視シグナルを両テーマで保つ）。
+   50/100/200 ティントのみ暗色化。色付き文字×色付き背景の微調整は後続PRで磨く。
+   ============================================ */
+.dark {
+  color-scheme: dark;
+  --background: #13161D;
+  --foreground: #F2F4F7;
+
+  /* Gray ramp (role-reversed): 低番=暗面/境界, 高番=明文字 */
+  --color-gray-25:  #0E1117;
+  --color-gray-50:  #13161D;
+  --color-gray-100: #1B2028;
+  --color-gray-200: #272D38;
+  --color-gray-300: #3A414E;
+  --color-gray-400: #8A93A2;
+  --color-gray-500: #9DA6B4;
+  --color-gray-600: #B6BDC9;
+  --color-gray-700: #CDD3DC;
+  --color-gray-800: #E3E7EC;
+  --color-gray-900: #F2F4F7;
+  --color-gray-950: #FAFBFC;
+
+  /* Surface: ページ背景より一段明るいカード面（elevation維持） */
+  --color-surface: #191E27;
+
+  /* Accent tints (bg のみ暗色化)。有彩色本体(400-600)は色相維持。 */
+  --color-amber-50:  #2A2109;
+  --color-amber-100: #3A2E0C;
+  --color-amber-200: #574512;
+  --color-orange-50:  #2A1B0C;
+  --color-orange-100: #3A2510;
+  --color-orange-200: #57381A;
+  --color-indigo-50:  #1E2140;
+  --color-red-50:  #2E1416;
+  --color-red-100: #43191C;
+  --color-blue-50:  #101F35;
+  --color-blue-100: #16294A;
+  --color-green-50:  #0F2417;
+  --color-green-100: #14351F;
+
+  /* 影はダークで見えないため境界線ベースへ */
+  --shadow-pane: -1px 0 0 0 #272D38;
 }
 
 body {
@@ -163,7 +233,8 @@ body {
 
   .inspector-pane.open {
     width: 100%;
-    background: #fff;
+    /* トークン参照でダーク時も自動で暗色面になる（#fff 直書きだと白のまま残る） */
+    background: var(--color-surface);
   }
 }
 
@@ -495,5 +566,76 @@ body {
   #main-content .overflow-y-auto,
   #main-content .overflow-auto {
     padding-bottom: max(4rem, calc(env(safe-area-inset-bottom) + 1.5rem));
+  }
+}
+/* ============================================
+   TASK6 記事の「書き出し」（リード）
+   エッセイ調の書き出しと、解説本文を、読み手が一目で切り替えられるようにする。
+   記事本文の Markdown は rehype-sanitize を通り class も生HTMLも落ちるため、
+   執筆側では面も字送りも作れない。ここが唯一当てられる場所。
+
+   規約: 書き出しの直後に `---`（hr）を1本置く。
+   `p:has(~ hr):not(hr ~ p)` = 「後ろに hr があり、前に hr が無い段落」＝最初の hr より前の段落だけ。
+   記事中に別の `---` があっても、この選択は最初の1本にしか効かない。
+
+   ⚠ 直下セレクタ（`>`）にしないこと。本文は dangerouslySetInnerHTML の**内側の div** に入るため、
+   `.task6-body > p` では一段深くて当たらない（本番で書き出しの体裁だけ効かない事故を踏んだ）。
+   兄弟関係はその内側の div の中で保たれるので、子孫セレクタで正しく選べる。
+   ============================================ */
+/* 日本語の折り返しを文節で行う。
+   既定の折り返しは文字単位のため「それな／のに」のように語の途中で切れ、読点のリズムが崩れる。
+   word-break:auto-phrase は日本語の文節境界を推定して折り返す（Chrome/Edge 119+）。
+   未対応ブラウザは従来どおりに折り返すだけなので、安全に足せる。
+   line-break:strict は行頭に来てはいけない記号（々・ー・小書き仮名など）の扱いを厳格にする。 */
+.task6-body {
+  word-break: auto-phrase;
+  line-break: strict;
+}
+
+/* 長い記事の地図として、H2の前に極薄の罫を1本引く。
+   スクロール中に「ここで話が変わった」が分かればよく、意識に上る濃さにはしない
+   （濃くすると途端に「装飾」に見え、読む速度が落ちる）。
+   最初のH2だけは、書き出しの区切り（琥珀の短い罫）と近接して二重線に見えるため引かない。 */
+.task6-body h2 {
+  border-top: 1px solid rgb(241 245 249);
+  padding-top: 1.75rem;
+}
+.task6-body h2:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* 見出しは最終行に1〜2文字だけ残る「泣き別れ」を避ける */
+.task6-body :is(h2, h3),
+.task6-lead-heading {
+  text-wrap: pretty;
+}
+
+.task6-body p:has(~ hr):not(hr ~ p) {
+  font-size: 1.0625rem;
+  line-height: 2.15;
+  color: #3f3a34;
+}
+
+/* 1行目（掴みの一文）だけ、さらに一段大きく置く */
+.task6-body p:has(~ hr):not(hr ~ p):first-of-type {
+  font-size: 1.3125rem;
+  font-weight: 600;
+  line-height: 1.9;
+  color: #221d18;
+  letter-spacing: 0.01em;
+}
+
+/* 書き出しの終わりの合図。罫線を渡しきらず、短い印にとどめる */
+.task6-body hr:first-of-type {
+  width: 3rem;
+  margin: 2.75rem 0 2.25rem;
+  border: 0;
+  border-top: 2px solid #fbbf24;
+}
+
+@media (max-width: 640px) {
+  .task6-body p:has(~ hr):not(hr ~ p):first-of-type {
+    font-size: 1.1875rem;
   }
 }

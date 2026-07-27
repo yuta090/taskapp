@@ -290,7 +290,7 @@ export function ProposalCreateSheet({
 
       {/* Sheet */}
       <div
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl max-h-[90vh] flex flex-col animate-dialog-in"
+        className="relative w-full max-w-lg bg-surface rounded-xl shadow-xl max-h-[90vh] flex flex-col animate-dialog-in"
         data-testid="proposal-create-sheet"
       >
         {/* Header */}
@@ -451,7 +451,7 @@ export function ProposalCreateSheet({
                       className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
                         isSelected
                           ? 'bg-amber-200 border-amber-400 text-amber-800 font-medium'
-                          : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-100'
+                          : 'bg-surface border-amber-200 text-amber-600 hover:bg-amber-100'
                       }`}
                       data-testid={`proposal-create-client-${member.id}`}
                     >
@@ -497,7 +497,7 @@ export function ProposalCreateSheet({
                         className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
                           isSelected
                             ? 'bg-gray-200 border-gray-400 text-gray-800 font-medium'
-                            : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
+                            : 'bg-surface border-gray-200 text-gray-600 hover:bg-gray-100'
                         }`}
                         data-testid={`proposal-create-internal-${member.id}`}
                       >

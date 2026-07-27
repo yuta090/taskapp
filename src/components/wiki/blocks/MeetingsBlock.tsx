@@ -85,7 +85,7 @@ function MeetingsBlockComponent({ block, editor }: { block: { props: { orgId: st
   return (
     <div className="my-2 rounded-lg border border-gray-200 bg-gray-50/50 overflow-hidden" contentEditable={false}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-white">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-surface">
         <div className="flex items-center gap-2">
           <Notebook className="text-indigo-500 text-base" />
           <span className="text-sm font-semibold text-gray-800">最新の議事録</span>

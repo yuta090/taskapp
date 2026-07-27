@@ -184,7 +184,7 @@ export function InternalOnboardingWalkthrough() {
       <div
         ref={panelRef}
         data-testid="walkthrough-panel"
-        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
+        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-full max-w-lg bg-surface rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
           fadeIn ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         }`}
         style={panelStyle}

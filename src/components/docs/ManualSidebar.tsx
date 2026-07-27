@@ -111,7 +111,7 @@ export function ManualSidebar() {
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
-        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-white border border-gray-200 rounded-lg shadow-sm"
+        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-surface border border-gray-200 rounded-lg shadow-sm"
         aria-label="メニューを開く"
       >
         <List className="w-5 h-5 text-gray-600" />

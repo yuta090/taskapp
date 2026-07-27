@@ -466,7 +466,7 @@ export function TaskInspector({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {ConfirmDialog}
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
@@ -643,7 +643,7 @@ export function TaskInspector({
                 value={task.status}
                 onChange={(e) => handleStatusChange(e.target.value as TaskStatus)}
                 data-testid="task-inspector-status"
-                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
               >
                 {STATUS_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -715,7 +715,7 @@ export function TaskInspector({
             クライアント公開
           </label>
           {onUpdate ? (
-            <div className="flex items-center justify-between px-3 py-2 border border-gray-200 rounded-lg bg-white">
+            <div className="flex items-center justify-between px-3 py-2 border border-gray-200 rounded-lg bg-surface">
               <span className={`text-sm ${task.client_scope === 'deliverable' ? `font-medium ${CLIENT.accent}` : 'text-gray-500'}`}>
                 {task.client_scope === 'deliverable' ? '公開中' : '非公開'}
               </span>
@@ -730,7 +730,7 @@ export function TaskInspector({
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-surface rounded-full shadow transition-transform ${
                     task.client_scope === 'deliverable' ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
@@ -775,7 +775,7 @@ export function TaskInspector({
                       className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                         isSelected
                           ? 'bg-amber-200 border-amber-400 text-amber-800 font-medium'
-                          : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'
+                          : 'bg-surface border-amber-200 text-amber-600 hover:bg-amber-50'
                       }`}
                     >
                       {member.displayName}
@@ -798,7 +798,7 @@ export function TaskInspector({
                         className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                           isSelected
                             ? 'bg-gray-200 border-gray-300 text-gray-700 font-medium'
-                            : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                            : 'bg-surface border-gray-200 text-gray-500 hover:bg-gray-50'
                         }`}
                       >
                         {member.displayName}
@@ -811,7 +811,7 @@ export function TaskInspector({
             <div className="flex justify-end gap-2 pt-1">
               <button
                 onClick={handleCancelPendingBall}
-                className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded transition-colors"
+                className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-surface/60 rounded transition-colors"
               >
                 やめる
               </button>
@@ -855,7 +855,7 @@ export function TaskInspector({
               value={task.assignee_id || ''}
               onChange={(e) => handleAssigneeChange(e.target.value)}
               data-testid="task-inspector-assignee"
-              className={`w-full px-2 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${
+              className={`w-full px-2 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface ${
                 !membersLoading && task.ball === 'internal' && task.assignee_id && !internalMembers.some((m) => m.id === task.assignee_id)
                   ? 'border-red-300 bg-red-50'
                   : 'border-gray-200'
@@ -993,7 +993,7 @@ export function TaskInspector({
               value={task.milestone_id || ''}
               onChange={(e) => handleMilestoneChange(e.target.value)}
               data-testid="task-inspector-milestone"
-              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
             >
               <option value="">未設定</option>
               {milestones.map((ms) => (
@@ -1170,7 +1170,7 @@ export function TaskInspector({
                   value={task.parent_task_id || ''}
                   onChange={(e) => { onUpdate?.({ parentTaskId: e.target.value || null }); flashSaved() }}
                   data-testid="task-inspector-parent"
-                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                 >
                   <option value="">なし</option>
                   {parentTasks.map((pt) => (
@@ -1352,7 +1352,7 @@ export function TaskInspector({
                       value={task.wiki_page_id || ''}
                       onChange={(e) => handleWikiPageChange(e.target.value)}
                       data-testid="task-inspector-wiki-page"
-                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
                     >
                       <option value="">紐付けなし</option>
                       {specWikiPages.map((page) => (

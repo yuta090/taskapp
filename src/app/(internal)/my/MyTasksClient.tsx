@@ -537,7 +537,7 @@ export default function MyTasksClient() {
             <select
               value={filters.status}
               onChange={(e) => updateFilters({ status: e.target.value as StatusFilter })}
-              className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="text-xs border border-gray-200 rounded px-2 py-1 bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               {Object.entries(statusLabels).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -551,7 +551,7 @@ export default function MyTasksClient() {
             <select
               value={filters.spaceId || ''}
               onChange={(e) => updateFilters({ spaceId: e.target.value || null })}
-              className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="text-xs border border-gray-200 rounded px-2 py-1 bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="">すべて</option>
               {spaces.map(space => (
@@ -566,7 +566,7 @@ export default function MyTasksClient() {
             <select
               value={filters.sortField}
               onChange={(e) => updateFilters({ sortField: e.target.value as SortField })}
-              className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="text-xs border border-gray-200 rounded px-2 py-1 bg-surface focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               {Object.entries(sortLabels).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>

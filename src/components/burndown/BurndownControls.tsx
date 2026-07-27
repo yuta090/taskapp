@@ -36,7 +36,7 @@ export function BurndownControls({
           <select
             value={selectedMilestoneId}
             onChange={(e) => onSelectMilestone(e.target.value)}
-            className="w-full md:w-auto appearance-none pl-3 pr-8 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            className="w-full md:w-auto appearance-none pl-3 pr-8 py-1.5 text-sm font-medium text-gray-700 bg-surface border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           >
             <option value="">プロジェクト全体</option>
             {validMilestones.map((ms) => (

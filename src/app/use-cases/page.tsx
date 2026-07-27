@@ -254,9 +254,9 @@ const teamSizes: {
         },
         {
             size: '10-30名',
-            recommendation: 'Team（¥4,980/月）またはBusiness（¥14,800/月）。Backlog Standardより安く、ポータル・ボール・証跡管理がフル機能。',
+            recommendation: 'Pro（¥14,800/月・税別）。30名まで定額で、Backlog Standardより安く、ポータル・ボール・証跡管理がフル機能。',
             reasons: [
-                'Backlog Standardより安い（10名で¥12,620/月の差）',
+                'Backlog Standardより安い（30名まで定額で¥2,800/月の差）',
                 'ポータルで報告作業が不要。PMの時間を案件管理に集中',
                 'Wiki・議事録・レビュー承認で仕様の証跡が一元管理',
             ],
@@ -264,11 +264,11 @@ const teamSizes: {
         },
         {
             size: '50名以上',
-            recommendation: 'Business以上でSSO/SAML認証に対応。部門導入から始めて、全社展開にスケールできます。',
+            recommendation: 'Enterprise（個別見積り）。上限なし・請求書払い・導入支援に対応。部門導入から始めて、全社展開にスケールできます。',
             reasons: [
-                'SSO/SAML対応で情シスの管理負担を軽減',
+                'メンバー数・プロジェクト数の上限なしで全社展開できる',
                 '部門パイロット → 効果実証 → 全社展開のステップが踏める',
-                'Business（¥14,800/月/30名）はBacklog Standardと同等以下の費用',
+                'Pro（¥14,800/月・30名まで）はBacklog Standardと同等以下の費用',
             ],
             cta: { label: '導入について相談する', href: '/contact' },
         },
@@ -303,7 +303,7 @@ function SceneTabNav({ activeId, onSelect }: { activeId: string; onSelect: (id: 
                     }}
                     className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all ${activeId === scene.id
                             ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:border-amber-300 hover:text-amber-600'
+                            : 'bg-surface text-slate-600 border border-slate-200 hover:border-amber-300 hover:text-amber-600'
                         }`}
                 >
                     {scene.icon}
@@ -486,7 +486,7 @@ export default function UseCasesPage() {
     }, [])
 
     return (
-        <main className="font-sans antialiased text-slate-900 bg-white min-h-screen">
+        <main className="font-sans antialiased text-slate-900 bg-surface min-h-screen">
             <LPHeader />
 
             {/* ─── Hero ─── */}
@@ -619,7 +619,7 @@ export default function UseCasesPage() {
                                 key={idx}
                                 {...stagger}
                                 transition={{ delay: idx * 0.1 + 0.1 }}
-                                className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6"
+                                className="bg-surface rounded-2xl shadow-lg border border-slate-200 p-6"
                             >
                                 <h3 className="text-lg font-bold text-slate-900 mb-1">{mc.title}</h3>
                                 <p className="text-xs text-slate-400 mb-6">{mc.context}</p>

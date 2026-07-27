@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion'
 import { ArrowRight } from '@phosphor-icons/react'
 import Link from 'next/link'
+import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 const productLinks = [
     { href: '/#features', label: '機能' },
@@ -67,7 +68,7 @@ export function LPFooter() {
                         <div className="col-span-2 md:col-span-1">
                             <div className="flex items-center gap-2 mb-4">
                                 <div className="w-7 h-7 bg-amber-500 rounded-md flex items-center justify-center">
-                                    <span className="text-white font-bold text-xs">A</span>
+                                    <AgentPmMark size={21} />
                                 </div>
                                 <span className="font-bold text-lg">AgentPM</span>
                             </div>

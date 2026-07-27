@@ -23,7 +23,7 @@ export function WikiFileLinkPicker({ spaceId, onSelect }: WikiFileLinkPickerProp
   }
 
   return (
-    <div className="w-72 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg p-2">
+    <div className="w-72 max-h-80 overflow-y-auto bg-surface border border-gray-200 rounded-lg shadow-lg p-2">
       {showInternalWarning && (
         <p className="mb-2 px-2 py-1.5 text-xs text-orange-700 bg-orange-50 rounded">
           社内のみのファイルはクライアントには表示されません(リンクを開けません)

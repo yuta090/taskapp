@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { SelfLinkPanel } from '@/components/secretary/SelfLinkPanel'
 import { GroupLinkPanel } from '@/components/secretary/GroupLinkPanel'
 import { DirectConnectDisclosure } from '@/components/secretary/DirectConnectDisclosure'
+import { SharedLineUsagePanel } from '@/components/secretary/SharedLineUsagePanel'
 import { Hint } from '@/components/secretary/Hint'
 import type { LineSelfServeState } from '@/lib/channels/sharedBotAccess'
 
@@ -54,6 +55,8 @@ export function UserLinksClient({
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <h1 className="text-sm font-semibold text-gray-900">LINE秘書につなぐ</h1>
 
+          <SharedLineUsagePanel orgId={orgId} />
+
           <section className="rounded border border-gray-200 p-4">
             <h2 className="text-sm font-semibold text-gray-900">
               グループLINEから拾う
@@ -101,7 +104,7 @@ export function UserLinksClient({
               type="button"
               onClick={onRequest}
               disabled={requesting}
-              className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-gray-100 hover:bg-gray-800 disabled:opacity-50"
             >
               {requesting ? '送信中…' : '共通LINEを申し込む'}
             </button>

@@ -217,7 +217,7 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
         <select
           value={dateRange}
           onChange={handleDateRangeChange}
-          className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="24h">直近24時間</option>
           <option value="7d">直近7日</option>
@@ -227,7 +227,7 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
         <select
           value={eventTypeFilter}
           onChange={handleEventTypeChange}
-          className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="">イベントタイプ: すべて</option>
           {eventTypes.map((t) => (

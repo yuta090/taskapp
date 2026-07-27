@@ -98,7 +98,7 @@ export default function AdminSitemapPage() {
         {ROUTES.map((group) => (
           <div key={group.group}>
             <h2 className="text-sm font-medium text-gray-700 mb-2">{group.group}</h2>
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-gray-100">
                   {group.routes.map((route) => (

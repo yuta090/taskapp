@@ -173,8 +173,8 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
             className={`
               w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors
               ${step.completed
-                ? 'bg-white/50 cursor-default'
-                : 'bg-white hover:bg-white/80 cursor-pointer'
+                ? 'bg-surface/50 cursor-default'
+                : 'bg-surface hover:bg-surface/80 cursor-pointer'
               }
             `}
             disabled={step.completed}

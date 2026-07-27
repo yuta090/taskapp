@@ -51,20 +51,20 @@ export function UndoToast({
           <span className="text-sm flex-1">{message}</span>
           <button
             onClick={onUndo}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-surface/10 hover:bg-surface/20 rounded-lg transition-colors"
           >
             <ArrowCounterClockwise className="w-4 h-4" />
             取り消し
           </button>
           <button
             onClick={onDismiss}
-            className="p-1 hover:bg-white/10 rounded transition-colors"
+            className="p-1 hover:bg-surface/10 rounded transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
         {/* Progress bar */}
-        <div className="h-1 bg-white/10">
+        <div className="h-1 bg-surface/10">
           <div
             className="h-full bg-amber-500 transition-all duration-50"
             style={{ width: `${progress}%` }}

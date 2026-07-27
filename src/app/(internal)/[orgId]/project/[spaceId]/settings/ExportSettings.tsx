@@ -478,7 +478,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
               <button
                 onClick={handleCancelEdit}
                 disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
               >
                 <X weight="bold" className="text-base" />
                 キャンセル
@@ -499,7 +499,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {exporting ? (
                 <>

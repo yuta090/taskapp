@@ -138,7 +138,7 @@ export function MeetingInspector({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div data-testid="meeting-inspector" className="h-full flex flex-col bg-surface">
       {ConfirmDialog}
       {/* Header */}
       <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
@@ -395,7 +395,7 @@ export function MeetingInspector({
                           onClick={handleTaskify}
                           disabled={creating || !onCreateTasks}
                           data-testid="minutes-taskify-button"
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-gray-100 text-sm font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                         >
                           {creating ? (
                             <CircleNotch className="animate-spin" />

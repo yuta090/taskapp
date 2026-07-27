@@ -85,7 +85,7 @@ const TROUBLESHOOTING = [
 export default function ClientHelpPage() {
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <Link
@@ -111,7 +111,7 @@ export default function ClientHelpPage() {
             {STEPS.map((step) => (
               <div
                 key={step.title}
-                className="flex items-start gap-3 bg-white rounded-lg border border-gray-200 p-4"
+                className="flex items-start gap-3 bg-surface rounded-lg border border-gray-200 p-4"
               >
                 <step.icon className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
                 <div>
@@ -126,7 +126,7 @@ export default function ClientHelpPage() {
         {/* 用語集 */}
         <section id="glossary" className="space-y-4 scroll-mt-6">
           <h2 className="text-lg font-semibold text-gray-900">用語集</h2>
-          <dl className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+          <dl className="bg-surface rounded-lg border border-gray-200 divide-y divide-gray-100">
             {GLOSSARY.map((item) => (
               <div key={item.term} className="p-4">
                 <dt className="text-sm font-medium text-gray-900">{item.term}</dt>
@@ -141,7 +141,7 @@ export default function ClientHelpPage() {
           <h2 className="text-lg font-semibold text-gray-900">主要画面</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {SCREENS.map((screen) => (
-              <div key={screen.name} className="bg-white rounded-lg border border-gray-200 p-4">
+              <div key={screen.name} className="bg-surface rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center gap-2 mb-1">
                   <screen.icon className="w-4 h-4 text-gray-500" />
                   <h3 className="text-sm font-medium text-gray-900">{screen.name}</h3>
@@ -158,7 +158,7 @@ export default function ClientHelpPage() {
             <Question className="w-5 h-5 text-gray-500" />
             お困りの場合
           </h2>
-          <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+          <div className="bg-surface rounded-lg border border-gray-200 divide-y divide-gray-100">
             {TROUBLESHOOTING.map((item) => (
               <div key={item.question} className="p-4">
                 <h3 className="text-sm font-medium text-gray-900">Q. {item.question}</h3>

@@ -11,7 +11,7 @@ export function WebhookReceiverGuide() {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white">
+    <div className="rounded-lg border border-gray-200 bg-surface">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

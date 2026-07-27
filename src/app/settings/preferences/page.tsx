@@ -60,6 +60,10 @@ export default function PreferencesSettingsPage() {
     setPrefs(prev => ({ ...prev, [key]: value }))
     const storageKey = PREFS_KEYS[key === 'sidebarCollapsed' ? 'sidebarCollapsed' : key]
     localStorage.setItem(storageKey, String(value))
+    // テーマ変更は同一タブの ThemeSync に即時反映させる（保存ボタン無し・楽観適用）
+    if (key === 'theme') {
+      window.dispatchEvent(new Event('taskapp:theme-change'))
+    }
   }
 
   if (!mounted) {
@@ -72,7 +76,7 @@ export default function PreferencesSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
             <SettingsBackButton />
@@ -86,7 +90,7 @@ export default function PreferencesSettingsPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         {/* Theme */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Sun className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">テーマ</h3>
@@ -95,8 +99,8 @@ export default function PreferencesSettingsPage() {
           <div className="flex gap-3">
             {([
               { value: 'light' as Theme, label: 'ライト', icon: <Sun className="w-4 h-4" />, disabled: false },
-              { value: 'dark' as Theme, label: 'ダーク', icon: <Moon className="w-4 h-4" />, disabled: true },
-              { value: 'system' as Theme, label: 'システム', icon: <Desktop className="w-4 h-4" />, disabled: true },
+              { value: 'dark' as Theme, label: 'ダーク', icon: <Moon className="w-4 h-4" />, disabled: false },
+              { value: 'system' as Theme, label: 'システム', icon: <Desktop className="w-4 h-4" />, disabled: false },
             ]).map(opt => (
               <button
                 key={opt.value}
@@ -106,7 +110,7 @@ export default function PreferencesSettingsPage() {
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   theme === opt.value
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    : 'border-gray-200 bg-surface text-gray-700 hover:bg-gray-50'
                 } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.icon}
@@ -116,12 +120,12 @@ export default function PreferencesSettingsPage() {
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            ダーク／システムのテーマは現在準備中です。今は「ライト」のみご利用いただけます。
+            「システム」はお使いの端末の設定に自動で合わせます。ダークはログイン後のアプリ画面に適用されます（マーケ・診断・クライアント向けポータルは常にライトです）。
           </p>
         </div>
 
         {/* Language */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">言語</h3>
@@ -140,7 +144,7 @@ export default function PreferencesSettingsPage() {
                 className={`px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   language === opt.value
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    : 'border-gray-200 bg-surface text-gray-700 hover:bg-gray-50'
                 } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.label}
@@ -154,7 +158,7 @@ export default function PreferencesSettingsPage() {
         </div>
 
         {/* Timezone */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">タイムゾーン</h3>
@@ -174,7 +178,7 @@ export default function PreferencesSettingsPage() {
         </div>
 
         {/* Sidebar Default State */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <SidebarSimple className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-medium text-gray-900">サイドバー</h3>
@@ -193,7 +197,7 @@ export default function PreferencesSettingsPage() {
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 rounded-full bg-surface transition-transform ${
                   sidebarCollapsed ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />

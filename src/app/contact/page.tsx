@@ -22,7 +22,7 @@ const migrationPoints = [
 
 export default function ContactPage() {
     return (
-        <main className="font-sans antialiased text-slate-900 bg-white selection:bg-amber-100 selection:text-amber-900">
+        <main className="font-sans antialiased text-slate-900 bg-surface selection:bg-amber-100 selection:text-amber-900">
             <LPHeader />
             <div className="pt-16" />
 

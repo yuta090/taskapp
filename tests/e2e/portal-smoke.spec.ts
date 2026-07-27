@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { fillLoginAndSubmit } from './login'
 
 // Regression test for commit f9ab6a0: PortalLeftNav calls
 // usePortalVisibilityForPortal (React Query), but src/app/portal and
@@ -18,10 +19,9 @@ const CLIENT_EMAIL = process.env.E2E_CLIENT_EMAIL || 'client1@client.com'
 const CLIENT_PASSWORD = process.env.E2E_CLIENT_PASSWORD || 'client1234'
 
 async function loginAsClient(page: import('@playwright/test').Page) {
-  await page.goto('/login')
-  await page.locator('input[type="email"]').fill(CLIENT_EMAIL)
-  await page.locator('input[type="password"]').fill(CLIENT_PASSWORD)
-  await page.getByRole('button', { name: 'ログイン', exact: true }).click()
+  // hydration 前に入力すると値が消え、送信自体が起きない（tests/e2e/login.ts 参照）。
+  // baseURL は config で解決されるので、相対の '' を渡してそのまま使う。
+  await fillLoginAndSubmit(page, '', CLIENT_EMAIL, CLIENT_PASSWORD)
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
     timeout: 30_000,
   })

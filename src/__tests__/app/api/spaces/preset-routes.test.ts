@@ -33,6 +33,15 @@ vi.mock('@/lib/presets/sampleTasks', () => ({
   createSampleTasks: (...args: unknown[]) => mockCreateSampleTasks(...args),
 }))
 
+// プロジェクト数のプラン枠（2026-07-26 課金モデル案A）。route はこの容量だけを見る。
+const mockProjectCapacity = vi.fn()
+vi.mock('@/lib/billing/projectCapacity', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/billing/projectCapacity')>(
+    '@/lib/billing/projectCapacity',
+  )
+  return { ...actual, orgProjectCapacity: (...args: unknown[]) => mockProjectCapacity(...args) }
+})
+
 import { POST as createWithPreset } from '@/app/api/spaces/create-with-preset/route'
 import { POST as applyPreset } from '@/app/api/spaces/[spaceId]/apply-preset/route'
 
@@ -55,6 +64,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUpdateHomeLinks.mockResolvedValue(true)
   mockCreateSampleTasks.mockResolvedValue(0)
+  // 既定は枠に余裕あり（既存の振る舞いを変えない）
+  mockProjectCapacity.mockResolvedValue({ activeCount: 0, maxProjects: 3 })
 })
 
 // -- create-with-preset --------------------------------------------------
@@ -87,6 +98,72 @@ describe('POST /api/spaces/create-with-preset', () => {
     const res = await createWithPreset(jsonRequest(url, body))
     expect(res.status).toBe(400)
     expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  // -- プロジェクト数のプラン枠（新規作成のみ拒否・既存は絶対に切らない） ------------
+
+  it('プロジェクト数が上限に達していたら402で拒否し、RPCを呼ばない', async () => {
+    loggedIn()
+    mockProjectCapacity.mockResolvedValue({ activeCount: 3, maxProjects: 3 })
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+
+    expect(res.status).toBe(402)
+    const json = await res.json()
+    expect(json.code).toBe('project_limit_reached')
+    expect(json.limit).toBe(3)
+    // 作成そのものを走らせない（＝上限は作成境界で止める）
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('後から上限を入れて既に超過している org でも、拒否されるのは新規作成だけ（402・既存は無傷）', async () => {
+    loggedIn()
+    mockProjectCapacity.mockResolvedValue({ activeCount: 12, maxProjects: 3 })
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+
+    expect(res.status).toBe(402)
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('上限未満なら通常どおり作成できる', async () => {
+    loggedIn()
+    mockProjectCapacity.mockResolvedValue({ activeCount: 2, maxProjects: 3 })
+    mockRpc.mockResolvedValue({
+      data: { ok: true, space_id: 'space-9', milestones_created: 0, wiki_pages_created: 0 },
+      error: null,
+    })
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+
+    expect(res.status).toBe(200)
+    expect(mockRpc).toHaveBeenCalled()
+  })
+
+  it('上限 null（enterprise）は何件あっても作成できる', async () => {
+    loggedIn()
+    mockProjectCapacity.mockResolvedValue({ activeCount: 500, maxProjects: null })
+    mockRpc.mockResolvedValue({
+      data: { ok: true, space_id: 'space-9', milestones_created: 0, wiki_pages_created: 0 },
+      error: null,
+    })
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+
+    expect(res.status).toBe(200)
+  })
+
+  it('容量判定が落ちても作成は止めない（fail-open・既存導線を壊さない）', async () => {
+    loggedIn()
+    mockProjectCapacity.mockRejectedValue(new Error('boom'))
+    mockRpc.mockResolvedValue({
+      data: { ok: true, space_id: 'space-9', milestones_created: 0, wiki_pages_created: 0 },
+      error: null,
+    })
+
+    const res = await createWithPreset(jsonRequest(url, validBody))
+
+    expect(res.status).toBe(200)
   })
 
   it('RPCエラーは500', async () => {

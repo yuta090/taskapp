@@ -46,7 +46,7 @@ export default async function AdminNotificationsPage() {
         {Array.from(typeCounts.entries())
           .sort((a, b) => b[1] - a[1])
           .map(([type, count]) => (
-            <div key={type} className="bg-white border border-gray-200 rounded-xl p-4">
+            <div key={type} className="bg-surface border border-gray-200 rounded-xl p-4">
               <p className="text-xs text-gray-500 font-mono">{type}</p>
               <p className="text-lg font-bold text-gray-900">{count}</p>
             </div>
@@ -55,7 +55,7 @@ export default async function AdminNotificationsPage() {
 
       {/* Recent */}
       <h2 className="text-sm font-medium text-gray-700 mb-3">直近の通知 (50件)</h2>
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function TokushohoPage() {
     return (
-        <main className="font-sans antialiased text-slate-900 bg-white min-h-screen flex flex-col">
+        <main className="font-sans antialiased text-slate-900 bg-surface min-h-screen flex flex-col">
             <LPHeader />
             <div className="h-16" />
 

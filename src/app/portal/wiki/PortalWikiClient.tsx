@@ -76,7 +76,7 @@ export function PortalWikiClient({
 
           {/* Content */}
           {selectedPage ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-6">
               <WikiEditorDynamic
                 key={selectedPage.id}
                 initialContent={selectedPage.body || undefined}
@@ -84,7 +84,7 @@ export function PortalWikiClient({
               />
             </div>
           ) : wikiPages.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+            <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-8 text-center">
               <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-600">公開されたWikiページはまだありません</p>
               <p className="text-sm text-gray-400 mt-1">
@@ -98,7 +98,7 @@ export function PortalWikiClient({
                   key={page.id}
                   type="button"
                   onClick={() => setSelectedPage(page)}
-                  className="w-full text-left bg-white rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all"
+                  className="w-full text-left bg-surface rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-semibold text-gray-900">{page.title}</h3>

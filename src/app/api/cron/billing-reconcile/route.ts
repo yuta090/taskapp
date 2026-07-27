@@ -8,6 +8,7 @@ import {
   buildBillingPatchFromSubscription,
   billingPatchDiffers,
   deletedSubscriptionPatch,
+  stripePriceMapFromEnv,
   type StripePriceMap,
   type SubscriptionLike,
 } from '@/lib/billing/stripeSync'
@@ -52,10 +53,7 @@ export async function POST(request: NextRequest) {
   }
   const dryRun = url.searchParams.get('dryRun') === 'true' || body.dryRun === true
 
-  const priceMap: StripePriceMap = {
-    pro: process.env.STRIPE_PRO_PRICE_ID || null,
-    enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID || null,
-  }
+  const priceMap: StripePriceMap = stripePriceMapFromEnv()
 
   let stripe: ReturnType<typeof getStripe>
   try {

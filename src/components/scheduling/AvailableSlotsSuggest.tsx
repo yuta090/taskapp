@@ -226,7 +226,7 @@ export function AvailableSlotsSuggest({
                 value={startDate}
                 min={toLocalDateString(new Date())}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-blue-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full px-2 py-1.5 text-xs border border-blue-200 rounded bg-surface focus:outline-none focus:ring-1 focus:ring-blue-400"
                 data-testid="suggest-start-date"
               />
             </div>
@@ -238,7 +238,7 @@ export function AvailableSlotsSuggest({
                 value={endDate}
                 min={startDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-blue-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full px-2 py-1.5 text-xs border border-blue-200 rounded bg-surface focus:outline-none focus:ring-1 focus:ring-blue-400"
                 data-testid="suggest-end-date"
               />
             </div>
@@ -306,7 +306,7 @@ export function AvailableSlotsSuggest({
                             className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded border transition-colors text-left cursor-pointer ${
                               isSelected
                                 ? 'bg-blue-100 border-blue-400 text-blue-800 font-medium'
-                                : 'bg-white border-gray-200 text-gray-700 hover:bg-blue-50 hover:border-blue-300'
+                                : 'bg-surface border-gray-200 text-gray-700 hover:bg-blue-50 hover:border-blue-300'
                             }`}
                             data-testid={`suggest-slot-${idx}`}
                           >

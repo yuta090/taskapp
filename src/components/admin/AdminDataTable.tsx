@@ -245,7 +245,7 @@ export function AdminDataTable<T extends Record<string, unknown>>({
         <button
           type="button"
           onClick={handleExport}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-surface border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
         >
           <DownloadSimple size={16} />
           CSV
@@ -253,7 +253,7 @@ export function AdminDataTable<T extends Record<string, unknown>>({
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-surface border border-gray-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
@@ -314,7 +314,7 @@ export function AdminDataTable<T extends Record<string, unknown>>({
               <select
                 value={pageSize}
                 onChange={(e) => onPageSizeChange(Number(e.target.value))}
-                className="text-xs border border-gray-300 rounded px-1.5 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="text-xs border border-gray-300 rounded px-1.5 py-1 bg-surface text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <option key={size} value={size}>
