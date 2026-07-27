@@ -1,6 +1,9 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
 
 /**
  * 「プランと請求」画面の使用状況。
@@ -32,6 +35,15 @@ function mockFetchOnce(body: unknown, ok = true, status = 200) {
   })
 }
 
+/** 各テストで独立したキャッシュを使う（テスト間でデータが漏れないように）。 */
+function createWrapper() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const wrapper = function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(QueryClientProvider, { client: queryClient }, children)
+  }
+  return { wrapper, queryClient }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -45,7 +57,7 @@ describe('useBillingLimits', () => {
     const fetchMock = mockFetchOnce(RESPONSE)
     vi.stubGlobal('fetch', fetchMock)
 
-    const { result } = renderHook(() => useBillingLimits())
+    const { result } = renderHook(() => useBillingLimits(), { wrapper: createWrapper().wrapper })
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(result.current.limits).toBeNull()
@@ -56,7 +68,7 @@ describe('useBillingLimits', () => {
     const fetchMock = mockFetchOnce(RESPONSE)
     vi.stubGlobal('fetch', fetchMock)
 
-    const { result } = renderHook(() => useBillingLimits(ORG_ID))
+    const { result } = renderHook(() => useBillingLimits(ORG_ID), { wrapper: createWrapper().wrapper })
 
     await waitFor(() => expect(result.current.limits).not.toBeNull())
 
@@ -73,7 +85,7 @@ describe('useBillingLimits', () => {
   it('失敗したらエラーを立てる（画面は再読み込みボタンを出せる）', async () => {
     vi.stubGlobal('fetch', mockFetchOnce({ error: 'Access denied' }, false, 403))
 
-    const { result } = renderHook(() => useBillingLimits(ORG_ID))
+    const { result } = renderHook(() => useBillingLimits(ORG_ID), { wrapper: createWrapper().wrapper })
 
     await waitFor(() => expect(result.current.error).not.toBeNull())
     expect(result.current.limits).toBeNull()
@@ -82,7 +94,7 @@ describe('useBillingLimits', () => {
   it('通信そのものが落ちてもクラッシュしない', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
 
-    const { result } = renderHook(() => useBillingLimits(ORG_ID))
+    const { result } = renderHook(() => useBillingLimits(ORG_ID), { wrapper: createWrapper().wrapper })
 
     await waitFor(() => expect(result.current.error).not.toBeNull())
     expect(result.current.loading).toBe(false)
@@ -91,7 +103,7 @@ describe('useBillingLimits', () => {
   describe('isAtLimit', () => {
     it('上限ちょうどは true・余裕があれば false・無制限は false', async () => {
       vi.stubGlobal('fetch', mockFetchOnce(RESPONSE))
-      const { result } = renderHook(() => useBillingLimits(ORG_ID))
+      const { result } = renderHook(() => useBillingLimits(ORG_ID), { wrapper: createWrapper().wrapper })
       await waitFor(() => expect(result.current.limits).not.toBeNull())
 
       expect(result.current.isAtLimit('members')).toBe(true)
@@ -102,7 +114,7 @@ describe('useBillingLimits', () => {
 
     it('まだ読めていないときは false（誤って上限扱いして操作を止めない）', () => {
       vi.stubGlobal('fetch', mockFetchOnce(RESPONSE))
-      const { result } = renderHook(() => useBillingLimits())
+      const { result } = renderHook(() => useBillingLimits(), { wrapper: createWrapper().wrapper })
 
       expect(result.current.isAtLimit('members')).toBe(false)
     })
@@ -111,7 +123,7 @@ describe('useBillingLimits', () => {
   describe('getRemainingCount', () => {
     it('残り枠を返す。無制限と未取得は null（警告を出さない）', async () => {
       vi.stubGlobal('fetch', mockFetchOnce(RESPONSE))
-      const { result } = renderHook(() => useBillingLimits(ORG_ID))
+      const { result } = renderHook(() => useBillingLimits(ORG_ID), { wrapper: createWrapper().wrapper })
       await waitFor(() => expect(result.current.limits).not.toBeNull())
 
       expect(result.current.getRemainingCount('projects')).toBe(2)
@@ -124,7 +136,7 @@ describe('useBillingLimits', () => {
     it('もう一度取り直す', async () => {
       const fetchMock = mockFetchOnce(RESPONSE)
       vi.stubGlobal('fetch', fetchMock)
-      const { result } = renderHook(() => useBillingLimits(ORG_ID))
+      const { result } = renderHook(() => useBillingLimits(ORG_ID), { wrapper: createWrapper().wrapper })
       await waitFor(() => expect(result.current.limits).not.toBeNull())
 
       await act(async () => {
@@ -132,6 +144,25 @@ describe('useBillingLimits', () => {
       })
 
       expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('同じ画面での重複取得', () => {
+    it('useEntitlements と同時に使っても通信は1本にまとまる', async () => {
+      const fetchMock = mockFetchOnce({ ...RESPONSE, features: ['timed_line_reminders'] })
+      vi.stubGlobal('fetch', fetchMock)
+      const { wrapper } = createWrapper()
+
+      // 「プランと請求」画面と同じ組み合わせ（使用状況カード＋プラン別機能一覧）
+      const limits = renderHook(() => useBillingLimits(ORG_ID), { wrapper })
+      const entitlements = renderHook(() => useEntitlements(ORG_ID), { wrapper })
+
+      await waitFor(() => expect(limits.result.current.limits).not.toBeNull())
+      await waitFor(() => expect(entitlements.result.current.planName).toBe('Pro'))
+
+      // 同じ答えを2回作りに行かない（サーバ側は1回あたり4往復するので効く）
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(entitlements.result.current.has('timed_line_reminders')).toBe(true)
     })
   })
 })

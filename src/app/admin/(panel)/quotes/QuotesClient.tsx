@@ -24,6 +24,13 @@ function formatJst(iso: string | null | undefined): string {
   }).format(new Date(iso))
 }
 
+/**
+ * 承認済み一覧が信用できない状態。
+ * 'truncated' = 件数が多すぎて一部しか出せていない / 'failed' = 読み取り自体に失敗
+ * どちらも「0件です」と静かに表示すると請求漏れに気づけないので、必ず出す。
+ */
+export type ApprovedWarning = 'truncated' | 'failed' | null
+
 interface OfferDraft {
   amount: string
   members: string
@@ -44,17 +51,18 @@ export function QuotesClient({
   initialOpen,
   initialPendingSync,
   initialApproved,
-  initialApprovedTruncated = false,
+  initialApprovedWarning = null,
 }: {
   initialOpen: BillingQuoteRow[]
   initialPendingSync: BillingQuoteRow[]
   initialApproved: ApprovedQuoteWithOrg[]
-  initialApprovedTruncated?: boolean
+  /** 承認済み一覧が信用できない状態。null = 正常に全件取れている。 */
+  initialApprovedWarning?: ApprovedWarning
 }) {
   const [open, setOpen] = useState(initialOpen)
   const [pendingSync, setPendingSync] = useState(initialPendingSync)
   const [approved, setApproved] = useState(initialApproved)
-  const [approvedTruncated, setApprovedTruncated] = useState(initialApprovedTruncated)
+  const [approvedWarning, setApprovedWarning] = useState<ApprovedWarning>(initialApprovedWarning)
   const [drafts, setDrafts] = useState<Record<string, OfferDraft>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -71,12 +79,12 @@ export function QuotesClient({
         open?: BillingQuoteRow[]
         pendingSync?: BillingQuoteRow[]
         approved?: ApprovedQuoteWithOrg[]
-        approvedTruncated?: boolean
+        approvedWarning?: ApprovedWarning
       }
       if (body.open) setOpen(body.open)
       if (body.pendingSync) setPendingSync(body.pendingSync)
       if (body.approved) setApproved(body.approved)
-      setApprovedTruncated(Boolean(body.approvedTruncated))
+      setApprovedWarning(body.approvedWarning ?? null)
     } catch {
       // 取り直しに失敗しても操作自体は成功している。画面は次の再読み込みで揃う。
     }
@@ -274,10 +282,19 @@ export function QuotesClient({
           </a>
         </div>
 
-        {approvedTruncated && (
+        {approvedWarning && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            件数が多すぎて<strong>一部しか表示できていません</strong>。
-            この合計金額とCSVは全件ではありません。そのまま請求に使わないでください。
+            {approvedWarning === 'truncated' ? (
+              <>
+                件数が多すぎて<strong>一部しか表示できていません</strong>。
+                この合計金額とCSVは全件ではありません。そのまま請求に使わないでください。
+              </>
+            ) : (
+              <>
+                承認済みの一覧を<strong>読み込めませんでした</strong>。
+                下の「0件」は本当に0件という意味ではありません。時間をおいて再読み込みしてください。
+              </>
+            )}
           </div>
         )}
 

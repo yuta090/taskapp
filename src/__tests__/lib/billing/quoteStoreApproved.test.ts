@@ -17,6 +17,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 import {
   listApprovedQuotesWithOrg,
+  approvedWarningOf,
   APPROVED_QUOTES_PAGE_SIZE,
   APPROVED_QUOTES_MAX,
 } from '@/lib/billing/quoteStore'
@@ -112,7 +113,8 @@ describe('listApprovedQuotesWithOrg', () => {
     expect(errorSpy).toHaveBeenCalled()
   })
 
-  it('クエリが失敗したら空で返す（画面を壊さない）', async () => {
+  it('クエリが失敗したら空で返すが、「0件」と区別できるよう failed を立てる', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const from = vi.fn(() => {
       const builder: Record<string, unknown> = {}
       Object.assign(builder, {
@@ -125,9 +127,49 @@ describe('listApprovedQuotesWithOrg', () => {
     })
     mockAdminClient.mockReturnValue({ from })
 
-    const { rows, truncated } = await listApprovedQuotesWithOrg()
+    const result = await listApprovedQuotesWithOrg()
 
-    expect(rows).toEqual([])
-    expect(truncated).toBe(false)
+    expect(result.rows).toEqual([])
+    expect(result.truncated).toBe(false)
+    expect(result.failed).toBe(true)
+    expect(approvedWarningOf(result)).toBe('failed')
+    expect(errorSpy).toHaveBeenCalled()
+  })
+
+  it('ページの境目で行がダブったり抜けたりしないよう、並び順を id で決着させる', async () => {
+    const orders: Array<[string, unknown]> = []
+    const from = vi.fn((table: string) => {
+      if (table === 'organizations') {
+        const b: Record<string, unknown> = {}
+        Object.assign(b, { select: () => b, in: () => Promise.resolve({ data: [], error: null }) })
+        return b
+      }
+      const b: Record<string, unknown> = {}
+      Object.assign(b, {
+        select: () => b,
+        eq: () => b,
+        order: (col: string, opts: unknown) => {
+          orders.push([col, opts])
+          return b
+        },
+        range: () => Promise.resolve({ data: [makeRow(0)], error: null }),
+      })
+      return b
+    })
+    mockAdminClient.mockReturnValue({ from })
+
+    await listApprovedQuotesWithOrg()
+
+    // approved_at は重複もNULLもありうるので、一意な id をタイブレーカーに付ける
+    expect(orders.map(([col]) => col)).toEqual(['approved_at', 'id'])
+  })
+})
+
+describe('approvedWarningOf', () => {
+  it('全件そろっていれば警告なし', () => {
+    expect(approvedWarningOf({ rows: [], truncated: false })).toBeNull()
+  })
+  it('読み取り失敗は truncated より優先して failed', () => {
+    expect(approvedWarningOf({ rows: [], truncated: true, failed: true })).toBe('failed')
   })
 })

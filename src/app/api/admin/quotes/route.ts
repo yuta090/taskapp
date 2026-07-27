@@ -5,6 +5,7 @@ import {
   listOpenQuotes,
   listPendingSyncQuotes,
   listApprovedQuotesWithOrg,
+  approvedWarningOf,
   offerQuote,
   cancelQuote,
   terminateQuote,
@@ -44,7 +45,7 @@ export async function GET() {
     open,
     pendingSync,
     approved: approved.rows,
-    approvedTruncated: approved.truncated,
+    approvedWarning: approvedWarningOf(approved),
   })
 }
 

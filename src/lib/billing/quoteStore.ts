@@ -201,6 +201,20 @@ export interface ApprovedQuotesResult {
   rows: ApprovedQuoteWithOrg[]
   /** true = 件数が多すぎて全部は返せていない。画面・CSVで警告すること。 */
   truncated: boolean
+  /** true = 読み取り自体に失敗した。「0件」と区別するために持つ（空表示で安心させない）。 */
+  failed?: boolean
+}
+
+/**
+ * 一覧が信用できるかを1つの値に畳む（画面もAPIもこれを見る）。
+ * null = 全件そろっている。それ以外は必ず警告を出すこと。
+ */
+export function approvedWarningOf(
+  result: ApprovedQuotesResult,
+): 'truncated' | 'failed' | null {
+  if (result.failed) return 'failed'
+  if (result.truncated) return 'truncated'
+  return null
 }
 
 /**
@@ -225,13 +239,16 @@ export async function listApprovedQuotesWithOrg(): Promise<ApprovedQuotesResult>
       .select(SELECT_COLUMNS)
       .eq('status', 'approved')
       .order('approved_at', { ascending: false })
+      // approved_at は重複も NULL もありうる。同値行の順序は保証されないので id で決着させる。
+      // これが無いとページの境目で行がダブる／抜ける＝抜けた分がそのまま請求漏れになる。
+      .order('id', { ascending: true })
       .range(offset, to)
 
     if (error) {
       console.error('[billing_quotes] 承認済み一覧の取得に失敗', error)
       // 途中まで取れた分だけ返すと「少ない合計金額」を正しい額として見せてしまう。
-      // 中途半端な数字より 0件（＝明らかに異常）のほうが気づける。
-      return { rows: [], truncated: false }
+      // failed を立てて「0件」と区別する（画面は空表示ではなくエラーを出す）。
+      return { rows: [], truncated: false, failed: true }
     }
     const page = (data ?? []) as unknown as BillingQuoteRow[]
     rows.push(...page)

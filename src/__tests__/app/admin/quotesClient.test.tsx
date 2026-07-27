@@ -63,7 +63,7 @@ describe('QuotesClient', () => {
           open: [],
           pendingSync: [],
           approved: [{ ...APPROVED, stripeSyncStatus: 'applied' }],
-          approvedTruncated: false,
+          approvedWarning: null,
         }),
       }
     })
@@ -74,7 +74,7 @@ describe('QuotesClient', () => {
         initialOpen={[]}
         initialPendingSync={[PENDING]}
         initialApproved={[APPROVED]}
-        initialApprovedTruncated={false}
+        initialApprovedWarning={null}
       />,
     )
 
@@ -94,10 +94,25 @@ describe('QuotesClient', () => {
         initialOpen={[]}
         initialPendingSync={[]}
         initialApproved={[APPROVED]}
-        initialApprovedTruncated
+        initialApprovedWarning="truncated"
       />,
     )
 
     expect(screen.getByText(/一部しか表示できていません/)).toBeInTheDocument()
+  })
+
+  it('読み込みに失敗したときは「0件」と誤解させず、読めなかったと出す', () => {
+    vi.stubGlobal('fetch', vi.fn())
+
+    render(
+      <QuotesClient
+        initialOpen={[]}
+        initialPendingSync={[]}
+        initialApproved={[]}
+        initialApprovedWarning="failed"
+      />,
+    )
+
+    expect(screen.getByText(/読み込めませんでした/)).toBeInTheDocument()
   })
 })

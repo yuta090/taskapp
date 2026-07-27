@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
+import { useBillingLimitsQuery } from './useBillingLimitsQuery'
 
 /**
  * 組織の使用状況（プロジェクト/メンバー/相手先/ストレージ）と、その上限。
@@ -8,6 +9,9 @@ import { useCallback, useEffect, useState } from 'react'
  * 真実源はサーバの `/api/billing/limits`（DBの `rpc_check_org_limits`）。
  * ここが値を返さないと「プランと請求」画面はプラン名を知れず、有料の組織にも
  * 「無料プランをご利用中です」と出てサブスクリプション管理ボタンが消える。
+ *
+ * 取得は `useBillingLimitsQuery`（react-query）に集約。同じ画面の
+ * `useEntitlements` と同一 queryKey なので、同時に走っても実際の通信は1本。
  *
  * 上限 `null` は無制限（Enterprise など）。判定は「未取得＝制限なし扱い」に倒す
  * ＝読めていないことを理由に操作を止めない（止めるのはサーバ側の作成境界の仕事）。
@@ -50,51 +54,23 @@ function toLimit(value: unknown): number | null {
 }
 
 export function useBillingLimits(orgId?: string) {
-  const [limits, setLimits] = useState<BillingLimits | null>(null)
   // orgId が決まるまでは取りに行かない（組織の解決待ちで空振りさせない）
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { data, isPending, error, refetch } = useBillingLimitsQuery(orgId, !!orgId)
 
-  const load = useCallback(async () => {
-    if (!orgId) {
-      setLimits(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/billing/limits?org_id=${orgId}`, {
-        credentials: 'same-origin',
-      })
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
-        error?: string
-      }
-      if (!res.ok) throw new Error(body.error ?? `使用状況を取得できませんでした (${res.status})`)
-
-      setLimits({
-        plan_name: typeof body.plan_name === 'string' ? body.plan_name : undefined,
-        projects_used: toNumber(body.projects_used),
-        projects_limit: toLimit(body.projects_limit),
-        members_used: toNumber(body.members_used),
-        members_limit: toLimit(body.members_limit),
-        clients_used: toNumber(body.clients_used),
-        clients_limit: toLimit(body.clients_limit),
-        storage_used_bytes: toNumber(body.storage_used_bytes),
-        storage_limit_bytes: toLimit(body.storage_limit_bytes),
-      })
-    } catch (e) {
-      setLimits(null)
-      setError(e instanceof Error ? e.message : '使用状況を取得できませんでした')
-    } finally {
-      setLoading(false)
-    }
-  }, [orgId])
-
-  useEffect(() => {
-    void load()
-  }, [load])
+  const limits: BillingLimits | null =
+    !orgId || !data
+      ? null
+      : {
+          plan_name: typeof data.plan_name === 'string' ? data.plan_name : undefined,
+          projects_used: toNumber(data.projects_used),
+          projects_limit: toLimit(data.projects_limit),
+          members_used: toNumber(data.members_used),
+          members_limit: toLimit(data.members_limit),
+          clients_used: toNumber(data.clients_used),
+          clients_limit: toLimit(data.clients_limit),
+          storage_used_bytes: toNumber(data.storage_used_bytes),
+          storage_limit_bytes: toLimit(data.storage_limit_bytes),
+        }
 
   const isAtLimit = useCallback(
     (type: BillingLimitType | string) => {
@@ -123,5 +99,18 @@ export function useBillingLimits(orgId?: string) {
     [limits],
   )
 
-  return { limits, loading, error, refresh: load, isAtLimit, getRemainingCount }
+  const refresh = useCallback(async () => {
+    if (!orgId) return
+    await refetch()
+  }, [orgId, refetch])
+
+  return {
+    limits,
+    // キャッシュに在庫があればスケルトンを出さない（再訪で毎回真っ白にしない）
+    loading: !!orgId && isPending && !data,
+    error: error instanceof Error ? error.message : null,
+    refresh,
+    isAtLimit,
+    getRemainingCount,
+  }
 }

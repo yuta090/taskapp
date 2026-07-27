@@ -13,10 +13,14 @@ export async function GET() {
   const adminUserId = await verifySuperadmin()
   if (!adminUserId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { rows, truncated } = await listApprovedQuotesWithOrg()
-  if (truncated) {
+  const { rows, truncated, failed } = await listApprovedQuotesWithOrg()
+  if (truncated || failed) {
     // 全件を出せていない CSV をそのまま経理へ渡すと請求漏れになる。ログで気づけるようにする。
-    console.error('[billing_quotes] CSV出力が全件ではない（承認済みが多すぎる）')
+    console.error(
+      failed
+        ? '[billing_quotes] CSV出力: 承認済み一覧の読み取りに失敗（空のCSVを返した）'
+        : '[billing_quotes] CSV出力が全件ではない（承認済みが多すぎる）',
+    )
   }
   const csv = buildApprovedQuotesCsv(rows)
 
