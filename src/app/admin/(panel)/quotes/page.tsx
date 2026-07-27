@@ -15,6 +15,11 @@ export default async function AdminQuotesPage() {
     listApprovedQuotesWithOrg(),
   ])
   return (
-    <QuotesClient initialOpen={open} initialPendingSync={pendingSync} initialApproved={approved} />
+    <QuotesClient
+      initialOpen={open}
+      initialPendingSync={pendingSync}
+      initialApproved={approved.rows}
+      initialApprovedTruncated={approved.truncated}
+    />
   )
 }

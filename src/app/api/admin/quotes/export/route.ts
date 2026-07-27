@@ -13,7 +13,11 @@ export async function GET() {
   const adminUserId = await verifySuperadmin()
   if (!adminUserId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const rows = await listApprovedQuotesWithOrg()
+  const { rows, truncated } = await listApprovedQuotesWithOrg()
+  if (truncated) {
+    // 全件を出せていない CSV をそのまま経理へ渡すと請求漏れになる。ログで気づけるようにする。
+    console.error('[billing_quotes] CSV出力が全件ではない（承認済みが多すぎる）')
+  }
   const csv = buildApprovedQuotesCsv(rows)
 
   // ファイル名は日付入り（毎月ダウンロードして保管する運用を想定）

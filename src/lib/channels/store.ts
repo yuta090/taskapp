@@ -1532,16 +1532,19 @@ function classifyGroupClaimRpcError(code: string | undefined): GroupClaimActionE
 export async function orgLineGroupCapacity(
   orgId: string,
 ): Promise<{ activeCount: number; maxGroups: number | null }> {
-  const { count } = await admin()
-    .from('channel_groups')
-    .select('id', { count: 'exact', head: true })
-    .eq('org_id', orgId)
-    // ★channel=line に限定して数える。Discord等の外部チャットグループが LINE 枠を汚染しない
-    //   （逆も orgExternalChatGroupCapacity が channel で絞る）。両枠は独立カウント。
-    .eq('channel', 'line')
-    .eq('status', 'active')
+  // 件数と上限は互いに依存しないので並列で取る（受信のたびに通る経路＝待ち時間を足し算にしない）。
   // 上限は org 単位 seam で解決（将来のパック override を1点に閉じ込める。現状は挙動不変）。
-  const limits = await resolveOrgLimits(admin(), orgId)
+  const [{ count }, limits] = await Promise.all([
+    admin()
+      .from('channel_groups')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+      // ★channel=line に限定して数える。Discord等の外部チャットグループが LINE 枠を汚染しない
+      //   （逆も orgExternalChatGroupCapacity が channel で絞る）。両枠は独立カウント。
+      .eq('channel', 'line')
+      .eq('status', 'active'),
+    resolveOrgLimits(admin(), orgId),
+  ])
   return { activeCount: count ?? 0, maxGroups: limits.maxLineGroups }
 }
 
@@ -1563,13 +1566,16 @@ export async function orgExternalChatGroupCapacity(
   orgId: string,
   channel: string = 'discord',
 ): Promise<{ activeCount: number; max: number | null }> {
-  const { count } = await admin()
-    .from('channel_groups')
-    .select('id', { count: 'exact', head: true })
-    .eq('org_id', orgId)
-    .eq('channel', channel)
-    .eq('status', 'active')
-  const limits = await resolveOrgLimits(admin(), orgId)
+  // 件数と上限は互いに依存しないので並列で取る（orgLineGroupCapacity と同じ理由）。
+  const [{ count }, limits] = await Promise.all([
+    admin()
+      .from('channel_groups')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+      .eq('channel', channel)
+      .eq('status', 'active'),
+    resolveOrgLimits(admin(), orgId),
+  ])
   return { activeCount: count ?? 0, max: limits.maxExternalChatGroups }
 }
 

@@ -28,14 +28,16 @@ export interface ProjectCapacity {
 export async function orgProjectCapacity(orgId: string): Promise<ProjectCapacity> {
   const admin = createAdminClient()
 
-  const { count } = await admin
-    .from('spaces')
-    .select('id', { count: 'exact', head: true })
-    .eq('org_id', orgId)
-    .eq('type', 'project')
-    .is('archived_at', null)
-
-  const limits = await resolveOrgLimits(admin, orgId)
+  // 件数の集計と上限の解決は互いに依存しない。直列に待つと作成の待ち時間が足し算になるので並列で走らせる。
+  const [{ count }, limits] = await Promise.all([
+    admin
+      .from('spaces')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+      .eq('type', 'project')
+      .is('archived_at', null),
+    resolveOrgLimits(admin, orgId),
+  ])
 
   return { activeCount: count ?? 0, maxProjects: limits.maxProjects }
 }

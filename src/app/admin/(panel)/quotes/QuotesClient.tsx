@@ -44,16 +44,43 @@ export function QuotesClient({
   initialOpen,
   initialPendingSync,
   initialApproved,
+  initialApprovedTruncated = false,
 }: {
   initialOpen: BillingQuoteRow[]
   initialPendingSync: BillingQuoteRow[]
   initialApproved: ApprovedQuoteWithOrg[]
+  initialApprovedTruncated?: boolean
 }) {
   const [open, setOpen] = useState(initialOpen)
   const [pendingSync, setPendingSync] = useState(initialPendingSync)
+  const [approved, setApproved] = useState(initialApproved)
+  const [approvedTruncated, setApprovedTruncated] = useState(initialApprovedTruncated)
   const [drafts, setDrafts] = useState<Record<string, OfferDraft>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  /**
+   * 一覧を取り直す。「反映済みにする」「枠を終了する」の後に呼ぶ。
+   * 呼ばないと承認済みの表が古いまま＝反映したのに「未反映」を見続けて二重作業になる。
+   */
+  async function reload() {
+    try {
+      const res = await fetch('/api/admin/quotes')
+      if (!res.ok) return
+      const body = (await res.json()) as {
+        open?: BillingQuoteRow[]
+        pendingSync?: BillingQuoteRow[]
+        approved?: ApprovedQuoteWithOrg[]
+        approvedTruncated?: boolean
+      }
+      if (body.open) setOpen(body.open)
+      if (body.pendingSync) setPendingSync(body.pendingSync)
+      if (body.approved) setApproved(body.approved)
+      setApprovedTruncated(Boolean(body.approvedTruncated))
+    } catch {
+      // 取り直しに失敗しても操作自体は成功している。画面は次の再読み込みで揃う。
+    }
+  }
 
   function draftOf(id: string): OfferDraft {
     return drafts[id] ?? EMPTY_DRAFT
@@ -103,6 +130,8 @@ export function QuotesClient({
       if (!res.ok) throw new Error(body.error ?? `操作に失敗しました (${res.status})`)
       if (action === 'cancel') setOpen((prev) => prev.filter((q) => q.id !== quoteId))
       else setPendingSync((prev) => prev.filter((q) => q.id !== quoteId))
+      // 承認済みの表（＝毎月いくら請求するか）は状態が変わるので取り直す
+      if (action !== 'cancel') await reload()
     } catch (e) {
       setError(e instanceof Error ? e.message : '操作に失敗しました')
     } finally {
@@ -234,20 +263,30 @@ export function QuotesClient({
               毎月これを請求します。請求書の作成に使えるよう CSV で書き出せます（Excelで開けます）。
             </p>
           </div>
+          {/* ページ遷移ではなくファイルのダウンロード。next/link にすると先読みが走り不要にCSVを生成する */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a
             href="/api/admin/quotes/export"
+            download
             className="rounded-lg border border-gray-300 bg-surface px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           >
             CSVをダウンロード
           </a>
         </div>
 
+        {approvedTruncated && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            件数が多すぎて<strong>一部しか表示できていません</strong>。
+            この合計金額とCSVは全件ではありません。そのまま請求に使わないでください。
+          </div>
+        )}
+
         <div className="rounded-lg border border-gray-200 bg-surface">
           <div className="border-b border-gray-100 px-4 py-3 text-sm text-gray-700">
-            合計 <span className="font-semibold">月額 ¥{monthlyTotalJpy(initialApproved).toLocaleString()}</span>
-            <span className="text-gray-500">（{initialApproved.length}件・税別）</span>
+            合計 <span className="font-semibold">月額 ¥{monthlyTotalJpy(approved).toLocaleString()}</span>
+            <span className="text-gray-500">（{approved.length}件・税別）</span>
           </div>
-          {initialApproved.length === 0 ? (
+          {approved.length === 0 ? (
             <p className="px-4 py-3 text-sm text-gray-500">承認済みの追加枠はありません。</p>
           ) : (
             <table className="w-full text-sm">
@@ -261,7 +300,7 @@ export function QuotesClient({
                 </tr>
               </thead>
               <tbody>
-                {initialApproved.map((q) => (
+                {approved.map((q) => (
                   <tr key={q.id} className="border-b border-gray-50 last:border-0">
                     <td className="px-4 py-2 text-gray-900">{q.orgName}</td>
                     <td className="px-4 py-2 text-gray-900">

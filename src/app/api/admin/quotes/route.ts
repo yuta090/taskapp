@@ -4,6 +4,7 @@ import { UUID_REGEX } from '@/lib/uuid'
 import {
   listOpenQuotes,
   listPendingSyncQuotes,
+  listApprovedQuotesWithOrg,
   offerQuote,
   cancelQuote,
   terminateQuote,
@@ -34,8 +35,17 @@ export async function GET() {
   const adminUserId = await verifySuperadmin()
   if (!adminUserId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [open, pendingSync] = await Promise.all([listOpenQuotes(), listPendingSyncQuotes()])
-  return NextResponse.json({ open, pendingSync })
+  const [open, pendingSync, approved] = await Promise.all([
+    listOpenQuotes(),
+    listPendingSyncQuotes(),
+    listApprovedQuotesWithOrg(),
+  ])
+  return NextResponse.json({
+    open,
+    pendingSync,
+    approved: approved.rows,
+    approvedTruncated: approved.truncated,
+  })
 }
 
 export async function POST(request: NextRequest) {

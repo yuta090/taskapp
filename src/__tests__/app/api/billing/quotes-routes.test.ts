@@ -326,19 +326,22 @@ describe('GET /api/admin/quotes/export（経理向けCSV）', () => {
 
   it('CSVをダウンロードとして返す（ファイル名つき・Excel想定）', async () => {
     mockVerifySuperadmin.mockResolvedValue('admin-1')
-    store.listApprovedQuotesWithOrg.mockResolvedValue([
-      {
-        id: 'q1',
-        orgId: 'org-1',
-        orgName: 'テスト事務所',
-        amountMonthlyJpy: 5000,
-        addMembers: 10,
-        addLineGroups: 0,
-        addExternalChatGroups: 0,
-        approvedAt: '2026-07-26T01:23:45.000Z',
-        stripeSyncStatus: 'pending',
-      },
-    ])
+    store.listApprovedQuotesWithOrg.mockResolvedValue({
+      truncated: false,
+      rows: [
+        {
+          id: 'q1',
+          orgId: 'org-1',
+          orgName: 'テスト事務所',
+          amountMonthlyJpy: 5000,
+          addMembers: 10,
+          addLineGroups: 0,
+          addExternalChatGroups: 0,
+          approvedAt: '2026-07-26T01:23:45.000Z',
+          stripeSyncStatus: 'pending',
+        },
+      ],
+    })
 
     const res = await exportCsv()
 
@@ -352,11 +355,23 @@ describe('GET /api/admin/quotes/export（経理向けCSV）', () => {
 
   it('0件でも見出しだけのCSVを返す（空レスポンスにしない）', async () => {
     mockVerifySuperadmin.mockResolvedValue('admin-1')
-    store.listApprovedQuotesWithOrg.mockResolvedValue([])
+    store.listApprovedQuotesWithOrg.mockResolvedValue({ rows: [], truncated: false })
 
     const res = await exportCsv()
 
     expect(res.status).toBe(200)
     expect(await res.text()).toContain('組織名')
+  })
+
+  it('全件を出せていないときは警告をログに残す（黙って請求漏れにしない）', async () => {
+    mockVerifySuperadmin.mockResolvedValue('admin-1')
+    store.listApprovedQuotesWithOrg.mockResolvedValue({ rows: [], truncated: true })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await exportCsv()
+
+    expect(res.status).toBe(200)
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 })
