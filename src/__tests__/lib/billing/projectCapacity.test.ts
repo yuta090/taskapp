@@ -33,6 +33,8 @@ const ORG_ID = '11111111-2222-3333-4444-555555555555'
 /** spaces の count クエリを模す。適用されたフィルタを記録して検証できるようにする。 */
 function makeAdmin(result: { count: number | null; error?: unknown }) {
   const filters: Record<string, unknown> = {}
+  /** count クエリが await された時点で resolveOrgLimits が既に呼ばれていたか（＝並列で走ったか） */
+  const timing = { limitsCallsWhenCountAwaited: -1 }
   const builder: Record<string, unknown> = {}
   const eq = vi.fn((col: string, val: unknown) => {
     filters[col] = val
@@ -45,12 +47,14 @@ function makeAdmin(result: { count: number | null; error?: unknown }) {
   Object.assign(builder, {
     eq,
     is,
-    then: (resolve: (v: unknown) => unknown) =>
-      resolve({ count: result.count, error: result.error ?? null }),
+    then: (resolve: (v: unknown) => unknown) => {
+      timing.limitsCallsWhenCountAwaited = mockResolveOrgLimits.mock.calls.length
+      return resolve({ count: result.count, error: result.error ?? null })
+    },
   })
   const select = vi.fn(() => builder)
   const from = vi.fn(() => ({ select }))
-  return { client: { from }, filters, from, select }
+  return { client: { from }, filters, from, select, timing }
 }
 
 beforeEach(() => {
@@ -81,6 +85,17 @@ describe('orgProjectCapacity', () => {
     const cap = await orgProjectCapacity(ORG_ID)
 
     expect(cap).toEqual({ activeCount: 999, maxProjects: null })
+  })
+
+  it('件数の集計と上限の解決を並列で走らせる（プロジェクト作成の待ち時間を足し算にしない）', async () => {
+    const admin = makeAdmin({ count: 2 })
+    mockAdminClient.mockReturnValue(admin.client)
+    mockResolveOrgLimits.mockResolvedValue({ maxProjects: 3 })
+
+    await orgProjectCapacity(ORG_ID)
+
+    // 直列だと count を待ってから resolveOrgLimits を呼ぶので、この時点の呼び出し回数は 0 になる。
+    expect(admin.timing.limitsCallsWhenCountAwaited).toBe(1)
   })
 
   it('count が取れない場合は 0 ではなく上限到達として扱わない（countはnull→0）', async () => {

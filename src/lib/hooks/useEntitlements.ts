@@ -1,11 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback } from 'react'
 import type { Feature } from '@/lib/billing/entitlements'
+import { useBillingLimitsQuery } from './useBillingLimitsQuery'
 
 /**
  * クライアント側のエンタイトルメント表示用フック（④ 課金導線）。
  * /api/billing/limits の features（表示専用）を読み、has(feature) を返す。
+ *
+ * 取得は `useBillingLimitsQuery`（react-query）に集約。使用状況カードの
+ * `useBillingLimits` と同一 queryKey なので、同じ画面に両方あっても通信は1本。
  *
  * ※これは**表示専用**（アップグレード導線の出し分けに使う）。実際の機能ゲートは
  * サーバ（設定API=403／cron送信時=fail-closed）が真実源。クライアント判定は
@@ -22,48 +26,24 @@ export interface UseEntitlementsResult {
 }
 
 export function useEntitlements(orgId?: string): UseEntitlementsResult {
-  const [features, setFeatures] = useState<Feature[]>([])
-  const [planName, setPlanName] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // orgId 未指定でも問い合わせる（サーバが cookie から組織を解決する既存挙動を維持）。
+  const { data, isPending, error, refetch } = useBillingLimitsQuery(orgId)
 
-  const fetchEntitlements = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
-    setError(null)
-
-    const url = orgId
-      ? `/api/billing/limits?org_id=${encodeURIComponent(orgId)}`
-      : '/api/billing/limits'
-
-    try {
-      const res = await fetch(url, { signal })
-      if (signal?.aborted) return
-      if (!res.ok) throw new Error(`billing/limits ${res.status}`)
-      const json = (await res.json()) as { features?: unknown; plan_name?: unknown }
-      setFeatures(Array.isArray(json.features) ? (json.features as Feature[]) : [])
-      setPlanName(typeof json.plan_name === 'string' ? json.plan_name : null)
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return
-      if (signal?.aborted) return
-      // fail-closed: 不明なら機能なし扱い
-      setFeatures([])
-      setPlanName(null)
-      setError(err instanceof Error ? err.message : 'failed')
-    } finally {
-      if (!signal?.aborted) setLoading(false)
-    }
-  }, [orgId])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchEntitlements(controller.signal)
-    return () => controller.abort()
-  }, [fetchEntitlements])
+  // fail-closed: 失敗・未取得は「機能なし」扱い
+  const features: Feature[] = Array.isArray(data?.features) ? (data.features as Feature[]) : []
+  const planName = typeof data?.plan_name === 'string' ? data.plan_name : null
 
   const has = useCallback((feature: Feature) => features.includes(feature), [features])
   const refresh = useCallback(() => {
-    fetchEntitlements()
-  }, [fetchEntitlements])
+    void refetch()
+  }, [refetch])
 
-  return { features, has, planName, loading, error, refresh }
+  return {
+    features,
+    has,
+    planName,
+    loading: isPending && !data,
+    error: error instanceof Error ? error.message : null,
+    refresh,
+  }
 }

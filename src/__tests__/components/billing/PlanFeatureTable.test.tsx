@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { PlanFeatureTable } from '@/components/billing/PlanFeatureTable'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+/** useEntitlements は react-query 経由（同一画面の重複取得を1本にまとめるため）。 */
+function renderWithQuery(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
+}
+
 
 function mockLimits(planName: string, features: string[]) {
   vi.stubGlobal(
@@ -15,7 +23,7 @@ describe('PlanFeatureTable', () => {
 
   it('Pro差別化機能の行と Free/Pro/Enterprise 列を表示する', async () => {
     mockLimits('Free', [])
-    render(<PlanFeatureTable orgId="org-1" />)
+    renderWithQuery(<PlanFeatureTable orgId="org-1" />)
     expect(screen.getByText('即時通知')).toBeInTheDocument()
     expect(screen.getByText('時刻指定リマインド')).toBeInTheDocument()
     expect(screen.getByText('自社名義LINE')).toBeInTheDocument()
@@ -28,7 +36,7 @@ describe('PlanFeatureTable', () => {
 
   it('Free 行は✗（利用不可）、Pro/Enterprise は✓（利用可能）', async () => {
     mockLimits('Free', [])
-    render(<PlanFeatureTable orgId="org-1" />)
+    renderWithQuery(<PlanFeatureTable orgId="org-1" />)
     // 5機能 × Free列 = 5つの「利用不可」、× (Pro+Enterprise) = 10の「利用可能」
     // （external_chat_channels を Pro差別化機能に追加した分で 4/8 → 5/10）
     await waitFor(() => {
@@ -39,8 +47,10 @@ describe('PlanFeatureTable', () => {
 
   it('現在プラン（Pro）列に「現在」バッジを付ける', async () => {
     mockLimits('Pro', ['timed_line_reminders', 'own_line_account'])
-    render(<PlanFeatureTable orgId="org-1" />)
-    const proHeader = await screen.findByRole('columnheader', { name: /Pro/ })
+    renderWithQuery(<PlanFeatureTable orgId="org-1" />)
+    // 見出し自体は読み込み前から存在するので、バッジが付くのを待ってから列を検査する
+    await screen.findByText('現在')
+    const proHeader = screen.getByRole('columnheader', { name: /Pro/ })
     expect(within(proHeader).getByText('現在')).toBeInTheDocument()
     // Free 列には「現在」は付かない
     const freeHeader = screen.getByRole('columnheader', { name: /Free/ })

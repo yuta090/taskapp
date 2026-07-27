@@ -2,6 +2,7 @@ import {
   listOpenQuotes,
   listPendingSyncQuotes,
   listApprovedQuotesWithOrg,
+  approvedWarningOf,
 } from '@/lib/billing/quoteStore'
 import { QuotesClient } from './QuotesClient'
 
@@ -15,6 +16,11 @@ export default async function AdminQuotesPage() {
     listApprovedQuotesWithOrg(),
   ])
   return (
-    <QuotesClient initialOpen={open} initialPendingSync={pendingSync} initialApproved={approved} />
+    <QuotesClient
+      initialOpen={open}
+      initialPendingSync={pendingSync}
+      initialApproved={approved.rows}
+      initialApprovedWarning={approvedWarningOf(approved)}
+    />
   )
 }
