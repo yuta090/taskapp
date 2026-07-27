@@ -192,23 +192,78 @@ export async function listPendingSyncQuotes(): Promise<BillingQuoteRow[]> {
   return data as unknown as BillingQuoteRow[]
 }
 
+/** 1回のクエリで取る件数。Supabase の1リクエスト上限に収まる大きさにする。 */
+export const APPROVED_QUOTES_PAGE_SIZE = 500
+/** 取り切る上限。ここに達したら「全部は出せていない」と知らせる（黙って捨てない）。 */
+export const APPROVED_QUOTES_MAX = 5000
+
+export interface ApprovedQuotesResult {
+  rows: ApprovedQuoteWithOrg[]
+  /** true = 件数が多すぎて全部は返せていない。画面・CSVで警告すること。 */
+  truncated: boolean
+  /** true = 読み取り自体に失敗した。「0件」と区別するために持つ（空表示で安心させない）。 */
+  failed?: boolean
+}
+
+/**
+ * 一覧が信用できるかを1つの値に畳む（画面もAPIもこれを見る）。
+ * null = 全件そろっている。それ以外は必ず警告を出すこと。
+ */
+export function approvedWarningOf(
+  result: ApprovedQuotesResult,
+): 'truncated' | 'failed' | null {
+  if (result.failed) return 'failed'
+  if (result.truncated) return 'truncated'
+  return null
+}
+
 /**
  * 承認済み（＝毎月請求すべき）追加枠の一覧。組織名を添えて返す。
  * 請求書払いが中心のため「金額が分かれば足りる」運用の主データ（CSVで経理へ渡す）。
  * terminated は含めない（終了＝もう請求しない）。
+ *
+ * ⚠ ここは請求額の正本。1ページだけ取って打ち切ると、あふれた分が
+ * 画面にも合計金額にもCSVにも出ないまま**請求漏れ**になる。だから全ページ取り切り、
+ * それでも取り切れない異常時だけ truncated=true で明示する。
  */
-export async function listApprovedQuotesWithOrg(): Promise<ApprovedQuoteWithOrg[]> {
+export async function listApprovedQuotesWithOrg(): Promise<ApprovedQuotesResult> {
   const client = admin()
-  const { data, error } = await client
-    .from('billing_quotes')
-    .select(SELECT_COLUMNS)
-    .eq('status', 'approved')
-    .order('approved_at', { ascending: false })
-    .limit(500)
 
-  if (error || !data) return []
-  const rows = data as unknown as BillingQuoteRow[]
-  if (rows.length === 0) return []
+  const rows: BillingQuoteRow[] = []
+  let truncated = false
+
+  for (let offset = 0; offset < APPROVED_QUOTES_MAX; offset += APPROVED_QUOTES_PAGE_SIZE) {
+    const to = Math.min(offset + APPROVED_QUOTES_PAGE_SIZE, APPROVED_QUOTES_MAX) - 1
+    const { data, error } = await client
+      .from('billing_quotes')
+      .select(SELECT_COLUMNS)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+      // approved_at は重複も NULL もありうる。同値行の順序は保証されないので id で決着させる。
+      // これが無いとページの境目で行がダブる／抜ける＝抜けた分がそのまま請求漏れになる。
+      .order('id', { ascending: true })
+      .range(offset, to)
+
+    if (error) {
+      console.error('[billing_quotes] 承認済み一覧の取得に失敗', error)
+      // 途中まで取れた分だけ返すと「少ない合計金額」を正しい額として見せてしまう。
+      // failed を立てて「0件」と区別する（画面は空表示ではなくエラーを出す）。
+      return { rows: [], truncated: false, failed: true }
+    }
+    const page = (data ?? []) as unknown as BillingQuoteRow[]
+    rows.push(...page)
+    if (page.length < to - offset + 1) break
+  }
+
+  if (rows.length >= APPROVED_QUOTES_MAX) {
+    // 実運用でここに来たら設計の想定外。請求漏れに直結するので必ずログに残す。
+    console.error(
+      `[billing_quotes] 承認済みが上限 ${APPROVED_QUOTES_MAX} 件に達した。ページングの見直しが必要`,
+    )
+    truncated = true
+  }
+
+  if (rows.length === 0) return { rows: [], truncated }
 
   const orgIds = Array.from(new Set(rows.map((r) => r.org_id)))
   const { data: orgs } = await client.from('organizations').select('id,name').in('id', orgIds)
@@ -216,17 +271,20 @@ export async function listApprovedQuotesWithOrg(): Promise<ApprovedQuoteWithOrg[
     ((orgs as Array<{ id: string; name: string }> | null) ?? []).map((o) => [o.id, o.name]),
   )
 
-  return rows.map((r) => ({
-    id: r.id,
-    orgId: r.org_id,
-    orgName: nameById.get(r.org_id) ?? '(不明な組織)',
-    amountMonthlyJpy: r.amount_monthly_jpy,
-    addMembers: r.add_members,
-    addLineGroups: r.add_line_groups,
-    addExternalChatGroups: r.add_external_chat_groups,
-    approvedAt: r.approved_at ?? null,
-    stripeSyncStatus: r.stripe_sync_status ?? 'n/a',
-  }))
+  return {
+    truncated,
+    rows: rows.map((r) => ({
+      id: r.id,
+      orgId: r.org_id,
+      orgName: nameById.get(r.org_id) ?? '(不明な組織)',
+      amountMonthlyJpy: r.amount_monthly_jpy,
+      addMembers: r.add_members,
+      addLineGroups: r.add_line_groups,
+      addExternalChatGroups: r.add_external_chat_groups,
+      approvedAt: r.approved_at ?? null,
+      stripeSyncStatus: r.stripe_sync_status ?? 'n/a',
+    })),
+  }
 }
 
 /** 当社の作業対象（依頼中/提示中）の一覧。 */
