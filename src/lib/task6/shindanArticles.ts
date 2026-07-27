@@ -48,7 +48,7 @@ export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[
   // ボトルネック型＝上長の確認待ちで止まる。承認日から締切を引く話が正面から効く
   t7: ['task-jouzu-shimekiri'],
   // 言いっぱなし型＝会話の決定が記録に残らない。チャットの依頼が流れる話が正面から効く
-  t8: ['remine-kun-tsukaikata'],
+  t8: ['remine-kun-tsukaikata', 'notion-task-memo-ka'],
 }
 
 /** 診断のタイプキー（t1〜t8）か。URLクエリなど外から来た文字列の検証に使う。 */
