@@ -141,7 +141,7 @@ export default async function BlogArticlePage({ params }: Props) {
           ※純粋な見た目の指定のためテストは書かない(CLAUDE.mdのTDD例外)。
         */}
         <div
-          className="prose prose-slate max-w-none prose-headings:scroll-mt-24
+          className="task6-body prose prose-slate max-w-none prose-headings:scroll-mt-24
             prose-ul:my-6 prose-ul:rounded-xl prose-ul:bg-slate-50 prose-ul:py-4 prose-ul:pr-6 prose-ul:pl-10
             prose-ol:my-6 prose-ol:rounded-xl prose-ol:bg-slate-50 prose-ol:py-4 prose-ol:pr-6 prose-ol:pl-10
             prose-li:my-1
