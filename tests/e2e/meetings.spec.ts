@@ -35,9 +35,9 @@ test.describe('MeetingInspector', () => {
   test.skip('should have tab navigation', async ({ page }) => {
     await page.goto(`${BASE_URL}?meeting=some-meeting-id`)
 
-    const infoTab = page.getByTestId('meeting-tab-info')
-    const minutesTab = page.getByTestId('meeting-tab-minutes')
-    const decisionsTab = page.getByTestId('meeting-tab-decisions')
+    const infoTab = page.getByTestId('meeting-inspector-tab-info')
+    const minutesTab = page.getByTestId('meeting-inspector-tab-minutes')
+    const decisionsTab = page.getByTestId('meeting-inspector-tab-decisions')
 
     await expect(infoTab).toBeVisible()
     await expect(minutesTab).toBeVisible()
@@ -47,7 +47,7 @@ test.describe('MeetingInspector', () => {
   test.skip('tab click should change active tab', async ({ page }) => {
     await page.goto(`${BASE_URL}?meeting=some-meeting-id`)
 
-    const minutesTab = page.getByTestId('meeting-tab-minutes')
+    const minutesTab = page.getByTestId('meeting-inspector-tab-minutes')
     await minutesTab.click()
     await expect(minutesTab).toHaveClass(/text-gray-900/)
   })
@@ -55,7 +55,7 @@ test.describe('MeetingInspector', () => {
   test.skip('close button should close inspector', async ({ page }) => {
     await page.goto(`${BASE_URL}?meeting=some-meeting-id`)
 
-    const closeBtn = page.getByTestId('meeting-close')
+    const closeBtn = page.getByTestId('meeting-inspector-close')
     await closeBtn.click()
     await expect(page).not.toHaveURL(/meeting=/)
   })
@@ -64,7 +64,7 @@ test.describe('MeetingInspector', () => {
     // Requires a planned meeting in the database
     await page.goto(`${BASE_URL}?meeting=planned-meeting-id`)
 
-    const startBtn = page.getByTestId('meeting-start')
+    const startBtn = page.getByTestId('meeting-inspector-start')
     await expect(startBtn).toBeVisible()
     await expect(startBtn).toContainText('会議を開始')
   })
@@ -73,7 +73,7 @@ test.describe('MeetingInspector', () => {
     // Requires an in-progress meeting in the database
     await page.goto(`${BASE_URL}?meeting=in-progress-meeting-id`)
 
-    const endBtn = page.getByTestId('meeting-end')
+    const endBtn = page.getByTestId('meeting-inspector-end')
     await expect(endBtn).toBeVisible()
     await expect(endBtn).toContainText('会議を終了')
   })
