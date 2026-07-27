@@ -88,6 +88,16 @@ export default async function BlogArticlePage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
       <article className="mx-auto max-w-3xl px-5 pb-20 pt-28">
+        {/* カバー画像はページの最上部に置く（記事の「顔」なので、タイトルより先に目に入る） */}
+        {post.cover_image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={post.cover_image_url}
+            alt=""
+            className="mb-8 w-full rounded-2xl object-cover"
+          />
+        )}
+
         <header className="mb-10">
           <div className="mb-4 flex items-center gap-2 text-sm">
             <Link href="/task6" className="font-bold tracking-tight">
@@ -134,15 +144,6 @@ export default async function BlogArticlePage({ params }: Props) {
               ))}
           </div>
         </header>
-
-        {post.cover_image_url && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={post.cover_image_url}
-            alt=""
-            className="mb-8 w-full rounded-2xl object-cover"
-          />
-        )}
 
         {/*
           読みやすさのリズム: 地の文が続くページは内容が良くても読み飛ばされる。箇条書きと引用に
