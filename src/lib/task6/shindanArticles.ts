@@ -43,10 +43,12 @@ export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[
   t4: ['multitask-nigate-capacity'],
   // お見合い型は「誰が次に動くか」が曖昧。相手に投げる順番と確認日の決め方が効く
   t5: ['tax-document-collection-workflow', 'task-jouzu-shimekiri'],
-  t6: ['tax-document-collection-workflow'],
+  // 無音型は「詰まっても言い出せない」。通知だけでは担当も完了も残らない話が効く
+  t6: ['tax-document-collection-workflow', 'remine-kun-tsukaikata'],
   // ボトルネック型＝上長の確認待ちで止まる。承認日から締切を引く話が正面から効く
   t7: ['task-jouzu-shimekiri'],
-  t8: [],
+  // 言いっぱなし型＝会話の決定が記録に残らない。チャットの依頼が流れる話が正面から効く
+  t8: ['remine-kun-tsukaikata'],
 }
 
 /** 診断のタイプキー（t1〜t8）か。URLクエリなど外から来た文字列の検証に使う。 */
