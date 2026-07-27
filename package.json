@@ -12,7 +12,9 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "seed:test": "npx tsx scripts/seed-test-data.ts"
+    "seed:test": "npx tsx scripts/seed-test-data.ts",
+    "test:e2e:prod": "BASE_URL=https://agentpm.app playwright test",
+    "test:e2e:preview": "BASE_URL=https://taskapp-git-develop-yutas-projects-32a96ba0.vercel.app playwright test"
   },
   "dependencies": {
     "@blocknote/core": "^0.46.2",
