@@ -35,14 +35,17 @@ type ShindanTypeKey = (typeof PROCESS_KEYS)[number]
  */
 export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[]> = {
   t1: [],
-  // 副処方: 仕掛かりが多すぎて動けない状態にも、容量から引く考え方が効く
-  t2: ['multitask-nigate-capacity'],
-  t3: [],
+  // 副処方: 着手が遅れる型にも、締切の引き直しと「先に人へ投げる」が効く
+  t2: ['multitask-nigate-capacity', 'task-jouzu-shimekiri'],
+  // 主処方: 駆け込み型＝提出日で締切を引いているために、確認と差し戻しの後半戦で溢れる
+  t3: ['task-jouzu-shimekiri'],
   // 主処方: 同時進行型そのものへの処方箋（分解した後に当たる「1日の容量」の壁）
   t4: ['multitask-nigate-capacity'],
-  t5: ['tax-document-collection-workflow'],
+  // お見合い型は「誰が次に動くか」が曖昧。相手に投げる順番と確認日の決め方が効く
+  t5: ['tax-document-collection-workflow', 'task-jouzu-shimekiri'],
   t6: ['tax-document-collection-workflow'],
-  t7: [],
+  // ボトルネック型＝上長の確認待ちで止まる。承認日から締切を引く話が正面から効く
+  t7: ['task-jouzu-shimekiri'],
   t8: [],
 }
 
