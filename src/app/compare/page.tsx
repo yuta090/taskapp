@@ -60,11 +60,10 @@ const backlogGapRows = [
 ]
 
 const priceComparisonRows = [
-  { size: '5名', agentpm: '¥4,980', agentpmPlan: 'Team', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥12,620' },
-  { size: '10名', agentpm: '¥4,980', agentpmPlan: 'Team', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥12,620' },
-  { size: '15名', agentpm: '¥6,880', agentpmPlan: 'Team', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥10,720' },
-  { size: '20名', agentpm: '¥14,800', agentpmPlan: 'Business', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
-  { size: '30名', agentpm: '¥14,800', agentpmPlan: 'Business', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '5名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '10名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '20名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
+  { size: '30名', agentpm: '¥14,800', agentpmPlan: 'Pro', backlog: '¥17,600', backlogPlan: 'Standard', diff: '-¥2,800' },
 ]
 
 const fitForAgentPM = [
@@ -533,7 +532,7 @@ export default function ComparePage() {
               </div>
             </div>
             <p className="text-xs text-slate-400 mt-4 text-center">
-              ※ AgentPM Team: ¥4,980/月（10名まで）、Business: ¥14,800/月（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
+              ※ AgentPM Pro: ¥14,800/月・税別（30名まで）。Backlog Standard: ¥17,600/月（30名まで）。
             </p>
             <p className="text-xs text-slate-400 mt-1 text-center">
               ※ 2026年3月時点の当社調査。各社の価格・条件は変更される場合があります。
