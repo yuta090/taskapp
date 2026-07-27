@@ -576,6 +576,22 @@ body {
    `.task6-body > p` では一段深くて当たらない（本番で書き出しの体裁だけ効かない事故を踏んだ）。
    兄弟関係はその内側の div の中で保たれるので、子孫セレクタで正しく選べる。
    ============================================ */
+/* 日本語の折り返しを文節で行う。
+   既定の折り返しは文字単位のため「それな／のに」のように語の途中で切れ、読点のリズムが崩れる。
+   word-break:auto-phrase は日本語の文節境界を推定して折り返す（Chrome/Edge 119+）。
+   未対応ブラウザは従来どおりに折り返すだけなので、安全に足せる。
+   line-break:strict は行頭に来てはいけない記号（々・ー・小書き仮名など）の扱いを厳格にする。 */
+.task6-body {
+  word-break: auto-phrase;
+  line-break: strict;
+}
+
+/* 見出しは最終行に1〜2文字だけ残る「泣き別れ」を避ける */
+.task6-body :is(h2, h3),
+.task6-lead-heading {
+  text-wrap: pretty;
+}
+
 .task6-body p:has(~ hr):not(hr ~ p) {
   font-size: 1.0625rem;
   line-height: 2.15;
