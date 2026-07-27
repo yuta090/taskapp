@@ -23,8 +23,8 @@ interface PostCard {
 }
 
 function thumbUrl(p: PostCard): string {
-  // カバー画像が未設定でも、記事タイトルから自動生成したOGP画像をサムネに使う
-  return p.cover_image_url ?? `/task6/${p.slug}/opengraph-image`
+  // 一覧は常に合成バナー(イラスト+タイトル文字)。クリックを誘う看板はOG画像側で組む
+  return `/task6/${p.slug}/opengraph-image`
 }
 
 function PostDate({ value }: { value: string | null }) {
