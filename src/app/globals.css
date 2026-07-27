@@ -571,15 +571,19 @@ body {
    規約: 書き出しの直後に `---`（hr）を1本置く。
    `p:has(~ hr):not(hr ~ p)` = 「後ろに hr があり、前に hr が無い段落」＝最初の hr より前の段落だけ。
    記事中に別の `---` があっても、この選択は最初の1本にしか効かない。
+
+   ⚠ 直下セレクタ（`>`）にしないこと。本文は dangerouslySetInnerHTML の**内側の div** に入るため、
+   `.task6-body > p` では一段深くて当たらない（本番で書き出しの体裁だけ効かない事故を踏んだ）。
+   兄弟関係はその内側の div の中で保たれるので、子孫セレクタで正しく選べる。
    ============================================ */
-.task6-body > p:has(~ hr):not(hr ~ p) {
+.task6-body p:has(~ hr):not(hr ~ p) {
   font-size: 1.0625rem;
   line-height: 2.15;
   color: #3f3a34;
 }
 
 /* 1行目（掴みの一文）だけ、さらに一段大きく置く */
-.task6-body > p:has(~ hr):not(hr ~ p):first-of-type {
+.task6-body p:has(~ hr):not(hr ~ p):first-of-type {
   font-size: 1.3125rem;
   font-weight: 600;
   line-height: 1.9;
@@ -588,7 +592,7 @@ body {
 }
 
 /* 書き出しの終わりの合図。罫線を渡しきらず、短い印にとどめる */
-.task6-body > hr:first-of-type {
+.task6-body hr:first-of-type {
   width: 3rem;
   margin: 2.75rem 0 2.25rem;
   border: 0;
@@ -596,7 +600,7 @@ body {
 }
 
 @media (max-width: 640px) {
-  .task6-body > p:has(~ hr):not(hr ~ p):first-of-type {
+  .task6-body p:has(~ hr):not(hr ~ p):first-of-type {
     font-size: 1.1875rem;
   }
 }
