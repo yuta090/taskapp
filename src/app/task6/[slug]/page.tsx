@@ -35,7 +35,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url,
       type: 'article',
       locale: 'ja_JP',
-      ...(post.cover_image_url ? { images: [{ url: post.cover_image_url }] } : {}),
+      // og:image はファイル規約の opengraph-image.tsx(イラスト+タイトルの合成バナー)に任せる
     },
   }
 }
