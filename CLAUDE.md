@@ -28,6 +28,24 @@ npm run build    # Production build
 npm run lint     # Run ESLint
 ```
 
+### E2E は CI に載せず、ローカルで回す（厳守）
+
+E2E(Playwright)は実行コストが高いので**CIには載せない**。代わりに**手元で回す**。資格情報は
+`playwright.config.ts` が `.env.local` を読むので、**引数も環境変数も渡さなくてよい**。
+
+```bash
+npm run test:e2e          # ローカル dev サーバー(:4000)に対して
+npm run test:e2e:preview  # develop の Vercel プレビューに対して（約20秒）
+npm run test:e2e:prod     # 本番(agentpm.app)に対して
+```
+
+- **回すタイミング**: `develop` → `main` の昇格PRを出す前に1回。UIの見た目クラス・
+  `data-testid`・ボタンの表示名を変えたときも1回。
+- `E2E_EMAIL` / `E2E_PASSWORD` / `E2E_CLIENT_EMAIL` / `E2E_CLIENT_PASSWORD` は `.env.local` に置く。
+  未設定だとテスト側の弱い既定値（`client1234` 等）が使われ、認証エラーで落ちる。
+- ログイン処理は `tests/e2e/login.ts` に集約している。hydration 前に入力すると値が消えて
+  **送信自体が起きず無言で落ちる**ため、必ずこのヘルパー経由で書く。
+
 ## Specifications
 
 **See `docs/SPEC_INDEX.md` for the complete specification index.**
