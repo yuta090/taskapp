@@ -21,9 +21,9 @@ describe('renderTask6BodyHtml: 会話の吹き出し変換', () => {
     const html = '<p><strong>ガント</strong>「まず全体を見よう」</p>'
     const out = renderTask6BodyHtml(html)
 
-    expect(out).toContain(`${SUPABASE_URL}/storage/v1/object/public/task6-covers/characters/gantt.jpg`)
+    expect(out).toContain(`${SUPABASE_URL}/storage/v1/object/public/task6-covers/characters/gantt-face.jpg`)
     expect(out).toContain('ガント先生')
-    expect(out).toContain('まず全体を見よう')
+    expect(out).toContain('「まず全体を見よう」')
     // 元の <p><strong> 形式の段落は残らない
     expect(out).not.toContain('<p><strong>ガント</strong>')
   })
@@ -34,8 +34,8 @@ describe('renderTask6BodyHtml: 会話の吹き出し変換', () => {
       '<p><strong>アイビー</strong>「今日の6行から」</p>\n<p><strong>ゆあ</strong>「メモしました！」</p>'
     const out = renderTask6BodyHtml(html)
 
-    expect(out).toContain('characters/ivy.jpg')
-    expect(out).toContain('characters/yua.jpg')
+    expect(out).toContain('characters/ivy-face.jpg')
+    expect(out).toContain('characters/yua-face.jpg')
     expect(out).toContain('アイビー先生')
     // ゆあは「先生」を付けない表示名
     expect(out).toMatch(/>ゆあ</)

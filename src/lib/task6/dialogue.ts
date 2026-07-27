@@ -27,9 +27,13 @@ export const TASK6_CHARACTERS: Record<string, Task6Character> = {
   ゆあ: { key: 'yua', displayName: 'ゆあ', role: 'いっしょに学ぶ新米社員。読者の代弁者' },
 }
 
-export function characterImageUrl(key: Task6Character['key']): string {
+export function characterImageUrl(
+  key: Task6Character['key'],
+  variant: 'full' | 'face' = 'full',
+): string {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-  return `${base}/storage/v1/object/public/task6-covers/characters/${key}.jpg`
+  const file = variant === 'face' ? `${key}-face.jpg` : `${key}.jpg`
+  return `${base}/storage/v1/object/public/task6-covers/characters/${file}`
 }
 
 const SPEAKER_NAMES = Object.keys(TASK6_CHARACTERS)
@@ -49,14 +53,16 @@ const DIALOGUE_RE = new RegExp(
 
 const CHARACTERS_PLACEHOLDER_RE = /<p>\{\{characters\}\}<\/p>/g
 
+// 色付きチャット枠は「AIっぽい」ため不採用(ユーザーフィードバック)。雑誌の対談レイアウトで組む。
 function dialogueHtml(character: Task6Character, speechHtml: string): string {
   return (
-    `<div class="not-prose my-5 flex items-start gap-3">` +
-    `<img src="${characterImageUrl(character.key)}" alt="${character.displayName}" width="48" height="48" loading="lazy" class="h-12 w-12 shrink-0 rounded-full border border-amber-200 bg-amber-50 object-cover" />` +
-    `<div class="min-w-0 rounded-2xl rounded-tl-sm border border-amber-100 bg-amber-50/60 px-4 py-3">` +
-    `<p class="text-xs font-bold text-amber-700">${character.displayName}</p>` +
-    `<p class="mt-1 leading-relaxed text-slate-800">${speechHtml}</p>` +
-    `</div></div>`
+    `<div class="not-prose my-7 flex items-start gap-4">` +
+    `<div class="flex w-16 shrink-0 flex-col items-center">` +
+    `<img src="${characterImageUrl(character.key, 'face')}" alt="${character.displayName}" width="64" height="64" loading="lazy" class="h-16 w-16 rounded-full object-cover" />` +
+    `<span class="mt-1.5 text-[11px] font-bold tracking-wide text-slate-500">${character.displayName}</span>` +
+    `</div>` +
+    `<p class="min-w-0 pt-3 leading-loose text-slate-800">「${speechHtml}」</p>` +
+    `</div>`
   )
 }
 
@@ -65,13 +71,13 @@ function charactersCardHtml(): string {
     .map(
       (c) =>
         `<div class="flex flex-col items-center text-center">` +
-        `<img src="${characterImageUrl(c.key)}" alt="${c.displayName}" width="80" height="80" loading="lazy" class="h-20 w-20 rounded-full border border-amber-200 bg-amber-50 object-cover" />` +
-        `<p class="mt-2 text-sm font-bold text-slate-900">${c.displayName}</p>` +
-        `<p class="mt-1 text-xs leading-relaxed text-slate-500">${c.role}</p>` +
+        `<img src="${characterImageUrl(c.key)}" alt="${c.displayName}" width="144" height="144" loading="lazy" class="h-36 w-36 rounded-full object-cover" />` +
+        `<p class="mt-4 text-base font-bold text-slate-900">${c.displayName}</p>` +
+        `<p class="mt-1.5 text-sm leading-relaxed text-slate-500">${c.role}</p>` +
         `</div>`,
     )
     .join('')
-  return `<div class="not-prose my-8 grid grid-cols-1 gap-6 rounded-2xl border border-amber-100 bg-amber-50/50 p-6 sm:grid-cols-3">${cells}</div>`
+  return `<div class="not-prose my-12 grid grid-cols-1 gap-10 py-4 sm:grid-cols-3">${cells}</div>`
 }
 
 /**
