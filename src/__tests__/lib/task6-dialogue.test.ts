@@ -21,7 +21,7 @@ describe('renderTask6BodyHtml: 会話の吹き出し変換', () => {
     const html = '<p><strong>ガント</strong>「まず全体を見よう」</p>'
     const out = renderTask6BodyHtml(html)
 
-    expect(out).toContain(`${SUPABASE_URL}/storage/v1/object/public/task6-covers/characters/gantt-face.jpg`)
+    expect(out).toContain(`${SUPABASE_URL}/storage/v1/object/public/task6-covers/characters/gantt-face.webp`)
     expect(out).toContain('ガント先生')
     expect(out).toContain('「まず全体を見よう」')
     // 元の <p><strong> 形式の段落は残らない
@@ -34,8 +34,8 @@ describe('renderTask6BodyHtml: 会話の吹き出し変換', () => {
       '<p><strong>アイビー</strong>「今日の6行から」</p>\n<p><strong>ゆあ</strong>「メモしました！」</p>'
     const out = renderTask6BodyHtml(html)
 
-    expect(out).toContain('characters/ivy-face.jpg')
-    expect(out).toContain('characters/yua-face.jpg')
+    expect(out).toContain('characters/ivy-face.webp')
+    expect(out).toContain('characters/yua-face.webp')
     expect(out).toContain('アイビー先生')
     // ゆあは「先生」を付けない表示名
     expect(out).toMatch(/>ゆあ</)
@@ -82,9 +82,9 @@ describe('renderTask6BodyHtml: キャラクター紹介カード', () => {
     const html = '<p>前文</p>\n<p>{{characters}}</p>\n<p>後文</p>'
     const out = renderTask6BodyHtml(html)
 
-    expect(out).toContain('characters/gantt.jpg')
-    expect(out).toContain('characters/ivy.jpg')
-    expect(out).toContain('characters/yua.jpg')
+    expect(out).toContain('characters/gantt.webp')
+    expect(out).toContain('characters/ivy.webp')
+    expect(out).toContain('characters/yua.webp')
     expect(out).toContain('ガント先生')
     expect(out).toContain('アイビー先生')
     expect(out).not.toContain('{{characters}}')
@@ -97,7 +97,7 @@ describe('characterImageUrl', () => {
   it('公開バケットのURLを組み立てる', async () => {
     const { characterImageUrl } = await subject()
     expect(characterImageUrl('yua')).toBe(
-      `${SUPABASE_URL}/storage/v1/object/public/task6-covers/characters/yua.jpg`,
+      `${SUPABASE_URL}/storage/v1/object/public/task6-covers/characters/yua.webp`,
     )
   })
 })
