@@ -23,6 +23,8 @@ export interface PostListItem {
   description: string | null
   published_at: string | null
   cover_image_url: string | null
+  /** サムネ画像に重ねる短いキャッチコピー(記事タイトルとは別物) */
+  cover_caption: string | null
   tags: string[]
 }
 
@@ -104,7 +106,7 @@ export async function listPublishedPosts(): Promise<PostListItem[]> {
   const admin = createAdminClient()
   const { data } = await (admin as SupabaseClient)
     .from('blog_posts')
-    .select('slug, title, description, published_at, cover_image_url, tags, status')
+    .select('slug, title, description, published_at, cover_image_url, cover_caption, tags, status')
     .eq('status', 'published')
     .not('published_at', 'is', null)
     .lte('published_at', new Date().toISOString())
@@ -117,6 +119,7 @@ export async function listPublishedPosts(): Promise<PostListItem[]> {
     description: p.description ?? null,
     published_at: p.published_at,
     cover_image_url: p.cover_image_url ?? null,
+    cover_caption: p.cover_caption ?? null,
     tags: p.tags ?? [],
   }))
 }

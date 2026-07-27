@@ -19,12 +19,39 @@ interface PostCard {
   description: string | null
   published_at: string | null
   cover_image_url: string | null
+  cover_caption: string | null
   tags: string[]
 }
 
+/** サムネ画像+コピーライト的キャプションの下帯(HTML重ね・画像に文字は焼き込まない) */
+function Thumb({ post, rounded, eager }: { post: PostCard; rounded?: boolean; eager?: boolean }) {
+  return (
+    <div className={`relative overflow-hidden ${rounded ? 'rounded-2xl' : ''}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={thumbUrl(post)}
+        alt=""
+        width={1200}
+        height={630}
+        loading={eager ? undefined : 'lazy'}
+        className="aspect-video w-full object-cover"
+      />
+      {post.cover_caption && (
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent px-5 pb-3.5 pt-12">
+          <p className="text-lg font-bold tracking-wide text-white drop-shadow-md">
+            {post.cover_caption}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function thumbUrl(p: PostCard): string {
-  // 一覧は常に合成バナー(イラスト+タイトル文字)。クリックを誘う看板はOG画像側で組む
-  return `/task6/${p.slug}/opengraph-image`
+  // 一覧のサムネはイラスト(文字なし)。隣にHTMLのタイトルが並ぶため、文字入りバナーだと
+  // タイトルが二重になる。合成バナー(イラスト+タイトル)はSNSシェア用のog:image専用。
+  // カバー未設定の記事のみ、自動生成のOG画像で代用する
+  return p.cover_image_url ?? `/task6/${p.slug}/opengraph-image`
 }
 
 function PostDate({ value }: { value: string | null }) {
@@ -63,14 +90,7 @@ function FeaturedCard({ post }: { post: PostCard }) {
       href={`/task6/${post.slug}`}
       className="group grid gap-6 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md md:grid-cols-2 md:p-5"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={thumbUrl(post)}
-        alt=""
-        width={1200}
-        height={630}
-        className="aspect-video w-full rounded-2xl object-cover"
-      />
+      <Thumb post={post} rounded eager />
       <div className="flex flex-col justify-center gap-3 px-1 pb-3 md:py-4 md:pr-4">
         <Tags tags={post.tags} max={3} />
         <h2 className="text-2xl font-bold leading-snug tracking-tight text-slate-900 group-hover:text-amber-600 md:text-3xl">
@@ -91,15 +111,7 @@ function Card({ post }: { post: PostCard }) {
       href={`/task6/${post.slug}`}
       className="group flex flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-shadow hover:shadow-md"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={thumbUrl(post)}
-        alt=""
-        width={1200}
-        height={630}
-        loading="lazy"
-        className="aspect-video w-full object-cover"
-      />
+      <Thumb post={post} />
       <div className="flex flex-1 flex-col gap-2.5 p-5">
         <Tags tags={post.tags} />
         <h3 className="line-clamp-2 text-lg font-bold leading-snug text-slate-900 group-hover:text-amber-600">
