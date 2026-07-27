@@ -9,11 +9,11 @@ import {
 export const metadata: Metadata = {
   title: 'agentpm ｜ 本来の仕事に、戻ろう。',
   description:
-    '催促、確認、リマインド、進行の管理。クライアントワークの「まわりの仕事」はagentpmが引き受けます。タスク管理＋雇えるAI秘書。',
+    'お客様への催促、資料の確認、期限のリマインド、進み具合の管理。本業のまわりで発生するこうした仕事をagentpmが引き受けます。タスク・プロジェクト管理と雇えるAI秘書。必要なほうだけでも、両方あわせてもお使いいただけます。',
   openGraph: {
     title: 'agentpm ｜ 本来の仕事に、戻ろう。',
     description:
-      'クライアントワークの「まわりの仕事」を引き受ける、タスク管理＋雇えるAI秘書。',
+      'タスク・プロジェクト管理と雇えるAI秘書。必要なほうだけでも、両方あわせてもお使いいただけます。',
   },
 }
 
@@ -37,26 +37,26 @@ const ITEMS =
 const FEATURES = [
   {
     k: '01',
-    t: 'いま、どっちの番か。',
-    d: 'どちらにボールがあるかが明確。その催促も、AIが行ってくれます。相手待ちのまま放置される仕事が、なくなります。',
+    t: 'いま誰の番かが、ひと目でわかります',
+    d: '自社と相手のどちらが動く番かを、案件ごとに表示します。相手の番のときはAI秘書が催促するので、相手待ちのまま止まる案件がなくなります。',
     name: 'ボール管理',
   },
   {
     k: '02',
-    t: '相手は、ログイン不要。',
-    d: 'クライアントはメールのリンクから、確認・承認・ファイル提出まで完了。相手に新しい道具を覚えさせません。',
+    t: 'お客様はログインせずに使えます',
+    d: 'お客様はメールに届いたリンクを開くだけで、内容の確認から承認、ファイルの提出まで完了します。新しいツールを覚えていただく必要はありません。',
     name: 'クライアントポータル',
   },
   {
     k: '03',
-    t: '進みは、絵でわかる。',
-    d: 'ガントチャートとバーンダウンで、遅れの兆しを先に掴む。報告資料づくりも要りません。',
+    t: '進み具合はグラフで確認できます',
+    d: 'ガントチャートとバーンダウンで、遅れの兆しを早い段階でつかめます。報告用の資料をあらためて作る手間もかかりません。',
     name: 'ガント・バーンダウン',
   },
   {
     k: '04',
-    t: '「言った言わない」を、なくす。',
-    d: '承認・レビュー・議事録・やり取りの履歴が、証跡として残る。引き継ぎとトラブルに強い進行台帳になります。',
+    t: '「言った・言わない」が起きません',
+    d: '承認やレビュー、議事録、日々のやり取りがすべて記録として残ります。担当者が代わったときも、トラブルが起きたときも、経緯をすぐに確認できます。',
     name: 'レビューと証跡',
   },
 ]
@@ -94,6 +94,8 @@ export default function Home() {
       <style>{`
 .top{
   --shu:#E14A2B; --cream:#F4EDDE; --neon:#EFFF3C; --tq:#1FA79A; --sumi:#221D18; --soft:#6d6257;
+  /* 暗い面は真っ黒(sumi)ではなく濃紺(勝色)。黒ベタは圧が強く、士業・建設向けには攻撃的に見える */
+  --kon:#1B2A41; --kon-em:#F2C14E;
   font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;
   background:var(--cream); color:var(--sumi); line-height:1.9;
   font-feature-settings:"palt"; -webkit-font-smoothing:antialiased; overflow-x:hidden;
@@ -101,6 +103,8 @@ export default function Home() {
 .top a{color:inherit}
 .top .pin{max-width:1080px;margin:0 auto;padding:0 24px;position:relative}
 .top .en{font-family:"Helvetica Neue",Arial,sans-serif;font-weight:700;letter-spacing:.32em;font-size:11px;text-transform:uppercase}
+/* 和文の小ラベル。.en と同じ役割だが、欧文字送り(.32em)だと日本語は間延びするので詰める */
+.top .en-ja{font-weight:800;letter-spacing:.16em;font-size:11.5px}
 .top .btn{display:inline-block;background:var(--sumi);color:var(--cream);font-weight:800;font-size:15px;padding:16px 38px;text-decoration:none;border:2px solid var(--sumi);transition:all .18s ease}
 .top .btn:hover{background:var(--shu);border-color:var(--shu);color:#fff;transform:translateY(-2px)}
 .top .btn.ghost{background:transparent;color:var(--sumi)}
@@ -130,9 +134,18 @@ export default function Home() {
 .top-hero .duo img{width:100%;display:block}
 .top-hero .copy2{position:relative;z-index:2;margin-top:-10px;padding-bottom:40px}
 .top-hero .lead{max-width:36em;font-size:15.5px;font-weight:500;margin-top:18px}
-.top-hero .pillars{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;font-weight:800;font-size:14px;letter-spacing:.06em}
-.top-hero .pillars span{border:2px solid var(--sumi);padding:7px 16px;background:#fff}
-.top-hero .pillars span.emph{background:var(--sumi);color:var(--neon)}
+/* 二本柱。枠も塗りも与えない——直下のCTA(.btn)と同じ形になると押せるボタンに見えるため。
+   強調は蛍光ペンの下線だけで作る */
+.top-hero .pillars{margin-top:26px}
+.top-hero .duo-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 14px;
+  font-size:clamp(18px,2.9vw,21px);font-weight:800;line-height:1.75;letter-spacing:.01em}
+.top-hero .duo-line .mk{background-image:linear-gradient(transparent 62%,var(--neon) 62%);padding:0 3px}
+.top-hero .duo-line .sep{color:var(--shu)}
+.top-hero .duo-note{margin-top:10px;font-size:13.5px;font-weight:700;color:var(--soft)}
+@media(max-width:560px){
+  .top-hero .duo-line{flex-direction:column;align-items:flex-start;gap:8px}
+  .top-hero .duo-line .sep{display:none}
+}
 .top-hero .cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:30px}
 .top-hero .note{font-size:12px;color:var(--soft)}
 @media(min-width:900px){
@@ -155,11 +168,13 @@ export default function Home() {
 @media(prefers-reduced-motion:reduce){.tick-in{animation:none!important}}
 
 /* secretary hub */
-.hub{background:var(--sumi);color:var(--cream);padding:76px 0 84px}
+.hub{background:var(--kon);color:var(--cream);padding:76px 0 84px}
 .hub .new{display:inline-block;background:var(--neon);color:var(--sumi);font-weight:800;font-size:12px;letter-spacing:.2em;padding:5px 14px;transform:rotate(-2deg)}
 .hub h2{font-size:clamp(38px,8.4vw,84px);font-weight:800;line-height:1.12;margin-top:16px}
-.hub h2 em{font-style:normal;color:var(--neon)}
-.hub .lead{max-width:37em;font-size:15px;font-weight:500;margin-top:16px;color:#efe8da}
+/* 紺地では蛍光黄の特大見出しがギラつくので、強調は山吹に落とす（紺×クリーム×金）。
+   蛍光黄はバッジ等の小面積だけに残す */
+.hub h2 em{font-style:normal;color:var(--kon-em)}
+.hub .lead{max-width:37em;font-size:15px;font-weight:500;margin-top:16px;color:#dfe4ec}
 .hub-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:38px}
 @media(min-width:768px){.hub-grid{grid-template-columns:repeat(4,1fr)}}
 .top .hub-card{display:block;background:var(--cream);color:var(--sumi);text-decoration:none;padding:18px 16px 14px;border:2px solid var(--cream);transition:all .15s ease;position:relative}
@@ -169,7 +184,7 @@ export default function Home() {
 .hub-card .hook b{color:var(--shu)}
 .hub-card .ind{display:block;font-size:11.5px;font-weight:700;color:var(--soft);margin-top:10px;border-top:1.5px solid var(--sumi);padding-top:8px}
 .hub-card .arw{position:absolute;right:12px;bottom:10px;color:var(--shu);font-weight:800}
-.hub-note{margin-top:22px;font-size:13px;color:#d8cfc0}
+.hub-note{margin-top:22px;font-size:13px;color:#c3cad6}
 .hub-note a{color:var(--neon);font-weight:700}
 
 /* connected services */
@@ -181,7 +196,7 @@ export default function Home() {
    同じ箱に入れた見出し(.pin)が画面外へ飛ぶ。block なら幅はセクション幅に従う */
 .conn-rails{margin-top:36px}
 .conn-rails>div+div{margin-top:16px}
-.rail-hd{font-family:"Helvetica Neue",Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:.26em;color:var(--soft);margin-bottom:8px}
+.rail-hd{font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--soft);margin-bottom:8px}
 .rail{overflow:hidden;white-space:nowrap;padding:6px 0;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
   mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}
@@ -210,7 +225,7 @@ export default function Home() {
 .feat-shots .sh2{position:absolute;width:64%;right:0;bottom:0;transform:rotate(1.6deg);box-shadow:0 20px 48px rgba(34,29,24,.22)}
 @media(min-width:768px){.feat-shots .sh1{width:78%}.feat-shots .sh2{width:56%}}
 .feat-shots .sh2::before{content:"";position:absolute;top:-16px;left:50%;transform:translateX(-50%) rotate(-3deg);width:92px;height:24px;background:var(--neon);opacity:.95}
-.feat-shots .cap{position:absolute;left:0;bottom:-4px;font-family:"Helvetica Neue",Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:.28em;color:var(--soft)}
+.feat-shots .cap{position:absolute;left:0;bottom:-4px;font-size:11px;font-weight:800;letter-spacing:.12em;color:var(--soft)}
 .feat-shots img{width:100%;display:block}
 .feat-grid{display:grid;grid-template-columns:1fr;gap:14px;margin-top:36px}
 @media(min-width:768px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
@@ -226,11 +241,12 @@ export default function Home() {
 .ways{background:var(--tq);color:#fff;padding:76px 0 84px}
 .ways h2{font-size:clamp(32px,6.6vw,58px);font-weight:800;line-height:1.25}
 .ways h2 span{color:var(--neon)}
+.ways .lead{max-width:37em;font-size:15px;font-weight:500;margin-top:16px}
 .ways-grid{display:grid;grid-template-columns:1fr;gap:14px;margin-top:34px}
 @media(min-width:768px){.ways-grid{grid-template-columns:1fr 1fr}}
 .way{border:2.5px solid #fff;padding:26px 24px}
 .way.alt{background:#fff;color:var(--sumi)}
-.way .who{font-size:11.5px;font-weight:800;letter-spacing:.2em}
+.way .who{font-size:11.5px;font-weight:800;letter-spacing:.14em}
 .way.alt .who{color:var(--shu)}
 .way h3{font-size:22px;font-weight:800;margin:10px 0 10px}
 .way p{font-size:14px;font-weight:500}
@@ -245,7 +261,7 @@ export default function Home() {
 .band .note{font-size:12px;color:#ffd9cd;margin-top:16px}
 
 /* footer */
-.top-foot{background:var(--sumi);color:#d8cfc0;font-size:12px;padding:30px 0 36px}
+.top-foot{background:var(--kon);color:#c3cad6;font-size:12px;padding:30px 0 36px}
 .top-foot .pin{display:flex;flex-wrap:wrap;gap:10px 22px;justify-content:space-between;align-items:center}
 .top-foot nav{display:flex;flex-wrap:wrap;gap:8px 18px}
 .top-foot a{text-decoration:none}
@@ -285,11 +301,15 @@ export default function Home() {
           </figure>
           <div className="copy2">
             <p className="lead">
-              催促、確認、リマインド、進行の管理。クライアントワークの<b>「まわりの仕事」</b>は、agentpmが引き受けます。あなたと相手のあいだで止まっている仕事を、揃うまで追いかける。
+              お客様への催促、資料の確認、期限のリマインド、進み具合の管理。<b>本業のまわりで発生するこうした仕事</b>を、agentpmが代わりに引き受けます。相手待ちで止まっている案件も、揃うまで追いかけます。
             </p>
             <div className="pillars" aria-label="agentpmの二本柱">
-              <span>タスク管理</span>
-              <span className="emph">＋ 雇えるAI秘書</span>
+              <p className="duo-line">
+                <span className="mk">タスク・プロジェクト管理</span>
+                <span className="sep" aria-hidden="true">／</span>
+                <span className="mk">雇えるAI秘書</span>
+              </p>
+              <p className="duo-note">必要なほうだけでも、両方あわせてもお使いいただけます。</p>
             </div>
             <div className="cta">
               <Link href="/contact" className="btn">15分の相談から</Link>
@@ -319,13 +339,13 @@ export default function Home() {
       {/* AI secretary hub */}
       <section className="hub">
         <div className="pin">
-          <span className="new">NEW — AI SECRETARY</span>
+          <span className="new">新機能 ─ AI秘書</span>
           <h2>
-            回収・催促・証跡は、<br />
-            <em>秘書を雇って</em>任せる。
+            資料の回収も催促も、<br />
+            <em>AI秘書</em>に任せられます。
           </h2>
           <p className="lead">
-            相手からの「待ち」を追いかけるAI秘書が、あなたの名義で入社します。未着のリストアップから、角の立たない催促、受領の記録まで。あなたの業種のページで、実際の仕事ぶりをご覧ください。
+            AI秘書が、あなたの会社の一員として相手待ちの案件を追いかけます。届いていない資料の洗い出しから、角の立たない催促、受け取りの記録まで対応します。業種ごとのページで、実際の動きをご覧ください。
           </p>
           <div className="hub-grid">
             {INDUSTRIES.map((i) => (
@@ -343,7 +363,7 @@ export default function Home() {
             ))}
           </div>
           <p className="hub-note">
-            あなたの業種がありませんか？ <Link href="/contact">15分の相談</Link>で、貴社の「回収するもの」に合わせてご提案します。
+            御社の業種が見当たらない場合も、<Link href="/contact">15分のご相談</Link>で、回収されている書類に合わせたご提案ができます。
           </p>
         </div>
       </section>
@@ -351,28 +371,28 @@ export default function Home() {
       {/* connected services */}
       <section className="conn" aria-label="連携できるサービス">
         <div className="pin">
-          <span className="en" style={{ color: 'var(--tq)' }}>CONNECTS WITH</span>
+          <span className="en-ja" style={{ color: 'var(--tq)' }}>連携できるサービス</span>
           <h2>
-            いまの道具は、<br />
-            <span className="o">そのままで。</span>
+            いまお使いのツールは、<br />
+            <span className="o">そのまま使えます。</span>
           </h2>
           <p className="lead">
-            秘書は、あなたと相手がすでに使っているチャットに入り、いま動いているタスク管理とつながります。乗り換えも、相手に新しい道具を覚えてもらう必要もありません。
+            AI秘書は、あなたとお客様が普段お使いのチャットに入って動きます。すでに使っているタスク管理ツールとも連携するため、乗り換えは必要ありません。お客様に新しいツールを覚えていただく手間もかかりません。
           </p>
         </div>
         <div className="conn-rails">
           <div>
-            <p className="rail-hd pin">CHAT — 会話に入る</p>
+            <p className="rail-hd pin">チャット ─ 会話に入ります</p>
             <ServiceRail items={chatServices} variant="a" />
           </div>
           <div>
-            <p className="rail-hd pin">TASK &amp; DATA — 仕事とつながる</p>
+            <p className="rail-hd pin">タスク管理・データ ─ 既存のツールとつながります</p>
             <ServiceRail items={toolServices} variant="b" />
           </div>
         </div>
         <div className="pin">
           <p className="conn-note">
-            LINEは無料プランから。ほかのチャットとタスク連携はProプランの機能です。対応サービスは順次追加しています。<Link href="/contact">お使いのツールをご相談ください</Link>。
+            LINEは無料プランからご利用いただけます。ほかのチャットや、タスク管理ツールとの連携はProプランの機能です。対応サービスは順次追加しています。<Link href="/contact">お使いのツールについてご相談ください</Link>。
           </p>
         </div>
       </section>
@@ -380,13 +400,13 @@ export default function Home() {
       {/* original features */}
       <section className="feat">
         <div className="pin">
-          <span className="en" style={{ color: 'var(--shu)' }}>THE TOOL BEHIND</span>
+          <span className="en-ja" style={{ color: 'var(--shu)' }}>AI秘書の土台</span>
           <h2 style={{ marginTop: 10 }}>
-            秘書の裏には、<br />
-            <span className="o">進行管理の本体。</span>
+            AI秘書の土台は、<br />
+            <span className="o">本格的な進行管理ツールです。</span>
           </h2>
           <p className="lead">
-            agentpmはもともと、受託開発・制作会社のためのクライアントワーク管理ツール。秘書が記録する先には、チームでそのまま使える進行管理があります。
+            agentpmはもともと、受託開発や制作会社のための案件管理ツールです。AI秘書が記録した内容はそのままここに反映されるので、チームでの進行管理にそのまま使えます。
           </p>
           <div className="feat-shots" aria-label="実際の画面">
             <span className="sh sh1">
@@ -397,7 +417,7 @@ export default function Home() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/top-assets/ui-portal.jpg" alt="クライアントポータル。相手はログイン不要で進捗確認と承認ができる" loading="lazy" />
             </span>
-            <span className="cap">REAL SCREENS — BALL & CLIENT PORTAL</span>
+            <span className="cap">実際の画面 ─ ボール管理とクライアントポータル</span>
           </div>
           <div className="feat-grid">
             {FEATURES.map((f) => (
@@ -419,22 +439,25 @@ export default function Home() {
       <section className="ways">
         <div className="pin">
           <h2>
-            自分で回すもよし、<br />
-            <span>任せて戻る</span>もよし。
+            自分で進めるか、<br />
+            <span>AI秘書に任せる</span>か。
           </h2>
+          <p className="lead">
+            agentpmは、進行管理ツールとAI秘書の2つでできています。<b>どちらか片方だけでも使えますし、両方あわせてもお使いいただけます。</b>あとから追加することもできます。
+          </p>
           <div className="ways-grid">
             <div className="way">
-              <span className="who">FOR DEV & CREATIVE TEAMS</span>
-              <h3>ツールとして、自分で回す</h3>
+              <span className="who">制作・開発チームの方へ</span>
+              <h3>ツールとして、自分で進める</h3>
               <p>
-                受託開発・制作会社に。ボール管理とクライアントポータルで、チームの進行と顧客とのやり取りをひとつに。CLI・AI操作にも対応しています。
+                受託開発や制作会社のチーム向けです。ボール管理とクライアントポータルで、案件の進行とお客様とのやり取りをひとつにまとめられます。CLIやAIからの操作にも対応しています。
               </p>
             </div>
             <div className="way alt">
-              <span className="who">FOR BUSY PROFESSIONALS</span>
-              <h3>秘書に任せて、本業に戻る</h3>
+              <span className="who">士業・現場の会社の方へ</span>
+              <h3>AI秘書に任せて、本業に戻る</h3>
               <p>
-                士業・現場の会社に。画面はほとんど開かなくて大丈夫。回収と催促は秘書が実行し、あなたには週次の業務報告と、判断が要る例外だけが届きます。
+                画面はほとんど開かなくても大丈夫です。資料の回収と催促はAI秘書が進め、あなたのもとには週1回の報告と、判断が必要な件だけが届きます。
               </p>
             </div>
           </div>
@@ -450,7 +473,7 @@ export default function Home() {
           <Link href="/contact" className="btn">15分の相談をする</Link>
           <Link href="/signup" className="btn ghost">無料で始める</Link>
         </div>
-        <p className="note">先行導入のご相談は各業種ページからもどうぞ。</p>
+        <p className="note">業種ごとのページからもご相談いただけます。</p>
       </section>
 
       {/* footer */}
