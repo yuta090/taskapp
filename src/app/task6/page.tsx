@@ -150,7 +150,7 @@ export default async function Task6IndexPage() {
               width={957}
               height={222}
               fetchPriority="high"
-              className="h-16 w-auto md:h-20"
+              className="h-11 w-auto md:h-14"
             />
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-600">
