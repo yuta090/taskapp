@@ -168,7 +168,29 @@ export default function Home() {
 @media(prefers-reduced-motion:reduce){.tick-in{animation:none!important}}
 
 /* secretary hub */
-.hub{background:var(--kon);color:var(--cream);padding:76px 0 84px}
+.hub{background:var(--kon);color:var(--cream);padding:76px 0 84px;position:relative;overflow:hidden;
+  /* isolate しないと z-index:-1 のレイヤーが .hub の背景より後ろに落ちて見えなくなる */
+  isolation:isolate}
+/* 紺のベタ塗りは面が平坦なので、光・円・方眼の3枚を重ねて奥行きを出す。
+   円はヒーローの蛍光丸と同じ語彙。塗りと輪郭を半分ずらして重ね、板が前後している状態をつくる */
+.hub .layer{position:absolute;inset:0;z-index:-1;pointer-events:none}
+/* 光は弱め。強いグラデはこのページのベタ塗り＋太罫の語彙から外れる。
+   上端を締めて、面が奥から始まって見えるようにする */
+.hub .layer::before{content:"";position:absolute;inset:0;
+  background:linear-gradient(rgba(8,15,28,.38),transparent 20%),
+             radial-gradient(115% 85% at 82% -10%,rgba(96,140,205,.20),transparent 58%),
+             radial-gradient(85% 65% at -5% 105%,rgba(31,167,154,.12),transparent 62%)}
+.hub .layer::after{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(244,237,222,.045) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(244,237,222,.045) 1px,transparent 1px);
+  background-size:72px 72px;
+  -webkit-mask-image:radial-gradient(75% 60% at 50% 45%,#000,transparent 78%);
+  mask-image:radial-gradient(75% 60% at 50% 45%,#000,transparent 78%)}
+.hub .orb{position:absolute;border-radius:50%;pointer-events:none;z-index:-1}
+.hub .orb-1{width:min(46vw,520px);aspect-ratio:1;right:-8%;top:-14%;background:rgba(244,237,222,.05)}
+.hub .orb-2{width:min(34vw,380px);aspect-ratio:1;right:6%;top:3%;border:2px solid rgba(242,193,78,.22)}
+.hub .orb-3{width:min(26vw,300px);aspect-ratio:1;left:-6%;bottom:-12%;border:2px solid rgba(244,237,222,.10)}
+@media(max-width:767px){.hub .orb-2{display:none}}
 .hub .new{display:inline-block;background:var(--neon);color:var(--sumi);font-weight:800;font-size:12px;letter-spacing:.2em;padding:5px 14px;transform:rotate(-2deg)}
 .hub h2{font-size:clamp(38px,8.4vw,84px);font-weight:800;line-height:1.12;margin-top:16px}
 /* 紺地では蛍光黄の特大見出しがギラつくので、強調は山吹に落とす（紺×クリーム×金）。
@@ -177,8 +199,9 @@ export default function Home() {
 .hub .lead{max-width:37em;font-size:15px;font-weight:500;margin-top:16px;color:#dfe4ec}
 .hub-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:38px}
 @media(min-width:768px){.hub-grid{grid-template-columns:repeat(4,1fr)}}
-.top .hub-card{display:block;background:var(--cream);color:var(--sumi);text-decoration:none;padding:18px 16px 14px;border:2px solid var(--cream);transition:all .15s ease;position:relative}
-.hub-card:hover{transform:translateY(-4px);border-color:var(--neon);box-shadow:0 10px 0 var(--shu)}
+/* カードは紺の面から一段手前に浮かせる。影はオフセットのベタ(conn の chip と同じ語彙) */
+.top .hub-card{display:block;background:var(--cream);color:var(--sumi);text-decoration:none;padding:18px 16px 14px;border:2px solid var(--cream);transition:all .15s ease;position:relative;box-shadow:6px 6px 0 rgba(8,15,28,.42)}
+.hub-card:hover{transform:translateY(-4px);border-color:var(--neon);box-shadow:6px 14px 0 var(--shu)}
 .hub-card .tag{font-family:"Helvetica Neue",Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:.24em;color:var(--soft)}
 .hub-card .hook{display:block;font-size:17px;font-weight:800;line-height:1.5;margin-top:8px}
 .hub-card .hook b{color:var(--shu)}
@@ -338,6 +361,10 @@ export default function Home() {
 
       {/* AI secretary hub */}
       <section className="hub">
+        <span className="layer" aria-hidden="true" />
+        <span className="orb orb-1" aria-hidden="true" />
+        <span className="orb orb-2" aria-hidden="true" />
+        <span className="orb orb-3" aria-hidden="true" />
         <div className="pin">
           <span className="new">新機能 ─ AI秘書</span>
           <h2>
