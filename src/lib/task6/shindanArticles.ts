@@ -34,7 +34,8 @@ type ShindanTypeKey = (typeof PROCESS_KEYS)[number]
  * 記事セクションを出さない）。
  */
 export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[]> = {
-  t1: [],
+  // 丸投げ型は「大きな仕事が大きいまま止まる」。まず考え方の土台（分解と依頼）から入る
+  t1: ['what-is-task-management'],
   // 副処方: 着手が遅れる型にも、締切の引き直しと「先に人へ投げる」が効く
   t2: ['multitask-nigate-capacity', 'task-jouzu-shimekiri'],
   // 主処方: 駆け込み型＝提出日で締切を引いているために、確認と差し戻しの後半戦で溢れる
@@ -46,7 +47,8 @@ export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[
   // 無音型は「詰まっても言い出せない」。通知だけでは担当も完了も残らない話が効く
   t6: ['tax-document-collection-workflow', 'remine-kun-tsukaikata'],
   // ボトルネック型＝上長の確認待ちで止まる。承認日から締切を引く話が正面から効く
-  t7: ['task-jouzu-shimekiri'],
+  // ボトルネック型＝上長の確認待ち。締切の引き方に加え、計画を直す前提の考え方も効く
+  t7: ['task-jouzu-shimekiri', 'what-is-project-management'],
   // 言いっぱなし型＝会話の決定が記録に残らない。チャットの依頼が流れる話が正面から効く
   t8: ['remine-kun-tsukaikata', 'notion-task-memo-ka'],
 }
