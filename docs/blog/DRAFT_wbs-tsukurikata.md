@@ -9,7 +9,7 @@
 > | description | WBSの作り方は4ステップで説明されていますが、詰まるのは手順の外側です。ゴールが担当と期限をつけられる形になっていない、割る基準を作業量だけで決めている、先まで全部割ろうとしている。3つのつまずきと直し方をまとめました。 |
 > | author_name | 高橋ゆうこ |
 > | tags | WBS / プロジェクト管理 / タスク分解 |
-> | cover_image_url | `wbs-tsukurikata-banner.webp`（生成後に設定） |
+> | cover_image_url | `wbs-tsukurikata-banner-v2.webp` |
 > | noindex | false |
 >
 > **公開前チェック**

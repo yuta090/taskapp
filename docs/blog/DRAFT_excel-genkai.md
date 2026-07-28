@@ -9,7 +9,7 @@
 > | description | エクセルやスプレッドシートのタスク管理は、作り方より「作った後」でつまずきます。表が壊れて戻せなくなる、書いた人が分からない、書き写しが増える。限界がくる3つの合図と、表を変えずに今週打てる手をまとめました。 |
 > | author_name | 高橋ゆうこ |
 > | tags | Excel / タスク管理 / できない人の味方 |
-> | cover_image_url | `task-kanri-excel-genkai-banner.webp`（生成後に設定） |
+> | cover_image_url | `task-kanri-excel-genkai-banner-v2.webp` |
 > | noindex | false |
 >
 > **公開前チェック**
