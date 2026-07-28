@@ -102,9 +102,15 @@ export default async function BlogArticlePage({ params }: Props) {
 
         <header className="mb-10">
           <div className="mb-4 flex items-center gap-2 text-sm">
-            <Link href="/task6" className="font-bold tracking-tight">
-              <span className="text-slate-900">TASK</span>
-              <span className="text-amber-500">6</span>
+            <Link href="/task6" className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/task6/logo.png"
+                alt="TASK6"
+                width={957}
+                height={222}
+                className="h-5 w-auto"
+              />
             </Link>
             {post.tags.slice(0, 3).map((t) => (
               <span

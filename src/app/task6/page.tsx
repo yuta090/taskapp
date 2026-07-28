@@ -142,9 +142,16 @@ export default async function Task6IndexPage() {
           <p className="text-sm font-bold tracking-wide text-amber-600">
             仕事がまわる学びのメディア
           </p>
-          <h1 className="mt-2 text-6xl font-black tracking-tight md:text-7xl">
-            <span className="text-slate-900">TASK</span>
-            <span className="text-amber-500">6</span>
+          <h1 className="mt-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/task6/logo.png"
+              alt="TASK6（タスクシックス）"
+              width={957}
+              height={222}
+              fetchPriority="high"
+              className="h-16 w-auto md:h-20"
+            />
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-600">
             「ツールを入れたのに、仕事がまわらない」を直す。
