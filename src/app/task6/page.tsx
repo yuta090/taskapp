@@ -141,13 +141,15 @@ export default async function Task6IndexPage() {
       <section className="border-b border-slate-100 bg-gradient-to-b from-amber-50/60 to-white">
         <div className="mx-auto max-w-6xl px-5 pb-14 pt-28 md:pt-32">
           <p className="text-sm font-bold tracking-wide text-amber-600">
-            仕事がまわる学びのメディア
+            タスク管理と仕事の進め方を学ぶメディア
           </p>
+          {/* h1 はロゴ画像。検索エンジンは alt を見出しの文字として読むので、
+              ブランド名だけでなく何のメディアかまで書く（見た目は変えない） */}
           <h1 className="mt-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/task6/logo.png"
-              alt="TASK6（タスクシックス）"
+              alt="TASK6（タスクシックス）｜タスク管理を学ぶメディア"
               width={957}
               height={222}
               fetchPriority="high"
