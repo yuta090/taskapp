@@ -114,11 +114,16 @@ export default function Home() {
 .top-head{display:flex;justify-content:space-between;align-items:center;max-width:1080px;margin:0 auto;padding:18px 24px}
 .top-brand{font-weight:800;font-size:17px;letter-spacing:.14em;text-decoration:none}
 .top-brand small{font-weight:600;color:var(--soft);letter-spacing:.1em;margin-left:10px;font-size:10px}
-.top-nav{display:flex;gap:18px;align-items:center;font-size:13px;font-weight:700}
+/* 2〜4文字の和語が並ぶと語同士がくっついて見えるので広めに取る。
+   ただし固定値だと 560〜768px で溢れるため clamp で詰める */
+.top-nav{display:flex;gap:clamp(16px,2.2vw,28px);align-items:center;font-size:13.5px;font-weight:700;letter-spacing:.02em}
 .top-nav a{text-decoration:none}
 .top-nav a:hover{color:var(--shu)}
-.top-nav .login{border:2px solid var(--sumi);padding:8px 18px}
+/* ログインは他のリンクと役割が違うので、ひと呼吸ぶん余分に離す */
+.top-nav .login{border:2px solid var(--sumi);padding:8px 18px;margin-left:clamp(0px,.6vw,8px)}
 .top-nav .login:hover{background:var(--sumi);color:var(--cream)}
+/* 561〜700px はリンクが5本出たままロゴと衝突する帯。文字を詰め、装飾の by skara を落とす */
+@media(max-width:700px){.top-nav{font-size:12.5px;letter-spacing:0}.top-brand small{display:none}}
 @media(max-width:560px){.top-nav .hide-m{display:none}}
 
 /* hero */
@@ -300,7 +305,7 @@ export default function Home() {
           <Link href="/features" className="hide-m">機能</Link>
           <Link href="/pricing" className="hide-m">料金</Link>
           <Link href="/shindan" className="hide-m">無料診断</Link>
-          <Link href="/task6" className="hide-m">学ぶ</Link>
+          <Link href="/task6" className="hide-m">タスク管理術</Link>
           <Link href="/contact" className="hide-m">相談する</Link>
           <Link href="/login" className="login">ログイン</Link>
         </nav>

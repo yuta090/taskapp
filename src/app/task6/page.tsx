@@ -7,7 +7,8 @@ import { listPublishedPosts } from '@/lib/blog/posts'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'TASK6（タスクシックス） | 仕事がまわる学びのメディア',
+  // 検索需要のある「タスク管理」(月12,100)を先頭に置く。TASK6は無名なのでブランド先頭にしない
+  title: 'タスク管理を学ぶメディア TASK6（タスクシックス）',
   description:
     'タスク管理・プロジェクト管理・仕事の進め方を、実際にあった話から学べるメディア。ツールを入れたのに回らない、を直します。',
   alternates: { canonical: 'https://agentpm.app/task6' },
