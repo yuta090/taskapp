@@ -43,16 +43,17 @@ export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[
   // 主処方: 同時進行型そのものへの処方箋（分解した後に当たる「1日の容量」の壁）。
   // 副処方: 仕掛かりが多いと予定の押し合いが起きるので、引き直しの手も添える
   t4: ['multitask-nigate-capacity', 'gantt-chart-tsukurikata'],
-  // お見合い型は「誰が次に動くか」が曖昧。相手に投げる順番と確認日の決め方が効く
-  t5: ['tax-document-collection-workflow', 'task-jouzu-shimekiri'],
-  // 無音型は「詰まっても言い出せない」。通知だけでは担当も完了も残らない話が効く
-  t6: ['tax-document-collection-workflow', 'remine-kun-tsukaikata'],
-  // ボトルネック型＝上長の確認待ちで止まる。承認日から締切を引く話が正面から効く
-  // ボトルネック型＝上長の確認待ち。締切の引き方に加え、計画を直す前提の考え方も効く
-  t7: ['task-jouzu-shimekiri', 'what-is-project-management'],
-  // 言いっぱなし型＝会話の決定が記録に残らない。チャットの依頼が流れる話が正面から効く。
-  // 表への「書き写し」で条件が落ちるのも同じ型なので、エクセルの限界ラインも候補に入れる
-  t8: ['remine-kun-tsukaikata', 'notion-task-memo-ka', 'task-kanri-excel-genkai'],
+  // 主処方: お見合い型＝担当が曖昧で誰も動かない。一斉依頼が誰のタスクにもならない話が正面から効く
+  t5: ['line-group-task-hiroimore', 'tax-document-collection-workflow', 'task-jouzu-shimekiri'],
+  // 主処方: 無音型＝詰まっても言い出せない。人が催促しなくて済む仕組みの話が正面から効く
+  t6: ['ai-hisho-toha', 'tax-document-collection-workflow', 'remine-kun-tsukaikata'],
+  // ボトルネック型＝上長の確認待ち。締切の引き方・計画を直す前提に加え、
+  // 会社が決めたツールのまま「誰の番か」を出す話も効く
+  t7: ['task-jouzu-shimekiri', 'what-is-project-management', 'backlog-tsukaikonashi'],
+  // 主処方: 言いっぱなし型＝会話の決定が記録に残らない。チャットで決まった話が消える件が正面から効く。
+  // ⚠ 上限3本。task-kanri-excel-genkai は本来 T9（量の負荷）の処方だが、t9 はタイプ一覧に出ない
+  //   ため、ここから外した（記事自体はサイトに残り、他記事からリンクで届く）
+  t8: ['slack-task-kanri', 'notion-task-memo-ka', 'line-group-task-hiroimore'],
 }
 
 /** 診断のタイプキー（t1〜t8）か。URLクエリなど外から来た文字列の検証に使う。 */
