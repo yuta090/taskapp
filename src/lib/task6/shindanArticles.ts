@@ -37,10 +37,12 @@ export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[
   // 副処方: 着手が遅れる型にも、締切の引き直しと「先に人へ投げる」が効く。
   // 1行目が書けずに止まっている場合があるので、割り方も候補に入れる
   t2: ['multitask-nigate-capacity', 'task-jouzu-shimekiri', 'wbs-tsukurikata'],
-  // 主処方: 駆け込み型＝提出日で締切を引いているために、確認と差し戻しの後半戦で溢れる
-  t3: ['task-jouzu-shimekiri'],
-  // 主処方: 同時進行型そのものへの処方箋（分解した後に当たる「1日の容量」の壁）
-  t4: ['multitask-nigate-capacity'],
+  // 主処方: 駆け込み型＝提出日で締切を引いているために、確認と差し戻しの後半戦で溢れる。
+  // 副処方: 遅れてからの引き直しが重い型でもあるので、ガントの直し方も出す
+  t3: ['task-jouzu-shimekiri', 'gantt-chart-tsukurikata'],
+  // 主処方: 同時進行型そのものへの処方箋（分解した後に当たる「1日の容量」の壁）。
+  // 副処方: 仕掛かりが多いと予定の押し合いが起きるので、引き直しの手も添える
+  t4: ['multitask-nigate-capacity', 'gantt-chart-tsukurikata'],
   // お見合い型は「誰が次に動くか」が曖昧。相手に投げる順番と確認日の決め方が効く
   t5: ['tax-document-collection-workflow', 'task-jouzu-shimekiri'],
   // 無音型は「詰まっても言い出せない」。通知だけでは担当も完了も残らない話が効く
