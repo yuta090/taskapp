@@ -76,14 +76,14 @@ TASK6の記事(第1期15本+使い方3本)の対応表。**記事は「タイプ
 
 ### 割り当ての現状（2026-07-29）
 
-公開9本。**T1〜T8のすべてに1本以上が出る**状態になった。主処方の割り当ては次のとおり:
+公開10本。**T1〜T8のすべてに1本以上が出る**状態になった。主処方の割り当ては次のとおり:
 
 | タイプ | 主処方（先頭に出る記事） |
 |---|---|
 | T1 丸投げ | `wbs-tsukurikata`（割り方そのもの） |
 | T2 先送り | `multitask-nigate-capacity` |
-| T3 駆け込み | `task-jouzu-shimekiri` |
-| T4 同時進行 | `multitask-nigate-capacity` |
+| T3 駆け込み | `task-jouzu-shimekiri`（副に `gantt-chart-tsukurikata`） |
+| T4 同時進行 | `multitask-nigate-capacity`（副に `gantt-chart-tsukurikata`） |
 | T5 お見合い | `tax-document-collection-workflow` |
 | T6 無音 | `tax-document-collection-workflow` |
 | T7 ボトルネック | `task-jouzu-shimekiri` |
@@ -93,7 +93,7 @@ TASK6の記事(第1期15本+使い方3本)の対応表。**記事は「タイプ
 
 ## 残作業(この表の外)
 
-- [ ] 記事在庫を増やす（第1期15本のうち9本公開。残6本）
+- [ ] 記事在庫を増やす（第1期15本のうち10本公開。残5本）
 - [x] 診断結果へのTASK6記事リンク差し込み（2026-07-26 実装）
 - [ ] 公開順序の裁定: 診断の公開はmultica販売解禁ゲート④通過後の約束。
   TASK6と診断の相互リンクはゲート通過が前提(ユーザー判断待ち)
