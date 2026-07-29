@@ -27,17 +27,16 @@ type ShindanTypeKey = (typeof PROCESS_KEYS)[number]
 /**
  * タイプ別の記事候補（主処方 → 副処方の順）。
  *
- * 現時点で公開済みの記事は「資料回収が遅れる税理士事務所へ｜催促を仕組みに変える5手順」
- * (`tax-document-collection-workflow`) の1本のみ。**催促を仕組みに変える**内容なので、
- * 相手が詰まっても言い出さない t6（無音型）と、担当が曖昧で誰も動かない t5（お見合い型）に
- * 効く処方箋として割り当てる。他タイプは記事が書かれ次第ここに足す（それまでは0件＝
- * 記事セクションを出さない）。
+ * 割り当ての考え方は「その記事が、そのタイプの詰まりを正面から扱っているか」。主処方を先頭に置く。
+ * 記事が書かれ次第ここに足す（載せても未公開ならAPI側で落ちるので、先に書いてよい）。
+ * 正本の対応表は `docs/blog/SHINDAN_ARTICLE_MAP.md`。ずれたらそちらに合わせる。
  */
 export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[]> = {
-  // 丸投げ型は「大きな仕事が大きいまま止まる」。まず考え方の土台（分解と依頼）から入る
-  t1: ['what-is-task-management'],
-  // 副処方: 着手が遅れる型にも、締切の引き直しと「先に人へ投げる」が効く
-  t2: ['multitask-nigate-capacity', 'task-jouzu-shimekiri'],
+  // 主処方: 丸投げ型＝大きな仕事が大きいまま止まる。割り方そのものが正面から効く
+  t1: ['wbs-tsukurikata', 'what-is-task-management'],
+  // 副処方: 着手が遅れる型にも、締切の引き直しと「先に人へ投げる」が効く。
+  // 1行目が書けずに止まっている場合があるので、割り方も候補に入れる
+  t2: ['multitask-nigate-capacity', 'task-jouzu-shimekiri', 'wbs-tsukurikata'],
   // 主処方: 駆け込み型＝提出日で締切を引いているために、確認と差し戻しの後半戦で溢れる
   t3: ['task-jouzu-shimekiri'],
   // 主処方: 同時進行型そのものへの処方箋（分解した後に当たる「1日の容量」の壁）
@@ -49,8 +48,9 @@ export const SHINDAN_TYPE_ARTICLE_SLUGS: Record<ShindanTypeKey, readonly string[
   // ボトルネック型＝上長の確認待ちで止まる。承認日から締切を引く話が正面から効く
   // ボトルネック型＝上長の確認待ち。締切の引き方に加え、計画を直す前提の考え方も効く
   t7: ['task-jouzu-shimekiri', 'what-is-project-management'],
-  // 言いっぱなし型＝会話の決定が記録に残らない。チャットの依頼が流れる話が正面から効く
-  t8: ['remine-kun-tsukaikata', 'notion-task-memo-ka'],
+  // 言いっぱなし型＝会話の決定が記録に残らない。チャットの依頼が流れる話が正面から効く。
+  // 表への「書き写し」で条件が落ちるのも同じ型なので、エクセルの限界ラインも候補に入れる
+  t8: ['remine-kun-tsukaikata', 'notion-task-memo-ka', 'task-kanri-excel-genkai'],
 }
 
 /** 診断のタイプキー（t1〜t8）か。URLクエリなど外から来た文字列の検証に使う。 */
