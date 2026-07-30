@@ -62,11 +62,17 @@ export function ToolSetupGuide({ guideKey, defaultOpen = false, className }: Too
             ))}
           </ol>
 
-          {guide.notes && guide.notes.length > 0 && (
+          {(guide.notes?.length || guide.adminOnly) && (
             <ul className="list-disc space-y-1 pl-5 text-gray-500">
-              {guide.notes.map((note) => (
+              {guide.notes?.map((note) => (
                 <li key={note}>{note}</li>
               ))}
+              {/* 全ツール共通の定型はここで1回だけ出す（ツールごとに同じ注意を書き写さない）。 */}
+              {guide.adminOnly && (
+                <li>
+                  この接続を作れるのは、組織のオーナーか管理者だけです。それ以外の人には接続フォームが出ません。
+                </li>
+              )}
             </ul>
           )}
 

@@ -44,6 +44,35 @@ describe('INTEGRATION_SETUP_GUIDES', () => {
     }
   })
 
+  /**
+   * 手順を記憶で書いてしまい、実際の画面と食い違っていた——という実際の失敗から入れた歯止め。
+   * 「どこを見て書いたか」「いつ時点か」を必ず残させる。
+   */
+  it('全ての手順に、裏を取った資料と確認日が残っている', () => {
+    for (const [key, guide] of Object.entries(INTEGRATION_SETUP_GUIDES)) {
+      expect(guide.sources.length, `${key}: sources が空（裏を取らずに書いていないか）`).toBeGreaterThan(0)
+      expect(guide.verifiedOn, `${key}: verifiedOn の形式が不正`).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    }
+  })
+
+  it('TaskApp側の道順は「接続画面」のような曖昧語で書かない（どの画面か分からないため）', () => {
+    for (const [key, guide] of Object.entries(INTEGRATION_SETUP_GUIDES)) {
+      for (const step of guide.steps) {
+        expect(step, `${key}: 「接続画面」は利用者に伝わらない`).not.toMatch(/接続画面/)
+      }
+    }
+  })
+
+  it('全ツール共通の注意（owner/admin限定）を、ツールごとに書き写していない', () => {
+    for (const [key, guide] of Object.entries(INTEGRATION_SETUP_GUIDES)) {
+      for (const note of guide.notes ?? []) {
+        expect(note, `${key}: 共通の注意は adminOnly で表す`).not.toMatch(
+          /この接続を作れるのは、組織のオーナーか管理者だけ/,
+        )
+      }
+    }
+  })
+
   it('個人アカウント接続(設定→ツール連携)の4つにも手順がある', () => {
     const expected: PersonalSetupGuideKey[] = [
       'google_calendar',
