@@ -63,6 +63,29 @@ describe('INTEGRATION_SETUP_GUIDES', () => {
     }
   })
 
+  /**
+   * 手順は「これから使う人」だけが読む。運用者（TaskApp を導入した側）が最初に一度だけやる
+   * 準備作業や、TaskApp 内部の作りの説明を混ぜない。混ぜると、関係の無い人まで
+   * その作業をやりに行ってしまう（Trello で実際にそうなった）。
+   */
+  it('運用側の準備作業や内部の作りを、利用者向けの手順に混ぜない', () => {
+    const OPERATOR_ONLY = [
+      /Power-Up/,
+      /運用担当/,
+      /運用者/,
+      /接続フォームに無く/,
+      /作りにしている/,
+      /接続を許可しているドメイン/,
+    ]
+    for (const [key, guide] of Object.entries(INTEGRATION_SETUP_GUIDES)) {
+      for (const text of [guide.summary, ...guide.steps, ...(guide.notes ?? [])]) {
+        for (const pattern of OPERATOR_ONLY) {
+          expect(text, `${key}: 運用側の話が利用者向けに漏れている`).not.toMatch(pattern)
+        }
+      }
+    }
+  })
+
   it('全ツール共通の注意（owner/admin限定）を、ツールごとに書き写していない', () => {
     for (const [key, guide] of Object.entries(INTEGRATION_SETUP_GUIDES)) {
       for (const note of guide.notes ?? []) {
