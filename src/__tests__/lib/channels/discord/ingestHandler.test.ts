@@ -1,4 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
+import { renderHelpReplyText } from '@/lib/channels/commandGuides'
+import {
+  ADD_TASK_EMPTY_TEXT,
+  COMPLETE_WITHOUT_NUMBER_TEXT,
+  LIST_EMPTY_TEXT,
+  buildAddTaskDoneText,
+  buildAddTaskDoneNoDigestText,
+} from '@/lib/channels/groupCommands'
 import {
   handleDiscordIngest,
   buildAcceptedText,
@@ -41,7 +49,10 @@ function makeDeps(over: Partial<DiscordIngestDeps> = {}): DiscordIngestDeps {
     registerInvalidAttempt: vi.fn().mockReturnValue(false),
     reply: vi.fn().mockResolvedValue(undefined),
     completeDigestTask: vi.fn().mockResolvedValue(null),
+    createInstantDigestTask: vi.fn().mockResolvedValue({ id: 'task-new', pending: false, duplicate: false }),
     insertOutbound: vi.fn().mockResolvedValue(undefined),
+    // 「一覧」の土台（番号がまだ無いタスクにだけ続きの番号を与える）。配線必須
+    assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]),
     ...over,
   }
 }
@@ -365,5 +376,150 @@ describe('handleDiscordIngest — バッチ', () => {
     expect(res.processed).toBe(2)
     expect(res.inserted).toBe(1)
     expect(insertMessage).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * 使い方案内（ヘルプ）と、その場の登録（タスク追加）の配線。
+ * 「Discordでタスクをどう消すのか分からない」という困りごとに直接効く2つ。
+ */
+describe('handleDiscordIngest — ヘルプ / タスク追加（claimed経路限定）', () => {
+  const GROUP = { id: 'grp-1', orgId: 'org-1', spaceId: 'space-1' }
+
+  it('「ヘルプ」で使い方を返信し、秘書の発言として記録する', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP) })
+    await handleDiscordIngest([event({ content: 'ヘルプ' })], deps)
+
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', renderHelpReplyText('discord'))
+    expect(deps.insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: 'grp-1', channel: 'discord', actor: 'secretary' }),
+    )
+  })
+
+  it('未登録（limbo）チャンネルの「ヘルプ」には答えない（沈黙の原則を緩めない）', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(null) })
+    await handleDiscordIngest([event({ content: 'ヘルプ' })], deps)
+
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.insertMessage).not.toHaveBeenCalled()
+    expect(deps.insertOutbound).not.toHaveBeenCalled()
+  })
+
+  it('「タスク追加 見積書を送る」でタスクを1件作り、記録した発言を出どころにする', async () => {
+    const createInstantDigestTask = vi
+      .fn()
+      .mockResolvedValue({ id: 'task-new', pending: false, duplicate: false })
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      insertMessage: vi.fn().mockResolvedValue({ id: 'row-77' }),
+      createInstantDigestTask,
+    })
+    await handleDiscordIngest([event({ content: 'タスク追加 見積書を送る' })], deps)
+
+    expect(createInstantDigestTask).toHaveBeenCalledWith({
+      groupId: 'grp-1',
+      sourceMessageId: 'row-77',
+      title: '見積書を送る',
+      assigneeExternalUserId: 'U1',
+    })
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', buildAddTaskDoneText('見積書を送る'))
+  })
+
+  it('「タスク追加」だけなら内容が読めない旨を返し、タスクは作らない', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP) })
+    await handleDiscordIngest([event({ content: 'タスク追加' })], deps)
+
+    expect(deps.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', ADD_TASK_EMPTY_TEXT)
+  })
+
+  it('自分宛メンション付き「<@BOT> ヘルプ」も読み取る', async () => {
+    const deps = makeDeps({
+      loadPlatformAccount: vi.fn().mockResolvedValue({ ...ACCOUNT, botExternalId: '111222333' }),
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+    })
+    await handleDiscordIngest([event({ content: '<@111222333> ヘルプ' })], deps)
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', renderHelpReplyText('discord'))
+  })
+
+  it('ふつうの会話（「ヘルプが欲しい」）では返信しない（会話に割り込まない）', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP) })
+    await handleDiscordIngest([event({ content: 'ヘルプが欲しいです' })], deps)
+
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.insertOutbound).not.toHaveBeenCalled()
+    // 通常発言としては記録される（監査ログは保つ）
+    expect(deps.insertMessage).toHaveBeenCalled()
+  })
+})
+
+/**
+ * 「一覧」と番号なしの「完了」の配線（共通層の実装は groupCommands.test.ts が担保）。
+ * ここで見るのは「チャネルの配線が通っているか」— 1チャネルでも配線を落とすと、
+ * そのチャネルだけ打っても無反応になる。
+ */
+describe('handleDiscordIngest — 一覧 / 番号なしの完了（claimed経路限定）', () => {
+  const GROUP = { id: 'grp-1', orgId: 'org-1', spaceId: 'space-1' }
+
+  it('「一覧」でいまのタスクを番号付きで返す（番号は振り直さない）', async () => {
+    const assignDigestNumbersToNewTasks = vi.fn().mockResolvedValue([
+      { id: 't-1', digestNumber: 1, title: '見積書を送る' },
+      { id: 't-4', digestNumber: 4, title: '請求書を出す' },
+    ])
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      assignDigestNumbersToNewTasks,
+    })
+    await handleDiscordIngest([event({ content: '一覧' })], deps)
+
+    expect(assignDigestNumbersToNewTasks).toHaveBeenCalledWith('grp-1')
+    const replied = (deps.reply as ReturnType<typeof vi.fn>).mock.calls[0][2] as string
+    expect(replied).toContain('1. 見積書を送る')
+    expect(replied).toContain('4. 請求書を出す')
+  })
+
+  it('0件でも「ありません」と返す（沈黙しない）', async () => {
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue(GROUP),
+      assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]),
+    })
+    await handleDiscordIngest([event({ content: '一覧' })], deps)
+
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', LIST_EMPTY_TEXT)
+  })
+
+  it('未登録（limbo）チャンネルの「一覧」には答えない（沈黙の原則を緩めない）', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(null) })
+    await handleDiscordIngest([event({ content: '一覧' })], deps)
+
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.assignDigestNumbersToNewTasks).not.toHaveBeenCalled()
+  })
+
+  it('番号なしの「完了」には番号の付け方と「一覧」を案内する（沈黙しない）', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP) })
+    await handleDiscordIngest([event({ content: '完了' })], deps)
+
+    expect(deps.reply).toHaveBeenCalledWith('bot-token', 'C1', COMPLETE_WITHOUT_NUMBER_TEXT)
+    expect(deps.completeDigestTask).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 拾い方が「取り込まない(off)」のグループに、届かないまとめを約束しない（配線の確認）。
+ * 判定そのものは groupCommands 側のテストで担保しているので、ここは「値が渡っているか」だけ見る。
+ */
+describe('handleDiscordIngest — 拾い方が「取り込まない(off)」のとき', () => {
+  const GROUP_OFF = { id: 'grp-1', orgId: 'org-1', spaceId: 'space-1', pickupMode: 'off' }
+
+  it('off のグループでは「次にお届けする一覧に載ります」と返さない', async () => {
+    const deps = makeDeps({ findActiveGroup: vi.fn().mockResolvedValue(GROUP_OFF) })
+    await handleDiscordIngest([event({ content: 'タスク追加 見積書を送る' })], deps)
+
+    expect(deps.reply).toHaveBeenCalledWith(
+      'bot-token',
+      'C1',
+      buildAddTaskDoneNoDigestText('見積書を送る'),
+    )
   })
 })

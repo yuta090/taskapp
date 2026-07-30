@@ -16,6 +16,9 @@ import {
   redeemCodeOnlyClaim,
   orgExternalChatGroupCapacity,
   markDigestTaskDoneByGroupAndNumberAtomic,
+  createInstantDigestTask,
+  assignDigestNumbersToNewTasks,
+  updateChannelGroupMetadata,
 } from '@/lib/channels/store'
 import {
   hashSharedGroupClaimCode,
@@ -49,7 +52,18 @@ const deps: DiscordIngestDeps = {
   },
   findActiveGroup: async (accountId, channelId) => {
     const g = await findActiveGroup(accountId, channelId)
-    return g ? { id: g.id, orgId: g.orgId, spaceId: g.spaceId } : null
+    return g
+      ? {
+          id: g.id,
+          orgId: g.orgId,
+          spaceId: g.spaceId,
+          // 登録直後の練習（対話型チュートリアル）用
+          createdAt: g.createdAt ?? null,
+          metadata: g.metadata ?? null,
+          // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+          pickupMode: g.pickupMode,
+        }
+      : null
   },
   insertMessage: (input) => insertChannelMessage(input),
   normalizeClaimCode: (content) => normalizeClaimCode(content),
@@ -72,6 +86,11 @@ const deps: DiscordIngestDeps = {
   },
   completeDigestTask: (groupId, digestNumber, externalUserId) =>
     markDigestTaskDoneByGroupAndNumberAtomic(groupId, digestNumber, externalUserId),
+  createInstantDigestTask: (input) => createInstantDigestTask(input),
+  // 練習（対話型チュートリアル）の配線: 番号の確定と、進み具合の保存
+  // 番号は「まだ番号が無いタスク」にだけ与える。総入れ替えは配信直前の cron だけの仕事。
+  assignDigestNumbersToNewTasks,
+  updateGroupMetadata: (groupId, patch) => updateChannelGroupMetadata(groupId, patch),
   insertOutbound: (input) =>
     insertChannelMessage({
       orgId: input.orgId,

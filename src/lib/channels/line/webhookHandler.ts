@@ -48,6 +48,8 @@ import {
   findActiveUserLinkByExternalId,
   findActiveUserLinkForUser,
   findLineAccountByIdLookup,
+  assignDigestNumbersToNewTasks,
+  updateChannelGroupMetadata,
 } from '@/lib/channels/store'
 import { disableStaleGroupSinks } from '@/lib/sinks/store'
 import { notifySinkDisabledForRelink } from '@/lib/sinks/notify'
@@ -69,6 +71,27 @@ import {
 } from '@/lib/channels/line/events'
 import { normalizeLinkCode, normalizeClaimCode } from '@/lib/channels/linkCode'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
+import {
+  matchAddTaskPrefix,
+  parseCompleteWithoutNumberCommand,
+  parseHelpCommand,
+  parseListCommand,
+} from '@/lib/channels/textCommands'
+import {
+  ADD_TASK_EMPTY_TEXT,
+  APPROVAL_REQUESTED_TEXT,
+  COMMAND_FAILED_TEXT,
+  COMPLETE_WITHOUT_NUMBER_TEXT,
+  buildTaskListReplyText,
+} from '@/lib/channels/groupCommands'
+import { renderHelpReplyText } from '@/lib/channels/commandGuides'
+import {
+  advanceTutorial,
+  startTutorial,
+  type TutorialDeps,
+  type TutorialGroupContext,
+  type TutorialSignal,
+} from '@/lib/channels/tutorial/run'
 import {
   parseDigestDonePostback,
   parseDigestUndoPostback,
@@ -194,7 +217,8 @@ function buildDueReminderSnoozedReplyText(days: number): string {
   return `${days}日後に再通知します。`
 }
 
-const APPROVAL_REQUESTED_TEXT = '責任者に確認をお願いしました。承認されると本体タスクになります。'
+// 承認待ちの文言は groupCommands.ts（他チャットの「タスク追加」と共通）が正本。
+// 同じ文章を2箇所に書くと、片方だけ直したときに人によって言われることが変わる。
 const MENTION_TITLE_EMPTY_TEXT =
   '内容が読み取れませんでした。メンションに続けてタスク内容をお書きください。'
 
@@ -917,6 +941,64 @@ async function processRoomJoin(account: LineAccount, event: NormalizedLineEvent)
   }
 }
 
+/**
+ * 先頭の「自分（秘書bot）宛メンション」だけを剥がして、合図の判定に使う本文を返す。
+ *
+ * 他チャット（Slack/Discord/Telegram/Chatwork/Teams/Google Chat）は既に同じことをしている。
+ * LINE だけがこれを持っておらず、メンション付きの合図が一切効かなかった。
+ *
+ * - 剥がすのは**先頭**のものだけ（文中の言及では剥がさない＝誤爆させない）
+ * - 自分宛（isSelf）でなければ剥がさない（他人宛メンションは宛先の指定として本文に残す）
+ * - offset は元の本文で剥がした長さ。合図の区間を元の座標へ戻すのに使う
+ */
+function stripLineSelfMentionPrefix(
+  body: string,
+  spans: Array<{ index: number; length: number }> | undefined,
+): { text: string; offset: number } {
+  if (!spans || spans.length === 0) return { text: body, offset: 0 }
+  const leadingWhitespace = body.length - body.trimStart().length
+  const head = spans
+    .filter((span) => span.length > 0 && span.index >= 0 && span.index <= leadingWhitespace)
+    .sort((a, b) => a.index - b.index)[0]
+  if (!head) return { text: body, offset: 0 }
+  const offset = head.index + head.length
+  if (offset > body.length) return { text: body, offset: 0 } // 壊れた区間はそのまま（fail-safe）
+  return { text: body.slice(offset), offset }
+}
+
+/**
+ * 合図の処理を包む。**転んだときに黙らない**（打った人に「うまくいかなかった」と伝える）。
+ *
+ * これまでは例外が webhook の入口まで抜けて握り潰され、打った人には返事も再送も来なかった
+ * （LINE は 200 を返しても返さなくても、この合図をもう一度届けてはくれない）。
+ * 例外を投げ返さないのは意図的: 投げ返しても届くのはログだけで、利用者には何も届かない。
+ *
+ * 返信できないとき（replyToken 無し）と自動応答停止中（disabled）は、既存の作法どおり何も送らない。
+ */
+async function runGroupCommand(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  disabled: boolean,
+  run: () => Promise<void>,
+): Promise<void> {
+  try {
+    await run()
+  } catch (error) {
+    console.error('[groupCommand] LINE failed', event.webhookEventId, error)
+    if (disabled || !event.replyToken) return
+    try {
+      await replyLineMessage({
+        accessToken: account.accessToken,
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: COMMAND_FAILED_TEXT }],
+      })
+    } catch (noticeError) {
+      // 返信トークンを既に使い切っている等。ここで打つ手は無い（ログだけ残す）。
+      console.error('[groupCommand] LINE failure notice failed', event.webhookEventId, noticeError)
+    }
+  }
+}
+
 async function processGroupMessage(
   account: LineAccount,
   event: NormalizedLineEvent,
@@ -979,9 +1061,78 @@ async function processGroupMessage(
     : null
 
   if (event.contentType === 'text' && event.body) {
-    const digestNumber = parseDigestCompleteCommand(event.body)
+    // ★合図の判定は「先頭の自分宛メンションを剥がしてから」行う（他チャットと同じ作法）。
+    //   メンションは「誰に言っているか」の指定であって合図ではない。剥がさないと
+    //   「@秘書 完了 3」が合図として読まれず、拾い方によっては『完了 3』という題名のタスクが
+    //   相手先に見える形で作られていた（案内文の「メンションが付いていても読み取ります」も嘘になる）。
+    //   剥がすのは合図の判定のためだけ。記録する本文・即時タスク化の線引きは一切変えない。
+    const command = stripLineSelfMentionPrefix(event.body, event.selfMentionSpans)
+
+    const digestNumber = parseDigestCompleteCommand(command.text)
     if (digestNumber !== null) {
-      await handleDigestCompleteCommand(account, event, group, identityId, digestNumber, disabled)
+      await runGroupCommand(account, event, disabled, () =>
+        handleDigestCompleteCommand(account, event, group, identityId, digestNumber, disabled),
+      )
+      return
+    }
+
+    // 使い方（ヘルプ）。合図に完全一致したときだけ答える＝普通の会話には割り込まない。
+    // 判定は「完了N」の後に置く（既存の分岐順序を動かさない。文法が排他なので結果は同じ）。
+    if (parseHelpCommand(command.text)) {
+      await runGroupCommand(account, event, disabled, () =>
+        handleHelpCommand(account, event, group, identityId, disabled),
+      )
+      return
+    }
+
+    // 一覧: いまのタスクを番号付きで出し直す。番号を見失うと「完了N」が打てなくなる
+    // （＝詰む）ので、そこから抜け出す逃げ道。番号は振り直さない。
+    if (parseListCommand(command.text)) {
+      await runGroupCommand(account, event, disabled, () =>
+        handleListCommand(account, event, group, identityId, disabled),
+      )
+      return
+    }
+
+    // 番号を落とした「完了」単独。黙ると打った本人は何が悪いのか分からないので案内を返す。
+    // 「完了1」は上の parseDigestCompleteCommand が拾うのでここには来ない。
+    if (parseCompleteWithoutNumberCommand(command.text)) {
+      await runGroupCommand(account, event, disabled, () =>
+        handleCompleteWithoutNumberCommand(account, event, group, identityId, disabled),
+      )
+      return
+    }
+
+    // 「タスク追加 ○○」— **拾い方の設定(pickup_mode)にもプランにも関係なく、常にその場で登録する**。
+    //
+    // 人が意図して打った命令を黙らせない。以前はこの判定が下の pickup_mode 分岐の内側にあり、
+    // 既定値の 'all' では何も起きなかった（新しくつないだグループでは案内どおり打っても無反応）。
+    // 二重登録は cron 側の除外フィルタ（全モードで有効）で防ぐ。
+    //
+    // 読み取りは textCommands.matchAddTaskPrefix が正本（他チャットと同じ文法・区切り必須）。
+    // LINE 独自の前方一致はやめた（「タスク追加ってどうやるの？」が
+    // 『ってどうやるの？』というタスクになっていた）。
+    const addTaskPrefix = matchAddTaskPrefix(command.text)
+    if (addTaskPrefix) {
+      // 題名から消す区間は**元の本文の座標**で渡す（メンションを剥がした分だけ後ろにずれる）。
+      // メンション自体は selfMentionSpans として別に消えるので、ここは合図＋区切りだけを指す
+      // ＝区間が重ならない（重なると buildMentionTaskTitle が題名を削りすぎる）。
+      const addTaskSpan = {
+        index: command.offset + addTaskPrefix.index,
+        length: addTaskPrefix.length,
+      }
+      await runGroupCommand(account, event, disabled, () =>
+        handleMentionInstantTask(
+          account,
+          event,
+          group,
+          identityId,
+          disabled,
+          addTaskSpan,
+          // 内容が空（「タスク追加」だけ）のときは、他チャットと同じ文言で書き方を案内する
+          ADD_TASK_EMPTY_TEXT,
+        ),
+      )
       return
     }
 
@@ -1016,7 +1167,10 @@ async function processGroupMessage(
         const instantAllowed =
           group.pickupMode === 'mention_only' || (await hasDualModeInstantEntitlement(group.orgId))
         if (instantAllowed) {
-          await handleMentionInstantTask(account, event, group, identityId, disabled, keywordSpan)
+          // 合図と同じ扱い: 転んだら黙らず「うまくいかなかった」と伝える（打った人を放置しない）
+          await runGroupCommand(account, event, disabled, () =>
+            handleMentionInstantTask(account, event, group, identityId, disabled, keywordSpan),
+          )
           return
         }
       }
@@ -1050,7 +1204,55 @@ async function processGroupMessage(
   // webhook再配送でも重複起動しない（台帳のtask_id uniqueと合わせた二重防御）。
   if (inserted !== 'duplicate' && event.contentType === 'text' && event.body) {
     await maybeSuggestTaskDone(account, event, group, disabled, inserted.id)
+    // 練習の受け皿: コンソールでの承認で成立したグループにここで声をかける（遅れ出し）ほか、
+    // 練習中の「あとで」を受け取る。合図に一致しなかった発言だけがここに来る＝会話を邪魔しない。
+    if (!disabled) {
+      await replyTutorialOnPlainMessage(account, event, group)
+    }
   }
+}
+
+/**
+ * 合図でないふつうの発言で練習を動かす必要が出たときだけ返信する。
+ * 何も出ないときは今までどおり完全に沈黙する（この経路はもともと返信しない）。
+ */
+async function replyTutorialOnPlainMessage(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+): Promise<void> {
+  // ★返信できないときは**練習に触れない**（送っていないのに「案内済み」として保存しない）。
+  //   保存だけ先に済ませてしまうと、入り口を1通も送っていないのに案内済み扱いになり、
+  //   その後どれだけ発言しても練習が二度と始まらない（前ラウンドの実害）。
+  if (!event.replyToken) return // push は使わない＝無料枠を消費しない
+  const texts = await collectTutorialAdvance(group, { kind: 'other', text: event.body ?? '' })
+  if (texts.length === 0) return
+
+  await replyLineMessage({
+    accessToken: account.accessToken,
+    replyToken: event.replyToken,
+    messages: toLineTextMessages(texts),
+  })
+  await insertChannelMessage({
+    orgId: group.orgId,
+    spaceId: group.spaceId,
+    identityId: null,
+    accountId: account.id,
+    groupId: group.id,
+    channel: 'line',
+    direction: 'outbound',
+    actor: 'secretary',
+    externalUserId: null,
+    externalMessageId: null,
+    contentType: 'text',
+    body: texts.join('\n\n'),
+    payload: { autoReplyTo: event.webhookEventId },
+    storagePath: null,
+    status: 'sent',
+    error: null,
+    // toISOString(): timestamptz瞬時値用途（date-onlyではない・既存踏襲）。
+    occurredAt: new Date().toISOString(),
+  })
 }
 
 /**
@@ -1071,13 +1273,13 @@ async function maybeSuggestTaskDone(
   group: ChannelGroup,
   disabled: boolean,
   triggerMessageId: string,
-): Promise<void> {
-  if (disabled) return // 自動応答停止中は他の自動応答系と同様に出さない
+): Promise<boolean> {
+  if (disabled) return false // 自動応答停止中は他の自動応答系と同様に出さない
 
-  if (!isCompletionDeclaration(event.body)) return
+  if (!isCompletionDeclaration(event.body)) return false
 
   const externalUserId = event.externalUserId
-  if (!externalUserId) return
+  if (!externalUserId) return false
 
   // 完了サジェストはリマインド機能群の一部＝同じ制御下（org単位オンオフ＋line_direct_dm entitlement）。
   const orgId = group.orgId
@@ -1085,19 +1287,19 @@ async function maybeSuggestTaskDone(
     isOrgDueRemindersEnabled(orgId),
     resolveOrgEntitlements(createAdminClient(), orgId),
   ])
-  if (!remindersEnabled) return
-  if (!entitlements.has('line_direct_dm')) return
+  if (!remindersEnabled) return false
+  if (!entitlements.has('line_direct_dm')) return false
 
   // 送信者の内部メンバー解決。束縛なし（顧問先メンバー等）は沈黙。
   // テナント一致も確認する（同一物理LINEユーザーが別orgのグループに参加者として居るケースの越境防止）。
   const senderLink = await findActiveUserLinkByExternalId(account.id, externalUserId)
-  if (!senderLink || senderLink.orgId !== orgId) return
+  if (!senderLink || senderLink.orgId !== orgId) return false
 
   // 発生元グループの未完了promotedタスクがちょうど1件のときだけ。
   const candidate = await findOpenPromotedTaskForGroup(group.id)
   if (!candidate) {
     console.info('[doneSuggest] silent: ambiguous or no open promoted task', { groupId: group.id })
-    return
+    return false
   }
 
   // L-1是正（code review）: 送信者がorg内部メンバーであることまでは確認済みだが、対象タスク自体が
@@ -1111,14 +1313,14 @@ async function maybeSuggestTaskDone(
       taskId: candidate.taskId,
       userId: senderLink.userId,
     })
-    return
+    return false
   }
 
   // DMルート解決（1:1個別DM=line_direct_dm専有。グループへのfallbackはしない）。
   const dmLink = await findActiveUserLinkForUser(orgId, senderLink.userId)
-  if (!dmLink) return
+  if (!dmLink) return false
   const dmAccountLookup = await findLineAccountByIdLookup(dmLink.channelAccountId)
-  if (!dmAccountLookup?.account) return
+  if (!dmAccountLookup?.account) return false
 
   // 台帳へon conflict(task_id) do nothing。送信勝者(inserted=true)のときだけpushする
   // ＝「1タスク=生涯1サジェスト」の実効担保（webhook再配送・複数worker競合を含む）。
@@ -1130,7 +1332,7 @@ async function maybeSuggestTaskDone(
   })
   if (!inserted) {
     console.info('[doneSuggest] silent: already suggested (ledger conflict)', { taskId: candidate.taskId })
-    return
+    return false
   }
 
   const flexMessage = buildDoneSuggestFlex({ title: candidate.title, taskId: candidate.taskId })
@@ -1156,12 +1358,15 @@ async function maybeSuggestTaskDone(
     })
     if (result.delivered) {
       console.info('[doneSuggest] sent', { taskId: candidate.taskId })
-    } else {
-      console.info('[doneSuggest] suppressed', { taskId: candidate.taskId, reason: result.reason })
+      return true
     }
+    console.info('[doneSuggest] suppressed', { taskId: candidate.taskId, reason: result.reason })
   } catch (err) {
     console.error('[doneSuggest] push failed', candidate.taskId, err)
   }
+  // 届いていない（縮退で抑止・送信失敗）。呼び出し側が別の手当て（その場の案内）に切り替えられるよう
+  // false を返す — 「DMも案内もどちらも来ない」を作らないため。
+  return false
 }
 
 /**
@@ -1218,12 +1423,41 @@ async function processPlatformLimboGroupMessage(
     if (limited) return // 上限超過後は完全な無応答化（content-free）
   }
 
+  // ★返信できないなら1通も送れない。**練習にも触れない**（送っていないのに「案内済み」として
+  //   保存すると、入り口を出さないまま案内済み扱いになり練習が二度と始まらない）。
+  //   このときは次のふつうの発言で改めて声をかける（遅れ出し）。
   if (!event.replyToken) return
+
+  // 合言葉で登録できた（code_only 成立）ときだけ、同じ返信の末尾に練習の入り口を足す。
+  // 成立の文言（CODE_ONLY_LINKED_TEXT）自体は1文字も変えない。
+  const tutorialTexts =
+    replyText === CODE_ONLY_LINKED_TEXT
+      ? await collectTutorialStartForClaimedGroup(account.id, externalGroupId)
+      : []
+
   await replyLineMessage({
     accessToken: account.accessToken,
     replyToken: event.replyToken,
-    messages: [{ type: 'text', text: replyText }],
+    messages: [{ type: 'text', text: replyText }, ...toLineTextMessages(tutorialTexts)],
   })
+}
+
+/**
+ * 成立した直後のグループを引き直して練習を始める（登録はRPCの中で作られるため、ここで読み直す）。
+ * 引けなければ何もしない＝承認待ち（web_approval）を成立と取り違えない。
+ */
+async function collectTutorialStartForClaimedGroup(
+  accountId: string,
+  externalGroupId: string,
+): Promise<string[]> {
+  try {
+    const group = await findActiveGroup(accountId, externalGroupId)
+    if (!group) return []
+    return await collectTutorialStart(group)
+  } catch (error) {
+    console.error('[tutorial] LINE post-claim start failed', externalGroupId, error)
+    return []
+  }
 }
 
 /**
@@ -1357,17 +1591,22 @@ async function processGroupLinkCode(
   if (recorded === 'duplicate' || disabled) return
 
   const confirmation = buildGroupLinkConfirmation(account.displayName)
+  // 紐付けが成立した＝ここが「はじめまして」の瞬間。同じ返信の末尾に練習の入り口を足す。
+  // ★返信できないとき（replyToken 無し＝能動送信になる）は練習を始めない。案内1通のために
+  //   LINE の無料枠を使わないため。そのときは次のふつうの発言で改めて声をかける（遅れ出し）。
+  const tutorialTexts = event.replyToken ? await collectTutorialStart(currentGroup) : []
+  const messages = [{ type: 'text' as const, text: confirmation }, ...toLineTextMessages(tutorialTexts)]
   if (event.replyToken) {
     await replyLineMessage({
       accessToken: account.accessToken,
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: confirmation }],
+      messages,
     })
   } else {
     await pushLineMessage({
       accessToken: account.accessToken,
       to: event.groupId!,
-      messages: [{ type: 'text', text: confirmation }],
+      messages,
     })
   }
   await insertChannelMessage({
@@ -1382,7 +1621,7 @@ async function processGroupLinkCode(
     externalUserId: null,
     externalMessageId: null,
     contentType: 'text',
-    body: confirmation,
+    body: joinForRecord(confirmation, tutorialTexts),
     payload: { autoReplyTo: event.webhookEventId },
     storagePath: null,
     status: 'sent',
@@ -1391,6 +1630,83 @@ async function processGroupLinkCode(
     // replyToken有り→replyLineMessage配信（無料枠を消費しない）/ 無し→pushLineMessage配信
     billablePush: !event.replyToken,
   })
+}
+
+// ---- 登録直後の練習（対話型チュートリアル）: LINE 版の配線 ----
+
+/**
+ * LINE では**返信トークン(replyToken)が1回しか使えない**ので、練習の発話をその場で送らずに
+ * いったん溜める。溜めた文章は呼び出し側が「いつもの返事」と同じ返信の末尾に足す
+ * ＝返信は1回のまま・push を使わない＝**LINE の無料送信枠を1通も消費しない**。
+ */
+function createLineTutorial(group: ChannelGroup): {
+  context: TutorialGroupContext
+  deps: TutorialDeps
+  texts: string[]
+} {
+  const texts: string[] = []
+  return {
+    context: {
+      groupId: group.id,
+      channel: 'line',
+      createdAt: group.createdAt ?? null,
+      metadata: group.metadata ?? null,
+      // 「タスク追加 ○○」は拾い方の設定にもプランにも関係なく常に効くようになったので、
+      // LINE でも常に練習できる（＝他のチャットと同じ）。
+      //
+      // 以前はここで pickup_mode を見て練習を止めていたが、それが袋小路の元だった:
+      // 設定が合っていても実際の受付はプラン判定でもう一度落とされるため、
+      // 「以前Proで両方(all_plus_instant)にして無料に戻した組織」では練習が永久に進まなかった。
+      // 判定の重複そのものを無くして直す（片方だけ見て嘘の可否を約束しない）。
+      addTaskEnabled: true,
+    },
+    deps: {
+      reply: async (text) => {
+        texts.push(text)
+      },
+      saveTutorialState: (groupId, state) => updateChannelGroupMetadata(groupId, { tutorial: state }),
+      // ★総入れ替え（clearAndRenumberOpenDigestTasks）は渡さない。番号の振り直しは
+      //   配信直前の cron だけの仕事で、ここから呼ぶと手元の一覧と番号がズレる。
+      assignDigestNumbersToNewTasks,
+      now: () => new Date(),
+    },
+    texts,
+  }
+}
+
+/** 練習の入り口（登録が成立した直後）。転んでも本流は壊さない。 */
+async function collectTutorialStart(group: ChannelGroup): Promise<string[]> {
+  const tutorial = createLineTutorial(group)
+  try {
+    await startTutorial(tutorial.context, tutorial.deps)
+  } catch (error) {
+    console.error('[tutorial] LINE start failed', group.id, error)
+  }
+  return tutorial.texts
+}
+
+/** 練習を1歩進める。転んでも本流（完了・登録の返事）は壊さない。 */
+async function collectTutorialAdvance(
+  group: ChannelGroup,
+  signal: TutorialSignal,
+): Promise<string[]> {
+  const tutorial = createLineTutorial(group)
+  try {
+    await advanceTutorial(tutorial.context, signal, tutorial.deps)
+  } catch (error) {
+    console.error('[tutorial] LINE advance failed', group.id, error)
+  }
+  return tutorial.texts
+}
+
+/** 溜めた練習の発話を LINE のテキストメッセージにする。 */
+function toLineTextMessages(texts: string[]): Array<{ type: 'text'; text: string }> {
+  return texts.map((text) => ({ type: 'text' as const, text }))
+}
+
+/** 会話ログに残す本文。1回の返信で送った文章をそのまま連ねる。 */
+function joinForRecord(head: string, extra: string[]): string {
+  return extra.length === 0 ? head : [head, ...extra].join('\n\n')
 }
 
 async function handleDigestCompleteCommand(
@@ -1419,11 +1735,18 @@ async function handleDigestCompleteCommand(
     : ({ type: 'text' as const, text: ALREADY_DONE_TEXT })
   const replyBodyForRecord = replyMessage.type === 'text' ? replyMessage.text : replyMessage.altText
 
+  // 練習中に、案内した番号のタスクを消せたら締めの文を同じ返信に足す
+  const tutorialTexts = await collectTutorialAdvance(group, {
+    kind: 'complete',
+    digestNumber,
+    completedTaskId: result?.id ?? null,
+  })
+
   if (event.replyToken) {
     await replyLineMessage({
       accessToken: account.accessToken,
       replyToken: event.replyToken,
-      messages: [replyMessage],
+      messages: [replyMessage, ...toLineTextMessages(tutorialTexts)],
     })
   }
   await insertChannelMessage({
@@ -1438,7 +1761,7 @@ async function handleDigestCompleteCommand(
     externalUserId: null,
     externalMessageId: null,
     contentType: 'text',
-    body: replyBodyForRecord,
+    body: joinForRecord(replyBodyForRecord, tutorialTexts),
     payload: { autoReplyTo: event.webhookEventId },
     storagePath: null,
     status: event.replyToken ? 'sent' : 'failed',
@@ -1448,12 +1771,144 @@ async function handleDigestCompleteCommand(
 }
 
 /**
+ * 使い方（ヘルプ）への応答。文言は commandGuides.ts が単一の正本（ここで書き起こさない）。
+ * 返信は必ず replyToken 経由で行い、push は使わない（LINE の無料送信枠を消費しない）。
+ * disabled 中は記録だけ行い返信しない（digest系の自動動作はdisabledで停止、の既存原則に従う）。
+ */
+async function handleHelpCommand(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  identityId: string | null,
+  disabled: boolean,
+): Promise<void> {
+  await replyGroupCommandText(account, event, group, identityId, disabled, () =>
+    renderHelpReplyText('line'),
+  )
+}
+
+/**
+ * 「一覧」への応答。いま一覧に出るタスクを**番号付きのまま**返す。
+ *
+ * ⚠ 採番は「番号がまだ無いタスクにだけ」続きを与えるもの（assignDigestNumbersToNewTasks）を使う。
+ *   総入れ替え（clearAndRenumberOpenDigestTasks）は配信直前の cron だけの仕事で、ここから呼ぶと
+ *   利用者の手元に残っている一覧と番号がズレて「完了3」が別のタスクを消す。
+ *   なお、その場で登録したばかりのタスクはまだ番号を持たないため、番号付けを一切しないと
+ *   「タスク追加」→「一覧」で今入れたものが出てこない（本件で直したい詰まりそのもの）。
+ *   既存の番号は1つも動かさないので、手元の一覧との整合は保たれる。
+ *
+ * 文言（0件・並べ方）は groupCommands.ts が正本（他チャットと同じ見え方にそろえる）。
+ */
+async function handleListCommand(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  identityId: string | null,
+  disabled: boolean,
+): Promise<void> {
+  await replyGroupCommandText(account, event, group, identityId, disabled, async () => {
+    const tasks = await assignDigestNumbersToNewTasks(group.id)
+    return buildTaskListReplyText(tasks, formatDateToLocalString(jstNow()))
+  })
+}
+
+/**
+ * 番号を落とした「完了」単独への案内。文言は groupCommands.ts が正本。
+ *
+ * ★衝突の優先順位（意図的・理由をここに残す）:
+ *   一言の「完了」は、もともと**本人宛のDM**で「『X』は完了しましたか？[完了した][まだ]」と
+ *   訊く経路（完了サジェスト）にも当たる。番号の案内をグループに返してそこで終わらせると、
+ *   その確認が届かなくなる（＝これまで出ていたものが出なくなる後退）。
+ *   よって **DM確認を出せるときはそちらを優先**し、出せないとき（対象が絞れない・DMルートが無い・
+ *   届かなかった）だけグループに番号の付け方を案内する。
+ *
+ *   DM確認は「1タスク＝生涯1回」の台帳で守られている。出せなかった場合は台帳を消費しないので
+ *   （insertDoneSuggestion まで進まない／進んでも届かなければ案内に切り替える）、
+ *   後日あらためて「完了しました」と言われたときに出し直せる。
+ *
+ *   グループへの公開の返事より本人へのDMを上に置くのは、相手先の目に触れる回数を増やさないため
+ *   でもある（案内は本人だけが必要としている情報）。
+ */
+async function handleCompleteWithoutNumberCommand(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  identityId: string | null,
+  disabled: boolean,
+): Promise<void> {
+  await replyGroupCommandText(account, event, group, identityId, disabled, async (recordedId) => {
+    const suggested = await maybeSuggestTaskDone(account, event, group, disabled, recordedId)
+    return suggested ? null : COMPLETE_WITHOUT_NUMBER_TEXT
+  })
+}
+
+/**
+ * 合図への「テキスト1通だけ返して記録する」共通形（ヘルプ・一覧・完了の案内）。
+ *
+ * 守る作法は既存のヘルプ応答と同じ:
+ *   - 合図のテキスト自体をまず通常の発言として記録する（監査ログ）
+ *   - 再配送（duplicate）と自動応答停止中（disabled）は返信しない
+ *   - **返信は replyToken 経由だけ**。push は使わない＝LINE の無料送信枠を消費しない
+ */
+async function replyGroupCommandText(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  identityId: string | null,
+  disabled: boolean,
+  /** 返す文章を決める。null を返せば「今回は何も送らない」。引数は記録した発言の id */
+  resolveText: (recordedMessageId: string) => Promise<string | null> | string | null,
+): Promise<void> {
+  // 合図のテキスト自体も通常の発言としてまず記録する（監査ログ）
+  const recorded = await insertChannelMessage(
+    groupMessageRecord(group.orgId, account.id, event, group, identityId, null),
+  )
+  if (recorded === 'duplicate' || disabled) return
+
+  const text = await resolveText(recorded.id)
+  if (!text) return
+
+  if (event.replyToken) {
+    await replyLineMessage({
+      accessToken: account.accessToken,
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text }],
+    })
+  }
+  await insertChannelMessage({
+    orgId: group.orgId,
+    spaceId: group.spaceId,
+    identityId: null,
+    accountId: account.id,
+    groupId: group.id,
+    channel: 'line',
+    direction: 'outbound',
+    actor: 'secretary',
+    externalUserId: null,
+    externalMessageId: null,
+    contentType: 'text',
+    body: text,
+    payload: { autoReplyTo: event.webhookEventId },
+    storagePath: null,
+    status: event.replyToken ? 'sent' : 'failed',
+    error: event.replyToken ? null : 'no replyToken',
+    // toISOString(): timestamptz瞬時値用途（date-onlyではない・既存踏襲）。
+    occurredAt: new Date().toISOString(),
+  })
+}
+
+/**
  * 非メンションの即時タスク化合図（PC版LINE対応）。PCのLINEはbotへの本物メンションを
  * 付与できない（`@名前`は単なる文字列になり mention 情報が乗らない）ため、本文先頭が
  * この合図で始まる場合も本物メンションと同様に即時タスク化する。
  * 誤爆防止のため「先頭」限定（文中の言及では発火しない）。
+ *
+ * ★「タスク追加」はここから外した。あれは拾い方の設定にもプランにも関係なく常に効く
+ *   明示コマンドで、読み取りの正本は textCommands.matchAddTaskPrefix（区切り必須）。
+ *   ここに残すと同じ文法が2箇所になり、また片方だけズレる。
+ *   ここに残るのは「メンションの代わり」＝有料機能の線引きの内側にある合図だけ。
  */
-const INSTANT_TASK_KEYWORDS = ['@秘書', 'タスク追加'] as const
+const INSTANT_TASK_KEYWORDS = ['@秘書'] as const
 
 function matchInstantTaskKeyword(body: string): { index: number; length: number } | null {
   const leadingWs = body.length - body.trimStart().length
@@ -1497,6 +1952,8 @@ async function handleMentionInstantTask(
   identityId: string | null,
   disabled: boolean,
   keywordSpan?: { index: number; length: number } | null,
+  /** 内容が空だったときの案内文。既定はメンション向けの文言（「タスク追加」経路は別の文言を渡す） */
+  emptyTitleText: string = MENTION_TITLE_EMPTY_TEXT,
 ): Promise<void> {
   const recorded = await insertChannelMessage(
     groupMessageRecord(group.orgId, account.id, event, group, identityId, null),
@@ -1514,9 +1971,11 @@ async function handleMentionInstantTask(
   ]
   const title = buildMentionTaskTitle(body, mentionSpans)
 
+  // 練習中なら、この登録が練習の1件目かどうかを後で見る（作れた結果が要るので後段で埋める）
+  let tutorialSignal: TutorialSignal | null = null
   let replyText: string
   if (!title) {
-    replyText = MENTION_TITLE_EMPTY_TEXT
+    replyText = emptyTitleText
   } else {
     // 期限は本文（メンション除去前）から解決する。titleは50字で切り詰められるため、
     // 末尾の期限表現がタイトルから落ちていても本文には残っている
@@ -1548,6 +2007,7 @@ async function handleMentionInstantTask(
       dueDate: due.dueDate,
       dueTime: due.dueTime,
     })
+    tutorialSignal = { kind: 'add_task', taskId: created.id, pending: created.pending, title }
 
     if (created.pending) {
       // 承認フローに乗った。新規作成（重複でない）なら責任者の 1:1 へ確認Flexを試みる。
@@ -1648,11 +2108,14 @@ async function handleMentionInstantTask(
     }
   }
 
+  // 練習の1件目が預かれていれば、「完了N」の練習を同じ返信に足す
+  const tutorialTexts = tutorialSignal ? await collectTutorialAdvance(group, tutorialSignal) : []
+
   if (event.replyToken) {
     await replyLineMessage({
       accessToken: account.accessToken,
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: replyText }],
+      messages: [{ type: 'text', text: replyText }, ...toLineTextMessages(tutorialTexts)],
     })
   }
   await insertChannelMessage({
@@ -1667,7 +2130,7 @@ async function handleMentionInstantTask(
     externalUserId: null,
     externalMessageId: null,
     contentType: 'text',
-    body: replyText,
+    body: joinForRecord(replyText, tutorialTexts),
     payload: { autoReplyTo: event.webhookEventId },
     storagePath: null,
     status: event.replyToken ? 'sent' : 'failed',

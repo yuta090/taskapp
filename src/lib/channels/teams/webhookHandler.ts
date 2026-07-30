@@ -35,10 +35,16 @@
  * 文言・分岐順序の正本は claimLimboCore.ts（Discord/Slack/Chatwork/Telegram/Google Chat/Teams
  * 共通）。ここは re-export のみ行う（ローカル重複定義はしない）。
  */
-import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import {
-  processClaimLimbo,
-  runDigestCompletion,
+  handleClaimedGroupMessage,
+  handleLimboGroupMessage,
+  type TutorialWiring,
+} from '@/lib/channels/groupCommands'
+import type {
+  CreateInstantDigestTaskInput,
+  CreateInstantDigestTaskResult,
+} from '@/lib/channels/store'
+import {
   INVALID_TEXT,
   CODE_ONLY_LINKED_TEXT,
   CODE_ONLY_ALREADY_TEXT,
@@ -47,6 +53,7 @@ import {
   buildDigestDoneText,
 } from '@/lib/channels/claimLimboCore'
 import type { NormalizedTeamsActivity } from '@/lib/channels/teams/activity'
+import type { ChannelTutorialState } from '@/lib/channels/tutorial/state'
 
 export interface TeamsPlatformAccount {
   id: string
@@ -56,6 +63,15 @@ export interface TeamsActiveGroup {
   id: string
   orgId: string
   spaceId: string | null
+  /** 登録直後の練習（対話型チュートリアル）用。前からある接続を巻き込まないための日時。 */
+  createdAt?: string | null
+  /** 同上。練習の進み具合の置き場所（channel_groups.metadata） */
+  metadata?: Record<string, unknown> | null
+  /**
+   * 拾い方（channel_groups.pickup_mode）。**返事で嘘をつかないためだけに使う**。
+   * 'off' のグループは毎朝のまとめ配信の対象外＝「次にお届けする一覧に載ります」が果たされない。
+   */
+  pickupMode?: string
 }
 
 export interface TeamsClaimCode {
@@ -107,9 +123,11 @@ export interface TeamsGroupMetadataPatch {
   serviceUrl?: string
   teamId?: string
   tenantId?: string
+  /** 登録直後の練習（対話型チュートリアル）の進み具合。同じ器(metadata)に同居する。 */
+  tutorial?: ChannelTutorialState
 }
 
-export interface TeamsWebhookDeps {
+export interface TeamsWebhookDeps extends TutorialWiring {
   loadPlatformAccount: () => Promise<TeamsPlatformAccount | null>
   findActiveGroup: (accountId: string, channelId: string) => Promise<TeamsActiveGroup | null>
   /** claimedグループの通常発言を記録する（group_id付き）。dedupeは`${channelId}:${activityId}`。 */
@@ -120,6 +138,8 @@ export interface TeamsWebhookDeps {
     digestNumber: number,
     externalUserId: string | null,
   ) => Promise<{ id: string; title: string } | null>
+  /** 「タスク追加 ○○」でその場に申し送りタスクを1件作る */
+  createInstantDigestTask: (input: CreateInstantDigestTaskInput) => Promise<CreateInstantDigestTaskResult>
   /** 秘書の発話を outbound として記録する */
   insertOutbound: (input: TeamsOutboundInput) => Promise<unknown>
   /**
@@ -236,10 +256,7 @@ async function handleClaimedGroup(
   // メンションは宛先の指定であって合図ではない。剥がした後の文字列（activity.text。除去は
   // activity.ts の normalizeTeamsActivity が済ませている）を厳格文法にそのまま渡すことで
   // 誤爆を防ぐ（Telegram の stripSelfMention と同思想）。
-  const digestNumber = parseDigestCompleteCommand(activity.text)
-  if (digestNumber === null) return
-
-  await runDigestCompletion(
+  await handleClaimedGroupMessage(
     {
       orgId: group.orgId,
       spaceId: group.spaceId,
@@ -248,12 +265,21 @@ async function handleClaimedGroup(
       channel: 'teams',
       externalUserId: activity.externalUserId,
       autoReplyTo: `${activity.externalGroupId}:${activity.activityId}`,
+      sourceMessageId: recorded.id,
+      text: activity.text,
+      groupCreatedAt: group.createdAt ?? null,
+      groupMetadata: group.metadata ?? null,
+      // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+      pickupMode: group.pickupMode,
     },
-    digestNumber,
     {
       completeDigestTask: deps.completeDigestTask,
+      createInstantDigestTask: deps.createInstantDigestTask,
       reply: (text) => deps.reply(text).then(() => ({ providerMessageId: null })),
       insertOutbound: deps.insertOutbound,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -282,8 +308,14 @@ export async function handleTeamsWebhook(
     return
   }
 
-  const limboResult = await processClaimLimbo(
-    { accountId: account.id, externalGroupId: activity.externalGroupId, text: activity.text },
+  // 登録が成立したときだけ、成立文言の後ろに練習の入り口を1通足す（応答そのものは変えない）。
+  const limboResult = await handleLimboGroupMessage(
+    {
+      accountId: account.id,
+      externalGroupId: activity.externalGroupId,
+      text: activity.text,
+      channel: 'teams',
+    },
     {
       normalizeClaimCode: deps.normalizeClaimCode,
       hashClaimCode: deps.hashClaimCode,
@@ -295,6 +327,10 @@ export async function handleTeamsWebhook(
       generateChallengeLabel: deps.generateChallengeLabel,
       registerInvalidAttempt: deps.registerInvalidAttempt,
       reply: deps.reply,
+      findActiveGroup: deps.findActiveGroup,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 

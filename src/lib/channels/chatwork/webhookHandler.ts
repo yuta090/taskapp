@@ -28,10 +28,16 @@
  * Chatwork の再送を避けるため、署名不一致(401)/platform(400) 以外は常に200を返す。
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import {
-  processClaimLimbo,
-  runDigestCompletion,
+  handleClaimedGroupMessage,
+  handleLimboGroupMessage,
+  type TutorialWiring,
+} from '@/lib/channels/groupCommands'
+import type {
+  CreateInstantDigestTaskInput,
+  CreateInstantDigestTaskResult,
+} from '@/lib/channels/store'
+import {
   INVALID_TEXT,
   CODE_ONLY_LINKED_TEXT,
   CODE_ONLY_ALREADY_TEXT,
@@ -59,6 +65,15 @@ export interface ChatworkActiveGroup {
   id: string
   orgId: string
   spaceId: string | null
+  /** 登録直後の練習（対話型チュートリアル）用。前からある接続を巻き込まないための日時。 */
+  createdAt?: string | null
+  /** 同上。練習の進み具合の置き場所（channel_groups.metadata） */
+  metadata?: Record<string, unknown> | null
+  /**
+   * 拾い方（channel_groups.pickup_mode）。**返事で嘘をつかないためだけに使う**。
+   * 'off' のグループは毎朝のまとめ配信の対象外＝「次にお届けする一覧に載ります」が果たされない。
+   */
+  pickupMode?: string
 }
 
 export interface ChatworkClaimCode {
@@ -110,7 +125,7 @@ export interface ChatworkReplyResult {
   messageId: string | null
 }
 
-export interface ChatworkWebhookDeps {
+export interface ChatworkWebhookDeps extends TutorialWiring {
   loadAccount: (accountId: string) => Promise<ChatworkAccount | null>
   findActiveGroup: (accountId: string, roomId: string) => Promise<ChatworkActiveGroup | null>
   insertMessage: (input: ChatworkInsertInput) => Promise<{ id: string } | 'duplicate'>
@@ -147,6 +162,8 @@ export interface ChatworkWebhookDeps {
     digestNumber: number,
     externalUserId: string | null,
   ) => Promise<{ id: string; title: string } | null>
+  /** 「タスク追加 ○○」でその場に申し送りタスクを1件作る */
+  createInstantDigestTask: (input: CreateInstantDigestTaskInput) => Promise<CreateInstantDigestTaskResult>
   /** 秘書の発話を outbound として記録する */
   insertOutbound: (input: ChatworkOutboundInput) => Promise<unknown>
 }
@@ -227,21 +244,22 @@ function stripChatworkSelfMention(content: string, botAccountId: string | undefi
 }
 
 /**
- * claimed ルームでの「完了N」処理。中身は claimLimboCore.runDigestCompletion（Discord/Slack/
- * Chatwork 共通）。reply はテキストのみ受ける形に束縛し、送信メッセージの message_id を
- * providerMessageId として返す。
+ * claimed ルームでの合図（完了N / ヘルプ / タスク追加）の振り分け。中身は
+ * groupCommands.handleClaimedGroupMessage（7チャネル共通）。reply はテキストのみ受ける形に
+ * 束縛し、送信メッセージの message_id を providerMessageId として返す。
  */
-async function handleDigestCompleteCommand(
+async function handleGroupCommand(
   account: ChatworkAccount,
   roomId: string,
   senderId: string | null,
   autoReplyTo: string,
   group: ChatworkActiveGroup,
-  digestNumber: number,
+  sourceMessageId: string,
+  commandText: string,
   deps: ChatworkWebhookDeps,
 ): Promise<void> {
   const apiToken = account.credentials.api_token
-  await runDigestCompletion(
+  await handleClaimedGroupMessage(
     {
       orgId: group.orgId,
       spaceId: group.spaceId,
@@ -250,13 +268,22 @@ async function handleDigestCompleteCommand(
       channel: 'chatwork',
       externalUserId: senderId,
       autoReplyTo,
+      sourceMessageId,
+      text: commandText,
+      groupCreatedAt: group.createdAt ?? null,
+      groupMetadata: group.metadata ?? null,
+      // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+      pickupMode: group.pickupMode,
     },
-    digestNumber,
     {
       completeDigestTask: deps.completeDigestTask,
+      createInstantDigestTask: deps.createInstantDigestTask,
       reply: (text) =>
         deps.reply(apiToken, roomId, text).then((r) => ({ providerMessageId: r.messageId })),
       insertOutbound: deps.insertOutbound,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -270,8 +297,9 @@ async function processLimbo(
   const apiToken = account.credentials.api_token
   const text = body ?? ''
 
-  return processClaimLimbo(
-    { accountId: account.id, externalGroupId: roomId, text },
+  // 登録が成立したときだけ、成立文言の後ろに練習の入り口を1通足す（応答そのものは変えない）。
+  return handleLimboGroupMessage(
+    { accountId: account.id, externalGroupId: roomId, text, channel: 'chatwork' },
     {
       normalizeClaimCode: deps.normalizeClaimCode,
       hashClaimCode: deps.hashClaimCode,
@@ -283,6 +311,10 @@ async function processLimbo(
       generateChallengeLabel: deps.generateChallengeLabel,
       registerInvalidAttempt: deps.registerInvalidAttempt,
       reply: (t) => deps.reply(apiToken, roomId, t).then(() => undefined),
+      findActiveGroup: deps.findActiveGroup,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -364,18 +396,16 @@ export async function handleChatworkWebhook(
 
     if (recorded !== 'duplicate') {
       const commandText = stripChatworkSelfMention(ev.body, botAccountId)
-      const digestNumber = parseDigestCompleteCommand(commandText)
-      if (digestNumber !== null) {
-        await handleDigestCompleteCommand(
-          account,
-          roomId,
-          senderId,
-          `${roomId}:${ev.message_id}`,
-          group,
-          digestNumber,
-          deps,
-        )
-      }
+      await handleGroupCommand(
+        account,
+        roomId,
+        senderId,
+        `${roomId}:${ev.message_id}`,
+        group,
+        recorded.id,
+        commandText,
+        deps,
+      )
     }
     return { status: 200, body: { ok: true } }
   }

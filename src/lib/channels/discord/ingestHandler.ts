@@ -18,10 +18,16 @@
  * 永続化は承認RPC側の対応が要るため v1 では未実施＝将来のguild単位機能用に確保）。
  */
 
-import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import {
-  processClaimLimbo,
-  runDigestCompletion,
+  handleClaimedGroupMessage,
+  handleLimboGroupMessage,
+  type TutorialWiring,
+} from '@/lib/channels/groupCommands'
+import type {
+  CreateInstantDigestTaskInput,
+  CreateInstantDigestTaskResult,
+} from '@/lib/channels/store'
+import {
   INVALID_TEXT,
   CODE_ONLY_LINKED_TEXT,
   CODE_ONLY_ALREADY_TEXT,
@@ -58,6 +64,15 @@ export interface DiscordActiveGroup {
   id: string
   orgId: string
   spaceId: string | null
+  /** 登録直後の練習（対話型チュートリアル）用。前からある接続を巻き込まないための日時。 */
+  createdAt?: string | null
+  /** 同上。練習の進み具合の置き場所（channel_groups.metadata） */
+  metadata?: Record<string, unknown> | null
+  /**
+   * 拾い方（channel_groups.pickup_mode）。**返事で嘘をつかないためだけに使う**。
+   * 'off' のグループは毎朝のまとめ配信の対象外＝「次にお届けする一覧に載ります」が果たされない。
+   */
+  pickupMode?: string
 }
 
 export interface DiscordClaimCode {
@@ -103,7 +118,7 @@ export interface DiscordOutboundInput {
   occurredAt: string
 }
 
-export interface DiscordIngestDeps {
+export interface DiscordIngestDeps extends TutorialWiring {
   loadPlatformAccount: () => Promise<DiscordPlatformAccount | null>
   findActiveGroup: (accountId: string, channelId: string) => Promise<DiscordActiveGroup | null>
   insertMessage: (input: DiscordInsertInput) => Promise<{ id: string } | 'duplicate'>
@@ -140,6 +155,8 @@ export interface DiscordIngestDeps {
     digestNumber: number,
     externalUserId: string | null,
   ) => Promise<{ id: string; title: string } | null>
+  /** 「タスク追加 ○○」でその場に申し送りタスクを1件作る */
+  createInstantDigestTask: (input: CreateInstantDigestTaskInput) => Promise<CreateInstantDigestTaskResult>
   /** 秘書の発話を outbound として記録する */
   insertOutbound: (input: DiscordOutboundInput) => Promise<unknown>
 }
@@ -215,19 +232,19 @@ function stripSelfMentionPrefix(content: string, botExternalId: string | undefin
 }
 
 /**
- * claimed グループでの「完了N」処理。中身は claimLimboCore.runDigestCompletion（Discord/Slack/
- * Chatwork 共通）。reply はテキストのみ受ける形に束縛し、provider_message_id は Discord には
- * 無いため常に null（元実装どおり payload に provider_message_id は含まれない挙動を維持しつつ、
- * 共通ヘルパは常に付与する。値は null で無害）。
+ * claimed チャンネルでの合図（完了N / ヘルプ / タスク追加）の振り分け。中身は
+ * groupCommands.handleClaimedGroupMessage（7チャネル共通）。reply はテキストのみ受ける形に
+ * 束縛し、provider_message_id は Discord には無いため常に null（値は null で無害）。
  */
-async function handleDigestCompleteCommand(
+async function handleGroupCommand(
   account: DiscordPlatformAccount,
   ev: DiscordIngestEvent,
   group: DiscordActiveGroup,
-  digestNumber: number,
+  sourceMessageId: string,
+  commandText: string,
   deps: DiscordIngestDeps,
 ): Promise<void> {
-  await runDigestCompletion(
+  await handleClaimedGroupMessage(
     {
       orgId: group.orgId,
       spaceId: group.spaceId,
@@ -236,13 +253,22 @@ async function handleDigestCompleteCommand(
       channel: 'discord',
       externalUserId: ev.author.id ?? null,
       autoReplyTo: ev.messageId,
+      sourceMessageId,
+      text: commandText,
+      groupCreatedAt: group.createdAt ?? null,
+      groupMetadata: group.metadata ?? null,
+      // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+      pickupMode: group.pickupMode,
     },
-    digestNumber,
     {
       completeDigestTask: deps.completeDigestTask,
+      createInstantDigestTask: deps.createInstantDigestTask,
       reply: (text) =>
         deps.reply(account.botToken, ev.channelId, text).then(() => ({ providerMessageId: null })),
       insertOutbound: deps.insertOutbound,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -252,8 +278,9 @@ async function processLimbo(
   ev: DiscordIngestEvent,
   deps: DiscordIngestDeps,
 ): Promise<{ claimCreated: boolean }> {
-  return processClaimLimbo(
-    { accountId: account.id, externalGroupId: ev.channelId, text: ev.content },
+  // 登録が成立したときだけ、成立文言の後ろに練習の入り口を1通足す（応答そのものは変えない）。
+  return handleLimboGroupMessage(
+    { accountId: account.id, externalGroupId: ev.channelId, text: ev.content, channel: 'discord' },
     {
       normalizeClaimCode: deps.normalizeClaimCode,
       hashClaimCode: deps.hashClaimCode,
@@ -265,6 +292,10 @@ async function processLimbo(
       generateChallengeLabel: deps.generateChallengeLabel,
       registerInvalidAttempt: deps.registerInvalidAttempt,
       reply: (text) => deps.reply(account.botToken, ev.channelId, text),
+      findActiveGroup: deps.findActiveGroup,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -292,16 +323,13 @@ export async function handleDiscordIngest(
     try {
       const group = await deps.findActiveGroup(account.id, ev.channelId)
       if (group) {
-        // 「完了N」自体も通常の発言としてまず記録する（監査ログ・順序は変えない）
+        // 合図（「完了N」等）自体も通常の発言としてまず記録する（監査ログ・順序は変えない）
         const recorded = await deps.insertMessage(insertRecord(account.id, group, ev))
         if (recorded !== 'duplicate') {
           inserted += 1
           if (ev.content) {
             const commandText = stripSelfMentionPrefix(ev.content, account.botExternalId)
-            const digestNumber = parseDigestCompleteCommand(commandText)
-            if (digestNumber !== null) {
-              await handleDigestCompleteCommand(account, ev, group, digestNumber, deps)
-            }
+            await handleGroupCommand(account, ev, group, recorded.id, commandText, deps)
           }
         }
         continue
