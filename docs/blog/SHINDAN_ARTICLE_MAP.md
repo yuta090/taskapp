@@ -76,7 +76,7 @@ TASK6の記事(第1期15本+使い方3本)の対応表。**記事は「タイプ
 
 ### 割り当ての現状（2026-07-29）
 
-公開10本。**T1〜T8のすべてに1本以上が出る**状態になった。主処方の割り当ては次のとおり:
+公開14本。**T1〜T8のすべてに1本以上が出る**状態になった。主処方の割り当ては次のとおり:
 
 | タイプ | 主処方（先頭に出る記事） |
 |---|---|
@@ -84,16 +84,20 @@ TASK6の記事(第1期15本+使い方3本)の対応表。**記事は「タイプ
 | T2 先送り | `multitask-nigate-capacity` |
 | T3 駆け込み | `task-jouzu-shimekiri`（副に `gantt-chart-tsukurikata`） |
 | T4 同時進行 | `multitask-nigate-capacity`（副に `gantt-chart-tsukurikata`） |
-| T5 お見合い | `tax-document-collection-workflow` |
-| T6 無音 | `tax-document-collection-workflow` |
-| T7 ボトルネック | `task-jouzu-shimekiri` |
-| T8 言いっぱなし | `remine-kun-tsukaikata`（副に `task-kanri-excel-genkai`） |
+| T5 お見合い | `line-group-task-hiroimore`（一斉依頼が誰のタスクにもならない） |
+| T6 無音 | `ai-hisho-toha`（催促を人の手から外す） |
+| T7 ボトルネック | `task-jouzu-shimekiri`（副に `backlog-tsukaikonashi`） |
+| T8 言いっぱなし | `slack-task-kanri`（チャットで決まった話が消える） |
 
 記事を書くたびにこの表と `shindanArticles.ts` の両方へ足すこと（片方だけだと出ない/ずれる）。
 
+⚠ **1タイプ3本の上限**があるため、T8から `task-kanri-excel-genkai` を外した。この記事は本来
+T9（量の負荷）の処方だが、**T9はタイプ一覧に出ない指標**なので診断結果には現れない。
+記事自体はサイトに残り、他記事からのリンクで届く。
+
 ## 残作業(この表の外)
 
-- [ ] 記事在庫を増やす（第1期15本のうち10本公開。残5本）
+- [ ] 記事在庫を増やす（第1期15本のうち14本公開。残1本＝No.5 LINEリマインドの全手段）
 - [x] 診断結果へのTASK6記事リンク差し込み（2026-07-26 実装）
 - [ ] 公開順序の裁定: 診断の公開はmultica販売解禁ゲート④通過後の約束。
   TASK6と診断の相互リンクはゲート通過が前提(ユーザー判断待ち)
