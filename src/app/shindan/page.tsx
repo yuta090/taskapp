@@ -15,7 +15,7 @@ export default function ShindanIntroPage() {
       <p className="subnote">
         診断は無料。メールなしで結果まで見られます（詳しい解説だけメール登録）。
         <br />
-        タスク管理サービス「agentpm」と学びのメディア「TASK6」を運営する株式会社ソレカラが提供しています。
+        タスク管理サービス「AgentPM」と学びのメディア「TASK6」を運営する株式会社ソレカラが提供しています。
       </p>
       <div className="rolebtns">
         <Link className="rolebtn" href="/shindan/q?role=biz">

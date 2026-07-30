@@ -373,7 +373,7 @@ function Result({ role, answers, free }: { role: Role; answers: number[]; free: 
 function NextLinks() {
   return (
     <div className="crosslink" style={{ marginTop: 16 }}>
-      <Link href="/signup?ref=shindan">自分で仕組みを整えるなら — agentpmを無料で始める →</Link>
+      <Link href="/signup?ref=shindan">自分で仕組みを整えるなら — AgentPMを無料で始める →</Link>
       <Link href="/task6">まず学びたいなら — 学びのメディア TASK6 →</Link>
     </div>
   )

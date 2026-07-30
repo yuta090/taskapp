@@ -114,7 +114,7 @@ export default function AuthorPage() {
             <dt className="text-slate-500">運営サービス</dt>
             <dd>
               <Link href="/" className="text-amber-600 underline hover:text-amber-700">
-                agentpm（タスク管理とAI秘書）
+                AgentPM（タスク管理とAI秘書）
               </Link>
             </dd>
           </div>
