@@ -91,6 +91,12 @@ for (const post of data) {
   }
   if (!post.cover_image_url) issues.push('カバー画像が無い')
   if (!post.description || post.description.length < 60) issues.push('descriptionが短い')
+  if (post.description && post.description.length > 130) issues.push('descriptionが長い（130字超）')
+  // descriptionは検索結果に単独で出るので、記事の中で説明している言葉は使えない。
+  // 「ボール」はこのサイト固有の言い方、「一本道」は記事内で定義した比喩（実例あり・2026-07-30）
+  for (const w of ['ボール', '一本道']) {
+    if (post.description?.includes(w)) issues.push(`descriptionに記事内だけの言葉「${w}」`)
+  }
 
   // 記事どうしのリンク（/task6/dl/... は配布ページなので記事リンクとは数えない）
   const linked = [...post.body_md.matchAll(/\]\(\/task6\/([a-z0-9-]+)\)/g)]
