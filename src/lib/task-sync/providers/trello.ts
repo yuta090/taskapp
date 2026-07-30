@@ -1,6 +1,7 @@
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
+import { getTrelloAppApiKey } from '@/lib/trello/config'
 import { providerError } from '@/lib/task-sync/types'
 import type {
   ExternalContainer,
@@ -97,18 +98,15 @@ interface TrelloCard {
 }
 
 /**
- * Trello APIキー（Power-Up=TaskApp全体で共有する非秘匿の識別子）。接続ごとの値ではないため
- * ctx.config には置かず、環境変数から都度読む（google-tasks/config.ts の
- * getGoogleTasksCredentials と同じ流儀。モジュール読み込み時ではなく呼び出し時に読むことで
- * テストからの差し替え・実行時の未設定検知の両方に対応する）。
+ * APIキーを取り出す。未設定は配線ミスとして弾く（Backlogのbaseurlガードと同じ流儀）。
+ *
+ * 実体の読み取りは src/lib/trello/config.ts に一本化した。同じキーを client 側でも
+ * （トークン発行の許可URLを組み立てるために）読む必要があり、env 名の解決が2箇所に
+ * 分かれると必ずズレるため。呼び出し時に読む流儀は従来どおり
+ * （モジュール読み込み時ではないので、テストからの差し替え・実行時の未設定検知が効く）。
  */
-function trelloAppApiKey(): string {
-  return process.env.TRELLO_API_KEY || ''
-}
-
-/** APIキーを取り出す。未設定は配線ミスとして弾く（Backlogのbaseurlガードと同じ流儀）。 */
 function apiKey(): string {
-  const raw = trelloAppApiKey()
+  const raw = getTrelloAppApiKey()
   if (!raw) {
     throw providerError('trello: 環境変数 TRELLO_API_KEY が設定されていません', {
       permanent: true,

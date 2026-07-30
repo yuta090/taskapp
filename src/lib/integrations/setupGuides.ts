@@ -141,14 +141,14 @@ export const INTEGRATION_SETUP_GUIDES: Partial<Record<SetupGuideKey, Integration
     summary: 'Trello のカードを取り込んでタスクにします。完了は Trello 側にも書き戻します。',
     steps: [
       'Trello にログインします',
-      '許可用のリンク（TaskApp のアプリ識別子が入ったURL）を開き、「Allow」を押します',
-      '画面に出た長い英数字（トークン）をコピーします',
+      '接続画面の「Trello でトークンを発行する」を押します（Trello の許可画面が開きます）',
+      '「Allow」を押すと、画面に長い英数字（トークン）が出ます。これをコピーします',
       'TaskApp の「APIキー」欄に貼って「接続する」を押します',
       PICK_TARGET_SPACE,
     ],
     notes: [
       '貼るのは「トークン」です。Trello の「APIキー」は TaskApp 側が持っているため、入力は要りません。',
-      '許可用のリンクは接続画面にはまだ出していません。見当たらないときは管理者にご連絡ください。',
+      'トークンに期限は付けていません。使うのをやめるときは Trello 側でいつでも取り消せます。',
     ],
   },
   linear: {

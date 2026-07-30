@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ArrowSquareOut } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import {
   useConnectors,
@@ -11,6 +12,7 @@ import {
   isImplementedTaskSyncProvider,
   taskSyncProviderNeedsBaseUrl,
 } from '@/lib/task-sync/implemented'
+import { getTrelloAuthorizeUrl } from '@/lib/trello/config'
 import { ImportConfigEditor } from '@/components/secretary/integrations/ConnectorSyncPane'
 
 interface TaskSyncConnectPanelProps {
@@ -151,6 +153,7 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-2 max-w-sm">
+      {integrationId === 'trello' && <TrelloTokenIssueLink />}
       {needsBaseUrl && (
         <div>
           <label
@@ -211,5 +214,45 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
         {createConnection.isPending ? '接続中...' : '接続する'}
       </button>
     </form>
+  )
+}
+
+/**
+ * Trello のトークン発行導線。
+ *
+ * Trello のトークンは「TaskApp のアプリキーを載せた許可URL」からでないと発行できず、
+ * 他ツールのように「相手ツールの設定画面でキーを作ってくる」ができない。この導線が
+ * 無い状態＝APIキー欄はあるのに埋めようがない＝実質つなげない状態だったので、
+ * 未接続のときだけフォームの先頭に置く。
+ *
+ * アプリキーが未設定（＝この環境の配線が済んでいない）ときは、リンクの代わりに
+ * 何が足りないかを伝える。黙って行き止まりにしない。
+ */
+function TrelloTokenIssueLink() {
+  const authorizeUrl = getTrelloAuthorizeUrl()
+
+  if (!authorizeUrl) {
+    return (
+      <p className="text-[11px] text-gray-500 leading-relaxed">
+        Trello の接続にはこの環境の設定が足りていません。管理者にご連絡ください。
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      <a
+        href={authorizeUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 h-8 rounded-md border border-gray-200 px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+      >
+        Trello でトークンを発行する
+        <ArrowSquareOut className="h-3.5 w-3.5" />
+      </a>
+      <p className="text-[11px] text-gray-400 leading-relaxed">
+        開いた画面で「Allow」を押すと、長い英数字が表示されます。それを下の欄に貼ってください。
+      </p>
+    </div>
   )
 }
