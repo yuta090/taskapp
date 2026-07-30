@@ -7,11 +7,11 @@ import {
 } from '@/lib/lp/connectedServices'
 
 export const metadata: Metadata = {
-  title: 'agentpm ｜ 本来の仕事に、戻ろう。',
+  title: 'AgentPM ｜ 本来の仕事に、戻ろう。',
   description:
-    'お客様への催促、資料の確認、期限のリマインド、進み具合の管理。本業のまわりで発生するこうした仕事をagentpmが引き受けます。タスク・プロジェクト管理と雇えるAI秘書。必要なほうだけでも、両方あわせてもお使いいただけます。',
+    'お客様への催促、資料の確認、期限のリマインド、進み具合の管理。本業のまわりで発生するこうした仕事をAgentPMが引き受けます。タスク・プロジェクト管理と雇えるAI秘書。必要なほうだけでも、両方あわせてもお使いいただけます。',
   openGraph: {
-    title: 'agentpm ｜ 本来の仕事に、戻ろう。',
+    title: 'AgentPM ｜ 本来の仕事に、戻ろう。',
     description:
       'タスク・プロジェクト管理と雇えるAI秘書。必要なほうだけでも、両方あわせてもお使いいただけます。',
   },
@@ -299,7 +299,7 @@ export default function Home() {
       {/* header */}
       <header className="top-head">
         <Link href="/" className="top-brand">
-          agentpm<small>by skara</small>
+          AgentPM<small>by skara</small>
         </Link>
         <nav className="top-nav">
           <Link href="/features" className="hide-m">機能</Link>
@@ -329,9 +329,9 @@ export default function Home() {
           </figure>
           <div className="copy2">
             <p className="lead">
-              お客様への催促、資料の確認、期限のリマインド、進み具合の管理。<b>本業のまわりで発生するこうした仕事</b>を、agentpmが代わりに引き受けます。相手待ちで止まっている案件も、揃うまで追いかけます。
+              お客様への催促、資料の確認、期限のリマインド、進み具合の管理。<b>本業のまわりで発生するこうした仕事</b>を、AgentPMが代わりに引き受けます。相手待ちで止まっている案件も、揃うまで追いかけます。
             </p>
-            <div className="pillars" aria-label="agentpmの二本柱">
+            <div className="pillars" aria-label="AgentPMの二本柱">
               <p className="duo-line">
                 <span className="mk">タスク・プロジェクト管理</span>
                 <span className="sep" aria-hidden="true">／</span>
@@ -438,7 +438,7 @@ export default function Home() {
             <span className="o">本格的な進行管理ツールです。</span>
           </h2>
           <p className="lead">
-            agentpmはもともと、受託開発や制作会社のための案件管理ツールです。AI秘書が記録した内容はそのままここに反映されるので、チームでの進行管理にそのまま使えます。
+            AgentPMはもともと、受託開発や制作会社のための案件管理ツールです。AI秘書が記録した内容はそのままここに反映されるので、チームでの進行管理にそのまま使えます。
           </p>
           <div className="feat-shots" aria-label="実際の画面">
             <span className="sh sh1">
@@ -475,7 +475,7 @@ export default function Home() {
             <span>AI秘書に任せる</span>か。
           </h2>
           <p className="lead">
-            agentpmは、進行管理ツールとAI秘書の2つでできています。<b>どちらか片方だけでも使えますし、両方あわせてもお使いいただけます。</b>あとから追加することもできます。
+            AgentPMは、進行管理ツールとAI秘書の2つでできています。<b>どちらか片方だけでも使えますし、両方あわせてもお使いいただけます。</b>あとから追加することもできます。
           </p>
           <div className="ways-grid">
             <div className="way">
@@ -511,7 +511,7 @@ export default function Home() {
       {/* footer */}
       <footer className="top-foot">
         <div className="pin">
-          <span>agentpm ｜ 運営: skara（クライアントワークのタスク管理＋AI秘書）</span>
+          <span>AgentPM ｜ 運営: skara（クライアントワークのタスク管理＋AI秘書）</span>
           <nav>
             <Link href="/pricing">料金</Link>
             <Link href="/shindan">タスク滞留診断</Link>

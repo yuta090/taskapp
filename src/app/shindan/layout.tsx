@@ -6,7 +6,7 @@ import './shindan.css'
 // タスク滞留診断(multica-prj/shindan-app から移植)。スタイルは .shindan にスコープ済み
 
 export const metadata: Metadata = {
-  title: 'タスク滞留診断（無料・約3分） | agentpm',
+  title: 'タスク滞留診断（無料・約3分） | AgentPM',
   description:
     '仕事が止まりやすい「滞留タイプ」を選択式の設問で自己診断。滞留レーダー・仕事を進める6つの力・量の負荷が図で分かります。無料・結果までメール登録不要。',
   alternates: { canonical: 'https://agentpm.app/shindan' },

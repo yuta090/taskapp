@@ -154,9 +154,9 @@ export default function ComparePage() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wider text-amber-600 uppercase bg-amber-100 rounded-full"
+            className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wide text-amber-600 bg-amber-100 rounded-full"
           >
-            Honest Comparison
+            ツール比較
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
@@ -164,7 +164,9 @@ export default function ComparePage() {
             transition={{ delay: 0.1 }}
             className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900"
           >
-            正直に比べます。
+            {/* 自然折返しだと「向かな／い場合。」で切れるため、読点で改行を固定する */}
+            AgentPMが向く場合と、<br className="hidden sm:block" />
+            向かない場合。
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 10 }}
@@ -172,8 +174,8 @@ export default function ComparePage() {
             transition={{ delay: 0.2 }}
             className="text-lg text-slate-600 mb-8 leading-relaxed"
           >
-            PMツールはたくさんあります。AgentPMが向いているケース、<br className="hidden md:block" />
-            他ツールが向いているケースを正直にお伝えします。
+            プロジェクト管理ツールは数多くあります。AgentPMが力を発揮する場面と、<br className="hidden md:block" />
+            他のツールのほうが適している場面を、どちらも載せています。
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -201,7 +203,7 @@ export default function ComparePage() {
             className="bg-gradient-to-br from-slate-50 to-amber-50/30 rounded-2xl border border-slate-200 p-8 lg:p-10"
           >
             <h2 className="text-xl font-bold text-slate-900 mb-4">
-              PMツール選びで、月額だけ比較していませんか？
+              ツール選びで、月額だけを比べていませんか？
             </h2>
             <p className="text-slate-600 text-sm leading-relaxed mb-4">
               本当に比較すべきは「ツール代」ではなく「報告・確認・承認にかけている時間」です。
@@ -213,7 +215,7 @@ export default function ComparePage() {
               href="/pricing#tco"
               className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 hover:text-amber-700 transition-colors"
             >
-              詳しい試算は料金ページのTCO比較へ
+              詳しい試算は料金ページへ
               <ArrowRight weight="bold" size={14} />
             </Link>
           </motion.div>
@@ -229,10 +231,9 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Feature Comparison</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">機能比較表</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
-              クライアントワークに必要な機能を中心に、主要PMツールと比較しました。
+              クライアントワークに必要な機能を中心に、主要なプロジェクト管理ツールと比べました。
             </p>
           </motion.div>
 
@@ -334,7 +335,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Agency Mode</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">代理店モード詳細比較</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
               代理店・制作会社の「原価管理」に特化した機能は、当社調査の範囲では、他社の標準機能としては確認できませんでした。
@@ -400,7 +400,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Why Standard?</span>
             <h2 className="text-2xl lg:text-3xl font-bold text-slate-900 mb-4">
               なぜBacklog Standardと比較するのか？
             </h2>
@@ -488,7 +487,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Price Comparison</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">料金比較</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
               同等の機能構成で比較した場合の月額差は、当社調査（2026年3月時点）では最大 ¥12,620 でした。各社の価格・プラン条件は変更される場合があります。
@@ -551,7 +549,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Best Fit</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">向いているチーム</h2>
           </motion.div>
 
@@ -626,7 +623,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Enterprise</span>
             <h2 className="text-3xl font-bold mb-4">大規模チーム（50名以上）の方へ</h2>
             <p className="text-slate-400 max-w-2xl mx-auto text-sm leading-relaxed">
               エンタープライズ向けのセキュリティ要件にも対応しています。
@@ -715,7 +711,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Approval Pack</span>
             <h2 className="text-3xl font-bold text-slate-900 mb-4">稟議パック</h2>
             <p className="text-slate-500 max-w-2xl mx-auto text-sm leading-relaxed">
               社内稟議に必要な資料をまとめてダウンロードできます。
@@ -761,7 +756,6 @@ export default function ComparePage() {
             viewport={{ once: true }}
             className="text-center mb-8"
           >
-            <span className="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Migration</span>
             <h2 className="text-2xl font-bold text-slate-900 mb-4">移行について</h2>
             <p className="text-slate-500 text-sm">
               既存ツールからの移行もサポートしています。

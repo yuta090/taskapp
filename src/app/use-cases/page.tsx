@@ -352,8 +352,8 @@ function SceneSection({ scene, index }: { scene: SceneData; index: number }) {
                     <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-100 text-amber-600">
                         {scene.icon}
                     </span>
-                    <span className="text-sm font-bold text-amber-600 uppercase tracking-wider">
-                        Scene {index + 1}
+                    <span className="text-sm font-bold text-amber-600 tracking-wide">
+                        場面{index + 1}
                     </span>
                 </div>
                 <h2 className="text-2xl lg:text-3xl font-bold text-slate-900 mb-2">
@@ -373,7 +373,7 @@ function SceneSection({ scene, index }: { scene: SceneData; index: number }) {
                     >
                         <div className="flex items-center gap-2 mb-4">
                             <WarningCircle size={20} weight="fill" className="text-rose-500" />
-                            <h3 className="text-sm font-bold text-rose-600 uppercase tracking-wider">Before</h3>
+                            <h3 className="text-sm font-bold text-rose-600 tracking-wide">いまの困りごと</h3>
                         </div>
                         <ul className="space-y-3">
                             {scene.before.map((item, i) => (
@@ -398,7 +398,7 @@ function SceneSection({ scene, index }: { scene: SceneData; index: number }) {
                     >
                         <div className="flex items-center gap-2 mb-4">
                             <CheckCircle size={20} weight="fill" className="text-emerald-500" />
-                            <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-wider">After</h3>
+                            <h3 className="text-sm font-bold text-emerald-600 tracking-wide">導入後</h3>
                         </div>
                         <ol className="space-y-3">
                             {scene.after.map((item, i) => (
@@ -495,9 +495,9 @@ export default function UseCasesPage() {
                     <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wider text-amber-600 uppercase bg-amber-100 rounded-full"
+                        className="inline-block px-3 py-1 mb-4 text-xs font-bold tracking-wide text-amber-600 bg-amber-100 rounded-full"
                     >
-                        Use Cases
+                        活用シーン
                     </motion.div>
                     <motion.h1
                         initial={{ opacity: 0, y: 10 }}
@@ -505,7 +505,9 @@ export default function UseCasesPage() {
                         transition={{ delay: 0.1 }}
                         className="text-4xl lg:text-5xl font-bold mb-6 text-slate-900"
                     >
-                        あなたのチームではこう使う。
+                        {/* 自然折返しだと「こう使え／ます。」で切れるため、読点で改行を固定する */}
+                        あなたのチームでは、<br className="hidden sm:block" />
+                        こう使えます。
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0, y: 10 }}
@@ -513,8 +515,8 @@ export default function UseCasesPage() {
                         transition={{ delay: 0.2 }}
                         className="text-lg text-slate-600 mb-10 leading-relaxed"
                     >
-                        AgentPMは受託開発・Web制作・フリーランス・代理店、<br className="hidden sm:block" />
-                        それぞれの現場に合わせたプロジェクト管理です。
+                        受託開発、Web制作、フリーランス、代理店。<br className="hidden sm:block" />
+                        AgentPMは、それぞれの現場の進め方に合わせてお使いいただけます。
                     </motion.p>
                     <motion.div
                         initial={{ opacity: 0, y: 10 }}

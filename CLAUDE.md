@@ -93,7 +93,7 @@ type = 'task' | 'spec'           # spec requires spec_path + decision_state
 
 **LINEのつなぎ方＝そのままプラン。違いは「誰の名前で相手に届くか」。**
 
-| | agentpm秘書（無料） | agentpm秘書 Pro（有料） |
+| | AgentPM秘書（無料） | AgentPM秘書 Pro（有料） |
 |---|---|---|
 | つなぎ方 | **共通LINE**（TaskApp共通の共有アカウント・`owner_type='platform'`） | **自社LINE**（事務所自身のLINE公式アカウント・白ラベル・`owner_type='org'`） |
 | 相手先との接続 | **グループ単位** | 担当者（個人）単位も可 |
