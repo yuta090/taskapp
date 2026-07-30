@@ -6,8 +6,9 @@
  * 本文に出たまま公開されていた記事が2本あった（2026-07-28に修正）。以後、公開のたびに通す。
  *
  * 使い方:
- *   node scripts/blog-audit.mjs           # 公開記事を検査（要対応があれば終了コード1）
- *   node scripts/blog-audit.mjs --all     # 下書きも含めて検査
+ *   node scripts/blog-audit.mjs            # 公開記事を検査（要対応があれば終了コード1）
+ *   node scripts/blog-audit.mjs --all      # 下書きも含めて検査
+ *   node scripts/blog-audit.mjs --openings # 書き出しの1文目を並べて目で確かめる
  */
 import { createClient } from '@supabase/supabase-js'
 import fs from 'node:fs'
@@ -78,6 +79,31 @@ const { data, error } = await query
 if (error) {
   console.error(error)
   process.exit(2)
+}
+
+// --openings: 書き出しの1文目だけを並べる。
+//
+// なぜ機械で合否を出さないか: 「一覧」「表」「棒」が通じるかどうかは、その1文の中で
+// 何が説明されているかで変わる（「今日やることの一覧」は通じる／「一覧」だけでは通じない）。
+// 機械が判定すると誤検知だらけになり、警告そのものが読み飛ばされる。だから**並べて見せるだけ**にして、
+// 判断は人がやる。実際に「朝いちばんに一覧を開くと」が公開まで通ってしまった（2026-07-30）。
+//
+// 書き出しは検索から来た人が最初に読む場所。**タイトルを見ていない人でも像が結べるか**で見る。
+if (process.argv.includes('--openings')) {
+  // 指示対象が特定されにくい一般名詞。どの記事にも出てくるので、これ単体では判定にならない
+  const VAGUE = ['一覧', 'シート', '棒', 'リスト', '表', 'グループ', '課題', 'データベース', '件']
+  console.log('書き出しの1文目（★の語は、修飾なしだと何を指すか分からなくなる語）\n')
+  for (const post of data) {
+    const first = (post.body_md.split('\n').find((l) => l.trim()) ?? '').trim()
+    const hits = VAGUE.filter((w) => first.includes(w))
+    console.log(`■ ${post.slug}`)
+    console.log(`  ${first}`)
+    if (hits.length) console.log(`  ★ ${hits.map((w) => `「${w}」`).join('・')} — その語の前に、何の${hits[0]}かを書いたか？`)
+    console.log()
+  }
+  console.log('判定は人がやる。1文目の名詞を1つずつ指して「これは何？」と聞き、')
+  console.log('タイトルを見ていない人でも像が結べるかを確かめる。')
+  process.exit(0)
 }
 
 const slugs = new Set(data.map((p) => p.slug))
