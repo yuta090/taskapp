@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { IntegrationsConsoleClient } from '@/app/(internal)/[orgId]/secretary/integrations/IntegrationsConsoleClient'
+import { getSetupGuide } from '@/lib/integrations/setupGuides'
 import type { SinkMeta } from '@/lib/hooks/useSinks'
 import type { IntegrationId } from '@/lib/integrations/registry'
 
@@ -216,17 +217,17 @@ describe('IntegrationsConsoleClient', () => {
       render(<IntegrationsConsoleClient orgId="org-1" />)
       fireEvent.click(screen.getByText('select-backlog'))
       fireEvent.click(screen.getByRole('button', { name: /連携のしかた/ }))
-      expect(screen.getByText(/個人設定/)).toBeInTheDocument()
+      expect(screen.getByText(getSetupGuide('backlog')!.steps[0])).toBeInTheDocument()
     })
 
     it('ツールを切り替えると手順は閉じた状態に戻る(前のツールの手順が残らない)', () => {
       render(<IntegrationsConsoleClient orgId="org-1" />)
       fireEvent.click(screen.getByText('select-backlog'))
       fireEvent.click(screen.getByRole('button', { name: /連携のしかた/ }))
-      expect(screen.getByText(/個人設定/)).toBeInTheDocument()
+      expect(screen.getByText(getSetupGuide('backlog')!.steps[0])).toBeInTheDocument()
 
       fireEvent.click(screen.getByText('select-generic_inbound'))
-      expect(screen.queryByText(/個人設定/)).not.toBeInTheDocument()
+      expect(screen.queryByText(getSetupGuide('backlog')!.steps[0])).not.toBeInTheDocument()
     })
 
     it('近日対応(wrike)ではボタンを出さない(まだ繋げないため)', () => {
