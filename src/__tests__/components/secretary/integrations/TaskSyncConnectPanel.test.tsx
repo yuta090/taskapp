@@ -1,7 +1,8 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { TaskSyncConnectPanel } from '@/components/secretary/integrations/TaskSyncConnectPanel'
+import { getTrelloAuthorizeUrl } from '@/lib/trello/config'
 import type { ConnectorConnection } from '@/lib/hooks/useConnectors'
 
 /**
@@ -261,5 +262,50 @@ describe('TaskSyncConnectPanel — Jiraのメールアドレス欄(Basic認証)'
       baseUrl: undefined,
       providerConfig: undefined,
     })
+  })
+})
+
+/**
+ * Trello だけは「APIキーをどこかで発行してくる」では繋がらない。トークンは TaskApp の
+ * アプリキーを載せた許可URLからでないと発行できず、運用者が自力で辿り着く術が無かった。
+ * 接続フォームからその許可画面へ行けるようにする。
+ */
+describe('TaskSyncConnectPanel — Trelloのトークン発行導線', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('未接続のとき、許可画面へのリンクを出す', () => {
+    vi.stubEnv('NEXT_PUBLIC_TRELLO_API_KEY', 'public-app-key')
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="trello" />)
+
+    const link = screen.getByRole('link', { name: /トークンを発行/ })
+    expect(link).toHaveAttribute('href', getTrelloAuthorizeUrl())
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+
+  it('アプリキーが未設定ならリンクの代わりに設定不足を伝える(黙って行き止まりにしない)', () => {
+    vi.stubEnv('TRELLO_API_KEY', '')
+    vi.stubEnv('NEXT_PUBLIC_TRELLO_API_KEY', '')
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="trello" />)
+
+    expect(screen.queryByRole('link', { name: /トークンを発行/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/管理者/)).toBeInTheDocument()
+  })
+
+  it('他のツール(asana)には出さない(Trello固有の導線)', () => {
+    vi.stubEnv('NEXT_PUBLIC_TRELLO_API_KEY', 'public-app-key')
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="asana" />)
+
+    expect(screen.queryByRole('link', { name: /トークンを発行/ })).not.toBeInTheDocument()
+  })
+
+  it('接続済みなら出さない(もう要らない)', () => {
+    vi.stubEnv('NEXT_PUBLIC_TRELLO_API_KEY', 'public-app-key')
+    connectionsState.connections = [backlogConnection({ id: 'conn-trello-1', provider: 'trello', baseUrl: null })]
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="trello" />)
+
+    expect(screen.queryByRole('link', { name: /トークンを発行/ })).not.toBeInTheDocument()
   })
 })
