@@ -10,6 +10,7 @@ import { KintoneConnectPanel } from '@/components/secretary/integrations/Kintone
 import { NotionImportPanel } from '@/components/secretary/integrations/NotionImportPanel'
 import { ToolConnectOverview } from '@/components/secretary/integrations/ToolConnectOverview'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
+import { ToolSetupGuide } from '@/components/integrations'
 import { useSinks, type SinkMeta } from '@/lib/hooks/useSinks'
 import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
 import { implementedTaskSyncProviders, isImplementedTaskSyncProvider } from '@/lib/task-sync/implemented'
@@ -81,6 +82,13 @@ export function IntegrationsConsoleClient({ orgId }: IntegrationsConsoleClientPr
             <SecretReveal secret={justCreatedSecret} onDismiss={() => setJustCreatedSecret(null)} />
           </div>
         )}
+
+        {/* 連携のしかた — 接続フォームには「APIキー」欄しか無く、どこでキーを取るのかが
+            分からなかった。surface ごとにパネルが分かれている(かつヘッダの持ち方もバラバラな)ため、
+            各パネルに入れるのではなく詳細列の先頭に1箇所だけ置く。手順が無いツール(近日対応)では
+            ToolSetupGuide 自体が何も描画しない。key でツール切替時に閉じた状態へ戻す
+            (前のツールの手順が開いたまま残らないようにする)。 */}
+        <ToolSetupGuide key={selectedId} guideKey={selectedId} className="px-4 pt-3 flex-shrink-0" />
 
         {def.surface === 'connector' && selectedId === 'generic_inbound' && (
           <GenericInboundPanel orgId={orgId} />

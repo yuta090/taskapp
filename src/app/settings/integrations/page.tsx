@@ -9,7 +9,7 @@ import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { isGoogleCalendarConfigured } from '@/lib/google-calendar/config'
 import { isGoogleTasksFeatureEnabled } from '@/lib/google-tasks/config'
-import { IntegrationStatusBadge, SetupGuide } from '@/components/integrations'
+import { IntegrationStatusBadge, ToolSetupGuide } from '@/components/integrations'
 import { SettingsBackButton } from '@/components/shared'
 import type { IntegrationProvider } from '@/lib/integrations/types'
 
@@ -192,33 +192,12 @@ export default function UserIntegrationsPage() {
                   })()}
                 </div>
 
-                <SetupGuide defaultOpen={false}>
-                  <p>
-                    Google Calendar と連携すると、日程調整の候補日に参加者の予定を自動で確認できます。
-                  </p>
-                  <div className="flex items-start gap-2">
-                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
-                    <span>取得するのは空き/埋まり情報のみです。予定の詳細は読み取りません。</span>
-                  </div>
-                </SetupGuide>
+                <ToolSetupGuide guideKey="google_calendar" />
               </div>
             ) : (
               <div className="space-y-3">
-                <SetupGuide defaultOpen={true}>
-                  <p>
-                    Google Calendar と連携すると、日程調整の候補日に参加者の予定を自動で確認できます。
-                  </p>
-                  <div className="flex items-start gap-2">
-                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
-                    <span>取得するのは空き/埋まり情報のみです。予定の詳細は読み取りません。</span>
-                  </div>
-                  <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                    <li>下の「Googleアカウントを接続」をクリック</li>
-                    <li>Googleアカウントでログイン</li>
-                    <li>「カレンダーの空き情報の参照」を許可</li>
-                    <li>自動的にこの画面に戻ります</li>
-                  </ol>
-                </SetupGuide>
+                {/* 未接続のうちは開いた状態で出す（まず手順を読んでほしい場面） */}
+                <ToolSetupGuide guideKey="google_calendar" defaultOpen />
 
                 <button
                   onClick={connectGoogle}
@@ -272,29 +251,12 @@ export default function UserIntegrationsPage() {
                   </div>
                 </div>
 
-                <SetupGuide defaultOpen={false}>
-                  <p>
-                    あなたが担当する未完了のタスクが、あなたの Google ToDo リストの「TaskApp」リストに
-                    自動で追加されます。Google 側でチェックを付けると TaskApp 側も完了になります。
-                  </p>
-                  <div className="flex items-start gap-2">
-                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
-                    <span>同期されるのは自分が担当のタスクだけです。他の人のタスクは同期されません。</span>
-                  </div>
-                </SetupGuide>
+                <ToolSetupGuide guideKey="google_tasks_personal" />
               </div>
             ) : (
               <div className="space-y-3">
-                <SetupGuide defaultOpen={true}>
-                  <p>
-                    Google ToDo リストと連携すると、あなたが担当するタスクが Gmail や Google カレンダー、
-                    スマホの Google ToDo アプリからも見えるようになります。
-                  </p>
-                  <div className="flex items-start gap-2">
-                    <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
-                    <span>同期されるのは自分が担当のタスクだけ。Google 側で完了にすると TaskApp も完了になります。</span>
-                  </div>
-                </SetupGuide>
+                {/* 未接続のうちは開いた状態で出す（まず手順を読んでほしい場面） */}
+                <ToolSetupGuide guideKey="google_tasks_personal" defaultOpen />
 
                 <button
                   onClick={() => connectProvider('google_tasks')}
@@ -370,6 +332,7 @@ export default function UserIntegrationsPage() {
                         )}
                       </div>
                     </div>
+                    <ToolSetupGuide guideKey="zoom" />
                     {!isConnected('zoom') && (
                       <button
                         onClick={() => {
@@ -404,6 +367,7 @@ export default function UserIntegrationsPage() {
                         )}
                       </div>
                     </div>
+                    <ToolSetupGuide guideKey="teams" />
                     {!isConnected('teams') && (
                       <button
                         onClick={() => {

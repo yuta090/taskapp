@@ -201,4 +201,38 @@ describe('IntegrationsConsoleClient', () => {
     fireEvent.click(screen.getByText('select-google_tasks'))
     expect(screen.queryByText('whsec_created')).not.toBeInTheDocument()
   })
+
+  /**
+   * 連携のしかた — 接続画面には「APIキー」欄しか無く、どこでキーを取るのか分からなかった。
+   * 選択中のツールの手順を、接続パネルの手前で開けるようにする。
+   */
+  describe('連携のしかた', () => {
+    it('選択中のツールの「連携のしかた」ボタンを出す', () => {
+      render(<IntegrationsConsoleClient orgId="org-1" />)
+      expect(screen.getByRole('button', { name: /連携のしかた/ })).toBeInTheDocument()
+    })
+
+    it('押すとそのツールの手順が開く(backlog)', () => {
+      render(<IntegrationsConsoleClient orgId="org-1" />)
+      fireEvent.click(screen.getByText('select-backlog'))
+      fireEvent.click(screen.getByRole('button', { name: /連携のしかた/ }))
+      expect(screen.getByText(/個人設定/)).toBeInTheDocument()
+    })
+
+    it('ツールを切り替えると手順は閉じた状態に戻る(前のツールの手順が残らない)', () => {
+      render(<IntegrationsConsoleClient orgId="org-1" />)
+      fireEvent.click(screen.getByText('select-backlog'))
+      fireEvent.click(screen.getByRole('button', { name: /連携のしかた/ }))
+      expect(screen.getByText(/個人設定/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('select-generic_inbound'))
+      expect(screen.queryByText(/個人設定/)).not.toBeInTheDocument()
+    })
+
+    it('近日対応(wrike)ではボタンを出さない(まだ繋げないため)', () => {
+      render(<IntegrationsConsoleClient orgId="org-1" />)
+      fireEvent.click(screen.getByText('select-wrike'))
+      expect(screen.queryByRole('button', { name: /連携のしかた/ })).not.toBeInTheDocument()
+    })
+  })
 })
