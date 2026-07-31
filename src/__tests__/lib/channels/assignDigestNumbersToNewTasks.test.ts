@@ -11,7 +11,8 @@ import path from 'path'
  * ⚠ **採番の中身は SQL（RPC）に移した**。アプリで「最大を読む → +1 して書く」をやっていた頃は、
  *   同じグループでほぼ同時に「タスク追加」された2件に同じ番号が付き、その番号で「完了N」を送ると
  *   2件とも完了したうえで「既に完了済み」と返っていた（読みと書きの間にロックが無いため）。
- *   いまは channel_groups の行を FOR UPDATE でロックする RPC の中で完結する。
+ *   いまは channel_groups の行をロックする RPC の中で完結する（FOR NO KEY UPDATE。採番同士は
+ *   待たせるが、タスクの登録は巻き込まない）。
  *
  * したがってこのファイルが見るのは2つ:
  *   1. アプリ⇔DBのつなぎ目 — 正しいRPCを正しい引数で呼び、失敗を握り潰さず、戻りを正しく変換するか
@@ -128,6 +129,14 @@ describe('clearAndRenumberOpenDigestTasks（配信直前の総入れ替え）', 
   })
 })
 
+/** SQLの行コメント（`-- …`）を落とす。説明文の中の語を「実装に書いてある」と誤読しないため。 */
+function stripSqlComments(sql: string): string {
+  return sql
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n')
+}
+
 /**
  * 採番の約束は SQL の中にある。ユニットテストでは SQL を動かせないので、
  * **約束が書かれたまま残っているか**だけをソースを読んで確かめる番人を置く。
@@ -180,7 +189,13 @@ describe('採番の約束が SQL に書かれたまま残っているか', () =>
     const bodies = sql.split('create or replace function').slice(1)
     for (const body of bodies) {
       // 素の for update に戻すと、同じグループへの INSERT が採番の間ずっと待たされる。
-      expect(body).not.toMatch(/for update;/)
+      //
+      // ⚠ `for update;` のようにセミコロン込みで探さない。SQL では句の切れ目が
+      //   `for update` / `for update\n  limit` / `for update)` と変わるので、
+      //   書き方を変えただけで検査をすり抜ける（守っているつもりで守れていない状態になる）。
+      //   コメント文（`-- … for update に戻る …`）は本文ではないので先に落としてから見る。
+      const statements = stripSqlComments(body)
+      expect(statements).not.toMatch(/\bfor\s+update\b/)
     }
   })
 
