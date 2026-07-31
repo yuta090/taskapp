@@ -8,6 +8,7 @@ import {
   useCreateMulticaConnection,
   useRotateMulticaSecret,
   useUpdateImportConfig,
+  useConnectionContainers,
   type ConnectorConnection,
   type ConnectorImportConfig,
   type ConnectorSecretDirection,
@@ -17,6 +18,7 @@ import {
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { normalizeImportConfigPatch } from '@/lib/integrations/importConfig'
+import { containerLabelOf } from '@/lib/integrations/registry'
 import { SecretReveal } from '@/components/secretary/integrations/SecretReveal'
 import { MulticaConnectionReveal } from '@/components/secretary/integrations/MulticaConnectionReveal'
 
@@ -261,6 +263,71 @@ function GtasksBlock({ orgId, connections, canManage }: GtasksBlockProps) {
   )
 }
 
+interface ImportContainerPickerProps {
+  orgId: string
+  connection: ConnectorConnection
+  canManage: boolean
+  selectedIds: string[]
+  onToggle: (containerId: string) => void
+}
+
+/**
+ * 取り込み対象の入れ物（ボード/プロジェクト/リスト）を**名前で選ぶ**。
+ *
+ * 以前は「読み込み対象リスト(任意・カンマ区切り)」という欄に `list-id-1, list-id-2` の形で
+ * 内部IDを手入力させていた。IDの調べ方は画面のどこにも無く、事実上入力できない欄だった
+ * （利用者からの指摘）。一覧を返すAPIは既にあった（Notionの取り込み設定では使われていた）ので、
+ * それを全ツールで使う。呼び名（ボード/プロジェクト/リスト）はレジストリから引く。
+ *
+ * 一覧が取れないとき（失効・一時障害）は**黙って空にしない**。空の一覧を出すと
+ * 「対象がひとつも無い」と誤解され、選択済みの設定を消す操作を誘発するため、理由を出す。
+ */
+function ImportContainerPicker({
+  orgId,
+  connection,
+  canManage,
+  selectedIds,
+  onToggle,
+}: ImportContainerPickerProps) {
+  const { containers, isLoading, error } = useConnectionContainers(orgId, connection.id, canManage)
+  const label = containerLabelOf(connection.provider) || '取り込み対象'
+
+  // 一覧を取りに行けないツール（multica等、外部の入れ物という概念が無いもの）では出さない。
+  if (!containerLabelOf(connection.provider)) return null
+
+  return (
+    <div>
+      <span className="block text-xs font-medium text-gray-700 mb-1">取り込む{label}</span>
+
+      {isLoading ? (
+        <div className="h-8 w-full bg-gray-100 rounded animate-pulse" />
+      ) : error ? (
+        <p className="text-[11px] text-amber-700">{error}</p>
+      ) : containers.length === 0 ? (
+        <p className="text-[11px] text-gray-400">
+          選べる{label}が見つかりませんでした。相手側で共有・権限を確認してください。
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {containers.map((container) => (
+            <label key={container.id} className="flex items-center gap-1.5 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={selectedIds.includes(container.id)}
+                disabled={!canManage}
+                onChange={() => onToggle(container.id)}
+              />
+              {container.title}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-1 text-[11px] text-gray-400">選ばなければ、すべてが対象になります。</p>
+    </div>
+  )
+}
+
 /**
  * multica 起点タスク(契約 §4.3)の取り込み先スペースを設定する(import_config.target_space_id)。
  * multica が新規 Issue を作ると task.created で TaskApp 側に起票され、ここで指定した space に入る。
@@ -344,7 +411,7 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
   const importConfig = connection.importConfig as ConnectorImportConfig
   const [targetSpaceId, setTargetSpaceId] = useState(importConfig.target_space_id ?? '')
   const [defaultAssigneeId, setDefaultAssigneeId] = useState(importConfig.default_assignee_id ?? '')
-  const [readListIdsDraft, setReadListIdsDraft] = useState((importConfig.read_list_ids ?? []).join(', '))
+  const selectedContainerIds = importConfig.read_list_ids ?? []
 
   const updateImportConfig = useUpdateImportConfig()
   const { spaces } = useUserSpaces()
@@ -363,9 +430,10 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '取り込み設定の更新に失敗しました')
       // hook側(onError)でキャッシュはロールバック済み。フォームのdraftも直前の確定値へ戻す。
+      // 取り込み対象のチェックはdraftを持たず connection.importConfig から直接描くため、
+      // ロールバックだけで元に戻る（戻し忘れが起きない）。
       setTargetSpaceId(importConfig.target_space_id ?? '')
       setDefaultAssigneeId(importConfig.default_assignee_id ?? '')
-      setReadListIdsDraft((importConfig.read_list_ids ?? []).join(', '))
     }
   }
 
@@ -384,12 +452,11 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
     void runUpdate({ default_assignee_id: value })
   }
 
-  const handleReadListBlur = () => {
-    const ids = readListIdsDraft
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean)
-    void runUpdate({ read_list_ids: ids })
+  const handleContainerToggle = (containerId: string) => {
+    const next = selectedContainerIds.includes(containerId)
+      ? selectedContainerIds.filter((id) => id !== containerId)
+      : [...selectedContainerIds, containerId]
+    void runUpdate({ read_list_ids: next })
   }
 
   return (
@@ -465,22 +532,13 @@ export function ImportConfigEditor({ orgId, connection, canManage }: ImportConfi
         )}
       </div>
 
-      <div>
-        <label htmlFor={`read-list-ids-${connection.id}`} className="block text-xs font-medium text-gray-700 mb-1">
-          読み込み対象リスト(任意・カンマ区切り)
-        </label>
-        <input
-          id={`read-list-ids-${connection.id}`}
-          type="text"
-          value={readListIdsDraft}
-          disabled={!canManage}
-          onChange={(e) => setReadListIdsDraft(e.target.value)}
-          onBlur={handleReadListBlur}
-          placeholder="list-id-1, list-id-2"
-          className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        />
-        <p className="mt-1 text-[11px] text-gray-400">省略時はミラー出力先リスト以外の全リストが対象です</p>
-      </div>
+      <ImportContainerPicker
+        orgId={orgId}
+        connection={connection}
+        canManage={canManage}
+        selectedIds={selectedContainerIds}
+        onToggle={handleContainerToggle}
+      />
     </div>
   )
 }

@@ -24,6 +24,15 @@ vi.mock('@/lib/hooks/useConnectors', async (importOriginal) => {
     useConnectors: () => connectionsState,
     useCreateTaskSyncConnection: () => ({ mutateAsync: createTaskSyncMock, isPending: false }),
     useUpdateImportConfig: () => ({ mutateAsync: updateImportConfigMock, isPending: false }),
+    // 取り込み対象の選択欄が外部一覧を読むようになったため差し替える（実物のままだと
+    // QueryClient 未提供で落ちる。一覧そのものの検証は ImportContainerPicker.test.tsx が持つ）。
+    useConnectionContainers: () => ({
+      containers: [{ id: 'proj-1', title: '本店案件' }],
+      selectedContainerIds: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
   }
 })
 
@@ -307,5 +316,59 @@ describe('TaskSyncConnectPanel — Trelloのトークン発行導線', () => {
     render(<TaskSyncConnectPanel orgId="org-1" integrationId="trello" />)
 
     expect(screen.queryByRole('link', { name: /トークンを発行/ })).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Asana は所属ワークスペースが複数あると、どれを見るかを決めないと接続できない。
+ * GIDの手入力は（調べようがないので）解にならないため、サーバが返した一覧から選ばせる。
+ */
+describe('TaskSyncConnectPanel — Asanaのワークスペース選択', () => {
+  it('複数あるときは一覧から選ばせ、選んだものを付けて送り直す', async () => {
+    const { NeedsWorkspaceChoiceError } = await import('@/lib/hooks/useConnectors')
+    createTaskSyncMock
+      .mockRejectedValueOnce(
+        new NeedsWorkspaceChoiceError('取り込むワークスペースを選んでください', [
+          { gid: 'ws-1', name: '株式会社アルカラ' },
+          { gid: 'ws-2', name: '個人用' },
+        ]),
+      )
+      .mockResolvedValueOnce({ connectionId: 'conn-1', provider: 'asana' })
+
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="asana" />)
+
+    fireEvent.change(screen.getByLabelText('APIキー'), { target: { value: 'secret-key' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '接続する' }))
+    })
+
+    // 一覧が出る（この時点ではまだ接続できていない）
+    const select = screen.getByLabelText(/ワークスペース/)
+    expect(select).toBeInTheDocument()
+
+    fireEvent.change(select, { target: { value: 'ws-2' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '接続する' }))
+    })
+
+    expect(createTaskSyncMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        provider: 'asana',
+        providerConfig: { asana_workspace_gid: 'ws-2' },
+      }),
+    )
+  })
+
+  it('ふつうの失敗では一覧を出さない(トーストで理由を伝えるだけ)', async () => {
+    createTaskSyncMock.mockRejectedValue(new Error('APIキーが正しくないか、権限が足りません'))
+
+    render(<TaskSyncConnectPanel orgId="org-1" integrationId="asana" />)
+    fireEvent.change(screen.getByLabelText('APIキー'), { target: { value: 'bad-key' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '接続する' }))
+    })
+
+    expect(screen.queryByLabelText(/ワークスペース/)).not.toBeInTheDocument()
+    expect(toastErrorMock).toHaveBeenCalledWith('APIキーが正しくないか、権限が足りません')
   })
 })
