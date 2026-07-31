@@ -65,7 +65,10 @@ function makeDeps(over: Partial<SlackWebhookDeps> = {}): SlackWebhookDeps {
     registerInvalidAttempt: vi.fn().mockReturnValue(false),
     reply: vi.fn().mockResolvedValue({ ts: '1700000200.000100' }),
     completeDigestTask: vi.fn().mockResolvedValue(null),
+    createInstantDigestTask: vi.fn().mockResolvedValue({ id: 'task-new', pending: false, duplicate: false }),
     insertOutbound: vi.fn().mockResolvedValue(undefined),
+    // 「一覧」の土台（番号がまだ無いタスクにだけ続きの番号を与える）。配線必須
+    assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]),
     ...over,
   }
 }

@@ -29,6 +29,15 @@ vi.mock('@/lib/hooks/useConnectors', async (importOriginal) => {
     useConnectors: () => connectionsState,
     useCreateGenericInboundConnection: () => ({ mutateAsync: createGenericInboundMock, isPending: false }),
     useUpdateImportConfig: () => ({ mutateAsync: updateImportConfigMock, isPending: false }),
+    // 取り込み対象の選択欄が外部一覧を読むようになったため差し替える（実物のままだと
+    // QueryClient 未提供で落ちる。一覧そのものの検証は ImportContainerPicker.test.tsx が持つ）。
+    useConnectionContainers: () => ({
+      containers: [],
+      selectedContainerIds: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
   }
 })
 

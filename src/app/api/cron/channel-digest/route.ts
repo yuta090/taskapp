@@ -147,12 +147,17 @@ export async function POST(request: NextRequest) {
           ? await findGroupTextMessagesSince(group.id, group.lastExtractedMessageCreatedAt)
           : []
 
-        // all_plus_instant の重複排除（フェーズ2）: 既にメンション即時タスク化済み
-        // （webhookのmention即時パス経由）の発言を抽出候補から除外する。'all' は即時タスクが
-        // 存在しないモードのため、このフィルタ自体を呼ばない（no-op・従来と同一挙動を保つ）。
+        // 重複排除: 既にその場でタスクになった発言を抽出候補から外す。
+        //
+        // ★拾い方(pickup_mode)に関係なく**全モードで**効かせる。「タスク追加 ○○」は
+        //   どの拾い方でも、打たれたその場で登録する仕様だから（設定を理由に人の命令を
+        //   黙らせない）。したがって 'all' のグループにも即時タスクは存在し、
+        //   ここで外さないと夜の抽出が同じ発言をもう一度タスクにしてしまう。
+        // ★外す単位は**発言ID(source_message_id)**。DBの unique(source_message_id, title) は
+        //   タイトルが1字でも違えばすり抜けるため、制約では二重登録を防げない。
         let messages = rawMessages
         let dedupeFailed = false
-        if (group.pickupMode === 'all_plus_instant' && rawMessages.length > 0) {
+        if (rawMessages.length > 0) {
           try {
             const existingSourceMessageIds = await findExistingDigestTaskSourceMessageIds(
               group.id,
@@ -170,7 +175,7 @@ export async function POST(request: NextRequest) {
 
         if (rawMessages.length > 0 && !dedupeFailed) {
           if (messages.length === 0) {
-            // all_plus_instant: 抽出対象の全発言が既に即時タスク化済み。LLMは呼ばず、
+            // 抽出対象の全発言が既にその場でタスク化済み。LLMは呼ばず、
             // 水位だけ生取得(rawMessages)の最後まで進める（同じバッチを再取得し続けないため）
             extractedTasks += await ingestDigestTasks(
               group.id,

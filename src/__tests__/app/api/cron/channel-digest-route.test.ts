@@ -549,7 +549,7 @@ describe('POST /api/cron/channel-digest', () => {
     })
   })
 
-  describe('pickup_mode=all_plus_instant（フェーズ2・pro以上限定）: 抽出拡張＋重複排除', () => {
+  describe('夜の自動抽出とその場の登録の重複排除（拾い方によらず全モードで効かせる）', () => {
     const DUAL_GROUP = { ...GROUP, pickupMode: 'all_plus_instant' as const }
 
     it('all_plus_instant グループも抽出対象になる（allと同様にLLM抽出→ingestが動く）', async () => {
@@ -631,17 +631,81 @@ describe('POST /api/cron/channel-digest', () => {
       expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:01:00.000Z', [])
     })
 
-    it('all グループ（無料）では重複排除フィルタを呼ばない（no-op・従来と同一挙動）', async () => {
+    it('all グループ（無料）でも重複排除フィルタを通す（「タスク追加」はどの拾い方でも即時登録されるため）', async () => {
+      // 「タスク追加 ○○」は拾い方の設定に関係なくその場で登録する（打ったのに無反応を作らない）。
+      // その代わり、夜の自動抽出が同じ発言をもう一度タスクにしないよう、除外は全モードで効かせる。
       storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP]) // pickupMode: 'all'
       storeMock.findGroupTextMessagesSince.mockResolvedValue([
         { id: 'msg-1', body: '発注', createdAt: '2026-07-11T05:00:00.000Z', mentions: [] },
+        {
+          id: 'msg-2',
+          body: 'タスク追加 見積もりを送る',
+          createdAt: '2026-07-11T05:01:00.000Z',
+          mentions: [],
+        },
       ])
-      callLlmMock.mockResolvedValue({ content: JSON.stringify([]) })
+      // msg-2 は「タスク追加」でその場で登録済み
+      storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set(['msg-2']))
+      callLlmMock.mockResolvedValue({
+        content: JSON.stringify([
+          { title: '発注', assignee_hint: null, due_date: null, source_index: 0 },
+        ]),
+      })
+      storeMock.ingestDigestTasks.mockResolvedValue(1)
       storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
 
       const response = await callPost({ authorization: 'Bearer test-cron-secret' })
       expect(response.status).toBe(200)
-      expect(storeMock.findExistingDigestTaskSourceMessageIds).not.toHaveBeenCalled()
+      expect(storeMock.findExistingDigestTaskSourceMessageIds).toHaveBeenCalledWith('group-1', [
+        'msg-1',
+        'msg-2',
+      ])
+      // 登録済みの msg-2 からは2件目を作らない
+      expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:01:00.000Z', [
+        expect.objectContaining({ sourceMessageId: 'msg-1' }),
+      ])
+    })
+
+    it('タイトルが違っても同じ発言から2件目は作らない（除外は発言ID単位）', async () => {
+      // unique(source_message_id, title) はタイトルが1字でも違えばすり抜ける。
+      // だからDB制約ではなく、発言IDで抽出候補そのものを外す。
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP]) // pickupMode: 'all'
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        {
+          id: 'msg-1',
+          body: 'タスク追加 見積もりを送る',
+          createdAt: '2026-07-11T05:00:00.000Z',
+          mentions: [],
+        },
+      ])
+      storeMock.findExistingDigestTaskSourceMessageIds.mockResolvedValue(new Set(['msg-1']))
+      storeMock.ingestDigestTasks.mockResolvedValue(0)
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      expect(response.status).toBe(200)
+      // LLMに渡す発言が残らない＝別タイトルのタスクが生まれる余地がない
+      expect(callLlmMock).not.toHaveBeenCalled()
+      expect(storeMock.ingestDigestTasks).toHaveBeenCalledWith('group-1', '2026-07-11T05:00:00.000Z', [])
+    })
+
+    it('除外の判定が一時的に失敗したら、その回の抽出は見送る（all でも二重登録より欠測を選ぶ）', async () => {
+      storeMock.findDigestEligibleGroups.mockResolvedValue([GROUP]) // pickupMode: 'all'
+      storeMock.findGroupTextMessagesSince.mockResolvedValue([
+        { id: 'msg-1', body: '発注', createdAt: '2026-07-11T05:00:00.000Z', mentions: [] },
+      ])
+      storeMock.findExistingDigestTaskSourceMessageIds.mockRejectedValue(new Error('boom'))
+      storeMock.clearAndRenumberOpenDigestTasks.mockResolvedValue([])
+
+      const response = await callPost({ authorization: 'Bearer test-cron-secret' })
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(callLlmMock).not.toHaveBeenCalled()
+      expect(storeMock.ingestDigestTasks).not.toHaveBeenCalled()
+      expect(body.skipped).toEqual([
+        expect.objectContaining({ groupId: 'group-1', reason: expect.stringContaining('dedupe_failed') }),
+      ])
     })
   })
 

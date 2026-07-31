@@ -24,10 +24,16 @@
  * Telegram の再送を避けるため、署名不一致(401)/platform(400) 以外は常に200を返す。
  */
 import { timingSafeEqual } from 'node:crypto'
-import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import {
-  processClaimLimbo,
-  runDigestCompletion,
+  handleClaimedGroupMessage,
+  handleLimboGroupMessage,
+  type TutorialWiring,
+} from '@/lib/channels/groupCommands'
+import type {
+  CreateInstantDigestTaskInput,
+  CreateInstantDigestTaskResult,
+} from '@/lib/channels/store'
+import {
   INVALID_TEXT,
   CODE_ONLY_LINKED_TEXT,
   CODE_ONLY_ALREADY_TEXT,
@@ -51,6 +57,15 @@ export interface TelegramActiveGroup {
   id: string
   orgId: string
   spaceId: string | null
+  /** 登録直後の練習（対話型チュートリアル）用。前からある接続を巻き込まないための日時。 */
+  createdAt?: string | null
+  /** 同上。練習の進み具合の置き場所（channel_groups.metadata） */
+  metadata?: Record<string, unknown> | null
+  /**
+   * 拾い方（channel_groups.pickup_mode）。**返事で嘘をつかないためだけに使う**。
+   * 'off' のグループは毎朝のまとめ配信の対象外＝「次にお届けする一覧に載ります」が果たされない。
+   */
+  pickupMode?: string
 }
 
 export interface TelegramClaimCode {
@@ -102,7 +117,7 @@ export interface TelegramReplyResult {
   messageId: string | null
 }
 
-export interface TelegramWebhookDeps {
+export interface TelegramWebhookDeps extends TutorialWiring {
   loadAccount: (accountId: string) => Promise<TelegramAccount | null>
   findActiveGroup: (accountId: string, chatId: string) => Promise<TelegramActiveGroup | null>
   insertMessage: (input: TelegramInsertInput) => Promise<{ id: string } | 'duplicate'>
@@ -139,6 +154,8 @@ export interface TelegramWebhookDeps {
     digestNumber: number,
     externalUserId: string | null,
   ) => Promise<{ id: string; title: string } | null>
+  /** 「タスク追加 ○○」でその場に申し送りタスクを1件作る */
+  createInstantDigestTask: (input: CreateInstantDigestTaskInput) => Promise<CreateInstantDigestTaskResult>
   /** 秘書の発話を outbound として記録する */
   insertOutbound: (input: TelegramOutboundInput) => Promise<unknown>
 }
@@ -191,21 +208,22 @@ function stripSelfMention(content: string, botUsername: string | undefined): str
 }
 
 /**
- * claimed チャットでの「完了N」処理。中身は claimLimboCore.runDigestCompletion（Discord/Slack/
- * Chatwork/Telegram 共通）。reply はテキストのみ受ける形に束縛し、sendMessage の message_id を
- * providerMessageId として返す。
+ * claimed チャットでの合図（完了N / ヘルプ / タスク追加）の振り分け。中身は
+ * groupCommands.handleClaimedGroupMessage（7チャネル共通）。reply はテキストのみ受ける形に
+ * 束縛し、sendMessage の message_id を providerMessageId として返す。
  */
-async function handleDigestCompleteCommand(
+async function handleGroupCommand(
   account: TelegramAccount,
   chatId: string,
   messageId: number | undefined,
   group: TelegramActiveGroup,
-  digestNumber: number,
+  sourceMessageId: string,
+  commandText: string,
   externalUserId: string | null,
   deps: TelegramWebhookDeps,
 ): Promise<void> {
   const botToken = account.credentials.bot_token
-  await runDigestCompletion(
+  await handleClaimedGroupMessage(
     {
       orgId: group.orgId,
       spaceId: group.spaceId,
@@ -214,13 +232,22 @@ async function handleDigestCompleteCommand(
       channel: 'telegram',
       externalUserId,
       autoReplyTo: `${chatId}:${messageId}`,
+      sourceMessageId,
+      text: commandText,
+      groupCreatedAt: group.createdAt ?? null,
+      groupMetadata: group.metadata ?? null,
+      // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+      pickupMode: group.pickupMode,
     },
-    digestNumber,
     {
       completeDigestTask: deps.completeDigestTask,
+      createInstantDigestTask: deps.createInstantDigestTask,
       reply: (text) =>
         deps.reply(botToken, chatId, text).then((r) => ({ providerMessageId: r.messageId })),
       insertOutbound: deps.insertOutbound,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -233,8 +260,9 @@ async function processLimbo(
 ): Promise<{ claimCreated: boolean }> {
   const botToken = account.credentials.bot_token
 
-  return processClaimLimbo(
-    { accountId: account.id, externalGroupId: chatId, text },
+  // 登録が成立したときだけ、成立文言の後ろに練習の入り口を1通足す（応答そのものは変えない）。
+  return handleLimboGroupMessage(
+    { accountId: account.id, externalGroupId: chatId, text, channel: 'telegram' },
     {
       normalizeClaimCode: deps.normalizeClaimCode,
       hashClaimCode: deps.hashClaimCode,
@@ -246,6 +274,10 @@ async function processLimbo(
       generateChallengeLabel: deps.generateChallengeLabel,
       registerInvalidAttempt: deps.registerInvalidAttempt,
       reply: (t) => deps.reply(botToken, chatId, t).then(() => undefined),
+      findActiveGroup: deps.findActiveGroup,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -321,18 +353,16 @@ export async function handleTelegramWebhook(
 
     if (recorded !== 'duplicate') {
       const commandText = stripSelfMention(msg.text, account.botUsername)
-      const digestNumber = parseDigestCompleteCommand(commandText)
-      if (digestNumber !== null) {
-        await handleDigestCompleteCommand(
-          account,
-          chatId,
-          msg.message_id,
-          group,
-          digestNumber,
-          externalUserId,
-          deps,
-        )
-      }
+      await handleGroupCommand(
+        account,
+        chatId,
+        msg.message_id,
+        group,
+        recorded.id,
+        commandText,
+        externalUserId,
+        deps,
+      )
     }
     return { status: 200, body: { ok: true } }
   }

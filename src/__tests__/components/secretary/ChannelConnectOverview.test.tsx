@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { ChannelConnectOverview } from '@/components/secretary/ChannelConnectOverview'
+import { getChannelPastePlacement } from '@/lib/channels/commandGuides'
 import { CHANNELS } from '@/lib/channels/registry'
 
 const ORG = '11111111-1111-4111-8111-111111111111'
@@ -88,5 +89,53 @@ describe('ChannelConnectOverview — 主アクション優先の情報設計', (
   it('社内ドキュメントのファイルパスは画面に出さない', () => {
     render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
     expect(screen.queryByText(/CHANNEL_CONNECTIONS_SETUP/)).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * 使い方（コマンド一覧）— 「つないだあと、そのチャットで何をどう打つのか」の案内。
+ * 接続の手順（つなぎ方）とは別物なので、開発者向けの「技術的な設定内容」には入れない。
+ */
+describe('ChannelConnectOverview — 使い方（コマンド一覧）', () => {
+  it('Discord: 使い方ボタンが出る', () => {
+    render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
+    expect(screen.getByRole('button', { name: /使い方（コマンド一覧）/ })).toBeInTheDocument()
+  })
+
+  it('WhatsApp（1:1専用で案内する操作が無い）: 使い方ボタンを出さない', () => {
+    render(<ChannelConnectOverview def={CHANNELS.whatsapp} orgId={ORG} />)
+    expect(screen.queryByRole('button', { name: /使い方（コマンド一覧）/ })).not.toBeInTheDocument()
+  })
+
+  it('Discord（秘書のアカウントを当社が持つ）: 編集できないプロフィール欄を貼り先にしない', () => {
+    render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
+    fireEvent.click(screen.getByRole('button', { name: /使い方（コマンド一覧）/ }))
+    expect(screen.getByText(getChannelPastePlacement('discord', 'platform')!.heading)).toBeInTheDocument()
+    expect(
+      screen.queryByText(getChannelPastePlacement('discord', 'org')!.heading),
+    ).not.toBeInTheDocument()
+  })
+
+  it('Discord: 貼り先を、そのチャットに実在する名前（トピック）で呼ぶ', () => {
+    render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
+    fireEvent.click(screen.getByRole('button', { name: /使い方（コマンド一覧）/ }))
+    expect(screen.getAllByText(/トピック/).length).toBeGreaterThan(0)
+  })
+
+  it('Slack（事務所が自分で登録する秘書）: これまでどおりプロフィール欄が貼り先', () => {
+    render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    fireEvent.click(screen.getByRole('button', { name: /使い方（コマンド一覧）/ }))
+    expect(screen.getByText(getChannelPastePlacement('slack', 'org')!.heading)).toBeInTheDocument()
+  })
+
+  it('使い方ボタンは「技術的な設定内容」の中ではなく外に出す', () => {
+    render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
+    const guideButton = screen.getByRole('button', { name: /使い方（コマンド一覧）/ })
+    expect(guideButton.closest('details')).toBeNull()
+    const details = screen.getByText('技術的な設定内容')
+    // 使い方ボタンが details より前 = details は後方にある
+    expect(
+      guideButton.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 })

@@ -23,8 +23,11 @@
  * （Pub/Sub push は非2xxで再送ループするため、内容起因の失敗で500を返さない）。
  */
 
-import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
-import { runDigestCompletion } from '@/lib/channels/claimLimboCore'
+import { handleClaimedGroupMessage, type TutorialWiring } from '@/lib/channels/groupCommands'
+import type {
+  CreateInstantDigestTaskInput,
+  CreateInstantDigestTaskResult,
+} from '@/lib/channels/store'
 
 // --- Pub/Sub push envelope ---------------------------------------------------
 
@@ -93,6 +96,15 @@ export interface GoogleChatIngestActiveGroup {
   id: string
   orgId: string
   spaceId: string | null
+  /** 登録直後の練習（対話型チュートリアル）用。前からある接続を巻き込まないための日時。 */
+  createdAt?: string | null
+  /** 同上。練習の進み具合の置き場所（channel_groups.metadata） */
+  metadata?: Record<string, unknown> | null
+  /**
+   * 拾い方（channel_groups.pickup_mode）。**返事で嘘をつかないためだけに使う**。
+   * 'off' のグループは毎朝のまとめ配信の対象外＝「次にお届けする一覧に載ります」が果たされない。
+   */
+  pickupMode?: string
 }
 
 export interface GoogleChatInsertInput {
@@ -135,7 +147,7 @@ export interface GoogleChatSubscriptionRecord {
   id: string
 }
 
-export interface GoogleChatIngestDeps {
+export interface GoogleChatIngestDeps extends TutorialWiring {
   loadPlatformAccount: () => Promise<GoogleChatIngestPlatformAccount | null>
   findActiveGroup: (accountId: string, spaceName: string) => Promise<GoogleChatIngestActiveGroup | null>
   insertMessage: (input: GoogleChatInsertInput) => Promise<{ id: string } | 'duplicate'>
@@ -145,6 +157,8 @@ export interface GoogleChatIngestDeps {
     digestNumber: number,
     externalUserId: string | null,
   ) => Promise<{ id: string; title: string } | null>
+  /** 「タスク追加 ○○」でその場に申し送りタスクを1件作る */
+  createInstantDigestTask: (input: CreateInstantDigestTaskInput) => Promise<CreateInstantDigestTaskResult>
   /** スペースへ発言する。provider 発行id（無ければnull）を返す。 */
   reply: (spaceName: string, text: string) => Promise<{ providerMessageId: string | null }>
   /** 秘書の発話を outbound として記録する */
@@ -244,10 +258,7 @@ async function handleMessageCreated(
   if (recorded === 'duplicate') return
 
   const commandText = stripSelfMentionPrefix(message)
-  const digestNumber = parseDigestCompleteCommand(commandText)
-  if (digestNumber === null) return
-
-  await runDigestCompletion(
+  await handleClaimedGroupMessage(
     {
       orgId: group.orgId,
       spaceId: group.spaceId,
@@ -256,12 +267,21 @@ async function handleMessageCreated(
       channel: 'google_chat',
       externalUserId: message.sender?.name ?? null,
       autoReplyTo: message.name,
+      sourceMessageId: recorded.id,
+      text: commandText,
+      groupCreatedAt: group.createdAt ?? null,
+      groupMetadata: group.metadata ?? null,
+      // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+      pickupMode: group.pickupMode,
     },
-    digestNumber,
     {
       completeDigestTask: deps.completeDigestTask,
+      createInstantDigestTask: deps.createInstantDigestTask,
       reply: (text) => deps.reply(spaceName, text),
       insertOutbound: deps.insertOutbound,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }

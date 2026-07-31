@@ -326,6 +326,7 @@ export const INTEGRATION_SETUP_GUIDES: Partial<Record<SetupGuideKey, Integration
       'TaskApp を開き、左メニューの「秘書」→ 上部タブ「ツール連携」→ 左の一覧から Asana を選びます（見つからないときは一覧の下の「すべて表示」を押します）',
       '「APIキー」の欄に、コピーしたトークンを貼り付けます',
       '「接続する」を押します',
+      '複数のワークスペースに所属している場合だけ、選ぶ欄が出ます。取り込みたいものを選んでもう一度「接続する」を押します',
       '接続できたら、取り込み先のプロジェクトを選びます（選んだ時点で同期が始まります）',
     ],
     notes: [
@@ -335,19 +336,9 @@ export const INTEGRATION_SETUP_GUIDES: Partial<Record<SetupGuideKey, Integration
       '個人トークンで見えるのは、その人が見えている範囲だけです。会社全体のデータをまとめて扱いたい場合、公式は Service Accounts（Enterprise プランでのみ使え、作成できるのは管理者だけ）を案内しています。',
       'トークンは一度作れば使い続けられる長期のものです（公式は long-lived と説明）。ただし作った人のアカウントが停止・退職で消えると連携も止まります。',
       'トークンはパスワードと同じ扱いです。チャットやメールに貼って共有しないでください。',
-      // ⚠ 実装の欠陥（Trello と同型）: アダプタ(providers/asana.ts の workspaceGid)は
-      //    config.asana_workspace_gid を必須で読むのに、接続フォーム
-      //    (TaskSyncConnectPanel の PROVIDER_EXTRA_FIELDS)には jira しか入力欄が無い。
-      //    そのため画面から作った Asana 接続は、同期時に permanent エラーで必ず止まる。
-      //    入力欄を足すか、接続後にワークスペースを一覧から選ばせる導線が要る（別PRで対応）。
-      //    直したらこの注意ごと消すこと。「使えないのに使えるふりをした手順」を出さないため、
-      //    直るまでは正直に書く。
-      '⚠ Asana との同期は現在ご利用いただけません（準備中です）。接続そのものはできますが、タスクは取り込まれません。',
     ],
     adminOnly: true,
     sources: [
-      'src/lib/task-sync/providers/asana.ts',
-      'src/components/secretary/integrations/TaskSyncConnectPanel.tsx',
       'https://developers.asana.com/docs/personal-access-token',
       'https://developers.asana.com/docs/quick-start',
       'https://developers.asana.com/docs/manage-and-share-your-app',

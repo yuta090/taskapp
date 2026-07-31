@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
+import { DIGEST_LIST_ROWS_CAP } from '@/lib/channels/digest/compute'
 import {
   generateSharedGroupClaimCode,
   hashSharedGroupClaimCode,
@@ -12,6 +13,7 @@ import {
 import { fetchBotInfo } from '@/lib/channels/line/client'
 import { resolveOrgEntitlements, resolveOrgLimits } from '@/lib/billing/entitlements'
 import { deriveLineSelfServeState, type LineSelfServeState } from '@/lib/channels/sharedBotAccess'
+import type { ChannelTutorialState } from '@/lib/channels/tutorial/state'
 
 /**
  * チャネル配管のデータアクセス層（service role専用）。
@@ -793,6 +795,13 @@ export interface ChannelGroup {
   lastExtractedMessageCreatedAt: string | null
   /** 承認フロー（Stage 2.7-B）の責任者。未設定なら候補を pending にしない（オプトイン） */
   approverUserId: string | null
+  /**
+   * 付帯情報（jsonb）。Teams の serviceUrl 等と、登録直後の練習の進み具合(tutorial)が同居する。
+   * 任意プロパティにしてあるのは、この列を選ばない経路やテストの組み立てを壊さないため。
+   */
+  metadata?: Record<string, unknown> | null
+  /** グループ行が作られた日時（ISO）。前からある接続を練習に巻き込まない判定に使う。 */
+  createdAt?: string
 }
 
 interface GroupRow {
@@ -806,6 +815,8 @@ interface GroupRow {
   pickup_mode: string
   last_extracted_message_created_at: string | null
   approver_user_id: string | null
+  metadata?: Record<string, unknown> | null
+  created_at?: string
 }
 
 function toPickupMode(value: string): PickupMode {
@@ -824,11 +835,15 @@ function toChannelGroup(row: GroupRow): ChannelGroup {
     pickupMode: toPickupMode(row.pickup_mode),
     lastExtractedMessageCreatedAt: row.last_extracted_message_created_at,
     approverUserId: row.approver_user_id,
+    metadata: row.metadata ?? null,
+    createdAt: row.created_at,
   }
 }
 
+// metadata / created_at は登録直後の練習（対話型チュートリアル）が使う。
+// metadata=進み具合の置き場所（DDLゼロ）、created_at=前からある接続を巻き込まないための窓。
 const GROUP_COLUMNS =
-  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at, approver_user_id'
+  'id, org_id, space_id, account_id, external_group_id, display_name, status, pickup_mode, last_extracted_message_created_at, approver_user_id, metadata, created_at'
 
 export async function findActiveGroup(
   accountId: string,
@@ -954,7 +969,8 @@ export async function findActiveGroupForSpace(
 ): Promise<ChannelGroup | null> {
   const { data, error } = await admin()
     .from('channel_groups')
-    .select(`${GROUP_COLUMNS}, created_at, channel_accounts!inner(owner_type, status)`)
+    // created_at は GROUP_COLUMNS に含まれる（重ねて指定しない）
+    .select(`${GROUP_COLUMNS}, channel_accounts!inner(owner_type, status)`)
     .eq('org_id', orgId)
     .eq('space_id', spaceId)
     .eq('status', 'active')
@@ -1139,6 +1155,8 @@ export interface ChannelGroupMetadataPatch {
   serviceUrl?: string
   teamId?: string
   tenantId?: string
+  /** 登録直後の練習（対話型チュートリアル）の進み具合。テーブルも列も増やさないための同居先。 */
+  tutorial?: ChannelTutorialState
 }
 
 /**
@@ -1146,10 +1164,19 @@ export interface ChannelGroupMetadataPatch {
  * 既存キーを壊さず patch のキーだけ上書きする（Teams claimed 発言のたびに serviceUrl/teamId/
  * tenantId を反映し、PR-3の能動送信が使えるようにするため）。
  *
- * ⚠ TOCTOU: select→update は同一トランザクションではないため、並行webhookでは後勝ちの
- * 上書きが起こり得る。値は同一グループなら毎回同じ内容が再送されるため実害は無い（許容・
- * group_capacity-hardlimit-decisionと同種のFable許容範囲）。呼び出し側（webhookHandler）で
- * best-effort（失敗は握りつぶし、記録・完了処理を壊さない）として使う想定。
+ * ⚠ TOCTOU: select→update は同一トランザクションではないため、並行webhookでは**後勝ちの
+ * 上書き**が起こり得る。
+ *
+ * 影響はキーによって違う（「実害は無い」と言い切れるのは Teams の付帯情報だけ）:
+ *   - serviceUrl / teamId / tenantId … 同じグループなら毎回同じ値が再送されるので、
+ *     どちらが勝っても同じ内容になる（実害なし）。
+ *   - tutorial（練習の進み具合）… **毎回違う値**なので後勝ちで消えうる。同じグループに同時刻に
+ *     2発言が届くと、片方の進み具合が上書きされ、**案内が1回余分に出る**ことがある。
+ *     タスクの二重作成・取りこぼしは起きない（作成側のRPCが冪等）ので、案内が1回重なる害と
+ *     migrationを足してRPC化する重さが釣り合わないと判断して許容している
+ *     （tutorial/run.ts 冒頭に同じ判断を明記。見落としではなく意図的）。
+ *
+ * 呼び出し側（webhookHandler）は best-effort（失敗は握りつぶし、記録・完了処理を壊さない）として使う。
  */
 export async function updateChannelGroupMetadata(
   groupId: string,
@@ -2286,6 +2313,113 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
   const failed = updateResults.find((r) => r.error)
   if (failed?.error) {
     throw new Error(`clearAndRenumberOpenDigestTasks: renumber failed: ${failed.error.message}`)
+  }
+
+  return numbered
+}
+
+/**
+ * **番号がまだ無いタスクにだけ**続きの番号を与える（既存の番号は1つも動かさない）。
+ *
+ * 一覧の番号を全部振り直してよいのは配信の直前（clearAndRenumberOpenDigestTasks・毎朝の cron）だけ、
+ * という不変条件を守るための関数。チャットの発言をきっかけに走る処理（その場の登録・登録直後の練習）が
+ * 総入れ替えを呼ぶと、利用者が手元で見ている一覧の番号と実物がズレて、
+ * 「完了3」が別のタスクを消してしまう。
+ *
+ * 続きの番号は「そのグループで今使われている番号の最大＋1」から。完了済みの行が持っている番号も
+ * 数に入れる（番号は配信直前の総入れ替えまで残るため、避けないと同じ番号を二重に配ることになる）。
+ * 戻り値は一覧に出る（open な）タスクを番号順に並べたもの。
+ *
+ * ⚠ **読む行は必ず絞る**。この関数は「一覧」コマンドで人が何度でも叩ける経路になった。
+ *   全行を読むと、長く使っているグループでは完了済みの行が延々と積み上がり、
+ *   1回の「一覧」でその山を毎回読むことになる。よって
+ *     - 一覧に出す行は open だけを読む（件数にも上限を置く）
+ *     - 「今使われている番号の最大」は最大値1行だけを引く（完了済みの行を読まずに済ませる）
+ *   の2本立てにしている。
+ */
+// 値の正本は digest/compute.ts（表示側も同じ上限を知らないと、切られた件数を「◯件」と
+// 言い切ってしまう）。ここは既存の呼び出し元のための別名。
+export const ASSIGN_DIGEST_NUMBERS_MAX_ROWS = DIGEST_LIST_ROWS_CAP
+
+export async function assignDigestNumbersToNewTasks(groupId: string): Promise<NumberedDigestTask[]> {
+  const client = admin()
+
+  // (1) 今使われている番号の最大。完了済みの行も番号を持ち続けるので、open だけ見ると同じ番号を
+  //     二重に配ってしまう。全行を読まずに済ませるため、最大値の1行だけを引く。
+  const { data: maxData, error: maxError } = await client
+    .from('channel_digest_tasks')
+    .select('digest_number')
+    .eq('group_id', groupId)
+    .not('digest_number', 'is', null)
+    .order('digest_number', { ascending: false })
+    .limit(1)
+
+  if (maxError) {
+    throw new Error(`assignDigestNumbersToNewTasks: select failed: ${maxError.message}`)
+  }
+
+  // (2) 一覧に出す行（open のみ・上限つき）。
+  const { data, error } = await client
+    .from('channel_digest_tasks')
+    .select('id, title, status, digest_number, created_at, due_date, due_time, assignee_hint')
+    .eq('group_id', groupId)
+    .eq('status', 'open')
+    .order('created_at', { ascending: true })
+    .limit(ASSIGN_DIGEST_NUMBERS_MAX_ROWS)
+
+  // 読めなかったことと「0件」を混ぜない（番号が分からないまま案内すると嘘の番号を約束する）。
+  if (error) {
+    throw new Error(`assignDigestNumbersToNewTasks: select failed: ${error.message}`)
+  }
+  if (!data || data.length === 0) return []
+
+  const rows = data as Array<{
+    id: string
+    title: string
+    status: string
+    digest_number: number | null
+    due_date: string | null
+    due_time: string | null
+    assignee_hint: string | null
+  }>
+
+  const maxRows = (maxData ?? []) as Array<{ digest_number: number | null }>
+  let nextNumber = maxRows.reduce(
+    (max, r) => (typeof r.digest_number === 'number' && r.digest_number > max ? r.digest_number : max),
+    0,
+  )
+
+  const pendingUpdates: Array<{ id: string; digestNumber: number }> = []
+  const numbered: NumberedDigestTask[] = rows
+    .filter((r) => r.status === 'open')
+    .map((r) => {
+      let digestNumber = r.digest_number
+      if (typeof digestNumber !== 'number') {
+        nextNumber += 1
+        digestNumber = nextNumber
+        pendingUpdates.push({ id: r.id, digestNumber })
+      }
+      return {
+        id: r.id,
+        title: r.title,
+        digestNumber,
+        dueDate: r.due_date,
+        dueTime: r.due_time,
+        assigneeHint: r.assignee_hint,
+      }
+    })
+    .sort((a, b) => a.digestNumber - b.digestNumber)
+
+  if (pendingUpdates.length > 0) {
+    const updateResults = await Promise.all(
+      pendingUpdates.map((task) =>
+        client.from('channel_digest_tasks').update({ digest_number: task.digestNumber }).eq('id', task.id),
+      ),
+    )
+    const failed = updateResults.find((r) => r.error)
+    if (failed?.error) {
+      throw new Error(`assignDigestNumbersToNewTasks: number failed: ${failed.error.message}`)
+    }
   }
 
   return numbered

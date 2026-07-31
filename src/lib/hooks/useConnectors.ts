@@ -227,6 +227,22 @@ export interface CreateTaskSyncConnectionResult {
  * ため、既存のqueryKeyへ相乗りさせている(専用のqueryKeyを持つとGET側のフィルタも専用にする必要が
  * 生まれ、二重管理になる)。
  */
+/** 接続に必要な「どのワークスペースか」がまだ決まっていない、という応答。失敗ではなく続きがある。 */
+export interface WorkspaceChoice {
+  gid: string
+  name: string
+}
+
+export class NeedsWorkspaceChoiceError extends Error {
+  readonly workspaces: WorkspaceChoice[]
+
+  constructor(message: string, workspaces: WorkspaceChoice[]) {
+    super(message)
+    this.name = 'NeedsWorkspaceChoiceError'
+    this.workspaces = workspaces
+  }
+}
+
 export function useCreateTaskSyncConnection() {
   const queryClient = useQueryClient()
 
@@ -244,7 +260,14 @@ export function useCreateTaskSyncConnection() {
         }),
       })
       const json = await response.json()
-      if (!response.ok) throw new Error(json.error ?? '接続に失敗しました')
+      if (!response.ok) {
+        // 「選ばせる必要がある」だけの応答は、ただの失敗と区別する（画面が選択肢を出せるように、
+        // 一覧をエラーに載せて渡す）。Asana のワークスペースが複数あるときに来る。
+        if (response.status === 409 && Array.isArray(json.workspaces)) {
+          throw new NeedsWorkspaceChoiceError(json.error ?? '取り込むワークスペースを選んでください', json.workspaces)
+        }
+        throw new Error(json.error ?? '接続に失敗しました')
+      }
       return { connectionId: json.connection_id, provider: json.provider }
     },
     onSuccess: (_result, input) => {

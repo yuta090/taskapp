@@ -94,6 +94,43 @@ interface AsanaListResponse<T> {
   next_page?: { offset?: string } | null
 }
 
+/**
+ * この鍵で見えるワークスペースの一覧。**接続を作る前**に呼ぶ（まだ接続行が無いので ctx を持てない）。
+ *
+ * なぜ要るか: Asana は1人が複数のワークスペースに所属できるため、どれを見るかの指定
+ * （config.asana_workspace_gid）が無いとアダプタは動けない。ところが接続フォームには
+ * その入力欄が無く、接続作成が必ず失敗していた。GIDを人に手入力させるのは
+ * （Trelloのボード指定と同じで）調べようがなく解にならないので、鍵で引ける情報は
+ * サーバ側で引く。所属が1つなら入力ゼロで決まる。
+ *
+ * ⚠ ctx を組み立てられない場面専用の薄い関数。通常のAPI呼び出しは asanaFetch を使う
+ *   （こちらはリトライ分類やページングを持たない＝一覧1回きりの用途に限る）。
+ */
+export async function listAsanaWorkspaces(token: string): Promise<{ gid: string; name: string }[]> {
+  const url = apiUrl('/workspaces', { limit: String(PAGE_SIZE) })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    // 応答本文・例外messageは外に出さない（顧客データと鍵を残さない。他の呼び出しと同じ方針）。
+    throw providerError('asana: ワークスペース一覧の取得に失敗しました', { status: 502 })
+  }
+  if (!res.ok) {
+    throw providerError('asana: ワークスペース一覧の取得に失敗しました', {
+      status: res.status,
+      permanent: res.status === 401 || res.status === 403,
+    })
+  }
+  const json = (await res.json()) as AsanaListResponse<{ gid?: string; name?: string }>
+  return (json.data ?? [])
+    .filter((w): w is { gid: string; name?: string } => typeof w.gid === 'string')
+    .map((w) => ({ gid: w.gid, name: w.name ?? w.gid }))
+}
+
 /** 接続設定から見るべきワークスペースGIDを取り出す。未設定は配線ミスとして弾く（Backlogのbaseurlガードと同じ流儀）。 */
 function workspaceGid(ctx: ProviderContext): string {
   const raw = ctx.config?.asana_workspace_gid

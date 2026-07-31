@@ -43,8 +43,11 @@ function makeDeps(over: Partial<GoogleChatIngestDeps> = {}): GoogleChatIngestDep
     findActiveGroup: vi.fn().mockResolvedValue(null),
     insertMessage: vi.fn().mockResolvedValue({ id: 'row-1' }),
     completeDigestTask: vi.fn().mockResolvedValue(null),
+    createInstantDigestTask: vi.fn().mockResolvedValue({ id: 'task-new', pending: false, duplicate: false }),
     reply: vi.fn().mockResolvedValue({ providerMessageId: 'spaces/S1/messages/M-out-1' }),
     insertOutbound: vi.fn().mockResolvedValue(undefined),
+    // 「一覧」の土台（番号がまだ無いタスクにだけ続きの番号を与える）。配線必須
+    assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]),
     findSubscriptionByResourceName: vi.fn().mockResolvedValue(null),
     markSubscriptionStatus: vi.fn().mockResolvedValue(undefined),
     ...over,

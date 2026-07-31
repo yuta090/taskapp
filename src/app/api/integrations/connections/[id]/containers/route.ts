@@ -4,6 +4,9 @@ import { isValidUuid } from '@/lib/uuid'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveCredentials, type ConnectionCredentialRow } from '@/lib/task-sync/credentials'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
+import { getValidTokenDetailed } from '@/lib/integrations/token-manager'
+import { refreshAccessToken } from '@/lib/google-calendar/client'
+import { listTaskLists } from '@/lib/google-tasks/client'
 
 export const runtime = 'nodejs'
 
@@ -57,7 +60,10 @@ async function findConnection(connectionId: string, orgId: string): Promise<Conn
  * 値の妥当性はここでは検証しない（表示専用の参考情報であり、保存経路の検証を代替しない）。
  */
 function selectedContainerIds(importConfig: Record<string, unknown> | null): string[] {
-  const raw = importConfig?.read_container_ids
+  // 保存キーは2つある: 新しい read_container_ids と、gtasks 由来の古い read_list_ids。
+  // 取り込み側(task-sync/runner.ts)も両方を見る契約なので、ここも同じ順で拾う
+  // （片方しか見ないと、既存接続のチェック状態が画面上で消えて見える）。
+  const raw = importConfig?.read_container_ids ?? importConfig?.read_list_ids
   if (!Array.isArray(raw)) return []
   return raw.filter((v): v is string => typeof v === 'string')
 }
@@ -81,6 +87,41 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const connection = await findConnection(connectionId, orgId)
   if (!connection) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 })
+  }
+
+  // Google Tasks は専用ワーカーで動くため task-sync アダプタを持たず、以前はこのエンドポイントで
+  // 「対応していません」と弾かれていた。その結果 Google ToDo だけ取り込み対象を**内部IDで手入力**
+  // させるしかなく、画面に意味の通らない欄が残っていた（利用者からの指摘）。
+  // listTaskLists は {id,title}[] を返す＝他ツールと同じ形なので、ここで橋渡しする。
+  // 認可・エラー写像は下の一般経路と同じに揃える（このツールだけ独自の挙動にしない）。
+  if (connection.provider === 'google_tasks') {
+    const tok = await getValidTokenDetailed(connection.id, refreshAccessToken)
+    if (tok.status === 'auth_failed') {
+      return NextResponse.json({ error: '接続が失効しています。再接続してください' }, { status: 409 })
+    }
+    if (tok.status !== 'ok') {
+      return NextResponse.json(
+        { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
+        { status: 502 },
+      )
+    }
+    try {
+      const lists = await listTaskLists(tok.token)
+      return NextResponse.json({
+        containers: lists.map((l) => ({ id: l.id, title: l.title })),
+        selected_container_ids: selectedContainerIds(connection.import_config),
+      })
+    } catch (err) {
+      // トークン・応答本文は出さない（下の一般経路と同じ方針）。
+      console.error(
+        '[connections/containers] listTaskLists failed:',
+        err instanceof Error ? err.constructor.name : typeof err,
+      )
+      return NextResponse.json(
+        { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
+        { status: 502 },
+      )
+    }
   }
 
   const adapter = getTaskSyncAdapter(connection.provider)

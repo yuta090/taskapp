@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createHmac } from 'node:crypto'
+import { renderHelpReplyText } from '@/lib/channels/commandGuides'
+import {
+  TUTORIAL_INTRO_TEXT,
+  TUTORIAL_COMPLETED_TEXT,
+  TUTORIAL_SKIPPED_TEXT,
+  buildTutorialAddedText,
+} from '@/lib/channels/tutorial/messages'
+import {
+  LIST_EMPTY_TEXT,
+  COMPLETE_WITHOUT_NUMBER_TEXT,
+  COMMAND_FAILED_TEXT,
+} from '@/lib/channels/groupCommands'
 
 /**
  * LINE webhook オーケストレーション
@@ -107,6 +119,9 @@ const storeMock = {
   findActiveUserLinkByExternalId: vi.fn(),
   findActiveUserLinkForUser: vi.fn(),
   findLineAccountByIdLookup: vi.fn(),
+  // 登録直後の練習（対話型チュートリアル）が使う
+  assignDigestNumbersToNewTasks: vi.fn(),
+  updateChannelGroupMetadata: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -309,6 +324,8 @@ beforeEach(() => {
   storeMock.clearDmUnreachable.mockResolvedValue(undefined)
   groupClaimNotifyMock.notifyCodeOnlyGroupLinked.mockResolvedValue(undefined)
   limboRateLimitMock.registerInvalidClaimAttemptAndCheckLimit.mockReturnValue(false)
+  storeMock.assignDigestNumbersToNewTasks.mockResolvedValue([])
+  storeMock.updateChannelGroupMetadata.mockResolvedValue(undefined)
   resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
   dueReminderStoreMock.confirmTaskDoneViaLine.mockResolvedValue({ status: 'done' })
   dueReminderStoreMock.snoozeDueReminderViaLine.mockResolvedValue({ status: 'snoozed' })
@@ -1143,6 +1160,23 @@ describe('handleLineWebhook', () => {
       await handleLineWebhook(body, sign(body))
 
       expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).not.toHaveBeenCalled()
+    })
+
+    it('「ヘルプ」で使い方を返信する（文言は commandGuides が正本）', async () => {
+      const body = makeBody([groupTextEvent('ヘルプ')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).toHaveBeenCalledTimes(1)
+      const replyArg = replyMock.mock.calls[0][0] as { messages: Array<{ text?: string }> }
+      expect(replyArg.messages[0].text).toBe(renderHelpReplyText('line'))
+      expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).not.toHaveBeenCalled()
+    })
+
+    it('「ヘルプが欲しい」のような普通の会話では返信しない（会話に割り込まない）', async () => {
+      const body = makeBody([groupTextEvent('ヘルプが欲しいです')])
+      await handleLineWebhook(body, sign(body))
+
+      expect(replyMock).not.toHaveBeenCalled()
     })
   })
 
@@ -3593,5 +3627,700 @@ describe('完了サジェスト（Fable裁定・精度優先の最小構成 v1�
 
       expect(replyMock).not.toHaveBeenCalled()
     })
+  })
+})
+
+/**
+ * 登録直後の練習（対話型チュートリアル）— LINE 版。
+ *
+ * LINE は返信トークンが1回しか使えないので、練習の発話は**いつもの返事と同じ返信**に足す
+ * （＝送信は1回・push は使わない＝無料枠を1通も消費しない）。
+ */
+describe('LINE: 登録直後の練習', () => {
+  const JUST_NOW = new Date(Date.now() - 60_000).toISOString()
+  // 「タスク追加 ○○」がその場で効く拾い方（mention_only）＋できたばかりのグループ
+  const NEW_GROUP = {
+    ...GROUP_MENTION_ONLY,
+    createdAt: JUST_NOW,
+    metadata: null as Record<string, unknown> | null,
+  }
+
+  function replyTexts(): string[] {
+    const arg = replyMock.mock.calls[0]?.[0] as { messages: Array<{ text?: string }> } | undefined
+    return (arg?.messages ?? []).map((m) => m.text ?? '')
+  }
+
+  function savedTutorial() {
+    const calls = storeMock.updateChannelGroupMetadata.mock.calls
+    return (calls[calls.length - 1]?.[1] as { tutorial?: Record<string, unknown> })?.tutorial
+  }
+
+  it('顧問先コードでの紐付けが成立すると、確認のあとに練習の入り口が同じ返信で届く', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({ ...NEW_GROUP, spaceId: null })
+    storeMock.findGroupById.mockResolvedValue({ ...NEW_GROUP, spaceId: 'space-9' })
+    storeMock.findValidLinkCode.mockResolvedValue({
+      id: 'code-1',
+      orgId: 'org-1',
+      spaceId: 'space-9',
+      firstUsedAt: null,
+    })
+    storeMock.linkGroupToSpaceAtomic.mockResolvedValue(true)
+
+    const body = makeBody([groupTextEvent('AB2CD3EF')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledTimes(1) // 返信は1回のまま
+    expect(replyTexts()[1]).toBe(TUTORIAL_INTRO_TEXT)
+    expect(pushMock).not.toHaveBeenCalled() // 無料枠を消費しない
+    expect(savedTutorial()).toMatchObject({ step: 'awaiting_add' })
+  })
+
+  // 以前は「拾い方=毎時まとめて(all) では『タスク追加』が効かないので練習を始めない」だった。
+  // その判定こそが袋小路の元（設定が合っていてもプラン判定でもう一度落とされ、練習が永久に進まない）。
+  // 「タスク追加」を設定・プランから切り離したので、既定設定のグループでも練習できる。
+  it('拾い方が既定の「毎時まとめて(all)」でも練習を始める（「タスク追加」は常に効くため）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({ ...GROUP, createdAt: JUST_NOW, metadata: null })
+    storeMock.findGroupById.mockResolvedValue({ ...GROUP, spaceId: 'space-9' })
+    storeMock.findValidLinkCode.mockResolvedValue({
+      id: 'code-1',
+      orgId: 'org-1',
+      spaceId: 'space-9',
+      firstUsedAt: null,
+    })
+
+    const body = makeBody([groupTextEvent('AB2CD3EF')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledTimes(1) // 返信は1回のまま（無料枠を消費しない）
+    expect(replyTexts()[1]).toBe(TUTORIAL_INTRO_TEXT)
+    expect(savedTutorial()).toMatchObject({ step: 'awaiting_add' })
+  })
+
+  it('既定設定(all)のグループでも、案内どおり「タスク追加 ○○」を打てば練習が次に進む', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP,
+      createdAt: JUST_NOW,
+      spaceId: 'space-1',
+      metadata: { tutorial: { step: 'awaiting_add', startedAt: new Date().toISOString() } },
+    })
+    storeMock.assignDigestNumbersToNewTasks.mockResolvedValue([
+      { id: 'digest-task-1', digestNumber: 1, title: '秘書の使い方をおぼえる' },
+    ])
+
+    const body = makeBody([groupTextEvent('タスク追加 秘書の使い方をおぼえる')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyTexts()[0]).toContain('タスクに追加しました')
+    expect(replyTexts()[1]).toBe(buildTutorialAddedText(1, '秘書の使い方をおぼえる'))
+    expect(savedTutorial()).toMatchObject({ step: 'awaiting_done', digestNumber: 1 })
+  })
+
+  it('練習中の「タスク追加 ○○」は、預かった返事のあとに「完了N」の練習を案内する', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...NEW_GROUP,
+      spaceId: 'space-1',
+      metadata: { tutorial: { step: 'awaiting_add', startedAt: new Date().toISOString() } },
+    })
+    storeMock.createInstantDigestTask.mockResolvedValue({
+      id: 'digest-task-1',
+      pending: false,
+      duplicate: false,
+    })
+    storeMock.assignDigestNumbersToNewTasks.mockResolvedValue([
+      { id: 'digest-task-1', digestNumber: 2, title: '秘書の使い方をおぼえる' },
+    ])
+
+    const body = makeBody([groupTextEvent('タスク追加 秘書の使い方をおぼえる')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledTimes(1)
+    expect(replyTexts()[0]).toContain('タスクに追加しました')
+    expect(replyTexts()[1]).toBe(buildTutorialAddedText(2, '秘書の使い方をおぼえる'))
+    expect(savedTutorial()).toMatchObject({ step: 'awaiting_done', digestNumber: 2 })
+  })
+
+  it('案内した番号を「完了N」で消すと、締めの文が同じ返信で届く', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...NEW_GROUP,
+      spaceId: 'space-1',
+      metadata: {
+        tutorial: {
+          step: 'awaiting_done',
+          taskId: 'digest-task-1',
+          digestNumber: 2,
+          startedAt: new Date().toISOString(),
+        },
+      },
+    })
+    storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue({
+      id: 'digest-task-1',
+      title: '秘書の使い方をおぼえる',
+    })
+
+    const body = makeBody([groupTextEvent('完了2')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledTimes(1)
+    expect(replyTexts()[replyTexts().length - 1]).toBe(TUTORIAL_COMPLETED_TEXT)
+    expect(savedTutorial()).toMatchObject({ step: 'finished' })
+  })
+
+  it('「あとで」と送れば練習をやめられる', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...NEW_GROUP,
+      spaceId: 'space-1',
+      metadata: { tutorial: { step: 'awaiting_add', startedAt: new Date().toISOString() } },
+    })
+
+    const body = makeBody([groupTextEvent('あとで')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyTexts()).toEqual([TUTORIAL_SKIPPED_TEXT])
+    expect(savedTutorial()).toMatchObject({ step: 'finished' })
+  })
+
+  it('練習をしていないグループのふつうの発言には今までどおり返事をしない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP_MENTION_ONLY,
+      spaceId: 'space-1',
+      // 前からある接続（48時間より前）
+      createdAt: '2026-01-01T00:00:00.000Z',
+      metadata: null,
+    })
+
+    const body = makeBody([groupTextEvent('おはようございます')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * LINE を共通のコマンド経路にそろえる（今回の本丸）。
+ *
+ * これまで LINE だけが「タスク追加」を自前で拾っていて、拾い方の設定(pickup_mode)と
+ * プラン判定の内側にあった。既定の拾い方は「毎時まとめて(all)」なので、
+ * **新しくつないだグループでは案内どおり打っても何も起きなかった**。
+ * 「タスク追加」は人が意図して打った命令なので、設定にもプランにも関係なく常に受ける。
+ * （変えたのは「タスク追加」だけ。メンション経由の即時タスク化は従来の線引きのまま）
+ */
+describe('LINE: 「タスク追加」は拾い方の設定・プランに関係なく常に効く', () => {
+  it('★既定設定（拾い方=毎時まとめて / 無料プラン）でも「タスク追加 見積もりを送る」が登録される', async () => {
+    // GROUP は pickupMode='all'（DBの既定値）、entitlements は free（has: () => false）
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+
+    const body = makeBody([groupTextEvent('タスク追加 見積もりを送る')])
+    const result = await handleLineWebhook(body, sign(body))
+
+    expect(result.status).toBe(200)
+    expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '見積もりを送る' }),
+    )
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [expect.objectContaining({ text: expect.stringContaining('見積もりを送る') })],
+      }),
+    )
+  })
+
+  it('プラン判定（entitlement解決）を待たずに登録する（無料でも有料でも同じ）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent('タスク追加 見積もりを送る')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(resolveOrgEntitlementsMock).not.toHaveBeenCalled()
+  })
+
+  it('拾い方=取り込まない(off) でも、人が打った「タスク追加」は登録する', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_OFF)
+    const body = makeBody([groupTextEvent('タスク追加 請求書を出す')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '請求書を出す' }),
+    )
+  })
+
+  it('以前Proで「毎時まとめ＋即時」にして無料に戻した組織でも登録できる（練習が袋小路にならない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_ALL_PLUS_INSTANT)
+    resolveOrgEntitlementsMock.mockResolvedValue({ planId: 'free', has: () => false })
+
+    const body = makeBody([groupTextEvent('タスク追加 見積もりを送る')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '見積もりを送る' }),
+    )
+  })
+
+  it('「タスク追加」だけなら内容が読めない旨を返し、タスクは作らない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent('タスク追加')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [expect.objectContaining({ text: expect.stringContaining('内容が読み取れませんでした') })],
+      }),
+    )
+  })
+
+  // (2) 誤爆: 以前は前方一致だけで区切りを見ていなかったため、
+  //     「タスク追加ってどうやるの？」が『ってどうやるの？』というタスクになっていた。
+  it.each([
+    'タスク追加ってどうやるの？',
+    'タスク追加の使い方を教えて',
+    'タスク追加したい',
+  ])('「%s」は質問なのでタスクにしない（区切りが無い＝誤爆させない）', async (text) => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    const body = makeBody([groupTextEvent(text)])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+
+  it('メンション経由の即時タスク化は従来どおり（拾い方=毎時まとめてでは発火しない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent('@秘書 見積提出お願いします')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+
+  it('自動応答が止まっているアカウントでは記録だけして返信しない（既存の作法どおり）', async () => {
+    storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent('タスク追加 見積もりを送る')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 「一覧」と番号なしの「完了」— 番号を見失った人が詰まないための2つ。文言は groupCommands が正本。
+ */
+describe('LINE: 「一覧」と番号なしの「完了」', () => {
+  it('「一覧」はいまのタスクを番号付きで返す（番号は振り直さない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    storeMock.assignDigestNumbersToNewTasks.mockResolvedValue([
+      { id: 't-1', digestNumber: 1, title: '見積もりを送る', dueDate: null, dueTime: null, assigneeHint: null },
+      { id: 't-3', digestNumber: 3, title: '請求書を出す', dueDate: null, dueTime: null, assigneeHint: null },
+    ])
+
+    const body = makeBody([groupTextEvent('一覧')])
+    await handleLineWebhook(body, sign(body))
+
+    const messages = (replyMock.mock.calls[0]?.[0] as { messages: Array<{ text: string }> }).messages
+    expect(messages[0].text).toContain('1. 見積もりを送る')
+    expect(messages[0].text).toContain('3. 請求書を出す')
+    expect(pushMock).not.toHaveBeenCalled() // 返信だけ＝無料枠を消費しない
+  })
+
+  it('お預かりが0件でも「ありません」と返す（沈黙しない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    storeMock.assignDigestNumbersToNewTasks.mockResolvedValue([])
+
+    const body = makeBody([groupTextEvent('一覧')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: LIST_EMPTY_TEXT }] }),
+    )
+  })
+
+  it('番号なしの「完了」には番号の付け方と「一覧」を案内する（沈黙しない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent('完了')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMPLETE_WITHOUT_NUMBER_TEXT }] }),
+    )
+    expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).not.toHaveBeenCalled()
+  })
+
+  it('未登録（limbo）グループでは「一覧」にも答えない（沈黙のまま）', async () => {
+    storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_ACCOUNT)
+    storeMock.findActiveGroup.mockResolvedValue(null)
+
+    const body = makeBody([groupTextEvent('一覧')])
+    const result = await handleLineWebhook(body, sign(body))
+
+    expect(result.status).toBe(200)
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.assignDigestNumbersToNewTasks).not.toHaveBeenCalled()
+  })
+
+  it('普通の会話（「一覧を出して」）では発火しない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([groupTextEvent('一覧を出して')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * ★実害: LINE でメンションを付けて合図を打つと、合図が一切効かなかった。
+ *
+ * 他のチャットは「先頭の自分宛メンションを剥がしてから」合図を読むのに、LINE だけが
+ * 本文をそのまま読んでいた。そのため「@秘書 完了 3」は合図として読まれず、
+ * 拾い方の設定によっては**『完了 3』という題名のタスクが相手先に見える形で作られて**いた。
+ * 案内文にも「メンションが付いていても読み取ります」と書いてあり、嘘になっていた。
+ *
+ * メンションは「誰に言っているか」の指定であって合図ではない。剥がしてから厳格文法に渡す。
+ */
+describe('LINE: メンションを付けても合図が効く', () => {
+  /** 先頭に自分（秘書bot）宛メンションが付いた発言。'@秘書' は3文字 */
+  function selfMentionEvent(text: string, length = 3) {
+    return groupTextEvent(text, {
+      message: {
+        id: 'msg-mention-cmd',
+        type: 'text',
+        text,
+        mention: { mentionees: [{ index: 0, length, type: 'user', isSelf: true }] },
+      },
+    })
+  }
+
+  it('「@秘書 完了 3」は完了の合図として効く（ゴミタスクを作らない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue({
+      id: 'task-3',
+      title: '見積もりを送る',
+    })
+
+    const body = makeBody([selfMentionEvent('@秘書 完了 3')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).toHaveBeenCalledWith(
+      'group-1',
+      3,
+      'U-client-1',
+    )
+    // 『完了 3』という題名のタスクを作らない（これが相手先に見えていた実害）
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('「@秘書 一覧」はいまのタスクを番号付きで返す', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    storeMock.assignDigestNumbersToNewTasks.mockResolvedValue([
+      { id: 't-1', digestNumber: 1, title: '見積もりを送る', dueDate: null, dueTime: null, assigneeHint: null },
+    ])
+
+    const body = makeBody([selfMentionEvent('@秘書 一覧')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.assignDigestNumbersToNewTasks).toHaveBeenCalledWith('group-1')
+    const messages = (replyMock.mock.calls[0]?.[0] as { messages: Array<{ text: string }> }).messages
+    expect(messages[0].text).toContain('1. 見積もりを送る')
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('「@秘書 ヘルプ」は使い方を返す', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    const body = makeBody([selfMentionEvent('@秘書 ヘルプ')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: renderHelpReplyText('line') }] }),
+    )
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('「@秘書 タスク追加 見積もりを送る」は内容だけをタスクにする（メンションも合図も題名に残さない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([selfMentionEvent('@秘書 タスク追加 見積もりを送る')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '見積もりを送る' }),
+    )
+  })
+
+  it('「@秘書 完了」（番号なし）も案内につながる', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    const body = makeBody([selfMentionEvent('@秘書 完了')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMPLETE_WITHOUT_NUMBER_TEXT }] }),
+    )
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('合図でないメンション発言は今までどおり即時タスク化する（有料機能の線引きは変えない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    const body = makeBody([selfMentionEvent('@秘書 金曜までに見積提出')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '金曜までに見積提出' }),
+    )
+  })
+
+  it('拾い方が「毎時まとめて」なら、合図でないメンション発言は今までどおり何も起きない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const body = makeBody([selfMentionEvent('@秘書 金曜までに見積提出')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+
+  it('他人宛のメンションで始まる発言は剥がさない（合図として読まない）', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    const text = '@山田 完了 3'
+    const body = makeBody([
+      groupTextEvent(text, {
+        message: {
+          id: 'msg-mention-other',
+          type: 'text',
+          text,
+          mention: { mentionees: [{ index: 0, length: 3, type: 'user', isSelf: false, userId: 'U-y' }] },
+        },
+      }),
+    ])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 合図の処理が転んだときに黙らない（LINE 版）。
+ * 打った人には返事も再送も来ない状態＝「壊れている」と受け取られるので、必ず一言返す。
+ */
+describe('LINE: 合図の処理が失敗したとき', () => {
+  it('一覧の取得に失敗しても「うまくいかなかった」と返す', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    storeMock.assignDigestNumbersToNewTasks.mockRejectedValue(new Error('db down'))
+
+    const body = makeBody([groupTextEvent('一覧')])
+    const result = await handleLineWebhook(body, sign(body))
+
+    expect(result.status).toBe(200)
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMMAND_FAILED_TEXT }] }),
+    )
+  })
+
+  it('タスクの登録に失敗しても「うまくいかなかった」と返す', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    storeMock.createInstantDigestTask.mockRejectedValue(new Error('rpc down'))
+
+    const body = makeBody([groupTextEvent('タスク追加 見積もりを送る')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMMAND_FAILED_TEXT }] }),
+    )
+  })
+
+  it('メンション即時タスク化が失敗しても「うまくいかなかった」と返す', async () => {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP_MENTION_ONLY)
+    storeMock.createInstantDigestTask.mockRejectedValue(new Error('rpc down'))
+
+    const text = '@秘書 見積提出'
+    const body = makeBody([
+      groupTextEvent(text, {
+        message: {
+          id: 'msg-mention-fail',
+          type: 'text',
+          text,
+          mention: { mentionees: [{ index: 0, length: 3, type: 'user', isSelf: true }] },
+        },
+      }),
+    ])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMMAND_FAILED_TEXT }] }),
+    )
+  })
+
+  it('自動応答が止まっているときは失敗のお知らせも出さない（既存の作法どおり）', async () => {
+    storeMock.findLineAccountByDestination.mockResolvedValue(DISABLED_ACCOUNT)
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    storeMock.assignDigestNumbersToNewTasks.mockRejectedValue(new Error('db down'))
+
+    const body = makeBody([groupTextEvent('一覧')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * ★実害: 練習の入り口を送っていないのに「案内済み」として保存され、練習が二度と始まらなかった。
+ * LINE は返信トークンが無いと1通も送れない（push は無料枠を使うので使わない）。
+ * 送れていないなら、案内済みにもしない。
+ */
+describe('LINE: 送れていないのに「案内済み」にしない', () => {
+  it('合言葉で登録が成立しても、返信できないときは練習の進み具合を保存しない', async () => {
+    storeMock.findLineAccountByDestination.mockResolvedValue(PLATFORM_ACCOUNT)
+    // 1回目=まだ未登録（limbo判定）／2回目=成立直後の引き直しで見つかる
+    storeMock.findActiveGroup
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ ...PLATFORM_GROUP, createdAt: new Date().toISOString(), metadata: null })
+    storeMock.findValidSharedGroupClaimCode.mockResolvedValue({
+      id: 'code-1',
+      orgId: 'org-A',
+      spaceId: 'space-A',
+      bindingMode: 'code_only',
+    })
+    storeMock.redeemCodeOnlyClaim.mockResolvedValue('linked')
+
+    const code = 'GC-ABCDEF-GHJKM-NPQRS-TUVWX-YZ234'
+    const body = makeBody([groupTextEvent(code, { replyToken: undefined })])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  it('ふつうの発言での遅れ出しも、返信できないときは案内済みにしない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP,
+      createdAt: new Date().toISOString(),
+      metadata: null,
+    })
+
+    const body = makeBody([groupTextEvent('おはようございます', { replyToken: undefined })])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 「完了N」「タスク追加」も同じ。練習の次の一手（番号の案内・締めの言葉）を送れていないのに
+   * 段階だけ進むと、利用者は番号を知らないまま練習が宙に浮く。
+   */
+  it('「タスク追加 ○○」でも、返信できないときは練習の段階を進めない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP,
+      createdAt: new Date().toISOString(),
+      metadata: { tutorial: { step: 'awaiting_add', startedAt: new Date().toISOString() } },
+    })
+
+    const body = makeBody([
+      groupTextEvent('タスク追加 見積もりを送る', { replyToken: undefined }),
+    ])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  it('「完了 3」でも、返信できないときは練習の段階を進めない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP,
+      createdAt: new Date().toISOString(),
+      metadata: {
+        tutorial: {
+          step: 'awaiting_done',
+          startedAt: new Date().toISOString(),
+          practiceTaskId: 'task-1',
+          practiceDigestNumber: 3,
+        },
+      },
+    })
+    storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue({
+      id: 'task-1',
+      title: 'れんしゅう',
+    })
+
+    const body = makeBody([groupTextEvent('完了 3', { replyToken: undefined })])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 一言の「完了」— 公開の案内と、本人へのDM確認がぶつかる。
+ *
+ * 「完了」だけの発言は、これまで**本人宛のDM**で「『X』は完了しましたか？」と訊いていた
+ * （完了サジェスト。1タスク＝生涯1回の台帳で守られている）。番号の付け方の案内をグループに返して
+ * そこで終わると、その確認が届かなくなる。**DM確認が出せるときはそちらを優先する**。
+ */
+describe('LINE: 一言の「完了」は本人へのDM確認を優先する', () => {
+  const OPEN_TASK = { taskId: 'task-1', title: '見積書送付' }
+  const SENDER_LINK = {
+    id: 'link-1',
+    orgId: 'org-1',
+    userId: 'user-1',
+    channelAccountId: 'acc-1',
+    externalUserId: 'U-client-1',
+    linkedAt: '2026-01-01T00:00:00Z',
+  }
+  const DM_LINK = { channelAccountId: 'acc-1', externalUserId: 'U-internal-1' }
+
+  function setupDoneSuggestReady() {
+    storeMock.findActiveGroup.mockResolvedValue(GROUP)
+    resolveOrgEntitlementsMock.mockResolvedValue({
+      planId: 'pro',
+      has: (f: string) => f === 'line_direct_dm',
+    })
+    dueReminderStoreMock.isOrgDueRemindersEnabled.mockResolvedValue(true)
+    storeMock.findActiveUserLinkByExternalId.mockResolvedValue(SENDER_LINK)
+    doneSuggestMatcherMock.findOpenPromotedTaskForGroup.mockResolvedValue(OPEN_TASK)
+    storeMock.findActiveUserLinkForUser.mockResolvedValue(DM_LINK)
+    storeMock.findLineAccountByIdLookup.mockResolvedValue({ id: 'acc-1', status: 'active', account: ACCOUNT })
+    doneSuggestStoreMock.insertDoneSuggestion.mockResolvedValue({ inserted: true })
+  }
+
+  it('DM確認を出せるときは、グループへの案内を出さない（本人のDMに寄せる）', async () => {
+    setupDoneSuggestReady()
+    const body = makeBody([groupTextEvent('完了')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(secretaryPushMock.sendSecretaryPush).toHaveBeenCalledTimes(1)
+    expect(replyMock).not.toHaveBeenCalled()
+  })
+
+  it('DM確認が出せないとき（対象が絞れない）はグループに番号の付け方を案内する', async () => {
+    setupDoneSuggestReady()
+    doneSuggestMatcherMock.findOpenPromotedTaskForGroup.mockResolvedValue(null)
+
+    const body = makeBody([groupTextEvent('完了')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMPLETE_WITHOUT_NUMBER_TEXT }] }),
+    )
+    // 台帳（1タスク＝生涯1回）は消費しない
+    expect(doneSuggestStoreMock.insertDoneSuggestion).not.toHaveBeenCalled()
+  })
+
+  it('DMが届かなかったときはグループへの案内に切り替える（どちらも来ない、を作らない）', async () => {
+    setupDoneSuggestReady()
+    secretaryPushMock.sendSecretaryPush.mockResolvedValue({ delivered: false, reason: 'quota' })
+
+    const body = makeBody([groupTextEvent('完了')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ type: 'text', text: COMPLETE_WITHOUT_NUMBER_TEXT }] }),
+    )
+  })
+
+  it('「完了3」（番号あり）は今までどおり完了処理で、DM確認は動かさない', async () => {
+    setupDoneSuggestReady()
+    storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue({ id: 't', title: 'x' })
+
+    const body = makeBody([groupTextEvent('完了3')])
+    await handleLineWebhook(body, sign(body))
+
+    expect(storeMock.markDigestTaskDoneByGroupAndNumberAtomic).toHaveBeenCalled()
+    expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
   })
 })
