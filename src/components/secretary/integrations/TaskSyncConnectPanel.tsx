@@ -6,6 +6,8 @@ import { toast } from 'sonner'
 import {
   useConnectors,
   useCreateTaskSyncConnection,
+  NeedsWorkspaceChoiceError,
+  type WorkspaceChoice,
 } from '@/lib/hooks/useConnectors'
 import { getIntegration, type IntegrationId } from '@/lib/integrations/registry'
 import {
@@ -115,6 +117,11 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
   const [apiKey, setApiKey] = useState('')
   const extraFields = PROVIDER_EXTRA_FIELDS[integrationId] ?? []
   const [extraValues, setExtraValues] = useState<Record<string, string>>({})
+  // Asana は所属ワークスペースが複数あると、どれを見るかを決めないと接続できない。
+  // GIDの手入力は調べようがないため欄を最初から出さず、サーバが「選んでください」と
+  // 返してきたときだけ、返ってきた一覧から選ばせる（ふつうは1つなので何も出ない）。
+  const [workspaces, setWorkspaces] = useState<WorkspaceChoice[] | null>(null)
+  const [workspaceGid, setWorkspaceGid] = useState('')
   const createConnection = useCreateTaskSyncConnection()
   const urlCopy = BASE_URL_COPY[integrationId] ?? DEFAULT_BASE_URL_COPY
 
@@ -125,10 +132,14 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const providerConfig =
+      const fromFields =
         extraFields.length > 0
           ? Object.fromEntries(extraFields.map((f) => [f.key, (extraValues[f.key] ?? '').trim()]))
           : undefined
+      // 選択済みのワークスペースがあれば載せる（1回目の送信では付かない＝サーバが自動で決める）。
+      const providerConfig = workspaceGid
+        ? { ...(fromFields ?? {}), asana_workspace_gid: workspaceGid }
+        : fromFields
       await createConnection.mutateAsync({
         orgId,
         provider: integrationId,
@@ -141,7 +152,15 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
       setApiKey('')
       setBaseUrl('')
       setExtraValues({})
+      setWorkspaces(null)
+      setWorkspaceGid('')
     } catch (err) {
+      // 「まだ選ぶものがある」は失敗ではない。選択肢を出して、同じフォームで続けてもらう。
+      if (err instanceof NeedsWorkspaceChoiceError) {
+        setWorkspaces(err.workspaces)
+        setWorkspaceGid(err.workspaces[0]?.gid ?? '')
+        return
+      }
       toast.error(err instanceof Error ? err.message : '接続に失敗しました')
     }
   }
@@ -206,6 +225,31 @@ function TaskSyncConnectForm({ orgId, integrationId, canManage, needsBaseUrl }: 
           className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
         />
       </div>
+      {workspaces && workspaces.length > 0 && (
+        <div>
+          <label
+            htmlFor={`task-sync-workspace-${integrationId}`}
+            className="block text-xs font-medium text-gray-700 mb-1"
+          >
+            取り込むワークスペース
+          </label>
+          <select
+            id={`task-sync-workspace-${integrationId}`}
+            value={workspaceGid}
+            onChange={(e) => setWorkspaceGid(e.target.value)}
+            className="w-full h-8 rounded-md border border-gray-200 px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            {workspaces.map((w) => (
+              <option key={w.gid} value={w.gid}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-gray-400">
+            複数のワークスペースに所属しているため、どれを取り込むか選んでください。
+          </p>
+        </div>
+      )}
       <button
         type="submit"
         disabled={!canSubmit || createConnection.isPending}

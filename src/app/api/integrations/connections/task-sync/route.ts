@@ -5,6 +5,7 @@ import { validateWebhookUrl } from '@/lib/sinks/ssrf'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { encryptToken } from '@/lib/integrations/token-crypto'
 import { getTaskSyncAdapter } from '@/lib/task-sync/adapters'
+import { listAsanaWorkspaces } from '@/lib/task-sync/providers/asana'
 import { assertAllowedHost } from '@/lib/task-sync/hostPolicy'
 import { deriveExternalAccountKey } from '@/lib/task-sync/accountKey'
 import { validateKintoneAppCredentials } from '@/lib/task-sync/providers/kintone/appCredentials'
@@ -178,6 +179,44 @@ export async function POST(request: NextRequest) {
     }
     kintoneCredentials = { appIds: validated.appIds, tokens: validated.tokens }
     providerConfig = { ...providerConfig, kintone_app_ids: validated.appIds }
+  }
+
+  // Asana は「どのワークスペースを見るか」の指定が無いとアダプタが動かない
+  // （providers/asana.ts の workspaceGid が必須で読む）。ところが接続フォームにその欄が無く、
+  // 下の鍵検証（listContainers）が必ず落ちて **接続作成そのものが常に失敗**していた。しかも
+  // 返るのは「接続先に到達できませんでした」で、原因に辿り着けない。
+  //
+  // GIDを人に手入力させるのは（Trelloのボード指定と同じで）調べようがなく解にならないので、
+  // 鍵で引ける情報はここで引く。所属が1つなら入力ゼロ、複数なら 409 で一覧を返して選ばせる
+  // （勝手に選ぶと、意図しないワークスペースのタスクが流れ込む）。
+  if (provider === 'asana' && !providerConfig.asana_workspace_gid) {
+    let workspaces: { gid: string; name: string }[]
+    try {
+      workspaces = await listAsanaWorkspaces(apiKey)
+    } catch (err) {
+      const status = (err as { status?: number }).status
+      if (status === 401 || status === 403) {
+        return NextResponse.json({ error: 'APIキーが正しくないか、権限が足りません' }, { status: 400 })
+      }
+      return NextResponse.json(
+        { error: '接続先に到達できませんでした。時間をおいて再試行してください' },
+        { status: 502 },
+      )
+    }
+    if (workspaces.length === 0) {
+      return NextResponse.json(
+        { error: 'このAPIキーから見えるワークスペースがありません。Asana側の権限を確認してください' },
+        { status: 400 },
+      )
+    }
+    if (workspaces.length > 1) {
+      // クライアントはこの一覧から選び、asana_workspace_gid を付けて送り直す。
+      return NextResponse.json(
+        { error: '取り込むワークスペースを選んでください', workspaces },
+        { status: 409 },
+      )
+    }
+    providerConfig = { ...providerConfig, asana_workspace_gid: workspaces[0].gid }
   }
 
   // 保存前に鍵を検証する（間違った鍵を保存させない）。provider固有設定も一緒に渡す

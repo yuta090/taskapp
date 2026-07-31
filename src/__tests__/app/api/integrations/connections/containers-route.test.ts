@@ -59,6 +59,16 @@ vi.mock('@/lib/task-sync/adapters', () => ({
   getTaskSyncAdapter: (...args: unknown[]) => getTaskSyncAdapterMock(...args),
 }))
 
+const getValidTokenDetailedMock = vi.fn()
+vi.mock('@/lib/integrations/token-manager', () => ({
+  getValidTokenDetailed: (...args: unknown[]) => getValidTokenDetailedMock(...args),
+}))
+vi.mock('@/lib/google-calendar/client', () => ({ refreshAccessToken: vi.fn() }))
+const listTaskListsMock = vi.fn()
+vi.mock('@/lib/google-tasks/client', () => ({
+  listTaskLists: (...args: unknown[]) => listTaskListsMock(...args),
+}))
+
 const { GET } = await import('@/app/api/integrations/connections/[id]/containers/route')
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
@@ -264,6 +274,78 @@ describe('GET /api/integrations/connections/[id]/containers', () => {
     const loggedArgs = consoleErrorSpy.mock.calls[0].map((arg) => String(arg))
     expect(loggedArgs.some((arg) => arg.includes('secret-token-abc'))).toBe(false)
     expect(loggedArgs.some((arg) => arg.includes('detailed internal failure'))).toBe(false)
+    consoleErrorSpy.mockRestore()
+  })
+})
+
+/**
+ * Google Tasks は専用ワーカーで動き task-sync アダプタを持たないため、以前はここで
+ * 「このツールはまだ対応していません」と弾かれていた。その結果 Google ToDo だけ
+ * 取り込み対象を内部IDで手入力させるしかなく、画面に意味の通らない欄が残っていた。
+ * 一覧の形（{id,title}[]）は他ツールと同じなので、ここで橋渡しする。
+ */
+describe('GET containers — Google Tasks(専用ワーカー側)', () => {
+  beforeEach(() => {
+    connectionResultMock.mockReturnValue({
+      data: {
+        id: CONNECTION_ID,
+        org_id: ORG_ID,
+        provider: 'google_tasks',
+        import_config: {},
+      },
+      error: null,
+    })
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'ok', token: 'access-token' })
+    listTaskListsMock.mockResolvedValue([
+      { id: 'list-1', title: 'マイタスク' },
+      { id: 'list-2', title: 'TaskApp' },
+    ])
+  })
+
+  it('リスト一覧を他ツールと同じ形で返す(アダプタは使わない)', async () => {
+    const response = await callGet(CONNECTION_ID, ORG_ID)
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data.containers).toEqual([
+      { id: 'list-1', title: 'マイタスク' },
+      { id: 'list-2', title: 'TaskApp' },
+    ])
+    expect(getTaskSyncAdapterMock).not.toHaveBeenCalled()
+  })
+
+  it('古い保存キー(read_list_ids)の選択状態も拾う(画面でチェックが消えないように)', async () => {
+    connectionResultMock.mockReturnValue({
+      data: {
+        id: CONNECTION_ID,
+        org_id: ORG_ID,
+        provider: 'google_tasks',
+        import_config: { read_list_ids: ['list-1'] },
+      },
+      error: null,
+    })
+    const response = await callGet(CONNECTION_ID, ORG_ID)
+    const data = await response.json()
+    expect(data.selected_container_ids).toEqual(['list-1'])
+  })
+
+  it('トークン失効は409(再接続導線。他ツールと同じ写像)', async () => {
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'auth_failed' })
+    const response = await callGet(CONNECTION_ID, ORG_ID)
+    expect(response.status).toBe(409)
+  })
+
+  it('一時障害は502(設定は正しいかもしれないので失効扱いにしない)', async () => {
+    getValidTokenDetailedMock.mockResolvedValue({ status: 'transient_error' })
+    const response = await callGet(CONNECTION_ID, ORG_ID)
+    expect(response.status).toBe(502)
+  })
+
+  it('一覧取得の失敗時、例外messageやトークンをログに出さない', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    listTaskListsMock.mockRejectedValue(new Error('boom token=secret-abc'))
+    await callGet(CONNECTION_ID, ORG_ID)
+    const loggedArgs = consoleErrorSpy.mock.calls.flat().map((a) => String(a))
+    expect(loggedArgs.some((a) => a.includes('secret-abc'))).toBe(false)
     consoleErrorSpy.mockRestore()
   })
 })

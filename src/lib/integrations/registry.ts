@@ -209,6 +209,12 @@ export interface IntegrationDefinition {
   setupComplexity?: IntegrationSetupComplexity
   /** 開発者コンソール等の外部URL（doc/詳細用） */
   setupUrl?: string
+  /**
+   * 取り込み対象の「入れ物」の呼び名（Trello=ボード / Backlog=プロジェクト / Google ToDo=リスト）。
+   * ツールごとに呼び名が違うのに画面が「リスト」固定で、利用者に意味が通じなかったため、
+   * 表示語をここ（ツール定義の単一の真実源）に持たせる。取り込みができるツールには必ず要る。
+   */
+  containerLabel?: string
   /** doc/UIの補足 */
   notes?: string
   /**
@@ -229,6 +235,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Google Tasks',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'リスト',
     status: 'ga',
     surface: 'connector',
     setupComplexity: 'oauth',
@@ -270,6 +277,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Backlog',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'プロジェクト',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'backlog',
@@ -292,6 +300,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Jooto',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'ボード',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'jooto',
@@ -317,6 +326,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Jira',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'プロジェクト',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'jira',
@@ -339,6 +349,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Redmine',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'プロジェクト',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'redmine',
@@ -361,6 +372,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Asana',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'プロジェクト',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'asana',
@@ -382,6 +394,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Trello',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'ボード',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'trello',
@@ -403,6 +416,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Microsoft To Do',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'リスト',
     status: 'planned',
     surface: 'catalog',
     setupComplexity: 'oauth',
@@ -415,6 +429,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Linear',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'チーム',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'linear',
@@ -436,6 +451,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Wrike',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'フォルダ',
     status: 'planned',
     surface: 'catalog',
     setupComplexity: 'oauth',
@@ -447,6 +463,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'ClickUp',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'リスト',
     status: 'planned',
     surface: 'catalog',
     setupComplexity: 'api_key',
@@ -458,6 +475,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'monday.com',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'ボード',
     status: 'planned',
     surface: 'catalog',
     setupComplexity: 'api_key',
@@ -471,6 +489,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     // 取り込み＋完了の書き戻しに対応（TaskApp発の起票=createTaskは未対応。Chatworkの
     // タスク作成は担当者(to_ids)必須で、担当者の対応付けの仕組みがまだ無いため）。
     direction: 'two_way',
+    containerLabel: 'チャット',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'chatwork',
@@ -498,6 +517,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     label: 'Garoon',
     category: 'task_sync',
     direction: 'two_way',
+    containerLabel: 'ToDo',
     status: 'planned',
     surface: 'catalog',
     setupComplexity: 'host_and_key',
@@ -518,6 +538,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     //   一覧＋マッピングウィザードUI(KintoneAppsPanel.tsx)が揃い、「接続はできたがコンテナ0件・
     //   マッピング未設定で永久に何も同期しない死んだ接続」を作れない導線が完成したため、
     //   'beta'+'connector' に戻す(この判断は registry.test.ts のkintone専用describeで固定する)。
+    containerLabel: 'アプリ',
     status: 'beta',
     surface: 'connector',
     connectorKind: 'kintone',
@@ -542,6 +563,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     category: 'task_sync',
     // 受信のみ。こちらから取りに行かないので、完了の書き戻しも外部状態の確認もできない。
     direction: 'inbound',
+    containerLabel: '送信元',
     status: 'beta',
     surface: 'connector',
     setupComplexity: 'api_key',
@@ -578,6 +600,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     // 完了の書き戻し)にも対応する。surface は据え置き(sink)なので既存の通知連携UIは壊さず、
     // connectorKind でタスク同期エンジン(src/lib/task-sync/providers/notion.ts)にも接続できる。
     direction: 'two_way',
+    containerLabel: 'データベース',
     status: 'ga',
     surface: 'sink',
     sinkProvider: 'notion',
@@ -696,4 +719,12 @@ export function isIntegrationId(value: string): value is IntegrationId {
 /** sinkProvider から対応するツール定義を引く（sink詳細→カタログの逆引き）。 */
 export function getIntegrationBySinkProvider(provider: SinkProvider): IntegrationDefinition | null {
   return listIntegrations().find((d) => d.surface === 'sink' && d.sinkProvider === provider) ?? null
+}
+
+/**
+ * 取り込み対象の「入れ物」の呼び名。未知IDは空文字（呼び出し側が既定語に落とす）。
+ * 画面が「リスト」固定でツールの実体（ボード/プロジェクト）と食い違っていた問題への是正。
+ */
+export function containerLabelOf(id: string): string {
+  return getIntegration(id)?.containerLabel ?? ''
 }

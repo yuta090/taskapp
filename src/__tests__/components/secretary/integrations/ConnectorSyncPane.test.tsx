@@ -33,6 +33,16 @@ vi.mock('@/lib/hooks/useConnectors', async (importOriginal) => {
     useCreateMulticaConnection: () => ({ mutateAsync: createMulticaMock, isPending: false }),
     useRotateMulticaSecret: () => ({ mutateAsync: rotateMulticaMock, isPending: false }),
     useUpdateImportConfig: () => ({ mutateAsync: updateImportConfigMock, isPending: false }),
+    // 取り込み対象の選択欄が外部一覧を読むようになったため、ここでも差し替える
+    // （実物のままだと QueryClient 未提供で落ちる。一覧そのものの検証は
+    // ImportContainerPicker.test.tsx が受け持つ）。
+    useConnectionContainers: () => ({
+      containers: [{ id: 'list-1', title: 'マイタスク' }],
+      selectedContainerIds: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
   }
 })
 
@@ -246,22 +256,23 @@ describe('ConnectorSyncPane — google_tasks', () => {
     expect(screen.queryByRole('button', { name: /保存/ })).not.toBeInTheDocument()
   })
 
-  it('read_list_idsはカンマ区切りテキストのblurで確定する', async () => {
+  it('取り込み対象は名前のチェックで確定する(IDのカンマ区切り手入力は廃止)', async () => {
     connectionsState.connections = [gtasksConnection()]
     updateImportConfigMock.mockResolvedValue({ id: 'conn-gtasks-1', importConfig: {} })
 
     render(<ConnectorSyncPane orgId="org-1" />)
 
-    const input = screen.getByLabelText(/読み込み対象リスト/)
-    fireEvent.change(input, { target: { value: 'list-1, list-2 ,, list-3' } })
+    // IDを手入力させる欄はもう無い（調べる術が無く、事実上入力できない欄だった）
+    expect(screen.queryByLabelText(/読み込み対象リスト/)).not.toBeInTheDocument()
+
     await act(async () => {
-      fireEvent.blur(input)
+      fireEvent.click(screen.getByRole('checkbox', { name: 'マイタスク' }))
     })
 
     expect(updateImportConfigMock).toHaveBeenCalledWith({
       orgId: 'org-1',
       connectionId: 'conn-gtasks-1',
-      importConfig: { target_space_id: 'space-1', read_list_ids: ['list-1', 'list-2', 'list-3'] },
+      importConfig: { target_space_id: 'space-1', read_list_ids: ['list-1'] },
     })
   })
 

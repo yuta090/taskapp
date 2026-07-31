@@ -24,6 +24,11 @@ vi.mock('@/lib/channels/authz', () => ({ requireOrgAdmin: (...a: unknown[]) => r
 vi.mock('@/lib/sinks/ssrf', () => ({ validateWebhookUrl: (...a: unknown[]) => validateWebhookUrl(...a) }))
 vi.mock('@/lib/integrations/token-crypto', () => ({ encryptToken: (...a: unknown[]) => encryptToken(...a) }))
 vi.mock('@/lib/task-sync/adapters', () => ({ getTaskSyncAdapter: (...a: unknown[]) => getTaskSyncAdapter(...a) }))
+const listAsanaWorkspaces = vi.fn()
+vi.mock('@/lib/task-sync/providers/asana', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+  return { ...actual, listAsanaWorkspaces: (...a: unknown[]) => listAsanaWorkspaces(...a) }
+})
 vi.mock('@/lib/task-sync/providers/kintone/schema', () => ({
   fetchAppFields: (...a: unknown[]) => fetchAppFieldsMock(...a),
 }))
@@ -79,6 +84,7 @@ beforeEach(() => {
   encryptToken.mockReset().mockResolvedValue('encrypted-key')
   getTaskSyncAdapter.mockReset().mockReturnValue(adapter())
   fetchAppFieldsMock.mockReset().mockResolvedValue([{ code: 'title', label: '件名', type: 'SINGLE_LINE_TEXT' }])
+  listAsanaWorkspaces.mockReset().mockResolvedValue([{ gid: 'ws-1', name: '株式会社アルカラ' }])
 })
 
 describe('認可', () => {
@@ -504,5 +510,86 @@ describe('ボディサイズの上限', () => {
     const response = await POST(rawReq(body))
     expect(response.status).toBe(413)
     expect(insertCapture.provider).toBeUndefined()
+  })
+})
+
+/**
+ * Asana はワークスペースの指定が無いと動かない（アダプタが config.asana_workspace_gid を必須で
+ * 読む）のに、接続フォームにその入力欄が無く、**接続作成そのものが必ず失敗**していた。
+ * しかも返るのは「接続先に到達できませんでした」という的外れなメッセージで、原因に辿り着けない。
+ *
+ * IDを人に手入力させるのは（Trelloのボード指定と同じ理由で）解にならないので、
+ * 鍵で引ける情報はサーバ側で引く。ふつうは所属ワークスペースが1つなので入力ゼロで済む。
+ */
+describe('Asana のワークスペース', () => {
+  const asanaAdapter = () =>
+    adapter({ id: 'asana', hostPolicy: { kind: 'fixed', host: 'app.asana.com' } })
+
+  it('所属が1つなら、何も入力させずに自動で決める', async () => {
+    getTaskSyncAdapter.mockReturnValue(asanaAdapter())
+    const res = await POST(req({ org_id: ORG_ID, provider: 'asana', api_key: 'k' }))
+
+    expect(res.status).toBe(201)
+    expect(insertCapture.import_config ?? insertCapture.provider_config).toBeDefined()
+    const saved = JSON.stringify(insertCapture)
+    expect(saved).toContain('ws-1')
+  })
+
+  it('複数あるときは、選ばせるために一覧を返す(409)。勝手に選ばない', async () => {
+    listAsanaWorkspaces.mockResolvedValue([
+      { gid: 'ws-1', name: '株式会社アルカラ' },
+      { gid: 'ws-2', name: '個人用' },
+    ])
+    getTaskSyncAdapter.mockReturnValue(asanaAdapter())
+    const res = await POST(req({ org_id: ORG_ID, provider: 'asana', api_key: 'k' }))
+
+    expect(res.status).toBe(409)
+    const json = await res.json()
+    expect(json.workspaces).toEqual([
+      { gid: 'ws-1', name: '株式会社アルカラ' },
+      { gid: 'ws-2', name: '個人用' },
+    ])
+  })
+
+  it('選んで送り直したときは、その指定を尊重して一覧を引き直さない', async () => {
+    getTaskSyncAdapter.mockReturnValue(asanaAdapter())
+    const res = await POST(
+      req({
+        org_id: ORG_ID,
+        provider: 'asana',
+        api_key: 'k',
+        provider_config: { asana_workspace_gid: 'ws-2' },
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    expect(listAsanaWorkspaces).not.toHaveBeenCalled()
+    expect(JSON.stringify(insertCapture)).toContain('ws-2')
+  })
+
+  it('ワークスペースが1つも無ければ、原因が分かる文言で断る', async () => {
+    listAsanaWorkspaces.mockResolvedValue([])
+    getTaskSyncAdapter.mockReturnValue(asanaAdapter())
+    const res = await POST(req({ org_id: ORG_ID, provider: 'asana', api_key: 'k' }))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error).toMatch(/ワークスペース/)
+  })
+
+  it('鍵が違えば、鍵の問題として伝える(「到達できません」で濁さない)', async () => {
+    listAsanaWorkspaces.mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }))
+    getTaskSyncAdapter.mockReturnValue(asanaAdapter())
+    const res = await POST(req({ org_id: ORG_ID, provider: 'asana', api_key: 'k' }))
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error).toMatch(/APIキー/)
+  })
+
+  it('他のツールでは、この問い合わせをしない', async () => {
+    getTaskSyncAdapter.mockReturnValue(adapter())
+    await POST(req({ org_id: ORG_ID, provider: 'backlog', api_key: 'k', base_url: 'https://e.backlog.jp' }))
+    expect(listAsanaWorkspaces).not.toHaveBeenCalled()
   })
 })
