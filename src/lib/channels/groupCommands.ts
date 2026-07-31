@@ -24,7 +24,12 @@ import {
   parseListCommand,
 } from '@/lib/channels/textCommands'
 import { renderHelpReplyText } from '@/lib/channels/commandGuides'
-import { buildTaskDetailLine } from '@/lib/channels/digest/compute'
+import {
+  buildTaskDetailLine,
+  buildTaskListMoreText,
+  DIGEST_LIST_ROWS_CAP,
+  TASK_LIST_MORE_UNKNOWN_TEXT,
+} from '@/lib/channels/digest/compute'
 import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
 import {
@@ -136,10 +141,11 @@ export const TASK_LIST_MAX_ITEMS = 20
  */
 export const TASK_LIST_MAX_CHARS = 1800
 
-/** 打ち切ったときの断り書き。**ここが単一の正本**。総数は隠さない（何件あるかは正直に伝える）。 */
-export function buildTaskListMoreText(rest: number): string {
-  return `ほかに${rest}件あります。`
-}
+/**
+ * 打ち切ったときの断り書きと、1度に読む行数の上限。正本は digest/compute.ts
+ * （まとめ本体と「一覧」で同じ文・同じ上限を使う）。ここは呼び出し元のための再輸出だけ。
+ */
+export { buildTaskListMoreText, DIGEST_LIST_ROWS_CAP }
 
 /**
  * 「一覧」への返事。**まとめ（digest）と同じ並び・同じ番号をそのまま出す**。
@@ -173,12 +179,22 @@ export function buildTaskListReplyText(
   // 例に使う番号は必ず「実際に出している先頭のタスク」の番号にする（打ち切っても対応が崩れない）。
   const example = items[0].digestNumber
 
+  // 読み取り上限ちょうどまで来ているときは、本当の総数を知らない（もっとあるかもしれない）。
+  // 知らない数を言い切らない（「200件」と断定すると、251件目以降が存在ごと消える）。
+  const capped = items.length >= DIGEST_LIST_ROWS_CAP
+  const countLabel = capped ? `${DIGEST_LIST_ROWS_CAP}件以上` : `${items.length}件`
+
   const assemble = (shown: number): string => {
     const rest = items.length - shown
+    const more = capped
+      ? [TASK_LIST_MORE_UNKNOWN_TEXT]
+      : rest > 0
+        ? [buildTaskListMoreText(rest)]
+        : []
     return [
-      `いまお預かりしているタスクです（${items.length}件）`,
+      `いまお預かりしているタスクです（${countLabel}）`,
       ...lines.slice(0, shown),
-      ...(rest > 0 ? [buildTaskListMoreText(rest)] : []),
+      ...more,
       `終わったものは「完了 ${example}」のように番号でお知らせください。`,
     ].join('\n')
   }
@@ -299,7 +315,28 @@ async function replyAndRecord<TChannel extends string>(
     // toISOString(): timestamptz瞬時値用途（date-onlyではない・既存踏襲）。
     occurredAt: new Date().toISOString(),
   }
-  await deps.insertOutbound(outbound)
+  await recordOutboundQuietly(params, deps, outbound)
+}
+
+/**
+ * 秘書の発話を outbound として記録する。**記録の失敗は上へ投げない**。
+ *
+ * ⚠ 返信はもう届いているので、ここで転んで失敗扱いにすると
+ *   「『見積もりを送る』を完了にしました。」→「うまく処理できませんでした。もう一度同じように送ってください。」
+ *   の2通が並ぶ。言われたとおり打ち直すと今度は「そのタスクは既に完了済みです。」と返り、
+ *   何が起きたのか分からなくなる。
+ *   記録は監査のためのもので、利用者の操作結果には影響しない。落ちたらログだけ残す。
+ */
+async function recordOutboundQuietly<TChannel extends string>(
+  params: GroupCommandParams<TChannel>,
+  deps: GroupCommandDeps<TChannel>,
+  outbound: DigestCompletionOutboundInput<TChannel>,
+): Promise<void> {
+  try {
+    await deps.insertOutbound(outbound)
+  } catch (error) {
+    console.error('[groupCommand] outbound record failed', params.groupId, params.channel, error)
+  }
 }
 
 /**
@@ -406,7 +443,10 @@ async function dispatchClaimedGroupMessage<TChannel extends string>(
           return completed
         },
         reply: deps.reply,
-        insertOutbound: deps.insertOutbound,
+        // 記録の失敗をここで吸う（claimLimboCore は1文字も変えない）。
+        // 返信はもう届いているので、監査ログが書けなかっただけで
+        // 「うまく処理できませんでした」を重ねて出さない（理由は recordOutboundQuietly）。
+        insertOutbound: (outbound) => recordOutboundQuietly(params, deps, outbound),
       },
     )
     await runTutorial(params, deps, {

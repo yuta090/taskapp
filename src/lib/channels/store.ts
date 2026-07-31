@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
+import { DIGEST_LIST_ROWS_CAP } from '@/lib/channels/digest/compute'
 import {
   generateSharedGroupClaimCode,
   hashSharedGroupClaimCode,
@@ -2336,7 +2337,9 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
  *     - 「今使われている番号の最大」は最大値1行だけを引く（完了済みの行を読まずに済ませる）
  *   の2本立てにしている。
  */
-export const ASSIGN_DIGEST_NUMBERS_MAX_ROWS = 200
+// 値の正本は digest/compute.ts（表示側も同じ上限を知らないと、切られた件数を「◯件」と
+// 言い切ってしまう）。ここは既存の呼び出し元のための別名。
+export const ASSIGN_DIGEST_NUMBERS_MAX_ROWS = DIGEST_LIST_ROWS_CAP
 
 export async function assignDigestNumbersToNewTasks(groupId: string): Promise<NumberedDigestTask[]> {
   const client = admin()

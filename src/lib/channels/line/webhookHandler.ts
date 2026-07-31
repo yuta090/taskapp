@@ -1735,12 +1735,16 @@ async function handleDigestCompleteCommand(
     : ({ type: 'text' as const, text: ALREADY_DONE_TEXT })
   const replyBodyForRecord = replyMessage.type === 'text' ? replyMessage.text : replyMessage.altText
 
-  // 練習中に、案内した番号のタスクを消せたら締めの文を同じ返信に足す
-  const tutorialTexts = await collectTutorialAdvance(group, {
-    kind: 'complete',
-    digestNumber,
-    completedTaskId: result?.id ?? null,
-  })
+  // 練習中に、案内した番号のタスクを消せたら締めの文を同じ返信に足す。
+  // ⚠ 返信できないなら練習に触れない。送っていないのに段階だけ進むと、利用者は次の一手を
+  //   知らないまま練習が宙に浮く（LINE は返信トークンが無いと1通も送れない）。
+  const tutorialTexts = event.replyToken
+    ? await collectTutorialAdvance(group, {
+        kind: 'complete',
+        digestNumber,
+        completedTaskId: result?.id ?? null,
+      })
+    : []
 
   if (event.replyToken) {
     await replyLineMessage({
@@ -2108,8 +2112,10 @@ async function handleMentionInstantTask(
     }
   }
 
-  // 練習の1件目が預かれていれば、「完了N」の練習を同じ返信に足す
-  const tutorialTexts = tutorialSignal ? await collectTutorialAdvance(group, tutorialSignal) : []
+  // 練習の1件目が預かれていれば、「完了N」の練習を同じ返信に足す。
+  // ⚠ 返信できないなら練習に触れない（送っていないのに段階だけ進めない）。
+  const tutorialTexts =
+    tutorialSignal && event.replyToken ? await collectTutorialAdvance(group, tutorialSignal) : []
 
   if (event.replyToken) {
     await replyLineMessage({

@@ -4198,6 +4198,51 @@ describe('LINE: 送れていないのに「案内済み」にしない', () => {
     expect(replyMock).not.toHaveBeenCalled()
     expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
   })
+
+  /**
+   * 「完了N」「タスク追加」も同じ。練習の次の一手（番号の案内・締めの言葉）を送れていないのに
+   * 段階だけ進むと、利用者は番号を知らないまま練習が宙に浮く。
+   */
+  it('「タスク追加 ○○」でも、返信できないときは練習の段階を進めない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP,
+      createdAt: new Date().toISOString(),
+      metadata: { tutorial: { step: 'awaiting_add', startedAt: new Date().toISOString() } },
+    })
+
+    const body = makeBody([
+      groupTextEvent('タスク追加 見積もりを送る', { replyToken: undefined }),
+    ])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
+
+  it('「完了 3」でも、返信できないときは練習の段階を進めない', async () => {
+    storeMock.findActiveGroup.mockResolvedValue({
+      ...GROUP,
+      createdAt: new Date().toISOString(),
+      metadata: {
+        tutorial: {
+          step: 'awaiting_done',
+          startedAt: new Date().toISOString(),
+          practiceTaskId: 'task-1',
+          practiceDigestNumber: 3,
+        },
+      },
+    })
+    storeMock.markDigestTaskDoneByGroupAndNumberAtomic.mockResolvedValue({
+      id: 'task-1',
+      title: 'れんしゅう',
+    })
+
+    const body = makeBody([groupTextEvent('完了 3', { replyToken: undefined })])
+    await handleLineWebhook(body, sign(body))
+
+    expect(replyMock).not.toHaveBeenCalled()
+    expect(storeMock.updateChannelGroupMetadata).not.toHaveBeenCalled()
+  })
 })
 
 /**

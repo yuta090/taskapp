@@ -5,6 +5,8 @@ import {
   buildDigestExtractionPrompt,
   parseLlmDigestExtraction,
   buildDigestPushText,
+  DIGEST_PUSH_MAX_ITEMS,
+  DIGEST_PUSH_MAX_CHARS,
   buildDigestFlexMessage,
   buildDigestRetryKey,
   buildMentionTaskTitle,
@@ -474,5 +476,39 @@ describe('buildApprovalPromptFlexMessage（責任者確認 Stage 2.7-B）', () =
       todayJst: TODAY,
     })
     expect(flex.altText).toContain('発注')
+  })
+})
+
+/**
+ * 毎朝のまとめも「長すぎて送れない」で丸ごと届かなくなる。
+ * 「一覧」コマンド（buildTaskListReplyText）と同じ守りを本体にも入れる。
+ * 打ち切っても総数は文頭に出し続ける（何件あるかは隠さない）。
+ */
+describe('buildDigestPushText の打ち切り', () => {
+  const TODAY = '2026-07-14'
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ digestNumber: i + 1, title: `タスク${i + 1}` }))
+
+  it('件数が上限を超えたら打ち切り、残りの件数を伝える', () => {
+    const text = buildDigestPushText(many(DIGEST_PUSH_MAX_ITEMS + 5), TODAY)
+    expect(text).toContain(`${DIGEST_PUSH_MAX_ITEMS + 5}件`)
+    expect(text).toContain(`タスク${DIGEST_PUSH_MAX_ITEMS}`)
+    expect(text).not.toContain(`タスク${DIGEST_PUSH_MAX_ITEMS + 1}.`)
+    expect(text).toContain('ほかに5件あります。')
+  })
+
+  it('タイトルが長くても1通が文字数の上限を超えない（送信そのものが失敗しない）', () => {
+    const items = Array.from({ length: 60 }, (_, i) => ({
+      digestNumber: i + 1,
+      title: 'あ'.repeat(50),
+    }))
+    const text = buildDigestPushText(items, TODAY)
+    expect(text.length).toBeLessThanOrEqual(DIGEST_PUSH_MAX_CHARS)
+    expect(text).toContain('60件')
+  })
+
+  it('上限内なら打ち切りの断り書きを出さない', () => {
+    const text = buildDigestPushText(many(3), TODAY)
+    expect(text).not.toContain('ほかに')
   })
 })

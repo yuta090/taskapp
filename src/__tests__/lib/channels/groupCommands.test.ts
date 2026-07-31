@@ -12,6 +12,7 @@ import {
   buildTaskListReplyText,
   LIST_EMPTY_TEXT,
   COMPLETE_WITHOUT_NUMBER_TEXT,
+  DIGEST_LIST_ROWS_CAP,
   type GroupCommandDeps,
   type GroupCommandParams,
 } from '@/lib/channels/groupCommands'
@@ -457,5 +458,69 @@ describe('秘書の返事に出る見本の形をそろえる', () => {
     for (const text of texts) {
       expect(text, `区切りの空白が無い見本: ${text}`).not.toMatch(SAMPLE_WITHOUT_SPACE_RE)
     }
+  })
+})
+
+/**
+ * 返信は届いたのに、監査ログの書き込みだけが転んだ場合。
+ *
+ * ⚠ ここで「うまく処理できませんでした」を続けて出すと、利用者には
+ *   「『見積もりを送る』を完了にしました。」→「うまく処理できませんでした。もう一度…」
+ *   の2通が並ぶ。言われたとおり打ち直すと今度は「もう完了しています」と返り、混乱する。
+ *   記録の失敗は利用者の操作結果に影響しないので、黙ってログに残すのが正しい。
+ */
+describe('記録だけが失敗したとき', () => {
+  it('返信が届いていれば「うまく処理できませんでした」を重ねて出さない', async () => {
+    const deps = makeDeps({
+      insertOutbound: vi.fn().mockRejectedValue(new Error('db hiccup')),
+    })
+    const res = await handleClaimedGroupMessage(makeParams({ text: '完了2' }), deps)
+
+    // 操作そのものは成功しているので、失敗扱いにしない
+    expect(res).toEqual({ matched: 'complete' })
+    expect(deps.completeDigestTask).toHaveBeenCalled()
+    // 返信は完了の1通だけ（失敗のお知らせを足さない）
+    expect(deps.reply).toHaveBeenCalledTimes(1)
+    expect(deps.reply).not.toHaveBeenCalledWith(COMMAND_FAILED_TEXT)
+  })
+
+  it('返信そのものが失敗したときは、これまでどおり「うまく処理できませんでした」を出す', async () => {
+    const deps = makeDeps({
+      reply: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('send failed'))
+        .mockResolvedValue({ providerMessageId: null }),
+    })
+    const res = await handleClaimedGroupMessage(makeParams({ text: '完了2' }), deps)
+
+    expect(res).toEqual({ matched: 'failed' })
+    expect(deps.reply).toHaveBeenLastCalledWith(COMMAND_FAILED_TEXT)
+  })
+})
+
+/**
+ * 未完了タスクが読み取りの上限（DIGEST_LIST_ROWS_CAP）を超えるグループ。
+ *
+ * ⚠ 上限で切られた配列の length をそのまま「◯件」と出すと、実際より少ない数を言い切ってしまう。
+ *   250件あるのに「200件」「ほかに180件あります」と出て、50件が存在ごと消える。
+ *   正確な数が分からないときは、分からないと分かる言い方にする（嘘の数字を言わない）。
+ */
+describe('タスクが読み取りの上限を超えるグループの一覧', () => {
+  const manyTasks = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `t${i + 1}`, digestNumber: i + 1, title: `タスク${i + 1}` }))
+
+  it('上限ちょうどまで読めたときは、件数を断定せず「以上」と伝える', () => {
+    const text = buildTaskListReplyText(manyTasks(DIGEST_LIST_ROWS_CAP), '2026-07-30')
+    expect(text).toContain(`${DIGEST_LIST_ROWS_CAP}件以上`)
+    expect(text).not.toContain(`（${DIGEST_LIST_ROWS_CAP}件）`)
+    // 残りの数も断定しない
+    expect(text).toContain('ほかにもあります。')
+  })
+
+  it('上限に届いていなければ、これまでどおり件数を断定する', () => {
+    const text = buildTaskListReplyText(manyTasks(25), '2026-07-30')
+    expect(text).toContain('（25件）')
+    expect(text).toContain('ほかに5件あります。')
+    expect(text).not.toContain('以上')
   })
 })

@@ -235,10 +235,48 @@ export interface DigestPushItem {
   assigneeHint?: string | null
 }
 
+/** 打ち切ったときの断り書き。**ここが単一の正本**（まとめ本体と「一覧」で同じ文を使う）。 */
+export function buildTaskListMoreText(rest: number): string {
+  return `ほかに${rest}件あります。`
+}
+
+/**
+ * 残りの件数が分からないときの断り書き。
+ * 読み取り上限（DIGEST_LIST_ROWS_CAP）で切られていると、本当の総数を知らないまま返すことになる。
+ * 知らない数を言い切るくらいなら、分からないと分かる言い方にする。
+ */
+export const TASK_LIST_MORE_UNKNOWN_TEXT = 'ほかにもあります。'
+
+/**
+ * 1度に読み取るタスクの行数の上限。**ここが単一の正本**（store の読み出しと表示で同じ値を使う）。
+ *
+ * ⚠ 表示側がこの値を知らないと、上限で切られた配列の length をそのまま「◯件」と言い切ってしまう
+ *   （250件あるのに「200件・ほかに180件」と出て、50件が存在ごと消える）。
+ */
+export const DIGEST_LIST_ROWS_CAP = 200
+
+/**
+ * まとめ本体に並べる最大件数。
+ *
+ * ⚠ 上限が無いと、タスクが溜まったグループでは1通が送信上限を超えて**送信そのものが失敗**する
+ *   ＝毎朝のまとめが丸ごと届かなくなる（しかも cron なので誰も気づかない）。
+ *   「一覧」コマンドと同じ守りを本体にも置く。
+ */
+export const DIGEST_PUSH_MAX_ITEMS = 30
+
+/**
+ * まとめ本体1通の最大文字数。**いちばん厳しいチャットに合わせた共通の安全側**。
+ * 根拠は buildTaskListReplyText の TASK_LIST_MAX_CHARS と同じ（Discord 2000字がもっとも厳しい）。
+ */
+export const DIGEST_PUSH_MAX_CHARS = 1800
+
 /**
  * digest本文。digestは毎朝openタスクを全件送るため、
  * 期限順に並べ・超過を ⚠️ で示すこと自体が「期限リマインド」の実体になる（Stage 2.6 §5）。
  * 並び替えは呼び出し側（配信直前の再採番）で済ませる。ここは表示のみ。
+ *
+ * ⚠ 件数・文字数で必ず打ち切る。打ち切っても総数は文頭に出し続けるので、
+ *   「全部で何件あるか」は隠れない（残りはコンソールか「一覧」で追える）。
  *
  * todayJst は formatDateToLocalString(new Date()) を渡す。
  */
@@ -247,7 +285,24 @@ export function buildDigestPushText(items: DigestPushItem[], todayJst: string): 
     const detail = buildTaskDetailLine(item.dueDate ?? null, item.dueTime ?? null, item.assigneeHint ?? null, todayJst)
     return detail ? `${item.digestNumber}. ${item.title}  ${detail}` : `${item.digestNumber}. ${item.title}`
   })
-  return `おはようございます。今日のタスクです（${items.length}件）\n${lines.join('\n')}`
+
+  const assemble = (shown: number): string => {
+    const rest = items.length - shown
+    return [
+      `おはようございます。今日のタスクです（${items.length}件）`,
+      ...lines.slice(0, shown),
+      ...(rest > 0 ? [buildTaskListMoreText(rest)] : []),
+    ].join('\n')
+  }
+
+  let shown = Math.min(items.length, DIGEST_PUSH_MAX_ITEMS)
+  let text = assemble(shown)
+  // 1件ずつ減らす（タイトルは切り詰め済みなので数回で必ず収まる）。1件は必ず残す。
+  while (shown > 1 && text.length > DIGEST_PUSH_MAX_CHARS) {
+    shown -= 1
+    text = assemble(shown)
+  }
+  return text
 }
 
 /**
