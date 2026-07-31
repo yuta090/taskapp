@@ -9,6 +9,7 @@
  *   node scripts/blog-audit.mjs            # 公開記事を検査（要対応があれば終了コード1）
  *   node scripts/blog-audit.mjs --all      # 下書きも含めて検査
  *   node scripts/blog-audit.mjs --openings # 書き出しの1文目を並べて目で確かめる
+ *   node scripts/blog-audit.mjs --sections # 節の長さを測る（長い順。中見出しで割る判断に使う）
  */
 import { createClient } from '@supabase/supabase-js'
 import fs from 'node:fs'
@@ -103,6 +104,39 @@ if (process.argv.includes('--openings')) {
   }
   console.log('判定は人がやる。1文目の名詞を1つずつ指して「これは何？」と聞き、')
   console.log('タイトルを見ていない人でも像が結べるかを確かめる。')
+  process.exit(0)
+}
+
+// --sections: 見出しから次の見出しまでの字数を測る。
+//
+// 節が長いかどうかは目では分からない。実際に、1,261字・中見出しゼロの節が公開まで通っていた
+// （手順の頭を太字で書いていたため、書き手には見出しに見えていた／2026-07-30）。
+// 目安は500字。ただし中身が箇条書き・Q&A・締めのリストなら長くても読めるので、判断は人がやる。
+if (process.argv.includes('--sections')) {
+  const rows = []
+  for (const post of data) {
+    let cur = null
+    for (const line of post.body_md.split('\n')) {
+      if (/^#{2,3} /.test(line)) {
+        if (cur) rows.push(cur)
+        cur = { slug: post.slug, head: line.replace(/^#+ /, ''), level: line.startsWith('### ') ? 3 : 2, chars: 0, list: 0 }
+        continue
+      }
+      if (!cur) continue
+      cur.chars += line.trim().length
+      if (/^[-*] |^\d+\. /.test(line.trim())) cur.list += line.trim().length
+    }
+    if (cur) rows.push(cur)
+  }
+  rows.sort((a, b) => b.chars - a.chars)
+  console.log('節の長さ（長い順・400字超のみ）。目安500字。listはそのうち箇条書きの字数\n')
+  for (const r of rows.filter((r) => r.chars > 400)) {
+    const mark = r.chars > 500 && r.chars - r.list > 500 ? '★' : ' '
+    console.log(`${mark}${String(r.chars).padStart(4)}字（list${String(r.list).padStart(3)}）H${r.level} [${r.slug}] ${r.head}`)
+  }
+  const over = rows.filter((r) => r.chars - r.list > 500).length
+  console.log(`\n全${rows.length}節 / ★（箇条書きを除いて500字超）${over}節`)
+  console.log('★は中見出しで割るか、段落を削るかを検討する。判断は人がやる。')
   process.exit(0)
 }
 
