@@ -1,258 +1,181 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'fs'
+import path from 'path'
 
 /**
- * assignDigestNumbersToNewTasks（練習・その場の登録で使う採番）。
- *
- * 一覧の番号を全部振り直してよいのは**配信の直前（毎朝の cron）だけ**という不変条件を守るための関数。
- * チャットの発言をきっかけに走るこちらは、**番号がまだ無いタスクにだけ**続きの番号を与える。
+ * 一覧番号（digest_number）の採番。
  *
  * ここが壊れると、利用者が手元で見ている一覧の番号と実物がズレて、
- * 「完了3」で別のタスクが消えるという最悪の事故になる。
+ * 「完了 3」で別のタスクが消えるという最悪の事故になる。
+ *
+ * ⚠ **採番の中身は SQL（RPC）に移した**。アプリで「最大を読む → +1 して書く」をやっていた頃は、
+ *   同じグループでほぼ同時に「タスク追加」された2件に同じ番号が付き、その番号で「完了N」を送ると
+ *   2件とも完了したうえで「既に完了済み」と返っていた（読みと書きの間にロックが無いため）。
+ *   いまは channel_groups の行を FOR UPDATE でロックする RPC の中で完結する。
+ *
+ * したがってこのファイルが見るのは2つ:
+ *   1. アプリ⇔DBのつなぎ目 — 正しいRPCを正しい引数で呼び、失敗を握り潰さず、戻りを正しく変換するか
+ *   2. 採番の約束が SQL 側に書かれたままか — マイグレーションの中身を読む番人
+ *      （SQLの実挙動はユニットテストでは動かせないので、消えたら気付ける形にしておく）
  */
 
-type Row = {
+type RpcRow = {
   id: string
   title: string
-  status: string
-  digest_number: number | null
-  created_at: string
+  digest_number: number
   due_date: string | null
   due_time: string | null
   assignee_hint: string | null
 }
 
-function row(over: Partial<Row> & { id: string }): Row {
-  return {
-    title: `タスク ${over.id}`,
-    status: 'open',
-    digest_number: null,
-    created_at: '2026-07-30T00:00:00.000Z',
-    due_date: null,
-    due_time: null,
-    assignee_hint: null,
-    ...over,
-  }
-}
+let rpcResponse: { data: RpcRow[] | null; error: { message: string } | null }
+/** 実際に飛んだ RPC 呼び出し（名前と引数）を記録する。 */
+let rpcCalls: Array<{ name: string; args: Record<string, unknown> }>
 
-/** そのグループにDB上ある全行（このテストの「DBの中身」）。 */
-let selectResponse: { data: Row[] | null; error: { message: string } | null }
-let updateError: { message: string } | null
-/** update({digest_number}) が飛んだ先を記録する（どの行の番号を書き換えたか） */
-let updates: Array<{ id: string; digestNumber: number | null }>
-/** 読み取りに掛けた絞り込み（eq）を記録する。「open だけ読んでいるか」を見るため */
-let filters: Array<{ column: string; value: string }>
-/** 読み取りに掛けた件数上限（limit）を記録する */
-let limits: number[]
-
-const fromMock = vi.fn()
+const rpcMock = vi.fn(async (name: string, args: Record<string, unknown>) => {
+  rpcCalls.push({ name, args })
+  return rpcResponse
+})
 
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: vi.fn(() => ({ from: fromMock })),
+  createAdminClient: vi.fn(() => ({ rpc: rpcMock })),
 }))
 
 const store = await import('@/lib/channels/store')
 
-/**
- * supabase-js のクエリビルダの最小の偽物。
- * DBの中身（selectResponse.data）に対して、実際に掛けた絞り込み・並び・上限を適用して返す
- * ＝「絞り込みを掛けたつもり」で通ってしまわないようにする。
- */
-function makeBuilder() {
-  let pendingUpdate: number | null = null
-  let isUpdate = false
-  let selectedColumns = ''
-  let orderColumn = 'created_at'
-  let orderAscending = true
-  let notNullColumn: string | null = null
-  let limitValue: number | null = null
-  const eqFilters: Array<{ column: string; value: string }> = []
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const builder: any = {
-    select: vi.fn((columns: string) => {
-      selectedColumns = columns
-      return builder
-    }),
-    order: vi.fn((column: string, opts?: { ascending?: boolean }) => {
-      orderColumn = column
-      orderAscending = opts?.ascending !== false
-      return builder
-    }),
-    not: vi.fn((column: string) => {
-      notNullColumn = column
-      return builder
-    }),
-    limit: vi.fn((n: number) => {
-      limitValue = n
-      limits.push(n)
-      return builder
-    }),
-    in: vi.fn(() => builder),
-    update: vi.fn((patch: { digest_number: number | null }) => {
-      isUpdate = true
-      pendingUpdate = patch.digest_number
-      return builder
-    }),
-    eq: vi.fn((column: string, value: string) => {
-      if (isUpdate && column === 'id') updates.push({ id: value, digestNumber: pendingUpdate })
-      if (!isUpdate) {
-        eqFilters.push({ column, value })
-        filters.push({ column, value })
-      }
-      return builder
-    }),
-  }
-
-  function resolveSelect() {
-    if (selectResponse.error || !selectResponse.data) return selectResponse
-    let rows = selectResponse.data
-    for (const f of eqFilters) {
-      if (f.column === 'group_id') continue
-      rows = rows.filter((r) => String((r as unknown as Record<string, unknown>)[f.column]) === f.value)
-    }
-    if (notNullColumn) {
-      rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[notNullColumn!] !== null)
-    }
-    rows = [...rows].sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[orderColumn] as string | number
-      const bv = (b as unknown as Record<string, unknown>)[orderColumn] as string | number
-      const diff = av < bv ? -1 : av > bv ? 1 : 0
-      return orderAscending ? diff : -diff
-    })
-    if (limitValue !== null) rows = rows.slice(0, limitValue)
-    // 列を絞ったクエリはその列だけ返す（本物の挙動にそろえる）
-    if (selectedColumns === 'digest_number') {
-      return { data: rows.map((r) => ({ digest_number: r.digest_number })), error: null }
-    }
-    return { data: rows, error: null }
-  }
-
-  builder.then = (resolve: (value: unknown) => unknown) =>
-    Promise.resolve(isUpdate ? { data: null, error: updateError } : resolveSelect()).then(resolve)
-  return builder
-}
-
 beforeEach(() => {
-  vi.clearAllMocks()
-  selectResponse = { data: [], error: null }
-  updateError = null
-  updates = []
-  filters = []
-  limits = []
-  fromMock.mockImplementation(() => makeBuilder())
+  rpcCalls = []
+  rpcResponse = { data: [], error: null }
+  rpcMock.mockClear()
 })
 
-describe('assignDigestNumbersToNewTasks', () => {
-  it('番号がまだ無いタスクにだけ、続きの番号を与える（既存の番号は1つも動かさない）', async () => {
-    selectResponse = {
-      data: [
-        row({ id: 'a', digest_number: 1, created_at: '2026-07-30T01:00:00.000Z' }),
-        row({ id: 'b', digest_number: 2, created_at: '2026-07-30T02:00:00.000Z' }),
-        row({ id: 'c', digest_number: null, created_at: '2026-07-30T03:00:00.000Z' }),
-      ],
-      error: null,
-    }
+describe('assignDigestNumbersToNewTasks（その場の登録・「一覧」で使う採番）', () => {
+  it('採番専用のRPCを、そのグループと読み取り上限つきで呼ぶ', async () => {
+    await store.assignDigestNumbersToNewTasks('grp-1')
 
-    const result = await store.assignDigestNumbersToNewTasks('group-1')
-
-    // 書き換えたのは新しい1件だけ。既存の a・b には update を飛ばさない
-    expect(updates).toEqual([{ id: 'c', digestNumber: 3 }])
-    expect(result.map((t) => [t.id, t.digestNumber])).toEqual([
-      ['a', 1],
-      ['b', 2],
-      ['c', 3],
+    expect(rpcCalls).toEqual([
+      {
+        name: 'rpc_assign_digest_numbers',
+        args: { p_group_id: 'grp-1', p_limit: store.ASSIGN_DIGEST_NUMBERS_MAX_ROWS },
+      },
     ])
   })
 
-  it('番号の総入れ替え（全行NULLクリア）は絶対にしない', async () => {
-    selectResponse = {
-      data: [row({ id: 'a', digest_number: 5 }), row({ id: 'b', digest_number: null })],
-      error: null,
-    }
+  it('番号の総入れ替え（再採番）のRPCは絶対に呼ばない', async () => {
+    await store.assignDigestNumbersToNewTasks('grp-1')
 
-    await store.assignDigestNumbersToNewTasks('group-1')
-
-    expect(updates.some((u) => u.digestNumber === null)).toBe(false)
+    // ここから総入れ替えを呼ぶと、手元の一覧の番号が別のタスクを指すようになる。
+    expect(rpcCalls.map((c) => c.name)).not.toContain('rpc_clear_and_renumber_digest_tasks')
   })
 
-  it('完了済みのタスクが持っている番号も避ける（同じ番号を二重に配らない）', async () => {
-    selectResponse = {
+  it('DBの返り（snake_case）をアプリの形に変換する', async () => {
+    rpcResponse = {
       data: [
-        row({ id: 'done', status: 'done', digest_number: 7 }),
-        row({ id: 'new', digest_number: null }),
+        {
+          id: 't-1',
+          title: '見積もりを送る',
+          digest_number: 7,
+          due_date: '2026-08-01',
+          due_time: '17:00',
+          assignee_hint: '山田',
+        },
       ],
       error: null,
     }
 
-    const result = await store.assignDigestNumbersToNewTasks('group-1')
+    const result = await store.assignDigestNumbersToNewTasks('grp-1')
 
-    expect(updates).toEqual([{ id: 'new', digestNumber: 8 }])
-    // 返すのは一覧に出る（open な）タスクだけ
-    expect(result.map((t) => t.id)).toEqual(['new'])
-  })
-
-  it('新しいタスクが複数あれば、古い順に続きの番号を与える', async () => {
-    selectResponse = {
-      data: [
-        row({ id: 'x', digest_number: null, created_at: '2026-07-30T01:00:00.000Z' }),
-        row({ id: 'y', digest_number: null, created_at: '2026-07-30T02:00:00.000Z' }),
-      ],
-      error: null,
-    }
-
-    const result = await store.assignDigestNumbersToNewTasks('group-1')
-
-    expect(updates).toEqual([
-      { id: 'x', digestNumber: 1 },
-      { id: 'y', digestNumber: 2 },
+    expect(result).toEqual([
+      {
+        id: 't-1',
+        title: '見積もりを送る',
+        digestNumber: 7,
+        dueDate: '2026-08-01',
+        dueTime: '17:00',
+        assigneeHint: '山田',
+      },
     ])
-    expect(result.map((t) => t.digestNumber)).toEqual([1, 2])
   })
 
-  it('全部に番号が付いていれば1件も書き換えない', async () => {
-    selectResponse = {
-      data: [row({ id: 'a', digest_number: 1 }), row({ id: 'b', digest_number: 2 })],
-      error: null,
-    }
-
-    await store.assignDigestNumbersToNewTasks('group-1')
-
-    expect(updates).toEqual([])
+  it('1件も無ければ空で返す（エラーではない）', async () => {
+    rpcResponse = { data: [], error: null }
+    await expect(store.assignDigestNumbersToNewTasks('grp-1')).resolves.toEqual([])
   })
 
-  it('読み取りに失敗したら例外にする（番号が分からないまま約束しない）', async () => {
-    selectResponse = { data: null, error: { message: 'boom' } }
-    await expect(store.assignDigestNumbersToNewTasks('group-1')).rejects.toThrow('boom')
+  it('失敗したら例外にする（番号が分からないまま案内しない）', async () => {
+    rpcResponse = { data: null, error: { message: 'db down' } }
+
+    // 空配列で返すと「タスク0件」と区別できず、嘘の一覧を返してしまう。
+    await expect(store.assignDigestNumbersToNewTasks('grp-1')).rejects.toThrow(/db down/)
+  })
+})
+
+describe('clearAndRenumberOpenDigestTasks（配信直前の総入れ替え）', () => {
+  it('総入れ替え専用のRPCを呼ぶ（クリアと採番を別々に投げない）', async () => {
+    await store.clearAndRenumberOpenDigestTasks('grp-1')
+
+    // クリアと採番を別の命令で投げると、その隙間に「タスク追加」が割り込んで番号が重複する。
+    expect(rpcCalls).toEqual([
+      { name: 'rpc_clear_and_renumber_digest_tasks', args: { p_group_id: 'grp-1' } },
+    ])
   })
 
-  it('番号の書き込みに失敗したら例外にする', async () => {
-    selectResponse = { data: [row({ id: 'a' })], error: null }
-    updateError = { message: 'update boom' }
-    await expect(store.assignDigestNumbersToNewTasks('group-1')).rejects.toThrow('update boom')
+  it('失敗したら例外にする（旧番号のまま配信しない）', async () => {
+    rpcResponse = { data: null, error: { message: 'db down' } }
+
+    // 誤配信より欠配信を選ぶ。cron 側でこの回の配信をスキップさせる。
+    await expect(store.clearAndRenumberOpenDigestTasks('grp-1')).rejects.toThrow(/db down/)
   })
 })
 
 /**
- * 読む行を必ず絞る（実害）。
- *
- * この関数は「一覧」コマンドで**人が何度でも叩ける**経路になった。
- * 絞り込みも上限も無いままだと、長く使っているグループでは完了済みの行が延々と積み上がり、
- * 1回の「一覧」で全部読むことになる（重くなる・詰まる）。
- * 一覧に出すのは open のタスクだけなので、読むのも open に絞り、件数にも上限を置く。
+ * 採番の約束は SQL の中にある。ユニットテストでは SQL を動かせないので、
+ * **約束が書かれたまま残っているか**だけをソースを読んで確かめる番人を置く。
+ * 消えたときに気付けることが目的であって、SQLの正しさの証明ではない。
  */
-describe('assignDigestNumbersToNewTasks — 読む行を絞る', () => {
-  it('一覧に出す行は open だけを読む（完了済みの山を毎回読まない）', async () => {
-    selectResponse = { data: [row({ id: 'a' })], error: null }
-    await store.assignDigestNumbersToNewTasks('group-1')
+describe('採番の約束が SQL に書かれたまま残っているか', () => {
+  const sql = fs.readFileSync(
+    path.resolve(
+      __dirname,
+      '../../../../supabase/migrations/20260731231645_digest_number_atomic.sql',
+    ),
+    'utf8',
+  )
 
-    expect(filters).toContainEqual({ column: 'status', value: 'open' })
+  it('2つの採番RPCが定義されている', () => {
+    expect(sql).toContain('function public.rpc_assign_digest_numbers')
+    expect(sql).toContain('function public.rpc_clear_and_renumber_digest_tasks')
   })
 
-  it('読む件数に上限を置く（際限なく読まない）', async () => {
-    selectResponse = { data: [row({ id: 'a' })], error: null }
-    await store.assignDigestNumbersToNewTasks('group-1')
+  it('どちらもグループ行をロックしてから読み書きする（同時実行を直列化する）', () => {
+    const bodies = sql.split('create or replace function').slice(1)
+    expect(bodies).toHaveLength(2)
+    for (const body of bodies) {
+      expect(body).toContain('from public.channel_groups g')
+      expect(body).toContain('for update')
+    }
+  })
 
-    expect(limits.length).toBeGreaterThan(0)
-    expect(Math.max(...limits)).toBeLessThanOrEqual(store.ASSIGN_DIGEST_NUMBERS_MAX_ROWS)
+  it('同じ番号を2件に配れないよう、DB側に一意制約がある（すり抜けの最後の砦）', () => {
+    expect(sql).toContain('create unique index')
+    expect(sql).toContain('channel_digest_tasks_group_open_number_unique')
+    expect(sql).toContain("where status = 'open' and digest_number is not null")
+  })
+
+  it('追加採番は「番号がまだ無い行」だけを対象にする（既存の番号を動かさない）', () => {
+    const assign = sql.slice(sql.indexOf('rpc_assign_digest_numbers'))
+    expect(assign.slice(0, assign.indexOf('rpc_clear_and_renumber'))).toContain(
+      'digest_number is null',
+    )
+  })
+
+  it('再採番の並びは、期限の早い順→期限なしは最後→登録の古い順', () => {
+    expect(sql).toContain("(dt.due_date + coalesce(dt.due_time, '23:59'::time)) asc nulls last")
+  })
+
+  it('service_role だけが実行できる（外から叩けない）', () => {
+    expect(sql).toContain('revoke execute on function public.rpc_assign_digest_numbers')
+    expect(sql).toContain('revoke execute on function public.rpc_clear_and_renumber_digest_tasks')
+    expect((sql.match(/to service_role;/g) ?? []).length).toBe(2)
   })
 })
