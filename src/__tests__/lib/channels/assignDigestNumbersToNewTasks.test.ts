@@ -134,13 +134,31 @@ describe('clearAndRenumberOpenDigestTasks（配信直前の総入れ替え）', 
  * 消えたときに気付けることが目的であって、SQLの正しさの証明ではない。
  */
 describe('採番の約束が SQL に書かれたまま残っているか', () => {
-  const sql = fs.readFileSync(
-    path.resolve(
-      __dirname,
-      '../../../../supabase/migrations/20260731231645_digest_number_atomic.sql',
-    ),
+  const MIGRATIONS = path.resolve(__dirname, '../../../../supabase/migrations')
+
+  /**
+   * RPC は create or replace で後から差し替えられる。**いま効いている定義**＝
+   * その関数を定義しているマイグレーションのうち、いちばん新しいもの。
+   * 固定のファイル名を見ると、置き換えたあとも古い定義を検査し続けてしまう。
+   */
+  function latestSqlDefining(marker: string): string {
+    const file = fs
+      .readdirSync(MIGRATIONS)
+      .filter((name) => name.endsWith('.sql') && !name.startsWith('.'))
+      .sort()
+      .reverse()
+      .find((name) => fs.readFileSync(path.join(MIGRATIONS, name), 'utf8').includes(marker))
+    if (!file) throw new Error(`${marker} を定義するマイグレーションが見つからない`)
+    return fs.readFileSync(path.join(MIGRATIONS, file), 'utf8')
+  }
+
+  // 一意制約と既存重複の修復は1回限りのDDLなので、最初に入れたファイルを見る。
+  const setupSql = fs.readFileSync(
+    path.join(MIGRATIONS, '20260731231645_digest_number_atomic.sql'),
     'utf8',
   )
+  // 関数の中身は差し替えられるので、いま効いている定義を見る。
+  const sql = latestSqlDefining('function public.rpc_assign_digest_numbers')
 
   it('2つの採番RPCが定義されている', () => {
     expect(sql).toContain('function public.rpc_assign_digest_numbers')
@@ -152,14 +170,24 @@ describe('採番の約束が SQL に書かれたまま残っているか', () =>
     expect(bodies).toHaveLength(2)
     for (const body of bodies) {
       expect(body).toContain('from public.channel_groups g')
-      expect(body).toContain('for update')
+      // for no key update: 採番同士・タスク作成RPC(for update)とは衝突して直列化されるが、
+      // 外部キーの INSERT が取る for key share とは衝突しない＝タスク登録を待たせない。
+      expect(body).toContain('for no key update')
+    }
+  })
+
+  it('ロックは強すぎない（タスクの登録まで巻き込んで待たせない）', () => {
+    const bodies = sql.split('create or replace function').slice(1)
+    for (const body of bodies) {
+      // 素の for update に戻すと、同じグループへの INSERT が採番の間ずっと待たされる。
+      expect(body).not.toMatch(/for update;/)
     }
   })
 
   it('同じ番号を2件に配れないよう、DB側に一意制約がある（すり抜けの最後の砦）', () => {
-    expect(sql).toContain('create unique index')
-    expect(sql).toContain('channel_digest_tasks_group_open_number_unique')
-    expect(sql).toContain("where status = 'open' and digest_number is not null")
+    expect(setupSql).toContain('create unique index')
+    expect(setupSql).toContain('channel_digest_tasks_group_open_number_unique')
+    expect(setupSql).toContain("where status = 'open' and digest_number is not null")
   })
 
   it('追加採番は「番号がまだ無い行」だけを対象にする（既存の番号を動かさない）', () => {
