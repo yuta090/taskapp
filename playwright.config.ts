@@ -30,6 +30,12 @@ const IS_LOCAL = BASE_URL.includes('localhost') || BASE_URL.includes('127.0.0.1'
 
 export default defineConfig({
   testDir: './tests/e2e',
+  /**
+   * macOS が exFAT ボリューム上に作る `._*`（リソースフォーク）を拾わせない。
+   * 拾うと中身がバイナリなので「構文エラー」でスイート全体が起動せず、
+   * しかもエラー本文が文字化けして原因が分からない。
+   */
+  testIgnore: ['**/._*'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

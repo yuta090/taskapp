@@ -6,6 +6,8 @@ import { GroupLinkPanel } from '@/components/secretary/GroupLinkPanel'
 import { DirectConnectDisclosure } from '@/components/secretary/DirectConnectDisclosure'
 import { SharedLineUsagePanel } from '@/components/secretary/SharedLineUsagePanel'
 import { Hint } from '@/components/secretary/Hint'
+import { ChannelCommandGuide } from '@/components/secretary/ChannelCommandGuide'
+import { resolveLineBotOwnership } from '@/components/secretary/botProfilePlacement'
 import type { LineSelfServeState } from '@/lib/channels/sharedBotAccess'
 
 /**
@@ -56,6 +58,11 @@ export function UserLinksClient({
           <h1 className="text-sm font-semibold text-gray-900">LINE秘書につなぐ</h1>
 
           <SharedLineUsagePanel orgId={orgId} />
+
+          {/* LINE は ChannelConnectOverview を通らないので、使い方の案内はここに置く。
+              貼り先は「秘書のアカウントを誰が持っているか」で変わる。共通LINEのプロフィール欄は
+              当社が持っていて事務所の方は編集できないので、利用状態から解決して渡す。 */}
+          <ChannelCommandGuide channel="line" botOwnership={resolveLineBotOwnership(access)} />
 
           <section className="rounded border border-gray-200 p-4">
             <h2 className="text-sm font-semibold text-gray-900">

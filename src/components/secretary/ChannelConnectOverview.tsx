@@ -3,6 +3,7 @@ import type { ChannelDefinition } from '@/lib/channels/registry'
 import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
 import { SharedBotClaimPanel } from '@/components/secretary/SharedBotClaimPanel'
+import { ChannelCommandGuide } from '@/components/secretary/ChannelCommandGuide'
 
 // beta は内部区分（要検証）でありユーザーには見せない — 表示上は ga と同じ「利用可能」。
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
@@ -50,6 +51,10 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       {!isSharedBotClaim && !canRegister && (
         <p className="text-sm text-gray-500">このチャネルは準備中です。開通しましたらご案内します。</p>
       )}
+
+      {/* つないだあとの使い方 — 接続手順とは別物なので「技術的な設定内容」には入れない。
+          使い方が無いチャネル（1:1専用の WhatsApp / Messenger）では自動的に何も出ない。 */}
+      <ChannelCommandGuide channel={def.id} className="mt-6" />
 
       {/* 開発者向けメタ情報 — 既定は畳む（運用者が必要なときだけ開く） */}
       <details className="mt-8 border-t border-gray-100 pt-4">

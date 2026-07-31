@@ -35,7 +35,10 @@ function makeDeps(over: Partial<TeamsWebhookDeps> = {}): TeamsWebhookDeps {
     findActiveGroup: vi.fn().mockResolvedValue(null),
     insertMessage: vi.fn().mockResolvedValue({ id: 'msg-1' }),
     completeDigestTask: vi.fn().mockResolvedValue({ id: 'task-1', title: 'タスクA' }),
+    createInstantDigestTask: vi.fn().mockResolvedValue({ id: 'task-new', pending: false, duplicate: false }),
     insertOutbound: vi.fn().mockResolvedValue({ id: 'out-1' }),
+    // 「一覧」の土台（番号がまだ無いタスクにだけ続きの番号を与える）。配線必須
+    assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]),
     updateGroupMetadata: vi.fn().mockResolvedValue(undefined),
     normalizeClaimCode: vi.fn().mockReturnValue(null),
     hashClaimCode: vi.fn((c: string) => `hash(${c})`),
@@ -371,6 +374,7 @@ describe('handleTeamsWebhook — limbo（未claim）', () => {
         .fn()
         .mockResolvedValueOnce(null) // 1回目: limbo判定（まだ未claim）
         .mockResolvedValueOnce(GROUP) // 2回目: code_only償還後の再取得（今activeになった）
+        .mockResolvedValueOnce(GROUP) // 3回目: 登録直後の練習を始めてよいかの見極め
       const deps = makeDeps({
         findActiveGroup,
         normalizeClaimCode: vi.fn().mockReturnValue('CODE26'),
@@ -394,7 +398,8 @@ describe('handleTeamsWebhook — limbo（未claim）', () => {
         deps,
       )
 
-      expect(findActiveGroup).toHaveBeenCalledTimes(2)
+      // 1回目=limbo判定 / 2回目=償還後の再取得 / 3回目=練習の入り口の見極め
+      expect(findActiveGroup).toHaveBeenCalledTimes(3)
       expect(updateGroupMetadata).toHaveBeenCalledWith('grp-1', {
         serviceUrl: 'https://smba.trafficmanager.net/amer/',
         teamId: '19:team-abc@thread.tacv2',
@@ -425,7 +430,8 @@ describe('handleTeamsWebhook — limbo（未claim）', () => {
 
       await handleTeamsWebhook(activity({ text: 'GC-CODE' }), deps)
 
-      expect(findActiveGroup).toHaveBeenCalledTimes(2)
+      // 1回目=limbo判定 / 2回目=償還後の再取得 / 3回目=練習の入り口の見極め（承認待ちなので不成立）
+      expect(findActiveGroup).toHaveBeenCalledTimes(3)
       expect(updateGroupMetadata).not.toHaveBeenCalled()
       expect(deps.reply).toHaveBeenCalledWith(buildAcceptedText('AB12'))
     })

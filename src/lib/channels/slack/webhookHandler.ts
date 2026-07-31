@@ -30,10 +30,16 @@
  * Slack の再送を避けるため、署名不一致(401)/platform(400) 以外は常に200を返す。
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
 import {
-  processClaimLimbo,
-  runDigestCompletion,
+  handleClaimedGroupMessage,
+  handleLimboGroupMessage,
+  type TutorialWiring,
+} from '@/lib/channels/groupCommands'
+import type {
+  CreateInstantDigestTaskInput,
+  CreateInstantDigestTaskResult,
+} from '@/lib/channels/store'
+import {
   INVALID_TEXT,
   CODE_ONLY_LINKED_TEXT,
   CODE_ONLY_ALREADY_TEXT,
@@ -57,6 +63,15 @@ export interface SlackActiveGroup {
   id: string
   orgId: string
   spaceId: string | null
+  /** 登録直後の練習（対話型チュートリアル）用。前からある接続を巻き込まないための日時。 */
+  createdAt?: string | null
+  /** 同上。練習の進み具合の置き場所（channel_groups.metadata） */
+  metadata?: Record<string, unknown> | null
+  /**
+   * 拾い方（channel_groups.pickup_mode）。**返事で嘘をつかないためだけに使う**。
+   * 'off' のグループは毎朝のまとめ配信の対象外＝「次にお届けする一覧に載ります」が果たされない。
+   */
+  pickupMode?: string
 }
 
 export interface SlackClaimCode {
@@ -108,7 +123,7 @@ export interface SlackReplyResult {
   ts: string | null
 }
 
-export interface SlackWebhookDeps {
+export interface SlackWebhookDeps extends TutorialWiring {
   loadAccount: (accountId: string) => Promise<SlackAccount | null>
   findActiveGroup: (accountId: string, channelId: string) => Promise<SlackActiveGroup | null>
   insertMessage: (input: SlackInsertInput) => Promise<{ id: string } | 'duplicate'>
@@ -145,6 +160,8 @@ export interface SlackWebhookDeps {
     digestNumber: number,
     externalUserId: string | null,
   ) => Promise<{ id: string; title: string } | null>
+  /** 「タスク追加 ○○」でその場に申し送りタスクを1件作る */
+  createInstantDigestTask: (input: CreateInstantDigestTaskInput) => Promise<CreateInstantDigestTaskResult>
   /** 秘書の発話を outbound として記録する */
   insertOutbound: (input: SlackOutboundInput) => Promise<unknown>
 }
@@ -222,20 +239,21 @@ function stripSelfMentionPrefix(content: string, botUserId: string | undefined):
 }
 
 /**
- * claimed チャンネルでの「完了N」処理。中身は claimLimboCore.runDigestCompletion（Discord/Slack/
- * Chatwork 共通）。reply はテキストのみ受ける形に束縛し、chat.postMessage の ts を
- * providerMessageId として返す。
+ * claimed チャンネルでの合図（完了N / ヘルプ / タスク追加）の振り分け。中身は
+ * groupCommands.handleClaimedGroupMessage（7チャネル共通）。reply はテキストのみ受ける形に
+ * 束縛し、chat.postMessage の ts を providerMessageId として返す。
  */
-async function handleDigestCompleteCommand(
+async function handleGroupCommand(
   account: SlackAccount,
   ev: SlackEvent,
   group: SlackActiveGroup,
-  digestNumber: number,
+  sourceMessageId: string,
+  commandText: string,
   deps: SlackWebhookDeps,
 ): Promise<void> {
   const botToken = account.credentials.bot_token
   const channelId = ev.channel as string
-  await runDigestCompletion(
+  await handleClaimedGroupMessage(
     {
       orgId: group.orgId,
       spaceId: group.spaceId,
@@ -244,13 +262,22 @@ async function handleDigestCompleteCommand(
       channel: 'slack',
       externalUserId: ev.user ?? null,
       autoReplyTo: `${channelId}:${ev.ts}`,
+      sourceMessageId,
+      text: commandText,
+      groupCreatedAt: group.createdAt ?? null,
+      groupMetadata: group.metadata ?? null,
+      // 拾い方=off のグループに「次にお届けする一覧に載ります」と嘘をつかないため
+      pickupMode: group.pickupMode,
     },
-    digestNumber,
     {
       completeDigestTask: deps.completeDigestTask,
+      createInstantDigestTask: deps.createInstantDigestTask,
       reply: (text) =>
         deps.reply(botToken, channelId, text).then((r) => ({ providerMessageId: r.ts })),
       insertOutbound: deps.insertOutbound,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -264,8 +291,9 @@ async function processLimbo(
   const channelId = ev.channel as string
   const text = ev.text ?? ''
 
-  return processClaimLimbo(
-    { accountId: account.id, externalGroupId: channelId, text },
+  // 登録が成立したときだけ、成立文言の後ろに練習の入り口を1通足す（応答そのものは変えない）。
+  return handleLimboGroupMessage(
+    { accountId: account.id, externalGroupId: channelId, text, channel: 'slack' },
     {
       normalizeClaimCode: deps.normalizeClaimCode,
       hashClaimCode: deps.hashClaimCode,
@@ -277,6 +305,10 @@ async function processLimbo(
       generateChallengeLabel: deps.generateChallengeLabel,
       registerInvalidAttempt: deps.registerInvalidAttempt,
       reply: (t) => deps.reply(botToken, channelId, t).then(() => undefined),
+      findActiveGroup: deps.findActiveGroup,
+      assignDigestNumbersToNewTasks: deps.assignDigestNumbersToNewTasks,
+      updateGroupMetadata: deps.updateGroupMetadata,
+      now: deps.now,
     },
   )
 }
@@ -362,10 +394,7 @@ export async function handleSlackWebhook(
 
     if (recorded !== 'duplicate') {
       const commandText = stripSelfMentionPrefix(ev.text, account.botUserId)
-      const digestNumber = parseDigestCompleteCommand(commandText)
-      if (digestNumber !== null) {
-        await handleDigestCompleteCommand(account, ev, group, digestNumber, deps)
-      }
+      await handleGroupCommand(account, ev, group, recorded.id, commandText, deps)
     }
     return { status: 200, body: { ok: true } }
   }
