@@ -164,7 +164,7 @@ export function ChannelCommandGuide({
               <p className="text-gray-500">{placement.note}</p>
 
               <ProfileTextBlock
-                testId="channel-command-guide-profile-text"
+                data-testid="channel-command-guide-profile-text"
                 label={PROFILE_TEXT_LONG_LABEL}
                 hint={PROFILE_TEXT_LONG_HINT}
                 text={profileText}
@@ -174,7 +174,7 @@ export function ChannelCommandGuide({
 
               {profileShortText && (
                 <ProfileTextBlock
-                  testId="channel-command-guide-profile-short-text"
+                  data-testid="channel-command-guide-profile-short-text"
                   label={PROFILE_TEXT_SHORT_LABEL}
                   hint={PROFILE_TEXT_SHORT_HINT}
                   text={profileShortText}
@@ -195,14 +195,19 @@ export function ChannelCommandGuide({
  * 長い版と短い版でまったく同じ形なので、書き写さずここに1つだけ持つ。
  */
 function ProfileTextBlock({
-  testId,
+  'data-testid': testId,
   label,
   hint,
   text,
   result,
   onCopy,
 }: {
-  testId: string
+  /**
+   * ⚠ 目印は**呼び出し側にそのままの文字列で書く**（`data-testid="..."`）。
+   * 変数で渡すと、E2Eの前提を見張る番人（src/__tests__/design/e2eContract.test.ts）が
+   * ソースから目印を見つけられず、「実装に無い」と誤検知して落ちる。
+   */
+  'data-testid': string
   label: string
   hint: string
   text: string
