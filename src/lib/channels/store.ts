@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { dueSortKey } from '@/lib/channels/digest/due'
 import type { MentionedAssignee } from '@/lib/channels/digest/compute'
 import { DIGEST_LIST_ROWS_CAP } from '@/lib/channels/digest/compute'
 import {
@@ -2258,64 +2257,42 @@ export interface NumberedDigestTask {
  * 並びは「期限の近い順 → 期限なし」（Stage 2.6 §5）。digestは毎朝openを全件送るため、
  * 期限順に並べること自体が期限リマインドとして機能する（新しいcronを増やさない）。
  * 同着（同一期限・期限なし同士）は created_at 順で安定させる。
+ *
+ * ⚠ 総入れ替えをしてよいのはこの経路（配信直前の cron）だけ。並べ替えと採番は
+ *   rpc_clear_and_renumber_digest_tasks の中で、グループ行をロックしたまま一度に行う
+ *   （クリアと採番の隙間に「タスク追加」が割り込むと番号が重複するため）。
  */
 export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<NumberedDigestTask[]> {
-  const client = admin()
-  // clear の失敗を握り潰すと、旧番号が残ったまま新番号を振れず「完了N」返信が別タスクを指す。
-  // 失敗は必ず伝播させ、cron 側で配信をスキップさせる（誤配信より欠配信を選ぶ）。
-  const clearRes = await client
-    .from('channel_digest_tasks')
-    .update({ digest_number: null })
-    .eq('group_id', groupId)
-  if (clearRes.error) {
-    throw new Error(`clearAndRenumberOpenDigestTasks: clear failed: ${clearRes.error.message}`)
-  }
+  const { data, error } = await admin().rpc('rpc_clear_and_renumber_digest_tasks', {
+    p_group_id: groupId,
+  })
 
-  const { data, error } = await client
-    .from('channel_digest_tasks')
-    .select('id, title, created_at, due_date, due_time, assignee_hint')
-    .eq('group_id', groupId)
-    .eq('status', 'open')
-    .order('created_at', { ascending: true })
-
-  // ★取得エラーは「0件」と区別して伝播させる（旧実装は error 時も [] を返し、
-  //   open タスクがあるのに配信を握り潰していた）。
+  // 失敗を握り潰すと、旧番号が残ったまま新番号を振れず「完了N」返信が別タスクを指す。
+  // 必ず伝播させ、cron 側で配信をスキップさせる（誤配信より欠配信を選ぶ）。
   if (error) {
-    throw new Error(`clearAndRenumberOpenDigestTasks: select failed: ${error.message}`)
+    throw new Error(`clearAndRenumberOpenDigestTasks: rpc failed: ${error.message}`)
   }
-  if (!data || data.length === 0) return []
+  return mapNumberedDigestRows(data)
+}
 
-  const rows = data as Array<{
+/** RPC が返す行（snake_case）を、アプリ側の形にそろえる。2つの採番RPCで同じ形。 */
+function mapNumberedDigestRows(data: unknown): NumberedDigestTask[] {
+  const rows = (data ?? []) as Array<{
     id: string
     title: string
+    digest_number: number
     due_date: string | null
     due_time: string | null
     assignee_hint: string | null
   }>
-  const numbered = rows
-    .map((row) => ({
-      id: row.id,
-      title: row.title,
-      dueDate: row.due_date,
-      dueTime: row.due_time,
-      assigneeHint: row.assignee_hint,
-    }))
-    // created_at順の配列に対する安定ソート（Array.prototype.sortはES2019以降、安定であることが保証される）
-    .sort((a, b) => dueSortKey(a.dueDate, a.dueTime) - dueSortKey(b.dueDate, b.dueTime))
-    .map((row, index) => ({ ...row, digestNumber: index + 1 }))
-
-  // 各番号更新の失敗も検査する（部分失敗のまま配信すると番号とDBがずれる）。
-  const updateResults = await Promise.all(
-    numbered.map((task) =>
-      client.from('channel_digest_tasks').update({ digest_number: task.digestNumber }).eq('id', task.id),
-    ),
-  )
-  const failed = updateResults.find((r) => r.error)
-  if (failed?.error) {
-    throw new Error(`clearAndRenumberOpenDigestTasks: renumber failed: ${failed.error.message}`)
-  }
-
-  return numbered
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    digestNumber: row.digest_number,
+    dueDate: row.due_date,
+    dueTime: row.due_time,
+    assigneeHint: row.assignee_hint,
+  }))
 }
 
 /**
@@ -2330,99 +2307,29 @@ export async function clearAndRenumberOpenDigestTasks(groupId: string): Promise<
  * 数に入れる（番号は配信直前の総入れ替えまで残るため、避けないと同じ番号を二重に配ることになる）。
  * 戻り値は一覧に出る（open な）タスクを番号順に並べたもの。
  *
- * ⚠ **読む行は必ず絞る**。この関数は「一覧」コマンドで人が何度でも叩ける経路になった。
- *   全行を読むと、長く使っているグループでは完了済みの行が延々と積み上がり、
- *   1回の「一覧」でその山を毎回読むことになる。よって
- *     - 一覧に出す行は open だけを読む（件数にも上限を置く）
- *     - 「今使われている番号の最大」は最大値1行だけを引く（完了済みの行を読まずに済ませる）
- *   の2本立てにしている。
+ * ⚠ 採番は**必ずDB側(rpc_assign_digest_numbers)でやる**。アプリで「最大を読む→+1して書く」を
+ *   すると、同じグループでほぼ同時に「タスク追加」された2件に同じ番号が付き、
+ *   その番号で「完了N」を送ると2件とも完了したうえで「既に完了済み」と返る。
+ *   RPC は channel_groups の行を FOR UPDATE でロックしてから読み書きするので直列化される
+ *   （open な (group_id, digest_number) の一意制約が最後の砦）。
+ *
+ * ⚠ 読む行は open だけ・件数にも上限を置く（この関数は「一覧」で人が何度でも叩ける）。
  */
 // 値の正本は digest/compute.ts（表示側も同じ上限を知らないと、切られた件数を「◯件」と
 // 言い切ってしまう）。ここは既存の呼び出し元のための別名。
 export const ASSIGN_DIGEST_NUMBERS_MAX_ROWS = DIGEST_LIST_ROWS_CAP
 
 export async function assignDigestNumbersToNewTasks(groupId: string): Promise<NumberedDigestTask[]> {
-  const client = admin()
-
-  // (1) 今使われている番号の最大。完了済みの行も番号を持ち続けるので、open だけ見ると同じ番号を
-  //     二重に配ってしまう。全行を読まずに済ませるため、最大値の1行だけを引く。
-  const { data: maxData, error: maxError } = await client
-    .from('channel_digest_tasks')
-    .select('digest_number')
-    .eq('group_id', groupId)
-    .not('digest_number', 'is', null)
-    .order('digest_number', { ascending: false })
-    .limit(1)
-
-  if (maxError) {
-    throw new Error(`assignDigestNumbersToNewTasks: select failed: ${maxError.message}`)
-  }
-
-  // (2) 一覧に出す行（open のみ・上限つき）。
-  const { data, error } = await client
-    .from('channel_digest_tasks')
-    .select('id, title, status, digest_number, created_at, due_date, due_time, assignee_hint')
-    .eq('group_id', groupId)
-    .eq('status', 'open')
-    .order('created_at', { ascending: true })
-    .limit(ASSIGN_DIGEST_NUMBERS_MAX_ROWS)
+  const { data, error } = await admin().rpc('rpc_assign_digest_numbers', {
+    p_group_id: groupId,
+    p_limit: ASSIGN_DIGEST_NUMBERS_MAX_ROWS,
+  })
 
   // 読めなかったことと「0件」を混ぜない（番号が分からないまま案内すると嘘の番号を約束する）。
   if (error) {
-    throw new Error(`assignDigestNumbersToNewTasks: select failed: ${error.message}`)
+    throw new Error(`assignDigestNumbersToNewTasks: rpc failed: ${error.message}`)
   }
-  if (!data || data.length === 0) return []
-
-  const rows = data as Array<{
-    id: string
-    title: string
-    status: string
-    digest_number: number | null
-    due_date: string | null
-    due_time: string | null
-    assignee_hint: string | null
-  }>
-
-  const maxRows = (maxData ?? []) as Array<{ digest_number: number | null }>
-  let nextNumber = maxRows.reduce(
-    (max, r) => (typeof r.digest_number === 'number' && r.digest_number > max ? r.digest_number : max),
-    0,
-  )
-
-  const pendingUpdates: Array<{ id: string; digestNumber: number }> = []
-  const numbered: NumberedDigestTask[] = rows
-    .filter((r) => r.status === 'open')
-    .map((r) => {
-      let digestNumber = r.digest_number
-      if (typeof digestNumber !== 'number') {
-        nextNumber += 1
-        digestNumber = nextNumber
-        pendingUpdates.push({ id: r.id, digestNumber })
-      }
-      return {
-        id: r.id,
-        title: r.title,
-        digestNumber,
-        dueDate: r.due_date,
-        dueTime: r.due_time,
-        assigneeHint: r.assignee_hint,
-      }
-    })
-    .sort((a, b) => a.digestNumber - b.digestNumber)
-
-  if (pendingUpdates.length > 0) {
-    const updateResults = await Promise.all(
-      pendingUpdates.map((task) =>
-        client.from('channel_digest_tasks').update({ digest_number: task.digestNumber }).eq('id', task.id),
-      ),
-    )
-    const failed = updateResults.find((r) => r.error)
-    if (failed?.error) {
-      throw new Error(`assignDigestNumbersToNewTasks: number failed: ${failed.error.message}`)
-    }
-  }
-
-  return numbered
+  return mapNumberedDigestRows(data)
 }
 
 /**
