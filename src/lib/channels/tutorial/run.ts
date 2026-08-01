@@ -36,7 +36,9 @@ import {
 import {
   TUTORIAL_COMPLETED_TEXT,
   TUTORIAL_INTRO_TEXT,
+  TUTORIAL_RESTART_INTRO_TEXT,
   TUTORIAL_SKIPPED_TEXT,
+  TUTORIAL_UNAVAILABLE_TEXT,
   buildTutorialAddedText,
 } from '@/lib/channels/tutorial/messages'
 
@@ -112,6 +114,36 @@ export async function startTutorial(
   if (readTutorialState(group.metadata)) return null
 
   await deps.reply(TUTORIAL_INTRO_TEXT)
+  const state: ChannelTutorialState = {
+    step: 'awaiting_add',
+    // toISOString(): timestamptz の瞬時値用途（date-only ではない・既存踏襲）。
+    startedAt: deps.now().toISOString(),
+  }
+  await saveStep(group, deps, state)
+  return 'awaiting_add'
+}
+
+/**
+ * 「練習」と送られたときに、最初からやり直す。
+ *
+ * startTutorial との違いは2つ。**本人が明示的に頼んだ**ので、
+ *   - すでに終わっている(finished)・途中である、のどちらでも始め直す（前の途中経過は持ち越さない）
+ *   - 「前からある接続を巻き込まない」48時間の窓は効かせない（遅れ出しの案内を防ぐための窓であって、
+ *     本人の依頼を断る理由にはならない）
+ *
+ * 練習できないグループでは**黙らずに理由を返す**。打ったのに無反応が、この案件で
+ * いちばん直したかった失敗だから。
+ */
+export async function restartTutorial(
+  group: TutorialGroupContext,
+  deps: TutorialDeps,
+): Promise<TutorialStep | null> {
+  if (!canRunTutorial(group)) {
+    await deps.reply(TUTORIAL_UNAVAILABLE_TEXT)
+    return null
+  }
+
+  await deps.reply(TUTORIAL_RESTART_INTRO_TEXT)
   const state: ChannelTutorialState = {
     step: 'awaiting_add',
     // toISOString(): timestamptz の瞬時値用途（date-only ではない・既存踏襲）。
