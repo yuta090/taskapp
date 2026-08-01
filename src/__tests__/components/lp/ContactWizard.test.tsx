@@ -197,9 +197,7 @@ describe('ContactWizard', () => {
     await waitForStep('やり取りする相手先（顧問先・クライアント）はどのくらい？')
     fireEvent.click(screen.getByRole('radio', { name: '〜5社' }))
     await waitForStep('いまの状況やお気持ちを、そのまま教えてください')
-    fireEvent.change(screen.getByRole('textbox', { name: /お気持ち/ }), {
-      target: { value: '月末にいつも探しています' },
-    })
+    await typeInto(screen.getByRole('textbox', { name: /お気持ち/ }), '月末にいつも探しています')
     fireEvent.click(screen.getByRole('button', { name: '次へ' }))
     await waitForStep('最後に、ご連絡先を教えてください')
 
