@@ -22,6 +22,7 @@ import {
   parseCompleteWithoutNumberCommand,
   parseHelpCommand,
   parseListCommand,
+  parsePracticeCommand,
 } from '@/lib/channels/textCommands'
 import { renderHelpReplyText } from '@/lib/channels/commandGuides'
 import {
@@ -44,8 +45,10 @@ import type {
   CreateInstantDigestTaskInput,
   CreateInstantDigestTaskResult,
 } from '@/lib/channels/store'
+import { TUTORIAL_UNAVAILABLE_TEXT } from '@/lib/channels/tutorial/messages'
 import {
   advanceTutorial,
+  restartTutorial,
   startTutorial,
   type TutorialDeps,
   type TutorialGroupContext,
@@ -273,6 +276,7 @@ export type GroupCommandMatch =
   | 'complete_hint'
   | 'help'
   | 'list'
+  | 'practice'
   | 'add_task'
   | 'failed'
   | null
@@ -481,6 +485,25 @@ async function dispatchClaimedGroupMessage<TChannel extends string>(
     const tasks = await deps.assignDigestNumbersToNewTasks(params.groupId)
     await replyAndRecord(params, deps, buildTaskListReplyText(tasks, formatDateToLocalString(jstNow())))
     return { matched: 'list' }
+  }
+
+  // (2-c) 練習 — 使い方の練習をもう一度やる。
+  //        「あとで」で抜けた人・24時間放置した人・あとから参加した人の戻り道。
+  //        練習の発話は runTutorial と同じく outbound として記録する（監査ログをそろえる）。
+  if (parsePracticeCommand(text)) {
+    const tutorial = buildTutorial(params, deps)
+    if (!tutorial) {
+      // 練習の配線そのものが無いチャネル。黙ると「打ったのに無反応」になるので理由を返す。
+      await replyAndRecord(params, deps, TUTORIAL_UNAVAILABLE_TEXT)
+      return { matched: 'practice' }
+    }
+    try {
+      await restartTutorial(tutorial.group, tutorial.deps)
+    } catch (error) {
+      // 練習が転んでも本流（完了・登録・ヘルプ）は壊さない。既存の runTutorial と同じ扱い。
+      console.error('[tutorial] restart failed', params.groupId, error)
+    }
+    return { matched: 'practice' }
   }
 
   // (3) タスク追加 ○○

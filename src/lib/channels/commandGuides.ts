@@ -40,6 +40,14 @@ export interface ChatCommandEntry {
   shortEffect?: string
   /** 補足（任意・1行） */
   note?: string
+  /**
+   * 貼り付け用の文章（プロフィール欄・説明欄）には載せない合図。
+   *
+   * 貼り先の入力欄には字数の上限があり、**毎日使う合図**を優先して入れたい。
+   * 「練習」は困った人の受け皿で、そこへは『ヘルプ』の返事から辿り着ける
+   * （貼り紙 → ヘルプ → 練習）。日々の合図を押し出してまで貼り紙に載せない。
+   */
+  omitFromProfile?: boolean
 }
 
 /** 1チャネル分の使い方。ここから3つの出力（プロフィール欄／チャット返信／接続ページ）を作る。 */
@@ -68,6 +76,8 @@ export interface ChannelCommandTraits {
   addTask: boolean
   /** 「ヘルプ」が効くか */
   help: boolean
+  /** 「練習」が効くか（使い方の練習をもう一度やる） */
+  practice: boolean
   /** 押せるボタンが届くか（現状 LINE のみ true） */
   buttons: boolean
   /**
@@ -103,7 +113,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: true,
     mentionTolerant: true,
     sharedPasteTarget: 'グループの「ノート」',
@@ -112,7 +122,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: false,
     mentionTolerant: true,
     sharedPasteTarget: 'チャンネルの「説明」',
@@ -121,7 +131,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: false,
     mentionTolerant: true,
     sharedPasteTarget: 'チャンネルの「トピック」',
@@ -130,7 +140,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: false,
     mentionTolerant: false,
     sharedPasteTarget: 'グループチャットの「概要」',
@@ -143,7 +153,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: false,
     mentionTolerant: true,
     sharedPasteTarget: 'グループの「説明」',
@@ -152,7 +162,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: false,
     mentionTolerant: true,
     sharedPasteTarget: 'チャネルの「説明」',
@@ -161,7 +171,7 @@ export const CHANNEL_COMMAND_TRAITS: Partial<Record<ChannelId, ChannelCommandTra
     complete: true,
     list: true,
     addTask: true,
-    help: true,
+    help: true, practice: true,
     buttons: false,
     mentionTolerant: true,
     sharedPasteTarget: 'スペースの「説明」',
@@ -191,6 +201,7 @@ const INPUT_COMPLETE = '完了 3'
 const INPUT_LIST = LIST_COMMAND_INPUT
 const INPUT_ADD_TASK = 'タスク追加 見積もりを送る'
 const INPUT_HELP = 'ヘルプ'
+const INPUT_PRACTICE = '練習'
 
 const EFFECT_COMPLETE = 'その番号のタスクを完了にします'
 const SHORT_EFFECT_COMPLETE = 'その番号を完了にします'
@@ -204,6 +215,7 @@ const SHORT_EFFECT_ADD_TASK = '1件お預かりします'
  */
 const EFFECT_HELP = '使い方をお送りします'
 const SHORT_EFFECT_HELP = '使い方を出します'
+const EFFECT_PRACTICE = 'タスクの登録と完了を、その場で練習できます'
 /**
  * LINE にだけ届く押せるボタン。
  * ⚠ [取り消す] の説明をここにも書かない。同じ話を注意書き（LIMIT_UNDO_LINE）で言い直すことになり、
@@ -290,6 +302,10 @@ function buildGuide(channel: ChannelId, traits: ChannelCommandTraits): ChannelCo
   if (traits.help) {
     commands.push({ input: INPUT_HELP, effect: EFFECT_HELP, shortEffect: SHORT_EFFECT_HELP })
   }
+  // 練習は「読んでも分からなかった人」の受け皿なので、ヘルプの次に置く。
+  if (traits.practice) {
+    commands.push({ input: INPUT_PRACTICE, effect: EFFECT_PRACTICE, omitFromProfile: true })
+  }
   if (traits.buttons) {
     // 押すだけで打つ文字列が無い操作。プロフィール欄（打つ合図の一覧）には出さない。
     commands.push({ input: null, effect: EFFECT_BUTTON_DONE })
@@ -344,7 +360,7 @@ export function renderBotProfileText(channel: string): string | null {
   if (!guide) return null
   const lines = [guide.summary]
   for (const command of guide.commands) {
-    if (!command.input) continue
+    if (!command.input || command.omitFromProfile) continue
     lines.push(renderCommandLine(command))
     if (command.note) lines.push(`　${command.note}`)
   }
@@ -368,7 +384,7 @@ export function renderBotProfileShortText(channel: string): string | null {
   const guide = buildGuide(found.id, found.traits)
   const lines = [guide.summaryShort]
   for (const command of guide.commands) {
-    if (!command.input) continue
+    if (!command.input || command.omitFromProfile) continue
     lines.push(`・${command.input} … ${command.shortEffect ?? command.effect}`)
   }
   if (found.traits.shortCriticalNote) lines.push(`※${found.traits.shortCriticalNote}`)

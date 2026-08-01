@@ -20,6 +20,10 @@ import { formatDateToLocalString } from '@/lib/gantt/dateUtils'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { ALREADY_DONE_TEXT, buildDigestDoneText } from '@/lib/channels/claimLimboCore'
 import { renderHelpReplyText } from '@/lib/channels/commandGuides'
+import {
+  TUTORIAL_RESTART_INTRO_TEXT,
+  TUTORIAL_UNAVAILABLE_TEXT,
+} from '@/lib/channels/tutorial/messages'
 
 function makeParams(over: Partial<GroupCommandParams<'discord'>> = {}): GroupCommandParams<'discord'> {
   return {
@@ -522,5 +526,43 @@ describe('タスクが読み取りの上限を超えるグループの一覧', (
     expect(text).toContain('（25件）')
     expect(text).toContain('ほかに5件あります。')
     expect(text).not.toContain('以上')
+  })
+})
+
+/**
+ * 「練習」でやり直す。
+ * 練習は1グループ1回きりで、「あとで」で抜けた人・24時間放置した人・あとから参加した人は
+ * 二度と見られなかった。その戻り道。
+ */
+describe('「練習」でやり直す', () => {
+  it('一度終わったグループでも、練習の導入を返して段階を書き戻す', async () => {
+    const deps = makeDeps({ updateGroupMetadata: vi.fn().mockResolvedValue(undefined) })
+    const params = makeParams({
+      text: '練習',
+      groupMetadata: { tutorial: { step: 'finished', startedAt: '2026-07-30T00:00:00.000Z' } },
+    })
+
+    const res = await handleClaimedGroupMessage(params, deps)
+
+    expect(res).toEqual({ matched: 'practice' })
+    expect(deps.reply).toHaveBeenCalledWith(TUTORIAL_RESTART_INTRO_TEXT)
+    expect(deps.updateGroupMetadata).toHaveBeenCalled()
+  })
+
+  it('練習の配線が無いチャットでは、黙らずに理由を返す', async () => {
+    // updateGroupMetadata が無い＝練習を動かせない配線。ここで黙ると「打ったのに無反応」。
+    const deps = makeDeps({ updateGroupMetadata: undefined })
+    const res = await handleClaimedGroupMessage(makeParams({ text: '練習' }), deps)
+
+    expect(res).toEqual({ matched: 'practice' })
+    expect(deps.reply).toHaveBeenCalledWith(TUTORIAL_UNAVAILABLE_TEXT)
+  })
+
+  it('「練習しておきます」のような普通の会話には割り込まない', async () => {
+    const deps = makeDeps({ updateGroupMetadata: vi.fn().mockResolvedValue(undefined) })
+    const res = await handleClaimedGroupMessage(makeParams({ text: '練習しておきます' }), deps)
+
+    expect(res).toEqual({ matched: null })
+    expect(deps.reply).not.toHaveBeenCalled()
   })
 })
