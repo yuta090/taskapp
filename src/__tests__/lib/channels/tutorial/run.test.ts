@@ -354,20 +354,75 @@ describe('restartTutorial（「練習」でやり直す）', () => {
     )
   })
 
-  it('前の練習の途中経過（タスク・番号）を持ち越さない', async () => {
+  it('登録まで済んでいたら、前のタスクのまま続きから案内する（練習用タスクを増やさない）', async () => {
+    // ここで最初から始めると、前に登録した「れんしゅう」が開いたまま置き去りになり、
+    // やり直すたびに相手先の一覧へ1件ずつ積み上がる。
     const group = withState({
       step: 'awaiting_done',
       startedAt: new Date(NOW.getTime() - 60_000).toISOString(),
       taskId: 'old-task',
       digestNumber: 3,
     })
-    const deps = makeDeps()
+    const deps = makeDeps({
+      assignDigestNumbersToNewTasks: vi
+        .fn()
+        .mockResolvedValue([{ id: 'old-task', digestNumber: 5, title: 'れんしゅう' }]),
+    })
 
-    await restartTutorial(group, deps)
+    const step = await restartTutorial(group, deps)
 
+    expect(step).toBe('awaiting_done')
+    // 番号は毎時ふり直されるので、控えていた 3 ではなく**いまの 5** で案内する。
+    expect(deps.reply).toHaveBeenCalledWith(buildTutorialAddedText(5, 'れんしゅう'))
+    expect(deps.saveTutorialState).toHaveBeenCalledWith(
+      'grp-1',
+      expect.objectContaining({ step: 'awaiting_done', taskId: 'old-task', digestNumber: 5 }),
+    )
+  })
+
+  it('前のタスクが見当たらなければ（消された・完了済み）、ふつうに最初から始める', async () => {
+    const group = withState({
+      step: 'awaiting_done',
+      startedAt: new Date(NOW.getTime() - 60_000).toISOString(),
+      taskId: 'old-task',
+      digestNumber: 3,
+    })
+    const deps = makeDeps({ assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]) })
+
+    const step = await restartTutorial(group, deps)
+
+    expect(step).toBe('awaiting_add')
+    expect(deps.reply).toHaveBeenCalledWith(TUTORIAL_RESTART_INTRO_TEXT)
     const saved = (deps.saveTutorialState as ReturnType<typeof vi.fn>).mock.calls[0][1]
     expect(saved.taskId).toBeUndefined()
     expect(saved.digestNumber).toBeUndefined()
+  })
+
+  it('案内を送る前に段階を保存する（保存が転んでも「打っても進まない」を作らない）', async () => {
+    const order: string[] = []
+    const group = withState({ step: 'finished', startedAt: NOW.toISOString() })
+    const deps = makeDeps({
+      saveTutorialState: vi.fn(async () => {
+        order.push('save')
+      }),
+      reply: vi.fn(async () => {
+        order.push('reply')
+      }),
+    })
+
+    await restartTutorial(group, deps)
+
+    expect(order).toEqual(['save', 'reply'])
+  })
+
+  it('保存に失敗したら案内を送らない（言われたとおり打っても進まない、を作らない）', async () => {
+    const group = withState({ step: 'finished', startedAt: NOW.toISOString() })
+    const deps = makeDeps({
+      saveTutorialState: vi.fn().mockRejectedValue(new Error('db down')),
+    })
+
+    await expect(restartTutorial(group, deps)).rejects.toThrow(/db down/)
+    expect(deps.reply).not.toHaveBeenCalledWith(TUTORIAL_RESTART_INTRO_TEXT)
   })
 
   it('前から使っている古いグループでも始められる（48時間の窓は本人の依頼には効かせない）', async () => {
