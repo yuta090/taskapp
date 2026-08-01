@@ -76,6 +76,7 @@ import {
   parseCompleteWithoutNumberCommand,
   parseHelpCommand,
   parseListCommand,
+  parsePracticeCommand,
 } from '@/lib/channels/textCommands'
 import {
   ADD_TASK_EMPTY_TEXT,
@@ -87,6 +88,7 @@ import {
 import { renderHelpReplyText } from '@/lib/channels/commandGuides'
 import {
   advanceTutorial,
+  restartTutorial,
   startTutorial,
   type TutorialDeps,
   type TutorialGroupContext,
@@ -1094,6 +1096,15 @@ async function processGroupMessage(
       return
     }
 
+    // 練習: 使い方の練習をもう一度やる。「あとで」で抜けた人・24時間放置した人・
+    // あとから参加した人の戻り道。合図に完全一致したときだけ。
+    if (parsePracticeCommand(command.text)) {
+      await runGroupCommand(account, event, disabled, () =>
+        handlePracticeCommand(account, event, group, identityId, disabled),
+      )
+      return
+    }
+
     // 番号を落とした「完了」単独。黙ると打った本人は何が悪いのか分からないので案内を返す。
     // 「完了1」は上の parseDigestCompleteCommand が拾うのでここには来ない。
     if (parseCompleteWithoutNumberCommand(command.text)) {
@@ -1699,6 +1710,20 @@ async function collectTutorialAdvance(
   return tutorial.texts
 }
 
+/**
+ * 「練習」でやり直す。collectTutorialAdvance と同じく、発話を溜めて同じ返信にまとめる
+ * （push を使わない＝LINE の無料枠を1通も消費しない）。
+ */
+async function collectTutorialRestart(group: ChannelGroup): Promise<string[]> {
+  const tutorial = createLineTutorial(group)
+  try {
+    await restartTutorial(tutorial.context, tutorial.deps)
+  } catch (error) {
+    console.error('[tutorial] LINE restart failed', group.id, error)
+  }
+  return tutorial.texts
+}
+
 /** 溜めた練習の発話を LINE のテキストメッセージにする。 */
 function toLineTextMessages(texts: string[]): Array<{ type: 'text'; text: string }> {
   return texts.map((text) => ({ type: 'text' as const, text }))
@@ -1813,6 +1838,23 @@ async function handleListCommand(
   await replyGroupCommandText(account, event, group, identityId, disabled, async () => {
     const tasks = await assignDigestNumbersToNewTasks(group.id)
     return buildTaskListReplyText(tasks, formatDateToLocalString(jstNow()))
+  })
+}
+
+/**
+ * 「練習」でやり直す。練習ができないグループでは restartTutorial が理由を返すので、
+ * ここでは溜まった発話をそのまま返信する（黙る経路を作らない）。
+ */
+async function handlePracticeCommand(
+  account: LineAccount,
+  event: NormalizedLineEvent,
+  group: ChannelGroup,
+  identityId: string | null,
+  disabled: boolean,
+): Promise<void> {
+  await replyGroupCommandText(account, event, group, identityId, disabled, async () => {
+    const texts = await collectTutorialRestart(group)
+    return texts.join('\n\n')
   })
 }
 

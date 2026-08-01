@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   startTutorial,
   advanceTutorial,
+  restartTutorial,
   type TutorialDeps,
   type TutorialGroupContext,
 } from '@/lib/channels/tutorial/run'
@@ -9,6 +10,8 @@ import {
   TUTORIAL_INTRO_TEXT,
   TUTORIAL_COMPLETED_TEXT,
   TUTORIAL_SKIPPED_TEXT,
+  TUTORIAL_RESTART_INTRO_TEXT,
+  TUTORIAL_UNAVAILABLE_TEXT,
   buildTutorialAddedText,
 } from '@/lib/channels/tutorial/messages'
 import { TUTORIAL_TTL_MS, NEW_GROUP_WINDOW_MS, type ChannelTutorialState } from '@/lib/channels/tutorial/state'
@@ -326,5 +329,140 @@ describe('advanceTutorial（案内の遅れ出し・web_approval で成立した
     expect(step).toBeNull()
     expect(deps.reply).not.toHaveBeenCalled()
     expect(deps.saveTutorialState).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 「練習」でやり直す。
+ *
+ * 練習は1グループ1回きりで、「あとで」で抜けた人・24時間放置した人・あとから参加した人は
+ * 二度と見られなかった。使い方が分からない人ほど最初に「あとで」と言うので、そこが片手落ちだった。
+ * 本人が明示的に頼んだときは、何度でも最初からやり直せる。
+ */
+describe('restartTutorial（「練習」でやり直す）', () => {
+  it('一度終わったグループでも、もう一度最初から始める', async () => {
+    const group = withState({ step: 'finished', startedAt: NOW.toISOString() })
+    const deps = makeDeps()
+
+    const step = await restartTutorial(group, deps)
+
+    expect(step).toBe('awaiting_add')
+    expect(deps.reply).toHaveBeenCalledWith(TUTORIAL_RESTART_INTRO_TEXT)
+    expect(deps.saveTutorialState).toHaveBeenCalledWith(
+      'grp-1',
+      expect.objectContaining({ step: 'awaiting_add', startedAt: NOW.toISOString() }),
+    )
+  })
+
+  it('登録まで済んでいたら、前のタスクのまま続きから案内する（練習用タスクを増やさない）', async () => {
+    // ここで最初から始めると、前に登録した「れんしゅう」が開いたまま置き去りになり、
+    // やり直すたびに相手先の一覧へ1件ずつ積み上がる。
+    const group = withState({
+      step: 'awaiting_done',
+      startedAt: new Date(NOW.getTime() - 60_000).toISOString(),
+      taskId: 'old-task',
+      digestNumber: 3,
+    })
+    const deps = makeDeps({
+      assignDigestNumbersToNewTasks: vi
+        .fn()
+        .mockResolvedValue([{ id: 'old-task', digestNumber: 5, title: 'れんしゅう' }]),
+    })
+
+    const step = await restartTutorial(group, deps)
+
+    expect(step).toBe('awaiting_done')
+    // 番号は毎時ふり直されるので、控えていた 3 ではなく**いまの 5** で案内する。
+    expect(deps.reply).toHaveBeenCalledWith(buildTutorialAddedText(5, 'れんしゅう'))
+    expect(deps.saveTutorialState).toHaveBeenCalledWith(
+      'grp-1',
+      expect.objectContaining({ step: 'awaiting_done', taskId: 'old-task', digestNumber: 5 }),
+    )
+  })
+
+  it('前のタスクが見当たらなければ（消された・完了済み）、ふつうに最初から始める', async () => {
+    const group = withState({
+      step: 'awaiting_done',
+      startedAt: new Date(NOW.getTime() - 60_000).toISOString(),
+      taskId: 'old-task',
+      digestNumber: 3,
+    })
+    const deps = makeDeps({ assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]) })
+
+    const step = await restartTutorial(group, deps)
+
+    expect(step).toBe('awaiting_add')
+    expect(deps.reply).toHaveBeenCalledWith(TUTORIAL_RESTART_INTRO_TEXT)
+    const saved = (deps.saveTutorialState as ReturnType<typeof vi.fn>).mock.calls[0][1]
+    expect(saved.taskId).toBeUndefined()
+    expect(saved.digestNumber).toBeUndefined()
+  })
+
+  it('案内を送る前に段階を保存する（保存が転んでも「打っても進まない」を作らない）', async () => {
+    const order: string[] = []
+    const group = withState({ step: 'finished', startedAt: NOW.toISOString() })
+    const deps = makeDeps({
+      saveTutorialState: vi.fn(async () => {
+        order.push('save')
+      }),
+      reply: vi.fn(async () => {
+        order.push('reply')
+      }),
+    })
+
+    await restartTutorial(group, deps)
+
+    expect(order).toEqual(['save', 'reply'])
+  })
+
+  it('保存に失敗したら案内を送らない（言われたとおり打っても進まない、を作らない）', async () => {
+    const group = withState({ step: 'finished', startedAt: NOW.toISOString() })
+    const deps = makeDeps({
+      saveTutorialState: vi.fn().mockRejectedValue(new Error('db down')),
+    })
+
+    await expect(restartTutorial(group, deps)).rejects.toThrow(/db down/)
+    expect(deps.reply).not.toHaveBeenCalledWith(TUTORIAL_RESTART_INTRO_TEXT)
+  })
+
+  it('前から使っている古いグループでも始められる（48時間の窓は本人の依頼には効かせない）', async () => {
+    // 遅れ出しの案内は既存グループを巻き込まないよう48時間で切るが、
+    // 本人が「練習」と打ったのなら、いつ作られたグループでも応じる。
+    const group = makeGroup({
+      createdAt: new Date(NOW.getTime() - NEW_GROUP_WINDOW_MS * 10).toISOString(),
+    })
+    const deps = makeDeps()
+
+    await expect(restartTutorial(group, deps)).resolves.toBe('awaiting_add')
+  })
+
+  it('「はじめまして」とは言わない（初対面ではない）', () => {
+    expect(TUTORIAL_RESTART_INTRO_TEXT).not.toContain('はじめまして')
+    // やることは初回と同じなので、最初に打つ合図と空白の注意は落とさない。
+    expect(TUTORIAL_RESTART_INTRO_TEXT).toContain('タスク追加 れんしゅう')
+    expect(TUTORIAL_RESTART_INTRO_TEXT).toContain('空白')
+  })
+
+  it('練習ができないグループでは、黙らずに理由を返す', async () => {
+    // 拾い方の設定などで「タスク追加」が効かないグループ。ここで黙ると
+    // 「打ったのに無反応」＝この案件が直そうとしている失敗そのものになる。
+    const group = makeGroup({ addTaskEnabled: false })
+    const deps = makeDeps()
+
+    const step = await restartTutorial(group, deps)
+
+    expect(step).toBeNull()
+    expect(deps.reply).toHaveBeenCalledWith(TUTORIAL_UNAVAILABLE_TEXT)
+    expect(deps.saveTutorialState).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 「あとで」で抜けた人が戻ってこられるか。
+ * 戻る道を案内していなければ、やり直せる機能があっても誰も使えない。
+ */
+describe('抜けた人への案内', () => {
+  it('「あとで」の返事に、やり直し方（『練習』）が入っている', () => {
+    expect(TUTORIAL_SKIPPED_TEXT).toContain('練習')
   })
 })

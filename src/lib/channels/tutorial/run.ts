@@ -36,7 +36,9 @@ import {
 import {
   TUTORIAL_COMPLETED_TEXT,
   TUTORIAL_INTRO_TEXT,
+  TUTORIAL_RESTART_INTRO_TEXT,
   TUTORIAL_SKIPPED_TEXT,
+  TUTORIAL_UNAVAILABLE_TEXT,
   buildTutorialAddedText,
 } from '@/lib/channels/tutorial/messages'
 
@@ -119,6 +121,83 @@ export async function startTutorial(
   }
   await saveStep(group, deps, state)
   return 'awaiting_add'
+}
+
+/**
+ * 「練習」と送られたときに、最初からやり直す。
+ *
+ * startTutorial との違いは2つ。**本人が明示的に頼んだ**ので、
+ *   - すでに終わっている(finished)・途中である、のどちらでも始め直す（前の途中経過は持ち越さない）
+ *   - 「前からある接続を巻き込まない」48時間の窓は効かせない（遅れ出しの案内を防ぐための窓であって、
+ *     本人の依頼を断る理由にはならない）
+ *
+ * 練習できないグループでは**黙らずに理由を返す**。打ったのに無反応が、この案件で
+ * いちばん直したかった失敗だから。
+ */
+export async function restartTutorial(
+  group: TutorialGroupContext,
+  deps: TutorialDeps,
+): Promise<TutorialStep | null> {
+  if (!canRunTutorial(group)) {
+    await deps.reply(TUTORIAL_UNAVAILABLE_TEXT)
+    return null
+  }
+
+  // toISOString(): timestamptz の瞬時値用途（date-only ではない・既存踏襲）。
+  const startedAt = deps.now().toISOString()
+
+  // 途中（登録は済んで、消し込み待ち）で「練習」と打たれた場合。
+  //
+  // ⚠ ここで無条件に最初から始めると、前に登録した練習用タスクが**開いたまま置き去りになる**。
+  //   練習をやり直すたびに「れんしゅう」が1件ずつ相手先の一覧に積み上がっていく。
+  //   前のタスクがまだ残っているなら、そこから**続き**を案内する（新しく作らせない）。
+  //   残っていなければ（消された・完了済み）ふつうに最初から。
+  const previous = readTutorialState(group.metadata)
+  if (previous?.step === 'awaiting_done' && previous.taskId) {
+    const resumed = await resumePractice(group, deps, previous, startedAt)
+    if (resumed) return resumed
+  }
+
+  const state: ChannelTutorialState = { step: 'awaiting_add', startedAt }
+  // ★保存を先に済ませる。案内を送ったあとで保存が転ぶと、
+  //   利用者は言われたとおり「タスク追加」を打つのに練習が1歩も進まない（無反応に見える）。
+  await saveStep(group, deps, state)
+  await deps.reply(TUTORIAL_RESTART_INTRO_TEXT)
+  return 'awaiting_add'
+}
+
+/**
+ * 途中だった練習を、前のタスクのまま続きから案内する。
+ * 前のタスクが一覧に見当たらなければ null（呼び出し側が最初から始める）。
+ */
+async function resumePractice(
+  group: TutorialGroupContext,
+  deps: TutorialDeps,
+  previous: ChannelTutorialState,
+  startedAt: string,
+): Promise<TutorialStep | null> {
+  let open: TutorialNumberedTask[]
+  try {
+    open = await deps.assignDigestNumbersToNewTasks(group.groupId)
+  } catch (error) {
+    // 番号が読めないなら続きを約束できない。最初から始めるほうへ倒す。
+    console.error('[tutorial] resume lookup failed', group.groupId, error)
+    return null
+  }
+
+  // 番号は毎時ふり直されるので、控えていた番号ではなく**いまの番号**で案内する。
+  const target = open.find((task) => task.id === previous.taskId)
+  if (!target) return null
+
+  const state: ChannelTutorialState = {
+    step: 'awaiting_done',
+    taskId: target.id,
+    digestNumber: target.digestNumber,
+    startedAt,
+  }
+  await saveStep(group, deps, state)
+  await deps.reply(buildTutorialAddedText(target.digestNumber, target.title))
+  return 'awaiting_done'
 }
 
 /**

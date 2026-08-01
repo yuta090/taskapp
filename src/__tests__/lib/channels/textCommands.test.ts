@@ -5,6 +5,7 @@ import {
   parseAddTaskCommand,
   parseSkipCommand,
   parseListCommand,
+  parsePracticeCommand,
   parseCompleteWithoutNumberCommand,
   matchAddTaskPrefix,
 } from '@/lib/channels/textCommands'
@@ -183,4 +184,36 @@ describe('parseCompleteWithoutNumberCommand', () => {
       expect(parseCompleteWithoutNumberCommand(text)).toBe(false)
     },
   )
+})
+
+/**
+ * 「練習」— 使い方の練習をもう一度やる合図。
+ *
+ * 練習は1グループ1回きりで、「あとで」で抜けた人・24時間放置した人・あとから参加した人は
+ * 二度と見られなかった。使い方が分からない人ほど最初に「あとで」と言うので、そこが片手落ちだった。
+ */
+describe('parsePracticeCommand（練習をやり直す合図）', () => {
+  it('「練習」「れんしゅう」を合図として読む', () => {
+    for (const text of ['練習', 'れんしゅう', ' 練習 ', '練習。', 'れんしゅう？']) {
+      expect(parsePracticeCommand(text), text).toBe(true)
+    }
+  })
+
+  it('ふつうの会話では発火しない（厳格一致）', () => {
+    for (const text of [
+      '練習しておきます',
+      '明日練習します',
+      'そろそろ練習しないと',
+      '練習の日程を決めましょう',
+      '',
+    ]) {
+      expect(parsePracticeCommand(text), text).toBe(false)
+    }
+  })
+
+  it('ほかの合図とは混ざらない', () => {
+    for (const text of ['ヘルプ', '一覧', '完了', 'あとで', 'タスク追加 見積もり']) {
+      expect(parsePracticeCommand(text), text).toBe(false)
+    }
+  })
 })

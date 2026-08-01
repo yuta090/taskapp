@@ -60,6 +60,16 @@ const SKIP_KEYWORDS = ['あとで', 'スキップ', 'skip'] as const
 const LIST_KEYWORDS = ['一覧', 'いちらん', 'タスク一覧', 'リスト', 'list'] as const
 
 /**
+ * 使い方の練習をもう一度やる合図。
+ *
+ * 練習は1グループ1回きりだったので、「あとで」で抜けた人・24時間放置した人・
+ * あとから参加した人は二度と見られなかった。使い方が分からない人ほど最初に「あとで」と
+ * 言うので、そこが片手落ちだった。
+ * 語を増やすほど普通の会話にぶつかるので、この2つだけにする。
+ */
+const PRACTICE_KEYWORDS = ['練習', 'れんしゅう'] as const
+
+/**
  * 番号を付け忘れた「完了」単独。
  *
  * ⚠ 沈黙させない: 案内は「終わったら『完了3』と送ってください」と読めるので、
@@ -78,6 +88,12 @@ export function parseHelpCommand(text: string): boolean {
 export function parseSkipCommand(text: string): boolean {
   const keyword = toCommandKeyword(text)
   return (SKIP_KEYWORDS as readonly string[]).includes(keyword)
+}
+
+/** 練習をやり直す合図か。ヘルプと同じ厳格一致（「練習しておきます」では発火しない）。 */
+export function parsePracticeCommand(text: string): boolean {
+  const keyword = toCommandKeyword(text)
+  return (PRACTICE_KEYWORDS as readonly string[]).includes(keyword)
 }
 
 /** 一覧合図か。ヘルプと同じ厳格一致（「一覧を出して」のような普通の会話では発火しない）。 */

@@ -12,7 +12,11 @@ import {
 } from '@/lib/channels/commandGuides'
 import { chatChannels, listChannels } from '@/lib/channels/registry'
 import { parseDigestCompleteCommand } from '@/lib/channels/digest/commands'
-import { parseAddTaskCommand, parseHelpCommand } from '@/lib/channels/textCommands'
+import {
+  parseAddTaskCommand,
+  parseHelpCommand,
+  parsePracticeCommand,
+} from '@/lib/channels/textCommands'
 import { buildDigestDoneText } from '@/lib/channels/claimLimboCore'
 import { buildTaskListReplyText } from '@/lib/channels/groupCommands'
 import {
@@ -274,7 +278,7 @@ describe('打ち方の規則を、実装の読み取りと突き合わせる', (
     }
   })
 
-  it('打つ合図の並び順は 完了 → 一覧 → タスク追加 → ヘルプ（困っている順）', () => {
+  it('打つ合図の並び順は 完了 → 一覧 → タスク追加 → ヘルプ → 練習（困っている順）', () => {
     for (const def of GROUP_CHANNELS) {
       const guide = getChannelCommandGuide(def.id)!
       const typed = guide.commands.filter((c) => c.input !== null).map((c) => c.input!)
@@ -283,9 +287,17 @@ describe('打ち方の規則を、実装の読み取りと突き合わせる', (
         if (input === LIST_COMMAND_INPUT) return 'list'
         if (parseAddTaskCommand(input)) return 'add'
         if (parseHelpCommand(input)) return 'help'
+        if (parsePracticeCommand(input)) return 'practice'
         return 'other'
       })
-      expect(kind, `${def.id}: 並び順が違う`).toEqual(['complete', 'list', 'add', 'help'])
+      // 練習はいちばん後ろ。ヘルプを読んでも分からなかった人の受け皿なので。
+      expect(kind, `${def.id}: 並び順が違う`).toEqual([
+        'complete',
+        'list',
+        'add',
+        'help',
+        'practice',
+      ])
     }
   })
 })
@@ -503,13 +515,39 @@ describe('renderBotProfileShortText', () => {
     },
   )
 
-  it('短い版でも、打つ合図はそのまま真似できる（実際の読み取りに通る）', () => {
+  it('短い版でも、日々使う合図はそのまま真似できる（実際の読み取りに通る）', () => {
     for (const def of GROUP_CHANNELS) {
       const short = renderBotProfileShortText(def.id)!
       for (const command of getChannelCommandGuide(def.id)!.commands) {
-        if (!command.input) continue
+        if (!command.input || command.omitFromProfile) continue
         expect(short, `${def.id}: 合図が落ちている（${command.input}）`).toContain(command.input)
       }
+    }
+  })
+
+  /**
+   * 貼り紙に載せない合図（練習）へ、貼り紙だけを読んだ人が辿り着けるか。
+   * 載せないと決めた以上、**ヘルプ経由の道が繋がっていること**が条件になる。
+   */
+  it('貼り紙に載せない合図には、ヘルプの返事から辿り着ける', () => {
+    for (const def of GROUP_CHANNELS) {
+      const omitted = getChannelCommandGuide(def.id)!.commands.filter(
+        (c) => c.input && c.omitFromProfile,
+      )
+      expect(omitted.length, `${def.id}: 対象が無い`).toBeGreaterThan(0)
+
+      const profile = renderBotProfileText(def.id)!
+      const help = renderHelpReplyText(def.id)!
+      for (const command of omitted) {
+        // 貼り紙には出さない（字数を日々の合図に使う）
+        expect(profile, `${def.id}: 貼り紙に出ている（${command.input}）`).not.toContain(
+          `・${command.input}`,
+        )
+        // ヘルプの返事には必ず出す（ここが唯一の入口になるため）
+        expect(help, `${def.id}: ヘルプに出ていない（${command.input}）`).toContain(command.input!)
+      }
+      // 貼り紙にヘルプの合図が載っていること＝道が繋がっていることの前提
+      expect(profile, `${def.id}: 貼り紙からヘルプに辿れない`).toContain('ヘルプ')
     }
   })
 
