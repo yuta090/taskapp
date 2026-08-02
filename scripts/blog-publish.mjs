@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 下書き（docs/blog/DRAFT_*.md）を DB（blog_posts）へ反映する。
+ * 下書き（<draftsDir>/DRAFT_*.md）を記事の保管先へ反映する。設定は blog.config.json。
  *
  * なぜスクリプトにするか: 記事の正本はDBだが、原稿はリポジトリにある。手作業で貼ると
  * 両者がずれる（貼り忘れ・貼り間違い・CMS入力値の写し間違い）。下書きの
@@ -19,15 +19,12 @@
  *   node scripts/blog-publish.mjs docs/blog/DRAFT_xxx.md --publish  # 公開する
  *   node scripts/blog-publish.mjs docs/blog/DRAFT_xxx.md --dry-run  # 中身だけ確認する
  */
-import { createClient } from '@supabase/supabase-js'
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadConfig, getSupabase, readSecrets } from './blog-config.mjs'
 
-const ROOT = path.resolve(import.meta.dirname, '..')
-const ENV_CANDIDATES = [
-  path.join(ROOT, '.env.local'),
-  '/Volumes/WIN-MAC2/scripts/taskapp/.env.local',
-]
+const cfg = loadConfig()
+const ROOT = cfg.root
 
 const [fileArg] = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 const doPublish = process.argv.includes('--publish')
@@ -70,38 +67,26 @@ const body = lines
   .trim()
 
 // --- cover は「ファイル名だけ」でも公開URLに直す
-const PUBLIC_PREFIX = (url) => `${url}/storage/v1/object/public/task6-covers/`
+const PUBLIC_PREFIX = (url) => `${url}/storage/v1/object/public/${cfg.supabase.coversBucket}/`
 const tags = (meta.tags ?? '')
   .split(/[/／,、]/)
   .map((t) => t.trim())
   .filter(Boolean)
 
-function readEnv(p, keys) {
-  const text = fs.readFileSync(p, 'utf8')
-  const out = {}
-  for (const k of keys) {
-    const m = text.match(new RegExp(`^${k}=(.*)$`, 'm'))
-    if (m) out[k] = m[1].trim().replace(/^["']|["']$/g, '')
-  }
-  return out
-}
-const envPath = ENV_CANDIDATES.find((p) => fs.existsSync(p))
-if (!envPath) {
-  console.error('.env.local が見つかりません')
-  process.exit(2)
-}
-const env = readEnv(envPath, ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'])
 
 let cover = meta.cover_image_url ?? ''
 cover = cover.replace(/（.*?）|\(.*?\)/g, '').trim()
-if (cover && !cover.startsWith('http')) cover = PUBLIC_PREFIX(env.NEXT_PUBLIC_SUPABASE_URL) + cover
+if (cover && !cover.startsWith('http') && cfg.supabase.coversBucket) {
+  const secrets = readSecrets(cfg, [cfg.supabase.urlKey])
+  cover = PUBLIC_PREFIX(secrets[cfg.supabase.urlKey]) + cover
+}
 
 const row = {
   slug: meta.slug,
   title: meta.title,
   description: meta.description,
   body_md: body,
-  author_name: meta.author_name || '高橋ゆうこ',
+  author_name: meta.author_name || cfg.defaultAuthor || '',
   tags,
   noindex: meta.noindex === 'true',
   status: doPublish ? 'published' : 'draft',
@@ -118,20 +103,18 @@ if (dryRun) {
   process.exit(0)
 }
 
-const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-})
+const supabase = await getSupabase(cfg)
 // 既存があれば published_at は保持する（再公開で日付が動かないように）
 const { data: existing } = await supabase
-  .from('blog_posts')
+  .from(cfg.supabase.table)
   .select('id, published_at')
   .eq('slug', row.slug)
   .maybeSingle()
 if (existing?.published_at && doPublish) row.published_at = existing.published_at
 
-const { error } = await supabase.from('blog_posts').upsert(row, { onConflict: 'slug' })
+const { error } = await supabase.from(cfg.supabase.table).upsert(row, { onConflict: 'slug' })
 if (error) {
   console.error(error)
   process.exit(1)
 }
-console.log(`${existing ? '更新' : '新規作成'}しました: /task6/${row.slug}`)
+console.log(`${existing ? '更新' : '新規作成'}しました: ${cfg.articleUrlPattern.replace('{slug}', row.slug)}`)

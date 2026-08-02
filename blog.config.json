@@ -1,0 +1,23 @@
+{
+  "store": "supabase",
+  "draftsDir": "docs/blog",
+  "ledgerPath": "docs/blog/ARTICLE_LEDGER.md",
+  "articleUrlPattern": "/task6/{slug}",
+  "bannerPromptPath": "docs/blog/BANNER_PROMPT.md",
+  "supabase": {
+    "envFile": ".env.local",
+    "table": "blog_posts",
+    "coversBucket": "task6-covers"
+  },
+  "insiderWords": [
+    "ボール",
+    "一本道"
+  ],
+  "projectChecks": [
+    {
+      "re": "登録不要|9つの型|9つのタイプ",
+      "label": "診断の案内が実物とずれている"
+    }
+  ],
+  "defaultAuthor": "高橋ゆうこ"
+}
