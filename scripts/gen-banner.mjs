@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TASK6 記事バナーを、支給プロンプト（BANNER_PROMPT.md の本文・**変更禁止**）で生成する。
+ * 記事バナーを、支給プロンプト（BANNER_PROMPT.md の本文・**変更禁止**）で生成する。
  *
  * 自分でプロンプトを書き直したり要約したりしない（地味になることが実証済み）。
  * このスクリプトは「案件固有ヘッダ」だけを受け取り、本文はファイルから丸ごと連結して agy に渡す。
@@ -12,8 +12,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const ROOT = path.resolve(import.meta.dirname, '..')
-const PROMPT_FILE = path.join(ROOT, 'docs/blog/BANNER_PROMPT.md')
+import { loadConfig } from './blog-config.mjs'
+
+const cfg = loadConfig()
+const ROOT = cfg.root
+const PROMPT_FILE = path.join(ROOT, cfg.bannerPromptPath)
 
 const [headerPath, outPath] = process.argv.slice(2)
 if (!headerPath || !outPath) {

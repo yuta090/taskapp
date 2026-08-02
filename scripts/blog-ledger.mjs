@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ブログ記事の台帳を、DB(blog_posts)から生成する。
+ * 記事の台帳を、記事の保管先から生成する。設定は blog.config.json。
  *
  * なぜ手書きの一覧にしないか: 手で書く台帳は必ず実態とずれる。実際に、別の作業で**執筆中(draft)**
  * だった記事と同じテーマを、確認せずに書いて公開してしまう事故が起きた(2026-07-28)。
@@ -12,50 +12,16 @@
  *   node scripts/blog-ledger.mjs          # docs/blog/ARTICLE_LEDGER.md を更新
  *   node scripts/blog-ledger.mjs --check "キーワード"  # 似た記事が既にないか確認して終了コードで返す
  */
-import { createClient } from '@supabase/supabase-js'
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadConfig, listPosts } from './blog-config.mjs'
 
-const ROOT = path.resolve(import.meta.dirname, '..')
-const LEDGER = path.join(ROOT, 'docs/blog/ARTICLE_LEDGER.md')
+const cfg = loadConfig()
+const ROOT = cfg.root
+const LEDGER = path.join(ROOT, cfg.ledgerPath)
 
-function readEnv(p, keys) {
-  const text = fs.readFileSync(p, 'utf8')
-  const out = {}
-  for (const k of keys) {
-    const m = text.match(new RegExp(`^${k}=(.*)$`, 'm'))
-    if (m) out[k] = m[1].trim().replace(/^["']|["']$/g, '')
-  }
-  return out
-}
-
-// worktree には .env.local が無いことがあるので、メインの作業ディレクトリも見る
-const ENV_CANDIDATES = [
-  path.join(ROOT, '.env.local'),
-  '/Volumes/WIN-MAC2/scripts/taskapp/.env.local',
-]
-const envPath = ENV_CANDIDATES.find((p) => fs.existsSync(p))
-if (!envPath) {
-  console.error('.env.local が見つかりません')
-  process.exit(2)
-}
-const env = readEnv(envPath, ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'])
-if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('.env.local に接続情報がありません')
-  process.exit(2)
-}
-const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-})
-
-const { data, error } = await supabase
-  .from('blog_posts')
-  .select('slug, title, description, status, published_at, cover_image_url, tags, updated_at')
-  .order('updated_at', { ascending: false })
-if (error) {
-  console.error(error)
-  process.exit(2)
-}
+const data = await listPosts(cfg, { includeDrafts: true })
+data.sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')))
 
 // --check: 似たテーマの記事が既にないかを調べる（書き始める前に通す）
 const checkIdx = process.argv.indexOf('--check')
@@ -92,11 +58,11 @@ const rows = data.map((p) => {
 const published = data.filter((p) => p.status === 'published').length
 const drafts = data.filter((p) => p.status !== 'published').length
 
-const body = `# TASK6 記事台帳（DBから自動生成）
+const body = `# 記事台帳（自動生成）
 
 **このファイルは手で編集しない。** \`node scripts/blog-ledger.mjs\` で再生成する。
 
-- 記事の正本は DB（\`blog_posts\`）。台帳はその写し
+- 記事の正本は保管先（DB等）。台帳はその写し
 - **記事を書き始める前に必ず再生成して読む**。特に**下書き（draft）**は、別の作業で執筆中の
   可能性がある。ここを見ずに書いて、同じテーマの記事を二重に公開した事故がある（2026-07-28）
 - テーマの重複確認は \`node scripts/blog-ledger.mjs --check "リマインくん"\` が速い
