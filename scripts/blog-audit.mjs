@@ -92,23 +92,36 @@ if (process.argv.includes('--sections')) {
     for (const line of post.body_md.split('\n')) {
       if (/^#{2,3} /.test(line)) {
         if (cur) rows.push(cur)
-        cur = { slug: post.slug, head: line.replace(/^#+ /, ''), level: line.startsWith('### ') ? 3 : 2, chars: 0, list: 0 }
+        cur = { slug: post.slug, head: line.replace(/^#+ /, ''), level: line.startsWith('### ') ? 3 : 2, chars: 0, run: 0, maxRun: 0 }
         continue
       }
       if (!cur) continue
-      cur.chars += line.trim().length
-      if (/^[-*] |^\d+\. /.test(line.trim())) cur.list += line.trim().length
+      const t = line.trim()
+      cur.chars += t.length
+      // 読者の目にとっての「区切り」は中見出しだけではない。箇条書き・引用・Q&A・
+      // 段落頭の太字ラベル（**見分け方**：など）も面が変わるので、そこでかたまりが切れる。
+      // ここを数えないと、実際は読みやすい節まで「長すぎ」と鳴り、警告が読み飛ばされる
+      // Q&A（**Q. …**）は本文が長くても区切り。太字ラベル（**見分け方**：）は短いものだけ
+      const isBreak =
+        /^[-*] |^\d+\. |^> |^\{\{/.test(t) ||
+        /^\*\*Q[.．]/.test(t) ||
+        /^\*\*[^*]{1,14}\*\*[：:]/.test(t) ||
+        /^\*\*[^*]{1,10}\*\*「/.test(t) // 対話劇の話者ラベル（**ガント**「…）も面が変わる
+      if (isBreak) cur.run = 0
+      else cur.run += t.length
+      if (cur.run > cur.maxRun) cur.maxRun = cur.run
     }
     if (cur) rows.push(cur)
   }
-  rows.sort((a, b) => b.chars - a.chars)
-  console.log('節の長さ（長い順・400字超のみ）。目安500字。listはそのうち箇条書きの字数\n')
-  for (const r of rows.filter((r) => r.chars > 400)) {
-    const mark = r.chars > 500 && r.chars - r.list > 500 ? '★' : ' '
-    console.log(`${mark}${String(r.chars).padStart(4)}字（list${String(r.list).padStart(3)}）H${r.level} [${r.slug}] ${r.head}`)
+  rows.sort((a, b) => b.maxRun - a.maxRun)
+  console.log('区切りなしで続く最長のかたまり（長い順・300字超のみ）。目安500字\n')
+  console.log('区切り＝中見出し・箇条書き・引用・Q&A・段落頭の太字ラベル\n')
+  for (const r of rows.filter((r) => r.maxRun > 300)) {
+    const mark = r.maxRun > 500 ? '★' : ' '
+    console.log(`${mark}${String(r.maxRun).padStart(4)}字（節全体${String(r.chars).padStart(4)}）H${r.level} [${r.slug}] ${r.head}`)
   }
-  const over = rows.filter((r) => r.chars - r.list > 500).length
-  console.log(`\n全${rows.length}節 / ★（箇条書きを除いて500字超）${over}節`)
+  const over = rows.filter((r) => r.maxRun > 500).length
+  console.log(`\n全${rows.length}節 / ★（区切りなしで500字超）${over}節`)
   console.log('★は中見出しで割るか、段落を削るかを検討する。判断は人がやる。')
   process.exit(0)
 }
