@@ -26,9 +26,9 @@ const HOME_FALLBACK_TEXT = '（ドキュメントリンク未設定）'
 const KNOWN_INTEGRATIONS = ['github', 'slack', 'google_calendar', 'video_conference']
 
 describe('presets registry', () => {
-  it('9ジャンルすべてを返し、genreキーが有効である', () => {
+  it('10ジャンルすべてを返し、genreキーが有効である', () => {
     const presets = getGenrePresets()
-    expect(presets).toHaveLength(9)
+    expect(presets).toHaveLength(10)
     for (const preset of presets) {
       expect(isValidPresetGenre(preset.genre)).toBe(true)
       expect(preset.genre).not.toBe('blank')
@@ -202,6 +202,26 @@ describe('preset invariants (全ジャンル共通の品質基準)', () => {
 })
 
 describe('preset content quality (ジャンル固有)', () => {
+  it('新規事業: 進行が「仮説設計→…→事業開始判定」で、判定基準を事前に決めるページがある', () => {
+    const preset = getPreset('new_business')
+    expect(preset.milestones.map(m => m.name)).toEqual([
+      '仮説設計', '顧客検証', '商品化', '販売準備', '提案・受注', '初回提供', '事業開始判定',
+    ])
+    const page = preset.wikiPages.find(p => p.title === '事業開始判定')!
+    const body = page.generateBody(DUMMY_ORG, DUMMY_SPACE)
+    expect(body).toContain('判定基準（事前に決める）')
+    expect(body).toContain('本格開始 / 修正して継続 / 中止')
+  })
+
+  it('新規事業: 商品・提供条件シートに導入条件（契約・法務・助成金）の欄がある', () => {
+    const preset = getPreset('new_business')
+    const page = preset.wikiPages.find(p => p.title === '商品・提供条件シート')!
+    const body = page.generateBody(DUMMY_ORG, DUMMY_SPACE)
+    expect(body).toContain('導入条件')
+    expect(body).toContain('契約・法務')
+    expect(body).toContain('助成金')
+  })
+
   it('マーケティング: コンテンツカレンダーに制作フローの節がある', () => {
     const preset = getPreset('marketing')
     const page = preset.wikiPages.find(p => p.title === 'コンテンツカレンダー')!
