@@ -25,6 +25,13 @@ export interface ManifestSubcommand {
   deprecated?: boolean
   hidden?: boolean
   stdinMode?: boolean
+  /**
+   * stdin の読み方。'json'(既定)はオブジェクトとして解釈し params にマージ、
+   * 'text' は生テキストのまま stdinParam で指定した1パラメータに入れる（CSV取り込み等）。
+   */
+  stdinFormat?: 'json' | 'text'
+  /** stdinFormat='text' のとき、テキストを入れるパラメータ名 */
+  stdinParam?: string
   options: ManifestOption[]
 }
 
@@ -93,6 +100,12 @@ function validateSubcommand(sub: ManifestSubcommand, path: string): void {
   }
   if (!Array.isArray(sub.options)) {
     throw new ManifestValidationError(`${path}: options must be an array`)
+  }
+  if (sub.stdinFormat !== undefined && !['json', 'text'].includes(sub.stdinFormat)) {
+    throw new ManifestValidationError(`${path}: invalid stdinFormat: ${sub.stdinFormat}`)
+  }
+  if (sub.stdinFormat === 'text' && (!sub.stdinParam || !PARAM_RE.test(sub.stdinParam))) {
+    throw new ManifestValidationError(`${path}: stdinFormat=text requires a valid stdinParam`)
   }
   for (let i = 0; i < sub.options.length; i++) {
     validateOption(sub.options[i], `${path}.options[${i}]`)

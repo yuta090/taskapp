@@ -3,28 +3,13 @@
  * Converts manifest definitions → Commander.js commands at runtime.
  */
 import { Option } from 'commander';
+import { readFileSync } from 'node:fs';
 import { resolveSpaceId } from './config.js';
+import { buildStdinParams, camelCase, extractLongFlag, optionKey } from './input.js';
 import { callTool } from './api-client.js';
 import { output, outputError } from './output.js';
 import { sanitize } from './manifest-validator.js';
 import chalk from 'chalk';
-/**
- * Extract the long flag name from a flags string.
- * e.g., "-s, --space-id <uuid>" → "space-id"
- *       "--task-id <uuid>" → "task-id"
- *       "--no-dry-run" → "no-dry-run"
- */
-function extractLongFlag(flags) {
-    const match = flags.match(/--([a-z][a-z0-9-]*)/);
-    return match ? match[1] : '';
-}
-/**
- * Convert kebab-case to camelCase (Commander.js convention).
- * e.g., "space-id" → "spaceId", "no-dry-run" → "noDryRun"
- */
-function camelCase(str) {
-    return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-}
 /**
  * Convert option value based on type definition.
  */
@@ -59,12 +44,10 @@ function convertType(value, type) {
 function buildParams(optionDefs, opts) {
     const params = {};
     for (const def of optionDefs) {
-        // Determine the Commander key for this option
-        const longFlag = extractLongFlag(def.flags);
-        const key = camelCase(longFlag);
+        // Determine the Commander key for this option.
         // For negatable options (--no-xxx), Commander stores as the positive key
         // e.g., --no-dry-run → opts.dryRun = false, --no-include-invites → opts.includeInvites = false
-        let value = opts[key];
+        const value = opts[optionKey(def)];
         // Skip stdin pseudo-option (handled separately)
         if (def.param === 'stdin')
             continue;
@@ -141,15 +124,17 @@ function validateConstraints(optionDefs, opts) {
     return null;
 }
 /**
- * Read stdin as JSON (for scheduling create/respond).
+ * Read all of stdin as UTF-8 text. JSON/text の解釈は input.ts の buildStdinParams に任せる。
  */
-async function readStdin() {
+async function readStdinText() {
     const chunks = [];
     for await (const chunk of process.stdin) {
         chunks.push(chunk);
     }
-    return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+    return Buffer.concat(chunks).toString('utf-8');
 }
+/** stdin テキスト系コマンド(stdinFormat='text')にだけ CLI 側で足す入力元オプション */
+const FILE_OPTION_FLAGS = '--file <path>';
 /**
  * Create an action handler for a subcommand.
  */
@@ -167,36 +152,37 @@ function createAction(sub, program) {
             return;
         }
         try {
-            // stdin mode (scheduling create/respond)
-            if (sub.stdinMode && opts.stdin) {
-                const stdinParams = await readStdin();
-                // Merge CLI options into stdin params (CLI takes precedence for spaceId)
-                const spaceOpt = sub.options.find((o) => o.resolve === 'spaceId');
-                if (spaceOpt && !stdinParams.spaceId) {
+            // stdin mode: JSON(scheduling create/respond) or raw text(task import via --stdin / --file)
+            const isTextMode = sub.stdinFormat === 'text';
+            const filePath = isTextMode && typeof opts.file === 'string' ? opts.file : undefined;
+            if (sub.stdinMode && (opts.stdin || filePath)) {
+                const rawText = filePath ? readFileSync(filePath, 'utf-8') : await readStdinText();
+                // spaceId は CLI 側(resolve 済み)を優先。stdin 側に無いコマンドもあるので失敗は握る
+                let resolvedSpaceId;
+                if (sub.options.some((o) => o.resolve === 'spaceId')) {
                     try {
-                        stdinParams.spaceId = resolveSpaceId(opts);
+                        resolvedSpaceId = resolveSpaceId(opts);
                     }
                     catch {
                         // spaceId not required for all commands
                     }
                 }
-                // Merge other required CLI options
-                for (const def of sub.options) {
-                    if (def.param === 'stdin')
-                        continue;
-                    const key = camelCase(extractLongFlag(def.flags));
-                    if (opts[key] !== undefined && stdinParams[def.param] === undefined) {
-                        stdinParams[def.param] = opts[key];
-                    }
-                }
+                const stdinParams = buildStdinParams(sub, rawText, opts, resolvedSpaceId);
                 const result = await callTool(sub.tool, stdinParams);
                 output(result, jsonMode);
                 return;
             }
             // stdin required but not provided
-            if (sub.stdinMode && !opts.stdin) {
-                console.error(`Error: ${sub.name} requires --stdin with JSON input.`);
-                console.error(`Example: echo '{"key":"value"}' | agentpm ... --stdin`);
+            if (sub.stdinMode) {
+                if (isTextMode) {
+                    console.error(`Error: ${sub.name} requires --file <path> or --stdin.`);
+                    console.error(`Example: agentpm ... ${sub.name} --file tasks.csv`);
+                    console.error(`         cat tasks.csv | agentpm ... ${sub.name} --stdin`);
+                }
+                else {
+                    console.error(`Error: ${sub.name} requires --stdin with JSON input.`);
+                    console.error(`Example: echo '{"key":"value"}' | agentpm ... --stdin`);
+                }
                 process.exit(1);
             }
             // Normal mode
@@ -239,6 +225,12 @@ function registerSubcommand(parent, sub, program) {
     }
     for (const opt of sub.options) {
         registerOption(subCmd, opt);
+    }
+    // stdinFormat='text' のコマンドには、manifest に無くても CLI 側で --file を足す。
+    // manifest に載せると旧CLI(0.2.x)の検証が type を知らず manifest 全体を弾いてしまうため、
+    // 旧CLIに影響しないここ(クライアント側)で付ける。
+    if (sub.stdinFormat === 'text') {
+        subCmd.addOption(new Option(FILE_OPTION_FLAGS, 'Read input from a file instead of stdin'));
     }
     subCmd.action(createAction(sub, program));
 }

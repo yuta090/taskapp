@@ -32,6 +32,7 @@ const TOOL_LABELS: Record<string, string> = {
   task_list: 'タスク一覧',
   task_get: 'タスク詳細',
   task_delete: 'タスク削除',
+  task_import: 'タスクCSV取り込み',
   task_list_my: '自分のタスク',
   task_stale: '停滞タスク',
   // ボール

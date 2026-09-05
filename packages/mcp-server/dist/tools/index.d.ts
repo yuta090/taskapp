@@ -201,6 +201,23 @@ export declare const allTools: ({
     description: string;
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodString;
+        csv: import("zod").ZodString;
+        dryRun: import("zod").ZodDefault<import("zod").ZodBoolean>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        dryRun: boolean;
+        csv: string;
+    }, {
+        spaceId: string;
+        csv: string;
+        dryRun?: boolean | undefined;
+    }>;
+    handler: typeof import("./taskImport.js").taskImport;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
         taskId: import("zod").ZodString;
         ball: import("zod").ZodEnum<["client", "internal"]>;
         clientOwnerIds: import("zod").ZodDefault<import("zod").ZodArray<import("zod").ZodString, "many">>;
