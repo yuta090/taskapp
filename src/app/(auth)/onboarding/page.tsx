@@ -204,7 +204,12 @@ export default function OnboardingPage() {
         return
       }
 
-      router.push(`/${orgId}/project/${data.space.id}`)
+      // 初回セットアップ完了の目印 ?onboarded=1 を付けて遷移する。
+      // アクセス解析（GTM/GA4）で「会員登録→設定完了」をこのURLで CV として数える。
+      // 着地先は毎日の作業画面と同じURLなので、目印が無いと区別できない。
+      // AppShell が保存する lastPath は pathname のみ（query を含まない）ので、
+      // 次回以降のログインで再び ?onboarded=1 に着地することはない。
+      router.push(`/${orgId}/project/${data.space.id}?onboarded=1`)
     } catch (err) {
       console.error('Space creation error:', err)
       setError('プロジェクトの作成に失敗しました。もう一度お試しください。')
