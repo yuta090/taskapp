@@ -4,10 +4,11 @@ import { GenrePicker, GenrePreview } from '@/components/space/GenrePicker'
 import { getPreset } from '@/lib/presets'
 
 describe('GenrePicker', () => {
-  it('9ジャンルのカードと白紙ボタンを表示する', () => {
+  it('10ジャンルのカードと白紙ボタンを表示する', () => {
     render(<GenrePicker onSelect={vi.fn()} />)
     expect(screen.getByText('Web/アプリ開発')).toBeInTheDocument()
     expect(screen.getByText('建設・建築')).toBeInTheDocument()
+    expect(screen.getByText('新規事業・サービス立ち上げ')).toBeInTheDocument()
     expect(screen.getByText(/白紙から始める/)).toBeInTheDocument()
   })
 

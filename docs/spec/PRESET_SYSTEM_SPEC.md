@@ -1,6 +1,6 @@
 # プロジェクトプリセットシステム仕様
 
-> **Version**: 1.1
+> **Version**: 1.2
 > **Date**: 2026-02-19
 > **Status**: 実装済み
 
@@ -25,6 +25,7 @@
 | `legal_accounting` | 士業 | 契約書チェックリスト, 確認事項一覧, 期日管理表, ホーム | 受任→調査→方針確定→書類作成→提出→完了 | true |
 | `video_production` | 映像制作 | 企画書/構成表, 制作進行表, 納品仕様書, ホーム | 企画→撮影/制作→初稿→修正→納品 | null |
 | `construction` | 建設・建築 | 設計概要, 仕様書, 変更履歴, 検査チェックリスト, ホーム | 設計→申請→着工→中間検査→竣工→引渡し | true |
+| `new_business` | 新規事業・サービス立ち上げ | 事業仮説シート, 商品・提供条件シート, 販売準備チェックリスト, 事業開始判定, ホーム | 仮説設計→顧客検証→商品化→販売準備→提案・受注→初回提供→事業開始判定 | true |
 | `blank` | 白紙から始める | なし | なし | null |
 
 ---
@@ -40,9 +41,12 @@ ALTER TABLE spaces ADD CONSTRAINT spaces_preset_genre_check
     'web_development', 'system_development', 'design',
     'consulting', 'marketing', 'event',
     'legal_accounting', 'video_production', 'construction',
+    'new_business',
     'blank'
   ));
 ```
+
+> ジャンルを足すときは、この CHECK 制約も migration で作り直す（例: `20260906075921_preset_genre_new_business.sql`）。コード側だけ足すと作成時に DB が弾く。
 
 | 値 | 意味 | Wiki自動生成 |
 |----|------|-------------|
@@ -99,6 +103,7 @@ src/lib/presets/
     legal-accounting.ts       -- 士業（法律・会計・税理士）
     video-production.ts       -- 映像・コンテンツ制作
     construction.ts           -- 建設・建築・内装
+    new-business.ts           -- 新規事業・サービス立ち上げ（セミナー/研修/コンサル商材の検証〜販売〜開始判定）
 ```
 
 ### 型定義
@@ -107,6 +112,7 @@ src/lib/presets/
 type PresetGenre = 'web_development' | 'system_development' | 'design'
   | 'consulting' | 'marketing' | 'event'
   | 'legal_accounting' | 'video_production' | 'construction'
+  | 'new_business'
   | 'blank'
 
 interface PresetDefinition {
