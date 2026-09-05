@@ -26,6 +26,10 @@ export interface ManifestSubcommand {
   deprecated?: boolean
   hidden?: boolean
   stdinMode?: boolean
+  /** stdin の読み方。'json'(既定) / 'text'(生テキストを stdinParam に入れる。CSV取り込み等) */
+  stdinFormat?: 'json' | 'text'
+  /** stdinFormat='text' のとき、テキストを入れるパラメータ名 */
+  stdinParam?: string
   options: ManifestOption[]
 }
 
@@ -94,6 +98,24 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--milestone-id <uuid>', description: 'Milestone UUID', param: 'milestoneId' },
           { flags: '--spec-path <path>', description: 'Spec path (required for type=spec)', param: 'specPath' },
           { flags: '--decision-state <state>', description: 'considering|decided|implemented', param: 'decisionState', choices: ['considering', 'decided', 'implemented'] },
+        ],
+      },
+      {
+        name: 'import',
+        description: 'Import tasks from a CSV file (dry-run by default; add --no-dry-run to create)',
+        tool: 'task_import',
+        stdinMode: true,
+        stdinFormat: 'text',
+        stdinParam: 'csv',
+        examples: [
+          'agentpm task import --file tasks.csv',
+          'agentpm task import --file tasks.csv --no-dry-run',
+          'cat tasks.csv | agentpm task import --stdin --no-dry-run',
+        ],
+        options: [
+          spaceOpt,
+          { flags: '--stdin', description: 'Read CSV text from stdin (or use --file <path>)', param: 'stdin', type: 'bool' },
+          { flags: '--no-dry-run', description: 'Actually create tasks (default: preview only)', param: 'dryRun', type: 'negatable' },
         ],
       },
       {
@@ -767,9 +789,9 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.0.0',
+      version: '1.1.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-03-07T00:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-09-06T00:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
     }

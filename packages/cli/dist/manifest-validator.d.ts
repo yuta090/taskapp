@@ -19,6 +19,13 @@ export interface ManifestSubcommand {
     deprecated?: boolean;
     hidden?: boolean;
     stdinMode?: boolean;
+    /**
+     * stdin の読み方。'json'(既定)はオブジェクトとして解釈し params にマージ、
+     * 'text' は生テキストのまま stdinParam で指定した1パラメータに入れる（CSV取り込み等）。
+     */
+    stdinFormat?: 'json' | 'text';
+    /** stdinFormat='text' のとき、テキストを入れるパラメータ名 */
+    stdinParam?: string;
     options: ManifestOption[];
 }
 export interface ManifestCommand {

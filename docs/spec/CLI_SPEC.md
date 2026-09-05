@@ -65,7 +65,46 @@ agentpm task update [--space-id <uuid>] --task-id <uuid> [--title <title>] [--de
 agentpm task delete [--space-id <uuid>] --task-id <uuid> [--no-dry-run] [--confirm-token <token>]
 agentpm task list-my [--ball <side>] [--status <status>] [--client-scope <scope>] [--limit <n>]
 agentpm task stale [--space-id <uuid>] [--stale-days <n>] [--ball <side>] [--limit <n>]
+agentpm task import [--space-id <uuid>] (--file <path> | --stdin) [--no-dry-run]
 ```
+
+#### `task import` — CSV からの一括取り込み
+
+スプレッドシートや Excel で作ったタスク一覧を CSV に書き出し、そのまま流し込む。
+
+```bash
+agentpm task import --file tasks.csv              # 確認のみ（何も作らない・既定）
+agentpm task import --file tasks.csv --no-dry-run # 実際に作成
+cat tasks.csv | agentpm task import --stdin --no-dry-run
+```
+
+- **既定は確認モード**。作成予定の件数・自動で作る親・スキップ・エラーを返し、DB には触らない。
+- **全か無か**。1行でもエラーがあれば `--no-dry-run` でも1件も作らない。
+- **同じタイトルのタスクがスペースに既にあれば作らずスキップ**（再実行しても二重に増えない）。
+- **親タスクは `parent` 列にタイトルで書く**。CSV 内の行 → スペースの既存タスク → どちらにも無ければ親を自動作成（最大10段）。
+- 一度に取り込めるのは **500行** まで。API キーには `bulk` 権限が必要（editor では通らない）。
+- 旧 CLI(0.2.x) では `--file` が出ない。`npm i -g` で 0.3.0 以上に更新する。
+
+**CSV の列**（1行目はヘッダー。英語キー / 日本語ラベルどちらでも可。順不同・不要な列は省略可。知らない列は無視して報告）
+
+| 列 | 別名 | 値 | 既定 |
+|----|------|----|------|
+| `title` (必須) | タイトル / タスク | 文字列 | — |
+| `description` | 説明 / 詳細 | 文字列（セル内改行可） | 空 |
+| `status` | ステータス / 状態 | `backlog` `todo` `in_progress` `in_review` `done` `considering`（未整理 / 未着手 / 進行中 / 確認待ち / 完了 / 検討中 でも可） | `todo` |
+| `ball` | ボール | `client` `internal`（相手先 / 社内） | `internal` |
+| `origin` | 起案元 | `client` `internal` | `internal` |
+| `client_scope` | 公開範囲 | `deliverable` `internal`（公開 / 非公開） | `internal`（相手先には見せない側に倒す） |
+| `start_date` | 開始日 / 開始 | `YYYY-MM-DD` または `YYYY/M/D` | 空 |
+| `due_date` | 期限 / 期日 | 同上（開始より前ならエラー） | 空 |
+| `assignee` | 担当者 / 主担当 | メールアドレス または 表示名（組織メンバーに限る。同名が複数ならメールで） | 空 |
+| `client_owners` | 相手先担当 | 複数可（`;` `、` `・` `/` 区切り）。`ball=client` の行では必須 | 空 |
+| `internal_owners` | 社内担当 / 関係者 | 複数可 | 空 |
+| `parent` | 親タスク / 大項目 | 親のタイトル | 空（最上位） |
+| `priority` | 優先度 | 0〜3 | 空 |
+| `milestone` | マイルストーン | スペース内のマイルストーン名（無ければエラー） | 空 |
+
+エラーは「CSV の何行目・どの列・何が悪いか」を返す（セル内改行があっても行番号は元ファイル基準）。
 
 ### Ball（ボール管理）
 

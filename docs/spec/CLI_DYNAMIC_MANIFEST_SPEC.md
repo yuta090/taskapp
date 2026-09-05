@@ -64,6 +64,20 @@ renameSync(MANIFEST_PATH, PREV_MANIFEST_PATH)  // backup current
 renameSync(tmpPath, MANIFEST_PATH)              // atomic swap
 ```
 
+## stdin 入力モード（v1.3 追記）
+
+サブコマンドは `stdinMode: true` で標準入力を受け取れる。読み方は `stdinFormat` で選ぶ。
+
+| フィールド | 値 | 意味 |
+|-----------|----|------|
+| `stdinMode` | `true` | `--stdin` で標準入力を読む |
+| `stdinFormat` | `'json'`(既定) / `'text'` | `json`: オブジェクトとして解釈し params にマージ（scheduling create/respond）。`text`: 生テキストを `stdinParam` の1パラメータに入れる（`task import` の CSV） |
+| `stdinParam` | パラメータ名 | `stdinFormat='text'` のとき必須 |
+
+- `stdinFormat='text'` のサブコマンドには、CLI(0.3.0+) が **manifest に無くても `--file <path>` を足す**。manifest に載せると旧CLI(0.2.x)の検証が未知の型として manifest 全体を弾き、全コマンドがビルトインに退行するため、クライアント側で付ける。
+- 旧CLIで `stdinFormat='text'` のコマンドを叩くと stdin を JSON として読もうとして失敗する（当該コマンドのみ。他のコマンドには影響しない）。
+- 未知のフィールドは CLI 側の検証で無視される（前方互換）。新しい **型** を足すときだけ `minCliVersion` を上げる。
+
 ## マニフェストJSON スキーマ
 
 ### エンドポイント

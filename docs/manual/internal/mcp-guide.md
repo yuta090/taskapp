@@ -72,6 +72,7 @@ AgentPMのプロジェクト一覧を表示して
 | `task_list` | スペース内のタスク一覧を取得 |
 | `task_get` | タスクの詳細と担当者を取得 |
 | `task_delete` | タスクを削除（安全確認付き） |
+| `task_import` | CSVからタスクを一括作成（既定は確認のみ。`agentpm task import` の実体） |
 | `task_list_my` | 全スペース横断で自分のタスクを取得 |
 
 ### ボール管理ツール
