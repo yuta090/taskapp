@@ -19,8 +19,10 @@
   `supabase/migrations/20260906082330_profiles_superadmin_guard.sql`）。
   一般ユーザーは RLS 上「自分の行を更新可」だが、この列だけは authenticated/anon から変更できない
   （2026-09-06 に本番で自己昇格できることを確認して是正。検証: `supabase/tests/profiles_superadmin_guard_assert.sql`）
-- 運営の追加・削除は `/admin/users` の「管理者にする／管理者を外す」（→ `PATCH /api/admin/users`）。
-  自分自身の旗は外せない（運営 0 人を防ぐ）
+- 運営の追加・削除は `/admin/users` の「管理者にする／管理者を外す」（→ `PATCH /api/admin/users`
+  → `rpc_admin_set_superadmin(p_actor, p_target, p_flag)`）。RPC は service_role 専用・SECURITY DEFINER で、
+  advisory lock により直列化し、同一トランザクション内で actor が運営であることを再確認する
+  （A と B が同時に互いを外して運営 0 人になる競合を防ぐ）。自分自身の旗は API・RPC の両方で拒否（AD001）
 
 ## ページ構成
 

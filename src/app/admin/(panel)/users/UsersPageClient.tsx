@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminBadge } from '@/components/admin/AdminBadge'
@@ -90,6 +90,12 @@ function useSuperadminToggle(initialData: UserRow[]) {
   const router = useRouter()
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [pending, setPending] = useState<Record<string, boolean>>({})
+
+  // サーバーから取り直した一覧（router.refresh 後）が来たら、楽観更新の上書きは捨てて
+  // サーバーの値を正とする（別の運営が同時に変えていた場合に古い表示が残らないように）
+  useEffect(() => {
+    setOverrides({})
+  }, [initialData])
 
   const rows = useMemo(
     () => initialData.map((r) => (r.id in overrides ? { ...r, is_superadmin: overrides[r.id] } : r)),

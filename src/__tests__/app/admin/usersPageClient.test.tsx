@@ -41,6 +41,20 @@ describe('UsersPageClient 運営の付与・剥奪', () => {
     expect(await screen.findByRole('button', { name: '管理者を外す' })).toBeInTheDocument()
   })
 
+  it('サーバーから取り直した一覧が来たら、楽観更新の値ではなくサーバーの値を表示する', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ userId: OTHER, isSuperadmin: true }) })))
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const { rerender } = render(<UsersPageClient initialData={ROWS} currentUserId={ME} />)
+    fireEvent.click(screen.getByRole('button', { name: '管理者にする' }))
+    expect(await screen.findByRole('button', { name: '管理者を外す' })).toBeInTheDocument()
+
+    // 別の運営が同時に B を外していた → refresh 後のサーバー値は false
+    const refreshed = ROWS.map((r) => (r.id === OTHER ? { ...r, is_superadmin: false } : r))
+    rerender(<UsersPageClient initialData={refreshed} currentUserId={ME} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: '管理者にする' })).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '管理者を外す' })).toBeNull()
+  })
+
   it('自分自身の行には剥奪ボタンを出さない', () => {
     vi.stubGlobal('fetch', vi.fn())
     render(<UsersPageClient initialData={ROWS} currentUserId={ME} />)

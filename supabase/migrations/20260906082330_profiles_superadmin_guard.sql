@@ -45,3 +45,56 @@ drop trigger if exists profiles_superadmin_guard on public.profiles;
 create trigger profiles_superadmin_guard
   before insert or update on public.profiles
   for each row execute function public.guard_profiles_superadmin();
+
+-- =============================================================================
+-- 運営の付与・剥奪の正規経路: rpc_admin_set_superadmin（service_role 専用）
+--
+-- API 側の「呼び出し側は運営か」「自分自身は外せない」だけでは、運営 A と B が同時に
+-- 互いを外す競合で運営が 0 人になり得る（両者とも認可を通過してから更新が走る）。
+-- 認可の再確認と更新を同一トランザクション内で advisory lock により直列化し、
+-- 後から来た側は actor が既に非運営なので 42501 で止まる。
+--   42501 (insufficient_privilege): actor が運営でない（剥奪済みの遅延リクエストを含む）
+--   AD001: 自分自身の剥奪
+--   P0002 (no_data_found): target が存在しない
+-- SECURITY DEFINER（owner=postgres）なので上のトリガーは通る＝意図した特権経路。
+-- =============================================================================
+create or replace function public.rpc_admin_set_superadmin(
+  p_actor uuid,
+  p_target uuid,
+  p_flag boolean
+)
+returns table (id uuid, is_superadmin boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_actor is null or p_target is null or p_flag is null then
+    raise exception 'p_actor, p_target, p_flag are required' using errcode = '22023';
+  end if;
+
+  -- 旗の変更を全体で直列化（付与・剥奪が同時に走っても一度に 1 件ずつ）
+  perform pg_advisory_xact_lock(hashtext('profiles.is_superadmin'));
+
+  if not exists (select 1 from public.profiles p where p.id = p_actor and p.is_superadmin) then
+    raise exception 'actor is not superadmin' using errcode = '42501';
+  end if;
+
+  if p_actor = p_target and not p_flag then
+    raise exception 'cannot revoke own superadmin' using errcode = 'AD001';
+  end if;
+
+  update public.profiles p set is_superadmin = p_flag where p.id = p_target;
+  if not found then
+    raise exception 'target user not found' using errcode = 'P0002';
+  end if;
+
+  return query select p.id, p.is_superadmin from public.profiles p where p.id = p_target;
+end;
+$$;
+
+comment on function public.rpc_admin_set_superadmin(uuid, uuid, boolean) is
+  '運営(superadmin)の付与・剥奪。service_role 専用。advisory lock で直列化し actor を再確認する';
+
+revoke execute on function public.rpc_admin_set_superadmin(uuid, uuid, boolean) from public, anon, authenticated;
+grant execute on function public.rpc_admin_set_superadmin(uuid, uuid, boolean) to service_role;
