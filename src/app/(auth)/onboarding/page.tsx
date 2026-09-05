@@ -22,6 +22,8 @@ export default function OnboardingPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
     async function checkState() {
@@ -32,6 +34,8 @@ export default function OnboardingPage() {
         router.replace('/login')
         return
       }
+
+      setUserEmail(user.email ?? null)
 
       // signup時に登録した組織名があればプレフィル
       const metadataOrgName = user.user_metadata?.org_name
@@ -175,6 +179,43 @@ export default function OnboardingPage() {
     }
   }
 
+  /**
+   * 別のアカウントでやり直す（ログアウト → /login）。
+   * この画面はログイン直後に「会員でないアカウント」が最初に着地する場所で、ここにログアウトが無いと
+   * 逃げ道が無い（/login に戻っても proxy が /onboarding へ押し戻す）。そのため両ステップに置く。
+   * 先に signOut を待ってから遷移する: 先に /login へ動くとセッションが残っていて再び /onboarding に戻される。
+   */
+  async function handleSwitchAccount() {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.warn('Sign out failed:', err)
+    } finally {
+      router.replace('/login')
+    }
+  }
+
+  const switchAccountFooter = (
+    <div className="space-y-1">
+      {userEmail && (
+        <p className="text-xs text-gray-500">
+          <span className="font-medium text-gray-700">{userEmail}</span> でログイン中
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={handleSwitchAccount}
+        disabled={signingOut}
+        className="text-sm text-gray-600 underline underline-offset-2 hover:text-gray-900 disabled:opacity-50"
+      >
+        {signingOut ? 'ログアウト中...' : '別のアカウントでログイン（ログアウト）'}
+      </button>
+    </div>
+  )
+
   async function handleSelectGenre(genre: PresetGenre) {
     if (loading) return
     setError('')
@@ -234,6 +275,7 @@ export default function OnboardingPage() {
       <AuthCard
         title="最初のプロジェクトを作成"
         description="業種に合ったテンプレートを選ぶと、Wikiとマイルストーンが自動でセットアップされます。"
+        footer={switchAccountFooter}
       >
         <div className="space-y-4">
           {error && (
@@ -275,6 +317,7 @@ export default function OnboardingPage() {
           ? '登録時の組織名を確認して開始してください。'
           : 'あと少しで完了です。組織名を入力してください。'
       }
+      footer={switchAccountFooter}
     >
       <form onSubmit={handleCreateOrg} className="space-y-4">
         {error && (

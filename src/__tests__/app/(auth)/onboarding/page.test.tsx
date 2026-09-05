@@ -11,6 +11,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockGetUser = vi.fn()
+const mockSignOut = vi.fn().mockResolvedValue({ error: null })
 const mockRpc = vi.fn()
 
 // テーブル別に応答を差し替えられる Supabase mock
@@ -36,7 +37,7 @@ const profilesChain = {
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: mockGetUser },
+    auth: { getUser: mockGetUser, signOut: mockSignOut },
     from: (table: string) => {
       if (table === 'spaces') return spacesChain
       if (table === 'profiles') return profilesChain
@@ -371,5 +372,55 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
       expect(screen.getByText('プロジェクト名を入力してください。')).toBeInTheDocument()
     })
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('OnboardingPage — 別のアカウントでやり直せる（ログアウト導線）', () => {
+  // 背景: Googleログインで会員でないアカウントに入ると /onboarding に来るが、この画面に
+  // ログアウトが無く、/login に戻っても proxy が /onboarding へ押し戻すため、
+  // プロジェクトを作らない限り別アカウントに切り替えられなかった。
+  beforeEach(() => {
+    vi.clearAllMocks()
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
+    localStorage.clear()
+  })
+
+  it('Step1（組織作成）にログイン中のメールと「別のアカウントでログイン」導線が出る', async () => {
+    mockUser({}, 'taro@example.com')
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('組織を作成')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/taro@example\.com/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /別のアカウントでログイン/ })).toBeInTheDocument()
+  })
+
+  it('Step2（最初のプロジェクト作成）にも同じ導線が出る', async () => {
+    mockUser({}, 'taro@example.com')
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /別のアカウントでログイン/ })).toBeInTheDocument()
+  })
+
+  it('押すとログアウトしてから /login に移動する（ログアウトが先・遷移が後）', async () => {
+    mockUser({}, 'taro@example.com')
+    render(<OnboardingPage />)
+    await waitFor(() => {
+      expect(screen.getByText('組織を作成')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /別のアカウントでログイン/ }))
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalledTimes(1)
+      expect(mockReplace).toHaveBeenCalledWith('/login')
+    })
+    expect(mockSignOut.mock.invocationCallOrder[0]).toBeLessThan(mockReplace.mock.invocationCallOrder[0])
   })
 })
