@@ -19,6 +19,7 @@ export const ALLOWED_TABLES = [
   'review_approvals',
   'notifications',
   'audit_logs',
+  'auth_event_logs',
   'wiki_pages',
   'wiki_page_versions',
   'wiki_page_publications',
@@ -56,6 +57,7 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   review_approvals: 'レビュー承認',
   notifications: '通知',
   audit_logs: '監査ログ',
+  auth_event_logs: 'ログイン失敗ログ',
   wiki_pages: 'Wiki ページ',
   wiki_page_versions: 'Wiki バージョン',
   wiki_page_publications: 'Wiki 公開',
@@ -89,6 +91,6 @@ export const TABLE_CATEGORIES: { label: string; tables: AllowedTable[] }[] = [
   },
   {
     label: 'その他',
-    tables: ['notifications', 'audit_logs', 'wiki_pages', 'wiki_page_versions', 'wiki_page_publications', 'api_keys', 'scheduling_proposals', 'proposal_slots', 'proposal_respondents', 'slot_responses'],
+    tables: ['notifications', 'audit_logs', 'auth_event_logs', 'wiki_pages', 'wiki_page_versions', 'wiki_page_publications', 'api_keys', 'scheduling_proposals', 'proposal_slots', 'proposal_respondents', 'slot_responses'],
   },
 ]
