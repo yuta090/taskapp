@@ -9,6 +9,8 @@ import { exchangeTeamsCode } from '@/lib/teams/client'
 import { exchangeNotionCode } from '@/lib/notion/client'
 import { exchangeGoogleSheetsCode } from '@/lib/google-sheets/client'
 import { exchangeGoogleTasksCode } from '@/lib/google-tasks/client'
+import { exchangeAccountingCode, isAccountingOAuthProvider } from '@/lib/accounting/oauth'
+import type { AccountingProviderId } from '@/lib/accounting/types'
 import { buildTokenColumns } from '@/lib/integrations/token-manager'
 
 export const runtime = 'nodejs'
@@ -148,6 +150,10 @@ export async function GET(
 
     if (provider === 'google_tasks') {
       return await handleGoogleTasksCallback(code, orgId, user.id, appUrl)
+    }
+
+    if (isAccountingOAuthProvider(provider)) {
+      return await handleAccountingCallback(provider, code, orgId, appUrl)
     }
 
     return NextResponse.redirect(`${appUrl}?error=unsupported_provider`)
@@ -369,6 +375,60 @@ async function handleNotionCallback(
     console.error('Notion callback error:', err)
     return NextResponse.redirect(
       `${integrationsTabUrl}?integration=notion&status=error&message=token_exchange_failed`,
+    )
+  }
+}
+
+/**
+ * 見積書・請求書サービス（freee請求書 / マネーフォワード クラウド請求書 / Misoca）。
+ *
+ * notion / google_sheets と同じく owner_type='org' で upsert する。会社の請求アカウントは
+ * 個人ではなく組織のものであり、担当者が変わっても接続が生き残る必要があるため。
+ * 3社で保存の形が同じなので、provider ごとにハンドラを増やさず1つで扱う。
+ */
+async function handleAccountingCallback(
+  provider: AccountingProviderId,
+  code: string,
+  orgId: string,
+  appUrl: string,
+): Promise<NextResponse> {
+  const integrationsTabUrl = `${appUrl}/${orgId}/secretary/integrations`
+  try {
+    const tokens = await exchangeAccountingCode(provider, code)
+
+    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
+      .from('integration_connections')
+      .upsert(
+        {
+          provider,
+          owner_type: 'org',
+          owner_id: orgId,
+          org_id: orgId,
+          ...(await buildTokenColumns({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          })),
+          token_expires_at: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
+          scopes: tokens.scopes,
+          status: 'active',
+          last_refreshed_at: new Date().toISOString(),
+          metadata: {},
+        },
+        { onConflict: 'provider,owner_type,owner_id' },
+      )
+
+    if (upsertError) {
+      console.error(`${provider} integration connection save failed:`, upsertError)
+      return NextResponse.redirect(
+        `${integrationsTabUrl}?integration=${provider}&status=error&message=save_failed`,
+      )
+    }
+
+    return NextResponse.redirect(`${integrationsTabUrl}?integration=${provider}&status=connected`)
+  } catch (err) {
+    console.error(`${provider} callback error:`, err)
+    return NextResponse.redirect(
+      `${integrationsTabUrl}?integration=${provider}&status=error&message=token_exchange_failed`,
     )
   }
 }

@@ -7,6 +7,11 @@ import { getTeamsOAuthUrl, isTeamsOAuthConfigured } from '@/lib/teams/config'
 import { getNotionOAuthUrl, isNotionOAuthConfigured } from '@/lib/notion/config'
 import { getGoogleSheetsOAuthUrl, isGoogleSheetsOAuthConfigured } from '@/lib/google-sheets/config'
 import { getGoogleTasksOAuthUrl, isGoogleTasksOAuthConfigured } from '@/lib/google-tasks/config'
+import {
+  getAccountingOAuthUrl,
+  isAccountingOAuthConfigured,
+  isAccountingOAuthProvider,
+} from '@/lib/accounting/oauth'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -18,7 +23,15 @@ export const runtime = 'nodejs'
  * 全 notion sink の配達先が差し替わる）。よって owner/admin のみに限定する。
  * 将来 google_sheets（同じく owner_type='org' 想定）を追加する際もここに足すだけでよい。
  */
-const ORG_OWNED_PROVIDERS = new Set(['notion', 'google_sheets'])
+const ORG_OWNED_PROVIDERS = new Set([
+  'notion',
+  'google_sheets',
+  // 見積書・請求書サービスも org 共有の接続。会社の請求アカウントに繋がるため、
+  // 誰でも張り替えられると請求書の発行元がすり替わる。owner/admin だけに限定する。
+  'freee',
+  'money_forward',
+  'misoca',
+])
 const ADMIN_ROLES = new Set(['owner', 'admin'])
 
 /**
@@ -135,6 +148,17 @@ export async function GET(
 
       const state = createSignedState(provider, orgId, user.id)
       return NextResponse.redirect(getGoogleTasksOAuthUrl(state))
+    }
+
+    // 見積書・請求書サービス（freee請求書 / マネーフォワード クラウド請求書 / Misoca）。
+    // 3社とも素のOAuth2で違いはURLとスコープだけなので、個別分岐を並べず1つにまとめる。
+    if (isAccountingOAuthProvider(provider)) {
+      if (!isAccountingOAuthConfigured(provider)) {
+        return NextResponse.json({ error: `${provider} OAuth is not configured` }, { status: 503 })
+      }
+
+      const state = createSignedState(provider, orgId, user.id)
+      return NextResponse.redirect(getAccountingOAuthUrl(provider, state))
     }
 
     return NextResponse.json(
