@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 import type { ReminderTaskRef } from '@/lib/reminders/computeClientReminders'
 
 const mockSend = vi.fn().mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -12,6 +13,14 @@ vi.mock('resend', () => {
     },
   }
 })
+
+// 文面の読み込み(email_templates)は DB を見に行かない: 行なし = コード既定の文面で送る
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }),
+  }),
+}))
+
 
 process.env.RESEND_API_KEY = 'test-api-key'
 process.env.FROM_EMAIL = 'test@example.com'
@@ -33,6 +42,7 @@ function ref(overrides: Partial<ReminderTaskRef> = {}): ReminderTaskRef {
 
 describe('sendReminderEmail', () => {
   beforeEach(() => {
+  resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
   })

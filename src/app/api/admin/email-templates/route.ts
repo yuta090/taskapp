@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { validateTemplateFields } from '@/lib/email/templates/core'
 import { getEmailTemplateDef } from '@/lib/email/templates/registry'
+import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 export const runtime = 'nodejs'
 
@@ -42,6 +43,7 @@ export async function PUT(request: NextRequest) {
       console.error('[email-templates] reset failed:', error)
       return NextResponse.json({ error: '既定に戻せませんでした' }, { status: 500 })
     }
+    resetEmailTemplateCache()
     return NextResponse.json({ key: def.key, fields: def.defaults, isCustom: false, updatedAt: null })
   }
 
@@ -67,5 +69,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: '保存に失敗しました' }, { status: 500 })
   }
 
+  resetEmailTemplateCache()
   return NextResponse.json({ key: def.key, fields: validation.fields, isCustom: true, updatedAt })
 }
