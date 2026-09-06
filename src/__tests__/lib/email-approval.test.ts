@@ -119,3 +119,20 @@ describe('sendApprovalEmail FROM_EMAIL warning', () => {
     process.env.FROM_EMAIL = original
   })
 })
+
+describe('sendApprovalEmail — 差出人と返信先', () => {
+  it('From は「事務所名 (サービス名)」、返信先は承認を依頼した担当者', async () => {
+    await sendApprovalEmail({
+      to: 'client@example.com',
+      token: 'tok',
+      taskTitle: 'T',
+      spaceName: 'S',
+      orgName: 'サンプル事務所',
+      actionType: 'approve',
+      replyTo: 'staff@example.com',
+    })
+    const a = mockSend.mock.calls[0][0]
+    expect(a.from).toMatch(/^"(.+) \((.+)\)" </)
+    expect(a.replyTo).toBe('staff@example.com')
+  })
+})

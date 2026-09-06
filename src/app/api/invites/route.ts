@@ -160,6 +160,8 @@ export async function POST(request: NextRequest) {
           token: data.token,
           expiresAt: data.expires_at,
           message: trimmedMessage || undefined,
+          // 相手が返信したら招待した本人に届くように
+          replyTo: user.email,
         })
         emailSent = true
       } catch (emailError) {

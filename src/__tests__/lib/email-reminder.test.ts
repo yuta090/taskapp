@@ -135,3 +135,13 @@ describe('sendReminderEmail', () => {
     expect(callArgs.html).toContain('滞留タスク')
   })
 })
+
+describe('sendReminderEmail — 差出人', () => {
+  it('orgName があれば「事務所名 (サービス名)」、無ければサービス名だけ', async () => {
+    const params = { to: 'client@example.com', displayName: null, digest: { overdue: [], dueToday: [], stalled: [] } }
+    await sendReminderEmail({ ...params, orgName: 'サンプル事務所' })
+    expect(mockSend.mock.calls[0][0].from).toMatch(/^"サンプル事務所 \(.+\)" </)
+    await sendReminderEmail({ ...params })
+    expect(mockSend.mock.calls[1][0].from).not.toContain('(')
+  })
+})

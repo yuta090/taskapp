@@ -4,6 +4,7 @@
  * テンプレートは templates/welcome.ts (HTML文字列 + プレーンテキスト) を使用
  */
 import { Resend } from 'resend'
+import { buildFrom, getAppName } from './from'
 import { buildWelcomeEmailContent, WELCOME_TEMPLATE_KEY } from './templates/welcome'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
@@ -21,21 +22,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-// FROM_EMAIL 未設定警告は起動あたり一度だけ出す
-let fromEmailWarned = false
 
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
-
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -76,7 +63,7 @@ export async function sendWelcomeEmail(params: SendWelcomeEmailParams): Promise<
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      from: buildFrom(),
       to,
       subject,
       html,

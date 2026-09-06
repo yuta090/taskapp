@@ -113,6 +113,8 @@ export async function POST(
         role: inviteRow.role,
         token: inviteRow.token,
         expiresAt: newExpiresAt,
+        // 相手が返信したら再送した本人に届くように
+        replyTo: user.email,
       })
       emailSent = true
     } catch (emailError) {

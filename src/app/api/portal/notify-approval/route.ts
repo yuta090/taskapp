@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       }
 
       // profiles がない場合のフォールバック
-      await sendEmailsToUsers(admin, task, actionType, emailMap, spaceId)
+      await sendEmailsToUsers(admin, task, actionType, emailMap, spaceId, user.email)
       return NextResponse.json({ success: true, sent: emailMap.size })
     }
 
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'no email addresses found' })
     }
 
-    await sendEmailsToUsers(admin, task, actionType, emailMap, spaceId)
+    await sendEmailsToUsers(admin, task, actionType, emailMap, spaceId, user.email)
 
     return NextResponse.json({ success: true, sent: emailMap.size })
   } catch (error) {
@@ -189,6 +189,8 @@ async function sendEmailsToUsers(
   actionType: 'approve' | 'estimate_approve',
   emailMap: Map<string, string>,
   spaceId: string,
+  /** 承認を依頼した担当者のメール（相手先が返信したときの宛先） */
+  replyTo: string | null | undefined,
 ) {
   // スペース名・組織名を取得
   const { data: space } = await (admin as SupabaseClient)
@@ -242,6 +244,8 @@ async function sendEmailsToUsers(
         estimatedCost: task.estimated_cost,
         dueDate: task.due_date,
         descriptionExcerpt: task.description ? task.description.slice(0, 120) : null,
+        // 相手先が返信したら、承認を依頼した担当者に届くように
+        replyTo,
       })
     } catch (err) {
       console.error(`[notify-approval] Failed to send to ${email}:`, err)
