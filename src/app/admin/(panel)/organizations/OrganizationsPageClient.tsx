@@ -5,6 +5,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminBadge } from '@/components/admin/AdminBadge'
 import { AdminDataTable, type ColumnDef, matchesSearch, getNestedValue, compareValues } from '@/components/admin/AdminDataTable'
 import { AdminFilterBar, type FilterDef } from '@/components/admin/AdminFilterBar'
+import Link from 'next/link'
 
 export interface OrgRow {
   [key: string]: unknown
@@ -51,7 +52,15 @@ const COLUMNS: ColumnDef<OrgRow>[] = [
     key: 'name',
     label: '組織名',
     sortable: true,
-    render: (_value, row) => <span className="font-medium text-gray-900">{row.name}</span>,
+    render: (_value, row) => (
+      <Link
+        href={`/admin/organizations/${row.id}`}
+        prefetch={false}
+        className="font-medium text-gray-900 hover:text-indigo-600 hover:underline"
+      >
+        {row.name}
+      </Link>
+    ),
   },
   { key: 'member_count', label: 'メンバー', sortable: true },
   { key: 'space_count', label: 'スペース', sortable: true },
