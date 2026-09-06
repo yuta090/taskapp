@@ -111,7 +111,7 @@ describe('SelfLinkPanel', () => {
     render(<SelfLinkPanel orgId={ORG} />)
 
     await waitFor(() => screen.getByText(/コードを発行してつなぐ/))
-    expect(screen.getByText(/発行したコードを1:1トークに送ると完了/)).toBeInTheDocument()
+    expect(screen.getByText(/コードを秘書との1:1トークに送ると完了/)).toBeInTheDocument()
     // 旧: 44文字の説明文。QRの手順と重複していたので置かない
     expect(
       screen.queryByText(/すでに友だち追加済みなら、下のボタンでコードを発行し/),

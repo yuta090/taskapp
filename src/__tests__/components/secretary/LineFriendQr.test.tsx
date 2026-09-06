@@ -35,9 +35,9 @@ describe('LineFriendQr', () => {
     await waitFor(() => expect(screen.getByRole('img', { name: /QR/ })).toBeInTheDocument())
     expect(toDataURLMock).toHaveBeenCalledWith('https://line.me/R/ti/p/@abc1234')
     expect(screen.getByText('https://line.me/R/ti/p/@abc1234')).toBeInTheDocument()
-    expect(screen.getByText(/QRで友だち追加/)).toBeInTheDocument()
-    expect(screen.getByText(/コードを1:1トークに送信/)).toBeInTheDocument()
-    expect(screen.getByText(/追加だけでは連携されません/)).toBeInTheDocument()
+    expect(screen.getByText(/QRでLINE秘書を友だち追加/)).toBeInTheDocument()
+    expect(screen.getByText(/コードを秘書との1:1トークに送る/)).toBeInTheDocument()
+    expect(screen.getByText(/友だち追加だけではつながりません/)).toBeInTheDocument()
     // org専用bot向けの文言
     // org専用botでは付加ヘッダを出さない（文字を減らす。共有botのときだけ注意を出す）
     expect(screen.queryByText(/共通の秘書アカウント/)).not.toBeInTheDocument()
@@ -52,11 +52,11 @@ describe('LineFriendQr', () => {
     render(<LineFriendQr orgId="org-1" purpose="group" />)
 
     await waitFor(() => expect(screen.getByRole('img', { name: /QR/ })).toBeInTheDocument())
-    expect(screen.getByText(/秘書を友だち追加/)).toBeInTheDocument()
+    expect(screen.getByText(/LINE秘書を友だち追加/)).toBeInTheDocument()
     expect(screen.getByText(/LINEグループに招待/)).toBeInTheDocument()
-    expect(screen.getByText(/グループのトークに送信/)).toBeInTheDocument()
+    expect(screen.getByText(/グループのトークに送る/)).toBeInTheDocument()
     // QR単体では完了しないことを明示
-    expect(screen.getByText(/追加・招待だけでは連携されません/)).toBeInTheDocument()
+    expect(screen.getByText(/追加・招待だけではつながりません/)).toBeInTheDocument()
   })
 
   it('basicId取得成功(共有bot): 共有bot向けの文言(コード送信が必ず必要)を表示する', async () => {
@@ -68,7 +68,7 @@ describe('LineFriendQr', () => {
     render(<LineFriendQr orgId="org-1" />)
 
     await waitFor(() => expect(screen.getByRole('img', { name: /QR/ })).toBeInTheDocument())
-    expect(screen.getByText(/コード送信が必ず必要/)).toBeInTheDocument()
+    expect(screen.getByText(/コードの送信が必ず必要/)).toBeInTheDocument()
   })
 
   it('basicIdが@始まりでなければ正規化してURLに含める', async () => {
@@ -87,7 +87,7 @@ describe('LineFriendQr', () => {
 
     render(<LineFriendQr orgId="org-1" />)
 
-    await waitFor(() => expect(screen.getByText(/順次開通/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/順番に開通/)).toBeInTheDocument())
     expect(screen.queryByRole('img', { name: /QR/ })).not.toBeInTheDocument()
     expect(toDataURLMock).not.toHaveBeenCalled()
   })
@@ -97,7 +97,7 @@ describe('LineFriendQr', () => {
 
     render(<LineFriendQr orgId="org-1" />)
 
-    await waitFor(() => expect(screen.getByText(/順次開通/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/順番に開通/)).toBeInTheDocument())
   })
 
   it('APIが非2xxを返す: 準備中メッセージを表示する', async () => {
@@ -105,6 +105,6 @@ describe('LineFriendQr', () => {
 
     render(<LineFriendQr orgId="org-1" />)
 
-    await waitFor(() => expect(screen.getByText(/順次開通/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/順番に開通/)).toBeInTheDocument())
   })
 })

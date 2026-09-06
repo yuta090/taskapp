@@ -28,13 +28,13 @@ export function DirectConnectDisclosure({ orgId }: { orgId: string }) {
           className="flex items-center gap-1.5 text-left text-xs font-medium text-gray-600 hover:text-gray-900"
         >
           {open ? <CaretDown className="h-3.5 w-3.5" /> : <CaretRight className="h-3.5 w-3.5" />}
-          <span>相手と1対1でつなぐ</span>
+          <span>相手先の担当者と1対1でつなぐ</span>
           <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
             Pro
           </span>
         </button>
         <Hint label="1対1でつなぐ">
-          グループを使わず、相手の担当者へ直接つなぎたいときに使います。Proプランの機能です。
+          グループを使わず、相手先の担当者と直接つなぎたいときに使います。Proプランの機能です。
         </Hint>
       </div>
       {open && (

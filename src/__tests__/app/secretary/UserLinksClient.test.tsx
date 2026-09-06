@@ -68,8 +68,8 @@ describe('UserLinksClient (連携ハブ)', () => {
   it('主役2カードを平易な見出しで、順番はグループ→自分で表示する', () => {
     renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
-    const group = screen.getByText('グループLINEから拾う')
-    const self = screen.getByText('自分のLINEで受け取る')
+    const group = screen.getByText('グループLINEの会話をタスクにする')
+    const self = screen.getByText('承認や通知を自分のLINEで受け取る')
     expect(group).toBeInTheDocument()
     expect(self).toBeInTheDocument()
     // グループが自分より先(上)に来る
@@ -88,7 +88,7 @@ describe('UserLinksClient (連携ハブ)', () => {
     renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
     // トグルは見えるが、中身(相手先の選択UI)は開くまで出さない
-    expect(screen.getByTestId('direct-connect-toggle')).toHaveTextContent('相手と1対1でつなぐ')
+    expect(screen.getByTestId('direct-connect-toggle')).toHaveTextContent('相手先の担当者と1対1でつなぐ')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('direct-connect-toggle'))
@@ -105,7 +105,7 @@ describe('UserLinksClient (連携ハブ)', () => {
   it('グループカードのCTAは connect/line/groups ページへリンクする', () => {
     renderHub(<UserLinksClient orgId={ORG} lineAccess="granted" />)
 
-    const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
+    const cta = screen.getByRole('link', { name: /コードを発行してグループをつなぐ/ })
     expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)
   })
 })
