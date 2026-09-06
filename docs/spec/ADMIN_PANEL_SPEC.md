@@ -1,7 +1,7 @@
 # 管理パネル 仕様書
 
-> **Version**: 1.0
-> **Last Updated**: 2026-03-05
+> **Version**: 1.1
+> **Last Updated**: 2026-09-06
 > **Status**: 実装済み
 
 ## 概要
@@ -11,8 +11,18 @@
 ## アクセス制御
 
 - `profiles.is_superadmin = true` のユーザーのみアクセス可能
-- `/admin/login` でスーパー管理者認証
-- 全APIエンドポイントで `verifySuperadmin()` チェック
+- `/admin/login` でスーパー管理者認証（メール+パスワード / **Google ログイン**。Google の場合は
+  `/auth/callback?next=/admin/dashboard` で戻り、`(panel)/layout.tsx` の superadmin ゲートが旗を確認する。
+  旗が無ければ `/admin/login` に戻され、「管理者権限がありません」＋ログアウト導線を表示する）
+- 全APIエンドポイントで `verifySuperadmin()` チェック（`src/lib/admin/verify-superadmin.ts`）
+- **`is_superadmin` の変更は service role 限定**（DBトリガー `profiles_superadmin_guard`、
+  `supabase/migrations/20260906082330_profiles_superadmin_guard.sql`）。
+  一般ユーザーは RLS 上「自分の行を更新可」だが、この列だけは authenticated/anon から変更できない
+  （2026-09-06 に本番で自己昇格できることを確認して是正。検証: `supabase/tests/profiles_superadmin_guard_assert.sql`）
+- 運営の追加・削除は `/admin/users` の「管理者にする／管理者を外す」（→ `PATCH /api/admin/users`
+  → `rpc_admin_set_superadmin(p_actor, p_target, p_flag)`）。RPC は service_role 専用・SECURITY DEFINER で、
+  advisory lock により直列化し、同一トランザクション内で actor が運営であることを再確認する
+  （A と B が同時に互いを外して運営 0 人になる競合を防ぐ）。自分自身の旗は API・RPC の両方で拒否（AD001）
 
 ## ページ構成
 
@@ -52,9 +62,12 @@
 | Method | Path | 用途 |
 |--------|------|------|
 | POST | `/api/admin/users` | ユーザー作成（スーパー管理者のみ） |
+| PATCH | `/api/admin/users` | 運営（superadmin）の付与・剥奪 `{ userId, isSuperadmin }`（スーパー管理者のみ・自分自身の剥奪は400） |
 
 ## セキュリティ
 
 - 全エンドポイントで `is_superadmin` 検証
-- admin配下のページは認証ミドルウェアで保護
+- admin配下のページは `(panel)/layout.tsx` の superadmin ゲートで保護（service role で読むページは
+  データ取得の直前でも `verifySuperadmin()` を通すのが望ましい。`users/page.tsx` が例）
+- `is_superadmin` 列は DB トリガーで service role / postgres 以外から変更不可（自己昇格防止）
 - ユーザー作成はサービスロールキーを使用（Supabase Admin API）

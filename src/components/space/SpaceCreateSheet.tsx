@@ -94,7 +94,8 @@ export function SpaceCreateSheet({ isOpen, onClose, orgId, onCreated }: SpaceCre
 
       {/* Sheet */}
       <div className="fixed bottom-0 left-0 right-0 bg-surface rounded-t-2xl shadow-2xl z-50 animate-in slide-in-from-bottom duration-200">
-        <div className="max-w-2xl mx-auto px-6 py-5">
+        {/* max-w-4xl: ジャンル10種を5列2段で収める幅（2xl だと4列3段で縦に伸びる） */}
+        <div className="max-w-4xl mx-auto px-6 py-5">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">

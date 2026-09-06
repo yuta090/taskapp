@@ -11,6 +11,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockGetUser = vi.fn()
+const mockSignOut = vi.fn().mockResolvedValue({ error: null })
 const mockRpc = vi.fn()
 
 // テーブル別に応答を差し替えられる Supabase mock
@@ -36,7 +37,7 @@ const profilesChain = {
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: mockGetUser },
+    auth: { getUser: mockGetUser, signOut: mockSignOut },
     from: (table: string) => {
       if (table === 'spaces') return spacesChain
       if (table === 'profiles') return profilesChain
@@ -305,7 +306,46 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
     })
   }
 
-  it('テンプレートを選ぶと create-with-preset API を呼びプロジェクトへ遷移する', async () => {
+  it('テンプレートを選んだだけでは作成せず、説明（作成されるもの）と「作成する」ボタンが出る', async () => {
+    global.fetch = vi.fn() as unknown as typeof fetch
+    await renderStep2()
+
+    // 選ぶ前は作成ボタンが無い
+    expect(screen.queryByRole('button', { name: /プロジェクトを作成する/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('コンサルティング'))
+
+    // 押しただけでは API を呼ばない（以前はカードを押した瞬間に作成されていた）
+    expect(global.fetch).not.toHaveBeenCalled()
+    // 何が作られるかの説明が出る
+    expect(screen.getByText('作成されるもの')).toBeInTheDocument()
+    expect(screen.getByText(/調査レポート/)).toBeInTheDocument()
+    expect(screen.getByText(/現状分析 → 課題整理 → 提案/)).toBeInTheDocument()
+    expect(screen.getByText('調査・提案・議事録の標準構成')).toBeInTheDocument()
+    // 選んだカードが選択状態になる
+    expect(screen.getByRole('button', { name: /コンサルティング/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /Web\/アプリ開発/ })).toHaveAttribute('aria-pressed', 'false')
+    // 作成ボタンが出る
+    expect(screen.getByRole('button', { name: /プロジェクトを作成する/ })).toBeInTheDocument()
+  })
+
+  it('選び直すと説明も切り替わる', async () => {
+    await renderStep2()
+    fireEvent.click(screen.getByText('コンサルティング'))
+    expect(screen.getByText(/調査レポート/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText('デザイン制作'))
+    expect(screen.queryByText(/調査レポート/)).not.toBeInTheDocument()
+    expect(screen.getByText(/デザインブリーフ/)).toBeInTheDocument()
+  })
+
+  it('白紙を選んだときも説明と作成ボタンが出る', async () => {
+    await renderStep2()
+    fireEvent.click(screen.getByText(/白紙から始める/))
+    expect(screen.getByText(/空のプロジェクトだけを作ります/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /プロジェクトを作成する/ })).toBeInTheDocument()
+  })
+
+  it('「作成する」を押すと create-with-preset API を呼びプロジェクトへ遷移する', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ space: { id: 'space-9' } }),
@@ -317,6 +357,7 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
       target: { value: 'コーポレートサイト制作' },
     })
     fireEvent.click(screen.getByText('Web/アプリ開発'))
+    fireEvent.click(screen.getByRole('button', { name: /プロジェクトを作成する/ }))
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -353,6 +394,7 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
       target: { value: '新規案件' },
     })
     fireEvent.click(screen.getByText(/白紙から始める/))
+    fireEvent.click(screen.getByRole('button', { name: /プロジェクトを作成する/ }))
 
     await waitFor(() => {
       expect(screen.getByText('プロジェクトの作成に失敗しました。もう一度お試しください。')).toBeInTheDocument()
@@ -362,17 +404,87 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
     expect(screen.getByText('Web/アプリ開発')).toBeInTheDocument()
   })
 
-  it('プロジェクト名が空のままテンプレートを選ぶとバリデーションエラー', async () => {
+  it('プロジェクト名が空のまま「作成する」を押すとバリデーションエラー', async () => {
     global.fetch = vi.fn() as unknown as typeof fetch
 
     await renderStep2()
 
     fireEvent.change(screen.getByLabelText(/^プロジェクト名\*?$/), { target: { value: '  ' } })
     fireEvent.click(screen.getByText('Web/アプリ開発'))
+    fireEvent.click(screen.getByRole('button', { name: /プロジェクトを作成する/ }))
 
     await waitFor(() => {
       expect(screen.getByText('プロジェクト名を入力してください。')).toBeInTheDocument()
     })
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('OnboardingPage — 別のアカウントでやり直せる（ログアウト導線）', () => {
+  // 背景: Googleログインで会員でないアカウントに入ると /onboarding に来るが、この画面に
+  // ログアウトが無く、/login に戻っても proxy が /onboarding へ押し戻すため、
+  // プロジェクトを作らない限り別アカウントに切り替えられなかった。
+  beforeEach(() => {
+    vi.clearAllMocks()
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
+    localStorage.clear()
+  })
+
+  it('Step1（組織作成）にログイン中のメールと「別のアカウントでログイン」導線が出る', async () => {
+    mockUser({}, 'taro@example.com')
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('組織を作成')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/taro@example\.com/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /別のアカウントでログイン/ })).toBeInTheDocument()
+  })
+
+  it('Step2（最初のプロジェクト作成）は横に広いカードで出す（ジャンル10種が縦長に並ばない）', async () => {
+    mockUser()
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    render(<OnboardingPage />)
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('auth-card').className).toContain('max-w-4xl')
+  })
+
+  it('Step1（組織作成）は従来どおり狭いカードのまま', async () => {
+    mockUser()
+    render(<OnboardingPage />)
+    await waitFor(() => {
+      expect(screen.getByText('組織を作成')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('auth-card').className).toContain('max-w-md')
+  })
+
+  it('Step2（最初のプロジェクト作成）にも同じ導線が出る', async () => {
+    mockUser({}, 'taro@example.com')
+    membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
+    render(<OnboardingPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /別のアカウントでログイン/ })).toBeInTheDocument()
+  })
+
+  it('押すとログアウトしてから /login に移動する（ログアウトが先・遷移が後）', async () => {
+    mockUser({}, 'taro@example.com')
+    render(<OnboardingPage />)
+    await waitFor(() => {
+      expect(screen.getByText('組織を作成')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /別のアカウントでログイン/ }))
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalledTimes(1)
+      expect(mockReplace).toHaveBeenCalledWith('/login')
+    })
+    expect(mockSignOut.mock.invocationCallOrder[0]).toBeLessThan(mockReplace.mock.invocationCallOrder[0])
   })
 })

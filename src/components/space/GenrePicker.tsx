@@ -52,12 +52,18 @@ interface GenrePickerProps {
   includeBlankInGrid?: boolean
   /** Optional description text above the grid. */
   description?: string
+  /**
+   * 選択中のジャンル。渡すと該当カードを選択状態（aria-pressed / 強調枠）で描く。
+   * 「選ぶ → 説明を見る → 作成する」の2段構えで使う画面向け（onSelect が即作成しない場合）。
+   */
+  selectedGenre?: PresetGenre | null
 }
 
 export function GenrePicker({
   onSelect,
   includeBlankInGrid = false,
   description,
+  selectedGenre = null,
 }: GenrePickerProps) {
   const genrePresets = getGenrePresets()
   const blankPreset = getBlankPreset()
@@ -67,19 +73,32 @@ export function GenrePicker({
     : genrePresets
 
   return (
-    <div>
+    // @container: 列数は「置かれた枠の幅」で決める（画面幅ではなく）。
+    // 同じ部品がオンボーディングの広いカード・作成シート・設定画面と幅の違う場所に置かれるため、
+    // 枠が狭ければ2列、広ければ5列（10ジャンル=2段）まで増やして縦長にならないようにする。
+    <div className="@container">
       {description && (
         <p className="text-sm text-gray-500 mb-4">{description}</p>
       )}
 
-      <div className="grid grid-cols-3 gap-2.5 mb-4">
-        {allCards.map((preset) => (
+      <div
+        data-testid="genre-grid"
+        className="grid grid-cols-2 @md:grid-cols-3 @xl:grid-cols-4 @3xl:grid-cols-5 gap-2.5 mb-4"
+      >
+        {allCards.map((preset) => {
+          const selected = selectedGenre === preset.genre
+          return (
           <button
             key={preset.genre}
             type="button"
             onClick={() => onSelect(preset.genre)}
             title={preset.description}
-            className="flex flex-col items-start gap-1 p-3 border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 transition-all text-left group"
+            aria-pressed={selected}
+            className={`flex flex-col items-start gap-1 p-3 border rounded-lg transition-all text-left group ${
+              selected
+                ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500/20'
+                : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50'
+            }`}
           >
             <span className="text-2xl text-indigo-600 group-hover:text-indigo-700">
               {ICON_MAP[preset.icon] || <FileText weight="duotone" />}
@@ -93,14 +112,20 @@ export function GenrePicker({
               ・マイルストーン {preset.milestones.length}件
             </span>
           </button>
-        ))}
+          )
+        })}
       </div>
 
       {!includeBlankInGrid && (
         <button
           type="button"
           onClick={() => onSelect('blank')}
-          className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+          aria-pressed={selectedGenre === 'blank'}
+          className={`w-full py-2 text-sm rounded-lg transition-colors ${
+            selectedGenre === 'blank'
+              ? 'text-indigo-700 bg-indigo-50 ring-2 ring-indigo-500/20'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
         >
           {blankPreset.label} — {blankPreset.description}
         </button>

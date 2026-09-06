@@ -1,17 +1,66 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 
+/** Google ログイン後の戻り先。(panel) layout が旗を確認し、無ければこの画面へ戻す */
+const ADMIN_HOME = '/admin/dashboard'
+
+/**
+ * 管理者ログイン画面。
+ *
+ * メール+パスワードに加えて Google でも入れる。Google の場合は /auth/callback → ADMIN_HOME に
+ * 戻り、(panel) layout の superadmin ゲートが旗を確認する。旗が無いユーザーはここへ戻されるので、
+ * 「ログイン済みだが運営ではない」状態をこの画面で検知して理由を出し、ログアウト手段を用意する
+ * （そうしないと Google で入った一般ユーザーが理由も分からず同じ画面を往復する）。
+ */
 export default function AdminLoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [signedInAs, setSignedInAs] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function checkExistingSession() {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user || cancelled) return
+        const { data: profile } = await (supabase as SupabaseClient)
+          .from('profiles')
+          .select('is_superadmin')
+          .eq('id', user.id)
+          .single()
+        if (cancelled) return
+        if (profile?.is_superadmin) {
+          router.replace(ADMIN_HOME)
+          return
+        }
+        setSignedInAs(user.email ?? '')
+        setError('管理者権限がありません')
+      } catch {
+        // セッション確認に失敗しても通常のログインフォームは使える
+      }
+    }
+    void checkExistingSession()
+    return () => {
+      cancelled = true
+    }
+  }, [router])
+
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    setSignedInAs(null)
+    setError('')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -44,7 +93,7 @@ export default function AdminLoginPage() {
           return
         }
 
-        router.push('/admin/dashboard')
+        router.push(ADMIN_HOME)
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -73,13 +122,38 @@ export default function AdminLoginPage() {
             <p className="mt-2 text-sm text-gray-600">システム管理者アカウントでログイン</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-                {error}
-              </div>
-            )}
+          {error && (
+            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+              <p>{error}</p>
+              {signedInAs !== null && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-xs text-red-600 truncate">
+                    {signedInAs ? `${signedInAs} でログイン中` : 'ログイン中'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="shrink-0 text-xs font-medium text-red-700 underline hover:text-red-800"
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
+          <GoogleSignInButton label="Google でログイン" redirectTo={ADMIN_HOME} />
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-200" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="px-2 bg-surface text-gray-500">または</span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-gray-700">
                 メールアドレス
