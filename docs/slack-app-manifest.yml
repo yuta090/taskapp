@@ -1,24 +1,43 @@
 # AgentPM Slack App Manifest（そのまま貼り付け可）
 #
-# 使い方: https://api.slack.com/apps → Create New App → From an app manifest
-# → ワークスペースを選択 → 下記を貼り付け → Create
+# 使い方（どちらでも）:
+#   A) https://api.slack.com/apps → 対象アプリ → App Manifest → 下記を貼り付けて Save
+#   B) node scripts/slack-manifest-apply.mjs（docs/slack-app-manifest.json を API で適用。
+#      .env.local に SLACK_CONFIG_ACCESS_TOKEN が必要）
+#
+# 本番アプリ: A0AF808AZ41（workspace: myspace）。json と yml は同じ内容を保つこと。
 #
 # 注意:
 #   - OAuth redirect は https 必須のため localhost は含めていない。
 #     ローカル開発でOAuthを試す場合は ngrok 等のhttps URLを後から追加する。
+#   - アイコン画像は manifest では変えられない（Basic Information で手動アップロード）。
 #   - 作成後、Basic Information → App Credentials の Client ID / Client Secret /
 #     Signing Secret を .env.local と本番環境変数の SLACK_* に設定する
 #     （SLACK_STATE_SECRET は openssl rand -hex 32 で生成）。
 #
 # 実装との対応（変更時はコードも要修正）:
 #   - OAuth callback:       src/app/api/slack/callback/route.ts
-#   - スラッシュコマンド:    src/app/api/slack/commands/route.ts
+#   - インストール時 scope: src/lib/slack/oauth.ts の getSlackOAuthUrl（下記 bot scopes と一致させる）
+#   - スラッシュコマンド:    src/app/api/slack/commands/route.ts（引数なし・タスク作成フォームを開く）
 #   - インタラクション:      src/app/api/slack/interactions/route.ts
-#   - イベント(app_mention): src/app/api/slack/webhook/route.ts
+#   - イベント(app_mention): src/app/api/slack/webhook/route.ts（AIがプロジェクト状況を答える）
+#   - users:read(.email):    src/lib/slack/usermap.ts（Slack の発言者を AgentPM の担当者に対応づける）
 
 display_information:
   name: AgentPM
-  description: "プロジェクトのタスク・承認をSlackから確認できるAgentPM連携"
+  description: "「次に動くのは誰か」が分かるタスク管理 AgentPM を Slack から使う連携"
+  long_description: |
+    AgentPM は、タスクごとに「次に動くのは自社か相手先か（ボール）」を持つプロジェクト管理ツールです。この Slack 連携でできること:
+
+    • プロジェクトに紐づけたチャンネルへ、タスク作成・ボールの受け渡し・コメントを自動でお知らせします
+    • /agentpm と打つと、そのチャンネルのプロジェクトにタスクを作るフォームが開きます
+    • @AgentPM にメンションして質問すると、プロジェクトの状況をふまえて AI が答えます
+
+    はじめ方:
+    1. AgentPM の「組織設定 → ツール連携 → Slack」でワークスペースを接続します
+    2. 各プロジェクトの設定で、お知らせを流すチャンネルを選びます
+
+    公開チャンネルだけでなく、Bot を招待したプライベートチャンネルでも使えます。
   background_color: "#f59e0b"
 
 features:
@@ -28,8 +47,8 @@ features:
   slash_commands:
     - command: "/agentpm"
       url: "https://agentpm.app/api/slack/commands"
-      description: "タスクの確認・作成"
-      usage_hint: "help | status | task [title]"
+      description: "このチャンネルのプロジェクトにタスクを作る"
+      usage_hint: "そのまま送信すると作成フォームが開きます"
       should_escape: false
 
 oauth_config:
@@ -42,6 +61,8 @@ oauth_config:
       - groups:read
       - app_mentions:read
       - commands
+      - users:read
+      - users:read.email
 
 settings:
   event_subscriptions:

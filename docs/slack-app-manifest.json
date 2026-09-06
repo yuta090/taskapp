@@ -1,7 +1,8 @@
 {
     "display_information": {
         "name": "AgentPM",
-        "description": "プロジェクトのタスク・承認をSlackから確認できるAgentPM連携",
+        "description": "「次に動くのは誰か」が分かるタスク管理 AgentPM を Slack から使う連携",
+        "long_description": "AgentPM は、タスクごとに「次に動くのは自社か相手先か（ボール）」を持つプロジェクト管理ツールです。この Slack 連携でできること:\n\n• プロジェクトに紐づけたチャンネルへ、タスク作成・ボールの受け渡し・コメントを自動でお知らせします\n• /agentpm と打つと、そのチャンネルのプロジェクトにタスクを作るフォームが開きます\n• @AgentPM にメンションして質問すると、プロジェクトの状況をふまえて AI が答えます\n\nはじめ方:\n1. AgentPM の「組織設定 → ツール連携 → Slack」でワークスペースを接続します\n2. 各プロジェクトの設定で、お知らせを流すチャンネルを選びます\n\n公開チャンネルだけでなく、Bot を招待したプライベートチャンネルでも使えます。",
         "background_color": "#f59e0b"
     },
     "features": {
@@ -13,8 +14,8 @@
             {
                 "command": "/agentpm",
                 "url": "https://agentpm.app/api/slack/commands",
-                "description": "タスクの確認・作成",
-                "usage_hint": "help | status | task [title]",
+                "description": "このチャンネルのプロジェクトにタスクを作る",
+                "usage_hint": "そのまま送信すると作成フォームが開きます",
                 "should_escape": false
             }
         ]
@@ -29,7 +30,9 @@
                 "channels:read",
                 "groups:read",
                 "app_mentions:read",
-                "commands"
+                "commands",
+                "users:read",
+                "users:read.email"
             ]
         }
     },
