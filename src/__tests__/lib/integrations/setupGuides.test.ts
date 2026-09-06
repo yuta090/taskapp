@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   INTEGRATION_SETUP_GUIDES,
   PERSONAL_SETUP_GUIDE_KEYS,
+  ORG_SETUP_GUIDE_KEYS,
   getSetupGuide,
   type PersonalSetupGuideKey,
+  type OrgSetupGuideKey,
 } from '@/lib/integrations/setupGuides'
 import { listIntegrations } from '@/lib/integrations/registry'
 
@@ -106,6 +108,21 @@ describe('INTEGRATION_SETUP_GUIDES', () => {
     expect([...PERSONAL_SETUP_GUIDE_KEYS].sort()).toEqual([...expected].sort())
     for (const key of expected) {
       expect(getSetupGuide(key), `${key} の手順が無い`).not.toBeNull()
+    }
+  })
+
+  /**
+   * 組織の外部連携（GitHub / Slack）は registry の IntegrationId に無い別軸。
+   * プロジェクト設定の「連携のしかた」ボタンがここを引くので、手順が無いとボタンごと消える。
+   */
+  it('組織の外部連携(GitHub / Slack)にも手順があり、TaskApp側の道順が「組織の外部連携」から始まる', () => {
+    const expected: OrgSetupGuideKey[] = ['github', 'slack']
+    expect([...ORG_SETUP_GUIDE_KEYS].sort()).toEqual([...expected].sort())
+    for (const key of expected) {
+      const guide = getSetupGuide(key)
+      expect(guide, `${key} の手順が無い`).not.toBeNull()
+      expect(guide!.steps.join('\n')).toMatch(/組織の外部連携/)
+      expect(guide!.adminOnly, `${key}: 組織の接続はオーナー限定（authorize route が 403 を返す）`).toBe(true)
     }
   })
 
