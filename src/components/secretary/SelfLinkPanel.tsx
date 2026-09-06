@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Warning, LinkBreak } from '@phosphor-icons/react'
 import { LineFriendQr } from '@/components/secretary/LineFriendQr'
 import { ConnectionFlowSection, type ConnectState } from '@/components/secretary/ConnectionFlowSection'
-import { Hint } from '@/components/secretary/Hint'
 
 interface UserLink {
   id: string
@@ -109,7 +108,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
     ) : account ? (
       <div className="flex items-start gap-2 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
         <Check weight="bold" className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" />
-        <span>「{account.displayName}」は接続済み。あとはあなたのLINEをつなぐだけです。</span>
+        <span>LINE秘書「{account.displayName}」を使えます。あとはあなたのLINEをつなぐだけです。</span>
       </div>
     ) : undefined
 
@@ -121,13 +120,6 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
   ) : undefined
 
   const qr = <LineFriendQr orgId={orgId} />
-
-  // 手順は1行。詳しい注意はQR側のヒントに寄せる（画面には「いま何をするか」だけ残す）。
-  const stepsHint = (
-    <p className="text-[11px] text-gray-500">
-      QRで友だち追加したあと、下で発行したコードを秘書との1:1トークに送ると完了です。
-    </p>
-  )
 
   const action = issuedCode ? (
     <section className="rounded border border-amber-300 bg-amber-50 p-4">
@@ -148,10 +140,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
         </button>
       </div>
       <p className="mt-2 text-[11px] text-amber-900">
-        15分で失効・1回のみ。<strong>グループには貼らないでください。</strong>
-        <Hint label="コードの扱い">
-          このコードはあなた本人を見分けるためのものです。グループに貼ると別の人に使われてしまうため、必ず秘書との1:1トークに送ってください。
-        </Hint>
+        有効期限は15分・1回だけ使えます。<strong>グループには貼らないでください</strong>（あなた本人を確認するためのコードです）。
       </p>
     </section>
   ) : !account ? (
@@ -208,10 +197,8 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       qr={qr}
       action={action}
       detail={detail}
-      stepsHint={stepsHint}
-      // 同じ画面の「グループLINEの会話をタスクにする」カードで同一BotのQRを既に見せているため、
-      // ここでは畳んでおく（QRが2つ並ぶだけで一気に読む量が増える）。
-      collapseQr
+      // ハブ上のQRはこのカードの1つだけ（グループ側はボタンのみ）なので畳まない。
+      // 初心者がクリックせずに QR→手順→発行ボタン を上から読めるようにする。
     />
   )
 }

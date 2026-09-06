@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { toDataURL } from 'qrcode'
 import { Copy, Check } from '@phosphor-icons/react'
-import { Hint } from '@/components/secretary/Hint'
 
 interface LineFriendQrProps {
   orgId: string
@@ -15,8 +14,6 @@ interface LineFriendQrProps {
    */
   purpose?: 'self' | 'group'
 }
-
-type OwnerType = 'org' | 'platform' | null
 
 /**
  * LINE友だち追加QR（Botを見つけて友だち追加する手間だけを消す純粋加算UX）。
@@ -30,7 +27,6 @@ type OwnerType = 'org' | 'platform' | null
  */
 export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
   const [basicId, setBasicId] = useState<string | null>(null)
-  const [ownerType, setOwnerType] = useState<OwnerType>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
@@ -45,16 +41,11 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
         if (cancelled) return
         if (!res.ok || typeof json.basicId !== 'string') {
           setBasicId(null)
-          setOwnerType(null)
           return
         }
         setBasicId(json.basicId)
-        setOwnerType(json.ownerType === 'platform' ? 'platform' : json.ownerType === 'org' ? 'org' : null)
       } catch {
-        if (!cancelled) {
-          setBasicId(null)
-          setOwnerType(null)
-        }
+        if (!cancelled) setBasicId(null)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -102,23 +93,15 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
   if (!friendUrl) {
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-        {/* Bot未プロビジョニング時の正直な期待値設定: 自動で使えるようになるのではなく、
-            当社が開通しメールでご案内する申込制であることを明示する。 */}
-        <p className="text-xs text-gray-500">
-          LINE秘書は順番に開通しています。開通しましたら、ご登録のメールでご案内します（お急ぎの場合はサポートへご連絡ください）。
-        </p>
+        {/* Bot未プロビジョニング時: 自動で使えるようになるのではなく、開通したらメールで知らせる。 */}
+        <p className="text-xs text-gray-500">準備中です。開通したら、ご登録のメールでお知らせします。</p>
       </div>
     )
   }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-surface p-4">
-      {ownerType === 'platform' && (
-        <p className="text-xs font-semibold text-gray-900">
-          この秘書は、ほかの事務所とも共通のアカウントです。友だち追加だけではどの事務所か分からないため、コードの送信が必ず必要です。
-        </p>
-      )}
-
+      {/* 共有アカウント(platform)であることの注意書きは出さない: 手順は同じで、読む人の不安を増やすだけ。 */}
       <div className="flex items-start gap-3">
         {qrDataUrl && (
           // eslint-disable-next-line @next/next/no-img-element -- data URLはnext/imageの対象外
@@ -145,25 +128,22 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
         {purpose === 'group' ? (
           <>
             <ol className="list-inside list-decimal space-y-0.5 text-xs text-amber-900">
-              <li>QRでLINE秘書を友だち追加する</li>
-              <li>秘書を相手先とのLINEグループに招待する</li>
-              <li>コードを発行し、グループのトークに送る（発行はこの下のリンクから）</li>
+              <li>QRを読み取って、LINE秘書を友だち追加</li>
+              <li>LINE秘書を相手先とのグループに招待</li>
+              <li>下でコードを発行し、グループのトークに送る</li>
             </ol>
             <p className="mt-1.5 text-[11px] font-medium text-amber-900">
-              友だち追加・招待だけではつながりません。
-              <Hint label="つながるタイミング">
-                QRは秘書を友だち追加するためのものです。発行したコードをグループのトークに送った時点で、はじめてつながります。
-              </Hint>
+              友だち追加・招待だけでは完了しません。コードを送るまで進めてください。
             </p>
           </>
         ) : (
           <>
             <ol className="list-inside list-decimal space-y-0.5 text-xs text-amber-900">
-              <li>QRでLINE秘書を友だち追加する</li>
-              <li>表示されたコードを秘書との1:1トークに送る</li>
+              <li>QRを読み取って、LINE秘書を友だち追加</li>
+              <li>下のボタンでコードを発行し、出てきたコードを秘書とのトークに送る</li>
             </ol>
             <p className="mt-1.5 text-[11px] font-medium text-amber-900">
-              これでつながります。友だち追加だけではつながりません。
+              友だち追加だけでは完了しません。コードを送るまで進めてください。
             </p>
           </>
         )}
