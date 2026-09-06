@@ -24,6 +24,7 @@ interface InviteRow {
   role: string
   accepted_at: string | null
   expires_at: string
+  created_by: string
 }
 
 /**
@@ -72,7 +73,7 @@ export async function POST(
 
     const { data: invite, error: inviteError } = await admin
       .from('invites')
-      .select('id, org_id, space_id, email, role, accepted_at, expires_at')
+      .select('id, org_id, space_id, email, role, accepted_at, expires_at, created_by')
       .eq('token', token)
       .single()
 
@@ -161,6 +162,9 @@ export async function POST(
       return NextResponse.json({ error: acceptError.message }, { status: 400 })
     }
 
+    // 招待した人への通知はベストエフォート。失敗しても承諾レスポンス自体は成功のまま返す
+    await notifyInviter(admin, inviteRow, userId)
+
     return NextResponse.json({
       org_id: acceptResult.org_id,
       space_id: acceptResult.space_id,
@@ -171,5 +175,55 @@ export async function POST(
   } catch (err) {
     console.error('Accept invite error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+/**
+ * 招待を承諾したことを、招待を作成した人（＝招待した本人）へ通知する。
+ * ベストエフォート — 失敗しても招待承諾自体は成功として扱う（呼び出し側は結果を待たない）。
+ * 自分自身が作成した招待を自分で承諾した場合は通知しない。
+ */
+async function notifyInviter(
+  admin: SupabaseClient,
+  invite: InviteRow,
+  acceptedUserId: string,
+): Promise<void> {
+  if (invite.created_by === acceptedUserId) return
+
+  try {
+    const { data: space } = await admin
+      .from('spaces')
+      .select('name')
+      .eq('id', invite.space_id)
+      .single()
+
+    const spaceName = (space as { name?: string } | null)?.name || 'プロジェクト'
+    const roleLabel = invite.role === 'client' ? '相手先' : 'メンバー'
+
+    const { error } = await admin.from('notifications').insert([
+      {
+        org_id: invite.org_id,
+        space_id: invite.space_id,
+        to_user_id: invite.created_by,
+        channel: 'in_app',
+        type: 'invite_accepted',
+        dedupe_key: `invite_accepted:${invite.id}:${invite.created_by}`,
+        payload: {
+          invite_id: invite.id,
+          space_id: invite.space_id,
+          invitee_email: invite.email,
+          role: invite.role,
+          title: '招待が承諾されました',
+          message: `${invite.email}さん（${roleLabel}）が「${spaceName}」の招待を承諾しました`,
+          link: `/${invite.org_id}/project/${invite.space_id}/settings`,
+        },
+      },
+    ])
+
+    if (error) {
+      console.error('Invite accepted notification insert error:', error)
+    }
+  } catch (err) {
+    console.error('Invite accepted notification unexpected error:', err)
   }
 }

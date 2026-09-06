@@ -51,6 +51,10 @@ export const NOTIFICATION_TYPE_META: Readonly<Record<string, NotificationTypeMet
     label: '外部からのフィードバック',
     description: '相手先（クライアント）から意見・返答が届いた通知',
   },
+  invite_accepted: {
+    label: '招待承諾',
+    description: '自分が送った招待が相手に承諾された通知',
+  },
 
   // ── タスクの動き ──
   task_assigned: {

@@ -17,9 +17,10 @@ const baseInvite = {
   org_id: 'org-1',
   space_id: 'space-1',
   email: 'invitee@example.com',
-  role: 'member' as const,
+  role: 'member' as 'member' | 'client',
   accepted_at: null as string | null,
   expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
+  created_by: 'inviter-1',
 }
 
 let inviteSelectResponse: {
@@ -41,6 +42,13 @@ const adminRpcMock = vi.fn(() => Promise.resolve(acceptRpcResponse))
 const inviteSingleMock = vi.fn(() => Promise.resolve(inviteSelectResponse))
 const getUserMock = vi.fn(() => Promise.resolve(authUserResponse))
 const rateLimitAllowedMock = vi.fn((..._args: unknown[]) => ({ allowed: true, remaining: 9, resetAt: Date.now() + 1000 }))
+
+let spaceSelectResponse: { data: { name: string } | null; error: { message: string } | null }
+const spaceSingleMock = vi.fn(() => Promise.resolve(spaceSelectResponse))
+let notificationsInsertResponse: { error: { message: string } | null }
+const notificationsInsertMock = vi.fn((_rows: Array<Record<string, unknown>>) =>
+  Promise.resolve(notificationsInsertResponse),
+)
 
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => rateLimitAllowedMock(...args),
@@ -67,6 +75,20 @@ vi.mock('@/lib/supabase/admin', () => ({
               single: inviteSingleMock,
             })),
           })),
+        }
+      }
+      if (table === 'spaces') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: spaceSingleMock,
+            })),
+          })),
+        }
+      }
+      if (table === 'notifications') {
+        return {
+          insert: notificationsInsertMock,
         }
       }
       return {}
@@ -103,6 +125,8 @@ describe('POST /api/invites/[token]/accept', () => {
       data: { org_id: 'org-1', space_id: 'space-1', role: 'member' },
       error: null,
     }
+    spaceSelectResponse = { data: { name: 'PJ-A' }, error: null }
+    notificationsInsertResponse = { error: null }
   })
 
   it('returns 404 when the token does not match any invite', async () => {
@@ -296,5 +320,61 @@ describe('POST /api/invites/[token]/accept', () => {
 
     expect(response.status).toBe(429)
     expect(inviteSingleMock).not.toHaveBeenCalled()
+  })
+
+  describe('招待した人への承諾通知', () => {
+    it('招待作成者と異なるユーザーが承諾したら、招待作成者へ in_app 通知を作成する', async () => {
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(notificationsInsertMock).toHaveBeenCalledTimes(1)
+      const rows = notificationsInsertMock.mock.calls[0][0] as Array<Record<string, unknown>>
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        org_id: baseInvite.org_id,
+        space_id: baseInvite.space_id,
+        to_user_id: baseInvite.created_by,
+        channel: 'in_app',
+        type: 'invite_accepted',
+      })
+      const payload = rows[0].payload as Record<string, unknown>
+      expect(payload.message).toContain(baseInvite.email)
+      expect(payload.message).toContain('PJ-A')
+      expect(payload.message).toContain('メンバー')
+    })
+
+    it('clientロールの招待が承諾されたら、通知本文に「相手先」と書く', async () => {
+      inviteSelectResponse = { data: { ...baseInvite, role: 'client' }, error: null }
+      acceptRpcResponse = { data: { org_id: 'org-1', space_id: 'space-1', role: 'client' }, error: null }
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+
+      await callPost(VALID_TOKEN, {})
+
+      const rows = notificationsInsertMock.mock.calls[0][0] as Array<Record<string, unknown>>
+      const payload = rows[0].payload as Record<string, unknown>
+      expect(payload.message).toContain('相手先')
+    })
+
+    it('招待作成者自身が承諾した場合は通知を作成しない', async () => {
+      authUserResponse = { data: { user: { id: baseInvite.created_by, email: baseInvite.email } } }
+
+      const response = await callPost(VALID_TOKEN, {})
+
+      expect(response.status).toBe(200)
+      expect(notificationsInsertMock).not.toHaveBeenCalled()
+    })
+
+    it('通知の作成に失敗しても、承諾レスポンスは成功のまま返す', async () => {
+      notificationsInsertResponse = { error: { message: 'insert failed' } }
+      authUserResponse = { data: { user: { id: 'existing-user-1', email: baseInvite.email } } }
+
+      const response = await callPost(VALID_TOKEN, {})
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.org_id).toBe('org-1')
+    })
   })
 })

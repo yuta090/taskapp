@@ -58,4 +58,43 @@ describe('NotificationDigestEmail', () => {
     expect(text).toContain('請求書を送付する')
     expect(text).toContain('見積レビュー')
   })
+
+  it('未承諾の招待があれば末尾に節を出す', async () => {
+    const html = await render(
+      createElement(NotificationDigestEmail, {
+        appName: 'AgentPM',
+        displayName: '田中',
+        sections,
+        totalCount: 3,
+        pendingInvites: {
+          count: 2,
+          items: [
+            { email: 'a@example.com', spaceName: 'プロジェクトC', createdAt: '2026-08-01T00:00:00.000Z' },
+            { email: 'b@example.com', spaceName: null, createdAt: '2026-08-02T00:00:00.000Z' },
+          ],
+        },
+        appUrl: 'https://app.example.com',
+        settingsUrl: 'https://app.example.com/settings/notifications',
+      }),
+    )
+    expect(html).toContain('未承諾の招待')
+    expect(html).toContain('招待を再送するには')
+    expect(html).toContain('a@example.com')
+    expect(html).toContain('プロジェクトC')
+    expect(html).toContain('b@example.com')
+  })
+
+  it('未承諾の招待が無ければ節を出さない', async () => {
+    const html = await render(
+      createElement(NotificationDigestEmail, {
+        appName: 'AgentPM',
+        displayName: '田中',
+        sections,
+        totalCount: 3,
+        appUrl: 'https://app.example.com',
+        settingsUrl: 'https://app.example.com/settings/notifications',
+      }),
+    )
+    expect(html).not.toContain('未承諾の招待')
+  })
 })

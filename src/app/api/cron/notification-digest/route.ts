@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNotificationDigestEmail } from '@/lib/email/notificationDigest'
-import { buildDigest, type DigestNotification, type NotificationEmailPrefs } from '@/lib/notifications/digest'
+import {
+  buildDigest,
+  PENDING_INVITES_PREVIEW_LIMIT,
+  type DigestNotification,
+  type NotificationEmailPrefs,
+  type PendingInvitesSummary,
+} from '@/lib/notifications/digest'
 import { jstNow } from '@/lib/datetime/jstNow'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -112,6 +118,49 @@ export async function POST(request: NextRequest) {
       ((profiles || []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, p.display_name]),
     )
 
+    // 未承諾の招待（作成から3日以上・未失効）— 対象受信者ぶんをまとめて1クエリ(N+1回避)。
+    // この節だけでメールを送ることはない（送るかどうかは通常のdigestの有無で決まる。既存判定は変えない）。
+    const pendingInviteThreshold = new Date(nowReal.getTime() - 3 * 24 * 60 * 60 * 1000)
+    const { data: pendingInviteRows, error: pendingInviteError } = await admin
+      .from('invites')
+      .select('created_by, email, space_id, created_at')
+      .in('created_by', userIds)
+      .is('accepted_at', null)
+      .gt('expires_at', nowReal.toISOString())
+      .lte('created_at', pendingInviteThreshold.toISOString())
+
+    if (pendingInviteError) {
+      console.error('[notification-digest] Failed to fetch pending invites:', pendingInviteError)
+    }
+
+    type PendingInviteRow = { created_by: string; email: string; space_id: string; created_at: string }
+    const pendingInviteList = (pendingInviteRows || []) as PendingInviteRow[]
+
+    // 招待先の space 名も解決（notifs 側で解決済みの space と合流）
+    const inviteSpaceIds = [...new Set(pendingInviteList.map((i) => i.space_id))].filter(
+      (id) => !spaceNameById.has(id),
+    )
+    if (inviteSpaceIds.length > 0) {
+      const { data: inviteSpaces } = await admin.from('spaces').select('id, name').in('id', inviteSpaceIds)
+      for (const s of (inviteSpaces || []) as Array<{ id: string; name: string }>) {
+        spaceNameById.set(s.id, s.name)
+      }
+    }
+
+    const pendingInvitesByUser = new Map<string, PendingInvitesSummary>()
+    for (const invite of pendingInviteList) {
+      const summary = pendingInvitesByUser.get(invite.created_by) ?? { count: 0, items: [] }
+      summary.count += 1
+      if (summary.items.length < PENDING_INVITES_PREVIEW_LIMIT) {
+        summary.items.push({
+          email: invite.email,
+          spaceName: spaceNameById.get(invite.space_id) ?? null,
+          createdAt: invite.created_at,
+        })
+      }
+      pendingInvitesByUser.set(invite.created_by, summary)
+    }
+
     let emailsSent = 0
     const errors: string[] = []
     const plan: Array<{ userId: string; totalCount: number }> = []
@@ -137,6 +186,9 @@ export async function POST(request: NextRequest) {
           const digest = buildDigest(userNotifs, pref)
           if (!digest) return
 
+          const pendingInvites = pendingInvitesByUser.get(pref.user_id)
+          if (pendingInvites) digest.pendingInvites = pendingInvites
+
           plan.push({ userId: pref.user_id, totalCount: digest.totalCount })
           if (dryRun) return
 
@@ -149,6 +201,7 @@ export async function POST(request: NextRequest) {
             displayName: displayNameById.get(pref.user_id) ?? null,
             sections: digest.sections,
             totalCount: digest.totalCount,
+            pendingInvites: digest.pendingInvites,
           })
           emailsSent += 1
           if (!recipientOverride) sentUserIds.push(pref.user_id)
