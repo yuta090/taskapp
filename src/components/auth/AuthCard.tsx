@@ -8,12 +8,21 @@ interface AuthCardProps {
   description?: string
   children: React.ReactNode
   footer?: React.ReactNode
+  /**
+   * カードの幅。既定 'default'(max-w-md) はログイン等の1列フォーム向け。
+   * 'wide'(max-w-4xl) はジャンル選択のように横に並べる中身がある画面向け
+   * （狭い枠に10枚のカードを押し込むと縦長になって見づらいため）。
+   */
+  width?: 'default' | 'wide'
 }
 
-export function AuthCard({ title, description, children, footer }: AuthCardProps) {
+export function AuthCard({ title, description, children, footer, width = 'default' }: AuthCardProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md">
+      <div
+        data-testid="auth-card"
+        className={`w-full ${width === 'wide' ? 'max-w-4xl' : 'max-w-md'}`}
+      >
         {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
