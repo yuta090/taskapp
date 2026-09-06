@@ -57,6 +57,8 @@ export interface TaskImportResult {
 }
 
 const IN_CHUNK = 200
+const EXISTING_PAGE_SIZE = 1000
+const EXISTING_MAX_PAGES = 20
 const LIST_USERS_PER_PAGE = 1000
 const LIST_USERS_MAX_PAGES = 10
 
@@ -66,19 +68,31 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out
 }
 
-async function loadExistingTasks(spaceId: string, titles: string[]): Promise<Map<string, string>> {
+/**
+ * スペース内の既存タスクを「タイトル → id」で全件引く（重複スキップと parent 解決に使う）。
+ *
+ * ⚠ 以前は CSV のタイトル群を `.in('title', [...])` で問い合わせていたが、日本語タイトルは
+ *   URL エンコードで3倍に膨らみ、200件で URL 長の上限を超えて fetch 自体が失敗した
+ *   （本番で 500・ローカルで "fetch failed"）。タイトルを URL に載せず、スペースのタスクを
+ *   ページングで全件取ってメモリ上で突き合わせる。1スペースのタスク数は有限（上限 20 ページ×1000）。
+ */
+async function loadExistingTasks(spaceId: string): Promise<Map<string, string>> {
   const supabase = getSupabaseClient()
   const map = new Map<string, string>()
-  for (const part of chunk([...new Set(titles)], IN_CHUNK)) {
+  for (let page = 0; page < EXISTING_MAX_PAGES; page++) {
+    const from = page * EXISTING_PAGE_SIZE
     const { data, error } = await supabase
       .from('tasks')
       .select('id, title')
       .eq('space_id', spaceId)
-      .in('title', part)
+      .order('created_at', { ascending: true })
+      .range(from, from + EXISTING_PAGE_SIZE - 1)
     if (error) throw new Error(`既存タスクの確認に失敗しました: ${error.message}`)
-    for (const row of (data ?? []) as { id: string; title: string }[]) {
+    const rows = (data ?? []) as { id: string; title: string }[]
+    for (const row of rows) {
       if (!map.has(row.title)) map.set(row.title, row.id)
     }
+    if (rows.length < EXISTING_PAGE_SIZE) break
   }
   return map
 }
@@ -199,10 +213,9 @@ export async function taskImport(params: z.infer<typeof taskImportSchema>): Prom
 
   const peopleRefs = parsed.rows.flatMap((r) => [r.assignee ?? '', ...r.clientOwners, ...r.internalOwners])
   const needEmails = peopleRefs.some((ref) => ref.includes('@'))
-  const titles = parsed.rows.flatMap((r) => (r.parent ? [r.title, r.parent] : [r.title]))
 
   const [existingTasks, users, milestones] = await Promise.all([
-    loadExistingTasks(params.spaceId, titles),
+    loadExistingTasks(params.spaceId),
     loadUserDirectory(orgId, needEmails),
     loadMilestones(params.spaceId),
   ])
