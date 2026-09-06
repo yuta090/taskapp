@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetFromEmailWarning } from '@/lib/email/from'
 import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 // Mock Resend with proper class constructor
@@ -32,6 +33,7 @@ import { sendInviteEmail } from '@/lib/email'
 
 describe('Email Service', () => {
   beforeEach(() => {
+  resetFromEmailWarning()
   resetEmailTemplateCache()
     vi.clearAllMocks()
     templateRows = []
@@ -260,6 +262,7 @@ describe('sendInviteEmail — 管理画面で保存した文面が実際に使�
   }
 
   beforeEach(() => {
+  resetFromEmailWarning()
   resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -306,15 +309,16 @@ describe('sendInviteEmail — 差出人と返信先', () => {
     expiresAt: '2025-03-01T00:00:00Z',
   }
 
-  it('From は「事務所名 (サービス名)」、返信先は招待した人', async () => {
-    await sendInviteEmail({ ...baseParams, role: 'client', replyTo: 'inviter@example.com' })
+  it('From は「事務所名 (サービス名)」（有料プランで senderOrgName が渡ったとき）、返信先は招待した人', async () => {
+    await sendInviteEmail({ ...baseParams, role: 'client', replyTo: 'inviter@example.com', senderOrgName: 'Test Org' })
     const a = mockSend.mock.calls[0][0]
     expect(a.from).toBe('"Test Org (TestApp)" <test@example.com>')
     expect(a.replyTo).toBe('inviter@example.com')
   })
 
-  it('返信先が不正（改行入り）なら付けない', async () => {
+  it('返信先が不正（改行入り）なら付けない。senderOrgName が無ければ（無料プラン）表示名はサービス名のみ', async () => {
     await sendInviteEmail({ ...baseParams, role: 'member', replyTo: 'x\r\nBcc: y@z' })
     expect(mockSend.mock.calls[0][0].replyTo).toBeUndefined()
+    expect(mockSend.mock.calls[0][0].from).toBe('"TestApp" <test@example.com>')
   })
 })

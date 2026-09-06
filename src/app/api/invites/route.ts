@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { sendInviteEmail } from '@/lib/email'
+import { resolveSenderOrgName } from '@/lib/email/senderOrgName'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -162,6 +163,8 @@ export async function POST(request: NextRequest) {
           message: trimmedMessage || undefined,
           // 相手が返信したら招待した本人に届くように
           replyTo: user.email,
+          // 有料プランの事務所だけ「{事務所名} (AgentPM)」で名乗る
+          senderOrgName: await resolveSenderOrgName(supabase as SupabaseClient, org_id),
         })
         emailSent = true
       } catch (emailError) {

@@ -42,6 +42,8 @@ function getAppUrl(): string {
 }
 
 export interface SendApprovalEmailParams {
+  /** 差出人表示名に載せる事務所名（有料プランのときだけ呼び出し側が渡す。本文の組織名とは別） */
+  senderOrgName?: string | null
   /** 返信先（操作した担当者のメール）。相手先が返信すると担当者に届く */
   replyTo?: string | null
   to: string
@@ -56,7 +58,7 @@ export interface SendApprovalEmailParams {
 }
 
 export async function sendApprovalEmail(params: SendApprovalEmailParams) {
-  const { to, token, taskTitle, spaceName, orgName, actionType, estimatedCost, dueDate, descriptionExcerpt, replyTo } = params
+  const { to, token, taskTitle, spaceName, orgName, actionType, estimatedCost, dueDate, descriptionExcerpt, replyTo, senderOrgName } = params
 
   const appUrl = getAppUrl()
   const appName = getAppName()
@@ -105,7 +107,7 @@ export async function sendApprovalEmail(params: SendApprovalEmailParams) {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
       // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
-      from: buildFrom({ orgName }),
+      from: buildFrom({ orgName: senderOrgName }),
       replyTo: sanitizeReplyTo(replyTo),
       to,
       subject,

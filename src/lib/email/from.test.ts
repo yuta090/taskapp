@@ -16,6 +16,7 @@ describe('email from / reply-to', () => {
 
   it('表示名の引用符・山かっこ・改行はヘッダを壊さないよう除去し、長すぎれば切る', () => {
     expect(sanitizeDisplayName('A"B<C>D\r\nE')).toBe('ABCDE')
+    expect(sanitizeDisplayName('Acme, Inc.; x\\y\u0007')).toBe('Acme Inc. xy')
     expect(buildFrom({ orgName: 'x'.repeat(200) })).toContain(`"${'x'.repeat(60)}`)
     expect(buildFrom({ orgName: 'x'.repeat(200) })).not.toContain('x'.repeat(61))
   })
@@ -36,5 +37,6 @@ describe('email from / reply-to', () => {
     expect(sanitizeReplyTo('')).toBeUndefined()
     expect(sanitizeReplyTo(null)).toBeUndefined()
     expect(sanitizeReplyTo('not-an-email')).toBeUndefined()
+    expect(sanitizeReplyTo('a@b.com,c')).toBeUndefined()
   })
 })

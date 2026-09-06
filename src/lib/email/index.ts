@@ -25,6 +25,8 @@ import { renderInviteEmail, type InviteTemplateVars } from './templates/invite'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
 export interface SendInviteEmailParams {
+  /** 差出人表示名に載せる事務所名（有料プランのときだけ呼び出し側が渡す。本文の組織名とは別） */
+  senderOrgName?: string | null
   /** 返信先（操作した担当者のメール）。相手先が返信すると担当者に届く */
   replyTo?: string | null
   to: string
@@ -43,7 +45,7 @@ export interface SendInviteEmailParams {
  * 未保存ならコード既定（templates/invite.ts）。HTML の枠と差し込みは renderInviteEmail に集約。
  */
 export async function sendInviteEmail(params: SendInviteEmailParams) {
-  const { to, inviterName, orgName, spaceName, role, token, expiresAt, message, replyTo } = params
+  const { to, inviterName, orgName, spaceName, role, token, expiresAt, message, replyTo, senderOrgName } = params
 
   const appUrl = getAppUrl()
   const appName = getAppName()
@@ -74,7 +76,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
       // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
-      from: buildFrom({ orgName }),
+      from: buildFrom({ orgName: senderOrgName }),
       replyTo: sanitizeReplyTo(replyTo),
       to,
       subject,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendApprovalEmail } from '@/lib/email/approval'
+import { resolveSenderOrgName } from '@/lib/email/senderOrgName'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -201,6 +202,9 @@ async function sendEmailsToUsers(
 
   const spaceName = (space as Record<string, unknown>)?.name as string || 'プロジェクト'
   const orgName = ((space as Record<string, unknown>)?.organizations as Record<string, unknown>)?.name as string || ''
+  // 有料プランの事務所だけ「{事務所名} (AgentPM)」で名乗る（本文の組織名とは別）
+  const spaceOrgId = (space as Record<string, unknown>)?.org_id as string | undefined
+  const senderOrgName = spaceOrgId ? await resolveSenderOrgName(admin as SupabaseClient, spaceOrgId) : null
 
   // 既存の未使用トークンを無効化（同一タスク・ユーザーの重複防止）
   const userIds = [...emailMap.keys()]
@@ -246,6 +250,7 @@ async function sendEmailsToUsers(
         descriptionExcerpt: task.description ? task.description.slice(0, 120) : null,
         // 相手先が返信したら、承認を依頼した担当者に届くように
         replyTo,
+        senderOrgName,
       })
     } catch (err) {
       console.error(`[notify-approval] Failed to send to ${email}:`, err)

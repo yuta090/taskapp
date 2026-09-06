@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetFromEmailWarning } from '@/lib/email/from'
 import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 import type { ReminderTaskRef } from '@/lib/reminders/computeClientReminders'
 
@@ -42,6 +43,7 @@ function ref(overrides: Partial<ReminderTaskRef> = {}): ReminderTaskRef {
 
 describe('sendReminderEmail', () => {
   beforeEach(() => {
+  resetFromEmailWarning()
   resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -137,11 +139,12 @@ describe('sendReminderEmail', () => {
 })
 
 describe('sendReminderEmail — 差出人', () => {
-  it('orgName があれば「事務所名 (サービス名)」、無ければサービス名だけ', async () => {
+  it('senderOrgName があれば「事務所名 (サービス名)」、無ければサービス名だけ。本文に返信不可の注記', async () => {
     const params = { to: 'client@example.com', displayName: null, digest: { overdue: [], dueToday: [], stalled: [] } }
-    await sendReminderEmail({ ...params, orgName: 'サンプル事務所' })
+    await sendReminderEmail({ ...params, senderOrgName: 'サンプル事務所' })
     expect(mockSend.mock.calls[0][0].from).toMatch(/^"サンプル事務所 \(.+\)" </)
     await sendReminderEmail({ ...params })
     expect(mockSend.mock.calls[1][0].from).not.toContain('(')
+    expect(mockSend.mock.calls[1][0].html).toContain('このメールに返信はできません')
   })
 })

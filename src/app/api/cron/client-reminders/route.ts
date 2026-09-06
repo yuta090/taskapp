@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendReminderEmail } from '@/lib/email/reminder'
+import { resolveSenderOrgNames } from '@/lib/email/senderOrgName'
+import { senderOrgForDigest } from '@/lib/reminders/senderOrgForDigest'
 import {
   computeClientReminders,
   type ReminderTaskInput,
@@ -99,16 +101,13 @@ export async function POST(request: NextRequest) {
 
     const spaceNameById = new Map((spaces || []).map((s: { id: string; name: string }) => [s.id, s.name]))
 
-    // 差出人表示名「{事務所名} (AgentPM)」用: タスク→スペース→組織 を引き、受信者のタスクが1つの事務所に収まるときだけ名前を出す
+    // 差出人表示名「{事務所名} (AgentPM)」用: 有料プランの事務所名だけ引き、受信者のタスクが1事務所に収まるときだけ名乗る
     const orgIdBySpace = new Map((spaces || []).map((s: { id: string; org_id: string | null }) => [s.id, s.org_id]))
-    const orgIds = [...new Set([...orgIdBySpace.values()].filter((v): v is string => !!v))]
-    const { data: orgs } = orgIds.length > 0 ? await admin.from('organizations').select('id, name').in('id', orgIds) : { data: [] }
-    const orgNameById = new Map(((orgs || []) as Array<{ id: string; name: string }>).map((o) => [o.id, o.name]))
-    const spaceIdByTask = new Map(tasks.map((t) => [t.id, t.space_id]))
-    const orgNameForTasks = (refs: Array<{ taskId: string }>): string | null => {
-      const ids = new Set(refs.map((r) => orgIdBySpace.get(spaceIdByTask.get(r.taskId) ?? '') ?? null).filter((v): v is string => !!v))
-      return ids.size === 1 ? (orgNameById.get([...ids][0]) ?? null) : null
-    }
+    const senderNameByOrg = await resolveSenderOrgNames(
+      admin as unknown as SupabaseClient,
+      [...orgIdBySpace.values()].filter((v): v is string => !!v),
+    )
+    const orgIdByTask = new Map(tasks.map((t) => [t.id, orgIdBySpace.get(t.space_id) ?? null]))
 
     const ownersByTask = new Map<string, string[]>()
     for (const o of (taskOwners || []) as Array<{ task_id: string; user_id: string }>) {
@@ -260,7 +259,7 @@ export async function POST(request: NextRequest) {
             to: recipientOverride || digest.email,
             displayName: digest.displayName,
             digest: { overdue: digest.overdue, dueToday: digest.dueToday, stalled: digest.stalled },
-            orgName: orgNameForTasks([...digest.overdue, ...digest.dueToday, ...digest.stalled]),
+            senderOrgName: senderOrgForDigest([...digest.overdue, ...digest.dueToday, ...digest.stalled].map((r) => r.taskId), orgIdByTask, senderNameByOrg),
           })
           emailsSent += 1
           if (!recipientOverride) {

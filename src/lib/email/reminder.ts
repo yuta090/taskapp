@@ -40,8 +40,8 @@ export interface ReminderDigestParam {
 }
 
 export interface SendReminderEmailParams {
-  /** 差出人表示名に入れる事務所名（受信者のタスクが1つの事務所に属するとき）。無ければ AgentPM のみ */
-  orgName?: string | null
+  /** 差出人表示名に入れる事務所名（有料プランかつ受信者のタスクが1つの事務所に収まるとき）。無ければ AgentPM のみ */
+  senderOrgName?: string | null
   /** 返信先（操作した担当者のメール）。相手先が返信すると担当者に届く */
   replyTo?: string | null
   to: string
@@ -52,7 +52,7 @@ export interface SendReminderEmailParams {
 }
 
 export async function sendReminderEmail(params: SendReminderEmailParams) {
-  const { to, displayName, digest, orgName, replyTo } = params
+  const { to, displayName, digest, senderOrgName, replyTo } = params
   const appUrl = params.appUrl || getAppUrl()
   const appName = params.appName || getAppName()
 
@@ -92,7 +92,7 @@ export async function sendReminderEmail(params: SendReminderEmailParams) {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
       // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
-      from: buildFrom({ orgName }),
+      from: buildFrom({ orgName: senderOrgName }),
       replyTo: sanitizeReplyTo(replyTo),
       to,
       subject,

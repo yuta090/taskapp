@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetFromEmailWarning } from '@/lib/email/from'
 import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 // Mock Resend with proper class constructor
@@ -32,6 +33,7 @@ import { sendApprovalEmail } from '@/lib/email/approval'
 
 describe('sendApprovalEmail', () => {
   beforeEach(() => {
+  resetFromEmailWarning()
   resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -130,6 +132,7 @@ describe('sendApprovalEmail — 差出人と返信先', () => {
       orgName: 'サンプル事務所',
       actionType: 'approve',
       replyTo: 'staff@example.com',
+      senderOrgName: 'サンプル事務所',
     })
     const a = mockSend.mock.calls[0][0]
     expect(a.from).toMatch(/^"(.+) \((.+)\)" </)

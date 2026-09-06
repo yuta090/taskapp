@@ -1,7 +1,8 @@
 /**
  * メールの差出人（From）と返信先（Reply-To）を1か所で組み立てる。
  *
- * 方針（Fable 裁定 2026-09-07）: 相手先に届くメールは From 表示名を「{事務所名} (AgentPM)」にし、
+ * 方針（Fable 裁定 2026-09-07）: 相手先に届くメールは From 表示名を「{事務所名} (AgentPM)」にし（**有料プランの事務所だけ**。
+ * 無料登録の組織名でなりすましメールを作れないようにする。判定は senderOrgName.ts）、
  * 返信先を操作した担当者にする。アドレス自体は FROM_EMAIL のまま（自社ドメイン From はやらない）。
  * 「事務所からのメールに見えて返信してしまう」のを Reply-To で担当者に届くようにして吸収する。
  * 運営宛・課金宛・認証メールは表示名「AgentPM」のみ（事務所名は付けない）。
@@ -12,7 +13,7 @@ const MAX_DISPLAY_NAME = 60
 
 let fromEmailWarned = false
 
-/** テスト用: 警告の「1回だけ」をリセット */
+/** @internal テスト用: 警告の「1回だけ」をリセット */
 export function resetFromEmailWarning() {
   fromEmailWarned = false
 }
@@ -30,9 +31,13 @@ export function getAppName(): string {
   return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
 }
 
-/** ヘッダを壊す文字（引用符・山かっこ・改行）を除き、長すぎれば切る */
+/**
+ * ヘッダを壊す／解釈が揺れる文字（引用符・山かっこ・カンマ・セミコロン・バックスラッシュ・制御文字）を除き、長すぎれば切る。
+ * 「Acme, Inc.」のような社名もカンマ抜きで載せる（Resend 側の解釈に賭けて届かなくなるより安全）
+ */
 export function sanitizeDisplayName(name: string): string {
-  return name.replace(/["<>\r\n]/g, '').trim().slice(0, MAX_DISPLAY_NAME)
+  // eslint-disable-next-line no-control-regex
+  return name.replace(/[",;<>\\\u0000-\u001F]/g, '').trim().slice(0, MAX_DISPLAY_NAME)
 }
 
 /**
@@ -46,7 +51,7 @@ export function buildFrom(opts: { orgName?: string | null } = {}): string {
   return `"${display}" <${getFromEmail()}>`
 }
 
-const EMAIL_RE = /^[^\s@"<>]+@[^\s@"<>]+\.[^\s@"<>]+$/
+const EMAIL_RE = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 
 /** Reply-To に使えるのはメールアドレスの形のときだけ（改行等のヘッダ注入を防ぐ） */
 export function sanitizeReplyTo(email: string | null | undefined): string | undefined {
