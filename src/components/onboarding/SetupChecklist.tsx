@@ -8,6 +8,8 @@ import { useOnboardingFlag } from '@/lib/hooks/useOnboardingFlag'
 import { useSetupChecklistData, type UseSetupChecklistDataResult } from '@/lib/hooks/useSetupChecklistData'
 import { computeSetupChecklist } from '@/lib/onboarding/computeSetupChecklist'
 import { markNoClient } from '@/lib/onboarding/markNoClient'
+import { setOnboardingFlag } from '@/lib/onboarding/setOnboardingFlag'
+import { resetOnboardingFlagOnServer } from '@/lib/hooks/useOnboardingFlag'
 
 interface SetupChecklistProps {
   orgId: string
@@ -15,6 +17,24 @@ interface SetupChecklistProps {
 }
 
 const DISMISSED_LOCAL_KEY = 'taskapp_setup_checklist_dismissed'
+
+/** ステップ → 「この設定はしない」で立てるフラグ */
+const SKIP_FLAG_BY_STEP = { connect_line: 'skip_line', configure_ai: 'skip_ai' } as const
+type SkippableStepKey = keyof typeof SKIP_FLAG_BY_STEP
+
+/**
+ * 「はじめての設定」を再表示する（左ナビのヘルプメニューから）。
+ * 非表示フラグ（端末・サーバー両方）を消すだけで、「この設定はしない」の選択は保持する。
+ */
+export async function resetSetupChecklist(): Promise<void> {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(DISMISSED_LOCAL_KEY)
+  } catch {
+    // localStorage unavailable
+  }
+  await resetOnboardingFlagOnServer('setup_checklist')
+}
 
 /**
  * プロジェクトのタスク一覧最上部に常設する初回セットアップ進捗カード。
@@ -39,6 +59,21 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
     await markNoClient()
     await queryClient.invalidateQueries({ queryKey })
   }, [queryClient, orgId, spaceId])
+
+  // 「この設定はしない」(LINE / AI): クライアントなしと同じく、楽観的にキャッシュへ反映 → 保存 → 再取得
+  const handleSkip = useCallback(
+    async (stepKey: SkippableStepKey) => {
+      const flag = SKIP_FLAG_BY_STEP[stepKey]
+      const field = stepKey === 'connect_line' ? 'skipLine' : 'skipAi'
+      const queryKey = ['setupChecklistData', orgId, spaceId]
+      queryClient.setQueryData<Omit<UseSetupChecklistDataResult, 'loading'>>(queryKey, (prev) =>
+        prev ? { ...prev, [field]: true } : prev
+      )
+      await setOnboardingFlag(flag)
+      await queryClient.invalidateQueries({ queryKey })
+    },
+    [queryClient, orgId, spaceId]
+  )
 
   // 全ステップ完了時は「完了」表示を一度だけ出し、以後は自動的に非表示扱いにする
   useEffect(() => {
@@ -88,7 +123,8 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
         <button
           type="button"
           onClick={() => void markDone()}
-          className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          title="非表示にしても、左下のヘルプ →「はじめての設定を再表示」で戻せます"
+          className="flex-shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
         >
           非表示にする
         </button>
@@ -162,6 +198,15 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                     className="flex-shrink-0 text-xs text-gray-500 hover:text-gray-700 transition-colors"
                   >
                     クライアントなし
+                  </button>
+                )}
+                {step.canSkip && (step.key === 'connect_line' || step.key === 'configure_ai') && (
+                  <button
+                    type="button"
+                    onClick={() => void handleSkip(step.key as SkippableStepKey)}
+                    className="flex-shrink-0 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    この設定はしない
                   </button>
                 )}
                 {!step.done && !step.pending && step.href && (

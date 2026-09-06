@@ -16,6 +16,11 @@ vi.mock('@/lib/onboarding/markNoClient', () => ({
   markNoClient: (...args: unknown[]) => mockMarkNoClient(...args),
 }))
 
+const mockSetOnboardingFlag = vi.fn().mockResolvedValue(undefined)
+vi.mock('@/lib/onboarding/setOnboardingFlag', () => ({
+  setOnboardingFlag: (...args: unknown[]) => mockSetOnboardingFlag(...args),
+}))
+
 vi.mock('@/lib/hooks/useOnboardingFlag', () => ({
   useOnboardingFlag: (...args: unknown[]) => mockUseOnboardingFlag(...args),
 }))
@@ -38,6 +43,8 @@ const ALL_UNDONE = {
   aiConfigured: false,
   dmUnreachable: false,
   noClient: false,
+  skipLine: false,
+  skipAi: false,
 }
 
 /** SetupChecklist は react-query の queryClient（キャッシュ更新）を使うため Provider で包む */
@@ -201,6 +208,57 @@ describe('SetupChecklist', () => {
     expect(screen.getByText('セットアップ完了！🎉')).toBeInTheDocument()
     expect(screen.queryByTestId('setup-checklist')).not.toBeInTheDocument()
     expect(mockMarkDone).toHaveBeenCalledTimes(1)
+  })
+
+  describe('この設定はしない（LINE / AI）', () => {
+    it('connect_line と configure_ai に「この設定はしない」が出る（未連携・未設定時）', () => {
+      setup()
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+      const buttons = screen.getAllByRole('button', { name: 'この設定はしない' })
+      expect(buttons).toHaveLength(2)
+      expect(screen.getByTestId('setup-step-connect_line')).toContainElement(buttons[0])
+      expect(screen.getByTestId('setup-step-configure_ai')).toContainElement(buttons[1])
+    })
+
+    it('LINE の「この設定はしない」を押すと skip_line を保存し、キャッシュへ即反映して再取得する', async () => {
+      setup()
+      const { queryClient } = render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+      const setDataSpy = vi.spyOn(queryClient, 'setQueryData')
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'この設定はしない' })[0])
+
+      expect(mockSetOnboardingFlag).toHaveBeenCalledWith('skip_line')
+      expect(setDataSpy).toHaveBeenCalledWith(['setupChecklistData', ORG_ID, SPACE_ID], expect.any(Function))
+      await waitFor(() =>
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['setupChecklistData', ORG_ID, SPACE_ID] })
+      )
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('AI の「この設定はしない」を押すと skip_ai を保存する', () => {
+      setup()
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+      fireEvent.click(screen.getAllByRole('button', { name: 'この設定はしない' })[1])
+      expect(mockSetOnboardingFlag).toHaveBeenCalledWith('skip_ai')
+    })
+
+    it('スキップ済みは「スキップ」表示で分母から外れ、あとから連携・設定できる導線は残る', () => {
+      setup({ skipLine: true, skipAi: true, hasNonSampleTask: true })
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+      expect(screen.getByText('はじめての設定 1/5')).toBeInTheDocument()
+      expect(screen.getAllByText('スキップ')).toHaveLength(2)
+      expect(screen.queryByRole('button', { name: 'この設定はしない' })).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: '連携する' })).toHaveAttribute('href', `/${ORG_ID}/secretary/connect/line`)
+      expect(screen.getByRole('link', { name: '設定する' })).toHaveAttribute('href', '/settings/org-integrations')
+    })
+
+    it('LINE も AI も「しない」＋クライアントなしなら、残り2つの完了で「セットアップ完了」になる', () => {
+      setup({ skipLine: true, skipAi: true, noClient: true, hasNonSampleTask: true, hasTeamInvite: true })
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+      expect(screen.getByTestId('setup-checklist-complete')).toBeInTheDocument()
+      expect(mockMarkDone).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('クライアントなし', () => {
