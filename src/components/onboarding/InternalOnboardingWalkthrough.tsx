@@ -40,8 +40,9 @@ const steps: WalkthroughStep[] = [
     iconColor: 'text-blue-600',
     iconBg: 'bg-blue-100',
     title: 'タスク作成の流れ',
-    description: 'タイトルを入力してEnterで作成できます。詳細は後から編集可能です。',
-    // 空プロジェクトでは空状態、タスクがある場合はインラインの「タスクを追加」行。
+    description: '右上の「タスクを追加」ボタンから作成できます。タイトルを入力してEnter、詳細は後から編集できます。',
+    // ヘッダーの常設「タスクを追加」ボタンが DOM 順で先頭に見つかりハイライトされる
+    // （空状態のCTA・一覧最下段のインライン行にも同じ目印がある）。
     // サイドバー内の要素は別スタッキングコンテキストで隠れるため使わない。
     targetSelectors: ['[data-walkthrough="task-create"]'],
   },

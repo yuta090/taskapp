@@ -121,7 +121,7 @@ export function computeSetupChecklist(
       title: '最初のタスクを作成',
       description: data.hasNonSampleTask
         ? 'タスクを作成しました。'
-        : '下の「タスクを追加」からタイトルを入力してEnterで作成できます。',
+        : '右上の「タスクを追加」ボタンから作成できます（タイトルを入力してEnter）。',
       done: data.hasNonSampleTask,
       href: null,
       ctaLabel: null,
