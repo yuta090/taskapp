@@ -50,6 +50,11 @@ describe('computeSetupChecklist', () => {
     }
   })
 
+  it('create_task の案内は右上の「タスクを追加」ボタンを指す（一覧最下段の薄い行は見つけにくい）', () => {
+    const r = computeSetupChecklist(allFalse, SPACE_ID, ORG_ID)
+    expect(r.steps.find((s) => s.key === 'create_task')?.description).toContain('「タスクを追加」ボタン')
+  })
+
   it('marks create_task done and gives it no CTA link (in-page action)', () => {
     const result = computeSetupChecklist({ ...allFalse, hasNonSampleTask: true }, SPACE_ID, ORG_ID)
 

@@ -102,3 +102,25 @@ describe('TasksPageClient client preview entry link', () => {
     expect(link).toHaveAttribute('href', '/portal/preview/space-1')
   })
 })
+
+/**
+ * 作成の入口が「一覧最下段の薄い行」だけで、サンプルタスクの下に隠れて見つからなかった。
+ * ヘッダーに常設の「タスクを追加」ボタンを置き、操作ガイドの第1ステップがそれをハイライトする。
+ */
+describe('TasksPageClient header create button', () => {
+  it('ヘッダーに「タスクを追加」ボタンが常に出て、操作ガイドの目印(data-walkthrough="task-create")を持つ', () => {
+    renderPage()
+    const button = screen.getByTestId('task-create-button')
+    expect(button).toHaveTextContent('タスクを追加')
+    expect(button).toHaveAttribute('data-walkthrough', 'task-create')
+    // 操作ガイドは最初に見つかった要素をハイライトする → ヘッダーのボタンが先頭
+    expect(document.querySelector('[data-walkthrough="task-create"]')).toBe(button)
+  })
+
+  it('押すと作成シートを開く（N キーと同じ create=1 の経路）', () => {
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState')
+    renderPage()
+    fireEvent.click(screen.getByTestId('task-create-button'))
+    expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expect.stringContaining('create=1'))
+  })
+})
