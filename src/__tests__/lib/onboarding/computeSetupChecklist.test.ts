@@ -106,6 +106,18 @@ describe('computeSetupChecklist', () => {
       expect(step.pending).not.toBe(true)
       expect(step.href).toBe(`/${ORG_ID}/secretary/connect/line`)
       expect(step.ctaLabel).not.toBeNull()
+      // 手順だけでなく「連携すると何ができるか」(メリット)を説明文に含める
+      expect(step.description).toContain('タスク')
+      expect(step.description).toContain('承認')
+    })
+
+    it('未申込・申込中・準備中のどの状態でも、説明文に「何ができるか」(メリット)を含める', () => {
+      for (const lineAccess of ['none', 'requested', 'unavailable'] as const) {
+        const result = computeSetupChecklist({ ...allFalse, lineAccess }, SPACE_ID, ORG_ID)
+        const step = result.steps.find((s) => s.key === 'connect_line')!
+        expect(step.description, lineAccess).toContain('タスク')
+        expect(step.description, lineAccess).toContain('承認')
+      }
     })
 
     it('連携済みなら done かつ CTA なし', () => {
