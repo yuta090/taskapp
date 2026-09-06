@@ -5,6 +5,7 @@
  *   React Email は使わず素の HTML/テキストで送る。
  */
 import { Resend } from 'resend'
+import { buildFrom, getAppName } from './from'
 import { jstNow } from '@/lib/datetime/jstNow'
 import { PLAN_LIMITS } from '@/lib/billing/entitlements'
 import { nextMonthResetLabel, renderCapReachedEmail } from './templates/capReached'
@@ -23,20 +24,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-let fromEmailWarned = false
 
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
-
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -71,7 +59,7 @@ export async function sendFreeCapUpgradeEmail(params: SendFreeCapUpgradeEmailPar
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      from: buildFrom(),
       to,
       subject,
       html,

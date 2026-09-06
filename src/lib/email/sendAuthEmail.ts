@@ -5,6 +5,7 @@
  * テンプレートの無い種類（再認証コード等）は、確認コードだけの簡易文面で送る（届かないより良い）。
  */
 import { Resend } from 'resend'
+import { buildFrom, getAppName } from './from'
 import { AUTH_TEMPLATE_DEFAULTS, authTemplateKeyFor, buildVerifyUrl, renderAuthEmail } from './templates/authEmail'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
@@ -18,19 +19,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-let fromEmailWarned = false
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
 
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 /** Supabase Send Email Hook の payload のうち使う部分 */
 export interface AuthEmailHookPayload {
@@ -59,7 +48,7 @@ const SEND_TIMEOUT_MS = 8_000
 
 async function sendWithTimeout(input: { to: string; subject: string; html?: string; text: string }) {
   const resend = getResendClient()
-  const send = resend.emails.send({ from: getFromEmail(), to: input.to, subject: input.subject, ...(input.html ? { html: input.html, text: input.text } : { text: input.text }) })
+  const send = resend.emails.send({ from: buildFrom(), to: input.to, subject: input.subject, ...(input.html ? { html: input.html, text: input.text } : { text: input.text }) })
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Email send timed out after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS)

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetFromEmailWarning } from '@/lib/email/from'
 import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 // Mock Resend with proper class constructor
@@ -31,6 +32,7 @@ import { sendWelcomeEmail } from '@/lib/email/welcome'
 
 describe('sendWelcomeEmail', () => {
   beforeEach(() => {
+  resetFromEmailWarning()
   resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })

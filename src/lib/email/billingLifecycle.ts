@@ -4,6 +4,7 @@
  * 宛先の解決と「遷移したときだけ送る」判断は src/lib/billing/billingLifecycleNotify.ts が担う。
  */
 import { Resend } from 'resend'
+import { buildFrom, getAppName } from './from'
 import { renderBillingLifecycleEmail, type BillingTemplateKey, type BillingTemplateVars } from './templates/billingLifecycle'
 import type { TemplateFields } from './templates/core'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
@@ -18,19 +19,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-let fromEmailWarned = false
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
 
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -53,7 +42,7 @@ export async function sendBillingLifecycleEmail(params: SendBillingLifecycleEmai
   const { subject, html, text } = renderBillingLifecycleEmail({ key, fields, vars, ctaUrl: `${getAppUrl()}/settings/billing` })
 
   const resend = getResendClient()
-  const { data, error } = await resend.emails.send({ from: getFromEmail(), to, subject, html, text })
+  const { data, error } = await resend.emails.send({ from: buildFrom(), to, subject, html, text })
   if (error) {
     console.error('Failed to send billing lifecycle email:', error)
     throw new Error(`Email send failed: ${error.message}`)

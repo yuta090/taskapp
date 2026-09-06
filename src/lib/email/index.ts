@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { buildFrom, getAppName, sanitizeReplyTo } from './from'
 
 // 遅延初期化でビルド時エラーを回避
 let resendClient: Resend | null = null
@@ -14,21 +15,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-// FROM_EMAIL 未設定警告は起動あたり一度だけ出す
-let fromEmailWarned = false
 
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
-
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -38,6 +25,10 @@ import { renderInviteEmail, type InviteTemplateVars } from './templates/invite'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
 export interface SendInviteEmailParams {
+  /** 差出人表示名に載せる事務所名（有料プランのときだけ呼び出し側が渡す。本文の組織名とは別） */
+  senderOrgName?: string | null
+  /** 返信先（操作した担当者のメール）。相手先が返信すると担当者に届く */
+  replyTo?: string | null
   to: string
   inviterName: string
   orgName: string
@@ -54,7 +45,7 @@ export interface SendInviteEmailParams {
  * 未保存ならコード既定（templates/invite.ts）。HTML の枠と差し込みは renderInviteEmail に集約。
  */
 export async function sendInviteEmail(params: SendInviteEmailParams) {
-  const { to, inviterName, orgName, spaceName, role, token, expiresAt, message } = params
+  const { to, inviterName, orgName, spaceName, role, token, expiresAt, message, replyTo, senderOrgName } = params
 
   const appUrl = getAppUrl()
   const appName = getAppName()
@@ -84,7 +75,9 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
+      from: buildFrom({ orgName: senderOrgName }),
+      replyTo: sanitizeReplyTo(replyTo),
       to,
       subject,
       html,

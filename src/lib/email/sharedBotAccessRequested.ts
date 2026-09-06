@@ -6,6 +6,7 @@
  *   他の簡易メール(src/lib/email/index.ts)と同様、React Email は使わず素の HTML/テキストで送る。
  */
 import { Resend } from 'resend'
+import { buildFrom, getAppName } from './from'
 
 let resendClient: Resend | null = null
 
@@ -20,20 +21,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-let fromEmailWarned = false
 
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
-
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -108,7 +96,7 @@ export async function sendSharedBotAccessRequestedEmail(
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      from: buildFrom(),
       to,
       subject,
       html,

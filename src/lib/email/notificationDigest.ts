@@ -6,6 +6,7 @@
  */
 import { createElement } from 'react'
 import { Resend } from 'resend'
+import { buildFrom, getAppName } from './from'
 import { render } from '@react-email/components'
 import NotificationDigestEmail from './templates/NotificationDigestEmail'
 import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
@@ -24,19 +25,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-let fromEmailWarned = false
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
 
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 }
@@ -75,7 +64,7 @@ export async function sendNotificationDigestEmail(params: SendNotificationDigest
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      from: buildFrom(),
       to,
       subject,
       html,

@@ -168,6 +168,10 @@ export default function ReminderEmail({
 
               <Hr className="border-solid border-none border-t border-gray-200 my-6" />
 
+              <Text className="text-gray-400 text-[12px] leading-[1.5] m-0 mb-2">
+                このメールに返信はできません。ご連絡やコメントはポータルからお願いします。
+              </Text>
+
               <Text className="text-gray-400 text-[12px] leading-[1.5] m-0">
                 このリマインドは1日最大3回送信されます。配信を停止するには{' '}
                 <Link href={settingsUrl} className="text-brand no-underline font-medium">
