@@ -302,6 +302,64 @@ describe('computeSetupChecklist', () => {
     })
   })
 
+  describe('この設定はしない（skipLine / skipAi）', () => {
+    it('未連携・未設定なら connect_line / configure_ai に「この設定はしない」を選べる印(canSkip)が付く', () => {
+      const r = computeSetupChecklist(allFalse, SPACE_ID, ORG_ID)
+      expect(r.steps.find((s) => s.key === 'connect_line')?.canSkip).toBe(true)
+      expect(r.steps.find((s) => s.key === 'configure_ai')?.canSkip).toBe(true)
+    })
+
+    it('未申込(none)でも connect_line に canSkip が付く（申込を迫られ続けない）', () => {
+      const r = computeSetupChecklist({ ...allFalse, lineAccess: 'none' }, SPACE_ID, ORG_ID)
+      expect(r.steps.find((s) => s.key === 'connect_line')?.canSkip).toBe(true)
+    })
+
+    it('skipLine なら connect_line は skipped・分母から除外・連携導線は残す', () => {
+      const r = computeSetupChecklist({ ...allFalse, skipLine: true }, SPACE_ID, ORG_ID)
+      const step = r.steps.find((s) => s.key === 'connect_line')!
+      expect(step.skipped).toBe(true)
+      expect(step.canSkip).toBeUndefined()
+      expect(step.href).toBe(`/${ORG_ID}/secretary/connect/line`)
+      expect(step.ctaLabel).toBe('連携する')
+      expect(r.totalCount).toBe(6)
+    })
+
+    it('skipAi なら configure_ai は skipped・分母から除外・設定導線は残す', () => {
+      const r = computeSetupChecklist({ ...allFalse, skipAi: true }, SPACE_ID, ORG_ID)
+      const step = r.steps.find((s) => s.key === 'configure_ai')!
+      expect(step.skipped).toBe(true)
+      expect(step.href).toBe('/settings/org-integrations')
+      expect(step.ctaLabel).toBe('設定する')
+      expect(r.totalCount).toBe(6)
+    })
+
+    it('スキップ後に実際に連携・設定すれば done が優先される', () => {
+      const r = computeSetupChecklist({ ...allFalse, skipLine: true, skipAi: true, hasLineLinked: true, aiConfigured: true }, SPACE_ID, ORG_ID)
+      expect(r.steps.find((s) => s.key === 'connect_line')).toMatchObject({ done: true })
+      expect(r.steps.find((s) => s.key === 'configure_ai')).toMatchObject({ done: true })
+      expect(r.steps.some((s) => s.skipped)).toBe(false)
+    })
+
+    it('LINE も AI も「しない」＋クライアントなしで、残り2つが済めば allDone（設定しない人でも完了できる）', () => {
+      const r = computeSetupChecklist(
+        { ...allFalse, skipLine: true, skipAi: true, noClient: true, hasNonSampleTask: true, hasTeamInvite: true },
+        SPACE_ID, ORG_ID,
+      )
+      expect(r.totalCount).toBe(2)
+      expect(r.completedCount).toBe(2)
+      expect(r.allDone).toBe(true)
+    })
+
+    it('申込中(requested)・準備中(unavailable)は skipLine に関係なく pending のまま', () => {
+      for (const lineAccess of ['requested', 'unavailable'] as const) {
+        const r = computeSetupChecklist({ ...allFalse, lineAccess, skipLine: true }, SPACE_ID, ORG_ID)
+        const step = r.steps.find((s) => s.key === 'connect_line')!
+        expect(step.pending).toBe(true)
+        expect(step.skipped).toBeUndefined()
+      }
+    })
+  })
+
   describe('currentStepKey（現在地）', () => {
     it('最初の未完了かつ実行可能なステップを指す', () => {
       const result = computeSetupChecklist({ ...allFalse, hasNonSampleTask: true }, SPACE_ID, ORG_ID)

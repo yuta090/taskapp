@@ -25,6 +25,8 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
   aiConfigured: false,
   dmUnreachable: false,
   noClient: false,
+  skipLine: false,
+  skipAi: false,
 }
 
 /**
@@ -152,6 +154,8 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         hasPublishedTask,
         hasPreviewedPortal: flags.portal_preview_seen === true,
         noClient: flags.no_client === true,
+        skipLine: flags.skip_line === true,
+        skipAi: flags.skip_ai === true,
         hasLineLinked: lineStatus.hasLineLinked,
         lineAccess: lineStatus.lineAccess,
         aiConfigured: lineStatus.aiConfigured,

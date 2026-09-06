@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LeftNav } from '@/components/layout/LeftNav'
 
 vi.mock('next/navigation', () => ({
@@ -57,6 +57,11 @@ vi.mock('@/components/onboarding/InternalOnboardingWalkthrough', () => ({
   resetInternalOnboarding: vi.fn(() => Promise.resolve()),
 }))
 
+const mockResetSetupChecklist = vi.fn(() => Promise.resolve())
+vi.mock('@/components/onboarding/SetupChecklist', () => ({
+  resetSetupChecklist: () => mockResetSetupChecklist(),
+}))
+
 describe('LeftNav — 常設ヘルプ導線 (初回UX改善 D)', () => {
   it('ヘルプボタンを押すとポップオーバーに3項目が表示される', () => {
     render(<LeftNav />)
@@ -65,6 +70,17 @@ describe('LeftNav — 常設ヘルプ導線 (初回UX改善 D)', () => {
     expect(screen.getByText('操作ガイドを再表示')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '用語ガイド' })).toHaveAttribute('href', '/help#glossary')
     expect(screen.getByRole('link', { name: '使い方マニュアル' })).toHaveAttribute('href', '/help')
+  })
+
+  it('ヘルプメニューに「はじめての設定を再表示」があり、押すと非表示フラグを消して再読み込みする', async () => {
+    const reloadSpy = vi.fn()
+    Object.defineProperty(window, 'location', { value: { ...window.location, reload: reloadSpy }, writable: true })
+    render(<LeftNav />)
+    fireEvent.click(screen.getByTestId('leftnav-help-button'))
+
+    fireEvent.click(screen.getByText('はじめての設定を再表示'))
+    await waitFor(() => expect(mockResetSetupChecklist).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(reloadSpy).toHaveBeenCalled())
   })
 
   it('「操作ガイドを再表示」の導線はヘルプメニューにのみ存在する（重複導線なし）', () => {

@@ -45,6 +45,13 @@ export interface SetupChecklistData {
    * 分母から外す（実際に完了していれば done が優先）。
    */
   noClient?: boolean
+  /**
+   * profiles.onboarding_flags.skip_line === true。「LINE秘書は使わない（この設定はしない）」を選んだ。
+   * connect_line を skipped にして分母から外す（実際に連携済みなら done が優先）。導線は残す。
+   */
+  skipLine?: boolean
+  /** profiles.onboarding_flags.skip_ai === true。「AI連携は使わない（この設定はしない）」を選んだ。同上。 */
+  skipAi?: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -78,6 +85,11 @@ export interface SetupChecklistStep {
   skipped?: boolean
   /** true のとき invite_client ステップに「クライアントなし」の選択肢を出す（未招待・未スキップ時のみ） */
   canMarkNoClient?: boolean
+  /**
+   * true のとき「この設定はしない」の選択肢を出す（connect_line / configure_ai の未完了・未スキップ時のみ）。
+   * 選ぶと skipped になり分母から外れる。設定したくない人がチェックリストを永久に完了できない問題への手当て。
+   */
+  canSkip?: boolean
   /** true のとき、connect_line ステップに控えめなDM到達不能の注記を出す（SetupChecklist参照） */
   dmUnreachable?: boolean
 }
@@ -152,16 +164,7 @@ export function computeSetupChecklist(
       skipped: noClient && !data.hasPreviewedPortal,
     },
     buildConnectLineStep(data, orgId),
-    {
-      key: 'configure_ai',
-      title: 'AI連携を設定',
-      description: data.aiConfigured
-        ? 'AI連携を設定しました。'
-        : 'AIを設定すると、LINEのやり取りが自動でタスクになります。未設定のあいだは自動タスク化は動きません。',
-      done: data.aiConfigured,
-      href: data.aiConfigured ? null : '/settings/org-integrations',
-      ctaLabel: data.aiConfigured ? null : 'AI連携を設定',
-    },
+    buildConfigureAiStep(data),
   ]
 
   // pending（準備中）・skipped（クライアントなし）ステップは表示のみ。進捗の分母・現在地からは除外する。
@@ -257,6 +260,24 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     }
   }
 
+  // 「この設定はしない」: 未連携なら申込前(none)でも連携可能(own/granted)でも skipped にする。
+  // 実際に連携済みなら下の done が優先されるよう、hasLineLinked を先に見る
+  if (
+    data.skipLine === true &&
+    !data.hasLineLinked &&
+    (data.lineAccess === 'none' || data.lineAccess === 'own' || data.lineAccess === 'granted')
+  ) {
+    return {
+      key: 'connect_line',
+      title: 'LINE秘書と連携',
+      description: 'LINE秘書は使わずに進めています。必要になったらいつでも連携できます。',
+      done: false,
+      href: connectHref,
+      ctaLabel: '連携する',
+      skipped: true,
+    }
+  }
+
   if (data.lineAccess === 'none') {
     return {
       key: 'connect_line',
@@ -265,6 +286,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
       done: false,
       href: connectHref,
       ctaLabel: '共通LINEを申し込む',
+      canSkip: true,
     }
   }
 
@@ -286,7 +308,46 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     title: 'LINE秘書と連携',
     description: `連携すると、${benefit}QRで友だち追加し、表示されるコードをトークに送ると完了です（追加だけでは完了しません）。`,
     done: false,
+    canSkip: true,
     href: connectHref,
     ctaLabel: 'LINEを連携',
+  }
+}
+
+/**
+ * AI連携ステップ。未設定なら「この設定はしない」を選べる（canSkip）。
+ * 選ぶ（skipAi）と skipped になり分母から外れるが、あとから設定できるよう導線は残す。設定済みなら done が優先。
+ */
+function buildConfigureAiStep(data: SetupChecklistData): SetupChecklistStep {
+  if (data.aiConfigured) {
+    return {
+      key: 'configure_ai',
+      title: 'AI連携を設定',
+      description: 'AI連携を設定しました。',
+      done: true,
+      href: null,
+      ctaLabel: null,
+    }
+  }
+  if (data.skipAi === true) {
+    return {
+      key: 'configure_ai',
+      title: 'AI連携を設定',
+      description: 'AI連携は使わずに進めています。必要になったらいつでも設定できます。',
+      done: false,
+      href: '/settings/org-integrations',
+      ctaLabel: '設定する',
+      skipped: true,
+    }
+  }
+  return {
+    key: 'configure_ai',
+    title: 'AI連携を設定',
+    description:
+      'AIを設定すると、LINEのやり取りが自動でタスクになります。未設定のあいだは自動タスク化は動きません。',
+    done: false,
+    href: '/settings/org-integrations',
+    ctaLabel: 'AI連携を設定',
+    canSkip: true,
   }
 }

@@ -276,6 +276,23 @@ describe('useSetupChecklistData', () => {
     expect(result.current.hasPreviewedPortal).toBe(true)
   })
 
+  it('reads skipLine / skipAi from profiles.onboarding_flags.skip_line / skip_ai', async () => {
+    mockSupabaseFrom({
+      space_memberships: () => ({ data: null, error: null }),
+      tasks: () => ({ data: [], error: null }),
+      org_memberships: () => ({ data: [], error: null }),
+      invites: () => ({ data: [], error: null }),
+      profiles: () => ({ data: { onboarding_flags: { skip_line: true, skip_ai: true } }, error: null }),
+    })
+
+    const { result } = renderHook(() => useSetupChecklistData(ORG_ID, SPACE_ID), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.skipLine).toBe(true)
+    expect(result.current.skipAi).toBe(true)
+    expect(result.current.noClient).toBe(false)
+  })
+
   it('reads noClient from profiles.onboarding_flags.no_client', async () => {
     mockSupabaseFrom({
       space_memberships: () => ({ data: null, error: null }),
