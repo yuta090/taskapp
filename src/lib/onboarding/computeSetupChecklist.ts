@@ -229,14 +229,15 @@ function buildInviteClientStep(hasClientInvite: boolean, noClient: boolean): Set
  */
 function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChecklistStep {
   const connectHref = `/${orgId}/secretary/connect/line`
+  // 手順より先に「連携すると何ができるか」を必ず言う（未申込/申込中/準備中/未連携のどの状態でも同じ一文）
+  const benefit = 'グループLINEの会話が自動でタスクになり、期限のお知らせや承認もLINEで受け取れます。'
 
   if (data.lineAccess === 'unavailable') {
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
       // 共有bot未プロビジョニング。自動で使えるようになる誤解を避け、開通の主体＝当社と明示。
-      description:
-        'LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内しますので、少々お待ちください（お急ぎの場合はサポートへご連絡ください）。',
+      description: `開通すると、${benefit}当社が順番に開通しており、開通しましたらご登録のメールでご案内します（お急ぎの場合はサポートへご連絡ください）。`,
       done: false,
       href: null,
       ctaLabel: null,
@@ -248,8 +249,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
-      description:
-        '共通LINEの利用申込を受け付けました。当社が開通しましたら、ご登録のメールでご案内します。',
+      description: `申込を受け付けました。開通すると、${benefit}開通しましたらご登録のメールでご案内します。`,
       done: false,
       href: null,
       ctaLabel: null,
@@ -261,7 +261,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
-      description: 'グループLINEの会話から、決めごと・お願いをAI秘書が自動でタスクにします。',
+      description: `連携すると、${benefit}まずは共通LINEの利用を申し込みます。`,
       done: false,
       href: connectHref,
       ctaLabel: '共通LINEを申し込む',
@@ -284,8 +284,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
   return {
     key: 'connect_line',
     title: 'LINE秘書と連携',
-    description:
-      'QRで友だち追加し、表示されるコードをトークに送ると連携完了です（追加だけでは連携されません）。',
+    description: `連携すると、${benefit}QRで友だち追加し、表示されるコードをトークに送ると完了です（追加だけでは完了しません）。`,
     done: false,
     href: connectHref,
     ctaLabel: 'LINEを連携',
