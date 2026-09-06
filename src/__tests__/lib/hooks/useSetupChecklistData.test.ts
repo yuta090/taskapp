@@ -96,6 +96,7 @@ describe('useSetupChecklistData', () => {
     expect(result.current.hasPreviewedPortal).toBe(false)
     expect(result.current.currentUserRole).toBeNull()
     expect(result.current.dmUnreachable).toBe(false)
+    expect(result.current.noClient).toBe(false)
   })
 
   it('reads currentUserRole from space_memberships', async () => {
@@ -273,5 +274,20 @@ describe('useSetupChecklistData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.hasPreviewedPortal).toBe(true)
+  })
+
+  it('reads noClient from profiles.onboarding_flags.no_client', async () => {
+    mockSupabaseFrom({
+      space_memberships: () => ({ data: null, error: null }),
+      tasks: () => ({ data: [], error: null }),
+      org_memberships: () => ({ data: [], error: null }),
+      invites: () => ({ data: [], error: null }),
+      profiles: () => ({ data: { onboarding_flags: { no_client: true } }, error: null }),
+    })
+
+    const { result } = renderHook(() => useSetupChecklistData(ORG_ID, SPACE_ID), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.noClient).toBe(true)
   })
 })

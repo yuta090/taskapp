@@ -39,6 +39,12 @@ export interface SetupChecklistData {
    * ステップが連携済み(done)のときのみ、控えめな注記として表示する。
    */
   dmUnreachable?: boolean
+  /**
+   * profiles.onboarding_flags.no_client === true。「クライアントなしで進める」を選んだ。
+   * クライアント前提の3ステップ(invite_client/publish_task/preview_portal)を skipped にして
+   * 分母から外す（実際に完了していれば done が優先）。
+   */
+  noClient?: boolean
 }
 
 export type SetupChecklistStepKey =
@@ -65,6 +71,13 @@ export interface SetupChecklistStep {
    * 完了不能なステップで allDone に到達できなくなるのを防ぐため。
    */
   pending?: boolean
+  /**
+   * 「スキップ」= ユーザーが「クライアントなし」を選んだため今は不要なステップ。
+   * pending と同様、一覧には出すが進捗の分母と現在地からは除外する。
+   */
+  skipped?: boolean
+  /** true のとき invite_client ステップに「クライアントなし」の選択肢を出す（未招待・未スキップ時のみ） */
+  canMarkNoClient?: boolean
   /** true のとき、connect_line ステップに控えめなDM到達不能の注記を出す（SetupChecklist参照） */
   dmUnreachable?: boolean
 }
@@ -89,6 +102,7 @@ export function computeSetupChecklist(
   spaceId: string,
   orgId: string
 ): SetupChecklistResult {
+  const noClient = data.noClient === true
   const steps: SetupChecklistStep[] = [
     {
       key: 'create_task',
@@ -110,35 +124,32 @@ export function computeSetupChecklist(
       href: data.hasTeamInvite ? null : '/settings/members',
       ctaLabel: data.hasTeamInvite ? null : 'メンバーを招待',
     },
-    {
-      key: 'invite_client',
-      title: 'クライアントを招待',
-      description: data.hasClientInvite
-        ? 'クライアントを招待しました。'
-        : 'クライアントを招待するとポータルで進捗を共有できます。',
-      done: data.hasClientInvite,
-      href: data.hasClientInvite ? null : '/settings/members',
-      ctaLabel: data.hasClientInvite ? null : 'クライアントを招待',
-    },
+    buildInviteClientStep(data.hasClientInvite, noClient),
     {
       key: 'publish_task',
       title: 'タスクをクライアントに公開',
       description: data.hasPublishedTask
         ? 'タスクをクライアントに公開しました。'
-        : 'タスク詳細で「クライアントに公開」をONにすると、クライアントのポータルに表示されます。',
+        : noClient
+          ? 'クライアントを招待したら、タスク詳細の「クライアントに公開」で共有できます。'
+          : 'タスク詳細で「クライアントに公開」をONにすると、クライアントのポータルに表示されます。',
       done: data.hasPublishedTask,
       href: null,
       ctaLabel: null,
+      skipped: noClient && !data.hasPublishedTask,
     },
     {
       key: 'preview_portal',
       title: 'クライアント表示をプレビュー',
       description: data.hasPreviewedPortal
         ? 'クライアント表示をプレビューしました。'
-        : 'クライアントからどう見えるかを確認しましょう。',
+        : noClient
+          ? 'クライアントを招待したら、どう見えるかを確認できます。'
+          : 'クライアントからどう見えるかを確認しましょう。',
       done: data.hasPreviewedPortal,
-      href: data.hasPreviewedPortal ? null : `/portal/preview/${spaceId}`,
-      ctaLabel: data.hasPreviewedPortal ? null : 'プレビュー',
+      href: data.hasPreviewedPortal || noClient ? null : `/portal/preview/${spaceId}`,
+      ctaLabel: data.hasPreviewedPortal || noClient ? null : 'プレビュー',
+      skipped: noClient && !data.hasPreviewedPortal,
     },
     buildConnectLineStep(data, orgId),
     {
@@ -153,8 +164,8 @@ export function computeSetupChecklist(
     },
   ]
 
-  // pending（準備中）ステップは表示のみ。進捗の分母・現在地からは除外する。
-  const applicable = steps.filter((s) => s.pending !== true)
+  // pending（準備中）・skipped（クライアントなし）ステップは表示のみ。進捗の分母・現在地からは除外する。
+  const applicable = steps.filter((s) => s.pending !== true && s.skipped !== true)
   const completedCount = applicable.filter((s) => s.done).length
   const totalCount = applicable.length
   const currentStep = applicable.find((s) => !s.done)
@@ -165,6 +176,46 @@ export function computeSetupChecklist(
     totalCount,
     allDone: totalCount > 0 && completedCount === totalCount,
     currentStepKey: currentStep ? currentStep.key : null,
+  }
+}
+
+/**
+ * クライアント招待ステップ。未招待のときは「クライアントなし」を選べる（canMarkNoClient）。
+ * 選ぶと skipped になり分母から外れるが、あとから招待できるよう導線は残す。
+ * 実際に招待済みなら done が優先（noClient は無視）。
+ */
+function buildInviteClientStep(hasClientInvite: boolean, noClient: boolean): SetupChecklistStep {
+  if (hasClientInvite) {
+    return {
+      key: 'invite_client',
+      title: 'クライアントを招待',
+      description: 'クライアントを招待しました。',
+      done: true,
+      href: null,
+      ctaLabel: null,
+    }
+  }
+
+  if (noClient) {
+    return {
+      key: 'invite_client',
+      title: 'クライアントを招待',
+      description: 'クライアントなしで進めています。必要になったらいつでも招待できます。',
+      done: false,
+      href: '/settings/members',
+      ctaLabel: '招待する',
+      skipped: true,
+    }
+  }
+
+  return {
+    key: 'invite_client',
+    title: 'クライアントを招待',
+    description: 'クライアントを招待するとポータルで進捗を共有できます。',
+    done: false,
+    href: '/settings/members',
+    ctaLabel: 'クライアントを招待',
+    canMarkNoClient: true,
   }
 }
 
@@ -210,8 +261,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
-      description:
-        '共通LINEの利用をお申し込みください。お申し込み後、当社が開通してメールでご案内します。',
+      description: 'LINEのやり取りから、AI秘書が自動でタスクを拾います。',
       done: false,
       href: connectHref,
       ctaLabel: '共通LINEを申し込む',

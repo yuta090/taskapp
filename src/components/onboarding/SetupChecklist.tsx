@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle, CaretDown, CaretUp, Clock } from '@phosphor-icons/react'
+import { useQueryClient } from '@tanstack/react-query'
+import { CheckCircle, CaretDown, CaretUp, Clock, MinusCircle } from '@phosphor-icons/react'
 import { useOnboardingFlag } from '@/lib/hooks/useOnboardingFlag'
-import { useSetupChecklistData } from '@/lib/hooks/useSetupChecklistData'
+import { useSetupChecklistData, type UseSetupChecklistDataResult } from '@/lib/hooks/useSetupChecklistData'
 import { computeSetupChecklist } from '@/lib/onboarding/computeSetupChecklist'
+import { markNoClient } from '@/lib/onboarding/markNoClient'
 
 interface SetupChecklistProps {
   orgId: string
@@ -22,10 +24,21 @@ const DISMISSED_LOCAL_KEY = 'taskapp_setup_checklist_dismissed'
 export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
   const { shouldShow, markDone } = useOnboardingFlag('setup_checklist', DISMISSED_LOCAL_KEY)
   const data = useSetupChecklistData(orgId, spaceId)
+  const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
   const autoDismissedRef = useRef(false)
 
   const result = computeSetupChecklist(data, spaceId, orgId)
+
+  // 「クライアントなし」: 楽観的にキャッシュへ反映してから保存し、保存後に再取得で整合させる
+  const handleNoClient = useCallback(async () => {
+    const queryKey = ['setupChecklistData', orgId, spaceId]
+    queryClient.setQueryData<Omit<UseSetupChecklistDataResult, 'loading'>>(queryKey, (prev) =>
+      prev ? { ...prev, noClient: true } : prev
+    )
+    await markNoClient()
+    await queryClient.invalidateQueries({ queryKey })
+  }, [queryClient, orgId, spaceId])
 
   // 全ステップ完了時は「完了」表示を一度だけ出し、以後は自動的に非表示扱いにする
   useEffect(() => {
@@ -96,6 +109,8 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                   <CheckCircle weight="fill" className="w-4 h-4 flex-shrink-0 text-green-600" />
                 ) : step.pending ? (
                   <Clock className="w-4 h-4 flex-shrink-0 text-gray-400" />
+                ) : step.skipped ? (
+                  <MinusCircle className="w-4 h-4 flex-shrink-0 text-gray-400" />
                 ) : (
                   <div
                     className={`w-4 h-4 flex-shrink-0 rounded-full border-2 ${
@@ -109,7 +124,7 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                       className={`text-sm ${
                         step.done
                           ? 'text-gray-500'
-                          : step.pending
+                          : step.pending || step.skipped
                             ? 'text-gray-400'
                             : `font-medium ${isCurrent ? 'text-indigo-900' : 'text-gray-900'}`
                       }`}
@@ -126,6 +141,11 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                         準備中
                       </span>
                     )}
+                    {step.skipped && (
+                      <span className="flex-shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-gray-500">
+                        スキップ
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-gray-500 truncate">{step.description}</p>
                   {step.dmUnreachable && (
@@ -134,6 +154,15 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                     </p>
                   )}
                 </div>
+                {step.canMarkNoClient && (
+                  <button
+                    type="button"
+                    onClick={() => void handleNoClient()}
+                    className="flex-shrink-0 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    クライアントなし
+                  </button>
+                )}
                 {!step.done && !step.pending && step.href && (
                   <Link
                     href={step.href}

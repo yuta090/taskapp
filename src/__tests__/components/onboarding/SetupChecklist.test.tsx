@@ -1,14 +1,20 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 
 const ORG_ID = 'org-1'
 const SPACE_ID = 'space-1'
 
 const mockMarkDone = vi.fn().mockResolvedValue(undefined)
+const mockMarkNoClient = vi.fn().mockResolvedValue(undefined)
 const mockUseOnboardingFlag = vi.fn()
 const mockUseSetupChecklistData = vi.fn()
+
+vi.mock('@/lib/onboarding/markNoClient', () => ({
+  markNoClient: (...args: unknown[]) => mockMarkNoClient(...args),
+}))
 
 vi.mock('@/lib/hooks/useOnboardingFlag', () => ({
   useOnboardingFlag: (...args: unknown[]) => mockUseOnboardingFlag(...args),
@@ -31,6 +37,16 @@ const ALL_UNDONE = {
   lineAccess: 'granted',
   aiConfigured: false,
   dmUnreachable: false,
+  noClient: false,
+}
+
+/** SetupChecklist は react-query の queryClient（キャッシュ更新）を使うため Provider で包む */
+function render(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return {
+    queryClient,
+    ...rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>),
+  }
 }
 
 function setup(dataOverrides: Partial<typeof ALL_UNDONE> = {}, shouldShow: boolean | null = true) {
@@ -42,6 +58,7 @@ describe('SetupChecklist', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockMarkDone.mockResolvedValue(undefined)
+    mockMarkNoClient.mockResolvedValue(undefined)
   })
 
   it('renders nothing while checklist data is loading', () => {
@@ -173,5 +190,63 @@ describe('SetupChecklist', () => {
     expect(screen.getByText('セットアップ完了！🎉')).toBeInTheDocument()
     expect(screen.queryByTestId('setup-checklist')).not.toBeInTheDocument()
     expect(mockMarkDone).toHaveBeenCalledTimes(1)
+  })
+
+  describe('クライアントなし', () => {
+    it('shows a "クライアントなし" choice on the invite_client step while no client is invited', () => {
+      setup()
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+      const button = screen.getByRole('button', { name: 'クライアントなし' })
+      expect(screen.getByTestId('setup-step-invite_client')).toContainElement(button)
+    })
+
+    it('persists no_client, reflects it in the cache immediately, and refetches when chosen', async () => {
+      setup()
+      const { queryClient } = render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+      const setDataSpy = vi.spyOn(queryClient, 'setQueryData')
+
+      fireEvent.click(screen.getByRole('button', { name: 'クライアントなし' }))
+
+      expect(mockMarkNoClient).toHaveBeenCalledTimes(1)
+      expect(setDataSpy).toHaveBeenCalledWith(['setupChecklistData', ORG_ID, SPACE_ID], expect.any(Function))
+      await waitFor(() =>
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['setupChecklistData', ORG_ID, SPACE_ID] })
+      )
+      // チェックリスト全体を消す操作ではない
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('shows skipped client steps as "スキップ", drops them from the total, and keeps an invite link', () => {
+      setup({ noClient: true, hasNonSampleTask: true })
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+      // 分母は create_task / invite_team / connect_line / configure_ai の4つ
+      expect(screen.getByText('はじめての設定 1/4')).toBeInTheDocument()
+      expect(screen.getAllByText('スキップ')).toHaveLength(3)
+      expect(screen.queryByRole('button', { name: 'クライアントなし' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'プレビュー' })).not.toBeInTheDocument()
+      // あとからでも招待できる導線は残す
+      const inviteLink = screen.getByRole('link', { name: '招待する' })
+      expect(inviteLink).toHaveAttribute('href', '/settings/members')
+      // 現在地はスキップを飛ばして invite_team
+      expect(screen.getByTestId('setup-step-invite_team')).toHaveAttribute('data-current', 'true')
+    })
+
+    it('hides the "クライアントなし" choice once a client is actually invited', () => {
+      setup({ hasClientInvite: true })
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+      expect(screen.queryByRole('button', { name: 'クライアントなし' })).not.toBeInTheDocument()
+    })
+
+    it('reaches the completion state with no client once the remaining steps are done', () => {
+      setup({ noClient: true, hasNonSampleTask: true, hasTeamInvite: true, hasLineLinked: true, aiConfigured: true })
+      render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+      expect(screen.getByTestId('setup-checklist-complete')).toBeInTheDocument()
+      expect(mockMarkDone).toHaveBeenCalledTimes(1)
+    })
   })
 })
