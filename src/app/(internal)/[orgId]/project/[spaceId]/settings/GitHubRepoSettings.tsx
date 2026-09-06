@@ -12,6 +12,7 @@ import {
 import { isGitHubConfigured } from '@/lib/github/config'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
+import { ToolSetupGuide } from '@/components/integrations/ToolSetupGuide'
 import Link from 'next/link'
 
 interface GitHubRepoSettingsProps {
@@ -82,9 +83,13 @@ export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) 
   return (
     <div className="space-y-4">
       {ConfirmDialog}
-      <div className="flex items-center gap-2 text-gray-700">
-        <GithubLogo className="text-lg" weight="bold" />
-        <h3 className="font-medium">GitHub連携</h3>
+      <div className="flex items-center justify-between gap-2 text-gray-700">
+        <div className="flex items-center gap-2">
+          <GithubLogo className="text-lg" weight="bold" />
+          <h3 className="font-medium">GitHub連携</h3>
+        </div>
+        {/* 「どうやって繋ぐのか」が画面に無かった。手順は setupGuides.ts（単一の真実源）から引く */}
+        <ToolSetupGuide guideKey="github" />
       </div>
 
       {isLoading ? (
