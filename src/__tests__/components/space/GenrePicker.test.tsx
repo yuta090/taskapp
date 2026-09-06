@@ -11,6 +11,22 @@ describe('GenrePicker', () => {
     expect(screen.getByText(/白紙から始める/)).toBeInTheDocument()
   })
 
+  it('カードの並びは置かれた枠の幅に追従する（狭い枠=2列 … 広い枠=5列。縦長にならない）', () => {
+    render(<GenrePicker onSelect={vi.fn()} />)
+    const grid = screen.getByTestId('genre-grid')
+    // 枠の幅で列数を決める（画面幅ではなく）。@container を親に付け、@md/@xl/@3xl で段階的に増やす
+    expect(grid.parentElement?.className).toContain('@container')
+    for (const cls of ['grid-cols-2', '@md:grid-cols-3', '@xl:grid-cols-4', '@3xl:grid-cols-5']) {
+      expect(grid.className).toContain(cls)
+    }
+  })
+
+  it('selectedGenre を渡すとそのカードだけ選択状態（aria-pressed）になる', () => {
+    render(<GenrePicker onSelect={vi.fn()} selectedGenre="consulting" />)
+    expect(screen.getByRole('button', { name: /コンサルティング/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /デザイン制作/ })).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('カードの件数表記はホームを文書数に含めない', () => {
     render(<GenrePicker onSelect={vi.fn()} />)
     // Wiki3 + ホーム・マイルストーン5 のジャンルが複数ある（デザイン制作・コンサル等）

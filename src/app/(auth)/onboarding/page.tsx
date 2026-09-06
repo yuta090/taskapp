@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { SpinnerGap } from '@phosphor-icons/react'
+import { FileText } from '@phosphor-icons/react'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
-import { GenrePicker } from '@/components/space/GenrePicker'
+import { GenrePicker, GenrePreview, ICON_MAP } from '@/components/space/GenrePicker'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { PresetGenre } from '@/lib/presets'
+import { getPreset, type PresetGenre } from '@/lib/presets'
 
 type Step = 'org' | 'project'
 
@@ -19,6 +19,7 @@ export default function OnboardingPage() {
   const [displayName, setDisplayName] = useState('')
   const [prefilled, setPrefilled] = useState(false)
   const [projectName, setProjectName] = useState('')
+  const [selectedGenre, setSelectedGenre] = useState<PresetGenre | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
@@ -216,9 +217,26 @@ export default function OnboardingPage() {
     </div>
   )
 
-  async function handleSelectGenre(genre: PresetGenre) {
+  /**
+   * カードは「選ぶ」だけ。作成は下の「プロジェクトを作成する」ボタンで行う。
+   * 以前はカードを押した瞬間に作成していたため、何が作られるか分からないまま
+   * プロジェクトが出来てしまっていた。
+   */
+  function handleSelectGenre(genre: PresetGenre) {
     if (loading) return
     setError('')
+    setSelectedGenre(genre)
+  }
+
+  async function handleCreateProject() {
+    if (loading) return
+    setError('')
+
+    const genre = selectedGenre
+    if (!genre) {
+      setError('テンプレートを選んでください。')
+      return
+    }
 
     const name = projectName.trim()
     if (!name) {
@@ -271,11 +289,13 @@ export default function OnboardingPage() {
   // Step 2: 最初のプロジェクト作成（テンプレート選択）
   // ---------------------------------------------------------------------------
   if (step === 'project') {
+    const selectedPreset = selectedGenre ? getPreset(selectedGenre) : null
     return (
       <AuthCard
         title="最初のプロジェクトを作成"
         description="業種に合ったテンプレートを選ぶと、Wikiとマイルストーンが自動でセットアップされます。"
         footer={switchAccountFooter}
+        width="wide"
       >
         <div className="space-y-4">
           {error && (
@@ -293,13 +313,32 @@ export default function OnboardingPage() {
             required
           />
 
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
-              <SpinnerGap className="text-lg animate-spin" />
-              プロジェクトを作成中...
+          <GenrePicker onSelect={handleSelectGenre} selectedGenre={selectedGenre} />
+
+          {selectedPreset && (
+            <div className="space-y-3 border-t border-gray-200 pt-4">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded text-sm">
+                  <span className="text-base">
+                    {ICON_MAP[selectedPreset.icon] || <FileText weight="duotone" />}
+                  </span>
+                  {selectedPreset.label}
+                </span>
+                <span className="text-sm text-gray-600">{selectedPreset.description}</span>
+              </div>
+
+              {selectedPreset.genre === 'blank' ? (
+                <p className="text-xs text-gray-500">
+                  Wikiやマイルストーンは作らず、空のプロジェクトだけを作ります。あとから設定画面でテンプレートを適用することもできます。
+                </p>
+              ) : (
+                <GenrePreview preset={selectedPreset} />
+              )}
+
+              <AuthButton type="button" onClick={handleCreateProject} loading={loading}>
+                このテンプレートでプロジェクトを作成する
+              </AuthButton>
             </div>
-          ) : (
-            <GenrePicker onSelect={handleSelectGenre} />
           )}
         </div>
       </AuthCard>
