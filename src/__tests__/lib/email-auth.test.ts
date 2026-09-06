@@ -15,6 +15,7 @@ process.env.NEXT_PUBLIC_APP_NAME = 'AgentPM'
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://abc.supabase.co'
 
 const { sendAuthEmail } = await import('@/lib/email/sendAuthEmail')
+const { resetEmailTemplateCache } = await import('@/lib/email/templates/loadEmailTemplate')
 
 const base = {
   user: { id: 'u1', email: 'user@example.com' },
@@ -24,6 +25,7 @@ const base = {
 beforeEach(() => {
   vi.clearAllMocks()
   templateRows = []
+  resetEmailTemplateCache()
 })
 
 describe('sendAuthEmail', () => {
