@@ -38,6 +38,9 @@ describe('categorizeNotificationType', () => {
   it('未知の型は null（ダイジェストに含めない）', () => {
     expect(categorizeNotificationType('some_unknown_type')).toBeNull()
   })
+  it('招待承諾→client_response', () => {
+    expect(categorizeNotificationType('invite_accepted')).toBe('client_response')
+  })
 })
 
 describe('buildDigest', () => {

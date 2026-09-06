@@ -14,6 +14,7 @@ const LINK_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
   'scheduling_reminder',
   'scheduling_proposal_expired',
   'file_uploaded',
+  'invite_accepted',
 ])
 
 export type PushRecipientRole = 'client' | 'internal'
@@ -36,6 +37,7 @@ const TITLE_BY_TYPE: Record<string, string> = {
   urgent_confirmation: '至急の確認依頼があります',
   task_assigned: 'タスクが割り当てられました',
   spec_decision_needed: '仕様の決定が必要です',
+  invite_accepted: '招待が承諾されました',
 }
 
 const DEFAULT_TITLE = '新しい通知があります'
