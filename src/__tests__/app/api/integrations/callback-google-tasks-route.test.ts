@@ -13,15 +13,20 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({ auth: { getUser: getUserMock } })),
 }))
 
-// 接続保存は upsert().select('id').single() で id を取得する(backfill 呼び出しに使う)。
-const singleMock = vi.fn()
-const upsertMock = vi.fn((..._args: unknown[]) => ({ select: () => ({ single: singleMock }) }))
-const fromMock = vi.fn(() => ({ upsert: upsertMock }))
+// 接続保存は saveOAuthConnection が返す id を backfill 呼び出しに使う（下の saveMock 参照）。
+const fromMock = vi.fn(() => ({}))
 const rpcMock = vi.fn((fn: string, args: Record<string, string>) => {
   if (fn === 'encrypt_system_secret') return Promise.resolve({ data: `enc(${args.plaintext})`, error: null })
   if (fn === 'rpc_backfill_task_mirror') return Promise.resolve({ data: 2, error: null })
   return Promise.reject(new Error(`unexpected rpc: ${fn}`))
 })
+// 接続保存は saveOAuthConnection（select→update/insert）。upsert(onConflict) は式付き一意キーに
+// 合わせられず必ず失敗するので使わない（src/lib/integrations/connection-store.ts 参照）。
+const saveMock = vi.fn()
+vi.mock('@/lib/integrations/connection-store', () => ({
+  saveOAuthConnection: (...args: unknown[]) => saveMock(...args),
+}))
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ from: fromMock, rpc: rpcMock })),
 }))
@@ -59,13 +64,13 @@ function callGet(provider: string, params: { code?: string; state?: string } = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  saveMock.mockResolvedValue({ data: { id: 'conn-new' }, error: null })
   process.env.OAUTH_STATE_SECRET = STATE_SECRET
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
   process.env.SYSTEM_ENCRYPTION_KEY = 'test-encryption-key'
   getUserMock.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null })
-  singleMock.mockResolvedValue({ data: { id: 'conn-new' }, error: null })
   exchangeGoogleTasksCodeMock.mockResolvedValue({
     accessToken: 'access-abc',
     refreshToken: 'refresh-abc',
@@ -80,7 +85,8 @@ describe('GET /api/integrations/callback/google_tasks', () => {
     const response = await callGet('google_tasks', { code: 'auth-code-1', state })
 
     expect(exchangeGoogleTasksCodeMock).toHaveBeenCalledWith('auth-code-1')
-    expect(upsertMock).toHaveBeenCalledWith(
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         provider: 'google_tasks',
         owner_type: 'user',
@@ -95,7 +101,6 @@ describe('GET /api/integrations/callback/google_tasks', () => {
         status: 'active',
         metadata: {},
       }),
-      { onConflict: 'provider,owner_type,owner_id' },
     )
 
     expect(response.status).toBe(307)
@@ -114,7 +119,7 @@ describe('GET /api/integrations/callback/google_tasks', () => {
     const state = signedState({ provider: 'google_tasks', orgId: ORG_ID, userId: USER_ID, ts: Date.now() })
     await callGet('google_tasks', { code: 'auth-code-1', state })
 
-    const payload = upsertMock.mock.calls[0][0] as Record<string, unknown>
+    const payload = saveMock.mock.calls[0][1] as Record<string, unknown>
     expect(payload).not.toHaveProperty('refresh_token')
     expect(payload).not.toHaveProperty('refresh_token_encrypted')
   })
@@ -127,7 +132,7 @@ describe('GET /api/integrations/callback/google_tasks', () => {
     const location = response.headers.get('location') ?? ''
     expect(location).toContain('/settings/integrations')
     expect(location).toContain('status=error')
-    expect(upsertMock).not.toHaveBeenCalled()
+    expect(saveMock).not.toHaveBeenCalled()
   })
 
   it('署名不正なstateはコード交換前に弾く', async () => {
