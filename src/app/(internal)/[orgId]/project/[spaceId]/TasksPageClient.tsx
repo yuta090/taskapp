@@ -942,6 +942,19 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <Breadcrumb items={breadcrumbItems} />
           </div>
           <div className="flex-1" />
+          {/* 常設の作成ボタン。以前は一覧最下段の薄い「＋ タスクを追加」行だけで、サンプルの下に隠れて
+              見つからなかった。操作ガイドの第1ステップ(data-walkthrough="task-create")はこのボタンを
+              最初に見つけてハイライトする（DOM順で先頭）。 */}
+          <button
+            type="button"
+            onClick={handleCreateOpen}
+            data-walkthrough="task-create"
+            data-testid="task-create-button"
+            className="mr-1 inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="text-sm" weight="bold" />
+            タスクを追加
+          </button>
           <Link
             href={`/portal/preview/${spaceId}`}
             data-testid="client-preview-link"

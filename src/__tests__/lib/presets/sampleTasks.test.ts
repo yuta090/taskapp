@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createSampleTasks } from '@/lib/presets/sampleTasks'
+import { createSampleTasks, inferHelpTopic, buildSampleDescription } from '@/lib/presets/sampleTasks'
 import { getPreset, getBlankPreset } from '@/lib/presets'
 
 const ORG_ID = 'org-1111'
@@ -156,5 +156,37 @@ describe('createSampleTasks', () => {
 
     expect(count).toBe(0)
     expect(fake.inserted).toHaveLength(0)
+  })
+})
+
+describe('サンプルタスクの使い方ガイド（開くと読める）', () => {
+  it('全プリセットの4件が ball / schedule / status / edit の話題に一意に割り当たる', () => {
+    for (const genre of ['web_development', 'consulting', 'event', 'construction'] as const) {
+      const preset = getPreset(genre)
+      const topics = preset.sampleTasks.map((t, i) => inferHelpTopic(t, i, preset.sampleTasks))
+      expect(new Set(topics)).toEqual(new Set(['ball', 'schedule', 'status', 'edit']))
+    }
+  })
+
+  it('説明文は元の文を先頭に残し、話題に応じた「使い方ガイド」とマニュアルへの案内を続ける', () => {
+    const preset = getPreset('consulting')
+    const clientTask = preset.sampleTasks.find((t) => t.ball === 'client')!
+    const desc = buildSampleDescription(clientTask, 'ball')
+    expect(desc.startsWith(clientTask.description.trim())).toBe(true)
+    expect(desc).toContain('使い方ガイド')
+    expect(desc).toContain('ボール（次に動く番）')
+    expect(desc).toContain('クライアント確認待ち')
+    expect(desc).toContain('使い方マニュアル')
+  })
+
+  it('作成されるサンプル行の説明文にガイドが入る（DBに保存される内容）', async () => {
+    const preset = getPreset('design')
+    const fake = makeFakeSupabase({ milestones: preset.milestones.map((m, i) => ({ id: `ms-${i}`, name: m.name })) })
+    await createSampleTasks(fake.client, preset, ORG_ID, SPACE_ID, USER_ID)
+    for (const row of fake.inserted) {
+      expect(row.description).toContain('使い方ガイド')
+    }
+    const scheduled = fake.inserted.find((r) => r.due_date !== null)!
+    expect(scheduled.description).toContain('期限とマイルストーン')
   })
 })
