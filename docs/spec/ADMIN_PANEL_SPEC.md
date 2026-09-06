@@ -30,9 +30,10 @@
 |------|------|
 | `/admin/login` | 管理者ログイン |
 | `/admin/dashboard` | ダッシュボード（統計概要） |
-| `/admin/analytics` | 利用分析 |
+| `/admin/analytics` | 利用分析（登録トレンド＋登録後のファネル・流入経路別の到達・全節目。詳細: `ADMIN_FUNNEL_ANALYTICS.md`） |
 | `/admin/users` | ユーザー管理（作成・一覧） |
 | `/admin/organizations` | 組織管理 |
+| `/admin/organizations/[id]` | 組織の詳細（メンバー・課金・連携・流入経路の手動登録・到達した節目） |
 | `/admin/spaces` | スペース管理 |
 | `/admin/reviews` | レビュー管理 |
 | `/admin/billing` | 課金管理 |
@@ -63,6 +64,8 @@
 |--------|------|------|
 | POST | `/api/admin/users` | ユーザー作成（スーパー管理者のみ） |
 | PATCH | `/api/admin/users` | 運営（superadmin）の付与・剥奪 `{ userId, isSuperadmin }`（スーパー管理者のみ・自分自身の剥奪は400） |
+| PATCH | `/api/admin/organizations/[id]/acquisition` | 流入経路の手動登録 `{ channel, note? }`（スーパー管理者のみ） |
+| POST | `/api/admin/milestones/reconcile` | 節目の再集計 `{ orgId? }`（スーパー管理者のみ・冪等） |
 
 ## セキュリティ
 

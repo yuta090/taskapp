@@ -34,6 +34,7 @@
 | **GitHub Integration** | `spec/GITHUB_INTEGRATION_SPEC.md` | GitHub App連携・PR追跡・Webhook |
 | **Slack Integration** | `spec/SLACK_INTEGRATION_SPEC.md` | Slack Bot通知・コマンド・OAuth |
 | **Admin Panel** | `spec/ADMIN_PANEL_SPEC.md` | スーパー管理者運用パネル（17ページ） |
+| **Admin Funnel Analytics** | `spec/ADMIN_FUNNEL_ANALYTICS.md` | 会員登録後の節目（22個）と流入経路の記録・運営分析 v1.0 |
 | **Estimate Workflow** | `spec/ESTIMATE_WORKFLOW_SPEC.md` | 見積もりワークフロー（金額提示→承認/再見積もり） |
 | **Billing Document** | `spec/BILLING_DOCUMENT_SPEC.md` | 見積書・請求書の外部連携（freee請求書/MFクラウド請求書/Misoca。書類の作成と状態取り込みのみ・会計データは扱わない） |
 | **Notification & Inbox** | `spec/NOTIFICATION_INBOX_SPEC.md` | 通知分類・アクション受信トレイ |
