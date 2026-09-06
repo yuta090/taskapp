@@ -23,6 +23,13 @@ const rpcMock = vi.fn((fn: string, args: Record<string, string>) =>
     ? Promise.resolve({ data: `enc(${args.plaintext})`, error: null })
     : Promise.reject(new Error(`unexpected rpc: ${fn}`)),
 )
+// 接続保存は saveOAuthConnection（select→update/insert）。upsert(onConflict) は式付き一意キーに
+// 合わせられず必ず失敗するので使わない（src/lib/integrations/connection-store.ts 参照）。
+const saveMock = vi.fn()
+vi.mock('@/lib/integrations/connection-store', () => ({
+  saveOAuthConnection: (...args: unknown[]) => saveMock(...args),
+}))
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ from: fromMock, rpc: rpcMock })),
 }))
@@ -59,6 +66,7 @@ function callGet(provider: string, params: { code?: string; state?: string } = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  saveMock.mockResolvedValue({ data: { id: 'conn-new' }, error: null })
   process.env.OAUTH_STATE_SECRET = STATE_SECRET
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com'
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com'
@@ -81,8 +89,8 @@ describe('GET /api/integrations/callback/notion', () => {
     const response = await callGet('notion', { code: 'auth-code-1', state })
 
     expect(exchangeNotionCodeMock).toHaveBeenCalledWith('auth-code-1')
-    expect(fromMock).toHaveBeenCalledWith('integration_connections')
-    expect(upsertMock).toHaveBeenCalledWith(
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         provider: 'notion',
         owner_type: 'org',
@@ -99,13 +107,12 @@ describe('GET /api/integrations/callback/notion', () => {
           bot_id: 'bot-1',
         }),
       }),
-      { onConflict: 'provider,owner_type,owner_id' },
     )
 
     // Notionは無期限トークンでrefresh_tokenを持たない。buildTokenColumnsはrefreshTokenが
     // falsyならキー自体を含めない(新規行では列がnullのまま作られ、on conflict時は既存値が
     // 保持される。Notionは元々値を持たないので結果は同じ)。
-    const upsertPayload = upsertMock.mock.calls[0][0] as Record<string, unknown>
+    const upsertPayload = saveMock.mock.calls[0][1] as Record<string, unknown>
     expect(upsertPayload).not.toHaveProperty('refresh_token')
     expect(upsertPayload).not.toHaveProperty('refresh_token_encrypted')
 
@@ -124,11 +131,11 @@ describe('GET /api/integrations/callback/notion', () => {
     const location = response.headers.get('location') ?? ''
     expect(location).toContain(`/${ORG_ID}/secretary/integrations`)
     expect(location).toContain('status=error')
-    expect(upsertMock).not.toHaveBeenCalled()
+    expect(saveMock).not.toHaveBeenCalled()
   })
 
   it('redirects with status=error when the upsert fails', async () => {
-    upsertMock.mockResolvedValue({ error: { message: 'db error' } })
+    saveMock.mockResolvedValue({ data: null, error: { message: 'db error' } })
     const state = signedState({ provider: 'notion', orgId: ORG_ID, userId: USER_ID, ts: Date.now() })
     const response = await callGet('notion', { code: 'auth-code-1', state })
 
