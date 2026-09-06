@@ -4,7 +4,8 @@
  * テンプレートは templates/welcome.ts (HTML文字列 + プレーンテキスト) を使用
  */
 import { Resend } from 'resend'
-import { buildWelcomeEmailContent } from './templates/welcome'
+import { buildWelcomeEmailContent, WELCOME_TEMPLATE_KEY } from './templates/welcome'
+import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
 // 遅延初期化でビルド時エラーを回避
 let resendClient: Resend | null = null
@@ -64,7 +65,9 @@ export async function sendWelcomeEmail(params: SendWelcomeEmailParams): Promise<
 
   const appUrl = getAppUrl()
   const appName = getAppName()
-  const { subject, html, text } = buildWelcomeEmailContent({ orgName, appName, appUrl })
+  // 文面は運営が管理画面で編集したもの（email_templates）。未保存ならコード既定
+  const fields = await loadEmailTemplate(WELCOME_TEMPLATE_KEY)
+  const { subject, html, text } = buildWelcomeEmailContent({ orgName, appName, appUrl, fields })
 
   if (dryRun) {
     return { success: true, skipped: true, reason: 'dry_run' }
