@@ -17,6 +17,21 @@ export interface EmailTemplateRow {
 
 export const EMAIL_TEMPLATE_COLUMNS = 'key, subject, heading, body, cta_label, note, updated_at'
 
+/**
+ * 送信のたびに全文面を読みに行かないための短い記憶（同一プロセス内・30秒）。
+ * 日次リマインドは宛先ぶん同時に送るので、同じ問い合わせが N 本並ぶのを1本に束ねる（single-flight）。
+ * 運営が保存した文面の反映が最大30秒遅れるだけで、送信は止まらない。管理画面は fresh:true で常に読み直す。
+ */
+const CACHE_TTL_MS = 30_000
+let cached: { at: number; rows: Record<string, EmailTemplateRow> } | null = null
+let inflight: Promise<Record<string, EmailTemplateRow>> | null = null
+
+/** テスト用: 記憶を捨てる */
+export function resetEmailTemplateCache() {
+  cached = null
+  inflight = null
+}
+
 function mergeWithDefaults(defaults: TemplateFields, row: Record<string, unknown> | undefined): TemplateFields {
   if (!row) return { ...defaults }
   const fields = { ...defaults }
@@ -27,8 +42,26 @@ function mergeWithDefaults(defaults: TemplateFields, row: Record<string, unknown
   return fields
 }
 
-/** 台帳の全テンプレートを管理画面向けの形で返す */
-export async function loadEmailTemplateRows(): Promise<Record<string, EmailTemplateRow>> {
+/** 台帳の全テンプレートを管理画面向けの形で返す。fresh:true で記憶を使わず読み直す */
+export async function loadEmailTemplateRows(opts: { fresh?: boolean } = {}): Promise<Record<string, EmailTemplateRow>> {
+  if (!opts.fresh) {
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.rows
+    if (inflight) return inflight
+  }
+  const run = fetchEmailTemplateRows().then((rows) => {
+    cached = { at: Date.now(), rows }
+    return rows
+  })
+  if (!opts.fresh) {
+    inflight = run
+    run.finally(() => {
+      if (inflight === run) inflight = null
+    })
+  }
+  return run
+}
+
+async function fetchEmailTemplateRows(): Promise<Record<string, EmailTemplateRow>> {
   let rows: Record<string, unknown>[] = []
   try {
     const admin = createAdminClient()

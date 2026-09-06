@@ -13,6 +13,9 @@ import {
   Tailwind,
   pixelBasedPreset,
 } from '@react-email/components'
+import type { EmailCopy } from './core'
+import { APPROVAL_TEMPLATE_DEFAULTS, approvalVarsByName, formatCurrencyJpy } from './approval'
+import { buildEmailCopy } from './core'
 
 export interface ApprovalEmailProps {
   appName: string
@@ -25,13 +28,11 @@ export interface ApprovalEmailProps {
   estimatedCost?: number | null
   dueDateLabel?: string | null
   descriptionExcerpt?: string | null
-}
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('ja-JP', {
-    style: 'currency',
-    currency: 'JPY',
-  }).format(amount)
+  /**
+   * 運営が管理画面で編集できる文面（件名・見出し・本文・ボタン・補足）。差し込み済みの文字列を受け取る。
+   * React が描画時にエスケープするので、ここで dangerouslySetInnerHTML は使わない。
+   */
+  copy: EmailCopy
 }
 
 export default function ApprovalEmail({
@@ -45,13 +46,9 @@ export default function ApprovalEmail({
   estimatedCost,
   dueDateLabel,
   descriptionExcerpt,
+  copy,
 }: ApprovalEmailProps) {
   const isEstimate = actionType === 'estimate_approve'
-  const heading = isEstimate ? '見積もりの確認' : '確認のお願い'
-  const description = isEstimate
-    ? `「${spaceName}」プロジェクトで見積もりの確認をお待ちしています。`
-    : `「${spaceName}」プロジェクトでタスクの確認をお待ちしています。`
-  const buttonLabel = isEstimate ? '見積もりを確認する' : '内容を確認する'
   const previewText = isEstimate
     ? `${taskTitle} の見積もりをご確認ください`
     : `${taskTitle} の確認をお願いします`
@@ -85,12 +82,19 @@ export default function ApprovalEmail({
             {/* Content */}
             <Section className="bg-surface px-10 py-10">
               <Heading as="h2" className="text-gray-900 text-[20px] font-semibold m-0 mb-4">
-                {heading}
+                {copy.heading}
               </Heading>
 
-              <Text className="text-gray-700 text-[16px] leading-[1.6] m-0 mb-6">
-                {description}
-              </Text>
+              {copy.bodyParagraphs.map((paragraph, i) => (
+                <Text key={i} className="text-gray-700 text-[16px] leading-[1.6] m-0 mb-6">
+                  {paragraph.split('\n').map((line, j, arr) => (
+                    <span key={j}>
+                      {line}
+                      {j < arr.length - 1 && <br />}
+                    </span>
+                  ))}
+                </Text>
+              ))}
 
               {/* Task Card */}
               <Section className="bg-gray-50 border-solid border border-gray-200 rounded-lg p-4 mb-6">
@@ -122,7 +126,7 @@ export default function ApprovalEmail({
                     見積もり金額
                   </Text>
                   <Text className="text-amber-900 text-[24px] font-bold m-0">
-                    {formatCurrency(estimatedCost)}
+                    {formatCurrencyJpy(estimatedCost)}
                   </Text>
                 </Section>
               )}
@@ -133,9 +137,15 @@ export default function ApprovalEmail({
                   href={actionUrl}
                   className="bg-brand text-white text-[16px] font-semibold px-8 py-3.5 rounded-md no-underline box-border"
                 >
-                  {buttonLabel}
+                  {copy.ctaLabel}
                 </Button>
               </Section>
+
+              {copy.note && (
+                <Text className="text-gray-500 text-[14px] text-center m-0 mb-6">
+                  {copy.note}
+                </Text>
+              )}
 
               <Text className="text-gray-500 text-[14px] text-center m-0 mb-6">
                 または{' '}
@@ -173,4 +183,15 @@ ApprovalEmail.PreviewProps = {
   portalUrl: 'https://app.example.com/portal',
   actionType: 'estimate_approve',
   estimatedCost: 160000,
+  copy: buildEmailCopy(
+    APPROVAL_TEMPLATE_DEFAULTS.approval_estimate,
+    approvalVarsByName({
+      taskTitle: 'フロントエンド実装 - ログイン画面',
+      spaceName: 'ECサイトリニューアル',
+      orgName: 'クラフトテック',
+      estimatedCostLabel: formatCurrencyJpy(160000),
+      dueDateLabel: '',
+      appName: 'AgentPM',
+    }),
+  ),
 } satisfies ApprovalEmailProps

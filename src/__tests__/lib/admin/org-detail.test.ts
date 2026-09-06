@@ -58,6 +58,8 @@ function baseInput(overrides: Partial<OrgDetailInput> = {}): OrgDetailInput {
       { id: 'n-2', type: 'unknown_type', channel: 'line', created_at: '2026-09-04T00:00:00+09:00', read_at: '2026-09-04T01:00:00+09:00' },
     ],
     apiKeyCount: 2,
+    acquisition: null,
+    milestones: [],
     nowMs: NOW,
     ...overrides,
   }
@@ -193,5 +195,67 @@ describe('buildOrgDetail', () => {
     expect(d.recentNotifications[1].typeLabel).toBe('通知')
     expect(d.recentNotifications[1].channelLabel).toBe('LINE')
     expect(d.recentNotifications[1].isUnread).toBe(false)
+  })
+})
+
+describe('流入経路と節目', () => {
+  it('未記録なら 不明・自動 扱いで、節目は全て未到達', () => {
+    const detail = buildOrgDetail(baseInput())
+    expect(detail.acquisition.channel).toBe('unknown')
+    expect(detail.acquisition.channelLabel).toBe('不明')
+    expect(detail.acquisition.isManual).toBe(false)
+    expect(detail.acquisition.details).toEqual([])
+    expect(detail.milestoneStats.reachedCount).toBe(0)
+    expect(detail.milestoneStats.totalCount).toBe(detail.milestones.length)
+  })
+
+  it('自動で取れた元の値はラベル付きで、空の項目は出さない', () => {
+    const detail = buildOrgDetail(
+      baseInput({
+        acquisition: {
+          channel: 'paid_ad', channel_source: 'auto', ref: null, article_slug: null,
+          utm_source: 'google', utm_medium: 'cpc', utm_campaign: null, utm_content: null, utm_term: null,
+          click_id: 'gclid', landing_path: '/lp1', referrer: 'www.google.com',
+          first_touch_at: '2026-01-09T00:00:00+09:00', note: null, updated_at: '2026-01-10T00:00:00+09:00',
+        },
+      }),
+    )
+    expect(detail.acquisition.channelLabel).toBe('広告')
+    expect(detail.acquisition.details.map((d) => d.label)).toEqual([
+      'utm_source', 'utm_medium', '広告クリックID', '最初に開いたページ', '参照元サイト',
+    ])
+    expect(detail.acquisition.firstTouchAt).toBe('2026-01-09T00:00:00+09:00')
+  })
+
+  it('運営の手動登録はメモ付きで manual と分かる', () => {
+    const detail = buildOrgDetail(
+      baseInput({
+        acquisition: {
+          channel: 'sales', channel_source: 'manual', ref: null, article_slug: null,
+          utm_source: null, utm_medium: null, utm_campaign: null, utm_content: null, utm_term: null,
+          click_id: null, landing_path: null, referrer: null, first_touch_at: null,
+          note: '展示会', updated_at: '2026-02-01T00:00:00+09:00',
+        },
+      }),
+    )
+    expect(detail.acquisition.isManual).toBe(true)
+    expect(detail.acquisition.channelLabel).toBe('営業・直接の紹介')
+    expect(detail.acquisition.note).toBe('展示会')
+  })
+
+  it('節目は到達順に並び、組織作成からの日数が付く', () => {
+    const detail = buildOrgDetail(
+      baseInput({
+        milestones: [
+          { milestone: 'first_task', reached_at: '2026-01-12T00:00:00+09:00', source: 'reconcile' },
+          { milestone: 'org_created', reached_at: '2026-01-10T00:00:00+09:00', source: 'reconcile' },
+        ],
+      }),
+    )
+    expect(detail.milestones[0].key).toBe('org_created')
+    expect(detail.milestones[1].key).toBe('first_task')
+    expect(detail.milestones[1].label).toBe('最初のタスクを作成')
+    expect(detail.milestones[1].daysFromCreation).toBe(2)
+    expect(detail.milestoneStats.reachedCount).toBe(2)
   })
 })

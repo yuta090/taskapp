@@ -10,14 +10,34 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({ from: () => ({ select: () => ({ in: selectMock }) }) }),
 }))
 
-const { loadEmailTemplate, loadEmailTemplateRows } = await import('./loadEmailTemplate')
+const { loadEmailTemplate, loadEmailTemplateRows, resetEmailTemplateCache } = await import('./loadEmailTemplate')
 const { INVITE_TEMPLATE_DEFAULTS } = await import('./invite')
 const { WELCOME_TEMPLATE_DEFAULTS } = await import('./welcome')
 const { EMAIL_TEMPLATE_KEYS } = await import('./registry')
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetEmailTemplateCache()
   vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
+describe('短い記憶（30秒）と同時呼び出しの束ね', () => {
+  it('同時に何本呼んでも DB への問い合わせは1本、30秒以内の再呼び出しも読み直さない', async () => {
+    selectMock.mockResolvedValue({ data: [], error: null })
+    await Promise.all([loadEmailTemplate('invite_client'), loadEmailTemplate('welcome'), loadEmailTemplateRows()])
+    expect(selectMock).toHaveBeenCalledTimes(1)
+    await loadEmailTemplate('invite_client')
+    expect(selectMock).toHaveBeenCalledTimes(1)
+  })
+  it('fresh:true は記憶を使わず読み直し、保存後の resetEmailTemplateCache で次の送信は新しい文面', async () => {
+    selectMock.mockResolvedValue({ data: [], error: null })
+    await loadEmailTemplate('invite_client')
+    await loadEmailTemplateRows({ fresh: true })
+    expect(selectMock).toHaveBeenCalledTimes(2)
+    resetEmailTemplateCache()
+    selectMock.mockResolvedValue({ data: [{ key: 'invite_client', subject: '新件名', heading: 'H', body: 'B', cta_label: 'C', note: '' }], error: null })
+    expect((await loadEmailTemplate('invite_client')).subject).toBe('新件名')
+  })
 })
 
 describe('loadEmailTemplate', () => {

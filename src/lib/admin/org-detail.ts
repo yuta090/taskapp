@@ -10,6 +10,8 @@
 import { PLAN_LABELS } from '@/lib/billing/featureCatalog'
 import type { PlanId } from '@/lib/billing/entitlements'
 import { getNotificationTypeLabel, getNotificationChannelLabel } from '@/lib/notifications/labels'
+import { getAcquisitionChannelLabel } from '@/lib/acquisition/firstTouch'
+import { buildMilestoneTimeline, type MilestoneTimelineItem, type OrgMilestoneRow } from '@/lib/analytics/milestones'
 
 // ---------------------------------------------------------------------------
 // ラベル
@@ -139,6 +141,26 @@ export interface OrgDetailInput {
   }>
   notifications: Array<{ id: string; type: string; channel: string; created_at: string; read_at: string | null }>
   apiKeyCount: number
+  /** 流入経路（org_acquisition の1行）。未記録なら null */
+  acquisition: {
+    channel: string
+    channel_source: string
+    ref: string | null
+    article_slug: string | null
+    utm_source: string | null
+    utm_medium: string | null
+    utm_campaign: string | null
+    utm_content: string | null
+    utm_term: string | null
+    click_id: string | null
+    landing_path: string | null
+    referrer: string | null
+    first_touch_at: string | null
+    note: string | null
+    updated_at: string | null
+  } | null
+  /** 到達した節目（org_milestones の行） */
+  milestones: OrgMilestoneRow[]
   /** 「期限内の招待」判定の基準時刻。テストから固定できるように引数にする */
   nowMs: number
 }
@@ -241,7 +263,36 @@ export interface OrgDetail {
     createdAt: string
     isUnread: boolean
   }>
+  /** 流入経路（未記録なら channel='unknown'） */
+  acquisition: {
+    channel: string
+    channelLabel: string
+    /** auto=自動判定 / manual=運営が手で登録 */
+    channelSource: string
+    isManual: boolean
+    note: string | null
+    /** 自動で取れた元の値（空の項目は出さない） */
+    details: Array<{ label: string; value: string }>
+    firstTouchAt: string | null
+    updatedAt: string | null
+  }
+  /** 到達済み（到達順）→ 未到達（カタログ順） */
+  milestones: MilestoneTimelineItem[]
+  milestoneStats: { reachedCount: number; totalCount: number }
 }
+
+const ACQUISITION_DETAIL_LABEL: ReadonlyArray<[keyof NonNullable<OrgDetailInput['acquisition']>, string]> = [
+  ['ref', '計測タグ（ref）'],
+  ['article_slug', '記事'],
+  ['utm_source', 'utm_source'],
+  ['utm_medium', 'utm_medium'],
+  ['utm_campaign', 'utm_campaign'],
+  ['utm_content', 'utm_content'],
+  ['utm_term', 'utm_term'],
+  ['click_id', '広告クリックID'],
+  ['landing_path', '最初に開いたページ'],
+  ['referrer', '参照元サイト'],
+]
 
 export function buildOrgDetail(input: OrgDetailInput): OrgDetail {
   const profileById = new Map(input.profiles.map((p) => [p.id, p]))
@@ -354,10 +405,35 @@ export function buildOrgDetail(input: OrgDetailInput): OrgDetail {
     isUnread: n.read_at == null,
   }))
 
+  const acq = input.acquisition
+  const acquisition: OrgDetail['acquisition'] = {
+    channel: acq?.channel ?? 'unknown',
+    channelLabel: getAcquisitionChannelLabel(acq?.channel ?? 'unknown'),
+    channelSource: acq?.channel_source ?? 'auto',
+    isManual: acq?.channel_source === 'manual',
+    note: acq?.note ?? null,
+    details: acq
+      ? ACQUISITION_DETAIL_LABEL.flatMap(([key, label]) => {
+          const value = acq[key]
+          return typeof value === 'string' && value.length > 0 ? [{ label, value }] : []
+        })
+      : [],
+    firstTouchAt: acq?.first_touch_at ?? null,
+    updatedAt: acq?.updated_at ?? null,
+  }
+
+  const milestones = buildMilestoneTimeline(input.milestones, input.org.created_at)
+
   return {
     id: input.org.id,
     name: input.org.name,
     createdAt: input.org.created_at,
+    acquisition,
+    milestones,
+    milestoneStats: {
+      reachedCount: milestones.filter((m) => m.reachedAt != null).length,
+      totalCount: milestones.length,
+    },
     billing,
     stats: {
       memberCount: members.length,

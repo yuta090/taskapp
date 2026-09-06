@@ -16,6 +16,9 @@ import {
   type InviteTemplateVars,
 } from './invite'
 import { WELCOME_PLACEHOLDERS, WELCOME_TEMPLATE_DEFAULTS, WELCOME_TEMPLATE_META, buildWelcomeEmailContent } from './welcome'
+import { APPROVAL_PLACEHOLDERS_BY_KEY, APPROVAL_TEMPLATE_DEFAULTS, APPROVAL_TEMPLATE_KEYS, APPROVAL_TEMPLATE_META } from './approval'
+import { REMINDER_PLACEHOLDERS, REMINDER_TEMPLATE_DEFAULTS, REMINDER_TEMPLATE_KEYS, REMINDER_TEMPLATE_META } from './reminder'
+import { CAP_PLACEHOLDERS, CAP_TEMPLATE_DEFAULTS, CAP_TEMPLATE_KEYS, CAP_TEMPLATE_META, renderCapReachedEmail, type CapTemplateKey } from './capReached'
 
 /** カテゴリ（表示順） */
 export const EMAIL_TEMPLATE_FAMILIES = [
@@ -36,8 +39,11 @@ export interface EmailTemplateDef {
   accent: string
   defaults: TemplateFields
   placeholders: ReadonlyArray<PlaceholderDef>
-  /** 管理画面のプレビュー: 見本の値で描く */
-  renderPreview: (fields: TemplateFields, appName: string) => RenderedEmail
+  /**
+   * 管理画面のプレビュー: 見本の値で描く（純粋・ブラウザで実行）。
+   * 無いテンプレート（React Email 製）は server 側 `renderEmailPreview`（POST /api/admin/email-templates/preview）で描く。
+   */
+  renderPreview?: (fields: TemplateFields, appName: string) => RenderedEmail
 }
 
 const PREVIEW_APP_URL = 'https://agentpm.app'
@@ -100,6 +106,34 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
         fields,
       }),
   },
+  ...APPROVAL_TEMPLATE_KEYS.map((key) => ({
+    key,
+    family: 'approval' as const,
+    ...APPROVAL_TEMPLATE_META[key],
+    defaults: APPROVAL_TEMPLATE_DEFAULTS[key],
+    placeholders: APPROVAL_PLACEHOLDERS_BY_KEY[key],
+  })),
+  ...REMINDER_TEMPLATE_KEYS.map((key) => ({
+    key,
+    family: 'reminder' as const,
+    ...REMINDER_TEMPLATE_META[key],
+    defaults: REMINDER_TEMPLATE_DEFAULTS[key],
+    placeholders: REMINDER_PLACEHOLDERS,
+  })),
+  ...CAP_TEMPLATE_KEYS.map((key: CapTemplateKey) => ({
+    key,
+    family: 'billing' as const,
+    ...CAP_TEMPLATE_META[key],
+    defaults: CAP_TEMPLATE_DEFAULTS[key],
+    placeholders: CAP_PLACEHOLDERS[key],
+    renderPreview: (fields: TemplateFields, appName: string) =>
+      renderCapReachedEmail({
+        key,
+        fields,
+        vars: { orgName: '株式会社サンプル', limitLabel: '50', resetDateLabel: '2026年10月1日', appName },
+        ctaUrl: key === 'free_cap_upgrade' ? `${PREVIEW_APP_URL}/settings/billing` : `${PREVIEW_APP_URL}/settings/org-integrations`,
+      }),
+  })),
 ]
 
 export const EMAIL_TEMPLATE_KEYS: ReadonlyArray<string> = EMAIL_TEMPLATE_DEFS.map((d) => d.key)

@@ -7,7 +7,7 @@ import EmailTemplatesClient from './EmailTemplatesClient'
  * 親 layout が superadmin ゲートを通しているので、ここでは追加の認可チェックをしない。
  */
 export default async function AdminEmailTemplatesPage() {
-  const rows = await loadEmailTemplateRows()
+  const rows = await loadEmailTemplateRows({ fresh: true })
   const appName = process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
   return <EmailTemplatesClient initialRows={rows} appName={appName} />
 }

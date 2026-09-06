@@ -7,6 +7,9 @@ import { createElement } from 'react'
 import { Resend } from 'resend'
 import { render } from '@react-email/components'
 import ReminderEmail from './templates/ReminderEmail'
+import { buildEmailCopy } from './templates/core'
+import { reminderKeyFor, reminderVarsByName } from './templates/reminder'
+import { loadEmailTemplate } from './templates/loadEmailTemplate'
 import type { ReminderTaskRef } from '@/lib/reminders/computeClientReminders'
 
 // 遅延初期化でビルド時エラーを回避
@@ -65,9 +68,19 @@ export async function sendReminderEmail(params: SendReminderEmailParams) {
   const { overdue, dueToday, stalled } = digest
   const totalCount = overdue.length + dueToday.length + stalled.length
 
-  const subject = overdue.length > 0
-    ? `【${appName}】ご対応待ちのタスクが${totalCount}件あります（期限超過${overdue.length}件）`
-    : `【${appName}】ご対応待ちのタスクが${totalCount}件あります`
+  // 文面は運営が管理画面で編集したもの（email_templates）。未保存ならコード既定
+  const fields = await loadEmailTemplate(reminderKeyFor(overdue.length))
+  const copy = buildEmailCopy(
+    fields,
+    reminderVarsByName({
+      displayName: displayName ?? '',
+      totalCount,
+      overdueCount: overdue.length,
+      dueTodayCount: dueToday.length,
+      appName,
+    }),
+  )
+  const subject = copy.subject
 
   const settingsUrl = `${appUrl}/portal/settings`
 
@@ -79,6 +92,7 @@ export async function sendReminderEmail(params: SendReminderEmailParams) {
     stalled,
     appUrl,
     settingsUrl,
+    copy,
   })
   const html = await render(emailElement)
   const text = await render(emailElement, { plainText: true })

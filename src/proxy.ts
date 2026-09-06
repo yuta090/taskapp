@@ -4,6 +4,12 @@ import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constant
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 // 公開パス定義はダークテーマ判定と単一ソース化（src/lib/routes/publicPaths.ts）
 import { isPublicPathMatch } from '@/lib/routes/publicPaths'
+import {
+  FIRST_TOUCH_COOKIE,
+  FIRST_TOUCH_COOKIE_MAX_AGE_SEC,
+  extractFirstTouch,
+  encodeFirstTouchCookie,
+} from '@/lib/acquisition/firstTouch'
 
 // このファイルは必ず src/ 直下に置く（src/app と同階層）。
 // リポジトリルートに置くと `next dev` が読み込まず、認証ゲートがローカルだけ無効になる
@@ -19,7 +25,44 @@ function redirectWithOrgCookie(url: URL, orgId: string): NextResponse {
   return redirectResponse
 }
 
-export async function proxy(request: NextRequest) {
+/**
+ * 流入経路（どこから来たか）の first-touch cookie を、門番の判定結果（next / redirect）を問わず付ける。
+ * - 既に cookie があれば触らない（最初の訪問を守る）
+ * - URL に utm_* / ref / 広告クリック ID が無く、外部サイトからの参照元も無ければ何もしない
+ * - 失敗しても門番の判定は変えない（分析のために導線を止めない）
+ * cookie は組織作成時（onboarding）に読んで org_acquisition に記録する。
+ */
+function attachFirstTouchCookie(request: NextRequest, response: NextResponse): void {
+  try {
+    const { pathname } = request.nextUrl
+    if (request.method !== 'GET') return
+    if (pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.includes('.')) return
+    // ログインの戻り（/auth/callback 等）は「訪問」ではない。参照元が認証事業者になるので cookie を置かない
+    if (pathname.startsWith('/auth')) return
+    if (request.cookies.has(FIRST_TOUCH_COOKIE)) return
+    // timestamptz に渡す完全な時刻なので日付ずれ(toISOString禁止ルール)の対象外
+    const firstTouch = extractFirstTouch(request.nextUrl, request.headers.get('referer'), new Date().toISOString())
+    if (!firstTouch) return
+    response.cookies.set(FIRST_TOUCH_COOKIE, encodeFirstTouchCookie(firstTouch), {
+      maxAge: FIRST_TOUCH_COOKIE_MAX_AGE_SEC,
+      path: '/',
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      // onboarding（クライアント側）が読むので httpOnly にしない。中身は流入元の情報だけで秘密ではない
+      httpOnly: false,
+    })
+  } catch (error) {
+    console.warn('[middleware] first-touch cookie skipped:', error)
+  }
+}
+
+export async function proxy(request: NextRequest): Promise<NextResponse> {
+  const response = await proxyCore(request)
+  attachFirstTouchCookie(request, response)
+  return response
+}
+
+async function proxyCore(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
 
   // 静的ファイルはスキップ
