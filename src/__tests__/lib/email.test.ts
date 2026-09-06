@@ -13,6 +13,14 @@ vi.mock('resend', () => {
   }
 })
 
+// 文面の読み込み(email_templates)は DB を見に行かない: 行なし = コード既定の文面で送る
+let templateRows: Array<Record<string, unknown>> = []
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: () => ({ select: () => Promise.resolve({ data: templateRows, error: null }) }),
+  }),
+}))
+
 // Set environment variables before importing
 process.env.RESEND_API_KEY = 'test-api-key'
 process.env.FROM_EMAIL = 'test@example.com'
@@ -24,6 +32,7 @@ import { sendInviteEmail } from '@/lib/email'
 describe('Email Service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    templateRows = []
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
   })
 
@@ -235,5 +244,51 @@ describe('FROM_EMAIL warning', () => {
 
     warnSpy.mockRestore()
     process.env.FROM_EMAIL = original
+  })
+})
+
+describe('sendInviteEmail — 管理画面で保存した文面が実際に使われる', () => {
+  const baseParams = {
+    to: 'recipient@example.com',
+    inviterName: 'John Doe',
+    orgName: 'Test Org',
+    spaceName: 'Test Project',
+    token: 'abc123token',
+    expiresAt: '2025-03-01T00:00:00Z',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
+    templateRows = [
+      {
+        key: 'invite_client',
+        subject: '独自件名 {{組織名}}',
+        heading: '独自見出し',
+        body: '{{招待者名}} さんからの独自本文',
+        cta_label: '独自ボタン',
+        note: '',
+        updated_at: '2026-09-07T00:00:00Z',
+      },
+    ]
+  })
+
+  it('client 向けは保存した文面（invite_client）で送る', async () => {
+    await sendInviteEmail({ ...baseParams, role: 'client' })
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.subject).toBe('独自件名 Test Org')
+    expect(callArgs.html).toContain('独自見出し')
+    expect(callArgs.html).toContain('John Doe さんからの独自本文')
+    expect(callArgs.html).toContain('>独自ボタン<')
+    expect(callArgs.text).toContain('独自ボタン:\nhttp://localhost:3000/portal/abc123token')
+    expect(callArgs.html).not.toContain('アカウント登録は不要です')
+  })
+
+  it('member 向けは invite_member が未保存なので既定文面のまま（取り違えない）', async () => {
+    await sendInviteEmail({ ...baseParams, role: 'member' })
+    const callArgs = mockSend.mock.calls[0][0]
+    expect(callArgs.subject).toContain('チームに招待されました')
+    expect(callArgs.subject).not.toContain('独自件名')
+    expect(callArgs.html).toContain('無料のアカウント作成')
   })
 })
