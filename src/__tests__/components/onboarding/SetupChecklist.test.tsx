@@ -111,6 +111,17 @@ describe('SetupChecklist', () => {
     expect(previewLink).toHaveAttribute('href', `/portal/preview/${SPACE_ID}`)
   })
 
+  it('does not truncate step descriptions (the benefit sentence must stay readable)', () => {
+    setup()
+    render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)
+
+    const lineStep = screen.getByTestId('setup-step-connect_line')
+    const description = lineStep.querySelector('p.text-xs') as HTMLElement
+    expect(description).not.toBeNull()
+    expect(description.className).not.toContain('truncate')
+    expect(description.textContent).toContain('承認')
+  })
+
   it('links the connect_line CTA to the secretary console when the bot is ready but unlinked', () => {
     setup()
     render(<SetupChecklist orgId={ORG_ID} spaceId={SPACE_ID} />)

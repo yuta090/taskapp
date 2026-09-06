@@ -147,7 +147,8 @@ export function SetupChecklist({ orgId, spaceId }: SetupChecklistProps) {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 truncate">{step.description}</p>
+                  {/* truncate しない: 「連携すると何ができるか」のメリット文が1行で切れて読めなくなるため */}
+                  <p className="text-xs text-gray-500">{step.description}</p>
                   {step.dmUnreachable && (
                     <p className="text-[11px] text-amber-600">
                       現在DMが届いていません（ブロックの可能性があります）
