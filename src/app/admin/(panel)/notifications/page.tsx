@@ -1,6 +1,11 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
+import {
+  getNotificationTypeLabel,
+  getNotificationTypeDescription,
+  getNotificationChannelLabel,
+} from '@/lib/notifications/labels'
 
 export default async function AdminNotificationsPage() {
   const admin = createAdminClient()
@@ -41,14 +46,16 @@ export default async function AdminNotificationsPage() {
       </div>
 
       {/* Type breakdown */}
-      <h2 className="text-sm font-medium text-gray-700 mb-3">タイプ別</h2>
+      <h2 className="text-sm font-medium text-gray-700 mb-3">種類別（どの通知が多いか）</h2>
       <div className="grid grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
         {Array.from(typeCounts.entries())
           .sort((a, b) => b[1] - a[1])
           .map(([type, count]) => (
             <div key={type} className="bg-surface border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-500 font-mono">{type}</p>
+              <p className="text-sm font-medium text-gray-900">{getNotificationTypeLabel(type)}</p>
               <p className="text-lg font-bold text-gray-900">{count}</p>
+              <p className="mt-1 text-xs text-gray-500">{getNotificationTypeDescription(type)}</p>
+              <p className="mt-1 text-[10px] text-gray-400 font-mono">{type}</p>
             </div>
           ))}
       </div>
@@ -61,7 +68,7 @@ export default async function AdminNotificationsPage() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">日時</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">タイプ</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">種類</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">チャンネル</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">既読</th>
               </tr>
@@ -72,8 +79,11 @@ export default async function AdminNotificationsPage() {
                   <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                     {new Date(n.created_at).toLocaleString('ja-JP')}
                   </td>
-                  <td className="px-4 py-2.5 text-xs font-mono text-gray-700">{n.type}</td>
-                  <td className="px-4 py-2.5 text-gray-600">{n.channel}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-700" title={n.type}>
+                    {getNotificationTypeLabel(n.type)}
+                    <span className="ml-1.5 text-[10px] text-gray-400 font-mono">{n.type}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-600">{getNotificationChannelLabel(n.channel)}</td>
                   <td className="px-4 py-2.5">
                     {n.read_at
                       ? <span className="text-green-600 text-xs">既読</span>

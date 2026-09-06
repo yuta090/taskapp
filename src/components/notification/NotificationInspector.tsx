@@ -24,6 +24,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { isActionableNotification } from '@/lib/notifications/classify'
+import { getNotificationTypeLabel } from '@/lib/notifications/labels'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import type { Task, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -94,30 +95,6 @@ function getNotificationIcon(type: string, urgent?: boolean) {
       return <File className={`${iconClass} text-gray-500`} />
     default:
       return <Bell className={`${iconClass} text-gray-500`} />
-  }
-}
-
-function getNotificationTypeLabel(type: string): string {
-  switch (type) {
-    case 'review_request': return '社内承認依頼'
-    case 'review_cancelled': return 'レビュー取消'
-    case 'client_question': return '外部からの質問'
-    case 'client_feedback': return '外部からのフィードバック'
-    case 'task_assigned': return 'タスク割り当て'
-    case 'ball_passed': return 'ボール移動'
-    case 'due_date_reminder': return '期限リマインダー'
-    case 'meeting_reminder': return 'ミーティングリマインダー'
-    case 'meeting_scheduled': return 'ミーティング予定'
-    case 'scheduling_reminder': return '日程調整リマインダー'
-    case 'scheduling_proposal_expired': return '日程調整期限切れ'
-    case 'meeting_ended': return '会議終了'
-    case 'task_completed': return 'タスク完了'
-    case 'confirmation_request': return '確認依頼'
-    case 'urgent_confirmation': return '緊急確認依頼'
-    case 'spec_decision_needed': return '仕様決定依頼'
-    case 'digest_approval_request': return '申し送りの承認依頼'
-    case 'file_uploaded': return 'ファイル'
-    default: return '通知'
   }
 }
 
