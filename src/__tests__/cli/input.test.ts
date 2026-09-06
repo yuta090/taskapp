@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildStdinParams, mergeCliOptions, optionKey, stripBom } from '../../../packages/cli/src/input'
+import { buildParams, buildStdinParams, mergeCliOptions, optionKey, stripBom } from '../../../packages/cli/src/input'
 import type { ManifestOption } from '../../../packages/cli/src/manifest-validator'
 
 /**
@@ -78,5 +78,33 @@ describe('optionKey', () => {
   it('否定形(--no-xxx)は Commander が格納する正の名前にする（--no-dry-run → dryRun）', () => {
     expect(optionKey({ flags: '--no-dry-run', type: 'negatable' })).toBe('dryRun')
     expect(optionKey({ flags: '--no-include-invites', type: 'negatable' })).toBe('includeInvites')
+  })
+})
+
+describe('buildParams (通常モード)', () => {
+  const options: ManifestOption[] = [
+    spaceOpt,
+    { flags: '--ball <side>', param: 'ball' },
+    { flags: '--limit <n>', param: 'limit', type: 'int' },
+    { flags: '--no-dry-run', param: 'dryRun', type: 'negatable' },
+    { flags: '--user-ids <ids...>', param: 'userIds', type: 'string[]' },
+  ]
+
+  it('-s を省略しても、解決済みの既定スペースIDが params に入る（defaultSpaceId が死んでいたバグの回帰）', () => {
+    const params = buildParams(options, { limit: '50' }, 'space-default')
+    expect(params).toEqual({ spaceId: 'space-default', limit: 50 })
+  })
+
+  it('スペースIDが解決できないときは spaceId を送らない（サーバー側の Required で分かる）', () => {
+    expect(buildParams(options, { ball: 'client' }, undefined)).toEqual({ ball: 'client' })
+  })
+
+  it('型変換: int / negatable / string[]', () => {
+    const params = buildParams(options, { limit: '10', dryRun: false, userIds: 'u1' }, 's')
+    expect(params).toEqual({ spaceId: 's', limit: 10, dryRun: false, userIds: ['u1'] })
+  })
+
+  it('不正な整数はエラー', () => {
+    expect(() => buildParams(options, { limit: 'abc' }, 's')).toThrow(/Invalid integer/)
   })
 })

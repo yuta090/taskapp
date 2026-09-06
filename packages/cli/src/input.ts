@@ -30,6 +30,64 @@ export function optionKey(def: Pick<ManifestOption, 'flags' | 'type'>): string {
   return camelCase(isNegatable ? longFlag.replace(/^no-/, '') : longFlag)
 }
 
+/** manifest の type に従って文字列オプションを変換する */
+export function convertType(value: string | boolean, type?: string): unknown {
+  if (type === 'bool' || type === 'negatable') {
+    return typeof value === 'boolean' ? value : value === 'true'
+  }
+  if (typeof value !== 'string') return value
+  switch (type) {
+    case 'int': {
+      const n = parseInt(value, 10)
+      if (Number.isNaN(n)) throw new Error(`Invalid integer: ${value}`)
+      return n
+    }
+    case 'float': {
+      const n = parseFloat(value)
+      if (Number.isNaN(n)) throw new Error(`Invalid number: ${value}`)
+      return n
+    }
+    case 'json':
+      return JSON.parse(value)
+    default:
+      return value
+  }
+}
+
+/**
+ * Commander の opts と manifest のオプション定義から API params を組み立てる（通常モード）。
+ *
+ * ⚠ spaceId（resolve:'spaceId'）は **`-s` が省略されていても** 必ず解決する。
+ *   以前は「値が undefined なら次へ」の判定が resolve より先にあったため、`-s` を付けないと
+ *   defaultSpaceId / TASKAPP_SPACE_ID が一切使われず、サーバーが「spaceId Required」で 400 を
+ *   返していた（設定ファイルの defaultSpaceId が死んでいた）。
+ *   resolvedSpaceId は呼び出し側が resolveSpaceId(opts) で用意する（未設定なら undefined のまま送らない）。
+ */
+export function buildParams(
+  optionDefs: ManifestOption[],
+  opts: Record<string, unknown>,
+  resolvedSpaceId: string | undefined,
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {}
+  for (const def of optionDefs) {
+    if (def.param === 'stdin') continue
+    if (def.resolve === 'spaceId') {
+      if (resolvedSpaceId !== undefined) params[def.param] = resolvedSpaceId
+      continue
+    }
+    const value = opts[optionKey(def)]
+    if (value === undefined) continue
+    if (def.type === 'string[]') {
+      params[def.param] = Array.isArray(value) ? value : [value]
+    } else if (def.type === 'negatable') {
+      params[def.param] = value
+    } else {
+      params[def.param] = convertType(value as string | boolean, def.type)
+    }
+  }
+  return params
+}
+
 /** UTF-8 BOM を落とす（Excel/スプレッドシートの CSV 書き出しは BOM 付きが多い） */
 export function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text

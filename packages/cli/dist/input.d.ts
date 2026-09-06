@@ -17,6 +17,18 @@ export declare function camelCase(str: string): string;
  * そのまま camelCase すると "noDryRun" になって値を拾えない（実際に踏んだバグ）。
  */
 export declare function optionKey(def: Pick<ManifestOption, 'flags' | 'type'>): string;
+/** manifest の type に従って文字列オプションを変換する */
+export declare function convertType(value: string | boolean, type?: string): unknown;
+/**
+ * Commander の opts と manifest のオプション定義から API params を組み立てる（通常モード）。
+ *
+ * ⚠ spaceId（resolve:'spaceId'）は **`-s` が省略されていても** 必ず解決する。
+ *   以前は「値が undefined なら次へ」の判定が resolve より先にあったため、`-s` を付けないと
+ *   defaultSpaceId / TASKAPP_SPACE_ID が一切使われず、サーバーが「spaceId Required」で 400 を
+ *   返していた（設定ファイルの defaultSpaceId が死んでいた）。
+ *   resolvedSpaceId は呼び出し側が resolveSpaceId(opts) で用意する（未設定なら undefined のまま送らない）。
+ */
+export declare function buildParams(optionDefs: ManifestOption[], opts: Record<string, unknown>, resolvedSpaceId: string | undefined): Record<string, unknown>;
 /** UTF-8 BOM を落とす（Excel/スプレッドシートの CSV 書き出しは BOM 付きが多い） */
 export declare function stripBom(text: string): string;
 /**

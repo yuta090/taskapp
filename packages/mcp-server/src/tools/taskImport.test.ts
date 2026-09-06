@@ -36,6 +36,7 @@ function query(table: string) {
   q.order = chain
   q.eq = (col: string, v: unknown) => { rows = rows.filter((r) => r[col] === v); return q }
   q.in = (col: string, vs: unknown[]) => { rows = rows.filter((r) => vs.includes(r[col])); return q }
+  q.range = (from: number, to: number) => { rows = rows.slice(from, to + 1); return q }
   q.single = async () => ({ data: rows[0] ?? null, error: rows[0] ? null : { message: 'not found' } })
   q.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null })
   q.insert = (payload: Row[]) => {
@@ -73,6 +74,28 @@ const CSV = [
 beforeEach(() => { inserted.length = 0; authorizeMock.mockClear() })
 
 describe('task_import', () => {
+  it('既存タスクの確認は、タイトルをURLに載せず（.in を使わず）ページングで全件引く', async () => {
+    const calls: string[] = []
+    const origQuery = query
+    // 呼ばれたメソッド名を記録する薄いラッパ
+    const spyFrom = (table: string) => {
+      const q = origQuery(table) as Record<string, unknown>
+      if (table === 'tasks') {
+        for (const m of ['in', 'range']) {
+          const f = q[m] as (...a: unknown[]) => unknown
+          q[m] = (...a: unknown[]) => { calls.push(m); return f(...a) }
+        }
+      }
+      return q
+    }
+    const mod = await import('../supabase/client.js')
+    const spy = vi.spyOn(mod, 'getSupabaseClient').mockReturnValue({ from: spyFrom, auth: { admin: { listUsers } } } as never)
+    await taskImport({ spaceId: 'space-1', csv: CSV, dryRun: true })
+    spy.mockRestore()
+    expect(calls).toContain('range')
+    expect(calls).not.toContain('in')
+  })
+
   it('dryRun 既定: 計画だけ返し、何も書かない。認可は bulk', async () => {
     const res = await taskImport({ spaceId: 'space-1', csv: CSV, dryRun: true })
     expect(inserted).toEqual([])
