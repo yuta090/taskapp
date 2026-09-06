@@ -143,9 +143,9 @@ export default function OnboardingPage() {
 
       setOrgId(rpcResult.org_id as string)
 
-      // 流入経路（どこから来て登録したか）を運営の分析用に記録する。first-touch cookie を読むだけで、
-      // 失敗してもオンボーディングは止めない（fire-and-forget）
-      void recordOrgAcquisition(supabase as SupabaseClient, rpcResult.org_id as string)
+      // 流入経路（どこから来て登録したか）を運営の分析用に記録する。first-touch cookie を読んで RPC 1回。
+      // 投げっぱなしだと直後の画面遷移で取りこぼすので待つ。失敗は中で握るのでオンボーディングは止まらない
+      await recordOrgAcquisition(supabase as SupabaseClient, rpcResult.org_id as string)
 
       // 表示名の反映は失敗してもオンボーディングを止めない（update ではなく upsert: RLS の self-insert を通す）
       // 空白のみの入力で既存の表示名を空文字上書きしないようガードする

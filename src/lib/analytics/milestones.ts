@@ -125,10 +125,18 @@ export interface MilestoneStatRow {
 export interface FunnelStep {
   key: MilestoneKey
   label: string
+  /**
+   * 累積到達数＝「この段までの全ての段に到達した組織数」（SQL の '_funnel:<key>' 行）。
+   * 節目は独立（招待せず有料化することもある）なので、独立の到達数を前段で割っても転換率にならない。
+   * '_funnel:' 行が無いときは独立の到達数で代用する（reachedIsCumulative=false）。
+   */
   reached: number
-  /** コホート全体に対する到達率（%） */
+  reachedIsCumulative: boolean
+  /** この節目に到達した組織数（独立・他の段の到達を問わない） */
+  reachedAny: number
+  /** コホート全体に対する累積到達率（%） */
   rateOfCohort: number
-  /** 直前の段に対する到達率（%）。先頭は 100 */
+  /** 直前の段に対する転換率（%）。先頭は 100 */
   rateOfPrev: number
   /** 組織作成からの中央値（日）。未到達なら null */
   medianDays: number | null
@@ -191,11 +199,15 @@ export function buildFunnelReport(rows: MilestoneStatRow[]): FunnelReport {
   const funnel: FunnelStep[] = []
   let prev = cohortOrgCount
   for (const key of FUNNEL_STEPS) {
-    const reached = reachedOf(key)
+    const cumulativeRow = total.get(`_funnel:${key}`)
+    const reachedAny = reachedOf(key)
+    const reached = cumulativeRow ? Number(cumulativeRow.reached_count) : reachedAny
     funnel.push({
       key,
       label: getMilestoneLabel(key),
       reached,
+      reachedIsCumulative: cumulativeRow != null,
+      reachedAny,
       rateOfCohort: pct(reached, cohortOrgCount),
       rateOfPrev: funnel.length === 0 ? (cohortOrgCount > 0 ? 100 : 0) : pct(reached, prev),
       medianDays: medianOf(key),

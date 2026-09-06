@@ -66,6 +66,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     { onConflict: 'org_id' },
   )
   if (error) {
+    // 23503 = 外部キー違反 ＝ その組織が存在しない（形式は UUID でも実体が無い）
+    if (error.code === '23503') {
+      return NextResponse.json({ error: '組織が見つかりません' }, { status: 404 })
+    }
     console.error('[admin/organizations/acquisition] upsert failed:', error)
     return NextResponse.json({ error: '流入経路を保存できませんでした' }, { status: 500 })
   }

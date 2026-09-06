@@ -3,6 +3,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 
 export const runtime = 'nodejs'
+// 全組織の照合は tasks / audit_logs を数回読む。既定の実行時間で切れて「通信エラー」に見えないよう上限を明示する
+export const maxDuration = 60
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

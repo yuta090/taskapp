@@ -68,6 +68,30 @@ describe('extractFirstTouch', () => {
     expect(ft?.utm_source?.length).toBe(100)
     expect(ft?.ref).toBeUndefined()
   })
+
+  it('招待リンクや相手先ポータルの合鍵は着地パスに残さない（先頭の区切りだけ）', () => {
+    const ft = extract('https://agentpm.app/invite/abcdef0123456789?utm_source=mail', 'https://mail.google.com/')
+    expect(ft?.landing_path).toBe('/invite')
+    expect(JSON.stringify(ft)).not.toContain('abcdef0123456789')
+    expect(extract('https://agentpm.app/portal/tok-123', 'https://example.com/')?.landing_path).toBe('/portal')
+    expect(extract('https://agentpm.app/task6/line-group-tasks', 'https://example.com/')?.landing_path).toBe('/task6/line-group-tasks')
+    // cookie に古い形で入っていても読むときに丸める
+    expect(decodeFirstTouchCookie(encodeURIComponent(JSON.stringify({ landing_path: '/invite/secret', at: NOW })))?.landing_path).toBe('/invite')
+  })
+
+  it('ログインの戻り（Google / Supabase の認証画面）は参照元として数えない', () => {
+    expect(extract('https://agentpm.app/auth/callback?code=x', 'https://accounts.google.com/o/oauth2/auth')).toBeNull()
+    expect(extract('https://agentpm.app/onboarding', 'https://bbkguncomaizevkgxkwx.supabase.co/auth/v1/callback')).toBeNull()
+    expect(extract('https://agentpm.app/', 'https://www.google.com/')?.referrer).toBe('www.google.com')
+  })
+
+  it('メールアドレスや URL エンコード文字を含む値は保存しない（個人情報を cookie に残さない）', () => {
+    expect(extract('https://agentpm.app/?utm_source=taro%40example.com')).toBeNull()
+    expect(extract('https://agentpm.app/?utm_campaign=a%2540b')).toBeNull()
+    const ft = extract('https://agentpm.app/?utm_campaign=spring-2026_v2&utm_source=taro%40example.com')
+    expect(ft?.utm_campaign).toBe('spring-2026_v2')
+    expect(ft?.utm_source).toBeUndefined()
+  })
 })
 
 describe('cookie encode/decode', () => {

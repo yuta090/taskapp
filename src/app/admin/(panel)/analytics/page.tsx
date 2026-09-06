@@ -1,11 +1,14 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
 import { MilestoneReconcileButton } from '@/components/admin/MilestoneReconcileButton'
 import {
   buildFunnelReport,
   CHANNEL_TABLE_STEPS,
+  FUNNEL_STEPS,
   getMilestoneLabel,
   type MilestoneStatRow,
 } from '@/lib/analytics/milestones'
@@ -13,6 +16,9 @@ import {
 export const dynamic = 'force-dynamic'
 
 /** コホート（期間内に作成された組織）の切り替え。既定は直近90日 */
+/** 日別グラフ用に取る行数の上限。Supabase の既定上限(1000行)に黙って頭打ちされないよう明示する */
+const DAILY_CHART_ROWS_LIMIT = 5000
+
 const PERIODS = [
   { key: '30', label: '直近30日', days: 30 },
   { key: '90', label: '直近90日', days: 90 },
@@ -56,19 +62,28 @@ async function fetchAnalyticsData(period: (typeof PERIODS)[number]) {
     { count: totalUsers },
     { count: totalOrgs },
     { data: monthlyProfiles },
+    { count: recentCount },
     statsResult,
     lastReconcileResult,
     periodUsersResult,
   ] = await Promise.all([
-    admin.from('profiles').select('created_at').gte('created_at', thirtyDaysAgo.toISOString()).order('created_at', { ascending: true }),
+    // グラフ用の行（日別に数えるので行が要る）。件数カードは別途 head count で正確に取る
+    admin
+      .from('profiles')
+      .select('created_at')
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(DAILY_CHART_ROWS_LIMIT),
     admin.from('profiles').select('*', { count: 'exact', head: true }),
     admin.from('organizations').select('*', { count: 'exact', head: true }),
-    admin.from('profiles').select('created_at').gte('created_at', sixMonthsAgo.toISOString()),
-    admin.rpc('admin_org_milestone_stats', { p_since: since }),
+    admin.from('profiles').select('created_at').gte('created_at', sixMonthsAgo.toISOString()).limit(DAILY_CHART_ROWS_LIMIT),
+    admin.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', thirtyDaysAgo.toISOString()),
+    admin.rpc('admin_org_milestone_stats', { p_since: since, p_funnel: [...FUNNEL_STEPS] }),
     admin.from('org_milestones').select('recorded_at').order('recorded_at', { ascending: false }).limit(1).maybeSingle(),
+    // 「全期間」のときは総ユーザー数と同じ問い合わせになるので投げない（下で使い回す）
     since
       ? admin.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', since)
-      : admin.from('profiles').select('*', { count: 'exact', head: true }),
+      : Promise.resolve({ count: null as number | null }),
   ])
 
   if (statsResult.error) console.error('[admin/analytics] admin_org_milestone_stats error:', statsResult.error.message)
@@ -107,8 +122,8 @@ async function fetchAnalyticsData(period: (typeof PERIODS)[number]) {
   return {
     totalUsers: totalUsers ?? 0,
     totalOrgs: totalOrgs ?? 0,
-    recentCount: recentProfiles?.length ?? 0,
-    periodUsers: periodUsersResult.count ?? 0,
+    recentCount: recentCount ?? 0,
+    periodUsers: since ? (periodUsersResult.count ?? 0) : (totalUsers ?? 0),
     dailyEntries: Array.from(dailyCounts.entries()),
     monthlyEntries: Array.from(monthlyCounts.entries()),
     report,
@@ -145,6 +160,11 @@ export default async function AdminAnalyticsPage({
 }: {
   searchParams: Promise<{ period?: string }>
 }) {
+  // (panel) layout でも門番を通しているが、service role で全組織の集計を引くページなので
+  // データ取得の直前でも確認する（users / organizations/[id] と同じ）
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
+
   const { period: rawPeriod } = await searchParams
   const period = resolvePeriod(rawPeriod)
   const { totalUsers, totalOrgs, recentCount, periodUsers, dailyEntries, monthlyEntries, report, lastReconciledAt } =
@@ -177,7 +197,7 @@ export default async function AdminAnalyticsPage({
         <div>
           <h2 className="text-sm font-medium text-gray-700">登録後のファネル</h2>
           <p className="text-xs text-gray-400">
-            {period.label}に作成された組織 {report.cohortOrgCount} 件が、各節目にどれだけ到達したか
+            {period.label}に作成された組織 {report.cohortOrgCount} 件が、各段にどれだけ到達したか（前の段を全て踏んだ組織だけを数える累積。単独の到達数は括弧内）
           </p>
         </div>
         <PeriodTabs current={period.key} />
@@ -203,7 +223,9 @@ export default async function AdminAnalyticsPage({
                     <span className="ml-1 text-xs font-normal text-gray-500">({step.rateOfCohort}%)</span>
                   </div>
                   <div className="text-[11px] text-gray-400">
-                    {idx > 0 && `前段比 ${step.rateOfPrev}%・`}中央値 {fmtDays(step.medianDays)}
+                    {idx > 0 && `前段から ${step.rateOfPrev}%・`}
+                    {step.reachedIsCumulative && step.reachedAny !== step.reached && `単独 ${step.reachedAny}・`}
+                    中央値 {fmtDays(step.medianDays)}
                   </div>
                 </div>
               </li>

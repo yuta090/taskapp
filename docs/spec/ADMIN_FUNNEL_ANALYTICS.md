@@ -36,7 +36,7 @@
 | チーム | `team_invited` | チームメンバーを招待 | invites(role=member) or 2人目の内部メンバー参加 |
 | 相手先 | `client_invited` | 相手先を招待 | invites(role=client) or client の参加 |
 | チーム | `anyone_invited` | 誰かを招待（上2つの早い方） | 導出 |
-| 相手先 | `task_published` | タスクを相手先に公開 | tasks(client_scope=deliverable) ※作成/更新で近似 |
+| 相手先 | `task_published` | タスクを相手先に公開 | 相手先を招待済みの組織で、最初の公開タスク(client_scope=deliverable)と招待の遅い方 ※DB 既定が deliverable（連携/AI 経由は明示しない限り公開側）のため、招待済みを条件にしている |
 | 相手先 | `portal_previewed` | 相手先の画面をプレビュー | **アプリから記録**（`PortalPreviewSeenMarker`） |
 | 秘書 | `line_requested` | 共通LINE申込 | org_channel_policy.shared_bot_access_requested_at |
 | 秘書 | `line_granted` | 共通LINE開通 | org_channel_policy.shared_bot_access_granted_at |
@@ -46,14 +46,17 @@
 | 秘書 | `first_ai_task` | AIが最初のタスクを拾った | channel_digest_tasks の最初 |
 | 連携 | `tool_connected` | ツール連携 | integration_connections の最初 |
 | 連携 | `api_key_created` | APIキー発行 | api_keys の最初 |
-| 定着 | `retained_7d` | 7日後も利用 | 作成+7日以降のタスク作成/更新の最初 |
-| 定着 | `retained_30d` | 30日後も利用 | 作成+30日以降のタスク作成/更新の最初 |
+| 定着 | `retained_7d` | 7日後も利用 | 作成+7日以降の「タスク作成」or「監査ログのタスク操作（人による）」の最初 ※tasks.updated_at は上書きされるので使わない |
+| 定着 | `retained_30d` | 30日後も利用 | 同上（+30日以降） |
 | 課金 | `quote_requested` | 見積もり依頼 | billing_quotes.requested_at |
 | 課金 | `paid` | 有料化 | org_billing(plan≠free & active/trialing).updated_at or 見積もり承認 |
 | 課金 | `canceled` | 解約 | org_billing(status=canceled).updated_at |
 
 **メインファネル**（`FUNNEL_STEPS`）: 組織作成 → 最初のプロジェクト → 最初のタスク → 誰かを招待 → 7日後も利用 → 有料化。
 LINE を使わない組織も落ちないよう、チャネル依存の節目は背骨に入れない。
+
+**ファネルの数え方（重要）**: 節目は独立している（招待せずに有料化する組織もある）ので、各節目の到達数を前段の到達数で割っても「転換率」にはならない。
+ファネルの各段は **「その段までの全ての段に到達した組織数」（累積）** を SQL（`admin_org_milestone_stats(p_since, p_funnel)` の `_funnel:<key>` 行）で数え、前段比はこの累積同士で出す。単独の到達数は括弧内に併記する。到達の時系列順は問わない（先に有料化して後から招待しても累積に含む）。
 
 ## 流入経路（channel）
 
@@ -77,8 +80,8 @@ LINE を使わない組織も落ちないよう、チャネル依存の節目は
 
 ### cookie に残す情報（`agentpm_ft`）
 
-`utm_source/medium/campaign/content/term`・`ref`/`art`・クリックIDの**種類だけ**（値は保存しない）・参照元の**ホスト名だけ**・最初に開いたパス・時刻。
-個人を特定する情報は持たない。httpOnly ではない（組織作成時にクライアントが読む）。
+`utm_source/medium/campaign/content/term`・`ref`/`art`・クリックIDの**種類だけ**（値は保存しない）・参照元の**ホスト名だけ**・最初に開いたパス（`/invite/<合鍵>` `/portal/<合鍵>` 等は先頭の区切りだけ）・時刻。`/auth/*`（ログインの戻り）では cookie を置かず、認証事業者（accounts.google.com / supabase.co 等）は参照元として無視する。
+utm の値は自由文字列なので、英数と一部記号（`_ - . : / + ! ( )` と空白）100文字以内だけ通し、`@` や `%`（メールアドレス・URLエンコード）を含む値は捨てる。個人を特定する情報を持ち込まない設計だが、キャンペーン名の付け方（例: 顧客名を入れる）は運用側で避けること。httpOnly ではない（組織作成時にクライアントが読む）。cookie の値はクライアントが書き換えられる前提で、RPC 側でも ref / slug / channel / 時刻を再検証する。
 
 ## 運用
 
@@ -94,12 +97,16 @@ LINE を使わない組織も落ちないよう、チャネル依存の節目は
 | POST | `/api/admin/milestones/reconcile` | 節目の再集計 `{ orgId? }`（superadmin のみ） |
 | RPC | `rpc_record_org_acquisition(p_org_id, p_data)` | 組織作成時の自動記録（オーナー本人のみ・既存行があれば何もしない） |
 | RPC | `rpc_record_org_milestone(p_org_id, p_milestone)` | アプリからの直接記録（内部メンバーのみ・ホワイトリスト） |
-| RPC | `admin_org_milestone_stats(p_since)` | 集計（service role のみ） |
+| RPC | `admin_org_milestone_stats(p_since, p_funnel)` | 集計（service role のみ）。`p_funnel` にファネルの段を渡すと累積到達も返す |
 | RPC | `reconcile_org_milestones(p_org_id)` | 照合（service role / cron） |
 
 ## 既知の近似・制約
 
-- `task_published` の時刻は公開操作ではなくタスクの作成/更新時刻で近似。
+- `task_published` の時刻は公開操作の時刻ではなく「最初の公開タスクの作成」と「相手先の招待」の遅い方で近似。
+- `retained_7d/30d` の「タスク作成」には Google Tasks 同期や AI が拾ったタスクも含む（tasks.created_by は必須列で、自動作成の行を確実に見分けられない）。監査ログ側は人の操作（actor_id あり）だけ。
+- `canceled` は再契約しても消えない（最初の解約時刻が残る）。`paid` と両方立っている組織は「一度解約した」と読む。
+- 流入経路の自動判定はブラウザ側で行い、RPC は許可リスト照合のみ。利用者が自組織の値を偽ることは可能だが影響は自組織の分析値だけ。判定ロジックを SQL に二重実装しない方を優先した。
+- 照合は毎時 tasks / audit_logs を読む（部分索引あり・同時実行は advisory lock で1本に制限）。タスクが数十万件規模になったら、節目の書き込みをイベント駆動に寄せて照合は修復用に限定する。
 - `paid` / `canceled` の時刻は `org_billing.updated_at` で近似（初回観測が残る）。
 - 記録開始前に登録した組織の流入経路は、メール登録時の `signup_ref` があれば記事/診断、無ければ `unknown`。
 - first-touch cookie は 90 日。cookie を消したブラウザ・別端末での登録は `direct` になる。

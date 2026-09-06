@@ -37,6 +37,8 @@ function attachFirstTouchCookie(request: NextRequest, response: NextResponse): v
     const { pathname } = request.nextUrl
     if (request.method !== 'GET') return
     if (pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.includes('.')) return
+    // ログインの戻り（/auth/callback 等）は「訪問」ではない。参照元が認証事業者になるので cookie を置かない
+    if (pathname.startsWith('/auth')) return
     if (request.cookies.has(FIRST_TOUCH_COOKIE)) return
     // timestamptz に渡す完全な時刻なので日付ずれ(toISOString禁止ルール)の対象外
     const firstTouch = extractFirstTouch(request.nextUrl, request.headers.get('referer'), new Date().toISOString())

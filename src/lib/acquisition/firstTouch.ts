@@ -85,8 +85,12 @@ export interface FirstTouch {
 
 const MAX_VALUE_LEN = 100
 const MAX_PATH_LEN = 200
-/** 英数・記号の一部だけ許す（HTML や制御文字を持ち込ませない） */
-const SAFE_VALUE_RE = /^[A-Za-z0-9 _\-.:/%+@!()]{1,100}$/
+/**
+ * 英数・記号の一部だけ許す（HTML や制御文字を持ち込ませない）。
+ * '@' と '%' は通さない: メールアドレスや URL エンコードされた個人情報が
+ * utm の値に紛れ込んで cookie / DB に 90 日残るのを避ける（キャンペーン名に '@' は不要）。
+ */
+const SAFE_VALUE_RE = /^[A-Za-z0-9 _\-.:/+!()]{1,100}$/
 const SAFE_SLUG_RE = /^[a-z0-9-]{1,64}$/
 const KNOWN_REFS = new Set(['task6', 'shindan'])
 const CLICK_ID_PARAMS = ['gclid', 'gbraid', 'wbraid', 'yclid', 'msclkid', 'fbclid', 'ttclid', 'li_fat_id'] as const
@@ -97,6 +101,26 @@ function cleanValue(raw: string | null): string | undefined {
   const v = raw.trim().slice(0, MAX_VALUE_LEN)
   return SAFE_VALUE_RE.test(v) ? v : undefined
 }
+
+/**
+ * 合鍵（トークン）を URL に含むページ。着地パスとして cookie / DB に残すのは先頭の区切りだけにする
+ * （招待リンク /invite/<合鍵> や相手先ポータル /portal/<合鍵> をそのまま保存しない）
+ */
+const TOKEN_PATH_PREFIXES = new Set(['invite', 'portal', 'reset', 'auth', 'api', 'p'])
+
+/** 着地パスを安全な形にする: 合鍵を含み得るページは先頭区切りだけ、長さは上限まで */
+export function sanitizeLandingPath(pathname: string): string {
+  const [, first = ''] = pathname.split('/')
+  if (TOKEN_PATH_PREFIXES.has(first)) return `/${first}`
+  return pathname.slice(0, MAX_PATH_LEN)
+}
+
+/**
+ * 認証事業者のホスト。ログインの戻り（Google / Supabase / LINE 等）を「検索」「紹介」と誤判定しないため、
+ * 参照元としては無視する
+ */
+const AUTH_PROVIDER_HOST_RE =
+  /(^|\.)(accounts\.google\.com|supabase\.co|supabase\.in|appleid\.apple\.com|login\.microsoftonline\.com|login\.live\.com|access\.line\.me|github\.com\/login|slack\.com\/oauth)$/
 
 function refererHost(referer: string | null): string | null {
   if (!referer) return null
@@ -113,7 +137,7 @@ function refererHost(referer: string | null): string | null {
  */
 export function extractFirstTouch(url: URL, referer: string | null, nowIso: string): FirstTouch | null {
   const params = url.searchParams
-  const ft: FirstTouch = { landing_path: url.pathname.slice(0, MAX_PATH_LEN), at: nowIso }
+  const ft: FirstTouch = { landing_path: sanitizeLandingPath(url.pathname), at: nowIso }
   let hasSignal = false
 
   for (const key of UTM_KEYS) {
@@ -141,7 +165,7 @@ export function extractFirstTouch(url: URL, referer: string | null, nowIso: stri
   }
 
   const host = refererHost(referer)
-  if (host && host !== url.hostname.toLowerCase() && host !== 'localhost') {
+  if (host && host !== url.hostname.toLowerCase() && host !== 'localhost' && !AUTH_PROVIDER_HOST_RE.test(host)) {
     ft.referrer = host.slice(0, MAX_VALUE_LEN)
     hasSignal = true
   }
@@ -160,7 +184,7 @@ export function decodeFirstTouchCookie(raw: string | null | undefined): FirstTou
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     const obj = parsed as Record<string, unknown>
     if (typeof obj.landing_path !== 'string' || typeof obj.at !== 'string') return null
-    const out: FirstTouch = { landing_path: obj.landing_path.slice(0, MAX_PATH_LEN), at: obj.at }
+    const out: FirstTouch = { landing_path: sanitizeLandingPath(obj.landing_path), at: obj.at }
     for (const key of [...UTM_KEYS, 'ref', 'art', 'click_id', 'referrer'] as const) {
       const v = obj[key]
       if (typeof v === 'string' && v.length > 0) out[key] = v.slice(0, MAX_VALUE_LEN)

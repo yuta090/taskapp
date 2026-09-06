@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRef, useState } from 'react'
 import { MANUAL_ACQUISITION_CHANNELS, getAcquisitionChannelLabel } from '@/lib/acquisition/firstTouch'
 
 interface OrgAcquisitionEditorProps {
@@ -19,14 +18,21 @@ type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved' } | { k
  * 自動判定の値は残したまま、運営の判断（channel / note）だけ上書きする。
  */
 export function OrgAcquisitionEditor({ orgId, channel: initialChannel, isManual: initialIsManual, note: initialNote }: OrgAcquisitionEditorProps) {
-  const router = useRouter()
   const [channel, setChannel] = useState(initialChannel)
   const [isManual, setIsManual] = useState(initialIsManual)
   const [note, setNote] = useState(initialNote ?? '')
   const [savedNote, setSavedNote] = useState(initialNote ?? '')
   const [state, setState] = useState<SaveState>({ kind: 'idle' })
+  // 保存は直列にする: 選択変更とメモの blur が重なったとき、古い要求が後から完了して新しい値を潰さない
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve())
 
-  async function save(next: { channel: string; note: string }) {
+  function save(next: { channel: string; note: string }): Promise<boolean> {
+    const run = queueRef.current.then(() => saveNow(next))
+    queueRef.current = run.catch(() => undefined)
+    return run
+  }
+
+  async function saveNow(next: { channel: string; note: string }) {
     setState({ kind: 'saving' })
     try {
       const res = await fetch(`/api/admin/organizations/${orgId}/acquisition`, {
@@ -41,8 +47,9 @@ export function OrgAcquisitionEditor({ orgId, channel: initialChannel, isManual:
       }
       setIsManual(true)
       setSavedNote(next.note)
+      // API が書き換える値（channel / note / 手動フラグ）は全てこの部品が持っているので、
+      // ページ全体（14本のクエリ＋メンバー分の認証問い合わせ）を取り直さない
       setState({ kind: 'saved' })
-      router.refresh()
       return true
     } catch {
       setState({ kind: 'error', message: '保存できませんでした（通信エラー）' })

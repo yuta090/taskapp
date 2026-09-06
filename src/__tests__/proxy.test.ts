@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import { proxy } from '../proxy'
 
@@ -24,11 +24,28 @@ vi.mock('@/lib/org/resolveActiveOrg', () => ({
   resolveActiveOrg: vi.fn(() => Promise.resolve(membershipResponse)),
 }))
 
+/** セッション更新を模す: getSession のたびに Supabase が setAll で auth cookie を書き直す */
+let refreshedCookieOnSession: { name: string; value: string } | null = null
+
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({
+  createServerClient: (
+    _url: string,
+    _key: string,
+    opts: { cookies: { setAll: (c: Array<{ name: string; value: string; options?: object }>) => void } },
+  ) => ({
     auth: {
-      getUser: vi.fn(() => Promise.resolve(userResponse)),
-      getSession: vi.fn(() => Promise.resolve(sessionResponse)),
+      getUser: vi.fn(() => {
+        if (refreshedCookieOnSession) {
+          opts.cookies.setAll([{ ...refreshedCookieOnSession, options: { path: '/' } }])
+        }
+        return Promise.resolve(userResponse)
+      }),
+      getSession: vi.fn(() => {
+        if (refreshedCookieOnSession) {
+          opts.cookies.setAll([{ ...refreshedCookieOnSession, options: { path: '/' } }])
+        }
+        return Promise.resolve(sessionResponse)
+      }),
     },
     from: (table: string) => {
       if (table === 'space_memberships') {
@@ -293,5 +310,44 @@ describe('proxy — 流入経路の first-touch cookie', () => {
     const response = await proxy(makeRequest('/lp1'))
 
     expect(response.cookies.get('agentpm_ft')).toBeUndefined()
+  })
+})
+
+describe('proxy — first-touch cookie と Supabase のセッション cookie 更新が共存する', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon-key')
+    userResponse = { data: { user: { id: 'user-1' } } }
+    sessionResponse = { data: { session: { user: { id: 'user-1' } } } }
+    vendorResponse = { data: null }
+    refreshedCookieOnSession = { name: 'sb-auth-token', value: 'refreshed' }
+  })
+
+  afterEach(() => {
+    refreshedCookieOnSession = null
+  })
+
+  it('通常レスポンスで、更新された auth cookie と agentpm_ft の両方が付く', async () => {
+    membershipResponse = { org_id: 'org-1', role: 'owner' }
+    spaceResponse = { data: { id: 'space-1' } }
+
+    const response = await proxy(makeRequest('/org-1/project/space-1?utm_source=google&utm_medium=cpc'))
+
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.cookies.get('sb-auth-token')?.value).toBe('refreshed')
+    expect(response.cookies.get('agentpm_ft')).toBeDefined()
+  })
+
+  it('リダイレクトレスポンスにも agentpm_ft が付く（既存のリダイレクト判定は変えない）', async () => {
+    membershipResponse = null
+
+    // ログイン済みで /login に来た → 組織未所属なので /onboarding へ（既存の判定）
+    const response = await proxy(makeRequest('/login?utm_source=google'))
+
+    expect(redirectPath(response)).toBe('/onboarding')
+    expect(response.cookies.get('agentpm_ft')).toBeDefined()
+    // 注: 既存実装ではリダイレクト用レスポンスを新規に作るため、setAll で更新された auth cookie は
+    // リダイレクトには載らない（first-touch 追加前からの挙動・本テストの対象外）。
   })
 })

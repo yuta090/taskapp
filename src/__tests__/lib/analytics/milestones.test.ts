@@ -58,8 +58,19 @@ describe('buildFunnelReport', () => {
     expect(report.cohortOrgCount).toBe(10)
   })
 
-  it('メインファネルは FUNNEL_STEPS の順で、全体比と直前段比を出す', () => {
-    const report = buildFunnelReport(rows)
+  it('メインファネルは FUNNEL_STEPS の順で、累積到達（_funnel 行）から全体比と直前段比を出す', () => {
+    const withFunnel: MilestoneStatRow[] = [
+      ...rows,
+      row({ milestone: '_funnel:org_created', org_count: 10, reached_count: 10 }),
+      row({ milestone: '_funnel:project_created', org_count: 10, reached_count: 8 }),
+      // first_task 単独では 4 件だが、project_created も踏んでいるのは 3 件
+      row({ milestone: '_funnel:first_task', org_count: 10, reached_count: 3 }),
+      row({ milestone: '_funnel:anyone_invited', org_count: 10, reached_count: 1 }),
+      row({ milestone: '_funnel:retained_7d', org_count: 10, reached_count: 1 }),
+      // paid 単独は 1 件だが、前の段を全て踏んだ組織は 0
+      row({ milestone: '_funnel:paid', org_count: 10, reached_count: 0 }),
+    ]
+    const report = buildFunnelReport(withFunnel)
     expect(report.funnel.map((s) => s.key)).toEqual([...FUNNEL_STEPS])
     const first = report.funnel[0]
     expect(first.key).toBe('org_created')
@@ -68,11 +79,25 @@ describe('buildFunnelReport', () => {
     expect(first.rateOfPrev).toBe(100)
 
     const firstTask = report.funnel.find((s) => s.key === 'first_task')!
+    expect(firstTask.reachedIsCumulative).toBe(true)
+    expect(firstTask.reached).toBe(3)
+    expect(firstTask.reachedAny).toBe(4)
+    expect(firstTask.rateOfCohort).toBe(30)
+    // 直前段 project_created(8) に対して 3 → 37.5%
+    expect(firstTask.rateOfPrev).toBe(37.5)
+    expect(firstTask.medianDays).toBe(1.5)
+
+    const paid = report.funnel.find((s) => s.key === 'paid')!
+    expect(paid.reached).toBe(0)
+    expect(paid.reachedAny).toBe(1)
+  })
+
+  it('_funnel 行が無ければ独立の到達数で代用し、その旨を返す', () => {
+    const report = buildFunnelReport(rows)
+    const firstTask = report.funnel.find((s) => s.key === 'first_task')!
+    expect(firstTask.reachedIsCumulative).toBe(false)
     expect(firstTask.reached).toBe(4)
     expect(firstTask.rateOfCohort).toBe(40)
-    // 直前段 project_created(8) に対して 4 → 50%
-    expect(firstTask.rateOfPrev).toBe(50)
-    expect(firstTask.medianDays).toBe(1.5)
   })
 
   it('行が無い節目は 0 件として出る（未到達でも段が消えない）', () => {

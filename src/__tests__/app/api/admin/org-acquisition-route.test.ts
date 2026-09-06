@@ -86,6 +86,12 @@ describe('PATCH /api/admin/organizations/[id]/acquisition', () => {
     expect(upsertMock.mock.calls[0][0].note).toBeNull()
   })
 
+  it('存在しない組織（外部キー違反）は 404', async () => {
+    upsertMock.mockResolvedValue({ error: { code: '23503', message: 'fk violation' } })
+    const res = await callPatch({ channel: 'sales' })
+    expect(res.status).toBe(404)
+  })
+
   it('DB エラーは 500', async () => {
     upsertMock.mockResolvedValue({ error: { message: 'boom' } })
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
