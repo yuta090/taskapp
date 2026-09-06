@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
+import { API_KEY_ACTION_OPTIONS } from '@/lib/api-keys/actionOptions'
 
 interface ApiKey {
   id: string
@@ -418,25 +419,21 @@ export default function ApiKeysSettingsPage() {
                 許可する操作
               </label>
               <div className="flex flex-wrap gap-2">
-                {[
-                  { value: 'read', label: '読み取り', description: 'タスク一覧取得など' },
-                  { value: 'write', label: '書き込み', description: 'タスク作成・更新' },
-                  { value: 'delete', label: '削除', description: 'タスク削除' },
-                ].map((action) => (
+                {API_KEY_ACTION_OPTIONS.map((action) => (
                   <button
                     key={action.value}
                     type="button"
                     onClick={() => toggleAction(action.value)}
-                    disabled={action.value === 'read'}
+                    disabled={action.required}
                     className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                       allowedActions.includes(action.value)
                         ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                         : 'border-gray-200 bg-surface text-gray-600 hover:bg-gray-50'
-                    } ${action.value === 'read' ? 'cursor-not-allowed' : ''}`}
+                    } ${action.required ? 'cursor-not-allowed' : ''}`}
                     title={action.description}
                   >
                     {action.label}
-                    {action.value === 'read' && (
+                    {action.required && (
                       <span className="ml-1 text-xs text-gray-400">(必須)</span>
                     )}
                   </button>
