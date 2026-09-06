@@ -468,12 +468,10 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl space-y-8">
           <section>
-            <h2 className="text-sm font-semibold text-gray-900">共通LINEのグループを追加</h2>
-            <p className="mt-1 text-xs text-gray-500">
-              相手先がまだ秘書を友だち追加していない場合は、下のQRで秘書を友だち追加してもらい、
-              その秘書を<strong>LINEグループに招待</strong>してもらいます。そのうえでプロジェクトを選んでコードを発行し、
-              <strong>相手先のLINEグループのトーク</strong>に貼り付けてもらってください。投入されると下に確認待ちが表示され、
-              承認するとグループが紐付きます。
+            <h2 className="text-sm font-semibold text-gray-900">相手先とのグループLINEをつなぐ</h2>
+            {/* 手順そのものは直下のQRブロックに3つ並ぶので、ここでは「何が起きるか」だけを1文で言う */}
+            <p data-testid="group-links-intro" className="mt-1 text-xs text-gray-500">
+              下の順番で進めると、そのグループでの決めごと・お願いが自動でタスクになります。
             </p>
 
             <div className="mt-3">
@@ -499,7 +497,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
             {issuedCode ? (
               <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-4">
                 <p className="text-xs font-semibold text-amber-900">
-                  このコードをLINEグループに貼り付けてください。承認するとここに確認待ちが出ます。
+                  このコードをグループのトークに貼り付けてください。貼られると下の「確認待ち」に出るので、承認して完了です。
                 </p>
                 <div className="mt-2 flex items-center gap-2">
                   <code className="flex-1 rounded border border-amber-200 bg-surface px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
@@ -515,7 +513,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
                   </button>
                 </div>
                 <ul className="mt-3 space-y-1 text-xs text-amber-900">
-                  <li>・有効期限は30分です。1グループのみ紐付けできます。</li>
+                  <li>・有効期限は30分・1つのグループにだけ使えます。</li>
                   <li>・この画面を離れると再表示できません（再発行してください）。</li>
                 </ul>
                 <button
@@ -562,7 +560,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
             <section className="border-t border-gray-100 pt-6">
               <h2 className="text-sm font-semibold text-gray-900">本部一括発行</h2>
               <p className="mt-1 text-xs text-gray-500">
-                複数のプロジェクトへ一度にcode_onlyコードを発行します。承認は不要で、投入されると即座に紐付きます。
+                複数のプロジェクトへ一度にコードを発行します。承認は不要で、グループに貼られるとすぐにつながります。
                 各コードは1グループのみ・単回のみ有効です。
               </p>
 

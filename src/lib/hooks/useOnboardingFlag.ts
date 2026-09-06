@@ -81,6 +81,9 @@ export function useOnboardingFlag(
   }, [key, isLocallyDone])
 
   const markDone = useCallback(async () => {
+    // 押した瞬間に画面から消す。保存だけして表示を更新しないと「非表示にするを押しても消えない」
+    // （開き直すまで残る）状態になる。実際にそうなっていた
+    setShouldShow(false)
     try {
       localStorage.setItem(localStorageKey, 'true')
     } catch {

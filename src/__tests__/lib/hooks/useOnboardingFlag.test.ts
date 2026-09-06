@@ -128,6 +128,19 @@ describe('useOnboardingFlag', () => {
     )
   })
 
+  it('markDone flips shouldShow to false immediately（押した瞬間に消える。保存を待たない）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+    mockSingle.mockResolvedValue({ data: { onboarding_flags: {} }, error: null })
+    // 保存を遅らせても表示は即座に消える
+    mockUpsert.mockReturnValue(new Promise(() => {}))
+
+    const { result } = renderHook(() => useOnboardingFlag('setup_checklist', LOCAL_KEY))
+    await waitFor(() => expect(result.current.shouldShow).toBe(true))
+
+    void result.current.markDone()
+    await waitFor(() => expect(result.current.shouldShow).toBe(false))
+  })
+
   it('markDone still writes localStorage when the server update fails (swallows the error)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
     mockSingle.mockResolvedValue({ data: { onboarding_flags: {} }, error: null })

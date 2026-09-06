@@ -52,6 +52,7 @@ import { TruncatedText } from '@/components/shared'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import { resetInternalOnboarding } from '@/components/onboarding/InternalOnboardingWalkthrough'
+import { resetSetupChecklist } from '@/components/onboarding/SetupChecklist'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
 const GROUP_COLLAPSED_KEY = 'taskapp:sidebar:group-collapsed'
@@ -355,6 +356,20 @@ function HelpMenu({ collapsed }: { collapsed?: boolean }) {
             >
               <Lifebuoy className="text-base text-gray-500" />
               操作ガイドを再表示
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void (async () => {
+                  await resetSetupChecklist()
+                  setIsOpen(false)
+                  window.location.reload()
+                })()
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Lifebuoy className="text-base text-gray-500" />
+              はじめての設定を再表示
             </button>
             <Link
               href="/help#glossary"

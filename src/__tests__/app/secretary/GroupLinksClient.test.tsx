@@ -107,6 +107,16 @@ function mockApis({
 }
 
 describe('GroupLinksClient', () => {
+  it('冒頭は「何が起きるか」1文だけにし、手順の長文（QR側の3手順と重複）や「紐付」の語を出さない', async () => {
+    mockApis({})
+    renderPanel()
+
+    const intro = await screen.findByTestId('group-links-intro')
+    expect(intro).toHaveTextContent('タスク')
+    expect(intro.textContent!.length).toBeLessThan(60)
+    expect(screen.queryByText(/紐付/)).not.toBeInTheDocument()
+  })
+
   it('プロジェクト選択肢は自org分のみ（他orgのspaceは出さない）', async () => {
     mockApis({})
     renderPanel()
