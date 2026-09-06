@@ -14,6 +14,7 @@ import {
   ClockCounterClockwise,
   Bell,
   Megaphone,
+  EnvelopeOpen,
   CheckCircle,
   ChartLine,
   TreeStructure,
@@ -72,6 +73,7 @@ const NAV_GROUPS: {
     heading: 'マーケ・コンテンツ',
     items: [
       { label: 'お知らせ', icon: Megaphone, href: '/admin/announcements' },
+      { label: 'メール文面', icon: EnvelopeOpen, href: '/admin/email-templates' },
       { label: 'ブログ', icon: Article, href: '/admin/blog' },
       { label: '分析', icon: ChartLine, href: '/admin/analytics' },
       { label: 'サイトマップ', icon: TreeStructure, href: '/admin/sitemap' },
