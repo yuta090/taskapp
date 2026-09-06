@@ -249,3 +249,49 @@ describe('proxy — 保護パスの未認証ガード（回帰）', () => {
     expect(url.searchParams.get('redirect')).toBe('/inbox?task=123&foo=bar')
   })
 })
+
+describe('proxy — 流入経路の first-touch cookie', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon-key')
+    userResponse = { data: { user: null } }
+    sessionResponse = { data: { session: null } }
+    membershipResponse = null
+    spaceResponse = { data: null }
+    vendorResponse = { data: null }
+  })
+
+  it('utm 付きで公開ページ（静的LP）に来たら cookie を置く', async () => {
+    const response = await proxy(makeRequest('/lp1?utm_source=google&utm_medium=cpc'))
+
+    const cookie = response.cookies.get('agentpm_ft')
+    expect(cookie).toBeDefined()
+    const decoded = JSON.parse(decodeURIComponent(cookie!.value))
+    expect(decoded.utm_source).toBe('google')
+    expect(decoded.landing_path).toBe('/lp1')
+    expect(cookie!.path).toBe('/')
+  })
+
+  it('保護ページへ未ログインで来て /login に飛ばすときも cookie は付く', async () => {
+    const response = await proxy(makeRequest('/inbox?ref=task6&art=line-group-tasks'))
+
+    expect(redirectPath(response)).toBe('/login')
+    expect(response.cookies.get('agentpm_ft')).toBeDefined()
+  })
+
+  it('既に cookie があれば上書きしない（first-touch）', async () => {
+    const request = new NextRequest('http://localhost:4000/lp1?utm_source=new', {
+      headers: { cookie: 'agentpm_ft=old' },
+    })
+    const response = await proxy(request)
+
+    expect(response.cookies.get('agentpm_ft')).toBeUndefined()
+  })
+
+  it('手がかりが無い訪問では cookie を置かない', async () => {
+    const response = await proxy(makeRequest('/lp1'))
+
+    expect(response.cookies.get('agentpm_ft')).toBeUndefined()
+  })
+})

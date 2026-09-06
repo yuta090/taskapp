@@ -7,6 +7,8 @@ import { buildOrgDetail, type OrgDetail, type OrgDetailInput } from '@/lib/admin
 import { mapWithConcurrency } from '@/lib/admin/concurrency'
 import { AdminBadge } from '@/components/admin/AdminBadge'
 import { AdminStatCard } from '@/components/admin/AdminStatCard'
+import { OrgAcquisitionEditor } from '@/components/admin/OrgAcquisitionEditor'
+import { MilestoneReconcileButton } from '@/components/admin/MilestoneReconcileButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +38,8 @@ async function fetchOrgDetail(orgId: string): Promise<OrgDetail | null> {
     invitesResult,
     notificationsResult,
     apiKeysResult,
+    acquisitionResult,
+    milestonesResult,
   ] = await Promise.all([
     admin.from('organizations').select('id, name, created_at').eq('id', orgId).maybeSingle(),
     admin.from('org_memberships').select('user_id, role, created_at').eq('org_id', orgId),
@@ -70,6 +74,14 @@ async function fetchOrgDetail(orgId: string): Promise<OrgDetail | null> {
       .order('created_at', { ascending: false })
       .limit(RECENT_NOTIFICATIONS_LIMIT),
     admin.from('api_keys').select('*', { count: 'exact', head: true }).eq('org_id', orgId).eq('is_active', true),
+    admin
+      .from('org_acquisition')
+      .select(
+        'channel, channel_source, ref, article_slug, utm_source, utm_medium, utm_campaign, utm_content, utm_term, click_id, landing_path, referrer, first_touch_at, note, updated_at',
+      )
+      .eq('org_id', orgId)
+      .maybeSingle(),
+    admin.from('org_milestones').select('milestone, reached_at, source').eq('org_id', orgId),
   ])
 
   if (orgResult.error) console.error('[admin/organizations/id] organizations query error:', orgResult.error.message)
@@ -89,6 +101,8 @@ async function fetchOrgDetail(orgId: string): Promise<OrgDetail | null> {
   logErr('invites', invitesResult)
   logErr('notifications', notificationsResult)
   logErr('api_keys', apiKeysResult)
+  logErr('org_acquisition', acquisitionResult)
+  logErr('org_milestones', milestonesResult)
 
   const memberships = (membershipsResult.data ?? []) as OrgDetailInput['memberships']
   const spaces = (spacesResult.data ?? []) as OrgDetailInput['spaces']
@@ -148,6 +162,8 @@ async function fetchOrgDetail(orgId: string): Promise<OrgDetail | null> {
     invites: (invitesResult.data ?? []) as OrgDetailInput['invites'],
     notifications: (notificationsResult.data ?? []) as OrgDetailInput['notifications'],
     apiKeyCount: apiKeysResult.count ?? 0,
+    acquisition: (acquisitionResult.data ?? null) as OrgDetailInput['acquisition'],
+    milestones: (milestonesResult.data ?? []) as OrgDetailInput['milestones'],
     nowMs: Date.now(),
   })
 }
@@ -282,6 +298,73 @@ export default async function AdminOrganizationDetailPage({
           value={stats.channelGroupCount + stats.integrationCount}
           sub={`チャット ${stats.channelGroupCount}・ツール ${stats.integrationCount}・APIキー ${stats.apiKeyCount}`}
         />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Section title="流入経路（どこから来て登録したか）" href="/admin/analytics" hrefLabel="分析を開く">
+          <div className="px-5 py-4 space-y-4">
+            <OrgAcquisitionEditor
+              orgId={detail.id}
+              channel={detail.acquisition.channel}
+              isManual={detail.acquisition.isManual}
+              note={detail.acquisition.note}
+            />
+            {detail.acquisition.details.length > 0 ? (
+              <dl className="text-xs border-t border-gray-100 pt-3 space-y-1">
+                <p className="text-gray-500 mb-1">
+                  自動で取れた情報{detail.acquisition.firstTouchAt && `（最初の訪問 ${formatDateTime(detail.acquisition.firstTouchAt)}）`}
+                </p>
+                {detail.acquisition.details.map((d) => (
+                  <div key={d.label} className="flex gap-2">
+                    <dt className="w-32 shrink-0 text-gray-400">{d.label}</dt>
+                    <dd className="text-gray-700 break-all">{d.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">
+                自動で取れた情報はありません（計測タグや広告パラメータの無いアクセス、または記録開始前の登録）
+              </p>
+            )}
+          </div>
+        </Section>
+
+        <Section title="到達した節目" count={detail.milestoneStats.reachedCount}>
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-400">
+              {detail.milestoneStats.totalCount} 個の節目のうち {detail.milestoneStats.reachedCount} 個に到達
+            </p>
+            <MilestoneReconcileButton orgId={detail.id} />
+          </div>
+          <ol className="divide-y divide-gray-100 max-h-[28rem] overflow-y-auto">
+            {detail.milestones.map((m) => (
+              <li key={m.key} className="px-5 py-2 flex items-center gap-3">
+                <span
+                  className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${m.reachedAt ? 'bg-indigo-500' : 'bg-gray-200'}`}
+                  aria-hidden
+                />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm truncate ${m.reachedAt ? 'text-gray-900' : 'text-gray-400'}`}>
+                    {m.label}
+                    <span className="ml-2 text-[10px] text-gray-400">{m.groupLabel}</span>
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  {m.reachedAt ? (
+                    <>
+                      <p className="text-xs text-gray-700">{formatDateTime(m.reachedAt)}</p>
+                      <p className="text-[10px] text-gray-400">
+                        作成から {m.daysFromCreation != null && m.daysFromCreation < 1 ? '当日' : `${m.daysFromCreation}日`}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-300">未到達</p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Section>
       </div>
 
       <Section title="メンバー" count={detail.members.length} href="/admin/users">

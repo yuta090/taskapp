@@ -66,7 +66,7 @@ export default async function PortalPreviewPage({ params }: PageProps) {
 
   return (
     <>
-      <PortalPreviewSeenMarker />
+      <PortalPreviewSeenMarker orgId={space.org_id as string} />
       <PortalDashboardClient
         currentProject={currentProject}
         projects={[currentProject]}
