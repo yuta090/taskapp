@@ -284,10 +284,15 @@ describe('proxy — 流入経路の first-touch cookie', () => {
 
     const cookie = response.cookies.get('agentpm_ft')
     expect(cookie).toBeDefined()
-    const decoded = JSON.parse(decodeURIComponent(cookie!.value))
+    // cookies.get は復号済みの値を返す＝JSON そのもの（Set-Cookie ヘッダ上では1回だけ符号化される）
+    const decoded = JSON.parse(cookie!.value)
     expect(decoded.utm_source).toBe('google')
     expect(decoded.landing_path).toBe('/lp1')
     expect(cookie!.path).toBe('/')
+    const header = response.headers.get('set-cookie') ?? ''
+    const rawValue = header.match(/agentpm_ft=([^;]+)/)?.[1] ?? ''
+    expect(rawValue.startsWith('%7B')).toBe(true)
+    expect(JSON.parse(decodeURIComponent(rawValue)).utm_source).toBe('google')
   })
 
   it('保護ページへ未ログインで来て /login に飛ばすときも cookie は付く', async () => {

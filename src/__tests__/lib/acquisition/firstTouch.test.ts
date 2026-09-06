@@ -95,11 +95,20 @@ describe('extractFirstTouch', () => {
 })
 
 describe('cookie encode/decode', () => {
-  it('往復して同じ値になる（cookie に使えない文字はエンコード）', () => {
+  it('往復して同じ値になる（符号化は Next の cookies.set に任せ、ここでは JSON のまま）', () => {
     const ft: FirstTouch = { utm_source: 'note', utm_medium: 'social', landing_path: '/lp2', referrer: 'note.com', at: NOW }
     const raw = encodeFirstTouchCookie(ft)
-    expect(raw).not.toMatch(/[;,\s"]/)
+    expect(raw.startsWith('{')).toBe(true)
     expect(decodeFirstTouchCookie(raw)).toEqual(ft)
+    // ブラウザの document.cookie は Next が1回符号化した値を返す
+    expect(decodeFirstTouchCookie(encodeURIComponent(raw))).toEqual(ft)
+  })
+
+  it('二重に符号化された古い cookie（本番の初期版）も読める', () => {
+    const ft: FirstTouch = { utm_source: 'check', utm_medium: 'cpc', landing_path: '/lp1', at: NOW }
+    const doubleEncoded = encodeURIComponent(encodeURIComponent(JSON.stringify(ft)))
+    expect(doubleEncoded.startsWith('%257B')).toBe(true)
+    expect(decodeFirstTouchCookie(doubleEncoded)).toEqual(ft)
   })
 
   it('壊れた cookie は null（登録を止めない）', () => {
