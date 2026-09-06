@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 
 /**
@@ -85,5 +85,50 @@ describe('AdminSidebar — ナビ体系', () => {
   it('badges 未指定でも落ちない（バッジ無しで描画）', () => {
     render(<AdminSidebar />)
     expect(screen.queryByTestId('admin-nav-badge-/admin/shared-bot-access')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * 折りたたみ（2026-09-07 追加）: メール文面のプレビューなど横幅が要る画面で、
+ * サイドバーをアイコンだけに畳んで作業領域を広げる。畳んでも URL は1つも減らない。
+ */
+describe('AdminSidebar — 折りたたみ', () => {
+  beforeEach(() => {
+    try {
+      window.localStorage.clear()
+    } catch {
+      /* noop */
+    }
+  })
+
+  it('既定は広げた状態で、畳むボタンを押すとアイコンだけになる（リンクは全部残る）', async () => {
+    render(<AdminSidebar />)
+    const aside = screen.getByTestId('admin-sidebar')
+    expect(aside).toHaveAttribute('data-collapsed', 'false')
+    expect(screen.getByText('組織管理')).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニューを畳む' }))
+    expect(aside).toHaveAttribute('data-collapsed', 'true')
+    expect(screen.queryByText('マーケ・コンテンツ')).not.toBeInTheDocument()
+    // ラベルは消えるが、リンク自体（URL）は全部残る。ツールチップで名前が分かる
+    expect(hrefsInOrder().slice().sort()).toEqual(EXPECTED_HREFS.slice().sort())
+    expect(screen.getByRole('link', { name: /組織管理/ })).toHaveAttribute('title', '組織管理')
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニューを広げる' }))
+    expect(aside).toHaveAttribute('data-collapsed', 'false')
+  })
+
+  it('畳んだ状態は次回も覚えている（localStorage）', async () => {
+    const { unmount } = render(<AdminSidebar />)
+    fireEvent.click(screen.getByRole('button', { name: 'メニューを畳む' }))
+    unmount()
+    render(<AdminSidebar />)
+    await waitFor(() => expect(screen.getByTestId('admin-sidebar')).toHaveAttribute('data-collapsed', 'true'))
+  })
+
+  it('畳んでも件数バッジは見える', async () => {
+    render(<AdminSidebar badges={{ '/admin/shared-bot-access': 3 }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'メニューを畳む' }))
+    expect(screen.getByTestId('admin-nav-badge-/admin/shared-bot-access')).toHaveTextContent('3')
   })
 })

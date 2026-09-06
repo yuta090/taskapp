@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSyncExternalStore } from 'react'
 import {
   ChartBar,
   Table,
@@ -25,6 +26,8 @@ import {
   ChatCircle,
   Receipt,
   SignOut,
+  CaretDoubleLeft,
+  CaretDoubleRight,
 } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -100,9 +103,50 @@ interface AdminSidebarProps {
   badges?: Record<string, number>
 }
 
+/** 畳んだ状態を覚えるキー（端末ごと・運営本人の好み。サーバーには持たない） */
+const COLLAPSED_STORAGE_KEY = 'admin-sidebar-collapsed'
+const COLLAPSED_EVENT = 'admin-sidebar-collapsed-change'
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeCollapsed(v: boolean) {
+  try {
+    window.localStorage.setItem(COLLAPSED_STORAGE_KEY, v ? '1' : '0')
+  } catch {
+    /* 保存できなくても動作には影響しない */
+  }
+  window.dispatchEvent(new Event(COLLAPSED_EVENT))
+}
+
+function subscribeCollapsed(onChange: () => void) {
+  window.addEventListener(COLLAPSED_EVENT, onChange)
+  window.addEventListener('storage', onChange)
+  return () => {
+    window.removeEventListener(COLLAPSED_EVENT, onChange)
+    window.removeEventListener('storage', onChange)
+  }
+}
+
+/**
+ * 折りたたみ状態。localStorage を「外部ストア」として購読する（SSR時は常に広げた状態）。
+ * メール文面のプレビューなど横幅が要る画面で、アイコンだけに畳んで作業領域を広げるためのもの。
+ */
+function useSidebarCollapsed(): [boolean, () => void] {
+  const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, () => false)
+  const toggle = () => writeCollapsed(!readCollapsed())
+  return [collapsed, toggle]
+}
+
 export function AdminSidebar({ badges }: AdminSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
 
   async function handleLogout() {
     const supabase = createClient()
@@ -111,14 +155,27 @@ export function AdminSidebar({ badges }: AdminSidebarProps) {
   }
 
   return (
-    <aside className="w-60 h-screen bg-surface border-r border-gray-200 flex flex-col shrink-0">
+    <aside
+      data-testid="admin-sidebar"
+      data-collapsed={collapsed ? 'true' : 'false'}
+      className={`${collapsed ? 'w-14' : 'w-60'} h-screen bg-surface border-r border-gray-200 flex flex-col shrink-0 transition-[width] duration-150`}
+    >
       {/* Header */}
-      <div className="px-4 py-4 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
+      <div className={`${collapsed ? 'px-2' : 'px-4'} py-4 border-b border-gray-200`}>
+        <div className={`flex items-center ${collapsed ? 'flex-col gap-2' : 'gap-2'}`}>
+          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0">
             <AgentPmMark size={21} className="text-white" />
           </div>
-          <span className="text-sm font-bold text-gray-900">Admin</span>
+          {!collapsed && <span className="text-sm font-bold text-gray-900 flex-1">Admin</span>}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? 'メニューを広げる' : 'メニューを畳む'}
+            title={collapsed ? 'メニューを広げる' : 'メニューを畳む'}
+            className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            {collapsed ? <CaretDoubleRight size={16} /> : <CaretDoubleLeft size={16} />}
+          </button>
         </div>
       </div>
 
@@ -126,9 +183,13 @@ export function AdminSidebar({ badges }: AdminSidebarProps) {
       <nav className="flex-1 overflow-y-auto py-2 px-2">
         {NAV_GROUPS.map((group) => (
           <div key={group.heading} className="mb-3 last:mb-0">
-            <div className="px-3 pt-1 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-              {group.heading}
-            </div>
+            {collapsed ? (
+              <div className="mx-2 my-1 border-t border-gray-100 first:hidden" aria-hidden="true" />
+            ) : (
+              <div className="px-3 pt-1 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                {group.heading}
+              </div>
+            )}
             {group.items.map((item) => {
               const isActive = pathname.startsWith(item.href)
               const Icon = item.icon
@@ -137,18 +198,22 @@ export function AdminSidebar({ badges }: AdminSidebarProps) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors mb-0.5 ${
+                  title={item.label}
+                  aria-label={collapsed ? item.label : undefined}
+                  className={`relative flex items-center gap-2.5 ${collapsed ? 'justify-center px-0' : 'px-3'} py-1.5 rounded-lg text-sm transition-colors mb-0.5 ${
                     isActive
                       ? 'bg-indigo-50 text-indigo-700 font-medium'
                       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                   }`}
                 >
                   <Icon size={18} weight={isActive ? 'fill' : 'regular'} />
-                  {item.label}
+                  {!collapsed && item.label}
                   {count > 0 && (
                     <span
                       data-testid={`admin-nav-badge-${item.href}`}
-                      className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1"
+                      className={`${
+                        collapsed ? 'absolute -top-0.5 -right-0.5' : 'ml-auto'
+                      } bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1`}
                     >
                       {count > 99 ? '99+' : count}
                     </span>
@@ -164,10 +229,12 @@ export function AdminSidebar({ badges }: AdminSidebarProps) {
       <div className="px-2 py-3 border-t border-gray-200">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 w-full transition-colors"
+          title="ログアウト"
+          aria-label="ログアウト"
+          className={`flex items-center gap-2.5 ${collapsed ? 'justify-center px-0' : 'px-3'} py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 w-full transition-colors`}
         >
           <SignOut size={18} />
-          ログアウト
+          {!collapsed && 'ログアウト'}
         </button>
       </div>
     </aside>
