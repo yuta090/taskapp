@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 // Mock Resend with proper class constructor
 const mockSend = vi.fn().mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -30,6 +31,7 @@ import { sendWelcomeEmail } from '@/lib/email/welcome'
 
 describe('sendWelcomeEmail', () => {
   beforeEach(() => {
+  resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
   })

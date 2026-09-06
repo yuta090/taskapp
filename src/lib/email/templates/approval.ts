@@ -29,6 +29,12 @@ export const APPROVAL_PLACEHOLDERS: ReadonlyArray<PlaceholderDef & { varKey: key
   { name: 'サービス名', varKey: 'appName', description: 'このサービスの名前', sample: 'AgentPM' },
 ]
 
+/** キーごとに使える差し込み語。タスクの確認依頼には見積金額が無いので外す（本文に書くと空欄が届くため） */
+export const APPROVAL_PLACEHOLDERS_BY_KEY: Record<ApprovalTemplateKey, ReadonlyArray<PlaceholderDef & { varKey: keyof ApprovalTemplateVars }>> = {
+  approval_task: APPROVAL_PLACEHOLDERS.filter((p) => p.varKey !== 'estimatedCostLabel'),
+  approval_estimate: APPROVAL_PLACEHOLDERS,
+}
+
 export function approvalVarsByName(vars: ApprovalTemplateVars): TemplateVars {
   const out: TemplateVars = {}
   for (const p of APPROVAL_PLACEHOLDERS) out[p.name] = vars[p.varKey]

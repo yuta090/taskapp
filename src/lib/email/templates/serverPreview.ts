@@ -58,7 +58,9 @@ async function renderReminderPreview(key: ReminderTemplateKey, fields: TemplateF
       ? [{ taskId: 'task-1', title: 'デザイン確認', spaceName: 'ECサイトリニューアル', dueDate: '2026-07-01', daysOverdue: 3 }]
       : []
   const dueToday = [{ taskId: 'task-2', title: '見積もり承認', spaceName: 'ECサイトリニューアル', dueDate: '2026-07-05', daysOverdue: 0 }]
-  const stalled = [{ taskId: 'task-3', title: '原稿の確認', spaceName: 'ECサイトリニューアル', dueDate: null, daysOverdue: 0 }]
+  // 見本の件数は差し込み語の sample（件数2・超過1・本日1）と合わせる（画面上の件名行と食い違わないように）
+  const stalled =
+    key === 'reminder_client_overdue' ? [] : [{ taskId: 'task-3', title: '原稿の確認', spaceName: 'ECサイトリニューアル', dueDate: null, daysOverdue: 0 }]
   const totalCount = overdue.length + dueToday.length + stalled.length
   const copy = buildEmailCopy(
     fields,

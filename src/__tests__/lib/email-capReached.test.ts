@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 /** 上限到達メール2通の送信側: 管理画面の文面（無ければ既定）で Resend に渡す */
 const mockSend = vi.fn().mockResolvedValue({ data: { id: 'msg' }, error: null })
@@ -18,6 +19,7 @@ const { sendFreeCapUpgradeEmail } = await import('@/lib/email/freeCapUpgrade')
 const { sendPoolAiExhaustedEmail } = await import('@/lib/email/poolAiExhausted')
 
 beforeEach(() => {
+  resetEmailTemplateCache()
   vi.clearAllMocks()
   templateRows = []
 })

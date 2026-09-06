@@ -47,38 +47,80 @@ interface Props {
 
 const EMPTY_PREVIEW: RenderedEmail = { subject: '', html: '', text: '' }
 
+/** 打鍵中の server プレビューはこの間隔でまとめる（/api/admin/blog/preview と同じ 400ms） */
+const PREVIEW_DEBOUNCE_MS = 400
+
+interface ServerPreviewState {
+  /** どのテンプレのために作った結果か（別テンプレの結果を出さないため） */
+  forKey: string | null
+  rendered: RenderedEmail | null
+  loading: boolean
+  error: string | null
+}
+
 /**
- * server 側プレビュー。input が変わるたびに POST し、古い応答は捨てる（AbortController）。
+ * server 側プレビュー（React Email 製テンプレ用）。
+ * - 同じテンプレを打鍵中は 400ms まとめて POST し、前の結果を残す（ちらつかせない）
+ * - テンプレを切り替えたら即 POST し、前テンプレの結果は捨てる（キャッシュがあれば即表示）
+ * - 同じ内容は投げない。古い応答は AbortController + alive で捨てる
  * input が null のとき（ブラウザで描けるテンプレ）は何もしない。
  */
-function useServerPreview(input: { draft: TemplateFields; activeKey: string } | null) {
-  const [state, setState] = useState<{ rendered: RenderedEmail | null; loading: boolean; error: string | null }>({
-    rendered: null,
-    loading: false,
-    error: null,
-  })
+function useServerPreview(input: { draft: TemplateFields; activeKey: string } | null): ServerPreviewState {
+  const [state, setState] = useState<ServerPreviewState>({ forKey: null, rendered: null, loading: false, error: null })
+  const cacheRef = useRef(new Map<string, RenderedEmail>())
+  const lastBodyRef = useRef<string | null>(null)
+  const lastKeyRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (!input) return
+    const body = JSON.stringify({ key: input.activeKey, fields: input.draft })
+    if (body === lastBodyRef.current) return
+    const sameTemplate = lastKeyRef.current === input.activeKey
+    lastBodyRef.current = body
+    lastKeyRef.current = input.activeKey
+
+    // setState は非同期の待ちに入る前の「表示の切替」。同じテンプレなら前の結果を残す
+    const cached = cacheRef.current.get(input.activeKey) ?? null
     const controller = new AbortController()
     let alive = true
-    fetch('/api/admin/email-templates/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: input.activeKey, fields: input.draft }),
-      signal: controller.signal,
-    })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.error || 'プレビューを作れませんでした')
-        if (alive) setState({ rendered: json as RenderedEmail, loading: false, error: null })
-      })
-      .catch((e: unknown) => {
-        if (!alive || (e instanceof DOMException && e.name === 'AbortError')) return
-        setState((prev) => ({ ...prev, loading: false, error: e instanceof Error ? e.message : 'プレビューを作れませんでした' }))
-      })
+    // 応答が最後まで届いたか。届く前に打ち切られた（テンプレ切替等）場合は「未取得」に戻し、
+    // 同じ内容で戻ってきたときに再送できるようにする（戻さないとプレビューが「作っています…」で固まる）
+    let completed = false
+    const timer = setTimeout(
+      () => {
+        setState((prev) => ({
+          forKey: input.activeKey,
+          rendered: sameTemplate ? prev.rendered : cached,
+          loading: true,
+          error: null,
+        }))
+        fetch('/api/admin/email-templates/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: controller.signal,
+        })
+          .then(async (res) => {
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(json.error || 'プレビューを作れませんでした')
+            completed = true
+            if (!alive) return
+            cacheRef.current.set(input.activeKey, json as RenderedEmail)
+            setState({ forKey: input.activeKey, rendered: json as RenderedEmail, loading: false, error: null })
+          })
+          .catch((e: unknown) => {
+            if (!alive || (e instanceof DOMException && e.name === 'AbortError')) return
+            completed = true
+            setState({ forKey: input.activeKey, rendered: cached, loading: false, error: e instanceof Error ? e.message : 'プレビューを作れませんでした' })
+          })
+      },
+      sameTemplate ? PREVIEW_DEBOUNCE_MS : 0,
+    )
     return () => {
       alive = false
+      clearTimeout(timer)
       controller.abort()
+      if (!completed) lastBodyRef.current = null
     }
   }, [input])
   return state
@@ -125,7 +167,11 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
   }, [deferredInput, deferredDef, appName])
   // React Email 製（承認依頼・滞留リマインド）はブラウザで描けないので server に描いてもらう
   const serverPreview = useServerPreview(deferredDef.renderPreview ? null : deferredInput)
-  const preview: RenderedEmail = localPreview ?? serverPreview.rendered ?? EMPTY_PREVIEW
+  // 別テンプレの結果は絶対に出さない（キーが一致するときだけ）
+  const serverRendered = serverPreview.forKey === deferredInput.activeKey ? serverPreview.rendered : null
+  const serverError = serverPreview.forKey === deferredInput.activeKey ? serverPreview.error : null
+  const preview: RenderedEmail = localPreview ?? serverRendered ?? EMPTY_PREVIEW
+  const previewPending = !localPreview && !serverRendered
 
   const selectTemplate = useCallback((key: string) => {
     setActiveKey(key)
@@ -382,9 +428,9 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
             <div className="min-w-0">
               <p className="text-xs text-gray-500">プレビュー（見本の名前で表示しています）</p>
               <p className="text-sm font-medium text-gray-900 truncate" title={preview.subject}>
-                件名: {renderTemplateString(draft.subject, previewVars) || '（件名なし）'}
+                件名: {(localPreview ? renderTemplateString(draft.subject, previewVars) : preview.subject) || '（件名なし）'}
               </p>
-              {serverPreview.error && <p className="text-xs text-red-600">{serverPreview.error}</p>}
+              {serverError && <p className="text-xs text-red-600">{serverError}</p>}
             </div>
             <div className="flex rounded-md border border-gray-200 overflow-hidden shrink-0 ml-3">
               {(['html', 'text'] as const).map((m) => (
@@ -400,7 +446,13 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
             </div>
           </div>
           {previewMode === 'html' ? (
-            <iframe title="メールプレビュー" srcDoc={preview.html} sandbox="" className="w-full h-[calc(100vh-11rem)] min-h-[560px] bg-gray-100" />
+            previewPending ? (
+              <div className="w-full h-[calc(100vh-11rem)] min-h-[560px] bg-gray-100 flex items-center justify-center text-sm text-gray-400">
+                {serverError ? 'プレビューを作れませんでした' : 'プレビューを作っています…'}
+              </div>
+            ) : (
+              <iframe title="メールプレビュー" srcDoc={preview.html} sandbox="" className="w-full h-[calc(100vh-11rem)] min-h-[560px] bg-gray-100" />
+            )
           ) : (
             <pre className="p-4 text-xs text-gray-800 whitespace-pre-wrap font-mono h-[calc(100vh-11rem)] min-h-[560px] overflow-auto">{preview.text}</pre>
           )}

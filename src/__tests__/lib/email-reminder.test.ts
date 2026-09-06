@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 import type { ReminderTaskRef } from '@/lib/reminders/computeClientReminders'
 
 const mockSend = vi.fn().mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -41,6 +42,7 @@ function ref(overrides: Partial<ReminderTaskRef> = {}): ReminderTaskRef {
 
 describe('sendReminderEmail', () => {
   beforeEach(() => {
+  resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
   })

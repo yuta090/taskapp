@@ -6,6 +6,7 @@
  */
 import { Resend } from 'resend'
 import { jstNow } from '@/lib/datetime/jstNow'
+import { PLAN_LIMITS } from '@/lib/billing/entitlements'
 import { nextMonthResetLabel, renderCapReachedEmail } from './templates/capReached'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
@@ -44,7 +45,7 @@ function getAppUrl(): string {
 export interface SendFreeCapUpgradeEmailParams {
   to: string
   orgName: string
-  /** 今月の無料通知枠（通）。省略時 50 */
+  /** 今月の無料通知枠（通）。省略時は Free プランの枠（PLAN_LIMITS） */
   limit?: number
 }
 
@@ -60,7 +61,7 @@ export async function sendFreeCapUpgradeEmail(params: SendFreeCapUpgradeEmailPar
     fields,
     vars: {
       orgName,
-      limitLabel: String(params.limit ?? 50),
+      limitLabel: String(params.limit ?? PLAN_LIMITS.free.monthlySharedPushQuota ?? ''),
       resetDateLabel: nextMonthResetLabel(jstNow()),
       appName,
     },

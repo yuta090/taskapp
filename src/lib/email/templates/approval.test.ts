@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildEmailCopy } from './core'
-import { APPROVAL_PLACEHOLDERS, APPROVAL_TEMPLATE_DEFAULTS, approvalKeyFor, approvalVarsByName, formatCurrencyJpy } from './approval'
+import { APPROVAL_PLACEHOLDERS, APPROVAL_PLACEHOLDERS_BY_KEY, APPROVAL_TEMPLATE_DEFAULTS, approvalKeyFor, approvalVarsByName, formatCurrencyJpy } from './approval'
 
 const vars = approvalVarsByName({
   taskTitle: 'ログイン画面',
@@ -33,6 +33,11 @@ describe('approval template', () => {
     const body = APPROVAL_PLACEHOLDERS.map((p) => `{{${p.name}}}`).join('|')
     const copy = buildEmailCopy({ ...APPROVAL_TEMPLATE_DEFAULTS.approval_task, body }, vars)
     expect(copy.bodyParagraphs[0]).toBe('ログイン画面|ECサイト|クラフトテック|￥160,000|2026/7/10|AgentPM')
+  })
+
+  it('タスクの確認依頼では {{見積金額}} は使えない（空欄が届くのを構造で防ぐ）', () => {
+    expect(APPROVAL_PLACEHOLDERS_BY_KEY.approval_task.map((p) => p.name)).not.toContain('見積金額')
+    expect(APPROVAL_PLACEHOLDERS_BY_KEY.approval_estimate.map((p) => p.name)).toContain('見積金額')
   })
 
   it('formatCurrencyJpy は円表記', () => {

@@ -16,7 +16,7 @@ import {
   type InviteTemplateVars,
 } from './invite'
 import { WELCOME_PLACEHOLDERS, WELCOME_TEMPLATE_DEFAULTS, WELCOME_TEMPLATE_META, buildWelcomeEmailContent } from './welcome'
-import { APPROVAL_PLACEHOLDERS, APPROVAL_TEMPLATE_DEFAULTS, APPROVAL_TEMPLATE_KEYS, APPROVAL_TEMPLATE_META } from './approval'
+import { APPROVAL_PLACEHOLDERS_BY_KEY, APPROVAL_TEMPLATE_DEFAULTS, APPROVAL_TEMPLATE_KEYS, APPROVAL_TEMPLATE_META } from './approval'
 import { REMINDER_PLACEHOLDERS, REMINDER_TEMPLATE_DEFAULTS, REMINDER_TEMPLATE_KEYS, REMINDER_TEMPLATE_META } from './reminder'
 import { CAP_PLACEHOLDERS, CAP_TEMPLATE_DEFAULTS, CAP_TEMPLATE_KEYS, CAP_TEMPLATE_META, renderCapReachedEmail, type CapTemplateKey } from './capReached'
 
@@ -111,7 +111,7 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
     family: 'approval' as const,
     ...APPROVAL_TEMPLATE_META[key],
     defaults: APPROVAL_TEMPLATE_DEFAULTS[key],
-    placeholders: APPROVAL_PLACEHOLDERS,
+    placeholders: APPROVAL_PLACEHOLDERS_BY_KEY[key],
   })),
   ...REMINDER_TEMPLATE_KEYS.map((key) => ({
     key,

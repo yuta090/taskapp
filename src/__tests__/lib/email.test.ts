@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetEmailTemplateCache } from '@/lib/email/templates/loadEmailTemplate'
 
 // Mock Resend with proper class constructor
 const mockSend = vi.fn().mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -31,6 +32,7 @@ import { sendInviteEmail } from '@/lib/email'
 
 describe('Email Service', () => {
   beforeEach(() => {
+  resetEmailTemplateCache()
     vi.clearAllMocks()
     templateRows = []
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
@@ -258,6 +260,7 @@ describe('sendInviteEmail — 管理画面で保存した文面が実際に使�
   }
 
   beforeEach(() => {
+  resetEmailTemplateCache()
     vi.clearAllMocks()
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
     templateRows = [
