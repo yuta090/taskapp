@@ -116,6 +116,14 @@ describe('task_import', () => {
     expect(res.errors).toEqual([{ line: 5, title: '壊れた行', message: expect.stringMatching(/status/) }])
   })
 
+  it('priority を指定した行だけ priority 列を送る', async () => {
+    const csv = 'title,priority\n優先タスク,2\n普通タスク,\n'
+    await taskImport({ spaceId: 'space-1', csv, dryRun: false })
+    const rows = inserted.filter((i) => i.table === 'tasks').flatMap((i) => i.rows)
+    expect(rows.find((r) => r.title === '優先タスク')).toMatchObject({ priority: 2 })
+    expect(rows.find((r) => r.title === '普通タスク')).not.toHaveProperty('priority')
+  })
+
   it('実行モード: 親→子の順で tasks を insert し、担当者も付ける', async () => {
     const res = await taskImport({ spaceId: 'space-1', csv: CSV, dryRun: false })
     expect(res.success).toBe(true)
@@ -129,6 +137,10 @@ describe('task_import', () => {
     for (const r of taskInserts[1].rows) {
       expect(r.parent_task_id).toBe(parentId)
       expect(r).toMatchObject({ org_id: 'org-1', space_id: 'space-1', created_by: 'actor-1', type: 'task' })
+    }
+    // priority は NOT NULL（既定1）: 未指定の行は列を省く（null を送らない）
+    for (const r of [...taskInserts[0].rows, ...taskInserts[1].rows]) {
+      expect(r).not.toHaveProperty('priority')
     }
     const childB = taskInserts[1].rows[1]
     expect(childB).toMatchObject({ status: 'in_review', ball: 'client', client_scope: 'deliverable', assignee_id: 'u-taka', due_date: '2026-09-06' })
