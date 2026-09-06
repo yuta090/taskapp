@@ -12,6 +12,7 @@ import { exchangeGoogleTasksCode } from '@/lib/google-tasks/client'
 import { exchangeAccountingCode, isAccountingOAuthProvider } from '@/lib/accounting/oauth'
 import type { AccountingProviderId } from '@/lib/accounting/types'
 import { buildTokenColumns } from '@/lib/integrations/token-manager'
+import { saveOAuthConnection } from '@/lib/integrations/connection-store'
 
 export const runtime = 'nodejs'
 
@@ -173,26 +174,24 @@ async function handleGoogleCalendarCallback(
     const tokens = await exchangeCodeForTokens(code)
 
     // DB保存（upsert: provider + owner_type + owner_id でユニーク）
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(
-        {
-          provider: 'google_calendar',
-          owner_type: 'user',
-          owner_id: userId,
-          org_id: orgId,
-          ...(await buildTokenColumns({
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          })),
-          token_expires_at: tokens.expiresAt.toISOString(),
-          scopes: tokens.scopes,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {},
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
+    const { error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      {
+        provider: 'google_calendar',
+        owner_type: 'user',
+        owner_id: userId,
+        org_id: orgId,
+        ...(await buildTokenColumns({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+      })),
+        token_expires_at: tokens.expiresAt.toISOString(),
+        scopes: tokens.scopes,
+        status: 'active',
+        last_refreshed_at: new Date().toISOString(),
+        metadata: {},
+      },
+    )
 
     if (upsertError) {
       console.error('Integration connection save failed:', upsertError)
@@ -226,28 +225,24 @@ async function handleGoogleTasksCallback(
   try {
     const tokens = await exchangeGoogleTasksCode(code)
 
-    const { data: saved, error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(
-        {
-          provider: 'google_tasks',
-          owner_type: 'user',
-          owner_id: userId,
-          org_id: orgId,
-          ...(await buildTokenColumns({
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          })),
-          token_expires_at: tokens.expiresAt.toISOString(),
-          scopes: tokens.scopes,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {},
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
-      .select('id')
-      .single()
+    const { data: saved, error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      {
+        provider: 'google_tasks',
+        owner_type: 'user',
+        owner_id: userId,
+        org_id: orgId,
+        ...(await buildTokenColumns({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+      })),
+        token_expires_at: tokens.expiresAt.toISOString(),
+        scopes: tokens.scopes,
+        status: 'active',
+        last_refreshed_at: new Date().toISOString(),
+        metadata: {},
+      },
+    )
 
     if (upsertError) {
       console.error('Google Tasks integration connection save failed:', upsertError)
@@ -286,26 +281,24 @@ async function handleZoomCallback(
   try {
     const tokens = await exchangeZoomCode(code)
 
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(
-        {
-          provider: 'zoom',
-          owner_type: 'user',
-          owner_id: userId,
-          org_id: orgId,
-          ...(await buildTokenColumns({
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          })),
-          token_expires_at: tokens.expiresAt.toISOString(),
-          scopes: tokens.scopes,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {},
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
+    const { error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      {
+        provider: 'zoom',
+        owner_type: 'user',
+        owner_id: userId,
+        org_id: orgId,
+        ...(await buildTokenColumns({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+      })),
+        token_expires_at: tokens.expiresAt.toISOString(),
+        scopes: tokens.scopes,
+        status: 'active',
+        last_refreshed_at: new Date().toISOString(),
+        metadata: {},
+      },
+    )
 
     if (upsertError) {
       console.error('Zoom integration connection save failed:', upsertError)
@@ -340,30 +333,28 @@ async function handleNotionCallback(
     const tokens = await exchangeNotionCode(code)
 
     // Notionトークンは無期限（refresh_tokenなし、token_expires_atはnull）。
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(
-        {
-          provider: 'notion',
-          owner_type: 'org',
-          owner_id: orgId,
-          org_id: orgId,
-          // Notionトークンは無期限(refresh_tokenなし)。buildTokenColumnsはrefreshTokenが
-          // falsyならrefresh_token系のキー自体を含めないので、列はnullのまま作られる。
-          ...(await buildTokenColumns({ accessToken: tokens.accessToken })),
-          token_expires_at: null,
-          scopes: null,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {
-            workspace_id: tokens.workspaceId,
-            workspace_name: tokens.workspaceName,
-            workspace_icon: tokens.workspaceIcon,
-            bot_id: tokens.botId,
-          },
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
+    const { error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      {
+        provider: 'notion',
+        owner_type: 'org',
+        owner_id: orgId,
+        org_id: orgId,
+        // Notionトークンは無期限(refresh_tokenなし)。buildTokenColumnsはrefreshTokenが
+        // falsyならrefresh_token系のキー自体を含めないので、列はnullのまま作られる。
+        ...(await buildTokenColumns({ accessToken: tokens.accessToken })),
+        token_expires_at: null,
+        scopes: null,
+        status: 'active',
+        last_refreshed_at: new Date().toISOString(),
+        metadata: {
+          workspace_id: tokens.workspaceId,
+          workspace_name: tokens.workspaceName,
+          workspace_icon: tokens.workspaceIcon,
+          bot_id: tokens.botId,
+      },
+      },
+    )
 
     if (upsertError) {
       console.error('Notion integration connection save failed:', upsertError)
@@ -396,26 +387,24 @@ async function handleAccountingCallback(
   try {
     const tokens = await exchangeAccountingCode(provider, code)
 
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(
-        {
-          provider,
-          owner_type: 'org',
-          owner_id: orgId,
-          org_id: orgId,
-          ...(await buildTokenColumns({
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          })),
-          token_expires_at: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
-          scopes: tokens.scopes,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {},
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
+    const { error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      {
+        provider,
+        owner_type: 'org',
+        owner_id: orgId,
+        org_id: orgId,
+        ...(await buildTokenColumns({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+      })),
+        token_expires_at: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
+        scopes: tokens.scopes,
+        status: 'active',
+        last_refreshed_at: new Date().toISOString(),
+        metadata: {},
+      },
+    )
 
     if (upsertError) {
       console.error(`${provider} integration connection save failed:`, upsertError)
@@ -470,9 +459,10 @@ async function handleGoogleSheetsCallback(
       metadata: {},
     }
 
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(upsertPayload, { onConflict: 'provider,owner_type,owner_id' })
+    const { error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      upsertPayload as Parameters<typeof saveOAuthConnection>[1],
+    )
 
     if (upsertError) {
       console.error('Google Sheets integration connection save failed:', upsertError)
@@ -499,26 +489,24 @@ async function handleTeamsCallback(
   try {
     const tokens = await exchangeTeamsCode(code)
 
-    const { error: upsertError } = await (getSupabaseAdmin() as SupabaseClient)
-      .from('integration_connections')
-      .upsert(
-        {
-          provider: 'teams',
-          owner_type: 'user',
-          owner_id: userId,
-          org_id: orgId,
-          ...(await buildTokenColumns({
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          })),
-          token_expires_at: tokens.expiresAt.toISOString(),
-          scopes: tokens.scopes,
-          status: 'active',
-          last_refreshed_at: new Date().toISOString(),
-          metadata: {},
-        },
-        { onConflict: 'provider,owner_type,owner_id' },
-      )
+    const { error: upsertError } = await saveOAuthConnection(
+      getSupabaseAdmin() as SupabaseClient,
+      {
+        provider: 'teams',
+        owner_type: 'user',
+        owner_id: userId,
+        org_id: orgId,
+        ...(await buildTokenColumns({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+      })),
+        token_expires_at: tokens.expiresAt.toISOString(),
+        scopes: tokens.scopes,
+        status: 'active',
+        last_refreshed_at: new Date().toISOString(),
+        metadata: {},
+      },
+    )
 
     if (upsertError) {
       console.error('Teams integration connection save failed:', upsertError)
