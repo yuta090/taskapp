@@ -24,6 +24,7 @@ const EMPTY: SetupChecklistData & { currentUserRole: string | null } = {
   lineAccess: 'unavailable',
   aiConfigured: false,
   dmUnreachable: false,
+  noClient: false,
 }
 
 /**
@@ -150,6 +151,7 @@ export function useSetupChecklistData(orgId: string, spaceId: string): UseSetupC
         hasClientInvite: hasClientMember || hasPendingClientInvite,
         hasPublishedTask,
         hasPreviewedPortal: flags.portal_preview_seen === true,
+        noClient: flags.no_client === true,
         hasLineLinked: lineStatus.hasLineLinked,
         lineAccess: lineStatus.lineAccess,
         aiConfigured: lineStatus.aiConfigured,

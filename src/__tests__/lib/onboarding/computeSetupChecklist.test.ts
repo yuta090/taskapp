@@ -165,7 +165,9 @@ describe('computeSetupChecklist', () => {
       expect(step.done).toBe(false)
       expect(step.href).toBe(`/${ORG_ID}/secretary/connect/line`)
       expect(step.ctaLabel).toContain('申し込')
-      expect(step.description).toContain('お申し込み')
+      // 説明文は「何をしてくれるか」を簡潔に。申込手順の説明はCTAに任せる
+      expect(step.description).toContain('タスク')
+      expect(step.description).not.toContain('お申し込み')
       expect(result.totalCount).toBe(7)
     })
 
@@ -215,6 +217,76 @@ describe('computeSetupChecklist', () => {
       expect(step.done).toBe(true)
       expect(step.href).toBeNull()
       expect(step.ctaLabel).toBeNull()
+    })
+  })
+
+  describe('クライアントなし（noClient）', () => {
+    it('未招待かつ noClient でなければ invite_client に「クライアントなし」を選べる印(canMarkNoClient)が付く', () => {
+      const result = computeSetupChecklist(allFalse, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'invite_client')!
+      expect(step.canMarkNoClient).toBe(true)
+      expect(step.skipped).not.toBe(true)
+    })
+
+    it('noClient なら invite_client は skipped・分母から除外・招待リンクは残す（あとから招待できる）', () => {
+      const result = computeSetupChecklist({ ...allFalse, noClient: true }, SPACE_ID, ORG_ID)
+      const step = result.steps.find((s) => s.key === 'invite_client')!
+      expect(step.skipped).toBe(true)
+      expect(step.done).toBe(false)
+      expect(step.canMarkNoClient).not.toBe(true)
+      expect(step.href).toBe('/settings/members')
+      expect(step.ctaLabel).not.toBeNull()
+      expect(step.description).toContain('クライアントなし')
+    })
+
+    it('noClient ならクライアント前提の publish_task / preview_portal も skipped・CTAなし', () => {
+      const result = computeSetupChecklist({ ...allFalse, noClient: true }, SPACE_ID, ORG_ID)
+      const publish = result.steps.find((s) => s.key === 'publish_task')!
+      const preview = result.steps.find((s) => s.key === 'preview_portal')!
+      expect(publish.skipped).toBe(true)
+      expect(publish.href).toBeNull()
+      expect(preview.skipped).toBe(true)
+      expect(preview.href).toBeNull()
+      expect(preview.ctaLabel).toBeNull()
+      // 分母は create_task / invite_team / connect_line / configure_ai の4つ
+      expect(result.totalCount).toBe(4)
+      expect(result.completedCount).toBe(0)
+    })
+
+    it('noClient でも実際に完了していれば done が優先され skipped にならない', () => {
+      const result = computeSetupChecklist(
+        { ...allFalse, noClient: true, hasClientInvite: true, hasPublishedTask: true, hasPreviewedPortal: true },
+        SPACE_ID,
+        ORG_ID
+      )
+      for (const key of ['invite_client', 'publish_task', 'preview_portal'] as const) {
+        const step = result.steps.find((s) => s.key === key)!
+        expect(step.done).toBe(true)
+        expect(step.skipped).not.toBe(true)
+      }
+      expect(result.totalCount).toBe(7)
+      expect(result.completedCount).toBe(3)
+    })
+
+    it('noClient で残りの実行可能ステップが完了なら allDone に到達する（クライアント不在で詰まらない）', () => {
+      const result = computeSetupChecklist(
+        { ...allFalse, noClient: true, hasNonSampleTask: true, hasTeamInvite: true, hasLineLinked: true, aiConfigured: true },
+        SPACE_ID,
+        ORG_ID
+      )
+      expect(result.totalCount).toBe(4)
+      expect(result.completedCount).toBe(4)
+      expect(result.allDone).toBe(true)
+      expect(result.currentStepKey).toBeNull()
+    })
+
+    it('skipped ステップは現在地にしない', () => {
+      const result = computeSetupChecklist(
+        { ...allFalse, noClient: true, hasNonSampleTask: true, hasTeamInvite: true },
+        SPACE_ID,
+        ORG_ID
+      )
+      expect(result.currentStepKey).toBe('connect_line')
     })
   })
 
