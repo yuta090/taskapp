@@ -6,6 +6,13 @@
 
 設定するまでは Supabase の従来メールがそのまま届くので、後退はありません。
 
+> **困ったらまずこれ**: Supabase ダッシュボード → Authentication → Hooks → Send Email を **Disable**。
+> それだけで Supabase の従来メールに戻ります（コード変更・デプロイ不要）。
+
+方針: 当社側の送信に失敗したときは Supabase に 500 を返し、その場の認証操作（登録・再設定）をエラーにします。
+黙って成功にして「メールが来るはず」と待たせるより、すぐエラーが見えて再試行できる方を選んでいます。
+Resend への送信は 8 秒で打ち切ります（Supabase 側のタイムアウトより先に返すため）。
+
 ## 手順（本番）
 
 1. Supabase ダッシュボード → プロジェクト `bbkguncomaizevkgxkwx` → **Authentication → Hooks**
@@ -23,8 +30,8 @@
 - 受け口 `src/app/api/auth/send-email-hook/route.ts` が署名を検証し、`src/lib/email/sendAuthEmail.ts` が
   管理画面の文面（`email_templates`、無ければコード既定）で Resend から送る
 - 確認リンクは従来と同じ Supabase の `/auth/v1/verify?...` で、文面からは変えられない
-- 対応する種類: `signup` / `recovery` / `magiclink` / `email_change`（新アドレス宛も同じ文面）。
-  それ以外（再認証コードなど）は確認コードだけの簡易文面で送る
+- 対応する種類: `signup` / `recovery` / `magiclink`・`email`（ログイン用リンク） / `email_change`（旧・新の2通に分けて送る） / `invite`。
+  それ以外（`reauthentication` の再認証コードなど）は確認コードだけの簡易文面で送り、ログに `unhandled email_action_type` を出す
 
 ## 困ったとき
 

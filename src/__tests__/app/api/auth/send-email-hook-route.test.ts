@@ -71,6 +71,42 @@ describe('POST /api/auth/send-email-hook', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it('署名ヘッダが欠けていれば 401', async () => {
+    const res = await POST(signedRequest(payload, SECRET_B64, { 'webhook-signature': '' }))
+    expect(res.status).toBe(401)
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('6分前の timestamp は 401（リプレイ対策・許容は前後5分）', async () => {
+    const wh = new Webhook(SECRET_B64)
+    const old = new Date(Date.now() - 6 * 60 * 1000)
+    const req = new NextRequest('http://localhost:3000/api/auth/send-email-hook', {
+      method: 'POST',
+      headers: { 'webhook-id': 'msg_old', 'webhook-timestamp': String(Math.floor(old.getTime() / 1000)), 'webhook-signature': wh.sign('msg_old', old, payload) },
+      body: payload,
+    })
+    expect((await POST(req)).status).toBe(401)
+  })
+
+  it('複数署名（v2,junk v1,good）は正しい v1 があれば 200', async () => {
+    const wh = new Webhook(SECRET_B64)
+    const ts = new Date()
+    const good = wh.sign('msg_multi', ts, payload)
+    const req = new NextRequest('http://localhost:3000/api/auth/send-email-hook', {
+      method: 'POST',
+      headers: { 'webhook-id': 'msg_multi', 'webhook-timestamp': String(Math.floor(ts.getTime() / 1000)), 'webhook-signature': `v2,junk ${good}` },
+      body: payload,
+    })
+    expect((await POST(req)).status).toBe(200)
+  })
+
+  it('秘密の形式が不正（base64 でない）なら 503 で「署名不一致」と区別する', async () => {
+    process.env.SEND_EMAIL_HOOK_SECRET = 'v1,whsec_%%%not-base64%%%'
+    const res = await POST(signedRequest(payload))
+    expect(res.status).toBe(503)
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
   it('秘密が未設定なら 503（黙って送らない）', async () => {
     delete process.env.SEND_EMAIL_HOOK_SECRET
     expect((await POST(signedRequest(payload))).status).toBe(503)

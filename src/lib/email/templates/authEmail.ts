@@ -10,21 +10,33 @@
  */
 import { renderSimpleEmail, type PlaceholderDef, type RenderedEmail, type TemplateFields, type TemplateVars } from './core'
 
-export const AUTH_TEMPLATE_KEYS = ['auth_signup', 'auth_recovery', 'auth_magiclink', 'auth_email_change'] as const
+export const AUTH_TEMPLATE_KEYS = ['auth_signup', 'auth_recovery', 'auth_magiclink', 'auth_email_change', 'auth_invite'] as const
 export type AuthTemplateKey = (typeof AUTH_TEMPLATE_KEYS)[number]
 
 export interface AuthTemplateVars {
   email: string
+  /** メール変更のときの変更先アドレス。それ以外は '' */
+  newEmail: string
   /** 6桁などの確認コード（リンクが押せない人向け） */
   token: string
   appName: string
 }
 
-export const AUTH_PLACEHOLDERS: ReadonlyArray<PlaceholderDef & { varKey: keyof AuthTemplateVars }> = [
-  { name: 'メールアドレス', varKey: 'email', description: '宛先のメールアドレス', sample: 'user@example.com' },
-  { name: '確認コード', varKey: 'token', description: 'ボタンが押せない人が画面に入力する確認コード', sample: '123456' },
-  { name: 'サービス名', varKey: 'appName', description: 'このサービスの名前', sample: 'AgentPM' },
-]
+const P_EMAIL = { name: 'メールアドレス', varKey: 'email', description: '宛先のメールアドレス', sample: 'user@example.com' } as const
+const P_NEW_EMAIL = { name: '新しいメールアドレス', varKey: 'newEmail', description: '変更先のメールアドレス', sample: 'new@example.com' } as const
+const P_TOKEN = { name: '確認コード', varKey: 'token', description: 'ボタンが押せない人が画面に入力する確認コード', sample: '123456' } as const
+const P_APP = { name: 'サービス名', varKey: 'appName', description: 'このサービスの名前', sample: 'AgentPM' } as const
+
+export const AUTH_PLACEHOLDERS: ReadonlyArray<PlaceholderDef & { varKey: keyof AuthTemplateVars }> = [P_EMAIL, P_NEW_EMAIL, P_TOKEN, P_APP]
+
+/** キーごとに使える差し込み語（「新しいメールアドレス」はメール変更のみ） */
+export const AUTH_PLACEHOLDERS_BY_KEY: Record<AuthTemplateKey, ReadonlyArray<PlaceholderDef & { varKey: keyof AuthTemplateVars }>> = {
+  auth_signup: [P_EMAIL, P_TOKEN, P_APP],
+  auth_recovery: [P_EMAIL, P_TOKEN, P_APP],
+  auth_magiclink: [P_EMAIL, P_TOKEN, P_APP],
+  auth_email_change: [P_EMAIL, P_NEW_EMAIL, P_TOKEN, P_APP],
+  auth_invite: [P_EMAIL, P_APP],
+}
 
 export function authVarsByName(vars: AuthTemplateVars): TemplateVars {
   const out: TemplateVars = {}
@@ -68,10 +80,22 @@ export const AUTH_TEMPLATE_DEFAULTS: Record<AuthTemplateKey, TemplateFields> = {
     subject: '【{{サービス名}}】メールアドレス変更の確認',
     heading: 'メールアドレス変更の確認',
     body: [
-      'メールアドレスを {{メールアドレス}} に変更するリクエストを受け付けました。',
-      '下のボタンを押して変更を確定してください。',
+      'ログイン用のメールアドレスを {{新しいメールアドレス}} に変更するリクエストを受け付けました。',
+      '下のボタンを押して変更を確定してください（新旧どちらのアドレスにも確認メールが届きます。両方の確認で変更が完了します）。',
+      '',
+      'このリクエストに心当たりがない場合は、このメールを無視してください。メールアドレスは変更されません。',
     ].join('\n'),
     cta_label: '変更を確定する',
+    note: '',
+  },
+  auth_invite: {
+    subject: '【{{サービス名}}】{{サービス名}} への招待',
+    heading: '{{サービス名}} への招待',
+    body: [
+      '{{サービス名}} にあなたのアカウント（{{メールアドレス}}）が用意されました。',
+      '下のボタンからアカウントの設定を完了してください。',
+    ].join('\n'),
+    cta_label: 'アカウントを設定する',
     note: '',
   },
 }
@@ -80,12 +104,14 @@ export const AUTH_TEMPLATE_META: Record<AuthTemplateKey, { label: string; descri
   auth_signup: { label: '会員登録の確認', description: 'サインアップ直後に届く、メールアドレス確認のメール', accent: '#4f46e5' },
   auth_recovery: { label: 'パスワード再設定', description: '「パスワードを忘れた」から届く、再設定リンクのメール', accent: '#4f46e5' },
   auth_magiclink: { label: 'ログイン用リンク', description: 'パスワードなしでログインするためのリンクのメール', accent: '#4f46e5' },
-  auth_email_change: { label: 'メールアドレス変更の確認', description: 'ログイン用メールアドレスを変えるときの確認メール', accent: '#4f46e5' },
+  auth_email_change: { label: 'メールアドレス変更の確認', description: 'ログイン用メールアドレスを変えるときの確認メール（旧・新の両方のアドレスに同じ文面で届く）', accent: '#4f46e5' },
+  auth_invite: { label: 'アカウント招待（運営発行）', description: '運営が Supabase から直接アカウントを招待したときのメール（通常の相手先・メンバー招待は「招待」カテゴリ）', accent: '#4f46e5' },
 }
 
 /**
- * Supabase の email_action_type → テンプレートのキー。対応が無いもの（再認証コード等）は null（呼び出し側が簡易文面で送る）。
- * email_change_new は「新しいアドレス宛」の変更確認で、同じ文面を使う。
+ * Supabase の email_action_type → テンプレートのキー。
+ * 対応が無いもの（reauthentication = 再認証コード等）は null（呼び出し側が確認コードだけの簡易文面で送る）。
+ * 'email'（コードでのログイン）はログイン用リンクと同じ文面。'email_change' は旧・新の2通を呼び出し側が送る。
  */
 export function authTemplateKeyFor(emailActionType: string): AuthTemplateKey | null {
   switch (emailActionType) {
@@ -94,10 +120,12 @@ export function authTemplateKeyFor(emailActionType: string): AuthTemplateKey | n
     case 'recovery':
       return 'auth_recovery'
     case 'magiclink':
+    case 'email':
       return 'auth_magiclink'
     case 'email_change':
-    case 'email_change_new':
       return 'auth_email_change'
+    case 'invite':
+      return 'auth_invite'
     default:
       return null
   }

@@ -1,17 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { AUTH_PLACEHOLDERS, AUTH_TEMPLATE_DEFAULTS, AUTH_TEMPLATE_KEYS, authTemplateKeyFor, buildVerifyUrl, renderAuthEmail } from './authEmail'
+import { AUTH_PLACEHOLDERS, AUTH_PLACEHOLDERS_BY_KEY, AUTH_TEMPLATE_DEFAULTS, AUTH_TEMPLATE_KEYS, authTemplateKeyFor, buildVerifyUrl, renderAuthEmail } from './authEmail'
 
-const vars = { email: 'user@example.com', token: '123456', appName: 'AgentPM' }
+const vars = { email: 'user@example.com', newEmail: 'new@example.com', token: '123456', appName: 'AgentPM' }
 
 describe('auth email templates', () => {
   it('Supabase の種類 → キー（未対応は null）', () => {
     expect(authTemplateKeyFor('signup')).toBe('auth_signup')
     expect(authTemplateKeyFor('recovery')).toBe('auth_recovery')
     expect(authTemplateKeyFor('magiclink')).toBe('auth_magiclink')
+    expect(authTemplateKeyFor('email')).toBe('auth_magiclink')
     expect(authTemplateKeyFor('email_change')).toBe('auth_email_change')
-    expect(authTemplateKeyFor('email_change_new')).toBe('auth_email_change')
+    expect(authTemplateKeyFor('invite')).toBe('auth_invite')
     expect(authTemplateKeyFor('reauthentication')).toBeNull()
-    expect(authTemplateKeyFor('invite')).toBeNull()
+    expect(authTemplateKeyFor('email_change_new')).toBeNull()
   })
 
   it('確認URLは Supabase の verify エンドポイント（redirect_to 付き・URLエンコード）', () => {
@@ -39,6 +40,13 @@ describe('auth email templates', () => {
   it('差し込み値（メールアドレス）はエスケープされる', () => {
     const out = renderAuthEmail({ key: 'auth_signup', fields: AUTH_TEMPLATE_DEFAULTS.auth_signup, vars: { ...vars, email: '<x@y>' }, actionUrl: 'https://x' })
     expect(out.html).toContain('&lt;x@y&gt;')
-    expect(AUTH_PLACEHOLDERS.map((p) => p.name)).toEqual(['メールアドレス', '確認コード', 'サービス名'])
+    expect(AUTH_PLACEHOLDERS.map((p) => p.name)).toEqual(['メールアドレス', '新しいメールアドレス', '確認コード', 'サービス名'])
+  })
+
+  it('「新しいメールアドレス」はメール変更だけで使える。メール変更の既定文面は変更先を載せる', () => {
+    expect(AUTH_PLACEHOLDERS_BY_KEY.auth_email_change.map((p) => p.name)).toContain('新しいメールアドレス')
+    expect(AUTH_PLACEHOLDERS_BY_KEY.auth_signup.map((p) => p.name)).not.toContain('新しいメールアドレス')
+    const out = renderAuthEmail({ key: 'auth_email_change', fields: AUTH_TEMPLATE_DEFAULTS.auth_email_change, vars, actionUrl: 'https://x' })
+    expect(out.html).toContain('new@example.com に変更するリクエスト')
   })
 })

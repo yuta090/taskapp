@@ -43,6 +43,8 @@ const CATALOG = EMAIL_TEMPLATE_FAMILIES.map((family) => ({
 interface Props {
   initialRows: Record<string, EmailTemplateRow>
   appName: string
+  /** Supabase の Send Email Hook が設定済みか（未設定なら「会員登録・ログイン」の文面は使われない） */
+  authHookConfigured?: boolean
 }
 
 const EMPTY_PREVIEW: RenderedEmail = { subject: '', html: '', text: '' }
@@ -126,7 +128,7 @@ function useServerPreview(input: { draft: TemplateFields; activeKey: string } | 
   return state
 }
 
-export default function EmailTemplatesClient({ initialRows, appName }: Props) {
+export default function EmailTemplatesClient({ initialRows, appName, authHookConfigured = false }: Props) {
   const [rows, setRows] = useState(initialRows)
   const [activeKey, setActiveKey] = useState<string>(EMAIL_TEMPLATE_DEFS[0].key)
   const [drafts, setDrafts] = useState<Record<string, TemplateFields>>(() =>
@@ -320,6 +322,12 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
 
         {/* Editor */}
         <div className="bg-surface border border-gray-200 rounded-xl p-5">
+          {def.family === 'account' && !authHookConfigured && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              この文面はまだ使われていません。Supabase の「Send Email Hook」を当社の受け口に向ける設定（docs/ops/AUTH_EMAIL_HOOK.md）を
+              終えると、保存した文面で届くようになります。それまでは Supabase の従来メールが届きます。
+            </div>
+          )}
           <div className="mb-4">
             <p className="text-[11px] text-gray-400">{family?.label}</p>
             <h2 className="text-sm font-semibold text-gray-900">{def.label}</h2>

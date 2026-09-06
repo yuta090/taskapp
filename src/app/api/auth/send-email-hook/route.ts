@@ -13,7 +13,9 @@ export const runtime = 'nodejs'
  * - 署名検証: Standard Webhooks（webhook-id / webhook-timestamp / webhook-signature）。
  *   秘密は env `SEND_EMAIL_HOOK_SECRET`（Supabase ダッシュボードで生成。`v1,whsec_` 付きのまま入れてよい）
  * - 秘密が未設定なら 503 で拒否（Hook を向けたのに env が無い事故を、黙って送らずに見えるようにする）
- * - 2xx 以外を返すと Supabase 側の認証操作がエラーになるので、送信失敗は 500 で正直に返す
+ * - 2xx 以外を返すと Supabase 側の認証操作がエラーになる。送信失敗は 500 で正直に返す（方針: 黙って 200 を返して
+ *   「メールが来るはず」と待たせるより、その場でエラーが見えて再試行できる方が良い。Resend には 8 秒のタイムアウト）。
+ *   戻し手順は Hook を Disable にするだけ（docs/ops/AUTH_EMAIL_HOOK.md）
  * - 設定手順: docs/ops/AUTH_EMAIL_HOOK.md
  */
 export async function POST(request: NextRequest) {
@@ -30,9 +32,17 @@ export async function POST(request: NextRequest) {
     'webhook-signature': request.headers.get('webhook-signature') ?? '',
   }
 
+  // 秘密の形式ミス（base64 でない等）は「署名不一致」と区別して 503 にする（誤診防止）
+  let wh: Webhook
+  try {
+    wh = new Webhook(secret.trim().replace(/^v1,whsec_/, ''))
+  } catch (err) {
+    console.error('[send-email-hook] SEND_EMAIL_HOOK_SECRET の形式が不正です:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: { http_code: 503, message: 'hook secret malformed' } }, { status: 503 })
+  }
+
   let data: AuthEmailHookPayload
   try {
-    const wh = new Webhook(secret.replace(/^v1,whsec_/, ''))
     data = wh.verify(payload, headers) as AuthEmailHookPayload
   } catch (err) {
     console.warn('[send-email-hook] signature verification failed:', err instanceof Error ? err.message : err)
