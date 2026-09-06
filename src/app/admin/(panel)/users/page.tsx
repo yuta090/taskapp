@@ -1,4 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifySuperadmin } from '@/lib/admin/verify-superadmin'
+import { redirect } from 'next/navigation'
 import UsersPageClient, { type UserRow } from './UsersPageClient'
 
 async function fetchUsersData(): Promise<UserRow[]> {
@@ -49,6 +51,10 @@ async function fetchUsersData(): Promise<UserRow[]> {
 }
 
 export default async function AdminUsersPage() {
+  // (panel) layout でも門番を通しているが、service role でデータを取るページなので
+  // データ取得の直前でも確認する（Next.js の推奨: 認可はデータ源の近くで）。
+  const currentUserId = await verifySuperadmin()
+  if (!currentUserId) redirect('/admin/login')
   const rows = await fetchUsersData()
-  return <UsersPageClient initialData={rows} />
+  return <UsersPageClient initialData={rows} currentUserId={currentUserId} />
 }
