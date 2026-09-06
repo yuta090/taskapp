@@ -272,3 +272,32 @@ ${textNote}${afterCta?.text ?? ''}
 
   return { subject, html, text }
 }
+
+/**
+ * React Email テンプレート（承認依頼・滞留リマインド等）向けの「文面だけ」の束。
+ * HTML の枠はコンポーネント側が持ち、ここは差し込み済みの文字列を渡すだけ。
+ * 文字列は React が描画時にエスケープするので dangerouslySetInnerHTML は使わないこと。
+ */
+export interface EmailCopy {
+  subject: string
+  heading: string
+  /** 段落ごとの文字列（段落内の単独改行は '\n' のまま。描画側で <br /> にする） */
+  bodyParagraphs: string[]
+  ctaLabel: string
+  /** 空なら出さない */
+  note: string
+}
+
+export function buildEmailCopy(fields: TemplateFields, vars: TemplateVars): EmailCopy {
+  const r = (s: string) => renderTemplateString(s, vars)
+  return {
+    subject: r(fields.subject).replace(/[\r\n]+/g, ' '),
+    heading: r(fields.heading),
+    bodyParagraphs: fields.body
+      .split(/\n[ \t]*\n/)
+      .map((p) => r(p.trim()))
+      .filter(Boolean),
+    ctaLabel: r(fields.cta_label),
+    note: r(fields.note.trim()),
+  }
+}

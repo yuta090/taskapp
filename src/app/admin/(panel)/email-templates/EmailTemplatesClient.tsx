@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowCounterClockwise, FloppyDisk, Envelope, CaretDown, CaretRight } from '@phosphor-icons/react'
 import {
   TEMPLATE_FIELD_LABELS,
@@ -9,6 +9,7 @@ import {
   renderTemplateString,
   sampleVars,
   validateTemplateFields,
+  type RenderedEmail,
   type TemplateFieldKey,
   type TemplateFields,
 } from '@/lib/email/templates/core'
@@ -44,6 +45,45 @@ interface Props {
   appName: string
 }
 
+const EMPTY_PREVIEW: RenderedEmail = { subject: '', html: '', text: '' }
+
+/**
+ * server 側プレビュー。input が変わるたびに POST し、古い応答は捨てる（AbortController）。
+ * input が null のとき（ブラウザで描けるテンプレ）は何もしない。
+ */
+function useServerPreview(input: { draft: TemplateFields; activeKey: string } | null) {
+  const [state, setState] = useState<{ rendered: RenderedEmail | null; loading: boolean; error: string | null }>({
+    rendered: null,
+    loading: false,
+    error: null,
+  })
+  useEffect(() => {
+    if (!input) return
+    const controller = new AbortController()
+    let alive = true
+    fetch('/api/admin/email-templates/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: input.activeKey, fields: input.draft }),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(json.error || 'プレビューを作れませんでした')
+        if (alive) setState({ rendered: json as RenderedEmail, loading: false, error: null })
+      })
+      .catch((e: unknown) => {
+        if (!alive || (e instanceof DOMException && e.name === 'AbortError')) return
+        setState((prev) => ({ ...prev, loading: false, error: e instanceof Error ? e.message : 'プレビューを作れませんでした' }))
+      })
+    return () => {
+      alive = false
+      controller.abort()
+    }
+  }, [input])
+  return state
+}
+
 export default function EmailTemplatesClient({ initialRows, appName }: Props) {
   const [rows, setRows] = useState(initialRows)
   const [activeKey, setActiveKey] = useState<string>(EMAIL_TEMPLATE_DEFS[0].key)
@@ -76,12 +116,16 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
   // draft と activeKey を1つに束ねて遅延させる（別々だとテンプレ切替の一瞬だけ色と文面がズレる）
   const previewInput = useMemo(() => ({ draft, activeKey }), [draft, activeKey])
   const deferredInput = useDeferredValue(previewInput)
-  const preview = useMemo(() => {
-    const d = getEmailTemplateDef(deferredInput.activeKey) as EmailTemplateDef
+  const deferredDef = getEmailTemplateDef(deferredInput.activeKey) as EmailTemplateDef
+  const localPreview = useMemo<RenderedEmail | null>(() => {
+    if (!deferredDef.renderPreview) return null
     const f = deferredInput.draft
     // 入力途中でも常にプレビューは出す（検証NGでもそのまま描く）
-    return d.renderPreview({ ...f, cta_label: f.cta_label || ' ' }, appName)
-  }, [deferredInput, appName])
+    return deferredDef.renderPreview({ ...f, cta_label: f.cta_label || ' ' }, appName)
+  }, [deferredInput, deferredDef, appName])
+  // React Email 製（承認依頼・滞留リマインド）はブラウザで描けないので server に描いてもらう
+  const serverPreview = useServerPreview(deferredDef.renderPreview ? null : deferredInput)
+  const preview: RenderedEmail = localPreview ?? serverPreview.rendered ?? EMPTY_PREVIEW
 
   const selectTemplate = useCallback((key: string) => {
     setActiveKey(key)
@@ -340,6 +384,7 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
               <p className="text-sm font-medium text-gray-900 truncate" title={preview.subject}>
                 件名: {renderTemplateString(draft.subject, previewVars) || '（件名なし）'}
               </p>
+              {serverPreview.error && <p className="text-xs text-red-600">{serverPreview.error}</p>}
             </div>
             <div className="flex rounded-md border border-gray-200 overflow-hidden shrink-0 ml-3">
               {(['html', 'text'] as const).map((m) => (

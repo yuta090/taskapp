@@ -7,6 +7,9 @@ import { createElement } from 'react'
 import { Resend } from 'resend'
 import { render } from '@react-email/components'
 import ApprovalEmail from './templates/ApprovalEmail'
+import { buildEmailCopy } from './templates/core'
+import { approvalKeyFor, approvalVarsByName, formatCurrencyJpy } from './templates/approval'
+import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
 // 遅延初期化でビルド時エラーを回避
 let resendClient: Resend | null = null
@@ -73,10 +76,22 @@ export async function sendApprovalEmail(params: SendApprovalEmailParams) {
   const portalUrl = `${appUrl}/portal`
 
   const isEstimate = actionType === 'estimate_approve'
+  const dueDateLabel = dueDate ? formatDueDate(dueDate) : null
 
-  const subject = isEstimate
-    ? `【${appName}】見積もりの確認をお願いします — ${taskTitle}`
-    : `【${appName}】確認をお願いします — ${taskTitle}`
+  // 文面は運営が管理画面で編集したもの（email_templates）。未保存ならコード既定
+  const fields = await loadEmailTemplate(approvalKeyFor(actionType))
+  const copy = buildEmailCopy(
+    fields,
+    approvalVarsByName({
+      taskTitle,
+      spaceName,
+      orgName,
+      estimatedCostLabel: isEstimate && estimatedCost != null ? formatCurrencyJpy(estimatedCost) : '',
+      dueDateLabel: dueDateLabel ?? '',
+      appName,
+    }),
+  )
+  const subject = copy.subject
 
   const emailProps = {
     appName,
@@ -87,8 +102,9 @@ export async function sendApprovalEmail(params: SendApprovalEmailParams) {
     portalUrl,
     actionType,
     estimatedCost,
-    dueDateLabel: dueDate ? formatDueDate(dueDate) : null,
+    dueDateLabel,
     descriptionExcerpt: descriptionExcerpt || null,
+    copy,
   }
 
   // React Email コンポーネントから HTML + プレーンテキストを生成

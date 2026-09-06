@@ -17,11 +17,18 @@ describe('email template registry', () => {
     for (const d of EMAIL_TEMPLATE_DEFS) {
       const r = validateTemplateFields(d.defaults, d.placeholders.map((p) => p.name))
       expect(r.ok, d.key).toBe(true)
-      const out = d.renderPreview(d.defaults, 'AgentPM')
-      expect(out.html).toContain('<!DOCTYPE html>')
-      expect(out.html).not.toContain('{{')
-      expect(out.subject.length).toBeGreaterThan(0)
+      if (d.renderPreview) {
+        const out = d.renderPreview(d.defaults, 'AgentPM')
+        expect(out.html).toContain('<!DOCTYPE html>')
+        expect(out.html).not.toContain('{{')
+        expect(out.subject.length).toBeGreaterThan(0)
+      }
     }
+  })
+
+  it('React Email 製（承認依頼・滞留リマインド）だけ renderPreview を持たず、server プレビューに回る', () => {
+    const serverKeys = EMAIL_TEMPLATE_DEFS.filter((d) => !d.renderPreview).map((d) => d.key).sort()
+    expect(serverKeys).toEqual(['approval_estimate', 'approval_task', 'reminder_client', 'reminder_client_overdue'])
   })
 
   it('isEmailTemplateKey / getEmailTemplateDef', () => {

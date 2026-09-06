@@ -13,6 +13,14 @@ vi.mock('resend', () => {
   }
 })
 
+// 文面の読み込み(email_templates)は DB を見に行かない: 行なし = コード既定の文面で送る
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }),
+  }),
+}))
+
+
 process.env.RESEND_API_KEY = 'test-api-key'
 process.env.FROM_EMAIL = 'test@example.com'
 process.env.NEXT_PUBLIC_APP_NAME = 'TestApp'
