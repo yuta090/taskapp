@@ -188,8 +188,8 @@ export default function NotificationSettingsPage() {
 
           {/* Client Response */}
           <SettingRow
-            label="クライアント応答"
-            description="クライアントが確認・回答した時"
+            label="相手からの応答・承諾"
+            description="相手先やメンバーが確認・回答した時、招待を承諾した時"
             enabled={prefs.email_enabled && prefs.on_client_response}
             disabled={!prefs.email_enabled}
             onChange={() => void update({ on_client_response: !prefs.on_client_response })}

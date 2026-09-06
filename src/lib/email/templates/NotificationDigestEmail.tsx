@@ -13,13 +13,15 @@ import {
   Tailwind,
   pixelBasedPreset,
 } from '@react-email/components'
-import type { DigestSection } from '@/lib/notifications/digest'
+import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
 
 export interface NotificationDigestEmailProps {
   appName: string
   displayName: string | null
   sections: DigestSection[]
   totalCount: number
+  /** 未承諾の招待（作成から3日以上）のまとめ。未設定なら節を出さない */
+  pendingInvites?: PendingInvitesSummary
   appUrl: string
   settingsUrl: string
 }
@@ -29,6 +31,7 @@ export default function NotificationDigestEmail({
   displayName,
   sections,
   totalCount,
+  pendingInvites,
   appUrl,
   settingsUrl,
 }: NotificationDigestEmailProps) {
@@ -94,6 +97,30 @@ export default function NotificationDigestEmail({
                   ))}
                 </Section>
               ))}
+
+              {pendingInvites && pendingInvites.count > 0 && (
+                <Section className="mb-6">
+                  <Heading as="h3" className="text-gray-900 text-[15px] font-semibold m-0 mb-3">
+                    未承諾の招待（{pendingInvites.count}件）
+                  </Heading>
+                  <Text className="text-gray-700 text-[14px] leading-[1.6] m-0 mb-3">
+                    未承諾の招待が{pendingInvites.count}件あります。招待を再送するには 設定 → メンバー から。
+                  </Text>
+                  {pendingInvites.items.map((item, idx) => (
+                    <Section
+                      key={idx}
+                      className="bg-gray-50 border-solid border border-gray-200 rounded-lg px-4 py-3 mb-2"
+                    >
+                      <Text className="text-gray-900 text-[14px] m-0">{item.email}</Text>
+                      {item.spaceName && (
+                        <Text className="text-gray-400 text-[13px] m-0 mt-1">
+                          {item.spaceName}
+                        </Text>
+                      )}
+                    </Section>
+                  ))}
+                </Section>
+              )}
 
               <Section className="mt-6 text-center">
                 <Button

@@ -20,9 +20,11 @@ import { APPROVAL_PLACEHOLDERS_BY_KEY, APPROVAL_TEMPLATE_DEFAULTS, APPROVAL_TEMP
 import { REMINDER_PLACEHOLDERS, REMINDER_TEMPLATE_DEFAULTS, REMINDER_TEMPLATE_KEYS, REMINDER_TEMPLATE_META } from './reminder'
 import { CAP_PLACEHOLDERS, CAP_TEMPLATE_DEFAULTS, CAP_TEMPLATE_KEYS, CAP_TEMPLATE_META, renderCapReachedEmail, type CapTemplateKey } from './capReached'
 import { BILLING_PLACEHOLDERS, BILLING_TEMPLATE_DEFAULTS, BILLING_TEMPLATE_KEYS, BILLING_TEMPLATE_META, renderBillingLifecycleEmail } from './billingLifecycle'
+import { AUTH_PLACEHOLDERS, AUTH_PLACEHOLDERS_BY_KEY, AUTH_TEMPLATE_DEFAULTS, AUTH_TEMPLATE_KEYS, AUTH_TEMPLATE_META, renderAuthEmail } from './authEmail'
 
 /** カテゴリ（表示順） */
 export const EMAIL_TEMPLATE_FAMILIES = [
+  { id: 'account', label: '会員登録・ログイン', description: 'サインアップ確認・パスワード再設定など、アカウントまわりで届くメール。⚠ Supabase の Send Email Hook を有効にするまでは、ここの文面は使われません（docs/ops/AUTH_EMAIL_HOOK.md）' },
   { id: 'invite', label: '招待', description: '相手先やメンバーをプロジェクトに招待するときに届くメール' },
   { id: 'onboarding', label: 'はじめての案内', description: '登録直後に届く、最初の使い方の案内' },
   { id: 'approval', label: '相手先への承認依頼', description: 'ボールが相手先に移ったときに届く、ワンクリック承認のメール' },
@@ -149,6 +151,25 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
         ctaUrl: `${PREVIEW_APP_URL}/settings/billing`,
       }),
   })),
+  ...AUTH_TEMPLATE_KEYS.map((key) => ({
+    key,
+    family: 'account' as const,
+    ...AUTH_TEMPLATE_META[key],
+    defaults: AUTH_TEMPLATE_DEFAULTS[key],
+    placeholders: AUTH_PLACEHOLDERS_BY_KEY[key],
+    renderPreview: (fields: TemplateFields, appName: string) =>
+      renderAuthEmail({
+        key,
+        fields,
+        vars: {
+          email: sampleVars(AUTH_PLACEHOLDERS)['メールアドレス'],
+          newEmail: sampleVars(AUTH_PLACEHOLDERS)['新しいメールアドレス'],
+          token: sampleVars(AUTH_PLACEHOLDERS)['確認コード'],
+          appName,
+        },
+        actionUrl: 'https://xxxx.supabase.co/auth/v1/verify?token=xxxxxxxx&type=signup&redirect_to=https%3A%2F%2Fagentpm.app%2F',
+      }),
+  })),
 ]
 
 export const EMAIL_TEMPLATE_KEYS: ReadonlyArray<string> = EMAIL_TEMPLATE_DEFS.map((d) => d.key)
@@ -172,5 +193,4 @@ export const NON_EDITABLE_EMAILS: ReadonlyArray<{ label: string; reason: string 
   { label: '共有botグループ紐付けのお知らせ', reason: '不正な紐付けに気づかせるための通知で、正確さが命のため' },
   { label: '共通LINE開通申込・リード獲得（運営向け）', reason: '運営自身が受け取る内部通知のため' },
   { label: 'TASK6 資料ダウンロード', reason: 'メディア側のコンテンツ運用で扱うため' },
-  { label: 'サインアップ確認・パスワード再設定', reason: 'Supabase（認証基盤）のダッシュボードで編集するため' },
 ]

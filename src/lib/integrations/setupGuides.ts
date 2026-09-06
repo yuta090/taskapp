@@ -45,7 +45,17 @@ export const PERSONAL_SETUP_GUIDE_KEYS = [
 ] as const
 
 export type PersonalSetupGuideKey = (typeof PERSONAL_SETUP_GUIDE_KEYS)[number]
-export type SetupGuideKey = IntegrationId | PersonalSetupGuideKey
+
+/**
+ * 組織の外部連携（組織設定 → 組織の外部連携）のキー。
+ * GitHub / Slack は registry の IntegrationId（秘書のツール連携）とは別の仕組みで、
+ * 「組織で一度つなぐ → プロジェクトごとにリポジトリ／チャンネルを選ぶ」の二段構え。
+ * プロジェクト設定の「連携のしかた」ボタンがここを引く。
+ */
+export const ORG_SETUP_GUIDE_KEYS = ['github', 'slack'] as const
+
+export type OrgSetupGuideKey = (typeof ORG_SETUP_GUIDE_KEYS)[number]
+export type SetupGuideKey = IntegrationId | PersonalSetupGuideKey | OrgSetupGuideKey
 
 export interface IntegrationSetupGuide {
   /** つなぐと何が起きるか（1〜2文） */
@@ -561,6 +571,78 @@ export const INTEGRATION_SETUP_GUIDES: Partial<Record<SetupGuideKey, Integration
       'https://developers.google.com/identity/protocols/oauth2/resources/granular-permissions',
     ],
     verifiedOn: '2026-07-30',
+  },
+/* ---- 組織の外部連携（組織で一度つなぐ → プロジェクトごとに選ぶ） ---- */
+  github: {
+    summary:
+      'GitHub をつなぐと、プルリクエスト（PR）のタイトルか本文にタスクID（例: #TP-042）を書くだけで、そのタスクに PR が自動で紐付きます。組織で一度 GitHub App を入れ、プロジェクトごとに見るリポジトリを選ぶ二段構えです。',
+    steps: [
+      'ブラウザで GitHub（https://github.com）に、つなぎたいリポジトリを持っているアカウントでサインインしておきます',
+      'TaskApp で、左上の組織名を押して「組織設定」を選びます',
+      '「組織の外部連携」を押します（プロジェクト設定の GitHub の欄にある「組織設定で連携する」からも同じ画面に行けます）',
+      'GitHub の欄にある「GitHubと連携する」を押します',
+      'GitHub の画面に切り替わるので、App を入れる先（自分のアカウントか、所属する Organization）を選びます',
+      '「All repositories」（すべてのリポジトリ）か「Only select repositories」（選んだリポジトリだけ）を選びます。後者のときは「Select repositories」で、つなぎたいリポジトリを選びます',
+      '「Install」を押します（Organization の設定によっては、代わりに「Install and request」か「Request」と出ます。その場合は GitHub の Organization オーナーの承認待ちになります）',
+      '自動で TaskApp の「組織の外部連携」画面に戻ります（GitHub の欄が「〇〇 と連携中」になっていれば、つながっています）',
+      'プロジェクトの設定を開きます',
+      '左の「外部連携」の中の「GitHub」を選びます',
+      '「リポジトリを追加」でリポジトリを選び、「追加」を押します（このプロジェクトのタスクに紐付くのは、ここで追加したリポジトリの PR だけです）',
+      'PR を作るときに、タイトルか本文にタスクID（例: #TP-042 / [TP-123] / TP-001）を書きます。それだけで自動で紐付きます',
+    ],
+    notes: [
+      'TaskApp に出てくるリポジトリは、手順6で GitHub に許可したものだけです。あとから増やしたいときは、GitHub の Settings →「Applications」→「Installed GitHub Apps」（Organization の場合は Settings →「GitHub Apps」）で「Configure」を押し、「Repository access」でリポジトリを足して「Save」を押します。',
+      'リポジトリを1つも選ばずに「Install」すると、TaskApp 側でエラーになります（見るものが無いため）。少なくとも1つは選んでください。',
+      'GitHub との接続は組織にひとつです。別のプロジェクトでも、同じ接続からリポジトリを選ぶだけで使えます。',
+    ],
+    adminOnly: true,
+    docUrl: 'https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party',
+    sources: [
+      'https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party',
+      'https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps',
+      'src/app/settings/org-integrations/page.tsx',
+      'src/app/api/github/authorize/route.ts',
+      'src/app/api/github/callback/route.ts',
+      'src/app/(internal)/[orgId]/project/[spaceId]/settings/GitHubRepoSettings.tsx',
+    ],
+    verifiedOn: '2026-09-07',
+  },
+  slack: {
+    summary:
+      'Slack をつなぐと、タスクの作成・ボールの移動・ステータス変更・コメントが、プロジェクトごとに決めた Slack のチャンネルへ自動で流れます。組織で一度ワークスペースをつなぎ、プロジェクトごとに通知先チャンネルを選ぶ二段構えです。',
+    steps: [
+      'ブラウザで、つなぎたい Slack のワークスペースにサインインしておきます',
+      'TaskApp で、左上の組織名を押して「組織設定」を選びます',
+      '「組織の外部連携」を押します（プロジェクト設定の Slack の欄にある「組織設定で連携する」からも同じ画面に行けます）',
+      'Slack の欄にある「Slackと連携する」を押します',
+      'Slack の許可画面に切り替わるので、つなぐ先のワークスペースと求められている内容を確かめてから許可します',
+      '自動で TaskApp の「組織の外部連携」画面に戻ります（「Slackワークスペースを接続しました」と出て、Slack の欄が「〇〇 と連携中」になっていれば、つながっています）',
+      'Slack で、通知を流したいチャンネルを開き、メッセージ欄に /invite @AgentPM と入れて送ります（TaskApp の Bot をそのチャンネルに入れる操作です）',
+      'TaskApp で、プロジェクトの設定を開きます',
+      '左の「外部連携」の中の「Slack」を選びます',
+      '「チャンネルを選択」で手順7のチャンネルを選び、「連携する」を押します',
+      '「自動通知設定」で、流したい出来事にチェックを入れます（チェックした時点で保存されます）',
+    ],
+    notes: [
+      'Bot を入れていないチャンネルには通知を届けられません。とくに非公開チャンネルは、Bot を入れるまで「チャンネルを選択」の一覧にも出てきません。',
+      'Slack のワークスペースで「アプリの承認」がオンになっていると、手順5のあとにオーナーへの承認リクエストになります。承認されてから、もう一度手順4からやり直してください。',
+      '通知先チャンネルは、1つのプロジェクトにつき1つです。変えたいときは、いまのチャンネルの横にあるゴミ箱アイコン（説明: チャンネル連携を解除）で外してから選び直します。',
+      '「組織の外部連携」で Slack 連携そのものを解除すると、すべてのプロジェクトのチャンネル設定も一緒に外れます。',
+    ],
+    adminOnly: true,
+    docUrl: 'https://slack.com/help/articles/202035138',
+    sources: [
+      'https://slack.com/help/articles/202035138',
+      'https://slack.com/intl/ja-jp/help/articles/201259356',
+      'https://docs.slack.dev/reference/methods/conversations.list',
+      'https://docs.slack.dev/reference/scopes/chat.write.public',
+      'src/app/settings/org-integrations/page.tsx',
+      'src/app/api/slack/authorize/route.ts',
+      'src/app/api/slack/callback/route.ts',
+      'src/lib/slack/oauth.ts',
+      'src/app/(internal)/[orgId]/project/[spaceId]/settings/SlackChannelSettings.tsx',
+    ],
+    verifiedOn: '2026-09-07',
   },
 /* ---- 個人アカウントの接続 ---- */
   google_calendar: {

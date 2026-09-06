@@ -45,6 +45,8 @@ const TYPE_TO_CATEGORY: Record<string, EmailCategory> = {
   // クライアントからの応答
   client_response: 'client_response',
   client_replied: 'client_response',
+  // 招待の承諾
+  invite_accepted: 'client_response',
   // 会議
   meeting_ended: 'meeting_reminder',
   meeting_reminder: 'meeting_reminder',
@@ -68,7 +70,7 @@ export const CATEGORY_LABEL: Record<EmailCategory, string> = {
   task_assigned: 'あなたにボールが回ってきたタスク',
   task_mentioned: 'あなたへのメンション',
   review_request: '承認・レビュー待ち',
-  client_response: 'クライアントからの応答',
+  client_response: '相手からの応答・承諾',
   meeting_reminder: '会議のリマインド',
 }
 
@@ -89,9 +91,31 @@ export interface DigestSection {
   label: string
   items: DigestItem[]
 }
+
+/** ダイジェスト末尾に足す「未承諾の招待」節の1件ぶん */
+export interface PendingInviteItem {
+  email: string
+  spaceName: string | null
+}
+
+/** 「未承諾の招待」節のまとめ。件数(count)は先頭プレビュー(items)より多いことがある */
+export interface PendingInvitesSummary {
+  count: number
+  items: PendingInviteItem[]
+}
+
+/** 「未承諾の招待」節に載せるプレビュー件数の上限 */
+export const PENDING_INVITES_PREVIEW_LIMIT = 5
+
 export interface Digest {
   sections: DigestSection[]
   totalCount: number
+  /**
+   * 未承諾の招待（作成から3日以上）のまとめ。buildDigest は DB を見ないので
+   * ここでは設定しない — 呼び出し元(cron)が invites を取得して後付けする。
+   * 0件なら未設定のまま（この節だけでメールを送ることはない）。
+   */
+  pendingInvites?: PendingInvitesSummary
 }
 
 function itemTitle(n: DigestNotification): string {

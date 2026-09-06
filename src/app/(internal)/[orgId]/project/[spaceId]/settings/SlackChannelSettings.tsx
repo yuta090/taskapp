@@ -19,6 +19,7 @@ import {
 import { isSlackConfigured } from '@/lib/slack/config'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
+import { ToolSetupGuide } from '@/components/integrations/ToolSetupGuide'
 import Link from 'next/link'
 
 interface SlackChannelSettingsProps {
@@ -93,9 +94,13 @@ export function SlackChannelSettings({ orgId, spaceId }: SlackChannelSettingsPro
   return (
     <div className="space-y-4">
       {ConfirmDialog}
-      <div className="flex items-center gap-2 text-gray-700">
-        <ChatCircleDots className="text-lg" weight="bold" />
-        <h3 className="font-medium">Slack連携</h3>
+      <div className="flex items-center justify-between gap-2 text-gray-700">
+        <div className="flex items-center gap-2">
+          <ChatCircleDots className="text-lg" weight="bold" />
+          <h3 className="font-medium">Slack連携</h3>
+        </div>
+        {/* 「どうやって繋ぐのか」が画面に無かった。手順は setupGuides.ts（単一の真実源）から引く */}
+        <ToolSetupGuide guideKey="slack" />
       </div>
 
       {isLoading ? (

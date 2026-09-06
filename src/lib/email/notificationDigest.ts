@@ -8,7 +8,7 @@ import { createElement } from 'react'
 import { Resend } from 'resend'
 import { render } from '@react-email/components'
 import NotificationDigestEmail from './templates/NotificationDigestEmail'
-import type { DigestSection } from '@/lib/notifications/digest'
+import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
 
 // 遅延初期化でビルド時エラーを回避
 let resendClient: Resend | null = null
@@ -46,12 +46,14 @@ export interface SendNotificationDigestEmailParams {
   displayName: string | null
   sections: DigestSection[]
   totalCount: number
+  /** 未承諾の招待（作成から3日以上）のまとめ。0件相当なら未設定にする（節を出さない） */
+  pendingInvites?: PendingInvitesSummary
   appUrl?: string
   appName?: string
 }
 
 export async function sendNotificationDigestEmail(params: SendNotificationDigestEmailParams) {
-  const { to, displayName, sections, totalCount } = params
+  const { to, displayName, sections, totalCount, pendingInvites } = params
   const appUrl = params.appUrl || getAppUrl()
   const appName = params.appName || getAppName()
   const settingsUrl = `${appUrl}/settings/notifications`
@@ -63,6 +65,7 @@ export async function sendNotificationDigestEmail(params: SendNotificationDigest
     displayName,
     sections,
     totalCount,
+    pendingInvites,
     appUrl,
     settingsUrl,
   })

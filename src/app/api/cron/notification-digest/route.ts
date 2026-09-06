@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNotificationDigestEmail } from '@/lib/email/notificationDigest'
-import { buildDigest, type DigestNotification, type NotificationEmailPrefs } from '@/lib/notifications/digest'
+import {
+  buildDigest,
+  PENDING_INVITES_PREVIEW_LIMIT,
+  type DigestNotification,
+  type NotificationEmailPrefs,
+  type PendingInvitesSummary,
+} from '@/lib/notifications/digest'
 import { jstNow } from '@/lib/datetime/jstNow'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -112,6 +118,103 @@ export async function POST(request: NextRequest) {
       ((profiles || []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, p.display_name]),
     )
 
+    // 未承諾の招待（作成から3〜21日・未失効）— 対象受信者ぶんをまとめて1クエリ(N+1回避)。
+    // この節だけでメールを送ることはない（送るかどうかは通常のdigestの有無で決まる。既存判定は変えない）。
+    // 21日を過ぎたら催促しない(いつまでも「未承諾」で出続けるのを避ける)。
+    const PENDING_INVITES_QUERY_LIMIT = 200
+    const pendingInviteMinAgeCutoff = new Date(nowReal.getTime() - 3 * 24 * 60 * 60 * 1000)
+    const pendingInviteMaxAgeCutoff = new Date(nowReal.getTime() - 21 * 24 * 60 * 60 * 1000)
+    const { data: pendingInviteRows, error: pendingInviteError } = await admin
+      .from('invites')
+      .select('created_by, org_id, email, space_id, created_at')
+      .in('created_by', userIds)
+      .is('accepted_at', null)
+      .gt('expires_at', nowReal.toISOString())
+      .lte('created_at', pendingInviteMinAgeCutoff.toISOString())
+      .gte('created_at', pendingInviteMaxAgeCutoff.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(PENDING_INVITES_QUERY_LIMIT)
+
+    if (pendingInviteError) {
+      console.error('[notification-digest] Failed to fetch pending invites:', pendingInviteError)
+    }
+
+    type PendingInviteRow = { created_by: string; org_id: string; email: string; space_id: string; created_at: string }
+    let pendingInviteList = (pendingInviteRows || []) as PendingInviteRow[]
+
+    if (pendingInviteList.length === PENDING_INVITES_QUERY_LIMIT) {
+      console.warn(
+        `[notification-digest] pending invites hit the query limit (${PENDING_INVITES_QUERY_LIMIT}); some may be omitted from this run`,
+      )
+    }
+
+    if (pendingInviteList.length > 0) {
+      // (a) 招待作成者が今もそのorgのメンバーであること・(c) 招待先メールが既存メンバーの
+      // メールと重複しないこと、を org_memberships / profiles それぞれ1クエリで確認する
+      // (退職者・元メンバーへの露出防止、別経路で参加済みの相手への誤催促防止)。
+      const inviteOrgIds = [...new Set(pendingInviteList.map((i) => i.org_id))]
+      const { data: membershipRows } = await admin
+        .from('org_memberships')
+        .select('org_id, user_id')
+        .in('org_id', inviteOrgIds)
+
+      type MembershipRow = { org_id: string; user_id: string }
+      const memberships = (membershipRows || []) as MembershipRow[]
+      const stillMemberSet = new Set(memberships.map((m) => `${m.org_id}:${m.user_id}`))
+      const memberUserIds = [...new Set(memberships.map((m) => m.user_id))]
+
+      const { data: memberProfileRows } =
+        memberUserIds.length > 0
+          ? await admin.from('profiles').select('id, email').in('id', memberUserIds)
+          : { data: [] as Array<{ id: string; email: string | null }> }
+
+      const memberEmailByUserId = new Map<string, string>(
+        ((memberProfileRows || []) as Array<{ id: string; email: string | null }>)
+          .filter((p): p is { id: string; email: string } => !!p.email)
+          .map((p) => [p.id, p.email.toLowerCase()]),
+      )
+
+      const memberEmailsByOrg = new Map<string, Set<string>>()
+      for (const m of memberships) {
+        const email = memberEmailByUserId.get(m.user_id)
+        if (!email) continue
+        const set = memberEmailsByOrg.get(m.org_id) ?? new Set<string>()
+        set.add(email)
+        memberEmailsByOrg.set(m.org_id, set)
+      }
+
+      pendingInviteList = pendingInviteList.filter((invite) => {
+        if (!stillMemberSet.has(`${invite.org_id}:${invite.created_by}`)) return false
+        const orgMemberEmails = memberEmailsByOrg.get(invite.org_id)
+        if (orgMemberEmails && orgMemberEmails.has(invite.email.toLowerCase())) return false
+        return true
+      })
+    }
+
+    // 招待先の space 名も解決（notifs 側で解決済みの space と合流）
+    const inviteSpaceIds = [...new Set(pendingInviteList.map((i) => i.space_id))].filter(
+      (id) => !spaceNameById.has(id),
+    )
+    if (inviteSpaceIds.length > 0) {
+      const { data: inviteSpaces } = await admin.from('spaces').select('id, name').in('id', inviteSpaceIds)
+      for (const s of (inviteSpaces || []) as Array<{ id: string; name: string }>) {
+        spaceNameById.set(s.id, s.name)
+      }
+    }
+
+    const pendingInvitesByUser = new Map<string, PendingInvitesSummary>()
+    for (const invite of pendingInviteList) {
+      const summary = pendingInvitesByUser.get(invite.created_by) ?? { count: 0, items: [] }
+      summary.count += 1
+      if (summary.items.length < PENDING_INVITES_PREVIEW_LIMIT) {
+        summary.items.push({
+          email: invite.email,
+          spaceName: spaceNameById.get(invite.space_id) ?? null,
+        })
+      }
+      pendingInvitesByUser.set(invite.created_by, summary)
+    }
+
     let emailsSent = 0
     const errors: string[] = []
     const plan: Array<{ userId: string; totalCount: number }> = []
@@ -137,6 +240,9 @@ export async function POST(request: NextRequest) {
           const digest = buildDigest(userNotifs, pref)
           if (!digest) return
 
+          const pendingInvites = pendingInvitesByUser.get(pref.user_id)
+          if (pendingInvites) digest.pendingInvites = pendingInvites
+
           plan.push({ userId: pref.user_id, totalCount: digest.totalCount })
           if (dryRun) return
 
@@ -149,6 +255,7 @@ export async function POST(request: NextRequest) {
             displayName: displayNameById.get(pref.user_id) ?? null,
             sections: digest.sections,
             totalCount: digest.totalCount,
+            pendingInvites: digest.pendingInvites,
           })
           emailsSent += 1
           if (!recipientOverride) sentUserIds.push(pref.user_id)

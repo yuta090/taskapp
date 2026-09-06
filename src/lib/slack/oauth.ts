@@ -69,7 +69,18 @@ export function verifySignedState(state: string): { orgId: string; spaceId?: str
 export function getSlackOAuthUrl(orgId: string, spaceId?: string): string {
   const state = createSignedState(orgId, spaceId)
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/slack/callback`
-  const scopes = ['chat:write', 'channels:read', 'groups:read'].join(',')
+  // docs/slack-app-manifest.json の bot scopes と一致させる（テストで照合）。
+  // 足りないと /agentpm(commands)・@メンション(app_mentions:read)・
+  // 発言者の対応づけ(users:read, users:read.email)がそのワークスペースで動かない。
+  const scopes = [
+    'chat:write',
+    'channels:read',
+    'groups:read',
+    'app_mentions:read',
+    'commands',
+    'users:read',
+    'users:read.email',
+  ].join(',')
 
   const params = new URLSearchParams({
     client_id: SLACK_OAUTH_CONFIG.clientId,
