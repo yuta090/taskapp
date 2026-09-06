@@ -8,6 +8,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendBillingLifecycleEmail } from '@/lib/email/billingLifecycle'
 import type { BillingTemplateKey } from '@/lib/email/templates/billingLifecycle'
+import { loadEmailTemplate } from '@/lib/email/templates/loadEmailTemplate'
 import { PLAN_LABELS } from './featureCatalog'
 import type { PlanId } from './entitlements'
 
@@ -60,7 +61,6 @@ export async function notifyBillingLifecycle(input: {
   orgId: string
   key: BillingTemplateKey
   planId: string | null
-  nextBillingDateLabel?: string
 }): Promise<number> {
   const client = createAdminClient()
   let orgName = '貴社'
@@ -79,6 +79,8 @@ export async function notifyBillingLifecycle(input: {
   if (recipients.length === 0) return 0
 
   const planLabel = planLabelOf(input.planId)
+  // 文面は宛先の人数分ではなく1回だけ読む
+  const fields = await loadEmailTemplate(input.key)
   let sent = 0
   await Promise.all(
     recipients.map(async (userId) => {
@@ -86,7 +88,7 @@ export async function notifyBillingLifecycle(input: {
         const { data } = await client.auth.admin.getUserById(userId)
         const email = data.user?.email
         if (!email) return
-        await sendBillingLifecycleEmail({ to: email, key: input.key, orgName, planLabel, nextBillingDateLabel: input.nextBillingDateLabel })
+        await sendBillingLifecycleEmail({ to: email, key: input.key, orgName, planLabel, fields })
         sent += 1
       } catch (err) {
         console.error('notifyBillingLifecycle: email send failed', userId, err)

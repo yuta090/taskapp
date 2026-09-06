@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const sendMock = vi.fn()
 vi.mock('@/lib/email/billingLifecycle', () => ({ sendBillingLifecycleEmail: sendMock }))
+const loadMock = vi.fn(() => Promise.resolve({ subject: 'S', heading: 'H', body: 'B', cta_label: 'C', note: '' }))
+vi.mock('@/lib/email/templates/loadEmailTemplate', () => ({ loadEmailTemplate: loadMock }))
 
 let orgRow: { name: string } | null = { name: 'サンプル社' }
 let admins: Array<{ user_id: string }> = [{ user_id: 'u1' }, { user_id: 'u2' }]
@@ -57,10 +59,12 @@ describe('shouldNotifyBillingTransition（純関数・冪等の要）', () => {
 
 describe('notifyBillingLifecycle', () => {
   it('owner/admin 全員に送る（プラン名は表示名）', async () => {
-    const n = await notifyBillingLifecycle({ orgId: 'org-1', key: 'billing_activated', planId: 'pro', nextBillingDateLabel: '2026年10月7日' })
+    const n = await notifyBillingLifecycle({ orgId: 'org-1', key: 'billing_activated', planId: 'pro' })
     expect(n).toBe(2)
     expect(sendMock).toHaveBeenCalledTimes(2)
-    expect(sendMock.mock.calls[0][0]).toMatchObject({ to: 'u1@example.com', key: 'billing_activated', orgName: 'サンプル社', planLabel: 'Pro', nextBillingDateLabel: '2026年10月7日' })
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ to: 'u1@example.com', key: 'billing_activated', orgName: 'サンプル社', planLabel: 'Pro', fields: { subject: 'S' } })
+    // 文面は宛先の人数分でなく1回だけ読む
+    expect(loadMock).toHaveBeenCalledTimes(1)
   })
   it('宛先が無ければ送らない・1人の失敗は他を止めない', async () => {
     admins = []

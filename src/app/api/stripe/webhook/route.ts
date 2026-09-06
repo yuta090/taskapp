@@ -1,8 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { constructWebhookEvent } from '@/lib/stripe'
 import { mapStripeSubscriptionStatus, subscriptionPeriodEndUnix, stripePriceMapFromEnv, type SubscriptionLike } from '@/lib/billing/stripeSync'
 import { notifyBillingLifecycle, shouldNotifyBillingTransition, type BillingSnapshot } from '@/lib/billing/billingLifecycleNotify'
-import { formatJstDateLabel } from '@/lib/email/templates/billingLifecycle'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -34,7 +33,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
+    // ⚠ Stripe からの呼び出しは「ログインしていない訪問者」なので cookie client（anon）では org_billing に触れない
+    // （RLS: anon は権限剥奪・SELECT は authenticated のみ）。他の webhook/cron と同じく service role を使う
+    const supabase = createAdminClient()
 
     // イベントタイプに応じた処理
     switch (event.type) {
@@ -77,21 +78,26 @@ export async function POST(request: NextRequest) {
   }
 }
 
-type WebhookSupabase = ReturnType<typeof createClient> extends Promise<infer T> ? T : never
+type WebhookSupabase = ReturnType<typeof createAdminClient>
 
-/** 更新前の org_billing（遷移判定用）。読めなければ null = 「前の状態は不明」として扱う */
-async function readBillingSnapshot(supabase: WebhookSupabase, column: 'org_id' | 'stripe_subscription_id', value: string): Promise<BillingSnapshot | null> {
-  try {
-    const { data } = await (supabase as SupabaseClient)
-      .from('org_billing')
-      .select('org_id, status, plan_id')
-      .eq(column, value)
-      .maybeSingle()
-    return (data as (BillingSnapshot & { org_id?: string }) | null) ?? null
-  } catch (err) {
-    console.error('readBillingSnapshot failed', err)
-    return null
+/**
+ * 更新前の org_billing（遷移判定用）。
+ * 「行が無い」(ok, snapshot=null) と「読めなかった」(ok=false) を区別する。読めなかったときは
+ * メールを送らない（fail-closed: 初回扱いにして有効化メールを誤送するより、送らない方が安全）。
+ */
+type SnapshotRead = { ok: true; snapshot: (BillingSnapshot & { org_id: string }) | null } | { ok: false }
+
+async function readBillingSnapshot(supabase: WebhookSupabase, column: 'org_id' | 'stripe_subscription_id', value: string): Promise<SnapshotRead> {
+  const { data, error } = await (supabase as SupabaseClient)
+    .from('org_billing')
+    .select('org_id, status, plan_id')
+    .eq(column, value)
+    .maybeSingle()
+  if (error) {
+    console.error('readBillingSnapshot failed', column, error)
+    return { ok: false }
   }
+  return { ok: true, snapshot: (data as (BillingSnapshot & { org_id: string }) | null) ?? null }
 }
 
 /**
@@ -103,12 +109,11 @@ async function notifyIfTransitioned(input: {
   orgId: string
   before: BillingSnapshot | null
   after: BillingSnapshot
-  nextBillingDateLabel?: string
 }) {
   const key = shouldNotifyBillingTransition(input.event, input.before, input.after)
   if (!key) return
   try {
-    await notifyBillingLifecycle({ orgId: input.orgId, key, planId: input.after.plan_id, nextBillingDateLabel: input.nextBillingDateLabel })
+    await notifyBillingLifecycle({ orgId: input.orgId, key, planId: input.after.plan_id })
   } catch (err) {
     console.error('billing lifecycle notify failed', input.orgId, key, err)
   }
@@ -116,7 +121,7 @@ async function notifyIfTransitioned(input: {
 
 // Checkout完了時の処理
 async function handleCheckoutCompleted(
-  supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never,
+  supabase: WebhookSupabase,
   session: Stripe.Checkout.Session
 ) {
   const orgId = session.metadata?.org_id
@@ -127,10 +132,10 @@ async function handleCheckoutCompleted(
     return
   }
 
-  const before = await readBillingSnapshot(supabase, 'org_id', orgId)
+  const read = await readBillingSnapshot(supabase, 'org_id', orgId)
 
   // org_billingを更新
-  await (supabase as SupabaseClient)
+  const { error } = await (supabase as SupabaseClient)
     .from('org_billing')
     .upsert({
       org_id: orgId,
@@ -140,13 +145,19 @@ async function handleCheckoutCompleted(
       stripe_subscription_id: session.subscription as string,
       updated_at: new Date().toISOString(),
     })
+  if (error) {
+    // 更新できていないのに「有効になりました」と伝えない
+    console.error('handleCheckoutCompleted: org_billing upsert failed', orgId, error)
+    return
+  }
+  if (!read.ok) return
 
-  await notifyIfTransitioned({ event: 'checkout_completed', orgId, before, after: { status: 'active', plan_id: planId } })
+  await notifyIfTransitioned({ event: 'checkout_completed', orgId, before: read.snapshot, after: { status: 'active', plan_id: planId } })
 }
 
 // サブスクリプション更新時の処理
 async function handleSubscriptionUpdate(
-  supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never,
+  supabase: WebhookSupabase,
   subscription: Stripe.Subscription
 ) {
   const orgId = subscription.metadata?.org_id
@@ -170,9 +181,9 @@ async function handleSubscriptionUpdate(
   )
   const cancelAtPeriodEnd = (subscription as unknown as { cancel_at_period_end?: boolean }).cancel_at_period_end
 
-  const before = await readBillingSnapshot(supabase, 'org_id', orgId)
+  const read = await readBillingSnapshot(supabase, 'org_id', orgId)
 
-  await (supabase as SupabaseClient)
+  const { error } = await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
       plan_id: planId || undefined,
@@ -184,20 +195,24 @@ async function handleSubscriptionUpdate(
       updated_at: new Date().toISOString(),
     })
     .eq('org_id', orgId)
+  if (error) {
+    console.error('handleSubscriptionUpdate: org_billing update failed', orgId, error)
+    return
+  }
+  if (!read.ok) return
 
   await notifyIfTransitioned({
     event: 'subscription_updated',
     orgId,
-    before,
+    before: read.snapshot,
     // plan_id が metadata に無ければ変わらない（前の値を引き継ぐ）
-    after: { status, plan_id: planId || before?.plan_id || null },
-    nextBillingDateLabel: formatJstDateLabel(currentPeriodEnd),
+    after: { status, plan_id: planId || read.snapshot?.plan_id || null },
   })
 }
 
 // サブスクリプション削除時の処理
 async function handleSubscriptionDeleted(
-  supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never,
+  supabase: WebhookSupabase,
   subscription: Stripe.Subscription
 ) {
   const orgId = subscription.metadata?.org_id
@@ -207,10 +222,10 @@ async function handleSubscriptionDeleted(
     return
   }
 
-  const before = await readBillingSnapshot(supabase, 'org_id', orgId)
+  const read = await readBillingSnapshot(supabase, 'org_id', orgId)
 
   // Freeプランに戻す
-  await (supabase as SupabaseClient)
+  const { error } = await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
       plan_id: 'free',
@@ -221,8 +236,14 @@ async function handleSubscriptionDeleted(
       updated_at: new Date().toISOString(),
     })
     .eq('org_id', orgId)
+  if (error) {
+    console.error('handleSubscriptionDeleted: org_billing update failed', orgId, error)
+    return
+  }
+  if (!read.ok) return
 
-  // 解約メールには「解約したプラン名」を載せたいので after.plan_id は前のプラン、状態は free に戻った扱い
+  // 解約メールには「解約したプラン名」を載せたいので planId は前のプラン
+  const before = read.snapshot
   const key = shouldNotifyBillingTransition('subscription_deleted', before, { status: 'active', plan_id: 'free' })
   if (key) {
     try {
@@ -235,7 +256,7 @@ async function handleSubscriptionDeleted(
 
 // 支払い失敗時の処理
 async function handlePaymentFailed(
-  supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never,
+  supabase: WebhookSupabase,
   invoice: Stripe.Invoice
 ) {
   // subscription を安全に取得
@@ -245,19 +266,33 @@ async function handlePaymentFailed(
     return
   }
 
-  const before = await readBillingSnapshot(supabase, 'stripe_subscription_id', subscriptionId)
-
-  // サブスクリプションIDから組織を特定してステータス更新
-  await (supabase as SupabaseClient)
+  // サブスクリプションIDから組織を特定してステータス更新。
+  // 「まだ past_due でない行だけ」を1文で更新し、返った行＝自分が遷移させた行にだけメールを送る
+  // （読み→書きの間に同じ通知が並走しても二重送信にならない）
+  const { data: changed, error } = await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
       status: 'past_due',
       updated_at: new Date().toISOString(),
     })
     .eq('stripe_subscription_id', subscriptionId)
-
-  const orgId = (before as (BillingSnapshot & { org_id?: string }) | null)?.org_id
-  if (orgId) {
-    await notifyIfTransitioned({ event: 'payment_failed', orgId, before, after: { status: 'past_due', plan_id: before?.plan_id ?? null } })
+    .neq('status', 'past_due')
+    .select('org_id, plan_id')
+  if (error) {
+    console.error('handlePaymentFailed: org_billing update failed', subscriptionId, error)
+    return
+  }
+  const rows = (changed as Array<{ org_id: string; plan_id: string | null }> | null) ?? []
+  if (rows.length > 1) {
+    // stripe_subscription_id に一意制約が無い。複数 org に同じ id が付いているのは異常なので目に見える形で残す
+    console.error('handlePaymentFailed: multiple org_billing rows share one subscription id', subscriptionId, rows.map((r) => r.org_id))
+  }
+  for (const row of rows) {
+    await notifyIfTransitioned({
+      event: 'payment_failed',
+      orgId: row.org_id,
+      before: { status: 'active', plan_id: row.plan_id },
+      after: { status: 'past_due', plan_id: row.plan_id },
+    })
   }
 }

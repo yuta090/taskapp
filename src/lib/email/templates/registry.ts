@@ -145,7 +145,7 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
       renderBillingLifecycleEmail({
         key,
         fields,
-        vars: { orgName: '株式会社サンプル', planLabel: 'Pro', nextBillingDateLabel: '2026年10月7日', appName },
+        vars: { orgName: '株式会社サンプル', planLabel: 'Pro', appName },
         ctaUrl: `${PREVIEW_APP_URL}/settings/billing`,
       }),
   })),

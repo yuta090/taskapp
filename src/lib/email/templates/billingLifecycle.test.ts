@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { BILLING_PLACEHOLDERS, BILLING_TEMPLATE_DEFAULTS, BILLING_TEMPLATE_KEYS, formatJstDateLabel, renderBillingLifecycleEmail } from './billingLifecycle'
+import { BILLING_PLACEHOLDERS, BILLING_TEMPLATE_DEFAULTS, BILLING_TEMPLATE_KEYS, renderBillingLifecycleEmail } from './billingLifecycle'
 
-const vars = { orgName: '<株式会社サンプル>', planLabel: 'Pro', nextBillingDateLabel: '2026年10月7日', appName: 'AgentPM' }
+const vars = { orgName: '<株式会社サンプル>', planLabel: 'Pro', appName: 'AgentPM' }
 
 describe('billing lifecycle templates', () => {
   it('3通とも既定文面で差し込み済みに描け、組織名はエスケープされる', () => {
@@ -16,14 +16,11 @@ describe('billing lifecycle templates', () => {
     expect(renderBillingLifecycleEmail({ key: 'billing_activated', fields: BILLING_TEMPLATE_DEFAULTS.billing_activated, vars, ctaUrl: 'x' }).html).toContain('>料金プランを確認する</a>')
   })
 
-  it('差し込み語は 組織名・プラン名・次回請求日・サービス名', () => {
-    expect(BILLING_PLACEHOLDERS.map((p) => p.name)).toEqual(['組織名', 'プラン名', '次回請求日', 'サービス名'])
+  it('差し込み語は 組織名・プラン名・サービス名（次回請求日は経路により値が無いので持たない）', () => {
+    expect(BILLING_PLACEHOLDERS.map((p) => p.name)).toEqual(['組織名', 'プラン名', 'サービス名'])
   })
 
-  it('formatJstDateLabel は JST の日付（UTC 前日の夜でも日本の日付）', () => {
-    // 2026-10-06T16:00:00Z = 2026-10-07 01:00 JST
-    expect(formatJstDateLabel(Date.UTC(2026, 9, 6, 16, 0, 0) / 1000)).toBe('2026年10月7日')
-    expect(formatJstDateLabel(null)).toBe('')
-    expect(formatJstDateLabel(0)).toBe('')
+  it('支払い失敗の補足に「組織オーナーのみ」が入る（admin が押しても手詰まりにならないよう）', () => {
+    expect(BILLING_TEMPLATE_DEFAULTS.billing_payment_failed.note).toContain('組織オーナーのみ')
   })
 })

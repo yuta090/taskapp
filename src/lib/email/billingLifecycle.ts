@@ -5,6 +5,7 @@
  */
 import { Resend } from 'resend'
 import { renderBillingLifecycleEmail, type BillingTemplateKey, type BillingTemplateVars } from './templates/billingLifecycle'
+import type { TemplateFields } from './templates/core'
 import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
 let resendClient: Resend | null = null
@@ -40,14 +41,15 @@ export interface SendBillingLifecycleEmailParams {
   key: BillingTemplateKey
   orgName: string
   planLabel: string
-  nextBillingDateLabel?: string
+  /** 呼び出し側が先に読んだ文面（宛先が複数のとき毎回読まないため）。無ければここで読む */
+  fields?: TemplateFields
 }
 
 export async function sendBillingLifecycleEmail(params: SendBillingLifecycleEmailParams) {
   const { to, key, orgName, planLabel } = params
   const appName = getAppName()
-  const vars: BillingTemplateVars = { orgName, planLabel, nextBillingDateLabel: params.nextBillingDateLabel ?? '', appName }
-  const fields = await loadEmailTemplate(key)
+  const vars: BillingTemplateVars = { orgName, planLabel, appName }
+  const fields = params.fields ?? (await loadEmailTemplate(key))
   const { subject, html, text } = renderBillingLifecycleEmail({ key, fields, vars, ctaUrl: `${getAppUrl()}/settings/billing` })
 
   const resend = getResendClient()

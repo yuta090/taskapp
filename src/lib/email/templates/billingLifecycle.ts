@@ -16,15 +16,12 @@ export interface BillingTemplateVars {
   orgName: string
   /** 表示用のプラン名（Pro など） */
   planLabel: string
-  /** 次回請求日／利用期限の表示（例: 2026年10月7日）。分からなければ '' */
-  nextBillingDateLabel: string
   appName: string
 }
 
 export const BILLING_PLACEHOLDERS: ReadonlyArray<PlaceholderDef & { varKey: keyof BillingTemplateVars }> = [
   { name: '組織名', varKey: 'orgName', description: '契約している事務所の名前', sample: '株式会社サンプル' },
   { name: 'プラン名', varKey: 'planLabel', description: '対象のプラン（Pro など）', sample: 'Pro' },
-  { name: '次回請求日', varKey: 'nextBillingDateLabel', description: '次回の請求日や利用期限（分からなければ空）', sample: '2026年10月7日' },
   { name: 'サービス名', varKey: 'appName', description: 'このサービスの名前', sample: 'AgentPM' },
 ]
 
@@ -58,7 +55,7 @@ export const BILLING_TEMPLATE_DEFAULTS: Record<BillingTemplateKey, TemplateField
       'しばらく更新がない場合、有料機能が停止することがあります。',
     ].join('\n'),
     cta_label: 'お支払い方法を更新する',
-    note: 'すでに更新済みの場合は、このメールは無視してください。',
+    note: 'すでに更新済みの場合は、このメールは無視してください。お支払い方法の変更は組織オーナーのみ行えます。',
   },
   billing_canceled: {
     subject: '【{{サービス名}}】{{プラン名}} プランの解約が完了しました',
@@ -88,12 +85,4 @@ export function renderBillingLifecycleEmail(input: { key: BillingTemplateKey; fi
     vars: billingVarsByName(input.vars),
     ctaUrl: input.ctaUrl,
   })
-}
-
-/** Unix 秒 → 「YYYY年M月D日」（JST）。無ければ '' */
-export function formatJstDateLabel(unixSeconds: number | null | undefined): string {
-  if (!unixSeconds) return ''
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(unixSeconds * 1000))
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
-  return `${get('year')}年${get('month')}月${get('day')}日`
 }
