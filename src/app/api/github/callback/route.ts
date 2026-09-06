@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 import { getInstallationRepositories } from '@/lib/github'
 import { verifySignedState } from '@/lib/github/config'
 
@@ -55,6 +56,17 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // 保存の「作成者」はログイン中のユーザー。
+  // created_by は auth.users への外部キーなので、仮の ID を入れると insert が必ず失敗する
+  // （GitHub 側は入っているのに AgentPM に残らない、という回帰の原因）。
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.redirect(
+      new URL(`${redirectUri}?error=unauthorized`, request.url)
+    )
+  }
+
   try {
     // GitHub API からインストール情報を取得
     const repositories = await getInstallationRepositories(parseInt(installationId, 10))
@@ -89,8 +101,6 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', existingInstall.id)
     } else {
-      // システムユーザーとして作成（created_by は後で更新可能）
-      // 注: 実際には認証されたユーザーのIDを使用すべき
       const { error: installError } = await getSupabaseAdmin()
         .from('github_installations')
         .insert({
@@ -98,7 +108,7 @@ export async function GET(request: NextRequest) {
           installation_id: parseInt(installationId, 10),
           account_login: accountLogin,
           account_type: accountType,
-          created_by: '00000000-0000-0000-0000-000000000000', // システムユーザー（要修正）
+          created_by: user.id,
         })
 
       if (installError) {
