@@ -105,7 +105,7 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
         {/* Bot未プロビジョニング時の正直な期待値設定: 自動で使えるようになるのではなく、
             当社が開通しメールでご案内する申込制であることを明示する。 */}
         <p className="text-xs text-gray-500">
-          LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内します（お急ぎの場合はサポートへ）。
+          LINE秘書は順番に開通しています。開通しましたら、ご登録のメールでご案内します（お急ぎの場合はサポートへご連絡ください）。
         </p>
       </div>
     )
@@ -115,7 +115,7 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
     <div className="rounded-lg border border-gray-200 bg-surface p-4">
       {ownerType === 'platform' && (
         <p className="text-xs font-semibold text-gray-900">
-          共通の秘書アカウントです。コード送信が必ず必要です。
+          この秘書は、ほかの事務所とも共通のアカウントです。友だち追加だけではどの事務所か分からないため、コードの送信が必ず必要です。
         </p>
       )}
 
@@ -145,25 +145,25 @@ export function LineFriendQr({ orgId, purpose = 'self' }: LineFriendQrProps) {
         {purpose === 'group' ? (
           <>
             <ol className="list-inside list-decimal space-y-0.5 text-xs text-amber-900">
-              <li>QRで秘書を友だち追加</li>
-              <li>秘書をLINEグループに招待</li>
-              <li>発行したコードをグループのトークに送信</li>
+              <li>QRでLINE秘書を友だち追加する</li>
+              <li>秘書を相手先とのLINEグループに招待する</li>
+              <li>コードを発行し、グループのトークに送る（発行はこの下のリンクから）</li>
             </ol>
             <p className="mt-1.5 text-[11px] font-medium text-amber-900">
-              追加・招待だけでは連携されません。
-              <Hint label="連携が完了するタイミング">
-                QRは秘書を見つけて友だち追加するためのものです。発行したコードをグループのトークに送った時点で、はじめて連携が完了します。
+              友だち追加・招待だけではつながりません。
+              <Hint label="つながるタイミング">
+                QRは秘書を友だち追加するためのものです。発行したコードをグループのトークに送った時点で、はじめてつながります。
               </Hint>
             </p>
           </>
         ) : (
           <>
             <ol className="list-inside list-decimal space-y-0.5 text-xs text-amber-900">
-              <li>QRで友だち追加</li>
-              <li>表示されたコードを1:1トークに送信</li>
+              <li>QRでLINE秘書を友だち追加する</li>
+              <li>表示されたコードを秘書との1:1トークに送る</li>
             </ol>
             <p className="mt-1.5 text-[11px] font-medium text-amber-900">
-              これで連携完了です。追加だけでは連携されません。
+              これでつながります。友だち追加だけではつながりません。
             </p>
           </>
         )}

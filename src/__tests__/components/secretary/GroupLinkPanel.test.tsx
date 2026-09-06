@@ -34,11 +34,11 @@ describe('GroupLinkPanel', () => {
     render(<GroupLinkPanel orgId={ORG} />)
 
     await waitFor(() => expect(screen.getByRole('img', { name: /QR/ })).toBeInTheDocument())
-    expect(screen.getByText(/秘書を友だち追加/)).toBeInTheDocument()
+    expect(screen.getByText(/LINE秘書を友だち追加/)).toBeInTheDocument()
     expect(screen.getByText(/LINEグループに招待/)).toBeInTheDocument()
-    expect(screen.getByText(/グループのトークに送信/)).toBeInTheDocument()
+    expect(screen.getByText(/グループのトークに送る/)).toBeInTheDocument()
 
-    const cta = screen.getByRole('link', { name: /グループ紐付けを管理する/ })
+    const cta = screen.getByRole('link', { name: /コードを発行してグループをつなぐ/ })
     expect(cta).toHaveAttribute('href', `/${ORG}/secretary/connect/line/groups`)
   })
 })

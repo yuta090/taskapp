@@ -14,7 +14,7 @@ import type { LineSelfServeState } from '@/lib/channels/sharedBotAccess'
  * LINE連携ハブ — /{orgId}/secretary/connect/line
  *
  * 共通LINE(共有Bot)は per-org の利用状態(lineAccess・サーバ側で解決して prop で渡る)で出し分ける（申込制）:
- *  - own / granted        → 連携パネル（グループから拾う / 自分のLINEで受け取る）
+ *  - own / granted        → 連携パネル（グループLINEの会話をタスクにする / 承認や通知を自分のLINEで受け取る）
  *  - none                 → 「共通LINEを申し込む」ボタン（POST でき次第 requested に遷移）
  *  - requested            → 申込受付済み・当社の開通待ち
  *  - unavailable          → 準備中（当社が順次開通・メールでご案内）
@@ -55,7 +55,12 @@ export function UserLinksClient({
     return (
       <div className="flex flex-col flex-1 min-h-0">
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <h1 className="text-sm font-semibold text-gray-900">LINE秘書につなぐ</h1>
+          <div className="space-y-1">
+            <h1 className="text-sm font-semibold text-gray-900">LINE秘書につなぐ</h1>
+            <p className="text-xs text-gray-500">
+              つなぎ方は2つあります。相手先とのグループLINEをつなぐと会話がタスクになり、自分のLINEをつなぐと承認や通知が届きます。
+            </p>
+          </div>
 
           <SharedLineUsagePanel orgId={orgId} />
 
@@ -66,9 +71,9 @@ export function UserLinksClient({
 
           <section className="rounded border border-gray-200 p-4">
             <h2 className="text-sm font-semibold text-gray-900">
-              グループLINEから拾う
-              <Hint label="グループLINEから拾う">
-                いつものグループLINEに秘書を招待しておくと、そこで交わされた決めごと・お願いを秘書が自動でタスクにします。新しくグループを作り直す必要はありません。
+              グループLINEの会話をタスクにする
+              <Hint label="グループLINEをつなぐ">
+                いつも使っているグループLINEにLINE秘書を招待すると、そこでの決めごと・お願いを秘書が自動でタスクにします。グループを新しく作り直す必要はありません。
               </Hint>
             </h2>
             <div className="mt-3">
@@ -79,9 +84,9 @@ export function UserLinksClient({
 
           <section className="rounded border border-gray-200 p-4">
             <h2 className="text-sm font-semibold text-gray-900">
-              自分のLINEで受け取る
-              <Hint label="自分のLINEで受け取る">
-                承認のお願いやお知らせが、あなたのLINEに届きます。つないだ本人しか承認できないので、必ずご自身のLINEでつないでください。
+              承認や通知を自分のLINEで受け取る
+              <Hint label="自分のLINEをつなぐ">
+                タスクの承認依頼や期限のお知らせを、あなたのLINEで受け取れます。承認はつないだ本人しかできないため、必ずご自身のLINEでつないでください。
               </Hint>
             </h2>
             <div className="mt-3">
@@ -104,7 +109,7 @@ export function UserLinksClient({
             <h2 className="text-sm font-semibold text-gray-900">
               共通LINEの利用を申し込む
               <Hint label="共通LINEの利用申込">
-                いつものグループLINEに秘書を入れて、会話の決めごと・お願いを自動でタスクにできます。お申し込み後、当社が開通してご登録のメールでご案内します。
+                いつものグループLINEにLINE秘書を招待すると、そこでの決めごと・お願いが自動でタスクになります。ご利用には申込が必要です。
               </Hint>
             </h2>
             <button
@@ -121,7 +126,7 @@ export function UserLinksClient({
         {access === 'requested' && (
           <section className="rounded border border-gray-200 bg-gray-50 p-4">
             <p className="text-sm text-gray-700">
-              共通LINEの利用申込を受け付けました。当社が開通しましたら、ご登録のメールでご案内します。
+              共通LINEの利用申込を受け付けました。開通しましたら、ご登録のメールでご案内します。
             </p>
           </section>
         )}
@@ -129,7 +134,7 @@ export function UserLinksClient({
         {access === 'unavailable' && (
           <section className="rounded border border-gray-200 bg-gray-50 p-4">
             <p className="text-sm text-gray-700">
-              LINE秘書は当社にて順次開通しています。開通しましたらご登録のメールでご案内します（お急ぎの場合はサポートへご連絡ください）。
+              LINE秘書は順番に開通しています。開通しましたら、ご登録のメールでご案内します（お急ぎの場合はサポートへご連絡ください）。
             </p>
           </section>
         )}

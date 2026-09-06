@@ -125,7 +125,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
   // 手順は1行。詳しい注意はQR側のヒントに寄せる（画面には「いま何をするか」だけ残す）。
   const stepsHint = (
     <p className="text-[11px] text-gray-500">
-      友だち追加のあと、発行したコードを1:1トークに送ると完了です。
+      QRで友だち追加したあと、下で発行したコードを秘書との1:1トークに送ると完了です。
     </p>
   )
 
@@ -209,7 +209,7 @@ export function SelfLinkPanel({ orgId }: { orgId: string }) {
       action={action}
       detail={detail}
       stepsHint={stepsHint}
-      // 同じ画面の「グループLINEから拾う」カードで同一BotのQRを既に見せているため、
+      // 同じ画面の「グループLINEの会話をタスクにする」カードで同一BotのQRを既に見せているため、
       // ここでは畳んでおく（QRが2つ並ぶだけで一気に読む量が増える）。
       collapseQr
     />

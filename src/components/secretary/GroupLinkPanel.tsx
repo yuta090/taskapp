@@ -21,7 +21,7 @@ export function GroupLinkPanel({ orgId }: { orgId: string }) {
         href={`/${orgId}/secretary/connect/line/groups`}
         className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
       >
-        グループ紐付けを管理する
+        コードを発行してグループをつなぐ
         <ArrowRight className="w-3.5 h-3.5" />
       </Link>
     </div>
