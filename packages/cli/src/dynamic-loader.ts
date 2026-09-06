@@ -5,7 +5,7 @@
 import { Command, Option } from 'commander'
 import { readFileSync } from 'node:fs'
 import { resolveSpaceId } from './config.js'
-import { buildStdinParams, camelCase, extractLongFlag, optionKey } from './input.js'
+import { buildParams, buildStdinParams, camelCase, extractLongFlag } from './input.js'
 import { callTool } from './api-client.js'
 import { output, outputError } from './output.js'
 import { sanitize } from './manifest-validator.js'
@@ -16,73 +16,6 @@ import type {
   ManifestOption,
 } from './manifest-validator.js'
 import chalk from 'chalk'
-
-/**
- * Convert option value based on type definition.
- */
-function convertType(value: string | boolean, type?: string): unknown {
-  if (type === 'bool' || type === 'negatable') {
-    return typeof value === 'boolean' ? value : value === 'true'
-  }
-  if (typeof value !== 'string') return value
-  switch (type) {
-    case 'int': {
-      const n = parseInt(value, 10)
-      if (Number.isNaN(n)) throw new Error(`Invalid integer: ${value}`)
-      return n
-    }
-    case 'float': {
-      const n = parseFloat(value)
-      if (Number.isNaN(n)) throw new Error(`Invalid number: ${value}`)
-      return n
-    }
-    case 'json':
-      return JSON.parse(value)
-    default:
-      return value
-  }
-}
-
-/**
- * Build API params from Commander options + manifest option definitions.
- */
-function buildParams(
-  optionDefs: ManifestOption[],
-  opts: Record<string, unknown>,
-): Record<string, unknown> {
-  const params: Record<string, unknown> = {}
-
-  for (const def of optionDefs) {
-    // Determine the Commander key for this option.
-    // For negatable options (--no-xxx), Commander stores as the positive key
-    // e.g., --no-dry-run → opts.dryRun = false, --no-include-invites → opts.includeInvites = false
-    const value = opts[optionKey(def)]
-
-    // Skip stdin pseudo-option (handled separately)
-    if (def.param === 'stdin') continue
-
-    if (value === undefined) continue
-
-    // Special resolver: spaceId
-    if (def.resolve === 'spaceId') {
-      params[def.param] = resolveSpaceId(opts as { spaceId?: string })
-      continue
-    }
-
-    // Type conversion
-    if (def.type === 'string[]') {
-      // Commander already provides arrays for variadic options
-      params[def.param] = Array.isArray(value) ? value : [value]
-    } else if (def.type === 'negatable') {
-      // Commander stores boolean for --no-xxx
-      params[def.param] = value
-    } else {
-      params[def.param] = convertType(value as string, def.type)
-    }
-  }
-
-  return params
-}
 
 /**
  * Resolve a constraint key to a Commander opts key.
@@ -217,7 +150,12 @@ function createAction(
       }
 
       // Normal mode
-      const params = buildParams(sub.options, opts)
+      let resolvedSpaceId: string | undefined
+      if (sub.options.some((o) => o.resolve === 'spaceId')) {
+        // -s 省略時も defaultSpaceId / TASKAPP_SPACE_ID を使う。無ければ resolveSpaceId が案内を出して終了する
+        resolvedSpaceId = resolveSpaceId(opts as { spaceId?: string })
+      }
+      const params = buildParams(sub.options, opts, resolvedSpaceId)
       const result = await callTool(sub.tool, params)
       output(result, jsonMode)
     } catch (e) {
