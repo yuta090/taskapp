@@ -69,8 +69,8 @@ describe('NotificationDigestEmail', () => {
         pendingInvites: {
           count: 2,
           items: [
-            { email: 'a@example.com', spaceName: 'プロジェクトC', createdAt: '2026-08-01T00:00:00.000Z' },
-            { email: 'b@example.com', spaceName: null, createdAt: '2026-08-02T00:00:00.000Z' },
+            { email: 'a@example.com', spaceName: 'プロジェクトC' },
+            { email: 'b@example.com', spaceName: null },
           ],
         },
         appUrl: 'https://app.example.com',

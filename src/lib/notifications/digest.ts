@@ -70,7 +70,7 @@ export const CATEGORY_LABEL: Record<EmailCategory, string> = {
   task_assigned: 'あなたにボールが回ってきたタスク',
   task_mentioned: 'あなたへのメンション',
   review_request: '承認・レビュー待ち',
-  client_response: 'クライアントからの応答',
+  client_response: '相手からの応答・承諾',
   meeting_reminder: '会議のリマインド',
 }
 
@@ -96,7 +96,6 @@ export interface DigestSection {
 export interface PendingInviteItem {
   email: string
   spaceName: string | null
-  createdAt: string
 }
 
 /** 「未承諾の招待」節のまとめ。件数(count)は先頭プレビュー(items)より多いことがある */

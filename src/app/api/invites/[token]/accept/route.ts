@@ -178,9 +178,16 @@ export async function POST(
   }
 }
 
+function inviteRoleLabel(role: string): string {
+  if (role === 'client') return '相手先'
+  if (role === 'vendor') return 'ベンダー'
+  return 'メンバー'
+}
+
 /**
  * 招待を承諾したことを、招待を作成した人（＝招待した本人）へ通知する。
- * ベストエフォート — 失敗しても招待承諾自体は成功として扱う（呼び出し側は結果を待たない）。
+ * ベストエフォート — 失敗しても招待承諾自体は成功として扱う（await はしているが、
+ * エラーを投げ返さず内部でもみ消すので呼び出し側のレスポンスには影響しない）。
  * 自分自身が作成した招待を自分で承諾した場合は通知しない。
  */
 async function notifyInviter(
@@ -198,30 +205,39 @@ async function notifyInviter(
       .single()
 
     const spaceName = (space as { name?: string } | null)?.name || 'プロジェクト'
-    const roleLabel = invite.role === 'client' ? '相手先' : 'メンバー'
+    const roleLabel = inviteRoleLabel(invite.role)
 
-    const { error } = await admin.from('notifications').insert([
-      {
-        org_id: invite.org_id,
-        space_id: invite.space_id,
-        to_user_id: invite.created_by,
-        channel: 'in_app',
-        type: 'invite_accepted',
-        dedupe_key: `invite_accepted:${invite.id}:${invite.created_by}`,
-        payload: {
-          invite_id: invite.id,
-          space_id: invite.space_id,
-          invitee_email: invite.email,
-          role: invite.role,
-          title: '招待が承諾されました',
-          message: `${invite.email}さん（${roleLabel}）が「${spaceName}」の招待を承諾しました`,
-          link: `/${invite.org_id}/project/${invite.space_id}/settings`,
-        },
-      },
-    ])
+    // upsert+ignoreDuplicates(素のinsertではない): rpc_accept_invite は行ロックを取らないため
+    // 二重承諾リクエストが両方通り得る。素のinsertだと2件目がunique制約違反でログを汚すだけで
+    // 実害は無いが、ignoreDuplicatesにすれば衝突行が静かにスキップされる
+    // （src/lib/sinks/notify.ts / src/lib/channels/freeCapNudge.ts と同じ型）。
+    const { error } = await admin
+      .from('notifications')
+      .upsert(
+        [
+          {
+            org_id: invite.org_id,
+            space_id: invite.space_id,
+            to_user_id: invite.created_by,
+            channel: 'in_app',
+            type: 'invite_accepted',
+            dedupe_key: `invite_accepted:${invite.id}:${invite.created_by}`,
+            payload: {
+              invite_id: invite.id,
+              space_id: invite.space_id,
+              invitee_email: invite.email,
+              role: invite.role,
+              title: '招待が承諾されました',
+              message: `${invite.email}さん（${roleLabel}）が「${spaceName}」の招待を承諾しました`,
+              link: `/${invite.org_id}/project/${invite.space_id}/settings`,
+            },
+          },
+        ],
+        { onConflict: 'to_user_id,channel,dedupe_key', ignoreDuplicates: true },
+      )
 
     if (error) {
-      console.error('Invite accepted notification insert error:', error)
+      console.error('Invite accepted notification upsert error:', error)
     }
   } catch (err) {
     console.error('Invite accepted notification unexpected error:', err)

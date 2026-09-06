@@ -143,4 +143,25 @@ describe('buildPushMessage', () => {
       expect(msg.url).toBe('/org-1/project/space-1/files')
     })
   })
+
+  // invite_accepted の in_app 通知は task_id を持たず payload.link
+  // (/<orgId>/project/<spaceId>/settings) が唯一の遷移先のため、これが無いと
+  // 常にフォールバック(/inbox 等)に落ちてしまう。
+  describe('invite_accepted notifications', () => {
+    it('labels invite_accepted', () => {
+      const msg = buildPushMessage(makeRow({ type: 'invite_accepted' }), 'internal')
+      expect(msg.title).toBe('招待が承諾されました')
+    })
+
+    it('uses payload.link as the url', () => {
+      const msg = buildPushMessage(
+        makeRow({
+          type: 'invite_accepted',
+          payload: { link: '/org-1/project/space-1/settings' },
+        }),
+        'internal'
+      )
+      expect(msg.url).toBe('/org-1/project/space-1/settings')
+    })
+  })
 })
