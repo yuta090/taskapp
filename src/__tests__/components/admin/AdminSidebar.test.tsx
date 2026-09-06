@@ -40,6 +40,8 @@ const EXPECTED_HREFS = [
   '/admin/quotes',
   '/admin/cli-usage',
   '/admin/design-system',
+  // メール文面（2026-09-07 追加）。招待メールの文面を運営が編集する。
+  '/admin/email-templates',
 ]
 
 function hrefsInOrder(): string[] {
