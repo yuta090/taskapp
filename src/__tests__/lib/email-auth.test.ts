@@ -43,6 +43,7 @@ describe('sendAuthEmail', () => {
     await sendAuthEmail({ ...base, email_data: { ...base.email_data, email_action_type: 'signup' } })
     expect(mockSend.mock.calls[0][0].html).toContain('確認コード 123456')
     templateRows = [{ key: 'auth_signup', subject: '独自 {{メールアドレス}}', heading: 'H', body: 'B', cta_label: 'C', note: '' }]
+    resetEmailTemplateCache() // 文面は30秒記憶されるので、保存直後の挙動を見るには捨てる
     await sendAuthEmail({ ...base, email_data: { ...base.email_data, email_action_type: 'signup' } })
     expect(mockSend.mock.calls[1][0].subject).toBe('独自 user@example.com')
   })
