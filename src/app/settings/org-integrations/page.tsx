@@ -25,7 +25,7 @@ import {
   useDisconnectSlack,
 } from '@/lib/hooks/useSlack'
 import { useAiConfig, useSaveAiConfig, useDeleteAiConfig } from '@/lib/hooks/useAiConfig'
-import { isGitHubConfigured, getGitHubInstallUrl } from '@/lib/github/config'
+import { isGitHubConfigured } from '@/lib/github/config'
 import { isSlackConfigured } from '@/lib/slack/config'
 import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 
@@ -254,7 +254,7 @@ export default function OrgIntegrationsPage() {
                 </p>
                 {isOwner && (
                   <a
-                    href={getGitHubInstallUrl(orgId, '/settings/org-integrations')}
+                    href={`/api/github/authorize?orgId=${encodeURIComponent(orgId)}&redirect=${encodeURIComponent('/settings/org-integrations')}`}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
                   >
                     <GithubLogo className="text-lg" />

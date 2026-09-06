@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { AdminSidebar } from '@/components/admin/AdminSidebar'
+import { AdminSidebar, COLLAPSED_STORAGE_KEY } from '@/components/admin/AdminSidebar'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,11 +63,13 @@ export default async function AdminPanelLayout({
     redirect('/admin/login')
   }
 
-  const badges = await fetchNavBadges()
+  const [badges, cookieStore] = await Promise.all([fetchNavBadges(), cookies()])
+  // サイドバーの折りたたみは cookie から初回描画に反映する（client 側の記憶と二重持ち・ガタつき防止）
+  const initialCollapsed = cookieStore.get(COLLAPSED_STORAGE_KEY)?.value === '1'
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <AdminSidebar badges={badges} />
+      <AdminSidebar badges={badges} initialCollapsed={initialCollapsed} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>

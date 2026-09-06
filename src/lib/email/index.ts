@@ -35,7 +35,7 @@ function getAppUrl(): string {
 }
 
 import { renderInviteEmail, type InviteTemplateVars } from './templates/invite'
-import { loadInviteTemplate } from './templates/loadInviteTemplate'
+import { loadEmailTemplate } from './templates/loadEmailTemplate'
 
 export interface SendInviteEmailParams {
   to: string
@@ -72,7 +72,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
   })
 
   const vars: InviteTemplateVars = { inviterName, orgName, spaceName, expiresDate, appName }
-  const fields = await loadInviteTemplate(isClient ? 'invite_client' : 'invite_member')
+  const fields = await loadEmailTemplate(isClient ? 'invite_client' : 'invite_member')
   const { subject, html, text } = renderInviteEmail({
     variant: isClient ? 'client' : 'member',
     fields,
