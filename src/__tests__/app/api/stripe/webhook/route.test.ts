@@ -19,6 +19,9 @@ vi.mock('@/lib/stripe', () => ({
 const upsertMock = vi.fn(() => Promise.resolve({ error: null }))
 const updateEqMock = vi.fn(() => Promise.resolve({ error: null }))
 const updateMock = vi.fn(() => ({ eq: updateEqMock }))
+/** 更新前の org_billing（課金メールの遷移判定に使う） */
+let billingBefore: { org_id?: string; status: string; plan_id: string } | null = null
+const selectMock = vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn(() => Promise.resolve({ data: billingBefore })) })) }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
@@ -26,10 +29,17 @@ vi.mock('@/lib/supabase/server', () => ({
       from: vi.fn(() => ({
         upsert: upsertMock,
         update: updateMock,
+        select: selectMock,
       })),
     })
   ),
 }))
+
+const notifyMock = vi.fn((_input: Record<string, unknown>) => Promise.resolve(1))
+vi.mock('@/lib/billing/billingLifecycleNotify', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/billing/billingLifecycleNotify')>('@/lib/billing/billingLifecycleNotify')
+  return { ...actual, notifyBillingLifecycle: notifyMock }
+})
 
 const { POST } = await import('@/app/api/stripe/webhook/route')
 
@@ -46,6 +56,7 @@ function callWebhook(body: string, signature: string | null) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  billingBefore = null
   constructEventImpl = () => {
     throw new Error('not configured for this test')
   }
@@ -236,5 +247,68 @@ describe('POST /api/stripe/webhook', () => {
     const response = await callWebhook('{}', 'valid-sig')
 
     expect(response.status).toBe(500)
+  })
+
+  describe('課金の出来事メール（状態が遷移したときだけ1通）', () => {
+    const paidEvent = (type: string, object: Record<string, unknown>) => {
+      constructEventImpl = () => ({ type, data: { object } })
+    }
+
+    it('checkout 完了: free→pro で有効化メール。同じ webhook の再送（すでに pro active）では送らない', async () => {
+      billingBefore = { status: 'active', plan_id: 'free' }
+      paidEvent('checkout.session.completed', { metadata: { org_id: 'org-1', plan_id: 'pro' }, customer: 'cus_1', subscription: 'sub_1' })
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock.mock.calls[0][0]).toMatchObject({ orgId: 'org-1', key: 'billing_activated', planId: 'pro' })
+
+      billingBefore = { status: 'active', plan_id: 'pro' }
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('invoice.payment_failed: active→past_due で失敗メール。past_due→past_due は送らない', async () => {
+      billingBefore = { org_id: 'org-1', status: 'active', plan_id: 'pro' }
+      paidEvent('invoice.payment_failed', { subscription: 'sub_1' })
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock.mock.calls[0][0]).toMatchObject({ orgId: 'org-1', key: 'billing_payment_failed', planId: 'pro' })
+
+      billingBefore = { org_id: 'org-1', status: 'past_due', plan_id: 'pro' }
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('subscription.updated: past_due→active は有効化メール（次回請求日つき）、active→active は送らない', async () => {
+      billingBefore = { status: 'past_due', plan_id: 'pro' }
+      paidEvent('customer.subscription.updated', { status: 'active', metadata: { org_id: 'org-1', plan_id: 'pro' }, items: { data: [] }, current_period_end: Date.UTC(2026, 9, 6, 16) / 1000 })
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock.mock.calls[0][0]).toMatchObject({ key: 'billing_activated', nextBillingDateLabel: '2026年10月7日' })
+
+      billingBefore = { status: 'active', plan_id: 'pro' }
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('subscription.deleted: pro→free で解約メール（解約したプラン名を渡す）。free のままなら送らない', async () => {
+      billingBefore = { status: 'active', plan_id: 'pro' }
+      paidEvent('customer.subscription.deleted', { metadata: { org_id: 'org-1' } })
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock.mock.calls[0][0]).toMatchObject({ orgId: 'org-1', key: 'billing_canceled', planId: 'pro' })
+
+      billingBefore = { status: 'active', plan_id: 'free' }
+      await callWebhook('{}', 'sig')
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('メール送信の失敗は webhook を失敗させない（200 のまま・DB 更新は済んでいる）', async () => {
+      billingBefore = { status: 'active', plan_id: 'free' }
+      notifyMock.mockRejectedValueOnce(new Error('mail down'))
+      paidEvent('checkout.session.completed', { metadata: { org_id: 'org-1', plan_id: 'pro' }, customer: 'cus_1', subscription: 'sub_1' })
+      const res = await callWebhook('{}', 'sig')
+      expect(res.status).toBe(200)
+      expect(upsertMock).toHaveBeenCalledTimes(1)
+    })
   })
 })

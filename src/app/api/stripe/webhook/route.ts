@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { constructWebhookEvent } from '@/lib/stripe'
 import { mapStripeSubscriptionStatus, subscriptionPeriodEndUnix, stripePriceMapFromEnv, type SubscriptionLike } from '@/lib/billing/stripeSync'
+import { notifyBillingLifecycle, shouldNotifyBillingTransition, type BillingSnapshot } from '@/lib/billing/billingLifecycleNotify'
+import { formatJstDateLabel } from '@/lib/email/templates/billingLifecycle'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -75,6 +77,43 @@ export async function POST(request: NextRequest) {
   }
 }
 
+type WebhookSupabase = ReturnType<typeof createClient> extends Promise<infer T> ? T : never
+
+/** 更新前の org_billing（遷移判定用）。読めなければ null = 「前の状態は不明」として扱う */
+async function readBillingSnapshot(supabase: WebhookSupabase, column: 'org_id' | 'stripe_subscription_id', value: string): Promise<BillingSnapshot | null> {
+  try {
+    const { data } = await (supabase as SupabaseClient)
+      .from('org_billing')
+      .select('org_id, status, plan_id')
+      .eq(column, value)
+      .maybeSingle()
+    return (data as (BillingSnapshot & { org_id?: string }) | null) ?? null
+  } catch (err) {
+    console.error('readBillingSnapshot failed', err)
+    return null
+  }
+}
+
+/**
+ * 課金の出来事メール（有料開始・支払い失敗・解約）。状態が実際に遷移したときだけ送る。
+ * 送信失敗は webhook を失敗させない（Stripe のリトライで DB 更新が二重に走るのを避ける）。
+ */
+async function notifyIfTransitioned(input: {
+  event: Parameters<typeof shouldNotifyBillingTransition>[0]
+  orgId: string
+  before: BillingSnapshot | null
+  after: BillingSnapshot
+  nextBillingDateLabel?: string
+}) {
+  const key = shouldNotifyBillingTransition(input.event, input.before, input.after)
+  if (!key) return
+  try {
+    await notifyBillingLifecycle({ orgId: input.orgId, key, planId: input.after.plan_id, nextBillingDateLabel: input.nextBillingDateLabel })
+  } catch (err) {
+    console.error('billing lifecycle notify failed', input.orgId, key, err)
+  }
+}
+
 // Checkout完了時の処理
 async function handleCheckoutCompleted(
   supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never,
@@ -88,6 +127,8 @@ async function handleCheckoutCompleted(
     return
   }
 
+  const before = await readBillingSnapshot(supabase, 'org_id', orgId)
+
   // org_billingを更新
   await (supabase as SupabaseClient)
     .from('org_billing')
@@ -99,6 +140,8 @@ async function handleCheckoutCompleted(
       stripe_subscription_id: session.subscription as string,
       updated_at: new Date().toISOString(),
     })
+
+  await notifyIfTransitioned({ event: 'checkout_completed', orgId, before, after: { status: 'active', plan_id: planId } })
 }
 
 // サブスクリプション更新時の処理
@@ -127,6 +170,8 @@ async function handleSubscriptionUpdate(
   )
   const cancelAtPeriodEnd = (subscription as unknown as { cancel_at_period_end?: boolean }).cancel_at_period_end
 
+  const before = await readBillingSnapshot(supabase, 'org_id', orgId)
+
   await (supabase as SupabaseClient)
     .from('org_billing')
     .update({
@@ -139,6 +184,15 @@ async function handleSubscriptionUpdate(
       updated_at: new Date().toISOString(),
     })
     .eq('org_id', orgId)
+
+  await notifyIfTransitioned({
+    event: 'subscription_updated',
+    orgId,
+    before,
+    // plan_id が metadata に無ければ変わらない（前の値を引き継ぐ）
+    after: { status, plan_id: planId || before?.plan_id || null },
+    nextBillingDateLabel: formatJstDateLabel(currentPeriodEnd),
+  })
 }
 
 // サブスクリプション削除時の処理
@@ -153,6 +207,8 @@ async function handleSubscriptionDeleted(
     return
   }
 
+  const before = await readBillingSnapshot(supabase, 'org_id', orgId)
+
   // Freeプランに戻す
   await (supabase as SupabaseClient)
     .from('org_billing')
@@ -165,6 +221,16 @@ async function handleSubscriptionDeleted(
       updated_at: new Date().toISOString(),
     })
     .eq('org_id', orgId)
+
+  // 解約メールには「解約したプラン名」を載せたいので after.plan_id は前のプラン、状態は free に戻った扱い
+  const key = shouldNotifyBillingTransition('subscription_deleted', before, { status: 'active', plan_id: 'free' })
+  if (key) {
+    try {
+      await notifyBillingLifecycle({ orgId, key, planId: before?.plan_id ?? null })
+    } catch (err) {
+      console.error('billing lifecycle notify failed', orgId, key, err)
+    }
+  }
 }
 
 // 支払い失敗時の処理
@@ -179,6 +245,8 @@ async function handlePaymentFailed(
     return
   }
 
+  const before = await readBillingSnapshot(supabase, 'stripe_subscription_id', subscriptionId)
+
   // サブスクリプションIDから組織を特定してステータス更新
   await (supabase as SupabaseClient)
     .from('org_billing')
@@ -187,4 +255,9 @@ async function handlePaymentFailed(
       updated_at: new Date().toISOString(),
     })
     .eq('stripe_subscription_id', subscriptionId)
+
+  const orgId = (before as (BillingSnapshot & { org_id?: string }) | null)?.org_id
+  if (orgId) {
+    await notifyIfTransitioned({ event: 'payment_failed', orgId, before, after: { status: 'past_due', plan_id: before?.plan_id ?? null } })
+  }
 }

@@ -19,6 +19,7 @@ import { WELCOME_PLACEHOLDERS, WELCOME_TEMPLATE_DEFAULTS, WELCOME_TEMPLATE_META,
 import { APPROVAL_PLACEHOLDERS_BY_KEY, APPROVAL_TEMPLATE_DEFAULTS, APPROVAL_TEMPLATE_KEYS, APPROVAL_TEMPLATE_META } from './approval'
 import { REMINDER_PLACEHOLDERS, REMINDER_TEMPLATE_DEFAULTS, REMINDER_TEMPLATE_KEYS, REMINDER_TEMPLATE_META } from './reminder'
 import { CAP_PLACEHOLDERS, CAP_TEMPLATE_DEFAULTS, CAP_TEMPLATE_KEYS, CAP_TEMPLATE_META, renderCapReachedEmail, type CapTemplateKey } from './capReached'
+import { BILLING_PLACEHOLDERS, BILLING_TEMPLATE_DEFAULTS, BILLING_TEMPLATE_KEYS, BILLING_TEMPLATE_META, renderBillingLifecycleEmail } from './billingLifecycle'
 
 /** カテゴリ（表示順） */
 export const EMAIL_TEMPLATE_FAMILIES = [
@@ -26,7 +27,7 @@ export const EMAIL_TEMPLATE_FAMILIES = [
   { id: 'onboarding', label: 'はじめての案内', description: '登録直後に届く、最初の使い方の案内' },
   { id: 'approval', label: '相手先への承認依頼', description: 'ボールが相手先に移ったときに届く、ワンクリック承認のメール' },
   { id: 'reminder', label: '滞留リマインド', description: '相手先に、止まっているタスクをまとめて知らせるメール' },
-  { id: 'billing', label: '料金・上限のお知らせ', description: '無料枠やAI上限に達したとき、事務所の管理者に届くメール' },
+  { id: 'billing', label: '料金・上限のお知らせ', description: '有料プランの開始・支払い失敗・解約や、無料枠・AI上限に達したとき、事務所の管理者に届くメール' },
 ] as const
 export type EmailTemplateFamily = (typeof EMAIL_TEMPLATE_FAMILIES)[number]['id']
 
@@ -132,6 +133,20 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
         fields,
         vars: { orgName: '株式会社サンプル', limitLabel: '50', resetDateLabel: '2026年10月1日', appName },
         ctaUrl: key === 'free_cap_upgrade' ? `${PREVIEW_APP_URL}/settings/billing` : `${PREVIEW_APP_URL}/settings/org-integrations`,
+      }),
+  })),
+  ...BILLING_TEMPLATE_KEYS.map((key) => ({
+    key,
+    family: 'billing' as const,
+    ...BILLING_TEMPLATE_META[key],
+    defaults: BILLING_TEMPLATE_DEFAULTS[key],
+    placeholders: BILLING_PLACEHOLDERS,
+    renderPreview: (fields: TemplateFields, appName: string) =>
+      renderBillingLifecycleEmail({
+        key,
+        fields,
+        vars: { orgName: '株式会社サンプル', planLabel: 'Pro', nextBillingDateLabel: '2026年10月7日', appName },
+        ctaUrl: `${PREVIEW_APP_URL}/settings/billing`,
       }),
   })),
 ]
