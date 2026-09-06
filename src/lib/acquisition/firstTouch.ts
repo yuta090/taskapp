@@ -173,14 +173,30 @@ export function extractFirstTouch(url: URL, referer: string | null, nowIso: stri
   return hasSignal ? ft : null
 }
 
+/**
+ * cookie に入れる文字列（JSON そのもの）。
+ * Next の response.cookies.set が値を encodeURIComponent するので、ここでは符号化しない
+ * （二重に符号化すると document.cookie から1回の復号では読めなくなる＝本番で実際に起きた）。
+ */
 export function encodeFirstTouchCookie(ft: FirstTouch): string {
-  return encodeURIComponent(JSON.stringify(ft))
+  return JSON.stringify(ft)
+}
+
+/** 何重に符号化されていても JSON に戻す（最大3回。過去の二重符号化 cookie も読めるように） */
+function decodeLayers(raw: string): string {
+  let value = raw
+  for (let i = 0; i < 3 && !value.startsWith('{'); i++) {
+    const next = decodeURIComponent(value)
+    if (next === value) break
+    value = next
+  }
+  return value
 }
 
 export function decodeFirstTouchCookie(raw: string | null | undefined): FirstTouch | null {
   if (!raw) return null
   try {
-    const parsed = JSON.parse(decodeURIComponent(raw)) as unknown
+    const parsed = JSON.parse(decodeLayers(raw)) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     const obj = parsed as Record<string, unknown>
     if (typeof obj.landing_path !== 'string' || typeof obj.at !== 'string') return null
