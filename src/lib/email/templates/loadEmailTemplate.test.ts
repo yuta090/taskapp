@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  */
 const selectMock = vi.fn()
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({ from: () => ({ select: selectMock }) }),
+  createAdminClient: () => ({ from: () => ({ select: () => ({ in: selectMock }) }) }),
 }))
 
 const { loadEmailTemplate, loadEmailTemplateRows } = await import('./loadEmailTemplate')

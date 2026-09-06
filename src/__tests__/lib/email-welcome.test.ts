@@ -16,7 +16,7 @@ vi.mock('resend', () => {
 // 文面の読み込み(email_templates)は DB を見に行かない: 行なし = コード既定の文面で送る
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
-    from: () => ({ select: () => Promise.resolve({ data: [], error: null }) }),
+    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }),
   }),
 }))
 

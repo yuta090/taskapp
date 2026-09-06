@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 
 /**
@@ -124,6 +125,19 @@ describe('AdminSidebar — 折りたたみ', () => {
     unmount()
     render(<AdminSidebar />)
     await waitFor(() => expect(screen.getByTestId('admin-sidebar')).toHaveAttribute('data-collapsed', 'true'))
+  })
+
+  it('サーバー描画(SSR)は cookie 由来の initialCollapsed で最初から畳んだ状態を出す（初回のガタつき防止）', () => {
+    const html = renderToString(<AdminSidebar initialCollapsed />)
+    expect(html).toContain('data-collapsed="true"')
+    expect(renderToString(<AdminSidebar />)).toContain('data-collapsed="false"')
+  })
+
+  it('端末に記憶が無いときは cookie に合わせる（サーバー描画と食い違わない）', () => {
+    document.cookie = 'admin-sidebar-collapsed=1; path=/'
+    render(<AdminSidebar initialCollapsed />)
+    expect(screen.getByTestId('admin-sidebar')).toHaveAttribute('data-collapsed', 'true')
+    document.cookie = 'admin-sidebar-collapsed=0; path=/'
   })
 
   it('畳んでも件数バッジは見える', async () => {

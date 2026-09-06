@@ -122,6 +122,17 @@ describe('renderSimpleEmail', () => {
     expect(out.text).toContain('補足 <3\n\nAFTER\n\n---')
   })
 
+  it('差し込み値に改行があっても件名は1行になる', () => {
+    const out = renderSimpleEmail({ ...base, vars: { ...base.vars, 組織名: '一行目\r\n二行目' } })
+    expect(out.subject).toBe('【AgentPM】一行目 二行目 から')
+  })
+
+  it('accent は属性値として無害化される', () => {
+    const out = renderSimpleEmail({ ...base, accent: '#fff" onload="x' })
+    expect(out.html).not.toContain('onload="x')
+    expect(out.html).toContain('#fff&quot; onload=&quot;x')
+  })
+
   it('補足が空なら補足の段落は出ない', () => {
     const out = renderSimpleEmail({ ...base, fields: { ...fields, note: '' } })
     expect(out.html).not.toContain('line-height: 1.5; text-align: center;')

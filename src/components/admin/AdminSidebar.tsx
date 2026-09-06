@@ -44,8 +44,9 @@ import { AgentPmMark } from '@/components/brand/AgentPmMark'
  * 収益の律速（顧客が申し込んでも運営が承認するまで製品が動かない）。申込通知メールからの
  * 直リンクが主経路になるが、最上段＋件数バッジは**メールを見落とした申込の安全網**を兼ねる。
  *
- * 折りたたみ・動的な「今やること」セクションは意図的に入れない（利用者2名の運用では
- * 維持されず腐るため。キューの可視化は件数バッジで足りる）。
+ * 動的な「今やること」セクションは意図的に入れない（利用者2名の運用では維持されず腐るため。
+ * キューの可視化は件数バッジで足りる）。ナビ項目の折りたたみもしない。
+ * ※ サイドバー全体をアイコン幅に畳む機能（2026-09-07）は別物で、横幅が要る画面のためのもの。
  */
 const NAV_GROUPS: {
   heading: string
@@ -101,15 +102,24 @@ interface AdminSidebarProps {
    * ポーリングはしない（ページ遷移ごとの再取得で足りる）。
    */
   badges?: Record<string, number>
+  /** サーバー（layout）が cookie から読んだ初期値。初回描画から畳んだ状態で出すため */
+  initialCollapsed?: boolean
 }
 
 /** 畳んだ状態を覚えるキー（端末ごと・運営本人の好み。サーバーには持たない） */
-const COLLAPSED_STORAGE_KEY = 'admin-sidebar-collapsed'
+export const COLLAPSED_STORAGE_KEY = 'admin-sidebar-collapsed'
 const COLLAPSED_EVENT = 'admin-sidebar-collapsed-change'
 
 function readCollapsed(): boolean {
+  // localStorage が正。無ければ cookie（サーバーが初回描画に使ったのと同じ値）に合わせる
   try {
-    return window.localStorage.getItem(COLLAPSED_STORAGE_KEY) === '1'
+    const v = window.localStorage.getItem(COLLAPSED_STORAGE_KEY)
+    if (v === '1' || v === '0') return v === '1'
+  } catch {
+    /* fall through */
+  }
+  try {
+    return new RegExp(`(?:^|; )${COLLAPSED_STORAGE_KEY}=1(?:;|$)`).test(document.cookie)
   } catch {
     return false
   }
@@ -120,6 +130,12 @@ function writeCollapsed(v: boolean) {
     window.localStorage.setItem(COLLAPSED_STORAGE_KEY, v ? '1' : '0')
   } catch {
     /* 保存できなくても動作には影響しない */
+  }
+  // サーバー側（layout）が初回描画から畳んだ状態で出せるよう cookie にも書く（初回表示のガタつき防止）
+  try {
+    document.cookie = `${COLLAPSED_STORAGE_KEY}=${v ? '1' : '0'}; path=/admin; max-age=31536000; SameSite=Lax`
+  } catch {
+    /* noop */
   }
   window.dispatchEvent(new Event(COLLAPSED_EVENT))
 }
@@ -134,19 +150,20 @@ function subscribeCollapsed(onChange: () => void) {
 }
 
 /**
- * 折りたたみ状態。localStorage を「外部ストア」として購読する（SSR時は常に広げた状態）。
+ * 折りたたみ状態。localStorage を「外部ストア」として購読する。SSR は layout が cookie から読んだ
+ * initialCollapsed で描くので、畳んでいる人も初回描画からアイコン幅で出る（ガタつかない）。
  * メール文面のプレビューなど横幅が要る画面で、アイコンだけに畳んで作業領域を広げるためのもの。
  */
-function useSidebarCollapsed(): [boolean, () => void] {
-  const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, () => false)
+function useSidebarCollapsed(initialCollapsed: boolean): [boolean, () => void] {
+  const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, () => initialCollapsed)
   const toggle = () => writeCollapsed(!readCollapsed())
   return [collapsed, toggle]
 }
 
-export function AdminSidebar({ badges }: AdminSidebarProps) {
+export function AdminSidebar({ badges, initialCollapsed = false }: AdminSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed(initialCollapsed)
 
   async function handleLogout() {
     const supabase = createClient()

@@ -1,9 +1,36 @@
 import { describe, it, expect } from 'vitest'
-import { buildWelcomeEmailContent, WELCOME_TEMPLATE_DEFAULTS } from './welcome'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { buildWelcomeEmailContent, WELCOME_PLACEHOLDERS, WELCOME_TEMPLATE_DEFAULTS } from './welcome'
+import { placeholderToken } from './core'
+
+const FIXTURES = path.join(__dirname, '__fixtures__')
+const fixture = (name: string) => readFileSync(path.join(FIXTURES, name), 'utf8')
 
 const base = { orgName: '株式会社サンプル', appName: 'AgentPM', appUrl: 'https://agentpm.app' }
 
+/**
+ * 回帰: 既定文面のようこそメールは __fixtures__/welcome.* と完全一致（共通化時 2026-09-07 に生成。
+ * 旧版との差は冒頭2行の組み方だけ＝意図した変更）。文面を変えるときは見本も更新する。
+ */
+describe('buildWelcomeEmailContent — 既定文面は見本と完全一致', () => {
+  it('welcome', () => {
+    const out = buildWelcomeEmailContent(base)
+    expect(out.subject).toBe(fixture('welcome.subject'))
+    expect(out.html).toBe(fixture('welcome.html'))
+    expect(out.text).toBe(fixture('welcome.txt'))
+  })
+})
+
 describe('buildWelcomeEmailContent', () => {
+  it('宣言した差し込み語は全部、実際の値に置き換わる（{{ が残らない）', () => {
+    const body = WELCOME_PLACEHOLDERS.map(placeholderToken).join(' / ')
+    const out = buildWelcomeEmailContent({ ...base, fields: { ...WELCOME_TEMPLATE_DEFAULTS, body } })
+    expect(out.html).not.toContain('{{')
+    expect(out.text).not.toContain('{{')
+    expect(out.text).toContain('株式会社サンプル / AgentPM')
+  })
+
   it('既定文面: 従来の件名・見出し・手順・ログイン導線・ヘルプ案内が両形式に出る', () => {
     const out = buildWelcomeEmailContent(base)
     expect(out.subject).toBe('【AgentPM】ようこそ！最初の3ステップ + LINE秘書連携')

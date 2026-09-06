@@ -188,9 +188,12 @@ function renderMessageQuoteHtml(message: string | undefined): string {
  * エスケープ済みの HTML を渡す。
  */
 export function renderSimpleEmail(input: RenderSimpleEmailInput): RenderedEmail {
-  const { accent, fields, vars, ctaUrl, message, beforeCta, afterCta } = input
+  const { fields, vars, ctaUrl, message, beforeCta, afterCta } = input
+  // 今はコード定数だけだが、公開関数なので属性値として無害化しておく
+  const accent = escapeHtml(input.accent)
 
-  const subject = renderTemplateString(fields.subject, vars)
+  // 差し込み値（組織名など利用者入力）に改行が入っていても件名は1行にする（ヘッダ崩れ防止）
+  const subject = renderTemplateString(fields.subject, vars).replace(/[\r\n]+/g, ' ')
   const appName = escapeHtml(input.appName)
   const heading = renderTemplateString(escapeHtml(fields.heading), vars, escapeHtml)
   const ctaLabel = renderTemplateString(escapeHtml(fields.cta_label), vars, escapeHtml)

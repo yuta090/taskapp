@@ -17,7 +17,7 @@ vi.mock('resend', () => {
 let templateRows: Array<Record<string, unknown>> = []
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
-    from: () => ({ select: () => Promise.resolve({ data: templateRows, error: null }) }),
+    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: templateRows, error: null }) }) }),
   }),
 }))
 

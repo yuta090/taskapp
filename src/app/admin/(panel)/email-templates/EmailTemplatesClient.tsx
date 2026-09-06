@@ -51,7 +51,8 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
     Object.fromEntries(EMAIL_TEMPLATE_DEFS.map((d) => [d.key, { ...initialRows[d.key].fields }])),
   )
   const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  // 通知は保存対象のテンプレに紐づける（通信中に別テンプレへ切り替えても、そちらに出さない）
+  const [notice, setNotice] = useState<{ key: string; kind: 'ok' | 'error'; text: string } | null>(null)
   const [previewMode, setPreviewMode] = useState<'html' | 'text'>('html')
   const [showNonEditable, setShowNonEditable] = useState(false)
 
@@ -124,21 +125,22 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
   const callApi = useCallback(
     async (payload: Record<string, unknown>, okText: string, failText: string) => {
       if (saving) return
+      const key = activeKey
       setSaving(true)
       setNotice(null)
       try {
         const res = await fetch('/api/admin/email-templates', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: activeKey, ...payload }),
+          body: JSON.stringify({ key, ...payload }),
         })
         const json = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(json.error || failText)
         if (!json?.fields) throw new Error('保存結果を受け取れませんでした')
-        applyResult(activeKey, json)
-        setNotice({ kind: 'ok', text: okText })
+        applyResult(key, json)
+        setNotice({ key, kind: 'ok', text: okText })
       } catch (e: unknown) {
-        setNotice({ kind: 'error', text: e instanceof Error ? e.message : failText })
+        setNotice({ key, kind: 'error', text: e instanceof Error ? e.message : failText })
       } finally {
         setSaving(false)
       }
@@ -304,7 +306,9 @@ export default function EmailTemplatesClient({ initialRows, appName }: Props) {
           </div>
 
           {!validation.ok && <p className="mt-3 text-xs text-red-600">{validation.error}</p>}
-          {notice && <p className={`mt-3 text-xs ${notice.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{notice.text}</p>}
+          {notice && notice.key === activeKey && (
+            <p className={`mt-3 text-xs ${notice.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{notice.text}</p>
+          )}
 
           <div className="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
             <button

@@ -5,7 +5,7 @@
  */
 import { createAdminClient } from '@/lib/supabase/admin'
 import { TEMPLATE_FIELD_KEYS, type TemplateFields } from './core'
-import { EMAIL_TEMPLATE_DEFS, getEmailTemplateDef, isEmailTemplateKey } from './registry'
+import { EMAIL_TEMPLATE_DEFS, EMAIL_TEMPLATE_KEYS, getEmailTemplateDef, isEmailTemplateKey } from './registry'
 
 export interface EmailTemplateRow {
   key: string
@@ -32,7 +32,8 @@ export async function loadEmailTemplateRows(): Promise<Record<string, EmailTempl
   let rows: Record<string, unknown>[] = []
   try {
     const admin = createAdminClient()
-    const { data, error } = await admin.from('email_templates').select(EMAIL_TEMPLATE_COLUMNS)
+    // 台帳のキーだけ取る（台帳から外したキーの行が残っていても読まない）
+    const { data, error } = await admin.from('email_templates').select(EMAIL_TEMPLATE_COLUMNS).in('key', [...EMAIL_TEMPLATE_KEYS])
     if (error) {
       console.warn('[email-templates] 読み込みに失敗したため既定文面を使います:', error.message)
     } else {

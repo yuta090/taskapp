@@ -6,14 +6,27 @@
  * ※ client bundle からも import されるので server 専用モジュールをここに入れないこと。
  */
 import { escapeHtml } from '../escape'
-import { renderSimpleEmail, type PlaceholderDef, type RenderedEmail, type TemplateFields } from './core'
+import { renderSimpleEmail, type PlaceholderDef, type RenderedEmail, type TemplateFields, type TemplateVars } from './core'
 
 export const WELCOME_TEMPLATE_KEY = 'welcome' as const
 
-export const WELCOME_PLACEHOLDERS: ReadonlyArray<PlaceholderDef> = [
-  { name: '組織名', description: '登録した組織（事務所）の名前', sample: '株式会社サンプル' },
-  { name: 'サービス名', description: 'このサービスの名前', sample: 'AgentPM' },
+/** 差し込みに使える値（呼び出し側のプログラム用の名前） */
+export interface WelcomeTemplateVars {
+  orgName: string
+  appName: string
+}
+
+/** 文面に書ける差し込み語（運営向けの日本語名 ↔ プログラム用の名前）。足したら varKey も必ず足す */
+export const WELCOME_PLACEHOLDERS: ReadonlyArray<PlaceholderDef & { varKey: keyof WelcomeTemplateVars }> = [
+  { name: '組織名', varKey: 'orgName', description: '登録した組織（事務所）の名前', sample: '株式会社サンプル' },
+  { name: 'サービス名', varKey: 'appName', description: 'このサービスの名前', sample: 'AgentPM' },
 ]
+
+function welcomeVarsByName(vars: WelcomeTemplateVars): TemplateVars {
+  const out: TemplateVars = {}
+  for (const p of WELCOME_PLACEHOLDERS) out[p.name] = vars[p.varKey]
+  return out
+}
 
 export const WELCOME_TEMPLATE_DEFAULTS: TemplateFields = {
   subject: '【{{サービス名}}】ようこそ！最初の3ステップ + LINE秘書連携',
@@ -73,7 +86,7 @@ export function buildWelcomeEmailContent(params: WelcomeEmailContentParams): Wel
     appName,
     accent: WELCOME_TEMPLATE_META.accent,
     fields,
-    vars: { 組織名: orgName, サービス名: appName },
+    vars: welcomeVarsByName({ orgName, appName }),
     ctaUrl: loginUrl,
     beforeCta: { html: stepsHtml, text: stepsText },
     afterCta: {
