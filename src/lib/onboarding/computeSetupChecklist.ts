@@ -261,7 +261,7 @@ function buildConnectLineStep(data: SetupChecklistData, orgId: string): SetupChe
     return {
       key: 'connect_line',
       title: 'LINE秘書と連携',
-      description: 'LINEのやり取りから、AI秘書が自動でタスクを拾います。',
+      description: 'グループLINEの会話から、決めごと・お願いをAI秘書が自動でタスクにします。',
       done: false,
       href: connectHref,
       ctaLabel: '共通LINEを申し込む',
