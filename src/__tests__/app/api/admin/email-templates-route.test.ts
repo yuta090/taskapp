@@ -55,7 +55,7 @@ describe('PUT /api/admin/email-templates', () => {
 
   it('壊れたJSON・知らないキーは 400', async () => {
     expect((await callPut('{not json')).status).toBe(400)
-    expect((await callPut({ key: 'welcome', fields: goodFields })).status).toBe(400)
+    expect((await callPut({ key: 'nope', fields: goodFields })).status).toBe(400)
     expect(upsertMock).not.toHaveBeenCalled()
   })
 
@@ -88,6 +88,14 @@ describe('PUT /api/admin/email-templates', () => {
     const json = await res.json()
     expect(json.isCustom).toBe(false)
     expect(json.fields.heading).toBe('プロジェクトへの招待')
+  })
+
+  it('台帳の別テンプレート(welcome)も同じAPIで保存でき、そのテンプレで使えない差し込み語は 400', async () => {
+    const ok = await callPut({ key: 'welcome', fields: { ...goodFields, body: 'ようこそ {{組織名}}' } })
+    expect(ok.status).toBe(200)
+    const bad = await callPut({ key: 'welcome', fields: { ...goodFields, body: '{{招待者名}} さん' } })
+    expect(bad.status).toBe(400)
+    expect((await bad.json()).error).toContain('招待者名')
   })
 
   it('DBエラーは 500（内容は漏らさない）', async () => {
