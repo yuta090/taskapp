@@ -5,6 +5,7 @@
  */
 import { createElement } from 'react'
 import { Resend } from 'resend'
+import { buildFrom, getAppName, sanitizeReplyTo } from './from'
 import { render } from '@react-email/components'
 import ApprovalEmail from './templates/ApprovalEmail'
 import { buildEmailCopy } from './templates/core'
@@ -25,17 +26,6 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-// FROM_EMAIL 未設定警告は起動あたり一度だけ出す
-let fromEmailWarned = false
-
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
 
 // 日付文字列を YYYY/M/D 形式に整形する（toISOString は使わずローカル日時を維持）
 function formatDueDate(dateStr: string): string {
@@ -46,15 +36,16 @@ function formatDueDate(dateStr: string): string {
   return `${year}/${month}/${day}`
 }
 
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 }
 
 export interface SendApprovalEmailParams {
+  /** 差出人表示名に載せる事務所名（有料プランのときだけ呼び出し側が渡す。本文の組織名とは別） */
+  senderOrgName?: string | null
+  /** 返信先（操作した担当者のメール）。相手先が返信すると担当者に届く */
+  replyTo?: string | null
   to: string
   token: string
   taskTitle: string
@@ -67,7 +58,7 @@ export interface SendApprovalEmailParams {
 }
 
 export async function sendApprovalEmail(params: SendApprovalEmailParams) {
-  const { to, token, taskTitle, spaceName, orgName, actionType, estimatedCost, dueDate, descriptionExcerpt } = params
+  const { to, token, taskTitle, spaceName, orgName, actionType, estimatedCost, dueDate, descriptionExcerpt, replyTo, senderOrgName } = params
 
   const appUrl = getAppUrl()
   const appName = getAppName()
@@ -115,7 +106,9 @@ export async function sendApprovalEmail(params: SendApprovalEmailParams) {
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
+      from: buildFrom({ orgName: senderOrgName }),
+      replyTo: sanitizeReplyTo(replyTo),
       to,
       subject,
       html,

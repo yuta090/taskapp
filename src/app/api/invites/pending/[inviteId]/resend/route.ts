@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendInviteEmail } from '@/lib/email'
+import { resolveSenderOrgName } from '@/lib/email/senderOrgName'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -113,6 +114,9 @@ export async function POST(
         role: inviteRow.role,
         token: inviteRow.token,
         expiresAt: newExpiresAt,
+        // 相手が返信したら再送した本人に届くように
+        replyTo: user.email,
+        senderOrgName: await resolveSenderOrgName(admin, inviteRow.org_id),
       })
       emailSent = true
     } catch (emailError) {

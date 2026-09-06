@@ -5,6 +5,7 @@
  */
 import { createElement } from 'react'
 import { Resend } from 'resend'
+import { buildFrom, getAppName, sanitizeReplyTo } from './from'
 import { render } from '@react-email/components'
 import ReminderEmail from './templates/ReminderEmail'
 import { buildEmailCopy } from './templates/core'
@@ -26,21 +27,7 @@ function getResendClient(): Resend {
   return resendClient
 }
 
-// FROM_EMAIL 未設定警告は起動あたり一度だけ出す
-let fromEmailWarned = false
 
-function getFromEmail(): string {
-  const fromEmail = process.env.FROM_EMAIL
-  if (!fromEmail && !fromEmailWarned) {
-    console.warn('[email] FROM_EMAIL が未設定です。本番ではメールが届かない可能性があります。')
-    fromEmailWarned = true
-  }
-  return fromEmail || 'noreply@taskapp.example.com'
-}
-
-function getAppName(): string {
-  return process.env.NEXT_PUBLIC_APP_NAME || 'AgentPM'
-}
 
 function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -53,6 +40,10 @@ export interface ReminderDigestParam {
 }
 
 export interface SendReminderEmailParams {
+  /** 差出人表示名に入れる事務所名（有料プランかつ受信者のタスクが1つの事務所に収まるとき）。無ければ AgentPM のみ */
+  senderOrgName?: string | null
+  /** 返信先（操作した担当者のメール）。相手先が返信すると担当者に届く */
+  replyTo?: string | null
   to: string
   displayName: string | null
   digest: ReminderDigestParam
@@ -61,7 +52,7 @@ export interface SendReminderEmailParams {
 }
 
 export async function sendReminderEmail(params: SendReminderEmailParams) {
-  const { to, displayName, digest } = params
+  const { to, displayName, digest, senderOrgName, replyTo } = params
   const appUrl = params.appUrl || getAppUrl()
   const appName = params.appName || getAppName()
 
@@ -100,7 +91,9 @@ export async function sendReminderEmail(params: SendReminderEmailParams) {
   try {
     const resend = getResendClient()
     const { data, error } = await resend.emails.send({
-      from: getFromEmail(),
+      // 相手先には「{事務所名} (AgentPM)」の名前で届き、返信は操作した担当者へ
+      from: buildFrom({ orgName: senderOrgName }),
+      replyTo: sanitizeReplyTo(replyTo),
       to,
       subject,
       html,

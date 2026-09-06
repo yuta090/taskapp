@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendReminderEmail } from '@/lib/email/reminder'
+import { resolveSenderOrgNames } from '@/lib/email/senderOrgName'
+import { senderOrgForDigest } from '@/lib/reminders/senderOrgForDigest'
 import {
   computeClientReminders,
   type ReminderTaskInput,
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
     const spaceIds = [...new Set(tasks.map((t) => t.space_id))]
 
     const [{ data: spaces }, { data: taskOwners }, { data: passBallEvents }] = await Promise.all([
-      admin.from('spaces').select('id, name').in('id', spaceIds),
+      admin.from('spaces').select('id, name, org_id').in('id', spaceIds),
       admin.from('task_owners').select('task_id, user_id').eq('side', 'client').in('task_id', taskIds),
       admin
         .from('task_events')
@@ -98,6 +100,14 @@ export async function POST(request: NextRequest) {
     ])
 
     const spaceNameById = new Map((spaces || []).map((s: { id: string; name: string }) => [s.id, s.name]))
+
+    // 差出人表示名「{事務所名} (AgentPM)」用: 有料プランの事務所名だけ引き、受信者のタスクが1事務所に収まるときだけ名乗る
+    const orgIdBySpace = new Map((spaces || []).map((s: { id: string; org_id: string | null }) => [s.id, s.org_id]))
+    const senderNameByOrg = await resolveSenderOrgNames(
+      admin as unknown as SupabaseClient,
+      [...orgIdBySpace.values()].filter((v): v is string => !!v),
+    )
+    const orgIdByTask = new Map(tasks.map((t) => [t.id, orgIdBySpace.get(t.space_id) ?? null]))
 
     const ownersByTask = new Map<string, string[]>()
     for (const o of (taskOwners || []) as Array<{ task_id: string; user_id: string }>) {
@@ -249,6 +259,7 @@ export async function POST(request: NextRequest) {
             to: recipientOverride || digest.email,
             displayName: digest.displayName,
             digest: { overdue: digest.overdue, dueToday: digest.dueToday, stalled: digest.stalled },
+            senderOrgName: senderOrgForDigest([...digest.overdue, ...digest.dueToday, ...digest.stalled].map((r) => r.taskId), orgIdByTask, senderNameByOrg),
           })
           emailsSent += 1
           if (!recipientOverride) {
