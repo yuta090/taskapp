@@ -249,7 +249,9 @@ export async function taskImport(params) {
             due_date: t.dueDate,
             assignee_id: t.assigneeId,
             parent_task_id: t.parentId,
-            priority: t.priority,
+            // priority は NOT NULL（既定 1）。CSV に無い行は列ごと省いて DB の既定値に任せる
+            // （null を明示すると not-null 違反で全体が失敗する。本番で踏んだ）
+            ...(t.priority !== null ? { priority: t.priority } : {}),
             milestone_id: t.milestoneId,
             created_by: config.actorId,
         }));
