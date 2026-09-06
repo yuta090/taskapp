@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Fragment } from 'react'
 import { DownloadSimple, Spinner, Pencil, Check, X, Trash, Plus } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -34,6 +34,30 @@ const DEFAULT_COLUMNS = [
   'spec_path', 'decision_state', 'created_at', 'updated_at'
 ]
 
+/**
+ * 金額列 — 会計ソフトへ取り込むための列。既定では選択されておらず、必要な人が明示的に足す。
+ * 真実源は API 側（src/app/api/export/tasks/route.ts の MONEY_COLUMNS）。ここはその写し。
+ * サーバ側は admin/editor 以外にはこの列を出さないので、選んでも権限が無ければ空振りする。
+ */
+const MONEY_COLUMNS = [
+  'cost_hours', 'cost_unit_price', 'cost_total',
+  'margin_rate', 'sell_total', 'pricing_status',
+]
+
+const MONEY_HEADERS: Record<string, string> = {
+  cost_hours: '工数(時間)',
+  cost_unit_price: '原価単価',
+  cost_total: '原価合計',
+  margin_rate: '利益率(%)',
+  sell_total: '請求金額',
+  pricing_status: '見積状態',
+}
+
+/** 画面で選べる全カラム（既定＋金額）。並び順もこの配列が決める。 */
+const SELECTABLE_COLUMNS = [...DEFAULT_COLUMNS, ...MONEY_COLUMNS]
+
+const ALL_HEADERS: Record<string, string> = { ...DEFAULT_HEADERS, ...MONEY_HEADERS }
+
 interface ExportTemplate {
   id: string
   name: string
@@ -54,7 +78,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
 
   // 編集モード
   const [isEditing, setIsEditing] = useState(false)
-  const [editingHeaders, setEditingHeaders] = useState<Record<string, string>>({ ...DEFAULT_HEADERS })
+  const [editingHeaders, setEditingHeaders] = useState<Record<string, string>>({ ...ALL_HEADERS })
   const [editingColumns, setEditingColumns] = useState<string[]>([...DEFAULT_COLUMNS])
   const [editingName, setEditingName] = useState('default')
   const [saving, setSaving] = useState(false)
@@ -94,11 +118,11 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
   // 編集開始
   const handleStartEdit = () => {
     if (selectedTemplate) {
-      setEditingHeaders({ ...DEFAULT_HEADERS, ...selectedTemplate.headers })
+      setEditingHeaders({ ...ALL_HEADERS, ...selectedTemplate.headers })
       setEditingColumns([...selectedTemplate.columns])
       setEditingName(selectedTemplate.name)
     } else {
-      setEditingHeaders({ ...DEFAULT_HEADERS })
+      setEditingHeaders({ ...ALL_HEADERS })
       setEditingColumns([...DEFAULT_COLUMNS])
       setEditingName('default')
     }
@@ -126,10 +150,10 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
       } else {
         // 元の順序を維持
         const newColumns = [...prev]
-        const originalIndex = DEFAULT_COLUMNS.indexOf(column)
+        const originalIndex = SELECTABLE_COLUMNS.indexOf(column)
         let insertIndex = newColumns.length
         for (let i = 0; i < newColumns.length; i++) {
-          if (DEFAULT_COLUMNS.indexOf(newColumns[i]) > originalIndex) {
+          if (SELECTABLE_COLUMNS.indexOf(newColumns[i]) > originalIndex) {
             insertIndex = i
             break
           }
@@ -219,7 +243,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
   // 新規テンプレート作成
   const handleCreateNew = () => {
     setSelectedTemplateId(null)
-    setEditingHeaders({ ...DEFAULT_HEADERS })
+    setEditingHeaders({ ...ALL_HEADERS })
     setEditingColumns([...DEFAULT_COLUMNS])
     setEditingName('新規テンプレート')
     setIsEditing(true)
@@ -399,9 +423,17 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
                 カラム設定
               </label>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {DEFAULT_COLUMNS.map((column) => (
+                {SELECTABLE_COLUMNS.map((column) => (
+                  <Fragment key={column}>
+                    {column === MONEY_COLUMNS[0] && (
+                      <div className="pt-3 pb-1">
+                        <p className="text-xs font-semibold text-gray-700">金額（見積・請求）</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          会計ソフトに取り込むための列です。書き出せるのは管理者・編集者のみで、閲覧者とベンダーには出力されません。
+                        </p>
+                      </div>
+                    )}
                   <div
-                    key={column}
                     className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
                   >
                     <input
@@ -420,6 +452,7 @@ export function ExportSettings({ spaceId }: ExportSettingsProps) {
                       placeholder="ヘッダー名"
                     />
                   </div>
+                  </Fragment>
                 ))}
               </div>
             </div>

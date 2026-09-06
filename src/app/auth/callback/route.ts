@@ -2,6 +2,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
+import { recordAuthFailure } from '@/lib/auth/authEventLog'
+import { buildLoginErrorPath, classifyProviderCallbackError } from '@/lib/auth/authErrorMessage'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
 
 /** LoginClient の isSafeInternalPath と同じ検証（オープンリダイレクト防止） */
@@ -15,16 +17,29 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get('next')
   const errorParam = searchParams.get('error')
 
-  // Google認証がキャンセルされた場合
+  // Supabase/Google から error 付きで戻ってきた。
+  // ユーザーの取り消し(access_denied)だけがキャンセル。それ以外は設定不備（合鍵違い・戻り先未登録等）の
+  // 可能性が高いので理由コードを残し、管理画面から追えるようにする。
   if (errorParam) {
+    const errorCode = searchParams.get('error_code')
+    const errorDescription = searchParams.get('error_description')
+    await recordAuthFailure({
+      stage: 'provider_callback',
+      provider: 'google',
+      errorCode: errorCode ?? errorParam,
+      errorDescription,
+      request,
+      metadata: { error: errorParam, error_code: errorCode, next },
+    })
     return NextResponse.redirect(
-      new URL(`/login?error=auth_cancelled`, origin)
+      new URL(buildLoginErrorPath(classifyProviderCallbackError({ error: errorParam, errorCode })), origin)
     )
   }
 
   if (!code) {
+    await recordAuthFailure({ stage: 'missing_code', request, metadata: { next } })
     return NextResponse.redirect(
-      new URL('/login?error=auth_callback_failed', origin)
+      new URL(buildLoginErrorPath({ loginError: 'auth_callback_failed', reason: 'missing_code' }), origin)
     )
   }
 
@@ -53,8 +68,15 @@ export async function GET(request: NextRequest) {
   const { error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
+    await recordAuthFailure({
+      stage: 'code_exchange',
+      errorCode: (error as { code?: string }).code ?? null,
+      errorDescription: error.message,
+      request,
+      metadata: { status: (error as { status?: number }).status ?? null, next },
+    })
     return NextResponse.redirect(
-      new URL('/login?error=auth_callback_failed', origin)
+      new URL(buildLoginErrorPath({ loginError: 'auth_callback_failed', reason: 'exchange_failed' }), origin)
     )
   }
 
@@ -62,8 +84,9 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
+    await recordAuthFailure({ stage: 'session_user', request, metadata: { next } })
     return NextResponse.redirect(
-      new URL('/login?error=auth_callback_failed', origin)
+      new URL(buildLoginErrorPath({ loginError: 'auth_callback_failed', reason: 'no_user' }), origin)
     )
   }
 
@@ -81,8 +104,16 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     // membershipクエリエラー等 → fail closed（ログインページへ）
     console.error('resolvePostLoginLanding failed:', err)
+    await recordAuthFailure({
+      stage: 'landing',
+      userId: user.id,
+      email: user.email ?? null,
+      errorDescription: err instanceof Error ? err.message : String(err),
+      request,
+      metadata: { next },
+    })
     return NextResponse.redirect(
-      new URL('/login?error=auth_callback_failed', origin)
+      new URL(buildLoginErrorPath({ loginError: 'auth_callback_failed', reason: 'landing_failed' }), origin)
     )
   }
 }

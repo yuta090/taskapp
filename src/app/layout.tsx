@@ -5,6 +5,7 @@ import { QueryProvider } from '@/components/providers/QueryProvider'
 import { ActiveOrgProvider } from '@/lib/org/ActiveOrgProvider'
 import { SkipLink } from '@/components/shared/SkipLink'
 import { ThemeSync } from '@/components/theme/ThemeSync'
+import { GtmHeadScript, GtmNoScript } from '@/components/analytics/GoogleTagManager'
 import { buildThemeInitScript } from '@/lib/theme/theme'
 import './globals.css'
 
@@ -41,12 +42,15 @@ export default function RootLayout({
   return (
     <html lang="ja" className="antialiased" suppressHydrationWarning>
       <head>
+        {/* Google タグマネージャー（本番ビルドのみ）。Google の指示どおり <head> の先頭に置く */}
+        <GtmHeadScript />
         {/* 描画前に .dark を付与しFOUC（白チラつき）を防ぐ。localStorage参照・
             cookie不使用のためLP/task6のstatic renderingを壊さない。publicPaths等は
             ビルド時に埋め込み（単一ソースから直列化）。 */}
         <script dangerouslySetInnerHTML={{ __html: buildThemeInitScript() }} />
       </head>
       <body className="font-sans">
+        <GtmNoScript />
         <ThemeSync />
         <SkipLink />
         <PreferencesProviderWrapper>

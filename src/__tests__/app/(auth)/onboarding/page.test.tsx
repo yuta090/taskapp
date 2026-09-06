@@ -334,7 +334,10 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
     })
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-9')
+      // 初回セットアップ完了の目印 ?onboarded=1 を付けて遷移する
+      // （アクセス解析で「会員登録→設定完了」をこのURLで CV として数えるため。
+      //   毎日の作業画面と同じURLに着地するので、この目印が無いと区別できない）
+      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-9?onboarded=1')
     })
   })
 

@@ -11,6 +11,7 @@ import {
   Scales,
   FilmSlate,
   HardHat,
+  RocketLaunch,
 } from '@phosphor-icons/react'
 import { getGenrePresets, getBlankPreset } from '@/lib/presets'
 import type { PresetGenre, PresetDefinition } from '@/lib/presets'
@@ -30,6 +31,7 @@ export const ICON_MAP: Record<string, React.ReactNode> = {
   Scales: <Scales weight="duotone" />,
   FilmSlate: <FilmSlate weight="duotone" />,
   HardHat: <HardHat weight="duotone" />,
+  RocketLaunch: <RocketLaunch weight="duotone" />,
 }
 
 /** recommendedIntegrations のキー → 表示ラベル */

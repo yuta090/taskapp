@@ -47,6 +47,12 @@ function validateSubcommand(sub, path) {
     if (!Array.isArray(sub.options)) {
         throw new ManifestValidationError(`${path}: options must be an array`);
     }
+    if (sub.stdinFormat !== undefined && !['json', 'text'].includes(sub.stdinFormat)) {
+        throw new ManifestValidationError(`${path}: invalid stdinFormat: ${sub.stdinFormat}`);
+    }
+    if (sub.stdinFormat === 'text' && (!sub.stdinParam || !PARAM_RE.test(sub.stdinParam))) {
+        throw new ManifestValidationError(`${path}: stdinFormat=text requires a valid stdinParam`);
+    }
     for (let i = 0; i < sub.options.length; i++) {
         validateOption(sub.options[i], `${path}.options[${i}]`);
     }

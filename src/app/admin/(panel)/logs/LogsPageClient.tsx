@@ -31,6 +31,21 @@ export interface TaskEventRow {
   created_at: string
 }
 
+export interface AuthEventLogRow {
+  [key: string]: unknown
+  id: string
+  occurred_at: string
+  stage: string
+  provider: string | null
+  error_code: string | null
+  error_description: string | null
+  user_id: string | null
+  email: string | null
+  ip: string | null
+  user_agent: string | null
+  metadata: unknown
+}
+
 type DateRange = '24h' | '7d' | '30d' | 'all'
 
 function getDateThreshold(range: DateRange): Date | null {
@@ -76,12 +91,52 @@ const eventColumns: ColumnDef<TaskEventRow>[] = [
   },
 ]
 
+/** どの段階で失敗したか（stage）を日本語で。値は src/lib/auth/authEventLog.ts と一致 */
+const AUTH_STAGE_LABELS: Record<string, string> = {
+  provider_callback: 'Google/Supabaseから失敗で戻る',
+  missing_code: 'コードなしで戻る',
+  code_exchange: 'セッション交換に失敗',
+  session_user: 'ユーザー取得に失敗',
+  landing: '着地先の判定に失敗',
+}
+
+const authEventColumns: ColumnDef<AuthEventLogRow>[] = [
+  { key: 'occurred_at', label: '日時', sortable: true, width: '160px' },
+  {
+    key: 'stage',
+    label: '段階',
+    sortable: true,
+    render: (value) => <AdminBadge variant="warning">{AUTH_STAGE_LABELS[String(value)] ?? String(value)}</AdminBadge>,
+  },
+  {
+    key: 'error_code',
+    label: '理由コード',
+    sortable: true,
+    render: (value) => (value ? <span className="font-mono text-xs">{String(value)}</span> : <span className="text-gray-300">-</span>),
+  },
+  { key: 'error_description', label: '詳細', width: '300px' },
+  {
+    key: 'email',
+    label: 'メール / IP',
+    render: (_value, row) => (
+      <span className="text-xs text-gray-600">{row.email ?? row.ip ?? '-'}</span>
+    ),
+  },
+  {
+    key: 'metadata',
+    label: 'メタ',
+    width: '200px',
+    render: (value) => (value ? <AdminJsonViewer data={value} /> : <span className="text-gray-300">-</span>),
+  },
+]
+
 interface Props {
   initialAuditLogs: AuditLogRow[]
   initialTaskEvents: TaskEventRow[]
+  initialAuthEventLogs?: AuthEventLogRow[]
 }
 
-export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: Props) {
+export default function LogsPageClient({ initialAuditLogs, initialTaskEvents, initialAuthEventLogs = [] }: Props) {
   const [dateRange, setDateRange] = useState<DateRange>('7d')
   const [eventTypeFilter, setEventTypeFilter] = useState('')
   const [auditSearch, setAuditSearch] = useState('')
@@ -94,6 +149,53 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
   const [auditSortDir, setAuditSortDir] = useState<'asc' | 'desc' | null>(null)
   const [eventSortKey, setEventSortKey] = useState<string | null>(null)
   const [eventSortDir, setEventSortDir] = useState<'asc' | 'desc' | null>(null)
+  const [authSearch, setAuthSearch] = useState('')
+  const [authPage, setAuthPage] = useState(1)
+  const [authPageSize, setAuthPageSize] = useState(25)
+  const [authSortKey, setAuthSortKey] = useState<string | null>(null)
+  const [authSortDir, setAuthSortDir] = useState<'asc' | 'desc' | null>(null)
+
+  const handleAuthSortChange = useCallback((key: string, dir: 'asc' | 'desc' | null) => {
+    setAuthSortKey(key)
+    setAuthSortDir(dir)
+  }, [])
+
+  const handleAuthSearchChange = useCallback((value: string) => {
+    setAuthSearch(value)
+    setAuthPage(1)
+  }, [])
+
+  const handleAuthPageSizeChange = useCallback((size: number) => {
+    setAuthPageSize(size)
+    setAuthPage(1)
+  }, [])
+
+  const filteredAuthLogs = useMemo(() => {
+    const threshold = getDateThreshold(dateRange)
+    let result = initialAuthEventLogs.filter((log) => !(threshold && new Date(log.occurred_at) < threshold))
+    const query = authSearch.trim()
+    if (query) {
+      result = result.filter((r) => matchesSearch(r as unknown as Record<string, unknown>, query))
+    }
+    return result
+  }, [initialAuthEventLogs, dateRange, authSearch])
+
+  const sortedAuthLogs = useMemo(() => {
+    if (!authSortKey || !authSortDir) return filteredAuthLogs
+    const arr = [...filteredAuthLogs]
+    arr.sort((a, b) => {
+      const va = getNestedValue(a as unknown as Record<string, unknown>, authSortKey)
+      const vb = getNestedValue(b as unknown as Record<string, unknown>, authSortKey)
+      const cmp = compareValues(va, vb)
+      return authSortDir === 'desc' ? -cmp : cmp
+    })
+    return arr
+  }, [filteredAuthLogs, authSortKey, authSortDir])
+
+  const pagedAuthLogs = useMemo(() => {
+    const start = (authPage - 1) * authPageSize
+    return sortedAuthLogs.slice(start, start + authPageSize)
+  }, [sortedAuthLogs, authPage, authPageSize])
 
   const handleAuditSortChange = useCallback((key: string, dir: 'asc' | 'desc' | null) => {
     setAuditSortKey(key)
@@ -178,6 +280,7 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
     setDateRange(e.target.value as DateRange)
     setAuditPage(1)
     setEventPage(1)
+    setAuthPage(1)
   }, [])
 
   const handleEventTypeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -209,7 +312,7 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
     <div className="p-6 max-w-6xl">
       <AdminPageHeader
         title="ログビューア"
-        description="監査ログ・タスクイベント"
+        description="ログイン失敗・監査ログ・タスクイベント"
       />
 
       {/* Filters */}
@@ -234,6 +337,32 @@ export default function LogsPageClient({ initialAuditLogs, initialTaskEvents }: 
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
+      </div>
+
+      {/* Auth failures（ログイン失敗） */}
+      <h2 className="text-sm font-medium text-gray-700 mb-3">
+        ログイン失敗ログ ({filteredAuthLogs.length}件)
+      </h2>
+      <div className="mb-8">
+        <AdminDataTable<AuthEventLogRow>
+          columns={authEventColumns}
+          data={pagedAuthLogs}
+          total={sortedAuthLogs.length}
+          page={authPage}
+          pageSize={authPageSize}
+          onPageChange={setAuthPage}
+          onPageSizeChange={handleAuthPageSizeChange}
+          searchValue={authSearch}
+          onSearchChange={handleAuthSearchChange}
+          searchPlaceholder="理由コード・詳細・メールで検索..."
+          loading={false}
+          emptyMessage="ログイン失敗はありません"
+          tableName="auth_event_logs"
+          sortKey={authSortKey}
+          sortDirection={authSortDir}
+          onSortChange={handleAuthSortChange}
+          allData={sortedAuthLogs}
+        />
       </div>
 
       {/* Audit Logs */}

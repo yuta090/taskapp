@@ -40,7 +40,7 @@ export function Features() {
         {
             icon: FileCsv,
             title: "CSV出力",
-            desc: "freee等の会計ソフト、Excel、各種ツールと連携",
+            desc: "タスクと金額をCSVで書き出し。Excelや会計ソフトに取り込めます",
             color: "bg-green-100 text-green-600"
         },
         {

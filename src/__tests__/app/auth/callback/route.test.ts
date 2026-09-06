@@ -28,6 +28,11 @@ vi.mock('@/lib/auth/resolveLanding', () => ({
   resolvePostLoginLanding: (...args: unknown[]) => mockResolvePostLoginLanding(...args),
 }))
 
+const mockRecordAuthFailure = vi.fn()
+vi.mock('@/lib/auth/authEventLog', () => ({
+  recordAuthFailure: (...args: unknown[]) => mockRecordAuthFailure(...args),
+}))
+
 function makeRequest(path: string, cookieHeader?: string): NextRequest {
   return new NextRequest(
     `http://localhost:4000${path}`,
@@ -47,26 +52,60 @@ describe('GET /auth/callback', () => {
     vi.clearAllMocks()
     mockExchangeCodeForSession.mockResolvedValue({ error: null })
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockRecordAuthFailure.mockResolvedValue(undefined)
   })
 
-  it('code が無ければログインへ（失敗扱い）', async () => {
+  it('code が無ければログインへ（失敗扱い・理由を残す）', async () => {
     const response = await GET(makeRequest('/auth/callback'))
 
-    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed')
+    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed&reason=missing_code')
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(expect.objectContaining({ stage: 'missing_code' }))
   })
 
-  it('Google認証がキャンセルされればログインへ', async () => {
+  it('ユーザーが Google 画面で取り消したら（access_denied）キャンセル表示', async () => {
     const response = await GET(makeRequest('/auth/callback?error=access_denied'))
 
-    expect(redirectPath(response)).toBe('/login?error=auth_cancelled')
+    expect(redirectPath(response)).toBe('/login?error=auth_cancelled&reason=access_denied')
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'provider_callback', errorCode: 'access_denied' })
+    )
   })
 
-  it('コード交換に失敗すればログインへ（fail-closed）', async () => {
-    mockExchangeCodeForSession.mockResolvedValue({ error: { message: 'x' } })
+  it('Supabase側の失敗（合鍵違い等）はキャンセルではなくプロバイダエラーとして理由を残す', async () => {
+    const response = await GET(
+      makeRequest(
+        '/auth/callback?error=server_error&error_code=unexpected_failure&error_description=Unable+to+exchange+external+code'
+      )
+    )
+
+    expect(redirectPath(response)).toBe('/login?error=auth_provider_error&reason=unexpected_failure')
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'provider_callback',
+        provider: 'google',
+        errorCode: 'unexpected_failure',
+        errorDescription: 'Unable to exchange external code',
+        metadata: expect.objectContaining({ error: 'server_error' }),
+      })
+    )
+  })
+
+  it('コード交換に失敗すればログインへ（fail-closed・Supabaseのエラー内容を記録）', async () => {
+    mockExchangeCodeForSession.mockResolvedValue({
+      error: { message: 'invalid flow state', code: 'flow_state_not_found', status: 404 },
+    })
 
     const response = await GET(makeRequest('/auth/callback?code=abc'))
 
-    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed')
+    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed&reason=exchange_failed')
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'code_exchange',
+        errorCode: 'flow_state_not_found',
+        errorDescription: 'invalid flow state',
+        metadata: expect.objectContaining({ status: 404 }),
+      })
+    )
   })
 
   it('ユーザー取得に失敗すればログインへ（fail-closed）', async () => {
@@ -74,7 +113,28 @@ describe('GET /auth/callback', () => {
 
     const response = await GET(makeRequest('/auth/callback?code=abc'))
 
-    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed')
+    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed&reason=no_user')
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(expect.objectContaining({ stage: 'session_user' }))
+  })
+
+  it('着地判定に失敗すればログインへ（fail-closed・ユーザーIDを添えて記録）', async () => {
+    mockResolvePostLoginLanding.mockRejectedValue(new Error('membership query failed'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const response = await GET(makeRequest('/auth/callback?code=abc'))
+
+    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed&reason=landing_failed')
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'landing', userId: 'user-1', errorDescription: 'membership query failed' })
+    )
+  })
+
+  it('成功時は失敗ログを書かない', async () => {
+    mockResolvePostLoginLanding.mockResolvedValue('/inbox')
+
+    await GET(makeRequest('/auth/callback?code=abc'))
+
+    expect(mockRecordAuthFailure).not.toHaveBeenCalled()
   })
 
   it('vendorロールなら /vendor-portal へ（ベンダーのGoogleログインが/portalで行き止まりにならない）', async () => {
@@ -123,6 +183,6 @@ describe('GET /auth/callback', () => {
 
     const response = await GET(makeRequest('/auth/callback?code=abc'))
 
-    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed')
+    expect(redirectPath(response)).toBe('/login?error=auth_callback_failed&reason=landing_failed')
   })
 })

@@ -20,6 +20,7 @@ export type PresetGenre =
   | 'legal_accounting'
   | 'video_production'
   | 'construction'
+  | 'new_business'
   | 'blank'
 
 export interface PresetWikiPage {
@@ -75,6 +76,7 @@ import { eventPreset } from './genres/event'
 import { legalAccountingPreset } from './genres/legal-accounting'
 import { videoProductionPreset } from './genres/video-production'
 import { constructionPreset } from './genres/construction'
+import { newBusinessPreset } from './genres/new-business'
 
 const BLANK_PRESET: PresetDefinition = {
   genre: 'blank',
@@ -98,6 +100,7 @@ const PRESET_MAP: Record<PresetGenre, PresetDefinition> = {
   legal_accounting: legalAccountingPreset,
   video_production: videoProductionPreset,
   construction: constructionPreset,
+  new_business: newBusinessPreset,
   blank: BLANK_PRESET,
 }
 
@@ -118,6 +121,7 @@ export function getGenrePresets(): PresetDefinition[] {
     legalAccountingPreset,
     videoProductionPreset,
     constructionPreset,
+    newBusinessPreset,
   ]
 }
 
@@ -137,6 +141,7 @@ export const PRESET_GENRES: PresetGenre[] = [
   'legal_accounting',
   'video_production',
   'construction',
+  'new_business',
   'blank',
 ]
 

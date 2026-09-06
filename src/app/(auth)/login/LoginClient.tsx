@@ -7,6 +7,7 @@ import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/component
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
+import { formatAuthErrorMessage } from '@/lib/auth/authErrorMessage'
 import { getActiveOrgId } from '@/lib/org/activeOrg'
 
 function shouldShowDemoAccounts(): boolean {
@@ -25,10 +26,6 @@ const DEMO_ACCOUNTS = (process.env.NODE_ENV !== 'production' || process.env.NEXT
   { email: 'vendor2@vendor.com', password: 'vendor2345', name: '松本 理恵', label: 'ベンダーDes', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-emerald-200', group: 'vendor' as const },
 ] : []
 
-const AUTH_ERRORS: Record<string, string> = {
-  auth_callback_failed: 'Google認証に失敗しました。もう一度お試しください。',
-  auth_cancelled: 'Google認証がキャンセルされました。',
-}
 
 /** auth/callback の next と同じバリデーション（オープンリダイレクト防止） */
 function isSafeInternalPath(path: string | null): path is string {
@@ -45,9 +42,10 @@ export default function LoginClient() {
   const searchParams = useSearchParams()
   const redirect = searchParams.get('redirect')
   const errorFromUrl = searchParams.get('error')
+  const reasonFromUrl = searchParams.get('reason')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState(errorFromUrl ? AUTH_ERRORS[errorFromUrl] || '' : '')
+  const [error, setError] = useState(formatAuthErrorMessage(errorFromUrl, reasonFromUrl))
   const [loading, setLoading] = useState(false)
   const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
   const [loggedInEmail, setLoggedInEmail] = useState<string | null>(null)

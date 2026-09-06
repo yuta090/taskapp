@@ -70,6 +70,26 @@ describe('LoginClient', () => {
     expect(screen.getByText('テスト用デモアカウント')).toBeInTheDocument()
   })
 
+  it('プロバイダエラーは「キャンセル」ではなく理由コード付きで表示する', () => {
+    mockSearchParams = new URLSearchParams('error=auth_provider_error&reason=unexpected_failure')
+
+    render(<LoginClient />)
+
+    expect(screen.getByText(/Google\/Supabase側で拒否されました/)).toBeInTheDocument()
+    expect(screen.getByText(/unexpected_failure/)).toBeInTheDocument()
+    expect(screen.queryByText(/キャンセル/)).not.toBeInTheDocument()
+    mockSearchParams = new URLSearchParams()
+  })
+
+  it('理由コードは無害化してから表示する（URL経由の文字列を素通しにしない）', () => {
+    mockSearchParams = new URLSearchParams('error=auth_callback_failed&reason=%3Cscript%3Ealert(1)%3C/script%3E')
+
+    render(<LoginClient />)
+
+    expect(screen.getByText(/理由: scriptalert1script/)).toBeInTheDocument()
+    mockSearchParams = new URLSearchParams()
+  })
+
   it('should render the Google sign-in button before the email/password form', () => {
     render(<LoginClient />)
 
