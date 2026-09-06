@@ -104,7 +104,7 @@ export function UserLinksClient({
             <h2 className="text-sm font-semibold text-gray-900">
               共通LINEの利用を申し込む
               <Hint label="共通LINEの利用申込">
-                いつものグループLINEに秘書を入れて、会話の決めごと・お願いを自動でタスクにできます。お申し込み後、当社が開通してご登録のメールでご案内します。
+                いつものグループLINEに秘書を入れると、会話の決めごと・お願いを自動でタスクにします。
               </Hint>
             </h2>
             <button

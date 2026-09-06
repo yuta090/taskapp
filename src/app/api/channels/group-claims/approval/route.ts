@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
         if (!canUseSharedBotClaims(await getLineSelfServeState(orgId))) {
           return NextResponse.json(
             {
-              error: '共通LINEのご利用にはお申し込みが必要です。お申し込み後、当社が開通してご案内します。',
+              error: '共通LINEはまだ使えません。先に利用を申し込んでください。',
               code: 'shared_bot_access_required',
             },
             { status: 403 },
