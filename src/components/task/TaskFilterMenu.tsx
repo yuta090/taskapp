@@ -14,7 +14,7 @@ import {
   ArrowRight,
   FileText,
 } from '@phosphor-icons/react'
-import { TruncatedText } from '@/components/shared'
+import { TruncatedText, Tooltip } from '@/components/shared'
 import type { TaskStatus, BallSide, TaskType, DecisionState, Milestone } from '@/types/database'
 
 // Filter value types
@@ -399,24 +399,26 @@ export function TaskFilterMenu({ filters, onFiltersChange, milestones, owners }:
 
   return (
     <div ref={menuRef} className="relative">
-      {/* Filter button */}
-      <button
-        type="button"
-        onClick={handleToggle}
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border ${
-          activeFilterCount > 0
-            ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-            : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-surface'
-        }`}
-      >
-        <FunnelSimple weight={activeFilterCount > 0 ? 'fill' : 'regular'} className="text-sm" />
-        <span>フィルター</span>
-        {activeFilterCount > 0 && (
-          <span className="ml-0.5 w-4 h-4 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
-            {activeFilterCount}
-          </span>
-        )}
-      </button>
+      {/* Filter button — 文字は置かず、カーソルを合わせたときだけ「詳細フィルター」と出す */}
+      <Tooltip content="詳細フィルター" placement="bottom">
+        <button
+          type="button"
+          onClick={handleToggle}
+          aria-label="詳細フィルター"
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg transition-colors border ${
+            activeFilterCount > 0
+              ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+              : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 bg-surface'
+          }`}
+        >
+          <FunnelSimple weight={activeFilterCount > 0 ? 'fill' : 'regular'} className="text-sm" />
+          {activeFilterCount > 0 && (
+            <span className="w-4 h-4 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+      </Tooltip>
 
       {/* Dropdown menu */}
       {isOpen && (

@@ -34,4 +34,25 @@ describe('Tooltip', () => {
     expect(tooltip.className).toContain('group-hover/tooltip:opacity-100')
     expect(tooltip.className).toContain('group-focus-within/tooltip:opacity-100')
   })
+
+  it('既定では上に出る', () => {
+    render(
+      <Tooltip content="説明テキスト">
+        <button>対象</button>
+      </Tooltip>
+    )
+    expect(screen.getByRole('tooltip').className).toContain('bottom-full')
+  })
+
+  // ヘッダー内の要素では上に出すと見切れるため、下に出せるようにする
+  it('placement="bottom" のときは下に出る', () => {
+    render(
+      <Tooltip content="説明テキスト" placement="bottom">
+        <button>対象</button>
+      </Tooltip>
+    )
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip.className).toContain('top-full')
+    expect(tooltip.className).not.toContain('bottom-full')
+  })
 })
