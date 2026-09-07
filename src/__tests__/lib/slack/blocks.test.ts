@@ -44,3 +44,15 @@ describe('buildTaskBlocks — 用語統一 (M-1, M-3)', () => {
     expect(findFieldText(blocks, 'ステータス')).toContain('社内承認中')
   })
 })
+
+describe('buildTaskBlocks — タスクへのリンク', () => {
+  it('リンクはプロジェクトのタスク一覧(appUrl)に ?task= を付けた形（/tasks は存在せず 404 になる）', () => {
+    const blocks = buildTaskBlocks(
+      'task_created',
+      { ...makePayload(), appUrl: 'https://agentpm.app/org-1/project/space-1' },
+    )
+    const json = JSON.stringify(blocks)
+    expect(json).toContain('https://agentpm.app/org-1/project/space-1?task=t1')
+    expect(json).not.toContain('/tasks?task=')
+  })
+})
