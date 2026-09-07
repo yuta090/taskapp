@@ -18,6 +18,8 @@ import {
   createInstantDigestTask,
   assignDigestNumbersToNewTasks,
   updateChannelGroupMetadata,
+  consumeUserLinkCode,
+  expireUserLinkCode,
 } from '@/lib/channels/store'
 import {
   hashSharedGroupClaimCode,
@@ -117,6 +119,10 @@ export const slackWebhookDeps: SlackWebhookDeps = {
   snoozeDueReminder: (accountId, externalUserId, occurrenceId, days, expectedSendCount) =>
     snoozeDueReminderViaLine(accountId, externalUserId, occurrenceId, days, expectedSendCount),
   findTaskTitle: async (taskId) => (await findTaskSnapshotForReminder(taskId))?.title ?? null,
+  // 本人紐づけコード（DM）と、チャンネルに貼られたコードの即時失効。LINE と同じ RPC/関数。
+  consumeUserLinkCode: (codeHash, accountId, externalUserId) =>
+    consumeUserLinkCode(codeHash, accountId, externalUserId),
+  expireUserLinkCode: (codeHash) => expireUserLinkCode(codeHash),
   insertOutbound: (input) =>
     insertChannelMessage({
       orgId: input.orgId,

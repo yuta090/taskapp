@@ -6,6 +6,7 @@ import { SharedBotClaimPanel } from '@/components/secretary/SharedBotClaimPanel'
 import { PendingClaimsPanel } from '@/components/secretary/PendingClaimsPanel'
 import { ChannelCommandGuide } from '@/components/secretary/ChannelCommandGuide'
 import { SlackSecretarySetupGuide } from '@/components/secretary/SlackSecretarySetupGuide'
+import { SlackSelfLinkPanel } from '@/components/secretary/SlackSelfLinkPanel'
 
 // beta は内部区分（要検証）でありユーザーには見せない — 表示上は ga と同じ「利用可能」。
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
@@ -65,6 +66,9 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       {(isSharedBotClaim || (canRegister && isOwnAccountClaim)) && (
         <PendingClaimsPanel orgId={orgId} channel={def.id} />
       )}
+      {/* Slack: 自分の Slack と AgentPM ユーザーの結びつけ（リマインドのボタン・1対1 DM に必要）。
+          チャンネルの承認まで済んだ後にやることなので、その下に置く。 */}
+      {def.id === 'slack' && <SlackSelfLinkPanel orgId={orgId} />}
       {!isSharedBotClaim && !canRegister && (
         <p className="text-sm text-gray-500">このチャネルは準備中です。開通しましたらご案内します。</p>
       )}

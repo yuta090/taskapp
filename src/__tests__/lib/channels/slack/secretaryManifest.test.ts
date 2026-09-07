@@ -43,6 +43,8 @@ describe('buildSecretarySlackManifest', () => {
     for (const s of ['chat:write', 'channels:history', 'groups:history', 'channels:read', 'groups:read']) {
       expect(scopes).toContain(s)
     }
+    // 本人紐づけコードを DM（1対1）で受け取るため
+    expect(scopes).toContain('im:history')
     expect(scopes).toEqual(SECRETARY_SLACK_BOT_SCOPES)
   })
 
@@ -50,7 +52,7 @@ describe('buildSecretarySlackManifest', () => {
     expect(m.settings.event_subscriptions.request_url).toBe(
       `https://agentpm.app/api/channels/slack/webhook/org/${ORG}`,
     )
-    expect(m.settings.event_subscriptions.bot_events).toEqual(['message.channels', 'message.groups'])
+    expect(m.settings.event_subscriptions.bot_events).toEqual(['message.channels', 'message.groups', 'message.im'])
   })
 })
 

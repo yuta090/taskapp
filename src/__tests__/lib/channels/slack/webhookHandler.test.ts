@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import {
   handleSlackWebhook,
   buildAcceptedText,
@@ -75,6 +75,9 @@ function makeDeps(over: Partial<SlackWebhookDeps> = {}): SlackWebhookDeps {
     confirmTaskDone: vi.fn().mockResolvedValue({ status: 'done' }),
     snoozeDueReminder: vi.fn().mockResolvedValue({ status: 'snoozed' }),
     findTaskTitle: vi.fn().mockResolvedValue('見積書の送付'),
+    // 本人紐づけコード（DM で受ける）と、チャンネルに貼られたコードの失効
+    consumeUserLinkCode: vi.fn().mockResolvedValue({ status: 'ok', linkId: 'link-1' }),
+    expireUserLinkCode: vi.fn().mockResolvedValue(true),
     ...over,
   }
 }
@@ -678,5 +681,111 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
     expect(r.status).toBe(200)
     expect(deps.confirmTaskDone).not.toHaveBeenCalled()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// 本人紐づけ（Slack ユーザー → AgentPM ユーザー）。AgentPM で発行した TA- コードを、秘書への
+// DM（channel_type='im'）に送ると成立する。LINE の 1:1 トークと同じ手順・同じ RPC。
+// ---------------------------------------------------------------------------
+
+const USER_LINK_CODE = 'TA-0123456789ABCDEFGHJKMNPQRS'
+const USER_LINK_CODE_HASH = createHash('sha256').update(USER_LINK_CODE).digest('hex')
+
+describe('handleSlackWebhook — 本人紐づけコード（DM）', () => {
+  it('DM に TA- コードが届いたら、(hash, account.id, 送った人の Slack user id) で consume し、成立の返事を DM に返す', async () => {
+    const body = eventBody({ channel: 'D777', channel_type: 'im', text: `よろしく ${USER_LINK_CODE}` })
+    const deps = makeDeps()
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(r.status).toBe(200)
+    expect(deps.consumeUserLinkCode).toHaveBeenCalledWith(USER_LINK_CODE_HASH, ACCOUNT.id, 'U999')
+    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D777', expect.stringContaining('連携しました'))
+    // 秘書の返事も outbound として残す（LINE の sendSecretaryText と同じ・2AM の切り分け用）
+    expect(deps.insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', groupId: null, actor: 'secretary', direction: 'outbound', body: expect.stringContaining('連携しました'), status: 'sent' }),
+    )
+    // チャンネルの合言葉・承認の流れには入らない
+    expect(deps.findValidClaimCode).not.toHaveBeenCalled()
+    expect(deps.createPendingClaim).not.toHaveBeenCalled()
+  })
+
+  it('会話ログには平文コードを残さない（本文はマスク・payload に生イベントを入れない）・groupId なし', async () => {
+    const body = eventBody({ channel: 'D777', channel_type: 'im', text: USER_LINK_CODE })
+    const deps = makeDeps()
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.insertMessage).toHaveBeenCalledTimes(1)
+    const input = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(input).toMatchObject({ orgId: 'org-1', groupId: null, actor: 'client', externalUserId: 'U999', externalMessageId: 'D777:1700000100.000200' })
+    expect(JSON.stringify(input)).not.toContain(USER_LINK_CODE)
+  })
+
+  it('状態ごとの返事: invalid / expired / locked / conflict は本人が自力で直せる案内、再送(duplicate)には返事しない', async () => {
+    const body = eventBody({ channel: 'D777', channel_type: 'im', text: USER_LINK_CODE })
+    for (const [status, fragment] of [
+      ['invalid', '無効'],
+      ['expired', '有効期限'],
+      ['locked', '試行回数'],
+      ['conflict', '別のユーザー'],
+    ] as const) {
+      const deps = makeDeps({ consumeUserLinkCode: vi.fn().mockResolvedValue({ status, linkId: null }) })
+      await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+      expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D777', expect.stringContaining(fragment))
+    }
+    const dup = makeDeps({ insertMessage: vi.fn().mockResolvedValue('duplicate') })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), dup)
+    expect(dup.reply).not.toHaveBeenCalled()
+  })
+
+  it('DM にコード以外の文章が届いても何もしない（consume も返事も記録もしない）', async () => {
+    const body = eventBody({ channel: 'D777', channel_type: 'im', text: 'こんにちは' })
+    const deps = makeDeps({ normalizeClaimCode: vi.fn().mockReturnValue('ABCD-1234') })
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(r.status).toBe(200)
+    expect(deps.consumeUserLinkCode).not.toHaveBeenCalled()
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.insertMessage).not.toHaveBeenCalled()
+    expect(deps.findValidClaimCode).not.toHaveBeenCalled()
+  })
+
+  it('紐づけ済みチャンネルに TA- コードが貼られたら即失効し、マスクして記録し、「DM に送って」と返す（合図としては扱わない）', async () => {
+    const body = eventBody({ text: `これです ${USER_LINK_CODE}` })
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue({ id: 'grp-1', orgId: 'org-1', spaceId: 'sp-1' }),
+    })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.expireUserLinkCode).toHaveBeenCalledWith(USER_LINK_CODE_HASH)
+    expect(deps.consumeUserLinkCode).not.toHaveBeenCalled()
+    const input = (deps.insertMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(input).toMatchObject({ groupId: 'grp-1', actor: 'client' })
+    expect(JSON.stringify(input)).not.toContain(USER_LINK_CODE)
+    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'C123', expect.stringContaining('無効化しました'))
+    expect(deps.insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', groupId: 'grp-1', actor: 'secretary', body: expect.stringContaining('無効化しました') }),
+    )
+    expect(deps.createInstantDigestTask).not.toHaveBeenCalled()
+    expect(deps.completeDigestTask).not.toHaveBeenCalled()
+  })
+
+  it('失効できなかった（使用済み等）なら「無効化しました」とは言わず、DM に送る案内だけ返す', async () => {
+    const body = eventBody({ text: USER_LINK_CODE })
+    const deps = makeDeps({
+      findActiveGroup: vi.fn().mockResolvedValue({ id: 'grp-1', orgId: 'org-1', spaceId: 'sp-1' }),
+      expireUserLinkCode: vi.fn().mockResolvedValue(false),
+    })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    const text = (deps.reply as ReturnType<typeof vi.fn>).mock.calls[0][2] as string
+    expect(text).not.toContain('無効化しました')
+    expect(text).toContain('DM')
+  })
+
+  it('未紐づけ（limbo）チャンネルに貼られた場合も失効＋案内（記録は0行・合言葉の判定に入らない）', async () => {
+    const body = eventBody({ text: USER_LINK_CODE })
+    const deps = makeDeps()
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.expireUserLinkCode).toHaveBeenCalledWith(USER_LINK_CODE_HASH)
+    expect(deps.insertMessage).not.toHaveBeenCalled()
+    expect(deps.findValidClaimCode).not.toHaveBeenCalled()
+    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'C123', expect.stringContaining('DM'))
   })
 })

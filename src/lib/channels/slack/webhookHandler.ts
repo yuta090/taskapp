@@ -33,6 +33,11 @@
  * application/x-www-form-urlencoded の `payload=<JSON>` で届けるため、署名検証（生ボディ）の後に
  * 形式で振り分ける。v1 で受けるのは期限リマインドの確認ボタン（[完了した][対応中][明日また確認]）
  * のみで、value は LINE の postback data と同じ形式＝同じパーサ・同じ RPC（authz は RPC 内で完結）。
+ *
+ * 本人紐づけ（Stage 2.7-A の Slack 版）: AgentPM で発行した TA- コードを秘書への DM
+ * （channel_type='im'・message.im）に送ると、(口座, Slack user id) → 内部ユーザー の
+ * channel_user_links が成立する（rpc_consume_user_link_code・LINE の 1:1 トークと同じ）。
+ * チャンネルに貼られたコードは即時失効させ、合図（完了N 等）としては扱わない。
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import {
@@ -57,6 +62,8 @@ import {
   parseDueReminderSnoozePostback,
 } from '@/lib/reminders/dueReminderPostback'
 import { DUE_REMINDER_SLACK_ACTION_ID_PREFIX } from '@/lib/reminders/dueReminderMessages'
+import { extractUserLinkCode, hashUserLinkCode, maskUserLinkCode } from '@/lib/channels/userLink'
+import type { ConsumeUserLinkStatus } from '@/lib/channels/store'
 import type { DueReminderConfirmStatus, DueReminderSnoozeStatus } from '@/lib/reminders/dueReminderStore'
 import {
   DUE_REMINDER_DONE_FALLBACK_TEXT,
@@ -212,6 +219,14 @@ export interface SlackWebhookDeps extends TutorialWiring {
   ) => Promise<{ status: DueReminderSnoozeStatus }>
   /** 完了の返事に載せるタスク名（ベストエフォート・取れなければ null） */
   findTaskTitle: (taskId: string) => Promise<string | null>
+  /** 本人紐づけコードの消費（DM）。RPC は例外を投げず status で返す */
+  consumeUserLinkCode: (
+    codeHash: string,
+    channelAccountId: string,
+    externalUserId: string,
+  ) => Promise<{ status: ConsumeUserLinkStatus; linkId: string | null }>
+  /** チャンネルに晒されたコードを即時失効させる。true=失効した / false=該当なし（使用済み等） */
+  expireUserLinkCode: (codeHash: string) => Promise<boolean>
 }
 
 export interface SlackAuth {
@@ -266,9 +281,158 @@ interface SlackEvent {
   subtype?: string
   bot_id?: string
   channel?: string
+  /** 'channel' | 'group' | 'im' | 'mpim'。im=秘書への DM（本人紐づけコードの受け口） */
+  channel_type?: string
   user?: string
   text?: string
   ts?: string
+}
+
+/**
+ * 本人紐づけの返事（LINE の USER_LINK_REPLY と同じ粒度）。存在オラクルにならない範囲で、
+ * 本人が自力で回復できる程度の情報は返す。
+ */
+const SLACK_USER_LINK_REPLY: Record<ConsumeUserLinkStatus, string> = {
+  ok: 'Slack アカウントを連携しました。期限のリマインドや確認はこの DM に届きます。',
+  invalid: 'コードが無効です。AgentPM の画面で新しいコードを発行してお試しください。',
+  expired: 'コードの有効期限が切れています。AgentPM の画面で新しいコードを発行してください。',
+  locked: '試行回数が多すぎます。しばらく時間をおいてからお試しください。',
+  conflict:
+    'この Slack アカウントは既に別のユーザーに連携されています。AgentPM の画面で連携を解除してからお試しください。',
+}
+
+/** チャンネルに誤って貼られた本人コードへの応答（コードは即時失効させる） */
+const SLACK_USER_LINK_LEAKED_TEXT =
+  'このコードはチャンネルでは使えません。安全のため無効化しました。AgentPM の画面で再発行し、秘書への DM（1対1）にお送りください。'
+
+/** 失効対象が見つからなかった場合（既に使用済み・期限切れ等）。「無効化しました」と嘘をつかない */
+const SLACK_USER_LINK_LEAKED_UNKNOWN_TEXT =
+  'このコードはチャンネルでは使えません。秘書への DM（1対1）にお送りください。'
+
+/** Slack の ts（秒.マイクロ秒）を ISO 文字列へ。壊れていれば epoch */
+function occurredAtFromTs(ts: string): string {
+  const tsSec = Number.parseFloat(ts)
+  return Number.isFinite(tsSec) && tsSec > 0 ? new Date(tsSec * 1000).toISOString() : new Date(0).toISOString()
+}
+
+/**
+ * 秘書への DM（channel_type='im'）。v1 は本人紐づけコード（TA-…）だけを受け、それ以外は完全沈黙。
+ * 記録は必ず先に行い、本文はマスクして残す（平文コードを append-only の会話ログに入れない。
+ * payload にも生イベントを入れない）。RPC は例外を投げず status で返す。
+ * webhook 再送（dedupe=channel:ts）時は応答を再送しない。
+ */
+async function processDirectMessage(
+  account: SlackAccount,
+  ev: SlackEvent,
+  orgId: string,
+  deps: SlackWebhookDeps,
+): Promise<void> {
+  const code = extractUserLinkCode(ev.text)
+  if (!code || typeof ev.user !== 'string') return
+  const channelId = ev.channel as string
+
+  const recorded = await deps.insertMessage({
+    orgId,
+    spaceId: null,
+    identityId: null,
+    accountId: account.id,
+    groupId: null,
+    channel: 'slack',
+    direction: 'inbound',
+    actor: 'client',
+    externalUserId: ev.user,
+    externalMessageId: `${channelId}:${ev.ts}`,
+    contentType: 'text',
+    body: maskUserLinkCode(ev.text ?? null),
+    payload: { channel: channelId, channel_type: 'im', kind: 'user_link_code' },
+    storagePath: null,
+    status: 'received',
+    error: null,
+    occurredAt: occurredAtFromTs(ev.ts as string),
+  })
+
+  const { status } = await deps.consumeUserLinkCode(hashUserLinkCode(code), account.id, ev.user)
+  if (recorded === 'duplicate') return
+  await replyAndRecord(account, orgId, null, channelId, SLACK_USER_LINK_REPLY[status], { kind: 'user_link_reply', result: status }, deps)
+}
+
+/** 秘書の返事を送り、outbound として記録する（LINE の sendSecretaryText と同じ対）。 */
+async function replyAndRecord(
+  account: SlackAccount,
+  orgId: string,
+  group: { id: string; spaceId: string | null } | null,
+  channelId: string,
+  text: string,
+  payload: Record<string, unknown>,
+  deps: SlackWebhookDeps,
+): Promise<void> {
+  let ts: string | null = null
+  let failed = false
+  try {
+    ts = (await deps.reply(account.credentials.bot_token, channelId, text)).ts
+  } catch (e) {
+    failed = true
+    console.error('Slack webhook: reply failed', e)
+  }
+  await deps.insertOutbound({
+    orgId,
+    spaceId: group?.spaceId ?? null,
+    accountId: account.id,
+    groupId: group?.id ?? null,
+    channel: 'slack',
+    direction: 'outbound',
+    actor: 'secretary',
+    body: text,
+    payload: ts ? { ...payload, provider_message_id: ts } : payload,
+    status: failed ? 'failed' : 'sent',
+    error: failed ? 'reply failed' : null,
+    occurredAt: new Date().toISOString(),
+  })
+}
+
+/**
+ * チャンネル（claimed / limbo を問わず）に本人コードが貼られた。見た人が使えてはならないので
+ * 即時失効させ、DM に送るよう案内する。合図（完了N・合言葉）としては扱わない。
+ * claimed ならマスクした本文で記録する（limbo は 0 行）。
+ */
+async function processLeakedUserLinkCode(
+  account: SlackAccount,
+  ev: SlackEvent,
+  code: string,
+  deps: SlackWebhookDeps,
+): Promise<void> {
+  const channelId = ev.channel as string
+  const expired = await deps.expireUserLinkCode(hashUserLinkCode(code))
+  const group = await deps.findActiveGroup(account.id, channelId)
+  if (group) {
+    const recorded = await deps.insertMessage({
+      orgId: group.orgId,
+      spaceId: group.spaceId,
+      identityId: null,
+      accountId: account.id,
+      groupId: group.id,
+      channel: 'slack',
+      direction: 'inbound',
+      actor: 'client',
+      externalUserId: typeof ev.user === 'string' ? ev.user : null,
+      externalMessageId: `${channelId}:${ev.ts}`,
+      contentType: 'text',
+      body: maskUserLinkCode(ev.text ?? null),
+      payload: { channel: channelId, kind: 'user_link_code_leaked' },
+      storagePath: null,
+      status: 'received',
+      error: null,
+      occurredAt: occurredAtFromTs(ev.ts as string),
+    })
+    if (recorded === 'duplicate') return
+  }
+  const text = expired ? SLACK_USER_LINK_LEAKED_TEXT : SLACK_USER_LINK_LEAKED_UNKNOWN_TEXT
+  if (group) {
+    await replyAndRecord(account, group.orgId, { id: group.id, spaceId: group.spaceId }, channelId, text, { kind: 'user_link_leaked_reply', expired }, deps)
+  } else {
+    // limbo: 帰属が無いので記録は 0 行（受信側と同じ方針）。返事だけ出す
+    await deps.reply(account.credentials.bot_token, channelId, text)
+  }
 }
 
 // Slackのユーザー/Botメンション表記(<@U…>/<@W…>)。先頭一致のみ剥がす（文中の言及は対象外）。
@@ -608,14 +772,23 @@ export async function handleSlackWebhook(
     return { status: 200, body: { ok: true, ignored: 'unsupported event' } }
   }
 
+  // 秘書への DM（1対1）は本人紐づけコードの受け口。チャンネルの合言葉・合図の流れには入れない。
+  if (ev.channel_type === 'im') {
+    await processDirectMessage(account, ev, account.orgId, deps)
+    return { status: 200, body: { ok: true } }
+  }
+
+  // チャンネルに貼られた本人コードは、claimed/limbo の判定より先に失効させる
+  // （見た人がコピーして DM に送れば本人として紐づいてしまうため）。
+  const leakedCode = extractUserLinkCode(ev.text)
+  if (leakedCode) {
+    await processLeakedUserLinkCode(account, ev, leakedCode, deps)
+    return { status: 200, body: { ok: true } }
+  }
+
   const group = await deps.findActiveGroup(account.id, ev.channel)
   if (group) {
-    // ts は "1700000100.000200" のような秒.マイクロ秒。ミリ秒に変換。
-    const tsSec = Number.parseFloat(ev.ts)
-    const occurredAt =
-      Number.isFinite(tsSec) && tsSec > 0
-        ? new Date(tsSec * 1000).toISOString()
-        : new Date(0).toISOString()
+    const occurredAt = occurredAtFromTs(ev.ts)
 
     // 「完了N」自体も通常の発言としてまず記録する（監査ログ・順序は変えない）
     const recorded = await deps.insertMessage({
