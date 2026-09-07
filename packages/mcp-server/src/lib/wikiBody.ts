@@ -60,7 +60,7 @@ export interface Block {
 
 // ---- inline ----
 
-function text(t: string, styles: InlineStyles = {}): InlineContent {
+function text(t: string, styles: InlineStyles = {}): TextInline {
   return { type: 'text', text: t, styles }
 }
 
