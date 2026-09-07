@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback, useLayoutEffect, memo } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { Circle, CheckCircle, ArrowRight, ArrowCounterClockwise, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
 import { AmberDot, Tooltip, TruncatedText } from '@/components/shared'
@@ -50,6 +50,8 @@ function isOverdue(dateStr: string | null): boolean {
 
 // Row icons are deliberately one step lighter than the badge palette: at 18px
 // next to every title, the 400/500 tints read as heavy noise down the list.
+// Gray stays at 400: `.dark` remaps gray-300 to a border tone (#3A414E) that
+// disappears against the dark row background.
 function getStatusIcon(status: TaskStatus) {
   switch (status) {
     case 'done':
@@ -59,12 +61,26 @@ function getStatusIcon(status: TaskStatus) {
     case 'in_review':
       return <Circle weight="fill" className="text-amber-300" />
     case 'considering':
-      return <Circle weight="duotone" className="text-gray-300" />
+      return <Circle weight="duotone" className="text-gray-400" />
     case 'todo':
-      return <Circle className="text-gray-300" />
+      return <Circle className="text-gray-400" />
     default:
-      return <Circle className="text-gray-300" />
+      return <Circle className="text-gray-400" />
   }
+}
+
+/** Approximate rendered height of the status menu (5 items × 32px + padding). */
+const STATUS_MENU_HEIGHT = 176
+const STATUS_MENU_GAP = 4
+
+/** Fixed-position anchor for the menu: below the icon, flipped above when it would leave the viewport. */
+export function placeStatusMenu(
+  rect: Pick<DOMRect, 'top' | 'bottom' | 'left'>,
+  viewportHeight: number
+): { top: number; left: number } {
+  const below = rect.bottom + STATUS_MENU_GAP
+  if (below + STATUS_MENU_HEIGHT <= viewportHeight) return { top: below, left: rect.left }
+  return { top: Math.max(0, rect.top - STATUS_MENU_GAP - STATUS_MENU_HEIGHT), left: rect.left }
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -105,14 +121,8 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!isOpen) return
-    const place = () => {
-      const rect = buttonRef.current?.getBoundingClientRect()
-      if (!rect) return
-      setMenuPos({ top: rect.bottom + 4, left: rect.left })
-    }
-    place()
     // The list scrolls under the menu; close rather than let it drift away from its icon.
     const close = () => setIsOpen(false)
     window.addEventListener('scroll', close, true)
@@ -143,9 +153,14 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (onStatusChange) {
-      setIsOpen(!isOpen)
+    if (!onStatusChange) return
+    if (isOpen) {
+      setIsOpen(false)
+      return
     }
+    // Anchor from the click target's live rect (same approach as handleMobileActions).
+    setMenuPos(placeStatusMenu(e.currentTarget.getBoundingClientRect(), window.innerHeight))
+    setIsOpen(true)
   }
 
   const handleSelect = (newStatus: TaskStatus) => {

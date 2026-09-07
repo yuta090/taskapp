@@ -29,8 +29,10 @@ describe('TaskRow status icon', () => {
     ['in_progress', 'text-blue-300'],
     ['in_review', 'text-amber-300'],
     ['done', 'text-green-400'],
-    ['todo', 'text-gray-300'],
-    ['backlog', 'text-gray-300'],
+    // Gray stays at 400: gray-300 is remapped to a dark border tone under .dark and vanishes.
+    ['todo', 'text-gray-400'],
+    ['backlog', 'text-gray-400'],
+    ['considering', 'text-gray-400'],
   ] as const)('uses a lighter tint for %s', (status, cls) => {
     render(<TaskRow task={makeTask({ status })} />)
     const svg = screen.getByRole('button', { name: /ステータスを変更/ }).querySelector('svg')
@@ -52,6 +54,29 @@ describe('TaskRow status dropdown', () => {
     expect(menu).toHaveClass('bg-surface')
     expect(menu).toHaveClass('shadow-popover')
     expect(menu.style.position).toBe('fixed')
+  })
+
+  it('opens below the icon when there is room', () => {
+    render(<TaskRow task={makeTask()} onStatusChange={vi.fn()} />)
+    const button = screen.getByRole('button', { name: /ステータスを変更/ })
+    button.getBoundingClientRect = () =>
+      ({ top: 100, bottom: 120, left: 40, right: 60, width: 20, height: 20 }) as DOMRect
+    fireEvent.click(button)
+    const menu = screen.getByRole('menu', { name: 'ステータスを選択' })
+    expect(parseFloat(menu.style.top)).toBeGreaterThan(120)
+    expect(menu.style.left).toBe('40px')
+  })
+
+  it('flips above the icon for rows near the bottom of the viewport', () => {
+    render(<TaskRow task={makeTask()} onStatusChange={vi.fn()} />)
+    const button = screen.getByRole('button', { name: /ステータスを変更/ })
+    const bottom = window.innerHeight - 30
+    button.getBoundingClientRect = () =>
+      ({ top: bottom - 20, bottom, left: 40, right: 60, width: 20, height: 20 }) as DOMRect
+    fireEvent.click(button)
+    const menu = screen.getByRole('menu', { name: 'ステータスを選択' })
+    expect(parseFloat(menu.style.top)).toBeLessThan(bottom - 20)
+    expect(parseFloat(menu.style.top)).toBeGreaterThanOrEqual(0)
   })
 
   it('selecting an option reports the new status and closes the menu', () => {
