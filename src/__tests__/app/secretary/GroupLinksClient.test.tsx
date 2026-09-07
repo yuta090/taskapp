@@ -117,6 +117,14 @@ describe('GroupLinksClient', () => {
     expect(screen.queryByText(/紐付/)).not.toBeInTheDocument()
   })
 
+  it('確認待ちは LINE の口に届いた分だけを取りに行く（Slack 等は各チャネルの画面で承認する）', async () => {
+    mockApis({})
+    renderPanel()
+    await waitFor(() => expect(pendingCallCount()).toBeGreaterThan(0))
+    const [url] = fetchMock.mock.calls.find(([u]) => (u as string).includes('/group-claims/pending'))!
+    expect(url).toBe(`/api/channels/group-claims/pending?orgId=${ORG}&channel=line`)
+  })
+
   it('プロジェクト選択肢は自org分のみ（他orgのspaceは出さない）', async () => {
     mockApis({})
     renderPanel()

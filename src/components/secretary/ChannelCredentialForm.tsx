@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { ChannelDefinition } from '@/lib/channels/registry'
 import { requiredCredentialFields } from '@/lib/channels/registry'
+import { useOrgChannelAccount } from '@/lib/hooks/useOrgChannelAccount'
 
 interface Props {
   orgId: string
@@ -28,6 +29,13 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
   const required = requiredCredentialFields(def)
   const optional = def.credentialFields.filter((f) => !f.generated && f.optional)
   const inputs = [...required, ...optional]
+
+  // 接続状態（合鍵そのものは返らない。表示名・登録日・有効/無効だけ）。
+  // 合鍵は再表示しない仕様のため、これが無いと毎回まっさらのフォームになり
+  // 「つながっていない」ように見えてしまう（Slack 作り直しの際に実際に誤解を招いた）。
+  // SlackSecretarySetupGuide と同じ hook/クエリキーを使い、同じページで二重に取りに行かない
+  const { data: account, isPending: accountLoading, refetch } = useOrgChannelAccount(orgId, def.id)
+  const [rotating, setRotating] = useState(false)
 
   const [values, setValues] = useState<Record<string, string>>({})
   const [displayName, setDisplayName] = useState('')
@@ -92,6 +100,10 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
       window.dispatchEvent(
         new CustomEvent('agentpm:channel-account-registered', { detail: { orgId, channel: def.id } }),
       )
+      // 保存できたら入力欄を畳み、接続状態カードを取り直す（合鍵の値はここに残さない）
+      setValues({})
+      setRotating(false)
+      void refetch()
     } catch {
       setError('通信に失敗しました。時間をおいて再度お試しください。')
     } finally {
@@ -100,6 +112,11 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
   }
 
   const generatedEntries = result ? Object.entries(result.generatedSecrets) : []
+  const connected = !!account
+  // 初回(キャッシュ無し)は取得が終わるまで入力欄を出さない。先に空フォームを描くと
+  // 「接続済み」カードへ差し替わる瞬間に、直そうとしている誤解そのものが再現する。
+  const checking = accountLoading && !account
+  const showInputs = !checking && (!connected || rotating)
 
   return (
     <form onSubmit={onSubmit}>
@@ -108,44 +125,104 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
         自社アカウント（白ラベル）接続は Pro プラン限定です。保存した資格情報は暗号化され、画面には再表示されません。
       </p>
 
-      <label className="block mb-3">
-        <span className="text-xs text-gray-500">表示名（任意）</span>
-        <input
-          type="text"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder={def.label}
-          className="mt-1 w-full rounded border border-gray-200 px-2 py-1.5 text-sm"
-        />
-      </label>
+      {checking && (
+        <p className="mb-4 text-xs text-gray-400" data-testid="channel-connect-checking">
+          接続状態を確認中…
+        </p>
+      )}
 
-      {inputs.map((f) => (
-        <label key={f.key} className="block mb-3">
-          <span className="text-xs text-gray-500">
-            {f.label}
-            {f.optional && <span className="ml-1 text-gray-400">（任意）</span>}
-          </span>
+      {connected && account && (
+        <div
+          className="mb-4 rounded border border-emerald-200 bg-emerald-50 px-3 py-2"
+          data-testid="channel-connected-card"
+        >
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className="font-medium text-emerald-800">接続済み</span>
+            <span className="text-gray-900">{account.displayName || def.label}</span>
+            <span className="text-xs text-gray-500">
+              {new Date(account.createdAt).toLocaleDateString('ja-JP')} 登録
+            </span>
+            {account.status === 'disabled' && (
+              <span className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-600">
+                無効
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            合鍵は保存済みです（安全のため画面には出しません）。入れ直すときだけ下のボタンを押してください。
+            {account.status === 'disabled' && ' 入れ直すと有効に戻ります。'}
+          </p>
+          {!rotating && (
+            <button
+              type="button"
+              onClick={() => setRotating(true)}
+              className="mt-2 inline-flex items-center rounded border border-gray-200 bg-surface px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            >
+              合鍵を入れ直す
+            </button>
+          )}
+        </div>
+      )}
+
+      {showInputs && (
+        <>
+        <label className="block mb-3">
+          <span className="text-xs text-gray-500">表示名（任意）</span>
           <input
-            data-testid={`cred-input-${f.key}`}
-            type={f.secret ? 'password' : 'text'}
-            autoComplete="off"
-            value={values[f.key] ?? ''}
-            onChange={(e) => setField(f.key, e.target.value)}
-            className="mt-1 w-full rounded border border-gray-200 px-2 py-1.5 text-sm font-mono"
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder={def.label}
+            className="mt-1 w-full rounded border border-gray-200 px-2 py-1.5 text-sm"
           />
-          {f.help && <span className="mt-0.5 block text-[11px] text-gray-400">{f.help}</span>}
         </label>
-      ))}
 
-      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+        {inputs.map((f) => (
+          <label key={f.key} className="block mb-3">
+            <span className="text-xs text-gray-500">
+              {f.label}
+              {f.optional && <span className="ml-1 text-gray-400">（任意）</span>}
+            </span>
+            <input
+              data-testid={`cred-input-${f.key}`}
+              type={f.secret ? 'password' : 'text'}
+              autoComplete="off"
+              value={values[f.key] ?? ''}
+              onChange={(e) => setField(f.key, e.target.value)}
+              className="mt-1 w-full rounded border border-gray-200 px-2 py-1.5 text-sm font-mono"
+            />
+            {f.help && <span className="mt-0.5 block text-[11px] text-gray-400">{f.help}</span>}
+          </label>
+        ))}
+        </>
+      )}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="inline-flex items-center rounded bg-amber-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
-      >
-        {submitting ? '登録中…' : '接続する'}
-      </button>
+      {showInputs && error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+
+      {showInputs && (
+        <div className="flex items-center gap-2">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex items-center rounded bg-amber-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            {submitting ? '登録中…' : connected ? '更新する' : '接続する'}
+          </button>
+          {connected && rotating && (
+            <button
+              type="button"
+              onClick={() => {
+                setRotating(false)
+                setValues({})
+                setError(null)
+              }}
+              className="text-xs text-gray-500 hover:text-gray-700"
+            >
+              やめる
+            </button>
+          )}
+        </div>
+      )}
 
       {result && (
         <div className="mt-5 rounded border border-emerald-200 bg-emerald-50 p-4">
