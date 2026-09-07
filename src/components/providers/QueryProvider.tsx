@@ -68,6 +68,9 @@ function makeQueryClient() {
 // a place PII could linger on disk.
 function shouldDehydrateQuery(query: Query): boolean {
   if (query.queryKey[0] === 'currentUser') return false
+  // ファイル→表ビューの変換済み表(最大4MBのCSV由来)は IDB に載せない。再取得は安いが
+  // 永続化すると IDB が肥大し、他クエリの restore まで遅くなる。
+  if (query.queryKey[0] === 'fileTable') return false
   return defaultShouldDehydrateQuery(query)
 }
 
