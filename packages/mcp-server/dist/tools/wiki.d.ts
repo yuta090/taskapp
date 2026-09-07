@@ -24,16 +24,19 @@ declare const wikiCreateSchema: z.ZodObject<{
     spaceId: z.ZodString;
     title: z.ZodString;
     body: z.ZodOptional<z.ZodString>;
+    format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     title: string;
     body?: string | undefined;
+    format?: "markdown" | "html" | "blocks" | undefined;
     tags?: string[] | undefined;
 }, {
     spaceId: string;
     title: string;
     body?: string | undefined;
+    format?: "markdown" | "html" | "blocks" | undefined;
     tags?: string[] | undefined;
 }>;
 declare const wikiUpdateSchema: z.ZodObject<{
@@ -41,18 +44,21 @@ declare const wikiUpdateSchema: z.ZodObject<{
     pageId: z.ZodString;
     title: z.ZodOptional<z.ZodString>;
     body: z.ZodOptional<z.ZodString>;
+    format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     pageId: string;
     title?: string | undefined;
     body?: string | undefined;
+    format?: "markdown" | "html" | "blocks" | undefined;
     tags?: string[] | undefined;
 }, {
     spaceId: string;
     pageId: string;
     title?: string | undefined;
     body?: string | undefined;
+    format?: "markdown" | "html" | "blocks" | undefined;
     tags?: string[] | undefined;
 }>;
 declare const wikiDeleteSchema: z.ZodObject<{
@@ -121,16 +127,19 @@ export declare const wikiTools: ({
         spaceId: z.ZodString;
         title: z.ZodString;
         body: z.ZodOptional<z.ZodString>;
+        format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
         tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         title: string;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }, {
         spaceId: string;
         title: string;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }>;
     handler: typeof wikiCreate;
@@ -142,18 +151,21 @@ export declare const wikiTools: ({
         pageId: z.ZodString;
         title: z.ZodOptional<z.ZodString>;
         body: z.ZodOptional<z.ZodString>;
+        format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
         tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }>;
     handler: typeof wikiUpdate;

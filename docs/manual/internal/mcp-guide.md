@@ -73,6 +73,7 @@ AgentPMのプロジェクト一覧を表示して
 | `task_get` | タスクの詳細と担当者を取得 |
 | `task_delete` | タスクを削除（安全確認付き） |
 | `task_import` | CSVからタスクを一括作成（既定は確認のみ。`agentpm task import` の実体） |
+| `task_update` の `wikiPageId` | タスクに Wiki ページを紐づける（画面の「仕様書連携」） |
 | `task_list_my` | 全スペース横断で自分のタスクを取得 |
 
 ### ボール管理ツール
@@ -144,6 +145,9 @@ AgentPMのプロジェクト一覧を表示して
 | `space_update` | プロジェクトを更新 |
 
 ### Wikiツール
+
+> `wiki_create` / `wiki_update` の本文は Markdown / HTML / BlockNote JSON を受け、保存時に画面と同じブロック形式へ変換する（`format` で明示可）。
+
 
 | ツール名 | 説明 |
 |---------|------|

@@ -42,3 +42,12 @@ export declare function mergeCliOptions(options: ManifestOption[], opts: Record<
  *  - それ以外(json): JSON.parse したオブジェクトを土台にする
  */
 export declare function buildStdinParams(sub: Pick<ManifestSubcommand, 'stdinFormat' | 'stdinParam' | 'options' | 'name'>, rawText: string, opts: Record<string, unknown>, resolvedSpaceId: string | undefined): Record<string, unknown>;
+/**
+ * テキスト入力モード（stdinFormat='text'）で、実際に stdin / --file から本文を読むべきか。
+ * どちらも無ければ通常モード（--body 等の引数）にそのまま進む。JSON モード（scheduling）は従来どおり
+ * --stdin 必須なので、この判定は text モード専用。
+ */
+export declare function wantsTextInput(sub: Pick<ManifestSubcommand, 'stdinMode' | 'stdinFormat'>, opts: Record<string, unknown>): {
+    read: boolean;
+    filePath?: string;
+};

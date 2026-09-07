@@ -82,4 +82,16 @@ describe('cli-manifest: notices（CLI に出すお知らせ）', () => {
     const computed = createHash('sha256').update(JSON.stringify(manifest.commands)).digest('hex')
     expect(manifest.checksum).toBe(`sha256:${computed}`)
   })
+
+  it('wiki create/update は本文を --file / --stdin のテキストで受け、task update は --wiki-page-id を持つ', () => {
+    const wiki = manifest.commands.find((c) => c.name === 'wiki')!
+    for (const name of ['create', 'update']) {
+      const sub = wiki.subcommands!.find((s) => s.name === name)!
+      expect(sub).toMatchObject({ stdinMode: true, stdinFormat: 'text', stdinParam: 'body' })
+      expect(sub.options.map((o) => o.flags)).toEqual(expect.arrayContaining(['--stdin', '--format <fmt>', '--body <body>']))
+    }
+    const task = manifest.commands.find((c) => c.name === 'task')!
+    const update = task.subcommands!.find((s) => s.name === 'update')!
+    expect(update.options.some((o) => o.param === 'wikiPageId')).toBe(true)
+  })
 })

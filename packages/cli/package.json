@@ -1,6 +1,6 @@
 {
   "name": "agentpm",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "CLI for TaskApp - AI-first task management",
   "type": "module",
   "main": "dist/index.js",

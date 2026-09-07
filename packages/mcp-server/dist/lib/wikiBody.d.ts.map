@@ -1,0 +1,1 @@
+{"version":3,"file":"wikiBody.d.ts","sourceRoot":"","sources":["../../src/lib/wikiBody.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;GAUG;AAEH,MAAM,MAAM,cAAc,GAAG,UAAU,GAAG,MAAM,GAAG,QAAQ,CAAA;AAI3D,yEAAyE;AACzE,wBAAgB,oBAAoB,CAAC,IAAI,EAAE,MAAM,GAAG,cAAc,CAcjE;AAgBD;;;;GAIG;AACH,wBAAsB,gBAAgB,CAAC,IAAI,EAAE,MAAM,EAAE,MAAM,CAAC,EAAE,cAAc,GAAG,OAAO,CAAC,MAAM,CAAC,CAO7F"}

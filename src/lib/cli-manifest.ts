@@ -161,6 +161,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--parent-task-id <uuid>', description: 'Parent task UUID', param: 'parentTaskId' },
           { flags: '--actual-hours <n>', description: 'Actual hours', param: 'actualHours', type: 'float' },
           { flags: '--milestone-id <uuid>', description: 'Milestone UUID', param: 'milestoneId' },
+          { flags: '--wiki-page-id <uuid>', description: 'Link a wiki page (仕様書連携)', param: 'wikiPageId' },
         ],
       },
       {
@@ -657,22 +658,38 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
         name: 'create',
         description: 'Create a wiki page',
         tool: 'wiki_create',
+        stdinMode: true,
+        stdinFormat: 'text',
+        stdinParam: 'body',
+        examples: [
+          'agentpm wiki create --title "顧客ジャーニー" --file 14_customer_journey_v1.md --tags 仕様書',
+          'agentpm wiki create --title "ターゲット分類" --file 04_target_segmentation_v0.html',
+          'agentpm wiki create --title "メモ" --body "# 見出し"',
+        ],
         options: [
           spaceOpt,
           { flags: '--title <title>', description: 'Page title', param: 'title', required: true },
-          { flags: '--body <body>', description: 'Page body (Markdown)', param: 'body' },
-          { flags: '--tags <tags...>', description: 'Tags', param: 'tags', type: 'string[]' },
+          { flags: '--body <body>', description: 'Page body (Markdown / HTML). Or use --file <path> / --stdin', param: 'body' },
+          { flags: '--stdin', description: 'Read body text from stdin', param: 'stdin', type: 'bool' },
+          { flags: '--format <fmt>', description: 'Body format (default: auto-detect)', param: 'format', choices: ['markdown', 'html', 'blocks'] },
+          { flags: '--tags <tags...>', description: 'Tags（仕様書 を付けるとタスクの「仕様書連携」で選べる）', param: 'tags', type: 'string[]' },
         ],
       },
       {
         name: 'update',
         description: 'Update a wiki page',
         tool: 'wiki_update',
+        stdinMode: true,
+        stdinFormat: 'text',
+        stdinParam: 'body',
+        examples: ['agentpm wiki update --page-id <id> --file 14_customer_journey_v2.md'],
         options: [
           spaceOpt,
           { flags: '--page-id <id>', description: 'Wiki page ID', param: 'pageId', required: true },
           { flags: '--title <title>', description: 'New title', param: 'title' },
-          { flags: '--body <body>', description: 'New body (Markdown)', param: 'body' },
+          { flags: '--body <body>', description: 'New body (Markdown / HTML). Or use --file <path> / --stdin', param: 'body' },
+          { flags: '--stdin', description: 'Read body text from stdin', param: 'stdin', type: 'bool' },
+          { flags: '--format <fmt>', description: 'Body format (default: auto-detect)', param: 'format', choices: ['markdown', 'html', 'blocks'] },
           { flags: '--tags <tags...>', description: 'New tags', param: 'tags', type: 'string[]' },
         ],
       },
@@ -855,7 +872,7 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.3.0',
+      version: '1.4.0',
       minCliVersion: '0.2.0',
       generatedAt: '2026-09-07T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
