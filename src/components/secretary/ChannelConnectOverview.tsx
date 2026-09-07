@@ -3,6 +3,7 @@ import type { ChannelDefinition } from '@/lib/channels/registry'
 import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
 import { SharedBotClaimPanel } from '@/components/secretary/SharedBotClaimPanel'
+import { PendingClaimsPanel } from '@/components/secretary/PendingClaimsPanel'
 import { ChannelCommandGuide } from '@/components/secretary/ChannelCommandGuide'
 import { SlackSecretarySetupGuide } from '@/components/secretary/SlackSecretarySetupGuide'
 
@@ -58,6 +59,11 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
         <div className="mt-6">
           <SharedBotClaimPanel orgId={orgId} channel={def.id} />
         </div>
+      )}
+      {/* 合言葉方式のチャネルは、発行の直下に「確認待ち」を置いて同じ画面で承認まで済ませる。
+          以前は LINE 用ページにしか承認が無く、Slack の合言葉が LINE の画面に紛れて出ていた。 */}
+      {(isSharedBotClaim || (canRegister && isOwnAccountClaim)) && (
+        <PendingClaimsPanel orgId={orgId} channel={def.id} />
       )}
       {!isSharedBotClaim && !canRegister && (
         <p className="text-sm text-gray-500">このチャネルは準備中です。開通しましたらご案内します。</p>

@@ -205,8 +205,10 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
       }
 
       try {
+        // このページは LINE 専用。Slack/Discord 等の合言葉は各チャネルの「つなぐ」画面
+        // (PendingClaimsPanel)で承認するため、ここでは LINE の口に届いたものだけを出す。
         const res = await fetch(
-          `/api/channels/group-claims/pending?orgId=${orgId}`,
+          `/api/channels/group-claims/pending?orgId=${orgId}&channel=line`,
           controller ? { signal: controller.signal } : undefined,
         )
         const json = await res.json().catch(() => ({}))

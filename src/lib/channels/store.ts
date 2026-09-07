@@ -408,13 +408,17 @@ export async function findChannelAccountMetaForOrgChannel(
   orgId: string,
   channel: string,
 ): Promise<ChannelAccountMeta | null> {
+  // 登録側(findReusableOrgChannelAccountId)と同じ行を指す: 有効を優先・新しい順。
+  // 部分一意index(channel_accounts_active_org_unique)は有効な行しか守らず、無効な古い行が
+  // 残りうるため、created_at 昇順の先頭だと無効な行を「接続済み」と出してしまう。
   const { data, error } = await admin()
     .from('channel_accounts')
     .select(ACCOUNT_META_COLUMNS)
     .eq('org_id', orgId)
     .eq('channel', channel)
     .eq('owner_type', 'org')
-    .order('created_at', { ascending: true })
+    .order('status', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -1454,19 +1458,38 @@ export interface PendingGroupClaim {
   challengeLabel: string | null
   groupDisplayNameSnapshot: string | null
   createdAt: string
+  /** 合言葉が届いた口のチャネル(line/slack/discord…)。口が消えていれば null */
+  channel: string | null
 }
 
 const GROUP_CLAIM_PENDING_COLUMNS =
-  'id, external_group_id, space_id, challenge_label, group_display_name_snapshot, created_at, spaces(name)'
+  'id, external_group_id, space_id, challenge_label, group_display_name_snapshot, created_at, spaces(name), channel_accounts(channel)'
+/** channel 絞り込み時は !inner にして結合先の列で WHERE できるようにする */
+const GROUP_CLAIM_PENDING_COLUMNS_BY_CHANNEL = GROUP_CLAIM_PENDING_COLUMNS.replace(
+  'channel_accounts(channel)',
+  'channel_accounts!inner(channel)',
+)
+/** 承認も却下もされない放置分が溜まっても、一覧の重さを有界にする */
+const GROUP_CLAIM_PENDING_LIMIT = 50
 
-/** 承認コンソール「確認待ち」一覧。自orgのpending claimをspace表示名付きで古い順に返す */
-export async function listPendingGroupClaimsForOrg(orgId: string): Promise<PendingGroupClaim[]> {
-  const { data, error } = await admin()
+/**
+ * 承認コンソール「確認待ち」一覧。自orgのpending claimをspace表示名付きで古い順に返す。
+ * channel を渡すと、その口(channel_accounts.channel)に届いた claim だけに絞る —
+ * 各チャネルの「つなぐ」画面に確認待ちを出すため（Slack の合言葉が LINE の画面に紛れない）。
+ */
+export async function listPendingGroupClaimsForOrg(
+  orgId: string,
+  channel?: string,
+): Promise<PendingGroupClaim[]> {
+  let query = admin()
     .from('channel_group_claims')
-    .select(GROUP_CLAIM_PENDING_COLUMNS)
+    .select(channel ? GROUP_CLAIM_PENDING_COLUMNS_BY_CHANNEL : GROUP_CLAIM_PENDING_COLUMNS)
     .eq('org_id', orgId)
     .eq('status', 'pending')
+  if (channel) query = query.eq('channel_accounts.channel', channel)
+  const { data, error } = await query
     .order('created_at', { ascending: true })
+    .limit(GROUP_CLAIM_PENDING_LIMIT)
 
   if (error) throw new Error(`channel_group_claims: list failed: ${error.message}`)
 
@@ -1478,9 +1501,11 @@ export async function listPendingGroupClaimsForOrg(orgId: string): Promise<Pendi
     group_display_name_snapshot: string | null
     created_at: string
     spaces: { name: string | null } | { name: string | null }[] | null
+    channel_accounts?: { channel: string | null } | { channel: string | null }[] | null
   }
-  return ((data as unknown as Row[]) ?? []).map((row) => {
+  const items = ((data as unknown as Row[]) ?? []).map((row) => {
     const s = Array.isArray(row.spaces) ? row.spaces[0] : row.spaces
+    const a = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
     return {
       id: row.id,
       externalGroupId: row.external_group_id,
@@ -1489,8 +1514,11 @@ export async function listPendingGroupClaimsForOrg(orgId: string): Promise<Pendi
       challengeLabel: row.challenge_label,
       groupDisplayNameSnapshot: row.group_display_name_snapshot,
       createdAt: row.created_at,
+      channel: a?.channel ?? null,
     }
   })
+  // DB側でも絞っているが、結合の形（配列/単体）に依らず同じ答えになるよう最後にもう一度絞る
+  return channel ? items.filter((it) => it.channel === channel) : items
 }
 
 /** 承認/却下APIの認可用: claimの実所属orgを引く（クライアント申告のorgIdは信用しない） */

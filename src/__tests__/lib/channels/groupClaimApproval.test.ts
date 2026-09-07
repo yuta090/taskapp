@@ -50,6 +50,41 @@ beforeEach(() => {
 })
 
 describe('listPendingGroupClaimsForOrg', () => {
+  it('channel を渡すと、そのチャネルの口(channel_accounts.channel)に届いた claim だけを返し、各行に channel を付ける', async () => {
+    // Slack の合言葉が LINE の「確認待ち」に紛れ込んでいた不具合の回帰テスト:
+    // 承認一覧はチャネルごとのページに出すため、口のチャネルで絞り込めること。
+    fromResponses['channel_group_claims'] = {
+      data: [
+        { id: 'claim-line', external_group_id: 'G-1', space_id: 'space-1', challenge_label: 'AB12', group_display_name_snapshot: null, created_at: '2026-07-15T00:00:00Z', spaces: { name: '山田商事' }, channel_accounts: { channel: 'line' } },
+        { id: 'claim-slack', external_group_id: 'C0BUXTZPW3H', space_id: 'space-2', challenge_label: 'ZXQ2', group_display_name_snapshot: null, created_at: '2026-09-07T08:31:33Z', spaces: { name: 'アルカラ' }, channel_accounts: { channel: 'slack' } },
+      ],
+      error: null,
+    }
+
+    const result = await store.listPendingGroupClaimsForOrg('org-1', 'slack')
+
+    expect(result.map((r) => r.id)).toEqual(['claim-slack'])
+    expect(result[0].channel).toBe('slack')
+    // DB 側でも絞っていること（メモリ側の保険だけに頼ると、limit(50) が他チャネルの古い行で
+    // 埋まったとき Slack の確認待ちが1件も出なくなる）
+    const builder = fromMock.mock.results[0].value
+    expect(builder.select).toHaveBeenCalledWith(expect.stringContaining('channel_accounts!inner(channel)'))
+    expect(builder.eq).toHaveBeenCalledWith('channel_accounts.channel', 'slack')
+    expect(builder.limit).toHaveBeenCalledWith(50)
+  })
+
+  it('channel を渡さなければ全チャネルの claim を返す（既存の LINE ページ互換）', async () => {
+    fromResponses['channel_group_claims'] = {
+      data: [
+        { id: 'claim-line', external_group_id: 'G-1', space_id: 'space-1', challenge_label: 'AB12', group_display_name_snapshot: null, created_at: '2026-07-15T00:00:00Z', spaces: { name: '山田商事' }, channel_accounts: { channel: 'line' } },
+        { id: 'claim-slack', external_group_id: 'C-1', space_id: 'space-2', challenge_label: 'ZXQ2', group_display_name_snapshot: null, created_at: '2026-09-07T08:31:33Z', spaces: { name: 'アルカラ' }, channel_accounts: { channel: 'slack' } },
+      ],
+      error: null,
+    }
+    const result = await store.listPendingGroupClaimsForOrg('org-1')
+    expect(result.map((r) => r.channel)).toEqual(['line', 'slack'])
+  })
+
   it('自orgのpending claimをspace表示名付きで返す（created_at昇順）', async () => {
     fromResponses['channel_group_claims'] = {
       data: [
@@ -77,6 +112,7 @@ describe('listPendingGroupClaimsForOrg', () => {
         challengeLabel: 'AB12',
         groupDisplayNameSnapshot: 'ある会社の相談グループ',
         createdAt: '2026-07-15T00:00:00Z',
+        channel: null,
       },
     ])
 
