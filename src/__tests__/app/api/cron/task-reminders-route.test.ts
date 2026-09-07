@@ -17,11 +17,13 @@ const storeMock = {
   findDueTaskReminders: vi.fn(),
   findActiveGroupsForSpaces: vi.fn(),
   markTaskReminderSent: vi.fn(),
-  findLineAccountById: vi.fn(),
+  findAccountForSecretaryPush: vi.fn(),
 }
 vi.mock('@/lib/reminders/taskReminderStore', () => storeMock)
 
-const accountMock = { findLineAccountById: storeMock.findLineAccountById }
+// マルチチャネル化: LINE専用の findLineAccountById ではなく、全チャネル対応の
+// findAccountForSecretaryPush（channel-digest と同じ入口）で account を引く
+const accountMock = { findAccountForSecretaryPush: storeMock.findAccountForSecretaryPush }
 vi.mock('@/lib/channels/store', () => accountMock)
 
 const sendSecretaryPushMock = vi.fn()
@@ -49,7 +51,23 @@ function callPost(headers: Record<string, string> = { authorization: 'Bearer tes
   return POST(request)
 }
 
-const ACCOUNT = { id: 'acc-1', ownerType: 'platform' as const, accessToken: 'token-1' }
+const ACCOUNT = {
+  ok: true as const,
+  id: 'acc-1',
+  ownerType: 'platform' as const,
+  channel: 'line',
+  credentials: { channel_secret: 'secret-1', access_token: 'token-1' },
+  status: 'active' as const,
+}
+
+const SLACK_ACCOUNT = {
+  ok: true as const,
+  id: 'acc-slack',
+  ownerType: 'org' as const,
+  channel: 'slack',
+  credentials: { bot_token: 'xoxb-1' },
+  status: 'active' as const,
+}
 
 function entitled(has: boolean) {
   return { planId: has ? 'pro' : 'free', has: () => has }
@@ -72,6 +90,19 @@ const GROUP_LINK = {
   accountId: 'acc-1',
   externalGroupId: 'G-1',
   ownerType: 'platform',
+  channel: 'line',
+  metadata: null,
+}
+
+const SLACK_GROUP_LINK = {
+  id: 'group-slack',
+  spaceId: 'space-1',
+  orgId: 'org-1',
+  accountId: 'acc-slack',
+  externalGroupId: 'C0SLACK',
+  ownerType: 'org',
+  channel: 'slack',
+  metadata: null,
 }
 
 describe('POST /api/cron/task-reminders', () => {
@@ -80,7 +111,7 @@ describe('POST /api/cron/task-reminders', () => {
     process.env.CRON_SECRET = 'test-cron-secret'
     storeMock.findDueTaskReminders.mockResolvedValue([DUE_TASK])
     storeMock.findActiveGroupsForSpaces.mockResolvedValue([GROUP_LINK])
-    storeMock.findLineAccountById.mockResolvedValue(ACCOUNT)
+    storeMock.findAccountForSecretaryPush.mockResolvedValue(ACCOUNT)
     storeMock.markTaskReminderSent.mockResolvedValue(undefined)
     resolveEntitlementsMock.mockResolvedValue(entitled(true))
     sendSecretaryPushMock.mockResolvedValue({ delivered: true })
@@ -98,7 +129,11 @@ describe('POST /api/cron/task-reminders', () => {
     expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
     const arg = sendSecretaryPushMock.mock.calls[0][0]
     expect(arg.to).toBe('G-1')
-    expect(arg.account).toMatchObject({ id: 'acc-1', accessToken: 'token-1' })
+    expect(arg.account).toMatchObject({
+      id: 'acc-1',
+      channel: 'line',
+      credentials: { access_token: 'token-1' },
+    })
     expect(arg.orgId).toBe('org-1')
     expect(JSON.stringify(arg.messages)).toContain('見積書の送付')
     expect(typeof arg.jstDayOfYear).toBe('number')
@@ -133,25 +168,79 @@ describe('POST /api/cron/task-reminders', () => {
 
   it('同一spaceにplatformとorgが紐付く場合、共有Bot(platform)だけへ配信する', async () => {
     storeMock.findActiveGroupsForSpaces.mockResolvedValue([
-      { id: 'group-org', spaceId: 'space-1', orgId: 'org-1', accountId: 'acc-org', externalGroupId: 'G-ORG', ownerType: 'org' },
+      { id: 'group-org', spaceId: 'space-1', orgId: 'org-1', accountId: 'acc-org', externalGroupId: 'G-ORG', ownerType: 'org', channel: 'line', metadata: null },
       GROUP_LINK, // platform / G-1
     ])
     const res = await callPost()
     expect(res.status).toBe(200)
     expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
     expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('G-1')
-    expect(storeMock.findLineAccountById).toHaveBeenCalledWith('acc-1')
-    expect(storeMock.findLineAccountById).not.toHaveBeenCalledWith('acc-org')
+    expect(storeMock.findAccountForSecretaryPush).toHaveBeenCalledWith('acc-1')
+    expect(storeMock.findAccountForSecretaryPush).not.toHaveBeenCalledWith('acc-org')
   })
 
   it('platformが無ければ org へフォールバックして配信する', async () => {
     storeMock.findActiveGroupsForSpaces.mockResolvedValue([
-      { id: 'group-org', spaceId: 'space-1', orgId: 'org-1', accountId: 'acc-org', externalGroupId: 'G-ORG', ownerType: 'org' },
+      { id: 'group-org', spaceId: 'space-1', orgId: 'org-1', accountId: 'acc-org', externalGroupId: 'G-ORG', ownerType: 'org', channel: 'line', metadata: null },
     ])
     const res = await callPost()
     expect(res.status).toBe(200)
     expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
     expect(sendSecretaryPushMock.mock.calls[0][0].to).toBe('G-ORG')
+  })
+
+  describe('マルチチャネル化: LINE以外のグループにも届く', () => {
+    it('Slackグループだけが紐付く space: slack の account/credentials で sendSecretaryPush を呼ぶ', async () => {
+      storeMock.findActiveGroupsForSpaces.mockResolvedValue([SLACK_GROUP_LINK])
+      storeMock.findAccountForSecretaryPush.mockResolvedValue(SLACK_ACCOUNT)
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
+      const arg = sendSecretaryPushMock.mock.calls[0][0]
+      expect(arg.to).toBe('C0SLACK')
+      expect(arg.account).toMatchObject({ id: 'acc-slack', channel: 'slack', credentials: { bot_token: 'xoxb-1' } })
+      expect(arg.text).toContain('見積書の送付')
+      expect(storeMock.markTaskReminderSent).toHaveBeenCalledWith('task-1', expect.any(String))
+    })
+
+    it('LINE共有Bot と Slack の両方が紐付く space: 両方へ届く(共有Bot優先はチャネル内だけ)', async () => {
+      storeMock.findActiveGroupsForSpaces.mockResolvedValue([GROUP_LINK, SLACK_GROUP_LINK])
+      storeMock.findAccountForSecretaryPush.mockImplementation(async (id: string) =>
+        id === 'acc-slack' ? SLACK_ACCOUNT : ACCOUNT,
+      )
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(sendSecretaryPushMock).toHaveBeenCalledTimes(2)
+      const targets = sendSecretaryPushMock.mock.calls.map((c) => c[0].to).sort()
+      expect(targets).toEqual(['C0SLACK', 'G-1'])
+    })
+
+    it('teams グループは metadata.serviceUrl を providerContext として渡す', async () => {
+      storeMock.findActiveGroupsForSpaces.mockResolvedValue([
+        { ...SLACK_GROUP_LINK, id: 'group-teams', accountId: 'acc-teams', externalGroupId: '19:abc@thread', channel: 'teams', metadata: { serviceUrl: 'https://smba.trafficmanager.net/jp/' } },
+      ])
+      storeMock.findAccountForSecretaryPush.mockResolvedValue({ ...SLACK_ACCOUNT, id: 'acc-teams', channel: 'teams', credentials: { webhook_url: 'https://x' } })
+      await callPost()
+      expect(sendSecretaryPushMock).toHaveBeenCalledTimes(1)
+      expect(sendSecretaryPushMock.mock.calls[0][0].providerContext).toEqual({ serviceUrl: 'https://smba.trafficmanager.net/jp/' })
+    })
+
+    it('account が使えない(資格情報欠落等)ときは理由付きで skipped にし、sent は刻まない', async () => {
+      storeMock.findActiveGroupsForSpaces.mockResolvedValue([SLACK_GROUP_LINK])
+      storeMock.findAccountForSecretaryPush.mockResolvedValue({ ok: false, reason: 'missing_credentials: bot_token' })
+      const res = await callPost()
+      const json = await res.json()
+      expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+      expect(storeMock.markTaskReminderSent).not.toHaveBeenCalled()
+      expect(json.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ taskId: 'task-1', reason: 'account_unavailable: missing_credentials: bot_token' }),
+        ]),
+      )
+    })
   })
 
   it('push が失敗したら sent を刻まない(次回再送)', async () => {

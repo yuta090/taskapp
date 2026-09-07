@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 
 /**
- * POST /api/tasks/[taskId]/reminder — 時刻指定LINEリマインドの設定/解除（③・pro以上限定）
+ * POST /api/tasks/[taskId]/reminder — 時刻指定リマインド（LINE/Slack等・全チャネル）の設定/解除（③・pro以上限定）
  *
  * body: { remindAt: string(ISO) | null }
  *

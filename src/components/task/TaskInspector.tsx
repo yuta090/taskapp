@@ -973,7 +973,7 @@ export function TaskInspector({
           </div>
         </div>
 
-        {/* 時刻指定LINEリマインド（③・pro以上限定） */}
+        {/* 時刻指定リマインド（③・pro以上限定・LINE/Slack等の紐づくチャットへ） */}
         {onUpdate && (
           <TaskReminderField
             taskId={task.id}
