@@ -101,6 +101,17 @@ describe('useGanttSidebarWidth', () => {
     expect(result.current.width).toBe(SIDEBAR_WIDTH_DEFAULT - 16)
   })
 
+  it('unmounting mid-drag detaches the window listeners (no stray writes)', () => {
+    const { result, unmount } = renderHook(() => useGanttSidebarWidth())
+
+    act(() => result.current.startResize(pointerDown(0)))
+    act(() => firePointerMove(50))
+    unmount()
+
+    act(() => firePointerUp())
+    expect(localStorage.getItem(GANTT_SIDEBAR_WIDTH_STORAGE_KEY)).toBeNull()
+  })
+
   it('reset returns to the default and clears storage', () => {
     localStorage.setItem(GANTT_SIDEBAR_WIDTH_STORAGE_KEY, '400')
     const { result } = renderHook(() => useGanttSidebarWidth())

@@ -689,7 +689,7 @@ export function GanttChart({
                 adjustSidebarWidth(-SIDEBAR_WIDTH_KEY_STEP)
               }
             }}
-            className={`absolute top-0 -right-1 h-full w-2 cursor-col-resize z-10 select-none touch-none focus:outline-none ${
+            className={`absolute top-0 right-0 h-full w-2 cursor-col-resize z-10 select-none touch-none focus:outline-none ${
               isSidebarResizing ? 'bg-blue-400/40' : 'hover:bg-blue-400/30 focus-visible:bg-blue-400/30'
             }`}
           />
@@ -729,7 +729,7 @@ export function GanttChart({
           data-testid="gantt-sidebar-resizer-body"
           onPointerDown={startSidebarResize}
           onDoubleClick={resetSidebarWidth}
-          className={`absolute top-0 h-full w-2 -ml-1 cursor-col-resize z-10 select-none touch-none ${
+          className={`absolute top-0 h-full w-2 -ml-2 cursor-col-resize z-10 select-none touch-none ${
             isSidebarResizing ? 'bg-blue-400/40' : 'hover:bg-blue-400/30'
           }`}
           style={{ left: sidebarWidth }}
