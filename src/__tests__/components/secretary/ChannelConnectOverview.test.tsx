@@ -12,6 +12,16 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
 vi.mock('@/lib/hooks/useOrgChannelAccount', () => ({
   useOrgChannelAccount: () => ({ data: null, isPending: false, refetch: vi.fn() }),
 }))
+// SlackSelfLinkPanel は発行/解除後に invalidateQueries するため useQueryClient を使う。
+// この画面テストは Provider を張らないので、クライアントだけ差し替える。
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+}))
+vi.mock('@/lib/hooks/useOrgUserLinks', () => ({
+  useOrgUserLinks: () => ({ data: [], isPending: false }),
+  orgUserLinksQueryKey: (orgId: string, accountId?: string) => ['channelUserLinks', orgId, accountId ?? null],
+}))
 vi.mock('@/lib/hooks/useAccountActiveGroups', () => ({
   useAccountActiveGroups: () => ({ data: 0, isPending: false }),
 }))

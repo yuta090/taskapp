@@ -1,16 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Copy, Check, Warning, LinkBreak } from '@phosphor-icons/react'
 import { useOrgChannelAccount } from '@/lib/hooks/useOrgChannelAccount'
+import { useOrgUserLinks, orgUserLinksQueryKey } from '@/lib/hooks/useOrgUserLinks'
 import { SECRETARY_SLACK_BOT_DISPLAY_NAME } from '@/lib/channels/slack/secretaryManifest'
-
-interface UserLinkWire {
-  id: string
-  userId: string
-  channelAccountId?: string
-  linkedAt: string
-}
 
 /**
  * 自分の Slack を AgentPM のユーザーに結びつけるカード（LINE の SelfLinkPanel の Slack 版）。
@@ -20,30 +15,25 @@ interface UserLinkWire {
  * 受け取るのにも要る。コードは自分の分しか発行できず（API がセッションから user_id を導出）、
  * 秘書への DM に送ると成立する（LINE の 1:1 トークと同じ手順）。
  *
- * 一覧は org 全体の紐づけ（/api/channels/user-links）から、この Slack の口座の分だけを出す
- * （LINE の分を混ぜない）。
+ * 一覧はこの Slack の口座の分だけをサーバー側で絞って取る（LINE の分を転送しない）。
+ * 速いページの型: 口座・一覧とも react-query（永続キャッシュ）経由で、口座は同じ画面の
+ * 案内/登録フォームとキーを共有（追加通信なし）。一覧の取得中は件数を出さない
+ * （「0人」と誤って見せて、つないだ人に再発行させない）。
  */
 export function SlackSelfLinkPanel({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient()
   const { data: account } = useOrgChannelAccount(orgId, 'slack')
   const registered = !!account && account.status === 'active'
-  const [links, setLinks] = useState<UserLinkWire[]>([])
+  const { data: links, isPending: linksPending } = useOrgUserLinks(
+    registered ? orgId : undefined,
+    account?.id,
+  )
   const [issuedCode, setIssuedCode] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const reload = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/channels/user-links?orgId=${encodeURIComponent(orgId)}`)
-      if (res.ok) setLinks(((await res.json()) as { links?: UserLinkWire[] }).links ?? [])
-    } catch {
-      /* 一覧が取れなくても発行はできる（表示だけ空にする） */
-    }
-  }, [orgId])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
+  const reload = () => queryClient.invalidateQueries({ queryKey: orgUserLinksQueryKey(orgId, account?.id) })
 
   const issue = async () => {
     if (!account) return
@@ -92,7 +82,7 @@ export function SlackSelfLinkPanel({ orgId }: { orgId: string }) {
     }
   }
 
-  const slackLinks = account ? links.filter((l) => l.channelAccountId === account.id) : []
+  const slackLinks = links ?? []
 
   return (
     <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-4">
@@ -144,7 +134,7 @@ export function SlackSelfLinkPanel({ orgId }: { orgId: string }) {
         </button>
       )}
 
-      {registered && (
+      {registered && !(linksPending && !links) && (
         <div className="mt-4">
           <h3 className="text-xs font-semibold text-gray-900">この Slack につないだ人: {slackLinks.length}人</h3>
           {slackLinks.length === 0 ? (

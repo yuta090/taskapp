@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render as rtlRender, screen, waitFor, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SlackSelfLinkPanel } from '@/components/secretary/SlackSelfLinkPanel'
 
 /**
@@ -12,7 +13,6 @@ import { SlackSelfLinkPanel } from '@/components/secretary/SlackSelfLinkPanel'
 
 const ORG = '11111111-1111-4111-8111-111111111111'
 const ACCOUNT = '33333333-3333-4333-8333-333333333333'
-const OTHER_ACCOUNT = '99999999-9999-4999-8999-999999999999'
 
 let accountState: { data: unknown; isPending: boolean; refetch: () => void }
 vi.mock('@/lib/hooks/useOrgChannelAccount', () => ({
@@ -20,6 +20,11 @@ vi.mock('@/lib/hooks/useOrgChannelAccount', () => ({
 }))
 
 const fetchMock = vi.fn()
+
+function render(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
 
 function mockApis({ links = [] }: { links?: unknown[] } = {}) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
@@ -68,15 +73,28 @@ describe('SlackSelfLinkPanel', () => {
     expect(screen.getByText(/チャンネルには貼らない/)).toBeInTheDocument()
   })
 
-  it('この Slack の口座への紐づけだけを一覧に出し（LINE の分は混ぜない）、解除できる', async () => {
+  it('一覧の取得中は件数を出さない（「0人」と誤って見せて再発行させない）', async () => {
+    let resolveLinks: (v: unknown) => void = () => {}
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/channels/user-links')) return new Promise((r) => (resolveLinks = r))
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
+    })
+    render(<SlackSelfLinkPanel orgId={ORG} />)
+    expect(screen.queryByText(/つないだ人/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/まだ誰もつないでいません/)).not.toBeInTheDocument()
+    resolveLinks({ ok: true, json: () => Promise.resolve({ links: [] }) })
+    await waitFor(() => expect(screen.getByText(/つないだ人.*0/)).toBeInTheDocument())
+  })
+
+  it('この Slack の口座の分だけをサーバー側で絞って取り（channelAccountId 付き）、解除できる', async () => {
     mockApis({
-      links: [
-        { id: 'l-slack', userId: 'u1', channelAccountId: ACCOUNT, linkedAt: '2026-09-08T00:00:00Z' },
-        { id: 'l-line', userId: 'u1', channelAccountId: OTHER_ACCOUNT, linkedAt: '2026-09-01T00:00:00Z' },
-      ],
+      links: [{ id: 'l-slack', userId: 'u1', channelAccountId: ACCOUNT, linkedAt: '2026-09-08T00:00:00Z' }],
     })
     render(<SlackSelfLinkPanel orgId={ORG} />)
     await waitFor(() => expect(screen.getByText(/つないだ人.*1/)).toBeInTheDocument())
+    const listCall = fetchMock.mock.calls.find(([url, init]) => String(url).includes('/api/channels/user-links?') && !(init as RequestInit | undefined)?.method)
+    expect(String(listCall![0])).toContain(`channelAccountId=${ACCOUNT}`)
+    expect(String(listCall![0])).toContain(`orgId=${ORG}`)
     const revoke = screen.getAllByRole('button', { name: /解除/ })
     expect(revoke).toHaveLength(1)
     fireEvent.click(revoke[0])

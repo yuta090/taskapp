@@ -178,6 +178,16 @@ describe('GET /api/channels/user-links（一覧）', () => {
     expect((await res.json()).links[0]).toMatchObject({ id: LINK, channelAccountId: ACCOUNT })
   })
 
+  it('channelAccountId を付けるとその口座の分だけをストアに頼む（画面側で捨てない）・uuid でなければ 400', async () => {
+    storeMock.listActiveUserLinks.mockResolvedValue([])
+    const res = await listLinks(new Request(`http://localhost/api/channels/user-links?orgId=${ORG}&channelAccountId=${ACCOUNT}`) as never)
+    expect(res.status).toBe(200)
+    expect(storeMock.listActiveUserLinks).toHaveBeenCalledWith(ORG, ACCOUNT)
+
+    const bad = await listLinks(new Request(`http://localhost/api/channels/user-links?orgId=${ORG}&channelAccountId=nope`) as never)
+    expect(bad.status).toBe(400)
+  })
+
   it('LINE userId（個人識別子）は wire に出さない', async () => {
     storeMock.listActiveUserLinks.mockResolvedValue([
       { id: LINK, userId: ME, externalUserId: 'U-secret-line-id', linkedAt: '2026-07-15' },

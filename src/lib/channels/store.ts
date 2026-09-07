@@ -2821,13 +2821,18 @@ export async function findUserLinkById(linkId: string): Promise<UserLink | null>
 }
 
 /** コンソール表示用。org 内の active な紐付け一覧 */
-export async function listActiveUserLinks(orgId: string): Promise<UserLink[]> {
-  const { data, error } = await admin()
+export async function listActiveUserLinks(
+  orgId: string,
+  /** 指定時はその口座（LINE/Slack）の分だけ返す（画面側で捨てる転送を避ける） */
+  channelAccountId?: string,
+): Promise<UserLink[]> {
+  let query = admin()
     .from('channel_user_links')
     .select('id, org_id, user_id, channel_account_id, external_user_id, linked_at')
     .eq('org_id', orgId)
     .is('revoked_at', null)
-    .order('linked_at', { ascending: false })
+  if (channelAccountId) query = query.eq('channel_account_id', channelAccountId)
+  const { data, error } = await query.order('linked_at', { ascending: false }).limit(200)
   if (error) throw new Error(`channel_user_links: list failed: ${error.message}`)
 
   return (data ?? []).map((row) => ({
