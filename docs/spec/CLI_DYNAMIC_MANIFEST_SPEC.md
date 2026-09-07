@@ -1,4 +1,4 @@
-# CLI Dynamic Manifest 仕様書 v1.4
+# CLI Dynamic Manifest 仕様書 v1.5
 
 > Codex Architect Review: v1.0で6件、v1.1で3件の指摘を反映済み
 
@@ -90,6 +90,25 @@ renameSync(tmpPath, MANIFEST_PATH)              // atomic swap
 - `--file` は manifest のオプションとして載せる（`param: 'file'`、`required: true`）。`--name` / `--mime-type` は任意。
 - 旧 CLI(0.3.x 以前)は `uploadMode` を知らず `tool` を直接呼んで失敗する（このコマンドのみ。他のコマンドには影響しない）。**型**は増えていないので `minCliVersion` は上げない。
 - 実バイトは Supabase Storage の署名アップロードURLへ `PUT`（`content-type` / `x-upsert: false`）。API サーバーを経由しないため関数の要求サイズ上限(4.5MB)に縛られない。
+
+## お知らせ（notices・v1.5 追記）
+
+マニフェストに `notices` を添え、CLI はまだ見ていない分だけを **1 回表示して既読にする**。「日本語名のファイルが上げられるようになりました」のような、利用者に伝えたい変更をコマンド一覧と同じ経路で届けるためのもの。
+
+```json
+{
+  "notices": [
+    { "id": "2026-09-07-file-jp-name", "date": "2026-09-07", "message": "日本語の名前のファイルが…直しました" }
+  ]
+}
+```
+
+- `id`: 一意（`[A-Za-z0-9._-]{1,64}`・日付-topic を推奨）。既読管理の鍵になるので、**文言を直しても id は変えない**（変えると再表示される）。
+- `date`: `YYYY-MM-DD`。表示順（古い→新しい）に使う。
+- `message`: 非技術者向けの一文（500 文字まで）。制御文字・ANSI は CLI 側で落とす。
+- **checksum の対象外**（checksum は `commands` だけ）。旧 CLI（〜0.4.0）は項目ごと無視して動くため `minCliVersion` は上げない。
+- CLI 側（`packages/cli/src/notices.ts`）: 既読 id は `~/.agentpm/notices.seen.json`（最新 200 件）。表示は **stderr**（`--json` の stdout を汚さない）。通常実行では `--json` 付きのときは出さず、`agentpm update` では常に出す。記録の読み書きに失敗しても落ちない（次回また出るだけ）。
+- 形の壊れた項目は CLI が黙って捨てる（マニフェスト全体は弾かない）。
 
 ## マニフェストJSON スキーマ
 

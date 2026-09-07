@@ -3,8 +3,9 @@ import { loadCliConfig, getApiConfig, ConfigError } from './config.js';
 import { registerConfigCommand } from './commands/config-cmd.js';
 import { registerDynamicCommands } from './dynamic-loader.js';
 import { loadManifest, forceUpdate } from './manifest-cache.js';
+import { showNewNotices } from './notices.js';
 import chalk from 'chalk';
-const CLI_VERSION = '0.4.0';
+const CLI_VERSION = '0.4.1';
 const program = new Command();
 program
     .name('agentpm')
@@ -50,6 +51,9 @@ program
         console.log(chalk.green(`Updated to manifest v${manifest.version}`));
         console.log(chalk.gray(`${manifest.commands.length} command groups, ` +
             `${manifest.commands.reduce((n, c) => n + (c.subcommands?.length || 1), 0)} commands`));
+        // 新しいお知らせがあれば、ここで見せる(--json でも update は人が打つコマンドなので出す)
+        if (showNewNotices(manifest) === 0)
+            console.log(chalk.gray('新しいお知らせはありません'));
     }
     catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -79,6 +83,9 @@ async function main() {
     if (apiUrl) {
         const manifest = await loadManifest(apiUrl, apiKey, CLI_VERSION);
         registerDynamicCommands(program, manifest);
+        // まだ見ていないお知らせを 1 回だけ stderr に出す(--json の stdout は汚さない。機械実行では静かにしておく)
+        if (!process.argv.includes('--json'))
+            showNewNotices(manifest);
     }
     else {
         // No config — register builtin for --help to work

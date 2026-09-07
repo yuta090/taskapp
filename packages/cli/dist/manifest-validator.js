@@ -9,8 +9,10 @@ const TOOL_RE = /^[a-z][a-z_]*$/;
 const FLAGS_RE = /^(-[a-zA-Z],\s)?--[a-z][a-z0-9-]*(\s<[^>]+>)?$/;
 /** Strip ANSI escape sequences and control characters */
 export function sanitize(str) {
+    // ANSI の色指定(ESC [ ... m)を先に丸ごと消してから、残りの制御文字を落とす
+    // (制御文字を先にすると ESC だけ消えて "[31m" が文字として残る)
     // eslint-disable-next-line no-control-regex
-    return str.replace(/[\x00-\x1f\x7f]|\x1b\[[0-9;]*[a-zA-Z]/g, '');
+    return str.replace(/\x1b\[[0-9;]*[a-zA-Z]|[\x00-\x1f\x7f]/g, '');
 }
 class ManifestValidationError extends Error {
     constructor(message) {
@@ -156,7 +158,33 @@ export function validateManifest(raw) {
             }
         }
     }
+    // お知らせ: 形の正しいものだけ残す(壊れていても manifest 全体は弾かない。表示用の文字列なので制御文字は落とす)
+    manifest.notices = sanitizeNotices(m.notices);
     return manifest;
+}
+const NOTICE_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
+const NOTICE_MESSAGE_MAX = 500;
+function sanitizeNotices(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    const out = [];
+    for (const item of raw) {
+        if (!item || typeof item !== 'object')
+            continue;
+        const n = item;
+        if (typeof n.id !== 'string' || !NOTICE_ID_RE.test(n.id))
+            continue;
+        if (typeof n.message !== 'string')
+            continue;
+        const message = sanitize(n.message).trim();
+        if (message.length === 0 || message.length > NOTICE_MESSAGE_MAX)
+            continue;
+        const notice = { id: n.id, message };
+        if (typeof n.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.date))
+            notice.date = n.date;
+        out.push(notice);
+    }
+    return out;
 }
 /**
  * Compare semver strings: returns true if current >= required

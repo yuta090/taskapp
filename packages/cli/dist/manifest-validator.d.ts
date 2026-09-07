@@ -44,12 +44,20 @@ export interface ManifestCommand {
     options?: ManifestOption[];
     subcommands?: ManifestSubcommand[];
 }
+/** サーバーが添える「お知らせ」。checksum の対象外で、旧 CLI は項目ごと無視する */
+export interface ManifestNotice {
+    id: string;
+    date?: string;
+    message: string;
+}
 export interface Manifest {
     version: string;
     minCliVersion: string;
     generatedAt: string;
     checksum: string;
     commands: ManifestCommand[];
+    /** validateManifest 通過後は必ず配列(無ければ []) */
+    notices?: ManifestNotice[];
 }
 /** Strip ANSI escape sequences and control characters */
 export declare function sanitize(str: string): string;
