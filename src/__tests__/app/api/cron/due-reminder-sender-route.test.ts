@@ -26,9 +26,11 @@ vi.mock('@/lib/reminders/dueReminderStore', () => storeMock)
 // markDmUnreachable/clearDmUnreachableはA案是正でsender側から呼ばなくなったが、mockには
 // スパイとして残す（route.tsが誤って再importして呼んでしまう回帰をtoHaveBeenCalledWithで
 // 検出できるようにするため。呼ばれないことを積極的に確認する意図）。
+// マルチチャネル化: account は LINE専用の findLineAccountByIdLookup ではなく、全チャネル対応の
+// findAccountForSecretaryPush（channel-digest / task-reminders と同じ入口）で引く
 const channelsStoreMock = {
   findActiveUserLinkForUser: vi.fn(),
-  findLineAccountByIdLookup: vi.fn(),
+  findAccountForSecretaryPush: vi.fn(),
   markDmUnreachable: vi.fn(),
   clearDmUnreachable: vi.fn(),
 }
@@ -83,8 +85,22 @@ const TASK_SNAPSHOT = {
   dueAuthorityConnectionId: null as string | null,
 }
 
-const ACCOUNT = { id: 'acc-1', ownerType: 'org' as const, accessToken: 'token-1' }
-const ACCOUNT_LOOKUP = { id: 'acc-1', status: 'active' as const, account: ACCOUNT }
+const ACCOUNT_LOOKUP = {
+  ok: true as const,
+  id: 'acc-1',
+  ownerType: 'org' as const,
+  channel: 'line',
+  credentials: { channel_secret: 'secret-1', access_token: 'token-1' },
+  status: 'active' as const,
+}
+const SLACK_ACCOUNT_LOOKUP = {
+  ok: true as const,
+  id: 'acc-slack',
+  ownerType: 'org' as const,
+  channel: 'slack',
+  credentials: { bot_token: 'xoxb-1' },
+  status: 'active' as const,
+}
 
 /** DM解決が成立するときの標準セットアップを1関数にまとめる（各itのbeforeEachで使う） */
 function setupDefaultMocks() {
@@ -105,7 +121,7 @@ function setupDefaultMocks() {
     channelAccountId: 'acc-1',
     externalUserId: 'U-DM-1',
   })
-  channelsStoreMock.findLineAccountByIdLookup.mockResolvedValue(ACCOUNT_LOOKUP)
+  channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue(ACCOUNT_LOOKUP)
 
   sendSecretaryPushMock.mockResolvedValue({ delivered: true })
 }
@@ -162,6 +178,70 @@ describe('POST /api/cron/due-reminder-sender', () => {
     expect(sendSecretaryPushMock).not.toHaveBeenCalled()
     expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'no_route')
     expect(json.sent).toBe(0)
+  })
+
+  describe('マルチチャネル化: 担当者の紐付けが Slack 等でも 1:1 DM が届く', () => {
+    it('Slack に紐付く担当者: slack の account/credentials で sendSecretaryPush を呼び、finalize(sent)する', async () => {
+      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
+        channelAccountId: 'acc-slack',
+        externalUserId: 'U0SLACKUSER',
+      })
+      channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue(SLACK_ACCOUNT_LOOKUP)
+
+      const res = await callPost()
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(json.sent).toBe(1)
+      const arg = sendSecretaryPushMock.mock.calls[0][0]
+      expect(arg.to).toBe('U0SLACKUSER')
+      expect(arg.account).toMatchObject({ id: 'acc-slack', channel: 'slack', credentials: { bot_token: 'xoxb-1' } })
+      expect(typeof arg.text).toBe('string')
+      expect(arg.text).toContain('見積書の送付')
+      expect(arg.record).toMatchObject({ groupId: null, externalUserId: 'U0SLACKUSER' })
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'sent')
+    })
+
+    it('account が使えない(資格情報欠落等)なら no_route で終端する', async () => {
+      channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue({ ok: false, reason: 'missing_credentials: bot_token' })
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'no_route')
+    })
+
+    it('account が disabled なら no_route で終端する(従来の findLineAccountByIdLookup と同じ契約)', async () => {
+      channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue({ ...SLACK_ACCOUNT_LOOKUP, status: 'disabled' })
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(sendSecretaryPushMock).not.toHaveBeenCalled()
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'no_route')
+    })
+
+    it('非LINEアダプタの恒久失敗(permanent:true・HTTPは200)は push_failed_permanent で終端し無限再試行しない', async () => {
+      channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue(SLACK_ACCOUNT_LOOKUP)
+      const err = Object.assign(new Error('secretary push failed (channel=slack, status=200): slack: channel_not_found'), {
+        status: 200,
+        permanent: true,
+      })
+      sendSecretaryPushMock.mockRejectedValue(err)
+
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'suppressed', 'push_failed_permanent')
+    })
+
+    it('非LINEアダプタの一時失敗(permanent:false)は finalize しない(lease失効で再試行)', async () => {
+      channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue(SLACK_ACCOUNT_LOOKUP)
+      const err = Object.assign(new Error('secretary push failed (channel=slack, status=n/a): network error'), {
+        permanent: false,
+      })
+      sendSecretaryPushMock.mockRejectedValue(err)
+
+      const res = await callPost()
+      expect(res.status).toBe(200)
+      expect(storeMock.finalizeDueReminderOccurrence).not.toHaveBeenCalled()
+    })
   })
 
   describe('催促文面がグループ宛に出る経路がゼロであること（うざくない秘書 再設計の中核回帰）', () => {
@@ -594,7 +674,7 @@ describe('POST /api/cron/due-reminder-sender', () => {
       }
     })
 
-    it('アカウント起因の4xx(401/403)でもfinalize(suppressed)自体は従来どおり行う（isPermanentLinePushFailureは不変）', async () => {
+    it('アカウント起因の4xx(401/403)でもfinalize(suppressed)自体は従来どおり行う（isPermanentPushFailureは不変）', async () => {
       for (const status of [401, 403]) {
         vi.clearAllMocks()
         setupDefaultMocks()

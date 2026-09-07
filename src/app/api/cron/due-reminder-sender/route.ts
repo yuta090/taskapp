@@ -13,12 +13,8 @@ import {
 import { checkDueReminderStaleness } from '@/lib/reminders/dueReminderStaleness'
 import { buildDueReminderFlex } from '@/lib/reminders/dueReminderMessages'
 import { resolveOrgEntitlements, type Feature, type PlanId } from '@/lib/billing/entitlements'
-import {
-  findActiveUserLinkForUser,
-  findLineAccountByIdLookup,
-  type LineAccount,
-} from '@/lib/channels/store'
-import { sendSecretaryPush } from '@/lib/channels/send/secretaryPush'
+import { findActiveUserLinkForUser, findAccountForSecretaryPush } from '@/lib/channels/store'
+import { sendSecretaryPush, type SecretaryPushAccount } from '@/lib/channels/send/secretaryPush'
 import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -56,7 +52,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * `src/lib/channels/line/webhookHandler.ts` の unfollow（ブロック）/ follow（解除）
  * ＝webhook単独の対称ループ。`resolveDmCandidate`（本ファイルの宛先解決）は変更しない
  * — 到達不能マークの有無に関わらずDM送信を試み続ける（マークの有無を読みも書きもしない）。
- * `isPermanentLinePushFailure` と `finalizeDueReminderOccurrence('suppressed',
+ * `isPermanentPushFailure` と `finalizeDueReminderOccurrence('suppressed',
  * 'push_failed_permanent')` の関係（occurrenceのライフサイクル）は不変。
  *
  * 認証: Authorization: Bearer ${CRON_SECRET}（他cronと同一パターン）。
@@ -235,7 +231,7 @@ export async function POST(request: NextRequest) {
           skipped.push({ occurrenceId: occ.id, taskId: task.id, reason: result.reason })
         }
       } catch (err) {
-        if (isPermanentLinePushFailure(err)) {
+        if (isPermanentPushFailure(err)) {
           // A案: push失敗（400/404含む全ての恒久4xx）でもmarkDmUnreachableは呼ばない
           // （旧M-1是正は「宛先起因の4xxに限定」だったが、その400/404自体が実態としては
           // LINE APIのボディ検証エラー等が大半を占め宛先の生死と無関係なため、対象を絞る
@@ -245,7 +241,7 @@ export async function POST(request: NextRequest) {
           // code review #2(b): 恒久失敗（トークン失効等のLINE 4xx・429除く）はfinalizeせずに
           // 放置すると lease失効→再claim→再push→再throw を無限に繰り返す
           // （attempt上限はdeferred経路のRPCでしか効かないため、finalizeしないと打ち止まらない）。
-          // suppressed終端にして再claim対象から外す（isPermanentLinePushFailure・finalizeの
+          // suppressed終端にして再claim対象から外す（isPermanentPushFailure・finalizeの
           // 関係は不変。occurrenceのライフサイクルは変えない）。
           await finalizeDueReminderOccurrence(occ.id, 'suppressed', 'push_failed_permanent')
           skipped.push({ occurrenceId: occ.id, taskId: task.id, reason: 'push_failed_permanent' })
@@ -272,7 +268,7 @@ export async function POST(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 interface ResolvedDestination {
-  account: LineAccount
+  account: SecretaryPushAccount
   to: string
   record: { groupId: string | null; externalUserId: string | null }
 }
@@ -287,10 +283,19 @@ interface ResolvedDestination {
 async function resolveDmCandidate(orgId: string, assigneeId: string): Promise<ResolvedDestination | null> {
   const link = await findActiveUserLinkForUser(orgId, assigneeId)
   if (!link) return null
-  const lookup = await findLineAccountByIdLookup(link.channelAccountId)
-  if (!lookup?.account) return null
+  // マルチチャネル化: 担当者の紐付け(channel_user_links)は LINE 以外(Slack/Discord/Telegram 等・
+  // 合言葉で紐付け)でも成立する。account は LINE専用の findLineAccountByIdLookup ではなく
+  // channel-digest / task-reminders と同じ全チャネル対応の入口で引く（以前は LINE の鍵が無い
+  // account が null になり no_route で黙って落ちていた）。disabled は従来どおり no_route。
+  const lookup = await findAccountForSecretaryPush(link.channelAccountId)
+  if (!lookup.ok || lookup.status !== 'active') return null
   return {
-    account: lookup.account,
+    account: {
+      id: lookup.id,
+      ownerType: lookup.ownerType,
+      channel: lookup.channel,
+      credentials: lookup.credentials,
+    },
     to: link.externalUserId,
     record: { groupId: null, externalUserId: link.externalUserId },
   }
@@ -298,7 +303,7 @@ async function resolveDmCandidate(orgId: string, assigneeId: string): Promise<Re
 
 /**
  * 宛先解決（設計正本 §9・うざくない秘書 再設計）:
- *   (1) Pro＋line_direct_dm＋active user link → 1:1 DM
+ *   (1) Pro＋line_direct_dm＋active user link（LINE/Slack 等・チャネル不問） → 1:1 DM
  *   (2) DM不能 → null（呼び出し側が suppressed('no_route') にする）
  *
  * 旧版にあった「発生元チャットグループ→spaceのactiveグループ」への催促文面フォールバック
@@ -344,12 +349,19 @@ function buildDueReminderRetryKey(occ: DueReminderOccurrenceRow, destinationId: 
  *   - 恒久: LINE 4xx（429=レート制限を除く。トークン失効・宛先不正など再試行しても直らない）
  *   - 一時: 429/5xx/ネットワーク断/不明（再試行すれば直る可能性がある）
  * pushLineMessage（@/lib/channels/line/client）は非2xxで LinePushError(status, message) を
- * 投げる契約（sendSecretaryPushはこれをそのまま re-throw する・secretaryPush.ts自体は変更しない）。
- * instanceof ではなく「numberのstatusを持つか」で判定する（モジュール同一性に依存しないダック
+ * 投げる契約（sendSecretaryPushはこれをそのまま re-throw する）。
+ *
+ * マルチチャネル化: 非LINEアダプタは sendSecretaryPush が SecretaryPushError(status, permanent)
+ * を投げる。Slack は論理エラー(channel_not_found 等)でも HTTP 200 を返すため status では
+ * 判定できない — `permanent` が boolean で載っていればそれを優先する（無ければ従来の status 判定）。
+ * これが無いと非LINEの恒久失敗が一時扱いになり lease失効→再claim→再push を無限に繰り返す。
+ * instanceof ではなく「プロパティを持つか」で判定する（モジュール同一性に依存しないダック
  * タイピング。テストでも実クラスを構築せず済む）。
  */
-function isPermanentLinePushFailure(err: unknown): boolean {
+function isPermanentPushFailure(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
+  const permanent = (err as { permanent?: unknown }).permanent
+  if (typeof permanent === 'boolean') return permanent
   const status = (err as { status?: unknown }).status
   if (typeof status !== 'number') return false
   if (status === 429) return false
