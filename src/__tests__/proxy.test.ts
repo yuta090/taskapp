@@ -26,6 +26,8 @@ vi.mock('@/lib/org/resolveActiveOrg', () => ({
 
 /** セッション更新を模す: getSession のたびに Supabase が setAll で auth cookie を書き直す */
 let refreshedCookieOnSession: { name: string; value: string } | null = null
+/** 二要素認証の段階（currentLevel=いま / nextLevel=到達すべき段階。登録済みなら aal2） */
+let aalResponse: { data: { currentLevel: 'aal1' | 'aal2' | null; nextLevel: 'aal1' | 'aal2' | null } | null } = { data: { currentLevel: 'aal1', nextLevel: 'aal1' } }
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: (
@@ -46,6 +48,9 @@ vi.mock('@supabase/ssr', () => ({
         }
         return Promise.resolve(sessionResponse)
       }),
+      mfa: {
+        getAuthenticatorAssuranceLevel: vi.fn(() => Promise.resolve(aalResponse)),
+      },
     },
     from: (table: string) => {
       if (table === 'space_memberships') {
@@ -354,5 +359,35 @@ describe('proxy — first-touch cookie と Supabase のセッション cookie �
     expect(response.cookies.get('agentpm_ft')).toBeDefined()
     // 注: 既存実装ではリダイレクト用レスポンスを新規に作るため、setAll で更新された auth cookie は
     // リダイレクトには載らない（first-touch 追加前からの挙動・本テストの対象外）。
+  })
+
+  describe('二要素認証の門番', () => {
+    beforeEach(() => {
+      sessionResponse = { data: { session: { user: { id: 'user-1' } } } }
+    })
+    afterEach(() => {
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal1' } }
+    })
+
+    it('認証アプリ登録済みでコード未入力(aal1)なら、保護ページは /login/mfa へ（行き先を持ち回る）', async () => {
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal2' } }
+      const res = await proxy(makeRequest('/inbox?tab=all'))
+      expect(redirectPath(res)).toBe('/login/mfa')
+      expect(res.headers.get('location')).toContain('redirect=%2Finbox%3Ftab%3Dall')
+    })
+
+    it('コード入力済み(aal2)なら通す', async () => {
+      aalResponse = { data: { currentLevel: 'aal2', nextLevel: 'aal2' } }
+      const res = await proxy(makeRequest('/inbox'))
+      expect(redirectPath(res)).toBeNull()
+    })
+
+    it('未登録(aal1/aal1)なら従来どおり通す。/login/mfa 自体は公開パスなので門番に掛からない', async () => {
+      const res = await proxy(makeRequest('/inbox'))
+      expect(redirectPath(res)).toBeNull()
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal2' } }
+      const res2 = await proxy(makeRequest('/login/mfa?redirect=%2Finbox'))
+      expect(redirectPath(res2)).toBeNull()
+    })
   })
 })

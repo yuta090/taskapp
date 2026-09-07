@@ -4,6 +4,7 @@ import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constant
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 // 公開パス定義はダークテーマ判定と単一ソース化（src/lib/routes/publicPaths.ts）
 import { isPublicPathMatch } from '@/lib/routes/publicPaths'
+import { decideMfaRedirect } from '@/lib/auth/mfa'
 import {
   FIRST_TOUCH_COOKIE,
   FIRST_TOUCH_COOKIE_MAX_AGE_SEC,
@@ -142,6 +143,24 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
       const redirectUrl = new URL('/login', request.url)
       redirectUrl.searchParams.set('redirect', pathname + request.nextUrl.search)
       return NextResponse.redirect(redirectUrl)
+    }
+
+    // 二要素認証: 認証アプリ登録済みの人が、コード入力前(aal1)のまま保護ページを開こうとしたらコード入力画面へ。
+    // getAuthenticatorAssuranceLevel は cookie の JWT と user.factors から判定するだけ（ネット往復なし）
+    try {
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      const mfaRedirect = decideMfaRedirect({
+        pathname,
+        search: request.nextUrl.search,
+        currentLevel: aal?.currentLevel ?? null,
+        nextLevel: aal?.nextLevel ?? null,
+      })
+      if (mfaRedirect) {
+        return NextResponse.redirect(new URL(mfaRedirect, request.url))
+      }
+    } catch (err) {
+      // 判定に失敗しても締め出さない（RLS が最終防衛線。ログだけ残す）
+      console.error('[middleware] mfa level check failed', err)
     }
 
     // プロジェクトルート (/:orgId/project/...) の場合、URL の orgId を cookie に同期

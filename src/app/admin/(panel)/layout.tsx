@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AdminSidebar, COLLAPSED_STORAGE_KEY } from '@/components/admin/AdminSidebar'
+import { needsMfaChallenge, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +23,30 @@ async function verifySuperadmin() {
   if (!profile?.is_superadmin) return null
 
   return user
+}
+
+/** 運営画面の二要素認証ゲート（判定は純粋関数 needsMfaChallenge） */
+async function enforceAdminMfa() {
+  const supabase = await createClient()
+  let current: 'aal1' | 'aal2' | null = null
+  let next: 'aal1' | 'aal2' | null = null
+  try {
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    current = aal?.currentLevel ?? null
+    next = aal?.nextLevel ?? null
+  } catch (err) {
+    // 判定できないときは締め出さない（主の門番は src/proxy.ts。ここは二重チェック）
+    console.error('[admin] mfa level check failed', err)
+    return
+  }
+  if (needsMfaChallenge(current, next)) {
+    // 元のページは持ち回らずダッシュボードへ戻す（layout からは現在パスを安全に取れないため）
+    redirect(`${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent('/admin/dashboard')}`)
+  }
+  if (process.env.ADMIN_MFA_REQUIRED === 'true' && next !== 'aal2') {
+    // 未登録: 設定画面で登録してもらう（登録すると次回から通れる）
+    redirect('/settings/account?mfa=required')
+  }
 }
 
 /**
@@ -62,6 +87,11 @@ export default async function AdminPanelLayout({
   if (!user) {
     redirect('/admin/login')
   }
+
+  // 二要素認証: 運営画面は最も影響の大きい面なので、登録済みならコード入力(aal2)を必須にする。
+  // ADMIN_MFA_REQUIRED=true のときは未登録の運営も入れない（設定画面へ案内）。
+  // 通常の保護ページの門番(src/proxy.ts)でも同じ判定をしているが、ここは念のための二重チェック
+  await enforceAdminMfa()
 
   const [badges, cookieStore] = await Promise.all([fetchNavBadges(), cookies()])
   // サイドバーの折りたたみは cookie から初回描画に反映する（client 側の記憶と二重持ち・ガタつき防止）

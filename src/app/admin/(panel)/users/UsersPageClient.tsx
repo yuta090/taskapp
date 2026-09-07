@@ -143,9 +143,11 @@ interface SuperadminCellProps {
   isSelf: boolean
   busy: boolean
   onToggle: (row: UserRow) => void
+  /** 二要素認証の解除（復旧用・POST /api/admin/users/mfa-reset） */
+  onResetMfa: (row: UserRow) => void
 }
 
-function SuperadminCell({ row, isSelf, busy, onToggle }: SuperadminCellProps) {
+function SuperadminCell({ row, isSelf, busy, onToggle, onResetMfa }: SuperadminCellProps) {
   return (
     <div className="flex items-center gap-2">
       {row.is_superadmin ? (
@@ -153,6 +155,15 @@ function SuperadminCell({ row, isSelf, busy, onToggle }: SuperadminCellProps) {
       ) : (
         <span className="text-gray-400">-</span>
       )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onResetMfa(row)}
+        title="認証アプリを失くした人の復旧用。本人確認のうえ押す"
+        className="text-xs text-gray-500 hover:text-gray-700 hover:underline disabled:opacity-50"
+      >
+        2FA解除
+      </button>
       {!isSelf && (
         <button
           type="button"
@@ -186,6 +197,7 @@ function buildColumns(cell: Omit<SuperadminCellProps, 'row' | 'isSelf' | 'busy'>
         isSelf={row.id === cell.currentUserId}
         busy={!!cell.pending[row.id]}
         onToggle={cell.onToggle}
+        onResetMfa={cell.onResetMfa}
       />
     ),
   }
@@ -195,9 +207,24 @@ function buildColumns(cell: Omit<SuperadminCellProps, 'row' | 'isSelf' | 'busy'>
 
 export default function UsersPageClient({ initialData, currentUserId }: Props) {
   const { rows: data, toggle, pending } = useSuperadminToggle(initialData)
+  const resetMfa = useCallback(async (row: UserRow) => {
+    if (!confirm(`${row.email ?? row.id} の二要素認証を解除しますか？（本人確認は済んでいますか）`)) return
+    try {
+      const res = await fetch('/api/admin/users/mfa-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: row.id }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || '解除に失敗しました')
+      alert(json.removed > 0 ? '二要素認証を解除しました。次回から通常のログインで入れます。' : '登録されている認証アプリはありませんでした。')
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : '解除に失敗しました')
+    }
+  }, [])
   const columns = useMemo(
-    () => buildColumns({ currentUserId, pending, onToggle: toggle }),
-    [currentUserId, pending, toggle],
+    () => buildColumns({ currentUserId, pending, onToggle: toggle, onResetMfa: resetMfa }),
+    [currentUserId, pending, toggle, resetMfa],
   )
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)

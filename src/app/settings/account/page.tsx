@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { SettingsBackButton } from '@/components/shared'
+import { MfaSection } from '@/components/settings/MfaSection'
 import { validateAvatarFile, buildAvatarPath, parseAvatarObjectPath, ACCEPTED_AVATAR_MIME } from '@/lib/avatar/avatarUpload'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -355,6 +356,9 @@ export default function AccountSettingsPage() {
             </label>
           </div>
         </div>
+
+        {/* Two-factor authentication */}
+        <MfaSection />
 
         {/* API Keys Link */}
         <Link
