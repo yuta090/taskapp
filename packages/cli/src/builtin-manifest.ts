@@ -117,5 +117,34 @@ export const BUILTIN_MANIFEST: Manifest = {
         },
       ],
     },
+    {
+      name: 'file',
+      description: 'Project files',
+      subcommands: [
+        {
+          name: 'list',
+          description: 'List uploaded files',
+          tool: 'file_list',
+          options: [
+            spaceOpt,
+            { flags: '-l, --limit <n>', description: 'Max results', param: 'limit', type: 'int' as const, default: '50' },
+          ],
+        },
+        {
+          name: 'upload',
+          description: 'Upload a local file to the project (CSV/TSV can then be viewed as a table in TaskApp)',
+          tool: 'file_upload_url',
+          uploadMode: true,
+          completeTool: 'file_upload_complete',
+          examples: ['agentpm file upload --file ./list.csv', 'agentpm file upload --file ./spec.pdf --name 要件定義.pdf'],
+          options: [
+            spaceOpt,
+            { flags: '-f, --file <path>', description: 'Local file path', param: 'file', required: true },
+            { flags: '--name <name>', description: 'File name in TaskApp (default: local file name)', param: 'name' },
+            { flags: '--mime-type <type>', description: 'MIME type (default: guessed from extension)', param: 'mimeType' },
+          ],
+        },
+      ],
+    },
   ],
 }

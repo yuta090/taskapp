@@ -30,6 +30,10 @@ export interface ManifestSubcommand {
   stdinFormat?: 'json' | 'text'
   /** stdinFormat='text' のとき、テキストを入れるパラメータ名 */
   stdinParam?: string
+  /** ファイルアップロード(3段階)。CLI 0.4.0+ が tool→署名URLへPUT→completeTool の順に処理する */
+  uploadMode?: boolean
+  /** uploadMode=true のとき、完了を確定するツール名 */
+  completeTool?: string
   options: ManifestOption[]
 }
 
@@ -577,6 +581,43 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
 
   // ── Wiki ──
   {
+    name: 'file',
+    description: 'Project files (upload / list)',
+    aliases: ['f'],
+    subcommands: [
+      {
+        name: 'list',
+        description: 'List uploaded files in the space (ready only, newest first)',
+        tool: 'file_list',
+        examples: ['agentpm file list', 'agentpm file list --limit 100 --json'],
+        options: [
+          spaceOpt,
+          { flags: '-l, --limit <n>', description: 'Max results (default 50)', param: 'limit', type: 'int', default: '50' },
+        ],
+      },
+      {
+        name: 'upload',
+        description: 'Upload a local file to the space. CSV/TSV can then be viewed as a table in TaskApp',
+        tool: 'file_upload_url',
+        // CLI(0.4.0+) が 3 段階（署名URL → PUT → 完了）で処理する。旧 CLI は uploadMode を知らず
+        // file_upload_url を直接呼んで失敗する（このコマンドのみ。他コマンドには影響しない）
+        uploadMode: true,
+        completeTool: 'file_upload_complete',
+        examples: [
+          'agentpm file upload --file ./list.csv',
+          'agentpm file upload --file ./spec.pdf --name 要件定義.pdf',
+          'agentpm file upload -s <space-uuid> --file ./data.tsv --json',
+        ],
+        options: [
+          spaceOpt,
+          { flags: '-f, --file <path>', description: 'Local file path (up to 50MB)', param: 'file', required: true },
+          { flags: '--name <name>', description: 'File name shown in TaskApp (default: local file name)', param: 'name' },
+          { flags: '--mime-type <type>', description: 'MIME type (default: guessed from extension)', param: 'mimeType' },
+        ],
+      },
+    ],
+  },
+  {
     name: 'wiki',
     description: 'Wiki management',
     aliases: ['w'],
@@ -789,9 +830,9 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.1.0',
+      version: '1.2.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-09-06T00:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-09-07T00:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
     }

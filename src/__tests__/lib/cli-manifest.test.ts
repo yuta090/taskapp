@@ -40,3 +40,21 @@ describe('cli-manifest', () => {
     expect(dry.type).toBe('negatable')
   })
 })
+
+describe('cli-manifest: file upload', () => {
+  const manifest = getManifest()
+  const file = manifest.commands.find((c) => c.name === 'file')!
+
+  it('file upload は 3 段階アップロード（uploadMode + completeTool）として定義されている', () => {
+    const up = file.subcommands!.find((s) => s.name === 'upload')!
+    expect(up).toMatchObject({ tool: 'file_upload_url', uploadMode: true, completeTool: 'file_upload_complete' })
+    const flags = up.options.map((o) => o.flags)
+    expect(flags).toEqual(expect.arrayContaining(['-s, --space-id <uuid>', '-f, --file <path>', '--name <name>', '--mime-type <type>']))
+    expect(up.options.find((o) => o.param === 'file')!.required).toBe(true)
+  })
+
+  it('file list は file_list を read で呼ぶ', () => {
+    const ls = file.subcommands!.find((s) => s.name === 'list')!
+    expect(ls.tool).toBe('file_list')
+  })
+})

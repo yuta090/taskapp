@@ -1,4 +1,4 @@
-# CLI Dynamic Manifest 仕様書 v1.2
+# CLI Dynamic Manifest 仕様書 v1.4
 
 > Codex Architect Review: v1.0で6件、v1.1で3件の指摘を反映済み
 
@@ -77,6 +77,19 @@ renameSync(tmpPath, MANIFEST_PATH)              // atomic swap
 - `stdinFormat='text'` のサブコマンドには、CLI(0.3.0+) が **manifest に無くても `--file <path>` を足す**。manifest に載せると旧CLI(0.2.x)の検証が未知の型として manifest 全体を弾き、全コマンドがビルトインに退行するため、クライアント側で付ける。
 - 旧CLIで `stdinFormat='text'` のコマンドを叩くと stdin を JSON として読もうとして失敗する（当該コマンドのみ。他のコマンドには影響しない）。
 - 未知のフィールドは CLI 側の検証で無視される（前方互換）。新しい **型** を足すときだけ `minCliVersion` を上げる。
+
+## アップロード入力モード（v1.4 追記）
+
+サブコマンドは `uploadMode: true` でローカルファイルの 3 段階アップロードになる（`agentpm file upload`）。
+
+| フィールド | 値 | 意味 |
+|-----------|----|------|
+| `uploadMode` | `true` | `--file <path>` のローカルファイルを読み、`tool`（署名URL発行）→ 署名URLへ PUT → `completeTool`（完了確定）の順に処理する |
+| `completeTool` | ツール名 | `uploadMode=true` のとき必須（例 `file_upload_complete`） |
+
+- `--file` は manifest のオプションとして載せる（`param: 'file'`、`required: true`）。`--name` / `--mime-type` は任意。
+- 旧 CLI(0.3.x 以前)は `uploadMode` を知らず `tool` を直接呼んで失敗する（このコマンドのみ。他のコマンドには影響しない）。**型**は増えていないので `minCliVersion` は上げない。
+- 実バイトは Supabase Storage の署名アップロードURLへ `PUT`（`content-type` / `x-upsert: false`）。API サーバーを経由しないため関数の要求サイズ上限(4.5MB)に縛られない。
 
 ## マニフェストJSON スキーマ
 

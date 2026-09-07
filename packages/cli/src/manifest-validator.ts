@@ -32,6 +32,14 @@ export interface ManifestSubcommand {
   stdinFormat?: 'json' | 'text'
   /** stdinFormat='text' のとき、テキストを入れるパラメータ名 */
   stdinParam?: string
+  /**
+   * ファイルアップロード（3段階）。true のとき CLI は `--file` のローカルファイルを読み、
+   * tool（署名URL発行）→ 署名URLへ PUT → completeTool（完了確定）の順に処理する。
+   * 旧 CLI(0.3.x 以前)はこのフィールドを知らず tool を直接呼ぶ（このコマンドだけ失敗する）。
+   */
+  uploadMode?: boolean
+  /** uploadMode=true のとき、完了を確定するツール名 */
+  completeTool?: string
   options: ManifestOption[]
 }
 
@@ -106,6 +114,12 @@ function validateSubcommand(sub: ManifestSubcommand, path: string): void {
   }
   if (sub.stdinFormat === 'text' && (!sub.stdinParam || !PARAM_RE.test(sub.stdinParam))) {
     throw new ManifestValidationError(`${path}: stdinFormat=text requires a valid stdinParam`)
+  }
+  if (sub.uploadMode !== undefined && typeof sub.uploadMode !== 'boolean') {
+    throw new ManifestValidationError(`${path}: uploadMode must be a boolean`)
+  }
+  if (sub.uploadMode && (!sub.completeTool || !TOOL_RE.test(sub.completeTool))) {
+    throw new ManifestValidationError(`${path}: uploadMode requires a valid completeTool`)
   }
   for (let i = 0; i < sub.options.length; i++) {
     validateOption(sub.options[i], `${path}.options[${i}]`)

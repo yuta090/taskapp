@@ -8,6 +8,7 @@ import { resolveSpaceId } from './config.js';
 import { buildParams, buildStdinParams, camelCase, extractLongFlag } from './input.js';
 import { callTool } from './api-client.js';
 import { output, outputError } from './output.js';
+import { uploadFile, defaultUploadDeps } from './upload.js';
 import { sanitize } from './manifest-validator.js';
 import chalk from 'chalk';
 /**
@@ -89,6 +90,26 @@ function createAction(sub, program) {
             return;
         }
         try {
+            // upload mode: ローカルファイルを 署名URL発行 → PUT → 完了確定 の3段階で送る(file upload)
+            if (sub.uploadMode) {
+                const filePath = typeof opts.file === 'string' ? opts.file : undefined;
+                if (!filePath) {
+                    console.error(`Error: ${sub.name} requires --file <path>.`);
+                    console.error(`Example: agentpm file ${sub.name} --file ./list.csv`);
+                    process.exit(1);
+                }
+                const spaceId = resolveSpaceId(opts);
+                const result = await uploadFile({
+                    filePath,
+                    spaceId,
+                    name: typeof opts.name === 'string' ? opts.name : undefined,
+                    mimeType: typeof opts.mimeType === 'string' ? opts.mimeType : undefined,
+                    tool: sub.tool,
+                    completeTool: sub.completeTool ?? 'file_upload_complete',
+                }, { ...defaultUploadDeps, callTool });
+                output(result, jsonMode);
+                return;
+            }
             // stdin mode: JSON(scheduling create/respond) or raw text(task import via --stdin / --file)
             const isTextMode = sub.stdinFormat === 'text';
             const filePath = isTextMode && typeof opts.file === 'string' ? opts.file : undefined;

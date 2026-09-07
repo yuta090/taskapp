@@ -1132,6 +1132,54 @@ export declare const allTools: ({
         proposalId: string;
     }>;
     handler: typeof import("./scheduling.js").schedulingSendReminder;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        limit: import("zod").ZodDefault<import("zod").ZodNumber>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        limit: number;
+    }, {
+        spaceId: string;
+        limit?: number | undefined;
+    }>;
+    handler: typeof import("./files.js").fileList;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        name: import("zod").ZodString;
+        mimeType: import("zod").ZodOptional<import("zod").ZodString>;
+        sizeBytes: import("zod").ZodNumber;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        name: string;
+        sizeBytes: number;
+        mimeType?: string | undefined;
+    }, {
+        spaceId: string;
+        name: string;
+        sizeBytes: number;
+        mimeType?: string | undefined;
+    }>;
+    handler: typeof import("./files.js").fileUploadUrl;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        fileId: import("zod").ZodString;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        fileId: string;
+    }, {
+        spaceId: string;
+        fileId: string;
+    }>;
+    handler: typeof import("./files.js").fileUploadComplete;
 })[];
 export declare function registerTools(server: Server): void;
 //# sourceMappingURL=index.d.ts.map

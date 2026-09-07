@@ -53,6 +53,12 @@ function validateSubcommand(sub, path) {
     if (sub.stdinFormat === 'text' && (!sub.stdinParam || !PARAM_RE.test(sub.stdinParam))) {
         throw new ManifestValidationError(`${path}: stdinFormat=text requires a valid stdinParam`);
     }
+    if (sub.uploadMode !== undefined && typeof sub.uploadMode !== 'boolean') {
+        throw new ManifestValidationError(`${path}: uploadMode must be a boolean`);
+    }
+    if (sub.uploadMode && (!sub.completeTool || !TOOL_RE.test(sub.completeTool))) {
+        throw new ManifestValidationError(`${path}: uploadMode requires a valid completeTool`);
+    }
     for (let i = 0; i < sub.options.length; i++) {
         validateOption(sub.options[i], `${path}.options[${i}]`);
     }
