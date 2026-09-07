@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { checkAal2 } from '@/lib/auth/requireAal2'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -26,6 +28,9 @@ async function getCurrentUser() {
   if (error || !user) {
     return null
   }
+  // 二要素認証: 登録済み × コード未入力(aal1) は未認証と同じ扱い（service role で触る前に弾く）
+  const aal = await checkAal2(supabase as SupabaseClient)
+  if (!aal.ok) return null
   return user
 }
 

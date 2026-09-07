@@ -4,7 +4,7 @@ import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constant
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 // 公開パス定義はダークテーマ判定と単一ソース化（src/lib/routes/publicPaths.ts）
 import { isPublicPathMatch } from '@/lib/routes/publicPaths'
-import { decideMfaRedirect } from '@/lib/auth/mfa'
+import { decideMfaRedirect, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import {
   FIRST_TOUCH_COOKIE,
@@ -228,6 +228,23 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
   // ── 検証パス: login/signup/onboarding のみ getUser() を使用 ──
   // サーバー検証が必要（リダイレクト先の決定に verified user ID が必要）
   const { data: { user } } = await supabase.auth.getUser()
+
+  // 二要素認証を登録済み × コード未入力なら、着地判定（組織の照会。aal1 では RLS で読めず
+  // 「組織なし」に化ける）より先にコード入力画面へ
+  if (user) {
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    const mfaRedirect = decideMfaRedirect({ pathname, search: request.nextUrl.search, currentLevel: aal?.currentLevel ?? null, nextLevel: aal?.nextLevel ?? null })
+    if (mfaRedirect && pathname !== '/login' && pathname !== '/signup') {
+      return NextResponse.redirect(new URL(mfaRedirect, request.url))
+    }
+    if (mfaRedirect) {
+      // /login 自体の再訪: 元の redirect を持ち回ってコード入力へ
+      const redirectParam = request.nextUrl.searchParams.get('redirect')
+      const url = new URL(MFA_CHALLENGE_PATH, request.url)
+      if (isSafeInternalPath(redirectParam)) url.searchParams.set('redirect', redirectParam)
+      return NextResponse.redirect(url)
+    }
+  }
 
   // 認証済みユーザーがログイン/サインアップページにアクセスした場合
   if (user && (pathname === '/login' || pathname === '/signup')) {

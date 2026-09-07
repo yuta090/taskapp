@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { needsMfaChallenge, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -89,6 +90,13 @@ export async function GET(request: NextRequest) {
 
   // next パラメータ付き（招待のログインリンク等）は行き先が明示されているのでそちらへ復帰。
   // LoginClient の redirect パラメータと同じ優先順位・バリデーション。
+  // 二要素認証を登録済みなら、着地先を決める前にコード入力画面へ（コード入力前は RLS で組織情報が読めないため）
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+  if (needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) {
+    const q = isSafeInternalPath(next) ? `?redirect=${encodeURIComponent(next)}` : ''
+    return NextResponse.redirect(new URL(`${MFA_CHALLENGE_PATH}${q}`, origin))
+  }
+
   if (isSafeInternalPath(next)) {
     return NextResponse.redirect(new URL(next, origin))
   }

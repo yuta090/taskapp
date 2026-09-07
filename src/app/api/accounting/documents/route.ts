@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient)
+    if (mfaBlock) return mfaBlock
 
     const body = (await request.json().catch(() => ({}))) as IssueRequestBody
 
@@ -281,6 +285,9 @@ export async function GET(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient)
+    if (mfaBlock) return mfaBlock
 
     const spaceId = new URL(request.url).searchParams.get('spaceId')
     if (!spaceId || !UUID_REGEX.test(spaceId)) {

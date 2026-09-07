@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -25,6 +26,9 @@ export async function PATCH(
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient)
+    if (mfaBlock) return mfaBlock
 
     if (!UUID_REGEX.test(id)) {
       return NextResponse.json({ error: 'Invalid file ID' }, { status: 400 })
@@ -103,6 +107,9 @@ export async function DELETE(
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient)
+    if (mfaBlock) return mfaBlock
 
     if (!UUID_REGEX.test(id)) {
       return NextResponse.json({ error: 'Invalid file ID' }, { status: 400 })

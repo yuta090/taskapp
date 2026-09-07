@@ -8,8 +8,9 @@
 ## いまの保護範囲（正直に）
 - **画面**: 登録済みの人は、コード入力(aal2)を通らないと保護ページを開けない（`src/proxy.ts`。cookie の中身で判定する誘導）。
 - **運営 API と運営画面**: `verifySuperadmin` が検証済みトークンの aal と Auth API の factor 一覧で**本当に強制**する（登録済み×aal1 は 403）。`ADMIN_MFA_REQUIRED=true` で未登録の運営も締め出す。
-- **まだ強制していないところ**: 一般利用者向けの `/api/**` と、Supabase REST への直接アクセス（RLS は aal を見ていない）。パスワードを盗んだ攻撃者がコード入力前のセッションで API を直接叩く経路は残る。
-  → 次の PR（Fable 裁定）で、機密性の高いテーブルから RLS に「登録済みなら aal2 必須」を `RESTRICTIVE` ポリシーとして足し、`/api/**` に共通の `checkAal2` を掛ける。
+- **DB（RLS）**: 全テーブルに RESTRICTIVE ポリシー `mfa_required_when_enrolled`（`public.mfa_satisfied()`）。登録済み×aal1 のトークンでは Supabase REST / Realtime / 一般 API 経由の読み書きが全部止まる。未登録は従来どおり。**新しく RLS 付きテーブルを作ったら、migration の DO ブロックを再実行して同じポリシーを付ける**。
+- **service role で触る一般 API**（ファイル・push・APIキー・招待・会計・課金上限）: `mfaGuardResponse`（`src/lib/auth/apiMfaGuard.ts`）で getUser 直後に弾く。
+- ログイン直後の着地判定は、コード入力の前に行うと RLS で「組織なし」に化けるので、LoginClient / Google callback / proxy はコード入力画面を先に出す。
 
 ## 仕組み
 - Supabase Auth の MFA（TOTP）。ログイン直後は aal1、コード確認後に aal2。

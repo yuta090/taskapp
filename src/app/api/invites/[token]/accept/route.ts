@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -96,6 +97,9 @@ export async function POST(
     let created = false
 
     if (user) {
+      // 二要素認証: 登録済み × コード未入力(aal1) は承諾させない（service role で触る前に弾く）
+      const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient)
+      if (mfaBlock) return mfaBlock
       // V5（wrong-account join 防止）: 招待は宛先メールのアカウントにのみ紐付ける。
       // 転送されたリンクや共用ブラウザで、別人のセッションに招待を
       // 消費させない（vendor-portal と同じガードをこちらにも適用）

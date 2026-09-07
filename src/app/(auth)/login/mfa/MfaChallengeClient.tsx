@@ -5,7 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, CircleNotch } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { normalizeTotpCode } from '@/lib/auth/mfa'
-import { safeInternalPathOr } from '@/lib/auth/safeRedirect'
+import { isSafeInternalPath, safeInternalPathOr } from '@/lib/auth/safeRedirect'
+import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
+import { getActiveOrgId } from '@/lib/org/activeOrg'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * 二要素認証のコード入力。
@@ -76,13 +79,19 @@ export default function MfaChallengeClient() {
       setError(null)
       try {
         const supabase = createClient()
-        const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: normalized })
+        const { data: verified, error: verifyError } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: normalized })
         if (verifyError) {
           setError('コードが違います。認証アプリに表示されている最新の6桁を入力してください。')
           setSubmitting(false)
           return
         }
-        router.replace(safeInternalPathOr(redirect))
+        // 行き先の指定が無ければ、ログイン直後と同じ着地判定（コード入力後なので組織情報が読める）
+        if (isSafeInternalPath(redirect)) {
+          router.replace(redirect)
+        } else {
+          const userId = verified?.user?.id
+          router.replace(userId ? await resolvePostLoginLanding(supabase as SupabaseClient, userId, { preferredOrgId: getActiveOrgId() }) : '/')
+        }
       } catch {
         setError('確認に失敗しました。しばらくしてからもう一度お試しください。')
         setSubmitting(false)
