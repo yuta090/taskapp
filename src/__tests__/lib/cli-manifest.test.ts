@@ -58,3 +58,28 @@ describe('cli-manifest: file upload', () => {
     expect(ls.tool).toBe('file_list')
   })
 })
+
+describe('cli-manifest: notices（CLI に出すお知らせ）', () => {
+  const manifest = getManifest()
+
+  it('notices は id(一意・英数字と . _ -)・date(YYYY-MM-DD)・message(空でない)を持つ', () => {
+    expect(Array.isArray(manifest.notices)).toBe(true)
+    const ids = manifest.notices.map((n) => n.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const n of manifest.notices) {
+      expect(n.id).toMatch(/^[A-Za-z0-9._-]{1,64}$/)
+      expect(n.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(n.message.length).toBeGreaterThan(0)
+      expect(n.message.length).toBeLessThanOrEqual(500)
+    }
+  })
+
+  it('サーバーが残すお知らせは直近 10 件まで(古いものは消してよい: 一度出した分は各利用者の既読に残る)', () => {
+    expect(manifest.notices.length).toBeLessThanOrEqual(10)
+  })
+
+  it('notices は checksum の対象外(commands だけ)なので、旧 CLI は無視して動ける', () => {
+    const computed = createHash('sha256').update(JSON.stringify(manifest.commands)).digest('hex')
+    expect(manifest.checksum).toBe(`sha256:${computed}`)
+  })
+})

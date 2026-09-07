@@ -60,7 +60,7 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
           <SharedBotClaimPanel orgId={orgId} channel={def.id} />
         </div>
       )}
-      {/* 合言葉方式のチャネルは、発行の直下に「確認待ち」を置いて同じ画面で承認まで済ませる。
+      {/* 合言葉方式のチャネルは、発行の直下に「チャンネルの承認」を置いて同じ画面で承認まで済ませる。
           以前は LINE 用ページにしか承認が無く、Slack の合言葉が LINE の画面に紛れて出ていた。 */}
       {(isSharedBotClaim || (canRegister && isOwnAccountClaim)) && (
         <PendingClaimsPanel orgId={orgId} channel={def.id} />

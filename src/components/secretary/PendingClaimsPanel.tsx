@@ -25,7 +25,7 @@ export function PendingClaimsPanel({ orgId, channel }: Props) {
 
   return (
     <section className="mt-6" data-testid="pending-claims-panel">
-      <h2 className="text-sm font-semibold text-gray-700 mb-1">確認待ち</h2>
+      <h2 className="text-sm font-semibold text-gray-700 mb-1">チャンネルの承認</h2>
       <p className="text-xs text-gray-500 mb-3">
         合言葉が投稿されたチャンネルがここに出ます。承認すると、そのチャンネルの会話を秘書が読み始めます。
       </p>
@@ -33,7 +33,7 @@ export function PendingClaimsPanel({ orgId, channel }: Props) {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!error && isLoading && <p className="text-xs text-gray-400">読み込み中…</p>}
       {!error && !isLoading && items.length === 0 && (
-        <p className="text-sm text-gray-500">確認待ちはまだありません。</p>
+        <p className="text-sm text-gray-500">承認待ちのチャンネルはまだありません。</p>
       )}
 
       {items.length > 0 && (

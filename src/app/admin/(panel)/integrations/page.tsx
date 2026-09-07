@@ -35,6 +35,8 @@ interface FieldDef {
 interface ProviderDef {
   key: ProviderKey
   label: string
+  /** カード見出しの下に出す一言（同名の鍵を持つ別アプリと取り違えないための注意など） */
+  note?: string
   icon: React.ElementType
   iconColor: string
   credentialFields: FieldDef[]
@@ -61,6 +63,7 @@ const PROVIDERS: ProviderDef[] = [
   {
     key: 'slack',
     label: 'Slack',
+    note: 'ツール連携の「AgentPM」アプリの鍵（お知らせ・/agentpm・@メンション）。AI秘書の「AgentPM秘書」の鍵はここではなく、各組織の「AI秘書 → つなぐ → Slack」で保存します。',
     icon: ChatCircleDots,
     iconColor: 'text-[#4A154B]',
     credentialFields: [
@@ -189,7 +192,10 @@ function ProviderCard({ def }: { def: ProviderDef }) {
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <Icon className={`w-5 h-5 ${def.iconColor}`} weight="bold" />
-          <h3 className="font-medium text-gray-900">{def.label}</h3>
+          <div>
+            <h3 className="font-medium text-gray-900">{def.label}</h3>
+            {def.note && <p className="mt-0.5 text-xs text-gray-500">{def.note}</p>}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {existing ? (

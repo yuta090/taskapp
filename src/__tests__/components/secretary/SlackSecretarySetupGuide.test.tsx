@@ -44,7 +44,7 @@ describe('SlackSecretarySetupGuide', () => {
       /2つの鍵を AgentPM に登録/,
       /秘書をチャンネルに招待/,
       /合言葉を発行して、そのチャンネルに投稿/,
-      '確認待ちで承認する',
+      'チャンネルの承認をする',
     ]) {
       expect(screen.getByText(t)).toBeInTheDocument()
     }
@@ -105,7 +105,7 @@ describe('SlackSecretarySetupGuide', () => {
     pendingState = { items: [{ id: 'claim-1' }], isLoading: false }
     render(<SlackSecretarySetupGuide orgId={ORG} />)
     expect(screen.getAllByText('済み').length).toBe(5)
-    expect(screen.getByText('いまここ').closest('li')).toHaveTextContent('確認待ちで承認する')
+    expect(screen.getByText('いまここ').closest('li')).toHaveTextContent('チャンネルの承認をする')
   })
 
   it('承認まで済んで有効なチャンネルがある: 全手順が済み、「完了」を出す', () => {
@@ -122,14 +122,14 @@ describe('SlackSecretarySetupGuide', () => {
     activeGroupsState = { data: 1, isPending: false }
     pendingState = { items: [{ id: 'claim-2' }], isLoading: false }
     render(<SlackSecretarySetupGuide orgId={ORG} />)
-    expect(screen.getByText('いまここ').closest('li')).toHaveTextContent('確認待ちで承認する')
+    expect(screen.getByText('いまここ').closest('li')).toHaveTextContent('チャンネルの承認をする')
   })
 
   it('承認の場所は「この画面の一番下の確認待ち」と案内し、タスク候補用の左メニュー「確認待ち」へは飛ばさない', () => {
     // 回帰の背景: 以前は /secretary/approvals（タスク候補の承認ページ）へリンクしていて、
     // チャンネルの紐付けはそこに出ないため「確認待ちに何も出ない」と混乱させた。
     render(<SlackSecretarySetupGuide orgId={ORG} />)
-    expect(screen.getByText(/この画面の一番下の「確認待ち」/)).toBeInTheDocument()
+    expect(screen.getByText(/この画面の一番下の「チャンネルの承認」/)).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /確認待ちを開く/ })).not.toBeInTheDocument()
     expect(document.querySelector(`a[href="/${ORG}/secretary/approvals"]`)).toBeNull()
   })

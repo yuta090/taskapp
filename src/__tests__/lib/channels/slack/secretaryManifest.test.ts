@@ -29,6 +29,15 @@ describe('buildSecretarySlackManifest', () => {
     expect(m.features.bot_user.display_name).toMatch(/^[A-Za-z0-9 _.-]+$/)
   })
 
+  it('説明文に「AgentPM（ツール連携）」との違いを書く（同名アプリが並んだときに見分けられる）', () => {
+    const d = m.display_information.long_description
+    expect(d).toContain('「AgentPM」との違い')
+    // 秘書は会話を読む／ツール連携の AgentPM は読まない、を明記
+    expect(d).toMatch(/会話を読/)
+    expect(d).toMatch(/合言葉で紐づけたチャンネルだけ/)
+    expect(d.length).toBeLessThanOrEqual(5000)
+  })
+
   it('受信に必要な scope（送信＋公開/非公開チャンネルの読取）を持つ', () => {
     const scopes = m.oauth_config.scopes.bot
     for (const s of ['chat:write', 'channels:history', 'groups:history', 'channels:read', 'groups:read']) {

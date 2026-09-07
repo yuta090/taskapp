@@ -51,7 +51,7 @@ describe('PendingClaimsPanel', () => {
     fetchMock.mockResolvedValue(pendingResponse([SLACK_CLAIM]))
     renderPanel('slack')
 
-    expect(screen.getByText('確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('チャンネルの承認')).toBeInTheDocument()
     expect(await screen.findByText('ZXQ2')).toBeInTheDocument()
     expect(screen.getByText('アルカラ')).toBeInTheDocument()
 

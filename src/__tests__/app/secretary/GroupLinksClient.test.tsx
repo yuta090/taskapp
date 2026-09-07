@@ -197,7 +197,7 @@ describe('GroupLinksClient', () => {
     renderPanel()
 
     await waitFor(() => {
-      expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
+      expect(screen.getByText('承認待ちのグループはありません。')).toBeInTheDocument()
     })
   })
 
@@ -488,7 +488,7 @@ describe('GroupLinksClient', () => {
 
       resolvePending()
       await waitFor(() => {
-        expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
+        expect(screen.getByText('承認待ちのグループはありません。')).toBeInTheDocument()
       })
       expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument()
     })
@@ -511,7 +511,7 @@ describe('GroupLinksClient', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(0)
         })
-        expect(screen.getByText('確認待ちのグループはありません。')).toBeInTheDocument()
+        expect(screen.getByText('承認待ちのグループはありません。')).toBeInTheDocument()
 
         // 相手先がLINEグループに参加した想定 → 次のpending応答に新規行が現れる
         items = [

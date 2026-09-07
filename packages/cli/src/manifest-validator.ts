@@ -52,12 +52,21 @@ export interface ManifestCommand {
   subcommands?: ManifestSubcommand[]
 }
 
+/** サーバーが添える「お知らせ」。checksum の対象外で、旧 CLI は項目ごと無視する */
+export interface ManifestNotice {
+  id: string
+  date?: string
+  message: string
+}
+
 export interface Manifest {
   version: string
   minCliVersion: string
   generatedAt: string
   checksum: string
   commands: ManifestCommand[]
+  /** validateManifest が必ず配列にする(サーバーが返さなければ []) */
+  notices: ManifestNotice[]
 }
 
 // Validation regex patterns
@@ -68,8 +77,16 @@ const FLAGS_RE = /^(-[a-zA-Z],\s)?--[a-z][a-z0-9-]*(\s<[^>]+>)?$/
 
 /** Strip ANSI escape sequences and control characters */
 export function sanitize(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/[\x00-\x1f\x7f]|\x1b\[[0-9;]*[a-zA-Z]/g, '')
+  // サーバーから来た文字列を端末に出すので、端末を操作・偽装できる文字を落とす:
+  //  1) OSC(ESC ] … BEL: タイトル書き換え等)を丸ごと  2) CSI を含む ESC 系一般を丸ごと
+  //  3) C0/C1 制御文字(U+009B の 8bit CSI 含む)と、表示方向を反転する文字(U+202E 等)
+  // ESC 系を先に消すのが肝心(制御文字を先にすると ESC だけ消えて "[31m" が文字として残る)
+  return (
+    str
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, '')
+      .replace(/\x1b[@-_][0-?]*[ -/]*[@-~]?/g, '')
+      .replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '')
+  )
 }
 
 class ManifestValidationError extends Error {
@@ -227,7 +244,39 @@ export function validateManifest(raw: unknown): Manifest {
     }
   }
 
+  // お知らせ: 形の正しいものだけ残す(壊れていても manifest 全体は弾かない。表示用の文字列なので制御文字は落とす)
+  manifest.notices = sanitizeNotices(m.notices)
+
   return manifest
+}
+
+const NOTICE_ID_RE = /^[A-Za-z0-9._-]{1,64}$/
+const NOTICE_MESSAGE_MAX = 500
+/** 受け取る上限。サーバーは直近 10 件しか残さない約束だが、別サーバーを向けた場合の最後の砦 */
+export const NOTICES_MAX = 20
+/** 日付の無いお知らせは「最新」として並べる(古い扱いにすると上限で真っ先に落ちる) */
+const NO_DATE = '9999-99-99'
+
+function sanitizeNotices(raw: unknown): ManifestNotice[] {
+  if (!Array.isArray(raw)) return []
+  const out: ManifestNotice[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const n = item as Record<string, unknown>
+    if (typeof n.id !== 'string' || !NOTICE_ID_RE.test(n.id)) continue
+    if (typeof n.message !== 'string') continue
+    const message = sanitize(n.message).trim()
+    if (message.length === 0 || message.length > NOTICE_MESSAGE_MAX) continue
+    const notice: ManifestNotice = { id: n.id, message }
+    if (typeof n.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.date)) notice.date = n.date
+    out.push(notice)
+  }
+  // 多すぎる場合は新しい方を残す。サーバー側の並び順に頼らず、日付(無ければ末尾扱い)で並べてから切る
+  return out
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => (a.n.date ?? NO_DATE).localeCompare(b.n.date ?? NO_DATE) || a.i - b.i)
+    .map(({ n }) => n)
+    .slice(-NOTICES_MAX)
 }
 
 /**

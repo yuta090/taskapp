@@ -63,7 +63,7 @@ const CLAIM_GUIDES: Record<string, ClaimGuide> = {
           合言葉を発行し、記録したい<strong>チャンネルにこの合言葉を投稿</strong>してもらう
         </li>
         <li>
-          <strong>「確認待ち」</strong>に出てくるので、社内で承認する
+          <strong>「チャンネルの承認」</strong>に出てくるので、社内で承認する
           <Hint label="承認のあと">承認すると、以降そのチャンネルの会話の記録が始まります。</Hint>
         </li>
       </>
@@ -84,7 +84,7 @@ const CLAIM_GUIDES: Record<string, ClaimGuide> = {
           合言葉を発行し、そのチャンネルに<strong>合言葉をそのまま投稿</strong>する（誰が投稿しても構いません）
         </li>
         <li>
-          <strong>「確認待ち」</strong>に出てくるので、社内で承認する
+          <strong>「チャンネルの承認」</strong>に出てくるので、社内で承認する
           <Hint label="承認のあと">承認すると、以降そのチャンネルの会話から秘書がタスクを拾い始めます。</Hint>
         </li>
       </>
@@ -103,7 +103,7 @@ function fallbackGuide(channel: string): ClaimGuide {
       <>
         <li>運営の共通アカウントを相手先の{label}に追加してもらう</li>
         <li>合言葉を発行し、記録したい{label}のチャンネルに投稿してもらう</li>
-        <li>「確認待ち」に出てくるので、社内で承認する</li>
+        <li>「チャンネルの承認」に出てくるので、社内で承認する</li>
       </>
     ),
     postInstruction: `このコードを ${label} の記録したいチャンネルに投稿してください。`,
