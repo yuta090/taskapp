@@ -5,7 +5,7 @@ import { GithubLogo, Plus, X } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
 import { useTaskGitHubLinks, useSpacePullRequests, useManualLinkPR, useUnlinkPR } from '@/lib/hooks'
-import { isGitHubConfigured } from '@/lib/github/config'
+import { isGitHubConfigured } from '@/lib/github/enabled'
 import { PRBadge } from './PRBadge'
 
 interface TaskPRListProps {

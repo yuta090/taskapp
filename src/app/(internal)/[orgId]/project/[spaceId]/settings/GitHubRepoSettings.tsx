@@ -9,7 +9,7 @@ import {
   useLinkRepoToSpace,
   useUnlinkRepoFromSpace,
 } from '@/lib/hooks'
-import { isGitHubConfigured } from '@/lib/github/config'
+import { isGitHubConfigured } from '@/lib/github/enabled'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
 import { ToolSetupGuide } from '@/components/integrations/ToolSetupGuide'

@@ -17,15 +17,8 @@ export const GITHUB_CONFIG = {
   requiredPermissions: ['pull_requests:read', 'contents:read', 'metadata:read'],
 }
 
-/**
- * GitHub App が設定されているかチェック
- * NEXT_PUBLIC_ 環境変数を使用してサーバー/クライアント両方で同じ結果を返す
- * (Hydration エラー防止のため)
- */
-export function isGitHubConfigured(): boolean {
-  // NEXT_PUBLIC_ はサーバー/クライアント両方でアクセス可能
-  return process.env.NEXT_PUBLIC_GITHUB_ENABLED === 'true'
-}
+// 判定だけを使う画面側は './enabled' から直接 import すること（このファイルは crypto を持ち込む）
+export { isGitHubConfigured } from './enabled'
 
 /**
  * GitHub App の設定が完全かチェック（サーバーサイドのみ）
