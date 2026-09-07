@@ -123,6 +123,7 @@ agentpm file upload -s <space-uuid> --file ./data.tsv --json
 
 - Web の「ファイル」画面と同じ 3 段階で送る: `file_upload_url`（pending 行＋署名URL） → 署名URLへ実バイトを PUT → `file_upload_complete`（Storage の実体を確認して ready）。API サーバーはバイトを中継しないため **50MB まで**送れる。
 - MIME は拡張子から推定（csv/tsv/pdf/png/jpg/xlsx/docx/md/json/zip など）。`--mime-type` で上書き可。
+- **ファイル名は日本語のままでよい。** 表示名(`files.name`)はそのまま保存し、Storage の保存先(`storage_path`)だけ英数字に変換する（Storage の鍵は ASCII しか受け付けず、日本語のままだと `InvalidKey` で PUT が失敗するため）。規則は Web と共通（`src/lib/files/storageKey.ts`）: 英数字と `. _ -` 以外は `_` にまとめ、拡張子は残す。
 - 完了結果に `downloadPath` と、CSV/TSV なら **表ビューのパス** `tablePath`（`/{orgId}/project/{spaceId}/files/{fileId}`）が返る。
 - 必要な権限: API キーの `write`（内部メンバーの鍵）。client/vendor 権限の鍵は認可(`mcp_authorize`)がファイルへの write を許可しないため **アップロード不可**。`file list` は client/vendor 鍵ではクライアント公開分と自分がアップロードした分だけ返る（Web と同じ見える範囲）。
 - `file list` / 完了結果の `downloadPath` は Web（Cookie ログイン）用のパス。ブラウザに貼って使う（CLI からそのまま取得はできない）。

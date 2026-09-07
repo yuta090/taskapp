@@ -75,6 +75,7 @@ export interface FileUploadCompleteResult {
     tablePath: string | null;
     message: string;
 }
+export declare function toStorageKeyName(name: string): string;
 export declare function fileList(params: z.infer<typeof fileListSchema>): Promise<FileListItem[]>;
 export declare function fileUploadUrl(params: z.infer<typeof fileUploadUrlSchema>): Promise<FileUploadUrlResult>;
 export declare function fileUploadComplete(params: z.infer<typeof fileUploadCompleteSchema>): Promise<FileUploadCompleteResult>;
