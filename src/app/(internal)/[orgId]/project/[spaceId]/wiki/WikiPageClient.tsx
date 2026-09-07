@@ -1,17 +1,23 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BookOpen, Plus, ArrowLeft, Sparkle, Info } from '@phosphor-icons/react'
 import { useInspector } from '@/components/layout'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
-import { WikiPageRow } from '@/components/wiki/WikiPageRow'
+import { WikiPageRow, type WikiRowMember } from '@/components/wiki/WikiPageRow'
+import { WikiListToolbar } from '@/components/wiki/WikiListToolbar'
 import { WikiPageInspector } from '@/components/wiki/WikiPageInspector'
 import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
+import { EmptyState } from '@/components/shared'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { applyWikiListView, DEFAULT_WIKI_FILTERS, type WikiListFilters } from '@/lib/wiki/listView'
+import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 import { SAVING } from '@/lib/design/tokens'
 
@@ -48,6 +54,34 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   } = useWikiPages({ orgId, spaceId })
   const { milestones } = useMilestones({ spaceId })
   const milestonesEmpty = pages.length === 0 ? milestones.length === 0 : null
+
+  // Wiki 一覧の絞り込み・並べ替え・表示項目（PR1: 一覧強化）
+  const [filters, setFilters] = useState<WikiListFilters>(DEFAULT_WIKI_FILTERS)
+  const [prefs, setPrefs] = useWikiListPrefs()
+  const { members } = useSpaceMembers(spaceId)
+  const { user: currentUser } = useCurrentUser()
+
+  const memberMap = useMemo(() => {
+    const map = new Map<string, WikiRowMember>()
+    for (const member of members) {
+      map.set(member.id, { name: member.displayName, avatarUrl: member.avatarUrl })
+    }
+    return map
+  }, [members])
+
+  const getMember = useCallback(
+    (userId: string): WikiRowMember | null => memberMap.get(userId) ?? null,
+    [memberMap]
+  )
+  const getAuthorName = useCallback(
+    (userId: string): string => memberMap.get(userId)?.name ?? `${userId.slice(0, 8)}...`,
+    [memberMap]
+  )
+
+  const displayedPages = useMemo(
+    () => applyWikiListView(pages, filters, prefs.sort, getAuthorName),
+    [pages, filters, prefs.sort, getAuthorName]
+  )
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`
   const selectedPageId = searchParams.get('page')
@@ -273,6 +307,21 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         </button>
       </div>
 
+      {/* Toolbar — 検索・タグ・作成者・並べ替え・表示項目（ページが1件以上あるときだけ出す） */}
+      {!loading && pages.length > 0 && (
+        <WikiListToolbar
+          pages={pages}
+          filters={filters}
+          onFiltersChange={setFilters}
+          prefs={prefs}
+          onPrefsChange={setPrefs}
+          members={members}
+          currentUserId={currentUser?.id ?? null}
+          totalCount={pages.length}
+          filteredCount={displayedPages.length}
+        />
+      )}
+
       {/* Page List */}
       <div className="flex-1 overflow-y-auto">
         {loading && pages.length === 0 ? (
@@ -309,14 +358,30 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               )
             )}
           </div>
+        ) : displayedPages.length === 0 ? (
+          <EmptyState
+            icon={<BookOpen />}
+            message="該当するページがありません"
+            action={
+              <button
+                type="button"
+                onClick={() => setFilters(DEFAULT_WIKI_FILTERS)}
+                className="text-sm text-indigo-600 hover:text-indigo-700"
+              >
+                絞り込みを解除
+              </button>
+            }
+          />
         ) : (
           <div>
-            {pages.map(page => (
+            {displayedPages.map(page => (
               <WikiPageRow
                 key={page.id}
                 page={page}
                 isSelected={selectedPageId === page.id}
                 onClick={() => handleSelectPage(page.id)}
+                columns={prefs.columns}
+                getMember={getMember}
               />
             ))}
           </div>
