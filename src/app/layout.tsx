@@ -12,7 +12,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'AgentPM - つくることに、集中できる',
   description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',
-  metadataBase: new URL('https://agentpm.jp'),
+  metadataBase: new URL('https://agentpm.app'),
   openGraph: {
     title: 'AgentPM - つくることに、集中できる',
     description: '管理・報告・調整はAIとツールに。AgentPMなら、あなたのチームは最高のアウトプットを届けることに専念できます。',

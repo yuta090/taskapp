@@ -69,7 +69,7 @@ export default function PrivacyPage() {
 
                     <div className="bg-slate-50 p-6 rounded-lg border border-slate-200">
                         <p className="mb-1"><strong>株式会社ソレカラ</strong></p>
-                        <p className="mb-1">E-mail: support@agentpm.jp</p>
+                        <p className="mb-1">E-mail: support@agentpm.app</p>
                     </div>
 
                     <p className="text-right text-sm text-slate-500 mt-12 border-t pt-4">
