@@ -84,11 +84,16 @@ describe('channel registry', () => {
     expect(CHANNELS.discord.webhookPath).toBeUndefined()
   })
 
-  it('account単位で受ける受信チャネル(telegram/chatwork/whatsapp/slack)は{accountId}を含むパス', () => {
-    for (const id of ['telegram', 'chatwork', 'whatsapp', 'slack'] as const) {
+  it('account単位で受ける受信チャネル(telegram/chatwork/whatsapp)は{accountId}を含むパス', () => {
+    for (const id of ['telegram', 'chatwork', 'whatsapp'] as const) {
       expect(CHANNELS[id].inbound).toBe(true)
       expect(CHANNELS[id].webhookPath).toContain('{accountId}')
     }
+  })
+
+  it('slack は組織単位の受信パス（{orgId}）— アプリ作成前に確定し、設定ファイルに埋め込める', () => {
+    expect(CHANNELS.slack.inbound).toBe(true)
+    expect(CHANNELS.slack.webhookPath).toBe('/api/channels/slack/webhook/org/{orgId}')
   })
 })
 

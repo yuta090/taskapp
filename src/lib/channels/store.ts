@@ -400,6 +400,28 @@ export async function findChannelAccountMetaForOrg(orgId: string): Promise<Chann
   return toAccountMeta(data as AccountMetaRow)
 }
 
+/**
+ * LINE 以外のチャネル用: org × channel の自社アカウント（owner_type='org'）のメタ情報。
+ * Slack 接続ページの「いまどの手順か」（鍵を登録済みか／有効か）の判定に使う。秘密列は返さない。
+ */
+export async function findChannelAccountMetaForOrgChannel(
+  orgId: string,
+  channel: string,
+): Promise<ChannelAccountMeta | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select(ACCOUNT_META_COLUMNS)
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('owner_type', 'org')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return toAccountMeta(data as AccountMetaRow)
+}
+
 /** PATCH /api/channels/accounts の認可用: accountIdの実所属orgを引く(クライアント申告のorgIdは信用しない) */
 export async function findChannelAccountOrgId(accountId: string): Promise<string | null> {
   const { data, error } = await admin()
