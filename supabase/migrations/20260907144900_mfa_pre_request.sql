@@ -57,4 +57,12 @@ notify pgrst, 'reload config';
 
 -- ついで（レビュー L2）: アプリ未使用の旧ビュー v_client_* は security_invoker が無く基テーブルの RLS を通らない。
 -- authenticated/anon から読めないようにする（service role は影響なし）
-revoke all on public.v_client_tasks, public.v_client_wiki, public.v_client_milestones, public.v_client_discussion_items from anon, authenticated;
+do $$
+declare v text;
+begin
+  foreach v in array array['v_client_tasks', 'v_client_wiki', 'v_client_milestones', 'v_client_discussion_items'] loop
+    if to_regclass('public.' || v) is not null then
+      execute format('revoke all on public.%I from anon, authenticated', v);
+    end if;
+  end loop;
+end $$;
