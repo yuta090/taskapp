@@ -77,7 +77,7 @@ as $$
       select 1 from pg_catalog.pg_db_role_setting s
       join pg_catalog.pg_roles r on r.oid = s.setrole
       where r.rolname = 'authenticator'
-        and exists (select 1 from unnest(s.setconfig) c where c = 'pgrst.db_pre_request=public.mfa_pre_request')
+        and exists (select 1 from unnest(s.setconfig) c where c like 'pgrst.db_pre_request=%mfa_pre_request%')
     ),
     'policy_missing', (
       select coalesce(jsonb_agg(t.tablename), '[]'::jsonb) from pg_catalog.pg_tables t

@@ -34,9 +34,10 @@ const defaultValue: ActiveOrgContextValue = {
 export const ActiveOrgContext = createContext<ActiveOrgContextValue>(defaultValue)
 
 /** 二要素認証の未入力で DB に拒否された（PostgREST 403 / 42501）か */
-function isMfaDenied(err: { code?: string; status?: number; message?: string } | null | undefined): boolean {
+function isMfaDenied(err: { code?: string; message?: string } | null | undefined): boolean {
   if (!err) return false
-  return err.code === '42501' || err.status === 403 || (err.message ?? '').includes('mfa_required')
+  // supabase-js の PostgrestError は code/message のみ（status は無い）
+  return err.code === '42501' || (err.message ?? '').includes('mfa_required')
 }
 
 let redirectingToMfa = false
