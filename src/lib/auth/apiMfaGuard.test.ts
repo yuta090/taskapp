@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 const checkAal2Mock = vi.fn()
 vi.mock('./requireAal2', () => ({ checkAal2: checkAal2Mock }))
-const { mfaGuardResponse } = await import('./apiMfaGuard')
+const { mfaGuardResponse, mfaRedirectResponse } = await import('./apiMfaGuard')
 const client = {} as SupabaseClient
 
 describe('mfaGuardResponse', () => {
@@ -20,5 +20,13 @@ describe('mfaGuardResponse', () => {
       expect(res?.status, reason).toBe(403)
       expect((await res!.json()).error).toBe('mfa_required')
     }
+  })
+  it('mfaRedirectResponse は弾くときコード入力画面へリダイレクト', async () => {
+    checkAal2Mock.mockResolvedValueOnce({ ok: false, reason: 'mfa_required', userId: 'u' })
+    const res = await mfaRedirectResponse(client, null, 'https://agentpm.app', '/settings/integrations')
+    expect(res?.status).toBe(307)
+    expect(res?.headers.get('location')).toBe('https://agentpm.app/login/mfa?redirect=%2Fsettings%2Fintegrations')
+    checkAal2Mock.mockResolvedValueOnce({ ok: true, userId: 'u', enrolled: false })
+    expect(await mfaRedirectResponse(client, null, 'https://agentpm.app', '/x')).toBeNull()
   })
 })

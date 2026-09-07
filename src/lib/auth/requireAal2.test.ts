@@ -53,4 +53,11 @@ describe('checkAal2', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(await checkAal2({ auth: undefined } as unknown as SupabaseClient)).toMatchObject({ ok: false, reason: 'check_failed' })
   })
+  it('user（factors 付き）を渡せば listFactors を呼ばない', async () => {
+    const c = client({ aal: 'aal1' })
+    const spy = vi.spyOn(c.auth.mfa, 'listFactors')
+    expect(await checkAal2(c, { user: { id: 'u1', factors: [{ status: 'verified' }] } })).toMatchObject({ ok: false, reason: 'mfa_required' })
+    expect(await checkAal2(c, { user: { id: 'u1', factors: [] } })).toMatchObject({ ok: true, enrolled: false })
+    expect(spy).not.toHaveBeenCalled()
+  })
 })

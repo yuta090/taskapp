@@ -232,8 +232,11 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
   // 二要素認証を登録済み × コード未入力なら、着地判定（組織の照会。aal1 では RLS で読めず
   // 「組織なし」に化ける）より先にコード入力画面へ
   if (user) {
-    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    const mfaRedirect = decideMfaRedirect({ pathname, search: request.nextUrl.search, currentLevel: aal?.currentLevel ?? null, nextLevel: aal?.nextLevel ?? null })
+    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    // 判定できないときもコード入力画面へ倒す（fail-closed。未登録なら画面側で判定し直して先へ進む）
+    const mfaRedirect = aalError
+      ? `${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(pathname + request.nextUrl.search)}`
+      : decideMfaRedirect({ pathname, search: request.nextUrl.search, currentLevel: aal?.currentLevel ?? null, nextLevel: aal?.nextLevel ?? null })
     if (mfaRedirect && pathname !== '/login' && pathname !== '/signup') {
       return NextResponse.redirect(new URL(mfaRedirect, request.url))
     }

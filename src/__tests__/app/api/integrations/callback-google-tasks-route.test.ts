@@ -10,7 +10,7 @@ import { createHmac } from 'crypto'
 
 const getUserMock = vi.fn()
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(async () => ({ auth: { getUser: getUserMock } })),
+  createClient: vi.fn(async () => ({ auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: getUserMock } })),
 }))
 
 // 接続保存は saveOAuthConnection が返す id を backfill 呼び出しに使う（下の saveMock 参照）。

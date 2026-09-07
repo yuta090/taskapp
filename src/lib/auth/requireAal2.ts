@@ -26,20 +26,34 @@ export function readAalClaim(accessToken: string | null | undefined): 'aal1' | '
 
 /**
  * @param strict true = 登録していない人も拒否（「二要素認証が必須」の面で使う）
+ * @param user   呼び出し側が getUser() で取得済みのユーザー。渡すと Auth API への往復を増やさない
+ *               （getUser の応答に factors が含まれる＝listFactors と同じデータ源）
  */
-export async function checkAal2(supabase: SupabaseClient, opts: { strict?: boolean } = {}): Promise<Aal2Check> {
+export async function checkAal2(
+  supabase: SupabaseClient,
+  opts: { strict?: boolean; user?: { id: string; factors?: Array<{ status: string }> | null } | null } = {},
+): Promise<Aal2Check> {
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    let user = opts.user ?? null
+    if (!user) {
+      const res = await supabase.auth.getUser()
+      user = res.data.user
+    }
     if (!user) return { ok: false, reason: 'unauthenticated' }
 
-    const [{ data: sessionData }, factors] = await Promise.all([supabase.auth.getSession(), supabase.auth.mfa.listFactors()])
-    if (factors.error) {
-      console.error('[aal2] listFactors failed:', factors.error.message)
-      return { ok: false, reason: 'check_failed', userId: user.id }
+    let factorList: Array<{ status: string }> | null = null
+    if (Array.isArray(user.factors)) {
+      factorList = user.factors
+    } else {
+      const factors = await supabase.auth.mfa.listFactors()
+      if (factors.error) {
+        console.error('[aal2] listFactors failed:', factors.error.message)
+        return { ok: false, reason: 'check_failed', userId: user.id }
+      }
+      factorList = factors.data?.all ?? []
     }
-    const enrolled = (factors.data?.all ?? []).some((f) => f.status === 'verified')
+    const { data: sessionData } = await supabase.auth.getSession()
+    const enrolled = factorList.some((f) => f.status === 'verified')
     const aal = readAalClaim(sessionData.session?.access_token)
 
     if (enrolled && aal !== 'aal2') return { ok: false, reason: 'mfa_required', userId: user.id }

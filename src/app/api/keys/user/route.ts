@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { checkAal2 } from '@/lib/auth/requireAal2'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -28,9 +28,9 @@ async function getCurrentUser() {
   if (error || !user) {
     return null
   }
-  // 二要素認証: 登録済み × コード未入力(aal1) は未認証と同じ扱い（service role で触る前に弾く）
-  const aal = await checkAal2(supabase as SupabaseClient)
-  if (!aal.ok) return null
+  // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（403 mfa_required）
+  const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+  if (mfaBlock) return mfaBlock
   return user
 }
 
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (user instanceof NextResponse) return user
 
     const body = await request.json()
     const { name, keyHash, keyPrefix, allowedSpaceIds, allowedActions } = body
@@ -135,6 +136,7 @@ export async function DELETE(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (user instanceof NextResponse) return user
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -181,6 +183,7 @@ export async function GET(_request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (user instanceof NextResponse) return user
 
     const adminClient = createAdminClient()
 

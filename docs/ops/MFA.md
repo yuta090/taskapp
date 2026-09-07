@@ -8,7 +8,10 @@
 ## いまの保護範囲（正直に）
 - **画面**: 登録済みの人は、コード入力(aal2)を通らないと保護ページを開けない（`src/proxy.ts`。cookie の中身で判定する誘導）。
 - **運営 API と運営画面**: `verifySuperadmin` が検証済みトークンの aal と Auth API の factor 一覧で**本当に強制**する（登録済み×aal1 は 403）。`ADMIN_MFA_REQUIRED=true` で未登録の運営も締め出す。
-- **DB（RLS）**: 全テーブルに RESTRICTIVE ポリシー `mfa_required_when_enrolled`（`public.mfa_satisfied()`）。登録済み×aal1 のトークンでは Supabase REST / Realtime / 一般 API 経由の読み書きが全部止まる。未登録は従来どおり。**新しく RLS 付きテーブルを作ったら、migration の DO ブロックを再実行して同じポリシーを付ける**。
+- **Supabase の入口（PostgREST）**: `public.mfa_pre_request()` を authenticator の `pgrst.db_pre_request` に設定。登録済み×aal1 のトークンは **テーブル直接も `rpc_*` も** 全リクエストが 403（42501）。戻すときは `alter role authenticator reset pgrst.db_pre_request; notify pgrst, 'reload config';`
+- **DB（RLS）**: 全テーブルに RESTRICTIVE ポリシー `mfa_required_when_enrolled`（`public.mfa_satisfied()`）。Realtime（PostgREST を通らない）と多重防御のため。⚠ SECURITY DEFINER の `rpc_*` はこのポリシーを通らない（所有者権限）ので、RPC の防御は上の pre-request が担う。**新しく RLS 付きテーブルを作ったら、migration の DO ブロックを再実行して同じポリシーを付ける**（`scripts/verify-migrations-from-scratch.sh` が漏れを検出する）。
+- **Storage**: ファイル実体は service role 限定の bucket（入口はガード済み API）。`avatars` だけ本人フォルダを直接触れる（許容）。
+- **リリース順序**: アプリを先にデプロイ → その後 migration（逆だと、登録済みの人がログイン直後の着地判定で「組織なし」に化ける）。
 - **service role で触る一般 API**（ファイル・push・APIキー・招待・会計・課金上限）: `mfaGuardResponse`（`src/lib/auth/apiMfaGuard.ts`）で getUser 直後に弾く。
 - ログイン直後の着地判定は、コード入力の前に行うと RLS で「組織なし」に化けるので、LoginClient / Google callback / proxy はコード入力画面を先に出す。
 

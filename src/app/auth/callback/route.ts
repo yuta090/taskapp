@@ -91,8 +91,9 @@ export async function GET(request: NextRequest) {
   // next パラメータ付き（招待のログインリンク等）は行き先が明示されているのでそちらへ復帰。
   // LoginClient の redirect パラメータと同じ優先順位・バリデーション。
   // 二要素認証を登録済みなら、着地先を決める前にコード入力画面へ（コード入力前は RLS で組織情報が読めないため）
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-  if (needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) {
+  const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+  // 判定できないときもコード入力画面へ倒す（未登録なら画面側で判定し直して先へ進む）
+  if (aalError || needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) {
     const q = isSafeInternalPath(next) ? `?redirect=${encodeURIComponent(next)}` : ''
     return NextResponse.redirect(new URL(`${MFA_CHALLENGE_PATH}${q}`, origin))
   }

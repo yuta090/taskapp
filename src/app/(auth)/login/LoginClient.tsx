@@ -41,8 +41,9 @@ async function resolveRedirect(supabase: SupabaseClient, userId: string): Promis
  * 返り値: 回すべき URL、不要なら null
  */
 async function mfaChallengeUrl(supabase: SupabaseClient, redirect: string | null): Promise<string | null> {
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-  if (!needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) return null
+  const { data: aal, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+  // 判定できない（Auth 障害等）ときはコード入力画面へ倒す。未登録なら画面側で判定し直してそのまま先へ進む
+  if (!error && !needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) return null
   return `${MFA_CHALLENGE_PATH}${isSafeInternalPath(redirect) ? `?redirect=${encodeURIComponent(redirect)}` : ''}`
 }
 

@@ -98,7 +98,7 @@ export async function POST(
 
     if (user) {
       // 二要素認証: 登録済み × コード未入力(aal1) は承諾させない（service role で触る前に弾く）
-      const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient)
+      const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
       if (mfaBlock) return mfaBlock
       // V5（wrong-account join 防止）: 招待は宛先メールのアカウントにのみ紐付ける。
       // 転送されたリンクや共用ブラウザで、別人のセッションに招待を
