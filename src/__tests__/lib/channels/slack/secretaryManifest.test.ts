@@ -54,6 +54,20 @@ describe('buildSecretarySlackManifest', () => {
   })
 })
 
+describe('説明欄の案内が画面のメニュー名と一致している', () => {
+  const m = buildSecretarySlackManifest({ eventsUrl: secretaryWebhookUrlForOrg('https://agentpm.app', ORG) })
+
+  // 「つなぐ」は 2026-09-07 に「チャット連携」へ改名済み。説明欄に古い名前が残ると
+  // Slack でアプリを作った人が AgentPM 側で行き先を見つけられない。
+  it('はじめ方は現在のメニュー名「チャット連携」を案内する', () => {
+    expect(m.display_information.long_description).toContain('AI秘書 → チャット連携 → Slack')
+  })
+
+  it('旧メニュー名「つなぐ」は残っていない', () => {
+    expect(m.display_information.long_description).not.toContain('→ つなぐ →')
+  })
+})
+
 describe('secretaryManifestCreateUrl', () => {
   it('Slack の「manifest から作る」画面を、設定ファイル入りで開くURLを返す', () => {
     const m = buildSecretarySlackManifest({ eventsUrl: 'https://agentpm.app/x' })
