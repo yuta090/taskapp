@@ -225,6 +225,12 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       title: input.title,
       body: '',
       tags: input.tags || [],
+      // 構造用の列（親ページ・マイルストーン・ピン留め・並び順）は
+      // 新規作成時は必ず未設定。楽観更新の行も DB の初期値（NULL）に合わせる。
+      parent_page_id: null,
+      milestone_id: null,
+      pinned_at: null,
+      sort_order: null,
       created_by: userId,
       updated_by: userId,
       created_at: now,
