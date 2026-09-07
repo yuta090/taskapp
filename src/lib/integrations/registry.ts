@@ -501,7 +501,7 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     featured: true,
     setupUrl: 'https://developer.chatwork.com/docs',
     notes:
-      'Chatwork のタスク機能と同期する（チャット接続=「つなぐ」タブとは別軸のタスク同期）。APIトークンを貼るだけで接続でき、取り込みと完了の書き戻しに対応する。',
+      'Chatwork のタスク機能と同期する（チャット接続=「チャット連携」タブとは別軸のタスク同期）。APIトークンを貼るだけで接続でき、取り込みと完了の書き戻しに対応する。',
     // ⚠ 期限の正本にしない（dueImport=false）。Chatworkのタスク一覧APIは**最大100件・
     // ページング無し**で、100件を超えるチャットではどの100件が返るかが仕様上不明。完了済み
     // タスクが100件の外に落ちると「Chatwork側では終わっているのにTaskAppでは未完了」の
