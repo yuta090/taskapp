@@ -12,6 +12,12 @@ import {
 } from '@phosphor-icons/react'
 import { GANTT_CONFIG, VIEW_MODE_CONFIG, type ViewMode } from '@/lib/gantt/constants'
 import {
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_KEY_STEP,
+} from '@/lib/gantt/sidebarWidth'
+import { useGanttSidebarWidth } from '@/lib/hooks/useGanttSidebarWidth'
+import {
   calcDateRange,
   getDatesInRange,
   isToday,
@@ -89,6 +95,13 @@ export function GanttChart({
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const {
+    width: sidebarWidth,
+    isResizing: isSidebarResizing,
+    startResize: startSidebarResize,
+    adjustBy: adjustSidebarWidth,
+    reset: resetSidebarWidth,
+  } = useGanttSidebarWidth()
   const chartBodyRef = useRef<HTMLDivElement>(null)
   const chartSvgRef = useRef<SVGSVGElement>(null)
 
@@ -646,14 +659,40 @@ export function GanttChart({
       {/* Chart area - header row */}
       <div className="flex flex-shrink-0" style={{ height: GANTT_CONFIG.HEADER_HEIGHT }}>
         <div
-          className="flex-shrink-0 border-r border-b flex items-end px-3 pb-1"
+          data-testid="gantt-sidebar-header"
+          className="relative flex-shrink-0 border-r border-b flex items-end px-3 pb-1"
           style={{
-            width: GANTT_CONFIG.SIDEBAR_WIDTH,
+            width: sidebarWidth,
             borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
             backgroundColor: GANTT_CONFIG.COLORS.HEADER_BG,
           }}
         >
           <span className="text-xs font-medium text-gray-500">タスク名</span>
+          {/* Column-edge drag handle (also keyboard: ←/→, double-click = reset) */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="タスク名の列幅を調整"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_WIDTH_MIN}
+            aria-valuemax={SIDEBAR_WIDTH_MAX}
+            tabIndex={0}
+            title="ドラッグで列幅を調整（ダブルクリックで元に戻す）"
+            onPointerDown={startSidebarResize}
+            onDoubleClick={resetSidebarWidth}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                adjustSidebarWidth(SIDEBAR_WIDTH_KEY_STEP)
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault()
+                adjustSidebarWidth(-SIDEBAR_WIDTH_KEY_STEP)
+              }
+            }}
+            className={`absolute top-0 -right-1 h-full w-2 cursor-col-resize z-10 select-none touch-none focus:outline-none ${
+              isSidebarResizing ? 'bg-blue-400/40' : 'hover:bg-blue-400/30 focus-visible:bg-blue-400/30'
+            }`}
+          />
         </div>
 
         <div className="flex-1 overflow-hidden">
@@ -681,13 +720,27 @@ export function GanttChart({
       </div>
 
       {/* Chart body - scrollable */}
-      <div className="flex flex-1 overflow-hidden">
+      <div
+        className={`relative flex flex-1 overflow-hidden${isSidebarResizing ? ' select-none cursor-col-resize' : ''}`}
+      >
+        {/* Full-height grab strip on the column edge (mirrors the header handle; header owns the a11y role) */}
+        <div
+          aria-hidden="true"
+          data-testid="gantt-sidebar-resizer-body"
+          onPointerDown={startSidebarResize}
+          onDoubleClick={resetSidebarWidth}
+          className={`absolute top-0 h-full w-2 -ml-1 cursor-col-resize z-10 select-none touch-none ${
+            isSidebarResizing ? 'bg-blue-400/40' : 'hover:bg-blue-400/30'
+          }`}
+          style={{ left: sidebarWidth }}
+        />
         {/* Sidebar (plain divs, no DnD) */}
         <div
           ref={sidebarRef}
+          data-testid="gantt-sidebar"
           className="flex-shrink-0 border-r bg-surface overflow-y-auto overflow-x-hidden"
           style={{
-            width: GANTT_CONFIG.SIDEBAR_WIDTH,
+            width: sidebarWidth,
             borderColor: GANTT_CONFIG.COLORS.GRID_LINE,
           }}
         >
