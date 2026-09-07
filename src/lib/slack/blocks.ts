@@ -40,7 +40,9 @@ export function buildTaskBlocks(
   payload: TaskNotificationPayload,
 ): unknown[] {
   const { task, spaceName, actorName, customMessage, appUrl } = payload
-  const taskUrl = `${appUrl}/tasks?task=${task.id}`
+  // appUrl はプロジェクトのタスク一覧(/{orgId}/project/{spaceId})。タスク一覧は ?task= で
+  // 該当タスクを開く。`/tasks` という下位ページは無く、付けると 404 になる
+  const taskUrl = `${appUrl}?task=${task.id}`
 
   const blocks: unknown[] = []
 

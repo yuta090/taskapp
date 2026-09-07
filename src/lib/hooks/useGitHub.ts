@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { isGitHubConfigured } from '@/lib/github/config'
+import { isGitHubConfigured } from '@/lib/github/enabled'
 import type {
   GitHubInstallation,
   GitHubRepository,
