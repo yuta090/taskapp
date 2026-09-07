@@ -62,9 +62,9 @@ const accountMeta = {
   ownerType: 'org' as const,
 }
 
-function callGet(orgId: string | null) {
+function callGet(orgId: string | null, channel?: string) {
   const url = orgId
-    ? `http://localhost:3000/api/channels/accounts?orgId=${orgId}`
+    ? `http://localhost:3000/api/channels/accounts?orgId=${orgId}${channel ? `&channel=${channel}` : ''}`
     : 'http://localhost:3000/api/channels/accounts'
   return GET(new NextRequest(url))
 }
@@ -132,6 +132,22 @@ describe('GET /api/channels/accounts', () => {
     })
     expect(json.account.credentials_encrypted).toBeUndefined()
     expect(json.account.credentialsEncrypted).toBeUndefined()
+  })
+
+  it('channel 指定時は共通LINEの利用判定を計算しない（意味が合わないクエリを増やさない）', async () => {
+    storeMock.findChannelAccountMetaForOrgChannel.mockResolvedValue(null)
+    storeMock.orgUsesSharedBot.mockResolvedValue(true)
+    const response = await callGet(ORG_A, 'slack')
+    const json = await response.json()
+    expect(response.status).toBe(200)
+    expect(json.account).toBeNull()
+    expect(json.sharedBotInUse).toBe(false)
+    expect(storeMock.orgUsesSharedBot).not.toHaveBeenCalled()
+  })
+
+  it('channel が registry に無い値なら400', async () => {
+    const response = await callGet(ORG_A, 'fax')
+    expect(response.status).toBe(400)
   })
 
   it('未登録org: account=null, sharedBotInUse=false', async () => {

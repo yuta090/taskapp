@@ -28,9 +28,10 @@ const { GET } = await import('@/app/api/channels/group-claims/pending/route')
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
 
-function callGet(orgId?: string) {
+function callGet(orgId?: string, channel?: string) {
   const url = new URL('http://localhost:3000/api/channels/group-claims/pending')
   if (orgId !== undefined) url.searchParams.set('orgId', orgId)
+  if (channel !== undefined) url.searchParams.set('channel', channel)
   return GET(new NextRequest(url, { method: 'GET' }))
 }
 
@@ -69,5 +70,21 @@ describe('GET /api/channels/group-claims/pending', () => {
     expect(storeMock.listPendingGroupClaimsForOrg).toHaveBeenCalledWith(ORG_ID)
     expect(json.items).toHaveLength(1)
     expect(json.items[0].spaceName).toBe('山田商事')
+  })
+
+  it('channel を渡すと、そのチャネルの確認待ちだけを store に求める（Slack のページ用）', async () => {
+    await callGet(ORG_ID, 'slack')
+    expect(storeMock.listPendingGroupClaimsForOrg).toHaveBeenCalledWith(ORG_ID, 'slack')
+  })
+
+  it('channel が registry に無い値なら400', async () => {
+    const res = await callGet(ORG_ID, 'fax')
+    expect(res.status).toBe(400)
+  })
+
+  it('channel=line は通る（LINE の承認画面がここで落ちると承認が丸ごと止まる）', async () => {
+    const res = await callGet(ORG_ID, 'line')
+    expect(res.status).toBe(200)
+    expect(storeMock.listPendingGroupClaimsForOrg).toHaveBeenCalledWith(ORG_ID, 'line')
   })
 })
