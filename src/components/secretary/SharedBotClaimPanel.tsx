@@ -72,6 +72,27 @@ const CLAIM_GUIDES: Record<string, ClaimGuide> = {
     proLabel: 'Discord との接続は Pro プランで使えます。',
     targetNoun: 'チャンネル',
   },
+  // 自社Slackアプリ（白ラベル）: 上で鍵を登録したあと、チャンネルごとに合言葉で紐付ける。
+  slack: {
+    steps: (
+      <>
+        <li>
+          記録したい Slack チャンネルで <code className="text-xs bg-gray-100 px-1 rounded">/invite @秘書アプリの名前</code> を実行し、秘書を招待する
+          <Hint label="招待について">招待していないチャンネルの投稿は届きません。プライベートチャンネルも招待すれば使えます。</Hint>
+        </li>
+        <li>
+          合言葉を発行し、そのチャンネルに<strong>合言葉をそのまま投稿</strong>する（誰が投稿しても構いません）
+        </li>
+        <li>
+          <strong>「確認待ち」</strong>に出てくるので、社内で承認する
+          <Hint label="承認のあと">承認すると、以降そのチャンネルの会話から秘書がタスクを拾い始めます。</Hint>
+        </li>
+      </>
+    ),
+    postInstruction: 'このコードを、秘書を招待した Slack チャンネルにそのまま投稿してください。',
+    proLabel: 'Slack との接続は Pro プランで使えます。',
+    targetNoun: 'チャンネル',
+  },
 }
 
 // 案内文を持たないチャネルの安全なフォールバック（挙動は保つ・チャネル名だけ差し込む）。
