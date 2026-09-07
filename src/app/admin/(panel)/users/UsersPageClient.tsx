@@ -155,15 +155,17 @@ function SuperadminCell({ row, isSelf, busy, onToggle, onResetMfa }: SuperadminC
       ) : (
         <span className="text-gray-400">-</span>
       )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => onResetMfa(row)}
-        title="認証アプリを失くした人の復旧用。本人確認のうえ押す"
-        className="text-xs text-gray-500 hover:text-gray-700 hover:underline disabled:opacity-50"
-      >
-        2FA解除
-      </button>
+      {!isSelf && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onResetMfa(row)}
+          title="認証アプリを失くした人の復旧用。本人確認のうえ押す（自分自身は解除できない）"
+          className="text-xs text-gray-500 hover:text-gray-700 hover:underline disabled:opacity-50"
+        >
+          2FA解除
+        </button>
+      )}
       {!isSelf && (
         <button
           type="button"

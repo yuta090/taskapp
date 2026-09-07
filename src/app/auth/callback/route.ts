@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
@@ -6,10 +7,6 @@ import { recordAuthFailure } from '@/lib/auth/authEventLog'
 import { buildLoginErrorPath, classifyProviderCallbackError } from '@/lib/auth/authErrorMessage'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
 
-/** LoginClient の isSafeInternalPath と同じ検証（オープンリダイレクト防止） */
-function isSafeInternalPath(path: string | null): path is string {
-  return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl

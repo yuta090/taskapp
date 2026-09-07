@@ -1,5 +1,6 @@
 'use client'
 
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -27,10 +28,6 @@ const DEMO_ACCOUNTS = (process.env.NODE_ENV !== 'production' || process.env.NEXT
 ] : []
 
 
-/** auth/callback の next と同じバリデーション（オープンリダイレクト防止） */
-function isSafeInternalPath(path: string | null): path is string {
-  return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
-}
 
 /** ACTIVE_ORG_COOKIE から切替中のorgを読み、resolvePostLoginLanding の preferredOrgId に渡す */
 async function resolveRedirect(supabase: SupabaseClient, userId: string): Promise<string> {

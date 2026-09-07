@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { User, Camera, Check, CircleNotch, Key, CaretRight, Bell } from '@phosphor-icons/react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -8,10 +8,13 @@ import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { SettingsBackButton } from '@/components/shared'
 import { MfaSection } from '@/components/settings/MfaSection'
+import { useSearchParams } from 'next/navigation'
 import { validateAvatarFile, buildAvatarPath, parseAvatarObjectPath, ACCEPTED_AVATAR_MIME } from '@/lib/avatar/avatarUpload'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export default function AccountSettingsPage() {
+function AccountSettingsInner() {
+  const searchParams = useSearchParams()
+  const mfaRequired = searchParams.get('mfa') === 'required'
   const { user, loading: userLoading } = useCurrentUser()
   const [displayName, setDisplayName] = useState('')
   const [originalDisplayName, setOriginalDisplayName] = useState('')
@@ -358,6 +361,11 @@ export default function AccountSettingsPage() {
         </div>
 
         {/* Two-factor authentication */}
+        {mfaRequired && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+            運営画面に入るには二要素認証の登録が必要です。下の「二要素認証（認証アプリ）」から登録してください。
+          </div>
+        )}
         <MfaSection />
 
         {/* API Keys Link */}
@@ -405,5 +413,14 @@ export default function AccountSettingsPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+/** useSearchParams を使う client ページは Suspense で包む（静的レンダ時の要件） */
+export default function AccountSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AccountSettingsInner />
+    </Suspense>
   )
 }

@@ -20,7 +20,7 @@ export function MfaSection() {
   const [secret, setSecret] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -31,13 +31,17 @@ export function MfaSection() {
       return
     }
     const totp = data?.totp ?? []
-    // 途中でやめた未確認の登録は片付ける
-    for (const f of (data?.all ?? []).filter((f) => f.status === 'unverified')) {
-      await supabase.auth.mfa.unenroll({ factorId: f.id })
+    // 途中でやめた未確認の TOTP 登録は片付ける（他種別・登録中のものは触らない）
+    const staleTotp = (data?.all ?? []).filter((f) => f.factor_type === 'totp' && f.status === 'unverified' && f.id !== factorId)
+    for (const f of staleTotp) {
+      const { error: cleanupError } = await supabase.auth.mfa.unenroll({ factorId: f.id })
+      if (cleanupError) console.error('[mfa] cleanup unenroll failed', cleanupError.message)
     }
     const verified = totp.find((f) => f.status === 'verified')
     setFactorId(verified?.id ?? null)
     setStep(verified ? 'on' : 'off')
+    // 登録中の factorId を除外するため依存に含めない（初回だけ実行）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -49,11 +53,15 @@ export function MfaSection() {
     setMessage(null)
     try {
       const supabase = createClient()
-      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: TOTP_FRIENDLY_NAME })
+      // friendly_name は同一ユーザー内で一意でないと enroll が失敗するので時刻を足す
+      const friendlyName = `${TOTP_FRIENDLY_NAME} ${new Date().toLocaleDateString('ja-JP')}`
+      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName })
       if (error || !data) throw new Error(error?.message || 'enroll failed')
       setFactorId(data.id)
+      // supabase-js は `data:image/svg+xml;utf-8,<svg…>`（中身は未エンコード）で返す。`#` 等で切れないよう常に再エンコードする
       const raw = data.totp.qr_code
-      setQr(raw.startsWith('data:') ? raw : `data:image/svg+xml;utf8,${encodeURIComponent(raw)}`)
+      const payload = raw.startsWith('data:') ? raw.slice(raw.indexOf(',') + 1) : raw
+      setQr(`data:image/svg+xml;utf8,${encodeURIComponent(payload)}`)
       setSecret(data.totp.secret)
       setCode('')
       setStep('enrolling')
@@ -67,7 +75,8 @@ export function MfaSection() {
   const cancelEnroll = useCallback(async () => {
     if (factorId) {
       const supabase = createClient()
-      await supabase.auth.mfa.unenroll({ factorId })
+      const { error } = await supabase.auth.mfa.unenroll({ factorId })
+      if (error) setMessage({ type: 'error', text: '登録の取り消しに失敗しました。画面を再読み込みしてください。' })
     }
     setFactorId(null)
     setQr(null)
@@ -117,7 +126,7 @@ export function MfaSection() {
         const normalized = normalizeTotpCode(code)
         if (normalized.length !== 6) {
           setStep('disabling')
-          setMessage({ type: 'error', text: '解除するには、認証アプリの6桁コードを入力してください' })
+          setMessage({ type: 'info', text: '解除するには、認証アプリの6桁コードを入力してください' })
           return
         }
         const { error: vErr } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: normalized })
@@ -160,7 +169,7 @@ export function MfaSection() {
       </h3>
       <p className="text-xs text-gray-500 mb-4">
         ログイン時に、パスワードに加えて認証アプリ（Google Authenticator / Microsoft Authenticator / 1Password など）の6桁コードを求めます。
-        パスワードが漏れても他人がログインできなくなります。
+        画面へのログインに、もう1つの確認を挟みます（パスワードだけでは入れなくなります）。
       </p>
 
       {step === 'loading' && (
@@ -256,7 +265,10 @@ export function MfaSection() {
       )}
 
       {message && (
-        <p className={`mt-3 text-sm ${message.type === 'success' ? 'text-green-600' : 'text-red-600'}`} role={message.type === 'error' ? 'alert' : 'status'}>
+        <p
+          className={`mt-3 text-sm ${message.type === 'success' ? 'text-green-600' : message.type === 'info' ? 'text-gray-700' : 'text-red-600'}`}
+          role={message.type === 'error' ? 'alert' : 'status'}
+        >
           {message.text}
         </p>
       )}

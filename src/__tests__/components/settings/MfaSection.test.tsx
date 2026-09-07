@@ -30,7 +30,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   factors = []
   aal = { currentLevel: 'aal1', nextLevel: 'aal1' }
-  enrollMock.mockResolvedValue({ data: { id: 'f-new', totp: { qr_code: '<svg/>', secret: 'ABCD1234' } }, error: null })
+  enrollMock.mockResolvedValue({ data: { id: 'f-new', totp: { qr_code: 'data:image/svg+xml;utf-8,<svg id="a">#</svg>', secret: 'ABCD1234' } }, error: null })
   challengeMock.mockResolvedValue({ data: { id: 'c1' }, error: null })
   verifyMock.mockResolvedValue({ data: {}, error: null })
   unenrollMock.mockResolvedValue({ data: {}, error: null })
@@ -41,7 +41,8 @@ describe('MfaSection（設定画面の二要素認証）', () => {
   it('未登録: 「有効にする」→ QR と手入力キーを表示 → コード確認で有効に', async () => {
     render(<MfaSection />)
     fireEvent.click(await screen.findByRole('button', { name: '有効にする' }))
-    expect(await screen.findByAltText('認証アプリ用のQRコード')).toHaveAttribute('src', expect.stringContaining('data:image/svg+xml'))
+    // supabase-js が返す未エンコードの data URI を、# で切れないよう再エンコードして描く
+    expect(await screen.findByAltText('認証アプリ用のQRコード')).toHaveAttribute('src', `data:image/svg+xml;utf8,${encodeURIComponent('<svg id="a">#</svg>')}`)
     expect(screen.getByText('ABCD1234')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('6桁のコード'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: '確認する' }))
@@ -57,10 +58,11 @@ describe('MfaSection（設定画面の二要素認証）', () => {
     expect(await screen.findByText('オフ')).toBeInTheDocument()
   })
 
-  it('前回の未確認 factor は開いたときに片付ける', async () => {
-    factors = [{ id: 'stale', status: 'unverified', factor_type: 'totp' }]
+  it('前回の未確認 TOTP factor は開いたときに片付ける（他種別は触らない）', async () => {
+    factors = [{ id: 'stale', status: 'unverified', factor_type: 'totp' }, { id: 'phone1', status: 'unverified', factor_type: 'phone' }]
     render(<MfaSection />)
     await waitFor(() => expect(unenrollMock).toHaveBeenCalledWith({ factorId: 'stale' }))
+    expect(unenrollMock).not.toHaveBeenCalledWith({ factorId: 'phone1' })
     expect(await screen.findByText('オフ')).toBeInTheDocument()
   })
 
@@ -74,12 +76,12 @@ describe('MfaSection（設定画面の二要素認証）', () => {
     expect(await screen.findByText('オフ')).toBeInTheDocument()
   })
 
-  it('登録済みだが aal1: コード入力を求めてから解除', async () => {
+  it('登録済みだが aal1: コード入力を求めてから解除（案内は赤いエラーではなく中立表示）', async () => {
     factors = [{ id: 'f1', status: 'verified', factor_type: 'totp' }]
     aal = { currentLevel: 'aal1', nextLevel: 'aal2' }
     render(<MfaSection />)
     fireEvent.click(await screen.findByRole('button', { name: '解除する' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('6桁コード')
+    expect(await screen.findByRole('status')).toHaveTextContent('6桁コード')
     expect(unenrollMock).not.toHaveBeenCalled()
     fireEvent.change(screen.getByLabelText('6桁のコード'), { target: { value: '654321' } })
     fireEvent.click(screen.getByRole('button', { name: 'コードを確認して解除' }))

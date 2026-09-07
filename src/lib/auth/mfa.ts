@@ -7,6 +7,8 @@
  *
  * 用語: currentLevel = いまのログインの段階、nextLevel = その人が到達すべき段階（登録済みなら aal2）。
  */
+import { safeInternalPathOr } from './safeRedirect'
+
 export type AssuranceLevel = 'aal1' | 'aal2' | null | undefined
 
 export const MFA_CHALLENGE_PATH = '/login/mfa'
@@ -16,9 +18,9 @@ export function needsMfaChallenge(currentLevel: AssuranceLevel, nextLevel: Assur
   return nextLevel === 'aal2' && currentLevel !== 'aal2'
 }
 
-/** コード入力画面そのもの・ログアウト系は門番の対象外（無限リダイレクト防止） */
+/** コード入力画面そのものは門番の対象外（無限リダイレクト防止）。ログアウトは POST /api/auth/logout で /api は元々対象外 */
 export function isMfaExemptPath(pathname: string): boolean {
-  return pathname === MFA_CHALLENGE_PATH || pathname.startsWith(MFA_CHALLENGE_PATH + '/') || pathname === '/logout'
+  return pathname === MFA_CHALLENGE_PATH || pathname.startsWith(MFA_CHALLENGE_PATH + '/')
 }
 
 /**
@@ -34,8 +36,7 @@ export function decideMfaRedirect(input: {
   if (isMfaExemptPath(input.pathname)) return null
   if (!needsMfaChallenge(input.currentLevel, input.nextLevel)) return null
   const target = `${input.pathname}${input.search ?? ''}`
-  const safe = target.startsWith('/') && !target.startsWith('//') && !target.includes('\\') ? target : '/'
-  return `${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(safe)}`
+  return `${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(safeInternalPathOr(target))}`
 }
 
 /** 認証アプリの表示名（Supabase の friendly_name） */

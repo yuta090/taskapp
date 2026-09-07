@@ -27,7 +27,7 @@ vi.mock('@/lib/org/resolveActiveOrg', () => ({
 /** セッション更新を模す: getSession のたびに Supabase が setAll で auth cookie を書き直す */
 let refreshedCookieOnSession: { name: string; value: string } | null = null
 /** 二要素認証の段階（currentLevel=いま / nextLevel=到達すべき段階。登録済みなら aal2） */
-let aalResponse: { data: { currentLevel: 'aal1' | 'aal2' | null; nextLevel: 'aal1' | 'aal2' | null } | null } = { data: { currentLevel: 'aal1', nextLevel: 'aal1' } }
+let aalResponse: { data: { currentLevel: 'aal1' | 'aal2' | null; nextLevel: 'aal1' | 'aal2' | null } | null; error?: { message: string } | null } = { data: { currentLevel: 'aal1', nextLevel: 'aal1' } }
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: (
@@ -380,6 +380,14 @@ describe('proxy — first-touch cookie と Supabase のセッション cookie �
       aalResponse = { data: { currentLevel: 'aal2', nextLevel: 'aal2' } }
       const res = await proxy(makeRequest('/inbox'))
       expect(redirectPath(res)).toBeNull()
+    })
+
+    it('判定がエラーを返したら締め出してログインへ（fail-closed）', async () => {
+      aalResponse = { data: null, error: { message: 'boom' } } as unknown as typeof aalResponse
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const res = await proxy(makeRequest('/inbox'))
+      expect(redirectPath(res)).toBe('/login')
+      expect(res.headers.get('location')).toContain('reason=mfa_check_failed')
     })
 
     it('未登録(aal1/aal1)なら従来どおり通す。/login/mfa 自体は公開パスなので門番に掛からない', async () => {

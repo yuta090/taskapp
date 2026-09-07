@@ -5,11 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, CircleNotch } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import { normalizeTotpCode } from '@/lib/auth/mfa'
-
-/** LoginClient と同じ検証（オープンリダイレクト防止） */
-function isSafeInternalPath(path: string | null): path is string {
-  return !!path && path.startsWith('/') && !path.startsWith('//') && !path.includes('\\')
-}
+import { safeInternalPathOr } from '@/lib/auth/safeRedirect'
 
 /**
  * 二要素認証のコード入力。
@@ -29,9 +25,9 @@ export default function MfaChallengeClient() {
   useEffect(() => {
     const supabase = createClient()
     let alive = true
-    supabase.auth.mfa
-      .listFactors()
-      .then(({ data, error: listError }) => {
+    ;(async () => {
+      try {
+        const { data, error: listError } = await supabase.auth.mfa.listFactors()
         if (!alive) return
         if (listError) {
           setError('二要素認証の情報を取得できませんでした。もう一度ログインしてください。')
@@ -40,13 +36,28 @@ export default function MfaChallengeClient() {
         }
         const totp = (data?.totp ?? []).find((f) => f.status === 'verified')
         if (!totp) {
-          // 登録が無いのにここへ来た（門番の誤判定 or 直接アクセス）→ そのまま先へ
-          router.replace(isSafeInternalPath(redirect) ? redirect : '/')
+          // 登録が無いのにここへ来た = cookie の factor 情報が古い（運営が解除した／別端末で解除した）。
+          // getUser/listFactors は cookie を書き戻さないので、refreshSession で入れ替えてから戻す
+          // （戻さないと門番との往復ループになる）。それでも門番が回してくるなら諦めてログアウト
+          await supabase.auth.refreshSession()
+          const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (!alive) return
+          if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            await supabase.auth.signOut()
+            router.replace('/login')
+            return
+          }
+          router.replace(safeInternalPathOr(redirect))
           return
         }
         setFactorId(totp.id)
         setLoading(false)
-      })
+      } catch {
+        if (!alive) return
+        setError('二要素認証の情報を取得できませんでした。通信状態を確認してもう一度お試しください。')
+        setLoading(false)
+      }
+    })()
     return () => {
       alive = false
     }
@@ -71,7 +82,7 @@ export default function MfaChallengeClient() {
           setSubmitting(false)
           return
         }
-        router.replace(isSafeInternalPath(redirect) ? redirect : '/')
+        router.replace(safeInternalPathOr(redirect))
       } catch {
         setError('確認に失敗しました。しばらくしてからもう一度お試しください。')
         setSubmitting(false)

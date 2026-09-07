@@ -11,13 +11,18 @@ vi.mock('next/navigation', () => ({
 let factors: Array<{ id: string; status: string }> = [{ id: 'f1', status: 'verified' }]
 const challengeAndVerifyMock = vi.fn()
 const signOutMock = vi.fn(() => Promise.resolve())
+const refreshSessionMock = vi.fn(() => Promise.resolve({ data: {}, error: null }))
+let aalAfterRefresh: { currentLevel: 'aal1' | 'aal2'; nextLevel: 'aal1' | 'aal2' } = { currentLevel: 'aal1', nextLevel: 'aal1' }
+let listFactorsImpl: () => Promise<unknown> = () => Promise.resolve({ data: { totp: factors, all: factors }, error: null })
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: {
       signOut: signOutMock,
+      refreshSession: refreshSessionMock,
       mfa: {
-        listFactors: () => Promise.resolve({ data: { totp: factors, all: factors }, error: null }),
+        listFactors: () => listFactorsImpl(),
         challengeAndVerify: challengeAndVerifyMock,
+        getAuthenticatorAssuranceLevel: () => Promise.resolve({ data: aalAfterRefresh, error: null }),
       },
     },
   }),
@@ -29,6 +34,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   factors = [{ id: 'f1', status: 'verified' }]
   redirectParam = '/inbox'
+  aalAfterRefresh = { currentLevel: 'aal1', nextLevel: 'aal1' }
+  listFactorsImpl = () => Promise.resolve({ data: { totp: factors, all: factors }, error: null })
   challengeAndVerifyMock.mockResolvedValue({ data: {}, error: null })
 })
 
@@ -59,11 +66,33 @@ describe('MfaChallengeClient（コード入力画面）', () => {
     expect(challengeAndVerifyMock).not.toHaveBeenCalled()
   })
 
-  it('登録が無ければ（誤って来た）そのまま行き先へ。外部URLの redirect は無視してトップへ', async () => {
+  it('登録が無ければ（運営が解除した等）cookie を refreshSession で入れ替えてから行き先へ。外部URLの redirect は無視してトップへ', async () => {
     factors = []
     redirectParam = '//evil.example'
     render(<MfaChallengeClient />)
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/'))
+    expect(refreshSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('制御文字入りの redirect（/<TAB>/evil.example）も弾いてトップへ', async () => {
+    factors = []
+    redirectParam = '/\t/evil.example'
+    render(<MfaChallengeClient />)
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/'))
+  })
+
+  it('refresh しても門番が回してくる状態（登録済み×aal1 のまま）ならログアウトして /login（無限ループ防止）', async () => {
+    factors = []
+    aalAfterRefresh = { currentLevel: 'aal1', nextLevel: 'aal2' }
+    render(<MfaChallengeClient />)
+    await waitFor(() => expect(signOutMock).toHaveBeenCalled())
+    expect(replaceMock).toHaveBeenCalledWith('/login')
+  })
+
+  it('factor 一覧の取得が例外なら固まらずエラー表示', async () => {
+    listFactorsImpl = () => Promise.reject(new Error('offline'))
+    render(<MfaChallengeClient />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('取得できませんでした')
   })
 
   it('「別のアカウントでログイン」でサインアウトして /login へ', async () => {

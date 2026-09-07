@@ -17,10 +17,10 @@ describe('decideMfaRedirect', () => {
   it('保護ページ → コード入力画面へ、元の行き先を redirect に持ち回る', () => {
     expect(decideMfaRedirect({ pathname: '/inbox', search: '?x=1', currentLevel: 'aal1', nextLevel: 'aal2' })).toBe('/login/mfa?redirect=%2Finbox%3Fx%3D1')
   })
-  it('コード入力画面・ログアウトは対象外（無限ループ防止）', () => {
+  it('コード入力画面は対象外（無限ループ防止）', () => {
     expect(decideMfaRedirect({ pathname: '/login/mfa', currentLevel: 'aal1', nextLevel: 'aal2' })).toBeNull()
-    expect(decideMfaRedirect({ pathname: '/logout', currentLevel: 'aal1', nextLevel: 'aal2' })).toBeNull()
     expect(isMfaExemptPath('/login/mfa/')).toBe(true)
+    expect(isMfaExemptPath('/inbox')).toBe(false)
   })
   it('要らないときは null', () => {
     expect(decideMfaRedirect({ pathname: '/inbox', currentLevel: 'aal2', nextLevel: 'aal2' })).toBeNull()
