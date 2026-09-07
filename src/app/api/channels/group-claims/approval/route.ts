@@ -147,7 +147,15 @@ export async function POST(request: NextRequest) {
               : error.reason === 'limit'
                 ? 402 // 容量上限のアトミック強制（並行承認のレース時）
                 : 409
-      return NextResponse.json({ error: error.reason }, { status })
+      // 画面にそのまま出る文言。英語の理由コードだけだと「押しても消えない」ように見えて原因が分からない。
+      const messages: Record<typeof error.reason, string> = {
+        not_found: 'この確認は見つかりませんでした。画面を更新してください。',
+        forbidden: 'この操作を行う権限がありません。',
+        invalid: '承認できません。合言葉の発行より前に投稿されたか、発行時と相手先が変わっています。合言葉を出し直してください。',
+        limit: '接続できる相手先グループ数の上限に達しています。',
+        conflict: '既に処理済みか、同時に別の人が処理しました。画面を更新してください。',
+      }
+      return NextResponse.json({ error: messages[error.reason], code: error.reason }, { status })
     }
     console.error('group-claims/approval: unexpected error', error)
     return NextResponse.json({ error: 'internal error' }, { status: 500 })
