@@ -1678,6 +1678,37 @@ export async function findFirstPlatformAccountId(
   return rows[0].id
 }
 
+/** 同一 org × channel に active な自社アカウントが2件以上あるとき投げる（明示選択は未対応） */
+export class MultipleOrgAccountsError extends Error {
+  constructor() {
+    super('multiple active org accounts exist for this channel; explicit selection is required (not yet supported)')
+    this.name = 'MultipleOrgAccountsError'
+  }
+}
+
+/**
+ * コード発行対象の自社アカウント（owner_type='org'・registry.ownAccountClaim のチャネル用）を引く。
+ * findFirstPlatformAccountId の org 版: 0件は null（呼び出し側は「自社アプリ未登録」として400）、
+ * 1件ならその id、2件以上は MultipleOrgAccountsError（呼び出し側は409）。
+ * disabled は償還不能な死にコードになるため active に限定する。
+ */
+export async function findActiveOrgAccountId(orgId: string, channel: string): Promise<string | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select('id')
+    .eq('owner_type', 'org')
+    .eq('org_id', orgId)
+    .eq('channel', channel)
+    .eq('status', 'active')
+    .order('created_at', { ascending: true })
+    .limit(2)
+  if (error) throw new Error(`channel_accounts: org lookup failed: ${error.message}`)
+  const rows = (data as { id: string }[] | null) ?? []
+  if (rows.length === 0) return null
+  if (rows.length >= 2) throw new MultipleOrgAccountsError()
+  return rows[0].id
+}
+
 export interface CreateSharedGroupClaimCodeInput {
   orgId: string
   spaceId: string

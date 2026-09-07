@@ -24,6 +24,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const verifySpaceInOrgMock = vi.fn()
 const findFirstPlatformAccountIdMock = vi.fn()
+const findActiveOrgAccountIdMock = vi.fn()
 const createSharedGroupClaimCodeMock = vi.fn()
 const orgLineGroupCapacityMock = vi.fn()
 const getLineSelfServeStateMock = vi.fn()
@@ -31,16 +32,19 @@ const orgExternalChatGroupCapacityMock = vi.fn()
 
 class DuplicateSharedGroupClaimCodeError extends Error {}
 class MultiplePlatformAccountsError extends Error {}
+class MultipleOrgAccountsError extends Error {}
 
 vi.mock('@/lib/channels/store', () => ({
   verifySpaceInOrg: (...args: unknown[]) => verifySpaceInOrgMock(...args),
   findFirstPlatformAccountId: (...args: unknown[]) => findFirstPlatformAccountIdMock(...args),
+  findActiveOrgAccountId: (...args: unknown[]) => findActiveOrgAccountIdMock(...args),
   createSharedGroupClaimCode: (...args: unknown[]) => createSharedGroupClaimCodeMock(...args),
   orgLineGroupCapacity: (...args: unknown[]) => orgLineGroupCapacityMock(...args),
   getLineSelfServeState: (...args: unknown[]) => getLineSelfServeStateMock(...args),
   orgExternalChatGroupCapacity: (...args: unknown[]) => orgExternalChatGroupCapacityMock(...args),
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
+  MultipleOrgAccountsError,
 }))
 
 const resolveOrgEntitlementsMock = vi.fn()
@@ -287,5 +291,71 @@ describe('POST /api/channels/group-claims/issue — channel対応(google_chat等
     const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
     expect(res.status).toBe(404)
     expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 自社アカウント × 合言葉（registry.ownAccountClaim・slack）:
+ * 共有bot(platform)ではなく、その org が登録した自社アプリ(owner_type='org')の account を対象にする。
+ * 回帰の背景: 自社Slackを登録して合言葉パネルを出したのに、発行APIが platform しか探さず
+ * 「共有botが未設定です」で止まっていた。
+ */
+describe('POST /api/channels/group-claims/issue — 自社アカウント×合言葉(slack)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.SHARED_GROUP_CLAIM_PEPPER = 'test-pepper'
+    getUserMock.mockResolvedValue({ data: { user: { id: 'staff-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+    verifySpaceInOrgMock.mockResolvedValue(true)
+    orgExternalChatGroupCapacityMock.mockResolvedValue({ activeCount: 0, max: null })
+    resolveOrgEntitlementsMock.mockResolvedValue({ has: (f: string) => f === 'external_chat_channels' })
+    createSharedGroupClaimCodeMock.mockResolvedValue({ id: 'code-1', expiresAt: '2026-07-16T00:30:00.000Z' })
+    findActiveOrgAccountIdMock.mockResolvedValue('acc-org-slack-1')
+    findFirstPlatformAccountIdMock.mockResolvedValue(null) // platform の Slack は存在しない
+  })
+
+  afterEach(() => {
+    delete process.env.SHARED_GROUP_CLAIM_PEPPER
+  })
+
+  it('org の自社 Slack account を対象にコードを発行する（platform は探さない）', async () => {
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'slack' })
+    expect(res.status).toBe(200)
+    expect(findActiveOrgAccountIdMock).toHaveBeenCalledWith(ORG_ID, 'slack')
+    expect(findFirstPlatformAccountIdMock).not.toHaveBeenCalled()
+    expect(createSharedGroupClaimCodeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: ORG_ID, spaceId: SPACE_ID, targetAccountId: 'acc-org-slack-1' }),
+    )
+  })
+
+  it('自社 Slack account が未登録なら400 own_account_required（「共有bot未設定」とは言わない）', async () => {
+    findActiveOrgAccountIdMock.mockResolvedValue(null)
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'slack' })
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.code).toBe('own_account_required')
+    expect(json.error).not.toMatch(/共有bot/)
+    expect(createSharedGroupClaimCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('自社 Slack account が複数 active なら409（明示選択は未対応）', async () => {
+    findActiveOrgAccountIdMock.mockRejectedValue(new MultipleOrgAccountsError())
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'slack' })
+    expect(res.status).toBe(409)
+  })
+
+  it('Pro entitlement(external_chat_channels) のゲートは自社アカウント経路でも掛かる', async () => {
+    resolveOrgEntitlementsMock.mockResolvedValue({ has: () => false })
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'slack' })
+    expect(res.status).toBe(402)
+    expect(findActiveOrgAccountIdMock).not.toHaveBeenCalled()
+  })
+
+  it('google_chat（共有bot）は従来どおり platform を対象にする', async () => {
+    findFirstPlatformAccountIdMock.mockResolvedValue('acc-platform-gc')
+    const res = await callPost({ orgId: ORG_ID, spaceId: SPACE_ID, channel: 'google_chat' })
+    expect(res.status).toBe(200)
+    expect(findActiveOrgAccountIdMock).not.toHaveBeenCalled()
+    expect(findFirstPlatformAccountIdMock).toHaveBeenCalledWith('google_chat')
   })
 })
