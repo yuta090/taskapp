@@ -194,7 +194,7 @@ export function MfaSection() {
           </ol>
           {qr && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={qr} alt="認証アプリ用のQRコード" width={180} height={180} className="border border-gray-200 rounded-lg bg-white" />
+            <img src={qr} alt="認証アプリ用のQRコード" width={180} height={180} className="border border-gray-200 rounded-lg bg-surface" />
           )}
           {secret && (
             <p className="text-xs text-gray-500">
