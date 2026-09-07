@@ -1540,10 +1540,12 @@ export async function findGroupClaimOrgId(claimId: string): Promise<string | nul
  */
 export async function findGroupClaimOrgAndChannel(
   claimId: string,
-): Promise<{ orgId: string; channel: string } | null> {
+): Promise<{ orgId: string; channel: string; accountId: string; externalGroupId: string } | null> {
+  // account_id / external_group_id も返す: 承認が通ったあと、そのチャットへ挨拶を送る宛先になる
+  // （承認routeが既にこの1クエリを引いているので、宛先のためだけの追加クエリを増やさない）。
   const { data, error } = await admin()
     .from('channel_group_claims')
-    .select('org_id, channel_accounts!inner(channel)')
+    .select('org_id, account_id, external_group_id, channel_accounts!inner(channel)')
     .eq('id', claimId)
     .maybeSingle()
   if (error || !data) return null
@@ -1551,7 +1553,13 @@ export async function findGroupClaimOrgAndChannel(
     .channel_accounts
   const channel = Array.isArray(acc) ? acc[0]?.channel : acc?.channel
   if (!channel) return null
-  return { orgId: (data as { org_id: string }).org_id, channel }
+  const row = data as { org_id: string; account_id: string; external_group_id: string }
+  return {
+    orgId: row.org_id,
+    channel,
+    accountId: row.account_id,
+    externalGroupId: row.external_group_id,
+  }
 }
 
 export type GroupClaimActionErrorReason =

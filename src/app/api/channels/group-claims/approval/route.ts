@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
 import {
   findGroupClaimOrgAndChannel,
+  findActiveGroup,
   approveGroupClaim,
   rejectGroupClaim,
   orgLineGroupCapacity,
@@ -11,6 +12,7 @@ import {
   GroupClaimActionError,
 } from '@/lib/channels/store'
 import { canUseSharedBotClaims } from '@/lib/channels/sharedBotAccess'
+import { sendGroupWelcomeForApprovedGroup } from '@/lib/channels/groupWelcomeDeps'
 import { isValidUuid } from '@/lib/uuid'
 
 export const runtime = 'nodejs'
@@ -126,6 +128,26 @@ export async function POST(request: NextRequest) {
       if (!ok) {
         // 同一グループへの2claim同時承認の敗者（channel_groups_active_uniqueによるgraceful reject）
         return NextResponse.json({ error: 'conflict' }, { status: 409 })
+      }
+      // 承認できた＝相手先のチャットと本当に繋がった瞬間。相手先には AgentPM の画面が無いので、
+      // ここで何も出さないと「入ったのか」「何を打てばいいのか」が誰にも分からない。
+      // 挨拶は"あると嬉しい"もの。送れなくても承認は絶対に巻き戻さない（ログだけ残す）。
+      try {
+        const group = await findActiveGroup(claimRef.accountId, claimRef.externalGroupId)
+        if (group) {
+          await sendGroupWelcomeForApprovedGroup({
+            groupId: group.id,
+            accountId: group.accountId,
+            orgId,
+            spaceId: group.spaceId,
+            channel: claimRef.channel,
+            externalGroupId: group.externalGroupId,
+            createdAt: group.createdAt ?? null,
+            metadata: group.metadata ?? null,
+          })
+        }
+      } catch (error) {
+        console.error('group-claims/approval: welcome send failed', claimId, error)
       }
       return NextResponse.json({ status: 'approved' })
     }
