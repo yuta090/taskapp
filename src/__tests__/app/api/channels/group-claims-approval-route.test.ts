@@ -35,6 +35,7 @@ class GroupClaimActionError extends Error {
 
 const storeMock = {
   findGroupClaimOrgAndChannel: vi.fn(),
+  findActiveGroup: vi.fn(),
   approveGroupClaim: vi.fn(),
   rejectGroupClaim: vi.fn(),
   orgLineGroupCapacity: vi.fn(),
@@ -44,6 +45,11 @@ const storeMock = {
   GroupClaimActionError,
 }
 vi.mock('@/lib/channels/store', () => storeMock)
+
+const sendGroupWelcomeMock = vi.fn()
+vi.mock('@/lib/channels/groupWelcomeDeps', () => ({
+  sendGroupWelcomeForApprovedGroup: sendGroupWelcomeMock,
+}))
 
 const { POST } = await import('@/app/api/channels/group-claims/approval/route')
 
@@ -72,6 +78,16 @@ describe('POST /api/channels/group-claims/approval', () => {
     storeMock.orgLineGroupCapacity.mockResolvedValue({ activeCount: 0, maxGroups: null }) // 既定=無制限
     storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 0, max: null })
     storeMock.orgHasExternalChatChannels.mockResolvedValue(true)
+    storeMock.findActiveGroup.mockResolvedValue({
+      id: 'grp-1',
+      orgId: ORG_ID,
+      spaceId: 'space-1',
+      accountId: 'acc-1',
+      externalGroupId: 'C123',
+      metadata: null,
+      createdAt: '2026-09-08T00:00:00.000Z',
+    })
+    sendGroupWelcomeMock.mockResolvedValue({ sent: true })
   })
 
   it('未ログインは401', async () => {
@@ -291,6 +307,16 @@ describe('POST /api/channels/group-claims/approval — RPC 拒否時の理由表
     storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'slack' })
     storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 0, max: null })
     storeMock.orgHasExternalChatChannels.mockResolvedValue(true)
+    storeMock.findActiveGroup.mockResolvedValue({
+      id: 'grp-1',
+      orgId: ORG_ID,
+      spaceId: 'space-1',
+      accountId: 'acc-1',
+      externalGroupId: 'C123',
+      metadata: null,
+      createdAt: '2026-09-08T00:00:00.000Z',
+    })
+    sendGroupWelcomeMock.mockResolvedValue({ sent: true })
   })
 
   it("'invalid'（整合・期限）は 422 で日本語の理由と code を返す", async () => {
@@ -310,5 +336,68 @@ describe('POST /api/channels/group-claims/approval — RPC 拒否時の理由表
     const json = await res.json()
     expect(json.code).toBe('conflict')
     expect(json.error).toMatch(/既に|処理/)
+  })
+})
+
+/**
+ * 承認が通った瞬間に、そのチャットへ「はじめまして＋使い方」を1通流す。
+ *
+ * 相手先には AgentPM の画面が無いので、承認してもチャットが無言だと「入ったのか」
+ * 「何を打てばいいのか」が誰にも分からない。ただし挨拶は"あると嬉しい"もので、
+ * ここで転んでも承認そのものは絶対に巻き戻さない。
+ */
+describe('承認後のチャットへの挨拶', () => {
+  // 上の describe とは別ブロックなので、既定値はここで一式そろえる（前のテストの残りを引き継がない）
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'approver-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({
+      orgId: ORG_ID,
+      channel: 'slack',
+      accountId: 'acc-1',
+      externalGroupId: 'C123',
+    })
+    storeMock.approveGroupClaim.mockResolvedValue(true)
+    storeMock.rejectGroupClaim.mockResolvedValue(true)
+    storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 0, max: null })
+    storeMock.orgHasExternalChatChannels.mockResolvedValue(true)
+    storeMock.getLineSelfServeState.mockResolvedValue('granted')
+    storeMock.findActiveGroup.mockResolvedValue({
+      id: 'grp-1',
+      orgId: ORG_ID,
+      spaceId: 'space-1',
+      accountId: 'acc-1',
+      externalGroupId: 'C123',
+      metadata: null,
+      createdAt: '2026-09-08T00:00:00.000Z',
+    })
+    sendGroupWelcomeMock.mockResolvedValue({ sent: true })
+  })
+
+  it('承認できたら、そのチャットへ挨拶を送る', async () => {
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(200)
+    expect(sendGroupWelcomeMock).toHaveBeenCalledTimes(1)
+    expect(sendGroupWelcomeMock.mock.calls[0][0]).toMatchObject({
+      groupId: 'grp-1',
+      accountId: 'acc-1',
+      externalGroupId: 'C123',
+      channel: 'slack',
+      orgId: ORG_ID,
+    })
+  })
+
+  it('挨拶が失敗しても承認は成功のまま返す', async () => {
+    sendGroupWelcomeMock.mockRejectedValue(new Error('slack down'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ status: 'approved' })
+  })
+
+  it('却下では何も送らない', async () => {
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'reject' })
+    expect(res.status).toBe(200)
+    expect(sendGroupWelcomeMock).not.toHaveBeenCalled()
   })
 })
