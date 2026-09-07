@@ -96,6 +96,24 @@ export interface SendSecretaryPushInput {
 
 export type SendSecretaryPushResult = { delivered: true } | { delivered: false; reason: string }
 
+/**
+ * アダプタが ok:false を返したときに投げる例外。アダプタの分類結果（status / permanent）を
+ * そのまま載せ、呼び出し側 cron が「恒久失敗＝終端」「一時失敗＝再試行」を切り分けられるようにする。
+ * LINE は LinePushError(status) がそのまま再throwされるので、これは非LINE（Slack 等）用。
+ * Slack は論理エラーでも HTTP 200 を返す（permanent は body.error から判定済み）ため、
+ * status だけでは恒久/一時が判定できない — permanent を優先して読むこと。
+ */
+export class SecretaryPushError extends Error {
+  status?: number
+  permanent?: boolean
+  constructor(message: string, status?: number, permanent?: boolean) {
+    super(message)
+    this.name = 'SecretaryPushError'
+    this.status = status
+    this.permanent = permanent
+  }
+}
+
 export async function sendSecretaryPush(
   input: SendSecretaryPushInput,
 ): Promise<SendSecretaryPushResult> {
@@ -133,8 +151,10 @@ export async function sendSecretaryPush(
   })
 
   if (!result.ok) {
-    throw new Error(
+    throw new SecretaryPushError(
       `secretary push failed (channel=${channel}, status=${result.status ?? 'n/a'}): ${result.error ?? 'unknown error'}`,
+      result.status,
+      result.permanent,
     )
   }
 
