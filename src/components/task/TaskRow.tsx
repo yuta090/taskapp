@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
-import { Circle, CheckCircle, ArrowRight, ArrowCounterClockwise, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
+import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
 import { AmberDot, Tooltip, TruncatedText } from '@/components/shared'
 import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import type { Task, BallSide, TaskStatus, ReviewStatus } from '@/types/database'
@@ -188,8 +188,13 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
   }, [onStatusChange, task.id])
 
   const handleClick = useCallback(() => {
+    // 選択モード中は行のどこを押しても選択の切り替え。詳細は開かない
+    if (bulkMode && onCheckChange) {
+      onCheckChange(task.id, !isChecked)
+      return
+    }
     onClick?.(task.id)
-  }, [onClick, task.id])
+  }, [bulkMode, onCheckChange, isChecked, onClick, task.id])
 
   const handleMobileActions = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -330,20 +335,42 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
       onClick={handleClick}
     >
-      {/* Bulk selection checkbox — 左に出る四角はこれ1つだけ。完了は右のホバー操作に置く */}
-      {onCheckChange && (
+      {/*
+        左に出る四角は「いつでも1つだけ」にする。同じ形の四角が2つ並ぶと、
+        どちらが完了でどちらが選択なのか見分けられない（実際に使いづらいと指摘された）。
+        選択モード中＝「選ぶ」の四角、ふだん＝「完了」のチェック、と排他にする。
+      */}
+      {onCheckChange && bulkMode && (
         <button
           type="button"
           onClick={handleCheck}
           className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all ${
-            bulkMode ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
-          } ${
             isChecked
               ? 'bg-blue-500 border-blue-500 text-white'
               : 'bg-surface border-gray-300 text-transparent hover:border-blue-400'
           }`}
           title="まとめて操作するタスクを選ぶ"
           aria-label={isChecked ? '選択解除' : '選択'}
+        >
+          <Check weight="bold" className="w-3 h-3" />
+        </button>
+      )}
+
+      {/* Quick done checkbox — 左端。選択モード中は隠す */}
+      {onStatusChange && !bulkMode && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleStatusChange(task.status === 'done' ? 'todo' : 'done')
+          }}
+          className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${
+            task.status === 'done'
+              ? 'bg-gray-900 border-gray-900 text-gray-100'
+              : 'bg-surface border-gray-300 text-transparent hover:border-gray-500 hover:text-gray-400'
+          }`}
+          title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
+          aria-label={task.status === 'done' ? '未完了に戻す' : '完了にする'}
         >
           <Check weight="bold" className="w-3 h-3" />
         </button>
@@ -484,30 +511,6 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
       {/* Hover actions */}
       <div className="hidden row-actions items-center gap-1">
-        {/* 完了の切り替え。四角ではなく文字つきボタンにして「選択」と見間違えないようにする */}
-        {onStatusChange && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleStatusChange(task.status === 'done' ? 'todo' : 'done')
-            }}
-            className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border transition-colors ${
-              task.status === 'done'
-                ? 'text-gray-600 bg-surface border-gray-200 hover:bg-gray-50'
-                : 'text-green-700 bg-surface border-green-200 hover:bg-green-50'
-            }`}
-            title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
-            aria-label={task.status === 'done' ? '未完了に戻す' : '完了にする'}
-          >
-            {task.status === 'done' ? (
-              <ArrowCounterClockwise weight="bold" className="text-xs" />
-            ) : (
-              <CheckCircle weight="fill" className="text-xs" />
-            )}
-            {task.status === 'done' ? '戻す' : '完了'}
-          </button>
-        )}
         <button
           data-testid="task-row-actions"
           className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"

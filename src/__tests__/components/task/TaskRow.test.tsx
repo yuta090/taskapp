@@ -201,28 +201,47 @@ describe('TaskRow — サンプルタスクバッジ', () => {
   })
 })
 
-describe('TaskRow — 左に並ぶチェックボックスは1つだけ (M-6)', () => {
-  it('選択チェックボックスは hover/focus 時のみ表示するクラスを持つ（非バルクモード）', () => {
-    render(<TaskRow task={makeTask()} onCheckChange={vi.fn()} />)
-    const checkbox = screen.getByRole('button', { name: '選択' })
-    expect(checkbox.className).toContain('opacity-0')
-    expect(checkbox.className).toContain('group-hover:opacity-100')
-    expect(checkbox.className).toContain('focus-within:opacity-100')
-  })
-
-  it('選択と完了が両方使えるときも、行の左に出る四角は「選択」だけ', () => {
-    // 同じ形の四角が2つ並ぶとどちらが完了か分からない → 完了は右のホバー操作に寄せる
+describe('TaskRow — 左に出る四角はいつでも1つだけ (M-6)', () => {
+  // 「選択」と「完了」の同じ形の四角が同時に並ぶと、どちらを押しているのか分からない。
+  // 選択は「選択モード」中だけ出し、ふだんは完了のチェックだけにする。
+  it('ふだんは「完了」のチェックだけが出る', () => {
     render(<TaskRow task={makeTask()} onCheckChange={vi.fn()} onStatusChange={vi.fn()} />)
-    expect(screen.getByRole('button', { name: '選択' }).closest('.row-actions')).toBeNull()
-    expect(screen.getByRole('button', { name: '完了にする' }).closest('.row-actions')).not.toBeNull()
+    expect(screen.getByRole('button', { name: '完了にする' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '選択' })).not.toBeInTheDocument()
   })
 
-  it('完了の操作は「完了」と文字で分かる', () => {
+  it('完了のチェックは hover/focus 時のみ表示するクラスを持つ', () => {
     render(<TaskRow task={makeTask()} onStatusChange={vi.fn()} />)
-    expect(screen.getByRole('button', { name: '完了にする' })).toHaveTextContent('完了')
+    const quickDone = screen.getByRole('button', { name: '完了にする' })
+    expect(quickDone.className).toContain('opacity-0')
+    expect(quickDone.className).toContain('group-hover:opacity-100')
+    expect(quickDone.className).toContain('focus-within:opacity-100')
   })
 
-  it('完了ボタンを押すと完了になり、行は開かない', () => {
+  it('選択モード中は「選択」の四角だけになり、完了のチェックは消える', () => {
+    render(<TaskRow task={makeTask()} bulkMode onCheckChange={vi.fn()} onStatusChange={vi.fn()} />)
+    const select = screen.getByRole('button', { name: '選択' })
+    expect(select.className).not.toContain('opacity-0')
+    expect(screen.queryByRole('button', { name: '完了にする' })).not.toBeInTheDocument()
+  })
+
+  it('選択モード中は行のどこを押しても選択が切り替わり、詳細は開かない', () => {
+    const onCheckChange = vi.fn()
+    const onClick = vi.fn()
+    render(<TaskRow task={makeTask()} bulkMode onCheckChange={onCheckChange} onClick={onClick} />)
+    fireEvent.click(screen.getByText('サンプルタスク'))
+    expect(onCheckChange).toHaveBeenCalledWith('t1', true)
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('ふだんは行を押すと詳細が開く', () => {
+    const onClick = vi.fn()
+    render(<TaskRow task={makeTask()} onCheckChange={vi.fn()} onClick={onClick} />)
+    fireEvent.click(screen.getByText('サンプルタスク'))
+    expect(onClick).toHaveBeenCalledWith('t1')
+  })
+
+  it('完了のチェックを押すと完了になり、詳細は開かない', () => {
     const onStatusChange = vi.fn()
     const onClick = vi.fn()
     render(<TaskRow task={makeTask()} onStatusChange={onStatusChange} onClick={onClick} />)
@@ -231,12 +250,10 @@ describe('TaskRow — 左に並ぶチェックボックスは1つだけ (M-6)', 
     expect(onClick).not.toHaveBeenCalled()
   })
 
-  it('完了済みの行は「戻す」になり、押すと未完了に戻る', () => {
+  it('完了済みの行のチェックを押すと未完了に戻る', () => {
     const onStatusChange = vi.fn()
     render(<TaskRow task={makeTask({ status: 'done' })} onStatusChange={onStatusChange} />)
-    const back = screen.getByRole('button', { name: '未完了に戻す' })
-    expect(back).toHaveTextContent('戻す')
-    fireEvent.click(back)
+    fireEvent.click(screen.getByRole('button', { name: '未完了に戻す' }))
     expect(onStatusChange).toHaveBeenCalledWith('t1', 'todo')
   })
 })
