@@ -95,6 +95,8 @@ export function usePendingGroupClaims(orgId: string, channel: string) {
           // 承認で channel_groups が新規 active 化される。接続バッジ(5分SWR)を即時反映させる
           void queryClient.invalidateQueries({ queryKey: ['channelGroups', orgId] })
           void queryClient.invalidateQueries({ queryKey: ['channelGroupCounts', orgId] })
+          // Slack 接続ページの案内（全手順完了の判定）も取り直す
+          void queryClient.invalidateQueries({ queryKey: ['accountActiveGroups'] })
         }
       } catch (e) {
         if (previous) queryClient.setQueryData(queryKey, previous)
