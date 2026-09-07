@@ -31,10 +31,24 @@ describe('ChannelConnectOverview', () => {
     expect(screen.getByText(CHANNELS.telegram.webhookPath!)).toBeInTheDocument()
   })
 
-  it('Slack: 資格情報フォーム(ChannelCredentialForm)を出す（従来どおり）', () => {
+  it('Slack（自社アプリ）: 資格情報フォームに加えて、グループ紐付けの合言葉パネルも出す', () => {
+    // 自社Slackアプリは「鍵を登録する」(一度)と「チャンネルごとに合言葉で紐付ける」(都度)の両方が要る。
+    // 以前は合言葉を発行するUIが無く、登録できても秘書をチャンネルに紐付けられなかった。
     render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
     expect(screen.getByText('資格情報を登録する')).toBeInTheDocument()
-    expect(screen.queryByText('つなぎ方')).not.toBeInTheDocument()
+    expect(screen.getByText('つなぎ方')).toBeInTheDocument()
+    expect(screen.getByText('合言葉の発行')).toBeInTheDocument()
+    // Slack 固有の案内（/invite で秘書を招待 → 合言葉をチャンネルに投稿）
+    expect(screen.getByText(/\/invite/)).toBeInTheDocument()
+    // 自社アプリなので開発者コンソールへのリンクは残す
+    expect(screen.getByText('開発者コンソールを開く')).toBeInTheDocument()
+  })
+
+  it('Slack（自社アプリ）: 鍵の登録が先、合言葉の発行はその後に並ぶ', () => {
+    render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    const form = screen.getByText('資格情報を登録する')
+    const claim = screen.getByText('つなぎ方')
+    expect(form.compareDocumentPosition(claim) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('Google Chat: 資格情報フォームは出さず、共有Bot接続パネル(設定ガイド＋合言葉発行)を出す', () => {

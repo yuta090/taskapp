@@ -175,3 +175,15 @@ describe('SharedBotClaimPanel — discord（新規）', () => {
     })
   })
 })
+
+describe('SharedBotClaimPanel — slack（自社アプリ・招待→合言葉投稿）', () => {
+  it('Slack の案内: 秘書を /invite で招待 → 合言葉を投稿 → 確認待ちで承認', () => {
+    mockIssue({ ok: true, body: {} })
+    render(<SharedBotClaimPanel orgId={ORG} channel="slack" />)
+    expect(screen.getByText(/\/invite/)).toBeInTheDocument()
+    expect(screen.getByText(/合言葉を発行し/)).toBeInTheDocument()
+    expect(screen.getByText(/確認待ち/)).toBeInTheDocument()
+    // 自社アプリなので「運営の共通アカウント」という共有Botの言い回しは使わない
+    expect(screen.queryByText(/運営の共通アカウント/)).not.toBeInTheDocument()
+  })
+})

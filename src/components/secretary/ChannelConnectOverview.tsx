@@ -26,6 +26,9 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
   // platform 共有bot（google_chat / discord 等・org は認証情報を登録しない）は、LINEと同様に
   // 汎用の資格情報登録フォームは出さず、合言葉発行の SharedBotClaimPanel を描画する。
   const isSharedBotClaim = !!def.sharedBotClaim
+  // 自社アカウント × 合言葉（slack 等）は、鍵の登録（一度）に加えてチャンネルごとの合言葉発行（都度）が要る。
+  // 資格情報フォームの後ろに同じ合言葉パネルを出す（発行APIは channel 対応済み・承認フローも共通）。
+  const isOwnAccountClaim = !isSharedBotClaim && !!def.ownAccountClaim
   // 実際に接続できる（送信可能・LINE/共有Bot以外）チャネルにのみ資格情報登録フォームを出す。
   const canRegister =
     def.outbound && def.status !== 'planned' && def.id !== 'line' && !isSharedBotClaim
@@ -48,6 +51,11 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       {/* 主アクション — 開いた人が最初にやることを最上部に置く */}
       {isSharedBotClaim && <SharedBotClaimPanel orgId={orgId} channel={def.id} />}
       {canRegister && <ChannelCredentialForm orgId={orgId} def={def} />}
+      {canRegister && isOwnAccountClaim && (
+        <div className="mt-6">
+          <SharedBotClaimPanel orgId={orgId} channel={def.id} />
+        </div>
+      )}
       {!isSharedBotClaim && !canRegister && (
         <p className="text-sm text-gray-500">このチャネルは準備中です。開通しましたらご案内します。</p>
       )}
