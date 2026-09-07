@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import {
   DEFAULT_WIKI_FILTERS,
   DEFAULT_WIKI_SORT,
@@ -199,19 +199,33 @@ describe('formatWikiRelativeTime', () => {
   })
 })
 
-describe('formatWikiAbsoluteTime', () => {
-  it('YYYY/M/D H:mm 形式（ローカル時刻、toISOStringは使わない）', () => {
-    const iso = '2026-09-05T23:45:00+09:00'
-    const date = new Date(iso)
-    const expected = `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-    expect(formatWikiAbsoluteTime(iso)).toBe(expected)
+// 日本時間の深夜 1:30 は UTC では前日 16:30。表示が「日本時間の日付」になることを
+// リテラルの期待値で固定する（実装と同じゲッターで期待値を組むと、ずれても一致してしまう）。
+describe('日付表示（日本時間で固定）', () => {
+  const originalTz = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = 'Asia/Tokyo'
+  })
+  afterAll(() => {
+    process.env.TZ = originalTz
+  })
+
+  it('formatWikiAbsoluteTime は YYYY/M/D HH:mm（日本時間）', () => {
+    expect(formatWikiAbsoluteTime('2026-09-05T01:30:00+09:00')).toBe('2026/9/5 01:30')
+    expect(formatWikiAbsoluteTime('2026-09-04T16:30:00Z')).toBe('2026/9/5 01:30')
+  })
+
+  it('formatWikiShortDate は M/D（日本時間）で、UTC の前日にならない', () => {
+    expect(formatWikiShortDate('2026-09-05T01:30:00+09:00')).toBe('9/5')
+    expect(formatWikiShortDate('2026-01-01T00:10:00+09:00')).toBe('1/1')
   })
 })
 
-describe('formatWikiShortDate', () => {
-  it('M/D 形式（ローカル基準・TZに関わらず一貫している）', () => {
-    const iso = '2026-09-05T23:45:00+09:00'
-    const date = new Date(iso)
-    expect(formatWikiShortDate(iso)).toBe(`${date.getMonth() + 1}/${date.getDate()}`)
+describe('空白だけの検索語', () => {
+  it('全角/半角スペースだけなら絞り込みなし扱い（入力配列をそのまま返す）', () => {
+    const pages = [
+      { id: 'a', title: 'A', tags: [], created_by: 'u1', updated_by: 'u1', created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z', org_id: 'o', space_id: 's', body: '' },
+    ] as unknown as import('@/types/database').WikiPage[]
+    expect(filterWikiPages(pages, { query: '　 ', tags: [], authorIds: [] }, () => '')).toBe(pages)
   })
 })

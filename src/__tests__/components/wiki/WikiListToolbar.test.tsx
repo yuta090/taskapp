@@ -145,4 +145,30 @@ describe('WikiListToolbar', () => {
     fireEvent.click(within(screen.getByTestId('wiki-author-menu')).getByText('鈴木'))
     expect(onFiltersChange).toHaveBeenCalledWith({ ...DEFAULT_WIKI_FILTERS, authorIds: ['u2'] })
   })
+
+  it('Escape キーで並べ替えメニューが閉じる', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('wiki-sort-toggle'))
+    expect(screen.getByTestId('wiki-sort-menu')).toBeInTheDocument()
+    expect(screen.getByTestId('wiki-sort-toggle')).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('wiki-sort-menu')).not.toBeInTheDocument()
+    expect(screen.getByTestId('wiki-sort-toggle')).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('タグが9個以上なら「他 N 個」で展開し「たたむ」で戻せる', () => {
+    const tags = Array.from({ length: 10 }, (_, i) => `t${i}`)
+    setup({ pages: [page({ tags })] })
+    expect(screen.queryByText('t9')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('他 2 個'))
+    expect(screen.getByText('t9')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('たたむ'))
+    expect(screen.queryByText('t9')).not.toBeInTheDocument()
+  })
+
+  it('検索ボックス・タグチップにアクセシブルな名前/状態がある', () => {
+    setup({ pages: [page({ tags: ['仕様書'] })], filters: { ...DEFAULT_WIKI_FILTERS, tags: ['仕様書'] } })
+    expect(screen.getByLabelText('タイトル・タグで検索')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /仕様書/ })).toHaveAttribute('aria-pressed', 'true')
+  })
 })

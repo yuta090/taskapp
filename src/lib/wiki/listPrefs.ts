@@ -50,8 +50,11 @@ export function parseWikiListPrefs(raw: string | null): WikiListPrefs {
 
     const record = parsed as Record<string, unknown>
 
-    const rawColumns = Array.isArray(record.columns) ? record.columns : []
-    const columns = rawColumns.filter(isWikiListColumn)
+    // 配列なら空でも尊重する（利用者が意図的に全部 OFF にした状態を保存できるように）。
+    // 配列でない（壊れている）ときだけ既定に戻す。
+    const columns = Array.isArray(record.columns)
+      ? record.columns.filter(isWikiListColumn)
+      : DEFAULT_WIKI_LIST_PREFS.columns
 
     const rawSort =
       typeof record.sort === 'object' && record.sort !== null
@@ -61,7 +64,7 @@ export function parseWikiListPrefs(raw: string | null): WikiListPrefs {
     const dir = isWikiSortDir(rawSort.dir) ? rawSort.dir : DEFAULT_WIKI_SORT.dir
 
     return {
-      columns: columns.length > 0 ? columns : DEFAULT_WIKI_LIST_PREFS.columns,
+      columns,
       sort: { key, dir },
     }
   } catch {

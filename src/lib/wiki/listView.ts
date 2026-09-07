@@ -41,7 +41,7 @@ export function normalizeForSearch(value: string): string {
 }
 
 function isDefaultFilters(filters: WikiListFilters): boolean {
-  return filters.query === '' && filters.tags.length === 0 && filters.authorIds.length === 0
+  return filters.query.trim() === '' && filters.tags.length === 0 && filters.authorIds.length === 0
 }
 
 /** タグの使用件数を多い順→名前順（ja）で集計する。 */
@@ -67,7 +67,7 @@ export function filterWikiPages(
 
   if (pages.length === 0 || isDefaultFilters(filters)) return pages
 
-  const normalizedQuery = filters.query ? normalizeForSearch(filters.query) : ''
+  const normalizedQuery = normalizeForSearch(filters.query.trim())
 
   return pages.filter(page => {
     if (normalizedQuery) {

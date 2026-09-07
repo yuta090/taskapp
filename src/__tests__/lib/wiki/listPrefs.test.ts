@@ -38,9 +38,14 @@ describe('parseWikiListPrefs', () => {
     })
   })
 
-  it('列が全部未知（＝結果が空）なら既定の列に戻す', () => {
+  it('空配列（利用者が全部 OFF にした状態）はそのまま空で復元される', () => {
+    const raw = JSON.stringify({ columns: [], sort: DEFAULT_WIKI_LIST_PREFS.sort })
+    expect(parseWikiListPrefs(raw).columns).toEqual([])
+  })
+
+  it('列が全部未知なら空になる（既定には戻さない）', () => {
     const raw = JSON.stringify({ columns: ['bogus1', 'bogus2'], sort: DEFAULT_WIKI_LIST_PREFS.sort })
-    expect(parseWikiListPrefs(raw).columns).toEqual(DEFAULT_WIKI_LIST_PREFS.columns)
+    expect(parseWikiListPrefs(raw).columns).toEqual([])
   })
 
   it('未知の並べ替えキー/方向は既定に戻す', () => {

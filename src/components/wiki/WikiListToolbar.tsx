@@ -68,8 +68,17 @@ export function WikiListToolbar({
         setIsAuthorOpen(false)
       }
     }
-    if (isAuthorOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsAuthorOpen(false)
+    }
+    if (isAuthorOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', handleEscape)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
   }, [isAuthorOpen])
 
   const [isSortOpen, setIsSortOpen] = useState(false)
@@ -80,8 +89,17 @@ export function WikiListToolbar({
         setIsSortOpen(false)
       }
     }
-    if (isSortOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsSortOpen(false)
+    }
+    if (isSortOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', handleEscape)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
   }, [isSortOpen])
 
   const [isColumnsOpen, setIsColumnsOpen] = useState(false)
@@ -92,15 +110,24 @@ export function WikiListToolbar({
         setIsColumnsOpen(false)
       }
     }
-    if (isColumnsOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsColumnsOpen(false)
+    }
+    if (isColumnsOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', handleEscape)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
   }, [isColumnsOpen])
 
   const allTags = useMemo(() => collectWikiTags(pages), [pages])
   const visibleTags = tagsExpanded ? allTags : allTags.slice(0, TAG_CHIP_LIMIT)
   const hiddenTagCount = allTags.length - visibleTags.length
 
-  const isFiltering = filters.query !== '' || filters.tags.length > 0 || filters.authorIds.length > 0
+  const isFiltering = filters.query.trim() !== '' || filters.tags.length > 0 || filters.authorIds.length > 0
 
   const toggleTag = (tag: string) => {
     const nextTags = filters.tags.includes(tag)
@@ -142,13 +169,16 @@ export function WikiListToolbar({
 
   return (
     <div className="border-b border-gray-100 bg-surface flex-shrink-0">
-      {/* 1行目: 検索・タグ・作成者・並べ替え・表示項目。モバイルは横スクロールで検索/並べ替え/表示項目中心 */}
-      <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto">
+      {/* 1行目: 検索・タグ・作成者・並べ替え・表示項目。
+          外側に overflow-x を付けると overflow-y も auto に計算されて下に開くメニューが切れるため、
+          横スクロールはタグチップの帯だけに限定する */}
+      <div className="flex items-center gap-2 px-4 py-2">
         <div className="relative flex-shrink-0 w-40 md:w-56">
           <MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none" />
           <input
             type="text"
             data-testid="wiki-search"
+            aria-label="タイトル・タグで検索"
             placeholder="タイトル・タグで検索"
             value={filters.query}
             onChange={(e) => onFiltersChange({ ...filters, query: e.target.value })}
@@ -156,14 +186,15 @@ export function WikiListToolbar({
           />
         </div>
 
-        {allTags.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+        {allTags.length > 0 ? (
+          <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto" data-testid="wiki-tag-strip">
             {visibleTags.map(({ tag, count }) => {
               const selected = filters.tags.includes(tag)
               return (
                 <button
                   key={tag}
                   type="button"
+                  aria-pressed={selected}
                   onClick={() => toggleTag(tag)}
                   className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors ${
                     selected
@@ -185,15 +216,25 @@ export function WikiListToolbar({
                 他 {hiddenTagCount} 個
               </button>
             )}
+            {tagsExpanded && allTags.length > TAG_CHIP_LIMIT && (
+              <button
+                type="button"
+                onClick={() => setTagsExpanded(false)}
+                className="flex-shrink-0 px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+              >
+                たたむ
+              </button>
+            )}
           </div>
+        ) : (
+          <div className="flex-1 min-w-2" />
         )}
-
-        <div className="flex-1 min-w-2" />
 
         {currentUserId && (
           <button
             type="button"
             onClick={toggleOnlyMe}
+            aria-pressed={isOnlyMe}
             className={`hidden md:inline-flex flex-shrink-0 px-2 py-1.5 text-xs rounded-lg border transition-colors ${
               isOnlyMe
                 ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
@@ -208,6 +249,8 @@ export function WikiListToolbar({
           <button
             type="button"
             onClick={() => setIsAuthorOpen(o => !o)}
+            aria-haspopup="menu"
+            aria-expanded={isAuthorOpen}
             className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors ${
               filters.authorIds.length > 0
                 ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
@@ -253,6 +296,9 @@ export function WikiListToolbar({
           <button
             type="button"
             onClick={() => setIsSortOpen(o => !o)}
+            aria-haspopup="menu"
+            aria-expanded={isSortOpen}
+            aria-label={`並べ替え: ${SORT_LABELS[prefs.sort.key]} ${prefs.sort.dir === 'asc' ? '昇順' : '降順'}`}
             data-testid="wiki-sort-toggle"
             className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-gray-200 hover:border-gray-300 bg-surface text-gray-600 transition-colors"
           >
@@ -284,6 +330,8 @@ export function WikiListToolbar({
           <button
             type="button"
             onClick={() => setIsColumnsOpen(o => !o)}
+            aria-haspopup="menu"
+            aria-expanded={isColumnsOpen}
             aria-label="表示項目"
             data-testid="wiki-columns-toggle"
             className="flex items-center px-2 py-1.5 text-xs rounded-lg border border-gray-200 hover:border-gray-300 bg-surface text-gray-600 transition-colors"

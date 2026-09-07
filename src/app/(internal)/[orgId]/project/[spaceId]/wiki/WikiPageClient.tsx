@@ -73,8 +73,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     (userId: string): WikiRowMember | null => memberMap.get(userId) ?? null,
     [memberMap]
   )
+  // 名前が引けない人（読み込み中・退会済み）は空文字＝並べ替えでは先頭/末尾にまとまる
   const getAuthorName = useCallback(
-    (userId: string): string => memberMap.get(userId)?.name ?? `${userId.slice(0, 8)}...`,
+    (userId: string): string => memberMap.get(userId)?.name ?? '',
     [memberMap]
   )
 

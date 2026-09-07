@@ -12,7 +12,8 @@ export default async function WikiPage({ params }: Props) {
   const { orgId, spaceId } = await params
   return (
     <Suspense fallback={<div className="flex-1" />}>
-      <WikiPageClient orgId={orgId} spaceId={spaceId} />
+      {/* key: スペースを移動したら検索・絞り込みの状態を持ち越さない */}
+      <WikiPageClient key={spaceId} orgId={orgId} spaceId={spaceId} />
     </Suspense>
   )
 }
