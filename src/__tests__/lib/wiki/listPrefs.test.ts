@@ -35,6 +35,8 @@ describe('parseWikiListPrefs', () => {
     expect(parseWikiListPrefs(raw)).toEqual({
       columns: ['tags', 'author'],
       sort: { key: 'title', dir: 'asc' },
+      view: 'list',
+      collapsedIds: [],
     })
   })
 
@@ -57,6 +59,46 @@ describe('parseWikiListPrefs', () => {
     const raw = JSON.stringify({ columns: 'tags', sort: DEFAULT_WIKI_LIST_PREFS.sort })
     expect(parseWikiListPrefs(raw).columns).toEqual(DEFAULT_WIKI_LIST_PREFS.columns)
   })
+
+  it('view の既定値は list', () => {
+    expect(DEFAULT_WIKI_LIST_PREFS.view).toBe('list')
+  })
+
+  it('古い保存値に view が無ければ既定の list に戻す', () => {
+    const raw = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort })
+    expect(parseWikiListPrefs(raw).view).toBe('list')
+  })
+
+  it('未知の view は list に戻す', () => {
+    const raw = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, view: 'bogus' })
+    expect(parseWikiListPrefs(raw).view).toBe('list')
+  })
+
+  it('folder / milestone の view はそのまま復元される', () => {
+    const rawFolder = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, view: 'folder' })
+    expect(parseWikiListPrefs(rawFolder).view).toBe('folder')
+    const rawMilestone = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, view: 'milestone' })
+    expect(parseWikiListPrefs(rawMilestone).view).toBe('milestone')
+  })
+
+  it('collapsedIds の既定値は空配列', () => {
+    expect(DEFAULT_WIKI_LIST_PREFS.collapsedIds).toEqual([])
+  })
+
+  it('collapsedIds が配列でなければ既定の空配列に戻す', () => {
+    const raw = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, collapsedIds: 'x' })
+    expect(parseWikiListPrefs(raw).collapsedIds).toEqual([])
+  })
+
+  it('collapsedIds はそのまま復元される', () => {
+    const raw = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, collapsedIds: ['p1', 'p2'] })
+    expect(parseWikiListPrefs(raw).collapsedIds).toEqual(['p1', 'p2'])
+  })
+
+  it('collapsedIds の要素が文字列でないものは除去する', () => {
+    const raw = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, collapsedIds: ['p1', 42, null] })
+    expect(parseWikiListPrefs(raw).collapsedIds).toEqual(['p1'])
+  })
 })
 
 describe('useWikiListPrefs', () => {
@@ -68,16 +110,20 @@ describe('useWikiListPrefs', () => {
   it('保存すると localStorage に書き込まれ、次のインスタンスにも復元される', () => {
     const { result } = renderHook(() => useWikiListPrefs())
 
+    const next: import('@/lib/wiki/listPrefs').WikiListPrefs = {
+      columns: ['author'],
+      sort: { key: 'title', dir: 'asc' },
+      view: 'folder',
+      collapsedIds: ['p1'],
+    }
     act(() => {
-      result.current[1]({ columns: ['author'], sort: { key: 'title', dir: 'asc' } })
+      result.current[1](next)
     })
 
-    expect(result.current[0]).toEqual({ columns: ['author'], sort: { key: 'title', dir: 'asc' } })
-    expect(localStorage.getItem(WIKI_LIST_PREFS_KEY)).toBe(
-      JSON.stringify({ columns: ['author'], sort: { key: 'title', dir: 'asc' } })
-    )
+    expect(result.current[0]).toEqual(next)
+    expect(localStorage.getItem(WIKI_LIST_PREFS_KEY)).toBe(JSON.stringify(next))
 
     const { result: result2 } = renderHook(() => useWikiListPrefs())
-    expect(result2.current[0]).toEqual({ columns: ['author'], sort: { key: 'title', dir: 'asc' } })
+    expect(result2.current[0]).toEqual(next)
   })
 })
