@@ -287,6 +287,24 @@ describe('sendSecretaryPush（統一送信境界）', () => {
       expect(storeMock.insertChannelMessage).not.toHaveBeenCalled()
     })
 
+    it('throw する Error にアダプタの status / permanent を載せる（cron側が恒久/一時を切り分けて無限再試行を防ぐため）', async () => {
+      mockFetch(() => jsonResponse(401, { error: 'invalid token' }))
+
+      await expect(sendSecretaryPush(chatworkInput())).rejects.toMatchObject({ status: 401, permanent: true })
+    })
+
+    it('Slack の論理エラー(HTTP200・ok:false・channel_not_found)は status=200 でも permanent:true を載せる', async () => {
+      mockFetch(() => jsonResponse(200, { ok: false, error: 'channel_not_found' }))
+
+      await expect(
+        sendSecretaryPush(
+          chatworkInput({
+            account: { id: 'acc-slack', ownerType: 'org' as const, channel: 'slack', credentials: { bot_token: 'xoxb-1' } },
+          }),
+        ),
+      ).rejects.toMatchObject({ status: 200, permanent: true })
+    })
+
     it('未対応チャネル(email)はdeliverToChannelがpermanent失敗を返し throw する', async () => {
       await expect(
         sendSecretaryPush(

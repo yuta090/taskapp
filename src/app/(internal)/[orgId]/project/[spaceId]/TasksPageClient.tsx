@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
+import { Copy, GearSix, Eye, ChatCircleText, SortAscending, CaretDown, MagnifyingGlass, X as XIcon, Circle, CheckCircle, CheckSquare, ArrowRight, Plus, BookmarkSimple, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Breadcrumb, EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -827,7 +827,19 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   }, [createTask, lastBall, lastClientOwnerIds])
 
   // Bulk selection handlers
-  const bulkMode = selectedTaskIds.size > 0
+  /**
+   * 一括選択は「選択」ボタンを押しているあいだだけのモードにする。
+   * 常設だと行の左に「選択」と「完了」の同じ形の四角が2つ並び、区別できなかった。
+   */
+  const [isSelectMode, setIsSelectMode] = useState(false)
+  const bulkMode = isSelectMode
+
+  const handleToggleSelectMode = useCallback(() => {
+    setIsSelectMode((prev) => {
+      if (prev) setSelectedTaskIds(new Set())
+      return !prev
+    })
+  }, [])
 
   const handleCheckChange = useCallback((taskId: string, checked: boolean) => {
     setSelectedTaskIds((prev) => {
@@ -841,8 +853,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     })
   }, [])
 
-  const handleDeselectAll = useCallback(() => {
+  const handleExitSelectMode = useCallback(() => {
     setSelectedTaskIds(new Set())
+    setIsSelectMode(false)
   }, [])
 
   const handleBulkStatusChange = useCallback(async (status: TaskStatus) => {
@@ -872,13 +885,14 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   // Clear selection on Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedTaskIds.size > 0) {
+      if (e.key === 'Escape' && (isSelectMode || selectedTaskIds.size > 0)) {
         setSelectedTaskIds(new Set())
+        setIsSelectMode(false)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedTaskIds.size])
+  }, [selectedTaskIds.size, isSelectMode])
 
   const sortOptions: { key: SortKey; label: string }[] = [
     { key: 'milestone', label: 'マイルストーン別' },
@@ -1177,6 +1191,23 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               </>
             )}
           </div>
+
+          {/* まとめて操作（選択モード） */}
+          <button
+            type="button"
+            onClick={handleToggleSelectMode}
+            aria-pressed={isSelectMode}
+            className={`flex flex-shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap border rounded-lg transition-colors ${
+              isSelectMode
+                ? 'bg-blue-50 border-blue-300 text-blue-700'
+                : 'bg-surface border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
+            }`}
+            aria-label="まとめて操作"
+            title="複数のタスクをまとめて完了・担当変更する"
+          >
+            <CheckSquare className="text-sm" />
+            <span className="hidden sm:inline">{isSelectMode ? '選択中' : '選択'}</span>
+          </button>
           </div>
         </div>
       </header>
@@ -1348,7 +1379,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
       })()}
 
       {/* Bulk action toolbar */}
-      {bulkMode && (
+      {isSelectMode && (
         <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-5 py-2 flex items-center gap-3 animate-slide-down">
           <span className="text-xs font-medium text-gray-700">
             {selectedTaskIds.size}件選択
@@ -1356,34 +1387,40 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
           <div className="h-4 w-px bg-gray-300" />
 
-          {/* Bulk status change */}
-          <div className="flex items-center gap-1">
+          {/* Bulk status change — 選んだあと真っ先に押すのは「完了」。塗りつぶしの主ボタンで先頭に置く */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleBulkStatusChange('done')}
+              disabled={selectedTaskIds.size === 0}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-green-600 border border-green-600 rounded hover:bg-green-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="完了にする"
+              title="選んだタスクをまとめて完了にする"
+            >
+              <CheckCircle weight="fill" className="text-sm" />
+              完了にする
+            </button>
             <button
               type="button"
               onClick={() => handleBulkStatusChange('todo')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
-              title="Todoに変更"
+              disabled={selectedTaskIds.size === 0}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-surface hover:bg-gray-100 rounded border border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="着手予定にする"
+              title="着手予定にする"
             >
               <Circle className="text-sm text-gray-400" />
-              Todo
+              着手予定
             </button>
             <button
               type="button"
               onClick={() => handleBulkStatusChange('in_progress')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
-              title="進行中に変更"
+              disabled={selectedTaskIds.size === 0}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-surface hover:bg-gray-100 rounded border border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="進行中にする"
+              title="進行中にする"
             >
               <Circle weight="fill" className="text-sm text-blue-400" />
               進行中
-            </button>
-            <button
-              type="button"
-              onClick={() => handleBulkStatusChange('done')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
-              title="完了に変更"
-            >
-              <CheckCircle weight="fill" className="text-sm text-green-500" />
-              完了
             </button>
           </div>
 
@@ -1394,7 +1431,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => handleBulkBallChange('internal')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors"
+              disabled={selectedTaskIds.size === 0}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="ボールを社内に"
             >
               <ArrowRight weight="bold" className="text-xs text-blue-500" />
@@ -1403,7 +1441,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <button
               type="button"
               onClick={() => handleBulkBallChange('client')}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 rounded border border-transparent hover:border-amber-200 transition-colors"
+              disabled={selectedTaskIds.size === 0}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 rounded border border-transparent hover:border-amber-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="ボールをクライアントに"
             >
               <ArrowRight weight="bold" className="text-xs text-amber-500" />
@@ -1416,11 +1455,11 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           {/* Deselect */}
           <button
             type="button"
-            onClick={handleDeselectAll}
+            onClick={handleExitSelectMode}
             className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-surface rounded transition-colors"
           >
             <XIcon className="text-xs" />
-            選択解除
+            選択をやめる
           </button>
         </div>
       )}

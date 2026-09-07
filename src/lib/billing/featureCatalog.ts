@@ -27,7 +27,7 @@ export const FEATURE_CATALOG: readonly FeatureMeta[] = [
   {
     key: 'timed_line_reminders',
     label: '時刻指定リマインド',
-    description: '指定した日時に、相手先のLINEグループへ秘書が自動リマインド',
+    description: '指定した日時に、相手先のチャットグループ（LINE・Slackなど）へ秘書が自動リマインド',
   },
   {
     key: 'own_line_account',
@@ -37,7 +37,7 @@ export const FEATURE_CATALOG: readonly FeatureMeta[] = [
   {
     key: 'line_direct_dm',
     label: '担当者への個別DM',
-    description: '担当者ひとりずつへ1対1でLINE個別配信（共通LINEでは不可）',
+    description: '担当者ひとりずつへ1対1でチャット個別配信（LINE・Slackなど。共通LINEでは不可）',
   },
   {
     key: 'external_chat_channels',

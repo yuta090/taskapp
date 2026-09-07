@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
-import { Circle, CheckCircle, ArrowRight, ArrowCounterClockwise, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
+import { createPortal } from 'react-dom'
+import { Circle, CheckCircle, ArrowRight, DotsThree, CalendarBlank, Check } from '@phosphor-icons/react'
 import { AmberDot, Tooltip, TruncatedText } from '@/components/shared'
 import { getClientWaitingDays } from '@/lib/tasks/clientWaitingDays'
 import type { Task, BallSide, TaskStatus, ReviewStatus } from '@/types/database'
@@ -47,22 +48,18 @@ function isOverdue(dateStr: string | null): boolean {
   return dueDate < today
 }
 
-const STATUS_OPTIONS: { value: TaskStatus; label: string; icon: React.ReactNode }[] = [
-  { value: 'backlog', label: 'バックログ', icon: <Circle className="text-gray-400" /> },
-  { value: 'todo', label: '着手予定', icon: <Circle className="text-gray-400" /> },
-  { value: 'in_progress', label: '進行中', icon: <Circle weight="fill" className="text-blue-400" /> },
-  { value: 'in_review', label: '社内承認中', icon: <Circle weight="fill" className="text-amber-400" /> },
-  { value: 'done', label: '完了', icon: <CheckCircle weight="fill" className="text-green-500" /> },
-]
-
+// Row icons are deliberately one step lighter than the badge palette: at 18px
+// next to every title, the 400/500 tints read as heavy noise down the list.
+// Gray stays at 400: `.dark` remaps gray-300 to a border tone (#3A414E) that
+// disappears against the dark row background.
 function getStatusIcon(status: TaskStatus) {
   switch (status) {
     case 'done':
-      return <CheckCircle weight="fill" className="text-green-500" />
+      return <CheckCircle weight="fill" className="text-green-400" />
     case 'in_progress':
-      return <Circle weight="fill" className="text-blue-400" />
+      return <Circle weight="fill" className="text-blue-300" />
     case 'in_review':
-      return <Circle weight="fill" className="text-amber-400" />
+      return <Circle weight="fill" className="text-amber-300" />
     case 'considering':
       return <Circle weight="duotone" className="text-gray-400" />
     case 'todo':
@@ -71,6 +68,28 @@ function getStatusIcon(status: TaskStatus) {
       return <Circle className="text-gray-400" />
   }
 }
+
+/** Approximate rendered height of the status menu (5 items × 32px + padding). */
+const STATUS_MENU_HEIGHT = 176
+const STATUS_MENU_GAP = 4
+
+/** Fixed-position anchor for the menu: below the icon, flipped above when it would leave the viewport. */
+export function placeStatusMenu(
+  rect: Pick<DOMRect, 'top' | 'bottom' | 'left'>,
+  viewportHeight: number
+): { top: number; left: number } {
+  const below = rect.bottom + STATUS_MENU_GAP
+  if (below + STATUS_MENU_HEIGHT <= viewportHeight) return { top: below, left: rect.left }
+  return { top: Math.max(0, rect.top - STATUS_MENU_GAP - STATUS_MENU_HEIGHT), left: rect.left }
+}
+
+const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: 'backlog', label: 'バックログ' },
+  { value: 'todo', label: '着手予定' },
+  { value: 'in_progress', label: '進行中' },
+  { value: 'in_review', label: '社内承認中' },
+  { value: 'done', label: '完了' },
+]
 
 function getStatusLabel(status: TaskStatus): string {
   const labels: Record<string, string> = {
@@ -89,27 +108,59 @@ interface StatusDropdownProps {
   onStatusChange?: (status: TaskStatus) => void
 }
 
+/**
+ * Status picker for a row. The menu is rendered through a portal onto
+ * document.body with `position: fixed`: the task list is virtualized and each
+ * row sits in a `transform: translateY()` wrapper, which creates its own
+ * stacking context. An `absolute` menu inside the row (even with z-50) is
+ * painted underneath the rows that follow it, so their titles show through.
+ */
 function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!isOpen) return
+    // The list scrolls under the menu; close rather than let it drift away from its icon.
+    const close = () => setIsOpen(false)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
+      const target = event.target as Node
+      if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return
+      setIsOpen(false)
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsOpen(false)
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [isOpen])
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (onStatusChange) {
-      setIsOpen(!isOpen)
+    if (!onStatusChange) return
+    if (isOpen) {
+      setIsOpen(false)
+      return
     }
+    // Anchor from the click target's live rect (same approach as handleMobileActions).
+    setMenuPos(placeStatusMenu(e.currentTarget.getBoundingClientRect(), window.innerHeight))
+    setIsOpen(true)
   }
 
   const handleSelect = (newStatus: TaskStatus) => {
@@ -118,35 +169,47 @@ function StatusDropdown({ status, onStatusChange }: StatusDropdownProps) {
   }
 
   return (
-    <div ref={dropdownRef} className="relative">
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={handleClick}
         className={`text-lg transition-transform ${onStatusChange ? 'hover:scale-110 cursor-pointer' : ''}`}
         aria-label={`ステータスを変更（現在: ${getStatusLabel(status)}）`}
+        aria-haspopup={onStatusChange ? 'menu' : undefined}
+        aria-expanded={onStatusChange ? isOpen : undefined}
       >
         {getStatusIcon(status)}
       </button>
 
-      {isOpen && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-surface rounded-lg shadow-lg border border-gray-200 py-1 min-w-[140px]">
+      {isOpen && menuPos && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="ステータスを選択"
+          className="z-50 bg-surface rounded-lg shadow-popover border border-gray-200 py-1 min-w-[140px]"
+          style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {STATUS_OPTIONS.map((option) => (
             <button
               key={option.value}
               type="button"
+              role="menuitem"
               onClick={(e) => {
                 e.stopPropagation()
                 handleSelect(option.value)
               }}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors ${
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-50 transition-colors ${
                 status === option.value ? 'bg-gray-100' : ''
               }`}
             >
-              <span className="text-base">{option.icon}</span>
+              <span className="text-base">{getStatusIcon(option.value)}</span>
               <span>{option.label}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
@@ -188,8 +251,13 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
   }, [onStatusChange, task.id])
 
   const handleClick = useCallback(() => {
+    // 選択モード中は行のどこを押しても選択の切り替え。詳細は開かない
+    if (bulkMode && onCheckChange) {
+      onCheckChange(task.id, !isChecked)
+      return
+    }
     onClick?.(task.id)
-  }, [onClick, task.id])
+  }, [bulkMode, onCheckChange, isChecked, onClick, task.id])
 
   const handleMobileActions = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -330,20 +398,42 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
       style={{ paddingLeft: indent ? 32 : 16, paddingRight: 16 }}
       onClick={handleClick}
     >
-      {/* Bulk selection checkbox — 左に出る四角はこれ1つだけ。完了は右のホバー操作に置く */}
-      {onCheckChange && (
+      {/*
+        左に出る四角は「いつでも1つだけ」にする。同じ形の四角が2つ並ぶと、
+        どちらが完了でどちらが選択なのか見分けられない（実際に使いづらいと指摘された）。
+        選択モード中＝「選ぶ」の四角、ふだん＝「完了」のチェック、と排他にする。
+      */}
+      {onCheckChange && bulkMode && (
         <button
           type="button"
           onClick={handleCheck}
           className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all ${
-            bulkMode ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
-          } ${
             isChecked
               ? 'bg-blue-500 border-blue-500 text-white'
               : 'bg-surface border-gray-300 text-transparent hover:border-blue-400'
           }`}
           title="まとめて操作するタスクを選ぶ"
           aria-label={isChecked ? '選択解除' : '選択'}
+        >
+          <Check weight="bold" className="w-3 h-3" />
+        </button>
+      )}
+
+      {/* Quick done checkbox — 左端。選択モード中は隠す */}
+      {onStatusChange && !bulkMode && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleStatusChange(task.status === 'done' ? 'todo' : 'done')
+          }}
+          className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus-within:opacity-100 ${
+            task.status === 'done'
+              ? 'bg-gray-900 border-gray-900 text-gray-100'
+              : 'bg-surface border-gray-300 text-transparent hover:border-gray-500 hover:text-gray-400'
+          }`}
+          title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
+          aria-label={task.status === 'done' ? '未完了に戻す' : '完了にする'}
         >
           <Check weight="bold" className="w-3 h-3" />
         </button>
@@ -484,30 +574,6 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
 
       {/* Hover actions */}
       <div className="hidden row-actions items-center gap-1">
-        {/* 完了の切り替え。四角ではなく文字つきボタンにして「選択」と見間違えないようにする */}
-        {onStatusChange && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleStatusChange(task.status === 'done' ? 'todo' : 'done')
-            }}
-            className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border transition-colors ${
-              task.status === 'done'
-                ? 'text-gray-600 bg-surface border-gray-200 hover:bg-gray-50'
-                : 'text-green-700 bg-surface border-green-200 hover:bg-green-50'
-            }`}
-            title={task.status === 'done' ? '未完了に戻す' : '完了にする'}
-            aria-label={task.status === 'done' ? '未完了に戻す' : '完了にする'}
-          >
-            {task.status === 'done' ? (
-              <ArrowCounterClockwise weight="bold" className="text-xs" />
-            ) : (
-              <CheckCircle weight="fill" className="text-xs" />
-            )}
-            {task.status === 'done' ? '戻す' : '完了'}
-          </button>
-        )}
         <button
           data-testid="task-row-actions"
           className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"

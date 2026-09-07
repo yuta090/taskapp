@@ -4,7 +4,7 @@ import {
   findActiveGroupsForSpaces,
   markTaskReminderSent,
 } from '@/lib/reminders/taskReminderStore'
-import { findLineAccountById } from '@/lib/channels/store'
+import { findAccountForSecretaryPush } from '@/lib/channels/store'
 import { sendSecretaryPush } from '@/lib/channels/send/secretaryPush'
 import { getJstDayOfYear } from '@/lib/channels/metering/decideAutoPush'
 import {
@@ -21,8 +21,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * POST /api/cron/task-reminders
  *
  * pg_cron が5分毎に app_invoke_task_reminders() 経由で呼ぶ内部API。
- * remind_at が到来済みで未送信のタスクを、space に紐づくactiveなLINEグループへ
- * 秘書のリマインドとして push する（③ 時刻指定リマインド・pro以上限定）。
+ * remind_at が到来済みで未送信のタスクを、space に紐づくactiveなチャットグループ
+ * （LINE/Slack/Discord/Chatwork/Teams/Google Chat…全チャネル）へ秘書のリマインドとして
+ * push する（③ 時刻指定リマインド・pro以上限定）。
+ *
+ * マルチチャネル化: account は LINE専用の findLineAccountById ではなく、channel-digest と
+ * 同じ全チャネル対応の findAccountForSecretaryPush で引く（以前は LINE の鍵が無い Slack 等の
+ * account が account_not_found で黙って落ちていた）。共有Bot優先（preferPlatformLinks）は
+ * チャネル内だけで効かせ、LINE と Slack の両方が紐づく space には両方へ届ける。
  *
  * ゲート（Fable裁定・二重防御の実行時側／真実の境界）:
  *   送信直前に org の timed_line_reminders エンタイトルメントを再確認し、
@@ -124,19 +130,30 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const account = await findLineAccountById(link.accountId)
-      if (!account) {
-        skipped.push({ taskId: task.id, reason: 'account_not_found' })
+      const accountResult = await findAccountForSecretaryPush(link.accountId)
+      if (!accountResult.ok) {
+        skipped.push({ taskId: task.id, reason: `account_unavailable: ${accountResult.reason}` })
         continue
       }
 
+      // teams の proactive 送信が使う per-group 文脈（channel-digest と同じ扱い）。他チャネルは undefined
+      const serviceUrl = link.metadata?.serviceUrl
+      const providerContext =
+        typeof serviceUrl === 'string' && serviceUrl.length > 0 ? { serviceUrl } : undefined
+
       try {
         const result = await sendSecretaryPush({
-          account,
+          account: {
+            id: accountResult.id,
+            ownerType: accountResult.ownerType,
+            channel: accountResult.channel,
+            credentials: accountResult.credentials,
+          },
           orgId: link.orgId,
           to: link.externalGroupId,
           text,
           messages: [{ type: 'text', text }],
+          providerContext,
           retryKey: buildReminderRetryKey(task, link.id),
           jstDayOfYear,
           record: {
