@@ -7,7 +7,6 @@ export interface Milestone {
     due_date: string | null;
     order_key: number;
     created_at: string;
-    updated_at: string;
 }
 export declare const milestoneCreateSchema: z.ZodObject<{
     spaceId: z.ZodString;

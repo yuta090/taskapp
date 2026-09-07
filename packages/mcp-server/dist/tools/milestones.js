@@ -67,7 +67,8 @@ export async function milestoneUpdate(params) {
     if (Object.keys(updateData).length === 0) {
         throw new Error('更新するフィールドがありません');
     }
-    updateData.updated_at = new Date().toISOString();
+    // milestones テーブルに updated_at 列は無い（schema.sql: id/org_id/space_id/name/due_date/order_key/created_at）。
+    // 送ると PostgREST がスキーマ不一致で拒否し、更新が一度も成功しない状態だった
     const { data, error } = await supabase
         .from('milestones')
         .update(updateData)
