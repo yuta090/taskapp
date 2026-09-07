@@ -29,6 +29,7 @@ v0.1 は**アップロード済みの CSV/TSV を TaskApp 内で表として見�
 | 表示 | 見出し上固定・行番号左固定（元の行番号を保持）・行仮想化（@tanstack/react-virtual） |
 | 場所 | `/{orgId}/project/{spaceId}/files/{fileId}`（Main ペイン。Inspector は使わない） |
 | 導線 | ファイル一覧の CSV/TSV 行: ファイル名がリンク＋「表で見る」アイコン |
+| CLI | `agentpm file upload --file ./list.csv` でアップロード可（CLI 0.4.0+、`docs/spec/CLI_SPEC.md` File 節）。完了結果の `tablePath` が表ビューのパス |
 | 対象外 | クライアント portal（v0.1 は内部画面のみ）、`.xlsx`、編集、列の幅変更・固定・非表示 |
 
 ## 構成
