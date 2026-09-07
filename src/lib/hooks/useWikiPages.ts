@@ -43,6 +43,9 @@ interface UseWikiPagesReturn {
   publishPage: (pageId: string, milestoneId: string) => Promise<void>
 }
 
+// 読み込み中に毎レンダー新しい [] を返すと呼び出し側の useMemo が毎回無効化されるため共有定数にする
+const EMPTY_PAGES: WikiPage[] = []
+
 export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPagesReturn {
   const queryClient = useQueryClient()
 
@@ -159,7 +162,7 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
     enabled: !!orgId && !!spaceId,
   })
 
-  const pages = data?.pages ?? []
+  const pages = data?.pages ?? EMPTY_PAGES
 
   // ---------- fetchPages: invalidate cache to trigger refetch ----------
   const fetchPages = useCallback(async (): Promise<void> => {

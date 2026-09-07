@@ -21,7 +21,7 @@ const storeMock = {
   listActiveUserLinks: vi.fn(),
   revokeUserLink: vi.fn(),
   findUserLinkById: vi.fn(),
-  findChannelAccountMetaForOrg: vi.fn(),
+  findChannelAccountMetaById: vi.fn(),
 }
 vi.mock('@/lib/channels/store', () => storeMock)
 
@@ -53,7 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   authzMock.requireInternalMember.mockResolvedValue({ ok: true, userId: ME, role: 'member' })
   authzMock.requireOrgAdmin.mockResolvedValue({ ok: false, status: 403, error: 'Owner or admin only' })
-  storeMock.findChannelAccountMetaForOrg.mockResolvedValue({ id: ACCOUNT, displayName: 'OA' })
+  storeMock.findChannelAccountMetaById.mockResolvedValue({ id: ACCOUNT, orgId: ORG, channel: 'line', displayName: 'OA' })
   storeMock.createUserLinkCode.mockResolvedValue(undefined)
   storeMock.listActiveUserLinks.mockResolvedValue([])
   storeMock.revokeUserLink.mockResolvedValue(true)
@@ -97,16 +97,24 @@ describe('POST /api/channels/user-links/code', () => {
 
   it('自orgのOAでないIDを指定しても発行しない（クロステナント）', async () => {
     // org に紐づく OA は別ID → 指定されたIDは他orgのもの
-    storeMock.findChannelAccountMetaForOrg.mockResolvedValue({ id: OTHER_ORG, displayName: 'OA' })
+    storeMock.findChannelAccountMetaById.mockResolvedValue({ id: ACCOUNT, orgId: OTHER_ORG, channel: 'line', displayName: 'OA' })
     const res = await issueCode(post({ orgId: ORG, channelAccountId: ACCOUNT }))
     expect(res.status).toBe(404)
     expect(storeMock.createUserLinkCode).not.toHaveBeenCalled()
   })
 
   it('OAが未登録なら発行しない', async () => {
-    storeMock.findChannelAccountMetaForOrg.mockResolvedValue(null)
+    storeMock.findChannelAccountMetaById.mockResolvedValue(null)
     const res = await issueCode(post({ orgId: ORG, channelAccountId: ACCOUNT }))
     expect(res.status).toBe(404)
+  })
+
+  it('Slack など LINE 以外の自社アカウント宛てにも発行できる（口座は id で引き、org だけ照合する）', async () => {
+    storeMock.findChannelAccountMetaById.mockResolvedValue({ id: ACCOUNT, orgId: ORG, channel: 'slack', displayName: 'AgentPM秘書' })
+    const res = await issueCode(post({ orgId: ORG, channelAccountId: ACCOUNT }))
+    expect(res.status).toBe(200)
+    expect(storeMock.findChannelAccountMetaById).toHaveBeenCalledWith(ACCOUNT)
+    expect(storeMock.createUserLinkCode).toHaveBeenCalledWith(ORG, ME, ACCOUNT, expect.any(String))
   })
 
   it('不正なUUIDは400', async () => {
@@ -159,6 +167,25 @@ describe('GET /api/channels/user-links（一覧）', () => {
     const res = await listLinks(req)
     expect(res.status).toBe(200)
     expect((await res.json()).links).toHaveLength(1)
+  })
+
+  it('どの口座（LINE/Slack）への紐づけかを画面で見分けるため channelAccountId は返す', async () => {
+    storeMock.listActiveUserLinks.mockResolvedValue([
+      { id: LINK, userId: ME, channelAccountId: ACCOUNT, externalUserId: 'U-x', linkedAt: '2026-07-15' },
+    ])
+    const req = new Request(`http://localhost/api/channels/user-links?orgId=${ORG}`) as never
+    const res = await listLinks(req)
+    expect((await res.json()).links[0]).toMatchObject({ id: LINK, channelAccountId: ACCOUNT })
+  })
+
+  it('channelAccountId を付けるとその口座の分だけをストアに頼む（画面側で捨てない）・uuid でなければ 400', async () => {
+    storeMock.listActiveUserLinks.mockResolvedValue([])
+    const res = await listLinks(new Request(`http://localhost/api/channels/user-links?orgId=${ORG}&channelAccountId=${ACCOUNT}`) as never)
+    expect(res.status).toBe(200)
+    expect(storeMock.listActiveUserLinks).toHaveBeenCalledWith(ORG, ACCOUNT)
+
+    const bad = await listLinks(new Request(`http://localhost/api/channels/user-links?orgId=${ORG}&channelAccountId=nope`) as never)
+    expect(bad.status).toBe(400)
   })
 
   it('LINE userId（個人識別子）は wire に出さない', async () => {

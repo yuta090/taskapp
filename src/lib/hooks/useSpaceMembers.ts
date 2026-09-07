@@ -23,6 +23,9 @@ interface UseSpaceMembersResult {
   getMemberName: (userId: string) => string
 }
 
+// 読み込み中に毎レンダー新しい [] を作ると、呼び出し側の useMemo が毎回無効化されるため共有定数にする
+const EMPTY_MEMBERS: SpaceMember[] = []
+
 export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
   const queryClient = useQueryClient()
 
@@ -32,7 +35,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
 
   const queryKey = ['spaceMembers', spaceId] as const
 
-  const { data: members = [], isPending, error: queryError } = useQuery<SpaceMember[]>({
+  const { data: members = EMPTY_MEMBERS, isPending, error: queryError } = useQuery<SpaceMember[]>({
     queryKey,
     queryFn: async (): Promise<SpaceMember[]> => {
       if (!spaceId) return []

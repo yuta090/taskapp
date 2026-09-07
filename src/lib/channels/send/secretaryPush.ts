@@ -73,6 +73,12 @@ export interface SendSecretaryPushInput {
   /** LINEのリッチ表現（Flex等）。指定時はLINEアダプタがそのまま messages として送る */
   messages?: LineMessage[]
   /**
+   * LINE 以外のチャネル固有のリッチ表現（例: slack → { blocks: Block Kit }）。チャネル名をキーに
+   * 持ち、送信先 account.channel に一致するものだけをアダプタの rich として渡す。無いチャネルは
+   * これまでどおり messages（LINE Flex）が rich として渡る＝解釈しないアダプタは text を送る。
+   */
+  richByChannel?: Partial<Record<string, unknown>>
+  /**
    * チャネル固有の送信文脈（teamsのgroup.metadata.serviceUrl等）。deliverToChannelへそのまま
    * 素通しするだけ（判定ロジックは持たない）。省略時はundefined（既存呼び出し元の後方互換）。
    * 解釈するアダプタのみが使う。
@@ -117,7 +123,7 @@ export class SecretaryPushError extends Error {
 export async function sendSecretaryPush(
   input: SendSecretaryPushInput,
 ): Promise<SendSecretaryPushResult> {
-  const { account, orgId, to, text, messages, retryKey, jstDayOfYear, record, providerContext } = input
+  const { account, orgId, to, text, messages, richByChannel, retryKey, jstDayOfYear, record, providerContext } = input
   const channel = account.channel ?? 'line'
   const credentials = account.credentials ?? (account.accessToken ? { access_token: account.accessToken } : {})
   const resolvePlatformBudgetState = input.resolvePlatformBudgetState ?? getPlatformBudgetState
@@ -145,7 +151,7 @@ export async function sendSecretaryPush(
     credentials,
     to,
     text,
-    rich: messages,
+    rich: richByChannel?.[channel] ?? messages,
     idempotencyKey: retryKey,
     providerContext,
   })

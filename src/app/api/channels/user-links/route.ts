@@ -5,25 +5,37 @@ import { isValidUuid } from '@/lib/uuid'
 
 export const runtime = 'nodejs'
 
-/** GET /api/channels/user-links?orgId=... — org内の active な本人紐付け一覧 */
+/**
+ * GET /api/channels/user-links?orgId=...[&channelAccountId=...] — org内の active な本人紐付け一覧。
+ * channelAccountId を付けるとその口座（LINE/Slack）の分だけ返す（Slack の画面に LINE の分を送らない）。
+ */
 export async function GET(request: NextRequest) {
-  const orgId = new URL(request.url).searchParams.get('orgId') ?? ''
+  const params = new URL(request.url).searchParams
+  const orgId = params.get('orgId') ?? ''
   if (!isValidUuid(orgId)) {
     return NextResponse.json({ error: 'orgId is required' }, { status: 400 })
   }
+  const channelAccountIdRaw = params.get('channelAccountId')
+  if (channelAccountIdRaw !== null && !isValidUuid(channelAccountIdRaw)) {
+    return NextResponse.json({ error: 'channelAccountId must be a uuid' }, { status: 400 })
+  }
+  const channelAccountId = channelAccountIdRaw ?? undefined
 
   const auth = await requireInternalMember(orgId)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const links = await listActiveUserLinks(orgId)
+  const links = await listActiveUserLinks(orgId, channelAccountId)
 
-  // LINE userId は個人識別子。コンソールの表示に不要なので wire には出さない
+  // 外部ユーザーID（LINE userId / Slack user id）は個人識別子。コンソールの表示に不要なので
+  // wire には出さない。channelAccountId は「どの口座（LINE/Slack）への紐づけか」を画面で
+  // 見分けるために返す（内部の uuid であり機微ではない）。
   return NextResponse.json({
     links: links.map((link) => ({
       id: link.id,
       userId: link.userId,
+      channelAccountId: link.channelAccountId,
       linkedAt: link.linkedAt,
     })),
   })

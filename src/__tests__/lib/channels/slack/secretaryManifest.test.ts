@@ -43,6 +43,8 @@ describe('buildSecretarySlackManifest', () => {
     for (const s of ['chat:write', 'channels:history', 'groups:history', 'channels:read', 'groups:read']) {
       expect(scopes).toContain(s)
     }
+    // 本人紐づけコードを DM（1対1）で受け取るため
+    expect(scopes).toContain('im:history')
     expect(scopes).toEqual(SECRETARY_SLACK_BOT_SCOPES)
   })
 
@@ -50,7 +52,18 @@ describe('buildSecretarySlackManifest', () => {
     expect(m.settings.event_subscriptions.request_url).toBe(
       `https://agentpm.app/api/channels/slack/webhook/org/${ORG}`,
     )
-    expect(m.settings.event_subscriptions.bot_events).toEqual(['message.channels', 'message.groups'])
+    expect(m.settings.event_subscriptions.bot_events).toEqual(['message.channels', 'message.groups', 'message.im'])
+  })
+})
+
+describe('ボタン操作（Interactivity）', () => {
+  const m = buildSecretarySlackManifest({ eventsUrl: secretaryWebhookUrlForOrg('https://agentpm.app', ORG) })
+
+  it('リマインドの確認ボタンを受けるため Interactivity を有効にし、受信URLはイベント購読と同じ組織単位URLにする', () => {
+    expect(m.settings.interactivity).toEqual({
+      is_enabled: true,
+      request_url: `https://agentpm.app/api/channels/slack/webhook/org/${ORG}`,
+    })
   })
 })
 

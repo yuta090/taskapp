@@ -159,3 +159,19 @@ describe('SlackSecretarySetupGuide', () => {
     expect(screen.getByText(/Reinstall/)).toBeInTheDocument()
   })
 })
+
+describe('SlackSecretarySetupGuide — 既に作ってある秘書アプリ向けの追加設定', () => {
+  beforeEach(() => {
+    accountState = { data: REGISTERED, isPending: false, refetch: vi.fn() }
+    pendingState = { items: [], isLoading: false }
+    activeGroupsState = { data: 0, isPending: false }
+  })
+
+  it('ボタン操作（Interactivity）と DM 受信（im:history / message.im）を足して入れ直す案内が、受信URL付きで出る', () => {
+    render(<SlackSecretarySetupGuide orgId={ORG} />)
+    expect(screen.getByText(/Interactivity/)).toBeInTheDocument()
+    expect(screen.getByText(/im:history/)).toBeInTheDocument()
+    expect(screen.getByText(/message\.im/)).toBeInTheDocument()
+    expect(screen.getAllByText(new RegExp(`/api/channels/slack/webhook/org/${ORG}`)).length).toBeGreaterThan(0)
+  })
+})

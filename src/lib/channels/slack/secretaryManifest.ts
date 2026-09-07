@@ -4,7 +4,8 @@
  * 利用者に「Slack でアプリを作る」手順を1クリックにするため、AgentPM 側で manifest を組み立て、
  * Slack の「manifest から作る」画面（api.slack.com/apps?new_app=1&manifest_json=…）に渡す。
  *
- * 受信URLは「組織単位」（/api/channels/slack/webhook/org/{orgId}）を使う。account 単位URLは
+ * 受信URLは「組織単位」（/api/channels/slack/webhook/org/{orgId}）を使う。イベント購読と
+ * ボタン操作（Interactivity）の両方を同じURLで受ける。account 単位URLは
  * AgentPM に鍵を登録した後にしか決まらず、利用者を Slack と AgentPM の間で往復させていたため。
  * 組織単位URLは登録前でも確定し、Slack のURL確認（url_verification）にも登録前に応答する。
  *
@@ -17,16 +18,21 @@
 export const SECRETARY_SLACK_APP_NAME = 'AgentPM秘書'
 export const SECRETARY_SLACK_BOT_DISPLAY_NAME = 'AgentPM Secretary'
 
-/** 受信（会話の取り込み）と送信（合言葉の返事・完了確認）に必要な最小の bot scope */
+/**
+ * 受信（会話の取り込み）と送信（合言葉の返事・完了確認）に必要な最小の bot scope。
+ * im:history は本人紐づけコード（TA-…）を秘書への DM で受け取るため（LINE の 1:1 トーク相当）。
+ */
 export const SECRETARY_SLACK_BOT_SCOPES = [
   'chat:write',
   'channels:history',
   'groups:history',
   'channels:read',
   'groups:read',
+  'im:history',
 ] as const
 
-export const SECRETARY_SLACK_BOT_EVENTS = ['message.channels', 'message.groups'] as const
+/** message.im は DM（本人紐づけコード）の受信用 */
+export const SECRETARY_SLACK_BOT_EVENTS = ['message.channels', 'message.groups', 'message.im'] as const
 
 export interface SecretarySlackManifest {
   display_information: {
@@ -39,6 +45,8 @@ export interface SecretarySlackManifest {
   oauth_config: { scopes: { bot: string[] } }
   settings: {
     event_subscriptions: { request_url: string; bot_events: string[] }
+    /** リマインドの確認ボタン（block_actions）の受け口。イベント購読と同じ組織単位URL */
+    interactivity: { is_enabled: boolean; request_url: string }
     org_deploy_enabled: boolean
     socket_mode_enabled: boolean
     token_rotation_enabled: boolean
@@ -75,6 +83,9 @@ export function buildSecretarySlackManifest(params: { eventsUrl: string }): Secr
     oauth_config: { scopes: { bot: [...SECRETARY_SLACK_BOT_SCOPES] } },
     settings: {
       event_subscriptions: { request_url: params.eventsUrl, bot_events: [...SECRETARY_SLACK_BOT_EVENTS] },
+      // ボタン押下（block_actions）も同じURLで受ける（署名鍵も同じ）。URLを分けると利用者の
+      // 貼り付け先が増えるだけなので、受信口は一本にする。
+      interactivity: { is_enabled: true, request_url: params.eventsUrl },
       org_deploy_enabled: false,
       socket_mode_enabled: false,
       token_rotation_enabled: false,

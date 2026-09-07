@@ -25,9 +25,16 @@ vi.mock('@/lib/channels/store', () => ({
   findActiveOrgAccountId: (...args: unknown[]) => findActiveOrgAccountIdMock(...args),
   MultipleOrgAccountsError: class extends Error {},
 }))
+const afterMock = vi.fn()
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  // 本物の after() はリクエスト文脈が要る。ここでは「登録された関数」を捕まえて後で実行する
+  after: (fn: () => unknown) => afterMock(fn),
+}))
 vi.mock('@/lib/channels/slack/webhookDeps', () => ({ slackWebhookDeps: { marker: 'deps' } }))
 vi.mock('@/lib/channels/slack/webhookHandler', () => ({
   handleSlackWebhook: (...args: unknown[]) => handleSlackWebhookMock(...args),
+  isSlackInteractionBody: (rawBody: string) => rawBody.startsWith('payload='),
 }))
 
 const { POST } = await import('@/app/api/channels/slack/webhook/org/[orgId]/route')
@@ -99,5 +106,40 @@ describe('POST /api/channels/slack/webhook/org/[orgId]', () => {
     )
     expect(res.status).toBe(400)
     expect(findActiveOrgAccountIdMock).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('ボタン押下（Interactivity）は先に 200 を返してから処理する', () => {
+  beforeEach(() => {
+    afterMock.mockReset()
+    findActiveOrgAccountIdMock.mockResolvedValue(ACCOUNT)
+    handleSlackWebhookMock.mockResolvedValue({ status: 200, body: null })
+  })
+
+  it('payload= のフォーム本文は、空ボディ 200 を即返し、処理は after() に回す（Slack の3秒制約）', async () => {
+    const body = `payload=${encodeURIComponent(JSON.stringify({ type: 'block_actions', actions: [] }))}`
+    const ts = String(Math.floor(Date.now() / 1000))
+    const res = await post(body, { 'x-slack-signature': sign(body, ts), 'x-slack-request-timestamp': ts })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('')
+    // 応答時点ではまだ処理していない。after() に登録した関数が処理本体を呼ぶ
+    expect(handleSlackWebhookMock).not.toHaveBeenCalled()
+    expect(afterMock).toHaveBeenCalledTimes(1)
+    await afterMock.mock.calls[0][0]()
+    expect(handleSlackWebhookMock).toHaveBeenCalledTimes(1)
+    const [accountId, rawBody, auth] = handleSlackWebhookMock.mock.calls[0]
+    expect(accountId).toBe(ACCOUNT)
+    expect(rawBody).toBe(body)
+    expect(auth.signature).toBe(sign(body, ts))
+  })
+
+  it('処理結果の body が null（イベント経路で空応答を選んだとき）は空ボディで返す', async () => {
+    handleSlackWebhookMock.mockResolvedValue({ status: 200, body: null })
+    const body = JSON.stringify({ type: 'event_callback', event: { type: 'message', text: 'hello' } })
+    const ts = String(Math.floor(Date.now() / 1000))
+    const res = await post(body, { 'x-slack-signature': sign(body, ts), 'x-slack-request-timestamp': ts })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('')
   })
 })

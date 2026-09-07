@@ -140,6 +140,55 @@ export function buildDueReminderFlex(input: BuildDueReminderFlexInput): {
 }
 
 /**
+ * Slack の確認ボタン（Block Kit）。LINE の確認Flex（buildDueReminderFlex）と同じ本文・同じ3ボタン
+ * [完了した][対応中][明日また確認] を、Slack の chat.postMessage `blocks` として組み立てる。
+ *
+ * - ボタンの value は LINE の postback data とまったく同じ形式（buildDueReminder*PostbackData）。
+ *   受信側（slack/webhookHandler の block_actions）は action_id ではなく value を
+ *   parseDueReminder*Postback で読む＝LINE と同じ検証・同じ RPC に落ちる。
+ * - action_id は Slack の制約で1ブロック内で一意でなければならないため、[対応中] と
+ *   [明日また確認] は value が同じでも action_id を分ける。接頭辞は DUE_REMINDER_SLACK_ACTION_ID_PREFIX。
+ * - 本文は plain_text（mrkdwn だと「」や _ が装飾に化けるのを避ける）。
+ */
+export const DUE_REMINDER_SLACK_ACTION_ID_PREFIX = 'due_reminder_'
+
+/** Slack の section.text（plain_text）の上限は 3000 字。超えると invalid_blocks で永久に届かない */
+const SLACK_SECTION_TEXT_MAX = 3000
+
+function capSlackText(text: string): string {
+  if (text.length <= SLACK_SECTION_TEXT_MAX) return text
+  return `${text.slice(0, SLACK_SECTION_TEXT_MAX - 1)}…`
+}
+
+export function buildDueReminderSlackBlocks(input: BuildDueReminderFlexInput): unknown[] {
+  const { kind, title, taskId, occurrenceId, snoozeCount } = input
+  // 極端に長いタスク名（CSV 取り込み等）でも blocks 全体が弾かれないよう本文だけ丸める
+  const text = capSlackText(buildDueReminderText({ kind, title }))
+  const expectedSendCount = snoozeCount ?? 0
+  const snoozeData = buildDueReminderSnoozePostbackData(occurrenceId, SNOOZE_DAYS, expectedSendCount)
+  const button = (actionId: string, label: string, value: string, primary = false) => ({
+    type: 'button',
+    action_id: `${DUE_REMINDER_SLACK_ACTION_ID_PREFIX}${actionId}`,
+    text: { type: 'plain_text', text: label, emoji: false },
+    value,
+    ...(primary ? { style: 'primary' } : {}),
+  })
+
+  return [
+    { type: 'section', text: { type: 'plain_text', text, emoji: false } },
+    {
+      type: 'actions',
+      block_id: `due_reminder:${occurrenceId}`,
+      elements: [
+        button('done', '完了した', buildDueReminderDonePostbackData(taskId), true),
+        button('snooze_working', '対応中', snoozeData),
+        button('snooze_tomorrow', '明日また確認', snoozeData),
+      ],
+    },
+  ]
+}
+
+/**
  * channel-digest の期限セクション（§9・安全網v2・occurrence非依存）に載せる1件。
  * うざくない秘書 再設計: グループは「中立な予定表」に徹する（催促・ball文言は一切出さない）ため
  * ballは持たない。kindは既定オフセットの粒度([0,+1440]=当日/超過)に揃え due_soon(1日前)は
