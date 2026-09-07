@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireInternalMember } from '@/lib/channels/authz'
-import { createUserLinkCode, findChannelAccountMetaForOrg } from '@/lib/channels/store'
+import { createUserLinkCode, findChannelAccountMetaById } from '@/lib/channels/store'
 import { generateUserLinkCode, hashUserLinkCode } from '@/lib/channels/userLink'
 import { isValidUuid } from '@/lib/uuid'
 
@@ -47,12 +47,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  // org境界: 他orgのOA宛てにコードを発行させない（DB側の複合FKでも防いでいるが、
-  // ここで弾いた方がエラーが分かりやすく、確実）。
-  // findLineAccountById ではなく meta を使う: org確認のためだけに
-  // channelSecret / accessToken を復号する必要はない（不要な機密の取り回しを避ける）
-  const account = await findChannelAccountMetaForOrg(orgId)
-  if (!account || account.id !== channelAccountId) {
+  // org境界: 他orgの口座宛てにコードを発行させない（DB側の複合FKでも防いでいるが、
+  // ここで弾いた方がエラーが分かりやすく、確実）。口座は id で引き org を照合する
+  // （LINE だけでなく Slack など自社の口座ならどれでも発行できる。共通LINE(platform)は
+  // org_id を持たないため照合で落ちる）。
+  // 復号付きの lookup ではなく meta を使う: org確認のためだけに秘密を復号しない。
+  const account = await findChannelAccountMetaById(channelAccountId)
+  if (!account || account.orgId !== orgId) {
     return NextResponse.json({ error: 'channel account not found in org' }, { status: 404 })
   }
 

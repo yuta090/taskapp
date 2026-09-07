@@ -401,6 +401,20 @@ export async function findChannelAccountMetaForOrg(orgId: string): Promise<Chann
 }
 
 /**
+ * 口座 id からメタ情報を引く（秘密列は返さない）。呼び出し側が orgId を照合して使う
+ * （本人紐づけコードの発行先が「この org の口座か」の確認・チャネルは問わない）。
+ */
+export async function findChannelAccountMetaById(accountId: string): Promise<ChannelAccountMeta | null> {
+  const { data, error } = await admin()
+    .from('channel_accounts')
+    .select(ACCOUNT_META_COLUMNS)
+    .eq('id', accountId)
+    .maybeSingle()
+  if (error || !data) return null
+  return toAccountMeta(data as AccountMetaRow)
+}
+
+/**
  * LINE 以外のチャネル用: org × channel の自社アカウント（owner_type='org'）のメタ情報。
  * Slack 接続ページの「いまどの手順か」（鍵を登録済みか／有効か）の判定に使う。秘密列は返さない。
  */
@@ -2863,11 +2877,13 @@ export async function isDmUnreachableForUser(orgId: string, userId: string): Pro
 }
 
 /**
- * 現在ユーザー自身の active な LINE 紐付けを値で返す（hasActiveUserLinkForUser の値返し版）。
+ * 現在ユーザー自身の active な紐付けを値で返す（hasActiveUserLinkForUser の値返し版）。
  * 期限リマインドの1:1 DM 宛先解決に使う（設計正本 docs/spec/AI_SECRETARY_STAGE5_DUE_REMINDERS.md
- * §9 §A・PR-1）。同一ユーザーが同一org内で active にできるのは1件のみ
- * （channel_user_links_active_user unique index・20260715070647）なので、複数該当時の
- * 選択は発生しない（決定的）。
+ * §9 §A・PR-1）。
+ *
+ * 一意性は (org, channel_account, user) 単位（channel_user_links_active_user unique index・
+ * 20260715070647）なので、LINE と Slack の両方につないでいる人は2件あり得る。その場合は
+ * 「最後につないだ方」（linked_at 降順）を決定的に選ぶ＝直近に本人が設定した口座へ届ける。
  */
 export async function findActiveUserLinkForUser(
   orgId: string,
@@ -2879,6 +2895,7 @@ export async function findActiveUserLinkForUser(
     .eq('org_id', orgId)
     .eq('user_id', userId)
     .is('revoked_at', null)
+    .order('linked_at', { ascending: false })
     .limit(1)
     .maybeSingle()
   if (error) throw new Error(`channel_user_links: active link lookup failed: ${error.message}`)

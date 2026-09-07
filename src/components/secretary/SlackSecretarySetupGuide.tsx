@@ -116,10 +116,22 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
           <p className="mt-1 text-xs text-gray-500">
             ボタンで開かない場合は、コピーした設定ファイルを Slack の「Create New App → From an app manifest」に貼ってください。
           </p>
-          <p className="mt-1 text-xs text-gray-500">
-            以前に作った秘書アプリで、リマインドの「完了した」などのボタンが反応しない場合は、Slack の左メニュー「Interactivity &amp;
-            Shortcuts」をオンにし、Request URL に <code className="rounded bg-gray-100 px-1 text-xs">{eventsUrl}</code> を貼って保存してください（受信URLと同じものです）。
-          </p>
+          <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+            <p className="font-semibold text-gray-700">以前に作った秘書アプリを使い続ける場合（次の3つを Slack 側で足してください）</p>
+            <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+              <li>
+                「Interactivity &amp; Shortcuts」をオンにし、Request URL に{' '}
+                <code className="rounded bg-gray-100 px-1 text-xs">{eventsUrl}</code> を貼って保存（受信URLと同じ。リマインドの「完了した」などのボタンに必要）
+              </li>
+              <li>
+                「OAuth &amp; Permissions」の Bot Token Scopes に <code className="rounded bg-gray-100 px-1 text-xs">im:history</code> を追加
+              </li>
+              <li>
+                「Event Subscriptions」の Subscribe to bot events に <code className="rounded bg-gray-100 px-1 text-xs">message.im</code> を追加して保存
+              </li>
+            </ol>
+            <p className="mt-1">足したら、手順2と同じ画面からワークスペースへ再インストールします（通常、鍵は変わりません）。2と3は、下の「自分の Slack をつなぐ」で DM にコードを送るために必要です。</p>
+          </div>
         </>
       ),
     },

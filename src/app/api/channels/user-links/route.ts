@@ -19,11 +19,14 @@ export async function GET(request: NextRequest) {
 
   const links = await listActiveUserLinks(orgId)
 
-  // LINE userId は個人識別子。コンソールの表示に不要なので wire には出さない
+  // 外部ユーザーID（LINE userId / Slack user id）は個人識別子。コンソールの表示に不要なので
+  // wire には出さない。channelAccountId は「どの口座（LINE/Slack）への紐づけか」を画面で
+  // 見分けるために返す（内部の uuid であり機微ではない）。
   return NextResponse.json({
     links: links.map((link) => ({
       id: link.id,
       userId: link.userId,
+      channelAccountId: link.channelAccountId,
       linkedAt: link.linkedAt,
     })),
   })

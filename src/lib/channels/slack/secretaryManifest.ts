@@ -18,16 +18,21 @@
 export const SECRETARY_SLACK_APP_NAME = 'AgentPM秘書'
 export const SECRETARY_SLACK_BOT_DISPLAY_NAME = 'AgentPM Secretary'
 
-/** 受信（会話の取り込み）と送信（合言葉の返事・完了確認）に必要な最小の bot scope */
+/**
+ * 受信（会話の取り込み）と送信（合言葉の返事・完了確認）に必要な最小の bot scope。
+ * im:history は本人紐づけコード（TA-…）を秘書への DM で受け取るため（LINE の 1:1 トーク相当）。
+ */
 export const SECRETARY_SLACK_BOT_SCOPES = [
   'chat:write',
   'channels:history',
   'groups:history',
   'channels:read',
   'groups:read',
+  'im:history',
 ] as const
 
-export const SECRETARY_SLACK_BOT_EVENTS = ['message.channels', 'message.groups'] as const
+/** message.im は DM（本人紐づけコード）の受信用 */
+export const SECRETARY_SLACK_BOT_EVENTS = ['message.channels', 'message.groups', 'message.im'] as const
 
 export interface SecretarySlackManifest {
   display_information: {

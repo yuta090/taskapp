@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 function chain(response: any) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {}
-  for (const m of ['select', 'eq', 'is', 'limit', 'in']) {
+  for (const m of ['select', 'eq', 'is', 'limit', 'in', 'order']) {
     builder[m] = vi.fn(() => builder)
   }
   builder.maybeSingle = vi.fn(() => Promise.resolve(response))
@@ -67,6 +67,15 @@ describe('findActiveUserLinkForUser', () => {
     expect(call.eq).toHaveBeenCalledWith('org_id', 'org-1')
     expect(call.eq).toHaveBeenCalledWith('user_id', 'user-1')
     expect(call.is).toHaveBeenCalledWith('revoked_at', null)
+  })
+
+  it('LINE と Slack の両方につないでいる人は、最後につないだ方を選ぶ（linked_at 降順・決定的）', async () => {
+    fromResponse = { data: null, error: null }
+    fromMock.mockImplementation(() => chain(fromResponse))
+    await store.findActiveUserLinkForUser('org-1', 'user-1')
+    const call = fromMock.mock.results[0].value
+    expect(call.order).toHaveBeenCalledWith('linked_at', { ascending: false })
+    expect(call.limit).toHaveBeenCalledWith(1)
   })
 
   it('DBエラーはthrowする', async () => {
