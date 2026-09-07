@@ -12,6 +12,9 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
 vi.mock('@/lib/hooks/useOrgChannelAccount', () => ({
   useOrgChannelAccount: () => ({ data: null, isPending: false, refetch: vi.fn() }),
 }))
+vi.mock('@/lib/hooks/useAccountActiveGroups', () => ({
+  useAccountActiveGroups: () => ({ data: 0, isPending: false }),
+}))
 // 確認待ちは react-query 経由のフック。ここでは静的な描画だけを見るので固定値にする。
 vi.mock('@/lib/hooks/usePendingGroupClaims', () => ({
   usePendingGroupClaims: () => ({ items: [], isLoading: false, error: null, act: vi.fn(), rowErrors: {} }),
