@@ -11,7 +11,7 @@ import {
   type DueReminderOccurrenceRow,
 } from '@/lib/reminders/dueReminderStore'
 import { checkDueReminderStaleness } from '@/lib/reminders/dueReminderStaleness'
-import { buildDueReminderFlex } from '@/lib/reminders/dueReminderMessages'
+import { buildDueReminderFlex, buildDueReminderSlackBlocks } from '@/lib/reminders/dueReminderMessages'
 import { resolveOrgEntitlements, type Feature, type PlanId } from '@/lib/billing/entitlements'
 import { findActiveUserLinkForUser, findAccountForSecretaryPush } from '@/lib/channels/store'
 import { sendSecretaryPush, type SecretaryPushAccount } from '@/lib/channels/send/secretaryPush'
@@ -192,6 +192,22 @@ export async function POST(request: NextRequest) {
         snoozeCount: occ.sendCount,
       })
 
+      // Slack 宛ては同じ3ボタンを Block Kit で付ける（他チャネルは本文のみ＝altText）。
+      const richByChannel =
+        destination.account.channel === 'slack'
+          ? {
+              slack: {
+                blocks: buildDueReminderSlackBlocks({
+                  kind: occ.kind,
+                  title: task.title,
+                  taskId: task.id,
+                  occurrenceId: occ.id,
+                  snoozeCount: occ.sendCount,
+                }),
+              },
+            }
+          : undefined
+
       const destinationId = destination.record.groupId ?? destination.record.externalUserId ?? 'unknown'
       const retryKey = buildDueReminderRetryKey(occ, destinationId)
 
@@ -202,6 +218,7 @@ export async function POST(request: NextRequest) {
           to: destination.to,
           text: flexMessage.altText,
           messages: [flexMessage],
+          richByChannel,
           retryKey,
           jstDayOfYear,
           record: {

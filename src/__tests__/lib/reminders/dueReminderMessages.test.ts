@@ -3,6 +3,7 @@ import {
   buildDueReminderText,
   buildDueDigestSectionText,
   buildDueReminderFlex,
+  buildDueReminderSlackBlocks,
   SNOOZE_DAYS,
 } from '@/lib/reminders/dueReminderMessages'
 import {
@@ -231,5 +232,51 @@ describe('buildDueDigestSectionText（中立文面・安全網v2）', () => {
       const text = buildDueDigestSectionText(items, TODAY_JST)
       expect(text).not.toContain('ほか')
     })
+  })
+})
+
+describe('buildDueReminderSlackBlocks（Slack のボタン付き本文・LINE の確認Flexと同じ3ボタン）', () => {
+  const base = {
+    kind: 'due_today' as const,
+    title: '見積書の送付',
+    taskId: '11111111-1111-4111-8111-111111111111',
+    occurrenceId: '22222222-2222-4222-8222-222222222222',
+    snoozeCount: 2,
+  }
+
+  it('本文セクション＋3ボタン（完了した／対応中／明日また確認）の actions ブロックになる', () => {
+    const blocks = buildDueReminderSlackBlocks(base) as Array<Record<string, unknown>>
+    expect(blocks[0]).toMatchObject({
+      type: 'section',
+      text: { type: 'plain_text', text: buildDueReminderText({ kind: 'due_today', title: '見積書の送付' }) },
+    })
+    const actions = blocks[1] as { type: string; elements: Array<Record<string, unknown>> }
+    expect(actions.type).toBe('actions')
+    expect(actions.elements.map((e) => (e.text as { text: string }).text)).toEqual(['完了した', '対応中', '明日また確認'])
+  })
+
+  it('action_id は1ブロック内で重複しない（Slack の制約）かつ due_reminder_ で始まる', () => {
+    const blocks = buildDueReminderSlackBlocks(base) as Array<{ elements?: Array<{ action_id: string }> }>
+    const ids = blocks[1].elements!.map((e) => e.action_id)
+    expect(new Set(ids).size).toBe(3)
+    for (const id of ids) expect(id.startsWith('due_reminder_')).toBe(true)
+  })
+
+  it('極端に長いタスク名でも section の本文は Slack の上限(3000字)を超えない（invalid_blocks で永久に届かなくなるのを防ぐ）', () => {
+    const blocks = buildDueReminderSlackBlocks({ ...base, title: 'あ'.repeat(5000) }) as Array<{ text?: { text: string } }>
+    expect(blocks[0].text!.text.length).toBeLessThanOrEqual(3000)
+    expect(blocks[0].text!.text).toContain('…')
+  })
+
+  it('value は LINE の postback data と同じ形式（受信側が同じパーサで読める）', () => {
+    const blocks = buildDueReminderSlackBlocks(base) as Array<{ elements?: Array<{ value: string }> }>
+    const [done, working, tomorrow] = blocks[1].elements!.map((e) => e.value)
+    expect(parseDueReminderDonePostback(done)).toEqual({ taskId: base.taskId })
+    expect(parseDueReminderSnoozePostback(working)).toEqual({
+      occurrenceId: base.occurrenceId,
+      days: SNOOZE_DAYS,
+      expectedSendCount: 2,
+    })
+    expect(tomorrow).toBe(working)
   })
 })

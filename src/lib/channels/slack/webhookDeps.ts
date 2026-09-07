@@ -26,6 +26,11 @@ import {
 import { normalizeClaimCode } from '@/lib/channels/linkCode'
 import { registerInvalidClaimAttemptAndCheckLimit } from '@/lib/channels/limboRateLimit'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
+import {
+  confirmTaskDoneViaLine,
+  snoozeDueReminderViaLine,
+  findTaskSnapshotForReminder,
+} from '@/lib/reminders/dueReminderStore'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -88,6 +93,16 @@ export const slackWebhookDeps: SlackWebhookDeps = {
     const body = (await res.json().catch(() => null)) as { ok?: boolean; ts?: string } | null
     return { ts: body?.ok === true ? (body.ts ?? null) : null }
   },
+  // ボタン押下への返事。response_url は Slack 発行の一時URLで bot token 不要。
+  // ephemeral（押した本人にだけ見える）・元メッセージは置き換えない。
+  respondToInteraction: async (responseUrl, text) => {
+    const res = await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ text, response_type: 'ephemeral', replace_original: false }),
+    })
+    if (!res.ok) throw new Error(`slack response_url ${res.status}`)
+  },
   completeDigestTask: (groupId, digestNumber, externalUserId) =>
     markDigestTaskDoneByGroupAndNumberAtomic(groupId, digestNumber, externalUserId),
   createInstantDigestTask: (input) => createInstantDigestTask(input),
@@ -95,6 +110,13 @@ export const slackWebhookDeps: SlackWebhookDeps = {
   // 番号は「まだ番号が無いタスク」にだけ与える。総入れ替えは配信直前の cron だけの仕事。
   assignDigestNumbersToNewTasks,
   updateGroupMetadata: (groupId, patch) => updateChannelGroupMetadata(groupId, patch),
+  // 期限リマインドの確認ボタン。RPC は「LINE経路」の名前だが中身は channel_user_links（口座×外部
+  // ユーザー）で本人を解決するだけでチャネルを問わない。Slack の user id をそのまま渡す。
+  confirmTaskDone: (accountId, externalUserId, taskId) =>
+    confirmTaskDoneViaLine(accountId, externalUserId, taskId),
+  snoozeDueReminder: (accountId, externalUserId, occurrenceId, days, expectedSendCount) =>
+    snoozeDueReminderViaLine(accountId, externalUserId, occurrenceId, days, expectedSendCount),
+  findTaskTitle: async (taskId) => (await findTaskSnapshotForReminder(taskId))?.title ?? null,
   insertOutbound: (input) =>
     insertChannelMessage({
       orgId: input.orgId,

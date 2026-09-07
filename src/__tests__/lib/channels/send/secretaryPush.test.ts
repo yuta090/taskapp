@@ -305,6 +305,26 @@ describe('sendSecretaryPush（統一送信境界）', () => {
       ).rejects.toMatchObject({ status: 200, permanent: true })
     })
 
+    it('richByChannel.slack の blocks は Slack アダプタへ渡り、LINE用 messages は Slack には渡らない', async () => {
+      const fetchFn = mockFetch(() => jsonResponse(200, { ok: true, ts: '9.1' }))
+      const blocks = [{ type: 'section', text: { type: 'plain_text', text: 'hello' } }]
+
+      const result = await sendSecretaryPush(
+        chatworkInput({
+          account: { id: 'acc-slack', ownerType: 'org' as const, channel: 'slack', credentials: { bot_token: 'xoxb-1' } },
+          messages: [{ type: 'flex' as const, altText: 'hello', contents: { type: 'bubble' } } as never],
+          richByChannel: { slack: { blocks } },
+        }),
+      )
+
+      expect(result).toEqual({ delivered: true })
+      const [, init] = fetchFn.mock.calls[0]
+      const body = JSON.parse((init as RequestInit).body as string)
+      expect(body.blocks).toEqual(blocks)
+      // 床の text はこれまでどおり（blocks があっても消えない）
+      expect(body.text).toBe('請求書のご確認をお願いします')
+    })
+
     it('未対応チャネル(email)はdeliverToChannelがpermanent失敗を返し throw する', async () => {
       await expect(
         sendSecretaryPush(

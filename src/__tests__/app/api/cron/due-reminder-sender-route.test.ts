@@ -202,6 +202,24 @@ describe('POST /api/cron/due-reminder-sender', () => {
       expect(storeMock.finalizeDueReminderOccurrence).toHaveBeenCalledWith('occ-1', 'sent')
     })
 
+    it('Slack 宛てには確認ボタン付きの Block Kit（完了した／対応中／明日また確認）を richByChannel.slack に載せる', async () => {
+      channelsStoreMock.findActiveUserLinkForUser.mockResolvedValue({
+        channelAccountId: 'acc-slack',
+        externalUserId: 'U0SLACKUSER',
+      })
+      channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue(SLACK_ACCOUNT_LOOKUP)
+
+      await callPost()
+
+      const arg = sendSecretaryPushMock.mock.calls[0][0]
+      const blocks = arg.richByChannel?.slack?.blocks as Array<{ type: string; elements?: Array<{ text: { text: string } }> }>
+      expect(Array.isArray(blocks)).toBe(true)
+      const actions = blocks.find((b) => b.type === 'actions')
+      expect(actions?.elements?.map((e) => e.text.text)).toEqual(['完了した', '対応中', '明日また確認'])
+      // 本文（text）はこれまでどおり altText と同じ
+      expect(arg.text).toBe(arg.messages[0].altText)
+    })
+
     it('account が使えない(資格情報欠落等)なら no_route で終端する', async () => {
       channelsStoreMock.findAccountForSecretaryPush.mockResolvedValue({ ok: false, reason: 'missing_credentials: bot_token' })
       const res = await callPost()

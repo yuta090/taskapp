@@ -105,10 +105,35 @@ describe('slackAdapter', () => {
     expect(body).toMatchObject({ channel: 'C1', text: 'https://agentpm.app/x', unfurl_links: false, unfurl_media: false })
   })
 
+  it('rich が { blocks } なら Block Kit の blocks を text と一緒に送る（リマインドの確認ボタン）', async () => {
+    const fetchFn = mockFetch(() => jsonResponse(200, { ok: true, ts: '1' }))
+    const blocks = [{ type: 'section', text: { type: 'plain_text', text: 'hi' } }]
+    await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'C1', text: 'hi', rich: { blocks } })
+    const [, init] = fetchFn.mock.calls[0]
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body).toMatchObject({ channel: 'C1', text: 'hi', blocks })
+  })
+
+  it('rich が Slack の形でない（LINE の Flex 配列など）なら無視して text だけ送る', async () => {
+    const fetchFn = mockFetch(() => jsonResponse(200, { ok: true, ts: '1' }))
+    await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'C1', text: 'hi', rich: [{ type: 'flex' }] })
+    const [, init] = fetchFn.mock.calls[0]
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.blocks).toBeUndefined()
+  })
+
   it('body.ok:false の channel_not_found は恒久失敗', async () => {
     mockFetch(() => jsonResponse(200, { ok: false, error: 'channel_not_found' }))
     const r = await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'Cbad', text: 'hi' })
     expect(r).toMatchObject({ ok: false, permanent: true })
+  })
+
+  it('body.ok:false の invalid_blocks / msg_too_long（本文起因）は恒久失敗（同じ内容の再送は永久に通らない）', async () => {
+    for (const error of ['invalid_blocks', 'invalid_blocks_format', 'msg_too_long']) {
+      mockFetch(() => jsonResponse(200, { ok: false, error }))
+      const r = await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'C1', text: 'hi' })
+      expect(r).toMatchObject({ ok: false, permanent: true })
+    }
   })
 
   it('body.ok:false の rate限定系(ratelimited)は一時失敗', async () => {

@@ -71,6 +71,8 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
     return buildSecretarySlackManifest({ eventsUrl: secretaryWebhookUrlForOrg(origin, orgId) })
   }, [orgId])
   const createUrl = useMemo(() => secretaryManifestCreateUrl(manifest), [manifest])
+  // 既に作ってある秘書アプリ向けの案内に使う（イベント購読・ボタン操作とも同じURL）
+  const eventsUrl = manifest.settings.event_subscriptions.request_url
 
   async function copyManifest() {
     try {
@@ -113,6 +115,10 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
           </div>
           <p className="mt-1 text-xs text-gray-500">
             ボタンで開かない場合は、コピーした設定ファイルを Slack の「Create New App → From an app manifest」に貼ってください。
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            以前に作った秘書アプリで、リマインドの「完了した」などのボタンが反応しない場合は、Slack の左メニュー「Interactivity &amp;
+            Shortcuts」をオンにし、Request URL に <code className="rounded bg-gray-100 px-1 text-xs">{eventsUrl}</code> を貼って保存してください（受信URLと同じものです）。
           </p>
         </>
       ),
