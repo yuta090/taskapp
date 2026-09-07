@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { pickUnseen, formatNotices, showNewNotices, type NoticeStore } from './notices.js'
-import { validateManifest } from './manifest-validator.js'
+import { mkdtempSync, readdirSync, statSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  pickUnseen, formatNotices, showNewNotices, shouldShowNotices, createFileNoticeStore, MAX_SHOWN,
+  type NoticeStore,
+} from './notices.js'
 import type { ManifestNotice } from './manifest-validator.js'
 
 /**
@@ -75,25 +80,90 @@ describe('showNewNotices', () => {
   })
 })
 
-describe('validateManifest: notices', () => {
-  const base = { version: '0.0.0-builtin', minCliVersion: '0.1.0', generatedAt: '', checksum: '', commands: [] }
+describe('showNewNotices: 件数上限と重複', () => {
+  const many: ManifestNotice[] = Array.from({ length: 8 }, (_, i) => ({
+    id: `n-${i}`, date: `2026-09-${String(i + 1).padStart(2, '0')}`, message: `お知らせ${i}`,
+  }))
 
-  it('形の正しいお知らせだけ残し、制御文字は落とす', () => {
-    const m = validateManifest({
-      ...base,
-      notices: [
-        { id: 'ok-1', date: '2026-09-07', message: 'よい\x1b[31mお知らせ' },
-        { id: 'bad id with space', message: 'x' },
-        { id: 'no-message' },
-        { id: 'too-long', message: 'a'.repeat(1000) },
-        'not-an-object',
-      ],
-    })
-    expect(m.notices).toEqual([{ id: 'ok-1', date: '2026-09-07', message: 'よいお知らせ' }])
+  it('一度に出すのは新しい方から MAX_SHOWN 件。残りは「ほか N 件」にまとめ、全部既読にする', () => {
+    const store = memoryStore()
+    const print = vi.fn()
+    expect(showNewNotices({ notices: many }, { store, print })).toBe(MAX_SHOWN)
+    const text = print.mock.calls[0][0] as string
+    expect(text).toContain('お知らせ7')
+    expect(text).toContain('お知らせ3')
+    expect(text).not.toContain('お知らせ2')
+    expect(text).toContain(`ほか ${8 - MAX_SHOWN} 件`)
+    expect(store.seen).toHaveLength(8)
+    // 2回目は何も出ない(古い分も既読になっている)
+    expect(showNewNotices({ notices: many }, { store, print })).toBe(0)
   })
 
-  it('notices が無い・配列でない場合は空配列にする(旧サーバー互換)', () => {
-    expect(validateManifest({ ...base }).notices).toEqual([])
-    expect(validateManifest({ ...base, notices: 'x' }).notices).toEqual([])
+  it('同じ id が重複して届いても 1 回だけ出し、既読も 1 つ', () => {
+    const store = memoryStore()
+    const print = vi.fn()
+    expect(showNewNotices({ notices: [N1, N1] }, { store, print })).toBe(1)
+    expect(store.seen).toEqual([N1.id])
+  })
+
+  it('既読の記録は重複を潰す(サーバーが同じ id を返し続けても既読枠を食わない)', () => {
+    const store = memoryStore([N1.id, N1.id])
+    showNewNotices({ notices: [N1, N2] }, { store, print: vi.fn() })
+    expect(store.seen).toEqual([N1.id, N2.id])
+  })
+})
+
+describe('shouldShowNotices', () => {
+  it('端末につながっていて --json でないときだけ出す', () => {
+    expect(shouldShowNotices(['node', 'agentpm', 'task', 'list'], true)).toBe(true)
+    expect(shouldShowNotices(['node', 'agentpm', 'task', 'list', '--json'], true)).toBe(false)
+    // cron や 2>/dev/null: 見えないので出さない(=既読にもならない)
+    expect(shouldShowNotices(['node', 'agentpm', 'task', 'list'], false)).toBe(false)
+  })
+})
+
+describe('createFileNoticeStore(実ディスク)', () => {
+  function tempStore() {
+    const dir = mkdtempSync(join(tmpdir(), 'agentpm-notices-'))
+    const path = join(dir, 'sub', 'notices.seen.json')
+    return { dir, path, store: createFileNoticeStore(path) }
+  }
+
+  it('ファイルが無ければ [] を返す', () => {
+    const { dir, store } = tempStore()
+    expect(store.readSeen()).toEqual([])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('書いて読める。パーミッションは 0600 で、.tmp は残らない', () => {
+    const { dir, path, store } = tempStore()
+    store.writeSeen(['a', 'b'])
+    expect(store.readSeen()).toEqual(['a', 'b'])
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+    expect(readdirSync(join(dir, 'sub')).filter((f) => f.endsWith('.tmp'))).toEqual([])
+    expect(JSON.parse(readFileSync(path, 'utf-8'))).toEqual(['a', 'b'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('中身が配列でなければ [] 、文字列以外の要素は捨てる', () => {
+    const { dir, path, store } = tempStore()
+    store.writeSeen([])
+    writeFileSync(path, JSON.stringify({ x: 1 }))
+    expect(store.readSeen()).toEqual([])
+    writeFileSync(path, JSON.stringify(['a', 1, null, 'b']))
+    expect(store.readSeen()).toEqual(['a', 'b'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('壊れた JSON は例外になり、showNewNotices は全件未読として表示する(落ちない)', () => {
+    const { dir, path, store } = tempStore()
+    store.writeSeen([])
+    writeFileSync(path, '{not json')
+    expect(() => store.readSeen()).toThrow()
+    const print = vi.fn()
+    expect(showNewNotices({ notices: [N1] }, { store, print })).toBe(1)
+    // 表示後は正しい記録に直っている
+    expect(store.readSeen()).toEqual([N1.id])
+    rmSync(dir, { recursive: true, force: true })
   })
 })

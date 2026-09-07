@@ -74,9 +74,8 @@ describe('cli-manifest: notices（CLI に出すお知らせ）', () => {
     }
   })
 
-  it('日本語名ファイルの修正と CLI アップロード開始のお知らせが入っている', () => {
-    const ids = manifest.notices.map((n) => n.id)
-    expect(ids).toEqual(expect.arrayContaining(['2026-09-07-file-upload', '2026-09-07-file-jp-name']))
+  it('サーバーが残すお知らせは直近 10 件まで(古いものは消してよい: 一度出した分は各利用者の既読に残る)', () => {
+    expect(manifest.notices.length).toBeLessThanOrEqual(10)
   })
 
   it('notices は checksum の対象外(commands だけ)なので、旧 CLI は無視して動ける', () => {
