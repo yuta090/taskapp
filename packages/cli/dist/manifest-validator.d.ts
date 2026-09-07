@@ -26,6 +26,14 @@ export interface ManifestSubcommand {
     stdinFormat?: 'json' | 'text';
     /** stdinFormat='text' のとき、テキストを入れるパラメータ名 */
     stdinParam?: string;
+    /**
+     * ファイルアップロード（3段階）。true のとき CLI は `--file` のローカルファイルを読み、
+     * tool（署名URL発行）→ 署名URLへ PUT → completeTool（完了確定）の順に処理する。
+     * 旧 CLI(0.3.x 以前)はこのフィールドを知らず tool を直接呼ぶ（このコマンドだけ失敗する）。
+     */
+    uploadMode?: boolean;
+    /** uploadMode=true のとき、完了を確定するツール名 */
+    completeTool?: string;
     options: ManifestOption[];
 }
 export interface ManifestCommand {

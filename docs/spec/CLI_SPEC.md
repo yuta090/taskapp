@@ -106,6 +106,29 @@ cat tasks.csv | agentpm task import --stdin --no-dry-run
 
 エラーは「CSV の何行目・どの列・何が悪いか」を返す（セル内改行があっても行番号は元ファイル基準）。
 
+### File（ファイル）
+
+```bash
+agentpm file list [--space-id <uuid>] [--limit <n>]
+agentpm file upload [--space-id <uuid>] --file <path> [--name <name>] [--mime-type <type>]
+```
+
+#### `file upload` — ローカルファイルをプロジェクトにアップロード
+
+```bash
+agentpm file upload --file ./list.csv                       # ファイル名そのまま
+agentpm file upload --file ./spec.pdf --name 要件定義.pdf     # TaskApp 上の名前を指定
+agentpm file upload -s <space-uuid> --file ./data.tsv --json
+```
+
+- Web の「ファイル」画面と同じ 3 段階で送る: `file_upload_url`（pending 行＋署名URL） → 署名URLへ実バイトを PUT → `file_upload_complete`（Storage の実体を確認して ready）。API サーバーはバイトを中継しないため **50MB まで**送れる。
+- MIME は拡張子から推定（csv/tsv/pdf/png/jpg/xlsx/docx/md/json/zip など）。`--mime-type` で上書き可。
+- 完了結果に `downloadPath` と、CSV/TSV なら **表ビューのパス** `tablePath`（`/{orgId}/project/{spaceId}/files/{fileId}`）が返る。
+- 必要な権限: API キーの `write`（内部メンバーの鍵）。client/vendor 権限の鍵は認可(`mcp_authorize`)がファイルへの write を許可しないため **アップロード不可**。`file list` は client/vendor 鍵ではクライアント公開分と自分がアップロードした分だけ返る（Web と同じ見える範囲）。
+- `file list` / 完了結果の `downloadPath` は Web（Cookie ログイン）用のパス。ブラウザに貼って使う（CLI からそのまま取得はできない）。
+- API キーに利用者が紐づいていない（`user_id` が空）と `uploaded_by` を埋められず失敗する。
+- **旧 CLI(0.3.x 以前)では動かない**（3 段階処理を知らないため）。`npm i -g` で 0.4.0 以上に更新する。
+
 ### Ball（ボール管理）
 
 ```bash

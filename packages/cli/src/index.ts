@@ -5,7 +5,7 @@ import { registerDynamicCommands } from './dynamic-loader.js'
 import { loadManifest, forceUpdate } from './manifest-cache.js'
 import chalk from 'chalk'
 
-const CLI_VERSION = '0.3.0'
+const CLI_VERSION = '0.4.0'
 
 const program = new Command()
 

@@ -12,8 +12,9 @@ import { clientTools } from './clients.js'
 import { wikiTools } from './wiki.js'
 import { minutesTools } from './minutes.js'
 import { schedulingTools } from './scheduling.js'
+import { fileTools } from './files.js'
 
-export const allTools = [...taskTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools]
+export const allTools = [...taskTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools, ...fileTools]
 
 export function registerTools(server: Server): void {
   // List available tools

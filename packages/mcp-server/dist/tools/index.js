@@ -11,7 +11,8 @@ import { clientTools } from './clients.js';
 import { wikiTools } from './wiki.js';
 import { minutesTools } from './minutes.js';
 import { schedulingTools } from './scheduling.js';
-export const allTools = [...taskTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools];
+import { fileTools } from './files.js';
+export const allTools = [...taskTools, ...taskImportTools, ...ballTools, ...meetingTools, ...reviewTools, ...milestoneTools, ...spaceTools, ...activityTools, ...clientTools, ...wikiTools, ...minutesTools, ...schedulingTools, ...fileTools];
 export function registerTools(server) {
     // List available tools
     server.setRequestHandler(ListToolsRequestSchema, async () => {

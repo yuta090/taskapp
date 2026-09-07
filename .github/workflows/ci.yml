@@ -23,3 +23,17 @@ jobs:
         run: npx tsc --noEmit
       - name: Unit tests
         run: npm run test:run
+      # packages/* はルートの vitest / tsc の対象外(src/** のみ)なので、ここで別に回す。
+      # 回さないと packages 側の認可条件を壊しても CI が緑のまま通ってしまう。
+      - name: Install package dependencies (agentpm-core / cli)
+        run: |
+          npm ci --prefix packages/mcp-server
+          npm ci --prefix packages/cli
+      - name: Typecheck packages
+        run: |
+          npx tsc --noEmit -p packages/mcp-server/tsconfig.json
+          npx tsc --noEmit -p packages/cli/tsconfig.json
+      - name: Unit tests (packages)
+        run: |
+          npx vitest run --root packages/mcp-server
+          npx vitest run --root packages/cli
