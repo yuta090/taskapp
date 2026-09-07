@@ -4,12 +4,15 @@ import { ACTIVE_ORG_COOKIE, ACTIVE_ORG_COOKIE_OPTIONS } from '@/lib/org/constant
 import { resolveActiveOrg } from '@/lib/org/resolveActiveOrg'
 // 公開パス定義はダークテーマ判定と単一ソース化（src/lib/routes/publicPaths.ts）
 import { isPublicPathMatch } from '@/lib/routes/publicPaths'
+import { decideMfaRedirect } from '@/lib/auth/mfa'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import {
   FIRST_TOUCH_COOKIE,
   FIRST_TOUCH_COOKIE_MAX_AGE_SEC,
   extractFirstTouch,
   encodeFirstTouchCookie,
 } from '@/lib/acquisition/firstTouch'
+import { DEVICE_COOKIE_NAME, DEVICE_PENDING_COOKIE_NAME, devicePendingCookieOptions } from '@/lib/auth/deviceCookie'
 
 // このファイルは必ず src/ 直下に置く（src/app と同階層）。
 // リポジトリルートに置くと `next dev` が読み込まず、認証ゲートがローカルだけ無効になる
@@ -53,6 +56,43 @@ function attachFirstTouchCookie(request: NextRequest, response: NextResponse): v
     })
   } catch (error) {
     console.warn('[middleware] first-touch cookie skipped:', error)
+  }
+}
+
+/**
+ * なりすましログイン対策: 新しい端末からの初回ログインを検知して本人に通知する（内部API 呼び出し）。
+ *
+ * "認証済みで保護ページに来た" ことを検知できるここ（門番）に一本化している（Fable裁定 2026-09-07。
+ * ログイン画面・Googleコールバックそれぞれに実装すると経路が増えるたびに対応が要るため）。
+ * 判定・記録・送信の本体は src/lib/auth/loginNotify.ts（同ファイル冒頭に検知の限界を明記）。
+ *
+ * - 端末 cookie（agentpm_device）が既にあれば何もしない（速いパス。fetch すら発生しない）
+ * - 直近の呼び出しが失敗/タイムアウトしていれば（pending cookie）、5分間は再呼び出ししない
+ *   （DB不調中に毎リクエスト叩いて悪化させないため）
+ * - 呼び出し自体・応答の失敗は握りつぶす（ログのみ）。ページ表示を絶対に止めない
+ */
+async function notifyIfNewDevice(request: NextRequest, response: NextResponse): Promise<void> {
+  if (request.cookies.has(DEVICE_COOKIE_NAME)) return
+  if (request.cookies.has(DEVICE_PENDING_COOKIE_NAME)) return
+
+  try {
+    const notifyUrl = new URL('/api/auth/login-notify', request.url)
+    const apiResponse = await fetch(notifyUrl, {
+      method: 'POST',
+      headers: { cookie: request.headers.get('cookie') ?? '' },
+      signal: AbortSignal.timeout(3000),
+    })
+
+    if (!apiResponse.ok) {
+      response.cookies.set(DEVICE_PENDING_COOKIE_NAME, '1', devicePendingCookieOptions())
+      return
+    }
+
+    const setCookie = apiResponse.headers.get('set-cookie')
+    if (setCookie) response.headers.append('set-cookie', setCookie)
+  } catch (error) {
+    console.warn('[middleware] login-notify skipped:', error)
+    response.cookies.set(DEVICE_PENDING_COOKIE_NAME, '1', devicePendingCookieOptions())
   }
 }
 
@@ -144,6 +184,31 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(redirectUrl)
     }
 
+    // 二要素認証: 認証アプリ登録済みの人が、コード入力前(aal1)のまま保護ページを開こうとしたらコード入力画面へ。
+    // getAuthenticatorAssuranceLevel は cookie の JWT と user.factors から判定するだけ（ネット往復なし）
+    // ⚠ ここは cookie の中身（署名の無い user.factors）で判定する「画面の誘導」。本当の強制は
+    //   API 側（src/lib/auth/requireAal2.ts / verifySuperadmin）で行う。判定できない（エラー）場合は
+    //   従来の保護レベルに落ちるのを避け、ログインし直してもらう（fail-closed）
+    try {
+      const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (aalError) throw aalError
+      const mfaRedirect = decideMfaRedirect({
+        pathname,
+        search: request.nextUrl.search,
+        currentLevel: aal?.currentLevel ?? null,
+        nextLevel: aal?.nextLevel ?? null,
+      })
+      if (mfaRedirect) {
+        return NextResponse.redirect(new URL(mfaRedirect, request.url))
+      }
+    } catch (err) {
+      console.error('[middleware] mfa level check failed', err)
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('redirect', pathname + request.nextUrl.search)
+      loginUrl.searchParams.set('reason', 'mfa_check_failed')
+      return NextResponse.redirect(loginUrl)
+    }
+
     // プロジェクトルート (/:orgId/project/...) の場合、URL の orgId を cookie に同期
     const projectMatch = pathname.match(/^\/([0-9a-f-]+)\/project/)
     if (projectMatch) {
@@ -153,6 +218,9 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
         response.cookies.set(ACTIVE_ORG_COOKIE, pathOrgId, ACTIVE_ORG_COOKIE_OPTIONS)
       }
     }
+
+    // なりすましログイン対策: 保護ページに認証済みで来た＝ログイン直後の可能性があるタイミングで検知する
+    await notifyIfNewDevice(request, response)
 
     return response
   }
@@ -166,12 +234,7 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
     // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されているので
     // そちらを優先（auth/callback の next と同じバリデーション）
     const redirectParam = request.nextUrl.searchParams.get('redirect')
-    if (
-      redirectParam &&
-      redirectParam.startsWith('/') &&
-      !redirectParam.startsWith('//') &&
-      !redirectParam.includes('\\')
-    ) {
+    if (isSafeInternalPath(redirectParam)) {
       return NextResponse.redirect(new URL(redirectParam, request.url))
     }
 

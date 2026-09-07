@@ -15,6 +15,9 @@ export type AuthEventStage =
   | 'code_exchange'
   | 'session_user'
   | 'landing'
+  // 二要素認証の解除（運営による復旧操作。成功も拒否も残す）
+  | 'mfa_reset'
+  | 'mfa_reset_denied'
 
 export interface AuthFailureInput {
   stage: AuthEventStage
@@ -34,6 +37,9 @@ function clip(value: string | null | undefined, max: number): string | null {
   if (!value) return null
   return value.length > max ? value.slice(0, max) : value
 }
+
+/** 認証まわりのセキュリティイベント全般（失敗に限らない）。recordAuthFailure と同じ経路 */
+export const recordAuthEvent = recordAuthFailure
 
 export async function recordAuthFailure(input: AuthFailureInput): Promise<void> {
   try {
