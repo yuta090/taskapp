@@ -5,6 +5,7 @@ import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import { getClientProjects, resolveCurrentProject } from '@/lib/portal/getClientProjects'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProjectFile } from '@/lib/hooks/useFiles'
+import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 
 interface PageProps {
   searchParams: Promise<{ space?: string | string[] }>
@@ -48,6 +49,7 @@ export default async function PortalFilesPage({ searchParams }: PageProps) {
     .eq('space_id', spaceId)
     .eq('status', 'ready')
     .order('created_at', { ascending: false })
+    .limit(FILES_LIST_LIMIT)
 
   const files: ProjectFile[] = (fileRows || []).map((f: {
     id: string

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
+import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 
 // GET: スペースの公開済み(status='ready')ファイル一覧
 export async function GET(request: NextRequest) {
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
       .eq('space_id', spaceId)
       .eq('status', 'ready')
       .order('created_at', { ascending: false })
+      .limit(FILES_LIST_LIMIT)
 
     if (error) {
       console.error('Fetch files error:', error)

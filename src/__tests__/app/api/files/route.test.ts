@@ -17,12 +17,20 @@ let membershipResponse: { data: { id: string } | null; error: null }
 let filesListResponse: { data: Array<Record<string, unknown>> | null; error: { message: string } | null }
 let profilesResponse: { data: Array<Record<string, unknown>> | null; error: null }
 
+let filesLimitArg: number | undefined
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function chain(response: any) {
+function chain(response: any, opts: { captureLimit?: boolean } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {}
   for (const m of ['select', 'eq', 'neq', 'in', 'order', 'limit', 'insert', 'update', 'upsert', 'delete']) {
     builder[m] = vi.fn(() => builder)
+  }
+  if (opts.captureLimit) {
+    builder.limit = vi.fn((n: number) => {
+      filesLimitArg = n
+      return builder
+    })
   }
   builder.single = vi.fn(() => Promise.resolve(response))
   builder.maybeSingle = vi.fn(() => Promise.resolve(response))
@@ -37,7 +45,7 @@ vi.mock('@/lib/supabase/server', () => ({
       auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: vi.fn(() => Promise.resolve(authResponse)) },
       from: vi.fn((table: string) => {
         if (table === 'space_memberships') return chain(membershipResponse)
-        if (table === 'files') return chain(filesListResponse)
+        if (table === 'files') return chain(filesListResponse, { captureLimit: true })
         if (table === 'profiles') return chain(profilesResponse)
         throw new Error(`Unexpected table: ${table}`)
       }),
@@ -46,6 +54,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 const { GET } = await import('@/app/api/files/route')
+const { FILES_LIST_LIMIT } = await import('@/lib/files/limits')
 
 function callGet(spaceId?: string) {
   const url = new URL('/api/files', 'http://localhost:3000')
@@ -56,6 +65,7 @@ function callGet(spaceId?: string) {
 describe('GET /api/files', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    filesLimitArg = undefined
     authResponse = { data: { user: mockUser } }
     membershipResponse = { data: { id: 'membership-1' }, error: null }
     filesListResponse = {
@@ -118,6 +128,12 @@ describe('GET /api/files', () => {
       description: '第2四半期の要件まとめ',
       createdAt: '2026-07-07T00:00:00.000Z',
     })
+  })
+
+  it('件数に上限をかける(IDBに一覧が丸ごと載って他の画面まで遅くなるのを防ぐ)', async () => {
+    await callGet(SPACE_ID)
+    expect(filesLimitArg).toBe(FILES_LIST_LIMIT)
+    expect(FILES_LIST_LIMIT).toBeLessThanOrEqual(500)
   })
 
   it('description は未設定なら null で返す', async () => {

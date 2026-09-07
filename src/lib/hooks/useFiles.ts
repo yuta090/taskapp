@@ -21,7 +21,7 @@ export interface ProjectFile {
  * スペースの公開済みファイル一覧を取得
  */
 export function useFiles(spaceId: string | undefined) {
-  return useQuery({
+  const query = useQuery({
     queryKey: ['files', spaceId],
     queryFn: async () => {
       if (!spaceId) return []
@@ -33,6 +33,21 @@ export function useFiles(spaceId: string | undefined) {
     },
     enabled: !!spaceId,
   })
+
+  return {
+    data: query.data,
+    error: query.error,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+    /**
+     * react-query の isLoading は「未取得 かつ 通信中」。IDB からキャッシュを戻している
+     * 最中は通信していないので false になり、実際はファイルがあるのに一瞬
+     * 「ファイルはまだありません」が出る。useTasks と同じ isPending && !data で判定する。
+     * spaceId 未指定のときは取得自体しないので、読み込み中にはしない。
+     */
+    isLoading: !!spaceId && query.isPending && !query.data,
+  }
 }
 
 interface UploadFileParams {
@@ -149,8 +164,24 @@ export function useUpdateFile() {
         queryClient.setQueryData(context.queryKey, context.previous)
       }
     },
-    onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['files', variables.spaceId] })
+    // サーバーが返した確定値でその行だけ直す。ここで invalidate すると保存のたびに
+    // 一覧を全件取り直すことになり、連続で押したときに後の楽観更新を上書きしてちらつく
+    onSuccess: (result, variables) => {
+      const updated = (result as { file?: { name?: string; description?: string | null; client_visible?: boolean } })?.file
+      if (!updated) return
+
+      queryClient.setQueryData<ProjectFile[]>(['files', variables.spaceId], (current) =>
+        (current || []).map((file) =>
+          file.id === variables.fileId
+            ? {
+                ...file,
+                ...(updated.name !== undefined ? { name: updated.name } : {}),
+                ...(updated.description !== undefined ? { description: updated.description } : {}),
+                ...(updated.client_visible !== undefined ? { clientVisible: updated.client_visible } : {}),
+              }
+            : file
+        )
+      )
     },
   })
 }

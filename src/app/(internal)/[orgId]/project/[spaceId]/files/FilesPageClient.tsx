@@ -20,6 +20,7 @@ import {
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Breadcrumb, useConfirmDialog } from '@/components/shared'
+import { FileDescriptionInput } from '@/components/files/FileDescriptionInput'
 import { CLIENT } from '@/lib/design/tokens'
 import { isTabularFile } from '@/lib/table/tableModel'
 import {
@@ -33,6 +34,8 @@ import {
   FILE_ORIGIN_OPTIONS,
   type FileFilterState,
 } from '@/lib/files/filters'
+import { formatFileDate } from '@/lib/files/format'
+import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 import {
   useFiles,
   useUploadFile,
@@ -44,8 +47,6 @@ import {
 
 // API側の上限(src/app/api/files/upload-url/route.ts の MAX_FILE_SIZE_BYTES)と揃える
 const MAX_FILE_SIZE_BYTES = 52428800
-// API・migration(files.description の check 制約)と揃える
-const MAX_DESCRIPTION_LENGTH = 1000
 
 const SELECT_CLASS =
   'text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-surface text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -83,10 +84,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   const [uploadingNames, setUploadingNames] = useState<string[]>([])
   const [filters, setFilters] = useState<FileFilterState>(EMPTY_FILE_FILTERS)
 
-  // 説明文のその場編集。編集中の1行だけ input に差し替える
+  // 説明文のその場編集。編集中の1行だけ input に差し替える。
+  // 書きかけの文字は FileDescriptionInput の中だけで持つ(ここに置くと1打鍵ごとに全行を作り直す)
   const [editingFileId, setEditingFileId] = useState<string | null>(null)
-  const [descriptionDraft, setDescriptionDraft] = useState('')
-  const cancelledRef = useRef(false)
 
   const basePath = `/${orgId}/project/${spaceId}`
 
@@ -151,27 +151,19 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
     }
   }
 
-  const startEditDescription = (file: ProjectFile) => {
-    cancelledRef.current = false
-    setEditingFileId(file.id)
-    setDescriptionDraft(file.description ?? '')
-  }
+  const startEditDescription = useCallback((fileId: string) => {
+    setEditingFileId(fileId)
+  }, [])
 
-  const commitDescription = (file: ProjectFile) => {
-    if (cancelledRef.current) return
-    setEditingFileId(null)
+  const commitDescription = useCallback(
+    (fileId: string, description: string | null) => {
+      setEditingFileId(null)
+      updateFile.mutate({ spaceId, fileId, description })
+    },
+    [spaceId, updateFile]
+  )
 
-    const next = descriptionDraft.trim()
-    const current = (file.description ?? '').trim()
-    if (next === current) return
-
-    updateFile.mutate({ spaceId, fileId: file.id, description: next || null })
-  }
-
-  const cancelEditDescription = () => {
-    cancelledRef.current = true
-    setEditingFileId(null)
-  }
+  const cancelEditDescription = useCallback(() => setEditingFileId(null), [])
 
   const updateFilters = (patch: Partial<FileFilterState>) => {
     setFilters((prev) => ({ ...prev, ...patch }))
@@ -181,6 +173,7 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   const totalCount = files?.length ?? 0
   const visibleFiles = useMemo(() => filterFiles(files ?? [], filters), [files, filters])
 
+  const isAtListLimit = totalCount >= FILES_LIST_LIMIT
   const isEmpty = !isLoading && uploadingNames.length === 0 && totalCount === 0
   const isFilteredEmpty = !isLoading && totalCount > 0 && visibleFiles.length === 0
 
@@ -286,6 +279,13 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
             {activeFilterCount > 0 ? `${visibleFiles.length}件 / 全${totalCount}件` : `全${totalCount}件`}
           </span>
 
+          {/* 黙って切り捨てると「探しているファイルが無い」のか「隠れている」のか分からなくなる */}
+          {isAtListLimit && (
+            <span data-testid="files-limit-notice" className="text-xs text-amber-600">
+              新しい順に{FILES_LIST_LIMIT}件まで表示しています
+            </span>
+          )}
+
           {activeFilterCount > 0 && (
             <button
               type="button"
@@ -384,8 +384,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                           <button
                             type="button"
                             data-testid={`file-description-edit-${file.id}`}
-                            onClick={() => startEditDescription(file)}
-                            className="flex-shrink-0 text-[11px] text-gray-400 hover:text-gray-600 hover:underline opacity-0 group-hover:opacity-100 focus:opacity-100 max-sm:opacity-100 transition-opacity"
+                            onClick={() => startEditDescription(file.id)}
+                            // モバイルはホバーが無いので常時表示、デスクトップだけカーソルを合わせたときに出す
+                            className="flex-shrink-0 text-[11px] text-gray-400 hover:text-gray-600 hover:underline transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                           >
                             説明を追加
                           </button>
@@ -401,7 +402,7 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                       </div>
 
                       <div className="hidden md:block flex-shrink-0 text-xs text-gray-400 w-16">
-                        {new Date(file.createdAt).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })}
+                        {formatFileDate(file.createdAt)}
                       </div>
 
                       {/* クライアント公開トグル */}
@@ -476,26 +477,11 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                     {/* 説明文 — 名前の下。押すとその場で書き換えられる(保存ボタンは置かない) */}
                     {isEditing ? (
                       <div className="pl-8 pr-2 pb-1">
-                        <input
-                          type="text"
-                          autoFocus
-                          data-testid={`file-description-input-${file.id}`}
-                          value={descriptionDraft}
-                          maxLength={MAX_DESCRIPTION_LENGTH}
-                          placeholder="何のファイルか、ひとことで（Enterで保存・Escでやめる）"
-                          aria-label="ファイルの説明"
-                          onChange={(e) => setDescriptionDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              commitDescription(file)
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault()
-                              cancelEditDescription()
-                            }
-                          }}
-                          onBlur={() => commitDescription(file)}
-                          className="w-full px-2 py-1 text-xs border border-blue-300 rounded bg-surface text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        <FileDescriptionInput
+                          testId={`file-description-input-${file.id}`}
+                          initialValue={file.description ?? ''}
+                          onCommit={(value) => commitDescription(file.id, value)}
+                          onCancel={cancelEditDescription}
                         />
                       </div>
                     ) : (
@@ -503,7 +489,7 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                         <button
                           type="button"
                           data-testid={`file-description-${file.id}`}
-                          onClick={() => startEditDescription(file)}
+                          onClick={() => startEditDescription(file.id)}
                           title="クリックして説明を編集"
                           className="block w-full pl-8 pr-2 pb-1 text-left text-xs text-gray-500 truncate hover:text-gray-700"
                         >

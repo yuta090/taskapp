@@ -90,3 +90,26 @@ describe('useUpdateFile の楽観更新', () => {
     })
   })
 })
+
+describe('useUpdateFile の再取得', () => {
+  it('保存が成功したら、返ってきた値でキャッシュを直して一覧を取り直さない', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ file: { id: 'f1', name: '要件定義書.pdf', description: '整えた説明', client_visible: true } }),
+    })
+
+    const { client, result } = setup()
+
+    act(() => {
+      result.current.mutate({ spaceId: 'space-1', fileId: 'f1', description: '  整えた説明  ' })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    // PATCH の1本だけ。一覧の GET が追加で走らない
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const cached = client.getQueryData<ProjectFile[]>(['files', 'space-1'])
+    expect(cached?.[0].description).toBe('整えた説明')
+    expect(cached?.[0].clientVisible).toBe(true)
+  })
+})
