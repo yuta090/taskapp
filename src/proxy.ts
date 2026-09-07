@@ -234,9 +234,14 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
   if (user) {
     const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
     // 判定できないときもコード入力画面へ倒す（fail-closed。未登録なら画面側で判定し直して先へ進む）
-    const mfaRedirect = aalError
-      ? `${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(pathname + request.nextUrl.search)}`
-      : decideMfaRedirect({ pathname, search: request.nextUrl.search, currentLevel: aal?.currentLevel ?? null, nextLevel: aal?.nextLevel ?? null })
+    if (aalError) {
+      // 高速パスと同じ: 判定できないときはログインし直してもらう（コード入力画面との往復ループにしない）
+      console.error('[middleware] mfa level check failed', aalError)
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('reason', 'mfa_check_failed')
+      return NextResponse.redirect(loginUrl)
+    }
+    const mfaRedirect = decideMfaRedirect({ pathname, search: request.nextUrl.search, currentLevel: aal?.currentLevel ?? null, nextLevel: aal?.nextLevel ?? null })
     if (mfaRedirect && pathname !== '/login' && pathname !== '/signup') {
       return NextResponse.redirect(new URL(mfaRedirect, request.url))
     }

@@ -9,6 +9,14 @@
 --       anon / service_role / 未登録 は何もしない。factor 参照に失敗しても全断させない（RLS 側が二重に守る）。
 -- 反映: authenticator ロール設定 + NOTIFY pgrst で即時。戻すときは `alter role authenticator reset pgrst.db_pre_request; notify pgrst, 'reload config';`
 
+-- 事前確認: 関数の所有者(postgres)が auth.mfa_factors を読めなければ、ここで止める（適用後に全断させない）
+do $$
+begin
+  perform 1 from auth.mfa_factors limit 1;
+exception when insufficient_privilege then
+  raise exception 'auth.mfa_factors を読めません。二要素認証の migration は適用できません';
+end $$;
+
 create or replace function public.mfa_pre_request()
 returns void
 language plpgsql
@@ -19,6 +27,7 @@ as $$
 declare
   claims jsonb;
   uid uuid;
+  blocked boolean := false;
 begin
   begin
     claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
@@ -33,17 +42,15 @@ begin
   end if;
   begin
     uid := (claims ->> 'sub')::uuid;
-    if exists (select 1 from auth.mfa_factors f where f.user_id = uid and f.status = 'verified') then
-      raise exception 'mfa_required' using errcode = '42501', hint = '二要素認証のコード入力が必要です';
-    end if;
-  exception
-    when insufficient_privilege then
-      -- 自分の raise（42501）だけは通す
-      raise;
-    when others then
-      -- 判定できないときは全断させない（RLS の mfa_satisfied が二重に守る）
-      return;
+    blocked := exists (select 1 from auth.mfa_factors f where f.user_id = uid and f.status = 'verified');
+  exception when others then
+    -- 判定できないとき（権限・型・一時障害）は通す。RLS 側の mfa_satisfied が二重に守る。全断はさせない
+    blocked := false;
   end;
+  -- raise は例外ブロックの外で（自分の 42501 を上の handler に食われないように）
+  if blocked then
+    raise exception 'mfa_required' using errcode = '42501', hint = '二要素認証のコード入力が必要です';
+  end if;
 end $$;
 
 comment on function public.mfa_pre_request() is
@@ -54,6 +61,36 @@ grant execute on function public.mfa_pre_request() to authenticator, anon, authe
 
 alter role authenticator set pgrst.db_pre_request = 'public.mfa_pre_request';
 notify pgrst, 'reload config';
+
+-- 自己チェック: この設定はスキーマではなくロール設定（pg_db_role_setting）で、pg_dump に含まれず、
+-- ブランチ作成・別プロジェクトへのリストア・ロール設定の再適用で消えうる。消えると rpc_* の二要素認証だけが
+-- 黙って無効になるので、運営画面（admin layout）が毎回この関数で確認し、外れていれば赤い帯を出す。
+create or replace function public.mfa_enforcement_status()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'pre_request', exists (
+      select 1 from pg_catalog.pg_db_role_setting s
+      join pg_catalog.pg_roles r on r.oid = s.setrole
+      where r.rolname = 'authenticator'
+        and exists (select 1 from unnest(s.setconfig) c where c = 'pgrst.db_pre_request=public.mfa_pre_request')
+    ),
+    'policy_missing', (
+      select coalesce(jsonb_agg(t.tablename), '[]'::jsonb) from pg_catalog.pg_tables t
+      where t.schemaname = 'public' and t.rowsecurity
+        and not exists (
+          select 1 from pg_catalog.pg_policies p
+          where p.schemaname = 'public' and p.tablename = t.tablename and p.policyname = 'mfa_required_when_enrolled'
+        )
+    )
+  )
+$$;
+revoke all on function public.mfa_enforcement_status() from public;
+grant execute on function public.mfa_enforcement_status() to service_role;
 
 -- ついで（レビュー L2）: アプリ未使用の旧ビュー v_client_* は security_invoker が無く基テーブルの RLS を通らない。
 -- authenticated/anon から読めないようにする（service role は影響なし）

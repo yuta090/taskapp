@@ -7,6 +7,14 @@
 --
 -- ⚠ 新しく RLS 付きテーブルを作ったら、同じポリシーを足すこと（下の DO ブロックを再実行すれば漏れ分だけ付く）。
 
+-- 事前確認: 関数の所有者(postgres)が auth.mfa_factors を読めなければ、ここで止める（適用後に全クエリをエラーにしない）
+do $$
+begin
+  perform 1 from auth.mfa_factors limit 1;
+exception when insufficient_privilege then
+  raise exception 'auth.mfa_factors を読めません。二要素認証の migration は適用できません';
+end $$;
+
 create or replace function public.mfa_satisfied()
 returns boolean
 language sql

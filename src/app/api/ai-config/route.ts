@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { SLACK_CONFIG } from '@/lib/slack/config'
@@ -29,6 +30,9 @@ export async function GET(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は弾く
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+    if (mfaBlock) return mfaBlock
 
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('orgId')
@@ -117,6 +121,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は弾く
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+    if (mfaBlock) return mfaBlock
 
     const body = await request.json()
     const { orgId, provider, apiKey, model } = body
@@ -249,6 +256,9 @@ export async function DELETE(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は弾く
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+    if (mfaBlock) return mfaBlock
 
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('orgId')

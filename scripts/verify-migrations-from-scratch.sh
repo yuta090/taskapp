@@ -52,4 +52,10 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし）"
+prereq=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select count(*) from pg_db_role_setting s join pg_roles r on r.oid=s.setrole where r.rolname='authenticator' and exists (select 1 from unnest(s.setconfig) c where c='pgrst.db_pre_request=public.mfa_pre_request')")
+if [ "$prereq" != "1" ]; then
+  echo "❌ authenticator の pgrst.db_pre_request が public.mfa_pre_request になっていません（後続の migration が reset していないか確認）"
+  exit 1
+fi
+
+echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし・pre-request 設定あり）"

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
@@ -21,8 +21,8 @@ function createAdminClient() {
   })
 }
 
-// Get current user from session
-async function getCurrentUser() {
+// Get current user from session（二要素認証で弾く場合は blocked にレスポンスを入れて返す）
+async function getCurrentUser(): Promise<{ user: User; blocked?: undefined } | { user?: undefined; blocked: NextResponse } | null> {
   const supabase = await createBrowserClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) {
@@ -30,18 +30,19 @@ async function getCurrentUser() {
   }
   // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（403 mfa_required）
   const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
-  if (mfaBlock) return mfaBlock
-  return user
+  if (mfaBlock) return { blocked: mfaBlock }
+  return { user }
 }
 
 // POST /api/keys/user - Create a new user-scoped API key
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
+    const current = await getCurrentUser()
+    if (!current) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    if (user instanceof NextResponse) return user
+    if (current.blocked) return current.blocked
+    const user = current.user
 
     const body = await request.json()
     const { name, keyHash, keyPrefix, allowedSpaceIds, allowedActions } = body
@@ -132,11 +133,12 @@ export async function POST(request: NextRequest) {
 // DELETE /api/keys/user?id=xxx - Delete a user's API key
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
+    const current = await getCurrentUser()
+    if (!current) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    if (user instanceof NextResponse) return user
+    if (current.blocked) return current.blocked
+    const user = current.user
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -179,11 +181,12 @@ export async function DELETE(request: NextRequest) {
 // GET /api/keys/user - List current user's API keys
 export async function GET(_request: NextRequest) {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
+    const current = await getCurrentUser()
+    if (!current) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    if (user instanceof NextResponse) return user
+    if (current.blocked) return current.blocked
+    const user = current.user
 
     const adminClient = createAdminClient()
 

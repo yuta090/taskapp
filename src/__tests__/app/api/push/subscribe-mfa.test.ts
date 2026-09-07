@@ -15,7 +15,8 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: () =>
     Promise.resolve({
       auth: {
-        getUser: () => Promise.resolve({ data: { user: { id: 'u1', email: 'u@example.com' } }, error: null }),
+        // getUser の応答に factors が含まれる（登録済みなら verified）。ガードはこれを見る
+        getUser: () => Promise.resolve({ data: { user: { id: 'u1', email: 'u@example.com', factors } }, error: null }),
         getSession: () => Promise.resolve({ data: { session: { access_token: jwt({ aal }) } } }),
         mfa: { listFactors: () => Promise.resolve({ data: { all: factors }, error: null }) },
       },
