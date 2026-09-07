@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { ArrowSquareOut, Check, Copy } from '@phosphor-icons/react'
 import { useOrgChannelAccount } from '@/lib/hooks/useOrgChannelAccount'
 import {
@@ -162,10 +161,7 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
       where: ['agentpm'],
       body: (
         <p>
-          承認すると、そのチャンネルの会話を秘書が読み始めます。
-          <Link href={`/${orgId}/secretary/approvals`} className="ml-2 font-medium text-amber-600 underline hover:text-amber-700">
-            確認待ちを開く
-          </Link>
+          投稿したチャンネルが、この画面の一番下の「確認待ち」に出ます（左メニューの「確認待ち」はタスク候補用で、こちらではありません）。承認すると、そのチャンネルの会話を秘書が読み始めます。
         </p>
       ),
     },

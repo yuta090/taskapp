@@ -33,7 +33,7 @@ describe('SlackSecretarySetupGuide', () => {
       /2つの鍵を AgentPM に登録/,
       /秘書をチャンネルに招待/,
       /合言葉を発行して、そのチャンネルに投稿/,
-      /確認待ち.*承認/,
+      '確認待ちで承認する',
     ]) {
       expect(screen.getByText(t)).toBeInTheDocument()
     }
@@ -91,10 +91,13 @@ describe('SlackSecretarySetupGuide', () => {
     expect(screen.getByText(/AgentPM秘書（登録済み）/)).toBeInTheDocument()
   })
 
-  it('承認の手順は「確認待ち」ページへのリンクを持つ', () => {
+  it('承認の場所は「この画面の一番下の確認待ち」と案内し、タスク候補用の左メニュー「確認待ち」へは飛ばさない', () => {
+    // 回帰の背景: 以前は /secretary/approvals（タスク候補の承認ページ）へリンクしていて、
+    // チャンネルの紐付けはそこに出ないため「確認待ちに何も出ない」と混乱させた。
     render(<SlackSecretarySetupGuide orgId={ORG} />)
-    const link = screen.getByRole('link', { name: /確認待ちを開く/ })
-    expect(link).toHaveAttribute('href', `/${ORG}/secretary/approvals`)
+    expect(screen.getByText(/この画面の一番下の「確認待ち」/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /確認待ちを開く/ })).not.toBeInTheDocument()
+    expect(document.querySelector(`a[href="/${ORG}/secretary/approvals"]`)).toBeNull()
   })
 
   it('設定ファイルをコピーできる（Slack の画面から手で貼る場合の逃げ道）', async () => {
