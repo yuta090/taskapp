@@ -24,14 +24,14 @@ TaskApp の具体的なデザイントークンとコンポーネントパター
 
 | Status | Icon Class (行の左アイコン) | Weight | Badge BG + Text |
 |--------|-----------|--------|-----------------|
-| `backlog` | `text-gray-300` | regular (outline) | `bg-gray-50 text-gray-500` |
-| `todo` | `text-gray-300` | regular (outline) | `bg-gray-50 text-gray-600` |
+| `backlog` | `text-gray-400` | regular (outline) | `bg-gray-50 text-gray-500` |
+| `todo` | `text-gray-400` | regular (outline) | `bg-gray-50 text-gray-600` |
 | `in_progress` | `text-blue-300` | fill | `bg-blue-50 text-blue-600` |
 | `in_review` | `text-amber-300` | fill | `bg-amber-50 text-amber-600` |
-| `considering` | `text-gray-300` | duotone | `bg-gray-100 text-gray-500` |
+| `considering` | `text-gray-400` | duotone | `bg-gray-100 text-gray-500` |
 | `done` | `text-green-400` | fill (CheckCircle) | `bg-green-50 text-green-600` |
 
-行の左アイコンは一覧で全行に並ぶため、バッジより1段薄い 300 系（done は 400）を使う（2026-09-08 ユーザー要望で薄くした）。
+行の左アイコンは一覧で全行に並ぶため、有彩色はバッジより1段薄い 300 系（done は 400）を使う（2026-09-08 ユーザー要望で薄くした）。グレー系は 400 のまま。`gray-300` は `.dark` で境界線色(#3A414E)に再割当されアイコンが消えるため使わない。
 
 ## Quick Reference: Text Hierarchy
 
