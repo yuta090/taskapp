@@ -8,6 +8,8 @@ export interface NoticeStore {
 /** 既読 id をファイルに残す store。path を差し替えてテストできる */
 export declare function createFileNoticeStore(path: string): NoticeStore;
 export declare const fileNoticeStore: NoticeStore;
+/** argv から最初のコマンド名(- で始まらない最初の語)を取り出す。`agentpm -s <uuid> update` でも 'update' */
+export declare function firstCommandName(argv: string[]): string | undefined;
 /** 通常実行でお知らせを出してよいか: 端末につながっていて、--json でないとき */
 export declare function shouldShowNotices(argv: string[], stderrIsTty: boolean): boolean;
 /** まだ見ていないお知らせを、日付順(古い→新しい)で返す。同じ id が重複していれば最初の1件だけ */

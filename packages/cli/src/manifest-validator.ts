@@ -269,8 +269,12 @@ function sanitizeNotices(raw: unknown): ManifestNotice[] {
     if (typeof n.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.date)) notice.date = n.date
     out.push(notice)
   }
-  // 多すぎる場合は新しい方(末尾)を残す
-  return out.slice(-NOTICES_MAX)
+  // 多すぎる場合は新しい方を残す。サーバー側の並び順に頼らず、日付(無ければ末尾扱い)で並べてから切る
+  return out
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => (a.n.date ?? '').localeCompare(b.n.date ?? '') || a.i - b.i)
+    .map(({ n }) => n)
+    .slice(-NOTICES_MAX)
 }
 
 /**

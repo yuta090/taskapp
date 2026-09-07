@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, statSync, writeFileSync, readFileSync, rmSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  pickUnseen, formatNotices, showNewNotices, shouldShowNotices, createFileNoticeStore, MAX_SHOWN,
+  pickUnseen, formatNotices, showNewNotices, shouldShowNotices, createFileNoticeStore, firstCommandName, MAX_SHOWN,
   type NoticeStore,
 } from './notices.js'
 import type { ManifestNotice } from './manifest-validator.js'
@@ -165,5 +165,15 @@ describe('createFileNoticeStore(実ディスク)', () => {
     // 表示後は正しい記録に直っている
     expect(store.readSeen()).toEqual([N1.id])
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('firstCommandName', () => {
+  it('グローバルオプションを前に置いてもコマンド名を取れる', () => {
+    expect(firstCommandName(['node', 'agentpm', 'update'])).toBe('update')
+    expect(firstCommandName(['node', 'agentpm', '-s', 'uuid-1', 'update'])).toBe('update')
+    expect(firstCommandName(['node', 'agentpm', '--json', '--api-key', 'k', 'task', 'list'])).toBe('task')
+    expect(firstCommandName(['node', 'agentpm', '--help'])).toBeUndefined()
+    expect(firstCommandName(['node', 'agentpm'])).toBeUndefined()
   })
 })

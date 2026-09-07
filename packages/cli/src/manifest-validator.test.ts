@@ -47,11 +47,21 @@ describe('validateManifest: notices', () => {
     expect(validateManifest({ ...base, notices: 'x' }).notices).toEqual([])
   })
 
-  it('多すぎる場合は新しい方(末尾)だけ NOTICES_MAX 件受け取る(端末フラッド防止)', () => {
+  it('多すぎる場合は新しい方だけ NOTICES_MAX 件受け取る(端末フラッド防止)。日付が無ければ末尾が新しい扱い', () => {
     const notices = Array.from({ length: 100 }, (_, i) => ({ id: `n-${i}`, message: `m${i}` }))
     const m = validateManifest({ ...base, notices })
     expect(m.notices).toHaveLength(NOTICES_MAX)
     expect(m.notices[0].id).toBe(`n-${100 - NOTICES_MAX}`)
     expect(m.notices[NOTICES_MAX - 1].id).toBe('n-99')
+  })
+
+  it('日付があればサーバーの並び順に関係なく、日付の新しい方を残す', () => {
+    const notices = Array.from({ length: NOTICES_MAX + 1 }, (_, i) => ({
+      id: `n-${i}`, date: `2026-01-${String(NOTICES_MAX + 1 - i).padStart(2, '0')}`, message: 'm',
+    })) // 先頭が最新・末尾が最古
+    const m = validateManifest({ ...base, notices })
+    expect(m.notices).toHaveLength(NOTICES_MAX)
+    expect(m.notices.map((n) => n.id)).not.toContain(`n-${NOTICES_MAX}`) // 最古が落ちる
+    expect(m.notices[NOTICES_MAX - 1].id).toBe('n-0') // 並びは古い→新しい
   })
 })

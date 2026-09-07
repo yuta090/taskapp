@@ -3,7 +3,7 @@ import { loadCliConfig, getApiConfig, ConfigError } from './config.js'
 import { registerConfigCommand } from './commands/config-cmd.js'
 import { registerDynamicCommands } from './dynamic-loader.js'
 import { loadManifest, forceUpdate } from './manifest-cache.js'
-import { showNewNotices, shouldShowNotices } from './notices.js'
+import { showNewNotices, shouldShowNotices, firstCommandName } from './notices.js'
 import chalk from 'chalk'
 
 const CLI_VERSION = '0.4.1'
@@ -89,7 +89,7 @@ async function main() {
     // まだ見ていないお知らせを 1 回だけ stderr に出す。
     // 端末につながっていない(cron・2>/dev/null)ときや --json のときは出さず、既読にもしない(見ていないのに既読になるのを防ぐ)。
     // `update` は自分の action でサーバー取得版を出すので、ここでは出さない(二重表示・矛盾を防ぐ)
-    const isUpdateCmd = process.argv[2] === 'update'
+    const isUpdateCmd = firstCommandName(process.argv) === 'update'
     if (!isUpdateCmd && shouldShowNotices(process.argv, Boolean(process.stderr.isTTY))) showNewNotices(manifest)
   } else {
     // No config — register builtin for --help to work

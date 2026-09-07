@@ -44,6 +44,18 @@ export function createFileNoticeStore(path: string): NoticeStore {
 
 export const fileNoticeStore: NoticeStore = createFileNoticeStore(SEEN_PATH)
 
+/** argv から最初のコマンド名(- で始まらない最初の語)を取り出す。`agentpm -s <uuid> update` でも 'update' */
+export function firstCommandName(argv: string[]): string | undefined {
+  const args = argv.slice(2)
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (!a.startsWith('-')) return a
+    // 値を取るグローバルオプションは次の語を飛ばす
+    if (a === '-s' || a === '--space-id' || a === '--api-key') i++
+  }
+  return undefined
+}
+
 /** 通常実行でお知らせを出してよいか: 端末につながっていて、--json でないとき */
 export function shouldShowNotices(argv: string[], stderrIsTty: boolean): boolean {
   return stderrIsTty && !argv.includes('--json')
