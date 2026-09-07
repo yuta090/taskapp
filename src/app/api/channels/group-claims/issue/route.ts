@@ -3,12 +3,14 @@ import { requireInternalMember } from '@/lib/channels/authz'
 import {
   verifySpaceInOrg,
   findFirstPlatformAccountId,
+  findActiveOrgAccountId,
   createSharedGroupClaimCode,
   orgLineGroupCapacity,
   getLineSelfServeState,
   orgExternalChatGroupCapacity,
   DuplicateSharedGroupClaimCodeError,
   MultiplePlatformAccountsError,
+  MultipleOrgAccountsError,
 } from '@/lib/channels/store'
 import { canUseSharedBotClaims } from '@/lib/channels/sharedBotAccess'
 import {
@@ -125,10 +127,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // 自社アカウント × 合言葉（registry.ownAccountClaim・slack 等）は、共有bot(platform)ではなく
+  // その org が登録した自社アプリ(owner_type='org')の account を対象にする。受信側の償還は
+  // account 単位URL（/api/channels/slack/webhook/{accountId}）で同じ account を引くので一致する。
+  const ownAccountClaim = !!getChannel(channel)?.ownAccountClaim
   let targetAccountId: string | null
   try {
     // channelは省略時'line'（既定値と一致）。line経路は findFirstPlatformAccountId() と等価。
-    targetAccountId = await findFirstPlatformAccountId(channel)
+    targetAccountId = ownAccountClaim
+      ? await findActiveOrgAccountId(orgId, channel)
+      : await findFirstPlatformAccountId(channel)
   } catch (error) {
     if (error instanceof MultiplePlatformAccountsError) {
       // L2ガード（設計正本 §10）: 複数botの明示選択は未対応。沈黙のdead-endにせず明確に拒否する
@@ -137,9 +145,24 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       )
     }
+    if (error instanceof MultipleOrgAccountsError) {
+      return NextResponse.json(
+        { error: '自社アプリの登録が複数あるため自動選択できません。使わない方を無効化してください。' },
+        { status: 409 },
+      )
+    }
     throw error
   }
   if (!targetAccountId) {
+    if (ownAccountClaim) {
+      return NextResponse.json(
+        {
+          error: '自社アプリがまだ登録されていません。先にこの画面の上で鍵（Bot Token / Signing Secret）を登録してください。',
+          code: 'own_account_required',
+        },
+        { status: 400 },
+      )
+    }
     return NextResponse.json({ error: '共有botが未設定です' }, { status: 400 })
   }
 
