@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { ArrowSquareOut, Check, Copy } from '@phosphor-icons/react'
 import { useOrgChannelAccount } from '@/lib/hooks/useOrgChannelAccount'
+import { usePendingGroupClaims } from '@/lib/hooks/usePendingGroupClaims'
+import { useAccountActiveGroups } from '@/lib/hooks/useAccountActiveGroups'
 import {
   buildSecretarySlackManifest,
   secretaryManifestCreateUrl,
@@ -46,6 +47,11 @@ function WhereBadge({ where }: { where: Where }) {
 export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
   const { data: account, isPending, refetch } = useOrgChannelAccount(orgId, 'slack')
   const registered = !!account && account.status === 'active'
+  // 進み具合の判定材料（同じ画面の PendingClaimsPanel と同じ取得キー＝追加の通信は増えない）
+  const { items: pendingClaims } = usePendingGroupClaims(orgId, 'slack')
+  const { data: activeGroupCount } = useAccountActiveGroups(registered ? account.id : undefined)
+  const hasPending = pendingClaims.length > 0
+  const hasActiveGroup = (activeGroupCount ?? 0) > 0
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -162,18 +168,26 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
       where: ['agentpm'],
       body: (
         <p>
-          承認すると、そのチャンネルの会話を秘書が読み始めます。
-          <Link href={`/${orgId}/secretary/approvals`} className="ml-2 font-medium text-amber-600 underline hover:text-amber-700">
-            確認待ちを開く
-          </Link>
+          投稿したチャンネルが、この画面の一番下の「確認待ち」に出ます（左メニューの「確認待ち」はタスク候補用で、こちらではありません）。承認すると、そのチャンネルの会話を秘書が読み始めます。
         </p>
       ),
     },
   ]
 
-  // いまどの手順か: 鍵の登録（手順3）までが AgentPM 側で判定できる。以降は利用者の操作なので手順4を示す。
+  // いまどの手順か（AgentPM 側で分かる範囲で判定する）:
+  //   鍵の登録が無い → 手順1 / 登録済み → 手順4（招待・投稿は利用者の操作で見えない）
+  //   確認待ちがある → 手順6（承認）/ 有効なチャンネルがあり確認待ちも無い → 全部済み（完了）
   // 初回（キャッシュ無し）の取得中は印を出さない — 登録済みの人に一瞬「手順1」を見せない。
-  const currentIndex = isPending ? -1 : registered ? 3 : 0
+  const currentIndex = isPending
+    ? -1
+    : !registered
+      ? 0
+      : hasPending
+        ? 5
+        : hasActiveGroup
+          ? steps.length
+          : 3
+  const allDone = currentIndex === steps.length
 
   return (
     <section className="mb-6 rounded-lg border border-gray-200 bg-surface p-4">
@@ -181,6 +195,12 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
       <p className="mt-1 text-xs text-gray-500">
         Slack と AgentPM を行き来します。各手順の「どこで」の印を見ながら、上から順に進めてください。
       </p>
+
+      {allDone && (
+        <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          すべて済んでいます。秘書がチャンネルの会話を読み始めています。別のチャンネルも追加する場合は、手順4〜6を繰り返してください。
+        </p>
+      )}
 
       <ol className="mt-4 space-y-3">
         {steps.map((s, i) => {

@@ -13,13 +13,24 @@ import { SlackSecretarySetupGuide, CHANNEL_ACCOUNT_REGISTERED_EVENT } from '@/co
 const ORG = '322a219f-1a73-4935-b061-08b8a5e97334'
 
 let accountState: { data: unknown; isPending: boolean; refetch: () => void }
+let pendingState: { items: unknown[]; isLoading: boolean }
+let activeGroupsState: { data: number | undefined; isPending: boolean }
 vi.mock('@/lib/hooks/useOrgChannelAccount', () => ({
   useOrgChannelAccount: () => accountState,
 }))
+vi.mock('@/lib/hooks/usePendingGroupClaims', () => ({
+  usePendingGroupClaims: () => pendingState,
+}))
+vi.mock('@/lib/hooks/useAccountActiveGroups', () => ({
+  useAccountActiveGroups: () => activeGroupsState,
+}))
+const REGISTERED = { id: 'acc', channel: 'slack', displayName: 'AgentPM秘書', status: 'active', createdAt: '', ownerType: 'org' }
 
 describe('SlackSecretarySetupGuide', () => {
   beforeEach(() => {
     accountState = { data: null, isPending: false, refetch: vi.fn() }
+    pendingState = { items: [], isLoading: false }
+    activeGroupsState = { data: 0, isPending: false }
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
@@ -33,7 +44,7 @@ describe('SlackSecretarySetupGuide', () => {
       /2つの鍵を AgentPM に登録/,
       /秘書をチャンネルに招待/,
       /合言葉を発行して、そのチャンネルに投稿/,
-      /確認待ち.*承認/,
+      '確認待ちで承認する',
     ]) {
       expect(screen.getByText(t)).toBeInTheDocument()
     }
@@ -80,21 +91,47 @@ describe('SlackSecretarySetupGuide', () => {
   })
 
   it('登録済み: 手順1〜3は済み、いまここ＝手順4（招待）。登録した名前を出す', () => {
-    accountState = {
-      data: { id: 'acc', channel: 'slack', displayName: 'AgentPM秘書', status: 'active', createdAt: '', ownerType: 'org' },
-      isPending: false,
-      refetch: vi.fn(),
-    }
+    accountState = { data: REGISTERED, isPending: false, refetch: vi.fn() }
     render(<SlackSecretarySetupGuide orgId={ORG} />)
     expect(screen.getAllByText('済み').length).toBe(3)
     expect(screen.getByText('いまここ').closest('li')).toHaveTextContent(/秘書をチャンネルに招待/)
     expect(screen.getByText(/AgentPM秘書（登録済み）/)).toBeInTheDocument()
   })
 
-  it('承認の手順は「確認待ち」ページへのリンクを持つ', () => {
+  it('合言葉が投稿され確認待ちがある: 手順1〜5は済み、いまここ＝手順6（承認）', () => {
+    // 回帰の背景: 招待も投稿も済んでいるのに「いまここ」が手順4のままで、利用者が
+    // 「承認の手前のはずなのに完了になっていない」と混乱した。投稿は「確認待ちがある」で判定できる。
+    accountState = { data: REGISTERED, isPending: false, refetch: vi.fn() }
+    pendingState = { items: [{ id: 'claim-1' }], isLoading: false }
     render(<SlackSecretarySetupGuide orgId={ORG} />)
-    const link = screen.getByRole('link', { name: /確認待ちを開く/ })
-    expect(link).toHaveAttribute('href', `/${ORG}/secretary/approvals`)
+    expect(screen.getAllByText('済み').length).toBe(5)
+    expect(screen.getByText('いまここ').closest('li')).toHaveTextContent('確認待ちで承認する')
+  })
+
+  it('承認まで済んで有効なチャンネルがある: 全手順が済み、「完了」を出す', () => {
+    accountState = { data: REGISTERED, isPending: false, refetch: vi.fn() }
+    activeGroupsState = { data: 1, isPending: false }
+    render(<SlackSecretarySetupGuide orgId={ORG} />)
+    expect(screen.getAllByText('済み').length).toBe(6)
+    expect(screen.queryByText('いまここ')).not.toBeInTheDocument()
+    expect(screen.getByText(/秘書がチャンネルの会話を読み始めています/)).toBeInTheDocument()
+  })
+
+  it('確認待ちが残っていれば、有効なチャンネルがあっても承認の手順を「いまここ」にする（2つ目以降のチャンネル）', () => {
+    accountState = { data: REGISTERED, isPending: false, refetch: vi.fn() }
+    activeGroupsState = { data: 1, isPending: false }
+    pendingState = { items: [{ id: 'claim-2' }], isLoading: false }
+    render(<SlackSecretarySetupGuide orgId={ORG} />)
+    expect(screen.getByText('いまここ').closest('li')).toHaveTextContent('確認待ちで承認する')
+  })
+
+  it('承認の場所は「この画面の一番下の確認待ち」と案内し、タスク候補用の左メニュー「確認待ち」へは飛ばさない', () => {
+    // 回帰の背景: 以前は /secretary/approvals（タスク候補の承認ページ）へリンクしていて、
+    // チャンネルの紐付けはそこに出ないため「確認待ちに何も出ない」と混乱させた。
+    render(<SlackSecretarySetupGuide orgId={ORG} />)
+    expect(screen.getByText(/この画面の一番下の「確認待ち」/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /確認待ちを開く/ })).not.toBeInTheDocument()
+    expect(document.querySelector(`a[href="/${ORG}/secretary/approvals"]`)).toBeNull()
   })
 
   it('設定ファイルをコピーできる（Slack の画面から手で貼る場合の逃げ道）', async () => {
