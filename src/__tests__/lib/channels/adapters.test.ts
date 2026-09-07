@@ -97,6 +97,14 @@ describe('slackAdapter', () => {
     expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer xoxb-x' })
   })
 
+  it('リンクのプレビュー展開（unfurl）を止める — 通知のたびに agentpm.app のサイト紹介カードが付かない', async () => {
+    const fetchFn = mockFetch(() => jsonResponse(200, { ok: true, ts: '1' }))
+    await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'C1', text: 'https://agentpm.app/x' })
+    const [, init] = fetchFn.mock.calls[0]
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body).toMatchObject({ channel: 'C1', text: 'https://agentpm.app/x', unfurl_links: false, unfurl_media: false })
+  })
+
   it('body.ok:false の channel_not_found は恒久失敗', async () => {
     mockFetch(() => jsonResponse(200, { ok: false, error: 'channel_not_found' }))
     const r = await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'Cbad', text: 'hi' })

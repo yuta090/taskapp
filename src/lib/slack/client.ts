@@ -85,6 +85,10 @@ export async function postSlackMessage(
     text,
     blocks: blocks as (KnownBlock | Block)[],
     thread_ts: threadTs,
+    // 本文のタスクリンク(agentpm.app)を Slack が自動展開すると、通知のたびに
+    // サイト紹介カード（タイトル・説明・OG画像）がぶら下がるので止める
+    unfurl_links: false,
+    unfurl_media: false,
   })
 
   return { ts: result.ts, ok: result.ok ?? false }
