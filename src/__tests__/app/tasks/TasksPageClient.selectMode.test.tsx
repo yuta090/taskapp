@@ -81,10 +81,19 @@ describe('TasksPageClient 選択モード', () => {
     expect(screen.queryByText('0件選択')).not.toBeInTheDocument()
   })
 
+  it('選んだあとにすぐ押せるよう「完了にする」が一括操作バーの先頭に出る', () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: /まとめて操作/ }))
+    const done = screen.getByRole('button', { name: '完了にする' })
+    expect(done).toHaveTextContent('完了にする')
+    // グレーの小さな文字だと「完了が無い」と見落とされたので、塗りつぶしの目立つボタンにする
+    expect(done.className).toContain('bg-green-600')
+  })
+
   it('1件も選んでいないあいだは一括操作のボタンを押せない', () => {
     renderPage()
     fireEvent.click(screen.getByRole('button', { name: /まとめて操作/ }))
-    expect(screen.getByRole('button', { name: '完了に変更' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '完了にする' })).toBeDisabled()
   })
 
   it('「選択をやめる」で一括操作バーが閉じる', () => {

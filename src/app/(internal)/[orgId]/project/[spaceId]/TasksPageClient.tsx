@@ -1387,40 +1387,40 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
           <div className="h-4 w-px bg-gray-300" />
 
-          {/* Bulk status change */}
-          <div className="flex items-center gap-1">
+          {/* Bulk status change — 選んだあと真っ先に押すのは「完了」。塗りつぶしの主ボタンで先頭に置く */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleBulkStatusChange('done')}
+              disabled={selectedTaskIds.size === 0}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-green-600 border border-green-600 rounded hover:bg-green-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="完了にする"
+              title="選んだタスクをまとめて完了にする"
+            >
+              <CheckCircle weight="fill" className="text-sm" />
+              完了にする
+            </button>
             <button
               type="button"
               onClick={() => handleBulkStatusChange('todo')}
               disabled={selectedTaskIds.size === 0}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              aria-label="着手予定に変更"
-              title="着手予定に変更"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-surface hover:bg-gray-100 rounded border border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="着手予定にする"
+              title="着手予定にする"
             >
               <Circle className="text-sm text-gray-400" />
-              Todo
+              着手予定
             </button>
             <button
               type="button"
               onClick={() => handleBulkStatusChange('in_progress')}
               disabled={selectedTaskIds.size === 0}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              aria-label="進行中に変更"
-              title="進行中に変更"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-surface hover:bg-gray-100 rounded border border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="進行中にする"
+              title="進行中にする"
             >
               <Circle weight="fill" className="text-sm text-blue-400" />
               進行中
-            </button>
-            <button
-              type="button"
-              onClick={() => handleBulkStatusChange('done')}
-              disabled={selectedTaskIds.size === 0}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-surface rounded border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              aria-label="完了に変更"
-              title="完了に変更"
-            >
-              <CheckCircle weight="fill" className="text-sm text-green-500" />
-              完了
             </button>
           </div>
 
