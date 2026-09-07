@@ -175,4 +175,31 @@ describe('WikiListToolbar', () => {
     expect(screen.getByLabelText('タイトル・タグで検索')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /仕様書/ })).toHaveAttribute('aria-pressed', 'true')
   })
+
+  describe('表示切替', () => {
+    it('既定は一覧が選択されている', () => {
+      setup()
+      expect(screen.getByTestId('wiki-view-list')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByTestId('wiki-view-folder')).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByTestId('wiki-view-milestone')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('フォルダを選ぶと onPrefsChange で view が folder になる', () => {
+      const { onPrefsChange } = setup()
+      fireEvent.click(screen.getByTestId('wiki-view-folder'))
+      expect(onPrefsChange).toHaveBeenCalledWith({ ...DEFAULT_WIKI_LIST_PREFS, view: 'folder' })
+    })
+
+    it('マイルストーン別を選ぶと onPrefsChange で view が milestone になる', () => {
+      const { onPrefsChange } = setup()
+      fireEvent.click(screen.getByTestId('wiki-view-milestone'))
+      expect(onPrefsChange).toHaveBeenCalledWith({ ...DEFAULT_WIKI_LIST_PREFS, view: 'milestone' })
+    })
+
+    it('現在の表示に応じて aria-pressed が切り替わる', () => {
+      setup({ prefs: { ...DEFAULT_WIKI_LIST_PREFS, view: 'folder' } })
+      expect(screen.getByTestId('wiki-view-list')).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByTestId('wiki-view-folder')).toHaveAttribute('aria-pressed', 'true')
+    })
+  })
 })
