@@ -177,3 +177,26 @@ describe('FilesPageClient アップロード', () => {
     })
   })
 })
+
+describe('FilesPageClient 表で見る', () => {
+  it('CSV ファイルには「表で見る」リンクが付き、表ビューのページへ飛ぶ', () => {
+    mockFiles.push(makeFile({ id: 'f-csv', name: 'ターゲット一覧.csv', mimeType: 'text/csv' }))
+    renderPage()
+
+    const link = screen.getByTestId('file-open-table-f-csv')
+    expect(link).toHaveAttribute('href', '/org-1/project/space-1/files/f-csv')
+    // ファイル名そのものも同じページへのリンクにする(押しやすさ)
+    expect(screen.getByRole('link', { name: 'ターゲット一覧.csv' })).toHaveAttribute(
+      'href',
+      '/org-1/project/space-1/files/f-csv'
+    )
+  })
+
+  it('PDF など表でないファイルには「表で見る」リンクを出さない', () => {
+    mockFiles.push(makeFile({ id: 'f-pdf', name: '要件定義書.pdf', mimeType: 'application/pdf' }))
+    renderPage()
+
+    expect(screen.queryByTestId('file-open-table-f-pdf')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '要件定義書.pdf' })).not.toBeInTheDocument()
+  })
+})
