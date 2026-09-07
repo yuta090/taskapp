@@ -36,6 +36,11 @@ https://your-domain.com/api/slack/callback
 
 ## 5. 環境変数設定
 
+> ⚠ ここで設定するのは**ツール連携の「AgentPM」アプリ**（お知らせ・`/agentpm`・@メンション）の鍵だけ。
+> **AI秘書の Slack（「AgentPM秘書」）は環境変数を使わない。** 秘書の Bot Token / Signing Secret は
+> AgentPM の「AI秘書 → つなぐ → Slack」で組織ごとに保存する（`docs/slack-secretary-app-manifest.json`）。
+> 同名の項目があるため、api.slack.com/apps で開いているアプリ名が「AgentPM」であることを確認してから貼る。
+
 `.env.local` に以下を追加:
 
 ```env
