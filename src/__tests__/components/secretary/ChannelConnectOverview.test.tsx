@@ -9,11 +9,14 @@ const ORG = '11111111-1111-4111-8111-111111111111'
 vi.mock('@/lib/hooks/useUserSpaces', () => ({
   useUserSpaces: () => ({ spaces: [], loading: false, error: null, refetch: vi.fn() }),
 }))
+vi.mock('@/lib/hooks/useOrgChannelAccount', () => ({
+  useOrgChannelAccount: () => ({ data: null, isPending: false, refetch: vi.fn() }),
+}))
 
 describe('ChannelConnectOverview', () => {
   it('Slack: 資格情報キー・送信先・開発者コンソールを表示', () => {
     render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
-    expect(screen.getByText('Slack')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Slack' })).toBeInTheDocument()
     expect(screen.getByText('bot_token')).toBeInTheDocument()
     expect(screen.getByText('signing_secret')).toBeInTheDocument()
     const link = screen.getByText('開発者コンソールを開く').closest('a')
@@ -38,17 +41,24 @@ describe('ChannelConnectOverview', () => {
     expect(screen.getByText('資格情報を登録する')).toBeInTheDocument()
     expect(screen.getByText('つなぎ方')).toBeInTheDocument()
     expect(screen.getByText('合言葉の発行')).toBeInTheDocument()
-    // Slack 固有の案内（/invite で秘書を招待 → 合言葉をチャンネルに投稿）
-    expect(screen.getByText(/\/invite/)).toBeInTheDocument()
+    // Slack 固有の案内（/invite で秘書を招待 → 合言葉をチャンネルに投稿）— 全体案内と合言葉パネルの両方に出る
+    expect(screen.getAllByText(/\/invite/).length).toBeGreaterThanOrEqual(1)
     // 自社アプリなので開発者コンソールへのリンクは残す
     expect(screen.getByText('開発者コンソールを開く')).toBeInTheDocument()
   })
 
-  it('Slack（自社アプリ）: 鍵の登録が先、合言葉の発行はその後に並ぶ', () => {
+  it('Slack（自社アプリ）: 全体の流れの案内が最初、鍵の登録、合言葉の発行の順に並ぶ', () => {
     render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
+    const guide = screen.getByText(/Slack に秘書を入れる手順/)
     const form = screen.getByText('資格情報を登録する')
     const claim = screen.getByText('つなぎ方')
+    expect(guide.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(form.compareDocumentPosition(claim) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('Google Chat / Discord には Slack の案内を出さない', () => {
+    render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
+    expect(screen.queryByText(/Slack に秘書を入れる手順/)).not.toBeInTheDocument()
   })
 
   it('Google Chat: 資格情報フォームは出さず、共有Bot接続パネル(設定ガイド＋合言葉発行)を出す', () => {

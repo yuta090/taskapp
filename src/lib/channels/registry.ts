@@ -140,7 +140,8 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     inbound: true,
     group: true,
     directMessage: true,
-    webhookPath: '/api/channels/slack/webhook/{accountId}',
+    // 組織単位URL（アプリ作成前に確定できる）。account 単位URL /webhook/{accountId} も互換のため残す。
+    webhookPath: '/api/channels/slack/webhook/org/{orgId}',
     ownAccountClaim: true,
     signatureScheme: 'hmac-sha256',
     targetHint: 'チャンネルID（Cで始まる）またはユーザーID（U/Wで始まる）',

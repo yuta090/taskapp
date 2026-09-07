@@ -386,9 +386,9 @@ describe('POST /api/channels/accounts — 登録成功', () => {
     expect(res.status).toBe(201)
     expect(json.generatedSecrets).toEqual({})
     expect(storeMock.generateChannelWebhookSecret).not.toHaveBeenCalled()
-    // slack も account単位の受信URL（{accountId} が実IDへ解決される）
+    // slack は組織単位の受信URL（{orgId} が実IDへ解決される。アプリ作成前に確定できる）
     expect(json.webhookUrl).toBe(
-      `http://localhost:3000/api/channels/slack/webhook/${ACCOUNT_ID}`,
+      `http://localhost:3000/api/channels/slack/webhook/org/${ORG_A}`,
     )
   })
 

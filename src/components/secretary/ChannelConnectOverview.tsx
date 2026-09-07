@@ -4,6 +4,7 @@ import { CHANNEL_ICONS } from '@/components/secretary/channelIcons'
 import { ChannelCredentialForm } from '@/components/secretary/ChannelCredentialForm'
 import { SharedBotClaimPanel } from '@/components/secretary/SharedBotClaimPanel'
 import { ChannelCommandGuide } from '@/components/secretary/ChannelCommandGuide'
+import { SlackSecretarySetupGuide } from '@/components/secretary/SlackSecretarySetupGuide'
 
 // beta は内部区分（要検証）でありユーザーには見せない — 表示上は ga と同じ「利用可能」。
 const STATUS_LABEL: Record<ChannelDefinition['status'], { label: string; cls: string }> = {
@@ -49,6 +50,8 @@ export function ChannelConnectOverview({ def, orgId }: { def: ChannelDefinition;
       </div>
 
       {/* 主アクション — 開いた人が最初にやることを最上部に置く */}
+      {/* Slack（自社アプリ）は Slack と AgentPM を往復するため、全体の流れを最初に見せる */}
+      {def.id === 'slack' && <SlackSecretarySetupGuide orgId={orgId} />}
       {isSharedBotClaim && <SharedBotClaimPanel orgId={orgId} channel={def.id} />}
       {canRegister && <ChannelCredentialForm orgId={orgId} def={def} />}
       {canRegister && isOwnAccountClaim && (

@@ -9,6 +9,7 @@ import {
   registerOrgChannelAccount,
   generateChannelWebhookSecret,
   type ChannelAccountMeta,
+  findChannelAccountMetaForOrgChannel,
 } from '@/lib/channels/store'
 import {
   getChannel,
@@ -53,6 +54,21 @@ export async function GET(request: NextRequest) {
   const auth = await requireInternalMember(orgId)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  // channel 指定（LINE 以外・例: slack）: その channel の自社アカウントの有無だけを返す。
+  // 接続ページの「いまどの手順か」表示用。省略時は従来どおり LINE（挙動不変）。
+  const channelParam = request.nextUrl.searchParams.get('channel')
+  if (channelParam && channelParam !== 'line') {
+    if (!getChannel(channelParam)) {
+      return NextResponse.json({ error: 'unknown channel', code: 'unknown_channel' }, { status: 400 })
+    }
+    const own = await findChannelAccountMetaForOrgChannel(orgId, channelParam)
+    return NextResponse.json({
+      account: own ? toWireAccount(own) : null,
+      sharedBotInUse: false,
+      viewerRole: auth.role,
+    })
   }
 
   const account = await findChannelAccountMetaForOrg(orgId)
@@ -319,10 +335,10 @@ export async function POST(request: NextRequest) {
     generatedCredentials,
   })
 
-  // 受信Webhook URL（{accountId} は実IDへ解決）。オペレーターが provider 側に設定する。
+  // 受信Webhook URL（{accountId}/{orgId} は実IDへ解決）。オペレーターが provider 側に設定する。
   const webhookUrl = def.webhookPath
     ? new URL(
-        def.webhookPath.replace('{accountId}', account.id),
+        def.webhookPath.replace('{accountId}', account.id).replace('{orgId}', orgId),
         request.nextUrl.origin,
       ).toString()
     : null
