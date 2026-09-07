@@ -499,7 +499,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
             {issuedCode ? (
               <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-4">
                 <p className="text-xs font-semibold text-amber-900">
-                  このコードをグループのトークに貼り付けてください。貼られると下の「確認待ち」に出るので、承認して完了です。
+                  このコードをグループのトークに貼り付けてください。貼られると下の「グループの承認」に出るので、承認して完了です。
                 </p>
                 <div className="mt-2 flex items-center gap-2">
                   <code className="flex-1 rounded border border-amber-200 bg-surface px-3 py-2 font-mono text-sm tracking-wider text-gray-900">
@@ -645,7 +645,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
           )}
 
           <section className="border-t border-gray-100 pt-6">
-            <h3 className="text-sm font-semibold text-gray-900">確認待ち</h3>
+            <h3 className="text-sm font-semibold text-gray-900">グループの承認</h3>
             <p className="mt-1 text-xs text-gray-500">
               LINEグループにコードが投入されました。グループ名を確認のうえ承認してください。
             </p>
@@ -672,7 +672,7 @@ export function GroupLinksClient({ orgId }: { orgId: string }) {
             ) : items.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
                 <ClipboardText className="w-8 h-8 text-gray-300" />
-                <p className="text-sm text-gray-500">確認待ちのグループはありません。</p>
+                <p className="text-sm text-gray-500">承認待ちのグループはありません。</p>
               </div>
             ) : (
               <ul className="mt-3 space-y-2">
