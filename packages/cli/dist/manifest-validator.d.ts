@@ -44,12 +44,20 @@ export interface ManifestCommand {
     options?: ManifestOption[];
     subcommands?: ManifestSubcommand[];
 }
+/** サーバーが添える「お知らせ」。checksum の対象外で、旧 CLI は項目ごと無視する */
+export interface ManifestNotice {
+    id: string;
+    date?: string;
+    message: string;
+}
 export interface Manifest {
     version: string;
     minCliVersion: string;
     generatedAt: string;
     checksum: string;
     commands: ManifestCommand[];
+    /** validateManifest が必ず配列にする(サーバーが返さなければ []) */
+    notices: ManifestNotice[];
 }
 /** Strip ANSI escape sequences and control characters */
 export declare function sanitize(str: string): string;
@@ -58,6 +66,8 @@ export declare function sanitize(str: string): string;
  * Returns the typed manifest or throws ManifestValidationError.
  */
 export declare function validateManifest(raw: unknown): Manifest;
+/** 受け取る上限。サーバーは直近 10 件しか残さない約束だが、別サーバーを向けた場合の最後の砦 */
+export declare const NOTICES_MAX = 20;
 /**
  * Compare semver strings: returns true if current >= required
  */

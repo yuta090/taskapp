@@ -46,12 +46,24 @@ export interface ManifestCommand {
   subcommands?: ManifestSubcommand[]
 }
 
+/**
+ * CLI に出す「お知らせ」。CLI 側はまだ見ていない id だけを 1 回表示して既読にする。
+ * checksum の対象外(commands だけ)なので、旧 CLI(〜0.4.0)は項目ごと無視して動く。
+ * 追加するときは id を一意に(日付-topic)、message は非技術者向けの一文で。
+ */
+export interface ManifestNotice {
+  id: string
+  date: string
+  message: string
+}
+
 export interface Manifest {
   version: string
   minCliVersion: string
   generatedAt: string
   checksum: string
   commands: ManifestCommand[]
+  notices: ManifestNotice[]
 }
 
 // Space ID option shared across most commands
@@ -819,6 +831,19 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
   },
 ]
 
+export const MANIFEST_NOTICES: ManifestNotice[] = [
+  {
+    id: '2026-09-07-file-upload',
+    date: '2026-09-07',
+    message: 'ファイルを CLI からアップロードできるようになりました: agentpm file upload --file <path>（50MB まで・CSV は TaskApp で表として見られます）',
+  },
+  {
+    id: '2026-09-07-file-jp-name',
+    date: '2026-09-07',
+    message: '日本語の名前のファイルがアップロードで失敗していた不具合を直しました（画面・CLI とも）。以前失敗したファイルは、そのまま上げ直せます',
+  },
+]
+
 function computeChecksum(commands: ManifestCommand[]): string {
   const hash = createHash('sha256').update(JSON.stringify(commands)).digest('hex')
   return `sha256:${hash}`
@@ -830,11 +855,12 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.2.0',
+      version: '1.3.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-09-07T00:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-09-07T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
+      notices: MANIFEST_NOTICES,
     }
   }
   return _cached

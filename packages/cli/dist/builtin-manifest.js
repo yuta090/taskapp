@@ -9,6 +9,7 @@ export const BUILTIN_MANIFEST = {
     minCliVersion: '0.0.0',
     generatedAt: '1970-01-01T00:00:00Z',
     checksum: '',
+    notices: [],
     commands: [
         {
             name: 'task',
