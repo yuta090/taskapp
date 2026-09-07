@@ -35,7 +35,7 @@ beforeEach(() => {
 describe('ApprovalsClient', () => {
   it('SecretaryTabNavを自前で描画しない(タブバーは親の secretary/layout.tsx が持つ)', async () => {
     render(<ApprovalsClient orgId="org-1" />)
-    expect(await screen.findByText('確認待ちの候補はありません。')).toBeInTheDocument()
+    expect(await screen.findByText('秘書からの確認はありません。')).toBeInTheDocument()
     expect(screen.queryByTestId('secretary-tab-approvals')).not.toBeInTheDocument()
     expect(screen.queryByTestId('secretary-tab-messages')).not.toBeInTheDocument()
   })

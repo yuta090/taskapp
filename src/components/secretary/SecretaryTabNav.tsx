@@ -38,7 +38,7 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
   { key: 'messages', label: 'メッセージ', icon: ChatCircleDots, href: (orgId) => `/${orgId}/secretary` },
   {
     key: 'approvals',
-    label: '確認待ち',
+    label: '秘書からの確認',
     icon: ClipboardText,
     href: (orgId) => `/${orgId}/secretary/approvals`,
   },
@@ -48,7 +48,7 @@ const tabs: { key: SecretaryTab; label: string; icon: typeof ChatCircleDots; hre
     // グループの各フローはLINE配下(/secretary/connect/line)に集約する。チャネルごとに
     // トップタブを増やさず、チャネル追加は /connect/<channel> の追加だけで済ませる骨格。
     key: 'connect',
-    label: 'つなぐ',
+    label: 'チャット連携',
     icon: IdentificationCard,
     href: (orgId) => `/${orgId}/secretary/connect/line`,
   },

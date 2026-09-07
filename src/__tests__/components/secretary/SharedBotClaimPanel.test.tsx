@@ -182,7 +182,7 @@ describe('SharedBotClaimPanel — slack（自社アプリ・招待→合言葉�
     render(<SharedBotClaimPanel orgId={ORG} channel="slack" />)
     expect(screen.getByText(/\/invite/)).toBeInTheDocument()
     expect(screen.getByText(/合言葉を発行し/)).toBeInTheDocument()
-    expect(screen.getByText(/確認待ち/)).toBeInTheDocument()
+    expect(screen.getByText(/チャンネルの承認/)).toBeInTheDocument()
     // 自社アプリなので「運営の共通アカウント」という共有Botの言い回しは使わない
     expect(screen.queryByText(/運営の共通アカウント/)).not.toBeInTheDocument()
   })

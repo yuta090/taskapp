@@ -289,7 +289,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl">
           <section className="mb-4">
-            <h2 className="text-sm font-semibold text-gray-900">確認待ち</h2>
+            <h2 className="text-sm font-semibold text-gray-900">秘書からの確認</h2>
             <p className="mt-1 text-xs text-gray-500">
               AI秘書が会話から拾ったタスク候補を、承認するとタスク化・却下するとなかったことになります。
             </p>
@@ -317,7 +317,7 @@ export function ApprovalsClient({ orgId }: { orgId: string }) {
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <ClipboardText className="w-8 h-8 text-gray-300" />
-              <p className="text-sm text-gray-500">確認待ちの候補はありません。</p>
+              <p className="text-sm text-gray-500">秘書からの確認はありません。</p>
               <p className="max-w-sm text-xs text-gray-400">
                 AI秘書が会話から拾ったタスク候補が、承認待ちとしてここに届きます。
                 グループに責任者を決めると届きはじめます。

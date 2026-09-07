@@ -66,18 +66,18 @@ describe('ChannelConnectOverview', () => {
   it('Slack（自社アプリ）: 合言葉の発行の後に、そのチャネルの「確認待ち」を出す（LINEの画面に行かなくて済む）', () => {
     render(<ChannelConnectOverview def={CHANNELS.slack} orgId={ORG} />)
     const claim = screen.getByText('合言葉の発行')
-    const pending = screen.getByText('確認待ち')
+    const pending = screen.getByText('チャンネルの承認')
     expect(claim.compareDocumentPosition(pending) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('Discord（共有Bot）: こちらにも「確認待ち」を出す', () => {
     render(<ChannelConnectOverview def={CHANNELS.discord} orgId={ORG} />)
-    expect(screen.getByText('確認待ち')).toBeInTheDocument()
+    expect(screen.getByText('チャンネルの承認')).toBeInTheDocument()
   })
 
   it('Telegram（合言葉方式でない）: 「確認待ち」は出さない', () => {
     render(<ChannelConnectOverview def={CHANNELS.telegram} orgId={ORG} />)
-    expect(screen.queryByText('確認待ち')).toBeNull()
+    expect(screen.queryByText('チャンネルの承認')).toBeNull()
   })
 
   it('Google Chat / Discord には Slack の案内を出さない', () => {
