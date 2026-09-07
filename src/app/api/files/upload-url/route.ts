@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
+import { toStorageKeyName } from '@/lib/files/storageKey'
 
 const MAX_FILE_SIZE_BYTES = 52428800
 const MAX_NAME_LENGTH = 255
@@ -73,7 +74,8 @@ export async function POST(request: NextRequest) {
     const clientVisible = isClientRole
 
     const fileId = crypto.randomUUID()
-    const storagePath = `${spaceId}/${fileId}/${name}`
+    // 鍵は ASCII のみ(日本語名は Storage が InvalidKey で拒む)。表示名は files.name に残す
+    const storagePath = `${spaceId}/${fileId}/${toStorageKeyName(name)}`
 
     const { data: fileRow, error: insertError } = await (supabase as SupabaseClient)
       .from('files')

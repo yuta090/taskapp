@@ -45,6 +45,24 @@ function isClientRole(role) {
 }
 /** パス区切りと、署名URLに載せると Storage 側でパスがずれる文字 */
 const FORBIDDEN_NAME_CHARS = ['/', '\\', '#', '?'];
+/**
+ * Storage の鍵(保存先パス)に使える文字は ASCII の一部だけ。日本語名をそのまま鍵にすると
+ * InvalidKey で PUT が失敗する。表示名は files.name に残し、鍵だけ英数字に落とす
+ * (Web 側 src/lib/files/storageKey.ts と同じ規則。packages は src を import できないので複製)
+ */
+const MAX_KEY_BASE_LENGTH = 100;
+function toSafeSegment(s) {
+    return s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+}
+export function toStorageKeyName(name) {
+    const trimmed = name.trim();
+    const dot = trimmed.lastIndexOf('.');
+    const hasExt = dot > 0 && dot < trimmed.length - 1;
+    const base = hasExt ? trimmed.slice(0, dot) : trimmed;
+    const ext = hasExt ? toSafeSegment(trimmed.slice(dot + 1)) : '';
+    const safeBase = (toSafeSegment(base) || 'file').slice(0, MAX_KEY_BASE_LENGTH);
+    return ext ? `${safeBase}.${ext}` : safeBase;
+}
 function isTabularName(name) {
     const lower = name.toLowerCase();
     return TABULAR_EXTENSIONS.some((ext) => lower.endsWith(ext));
@@ -96,7 +114,8 @@ export async function fileUploadUrl(params) {
     // 現状 mcp_authorize は client/vendor の write を file に許可しないためここには来ないが、Web と同じ強制を防御として残す
     const clientRole = isClientRole(role);
     const fileId = randomUUID();
-    const storagePath = `${params.spaceId}/${fileId}/${params.name}`;
+    // 鍵は ASCII のみ。表示名(params.name)はそのまま files.name に入れる
+    const storagePath = `${params.spaceId}/${fileId}/${toStorageKeyName(params.name)}`;
     const { data: row, error: insertError } = await supabase
         .from('files')
         .insert({

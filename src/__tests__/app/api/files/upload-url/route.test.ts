@@ -188,7 +188,15 @@ describe('POST /api/files/upload-url', () => {
       size_bytes: 1024,
       status: 'pending',
     })
-    expect(fileInsertCall?.storage_path).toMatch(new RegExp(`^${SPACE_ID}/.+/議事録\\.pdf$`))
+    // 表示名は日本語のまま、Storage の鍵(storage_path)は ASCII に落ちる(日本語のままだと InvalidKey で PUT が失敗する)
+    expect(fileInsertCall?.storage_path).toMatch(new RegExp(`^${SPACE_ID}/[0-9a-f-]{36}/file\\.pdf$`))
+  })
+
+  it('日本語・全角記号を含む名前でも storage_path は鍵に使える文字だけになる', async () => {
+    await callPost(validBody({ name: 'DXセミナー＞研修販売に向けたタスク - No.5_標準機能一覧.csv' }))
+    expect(fileInsertCall?.name).toBe('DXセミナー＞研修販売に向けたタスク - No.5_標準機能一覧.csv')
+    expect(fileInsertCall?.storage_path).toMatch(new RegExp(`^${SPACE_ID}/[0-9a-f-]{36}/DX_-_No\\.5\\.csv$`))
+    expect(createSignedUploadUrlCall).toBe(fileInsertCall?.storage_path)
   })
 
   it('returns 500 when the file insert fails', async () => {

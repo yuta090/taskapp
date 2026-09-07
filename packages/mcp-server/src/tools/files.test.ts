@@ -68,7 +68,7 @@ vi.mock('../auth/helpers.js', () => ({
   checkAuth: (...args: unknown[]) => authorizeMock(...args),
 }))
 
-const { fileUploadUrl, fileUploadComplete, fileList } = await import('./files.js')
+const { fileUploadUrl, fileUploadComplete, fileList, toStorageKeyName } = await import('./files.js')
 
 const SPACE = '11111111-1111-4111-8111-111111111111'
 const FILE_ID = '22222222-2222-4222-8222-222222222222'
@@ -107,7 +107,8 @@ describe('file_upload_url', () => {
       size_bytes: 1234,
       status: 'pending',
     })
-    expect(String(inserted[0].row.storage_path)).toBe(`${SPACE}/${r.fileId}/ターゲット一覧.csv`)
+    // 表示名は日本語のまま、鍵(storage_path)は ASCII に落ちる(日本語のままだと Storage が InvalidKey で拒む)
+    expect(String(inserted[0].row.storage_path)).toBe(`${SPACE}/${r.fileId}/file.csv`)
     expect(r.signedUrl).toContain('token=tok')
     expect(r.token).toBe('tok')
   })
@@ -218,5 +219,14 @@ describe('file_list', () => {
     const r = await fileList({ spaceId: SPACE, limit: 50 })
     expect(r.map((f) => f.id).sort()).toEqual(['f-mine', 'f-public'])
     expect(orCalls[0]).toBe('client_visible.eq.true,uploaded_by.eq.u-taka')
+  })
+})
+
+describe('toStorageKeyName', () => {
+  it('日本語・全角記号・空白を "_" にまとめ、拡張子を残す(Web 側 storageKey.ts と同じ規則)', () => {
+    expect(toStorageKeyName('list.csv')).toBe('list.csv')
+    expect(toStorageKeyName('DXセミナー＞研修販売に向けたタスク - No.5_標準機能一覧_20260904.csv')).toBe('DX_-_No.5_20260904.csv')
+    expect(toStorageKeyName('資料')).toBe('file')
+    expect(toStorageKeyName('a#b?c.txt')).toBe('a_b_c.txt')
   })
 })
