@@ -44,7 +44,7 @@ export default async function PortalFilesPage({ searchParams }: PageProps) {
   // 可視性はRLSに従う(client_visible=true または自分がアップロードしたファイルのみ)
   const { data: fileRows } = await (supabase as SupabaseClient)
     .from('files')
-    .select('id, name, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
+    .select('id, name, description, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
     .eq('space_id', spaceId)
     .eq('status', 'ready')
     .order('created_at', { ascending: false })
@@ -52,6 +52,7 @@ export default async function PortalFilesPage({ searchParams }: PageProps) {
   const files: ProjectFile[] = (fileRows || []).map((f: {
     id: string
     name: string
+    description: string | null
     mime_type: string
     size_bytes: number
     origin: 'internal' | 'client'
@@ -61,6 +62,7 @@ export default async function PortalFilesPage({ searchParams }: PageProps) {
   }) => ({
     id: f.id,
     name: f.name,
+    description: f.description ?? null,
     mimeType: f.mime_type,
     sizeBytes: f.size_bytes,
     origin: f.origin,

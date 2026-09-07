@@ -43,6 +43,7 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
   return {
     id: 'file-1',
     name: '要件定義.pdf',
+    description: null,
     mimeType: 'application/pdf',
     sizeBytes: 2048,
     origin: 'internal',

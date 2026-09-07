@@ -68,6 +68,7 @@ describe('GET /api/files', () => {
           origin: 'internal',
           client_visible: false,
           uploaded_by: UPLOADER_ID,
+          description: '第2四半期の要件まとめ',
           created_at: '2026-07-07T00:00:00.000Z',
         },
       ],
@@ -114,8 +115,31 @@ describe('GET /api/files', () => {
       clientVisible: false,
       uploadedBy: UPLOADER_ID,
       uploaderName: '山田太郎',
+      description: '第2四半期の要件まとめ',
       createdAt: '2026-07-07T00:00:00.000Z',
     })
+  })
+
+  it('description は未設定なら null で返す', async () => {
+    filesListResponse = {
+      data: [
+        {
+          id: 'file-2',
+          name: 'メモ.txt',
+          mime_type: 'text/plain',
+          size_bytes: 10,
+          origin: 'internal',
+          client_visible: false,
+          uploaded_by: UPLOADER_ID,
+          description: null,
+          created_at: '2026-07-07T00:00:00.000Z',
+        },
+      ],
+      error: null,
+    }
+    const response = await callGet(SPACE_ID)
+    const data = await response.json()
+    expect(data.files[0].description).toBeNull()
   })
 
   it('falls back to "メンバー" when the uploader has no display name', async () => {

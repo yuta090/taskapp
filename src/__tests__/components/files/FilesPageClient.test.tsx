@@ -42,6 +42,7 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
     clientVisible: false,
     uploadedBy: 'u1',
     uploaderName: '田中太郎',
+    description: null,
     createdAt: '2026-07-01T00:00:00',
     ...overrides,
   }
@@ -198,5 +199,164 @@ describe('FilesPageClient 表で見る', () => {
 
     expect(screen.queryByTestId('file-open-table-f-pdf')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '要件定義書.pdf' })).not.toBeInTheDocument()
+  })
+})
+
+describe('FilesPageClient 説明文', () => {
+  it('説明文があれば名前の下に表示する', () => {
+    mockFiles.push(makeFile({ id: 'f1', description: '4月に client からもらった元データ' }))
+    renderPage()
+
+    expect(screen.getByTestId('file-description-f1')).toHaveTextContent('4月に client からもらった元データ')
+  })
+
+  it('説明文がなければ「説明を追加」を出す', () => {
+    mockFiles.push(makeFile({ id: 'f1', description: null }))
+    renderPage()
+
+    expect(screen.getByTestId('file-description-edit-f1')).toHaveTextContent('説明を追加')
+  })
+
+  it('説明を書いて Enter を押すと useUpdateFile が description 付きで呼ばれる', () => {
+    mockFiles.push(makeFile({ id: 'f1', description: null }))
+    renderPage()
+
+    fireEvent.click(screen.getByTestId('file-description-edit-f1'))
+    const input = screen.getByTestId('file-description-input-f1') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '毎月更新する元データ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(updateMutate).toHaveBeenCalledWith({
+      spaceId: 'space-1',
+      fileId: 'f1',
+      description: '毎月更新する元データ',
+    })
+  })
+
+  it('Esc を押すと編集をやめて保存しない', () => {
+    mockFiles.push(makeFile({ id: 'f1', description: 'もとの説明' }))
+    renderPage()
+
+    fireEvent.click(screen.getByTestId('file-description-f1'))
+    const input = screen.getByTestId('file-description-input-f1') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '書きかけ' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(updateMutate).not.toHaveBeenCalled()
+    expect(screen.getByTestId('file-description-f1')).toHaveTextContent('もとの説明')
+  })
+
+  it('中身が変わっていなければ保存しない', () => {
+    mockFiles.push(makeFile({ id: 'f1', description: 'もとの説明' }))
+    renderPage()
+
+    fireEvent.click(screen.getByTestId('file-description-f1'))
+    fireEvent.keyDown(screen.getByTestId('file-description-input-f1'), { key: 'Enter' })
+
+    expect(updateMutate).not.toHaveBeenCalled()
+  })
+
+  it('空にして保存すると説明を消す(null)', () => {
+    mockFiles.push(makeFile({ id: 'f1', description: 'もとの説明' }))
+    renderPage()
+
+    fireEvent.click(screen.getByTestId('file-description-f1'))
+    const input = screen.getByTestId('file-description-input-f1') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(updateMutate).toHaveBeenCalledWith({ spaceId: 'space-1', fileId: 'f1', description: null })
+  })
+})
+
+describe('FilesPageClient 絞り込み', () => {
+  it('検索でファイル名を絞り込む', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '要件定義書.pdf' }))
+    mockFiles.push(makeFile({ id: 'f2', name: '売上一覧.csv', mimeType: 'text/csv' }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-search'), { target: { value: '売上' } })
+
+    expect(screen.queryByText('要件定義書.pdf')).not.toBeInTheDocument()
+    expect(screen.getByText('売上一覧.csv')).toBeInTheDocument()
+  })
+
+  it('検索は説明文にもあたる', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: 'a.pdf', description: '請求まわりの資料' }))
+    mockFiles.push(makeFile({ id: 'f2', name: 'b.pdf', description: null }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-search'), { target: { value: '請求' } })
+
+    expect(screen.getByText('a.pdf')).toBeInTheDocument()
+    expect(screen.queryByText('b.pdf')).not.toBeInTheDocument()
+  })
+
+  it('種類で絞り込む', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '要件定義書.pdf' }))
+    mockFiles.push(makeFile({ id: 'f2', name: '売上一覧.csv', mimeType: 'text/csv' }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-filter-kind'), { target: { value: 'table' } })
+
+    expect(screen.queryByText('要件定義書.pdf')).not.toBeInTheDocument()
+    expect(screen.getByText('売上一覧.csv')).toBeInTheDocument()
+  })
+
+  it('公開状態で絞り込む', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '社内メモ.pdf', clientVisible: false }))
+    mockFiles.push(makeFile({ id: 'f2', name: '共有資料.pdf', clientVisible: true }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-filter-visibility'), { target: { value: 'visible' } })
+
+    expect(screen.queryByText('社内メモ.pdf')).not.toBeInTheDocument()
+    expect(screen.getByText('共有資料.pdf')).toBeInTheDocument()
+  })
+
+  it('提供元で絞り込む', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '社内資料.pdf', origin: 'internal' }))
+    mockFiles.push(makeFile({ id: 'f2', name: '先方資料.pdf', origin: 'client', clientVisible: true }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-filter-origin'), { target: { value: 'client' } })
+
+    expect(screen.queryByText('社内資料.pdf')).not.toBeInTheDocument()
+    expect(screen.getByText('先方資料.pdf')).toBeInTheDocument()
+  })
+
+  it('条件に合うものがなければ、空だと言い切らず条件のせいだと伝える', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '要件定義書.pdf' }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-search'), { target: { value: 'まったく無い名前' } })
+
+    expect(screen.getByText('条件に合うファイルがありません')).toBeInTheDocument()
+    expect(screen.queryByText('ファイルはまだありません')).not.toBeInTheDocument()
+  })
+
+  it('「条件をクリア」で全件に戻る', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '要件定義書.pdf' }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-search'), { target: { value: 'まったく無い名前' } })
+    fireEvent.click(screen.getByTestId('files-filter-clear'))
+
+    expect(screen.getByText('要件定義書.pdf')).toBeInTheDocument()
+  })
+
+  it('絞り込み中は「N件 / 全M件」を表示する', () => {
+    mockFiles.push(makeFile({ id: 'f1', name: '要件定義書.pdf' }))
+    mockFiles.push(makeFile({ id: 'f2', name: '売上一覧.csv', mimeType: 'text/csv' }))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-search'), { target: { value: '売上' } })
+
+    expect(screen.getByTestId('files-count')).toHaveTextContent('1件 / 全2件')
+  })
+
+  it('ファイルが1つもないときは絞り込みバーを出さない', () => {
+    renderPage()
+    expect(screen.queryByTestId('files-search')).not.toBeInTheDocument()
   })
 })

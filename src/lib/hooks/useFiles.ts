@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 export interface ProjectFile {
   id: string
   name: string
+  /** 一覧に出す短い説明。未設定なら null */
+  description: string | null
   mimeType: string
   sizeBytes: number
   origin: 'internal' | 'client'
@@ -95,21 +97,23 @@ interface UpdateFileParams {
   fileId: string
   clientVisible?: boolean
   name?: string
+  /** null を渡すと説明を消す。undefined は「触らない」 */
+  description?: string | null
 }
 
 /**
- * ファイルの公開トグル・リネーム
+ * ファイルの公開トグル・リネーム・説明文の更新
  */
 export function useUpdateFile() {
   const queryClient = useQueryClient()
 
   return useMutation({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    mutationFn: async ({ spaceId, fileId, clientVisible, name }: UpdateFileParams) => {
+    mutationFn: async ({ spaceId, fileId, clientVisible, name, description }: UpdateFileParams) => {
       const res = await fetch(`/api/files/${fileId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientVisible, name }),
+        body: JSON.stringify({ clientVisible, name, description }),
       })
 
       if (!res.ok) {
@@ -119,7 +123,33 @@ export function useUpdateFile() {
 
       return res.json()
     },
-    onSuccess: (_, variables) => {
+    // 保存ボタンを置かない方針なので、押した瞬間に一覧へ反映し、失敗したときだけ元に戻す
+    onMutate: async (variables) => {
+      const queryKey = ['files', variables.spaceId]
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<ProjectFile[]>(queryKey)
+
+      queryClient.setQueryData<ProjectFile[]>(queryKey, (current) =>
+        (current || []).map((file) =>
+          file.id === variables.fileId
+            ? {
+                ...file,
+                ...(variables.clientVisible !== undefined ? { clientVisible: variables.clientVisible } : {}),
+                ...(variables.name !== undefined ? { name: variables.name } : {}),
+                ...(variables.description !== undefined ? { description: variables.description } : {}),
+              }
+            : file
+        )
+      )
+
+      return { previous, queryKey }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(context.queryKey, context.previous)
+      }
+    },
+    onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: ['files', variables.spaceId] })
     },
   })
