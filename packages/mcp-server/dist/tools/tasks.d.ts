@@ -60,6 +60,7 @@ export declare const taskUpdateSchema: z.ZodObject<{
     parentTaskId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     actualHours: z.ZodNullable<z.ZodOptional<z.ZodNumber>>;
     milestoneId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+    wikiPageId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     taskId: string;
@@ -74,6 +75,7 @@ export declare const taskUpdateSchema: z.ZodObject<{
     startDate?: string | null | undefined;
     parentTaskId?: string | null | undefined;
     actualHours?: number | null | undefined;
+    wikiPageId?: string | null | undefined;
 }, {
     spaceId: string;
     taskId: string;
@@ -88,6 +90,7 @@ export declare const taskUpdateSchema: z.ZodObject<{
     startDate?: string | null | undefined;
     parentTaskId?: string | null | undefined;
     actualHours?: number | null | undefined;
+    wikiPageId?: string | null | undefined;
 }>;
 export declare const taskListSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -260,6 +263,7 @@ export declare const taskTools: ({
         parentTaskId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
         actualHours: z.ZodNullable<z.ZodOptional<z.ZodNumber>>;
         milestoneId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+        wikiPageId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         taskId: string;
@@ -274,6 +278,7 @@ export declare const taskTools: ({
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
+        wikiPageId?: string | null | undefined;
     }, {
         spaceId: string;
         taskId: string;
@@ -288,6 +293,7 @@ export declare const taskTools: ({
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
+        wikiPageId?: string | null | undefined;
     }>;
     handler: typeof taskUpdate;
 } | {

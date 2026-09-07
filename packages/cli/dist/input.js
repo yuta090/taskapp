@@ -125,4 +125,18 @@ export function buildStdinParams(sub, rawText, opts, resolvedSpaceId) {
     }
     return mergeCliOptions(sub.options, opts, base, resolvedSpaceId);
 }
+/**
+ * テキスト入力モード（stdinFormat='text'）で、実際に stdin / --file から本文を読むべきか。
+ * どちらも無ければ通常モード（--body 等の引数）にそのまま進む。JSON モード（scheduling）は従来どおり
+ * --stdin 必須なので、この判定は text モード専用。
+ */
+export function wantsTextInput(sub, opts) {
+    if (!sub.stdinMode || sub.stdinFormat !== 'text')
+        return { read: false };
+    if (typeof opts.file === 'string' && opts.file !== '')
+        return { read: true, filePath: opts.file };
+    if (opts.stdin === true)
+        return { read: true };
+    return { read: false };
+}
 //# sourceMappingURL=input.js.map

@@ -143,6 +143,27 @@ agentpm ball query [--space-id <uuid>] --ball <side> [--include-owners] [--limit
 agentpm dashboard [--space-id <uuid>]
 ```
 
+### Wiki（Markdown / HTML の転記とタスクからの参照）
+
+```bash
+agentpm wiki list [--space-id <uuid>]
+agentpm wiki create --title <title> (--file <path> | --stdin | --body <text>) [--format markdown|html|blocks] [--tags <tags...>]
+agentpm wiki update --page-id <id> [--title <title>] [--file <path> | --stdin | --body <text>] [--format ...] [--tags ...]
+agentpm task update --task-id <uuid> --wiki-page-id <uuid>     # タスクの「仕様書連携」に Wiki を紐づける（解除は画面から）
+```
+
+- 本文は **Markdown / HTML / BlockNote JSON** のどれでも可。省略時は自動判定（JSONブロック配列→blocks、HTMLらしければ html、それ以外 markdown）。
+  保存時にサーバーで画面と同じブロック形式へ変換するので、見出し・箇条書き・表・リンク・太字がそのまま Wiki で表示・編集できる。
+  （以前は Markdown をそのまま保存していたため、画面では**空のページに見えていた**）
+- `--file` はファイルをそのまま本文にする（BOM は除去）。`.md` / `.html` の区別は中身で自動判定するので拡張子は問わない。
+- タスク側の「仕様書連携」欄に出るのは **タグ「仕様書」の付いたページ**だけ。作業成果物を紐づける用途では `--tags 仕様書` を付ける。
+
+例: 作業した md/html を Wiki に転記してタスクから参照する
+```bash
+PAGE=$(agentpm wiki create --title "顧客ジャーニー v1" --file 14_customer_journey_v1.md --tags 仕様書 --json | jq -r .id)
+agentpm task update --task-id <タスクUUID> --wiki-page-id "$PAGE"
+```
+
 ### Space / Milestone / Meeting / Review / Activity / Client / Wiki / Minutes / Scheduling
 
 全コマンド詳細は `agentpm --help` または各サブコマンドの `--help` を参照。

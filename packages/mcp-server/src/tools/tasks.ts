@@ -36,6 +36,7 @@ export const taskUpdateSchema = z.object({
   parentTaskId: z.string().uuid().optional().nullable().describe('親タスクUUID（最大10階層）'),
   actualHours: z.number().min(0).optional().nullable().describe('実績工数'),
   milestoneId: z.string().uuid().optional().nullable().describe('マイルストーンUUID'),
+  wikiPageId: z.string().uuid().optional().nullable().describe('紐づける WikiページUUID（null で解除）。画面の「仕様書連携」に対応'),
 })
 
 export const taskListSchema = z.object({
@@ -197,6 +198,7 @@ export async function taskUpdate(params: z.infer<typeof taskUpdateSchema>): Prom
   if (params.parentTaskId !== undefined) updateData.parent_task_id = params.parentTaskId
   if (params.actualHours !== undefined) updateData.actual_hours = params.actualHours
   if (params.milestoneId !== undefined) updateData.milestone_id = params.milestoneId
+  if (params.wikiPageId !== undefined) updateData.wiki_page_id = params.wikiPageId
 
   if (Object.keys(updateData).length === 0) {
     throw new Error('更新するフィールドがありません')
