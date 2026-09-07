@@ -44,7 +44,7 @@ function WhereBadge({ where }: { where: Where }) {
  * 以前あった「登録後に Slack へ戻って受信URLを貼る」手順は無い。
  */
 export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
-  const { data: account, refetch } = useOrgChannelAccount(orgId, 'slack')
+  const { data: account, isPending, refetch } = useOrgChannelAccount(orgId, 'slack')
   const registered = !!account && account.status === 'active'
   const [copied, setCopied] = useState(false)
 
@@ -58,7 +58,10 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
   }, [orgId, refetch])
 
   const manifest = useMemo(() => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'
+    // サーバー描画とブラウザで同じ値になるよう環境変数を優先（無ければブラウザの origin）
+    const origin =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app')
     return buildSecretarySlackManifest({ eventsUrl: secretaryWebhookUrlForOrg(origin, orgId) })
   }, [orgId])
   const createUrl = useMemo(() => secretaryManifestCreateUrl(manifest), [manifest])
@@ -169,7 +172,8 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
   ]
 
   // いまどの手順か: 鍵の登録（手順3）までが AgentPM 側で判定できる。以降は利用者の操作なので手順4を示す。
-  const currentIndex = registered ? 3 : 0
+  // 初回（キャッシュ無し）の取得中は印を出さない — 登録済みの人に一瞬「手順1」を見せない。
+  const currentIndex = isPending ? -1 : registered ? 3 : 0
 
   return (
     <section className="mb-6 rounded-lg border border-gray-200 bg-surface p-4">
@@ -180,7 +184,7 @@ export function SlackSecretarySetupGuide({ orgId }: { orgId: string }) {
 
       <ol className="mt-4 space-y-3">
         {steps.map((s, i) => {
-          const done = i < currentIndex
+          const done = currentIndex >= 0 && i < currentIndex
           const current = i === currentIndex
           return (
             <li

@@ -71,6 +71,14 @@ describe('SlackSecretarySetupGuide', () => {
     expect(current.closest('li')).toHaveTextContent(/秘書アプリを作る/)
   })
 
+  it('取得中（初回・キャッシュ無し）: 本文は出すが「済み／いまここ」の印は出さない（登録済みの人に手順1を一瞬見せない）', () => {
+    accountState = { data: undefined, isPending: true, refetch: vi.fn() }
+    render(<SlackSecretarySetupGuide orgId={ORG} />)
+    expect(screen.getByText(/秘書アプリを作る/)).toBeInTheDocument()
+    expect(screen.queryByText('いまここ')).not.toBeInTheDocument()
+    expect(screen.queryByText('済み')).not.toBeInTheDocument()
+  })
+
   it('登録済み: 手順1〜3は済み、いまここ＝手順4（招待）。登録した名前を出す', () => {
     accountState = {
       data: { id: 'acc', channel: 'slack', displayName: 'AgentPM秘書', status: 'active', createdAt: '', ownerType: 'org' },
