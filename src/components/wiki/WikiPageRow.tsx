@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { memo, useCallback, type ReactNode } from 'react'
 import Image from 'next/image'
 import { Tag } from '@phosphor-icons/react'
 import { TruncatedText } from '@/components/shared'
@@ -16,7 +16,8 @@ export interface WikiRowMember {
 interface WikiPageRowProps {
   page: WikiPage
   isSelected: boolean
-  onClick: () => void
+  /** 行クリック。id 引数の安定コールバックを渡す（memo が効くように毎回新しい関数を作らない）。 */
+  onSelect: (pageId: string) => void
   /** メタ行に出す項目。'updated_at' は右端固定位置に出る。 */
   columns: WikiListColumn[]
   getMember: (userId: string) => WikiRowMember | null
@@ -24,7 +25,9 @@ interface WikiPageRowProps {
 
 /** 20px 丸アバター。TaskRow の担当者アバターと同じ見た目（画像があれば画像、無ければ頭文字）。 */
 function MemberAvatar({ member, fallbackId }: { member: WikiRowMember | null; fallbackId: string }) {
-  const name = member?.name ?? `${fallbackId.slice(0, 8)}...`
+  // メンバー未取得（読み込み中・退会済み）のときは UUID を出さず「?」で埋める
+  const initial = member?.name ? member.name.charAt(0).toUpperCase() : '?'
+  void fallbackId
 
   if (member?.avatarUrl) {
     return (
@@ -44,7 +47,7 @@ function MemberAvatar({ member, fallbackId }: { member: WikiRowMember | null; fa
       className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px] font-medium"
       aria-hidden="true"
     >
-      {name.charAt(0).toUpperCase()}
+      {initial}
     </div>
   )
 }
@@ -56,8 +59,9 @@ function withSeparators(nodes: ReactNode[]): ReactNode[] {
   )
 }
 
-export function WikiPageRow({ page, isSelected, onClick, columns, getMember }: WikiPageRowProps) {
+function WikiPageRowInner({ page, isSelected, onSelect, columns, getMember }: WikiPageRowProps) {
   const metaItems: ReactNode[] = []
+  const handleClick = useCallback(() => onSelect(page.id), [onSelect, page.id])
 
   if (columns.includes('tags') && page.tags.length > 0) {
     metaItems.push(
@@ -80,16 +84,16 @@ export function WikiPageRow({ page, isSelected, onClick, columns, getMember }: W
     metaItems.push(
       <span key="author" className="flex items-center gap-1.5">
         <MemberAvatar member={author} fallbackId={page.created_by} />
-        <span>{author?.name ?? `${page.created_by.slice(0, 8)}...`}</span>
+        {author?.name && <span>{author.name}</span>}
       </span>
     )
   }
 
   if (columns.includes('updater') && page.updated_by !== page.created_by) {
     const updater = getMember(page.updated_by)
-    metaItems.push(
-      <span key="updater">更新: {updater?.name ?? `${page.updated_by.slice(0, 8)}...`}</span>
-    )
+    if (updater?.name) {
+      metaItems.push(<span key="updater">更新: {updater.name}</span>)
+    }
   }
 
   if (columns.includes('created_at')) {
@@ -102,7 +106,7 @@ export function WikiPageRow({ page, isSelected, onClick, columns, getMember }: W
 
   return (
     <div
-      onClick={onClick}
+      onClick={handleClick}
       className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 ${
         isSelected
           ? 'bg-indigo-50/60 border-l-2 border-l-indigo-500'
@@ -130,3 +134,6 @@ export function WikiPageRow({ page, isSelected, onClick, columns, getMember }: W
     </div>
   )
 }
+
+/** 検索1文字ごとに全行が作り直されないよう memo 化。props は全て安定参照で渡すこと。 */
+export const WikiPageRow = memo(WikiPageRowInner)

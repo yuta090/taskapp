@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { WikiPageRow, type WikiRowMember } from '@/components/wiki/WikiPageRow'
 import type { WikiPage } from '@/types/database'
 
@@ -32,7 +32,7 @@ const getMember = vi.fn((userId: string) => MEMBERS[userId] ?? null)
 
 describe('WikiPageRow', () => {
   it('columns=[] だとタイトルだけでメタ情報は出ない', () => {
-    render(<WikiPageRow page={page()} isSelected={false} onClick={vi.fn()} columns={[]} getMember={getMember} />)
+    render(<WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} />)
     expect(screen.getByText('ページタイトル')).toBeInTheDocument()
     expect(screen.queryByText('要件')).not.toBeInTheDocument()
     expect(screen.queryByText('田中太郎')).not.toBeInTheDocument()
@@ -43,7 +43,7 @@ describe('WikiPageRow', () => {
       <WikiPageRow
         page={page({ tags: ['a', 'b', 'c', 'd'] })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['tags']}
         getMember={getMember}
       />
@@ -57,13 +57,13 @@ describe('WikiPageRow', () => {
 
   it('タグが無いページでは tags 列を出しても何も表示しない', () => {
     render(
-      <WikiPageRow page={page({ tags: [] })} isSelected={false} onClick={vi.fn()} columns={['tags']} getMember={getMember} />
+      <WikiPageRow page={page({ tags: [] })} isSelected={false} onSelect={vi.fn()} columns={['tags']} getMember={getMember} />
     )
     expect(screen.queryByText('要件')).not.toBeInTheDocument()
   })
 
   it('author 列で作成者名が出る', () => {
-    render(<WikiPageRow page={page()} isSelected={false} onClick={vi.fn()} columns={['author']} getMember={getMember} />)
+    render(<WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={['author']} getMember={getMember} />)
     expect(screen.getByText('田中太郎')).toBeInTheDocument()
   })
 
@@ -72,7 +72,7 @@ describe('WikiPageRow', () => {
       <WikiPageRow
         page={page({ created_by: 'user2' })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['author']}
         getMember={getMember}
       />
@@ -85,7 +85,7 @@ describe('WikiPageRow', () => {
       <WikiPageRow
         page={page({ created_by: 'user1' })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['author']}
         getMember={getMember}
       />
@@ -94,17 +94,27 @@ describe('WikiPageRow', () => {
     expect(container.querySelector('img')).not.toBeInTheDocument()
   })
 
-  it('getMember が null を返すユーザーは id の先頭で代替表示する', () => {
+  it('getMember が null を返すユーザーは UUID を出さず「?」アバターだけ表示する', () => {
     render(
       <WikiPageRow
         page={page({ created_by: 'unknown-user-id' })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['author']}
         getMember={() => null}
       />
     )
-    expect(screen.getByText('unknown-...')).toBeInTheDocument()
+    expect(screen.queryByText(/unknown-/)).not.toBeInTheDocument()
+    expect(screen.getByText('?')).toBeInTheDocument()
+  })
+
+  it('クリックすると onSelect にページ id が渡る', () => {
+    const onSelect = vi.fn()
+    render(
+      <WikiPageRow page={page({ id: 'page-xyz' })} isSelected={false} onSelect={onSelect} columns={[]} getMember={getMember} />
+    )
+    fireEvent.click(screen.getByText('ページタイトル'))
+    expect(onSelect).toHaveBeenCalledWith('page-xyz')
   })
 
   it('updater 列は created_by と異なるときだけ「更新: 名前」と出る', () => {
@@ -112,7 +122,7 @@ describe('WikiPageRow', () => {
       <WikiPageRow
         page={page({ created_by: 'user1', updated_by: 'user2' })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['updater']}
         getMember={getMember}
       />
@@ -125,7 +135,7 @@ describe('WikiPageRow', () => {
       <WikiPageRow
         page={page({ created_by: 'user1', updated_by: 'user1' })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['updater']}
         getMember={getMember}
       />
@@ -138,7 +148,7 @@ describe('WikiPageRow', () => {
       <WikiPageRow
         page={page({ created_at: '2026-09-01T10:30:00+09:00' })}
         isSelected={false}
-        onClick={vi.fn()}
+        onSelect={vi.fn()}
         columns={['created_at']}
         getMember={getMember}
       />
@@ -149,20 +159,13 @@ describe('WikiPageRow', () => {
   })
 
   it('updated_at 列は右端に相対時刻を表示し、title に絶対時刻を持つ', () => {
-    render(<WikiPageRow page={page()} isSelected={false} onClick={vi.fn()} columns={['updated_at']} getMember={getMember} />)
+    render(<WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={['updated_at']} getMember={getMember} />)
     const el = screen.getByTitle(/^\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}$/)
     expect(el).toBeInTheDocument()
   })
 
   it('columns に updated_at が無ければ右端の時刻は出ない', () => {
-    render(<WikiPageRow page={page()} isSelected={false} onClick={vi.fn()} columns={[]} getMember={getMember} />)
+    render(<WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} />)
     expect(screen.queryByTitle(/^\d{4}\//)).not.toBeInTheDocument()
-  })
-
-  it('クリックで onClick が呼ばれる', () => {
-    const onClick = vi.fn()
-    render(<WikiPageRow page={page()} isSelected={false} onClick={onClick} columns={[]} getMember={getMember} />)
-    screen.getByText('ページタイトル').click()
-    expect(onClick).toHaveBeenCalled()
   })
 })

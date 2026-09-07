@@ -192,9 +192,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     )
   }, [activePage, isMobile, showInfo, setInspector, updatePage, deletePage, fetchPage, fetchVersions, updateQuery])
 
-  const handleSelectPage = (pageId: string) => {
+  // memo 化した WikiPageRow に渡すため安定参照にする
+  const handleSelectPage = useCallback((pageId: string) => {
     updateQuery({ page: pageId })
-  }
+  }, [updateQuery])
 
   const handleCreatePage = async (data: { title: string; tags?: string[] }) => {
     const created = await createPage(data)
@@ -379,7 +380,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 key={page.id}
                 page={page}
                 isSelected={selectedPageId === page.id}
-                onClick={() => handleSelectPage(page.id)}
+                onSelect={handleSelectPage}
                 columns={prefs.columns}
                 getMember={getMember}
               />
