@@ -98,6 +98,12 @@ export interface ChannelDefinition {
    * 例: google_chat / discord。line は専用routeで別扱い。
    */
   sharedBotClaim?: boolean
+  /**
+   * 自社アカウント × 合言葉方式か（org が自社アプリの認証情報を登録し、さらにグループ/チャンネルごとに
+   * 合言葉=web_approvalコードで紐付ける）。true のチャネルは接続UIで資格情報フォームの後に
+   * SharedBotClaimPanel（合言葉発行）も出す。sharedBotClaim とは排他。例: slack（自社Slackアプリ）。
+   */
+  ownAccountClaim?: boolean
   /** doc/UIの補足 */
   notes?: string
 }
@@ -135,6 +141,7 @@ export const CHANNELS: Record<ChannelId, ChannelDefinition> = {
     group: true,
     directMessage: true,
     webhookPath: '/api/channels/slack/webhook/{accountId}',
+    ownAccountClaim: true,
     signatureScheme: 'hmac-sha256',
     targetHint: 'チャンネルID（Cで始まる）またはユーザーID（U/Wで始まる）',
     credentialFields: [

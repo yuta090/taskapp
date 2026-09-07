@@ -137,3 +137,16 @@ describe('credential field 分類（generated / optional）', () => {
     }
   })
 })
+
+describe('自社アカウント × 合言葉紐付け（ownAccountClaim）', () => {
+  it('slack は自社アプリを登録したうえで合言葉でチャンネルを紐付ける（sharedBotClaim ではない）', () => {
+    expect(CHANNELS.slack.ownAccountClaim).toBe(true)
+    expect(CHANNELS.slack.sharedBotClaim).toBeFalsy()
+  })
+
+  it('sharedBotClaim と ownAccountClaim を同時に立てているチャネルは無い', () => {
+    for (const def of Object.values(CHANNELS)) {
+      expect(def.sharedBotClaim && def.ownAccountClaim).toBeFalsy()
+    }
+  })
+})
