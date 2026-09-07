@@ -193,6 +193,24 @@ describe('LoginClient — ログイン後リダイレクト', () => {
     expect(mockPush).toHaveBeenCalledWith('/onboarding')
   })
 
+  it('なりすましログイン対策: パスワードログイン成功時に login-notify を fire-and-forget で呼ぶ', async () => {
+    const mockFetch = vi.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 200 }))
+
+    await login()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/auth/login-notify', { method: 'POST' })
+    mockFetch.mockRestore()
+  })
+
+  it('login-notify が失敗してもログイン自体は成立する（例外を握りつぶす）', async () => {
+    const mockFetch = vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network error'))
+
+    await login()
+
+    expect(mockPush).toHaveBeenCalledWith('/onboarding')
+    mockFetch.mockRestore()
+  })
+
   it('組織はあるがプロジェクトが無ければ /onboarding へ（Step2から再開）', async () => {
     membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
     spaceResponse = { data: null }

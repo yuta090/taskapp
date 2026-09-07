@@ -33,6 +33,15 @@ vi.mock('@/lib/auth/authEventLog', () => ({
   recordAuthFailure: (...args: unknown[]) => mockRecordAuthFailure(...args),
 }))
 
+const mockRecordLoginAndNotify = vi.fn()
+const mockGenerateDeviceId = vi.fn()
+vi.mock('@/lib/auth/loginNotify', () => ({
+  DEVICE_COOKIE_NAME: 'agentpm_device',
+  deviceCookieOptions: () => ({ httpOnly: true, secure: false, sameSite: 'lax' as const, path: '/', maxAge: 1000 }),
+  generateDeviceId: (...args: unknown[]) => mockGenerateDeviceId(...args),
+  recordLoginAndNotify: (...args: unknown[]) => mockRecordLoginAndNotify(...args),
+}))
+
 function makeRequest(path: string, cookieHeader?: string): NextRequest {
   return new NextRequest(
     `http://localhost:4000${path}`,
@@ -53,6 +62,8 @@ describe('GET /auth/callback', () => {
     mockExchangeCodeForSession.mockResolvedValue({ error: null })
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     mockRecordAuthFailure.mockResolvedValue(undefined)
+    mockRecordLoginAndNotify.mockResolvedValue({ notified: false })
+    mockGenerateDeviceId.mockReturnValue('new-device-id')
   })
 
   it('code が無ければログインへ（失敗扱い・理由を残す）', async () => {
@@ -184,5 +195,53 @@ describe('GET /auth/callback', () => {
     const response = await GET(makeRequest('/auth/callback?code=abc'))
 
     expect(redirectPath(response)).toBe('/login?error=auth_callback_failed&reason=landing_failed')
+  })
+
+  it('なりすましログイン対策: ユーザー確定後に recordLoginAndNotify を呼ぶ（UA・cookieのdevice_id込み）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'user@example.com' } } })
+    mockResolvePostLoginLanding.mockResolvedValue('/inbox')
+
+    await GET(
+      new NextRequest('http://localhost:4000/auth/callback?code=abc', {
+        headers: { cookie: 'agentpm_device=existing-device-id', 'user-agent': 'Chrome/128 Macintosh' },
+      })
+    )
+
+    expect(mockRecordLoginAndNotify).toHaveBeenCalledWith({
+      userId: 'user-1',
+      email: 'user@example.com',
+      deviceId: 'existing-device-id',
+      userAgent: 'Chrome/128 Macintosh',
+    })
+    expect(mockGenerateDeviceId).not.toHaveBeenCalled()
+  })
+
+  it('device cookieが無ければ新規発行し、成功時のリダイレクトにSet-Cookieする', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'user@example.com' } } })
+    mockResolvePostLoginLanding.mockResolvedValue('/inbox')
+
+    const response = await GET(makeRequest('/auth/callback?code=abc'))
+
+    expect(mockRecordLoginAndNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: 'new-device-id' })
+    )
+    expect(response.headers.get('set-cookie')).toContain('agentpm_device=new-device-id')
+  })
+
+  it('next パラメータへの復帰でも Set-Cookie する', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'user@example.com' } } })
+
+    const response = await GET(makeRequest('/auth/callback?code=abc&next=%2Finvite%2Ftok-1'))
+
+    expect(response.headers.get('set-cookie')).toContain('agentpm_device=new-device-id')
+  })
+
+  it('着地判定に失敗した失敗リダイレクトには device cookie を付けない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'user@example.com' } } })
+    mockResolvePostLoginLanding.mockRejectedValue(new Error('boom'))
+
+    const response = await GET(makeRequest('/auth/callback?code=abc'))
+
+    expect(response.headers.get('set-cookie')).toBeNull()
   })
 })

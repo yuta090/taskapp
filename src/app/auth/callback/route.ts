@@ -6,6 +6,7 @@ import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
 import { recordAuthFailure } from '@/lib/auth/authEventLog'
 import { buildLoginErrorPath, classifyProviderCallbackError } from '@/lib/auth/authErrorMessage'
 import { ACTIVE_ORG_COOKIE } from '@/lib/org/constants'
+import { DEVICE_COOKIE_NAME, deviceCookieOptions, generateDeviceId, recordLoginAndNotify } from '@/lib/auth/loginNotify'
 
 
 export async function GET(request: NextRequest) {
@@ -87,17 +88,33 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // なりすましログイン対策: 新しい端末からの初回ログインを検知して本人に通知する。
+  // cookie 発行元がここ（Google ログイン）なので、以降のリダイレクトに直接 Set-Cookie する
+  // （パスワードログインは POST /api/auth/login-notify 経由。本体は src/lib/auth/loginNotify.ts）。
+  const existingDeviceId = request.cookies.get(DEVICE_COOKIE_NAME)?.value
+  const deviceId = existingDeviceId || generateDeviceId()
+  await recordLoginAndNotify({
+    userId: user.id,
+    email: user.email,
+    deviceId,
+    userAgent: request.headers.get('user-agent'),
+  })
+  function withDeviceCookie(response: NextResponse): NextResponse {
+    if (!existingDeviceId) response.cookies.set(DEVICE_COOKIE_NAME, deviceId, deviceCookieOptions())
+    return response
+  }
+
   // next パラメータ付き（招待のログインリンク等）は行き先が明示されているのでそちらへ復帰。
   // LoginClient の redirect パラメータと同じ優先順位・バリデーション。
   if (isSafeInternalPath(next)) {
-    return NextResponse.redirect(new URL(next, origin))
+    return withDeviceCookie(NextResponse.redirect(new URL(next, origin)))
   }
 
   // 着地判定（org_memberships → role別のvendor/space判定）は LoginClient と共通のロジックに委譲
   try {
     const preferredOrgId = request.cookies.get(ACTIVE_ORG_COOKIE)?.value ?? null
     const landing = await resolvePostLoginLanding(supabase, user.id, { preferredOrgId })
-    return NextResponse.redirect(new URL(landing, origin))
+    return withDeviceCookie(NextResponse.redirect(new URL(landing, origin)))
   } catch (err) {
     // membershipクエリエラー等 → fail closed（ログインページへ）
     console.error('resolvePostLoginLanding failed:', err)

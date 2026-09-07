@@ -21,6 +21,13 @@ import { REMINDER_PLACEHOLDERS, REMINDER_TEMPLATE_DEFAULTS, REMINDER_TEMPLATE_KE
 import { CAP_PLACEHOLDERS, CAP_TEMPLATE_DEFAULTS, CAP_TEMPLATE_KEYS, CAP_TEMPLATE_META, renderCapReachedEmail, type CapTemplateKey } from './capReached'
 import { BILLING_PLACEHOLDERS, BILLING_TEMPLATE_DEFAULTS, BILLING_TEMPLATE_KEYS, BILLING_TEMPLATE_META, renderBillingLifecycleEmail } from './billingLifecycle'
 import { AUTH_PLACEHOLDERS, AUTH_PLACEHOLDERS_BY_KEY, AUTH_TEMPLATE_DEFAULTS, AUTH_TEMPLATE_KEYS, AUTH_TEMPLATE_META, renderAuthEmail } from './authEmail'
+import {
+  LOGIN_NEW_DEVICE_PLACEHOLDERS,
+  LOGIN_NEW_DEVICE_TEMPLATE_DEFAULTS,
+  LOGIN_NEW_DEVICE_TEMPLATE_KEY,
+  LOGIN_NEW_DEVICE_TEMPLATE_META,
+  renderLoginNewDeviceEmail,
+} from './loginNewDevice'
 
 /** カテゴリ（表示順） */
 export const EMAIL_TEMPLATE_FAMILIES = [
@@ -170,6 +177,19 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
         actionUrl: 'https://xxxx.supabase.co/auth/v1/verify?token=xxxxxxxx&type=signup&redirect_to=https%3A%2F%2Fagentpm.app%2F',
       }),
   })),
+  {
+    key: LOGIN_NEW_DEVICE_TEMPLATE_KEY,
+    family: 'account',
+    ...LOGIN_NEW_DEVICE_TEMPLATE_META,
+    defaults: LOGIN_NEW_DEVICE_TEMPLATE_DEFAULTS,
+    placeholders: LOGIN_NEW_DEVICE_PLACEHOLDERS,
+    renderPreview: (fields: TemplateFields, appName: string) =>
+      renderLoginNewDeviceEmail({
+        fields,
+        vars: { dateTimeLabel: '2026年9月7日 10:05', browserLabel: 'Chrome (Mac)', email: sampleVars(AUTH_PLACEHOLDERS)['メールアドレス'], appName },
+        ctaUrl: `${PREVIEW_APP_URL}/reset`,
+      }),
+  },
 ]
 
 export const EMAIL_TEMPLATE_KEYS: ReadonlyArray<string> = EMAIL_TEMPLATE_DEFS.map((d) => d.key)
