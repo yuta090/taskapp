@@ -16,6 +16,8 @@ const SEEN_PATH = join(homedir(), '.agentpm', 'notices.seen.json');
 const MAX_SEEN = 200;
 /** 一度に表示する上限 */
 export const MAX_SHOWN = 5;
+/** 日付の無いお知らせは「最新」として並べる(manifest-validator と同じ扱い) */
+const NO_DATE = '9999-99-99';
 /** 既読 id をファイルに残す store。path を差し替えてテストできる */
 export function createFileNoticeStore(path) {
     return {
@@ -65,7 +67,7 @@ export function pickUnseen(notices, seen) {
         out.push({ n, i });
     });
     return out
-        .sort((a, b) => (a.n.date ?? '').localeCompare(b.n.date ?? '') || a.i - b.i)
+        .sort((a, b) => (a.n.date ?? NO_DATE).localeCompare(b.n.date ?? NO_DATE) || a.i - b.i)
         .map(({ n }) => n);
 }
 export function formatNotices(notices, hiddenCount = 0) {

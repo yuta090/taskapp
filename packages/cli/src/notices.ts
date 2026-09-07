@@ -18,6 +18,8 @@ const SEEN_PATH = join(homedir(), '.agentpm', 'notices.seen.json')
 const MAX_SEEN = 200
 /** 一度に表示する上限 */
 export const MAX_SHOWN = 5
+/** 日付の無いお知らせは「最新」として並べる(manifest-validator と同じ扱い) */
+const NO_DATE = '9999-99-99'
 
 export interface NoticeStore {
   readSeen(): string[]
@@ -72,7 +74,7 @@ export function pickUnseen(notices: ManifestNotice[] | undefined, seen: string[]
     out.push({ n, i })
   })
   return out
-    .sort((a, b) => (a.n.date ?? '').localeCompare(b.n.date ?? '') || a.i - b.i)
+    .sort((a, b) => (a.n.date ?? NO_DATE).localeCompare(b.n.date ?? NO_DATE) || a.i - b.i)
     .map(({ n }) => n)
 }
 

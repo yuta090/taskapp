@@ -254,6 +254,8 @@ const NOTICE_ID_RE = /^[A-Za-z0-9._-]{1,64}$/
 const NOTICE_MESSAGE_MAX = 500
 /** 受け取る上限。サーバーは直近 10 件しか残さない約束だが、別サーバーを向けた場合の最後の砦 */
 export const NOTICES_MAX = 20
+/** 日付の無いお知らせは「最新」として並べる(古い扱いにすると上限で真っ先に落ちる) */
+const NO_DATE = '9999-99-99'
 
 function sanitizeNotices(raw: unknown): ManifestNotice[] {
   if (!Array.isArray(raw)) return []
@@ -272,7 +274,7 @@ function sanitizeNotices(raw: unknown): ManifestNotice[] {
   // 多すぎる場合は新しい方を残す。サーバー側の並び順に頼らず、日付(無ければ末尾扱い)で並べてから切る
   return out
     .map((n, i) => ({ n, i }))
-    .sort((a, b) => (a.n.date ?? '').localeCompare(b.n.date ?? '') || a.i - b.i)
+    .sort((a, b) => (a.n.date ?? NO_DATE).localeCompare(b.n.date ?? NO_DATE) || a.i - b.i)
     .map(({ n }) => n)
     .slice(-NOTICES_MAX)
 }
