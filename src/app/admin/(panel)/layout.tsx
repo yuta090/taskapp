@@ -1,28 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AdminSidebar, COLLAPSED_STORAGE_KEY } from '@/components/admin/AdminSidebar'
+import { MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
+import { verifySuperadminDetailed } from '@/lib/admin/verify-superadmin'
 
 export const dynamic = 'force-dynamic'
-
-async function verifySuperadmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return null
-
-  const { data: profile } = await (supabase as SupabaseClient)
-    .from('profiles')
-    .select('is_superadmin')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.is_superadmin) return null
-
-  return user
-}
 
 /**
  * サイドバーの件数バッジ（href → 件数）。
@@ -57,9 +40,17 @@ export default async function AdminPanelLayout({
 }: {
   children: React.ReactNode
 }) {
-  const user = await verifySuperadmin()
-
-  if (!user) {
+  // 門番は API と同じ verifySuperadminDetailed（superadmin かつ二要素認証の条件）。
+  // 登録済み×コード未入力 → コード入力画面、ADMIN_MFA_REQUIRED=true で未登録 → 設定画面へ案内、
+  // 判定できない（check_failed）→ 締め出し（fail-closed）
+  const verdict = await verifySuperadminDetailed()
+  if (!verdict.ok) {
+    if (verdict.reason === 'mfa_required') {
+      redirect(`${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent('/admin/dashboard')}`)
+    }
+    if (verdict.reason === 'mfa_not_enrolled') {
+      redirect('/settings/account?mfa=required')
+    }
     redirect('/admin/login')
   }
 
