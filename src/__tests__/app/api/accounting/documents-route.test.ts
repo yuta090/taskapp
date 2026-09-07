@@ -37,7 +37,7 @@ function chain(result: unknown) {
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: { getUser: vi.fn(() => Promise.resolve({ data: { user: authUser } })) },
+      auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: vi.fn(() => Promise.resolve({ data: { user: authUser } })) },
       from: vi.fn((table: string) => {
         if (table === 'space_memberships') {
           return chain({ data: membershipRole ? { role: membershipRole } : null, error: null })

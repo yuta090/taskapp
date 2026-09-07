@@ -44,4 +44,18 @@ for f in $(ls supabase/migrations/*.sql | sort); do
   applied=$((applied + 1))
 done
 
-echo "✅ 空DBから ${applied} 件の migration を適用できました"
+# 二要素認証の RESTRICTIVE ポリシー（mfa_required_when_enrolled）が全 RLS テーブルに付いているか（新規テーブルの取りこぼし検出）
+missing=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select tablename from pg_tables t where schemaname='public' and rowsecurity and not exists (select 1 from pg_policies p where p.schemaname='public' and p.tablename=t.tablename and p.policyname='mfa_required_when_enrolled')")
+if [ -n "$missing" ]; then
+  echo "❌ 二要素認証ポリシー(mfa_required_when_enrolled)が無い RLS テーブル: $missing"
+  echo "   → supabase/migrations/*_mfa_rls_enforcement.sql の DO ブロックを新しい migration で再実行してください"
+  exit 1
+fi
+
+prereq=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select count(*) from pg_db_role_setting s join pg_roles r on r.oid=s.setrole where r.rolname='authenticator' and exists (select 1 from unnest(s.setconfig) c where c='pgrst.db_pre_request=public.mfa_pre_request')")
+if [ "$prereq" != "1" ]; then
+  echo "❌ authenticator の pgrst.db_pre_request が public.mfa_pre_request になっていません（後続の migration が reset していないか確認）"
+  exit 1
+fi
+
+echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし・pre-request 設定あり）"

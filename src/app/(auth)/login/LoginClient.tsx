@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
 import { formatAuthErrorMessage } from '@/lib/auth/authErrorMessage'
 import { getActiveOrgId } from '@/lib/org/activeOrg'
+import { needsMfaChallenge, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 
 function shouldShowDemoAccounts(): boolean {
   return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true'
@@ -32,6 +33,18 @@ const DEMO_ACCOUNTS = (process.env.NODE_ENV !== 'production' || process.env.NEXT
 /** ACTIVE_ORG_COOKIE から切替中のorgを読み、resolvePostLoginLanding の preferredOrgId に渡す */
 async function resolveRedirect(supabase: SupabaseClient, userId: string): Promise<string> {
   return resolvePostLoginLanding(supabase, userId, { preferredOrgId: getActiveOrgId() })
+}
+
+/**
+ * 二要素認証を登録済みなら、着地先を決める前にコード入力画面へ（コード入力前(aal1)は RLS で
+ * 組織情報が読めず、着地判定が「組織なし」に化けてオンボーディングへ飛んでしまうため）。
+ * 返り値: 回すべき URL、不要なら null
+ */
+async function mfaChallengeUrl(supabase: SupabaseClient, redirect: string | null): Promise<string | null> {
+  const { data: aal, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+  // 判定できない（Auth 障害等）ときはコード入力画面へ倒す。未登録なら画面側で判定し直してそのまま先へ進む
+  if (!error && !needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) return null
+  return `${MFA_CHALLENGE_PATH}${isSafeInternalPath(redirect) ? `?redirect=${encodeURIComponent(redirect)}` : ''}`
 }
 
 export default function LoginClient() {
@@ -61,7 +74,8 @@ export default function LoginClient() {
       const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
-        router.push(await resolveRedirect(supabase as SupabaseClient, session.user.id))
+        const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
+        router.push(mfa ?? (await resolveRedirect(supabase as SupabaseClient, session.user.id)))
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -88,6 +102,11 @@ export default function LoginClient() {
       }
 
       if (data.user) {
+        const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
+        if (mfa) {
+          router.push(mfa)
+          return
+        }
         // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されて
         // いるのでそちらへ復帰。Google ログイン（auth/callback の next）と同じ挙動
         if (isSafeInternalPath(redirect)) {
@@ -120,6 +139,11 @@ export default function LoginClient() {
       }
 
       if (data.user) {
+        const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
+        if (mfa) {
+          router.push(mfa)
+          return
+        }
         if (isSafeInternalPath(redirect)) {
           router.push(redirect)
         } else {

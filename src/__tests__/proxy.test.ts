@@ -509,4 +509,21 @@ describe('proxy — 新しい端末からのログイン通知（なりすまし
 
     expect(mockNotifyFetch).not.toHaveBeenCalled()
   })
+  describe('二要素認証の門番（ログイン後の着地判定より先）', () => {
+    it('登録済み×未入力で /login を再訪 → 組織照会せずコード入力へ（redirect を持ち回る）', async () => {
+      userResponse = { data: { user: { id: 'user-1' } } }
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal2' } }
+      const res = await proxy(makeRequest('/login?redirect=%2Finbox'))
+      expect(redirectPath(res)).toBe('/login/mfa')
+      expect(res.headers.get('location')).toContain('redirect=%2Finbox')
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal1' } }
+    })
+    it('登録済み×未入力で /onboarding → コード入力へ', async () => {
+      userResponse = { data: { user: { id: 'user-1' } } }
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal2' } }
+      const res = await proxy(makeRequest('/onboarding'))
+      expect(redirectPath(res)).toBe('/login/mfa')
+      aalResponse = { data: { currentLevel: 'aal1', nextLevel: 'aal1' } }
+    })
+  })
 })

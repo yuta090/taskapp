@@ -68,7 +68,7 @@ vi.mock('@/lib/rate-limit', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: {
+      auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) }, 
         getUser: vi.fn(() => Promise.resolve(authResponse)),
       },
       from: vi.fn((table: string) => {

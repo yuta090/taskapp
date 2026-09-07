@@ -40,7 +40,7 @@ const deleteMock = vi.fn(() => ({ eq: deleteEqMock }))
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: {
+      auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) }, 
         getUser: vi.fn(() => Promise.resolve(authResponse)),
       },
     })

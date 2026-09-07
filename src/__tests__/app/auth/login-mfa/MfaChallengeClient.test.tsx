@@ -3,6 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const replaceMock = vi.fn()
 let redirectParam: string | null = '/inbox'
+vi.mock('@/lib/auth/resolveLanding', () => ({ resolvePostLoginLanding: vi.fn(() => Promise.resolve('/org-1/project/space-1')) }))
+vi.mock('@/lib/org/activeOrg', () => ({ getActiveOrgId: () => null }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock, push: vi.fn() }),
   useSearchParams: () => ({ get: (k: string) => (k === 'redirect' ? redirectParam : null) }),
@@ -36,7 +38,7 @@ beforeEach(() => {
   redirectParam = '/inbox'
   aalAfterRefresh = { currentLevel: 'aal1', nextLevel: 'aal1' }
   listFactorsImpl = () => Promise.resolve({ data: { totp: factors, all: factors }, error: null })
-  challengeAndVerifyMock.mockResolvedValue({ data: {}, error: null })
+  challengeAndVerifyMock.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
 })
 
 describe('MfaChallengeClient（コード入力画面）', () => {
@@ -47,6 +49,14 @@ describe('MfaChallengeClient（コード入力画面）', () => {
     fireEvent.click(screen.getByRole('button', { name: '確認する' }))
     await waitFor(() => expect(challengeAndVerifyMock).toHaveBeenCalledWith({ factorId: 'f1', code: '123456' }))
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/inbox'))
+  })
+
+  it('行き先の指定が無ければ、ログイン直後と同じ着地判定へ', async () => {
+    redirectParam = null
+    render(<MfaChallengeClient />)
+    fireEvent.change(await screen.findByLabelText('6桁のコード'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: '確認する' }))
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/org-1/project/space-1'))
   })
 
   it('コードが違えばエラー表示、遷移しない', async () => {

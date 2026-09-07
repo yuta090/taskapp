@@ -53,4 +53,14 @@ describe('checkAal2', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(await checkAal2({ auth: undefined } as unknown as SupabaseClient)).toMatchObject({ ok: false, reason: 'check_failed' })
   })
+  it('user（factors 付き）を渡せば listFactors を呼ばない', async () => {
+    const c = client({ aal: 'aal1' })
+    const spy = vi.spyOn(c.auth.mfa, 'listFactors')
+    const u = (factors?: Array<{ status: string }>) => ({ id: 'u1', factors } as unknown as import('@supabase/supabase-js').User)
+    expect(await checkAal2(c, { user: u([{ status: 'verified' }]) })).toMatchObject({ ok: false, reason: 'mfa_required' })
+    expect(await checkAal2(c, { user: u([]) })).toMatchObject({ ok: true, enrolled: false })
+    // getUser の応答で factors キーが無い = 未登録（listFactors には落ちない）
+    expect(await checkAal2(c, { user: u(undefined) })).toMatchObject({ ok: true, enrolled: false })
+    expect(spy).not.toHaveBeenCalled()
+  })
 })

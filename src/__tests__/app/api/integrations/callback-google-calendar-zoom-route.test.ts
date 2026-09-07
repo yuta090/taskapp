@@ -12,7 +12,7 @@ import { createHmac } from 'crypto'
 
 const getUserMock = vi.fn()
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(async () => ({ auth: { getUser: getUserMock } })),
+  createClient: vi.fn(async () => ({ auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: getUserMock } })),
 }))
 
 const saveMock = vi.fn()

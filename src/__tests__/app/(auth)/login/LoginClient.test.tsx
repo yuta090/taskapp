@@ -21,7 +21,7 @@ const mockSingle = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: {
+    auth: { mfa: { getAuthenticatorAssuranceLevel: () => Promise.resolve({ data: { currentLevel: 'aal1', nextLevel: 'aal1' }, error: null }) }, 
       signInWithPassword: mockSignInWithPassword,
       getSession: mockGetSession,
     },

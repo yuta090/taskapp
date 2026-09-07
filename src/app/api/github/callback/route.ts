@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { mfaRedirectResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { getInstallationRepositories } from '@/lib/github'
@@ -66,6 +67,9 @@ export async function GET(request: NextRequest) {
       new URL(`${redirectUri}?error=unauthorized`, request.url)
     )
   }
+  // 二要素認証: 登録済み × コード未入力(aal1) は連携を紐付けさせず、コード入力画面へ
+  const mfaBlock = await mfaRedirectResponse(supabase as SupabaseClient, user, new URL(request.url).origin, '/settings/org-integrations')
+  if (mfaBlock) return mfaBlock
 
   try {
     // GitHub API からインストール情報を取得
