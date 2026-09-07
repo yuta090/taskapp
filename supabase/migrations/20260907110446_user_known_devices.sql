@@ -25,3 +25,7 @@ alter table public.user_known_devices enable row level security;
 
 -- 念のため既定 GRANT も落とす（RLS ポリシー無しでも到達させない）
 revoke all on table public.user_known_devices from anon, authenticated;
+
+-- TODO: last_seen_at が400日（cookie の有効期限）を超えた行の掃除は今回はやらない。
+-- 効果は「端末が古くなったら再度『新しい端末』として通知される」程度で実害が小さいため、
+-- 掃除バッチ（cron）は必要になった時点で別PRとして追加する。

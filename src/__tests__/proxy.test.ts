@@ -14,6 +14,22 @@ import { proxy } from '../proxy'
  * /onboarding に送っても proxy が先回りして /inbox に弾いてしまう。
  */
 
+// なりすましログイン対策（新しい端末通知）: 保護ページ×セッションありのたびに proxy が
+// POST /api/auth/login-notify を叩く。ここでの既存テストの大半はこの分岐を通るため、
+// 実ネットワークへ飛ばないよう既定で「呼ばれても何も起きない」応答にしておく
+// （挙動そのものの検証は「proxy — 新しい端末からのログイン通知」で行う）。
+const mockNotifyFetch = vi.fn()
+
+beforeEach(() => {
+  mockNotifyFetch.mockReset()
+  mockNotifyFetch.mockResolvedValue(new Response(null, { status: 200, headers: {} }))
+  vi.stubGlobal('fetch', mockNotifyFetch)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
 let membershipResponse: { org_id: string; role: string } | null
 let spaceResponse: { data: { id: string } | null }
 let vendorResponse: { data: { id: string } | null }
@@ -397,5 +413,100 @@ describe('proxy — first-touch cookie と Supabase のセッション cookie �
       const res2 = await proxy(makeRequest('/login/mfa?redirect=%2Finbox'))
       expect(redirectPath(res2)).toBeNull()
     })
+  })
+})
+
+describe('proxy — 新しい端末からのログイン通知（なりすましログイン対策）', () => {
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon-key')
+    userResponse = { data: { user: { id: 'user-1' } } }
+    sessionResponse = { data: { session: { user: { id: 'user-1' } } } }
+    membershipResponse = null
+    spaceResponse = { data: null }
+    vendorResponse = { data: null }
+  })
+
+  it('端末cookieが無ければ POST /api/auth/login-notify を1回呼び、応答の Set-Cookie を自分のレスポンスにコピーする', async () => {
+    mockNotifyFetch.mockResolvedValue(
+      new Response(JSON.stringify({ notified: true }), {
+        status: 200,
+        headers: { 'set-cookie': 'agentpm_device=abc123; Path=/; HttpOnly' },
+      })
+    )
+
+    const response = await proxy(makeRequest('/inbox'))
+
+    expect(mockNotifyFetch).toHaveBeenCalledTimes(1)
+    const [url, init] = mockNotifyFetch.mock.calls[0]
+    expect(new URL(url as string).pathname).toBe('/api/auth/login-notify')
+    expect((init as RequestInit).method).toBe('POST')
+    expect(response.headers.get('set-cookie')).toContain('agentpm_device=abc123')
+    expect(redirectPath(response)).toBeNull()
+  })
+
+  it('リクエストの cookie ヘッダをそのまま転送する（APIがセッションを読めるように）', async () => {
+    const request = new NextRequest('http://localhost:4000/inbox', {
+      headers: { cookie: 'sb-auth-token=xyz' },
+    })
+
+    await proxy(request)
+
+    const [, init] = mockNotifyFetch.mock.calls[0]
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.cookie).toBe('sb-auth-token=xyz')
+  })
+
+  it('端末cookieが既にあれば呼ばない', async () => {
+    const request = new NextRequest('http://localhost:4000/inbox', {
+      headers: { cookie: 'agentpm_device=already-known' },
+    })
+
+    await proxy(request)
+
+    expect(mockNotifyFetch).not.toHaveBeenCalled()
+  })
+
+  it('API呼び出しが失敗(non-2xx)しても通す。pending cookieを立てて連打を防ぐ', async () => {
+    mockNotifyFetch.mockResolvedValue(new Response(null, { status: 500 }))
+
+    const response = await proxy(makeRequest('/inbox'))
+
+    expect(redirectPath(response)).toBeNull()
+    const pending = response.cookies.get('agentpm_device_pending')
+    expect(pending?.value).toBe('1')
+  })
+
+  it('API呼び出しが例外(タイムアウト等)を投げても通す。pending cookieを立てる', async () => {
+    mockNotifyFetch.mockRejectedValue(new Error('timeout'))
+
+    const response = await proxy(makeRequest('/inbox'))
+
+    expect(redirectPath(response)).toBeNull()
+    expect(response.cookies.get('agentpm_device_pending')?.value).toBe('1')
+  })
+
+  it('pending cookieがある間は再呼び出ししない', async () => {
+    const request = new NextRequest('http://localhost:4000/inbox', {
+      headers: { cookie: 'agentpm_device_pending=1' },
+    })
+
+    await proxy(request)
+
+    expect(mockNotifyFetch).not.toHaveBeenCalled()
+  })
+
+  it('未認証（セッション無し）では呼ばない', async () => {
+    userResponse = { data: { user: null } }
+    sessionResponse = { data: { session: null } }
+
+    await proxy(makeRequest('/inbox'))
+
+    expect(mockNotifyFetch).not.toHaveBeenCalled()
+  })
+
+  it('公開ページでは呼ばない', async () => {
+    await proxy(makeRequest('/pricing'))
+
+    expect(mockNotifyFetch).not.toHaveBeenCalled()
   })
 })

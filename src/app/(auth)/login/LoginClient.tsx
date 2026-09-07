@@ -34,21 +34,6 @@ async function resolveRedirect(supabase: SupabaseClient, userId: string): Promis
   return resolvePostLoginLanding(supabase, userId, { preferredOrgId: getActiveOrgId() })
 }
 
-/**
- * なりすましログイン対策: 新しい端末からのログインを検知して本人に通知する（POST /api/auth/login-notify）。
- * ログイン導線を遅らせたくない・失敗してもログインは成立させたいので fire-and-forget（await しない）。
- * Google ログインは auth/callback route が同じ判定をサーバー側で行うのでここでは呼ばない。
- */
-function notifyLoginDevice() {
-  try {
-    // 一部環境（相対URLの解決に失敗するテスト環境の fetch 実装等）は Promise を返す前に
-    // 同期的に例外を投げるため、Promise の catch だけでなく呼び出し自体も try で囲む
-    void fetch('/api/auth/login-notify', { method: 'POST' }).catch(() => {})
-  } catch {
-    // 通知に失敗してもログイン導線は止めない
-  }
-}
-
 export default function LoginClient() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -103,7 +88,6 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        notifyLoginDevice()
         // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されて
         // いるのでそちらへ復帰。Google ログイン（auth/callback の next）と同じ挙動
         if (isSafeInternalPath(redirect)) {
@@ -136,7 +120,6 @@ export default function LoginClient() {
       }
 
       if (data.user) {
-        notifyLoginDevice()
         if (isSafeInternalPath(redirect)) {
           router.push(redirect)
         } else {

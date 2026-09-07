@@ -19,12 +19,13 @@ vi.mock('@/lib/email/loginNewDevice', () => ({
 
 const {
   DEVICE_COOKIE_NAME,
-  deviceCookieOptions,
   generateDeviceId,
-  recordLoginAndNotify,
+  isNotifiableEmail,
+  recordDeviceLogin,
+  notifyNewDevice,
 } = await import('./loginNotify')
 
-const baseInput = { userId: 'user-1', email: 'user@example.com', deviceId: 'device-abc', userAgent: 'Chrome/128 Macintosh' }
+const baseRecordInput = { userId: 'user-1', deviceId: 'device-abc', userAgent: 'Chrome/128 Macintosh' }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -33,8 +34,8 @@ beforeEach(() => {
   mockSendLoginNewDeviceEmail.mockResolvedValue({ success: true })
 })
 
-describe('DEVICE_COOKIE_NAME / generateDeviceId / deviceCookieOptions', () => {
-  it('cookie名は agentpm_device', () => {
+describe('DEVICE_COOKIE_NAME / generateDeviceId', () => {
+  it('cookie名は agentpm_device（deviceCookie.tsと同じ値をre-exportしている）', () => {
     expect(DEVICE_COOKIE_NAME).toBe('agentpm_device')
   })
 
@@ -44,66 +45,94 @@ describe('DEVICE_COOKIE_NAME / generateDeviceId / deviceCookieOptions', () => {
     expect(a).toMatch(/^[0-9a-f]{64}$/)
     expect(a).not.toBe(b)
   })
+})
 
-  it('deviceCookieOptions: httpOnly・lax・全パス・400日、本番のみsecure', () => {
-    vi.stubEnv('NODE_ENV', 'development')
-    expect(deviceCookieOptions()).toEqual({ httpOnly: true, secure: false, sameSite: 'lax', path: '/', maxAge: 400 * 24 * 60 * 60 })
-    vi.stubEnv('NODE_ENV', 'production')
-    expect(deviceCookieOptions().secure).toBe(true)
-    vi.unstubAllEnvs()
+describe('isNotifiableEmail', () => {
+  it('通常のメールアドレスは通知対象', () => {
+    expect(isNotifiableEmail('user@example.co.jp')).toBe(true)
+    expect(isNotifiableEmail('taro.yamada@agentpm.app')).toBe(true)
+  })
+
+  it('デモ・予約アドレスは通知対象外（example.com / .invalid / .test / client.com）', () => {
+    expect(isNotifiableEmail('demo@example.com')).toBe(false)
+    expect(isNotifiableEmail('user@foo.invalid')).toBe(false)
+    expect(isNotifiableEmail('user@foo.test')).toBe(false)
+    expect(isNotifiableEmail('client1@client.com')).toBe(false)
+  })
+
+  it('大文字小文字を区別しない', () => {
+    expect(isNotifiableEmail('DEMO@EXAMPLE.COM')).toBe(false)
   })
 })
 
-describe('recordLoginAndNotify', () => {
-  it('新規端末: 記録して通知する', async () => {
-    const result = await recordLoginAndNotify(baseInput)
+describe('recordDeviceLogin', () => {
+  it('新規端末: isNew=true で記録する（メール送信はしない）', async () => {
+    const result = await recordDeviceLogin(baseRecordInput)
 
-    expect(result.notified).toBe(true)
+    expect(result.isNew).toBe(true)
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'user-1', device_id: 'device-abc', user_agent: 'Chrome/128 Macintosh' }),
       { onConflict: 'user_id,device_id' },
     )
-    expect(mockSendLoginNewDeviceEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'user@example.com', browserLabel: 'Chrome (Mac)' }),
-    )
-  })
-
-  it('既知端末: 記録は更新するが通知はしない', async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { user_id: 'user-1' }, error: null })
-
-    const result = await recordLoginAndNotify(baseInput)
-
-    expect(result.notified).toBe(false)
-    expect(mockUpsert).toHaveBeenCalled()
     expect(mockSendLoginNewDeviceEmail).not.toHaveBeenCalled()
   })
 
-  it('メール送信が失敗しても例外を投げない（notified: true のまま）', async () => {
-    mockSendLoginNewDeviceEmail.mockRejectedValue(new Error('resend down'))
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('既知端末: isNew=false だが last_seen_at 更新のため記録は更新する', async () => {
+    mockMaybeSingle.mockResolvedValue({ data: { user_id: 'user-1' }, error: null })
 
-    const result = await recordLoginAndNotify(baseInput)
+    const result = await recordDeviceLogin(baseRecordInput)
 
-    expect(result.notified).toBe(true)
-    expect(spy).toHaveBeenCalledWith('[login-notify] email send failed:', 'resend down')
+    expect(result.isNew).toBe(false)
+    expect(mockUpsert).toHaveBeenCalled()
   })
 
-  it('既知判定のselectが失敗したら fail safe で通知しない・記録もしない', async () => {
+  it('User-Agent は256文字で切って保存する（authEventLogsと同じ長さ）', async () => {
+    const longUa = 'A'.repeat(300)
+    await recordDeviceLogin({ ...baseRecordInput, userAgent: longUa })
+
+    const savedUa = mockUpsert.mock.calls[0][0].user_agent as string
+    expect(savedUa.length).toBe(256)
+    expect(savedUa).toBe('A'.repeat(256))
+  })
+
+  it('既知判定のselectが失敗したら取りこぼしを選び、記録もしない', async () => {
     mockMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } })
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    const result = await recordLoginAndNotify(baseInput)
+    const result = await recordDeviceLogin(baseRecordInput)
 
-    expect(result.notified).toBe(false)
+    expect(result.isNew).toBe(false)
     expect(mockUpsert).not.toHaveBeenCalled()
-    expect(spy).toHaveBeenCalledWith('[login-notify] select failed:', 'db down')
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('select failed'), 'db down')
+  })
+})
+
+describe('notifyNewDevice', () => {
+  it('通知対象のメールなら送る', async () => {
+    await notifyNewDevice({ email: 'user@example.co.jp', userAgent: 'Chrome/128 Macintosh' })
+
+    expect(mockSendLoginNewDeviceEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'user@example.co.jp', browserLabel: 'Chrome (Mac)' }),
+    )
   })
 
-  it('新規端末だがメールアドレスが無ければ記録だけして通知しない', async () => {
-    const result = await recordLoginAndNotify({ ...baseInput, email: null })
+  it('デモ・予約アドレスには送らない', async () => {
+    await notifyNewDevice({ email: 'demo@example.com', userAgent: null })
 
-    expect(result.notified).toBe(false)
-    expect(mockUpsert).toHaveBeenCalled()
     expect(mockSendLoginNewDeviceEmail).not.toHaveBeenCalled()
+  })
+
+  it('メールアドレスが無ければ送らない', async () => {
+    await notifyNewDevice({ email: null, userAgent: null })
+
+    expect(mockSendLoginNewDeviceEmail).not.toHaveBeenCalled()
+  })
+
+  it('メール送信が失敗しても例外を投げない', async () => {
+    mockSendLoginNewDeviceEmail.mockRejectedValue(new Error('resend down'))
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(notifyNewDevice({ email: 'user@example.co.jp', userAgent: null })).resolves.toBeUndefined()
+    expect(spy).toHaveBeenCalledWith('[login-notify] email send failed:', 'resend down')
   })
 })
