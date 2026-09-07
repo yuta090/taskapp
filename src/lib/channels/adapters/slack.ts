@@ -33,7 +33,9 @@ export const slackAdapter: OutboundAdapter = async (ctx): Promise<OutboundResult
         'Content-Type': 'application/json; charset=utf-8',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ channel: ctx.to, text: ctx.text }),
+      // リンクの自動プレビュー展開は止める（リマインド等に含む agentpm.app のリンクが
+      // 毎回サイト紹介カードになるのを防ぐ）
+      body: JSON.stringify({ channel: ctx.to, text: ctx.text, unfurl_links: false, unfurl_media: false }),
     })
   } catch (e) {
     return { ok: false, permanent: false, error: `network error: ${(e as Error).message}` }
