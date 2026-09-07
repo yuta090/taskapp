@@ -16,7 +16,7 @@ const getUserMock = vi.fn(() => Promise.resolve(getUserResponse))
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: { getUser: getUserMock },
+      auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: getUserMock },
     })
   ),
 }))

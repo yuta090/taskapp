@@ -40,7 +40,7 @@ function chain(response: any) {
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: { getUser: vi.fn(() => Promise.resolve(authResponse)) },
+      auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) },  getUser: vi.fn(() => Promise.resolve(authResponse)) },
       from: vi.fn((table: string) => {
         if (table === 'files') {
           const builder = chain(fileSelectResponse)

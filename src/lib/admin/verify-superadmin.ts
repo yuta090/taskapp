@@ -22,7 +22,9 @@ export async function verifySuperadminDetailed(): Promise<SuperadminVerdict> {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return { ok: false, reason: 'unauthenticated' }
-  const { data: profile } = await (supabase as SupabaseClient).from('profiles').select('is_superadmin').eq('id', user.id).single()
+  const { data: profile, error: profileError } = await (supabase as SupabaseClient).from('profiles').select('is_superadmin').eq('id', user.id).single()
+  // 登録済み×コード未入力だと DB(pre-request) が 42501 を返す。理由を「運営でない」に化けさせない
+  if (profileError?.code === '42501') return { ok: false, reason: 'mfa_required', userId: user.id }
   if (!profile?.is_superadmin) return { ok: false, reason: 'not_superadmin', userId: user.id }
   const aal = await checkAal2(supabase as SupabaseClient, { strict: isAdminMfaRequired() })
   if (!aal.ok) return { ok: false, reason: aal.reason, userId: user.id }

@@ -59,7 +59,7 @@ vi.mock('@/lib/email/approval', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: {
+      auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) }, 
         getUser: vi.fn(() => Promise.resolve(authResponse)),
       },
       from: vi.fn((table: string) => {
@@ -101,7 +101,7 @@ vi.mock('@/lib/supabase/server', () => ({
 // tokens once authorization has already been established.
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({
-    auth: {
+    auth: { getSession: () => Promise.resolve({ data: { session: null } }), mfa: { listFactors: () => Promise.resolve({ data: { all: [] }, error: null }) }, 
       admin: {
         getUserById: vi.fn(() => Promise.resolve({ data: { user: null } })),
       },

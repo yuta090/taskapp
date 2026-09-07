@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useState, useEffect, useCallback, useRef } from 'react'
+import { needsMfaChallenge, isMfaExemptPath, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getActiveOrgId, setActiveOrgId } from './activeOrg'
@@ -31,6 +32,37 @@ const defaultValue: ActiveOrgContextValue = {
 }
 
 export const ActiveOrgContext = createContext<ActiveOrgContextValue>(defaultValue)
+
+/** 二要素認証の未入力で DB に拒否された（PostgREST 403 / 42501）か */
+function isMfaDenied(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false
+  // supabase-js の PostgrestError は code/message のみ（status は無い）
+  return err.code === '42501' || (err.message ?? '').includes('mfa_required')
+}
+
+let redirectingToMfa = false
+
+/**
+ * 古い aal1 セッション（別端末で登録した後など）を更新し、コード入力が要るなら /login/mfa へ。回したら true。
+ * コード入力画面自身では絶対に発火させない（無限リロードになる）。1回だけ
+ */
+async function redirectToMfaIfStale(supabase: SupabaseClient): Promise<boolean> {
+  if (typeof window === 'undefined') return false
+  if (redirectingToMfa || isMfaExemptPath(window.location.pathname)) return false
+  try {
+    await supabase.auth.refreshSession()
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (needsMfaChallenge(aal?.currentLevel, aal?.nextLevel)) {
+      redirectingToMfa = true
+      const back = window.location.pathname + window.location.search
+      window.location.assign(`${MFA_CHALLENGE_PATH}?redirect=${encodeURIComponent(back)}`)
+      return true
+    }
+  } catch {
+    /* 判定できなければ従来どおり空表示 */
+  }
+  return false
+}
 
 export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: userLoading } = useCurrentUser()
@@ -68,6 +100,10 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
           .order('created_at', { ascending: true })
 
         if (memErr || !memberships || memberships.length === 0) {
+          // 別端末で二要素認証を登録した後の古いセッション（cookie の factor 情報が古く門番を素通り）だと、
+          // DB が 403(42501) を返す。そのときだけセッションを更新して判定し直し、必要ならコード入力へ
+          // （通常の「組織 0 件」では何もしない）
+          if (isMfaDenied(memErr) && (await redirectToMfaIfStale(supabase as SupabaseClient))) return
           setOrgs([])
           setActiveOrgIdState(null)
           setLoading(false)

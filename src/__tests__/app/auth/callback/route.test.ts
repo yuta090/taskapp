@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { GET } from '@/app/auth/callback/route'
 
 const mockExchangeCodeForSession = vi.fn()
+let mockAal: { currentLevel: 'aal1' | 'aal2'; nextLevel: 'aal1' | 'aal2' } = { currentLevel: 'aal1', nextLevel: 'aal1' }
 const mockGetUser = vi.fn()
 
 vi.mock('@supabase/ssr', () => ({
@@ -10,6 +11,7 @@ vi.mock('@supabase/ssr', () => ({
     auth: {
       exchangeCodeForSession: mockExchangeCodeForSession,
       getUser: mockGetUser,
+      mfa: { getAuthenticatorAssuranceLevel: () => Promise.resolve({ data: mockAal, error: null }) },
     },
   }),
 }))
