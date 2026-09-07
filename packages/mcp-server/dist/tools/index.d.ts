@@ -66,6 +66,7 @@ export declare const allTools: ({
         parentTaskId: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodString>>;
         actualHours: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodNumber>>;
         milestoneId: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodString>>;
+        wikiPageId: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodString>>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         taskId: string;
@@ -80,6 +81,7 @@ export declare const allTools: ({
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
+        wikiPageId?: string | null | undefined;
     }, {
         spaceId: string;
         taskId: string;
@@ -94,6 +96,7 @@ export declare const allTools: ({
         startDate?: string | null | undefined;
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
+        wikiPageId?: string | null | undefined;
     }>;
     handler: typeof import("./tasks.js").taskUpdate;
 } | {
@@ -807,16 +810,19 @@ export declare const allTools: ({
         spaceId: import("zod").ZodString;
         title: import("zod").ZodString;
         body: import("zod").ZodOptional<import("zod").ZodString>;
+        format: import("zod").ZodOptional<import("zod").ZodEnum<["markdown", "html", "blocks"]>>;
         tags: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         title: string;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }, {
         spaceId: string;
         title: string;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiCreate;
@@ -828,18 +834,21 @@ export declare const allTools: ({
         pageId: import("zod").ZodString;
         title: import("zod").ZodOptional<import("zod").ZodString>;
         body: import("zod").ZodOptional<import("zod").ZodString>;
+        format: import("zod").ZodOptional<import("zod").ZodEnum<["markdown", "html", "blocks"]>>;
         tags: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
         body?: string | undefined;
+        format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiUpdate;

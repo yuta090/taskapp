@@ -5,7 +5,7 @@
 import { Command, Option } from 'commander'
 import { readFileSync } from 'node:fs'
 import { resolveSpaceId } from './config.js'
-import { buildParams, buildStdinParams, camelCase, extractLongFlag } from './input.js'
+import { buildParams, buildStdinParams, camelCase, extractLongFlag, wantsTextInput } from './input.js'
 import { callTool } from './api-client.js'
 import { output, outputError } from './output.js'
 import { uploadFile, defaultUploadDeps } from './upload.js'
@@ -141,11 +141,11 @@ function createAction(
         return
       }
 
-      // stdin mode: JSON(scheduling create/respond) or raw text(task import via --stdin / --file)
+      // stdin mode: JSON(scheduling create/respond) or raw text(task import / wiki body via --stdin / --file)
       const isTextMode = sub.stdinFormat === 'text'
-      const filePath = isTextMode && typeof opts.file === 'string' ? opts.file : undefined
-      if (sub.stdinMode && (opts.stdin || filePath)) {
-        const rawText = filePath ? readFileSync(filePath, 'utf-8') : await readStdinText()
+      const textInput = wantsTextInput(sub, opts)
+      if (sub.stdinMode && (textInput.read || (!isTextMode && opts.stdin))) {
+        const rawText = textInput.filePath ? readFileSync(textInput.filePath, 'utf-8') : await readStdinText()
         // spaceId は CLI 側(resolve 済み)を優先。stdin 側に無いコマンドもあるので失敗は握る
         let resolvedSpaceId: string | undefined
         if (sub.options.some((o) => o.resolve === 'spaceId')) {
@@ -161,16 +161,18 @@ function createAction(
         return
       }
 
-      // stdin required but not provided
-      if (sub.stdinMode) {
-        if (isTextMode) {
-          console.error(`Error: ${sub.name} requires --file <path> or --stdin.`)
-          console.error(`Example: agentpm ... ${sub.name} --file tasks.csv`)
-          console.error(`         cat tasks.csv | agentpm ... ${sub.name} --stdin`)
-        } else {
-          console.error(`Error: ${sub.name} requires --stdin with JSON input.`)
-          console.error(`Example: echo '{"key":"value"}' | agentpm ... --stdin`)
-        }
+      // JSON stdin mode（scheduling）は --stdin 必須。text モードは --file/--stdin が無ければ
+      // 通常モード（--body 等の引数）へ進む（wiki create --body のように本文を引数で渡せる）。
+      // ただし本文にあたる引数も無ければ、入力方法を案内して終了する
+      if (sub.stdinMode && !isTextMode) {
+        console.error(`Error: ${sub.name} requires --stdin with JSON input.`)
+        console.error(`Example: echo '{"key":"value"}' | agentpm ... --stdin`)
+        process.exit(1)
+      }
+      if (sub.stdinMode && isTextMode && sub.stdinParam && opts[sub.stdinParam] === undefined && sub.tool === 'task_import') {
+        console.error(`Error: ${sub.name} requires --file <path> or --stdin.`)
+        console.error(`Example: agentpm ... ${sub.name} --file tasks.csv`)
+        console.error(`         cat tasks.csv | agentpm ... ${sub.name} --stdin`)
         process.exit(1)
       }
 

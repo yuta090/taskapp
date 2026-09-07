@@ -18,9 +18,12 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@blocknote/server-util": "^0.46.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@supabase/supabase-js": "^2.47.0",
     "dotenv": "^16.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^3.22.0"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildParams, buildStdinParams, mergeCliOptions, optionKey, stripBom } from '../../../packages/cli/src/input'
+import { buildParams, buildStdinParams, mergeCliOptions, optionKey, stripBom, wantsTextInput } from '../../../packages/cli/src/input'
 import type { ManifestOption } from '../../../packages/cli/src/manifest-validator'
 
 /**
@@ -106,5 +106,22 @@ describe('buildParams (通常モード)', () => {
 
   it('不正な整数はエラー', () => {
     expect(() => buildParams(options, { limit: 'abc' }, 's')).toThrow(/Invalid integer/)
+  })
+})
+
+describe('wantsTextInput（text モードの入力元判定）', () => {
+  const textSub = { stdinMode: true, stdinFormat: 'text' as const }
+  it('--file があればファイルから読む', () => {
+    expect(wantsTextInput(textSub, { file: 'notes.md' })).toEqual({ read: true, filePath: 'notes.md' })
+  })
+  it('--stdin があれば標準入力から読む', () => {
+    expect(wantsTextInput(textSub, { stdin: true })).toEqual({ read: true })
+  })
+  it('どちらも無ければ読まない（--body などの引数で通常モードへ進める）', () => {
+    expect(wantsTextInput(textSub, { body: '# 見出し' })).toEqual({ read: false })
+  })
+  it('JSON モードや stdin 非対応のコマンドでは常に読まない', () => {
+    expect(wantsTextInput({ stdinMode: true, stdinFormat: 'json' }, { stdin: true })).toEqual({ read: false })
+    expect(wantsTextInput({ stdinMode: false }, { file: 'x' })).toEqual({ read: false })
   })
 })

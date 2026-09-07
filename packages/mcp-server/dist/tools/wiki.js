@@ -2,6 +2,11 @@ import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { config } from '../config.js';
 import { checkAuth } from '../auth/helpers.js';
+import { toWikiBlocksJson } from '../lib/wikiBody.js';
+const bodyFormatSchema = z
+    .enum(['markdown', 'html', 'blocks'])
+    .optional()
+    .describe('本文の形式。省略時は自動判定（JSONブロック配列→blocks / HTML→html / それ以外→markdown）');
 // ── Helpers ──────────────────────────────────────────────
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -22,14 +27,16 @@ const wikiGetSchema = z.object({
 const wikiCreateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     title: z.string().describe('ページタイトル'),
-    body: z.string().optional().describe('ページ本文（Markdown）'),
-    tags: z.array(z.string()).optional().describe('タグ配列'),
+    body: z.string().optional().describe('ページ本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
+    format: bodyFormatSchema,
+    tags: z.array(z.string()).optional().describe('タグ配列（「仕様書」を付けるとタスクの「仕様書連携」で選べる）'),
 });
 const wikiUpdateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     pageId: z.string().describe('WikiページID'),
     title: z.string().optional().describe('タイトル'),
-    body: z.string().optional().describe('本文（Markdown）'),
+    body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
+    format: bodyFormatSchema,
     tags: z.array(z.string()).optional().describe('タグ配列'),
 });
 const wikiDeleteSchema = z.object({
@@ -77,13 +84,15 @@ export async function wikiCreate(params) {
     const supabase = getSupabaseClient();
     const orgId = await getOrgId(params.spaceId);
     const actorId = config.actorId;
+    // Wiki 画面はブロック JSON しか読めない。Markdown/HTML のまま保存すると画面で空に見える
+    const body = await toWikiBlocksJson(params.body || '', params.format);
     const { data, error } = await supabase
         .from('wiki_pages')
         .insert({
         org_id: orgId,
         space_id: params.spaceId,
         title: params.title,
-        body: params.body || '',
+        body,
         tags: params.tags || [],
         created_by: actorId,
         updated_by: actorId,
@@ -103,8 +112,9 @@ export async function wikiUpdate(params) {
     const updateData = { updated_by: actorId };
     if (params.title !== undefined)
         updateData.title = params.title;
-    if (params.body !== undefined)
-        updateData.body = params.body;
+    if (params.body !== undefined) {
+        updateData.body = await toWikiBlocksJson(params.body, params.format);
+    }
     if (params.tags !== undefined)
         updateData.tags = params.tags;
     const { data, error } = await supabase
