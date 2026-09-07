@@ -11,7 +11,6 @@ export interface Milestone {
   due_date: string | null
   order_key: number
   created_at: string
-  updated_at: string
 }
 
 // Helper: get orgId from spaceId
@@ -87,7 +86,8 @@ export async function milestoneUpdate(params: z.infer<typeof milestoneUpdateSche
     throw new Error('更新するフィールドがありません')
   }
 
-  updateData.updated_at = new Date().toISOString()
+  // milestones テーブルに updated_at 列は無い（schema.sql: id/org_id/space_id/name/due_date/order_key/created_at）。
+  // 送ると PostgREST がスキーマ不一致で拒否し、更新が一度も成功しない状態だった
 
   const { data, error } = await supabase
     .from('milestones')
