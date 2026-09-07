@@ -1,6 +1,6 @@
 /**
  * 時刻指定タスクリマインド（③）のデータアクセス層（service role専用）。
- * tasks（remind_at）と channel_groups（LINE配信先）を橋渡しする薄いラッパー。
+ * tasks（remind_at）と channel_groups（LINE/Slack等の配信先・全チャネル）を橋渡しする薄いラッパー。
  * org境界の帰属は必ず channel_groups.org_id を真実源にする（accountや別経路から導出しない）。
  */
 
@@ -57,10 +57,14 @@ export interface ReminderGroupLink {
   accountId: string
   externalGroupId: string
   ownerType: string // 'platform'（共有Bot）| 'org'（専用bot）。配信先の優先判定に使う
+  /** channel_accounts.channel（'line' | 'slack' | ...）。共有Bot優先はチャネル内だけで効かせる */
+  channel: string
+  /** channel_groups.metadata（teams の serviceUrl 等・チャネル固有の送信文脈）。無ければ null */
+  metadata: Record<string, unknown> | null
 }
 
 /**
- * 指定した space に紐づく、配信可能な（active × accountもactive）LINEグループを返す。
+ * 指定した space に紐づく、配信可能な（active × accountもactive）チャットグループを全チャネル分返す。
  * digest とは独立（pickup_mode を問わない）。org帰属は channel_groups.org_id。
  * 配信先の絞り込み（共有Bot優先）は route 側で preferPlatformLinks が行う。
  */
@@ -69,7 +73,7 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
 
   const { data, error } = await admin()
     .from('channel_groups')
-    .select('id, space_id, org_id, account_id, external_group_id, channel_accounts!inner(status, owner_type)')
+    .select('id, space_id, org_id, account_id, external_group_id, metadata, channel_accounts!inner(status, owner_type, channel)')
     .eq('status', 'active')
     .eq('channel_accounts.status', 'active')
     .in('space_id', spaceIds)
@@ -82,7 +86,8 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
     org_id: string
     account_id: string
     external_group_id: string
-    channel_accounts: { owner_type: string } | { owner_type: string }[]
+    metadata: Record<string, unknown> | null
+    channel_accounts: { owner_type: string; channel: string } | { owner_type: string; channel: string }[]
   }
 
   return (data as unknown as Row[])
@@ -96,6 +101,8 @@ export async function findActiveGroupsForSpaces(spaceIds: string[]): Promise<Rem
         accountId: row.account_id,
         externalGroupId: row.external_group_id,
         ownerType: acct?.owner_type ?? 'org',
+        channel: acct?.channel ?? 'line',
+        metadata: row.metadata ?? null,
       }
     })
 }

@@ -27,7 +27,7 @@ export const FEATURE_CATALOG: readonly FeatureMeta[] = [
   {
     key: 'timed_line_reminders',
     label: '時刻指定リマインド',
-    description: '指定した日時に、相手先のLINEグループへ秘書が自動リマインド',
+    description: '指定した日時に、相手先のチャットグループ（LINE・Slackなど）へ秘書が自動リマインド',
   },
   {
     key: 'own_line_account',

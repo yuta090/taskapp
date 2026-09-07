@@ -6,8 +6,9 @@ import { Clock } from '@phosphor-icons/react'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 
 /**
- * 時刻指定LINEリマインドの設定フィールド（③・pro以上限定）。
- * datetime-local で「いつ顧問先グループへリマインドを送るか」を設定する。
+ * 時刻指定リマインドの設定フィールド（③・pro以上限定）。
+ * datetime-local で「いつ相手先のチャットグループ（LINE/Slack等・紐づく全チャネル）へ
+ * リマインドを送るか」を設定する。
  * 保存は POST /api/tasks/[taskId]/reminder（サーバ側でorg逆引き＋プラン検証）。
  *
  * 課金導線（④・事前導線）: useEntitlements で timed_line_reminders の可否を先読みし、
@@ -102,7 +103,7 @@ export function TaskReminderField({ taskId, initialRemindAt, orgId }: TaskRemind
     <div className="space-y-1.5">
       <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
         <Clock className="text-gray-400" />
-        リマインド（LINEへ通知）
+        リマインド（チャットへ通知）
       </label>
       <div className="flex items-center gap-1.5">
         <input
@@ -135,7 +136,7 @@ export function TaskReminderField({ taskId, initialRemindAt, orgId }: TaskRemind
       {error && <p className="text-xs text-red-500">{error}</p>}
       {saved && <p className="text-xs text-green-600">保存しました</p>}
       {value && !showUpsell && !error && (
-        <p className="text-xs text-gray-400">設定時刻に、この案件のLINEグループへ秘書がリマインドします。</p>
+        <p className="text-xs text-gray-400">設定時刻に、この案件に紐づくチャットグループ（LINE・Slackなど）へ秘書がリマインドします。</p>
       )}
     </div>
   )

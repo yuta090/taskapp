@@ -120,4 +120,27 @@ describe('preferPlatformLinks', () => {
   it('空配列はそのまま空', () => {
     expect(preferPlatformLinks([])).toEqual([])
   })
+
+  describe('マルチチャネル: 共有Bot優先はチャネル内だけで効く', () => {
+    const linePlat = { id: 'g-line-plat', ownerType: 'platform' as const, channel: 'line' }
+    const lineOrg = { id: 'g-line-org', ownerType: 'org' as const, channel: 'line' }
+    const slackOrg = { id: 'g-slack-org', ownerType: 'org' as const, channel: 'slack' }
+    const slackPlat = { id: 'g-slack-plat', ownerType: 'platform' as const, channel: 'slack' }
+
+    it('LINEの共有Botがあっても、Slackのorgグループは落とさない(別チャネルには届く)', () => {
+      expect(preferPlatformLinks([linePlat, lineOrg, slackOrg]).map((l) => l.id).sort()).toEqual(
+        ['g-line-plat', 'g-slack-org'],
+      )
+    })
+
+    it('同一チャネル内では従来どおり platform が org を上書きする', () => {
+      expect(preferPlatformLinks([slackOrg, slackPlat, lineOrg]).map((l) => l.id).sort()).toEqual(
+        ['g-line-org', 'g-slack-plat'],
+      )
+    })
+
+    it('channel 未指定(旧呼び出し元)は全て同一チャネルとして扱う(後方互換)', () => {
+      expect(preferPlatformLinks([org, platform]).map((l) => l.id)).toEqual(['g-plat'])
+    })
+  })
 })
