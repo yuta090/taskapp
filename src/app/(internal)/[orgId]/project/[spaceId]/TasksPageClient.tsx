@@ -1197,15 +1197,16 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             type="button"
             onClick={handleToggleSelectMode}
             aria-pressed={isSelectMode}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs border rounded-lg transition-colors ${
+            className={`flex flex-shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap border rounded-lg transition-colors ${
               isSelectMode
                 ? 'bg-blue-50 border-blue-300 text-blue-700'
                 : 'bg-surface border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300'
             }`}
+            aria-label="まとめて操作"
             title="複数のタスクをまとめて完了・担当変更する"
           >
             <CheckSquare className="text-sm" />
-            <span className="hidden sm:inline">{isSelectMode ? 'まとめて操作 中' : 'まとめて操作'}</span>
+            <span className="hidden sm:inline">{isSelectMode ? '選択中' : '選択'}</span>
           </button>
           </div>
         </div>
