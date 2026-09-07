@@ -26,6 +26,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const storeMock = {
   findChannelAccountMetaForOrg: vi.fn(),
+  findChannelAccountMetaForOrgChannel: vi.fn(),
   findChannelAccountOrgId: vi.fn(),
   findChannelAccountOwnerType: vi.fn(),
   updateChannelAccountStatus: vi.fn(),
@@ -277,5 +278,52 @@ describe('PATCH /api/channels/accounts — own_line_account 課金ゲート（�
     const response = await callPatch({ accountId: ACCOUNT_ID, status: 'active' })
     expect(response.status).toBe(200)
     expect(storeMock.updateChannelAccountStatus).toHaveBeenCalledWith(ACCOUNT_ID, 'active')
+  })
+})
+
+/**
+ * GET /api/channels/accounts?orgId=&channel=slack — LINE 以外のチャネルの自社アカウント状態。
+ * Slack 接続ページの「いまどの手順か」表示に使う（鍵を登録済みか／有効か）。
+ */
+describe('GET /api/channels/accounts — channel 指定（slack）', () => {
+  const ORG = '11111111-1111-4111-8111-111111111111'
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'u-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'admin' }, error: null })
+  })
+
+  it('登録済みなら、その channel の自社アカウント（秘密列なし）を返す', async () => {
+    storeMock.findChannelAccountMetaForOrgChannel.mockResolvedValue({
+      id: 'acc-slack', orgId: ORG, channel: 'slack', displayName: 'AgentPM秘書', lineBotUserId: null,
+      status: 'active', createdAt: '2026-09-07T00:00:00.000Z', ownerType: 'org',
+    })
+    const res = await GET(new NextRequest(`http://localhost:3000/api/channels/accounts?orgId=${ORG}&channel=slack`))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(storeMock.findChannelAccountMetaForOrgChannel).toHaveBeenCalledWith(ORG, 'slack')
+    expect(storeMock.findChannelAccountMetaForOrg).not.toHaveBeenCalled()
+    expect(json.account).toMatchObject({ id: 'acc-slack', channel: 'slack', status: 'active', ownerType: 'org' })
+    expect(JSON.stringify(json)).not.toMatch(/bot_token|signing_secret|credentials/)
+  })
+
+  it('未登録なら account=null', async () => {
+    storeMock.findChannelAccountMetaForOrgChannel.mockResolvedValue(null)
+    const res = await GET(new NextRequest(`http://localhost:3000/api/channels/accounts?orgId=${ORG}&channel=slack`))
+    expect(res.status).toBe(200)
+    expect((await res.json()).account).toBeNull()
+  })
+
+  it('未知の channel は 400', async () => {
+    const res = await GET(new NextRequest(`http://localhost:3000/api/channels/accounts?orgId=${ORG}&channel=bogus`))
+    expect(res.status).toBe(400)
+  })
+
+  it('channel=line は従来どおり（LINE の判定経路）', async () => {
+    storeMock.findChannelAccountMetaForOrg.mockResolvedValue(null)
+    storeMock.orgUsesSharedBot.mockResolvedValue(false)
+    const res = await GET(new NextRequest(`http://localhost:3000/api/channels/accounts?orgId=${ORG}&channel=line`))
+    expect(res.status).toBe(200)
+    expect(storeMock.findChannelAccountMetaForOrg).toHaveBeenCalledWith(ORG)
   })
 })

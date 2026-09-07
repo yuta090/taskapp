@@ -88,6 +88,10 @@ export function ChannelCredentialForm({ orgId, def }: Props) {
         generatedSecrets: (json.generatedSecrets as Record<string, string>) ?? {},
         webhookUrl: (json.webhookUrl as string | null) ?? null,
       })
+      // 同じページの案内（SlackSecretarySetupGuide 等）が進み具合を取り直せるように知らせる
+      window.dispatchEvent(
+        new CustomEvent('agentpm:channel-account-registered', { detail: { orgId, channel: def.id } }),
+      )
     } catch {
       setError('通信に失敗しました。時間をおいて再度お試しください。')
     } finally {
