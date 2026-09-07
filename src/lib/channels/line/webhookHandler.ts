@@ -46,7 +46,6 @@ import {
   markDmUnreachable,
   clearDmUnreachable,
   findActiveUserLinkByExternalId,
-  findActiveUserLinkForUser,
   findLineAccountByIdLookup,
   assignDigestNumbersToNewTasks,
   updateChannelGroupMetadata,
@@ -1322,8 +1321,10 @@ async function maybeSuggestTaskDone(
   }
 
   // DMルート解決（1:1個別DM=line_direct_dm専有。グループへのfallbackはしない）。
-  const dmLink = await findActiveUserLinkForUser(orgId, senderLink.userId)
-  if (!dmLink) return false
+  // M-4 是正: 宛先は「この LINE 口座での送信者本人の紐づけ」（senderLink）をそのまま使う。
+  // findActiveUserLinkForUser（org×user の最良1件）だと、Slack を後から連携した人は
+  // Slack 口座が返り、LINE 専用の lookup が null → サジェストが静かに止まっていた。
+  const dmLink = senderLink
   const dmAccountLookup = await findLineAccountByIdLookup(dmLink.channelAccountId)
   if (!dmAccountLookup?.account) return false
 

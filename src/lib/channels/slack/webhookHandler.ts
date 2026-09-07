@@ -353,7 +353,41 @@ async function processDirectMessage(
 
   const { status } = await deps.consumeUserLinkCode(hashUserLinkCode(code), account.id, ev.user)
   if (recorded === 'duplicate') return
-  await deps.reply(account.credentials.bot_token, channelId, SLACK_USER_LINK_REPLY[status])
+  await replyAndRecord(account, orgId, null, channelId, SLACK_USER_LINK_REPLY[status], { kind: 'user_link_reply', result: status }, deps)
+}
+
+/** 秘書の返事を送り、outbound として記録する（LINE の sendSecretaryText と同じ対）。 */
+async function replyAndRecord(
+  account: SlackAccount,
+  orgId: string,
+  group: { id: string; spaceId: string | null } | null,
+  channelId: string,
+  text: string,
+  payload: Record<string, unknown>,
+  deps: SlackWebhookDeps,
+): Promise<void> {
+  let ts: string | null = null
+  let failed = false
+  try {
+    ts = (await deps.reply(account.credentials.bot_token, channelId, text)).ts
+  } catch (e) {
+    failed = true
+    console.error('Slack webhook: reply failed', e)
+  }
+  await deps.insertOutbound({
+    orgId,
+    spaceId: group?.spaceId ?? null,
+    accountId: account.id,
+    groupId: group?.id ?? null,
+    channel: 'slack',
+    direction: 'outbound',
+    actor: 'secretary',
+    body: text,
+    payload: ts ? { ...payload, provider_message_id: ts } : payload,
+    status: failed ? 'failed' : 'sent',
+    error: failed ? 'reply failed' : null,
+    occurredAt: new Date().toISOString(),
+  })
 }
 
 /**
@@ -392,11 +426,13 @@ async function processLeakedUserLinkCode(
     })
     if (recorded === 'duplicate') return
   }
-  await deps.reply(
-    account.credentials.bot_token,
-    channelId,
-    expired ? SLACK_USER_LINK_LEAKED_TEXT : SLACK_USER_LINK_LEAKED_UNKNOWN_TEXT,
-  )
+  const text = expired ? SLACK_USER_LINK_LEAKED_TEXT : SLACK_USER_LINK_LEAKED_UNKNOWN_TEXT
+  if (group) {
+    await replyAndRecord(account, group.orgId, { id: group.id, spaceId: group.spaceId }, channelId, text, { kind: 'user_link_leaked_reply', expired }, deps)
+  } else {
+    // limbo: 帰属が無いので記録は 0 行（受信側と同じ方針）。返事だけ出す
+    await deps.reply(account.credentials.bot_token, channelId, text)
+  }
 }
 
 // Slackのユーザー/Botメンション表記(<@U…>/<@W…>)。先頭一致のみ剥がす（文中の言及は対象外）。

@@ -2890,24 +2890,76 @@ export async function isDmUnreachableForUser(orgId: string, userId: string): Pro
  * 20260715070647）なので、LINE と Slack の両方につないでいる人は2件あり得る。その場合は
  * 「最後につないだ方」（linked_at 降順）を決定的に選ぶ＝直近に本人が設定した口座へ届ける。
  */
+export interface UserLinkRouteCandidate {
+  id: string
+  channelAccountId: string
+  externalUserId: string
+  linkedAt: string
+  dmUnreachableAt: string | null
+  accountStatus: 'active' | 'disabled'
+}
+
+/**
+ * 「この紐づけへ DM を届けられる」述語の正本。sender（findActiveUserLinkForUser）と digest 安全網
+ * （findUserIdsWithActiveLink）が同じ関数で判定する（H-1 是正: 述語が非対称だと、片方が
+ * 「DM ルートあり」もう片方が「無し」と判定してリマインドがどこにも出ない穴ができる）。
+ */
+export function isUserLinkRouteUsable(c: Pick<UserLinkRouteCandidate, 'accountStatus' | 'dmUnreachableAt'>): boolean {
+  return c.accountStatus === 'active' && c.dmUnreachableAt === null
+}
+
+/**
+ * 複数チャネル（LINE と Slack 等）につないだ人の宛先の選び方（正本・Fable 裁定 2026-09-08）:
+ *   1) 使える口座（active かつ到達不能マーク無し）があれば、その中で最後につないだもの
+ *   2) 無ければ最新1件（送信は従来どおり試みる＝A案「マークで送信を止めない」を維持。
+ *      disabled は sender 側が no_route にし、digest 安全網は 1) が無いので拾い直す）
+ * 同時刻は id 降順で決定的。「全チャネルに送る」は採らない（同じ催促が二重に届く）。
+ */
+export function pickPreferredUserLink<T extends UserLinkRouteCandidate>(candidates: T[]): T | null {
+  if (candidates.length === 0) return null
+  const newestFirst = (a: T, b: T) => b.linkedAt.localeCompare(a.linkedAt) || b.id.localeCompare(a.id)
+  const usable = candidates.filter(isUserLinkRouteUsable).sort(newestFirst)
+  if (usable.length > 0) return usable[0]
+  return [...candidates].sort(newestFirst)[0]
+}
+
+type UserLinkRouteRow = {
+  id: string
+  channel_account_id: string
+  external_user_id: string
+  linked_at: string
+  dm_unreachable_at: string | null
+  channel_accounts: { status: string } | { status: string }[] | null
+}
+
+function toRouteCandidate(row: UserLinkRouteRow): UserLinkRouteCandidate {
+  const acc = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
+  return {
+    id: row.id,
+    channelAccountId: row.channel_account_id,
+    externalUserId: row.external_user_id,
+    linkedAt: row.linked_at,
+    dmUnreachableAt: row.dm_unreachable_at,
+    accountStatus: acc?.status === 'active' ? 'active' : 'disabled',
+  }
+}
+
 export async function findActiveUserLinkForUser(
   orgId: string,
   userId: string,
 ): Promise<{ channelAccountId: string; externalUserId: string } | null> {
+  // 候補を全部取ってから選ぶ（DB 側で status/マークは絞らない。絞るとフォールバック先が消える）
   const { data, error } = await admin()
     .from('channel_user_links')
-    .select('channel_account_id, external_user_id')
+    .select('id, channel_account_id, external_user_id, linked_at, dm_unreachable_at, channel_accounts!inner(status)')
     .eq('org_id', orgId)
     .eq('user_id', userId)
     .is('revoked_at', null)
-    .order('linked_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
   if (error) throw new Error(`channel_user_links: active link lookup failed: ${error.message}`)
-  if (!data) return null
 
-  const row = data as { channel_account_id: string; external_user_id: string }
-  return { channelAccountId: row.channel_account_id, externalUserId: row.external_user_id }
+  const picked = pickPreferredUserLink(((data ?? []) as unknown as UserLinkRouteRow[]).map(toRouteCandidate))
+  if (!picked) return null
+  return { channelAccountId: picked.channelAccountId, externalUserId: picked.externalUserId }
 }
 
 /**
@@ -2939,17 +2991,26 @@ export async function findUserIdsWithActiveLink(orgId: string, userIds: string[]
   const unique = [...new Set(userIds)]
   if (unique.length === 0) return new Set()
 
+  // H-1 是正: 判定は sender と同じ述語（isUserLinkRouteUsable）を TS 側で適用する。
+  // 「使える口座が1つでもあれば DM ルートあり」＝ sender の pickPreferredUserLink が
+  // 使える口座を選ぶ条件とちょうど一致する（両者が食い違うと DM にも digest にも出ない）。
   const { data, error } = await admin()
     .from('channel_user_links')
-    .select('user_id, channel_accounts!inner(status)')
+    .select('user_id, dm_unreachable_at, channel_accounts!inner(status)')
     .eq('org_id', orgId)
     .in('user_id', unique)
     .is('revoked_at', null)
-    .is('dm_unreachable_at', null)
-    .eq('channel_accounts.status', 'active')
   if (error) throw new Error(`channel_user_links: batch active link lookup failed: ${error.message}`)
 
-  return new Set((data ?? []).map((row) => (row as { user_id: string }).user_id))
+  type Row = { user_id: string; dm_unreachable_at: string | null; channel_accounts: { status: string } | { status: string }[] | null }
+  const usable = ((data ?? []) as unknown as Row[]).filter((row) => {
+    const acc = Array.isArray(row.channel_accounts) ? row.channel_accounts[0] : row.channel_accounts
+    return isUserLinkRouteUsable({
+      accountStatus: acc?.status === 'active' ? 'active' : 'disabled',
+      dmUnreachableAt: row.dm_unreachable_at,
+    })
+  })
+  return new Set(usable.map((row) => row.user_id))
 }
 
 /**
@@ -3057,11 +3118,14 @@ export async function listActiveOrgDmLinks(): Promise<ActiveOrgDmLink[]> {
   const { data, error } = await admin()
     .from('channel_user_links')
     .select(
-      'org_id, channel_account_id, external_user_id, dm_unreachable_at, channel_accounts!inner(id, org_id, display_name, credentials_encrypted, status, owner_type)',
+      'org_id, channel_account_id, external_user_id, dm_unreachable_at, channel_accounts!inner(id, org_id, channel, display_name, credentials_encrypted, status, owner_type)',
     )
     .is('revoked_at', null)
     .eq('channel_accounts.owner_type', 'org')
     .eq('channel_accounts.status', 'active')
+    // M-5 是正: LINE 到達性照合（profile API）は LINE 口座の紐づけにだけ掛ける。Slack 等の
+    // 紐づけを流すと Slack の user id を LINE に投げて 404 → 到達不能マークの誤爆になる。
+    .eq('channel_accounts.channel', 'line')
   if (error) throw new Error(`channel_user_links: list active org dm links failed: ${error.message}`)
   if (!data) return []
 

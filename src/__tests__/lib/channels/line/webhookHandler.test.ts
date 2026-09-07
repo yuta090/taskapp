@@ -3398,7 +3398,7 @@ describe('完了サジェスト（Fable裁定・精度優先の最小構成 v1�
       expect(secretaryPushMock.sendSecretaryPush).toHaveBeenCalledTimes(1)
       const call = secretaryPushMock.sendSecretaryPush.mock.calls[0][0]
       expect(call.orgId).toBe('org-1')
-      expect(call.to).toBe('U-internal-1')
+      expect(call.to).toBe('U-client-1')
       expect(call.messages[0].type).toBe('flex')
       expect(JSON.stringify(call.messages[0].contents)).toContain('task-1')
       expect(call.text).toBe('「見積書送付」は完了しましたか？')
@@ -3484,12 +3484,16 @@ describe('完了サジェスト（Fable裁定・精度優先の最小構成 v1�
       expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
     })
 
-    it('DMルートが無い（findActiveUserLinkForUserがnull） → 送らない', async () => {
+    it('M-4 是正: DM の宛先は「この LINE 口座での送信者本人の紐づけ」（Slack を後から連携した人でもサジェストが止まらない）', async () => {
       setupSuccessfulDoneSuggestMocks()
-      storeMock.findActiveUserLinkForUser.mockResolvedValue(null)
+      // 最後につないだ口座が Slack でも、ここは LINE の口座で解決する
+      storeMock.findActiveUserLinkForUser.mockResolvedValue({ channelAccountId: 'acc-slack', externalUserId: 'U-slack' })
       const body = makeBody([groupTextEvent('対応しました')])
       await handleLineWebhook(body, sign(body))
-      expect(secretaryPushMock.sendSecretaryPush).not.toHaveBeenCalled()
+      expect(storeMock.findActiveUserLinkForUser).not.toHaveBeenCalled()
+      expect(storeMock.findLineAccountByIdLookup).toHaveBeenCalledWith(SENDER_LINK.channelAccountId)
+      const call = secretaryPushMock.sendSecretaryPush.mock.calls[0][0]
+      expect(call.to).toBe(SENDER_LINK.externalUserId)
     })
 
     it('DM先accountが解決できない（disabled等） → 送らない', async () => {

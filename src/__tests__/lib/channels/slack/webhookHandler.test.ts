@@ -701,6 +701,10 @@ describe('handleSlackWebhook — 本人紐づけコード（DM）', () => {
     expect(r.status).toBe(200)
     expect(deps.consumeUserLinkCode).toHaveBeenCalledWith(USER_LINK_CODE_HASH, ACCOUNT.id, 'U999')
     expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D777', expect.stringContaining('連携しました'))
+    // 秘書の返事も outbound として残す（LINE の sendSecretaryText と同じ・2AM の切り分け用）
+    expect(deps.insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', groupId: null, actor: 'secretary', direction: 'outbound', body: expect.stringContaining('連携しました'), status: 'sent' }),
+    )
     // チャンネルの合言葉・承認の流れには入らない
     expect(deps.findValidClaimCode).not.toHaveBeenCalled()
     expect(deps.createPendingClaim).not.toHaveBeenCalled()
@@ -756,6 +760,9 @@ describe('handleSlackWebhook — 本人紐づけコード（DM）', () => {
     expect(input).toMatchObject({ groupId: 'grp-1', actor: 'client' })
     expect(JSON.stringify(input)).not.toContain(USER_LINK_CODE)
     expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'C123', expect.stringContaining('無効化しました'))
+    expect(deps.insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', groupId: 'grp-1', actor: 'secretary', body: expect.stringContaining('無効化しました') }),
+    )
     expect(deps.createInstantDigestTask).not.toHaveBeenCalled()
     expect(deps.completeDigestTask).not.toHaveBeenCalled()
   })
