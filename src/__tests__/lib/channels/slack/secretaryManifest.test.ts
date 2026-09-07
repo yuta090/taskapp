@@ -54,6 +54,17 @@ describe('buildSecretarySlackManifest', () => {
   })
 })
 
+describe('ボタン操作（Interactivity）', () => {
+  const m = buildSecretarySlackManifest({ eventsUrl: secretaryWebhookUrlForOrg('https://agentpm.app', ORG) })
+
+  it('リマインドの確認ボタンを受けるため Interactivity を有効にし、受信URLはイベント購読と同じ組織単位URLにする', () => {
+    expect(m.settings.interactivity).toEqual({
+      is_enabled: true,
+      request_url: `https://agentpm.app/api/channels/slack/webhook/org/${ORG}`,
+    })
+  })
+})
+
 describe('説明欄の案内が画面のメニュー名と一致している', () => {
   const m = buildSecretarySlackManifest({ eventsUrl: secretaryWebhookUrlForOrg('https://agentpm.app', ORG) })
 

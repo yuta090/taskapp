@@ -105,6 +105,14 @@ import {
   parseDueReminderSnoozePostback,
 } from '@/lib/reminders/dueReminderPostback'
 import {
+  DUE_REMINDER_DONE_FALLBACK_TEXT,
+  DUE_REMINDER_ALREADY_DONE_TEXT,
+  DUE_REMINDER_BLOCKED_TEXT,
+  DUE_REMINDER_SNOOZE_CAPPED_TEXT,
+  buildDueReminderDoneReplyText,
+  buildDueReminderSnoozedReplyText,
+} from '@/lib/reminders/dueReminderReplyTexts'
+import {
   confirmTaskDoneViaLine,
   snoozeDueReminderViaLine,
   findTaskSnapshotForReminder,
@@ -199,25 +207,11 @@ const PROMOTE_ALREADY_TEXT = 'すでにタスク化済みです。'
 const REJECT_DONE_TEXT = '却下しました。タスクには登録しません。'
 const APPROVAL_CONFLICT_TEXT = 'この項目はすでに処理済みです。'
 
-// 期限リマインド確認ループ（設計正本 §7・PR-2）の返信文言。
-// code review #5是正: forbidden/not_found/already_snoozed（世代不一致=旧ボタンの正当な無操作）は
-// processApprovalPostbackと同方針で完全沈黙にするため、それらの文言は持たない
-// （返信テキストを用意すると「用意されているのに出し分けるだけ」という誤読を招くため意図的に置かない）。
-const DUE_REMINDER_DONE_FALLBACK_TEXT = 'タスクを完了にしました。'
-const DUE_REMINDER_ALREADY_DONE_TEXT = 'すでに完了済みです。'
-const DUE_REMINDER_BLOCKED_TEXT = 'アプリで内容を確認してください。'
-const DUE_REMINDER_SNOOZE_CAPPED_TEXT = '再通知の上限に達しました。'
+// 期限リマインド確認ループ（設計正本 §7・PR-2）の返信文言は
+// @/lib/reminders/dueReminderReplyTexts が正本（Slack のボタンと共用）。
 
 /** 完了サジェスト（Fable裁定 v1）[まだ]押下の返信。台帳はdismissedのまま残り再サジェストしない */
 const DONE_SUGGEST_DISMISS_TEXT = '承知しました。'
-
-function buildDueReminderDoneReplyText(title: string): string {
-  return `『${title}』を完了にしました。`
-}
-
-function buildDueReminderSnoozedReplyText(days: number): string {
-  return `${days}日後に再通知します。`
-}
 
 // 承認待ちの文言は groupCommands.ts（他チャットの「タスク追加」と共通）が正本。
 // 同じ文章を2箇所に書くと、片方だけ直したときに人によって言われることが変わる。

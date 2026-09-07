@@ -26,6 +26,11 @@ import {
 import { normalizeClaimCode } from '@/lib/channels/linkCode'
 import { registerInvalidClaimAttemptAndCheckLimit } from '@/lib/channels/limboRateLimit'
 import { resolveOrgEntitlements } from '@/lib/billing/entitlements'
+import {
+  confirmTaskDoneViaLine,
+  snoozeDueReminderViaLine,
+  findTaskSnapshotForReminder,
+} from '@/lib/reminders/dueReminderStore'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -95,6 +100,13 @@ export const slackWebhookDeps: SlackWebhookDeps = {
   // 番号は「まだ番号が無いタスク」にだけ与える。総入れ替えは配信直前の cron だけの仕事。
   assignDigestNumbersToNewTasks,
   updateGroupMetadata: (groupId, patch) => updateChannelGroupMetadata(groupId, patch),
+  // 期限リマインドの確認ボタン。RPC は「LINE経路」の名前だが中身は channel_user_links（口座×外部
+  // ユーザー）で本人を解決するだけでチャネルを問わない。Slack の user id をそのまま渡す。
+  confirmTaskDone: (accountId, externalUserId, taskId) =>
+    confirmTaskDoneViaLine(accountId, externalUserId, taskId),
+  snoozeDueReminder: (accountId, externalUserId, occurrenceId, days, expectedSendCount) =>
+    snoozeDueReminderViaLine(accountId, externalUserId, occurrenceId, days, expectedSendCount),
+  findTaskTitle: async (taskId) => (await findTaskSnapshotForReminder(taskId))?.title ?? null,
   insertOutbound: (input) =>
     insertChannelMessage({
       orgId: input.orgId,

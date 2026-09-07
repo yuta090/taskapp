@@ -21,9 +21,20 @@ const PERMANENT_SLACK_ERRORS = new Set([
   'restricted_action',
 ])
 
+/**
+ * ctx.rich が Slack の形（{ blocks: [...] }）のときだけ Block Kit として送る。
+ * LINE の Flex 配列など他チャネルのリッチ表現は無視して text だけ送る（床は text）。
+ */
+function extractBlocks(rich: unknown): unknown[] | null {
+  if (!rich || typeof rich !== 'object' || Array.isArray(rich)) return null
+  const blocks = (rich as { blocks?: unknown }).blocks
+  return Array.isArray(blocks) && blocks.length > 0 ? blocks : null
+}
+
 export const slackAdapter: OutboundAdapter = async (ctx): Promise<OutboundResult> => {
   const token = ctx.credentials.bot_token
   if (!token) return missingCredential('bot_token')
+  const blocks = extractBlocks(ctx.rich)
 
   let res: Response
   try {
@@ -35,7 +46,14 @@ export const slackAdapter: OutboundAdapter = async (ctx): Promise<OutboundResult
       },
       // リンクの自動プレビュー展開は止める（リマインド等に含む agentpm.app のリンクが
       // 毎回サイト紹介カードになるのを防ぐ）
-      body: JSON.stringify({ channel: ctx.to, text: ctx.text, unfurl_links: false, unfurl_media: false }),
+      // blocks 付きでも text は残す（通知・アクセシビリティ・Block Kit 非対応クライアントの床）
+      body: JSON.stringify({
+        channel: ctx.to,
+        text: ctx.text,
+        unfurl_links: false,
+        unfurl_media: false,
+        ...(blocks ? { blocks } : {}),
+      }),
     })
   } catch (e) {
     return { ok: false, permanent: false, error: `network error: ${(e as Error).message}` }

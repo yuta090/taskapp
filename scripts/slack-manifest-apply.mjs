@@ -58,6 +58,11 @@ if (manifest.settings?.event_subscriptions) {
   if (eventsUrl) manifest.settings.event_subscriptions.request_url = eventsUrl
   else if (!manifest.settings.event_subscriptions.request_url) delete manifest.settings.event_subscriptions
 }
+// ボタン操作（Interactivity）はイベント購読と同じURLで受ける（秘書のリマインド確認ボタン用）
+if (manifest.settings?.interactivity?.is_enabled) {
+  if (eventsUrl) manifest.settings.interactivity.request_url = eventsUrl
+  else if (!manifest.settings.interactivity.request_url) delete manifest.settings.interactivity
+}
 
 if (args.includes('--export')) {
   const res = await call('apps.manifest.export', { app_id: appId })

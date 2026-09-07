@@ -69,6 +69,10 @@ function makeDeps(over: Partial<SlackWebhookDeps> = {}): SlackWebhookDeps {
     insertOutbound: vi.fn().mockResolvedValue(undefined),
     // 「一覧」の土台（番号がまだ無いタスクにだけ続きの番号を与える）。配線必須
     assignDigestNumbersToNewTasks: vi.fn().mockResolvedValue([]),
+    // 期限リマインドの確認ボタン（LINE の postback と同じ RPC に配線する）
+    confirmTaskDone: vi.fn().mockResolvedValue({ status: 'done' }),
+    snoozeDueReminder: vi.fn().mockResolvedValue({ status: 'snoozed' }),
+    findTaskTitle: vi.fn().mockResolvedValue('見積書の送付'),
     ...over,
   }
 }
@@ -505,5 +509,151 @@ describe('handleSlackWebhook — 完了コマンド（claimed経路限定）', (
       await handleSlackWebhook('acc-sl-1', bare, auth(bare), deps)
       expect(completeDigestTask).toHaveBeenCalledWith('grp-1', 3, 'U999')
     })
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// 期限リマインドの確認ボタン（Slack Interactivity / block_actions）。
+// Slack は application/x-www-form-urlencoded の payload=<JSON> で届ける。署名は生ボディに対して
+// 検証する（イベント購読と同じ受信URL・同じ signing_secret）。
+// ---------------------------------------------------------------------------
+
+const TASK_ID = '11111111-1111-4111-8111-111111111111'
+const OCC_ID = '22222222-2222-4222-8222-222222222222'
+
+function actionBody(over: Partial<{ actionId: string; value: string; user: string; channel: string; actionTs: string; type: string }> = {}) {
+  const payload = {
+    type: over.type ?? 'block_actions',
+    user: { id: over.user ?? 'U999' },
+    channel: { id: over.channel ?? 'D123' },
+    message: { ts: '1700000100.000200' },
+    trigger_id: '13345224609.738474920.8088930838d88f008e0',
+    response_url: 'https://hooks.slack.com/actions/T123/xxx',
+    actions: [
+      {
+        type: 'button',
+        block_id: `due_reminder:${OCC_ID}`,
+        action_id: over.actionId ?? 'due_reminder_done',
+        value: over.value ?? `action=due_reminder_done&task=${TASK_ID}`,
+        action_ts: over.actionTs ?? '1700000150.123456',
+      },
+    ],
+  }
+  return `payload=${encodeURIComponent(JSON.stringify(payload))}`
+}
+
+describe('handleSlackWebhook — 期限リマインドの確認ボタン（block_actions）', () => {
+  it('署名が合わなければ 401（フォーム形式のボディでも同じ）', async () => {
+    const body = actionBody()
+    const deps = makeDeps()
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body, { signature: 'v0=bad' }), deps)
+    expect(r.status).toBe(401)
+    expect(deps.confirmTaskDone).not.toHaveBeenCalled()
+  })
+
+  it('[完了した]: 検証済みの (account.id, 押した人の Slack user id) と task で RPC を呼び、完了の返事を同じ場所に出す', async () => {
+    const body = actionBody()
+    const deps = makeDeps()
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(r.status).toBe(200)
+    expect(deps.confirmTaskDone).toHaveBeenCalledWith(ACCOUNT.id, 'U999', TASK_ID)
+    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D123', '『見積書の送付』を完了にしました。')
+    // 監査行（system/inbound）を残す。dedupe は action_ts
+    expect(deps.insertMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: 'org-1',
+        accountId: ACCOUNT.id,
+        actor: 'system',
+        direction: 'inbound',
+        externalUserId: 'U999',
+        externalMessageId: 'D123:action:1700000150.123456',
+        payload: expect.objectContaining({ event: 'block_actions', action: 'due_reminder_done', taskId: TASK_ID, result: 'done' }),
+      }),
+    )
+  })
+
+  it('[完了した] が already_done なら「すでに完了済みです。」、blocked なら「アプリで内容を確認してください。」', async () => {
+    const body = actionBody()
+    const d1 = makeDeps({ confirmTaskDone: vi.fn().mockResolvedValue({ status: 'already_done' }) })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), d1)
+    expect(d1.reply).toHaveBeenCalledWith('xoxb-1', 'D123', 'すでに完了済みです。')
+
+    const d2 = makeDeps({ confirmTaskDone: vi.fn().mockResolvedValue({ status: 'blocked' }) })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), d2)
+    expect(d2.reply).toHaveBeenCalledWith('xoxb-1', 'D123', 'アプリで内容を確認してください。')
+  })
+
+  it('forbidden（紐づいていない人が押した）は完全沈黙（返事も監査行も残さない）', async () => {
+    const body = actionBody()
+    const deps = makeDeps({ confirmTaskDone: vi.fn().mockResolvedValue({ status: 'forbidden' }) })
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(r.status).toBe(200)
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.insertMessage).not.toHaveBeenCalled()
+  })
+
+  it('[対応中]/[明日また確認]: value の世代(gen)ごと snooze RPC に渡し、「1日後に再通知します。」と返す', async () => {
+    const body = actionBody({
+      actionId: 'due_reminder_snooze_tomorrow',
+      value: `action=due_reminder_snooze&occurrence=${OCC_ID}&days=1&gen=2`,
+    })
+    const deps = makeDeps()
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.snoozeDueReminder).toHaveBeenCalledWith(ACCOUNT.id, 'U999', OCC_ID, 1, 2)
+    expect(deps.confirmTaskDone).not.toHaveBeenCalled()
+    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D123', '1日後に再通知します。')
+  })
+
+  it('snooze が capped なら上限の文言、already_snoozed/not_found（古いボタン）は沈黙', async () => {
+    const body = actionBody({
+      actionId: 'due_reminder_snooze_working',
+      value: `action=due_reminder_snooze&occurrence=${OCC_ID}&days=1&gen=0`,
+    })
+    const d1 = makeDeps({ snoozeDueReminder: vi.fn().mockResolvedValue({ status: 'capped' }) })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), d1)
+    expect(d1.reply).toHaveBeenCalledWith('xoxb-1', 'D123', '再通知の上限に達しました。')
+
+    const d2 = makeDeps({ snoozeDueReminder: vi.fn().mockResolvedValue({ status: 'already_snoozed' }) })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), d2)
+    expect(d2.reply).not.toHaveBeenCalled()
+    expect(d2.insertMessage).not.toHaveBeenCalled()
+  })
+
+  it('同じ押下の再送（監査行が duplicate）には返事を繰り返さない', async () => {
+    const body = actionBody()
+    const deps = makeDeps({ insertMessage: vi.fn().mockResolvedValue('duplicate') })
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.reply).not.toHaveBeenCalled()
+  })
+
+  it('value が壊れている／期限リマインド以外の action_id は無視して 200', async () => {
+    const b1 = actionBody({ value: 'action=due_reminder_done&task=not-a-uuid' })
+    const d1 = makeDeps()
+    expect((await handleSlackWebhook(ACCOUNT.id, b1, auth(b1), d1)).status).toBe(200)
+    expect(d1.confirmTaskDone).not.toHaveBeenCalled()
+
+    const b2 = actionBody({ actionId: 'something_else' })
+    const d2 = makeDeps()
+    expect((await handleSlackWebhook(ACCOUNT.id, b2, auth(b2), d2)).status).toBe(200)
+    expect(d2.confirmTaskDone).not.toHaveBeenCalled()
+    expect(d2.reply).not.toHaveBeenCalled()
+  })
+
+  it('RPC が例外を投げたら何も残さず 200（押し直しで回復する）', async () => {
+    const body = actionBody()
+    const deps = makeDeps({ confirmTaskDone: vi.fn().mockRejectedValue(new Error('db down')) })
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(r.status).toBe(200)
+    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.insertMessage).not.toHaveBeenCalled()
+  })
+
+  it('block_actions 以外の対話（view_submission 等）は無視して 200', async () => {
+    const body = actionBody({ type: 'view_submission' })
+    const deps = makeDeps()
+    const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(r.status).toBe(200)
+    expect(deps.confirmTaskDone).not.toHaveBeenCalled()
   })
 })
