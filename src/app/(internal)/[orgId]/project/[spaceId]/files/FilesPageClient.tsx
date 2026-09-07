@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import Link from 'next/link'
 import {
   FolderOpen,
   Plus,
@@ -8,6 +9,8 @@ import {
   FileImage,
   FilePdf,
   FileDoc,
+  FileCsv,
+  Table,
   Trash,
   Link as LinkIcon,
   DownloadSimple,
@@ -16,6 +19,7 @@ import {
 import { toast } from 'sonner'
 import { Breadcrumb, useConfirmDialog } from '@/components/shared'
 import { CLIENT } from '@/lib/design/tokens'
+import { isTabularFile } from '@/lib/table/tableModel'
 import {
   useFiles,
   useUploadFile,
@@ -33,7 +37,8 @@ interface FilesPageClientProps {
   spaceId: string
 }
 
-function getFileIcon(mimeType: string) {
+function getFileIcon(name: string, mimeType: string) {
+  if (isTabularFile(name, mimeType)) return FileCsv
   if (mimeType.includes('image')) return FileImage
   if (mimeType.includes('pdf')) return FilePdf
   if (mimeType.includes('word') || mimeType.includes('document')) return FileDoc
@@ -187,8 +192,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
               ))}
 
               {files?.map((file) => {
-                const FileIcon = getFileIcon(file.mimeType)
+                const FileIcon = getFileIcon(file.name, file.mimeType)
                 const isClientVisible = file.clientVisible || file.origin === 'client'
+                const tableHref = isTabularFile(file.name, file.mimeType) ? `${basePath}/files/${file.id}` : null
 
                 return (
                   <div
@@ -199,7 +205,16 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                     <FileIcon className="text-lg text-gray-400 flex-shrink-0" />
 
                     <div className="flex-1 min-w-0 flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900 truncate">{file.name}</span>
+                      {tableHref ? (
+                        <Link
+                          href={tableHref}
+                          className="text-sm font-medium text-gray-900 truncate hover:text-indigo-600 hover:underline underline-offset-2"
+                        >
+                          {file.name}
+                        </Link>
+                      ) : (
+                        <span className="text-sm font-medium text-gray-900 truncate">{file.name}</span>
+                      )}
                       {file.origin === 'client' && (
                         <span className={`flex-shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded ${CLIENT.badge}`}>
                           クライアント提供
@@ -247,6 +262,17 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                         />
                       </button>
                     </div>
+
+                    {tableHref && (
+                      <Link
+                        href={tableHref}
+                        data-testid={`file-open-table-${file.id}`}
+                        title="表で見る"
+                        className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                      >
+                        <Table className="text-sm" />
+                      </Link>
+                    )}
 
                     <button
                       type="button"
