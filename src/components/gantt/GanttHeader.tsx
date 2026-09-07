@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { GANTT_CONFIG, type ViewMode } from '@/lib/gantt/constants'
 import {
   getDatesInRange,
@@ -57,7 +57,7 @@ interface MilestoneDragState {
   originalEndX: number
 }
 
-export function GanttHeader({
+function GanttHeaderInner({
   startDate,
   endDate,
   viewMode,
@@ -498,3 +498,8 @@ export function GanttHeader({
     </div>
   )
 }
+
+// memo: the sidebar-width drag re-renders GanttChart on every pointermove, and none
+// of the header's props change then. Without memo every date column (hundreds of
+// SVG nodes on long projects) would be rebuilt per pointer event.
+export const GanttHeader = memo(GanttHeaderInner)
