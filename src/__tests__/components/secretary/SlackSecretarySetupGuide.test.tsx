@@ -33,7 +33,7 @@ describe('SlackSecretarySetupGuide', () => {
       /2つの鍵を AgentPM に登録/,
       /秘書をチャンネルに招待/,
       /合言葉を発行して、そのチャンネルに投稿/,
-      /確認待ち.*承認/,
+      '確認待ちで承認する',
     ]) {
       expect(screen.getByText(t)).toBeInTheDocument()
     }
