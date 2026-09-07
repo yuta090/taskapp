@@ -172,4 +172,81 @@ describe('WikiPageRow', () => {
     render(<WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} />)
     expect(screen.queryByTitle(/^\d{4}\//)).not.toBeInTheDocument()
   })
+
+  it('pinned_at があればタイトル左にピンアイコンが出る', () => {
+    const { container } = render(
+      <WikiPageRow
+        page={page({ pinned_at: '2026-09-01T00:00:00+09:00' })}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+      />
+    )
+    expect(container.querySelector('[data-testid="wiki-pin-icon"]')).toBeInTheDocument()
+  })
+
+  it('pinned_at が無ければピンアイコンは出ない', () => {
+    const { container } = render(
+      <WikiPageRow page={page({ pinned_at: null })} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} />
+    )
+    expect(container.querySelector('[data-testid="wiki-pin-icon"]')).not.toBeInTheDocument()
+  })
+
+  it('depth に応じて左パディングが増える', () => {
+    const { container: c0 } = render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} depth={0} />
+    )
+    const { container: c2 } = render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} depth={2} />
+    )
+    const row0 = c0.firstElementChild as HTMLElement
+    const row2 = c2.firstElementChild as HTMLElement
+    expect(row0.style.paddingLeft).toBe('16px')
+    expect(row2.style.paddingLeft).toBe('56px')
+  })
+
+  it('hasChildren なら折りたたみトグルが出る。クリックで onToggleCollapse にページ id が渡り、行クリックは発火しない', () => {
+    const onToggleCollapse = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <WikiPageRow
+        page={page({ id: 'parent' })}
+        isSelected={false}
+        onSelect={onSelect}
+        columns={[]}
+        getMember={getMember}
+        hasChildren
+        collapsed={false}
+        onToggleCollapse={onToggleCollapse}
+      />
+    )
+    fireEvent.click(screen.getByLabelText('折りたたむ'))
+    expect(onToggleCollapse).toHaveBeenCalledWith('parent')
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('collapsed なら展開ボタンのラベルになる', () => {
+    render(
+      <WikiPageRow
+        page={page()}
+        isSelected={false}
+        onSelect={vi.fn()}
+        columns={[]}
+        getMember={getMember}
+        hasChildren
+        collapsed
+        onToggleCollapse={vi.fn()}
+      />
+    )
+    expect(screen.getByLabelText('展開')).toBeInTheDocument()
+  })
+
+  it('hasChildren が false ならトグルボタンは出ない', () => {
+    render(
+      <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={[]} getMember={getMember} hasChildren={false} />
+    )
+    expect(screen.queryByLabelText('展開')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('折りたたむ')).not.toBeInTheDocument()
+  })
 })
