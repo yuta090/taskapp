@@ -48,4 +48,23 @@ describe('toWikiBlocksJson', () => {
     // Markdown として解釈されるので、HTML 要素としてではなくテキストとして入る
     expect(json).toContain('太字')
   })
+
+  it('チェックリスト・番号付き・入れ子・コード・リンクも保つ（実務テンプレで使う要素）', async () => {
+    const md = '## 手順\n\n1. 一つ目\n2. 二つ目\n   - 子の項目\n\n- [ ] 未完\n- [x] 完了\n\n```bash\necho hi\n```\n\n[参照](https://agentpm.app) を見る'
+    const blocks = JSON.parse(await toWikiBlocksJson(md)) as { type: string; props?: Record<string, unknown>; children?: unknown[]; content?: { type: string; href?: string }[] }[]
+    expect(blocks.filter((b) => b.type === 'numberedListItem')).toHaveLength(2)
+    expect(blocks.find((b) => b.type === 'numberedListItem' && b.children?.length)).toBeTruthy()
+    const checks = blocks.filter((b) => b.type === 'checkListItem')
+    expect(checks.map((b) => b.props?.checked)).toEqual([false, true])
+    expect(blocks.find((b) => b.type === 'codeBlock')).toMatchObject({ props: { language: 'bash' } })
+    const para = blocks.find((b) => b.type === 'paragraph' && b.content?.some((c) => c.type === 'link'))!
+    expect(para.content?.find((c) => c.type === 'link')?.href).toBe('https://agentpm.app')
+  })
+
+  it('React や DOM を要求しない（サーバー側の require フックに巻き込まれない）', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync(new URL('./wikiBody.ts', import.meta.url), 'utf8'))
+    // コメントで言及するのは可。import / require で読み込んでいないことを見る
+    expect(src).not.toMatch(/(from|import\()\s*'@blocknote\/(server-util|react)'/)
+    expect(src).not.toMatch(/from 'react'/)
+  })
 })
