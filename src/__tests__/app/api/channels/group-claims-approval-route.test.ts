@@ -278,3 +278,37 @@ describe('POST /api/channels/group-claims/approval', () => {
     expect(res.status).toBe(404)
   })
 })
+
+/**
+ * RPC が拒否したとき（期限・整合・競合）に、画面へ英語の理由コード（'invalid' 等）だけを返していたため、
+ * 「承認ボタンを押しても消えない」ように見えて原因が分からなかった。日本語の理由と code を返す。
+ */
+describe('POST /api/channels/group-claims/approval — RPC 拒否時の理由表示', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUserMock.mockResolvedValue({ data: { user: { id: 'approver-1' } }, error: null })
+    membershipSingleMock.mockResolvedValue({ data: { role: 'member' }, error: null })
+    storeMock.findGroupClaimOrgAndChannel.mockResolvedValue({ orgId: ORG_ID, channel: 'slack' })
+    storeMock.orgExternalChatGroupCapacity.mockResolvedValue({ activeCount: 0, max: null })
+    storeMock.orgHasExternalChatChannels.mockResolvedValue(true)
+  })
+
+  it("'invalid'（整合・期限）は 422 で日本語の理由と code を返す", async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('rpc: claim was created after link_code expiry', 'invalid'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(422)
+    const json = await res.json()
+    expect(json.code).toBe('invalid')
+    expect(json.error).toMatch(/承認できません/)
+    expect(json.error).not.toBe('invalid')
+  })
+
+  it("'conflict'（既に処理済み・同時承認）は 409 で日本語の理由を返す", async () => {
+    storeMock.approveGroupClaim.mockRejectedValue(new GroupClaimActionError('rpc: not pending', 'conflict'))
+    const res = await callPost({ orgId: ORG_ID, claimId: CLAIM_ID, action: 'approve' })
+    expect(res.status).toBe(409)
+    const json = await res.json()
+    expect(json.code).toBe('conflict')
+    expect(json.error).toMatch(/既に|処理/)
+  })
+})
