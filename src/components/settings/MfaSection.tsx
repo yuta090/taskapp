@@ -23,23 +23,30 @@ export function MfaSection() {
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   const load = useCallback(async () => {
-    const supabase = createClient()
-    const { data, error } = await supabase.auth.mfa.listFactors()
-    if (error) {
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.auth.mfa.listFactors()
+      if (error) {
+        setMessage({ type: 'error', text: '二要素認証の状態を取得できませんでした' })
+        setStep('off')
+        return
+      }
+      const totp = data?.totp ?? []
+      // 途中でやめた未確認の TOTP 登録は片付ける（他種別・登録中のものは触らない）
+      const staleTotp = (data?.all ?? []).filter((f) => f.factor_type === 'totp' && f.status === 'unverified' && f.id !== factorId)
+      for (const f of staleTotp) {
+        const { error: cleanupError } = await supabase.auth.mfa.unenroll({ factorId: f.id })
+        if (cleanupError) console.error('[mfa] cleanup unenroll failed', cleanupError.message)
+      }
+      const verified = totp.find((f) => f.status === 'verified')
+      setFactorId(verified?.id ?? null)
+      setStep(verified ? 'on' : 'off')
+    } catch (err) {
+      // 例外（通信断・想定外の応答）でも画面全体を落とさない
+      console.error('[mfa] load failed', err instanceof Error ? err.message : err)
       setMessage({ type: 'error', text: '二要素認証の状態を取得できませんでした' })
       setStep('off')
-      return
     }
-    const totp = data?.totp ?? []
-    // 途中でやめた未確認の TOTP 登録は片付ける（他種別・登録中のものは触らない）
-    const staleTotp = (data?.all ?? []).filter((f) => f.factor_type === 'totp' && f.status === 'unverified' && f.id !== factorId)
-    for (const f of staleTotp) {
-      const { error: cleanupError } = await supabase.auth.mfa.unenroll({ factorId: f.id })
-      if (cleanupError) console.error('[mfa] cleanup unenroll failed', cleanupError.message)
-    }
-    const verified = totp.find((f) => f.status === 'verified')
-    setFactorId(verified?.id ?? null)
-    setStep(verified ? 'on' : 'off')
     // 登録中の factorId を除外するため依存に含めない（初回だけ実行）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
