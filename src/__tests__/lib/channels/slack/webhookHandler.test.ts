@@ -64,6 +64,8 @@ function makeDeps(over: Partial<SlackWebhookDeps> = {}): SlackWebhookDeps {
     generateChallengeLabel: vi.fn().mockReturnValue('AB12'),
     registerInvalidAttempt: vi.fn().mockReturnValue(false),
     reply: vi.fn().mockResolvedValue({ ts: '1700000200.000100' }),
+    // ボタン押下への返事は response_url（押した本人にだけ見える・場所を選ばない）
+    respondToInteraction: vi.fn().mockResolvedValue(undefined),
     completeDigestTask: vi.fn().mockResolvedValue(null),
     createInstantDigestTask: vi.fn().mockResolvedValue({ id: 'task-new', pending: false, duplicate: false }),
     insertOutbound: vi.fn().mockResolvedValue(undefined),
@@ -151,7 +153,7 @@ describe('handleSlackWebhook — url_verification（凍結）', () => {
     const body = JSON.stringify({ type: 'url_verification', challenge: 'CH4L' })
     const res = await handleSlackWebhook('acc-sl-1', body, auth(body), deps)
     expect(res.status).toBe(200)
-    expect(res.body.challenge).toBe('CH4L')
+    expect(res.body?.challenge).toBe('CH4L')
     expect(deps.insertMessage).not.toHaveBeenCalled()
   })
 
@@ -160,7 +162,7 @@ describe('handleSlackWebhook — url_verification（凍結）', () => {
     const body = JSON.stringify({ type: 'url_verification', challenge: 'CH4L' })
     const res = await handleSlackWebhook('acc-sl-1', body, { ...auth(body), signature: 'v0=bad' }, deps)
     expect(res.status).toBe(401)
-    expect(res.body.challenge).toBeUndefined()
+    expect(res.body?.challenge).toBeUndefined()
   })
 })
 
@@ -557,8 +559,16 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const deps = makeDeps()
     const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
     expect(r.status).toBe(200)
+    // Slack の Interactivity は「200・空ボディ」が作法（JSON を返すと元メッセージの置換と解釈されうる）
+    expect(r.body).toBeNull()
     expect(deps.confirmTaskDone).toHaveBeenCalledWith(ACCOUNT.id, 'U999', TASK_ID)
-    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D123', '『見積書の送付』を完了にしました。')
+    // 返事はチャンネルへの投稿ではなく response_url（押した本人にだけ見える）。bot token は使わない
+    expect(deps.respondToInteraction).toHaveBeenCalledWith('https://hooks.slack.com/actions/T123/xxx', '『見積書の送付』を完了にしました。')
+    expect(deps.reply).not.toHaveBeenCalled()
+    // 秘書の返事も outbound として残す（2AM の切り分け用・LINE の sendSecretaryText と同じ）
+    expect(deps.insertOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', actor: 'secretary', direction: 'outbound', body: '『見積書の送付』を完了にしました。' }),
+    )
     // 監査行（system/inbound）を残す。dedupe は action_ts
     expect(deps.insertMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -577,11 +587,11 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const body = actionBody()
     const d1 = makeDeps({ confirmTaskDone: vi.fn().mockResolvedValue({ status: 'already_done' }) })
     await handleSlackWebhook(ACCOUNT.id, body, auth(body), d1)
-    expect(d1.reply).toHaveBeenCalledWith('xoxb-1', 'D123', 'すでに完了済みです。')
+    expect(d1.respondToInteraction).toHaveBeenCalledWith('https://hooks.slack.com/actions/T123/xxx', 'すでに完了済みです。')
 
     const d2 = makeDeps({ confirmTaskDone: vi.fn().mockResolvedValue({ status: 'blocked' }) })
     await handleSlackWebhook(ACCOUNT.id, body, auth(body), d2)
-    expect(d2.reply).toHaveBeenCalledWith('xoxb-1', 'D123', 'アプリで内容を確認してください。')
+    expect(d2.respondToInteraction).toHaveBeenCalledWith('https://hooks.slack.com/actions/T123/xxx', 'アプリで内容を確認してください。')
   })
 
   it('forbidden（紐づいていない人が押した）は完全沈黙（返事も監査行も残さない）', async () => {
@@ -589,8 +599,9 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const deps = makeDeps({ confirmTaskDone: vi.fn().mockResolvedValue({ status: 'forbidden' }) })
     const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
     expect(r.status).toBe(200)
-    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.respondToInteraction).not.toHaveBeenCalled()
     expect(deps.insertMessage).not.toHaveBeenCalled()
+    expect(deps.insertOutbound).not.toHaveBeenCalled()
   })
 
   it('[対応中]/[明日また確認]: value の世代(gen)ごと snooze RPC に渡し、「1日後に再通知します。」と返す', async () => {
@@ -602,7 +613,7 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
     expect(deps.snoozeDueReminder).toHaveBeenCalledWith(ACCOUNT.id, 'U999', OCC_ID, 1, 2)
     expect(deps.confirmTaskDone).not.toHaveBeenCalled()
-    expect(deps.reply).toHaveBeenCalledWith('xoxb-1', 'D123', '1日後に再通知します。')
+    expect(deps.respondToInteraction).toHaveBeenCalledWith('https://hooks.slack.com/actions/T123/xxx', '1日後に再通知します。')
   })
 
   it('snooze が capped なら上限の文言、already_snoozed/not_found（古いボタン）は沈黙', async () => {
@@ -612,11 +623,11 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     })
     const d1 = makeDeps({ snoozeDueReminder: vi.fn().mockResolvedValue({ status: 'capped' }) })
     await handleSlackWebhook(ACCOUNT.id, body, auth(body), d1)
-    expect(d1.reply).toHaveBeenCalledWith('xoxb-1', 'D123', '再通知の上限に達しました。')
+    expect(d1.respondToInteraction).toHaveBeenCalledWith('https://hooks.slack.com/actions/T123/xxx', '再通知の上限に達しました。')
 
     const d2 = makeDeps({ snoozeDueReminder: vi.fn().mockResolvedValue({ status: 'already_snoozed' }) })
     await handleSlackWebhook(ACCOUNT.id, body, auth(body), d2)
-    expect(d2.reply).not.toHaveBeenCalled()
+    expect(d2.respondToInteraction).not.toHaveBeenCalled()
     expect(d2.insertMessage).not.toHaveBeenCalled()
   })
 
@@ -624,7 +635,19 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const body = actionBody()
     const deps = makeDeps({ insertMessage: vi.fn().mockResolvedValue('duplicate') })
     await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.respondToInteraction).not.toHaveBeenCalled()
+    expect(deps.insertOutbound).not.toHaveBeenCalled()
+  })
+
+  it('response_url が無いペイロードには返事を出さない（チャンネルへ投稿して社内タスク名を漏らさない）', async () => {
+    const payload = JSON.parse(decodeURIComponent(actionBody().slice('payload='.length))) as Record<string, unknown>
+    delete payload.response_url
+    const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`
+    const deps = makeDeps()
+    await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
+    expect(deps.confirmTaskDone).toHaveBeenCalled()
     expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.respondToInteraction).not.toHaveBeenCalled()
   })
 
   it('value が壊れている／期限リマインド以外の action_id は無視して 200', async () => {
@@ -637,7 +660,7 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const d2 = makeDeps()
     expect((await handleSlackWebhook(ACCOUNT.id, b2, auth(b2), d2)).status).toBe(200)
     expect(d2.confirmTaskDone).not.toHaveBeenCalled()
-    expect(d2.reply).not.toHaveBeenCalled()
+    expect(d2.respondToInteraction).not.toHaveBeenCalled()
   })
 
   it('RPC が例外を投げたら何も残さず 200（押し直しで回復する）', async () => {
@@ -645,7 +668,7 @@ describe('handleSlackWebhook — 期限リマインドの確認ボタン（block
     const deps = makeDeps({ confirmTaskDone: vi.fn().mockRejectedValue(new Error('db down')) })
     const r = await handleSlackWebhook(ACCOUNT.id, body, auth(body), deps)
     expect(r.status).toBe(200)
-    expect(deps.reply).not.toHaveBeenCalled()
+    expect(deps.respondToInteraction).not.toHaveBeenCalled()
     expect(deps.insertMessage).not.toHaveBeenCalled()
   })
 

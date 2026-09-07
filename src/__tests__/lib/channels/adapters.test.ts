@@ -128,6 +128,14 @@ describe('slackAdapter', () => {
     expect(r).toMatchObject({ ok: false, permanent: true })
   })
 
+  it('body.ok:false の invalid_blocks / msg_too_long（本文起因）は恒久失敗（同じ内容の再送は永久に通らない）', async () => {
+    for (const error of ['invalid_blocks', 'invalid_blocks_format', 'msg_too_long']) {
+      mockFetch(() => jsonResponse(200, { ok: false, error }))
+      const r = await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'C1', text: 'hi' })
+      expect(r).toMatchObject({ ok: false, permanent: true })
+    }
+  })
+
   it('body.ok:false の rate限定系(ratelimited)は一時失敗', async () => {
     mockFetch(() => jsonResponse(200, { ok: false, error: 'ratelimited' }))
     const r = await slackAdapter({ credentials: { bot_token: 'xoxb-x' }, to: 'C1', text: 'hi' })

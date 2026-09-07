@@ -19,6 +19,10 @@ const PERMANENT_SLACK_ERRORS = new Set([
   'not_authed',
   'is_archived',
   'restricted_action',
+  // 本文起因（Block Kit の形式/長さ超過）。同じ内容の再送は永久に通らないので恒久扱い
+  'invalid_blocks',
+  'invalid_blocks_format',
+  'msg_too_long',
 ])
 
 /**

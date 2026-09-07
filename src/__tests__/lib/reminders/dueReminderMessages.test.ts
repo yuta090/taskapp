@@ -262,6 +262,12 @@ describe('buildDueReminderSlackBlocks（Slack のボタン付き本文・LINE �
     for (const id of ids) expect(id.startsWith('due_reminder_')).toBe(true)
   })
 
+  it('極端に長いタスク名でも section の本文は Slack の上限(3000字)を超えない（invalid_blocks で永久に届かなくなるのを防ぐ）', () => {
+    const blocks = buildDueReminderSlackBlocks({ ...base, title: 'あ'.repeat(5000) }) as Array<{ text?: { text: string } }>
+    expect(blocks[0].text!.text.length).toBeLessThanOrEqual(3000)
+    expect(blocks[0].text!.text).toContain('…')
+  })
+
   it('value は LINE の postback data と同じ形式（受信側が同じパーサで読める）', () => {
     const blocks = buildDueReminderSlackBlocks(base) as Array<{ elements?: Array<{ value: string }> }>
     const [done, working, tomorrow] = blocks[1].elements!.map((e) => e.value)

@@ -93,6 +93,16 @@ export const slackWebhookDeps: SlackWebhookDeps = {
     const body = (await res.json().catch(() => null)) as { ok?: boolean; ts?: string } | null
     return { ts: body?.ok === true ? (body.ts ?? null) : null }
   },
+  // ボタン押下への返事。response_url は Slack 発行の一時URLで bot token 不要。
+  // ephemeral（押した本人にだけ見える）・元メッセージは置き換えない。
+  respondToInteraction: async (responseUrl, text) => {
+    const res = await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ text, response_type: 'ephemeral', replace_original: false }),
+    })
+    if (!res.ok) throw new Error(`slack response_url ${res.status}`)
+  },
   completeDigestTask: (groupId, digestNumber, externalUserId) =>
     markDigestTaskDoneByGroupAndNumberAtomic(groupId, digestNumber, externalUserId),
   createInstantDigestTask: (input) => createInstantDigestTask(input),

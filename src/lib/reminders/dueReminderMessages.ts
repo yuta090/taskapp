@@ -152,9 +152,18 @@ export function buildDueReminderFlex(input: BuildDueReminderFlexInput): {
  */
 export const DUE_REMINDER_SLACK_ACTION_ID_PREFIX = 'due_reminder_'
 
+/** Slack の section.text（plain_text）の上限は 3000 字。超えると invalid_blocks で永久に届かない */
+const SLACK_SECTION_TEXT_MAX = 3000
+
+function capSlackText(text: string): string {
+  if (text.length <= SLACK_SECTION_TEXT_MAX) return text
+  return `${text.slice(0, SLACK_SECTION_TEXT_MAX - 1)}…`
+}
+
 export function buildDueReminderSlackBlocks(input: BuildDueReminderFlexInput): unknown[] {
   const { kind, title, taskId, occurrenceId, snoozeCount } = input
-  const text = buildDueReminderText({ kind, title })
+  // 極端に長いタスク名（CSV 取り込み等）でも blocks 全体が弾かれないよう本文だけ丸める
+  const text = capSlackText(buildDueReminderText({ kind, title }))
   const expectedSendCount = snoozeCount ?? 0
   const snoozeData = buildDueReminderSnoozePostbackData(occurrenceId, SNOOZE_DAYS, expectedSendCount)
   const button = (actionId: string, label: string, value: string, primary = false) => ({

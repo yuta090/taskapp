@@ -129,7 +129,8 @@ export interface SlackOutboundInput {
   orgId: string
   spaceId: string | null
   accountId: string
-  groupId: string
+  /** グループ発言への返事はそのグループ。DM/ボタンへの返事は null */
+  groupId: string | null
   channel: 'slack'
   direction: 'outbound'
   actor: 'secretary'
@@ -176,6 +177,12 @@ export interface SlackWebhookDeps extends TutorialWiring {
   generateChallengeLabel: () => string
   registerInvalidAttempt: (accountId: string, channelId: string) => boolean
   reply: (botToken: string, channelId: string, text: string) => Promise<SlackReplyResult>
+  /**
+   * ボタン押下への返事。Slack の response_url に投げる（bot token 不要・元メッセージの場所へ届く・
+   * ephemeral=押した本人にだけ見える）。チャンネルへ chat.postMessage しないのは、ペイロードの
+   * チャンネルを信用して社内タスク名を顧客チャンネルへ投稿する事故を構造的に防ぐため。
+   */
+  respondToInteraction: (responseUrl: string, text: string) => Promise<void>
   /** digest_number で当該グループの申し送りタスクを完了する（アトミック）。存在しなければ null */
   completeDigestTask: (
     groupId: string,
@@ -216,7 +223,8 @@ export interface SlackAuth {
 
 export interface WebhookResult {
   status: number
-  body: Record<string, unknown>
+  /** null = 空ボディで返す（Interactivity の ack は「200・空」が作法。JSON はメッセージ置換と解釈されうる） */
+  body: Record<string, unknown> | null
 }
 
 /** リプレイ許容窓（秒）。Slack 推奨は5分。 */
@@ -367,10 +375,15 @@ interface SlackInteractionPayload {
   container?: { channel_id?: string }
   actions?: SlackBlockAction[]
   trigger_id?: string
+  /** 返事の宛先（Slack が発行・30分/5回まで有効）。無ければ返事は出さない */
+  response_url?: string
 }
 
-/** Slack Interactivity は `payload=<URLエンコードしたJSON>` のフォーム形式で届く。 */
-function isInteractionBody(rawBody: string): boolean {
+/**
+ * Slack Interactivity は `payload=<URLエンコードしたJSON>` のフォーム形式で届く。
+ * route はこれで「先に ack して after() で処理」を選ぶ（3秒制約）。判定だけで本文は解釈しない。
+ */
+export function isSlackInteractionBody(rawBody: string): boolean {
   return rawBody.startsWith('payload=')
 }
 
@@ -393,15 +406,16 @@ function parseInteractionPayload(rawBody: string): SlackInteractionPayload | nul
 /**
  * 期限リマインドの確認ボタン（[完了した][対応中][明日また確認]）1押下分。
  * LINE の processDueReminderPostback と同じ順序: RPC → 沈黙すべき結果なら終了 → 監査行
- * （dedupe=channel:action_ts）→ 重複でなければ同じ場所へ返事。
+ * （dedupe=channel:action_ts）→ 重複でなければ response_url へ返事 → 返事を outbound 記録。
  *
  * forbidden/not_found/already_snoozed（紐づいていない人・古いボタン）は完全沈黙（返事も
  * 監査行も残さない＝存在オラクル化とノイズ返信の両方を避ける。LINE と同方針）。
  * RPC の一過性失敗も何も残さず終える（押し直しで自然に回復する）。
+ * タスク名の読み取りは RPC と並列に走らせる（Slack の3秒制約に対する往復削減）。
  */
 async function processDueReminderAction(
   account: SlackAccount,
-  ctx: { externalUserId: string; channelId: string; actionTs: string | null; value: string },
+  ctx: { externalUserId: string; channelId: string; actionTs: string | null; value: string; responseUrl: string | null },
   deps: SlackWebhookDeps,
 ): Promise<void> {
   const doneAction = parseDueReminderDonePostback(ctx.value)
@@ -417,6 +431,12 @@ async function processDueReminderAction(
 
   if (doneAction) {
     let status: DueReminderConfirmStatus
+    // タスク名は返事にしか使わない（client 供給のタイトルは信頼しない・ベストエフォート）。
+    // RPC と並列に読み、失敗は握って fallback 文言にする。
+    const titlePromise = deps.findTaskTitle(doneAction.taskId).catch((e: unknown) => {
+      console.error('Slack webhook: due reminder title lookup failed', doneAction.taskId, e)
+      return null
+    })
     try {
       status = (await deps.confirmTaskDone(account.id, ctx.externalUserId, doneAction.taskId)).status
     } catch (e) {
@@ -426,12 +446,7 @@ async function processDueReminderAction(
     if (status === 'forbidden') return
     result = status
     if (status === 'done') {
-      let title: string | null = null
-      try {
-        title = await deps.findTaskTitle(doneAction.taskId)
-      } catch (e) {
-        console.error('Slack webhook: due reminder title lookup failed', doneAction.taskId, e)
-      }
+      const title = await titlePromise
       replyText = title ? buildDueReminderDoneReplyText(title) : DUE_REMINDER_DONE_FALLBACK_TEXT
     } else if (status === 'already_done') {
       replyText = DUE_REMINDER_ALREADY_DONE_TEXT
@@ -477,7 +492,29 @@ async function processDueReminderAction(
   })
   if (recorded === 'duplicate') return
 
-  await deps.reply(account.credentials.bot_token, ctx.channelId, replyText)
+  // 返事は response_url のみ（無ければ出さない）。チャンネルへの投稿はしない（上記 deps の説明）。
+  if (!ctx.responseUrl) return
+  let sent = true
+  try {
+    await deps.respondToInteraction(ctx.responseUrl, replyText)
+  } catch (e) {
+    sent = false
+    console.error('Slack webhook: due reminder action respond failed', e)
+  }
+  await deps.insertOutbound({
+    orgId,
+    spaceId: null,
+    accountId: account.id,
+    groupId: null,
+    channel: 'slack',
+    direction: 'outbound',
+    actor: 'secretary',
+    body: replyText,
+    payload: { kind: 'due_reminder_action_reply', action: payload.action, via: 'response_url' },
+    status: sent ? 'sent' : 'failed',
+    error: sent ? null : 'respond failed',
+    occurredAt: new Date().toISOString(),
+  })
 }
 
 async function handleInteraction(
@@ -485,16 +522,15 @@ async function handleInteraction(
   rawBody: string,
   deps: SlackWebhookDeps,
 ): Promise<WebhookResult> {
+  // Interactivity の応答は常に「200・空ボディ」。JSON を返すと元メッセージの置換と解釈されうる。
+  const ack: WebhookResult = { status: 200, body: null }
   const payload = parseInteractionPayload(rawBody)
-  if (!payload) return { status: 200, body: { ok: true, ignored: 'invalid payload' } }
-  if (payload.type !== 'block_actions') {
-    return { status: 200, body: { ok: true, ignored: 'unsupported interaction' } }
-  }
+  if (!payload) return ack
+  if (payload.type !== 'block_actions') return ack
   const externalUserId = payload.user?.id
   const channelId = payload.channel?.id ?? payload.container?.channel_id
-  if (typeof externalUserId !== 'string' || typeof channelId !== 'string') {
-    return { status: 200, body: { ok: true, ignored: 'unsupported interaction' } }
-  }
+  if (typeof externalUserId !== 'string' || typeof channelId !== 'string') return ack
+  const responseUrl = typeof payload.response_url === 'string' ? payload.response_url : null
 
   for (const action of payload.actions ?? []) {
     if (typeof action.action_id !== 'string' || !action.action_id.startsWith(DUE_REMINDER_SLACK_ACTION_ID_PREFIX)) {
@@ -508,11 +544,12 @@ async function handleInteraction(
         channelId,
         actionTs: action.action_ts ?? payload.trigger_id ?? null,
         value: action.value,
+        responseUrl,
       },
       deps,
     )
   }
-  return { status: 200, body: { ok: true } }
+  return ack
 }
 
 export async function handleSlackWebhook(
@@ -530,7 +567,7 @@ export async function handleSlackWebhook(
   }
 
   // ボタン操作（Interactivity）はフォーム形式。イベント購読と同じ鍵で検証済みなのでここで振り分ける。
-  if (isInteractionBody(rawBody)) {
+  if (isSlackInteractionBody(rawBody)) {
     if (account.ownerType !== 'org' || !account.orgId) {
       return { status: 400, body: { error: 'platform account not supported for slack inbound' } }
     }
