@@ -19,7 +19,7 @@ vi.mock('next/link', () => ({
 vi.mock('@/components/shared', () => ({
   useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(false), ConfirmDialog: null }),
 }))
-vi.mock('@/lib/github/config', () => ({ isGitHubConfigured: () => true }))
+vi.mock('@/lib/github/enabled', () => ({ isGitHubConfigured: () => true }))
 vi.mock('@/lib/slack/config', () => ({ isSlackConfigured: () => true }))
 
 const idle = { data: undefined, isLoading: false }

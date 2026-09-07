@@ -25,7 +25,7 @@ import {
   useDisconnectSlack,
 } from '@/lib/hooks/useSlack'
 import { useAiConfig, useSaveAiConfig, useDeleteAiConfig } from '@/lib/hooks/useAiConfig'
-import { isGitHubConfigured } from '@/lib/github/config'
+import { isGitHubConfigured } from '@/lib/github/enabled'
 import { isSlackConfigured } from '@/lib/slack/config'
 import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 
