@@ -28,6 +28,7 @@ import {
   type WikiTreeNode,
   pruneWikiTreeToMatches,
   type WikiListFilters,
+  EMPTY_MILESTONE_LIST,
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
@@ -36,8 +37,9 @@ import { SAVING } from '@/lib/design/tokens'
 // 表示モード外では計算せず共有の空配列を返す（毎レンダー新しい [] を作らない）
 const EMPTY_TREE: WikiTreeNode[] = []
 const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
-// 所属マイルストーンが無いページの行に渡す共有の空配列（毎レンダー新しい [] を作らない）
-const EMPTY_PAGE_MILESTONES: Milestone[] = []
+// 所属マイルストーンが無いページの行に渡す共有の空配列（毎レンダー新しい [] を作らない）。
+// resolveWikiMilestones も同じ意図で EMPTY_MILESTONE_LIST を入れるので、通常はそちらが返る。
+const EMPTY_PAGE_MILESTONES: Milestone[] = EMPTY_MILESTONE_LIST
 
 interface WikiPageClientProps {
   orgId: string

@@ -84,4 +84,34 @@ describe('useWikiMilestoneLinks', () => {
     rerender()
     expect(result.current.linksByPageId).toBe(first)
   })
+
+  it('enabled: false を渡すと取得しない（マイルストーン未設定のタスクなど）', () => {
+    const { result } = renderHook(
+      () => useWikiMilestoneLinks('org-1', 'space-1', { enabled: false }),
+      { wrapper }
+    )
+    expect(mockFrom).not.toHaveBeenCalled()
+    expect(result.current.linksByPageId.size).toBe(0)
+  })
+
+  it('中身が同じ再取得では Map の参照が変わらない（タブ復帰で全行が再描画されないこと）', async () => {
+    // react-query の構造共有はプレーンオブジェクトにしか効かないため、
+    // クエリの返り値を Record にしている。その効果を確認する回帰テスト。
+    mockNot2.mockResolvedValue({
+      data: [{ wiki_page_id: 'p1', milestone_id: 'm1' }],
+      error: null,
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function localWrapper({ children }: { children: React.ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    }
+    const { result } = renderHook(() => useWikiMilestoneLinks('org-1', 'space-1'), {
+      wrapper: localWrapper,
+    })
+    await waitFor(() => expect(result.current.linksByPageId.size).toBe(1))
+    const first = result.current.linksByPageId
+    await client.refetchQueries({ queryKey: ['wikiMilestoneLinks', 'org-1', 'space-1'] })
+    await waitFor(() => expect(result.current.linksByPageId.size).toBe(1))
+    expect(result.current.linksByPageId).toBe(first)
+  })
 })

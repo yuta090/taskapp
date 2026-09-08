@@ -301,6 +301,9 @@ function compareMilestones(a: Milestone, b: Milestone): number {
  * タスクの milestone_id）。milestones に存在しない id（削除済み等）は無視する。
  * 返す配列の順序は milestones の並び順（order_key→due_date→name）で揃える。
  */
+/** 所属マイルストーンが無いページ用の共有の空配列（毎回新しい [] を作らない）。 */
+export const EMPTY_MILESTONE_LIST: Milestone[] = []
+
 export function resolveWikiMilestones(
   pages: WikiPage[],
   linksByPageId: Map<string, string[]>,
@@ -313,9 +316,16 @@ export function resolveWikiMilestones(
     if (page.milestone_id != null) ids.add(page.milestone_id)
     for (const id of linksByPageId.get(page.id) ?? []) ids.add(id)
 
+    // 所属ゼロのページには共有の空配列を入れる。ページごとに新しい [] を作ると
+    // memo 化した行の props が毎回変わり、再描画を飛ばせなくなる。
+    if (ids.size === 0) {
+      result.set(page.id, EMPTY_MILESTONE_LIST)
+      continue
+    }
+
     // milestones の並び順を基準に走査することで、常に order_key 順の配列を返す
     const resolved = milestones.filter(m => ids.has(m.id))
-    result.set(page.id, resolved)
+    result.set(page.id, resolved.length > 0 ? resolved : EMPTY_MILESTONE_LIST)
   }
 
   return result

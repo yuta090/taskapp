@@ -139,7 +139,10 @@ export function TaskInspector({
   )
   // PR3: タスク詳細から同じマイルストーンの Wiki を引ける導線（補助情報。詳細設定の件数バッジには含めない）
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照（同じ queryKey で一覧側とキャッシュ共有）
-  const { linksByPageId: wikiMilestoneLinks } = useWikiMilestoneLinks(task.org_id, spaceId)
+  // マイルストーン未設定のタスクではこの情報を一切使わないので取りに行かない
+  const { linksByPageId: wikiMilestoneLinks } = useWikiMilestoneLinks(task.org_id, spaceId, {
+    enabled: !!task.milestone_id,
+  })
   const milestoneWikiPages = useMemo(
     () => pickMilestoneWikiPages(wikiPages, task.milestone_id, 5, wikiMilestoneLinks),
     [wikiPages, task.milestone_id, wikiMilestoneLinks]
