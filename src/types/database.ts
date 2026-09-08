@@ -202,6 +202,8 @@ export interface Database {
           }
           agency_mode: boolean
           default_margin_rate: number | null
+          /** 社内承認の既定の承認者(承認者選択の初期値) */
+          default_reviewer_ids: string[]
           vendor_settings: {
             show_client_name: boolean
             allow_client_comments: boolean
@@ -230,6 +232,7 @@ export interface Database {
           }
           agency_mode?: boolean
           default_margin_rate?: number | null
+          default_reviewer_ids?: string[]
           vendor_settings?: {
             show_client_name: boolean
             allow_client_comments: boolean
@@ -258,6 +261,7 @@ export interface Database {
           }
           agency_mode?: boolean
           default_margin_rate?: number | null
+          default_reviewer_ids?: string[]
           vendor_settings?: {
             show_client_name: boolean
             allow_client_comments: boolean

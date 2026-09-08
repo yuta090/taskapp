@@ -2,6 +2,7 @@ export type SettingSectionId =
   | 'general'
   | 'milestones'
   | 'members'
+  | 'approval'
   | 'portal'
   | 'agency'
   | 'github'
