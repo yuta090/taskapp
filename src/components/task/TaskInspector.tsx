@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import NextLink from 'next/link'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
@@ -250,6 +250,38 @@ export function TaskInspector({
     setIsEditingTitle(false)
     flashSaved()
   }
+
+  // 説明欄の高さを測り直すときにスクロール位置を戻すため、スクロール容器を掴んでおく。
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+
+  // 説明欄は中身の量に合わせて高さを伸ばす（上限は className の max-h、超えたら中でスクロール）。
+  // 保存して編集を閉じれば従来どおりの本文表示に戻るので、伸びるのは編集中だけ。
+  // useCallback で identity を固定する（毎描画で ref を貼り直すと打鍵ごとに2回測ることになる）。
+  const lastAutoHeightRef = useRef<string | null>(null)
+  const manualHeightRef = useRef(false)
+  const autoGrowDescription = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) {
+      // 編集を閉じたら次回のためにリセット
+      lastAutoHeightRef.current = null
+      manualHeightRef.current = false
+      return
+    }
+    // 自分が付けた高さと違う＝ユーザーが右下をドラッグして決めた高さ。以降は尊重して触らない。
+    if (lastAutoHeightRef.current !== null && el.style.height !== lastAutoHeightRef.current) {
+      manualHeightRef.current = true
+    }
+    if (manualHeightRef.current) return
+
+    // 一度 auto に戻して測るとパネルの中身が一瞬縮み、スクロール位置がブラウザに
+    // 切り詰められて打鍵ごとに画面が跳ねる。測る前後で scrollTop を戻して防ぐ。
+    // （jsdom はレイアウトを持たず切り詰めが起きないため、この復元は単体テストでは検証できない）
+    const scroller = contentScrollRef.current
+    const scrollTop = scroller?.scrollTop
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+    lastAutoHeightRef.current = el.style.height
+    if (scroller && scrollTop !== undefined) scroller.scrollTop = scrollTop
+  }, [])
 
   const handleDescriptionSave = async () => {
     const newDesc = editDescription.trim() || null
@@ -531,7 +563,7 @@ export function TaskInspector({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
 
         {/* ━━ Group 1: コア情報 ━━ */}
 
@@ -595,20 +627,34 @@ export function TaskInspector({
           {isEditingDescription ? (
             <div className="space-y-2">
               <textarea
+                // 4行固定だと長い説明を小窓から書くことになるため、中身の量に合わせて伸ばす。
+                // ref は編集を開いた直後（既存本文の分の高さ）に一度走る。
+                ref={autoGrowDescription}
                 value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
+                onChange={(e) => {
+                  setEditDescription(e.target.value)
+                  autoGrowDescription(e.currentTarget)
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setEditDescription(task.description || '')
                     setIsEditingDescription(false)
                   }
+                  // 長文を書き終えてから保存ボタンまでマウスを動かさずに済むようにする。
+                  // 修飾キーなしの Enter は通常どおり改行。
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    void handleDescriptionSave()
+                  }
                 }}
                 data-testid="task-inspector-description-input"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                rows={4}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y max-h-[50vh] overflow-y-auto"
+                rows={6}
                 autoFocus
               />
-              <div className="flex justify-end gap-2">
+              {/* 入力欄が伸びるほど下に押し出されるので、パネルの下端に貼り付けて
+                  スクロールせずに押せるようにする。枠(p-3)いっぱいに広げて背景で透けを防ぐ。 */}
+              <div className="sticky bottom-0 -mx-3 -mb-3 flex justify-end gap-2 rounded-b-lg border-t border-gray-200 bg-gray-50 px-3 py-2">
                 <button
                   onClick={() => {
                     setEditDescription(task.description || '')
