@@ -124,3 +124,28 @@ describe('cli-manifest: task create --status', () => {
     ])
   })
 })
+
+/**
+ * Wiki の「フォルダ分け(親ページ)・マイルストーン紐づけ・ピン留め」は API 側では受け付けるのに、
+ * CLI に配るコマンド一覧に載っていなかったため、CLI からは一切指定できなかった
+ * （CLI のコマンドはこの manifest だけで決まる。packages/cli/src/commands/* は配線されていない）。
+ */
+describe('cli-manifest: wiki update の構造オプション', () => {
+  const manifest = getManifest()
+  const update = manifest.commands
+    .find((c) => c.name === 'wiki')!
+    .subcommands!.find((s) => s.name === 'update')!
+  const byParam = (p: string) => update.options.filter((o) => o.param === p)
+
+  it('親ページ・マイルストーンを指定できる（none で解除）', () => {
+    expect(byParam('parentPageId').map((o) => o.flags)).toEqual(['--parent-page-id <id>'])
+    expect(byParam('milestoneId').map((o) => o.flags)).toEqual(['--milestone-id <id>'])
+  })
+
+  it('ピン留めは --pinned / --no-pinned の対で指定できる', () => {
+    const pinned = byParam('pinned')
+    expect(pinned.map((o) => o.flags)).toEqual(['--pinned', '--no-pinned'])
+    expect(pinned[0].type).toBe('bool')
+    expect(pinned[1].type).toBe('negatable')
+  })
+})

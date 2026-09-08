@@ -163,6 +163,7 @@ agentpm dashboard [--space-id <uuid>]
 agentpm wiki list [--space-id <uuid>]
 agentpm wiki create --title <title> (--file <path> | --stdin | --body <text>) [--format markdown|html|blocks] [--tags <tags...>]
 agentpm wiki update --page-id <id> [--title <title>] [--file <path> | --stdin | --body <text>] [--format ...] [--tags ...]
+agentpm wiki update --page-id <id> [--parent-page-id <id>] [--milestone-id <id>] [--pinned | --no-pinned]
 agentpm task update --task-id <uuid> --wiki-page-id <uuid>     # タスクの「仕様書連携」に Wiki を紐づける（解除は画面から）
 ```
 
@@ -171,6 +172,9 @@ agentpm task update --task-id <uuid> --wiki-page-id <uuid>     # タスクの「
   （以前は Markdown をそのまま保存していたため、画面では**空のページに見えていた**）
 - `--file` はファイルをそのまま本文にする（BOM は除去）。`.md` / `.html` の区別は中身で自動判定するので拡張子は問わない。
 - タスク側の「仕様書連携」欄に出るのは **タグ「仕様書」の付いたページ**だけ。作業成果物を紐づける用途では `--tags 仕様書` を付ける。
+- 一覧での**並べ方**も CLI から変えられる。`--parent-page-id` でフォルダのように親ページの下に入れ、`--milestone-id` でマイルストーンに紐づけ、`--pinned` で一覧の先頭に固定する。
+  外すときは **`none`**（`--parent-page-id none` / `--milestone-id none`）、ピン留めの解除は `--no-pinned`。
+  親に自分の子孫を指定する・別スペースのページを指定するといった無理な指定は、DB 側で拒否して日本語の理由を返す。
 
 例: 作業した md/html を Wiki に転記してタスクから参照する
 ```bash
