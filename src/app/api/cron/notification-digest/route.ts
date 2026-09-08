@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNotificationDigestEmail } from '@/lib/email/notificationDigest'
 import {
   buildDigest,
+  DEFAULT_NOTIFICATION_EMAIL_PREFS,
   PENDING_INVITES_PREVIEW_LIMIT,
   type DigestNotification,
   type NotificationEmailPrefs,
@@ -18,11 +19,18 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * notification_email_prefs で受信ONのユーザーごとに、前回配信以降(初回は期間ぶん)の
  * in_app 通知を種類別に集約し、1通のダイジェストメールを送る。
  *   - daily: 毎日 / weekly: JST月曜のみ / none・email_enabled=false: 送らない
+ *   - 設定を一度も保存していない人は「オン・毎日」の既定で扱う（設定画面の表示と揃える）
  *   - 二重送信防止: 送信成功後 last_digest_sent_at を更新し、次回はそれ以降だけ対象にする
  *
  * 認証: Authorization: Bearer ${CRON_SECRET}（他cronと同一パターン）。
  * dryRun=true で送信せず計画のみ返す。recipientOverride で宛先を上書き（動作確認用・記録スキップ）。
  */
+/**
+ * 1回の配信で読む通知の上限。宛先を通知側から引くようになったため、
+ * 全ユーザーぶんを読むことになる。青天井にしないための歯止め。
+ */
+const DIGEST_NOTIFICATION_QUERY_LIMIT = 5000
+
 export async function POST(request: NextRequest) {
   try {
     const cronSecret = process.env.CRON_SECRET
@@ -53,39 +61,19 @@ export async function POST(request: NextRequest) {
     const nowReal = new Date()
     const jstWeekday = jstNow(nowReal).getDay() // 0=日..6=土（JST）
 
-    // 受信ONのユーザーの設定を取得
-    const { data: prefsRows, error: prefsError } = await admin
-      .from('notification_email_prefs')
-      .select('user_id, email_enabled, on_task_assigned, on_task_mentioned, on_review_request, on_client_response, on_meeting_reminder, digest_frequency, last_digest_sent_at')
-      .eq('email_enabled', true)
-      .neq('digest_frequency', 'none')
-
-    if (prefsError) {
-      console.error('[notification-digest] Failed to fetch prefs:', prefsError)
-      return NextResponse.json({ error: 'Failed to fetch prefs' }, { status: 500 })
-    }
-
-    type PrefsRow = NotificationEmailPrefs & { user_id: string; last_digest_sent_at: string | null }
-    // weekly は JST月曜のみ配信。daily は毎日。
-    const eligible = ((prefsRows || []) as PrefsRow[]).filter(
-      (p) => p.digest_frequency === 'daily' || (p.digest_frequency === 'weekly' && jstWeekday === 1),
-    )
-
-    if (eligible.length === 0) {
-      return NextResponse.json({ candidateCount: 0, emailsSent: 0, errors: [] })
-    }
-
-    const userIds = eligible.map((p) => p.user_id)
-
-    // 最長window(7d)ぶんの in_app 通知をまとめて取得し、ユーザーごとに since で絞る。
+    // 宛先は「設定表から」ではなく「通知が届いた人から」引く。
+    // 設定を一度も保存していない人には行が無く、設定表を起点にすると永久に対象外になる
+    // （本番で行数0件＝誰にも届いていなかった）。通知が0件の人はどのみち送らないので、
+    // 通知側を起点にすれば候補も自然と最小になる。
     const earliest = new Date(nowReal.getTime() - 7 * 24 * 60 * 60 * 1000)
     const { data: notifRows, error: notifError } = await admin
       .from('notifications')
       .select('to_user_id, type, payload, space_id, created_at')
-      .in('to_user_id', userIds)
       .eq('channel', 'in_app')
       // 絶対時刻(instant)の比較なので toISOString は正しい（日付成分の切り出しではない）
       .gte('created_at', earliest.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(DIGEST_NOTIFICATION_QUERY_LIMIT)
 
     if (notifError) {
       console.error('[notification-digest] Failed to fetch notifications:', notifError)
@@ -94,6 +82,49 @@ export async function POST(request: NextRequest) {
 
     type NotifRow = { to_user_id: string; type: string; payload: Record<string, unknown> | null; space_id: string; created_at: string }
     const notifs = (notifRows || []) as NotifRow[]
+
+    if (notifs.length === DIGEST_NOTIFICATION_QUERY_LIMIT) {
+      console.warn(
+        `[notification-digest] notifications hit the query limit (${DIGEST_NOTIFICATION_QUERY_LIMIT}); older items may be omitted from this run`,
+      )
+    }
+
+    const candidateIds = [...new Set(notifs.map((n) => n.to_user_id))]
+    if (candidateIds.length === 0) {
+      return NextResponse.json({ candidateCount: 0, emailsSent: 0, errors: [] })
+    }
+
+    // 候補ぶんの設定を引く。ここで email_enabled 等で絞らないのが肝心で、
+    // 「行が無い＝既定オン」と「自分でオフにした」を区別する必要がある。
+    const { data: prefsRows, error: prefsError } = await admin
+      .from('notification_email_prefs')
+      .select('user_id, email_enabled, on_task_assigned, on_task_mentioned, on_review_request, on_client_response, on_meeting_reminder, digest_frequency, last_digest_sent_at')
+      .in('user_id', candidateIds)
+
+    if (prefsError) {
+      console.error('[notification-digest] Failed to fetch prefs:', prefsError)
+      return NextResponse.json({ error: 'Failed to fetch prefs' }, { status: 500 })
+    }
+
+    type PrefsRow = NotificationEmailPrefs & { user_id: string; last_digest_sent_at: string | null }
+    const prefsByUser = new Map<string, PrefsRow>(
+      ((prefsRows || []) as PrefsRow[]).map((p) => [p.user_id, p]),
+    )
+
+    // weekly は JST月曜のみ配信。daily は毎日。設定が無ければ既定（オン・毎日）。
+    const eligible = candidateIds
+      .map<PrefsRow>((userId) => {
+        const saved = prefsByUser.get(userId)
+        return saved ?? { user_id: userId, last_digest_sent_at: null, ...DEFAULT_NOTIFICATION_EMAIL_PREFS }
+      })
+      .filter((p) => p.email_enabled)
+      .filter((p) => p.digest_frequency === 'daily' || (p.digest_frequency === 'weekly' && jstWeekday === 1))
+
+    if (eligible.length === 0) {
+      return NextResponse.json({ candidateCount: 0, emailsSent: 0, errors: [] })
+    }
+
+    const userIds = eligible.map((p) => p.user_id)
 
     // space 名を解決
     const spaceIds = [...new Set(notifs.map((n) => n.space_id))]
@@ -269,10 +300,14 @@ export async function POST(request: NextRequest) {
     // 送信成功したユーザーの last_digest_sent_at を更新（二重送信防止）
     if (sentUserIds.length > 0) {
       const sentAt = nowReal.toISOString()
+      // update ではなく upsert。設定を保存したことがない人は行が無く、update だと
+      // 記録できずに毎回「前回送信なし」に戻ってしまう（同じ通知を繰り返し送る）。
       const { error: updateError } = await admin
         .from('notification_email_prefs')
-        .update({ last_digest_sent_at: sentAt })
-        .in('user_id', sentUserIds)
+        .upsert(
+          sentUserIds.map((userId) => ({ user_id: userId, last_digest_sent_at: sentAt })),
+          { onConflict: 'user_id' },
+        )
       if (updateError) {
         console.error('[notification-digest] Failed to update last_digest_sent_at:', updateError)
       }
