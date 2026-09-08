@@ -88,3 +88,13 @@ describe('buildDigest', () => {
     expect(d!.sections[0].items[0].title).toBe('(タイトルなし)')
   })
 })
+
+describe('設定を触っていない人の既定値', () => {
+  it('配信側の既定と、設定画面が表示する既定が一致する', async () => {
+    // ここがズレると「画面はオンなのに届かない」（逆もある）。実際に本番で起きた事故。
+    const { DEFAULT_EMAIL_PREFS } = await import('@/lib/hooks/useNotificationEmailPrefs')
+    const { DEFAULT_NOTIFICATION_EMAIL_PREFS } = await import('@/lib/notifications/digest')
+    const { digest_frequency, ...rest } = DEFAULT_EMAIL_PREFS
+    expect({ digest_frequency, ...rest }).toEqual(DEFAULT_NOTIFICATION_EMAIL_PREFS)
+  })
+})

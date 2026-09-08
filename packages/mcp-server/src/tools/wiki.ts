@@ -25,7 +25,15 @@ const wikiListSchema = z.object({
   limit: z.number().int().positive().max(200).default(50).describe('取得件数上限'),
 })
 
-const nullableIdSchema = z.string().uuid().nullable().optional()
+/**
+ * CLI のフラグは文字列しか運べず「値なし(null)」を送れないので、解除の合言葉を受け取って null に読み替える。
+ * 例: `agentpm wiki update --page-id <id> --parent-page-id none`（親を外して根に戻す）
+ */
+const CLEAR_WORDS = new Set(['none', 'null', ''])
+const nullableIdSchema = z.preprocess(
+  (v) => (typeof v === 'string' && CLEAR_WORDS.has(v.trim().toLowerCase()) ? null : v),
+  z.string().uuid().nullable().optional()
+)
 
 const wikiGetSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -40,15 +48,15 @@ const wikiCreateSchema = z.object({
   tags: z.array(z.string()).optional().describe('タグ配列（「仕様書」を付けるとタスクの「仕様書連携」で選べる）'),
 })
 
-const wikiUpdateSchema = z.object({
+export const wikiUpdateSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
   title: z.string().optional().describe('タイトル'),
   body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
   format: bodyFormatSchema,
   tags: z.array(z.string()).optional().describe('タグ配列'),
-  parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null で根に戻す。別スペースの親・循環はDB側で拒否される'),
-  milestoneId: nullableIdSchema.describe('紐づけるマイルストーンID。null で解除'),
+  parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null または none で根に戻す。別スペースの親・循環はDB側で拒否される'),
+  milestoneId: nullableIdSchema.describe('紐づけるマイルストーンID。null または none で解除'),
   pinned: z.boolean().optional().describe('true で一覧の先頭に固定、false で解除'),
 })
 

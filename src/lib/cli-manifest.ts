@@ -707,6 +707,10 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--stdin', description: 'Read body text from stdin', param: 'stdin', type: 'bool' },
           { flags: '--format <fmt>', description: 'Body format (default: auto-detect)', param: 'format', choices: ['markdown', 'html', 'blocks'] },
           { flags: '--tags <tags...>', description: 'New tags', param: 'tags', type: 'string[]' },
+          { flags: '--parent-page-id <id>', description: 'Parent page (folder). Use "none" to move to the root', param: 'parentPageId' },
+          { flags: '--milestone-id <id>', description: 'Link to a milestone. Use "none" to unlink', param: 'milestoneId' },
+          { flags: '--pinned', description: 'Pin to the top of the list', param: 'pinned', type: 'bool' },
+          { flags: '--no-pinned', description: 'Unpin', param: 'pinned', type: 'negatable' },
         ],
       },
       {
@@ -880,6 +884,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     date: '2026-09-08',
     message: 'タスクを作るときに最初のステータスを指定できるようになりました: agentpm task create --title "..." --status in_progress（省略すると今までどおり未着手）',
   },
+  {
+    id: '2026-09-08-wiki-update-structure',
+    date: '2026-09-08',
+    message: 'Wiki の並べ方を CLI からも変えられるようになりました: agentpm wiki update --page-id <id> --parent-page-id <親のID> / --milestone-id <ID> / --pinned（外すときは none・--no-pinned）',
+  },
 ]
 
 function computeChecksum(commands: ManifestCommand[]): string {
@@ -893,7 +902,7 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.6.0',
+      version: '1.7.0',
       minCliVersion: '0.2.0',
       generatedAt: '2026-09-08T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),

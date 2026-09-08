@@ -62,6 +62,8 @@ let invitesFromCallCount = 0
 let orgMembershipsFromCallCount = 0
 let profilesFromCallCount = 0
 let invitesQueryCalls: Record<string, unknown[][]> = {}
+let notificationsQueryCalls: Record<string, unknown[][]> = {}
+let prefsUpsertRows: unknown[] = []
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => ({
@@ -69,9 +71,13 @@ vi.mock('@/lib/supabase/admin', () => ({
       if (table === 'notification_email_prefs') {
         const builder = chain(prefsResponse)
         builder.update = vi.fn(() => chain(prefsUpdateResponse))
+        builder.upsert = vi.fn((rows: unknown) => {
+          prefsUpsertRows.push(rows)
+          return chain(prefsUpdateResponse)
+        })
         return builder
       }
-      if (table === 'notifications') return chain(notificationsResponse)
+      if (table === 'notifications') return recordingChain(notificationsResponse, notificationsQueryCalls)
       if (table === 'spaces') return chain(spacesResponse)
       if (table === 'profiles') {
         profilesFromCallCount += 1
@@ -132,15 +138,16 @@ function basePrefRow(userId: string, overrides: Record<string, unknown> = {}) {
   }
 }
 
-describe('POST /api/cron/notification-digest — 未承諾の招待の節', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    invitesFromCallCount = 0
-    orgMembershipsFromCallCount = 0
-    profilesFromCallCount = 0
-    invitesQueryCalls = {}
+function resetHarness() {
+  vi.clearAllMocks()
+  invitesFromCallCount = 0
+  orgMembershipsFromCallCount = 0
+  profilesFromCallCount = 0
+  invitesQueryCalls = {}
+  notificationsQueryCalls = {}
+  prefsUpsertRows = []
 
-    prefsResponse = { data: [basePrefRow(USER_A)], error: null }
+  prefsResponse = { data: [basePrefRow(USER_A)], error: null }
     notificationsResponse = {
       data: [
         { to_user_id: USER_A, type: 'task_assigned', payload: { title: 'タスクA' }, space_id: 'space-1', created_at: new Date().toISOString() },
@@ -153,9 +160,12 @@ describe('POST /api/cron/notification-digest — 未承諾の招待の節', () =
     orgMembershipsResponse = { data: [{ org_id: ORG_ID, user_id: USER_A }], error: null }
     memberProfilesResponse = { data: [{ id: USER_A, email: 'usera@example.com' }], error: null }
     invitesResponse = { data: [], error: null }
-    prefsUpdateResponse = { data: null, error: null }
-    getUserByIdImpl = (id: string) => Promise.resolve({ data: { user: { email: `${id}@example.com` } } })
-  })
+  prefsUpdateResponse = { data: null, error: null }
+  getUserByIdImpl = (id: string) => Promise.resolve({ data: { user: { email: `${id}@example.com` } } })
+}
+
+describe('POST /api/cron/notification-digest — 未承諾の招待の節', () => {
+  beforeEach(resetHarness)
 
   it('未承諾の招待が2件あれば、digestのpendingInvitesとしてメール送信関数に渡す', async () => {
     invitesResponse = {
@@ -331,4 +341,76 @@ describe('POST /api/cron/notification-digest — 未承諾の招待の節', () =
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+/**
+ * 設定画面は「メール通知オン・毎日」と表示するが、スイッチを一度も触っていない人には
+ * notification_email_prefs の行が無い。行がある人だけを対象にしていたため、
+ * 実際には誰にも届いていなかった（本番で行数0件）。既定=オンとして扱う。
+ */
+describe('POST /api/cron/notification-digest — 設定を触っていない人', () => {
+  beforeEach(() => {
+    resetHarness()
+    prefsResponse = { data: [], error: null } // 誰も設定を保存していない
+  })
+
+  it('設定行が無くても、通知があればまとめが届く', async () => {
+    const res = await callPost()
+    const json = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(json.emailsSent).toBe(1)
+    expect(sendDigestEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: `${USER_A}@example.com` }),
+    )
+  })
+
+  it('送ったあとに設定行を作る(次回は前回送信以降だけが対象になる)', async () => {
+    await callPost()
+
+    expect(prefsUpsertRows).toHaveLength(1)
+    expect(prefsUpsertRows[0]).toEqual([
+      expect.objectContaining({ user_id: USER_A, last_digest_sent_at: expect.any(String) }),
+    ])
+  })
+
+  it('自分でオフにした人には届かない', async () => {
+    prefsResponse = { data: [basePrefRow(USER_A, { email_enabled: false })], error: null }
+
+    const res = await callPost()
+    const json = await res.json()
+
+    expect(json.emailsSent).toBe(0)
+    expect(sendDigestEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('頻度を「オフ」にした人には届かない', async () => {
+    prefsResponse = { data: [basePrefRow(USER_A, { digest_frequency: 'none' })], error: null }
+
+    const res = await callPost()
+    const json = await res.json()
+
+    expect(json.emailsSent).toBe(0)
+    expect(sendDigestEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('通知が1件も無い人は候補にならない(空メールを送らない)', async () => {
+    notificationsResponse = { data: [], error: null }
+
+    const res = await callPost()
+    const json = await res.json()
+
+    expect(json.candidateCount).toBe(0)
+    expect(sendDigestEmailMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/cron/notification-digest — 即時メールとの二重送信', () => {
+  beforeEach(resetHarness)
+
+  it('即時メールで送り済みの通知はまとめに入れない', async () => {
+    await callPost()
+
+    expect(notificationsQueryCalls.is).toEqual([['immediate_email_sent_at', null]])
+  })
 })

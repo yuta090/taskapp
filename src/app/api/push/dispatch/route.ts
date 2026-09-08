@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import webpush from 'web-push'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildPushMessage, type PushNotificationRow, type PushRecipientRole } from '@/lib/push/buildPushMessage'
+import {
+  PUSH_IMMEDIATE_TYPES,
+  pushSkipReason,
+  pushSkipReasonWithoutCount,
+  QUIET_HOURS_END,
+  QUIET_HOURS_EXEMPT_TYPES,
+} from '@/lib/notifications/delivery'
+import { jstDayStartUtc, jstNow } from '@/lib/datetime/jstNow'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // web-push is Node-only (uses the `crypto` module directly), so this route
@@ -22,6 +30,12 @@ interface PushSubscriptionRow {
  * a row is inserted into `notifications` with channel = 'in_app'. Looks up
  * the recipient's push subscriptions and sends a Web Push notification via
  * web-push. Subscriptions that the browser has revoked (404/410) are removed.
+ *
+ * 鳴らすかどうかは src/lib/notifications/delivery.ts が正本:
+ *   - 相手を待たせる種類だけ鳴らす（知らせるだけの通知では鳴らさない）
+ *   - 夜21時〜朝8時・土日は鳴らさない（「至急」だけ例外）
+ *   - 1人1日 PUSH_DAILY_CAP 件まで（超えたぶんは受信箱と翌朝のまとめに残る）
+ * 鳴らさないと決めた通知も受信箱には残るので、消えるわけではない。
  *
  * 認証: Authorization: Bearer ${CRON_SECRET}（/api/cron/client-reminders と同一パターン）。
  */
@@ -75,6 +89,41 @@ export async function POST(request: NextRequest) {
     }
 
     const notificationRow = notification as unknown as PushNotificationRow & { to_user_id: string }
+
+    // 種類と時間帯だけで弾けるものは、購読も件数も引かずにここで返す
+    const nowReal = new Date()
+    const jstDate = jstNow(nowReal)
+    const earlySkip = pushSkipReasonWithoutCount({ type: notificationRow.type, jstDate })
+    if (earlySkip) {
+      return NextResponse.json({ sent: 0, failed: 0, removed: 0, skipped: earlySkip })
+    }
+
+    // その日すでに何件鳴らしたか。押し寄せた日に端末が鳴り続けないための歯止め。
+    // 「鳴らした記録」は持っていないので、鳴る条件を満たす通知が今日どれだけ届いたかで数える
+    // （静かな時間帯のぶんは鳴っていないので、朝8時以降に届いたものだけを対象にする）。
+    let immediateCountToday = 0
+    if (!QUIET_HOURS_EXEMPT_TYPES.includes(notificationRow.type)) {
+      const windowStart = new Date(jstDayStartUtc(nowReal).getTime() + QUIET_HOURS_END * 60 * 60 * 1000)
+      const { count, error: countError } = await admin
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('to_user_id', notificationRow.to_user_id)
+        .eq('channel', 'in_app')
+        .in('type', PUSH_IMMEDIATE_TYPES)
+        .gte('created_at', windowStart.toISOString())
+        .neq('id', notificationRow.id)
+
+      if (countError) {
+        // 数えられなかっただけで黙らせるのは筋が悪い（届かないほうが困る）ので、0件として続行
+        console.error('[push/dispatch] Failed to count today\'s pushes:', countError)
+      }
+      immediateCountToday = count ?? 0
+    }
+
+    const skip = pushSkipReason({ type: notificationRow.type, jstDate, immediateCountToday })
+    if (skip) {
+      return NextResponse.json({ sent: 0, failed: 0, removed: 0, skipped: skip })
+    }
 
     const { data: membership } = await admin
       .from('org_memberships')

@@ -105,3 +105,43 @@ describe('describeWikiUpdateError', () => {
     expect(describeWikiUpdateError('something else')).toBe('Wikiページの更新に失敗しました')
   })
 })
+
+/**
+ * CLI からは「値なし」を送れない（フラグは文字列しか運べない）ので、親やマイルストーンを
+ * 外すための合言葉として none / null / 空文字を受け取り、DB の null に読み替える。
+ */
+describe('wiki_update の解除ワード', () => {
+  const UUID = '00000000-0000-0000-0000-0000000000aa'
+
+  it('parentPageId/milestoneId に none を渡すと null（解除）になる', async () => {
+    const { wikiUpdateSchema } = await import('./wiki.js')
+    const parsed = wikiUpdateSchema.parse({
+      spaceId: '00000000-0000-0000-0000-000000000010',
+      pageId: 'p-1',
+      parentPageId: 'none',
+      milestoneId: 'none',
+    })
+    expect(parsed.parentPageId).toBeNull()
+    expect(parsed.milestoneId).toBeNull()
+  })
+
+  it('UUID はそのまま通り、無関係な文字列は弾く', async () => {
+    const { wikiUpdateSchema } = await import('./wiki.js')
+    const base = { spaceId: '00000000-0000-0000-0000-000000000010', pageId: 'p-1' }
+    expect(wikiUpdateSchema.parse({ ...base, parentPageId: UUID }).parentPageId).toBe(UUID)
+    expect(wikiUpdateSchema.safeParse({ ...base, parentPageId: 'あいうえお' }).success).toBe(false)
+  })
+
+  it('MCP のツール一覧づくりが「任意項目」と見なせるままである（shape を歩く実装を壊さない）', async () => {
+    const { wikiUpdateSchema } = await import('./wiki.js')
+    expect(wikiUpdateSchema.shape.parentPageId.isOptional()).toBe(true)
+    expect(wikiUpdateSchema.shape.milestoneId.isOptional()).toBe(true)
+  })
+
+  it('指定しなければ undefined のまま（既存の値を触らない）', async () => {
+    const { wikiUpdateSchema } = await import('./wiki.js')
+    const parsed = wikiUpdateSchema.parse({ spaceId: '00000000-0000-0000-0000-000000000010', pageId: 'p-1' })
+    expect(parsed.parentPageId).toBeUndefined()
+    expect(parsed.milestoneId).toBeUndefined()
+  })
+})

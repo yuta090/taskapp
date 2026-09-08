@@ -36,7 +36,7 @@ export function getAppName(): string {
  * 「Acme, Inc.」のような社名もカンマ抜きで載せる（Resend 側の解釈に賭けて届かなくなるより安全）
  */
 export function sanitizeDisplayName(name: string): string {
-  // eslint-disable-next-line no-control-regex
+   
   return name.replace(/[",;<>\\\u0000-\u001F]/g, '').trim().slice(0, MAX_DISPLAY_NAME)
 }
 
