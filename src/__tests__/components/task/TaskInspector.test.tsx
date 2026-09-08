@@ -398,6 +398,21 @@ describe('TaskInspector — 説明の入力欄は書いた量に合わせて伸�
       restore()
     }
   })
+
+  it('手で高さを変えたあとは、その高さを保って勝手に戻さない', () => {
+    const textarea = openDescriptionEditor()
+
+    // ドラッグで広げた状態（ブラウザは inline style の height を書き換える）
+    textarea.style.height = '400px'
+
+    const restore = stubScrollHeight(600)
+    try {
+      fireEvent.change(textarea, { target: { value: 'さらに書き足す' } })
+      expect(textarea.style.height).toBe('400px')
+    } finally {
+      restore()
+    }
+  })
 })
 
 // 長文を書き終えたあと保存ボタンまでマウスを動かさずに済むようにする。

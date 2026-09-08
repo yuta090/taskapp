@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import NextLink from 'next/link'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
@@ -251,13 +251,37 @@ export function TaskInspector({
     flashSaved()
   }
 
+  // 説明欄の高さを測り直すときにスクロール位置を戻すため、スクロール容器を掴んでおく。
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+
   // 説明欄は中身の量に合わせて高さを伸ばす（上限は className の max-h、超えたら中でスクロール）。
   // 保存して編集を閉じれば従来どおりの本文表示に戻るので、伸びるのは編集中だけ。
-  const autoGrowDescription = (el: HTMLTextAreaElement | null) => {
-    if (!el) return
+  // useCallback で identity を固定する（毎描画で ref を貼り直すと打鍵ごとに2回測ることになる）。
+  const lastAutoHeightRef = useRef<string | null>(null)
+  const manualHeightRef = useRef(false)
+  const autoGrowDescription = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) {
+      // 編集を閉じたら次回のためにリセット
+      lastAutoHeightRef.current = null
+      manualHeightRef.current = false
+      return
+    }
+    // 自分が付けた高さと違う＝ユーザーが右下をドラッグして決めた高さ。以降は尊重して触らない。
+    if (lastAutoHeightRef.current !== null && el.style.height !== lastAutoHeightRef.current) {
+      manualHeightRef.current = true
+    }
+    if (manualHeightRef.current) return
+
+    // 一度 auto に戻して測るとパネルの中身が一瞬縮み、スクロール位置がブラウザに
+    // 切り詰められて打鍵ごとに画面が跳ねる。測る前後で scrollTop を戻して防ぐ。
+    // （jsdom はレイアウトを持たず切り詰めが起きないため、この復元は単体テストでは検証できない）
+    const scroller = contentScrollRef.current
+    const scrollTop = scroller?.scrollTop
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
-  }
+    lastAutoHeightRef.current = el.style.height
+    if (scroller && scrollTop !== undefined) scroller.scrollTop = scrollTop
+  }, [])
 
   const handleDescriptionSave = async () => {
     const newDesc = editDescription.trim() || null
@@ -539,7 +563,7 @@ export function TaskInspector({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
 
         {/* ━━ Group 1: コア情報 ━━ */}
 
