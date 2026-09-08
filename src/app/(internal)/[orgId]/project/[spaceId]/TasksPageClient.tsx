@@ -24,6 +24,7 @@ const TaskCreateSheet = dynamic(() => import('@/components/task/TaskCreateSheet'
 })
 import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
@@ -964,11 +965,17 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             onClick={handleCreateOpen}
             data-walkthrough="task-create"
             data-testid="task-create-button"
-            className="mr-1 inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
+            className="mr-1 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <Plus className="text-sm" weight="bold" />
             タスクを追加
           </button>
+          {/* お知らせベル。以前は AppShell がページ上部に単独の行として出していて、設定ボタンから
+              離れて浮いていた。ここに置くと globals.css の :has() ルールでその行が自動的に消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block mr-0.5">
+            <AnnouncementBell />
+          </div>
           <Link
             href={`/portal/preview/${spaceId}`}
             data-testid="client-preview-link"
