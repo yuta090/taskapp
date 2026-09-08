@@ -121,8 +121,6 @@ export function TaskInspector({
       task.parent_task_id ||
       childTasks.length > 0 ||
       owners.length > 0 ||
-      task.wiki_page_id ||
-      task.spec_path ||
       task.type === 'spec'
     )
     setShowDetails(hasDetails)
@@ -202,9 +200,8 @@ export function TaskInspector({
     if (task.parent_task_id) count++
     if (childTasks.length > 0) count++
     if (owners.length > 0) count++
-    if (task.wiki_page_id || task.spec_path) count++
     return count
-  }, [task.parent_task_id, childTasks.length, owners.length, task.wiki_page_id, task.spec_path])
+  }, [task.parent_task_id, childTasks.length, owners.length])
 
   // Fetch milestones
   useEffect(() => {
@@ -647,6 +644,82 @@ export function TaskInspector({
               {task.description}
             </p>
           ) : null}
+        </div>
+
+        {/* Spec / Wiki Link — 説明の直下に配置（折りたたみに隠さない） */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+            <FileText className="text-sm" />
+            仕様書連携
+          </label>
+          {onUpdate ? (
+            <div className="space-y-3">
+              {specWikiPages.length > 0 ? (
+                <select
+                  value={task.wiki_page_id || ''}
+                  onChange={(e) => handleWikiPageChange(e.target.value)}
+                  data-testid="task-inspector-wiki-page"
+                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
+                >
+                  <option value="">紐付けなし</option>
+                  {specWikiPages.map((page) => (
+                    <option key={page.id} value={page.id}>
+                      {page.title}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-gray-400 py-1">
+                  仕様書タグのWikiページがありません
+                </p>
+              )}
+              {task.wiki_page_id && (
+                <a
+                  href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <LinkIcon className="text-blue-400" />
+                  Wikiページを開く
+                </a>
+              )}
+              {!task.wiki_page_id && task.spec_path && (
+                <div className="flex items-center gap-2 text-sm text-gray-700">
+                  <LinkIcon className="text-gray-400" />
+                  <a
+                    href={task.spec_path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-600 hover:underline truncate"
+                  >
+                    {task.spec_path}
+                  </a>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              {task.wiki_page_id ? (
+                <a
+                  href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <LinkIcon className="text-blue-400" />
+                  Wikiページを開く
+                </a>
+              ) : task.spec_path ? (
+                <a
+                  href={task.spec_path}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-gray-600 hover:underline truncate"
+                >
+                  {task.spec_path}
+                </a>
+              ) : (
+                <div className="text-sm text-gray-400">未設定</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ━━ Group 2: ステータス & 担当 ━━ */}
@@ -1357,82 +1430,6 @@ export function TaskInspector({
                 )}
               </div>
             )}
-
-            {/* Spec / Wiki Link */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-                <FileText className="text-sm" />
-                仕様書連携
-              </label>
-              {onUpdate ? (
-                <div className="space-y-3">
-                  {specWikiPages.length > 0 ? (
-                    <select
-                      value={task.wiki_page_id || ''}
-                      onChange={(e) => handleWikiPageChange(e.target.value)}
-                      data-testid="task-inspector-wiki-page"
-                      className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
-                    >
-                      <option value="">紐付けなし</option>
-                      {specWikiPages.map((page) => (
-                        <option key={page.id} value={page.id}>
-                          {page.title}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <p className="text-xs text-gray-400 py-1">
-                      仕様書タグのWikiページがありません
-                    </p>
-                  )}
-                  {task.wiki_page_id && (
-                    <a
-                      href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
-                      className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
-                    >
-                      <LinkIcon className="text-blue-400" />
-                      Wikiページを開く
-                    </a>
-                  )}
-                  {!task.wiki_page_id && task.spec_path && (
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <LinkIcon className="text-gray-400" />
-                      <a
-                        href={task.spec_path}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-gray-600 hover:underline truncate"
-                      >
-                        {task.spec_path}
-                      </a>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  {task.wiki_page_id ? (
-                    <a
-                      href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}
-                      className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
-                    >
-                      <LinkIcon className="text-blue-400" />
-                      Wikiページを開く
-                    </a>
-                  ) : task.spec_path ? (
-                    <a
-                      href={task.spec_path}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-gray-600 hover:underline truncate"
-                    >
-                      {task.spec_path}
-                    </a>
-                  ) : (
-                    <div className="text-sm text-gray-400">未設定</div>
-                  )}
-                </div>
-              )}
-            </div>
 
             {/* Milestone Wiki (PR3): このマイルストーンに紐づく Wiki への導線。0件・milestone未設定なら非表示。
                 prefetch={false}: 最大6本のリンクが画面に入った時点で先読みされるのを避ける（上の Wiki リンクも先読みなし） */}
