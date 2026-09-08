@@ -9,12 +9,15 @@ let members = [
   { id: 'c1', displayName: '相手先の人', avatarUrl: null, role: 'client' },
 ]
 
+let membersPending = false
+
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
     members,
     internalMembers: members.filter((m) => m.role !== 'client'),
     clientMembers: members.filter((m) => m.role === 'client'),
     loading: false,
+    isPending: membersPending,
   }),
 }))
 
@@ -35,6 +38,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 beforeEach(() => {
   setDefaultReviewer.mockReset().mockResolvedValue(undefined)
   defaultReviewerIds = []
+  membersPending = false
   members = [
     { id: 'u1', displayName: '自分', avatarUrl: null, role: 'admin' },
     { id: 'i1', displayName: '田中', avatarUrl: null, role: 'editor' },
@@ -74,6 +78,14 @@ describe('ApprovalSettings — 既定の承認者', () => {
     fireEvent.click(screen.getByRole('switch', { name: '田中' }))
 
     await waitFor(() => expect(setDefaultReviewer).toHaveBeenCalledWith('i1', false))
+  })
+
+  it('メンバーを読み込んでいる間は「いません」を出さない（先に既定が返っても点滅させない）', () => {
+    membersPending = true
+    members = []
+    render(<ApprovalSettings spaceId="s1" />)
+
+    expect(screen.queryByText('社内メンバーがいません')).not.toBeInTheDocument()
   })
 
   it('社内メンバーがいなければその旨を出す', () => {

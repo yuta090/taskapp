@@ -102,6 +102,22 @@ describe('useDefaultReviewers', () => {
     await waitFor(() => expect(result.current.defaultReviewerIds).toEqual(['a']))
   })
 
+  it('続けて2人ぶんチェックしても、どちらも残る（後の保存が前を消さない）', async () => {
+    stored = []
+    const { result } = renderHook(() => useDefaultReviewers(SPACE), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.defaultReviewerIds).toEqual([]))
+
+    await act(async () => {
+      await Promise.all([
+        result.current.setDefaultReviewer('a', true),
+        result.current.setDefaultReviewer('b', true),
+      ])
+    })
+
+    expect(stored).toEqual(['a', 'b'])
+    await waitFor(() => expect(result.current.defaultReviewerIds).toEqual(['a', 'b']))
+  })
+
   it('spaceId が無いときは取得しない', async () => {
     renderHook(() => useDefaultReviewers(null), { wrapper: createWrapper() })
     expect(fromMock).not.toHaveBeenCalled()

@@ -41,7 +41,7 @@ function ReviewerToggle({ userId, name, checked, onChange }: ReviewerToggleProps
 }
 
 export function ApprovalSettings({ spaceId }: ApprovalSettingsProps) {
-  const { internalMembers, loading: membersLoading } = useSpaceMembers(spaceId)
+  const { internalMembers, isPending: membersPending } = useSpaceMembers(spaceId)
   const { defaultReviewerIds, loading, setDefaultReviewer } = useDefaultReviewers(spaceId)
 
   const handleChange = useCallback(
@@ -55,7 +55,7 @@ export function ApprovalSettings({ spaceId }: ApprovalSettingsProps) {
     [setDefaultReviewer]
   )
 
-  if (loading || membersLoading) {
+  if (loading || membersPending) {
     return (
       <div className="animate-pulse space-y-4">
         <div className="h-4 bg-gray-100 rounded w-1/3" />

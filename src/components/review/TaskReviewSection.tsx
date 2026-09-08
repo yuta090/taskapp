@@ -214,13 +214,16 @@ export function TaskReviewSection({
   // 次にこのプロジェクトで承認を依頼するとき、最初から選ばれた状態になる
   const handleToggleDefault = useCallback(
     async (userId: string, isDefault: boolean) => {
+      // 既定から外したときに「今回の依頼先」まで一緒に消えないよう、
+      // いまの選択をここで確定させる（未操作なら既定がそのまま選択になっている）
+      setSelectedReviewerIds((prev) => prev ?? defaultSelection)
       try {
         await setDefaultReviewer(userId, isDefault)
       } catch {
         toast.error('既定の承認者を保存できませんでした')
       }
     },
-    [setDefaultReviewer]
+    [defaultSelection, setDefaultReviewer]
   )
 
   const isCurrentUserReviewer =

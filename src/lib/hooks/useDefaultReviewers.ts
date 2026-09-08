@@ -9,6 +9,11 @@ import { toggleDefaultReviewer } from '@/lib/review/defaultReviewers'
 // 読み込み中に毎回新しい [] を返すと、呼び出し側の useMemo が毎レンダー無効になるため共有定数にする
 const EMPTY: string[] = []
 
+interface ToggleVariables {
+  userId: string
+  isDefault: boolean
+}
+
 /**
  * プロジェクトの「既定の承認者」の読み書き。
  *
@@ -42,7 +47,16 @@ export function useDefaultReviewers(spaceId: string | null) {
   })
 
   const mutation = useMutation({
-    mutationFn: async (next: string[]) => {
+    // 同じスペースの保存は1件ずつ順番に走らせる。配列まるごとの上書きなので、
+    // 並行に走ると後の保存が前の保存を消してしまう（チェックを続けて付けると1人しか残らない）
+    scope: { id: `defaultReviewers:${spaceId ?? 'none'}` },
+    mutationKey: queryKey,
+    // 送る配列は「押した時点」ではなく「自分の番が来た時点」の一覧から作る。
+    // 直前の保存の結果が入っているので、続けて押した分が積み上がる
+    mutationFn: async ({ userId, isDefault }: ToggleVariables) => {
+      const current = queryClient.getQueryData<string[]>(queryKey) ?? []
+      const next = toggleDefaultReviewer(current, userId, isDefault)
+
       const { error } = await (supabase as SupabaseClient)
         .from('spaces')
         .update({ default_reviewer_ids: next })
@@ -51,16 +65,22 @@ export function useDefaultReviewers(spaceId: string | null) {
       if (error) throw error
     },
     // 保存ボタンを置かない方針なので、押した瞬間に反映し、失敗したときだけ戻す
-    onMutate: async (next) => {
+    onMutate: async ({ userId, isDefault }) => {
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueryData<string[]>(queryKey)
-      queryClient.setQueryData<string[]>(queryKey, next)
+      queryClient.setQueryData<string[]>(
+        queryKey,
+        toggleDefaultReviewer(previous ?? [], userId, isDefault)
+      )
       return { previous }
     },
-    onError: (_err, _next, context) => {
+    onError: (_err, _variables, context) => {
       queryClient.setQueryData<string[]>(queryKey, context?.previous ?? [])
     },
+    // 続けて押しているあいだは取り直さない。途中で取り直すと、まだ保存していない
+    // ぶんが古い値で上書きされてチェックが戻って見える
     onSettled: () => {
+      if (queryClient.isMutating({ mutationKey: queryKey }) > 1) return
       void queryClient.invalidateQueries({ queryKey })
     },
   })
@@ -69,10 +89,9 @@ export function useDefaultReviewers(spaceId: string | null) {
 
   const setDefaultReviewer = useCallback(
     async (userId: string, isDefault: boolean) => {
-      const current = queryClient.getQueryData<string[]>(queryKey) ?? []
-      await mutateAsync(toggleDefaultReviewer(current, userId, isDefault))
+      await mutateAsync({ userId, isDefault })
     },
-    [queryClient, queryKey, mutateAsync]
+    [mutateAsync]
   )
 
   return {

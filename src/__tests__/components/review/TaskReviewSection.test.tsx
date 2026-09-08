@@ -30,13 +30,17 @@ let mockMembers: Array<{ id: string; displayName: string; role: string }> = [
 
 let mockDefaultReviewerIds: string[] = []
 const mockSetDefaultReviewer = vi.fn()
+// 実物と同じく、チェックを付け外しすると既定の一覧が変わり、画面も新しい値で描き直される。
+// 固定値を返すだけの mock だと「外したのに表示が変わらない」ぶん不具合を見逃す
 vi.mock('@/lib/hooks/useDefaultReviewers', () => ({
-  useDefaultReviewers: () => ({
-    defaultReviewerIds: mockDefaultReviewerIds,
-    loading: false,
-    saving: false,
-    setDefaultReviewer: (...args: unknown[]) => mockSetDefaultReviewer(...args),
-  }),
+  useDefaultReviewers: () => {
+    const [ids, setIds] = React.useState<string[]>(mockDefaultReviewerIds)
+    const setDefaultReviewer = React.useCallback(async (userId: string, isDefault: boolean) => {
+      mockSetDefaultReviewer(userId, isDefault)
+      setIds((prev) => (isDefault ? [...prev, userId] : prev.filter((id) => id !== userId)))
+    }, [])
+    return { defaultReviewerIds: ids, loading: false, saving: false, setDefaultReviewer }
+  },
 }))
 
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
@@ -376,5 +380,22 @@ describe('TaskReviewSection — 既定の承認者', () => {
 
     expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: /鈴木（社内）/ })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('「デフォルト承認者」を外しても、今回の依頼の相手からは外れない', async () => {
+    mockDefaultReviewerIds = ['i1']
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' }))
+
+    await waitFor(() => expect(mockSetDefaultReviewer).toHaveBeenCalledWith('i1', false))
+    // 今回の依頼先としては選ばれたまま。チェック欄も消えない（消えると戻す手段が無くなる）
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' })
+    ).not.toBeChecked()
+    expect(screen.getByRole('button', { name: '依頼する' })).not.toBeDisabled()
   })
 })
