@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { CaretDown, CaretRight } from '@phosphor-icons/react'
 import { ClientLinkPanel } from '@/components/secretary/ClientLinkPanel'
-import { Hint } from '@/components/secretary/Hint'
+import { Hint } from '@/components/shared/Hint'
 
 /**
  * 「相手と1対1でつなぐ（Pro）」の控えめな副導線。

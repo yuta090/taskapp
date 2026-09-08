@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Copy, Check, Warning } from '@phosphor-icons/react'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { getChannel } from '@/lib/channels/registry'
-import { Hint } from '@/components/secretary/Hint'
+import { Hint } from '@/components/shared/Hint'
 
 interface SharedBotClaimPanelProps {
   orgId: string

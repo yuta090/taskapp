@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import NextLink from 'next/link'
 import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
-import { AmberBadge, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
+import { AmberBadge, Hint, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
@@ -766,7 +766,14 @@ export function TaskInspector({
 
           {/* Ball */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアント確認待ち">ボール</label>
+            <div className="flex items-center gap-0.5">
+              <label className="text-xs font-medium text-gray-500" title="次にアクションを取る側。社内=チームが作業中、外部=クライアント確認待ち">ボール</label>
+              {/* 補足は常時表示せず「?」の中へ。欄が狭く（400pxの右半分）説明文を敷くと
+                  ステータス欄とボタンの高さがずれるため。パネルは右寄せで枠内に収める。 */}
+              <Hint label="ボール" align="right">
+                次にアクションを取る側。外部=クライアントの対応待ち
+              </Hint>
+            </div>
             <div className="flex gap-1.5">
               <button
                 onClick={() => handleBallChange('internal')}
@@ -794,9 +801,6 @@ export function TaskInspector({
                 </span>
               </button>
             </div>
-            <p className="text-[10px] text-gray-500">
-              次にアクションを取る側。外部=クライアントの対応待ち
-            </p>
           </div>
         </div>
 

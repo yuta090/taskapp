@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { Hint } from '@/components/secretary/Hint'
+import { Hint } from '@/components/shared/Hint'
 
 /**
  * Hint — 補足説明を「?」アイコンの後ろに隠す小さな開閉パネル。
@@ -52,5 +52,27 @@ describe('Hint', () => {
     expect(toggle.className).not.toMatch(/\btext-white\b/)
     expect(toggle.className).toMatch(/\bbg-gray-900\b/)
     expect(toggle.className).toMatch(/\btext-gray-100\b/)
+  })
+
+  // 幅の狭い枠（タスク詳細=400px）の右半分に置くと、左寄せのパネルは枠外へはみ出して
+  // 読めなくなる。置き場所に合わせて右寄せにできることは見た目でなく可読性の要件。
+  it('align="right" でパネルをアイコンの右端に揃える', () => {
+    render(
+      <Hint label="ボール" align="right">
+        次にアクションを取る側
+      </Hint>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /ボール/ }))
+
+    const panel = screen.getByRole('note')
+    expect(panel.className).toMatch(/\bright-0\b/)
+    expect(panel.className).not.toMatch(/\bleft-0\b/)
+  })
+
+  it('既定（align 省略）は左寄せのまま', () => {
+    render(<Hint label="合言葉">15分で失効します</Hint>)
+    fireEvent.click(screen.getByRole('button', { name: /合言葉/ }))
+
+    expect(screen.getByRole('note').className).toMatch(/\bleft-0\b/)
   })
 })

@@ -189,14 +189,32 @@ describe('TaskInspector — 完了タスクの「クライアント確認待ち�
   })
 })
 
-describe('TaskInspector — ボールの説明を常時表示 (A3)', () => {
-  it('ボールラベルの下に補足説明テキストが常時表示される（title属性だけに頼らない）', () => {
+// ボールの補足は常時表示（A3）から「?」ヘルプアイコンの中へ移した。
+// 狭い枠に説明文を敷き詰めるより、必要な人だけが開ける形にする。
+describe('TaskInspector — ボールの説明はヘルプアイコンの中', () => {
+  it('ボールのラベルの右に「?」ヘルプがあり、既定では説明文を出さない', () => {
     renderInspector({
       task: makeTask({ ball: 'internal' }),
       spaceId: 's1',
       onClose: vi.fn(),
       onUpdate: vi.fn(),
     })
+
+    expect(screen.getByRole('button', { name: /ボールの補足/ })).toBeInTheDocument()
+    expect(
+      screen.queryByText('次にアクションを取る側。外部=クライアントの対応待ち')
+    ).not.toBeInTheDocument()
+  })
+
+  it('「?」を押すと説明文が開く', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /ボールの補足/ }))
 
     expect(
       screen.getByText('次にアクションを取る側。外部=クライアントの対応待ち')
