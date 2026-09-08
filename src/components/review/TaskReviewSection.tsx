@@ -267,14 +267,16 @@ export function TaskReviewSection({
         </div>
         {!readOnly && !hasActiveReview && !showReviewerPicker && (
           <button
+            type="button"
             onClick={() => setShowReviewerPicker(true)}
-            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+            className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             社内承認を依頼
           </button>
         )}
         {!readOnly && hasActiveReview && reviewData!.review.status !== 'open' && (
           <button
+            type="button"
             onClick={() => {
               // Pre-select existing reviewers for re-review
               setSelectedReviewerIds(
@@ -282,7 +284,7 @@ export function TaskReviewSection({
               )
               setShowReviewerPicker(true)
             }}
-            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+            className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-surface px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             再依頼
           </button>
