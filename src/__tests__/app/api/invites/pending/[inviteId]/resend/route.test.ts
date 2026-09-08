@@ -212,4 +212,12 @@ describe('POST /api/invites/pending/[inviteId]/resend', () => {
     expect(response.status).toBe(500)
     expect(sendInviteEmailMock).not.toHaveBeenCalled()
   })
+
+  it('再送も事務所が保存した文面で送る（org を渡す）', async () => {
+    const response = await callResend(VALID_INVITE_ID)
+
+    expect(response.status).toBe(200)
+    const sent = sendInviteEmailMock.mock.calls[0][0] as { orgId?: string }
+    expect(sent.orgId).toBe(VALID_ORG_ID)
+  })
 })

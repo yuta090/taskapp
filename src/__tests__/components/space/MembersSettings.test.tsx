@@ -30,6 +30,16 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({ members: [], loading: false, isPending: false }),
 }))
 
+// 招待メールの文面は開いたときだけ読みに行く（この一連のテストでは開かない）
+vi.mock('@/lib/hooks/useInviteTemplate', () => ({
+  useInviteTemplate: () => ({ template: null, loading: false, error: null, refresh: vi.fn() }),
+}))
+
+// 招待の一覧はタブを開いたときだけ読みに行く
+vi.mock('@/lib/hooks/useSpaceInvites', () => ({
+  useSpaceInvites: () => ({ invites: [], canManage: true, loading: false, error: null, refresh: vi.fn() }),
+}))
+
 const mockGetUser = vi.fn()
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
