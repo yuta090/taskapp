@@ -1,40 +1,21 @@
 'use client'
 
-import { Bell, BellSlash, Envelope, CircleNotch } from '@phosphor-icons/react'
+import { Bell, BellSlash, Envelope, DeviceMobile } from '@phosphor-icons/react'
 import Link from 'next/link'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
 import { useDueReminderPreference } from '@/lib/hooks/useDueReminderPreference'
 import { useNotificationEmailPrefs } from '@/lib/hooks/useNotificationEmailPrefs'
 import { SettingsBackButton } from '@/components/shared'
+import { readPushEnvironment } from '@/lib/push/environment'
+import { useClientSnapshot } from '@/lib/hooks/useClientSnapshot'
 
 export default function NotificationSettingsPage() {
   const { user, loading: userLoading } = useCurrentUser()
-  const push = usePushNotifications()
-  // メール通知（日次まとめ）の受信設定。notification_email_prefs を楽観更新＝実際に効く。
-  const { prefs, update } = useNotificationEmailPrefs(user?.id)
 
-  if (userLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <CircleNotch className="w-8 h-8 text-indigo-500 animate-spin" />
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">ログインが必要です</p>
-          <Link href="/login" className="text-indigo-600 hover:underline">
-            ログインページへ
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
+  // 枠(ヘッダーとカードの外形)は必ず描き、中身だけ差し替える。
+  // 全画面スピナーにすると、永続キャッシュの復元が終わるまで毎回まっさらな白画面になる
+  // （速いページの型: 在庫があれば即描画・無くても枠は出す）。
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -52,6 +33,49 @@ export default function NotificationSettingsPage() {
 
       {/* Content */}
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+        {userLoading ? (
+          <NotificationSettingsSkeleton />
+        ) : !user ? (
+          <SignedOutNotice />
+        ) : (
+          <NotificationSettingsBody userId={user.id} />
+        )}
+      </main>
+    </div>
+  )
+}
+
+function NotificationSettingsSkeleton() {
+  return (
+    <div className="space-y-6" data-testid="notification-settings-skeleton">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-24 bg-surface rounded-lg border border-gray-200 animate-pulse" />
+      ))}
+    </div>
+  )
+}
+
+function SignedOutNotice() {
+  return (
+    <div className="text-center py-16">
+      <p className="text-gray-600 mb-4">ログインが必要です</p>
+      <Link href="/login" className="text-indigo-600 hover:underline">
+        ログインページへ
+      </Link>
+    </div>
+  )
+}
+
+function NotificationSettingsBody({ userId }: { userId: string }) {
+  const push = usePushNotifications()
+  // iPhone は「ホーム画面に追加」しないと通知を扱えない。素朴に見ると非対応に見えるので
+  // 環境を分けて案内する。サーバー側では分からないので null（案内を出さない）から始める
+  const pushEnv = useClientSnapshot(readPushEnvironment, null)
+  // メール通知の受信設定。notification_email_prefs を楽観更新＝実際に効く。
+  const { prefs, update, loading: prefsLoading } = useNotificationEmailPrefs(userId)
+
+  return (
+    <>
         {/* Browser Push Notifications */}
         <div className="bg-surface rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between">
@@ -64,7 +88,8 @@ export default function NotificationSettingsPage() {
               <div>
                 <h3 className="text-sm font-medium text-gray-900">ブラウザ通知</h3>
                 <p className="text-xs text-gray-500">
-                  ボールの受け渡しや承認依頼をこのブラウザに通知します
+                  承認依頼や、あなたに番が回ってきたときだけ通知します。
+                  夜9時〜朝8時と土日は鳴りません
                 </p>
               </div>
             </div>
@@ -86,7 +111,19 @@ export default function NotificationSettingsPage() {
               />
             </button>
           </div>
-          {!push.isSupported && (
+          {!push.isSupported && pushEnv === 'ios_needs_home_screen' && (
+            <div className="mt-3 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2 space-y-1">
+              <p className="flex items-center gap-1.5 font-medium text-gray-900">
+                <DeviceMobile className="w-4 h-4" />
+                iPhone・iPad で受け取るには、ホーム画面に追加してください
+              </p>
+              <p>
+                Safari の共有ボタン（□に↑）→「ホーム画面に追加」→ 追加されたアイコンから開き、
+                この画面でもう一度スイッチを入れると通知が届くようになります。
+              </p>
+            </div>
+          )}
+          {!push.isSupported && pushEnv === 'unsupported' && (
             <p className="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
               このブラウザはプッシュ通知に対応していません。
             </p>
@@ -102,17 +139,19 @@ export default function NotificationSettingsPage() {
         </div>
 
         {/* 期限リマインド受信（実装済み・実際に効く設定） */}
-        <DueReminderToggle userId={user.id} />
+        <DueReminderToggle userId={userId} />
 
         {/* Digest info notice */}
         <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
           <div className="flex items-center gap-2 text-blue-600">
             <Envelope className="w-5 h-5" />
-            <span className="font-medium">メール通知は1日1回のまとめでお届けします</span>
+            <span className="font-medium">急ぎのものだけすぐ、それ以外は1日1回のまとめで</span>
           </div>
-          <p className="text-sm text-blue-600 mt-1">
-            その都度ではなく、1日分をまとめて1通お送りします。受け取る種類と頻度は下で選べます。
-          </p>
+          <ul className="text-sm text-blue-600 mt-1 space-y-0.5 list-disc list-inside">
+            <li>承認依頼など「あなたの返事を待っている件」は、数分ぶんをまとめてすぐお送りします</li>
+            <li>それ以外は1日分をまとめて1通。受け取る種類と頻度は下で選べます</li>
+            <li>夜9時〜朝8時と土日は、すぐ送るぶんを止めて翌営業日の朝にまわします</li>
+          </ul>
         </div>
 
         {/* Email Master Toggle */}
@@ -154,17 +193,30 @@ export default function NotificationSettingsPage() {
         <div className="bg-surface rounded-lg border border-gray-200 divide-y divide-gray-100">
           <div className="p-4">
             <h3 className="text-sm font-medium text-gray-900 flex items-center gap-2">
-              <Envelope className="w-4 h-4" />
-              通知タイプ
+              <Bell className="w-4 h-4" />
+              通知の種類
             </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              メールとブラウザ通知の両方に効きます。切った種類はどちらにも届きません
+            </p>
           </div>
 
+          {/* 取得できるまでは既定値(全部オン)で描いてしまい、実際は切っている人に
+              「全部オン → 数百msでオフへパタパタ」が見える。初回だけ骨組みを出す
+              （2回目以降は永続キャッシュに在庫があるので即描画される） */}
+          {prefsLoading ? (
+            <div className="p-4 space-y-3" data-testid="notification-types-skeleton">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <>
           {/* Task Assigned */}
           <SettingRow
             label="タスク割り当て"
             description="タスクがあなたに割り当てられた／ボールが回ってきた時"
-            enabled={prefs.email_enabled && prefs.on_task_assigned}
-            disabled={!prefs.email_enabled}
+            enabled={prefs.on_task_assigned}
             onChange={() => void update({ on_task_assigned: !prefs.on_task_assigned })}
           />
 
@@ -172,8 +224,7 @@ export default function NotificationSettingsPage() {
           <SettingRow
             label="メンション"
             description="コメントであなたがメンションされた時"
-            enabled={prefs.email_enabled && prefs.on_task_mentioned}
-            disabled={!prefs.email_enabled}
+            enabled={prefs.on_task_mentioned}
             onChange={() => void update({ on_task_mentioned: !prefs.on_task_mentioned })}
           />
 
@@ -181,8 +232,7 @@ export default function NotificationSettingsPage() {
           <SettingRow
             label="社内承認依頼"
             description="社内承認・レビューを依頼された時"
-            enabled={prefs.email_enabled && prefs.on_review_request}
-            disabled={!prefs.email_enabled}
+            enabled={prefs.on_review_request}
             onChange={() => void update({ on_review_request: !prefs.on_review_request })}
           />
 
@@ -190,8 +240,7 @@ export default function NotificationSettingsPage() {
           <SettingRow
             label="相手からの応答・承諾"
             description="相手先やメンバーが確認・回答した時、招待を承諾した時"
-            enabled={prefs.email_enabled && prefs.on_client_response}
-            disabled={!prefs.email_enabled}
+            enabled={prefs.on_client_response}
             onChange={() => void update({ on_client_response: !prefs.on_client_response })}
           />
 
@@ -199,10 +248,11 @@ export default function NotificationSettingsPage() {
           <SettingRow
             label="会議リマインダー"
             description="予定された会議の前"
-            enabled={prefs.email_enabled && prefs.on_meeting_reminder}
-            disabled={!prefs.email_enabled}
+            enabled={prefs.on_meeting_reminder}
             onChange={() => void update({ on_meeting_reminder: !prefs.on_meeting_reminder })}
           />
+            </>
+          )}
         </div>
 
         {/* Digest Settings */}
@@ -239,8 +289,7 @@ export default function NotificationSettingsPage() {
           </div>
         </fieldset>
 
-      </main>
-    </div>
+    </>
   )
 }
 
@@ -297,13 +346,14 @@ function SettingRow({
   label,
   description,
   enabled,
-  disabled,
+  disabled = false,
   onChange,
 }: {
   label: string
   description: string
   enabled: boolean
-  disabled: boolean
+  /** 種類の選択はメールのオン/オフに連動しない（ブラウザ通知にも効くため）。既定は操作可 */
+  disabled?: boolean
   onChange: () => void
 }) {
   const id = label.replace(/\s+/g, '-').toLowerCase()

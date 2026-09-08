@@ -272,7 +272,7 @@ export function QuotesClient({
             </p>
           </div>
           {/* ページ遷移ではなくファイルのダウンロード。next/link にすると先読みが走り不要にCSVを生成する */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          { }
           <a
             href="/api/admin/quotes/export"
             download
