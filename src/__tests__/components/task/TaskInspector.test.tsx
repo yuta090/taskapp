@@ -265,3 +265,72 @@ describe('TaskInspector — 期限の正本境界(due_authority_connection_id)',
     expect(onUpdate).toHaveBeenCalledWith({ dueDate: '2026-08-01' })
   })
 })
+
+// 説明欄が「どこからどこまでが説明か」一目で分かるよう、背景色＋罫線で囲った領域にする。
+describe('TaskInspector — 説明は区切られた領域として見える', () => {
+  it('説明のラベルを含む枠に背景色と罫線が付いている', () => {
+    renderInspector({
+      task: makeTask({ description: '説明のテキスト' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    const section = screen.getByText('説明').closest('div')
+    expect(section?.className).toMatch(/\bbg-gray-50\b/)
+    expect(section?.className).toMatch(/\bborder-gray-200\b/)
+  })
+
+  it('読み取り専用（onUpdate なし）でも同じ枠で囲む', () => {
+    renderInspector({
+      task: makeTask({ description: '説明のテキスト' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+    })
+
+    const section = screen.getByText('説明').closest('div')
+    expect(section?.className).toMatch(/\bbg-gray-50\b/)
+    expect(section?.className).toMatch(/\bborder-gray-200\b/)
+  })
+})
+
+// 「クライアント公開」は何を切り替える項目か伝わらないので、ボールと同じ「?」ヘルプを添える。
+describe('TaskInspector — クライアント公開の説明はヘルプアイコンの中', () => {
+  const HELP_TEXT =
+    'ONにすると、このタスクがクライアント用の画面（ポータル）に表示されます。OFFなら社内だけに見えます'
+
+  it('クライアント公開のラベルの右に「?」ヘルプがあり、既定では説明文を出さない', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(screen.getByRole('button', { name: /クライアント公開の補足/ })).toBeInTheDocument()
+    expect(screen.queryByText(HELP_TEXT)).not.toBeInTheDocument()
+  })
+
+  it('「?」を押すと説明文が開く', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /クライアント公開の補足/ }))
+
+    expect(screen.getByText(HELP_TEXT)).toBeInTheDocument()
+  })
+
+  it('読み取り専用（onUpdate なし）でもヘルプは出す', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+    })
+
+    expect(screen.getByRole('button', { name: /クライアント公開の補足/ })).toBeInTheDocument()
+  })
+})
