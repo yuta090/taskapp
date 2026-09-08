@@ -86,16 +86,10 @@ describe('FileRow', () => {
     expect(handlers.onCommitDescription).toHaveBeenCalledWith('f1', '毎月の元データ')
   })
 
-  it('props が同じなら作り直さない(memo が効いている)', () => {
-    const file = makeFile()
-    const { rerender, container } = render(
-      <FileRow file={file} basePath="/org-1/project/space-1" isEditing={false} {...handlers} />
-    )
-    const before = container.querySelector('[data-testid="file-row"]')
-
-    rerender(<FileRow file={file} basePath="/org-1/project/space-1" isEditing={false} {...handlers} />)
-
-    // DOM ノードが作り直されていない
-    expect(container.querySelector('[data-testid="file-row"]')).toBe(before)
+  // DOM ノードの同一性では確認できない(React は memo が無くてもノードを使い回す)ため、
+  // 「memo で包まれていること」自体を見る。親が安定した props を渡しているかは
+  // FilesPageClient.memo.test.tsx が見張る
+  it('memo で包まれている(検索1文字ごとに全行が作り直されないため)', () => {
+    expect((FileRow as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.memo'))
   })
 })
