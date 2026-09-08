@@ -29,9 +29,10 @@ const SORT_LABELS: Record<WikiSortKey, string> = {
   author: '作成者',
 }
 
-const COLUMN_OPTIONS: WikiListColumn[] = ['tags', 'author', 'updater', 'created_at', 'updated_at']
+const COLUMN_OPTIONS: WikiListColumn[] = ['tags', 'milestones', 'author', 'updater', 'created_at', 'updated_at']
 const COLUMN_LABELS: Record<WikiListColumn, string> = {
   tags: 'タグ',
+  milestones: 'マイルストーン',
   author: '作成者',
   updater: '更新者',
   created_at: '作成日',
@@ -49,6 +50,8 @@ interface WikiListToolbarProps {
   currentUserId: string | null
   totalCount: number
   filteredCount: number
+  /** マイルストーン別表示での延べ行数（1ページが複数グループに出るぶん増える）。他の表示では未使用。 */
+  groupedRowCount?: number
 }
 
 export function WikiListToolbar({
@@ -61,6 +64,7 @@ export function WikiListToolbar({
   currentUserId,
   totalCount,
   filteredCount,
+  groupedRowCount,
 }: WikiListToolbarProps) {
   const [tagsExpanded, setTagsExpanded] = useState(false)
 
@@ -394,17 +398,23 @@ export function WikiListToolbar({
         </div>
       </div>
 
-      {/* 2行目: 件数 */}
+      {/* 2行目: 件数。マイルストーン別表示だけ「延べ」件数を併記する（1ページが複数グループに出るため）。 */}
       <div className="flex items-center gap-2 px-4 pb-2 text-xs text-gray-400">
         {isFiltering ? (
           <>
-            <span>全 {totalCount} 件中 {filteredCount} 件</span>
+            <span>
+              全 {totalCount} 件中 {filteredCount} 件
+              {prefs.view === 'milestone' && groupedRowCount != null && `（延べ ${groupedRowCount} 件）`}
+            </span>
             <button type="button" onClick={clearFilters} className="text-indigo-600 hover:text-indigo-700">
               絞り込みを解除
             </button>
           </>
         ) : (
-          <span>{totalCount} 件</span>
+          <span>
+            {totalCount} 件
+            {prefs.view === 'milestone' && groupedRowCount != null && `（延べ ${groupedRowCount} 件）`}
+          </span>
         )}
       </div>
     </div>
