@@ -1,48 +1,25 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import {
-  FolderOpen,
-  Plus,
-  File,
-  FileImage,
-  FilePdf,
-  FileDoc,
-  FileCsv,
-  Table,
-  Trash,
-  Link as LinkIcon,
-  DownloadSimple,
-  UploadSimple,
-  MagnifyingGlass,
-  X as XIcon,
-} from '@phosphor-icons/react'
+import { FolderOpen, Plus, UploadSimple, MagnifyingGlass, X as XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Breadcrumb, useConfirmDialog } from '@/components/shared'
-import { FileDescriptionInput } from '@/components/files/FileDescriptionInput'
-import { CLIENT } from '@/lib/design/tokens'
-import { isTabularFile } from '@/lib/table/tableModel'
+import { FileRow } from '@/components/files/FileRow'
 import {
-  getFileKind,
   filterFiles,
   countActiveFileFilters,
-  isFileClientVisible,
   EMPTY_FILE_FILTERS,
   FILE_KIND_OPTIONS,
   FILE_VISIBILITY_OPTIONS,
   FILE_ORIGIN_OPTIONS,
   type FileFilterState,
 } from '@/lib/files/filters'
-import { formatFileDate } from '@/lib/files/format'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 import {
   useFiles,
   useUploadFile,
   useUpdateFile,
   useDeleteFile,
-  formatFileSize,
-  type ProjectFile,
 } from '@/lib/hooks/useFiles'
 
 // API側の上限(src/app/api/files/upload-url/route.ts の MAX_FILE_SIZE_BYTES)と揃える
@@ -54,22 +31,6 @@ const SELECT_CLASS =
 interface FilesPageClientProps {
   orgId: string
   spaceId: string
-}
-
-/** アイコンは絞り込みの「種類」と同じ判定を使う(見た目と絞り込み結果を食い違わせない) */
-function getFileIcon(name: string, mimeType: string) {
-  switch (getFileKind(name, mimeType)) {
-    case 'table':
-      return FileCsv
-    case 'image':
-      return FileImage
-    case 'pdf':
-      return FilePdf
-    case 'document':
-      return FileDoc
-    default:
-      return File
-  }
 }
 
 export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
@@ -124,32 +85,43 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
     void handleFiles(e.dataTransfer.files)
   }
 
-  const handleToggleVisible = (file: ProjectFile) => {
-    if (file.origin === 'client') return
-    updateFile.mutate({ spaceId, fileId: file.id, clientVisible: !file.clientVisible })
-  }
+  // FileRow は memo なので、渡すハンドラは毎回同じ参照でなければ意味がない。
+  // 依存には mutation オブジェクトではなく .mutate / .mutateAsync を置く
+  // (オブジェクトは実行状態が変わるたびに作り直されるため)
+  const updateFileMutate = updateFile.mutate
+  const deleteFileMutateAsync = deleteFile.mutateAsync
 
-  const handleCopyLink = async (file: ProjectFile) => {
-    const url = `${window.location.origin}/api/files/${file.id}/download`
+  const handleToggleVisible = useCallback(
+    (fileId: string, nextVisible: boolean) => {
+      updateFileMutate({ spaceId, fileId, clientVisible: nextVisible })
+    },
+    [spaceId, updateFileMutate]
+  )
+
+  const handleCopyLink = useCallback(async (fileId: string) => {
+    const url = `${window.location.origin}/api/files/${fileId}/download`
     await navigator.clipboard.writeText(url)
     toast.success('リンクをコピーしました。Wikiに貼り付けるとファイルリンクになります')
-  }
+  }, [])
 
-  const handleDelete = async (file: ProjectFile) => {
-    const ok = await confirm({
-      title: 'ファイルを削除',
-      message: 'このファイルは完全に削除されます。この操作は取り消せません。',
-      confirmLabel: '削除',
-      variant: 'danger',
-    })
-    if (!ok) return
-    try {
-      await deleteFile.mutateAsync({ spaceId, fileId: file.id })
-      toast.success('ファイルを削除しました')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'ファイルの削除に失敗しました')
-    }
-  }
+  const handleDelete = useCallback(
+    async (fileId: string) => {
+      const ok = await confirm({
+        title: 'ファイルを削除',
+        message: 'このファイルは完全に削除されます。この操作は取り消せません。',
+        confirmLabel: '削除',
+        variant: 'danger',
+      })
+      if (!ok) return
+      try {
+        await deleteFileMutateAsync({ spaceId, fileId })
+        toast.success('ファイルを削除しました')
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'ファイルの削除に失敗しました')
+      }
+    },
+    [spaceId, deleteFileMutateAsync, confirm]
+  )
 
   const startEditDescription = useCallback((fileId: string) => {
     setEditingFileId(fileId)
@@ -158,9 +130,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
   const commitDescription = useCallback(
     (fileId: string, description: string | null) => {
       setEditingFileId(null)
-      updateFile.mutate({ spaceId, fileId, description })
+      updateFileMutate({ spaceId, fileId, description })
     },
-    [spaceId, updateFile]
+    [spaceId, updateFileMutate]
   )
 
   const cancelEditDescription = useCallback(() => setEditingFileId(null), [])
@@ -347,159 +319,20 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
                 </div>
               ))}
 
-              {visibleFiles.map((file) => {
-                const FileIcon = getFileIcon(file.name, file.mimeType)
-                const isClientVisible = isFileClientVisible(file)
-                const tableHref = isTabularFile(file.name, file.mimeType) ? `${basePath}/files/${file.id}` : null
-                const isEditing = editingFileId === file.id
-
-                return (
-                  <div
-                    key={file.id}
-                    data-testid="file-row"
-                    className="group px-4 py-1.5 border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-h-[34px]">
-                      <FileIcon className="text-lg text-gray-400 flex-shrink-0" />
-
-                      <div className="flex-1 min-w-0 flex items-center gap-2">
-                        {tableHref ? (
-                          <Link
-                            href={tableHref}
-                            className="text-sm font-medium text-gray-900 truncate hover:text-indigo-600 hover:underline underline-offset-2"
-                          >
-                            {file.name}
-                          </Link>
-                        ) : (
-                          <span className="text-sm font-medium text-gray-900 truncate">{file.name}</span>
-                        )}
-                        {file.origin === 'client' && (
-                          <span className={`flex-shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded ${CLIENT.badge}`}>
-                            クライアント提供
-                          </span>
-                        )}
-                        {/* 説明がまだ無い行だけ。ふだんは隠して、カーソルを合わせたときに出す
-                            (行の高さが変わらないよう、名前と同じ行に置く) */}
-                        {!file.description && !isEditing && (
-                          <button
-                            type="button"
-                            data-testid={`file-description-edit-${file.id}`}
-                            onClick={() => startEditDescription(file.id)}
-                            // モバイルはホバーが無いので常時表示、デスクトップだけカーソルを合わせたときに出す
-                            className="flex-shrink-0 text-[11px] text-gray-400 hover:text-gray-600 hover:underline transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
-                          >
-                            説明を追加
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="hidden sm:block flex-shrink-0 text-xs text-gray-400 w-16 text-right">
-                        {formatFileSize(file.sizeBytes)}
-                      </div>
-
-                      <div className="hidden lg:block flex-shrink-0 text-xs text-gray-400 w-20 truncate">
-                        {file.uploaderName}
-                      </div>
-
-                      <div className="hidden md:block flex-shrink-0 text-xs text-gray-400 w-16">
-                        {formatFileDate(file.createdAt)}
-                      </div>
-
-                      {/* クライアント公開トグル */}
-                      <div className="flex-shrink-0 flex items-center gap-1.5">
-                        <span className={`hidden xl:inline text-[10px] ${isClientVisible ? CLIENT.accent : 'text-gray-400'}`}>
-                          {isClientVisible ? '公開中' : '非公開'}
-                        </span>
-                        <button
-                          type="button"
-                          data-testid={`file-visibility-toggle-${file.id}`}
-                          onClick={() => handleToggleVisible(file)}
-                          disabled={file.origin === 'client'}
-                          title={
-                            file.origin === 'client'
-                              ? 'クライアント提供ファイルは常時公開されます'
-                              : isClientVisible
-                                ? 'クリックしてクライアント非公開にする'
-                                : 'クリックしてクライアント公開にする'
-                          }
-                          className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-60 ${
-                            isClientVisible ? CLIENT.dot : 'bg-gray-300'
-                          }`}
-                        >
-                          <span
-                            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-surface rounded-full shadow transition-transform ${
-                              isClientVisible ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {tableHref && (
-                        <Link
-                          href={tableHref}
-                          data-testid={`file-open-table-${file.id}`}
-                          title="表で見る"
-                          className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        >
-                          <Table className="text-sm" />
-                        </Link>
-                      )}
-
-                      <button
-                        type="button"
-                        data-testid={`file-copy-link-${file.id}`}
-                        onClick={() => handleCopyLink(file)}
-                        title="リンクをコピー"
-                        className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                      >
-                        <LinkIcon className="text-sm" />
-                      </button>
-
-                      <a
-                        href={`/api/files/${file.id}/download`}
-                        title="ダウンロード"
-                        className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                      >
-                        <DownloadSimple className="text-sm" />
-                      </a>
-
-                      <button
-                        type="button"
-                        data-testid={`file-delete-${file.id}`}
-                        onClick={() => handleDelete(file)}
-                        title="ファイルを削除"
-                        className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                      >
-                        <Trash className="text-sm" />
-                      </button>
-                    </div>
-
-                    {/* 説明文 — 名前の下。押すとその場で書き換えられる(保存ボタンは置かない) */}
-                    {isEditing ? (
-                      <div className="pl-8 pr-2 pb-1">
-                        <FileDescriptionInput
-                          testId={`file-description-input-${file.id}`}
-                          initialValue={file.description ?? ''}
-                          onCommit={(value) => commitDescription(file.id, value)}
-                          onCancel={cancelEditDescription}
-                        />
-                      </div>
-                    ) : (
-                      file.description && (
-                        <button
-                          type="button"
-                          data-testid={`file-description-${file.id}`}
-                          onClick={() => startEditDescription(file.id)}
-                          title="クリックして説明を編集"
-                          className="block w-full pl-8 pr-2 pb-1 text-left text-xs text-gray-500 truncate hover:text-gray-700"
-                        >
-                          {file.description}
-                        </button>
-                      )
-                    )}
-                  </div>
-                )
-              })}
+              {visibleFiles.map((file) => (
+                <FileRow
+                  key={file.id}
+                  file={file}
+                  basePath={basePath}
+                  isEditing={editingFileId === file.id}
+                  onToggleVisible={handleToggleVisible}
+                  onCopyLink={handleCopyLink}
+                  onDelete={handleDelete}
+                  onStartEditDescription={startEditDescription}
+                  onCommitDescription={commitDescription}
+                  onCancelEditDescription={cancelEditDescription}
+                />
+              ))}
             </div>
           )}
         </div>
