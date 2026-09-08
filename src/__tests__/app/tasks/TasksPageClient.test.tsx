@@ -43,6 +43,17 @@ vi.mock('@/lib/hooks/useRiskForecast', () => ({
   useRiskForecast: () => ({ forecasts: new Map() }),
 }))
 
+// お知らせベルは Supabase/組織コンテキストを引くので、取得層だけ差し替えて
+// 「ヘッダーのどこに置かれているか」だけを検証する。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 // TaskCreateSheet is loaded via next/dynamic and always mounted (gated
 // internally by its own `isOpen` prop); the real component pulls in
 // useSpaceMembers/useWikiPages/useEstimationAssist. Stub it so the empty-state
@@ -122,5 +133,47 @@ describe('TasksPageClient header create button', () => {
     renderPage()
     fireEvent.click(screen.getByTestId('task-create-button'))
     expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expect.stringContaining('create=1'))
+  })
+})
+
+/**
+ * お知らせベルはページ上部に単独の行として浮いていて、設定ボタンから離れていた。
+ * ヘッダーの操作アイコン群（プレビュー・設定）と同じ行にまとめる。
+ */
+describe('TasksPageClient header announcement bell', () => {
+  it('ヘッダーに「お知らせ」ベルがあり、設定ボタンより左（DOM順で前）に並ぶ', () => {
+    renderPage()
+
+    const bell = screen.getByRole('button', { name: 'お知らせ' })
+    const settingsLink = screen.getByTestId('project-settings-link')
+
+    // 同じヘッダー行にいる
+    expect(bell.closest('header')).not.toBeNull()
+    expect(bell.closest('header')).toBe(settingsLink.closest('header'))
+    // DOM順でベルが先 = 画面上は設定ボタンの左
+    expect(
+      bell.compareDocumentPosition(settingsLink) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it('AppShell 側の単独ベル行を消すための目印(data-header-bell)を持つ', () => {
+    renderPage()
+    const bell = screen.getByRole('button', { name: 'お知らせ' })
+    expect(bell.closest('[data-header-bell]')).not.toBeNull()
+  })
+})
+
+/**
+ * 「タスクを追加」ボタンの塗り(bg-indigo-600 + 白文字)が強すぎて、
+ * 一覧より先に目に入ってしまう。控えめな枠線ボタンに落とす。
+ */
+describe('TasksPageClient header create button styling', () => {
+  it('強い塗り(bg-indigo-600 / 白文字)ではなく、控えめな枠線ボタンになっている', () => {
+    renderPage()
+    const button = screen.getByTestId('task-create-button')
+
+    expect(button.className).not.toContain('bg-indigo-600')
+    expect(button.className).not.toContain('text-white')
+    expect(button.className).toContain('border')
   })
 })

@@ -173,8 +173,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex h-full min-h-0 w-full max-w-[1600px]">
             {/* Main Content */}
             <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface relative z-0">
-              {/* Desktop top bar with announcement bell (mobile bell lives in the header) */}
-              <div className="hidden md:flex items-center justify-end px-4 py-1.5 flex-shrink-0">
+              {/* Desktop top bar with announcement bell (mobile bell lives in the header).
+                  ページ側のヘッダーが自前でベルを置いている場合（[data-header-bell]）は、
+                  globals.css の :has() ルールでこの行ごと消える（重複と余分な1行を避ける）。 */}
+              <div data-appshell-bell-row className="hidden md:flex items-center justify-end px-4 py-1.5 flex-shrink-0">
                 <AnnouncementBell />
               </div>
               {children}
