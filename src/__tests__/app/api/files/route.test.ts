@@ -217,9 +217,23 @@ describe('GET /api/files — サーバー側の絞り込み', () => {
     expect(filesOrArgs[0]).toContain('description.ilike."%請求%"')
   })
 
-  it('q の中の % と _ はそのまま検索語として扱う(全件一致にしない)', async () => {
+  // PostgREST の二重引用符の中では \\ と " がエスケープ文字なので、
+  // SQL の LIKE に \% を届けるには \\% と二段で書く必要がある
+  // (一段だと PostgREST に食われて素の % に戻り、ワイルドカードとして効いてしまう)
+  it('q の中の % と _ はそのまま検索語として扱う(ワイルドカードにしない)', async () => {
     await callGet(SPACE_ID, { q: '100%' })
-    expect(filesOrArgs[0]).toContain('100\\%')
+    expect(filesOrArgs[0]).toContain('100\\\\%')
+
+    filesOrArgs = []
+    await callGet(SPACE_ID, { q: '100_' })
+    expect(filesOrArgs[0]).toContain('100\\\\_')
+  })
+
+  it('q の中の二重引用符とバックスラッシュも壊れない', async () => {
+    await callGet(SPACE_ID, { q: 'a"b\\c' })
+    // 引用符は閉じずにエスケープされる(条件の構文が壊れない)
+    expect(filesOrArgs[0]).toContain('\\"')
+    expect(filesOrArgs[0].split('name.ilike.')[1].startsWith('"')).toBe(true)
   })
 
   it('長すぎる q は 400 で弾く', async () => {

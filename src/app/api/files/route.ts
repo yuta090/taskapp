@@ -12,17 +12,19 @@ const VISIBILITIES = ['visible', 'hidden'] as const
 const ORIGINS = ['internal', 'client'] as const
 
 /**
- * PostgREST の or= に載せる値は「,」「.」「(」「)」で構文が決まるので、
- * 検索語をそのまま埋めると壊れる/意図しない条件になる。ダブルクォートで包み、
- * LIKE のワイルドカード(% _)も文字として扱わせる。
+ * 検索語を PostgREST の or= に載せる形にする。エスケープは二段必要。
+ *
+ * 1. SQL の LIKE: % と _ はワイルドカードなので \ を付けて文字として扱わせる
+ * 2. PostgREST: 値は「,」「.」「(」「)」で構文が決まるのでダブルクォートで包む。
+ *    その引用符の中では \ と " 自体がエスケープ文字なので、もう一段重ねる
+ *
+ * 一段しかかけないと PostgREST 側で消費されて素の % _ に戻り、
+ * ワイルドカードとして効いてしまう(「100_」が「100%」に当たる)。
  */
 function toLikePattern(raw: string): string {
-  const escaped = raw
-    .replace(/\\/g, '\\\\')
-    .replace(/%/g, '\\%')
-    .replace(/_/g, '\\_')
-    .replace(/"/g, '\\"')
-  return `"%${escaped}%"`
+  const sqlPattern = `%${raw.replace(/([\\%_])/g, '\\$1')}%`
+  const quoted = sqlPattern.replace(/([\\"])/g, '\\$1')
+  return `"${quoted}"`
 }
 
 // GET: スペースの公開済み(status='ready')ファイル一覧
