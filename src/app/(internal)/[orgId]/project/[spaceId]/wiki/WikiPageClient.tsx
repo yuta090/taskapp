@@ -23,12 +23,17 @@ import {
   filterWikiPages,
   flattenWikiTree,
   groupWikiPagesByMilestone,
+  type WikiTreeNode,
   pruneWikiTreeToMatches,
   type WikiListFilters,
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 import { SAVING } from '@/lib/design/tokens'
+
+// 表示モード外では計算せず共有の空配列を返す（毎レンダー新しい [] を作らない）
+const EMPTY_TREE: WikiTreeNode[] = []
+const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
 
 interface WikiPageClientProps {
   orgId: string
@@ -98,6 +103,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   // フォルダ表示: 絞り込み中は一致した行とその祖先だけを残してからツリーを組む。
   // ピン留めは根の並びだけに影響させ、子の並びは崩さない（buildWikiTree の sort_order のまま）。
   const folderTree = useMemo(() => {
+    if (prefs.view !== 'folder') return EMPTY_TREE
     let sourcePages = pages
     if (isFiltering) {
       const matchedIds = new Set(filterWikiPages(pages, filters, getAuthorName).map(p => p.id))
@@ -109,7 +115,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     )
     const restRoots = tree.filter(n => n.page.pinned_at == null)
     return [...pinnedRoots, ...restRoots]
-  }, [pages, filters, getAuthorName, isFiltering])
+  }, [pages, filters, getAuthorName, isFiltering, prefs.view])
 
   const flatFolderRows = useMemo(
     () => flattenWikiTree(folderTree, new Set(prefs.collapsedIds)),
@@ -118,20 +124,21 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
 
   // マイルストーン別表示: 絞り込み・並べ替え・ピン留め済みの表示配列をそのままグループ化する。
   const milestoneGroups = useMemo(
-    () => groupWikiPagesByMilestone(displayedPages, milestones),
-    [displayedPages, milestones]
+    () => (prefs.view === 'milestone' ? groupWikiPagesByMilestone(displayedPages, milestones) : EMPTY_GROUPS),
+    [displayedPages, milestones, prefs.view]
   )
 
+  // prefs 全体に依存させない（依存すると並べ替え等を触るたびに関数が変わり、memo 化した全行が再描画される）
   const handleToggleCollapse = useCallback(
     (pageId: string) => {
-      setPrefs({
-        ...prefs,
-        collapsedIds: prefs.collapsedIds.includes(pageId)
-          ? prefs.collapsedIds.filter(id => id !== pageId)
-          : [...prefs.collapsedIds, pageId],
-      })
+      setPrefs(prev => ({
+        ...prev,
+        collapsedIds: prev.collapsedIds.includes(pageId)
+          ? prev.collapsedIds.filter(id => id !== pageId)
+          : [...prev.collapsedIds, pageId],
+      }))
     },
-    [prefs, setPrefs]
+    [setPrefs]
   )
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`

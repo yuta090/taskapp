@@ -115,12 +115,19 @@ function writeStored(prefs: WikiListPrefs) {
   }
 }
 
-export function useWikiListPrefs(): [WikiListPrefs, (prefs: WikiListPrefs) => void] {
+export type WikiListPrefsUpdater = WikiListPrefs | ((prev: WikiListPrefs) => WikiListPrefs)
+
+export function useWikiListPrefs(): [WikiListPrefs, (next: WikiListPrefsUpdater) => void] {
   const [prefs, setPrefsState] = useState<WikiListPrefs>(readStored)
 
-  const setPrefs = useCallback((next: WikiListPrefs) => {
-    setPrefsState(next)
-    writeStored(next)
+  // 「前の値を受け取る形」も許す。折りたたみのように頻繁に呼ぶハンドラが prefs 全体に
+  // 依存せずに済み、memo 化した行の再描画を最小にできる。
+  const setPrefs = useCallback((next: WikiListPrefsUpdater) => {
+    setPrefsState(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      writeStored(resolved)
+      return resolved
+    })
   }, [])
 
   return [prefs, setPrefs]
