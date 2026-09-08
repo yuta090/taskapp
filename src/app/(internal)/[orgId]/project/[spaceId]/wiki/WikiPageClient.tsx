@@ -12,14 +12,28 @@ import { WikiCreateSheet } from '@/components/wiki/WikiCreateSheet'
 import { WikiEditorDynamic } from '@/components/wiki/WikiEditorDynamic'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { EmptyState } from '@/components/shared'
-import { useWikiPages } from '@/lib/hooks/useWikiPages'
+import { useWikiPages, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import { applyWikiListView, DEFAULT_WIKI_FILTERS, type WikiListFilters } from '@/lib/wiki/listView'
+import {
+  applyWikiListView,
+  buildWikiTree,
+  DEFAULT_WIKI_FILTERS,
+  filterWikiPages,
+  flattenWikiTree,
+  groupWikiPagesByMilestone,
+  type WikiTreeNode,
+  pruneWikiTreeToMatches,
+  type WikiListFilters,
+} from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { WikiPage, WikiPageVersion } from '@/types/database'
 import { SAVING } from '@/lib/design/tokens'
+
+// 表示モード外では計算せず共有の空配列を返す（毎レンダー新しい [] を作らない）
+const EMPTY_TREE: WikiTreeNode[] = []
+const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
 
 interface WikiPageClientProps {
   orgId: string
@@ -82,6 +96,50 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const displayedPages = useMemo(
     () => applyWikiListView(pages, filters, prefs.sort, getAuthorName),
     [pages, filters, prefs.sort, getAuthorName]
+  )
+
+  const isFiltering = filters.query.trim() !== '' || filters.tags.length > 0 || filters.authorIds.length > 0
+
+  // フォルダ表示: 絞り込み中は一致した行とその祖先だけを残してからツリーを組む。
+  // ピン留めは根の並びだけに影響させ、子の並びは崩さない（buildWikiTree の sort_order のまま）。
+  const folderTree = useMemo(() => {
+    if (prefs.view !== 'folder') return EMPTY_TREE
+    let sourcePages = pages
+    if (isFiltering) {
+      const matchedIds = new Set(filterWikiPages(pages, filters, getAuthorName).map(p => p.id))
+      sourcePages = pruneWikiTreeToMatches(pages, matchedIds)
+    }
+    const tree = buildWikiTree(sourcePages)
+    const pinnedRoots = [...tree.filter(n => n.page.pinned_at != null)].sort(
+      (a, b) => new Date(a.page.pinned_at as string).getTime() - new Date(b.page.pinned_at as string).getTime()
+    )
+    const restRoots = tree.filter(n => n.page.pinned_at == null)
+    return [...pinnedRoots, ...restRoots]
+  }, [pages, filters, getAuthorName, isFiltering, prefs.view])
+
+  // 絞り込み中は折りたたみを無視する（祖先が閉じたままだと一致した行が画面から消える）
+  const flatFolderRows = useMemo(
+    () => flattenWikiTree(folderTree, isFiltering ? new Set<string>() : new Set(prefs.collapsedIds)),
+    [folderTree, prefs.collapsedIds, isFiltering]
+  )
+
+  // マイルストーン別表示: 絞り込み・並べ替え・ピン留め済みの表示配列をそのままグループ化する。
+  const milestoneGroups = useMemo(
+    () => (prefs.view === 'milestone' ? groupWikiPagesByMilestone(displayedPages, milestones) : EMPTY_GROUPS),
+    [displayedPages, milestones, prefs.view]
+  )
+
+  // prefs 全体に依存させない（依存すると並べ替え等を触るたびに関数が変わり、memo 化した全行が再描画される）
+  const handleToggleCollapse = useCallback(
+    (pageId: string) => {
+      setPrefs(prev => ({
+        ...prev,
+        collapsedIds: prev.collapsedIds.includes(pageId)
+          ? prev.collapsedIds.filter(id => id !== pageId)
+          : [...prev.collapsedIds, pageId],
+      }))
+    },
+    [setPrefs]
   )
 
   const projectBasePath = `/${orgId}/project/${spaceId}/wiki`
@@ -159,7 +217,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
       return
     }
 
-    const handleUpdate = async (updates: { title?: string; tags?: string[] }) => {
+    const handleUpdate = async (updates: UpdateWikiPageInput) => {
       await updatePage(activePage.id, updates)
       // Re-fetch page for fresh data
       const fresh = await fetchPage(activePage.id)
@@ -189,9 +247,11 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         onDelete={handleDelete}
         onFetchVersions={fetchVersions}
         onRestoreVersion={handleRestoreVersion}
+        allPages={pages}
+        milestones={milestones}
       />
     )
-  }, [activePage, isMobile, showInfo, setInspector, updatePage, deletePage, fetchPage, fetchVersions, updateQuery])
+  }, [activePage, isMobile, showInfo, setInspector, updatePage, deletePage, fetchPage, fetchVersions, updateQuery, pages, milestones])
 
   // memo 化した WikiPageRow に渡すため安定参照にする
   const handleSelectPage = useCallback((pageId: string) => {
@@ -374,6 +434,43 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
               </button>
             }
           />
+        ) : prefs.view === 'folder' ? (
+          <div>
+            {flatFolderRows.map(({ page, depth, hasChildren, collapsed }) => (
+              <WikiPageRow
+                key={page.id}
+                page={page}
+                isSelected={selectedPageId === page.id}
+                onSelect={handleSelectPage}
+                columns={prefs.columns}
+                getMember={getMember}
+                depth={depth}
+                hasChildren={hasChildren}
+                collapsed={collapsed}
+                onToggleCollapse={handleToggleCollapse}
+              />
+            ))}
+          </div>
+        ) : prefs.view === 'milestone' ? (
+          <div>
+            {milestoneGroups.map(({ milestone, pages: groupPages }) => (
+              <div key={milestone?.id ?? 'unassigned'}>
+                <div className="text-xs font-medium text-gray-500 bg-gray-50 px-4 py-1.5 sticky top-0">
+                  {milestone?.name ?? 'マイルストーン未設定'}
+                </div>
+                {groupPages.map(page => (
+                  <WikiPageRow
+                    key={page.id}
+                    page={page}
+                    isSelected={selectedPageId === page.id}
+                    onSelect={handleSelectPage}
+                    columns={prefs.columns}
+                    getMember={getMember}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         ) : (
           <div>
             {displayedPages.map(page => (

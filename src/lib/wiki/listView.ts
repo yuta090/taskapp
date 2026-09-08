@@ -5,7 +5,7 @@
  * 日付は toISOString() を使わず、常に Date のローカルゲッター
  * （getFullYear/getMonth/getDate/getHours/getMinutes）で組み立てる。
  */
-import type { WikiPage } from '@/types/database'
+import type { Milestone, WikiPage } from '@/types/database'
 
 export type WikiSortKey = 'updated_at' | 'created_at' | 'title' | 'author'
 export type WikiSortDir = 'asc' | 'desc'
@@ -119,6 +119,26 @@ export function sortWikiPages(
   })
 }
 
+/**
+ * ピン留め（pinned_at 非 NULL）を常に先頭（pinned_at 昇順）に固定し、
+ * 残りを通常の並べ替えに従わせる。絞り込み後の配列に対して適用するため、
+ * 絞り込みで除外されたピン留めページは先頭に出てこない。
+ */
+function applyPinning(
+  filtered: WikiPage[],
+  sort: WikiListSort,
+  getAuthorName: (userId: string) => string
+): WikiPage[] {
+  const pinned = filtered.filter(p => p.pinned_at != null)
+  if (pinned.length === 0) return sortWikiPages(filtered, sort, getAuthorName)
+
+  const pinnedSorted = [...pinned].sort(
+    (a, b) => new Date(a.pinned_at as string).getTime() - new Date(b.pinned_at as string).getTime()
+  )
+  const rest = sortWikiPages(filtered.filter(p => p.pinned_at == null), sort, getAuthorName)
+  return [...pinnedSorted, ...rest]
+}
+
 export function applyWikiListView(
   pages: WikiPage[],
   filters: WikiListFilters,
@@ -126,7 +146,7 @@ export function applyWikiListView(
   getAuthorName: (userId: string) => string
 ): WikiPage[] {
   const filtered = filterWikiPages(pages, filters, getAuthorName)
-  return sortWikiPages(filtered, sort, getAuthorName)
+  return applyPinning(filtered, sort, getAuthorName)
 }
 
 /** 相対時刻表示（「たった今」「N分前」…「M/D」）。既存 WikiPageRow.formatDate を移設。 */
@@ -159,4 +179,181 @@ export function formatWikiAbsoluteTime(iso: string): string {
 export function formatWikiShortDate(iso: string): string {
   const date = new Date(iso)
   return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+// ---------------------------------------------------------------------------
+// PR2: 構造（フォルダ・マイルストーン別表示）
+// ---------------------------------------------------------------------------
+
+export type WikiViewMode = 'list' | 'folder' | 'milestone'
+
+export interface WikiTreeNode {
+  page: WikiPage
+  children: WikiTreeNode[]
+  depth: number
+}
+
+/** 同一階層内の並び順: sort_order 昇順（NULL は末尾）→渡された順（安定ソート）。 */
+function sortSiblings(pages: WikiPage[]): WikiPage[] {
+  return [...pages].sort((a, b) => {
+    const aOrder = a.sort_order ?? Number.POSITIVE_INFINITY
+    const bOrder = b.sort_order ?? Number.POSITIVE_INFINITY
+    return aOrder - bOrder
+    // sort() は安定ソートなので、同値（未指定同士含む）は渡された順のまま残る
+  })
+}
+
+/**
+ * ページの一覧から親子ツリーを組み立てる。
+ * parent_page_id が一覧に無い（見えない・消えた）ページは根扱いにする。
+ * 壊れたデータ（本来トリガーが拒否する循環）が混入していても無限ループしないよう、
+ * 経路上の祖先を辿って自分自身が現れたら子として展開しない（防御的措置）。
+ */
+export function buildWikiTree(pages: WikiPage[]): WikiTreeNode[] {
+  const byId = new Map(pages.map(p => [p.id, p]))
+  const childrenByParent = new Map<string, WikiPage[]>()
+  const roots: WikiPage[] = []
+
+  for (const p of pages) {
+    const parentId = p.parent_page_id
+    if (parentId != null && byId.has(parentId)) {
+      const list = childrenByParent.get(parentId) ?? []
+      list.push(p)
+      childrenByParent.set(parentId, list)
+    } else {
+      roots.push(p)
+    }
+  }
+
+  const visited = new Set<string>()
+
+  function build(page: WikiPage, depth: number, ancestry: Set<string>): WikiTreeNode {
+    visited.add(page.id)
+    const children = sortSiblings(childrenByParent.get(page.id) ?? [])
+      .filter(child => !ancestry.has(child.id) && !visited.has(child.id)) // 循環防止（防御的）
+      .map(child => build(child, depth + 1, new Set(ancestry).add(page.id)))
+    return { page, children, depth }
+  }
+
+  const result = sortSiblings(roots).map(root => build(root, 0, new Set([root.id])))
+
+  // 循環（P→Q→P）に巻き込まれたページはどの根からも到達できず黙って消えるため、
+  // 到達しなかったページを根に昇格させて必ず表示する。
+  const stranded = pages.filter(p => !visited.has(p.id))
+  for (const p of sortSiblings(stranded)) {
+    if (!visited.has(p.id)) result.push(build(p, 0, new Set([p.id])))
+  }
+  return result
+}
+
+/** ツリーを深さ優先で平坦化する。折りたたまれたノードの子孫は含めない。 */
+export function flattenWikiTree(
+  nodes: WikiTreeNode[],
+  collapsedIds: Set<string>
+): { page: WikiPage; depth: number; hasChildren: boolean; collapsed: boolean }[] {
+  const result: { page: WikiPage; depth: number; hasChildren: boolean; collapsed: boolean }[] = []
+
+  function visit(node: WikiTreeNode) {
+    const hasChildren = node.children.length > 0
+    const collapsed = hasChildren && collapsedIds.has(node.page.id)
+    result.push({ page: node.page, depth: node.depth, hasChildren, collapsed })
+    if (!collapsed) {
+      for (const child of node.children) visit(child)
+    }
+  }
+
+  for (const node of nodes) visit(node)
+  return result
+}
+
+/**
+ * 絞り込み中にツリーを崩さないよう、一致した行とその祖先だけを残す。
+ * 戻り値は `pages` に含まれる元の順序を保つ（buildWikiTree 側で改めて並べ替える）。
+ */
+export function pruneWikiTreeToMatches(pages: WikiPage[], matchedIds: Set<string>): WikiPage[] {
+  const byId = new Map(pages.map(p => [p.id, p]))
+  const keep = new Set<string>()
+
+  for (const id of matchedIds) {
+    let current = byId.get(id)
+    const visited = new Set<string>()
+    while (current && !visited.has(current.id)) {
+      keep.add(current.id)
+      visited.add(current.id)
+      current = current.parent_page_id != null ? byId.get(current.parent_page_id) : undefined
+    }
+  }
+
+  return pages.filter(p => keep.has(p.id))
+}
+
+function compareMilestones(a: Milestone, b: Milestone): number {
+  if (a.order_key !== b.order_key) return a.order_key - b.order_key
+  const aDue = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY
+  const bDue = b.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY
+  if (aDue !== bDue) return aDue - bDue
+  return a.name.localeCompare(b.name, 'ja')
+}
+
+/**
+ * milestone_id ごとにグループ化する。マイルストーンは order_key→due_date→name(ja) 順。
+ * milestone_id が未設定、または渡された milestones に見つからない場合は
+ * 「マイルストーン未設定」（milestone: null）として末尾にまとめる。
+ * ページが 0 件のマイルストーンは出さない。
+ * グループ内のページ順は渡された順をそのまま保つ（並べ替えは呼び出し側の責務）。
+ */
+export function groupWikiPagesByMilestone(
+  pages: WikiPage[],
+  milestones: Milestone[]
+): { milestone: Milestone | null; pages: WikiPage[] }[] {
+  const milestoneById = new Map(milestones.map(m => [m.id, m]))
+  const byMilestoneId = new Map<string, WikiPage[]>()
+  const unassigned: WikiPage[] = []
+
+  for (const page of pages) {
+    const milestone = page.milestone_id != null ? milestoneById.get(page.milestone_id) : undefined
+    if (milestone) {
+      const list = byMilestoneId.get(milestone.id) ?? []
+      list.push(page)
+      byMilestoneId.set(milestone.id, list)
+    } else {
+      unassigned.push(page)
+    }
+  }
+
+  const groups: { milestone: Milestone | null; pages: WikiPage[] }[] = Array.from(byMilestoneId.entries())
+    .map(([milestoneId, groupPages]) => ({ milestone: milestoneById.get(milestoneId)!, pages: groupPages }))
+    .sort((a, b) => compareMilestones(a.milestone!, b.milestone!))
+
+  if (unassigned.length > 0) {
+    groups.push({ milestone: null, pages: unassigned })
+  }
+
+  return groups
+}
+
+/** pageId の子孫（子・孫…）の id をすべて集める。親ページの選択肢から循環候補を除くために使う。 */
+export function descendantIds(pages: WikiPage[], pageId: string): Set<string> {
+  const childrenByParent = new Map<string, string[]>()
+  for (const p of pages) {
+    if (p.parent_page_id != null) {
+      const list = childrenByParent.get(p.parent_page_id) ?? []
+      list.push(p.id)
+      childrenByParent.set(p.parent_page_id, list)
+    }
+  }
+
+  const result = new Set<string>()
+  const visited = new Set<string>([pageId])
+  const stack = [...(childrenByParent.get(pageId) ?? [])]
+
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    if (visited.has(id)) continue // 循環防止（防御的）
+    visited.add(id)
+    result.add(id)
+    stack.push(...(childrenByParent.get(id) ?? []))
+  }
+
+  return result
 }
