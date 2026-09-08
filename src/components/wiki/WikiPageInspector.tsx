@@ -1,16 +1,29 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, type ChangeEvent } from 'react'
 import { X, Trash, Clock, Tag, PencilSimple, Check } from '@phosphor-icons/react'
-import type { WikiPage, WikiPageVersion } from '@/types/database'
+import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
+import { descendantIds } from '@/lib/wiki/listView'
+
+export interface WikiPageUpdates {
+  title?: string
+  tags?: string[]
+  parent_page_id?: string | null
+  milestone_id?: string | null
+  pinned_at?: string | null
+}
 
 interface WikiPageInspectorProps {
   page: WikiPage
   onClose: () => void
-  onUpdate?: (updates: { title?: string; tags?: string[] }) => Promise<void>
+  onUpdate?: (updates: WikiPageUpdates) => Promise<void>
   onDelete?: () => Promise<void>
   onFetchVersions?: (pageId: string) => Promise<WikiPageVersion[]>
   onRestoreVersion?: (version: WikiPageVersion) => void
+  /** 親ページ候補・循環候補の除外に使う同一スペースの全ページ。省略時は「整理」の親ページ欄を出さない。 */
+  allPages?: WikiPage[]
+  /** 紐づけ候補のマイルストーン。省略時は「整理」のマイルストーン欄を出さない。 */
+  milestones?: Milestone[]
 }
 
 export function WikiPageInspector({
@@ -20,6 +33,8 @@ export function WikiPageInspector({
   onDelete,
   onFetchVersions,
   onRestoreVersion,
+  allPages = [],
+  milestones = [],
 }: WikiPageInspectorProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
@@ -28,6 +43,7 @@ export function WikiPageInspector({
   const [showVersions, setShowVersions] = useState(false)
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [tagInput, setTagInput] = useState('')
+  const [organizeError, setOrganizeError] = useState<string | null>(null)
 
   // Reset state when page changes — intentional state sync from props
   useEffect(() => {
@@ -37,6 +53,7 @@ export function WikiPageInspector({
     setIsDeleting(false)
     setShowVersions(false)
     setVersions([])
+    setOrganizeError(null)
   }, [page.id, page.title])
 
   const handleSaveTitle = async () => {
@@ -90,6 +107,39 @@ export function WikiPageInspector({
     }
   }
 
+  // 「整理」セクション: 即時保存（保存ボタン無し）。失敗したら onUpdate 側（updatePage）が
+  // 楽観更新をロールバックするため、value は page prop に戻ったままになる。ここでは
+  // 一行のエラーメッセージだけ出す。
+  const handleTogglePinned = async () => {
+    if (!onUpdate) return
+    setOrganizeError(null)
+    try {
+      await onUpdate({ pinned_at: page.pinned_at != null ? null : new Date().toISOString() })
+    } catch {
+      setOrganizeError('固定状態を変更できませんでした')
+    }
+  }
+
+  const handleParentChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    if (!onUpdate) return
+    setOrganizeError(null)
+    try {
+      await onUpdate({ parent_page_id: e.target.value || null })
+    } catch {
+      setOrganizeError('同じスペースのページだけ選べます')
+    }
+  }
+
+  const handleMilestoneChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    if (!onUpdate) return
+    setOrganizeError(null)
+    try {
+      await onUpdate({ milestone_id: e.target.value || null })
+    } catch {
+      setOrganizeError('同じスペースのマイルストーンだけ選べます')
+    }
+  }
+
   const handleToggleVersions = async () => {
     if (showVersions) {
       setShowVersions(false)
@@ -107,6 +157,12 @@ export function WikiPageInspector({
     }
     setShowVersions(true)
   }
+
+  // 自分自身・自分の子孫は親ページに選べない（循環防止）。
+  const parentOptions = useMemo(() => {
+    const excluded = descendantIds(allPages, page.id)
+    return allPages.filter(p => p.id !== page.id && !excluded.has(p.id))
+  }, [allPages, page.id])
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('ja-JP', {
@@ -213,6 +269,64 @@ export function WikiPageInspector({
               className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
             />
           </div>
+        </div>
+
+        {/* Organize: pin / parent page / milestone — PR2 構造 */}
+        <div className="space-y-3">
+          <label className="text-xs font-medium text-gray-500 block">整理</label>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={page.pinned_at != null}
+              onChange={handleTogglePinned}
+              aria-label="一覧の先頭に固定"
+              className="rounded border-gray-300"
+            />
+            一覧の先頭に固定
+          </label>
+
+          <div>
+            <label htmlFor={`wiki-parent-select-${page.id}`} className="text-xs text-gray-500 mb-1 block">
+              親ページ
+            </label>
+            <select
+              id={`wiki-parent-select-${page.id}`}
+              aria-label="親ページ"
+              value={page.parent_page_id ?? ''}
+              onChange={handleParentChange}
+              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500/20 bg-surface"
+            >
+              <option value="">なし</option>
+              {parentOptions.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor={`wiki-milestone-select-${page.id}`} className="text-xs text-gray-500 mb-1 block">
+              マイルストーン
+            </label>
+            <select
+              id={`wiki-milestone-select-${page.id}`}
+              aria-label="マイルストーン"
+              value={page.milestone_id ?? ''}
+              onChange={handleMilestoneChange}
+              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500/20 bg-surface"
+            >
+              <option value="">なし</option>
+              {milestones.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {organizeError && <p className="text-xs text-red-600">{organizeError}</p>}
         </div>
 
         {/* Metadata */}
