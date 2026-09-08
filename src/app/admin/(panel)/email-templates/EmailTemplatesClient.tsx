@@ -289,7 +289,7 @@ export default function EmailTemplatesClient({ initialRows, appName, authHookCon
                     {unsaved ? (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 shrink-0">未保存</span>
                     ) : custom ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 shrink-0">編集済み</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-ink shrink-0">編集済み</span>
                     ) : null}
                   </button>
                 )

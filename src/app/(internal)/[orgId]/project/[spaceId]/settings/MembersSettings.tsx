@@ -295,7 +295,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                     {member.displayName}
                   </span>
                   {member.userId === currentUserId && (
-                    <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                    <span className="text-xs text-indigo-ink bg-indigo-50 px-1.5 py-0.5 rounded">
                       あなた
                     </span>
                   )}

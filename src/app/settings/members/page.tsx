@@ -472,7 +472,7 @@ export default function MembersSettingsPage() {
                           {member.display_name}
                         </span>
                         {isCurrentUser && (
-                          <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                          <span className="text-xs text-indigo-ink bg-indigo-50 px-1.5 py-0.5 rounded">
                             あなた
                           </span>
                         )}
@@ -659,7 +659,7 @@ export default function MembersSettingsPage() {
                     <button
                       onClick={() => handleResendInvite(invite.id)}
                       disabled={actionInFlight}
-                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-1.5 text-gray-400 hover:text-indigo-ink hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="招待を再送する"
                     >
                       <ArrowClockwise className="w-4 h-4" />

@@ -460,7 +460,7 @@ export default function ApiKeysSettingsPage() {
         ) : (
           <button
             onClick={() => setShowCreateForm(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-indigo-600 bg-surface border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-indigo-ink bg-surface border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
             新しいAPIキーを作成
