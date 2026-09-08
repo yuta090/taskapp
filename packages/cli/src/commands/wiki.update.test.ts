@@ -57,4 +57,25 @@ describe('agentpm wiki update（構造オプション）', () => {
     expect(call.parentPageId).toBeUndefined()
     expect(call.milestoneId).toBeUndefined()
   })
+
+  it('--no-parent / --no-milestone で null（解除）を渡す', async () => {
+    const program = buildProgram()
+    await program.parseAsync(
+      ['wiki', 'update', '--space-id', 'space-1', '--page-id', 'p-1', '--no-parent', '--no-milestone'],
+      { from: 'user' }
+    )
+    expect(mockCallTool).toHaveBeenCalledWith(
+      'wiki_update',
+      expect.objectContaining({ parentPageId: null, milestoneId: null })
+    )
+  })
+
+  it('--pin と --unpin を同時に渡すとエラーにして送信しない', async () => {
+    const program = buildProgram()
+    await program.parseAsync(
+      ['wiki', 'update', '--space-id', 'space-1', '--page-id', 'p-1', '--pin', '--unpin'],
+      { from: 'user' }
+    )
+    expect(mockCallTool).not.toHaveBeenCalled()
+  })
 })

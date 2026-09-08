@@ -94,3 +94,14 @@ describe('wiki_update（構造列）', () => {
     expect(updates[0]).not.toHaveProperty('pinned_at')
   })
 })
+
+describe('describeWikiUpdateError', () => {
+  it('トリガーの拒否理由を日本語に置き換える', async () => {
+    const { describeWikiUpdateError } = await import('./wiki.js')
+    expect(describeWikiUpdateError('wiki parent cycle detected')).toMatch(/循環/)
+    expect(describeWikiUpdateError('wiki parent must be in the same space')).toMatch(/同じスペース/)
+    expect(describeWikiUpdateError('wiki milestone must be in the same space')).toMatch(/マイルストーン/)
+    expect(describeWikiUpdateError('wiki parent chain too deep (max 50)')).toMatch(/深すぎ/)
+    expect(describeWikiUpdateError('something else')).toBe('Wikiページの更新に失敗しました')
+  })
+})

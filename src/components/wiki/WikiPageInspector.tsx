@@ -114,7 +114,7 @@ export function WikiPageInspector({
     if (!onUpdate) return
     setOrganizeError(null)
     try {
-      await onUpdate({ pinned_at: page.pinned_at != null ? null : new Date().toISOString() })
+      await onUpdate({ pinned_at: page.pinned_at != null ? null : new Date().toISOString() /* DB に渡す値。表示計算ではない */ })
     } catch {
       setOrganizeError('固定状態を変更できませんでした')
     }

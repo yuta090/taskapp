@@ -117,9 +117,10 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     return [...pinnedRoots, ...restRoots]
   }, [pages, filters, getAuthorName, isFiltering, prefs.view])
 
+  // 絞り込み中は折りたたみを無視する（祖先が閉じたままだと一致した行が画面から消える）
   const flatFolderRows = useMemo(
-    () => flattenWikiTree(folderTree, new Set(prefs.collapsedIds)),
-    [folderTree, prefs.collapsedIds]
+    () => flattenWikiTree(folderTree, isFiltering ? new Set<string>() : new Set(prefs.collapsedIds)),
+    [folderTree, prefs.collapsedIds, isFiltering]
   )
 
   // マイルストーン別表示: 絞り込み・並べ替え・ピン留め済みの表示配列をそのままグループ化する。

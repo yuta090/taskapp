@@ -64,19 +64,25 @@ export function registerWikiCommands(program: Command): void {
     .option('--body <body>', 'New body (Markdown)')
     .option('--tags <tags...>', 'New tags')
     .option('--parent-id <id>', 'Parent page ID (folder view)')
+    .option('--no-parent', 'Move the page back to the top level (clear parent)')
     .option('--milestone-id <id>', 'Milestone ID to link')
+    .option('--no-milestone', 'Unlink the milestone')
     .option('--pin', 'Pin to the top of the list')
     .option('--unpin', 'Remove from the top of the list')
     .action(async (opts) => {
       try {
+        if (opts.pin && opts.unpin) throw new Error('--pin と --unpin は同時に指定できません')
+        if (opts.parentId && opts.parent === false) throw new Error('--parent-id と --no-parent は同時に指定できません')
+        if (opts.milestoneId && opts.milestone === false) throw new Error('--milestone-id と --no-milestone は同時に指定できません')
         const result = await callTool('wiki_update', {
           spaceId: resolveSpaceId(opts),
           pageId: opts.pageId,
           title: opts.title,
           body: opts.body,
           tags: opts.tags,
-          parentPageId: opts.parentId,
-          milestoneId: opts.milestoneId,
+          // commander は --no-parent を parent=false として渡す。解除は null で送る
+          parentPageId: opts.parent === false ? null : opts.parentId,
+          milestoneId: opts.milestone === false ? null : opts.milestoneId,
           pinned: opts.pin ? true : opts.unpin ? false : undefined,
         })
         output(result, program.opts().json)

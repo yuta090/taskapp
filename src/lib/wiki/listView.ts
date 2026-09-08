@@ -225,14 +225,25 @@ export function buildWikiTree(pages: WikiPage[]): WikiTreeNode[] {
     }
   }
 
+  const visited = new Set<string>()
+
   function build(page: WikiPage, depth: number, ancestry: Set<string>): WikiTreeNode {
+    visited.add(page.id)
     const children = sortSiblings(childrenByParent.get(page.id) ?? [])
-      .filter(child => !ancestry.has(child.id)) // 循環防止（防御的）
+      .filter(child => !ancestry.has(child.id) && !visited.has(child.id)) // 循環防止（防御的）
       .map(child => build(child, depth + 1, new Set(ancestry).add(page.id)))
     return { page, children, depth }
   }
 
-  return sortSiblings(roots).map(root => build(root, 0, new Set([root.id])))
+  const result = sortSiblings(roots).map(root => build(root, 0, new Set([root.id])))
+
+  // 循環（P→Q→P）に巻き込まれたページはどの根からも到達できず黙って消えるため、
+  // 到達しなかったページを根に昇格させて必ず表示する。
+  const stranded = pages.filter(p => !visited.has(p.id))
+  for (const p of sortSiblings(stranded)) {
+    if (!visited.has(p.id)) result.push(build(p, 0, new Set([p.id])))
+  }
+  return result
 }
 
 /** ツリーを深さ優先で平坦化する。折りたたまれたノードの子孫は含めない。 */

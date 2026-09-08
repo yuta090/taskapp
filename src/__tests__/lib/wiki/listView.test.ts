@@ -232,6 +232,24 @@ describe('buildWikiTree', () => {
     ]
     expect(() => buildWikiTree(pages)).not.toThrow()
   })
+
+  it('循環に巻き込まれたページも根に昇格して必ず表示される（黙って消えない）', () => {
+    const pages = [
+      page({ id: 'p', parent_page_id: 'q' }),
+      page({ id: 'q', parent_page_id: 'p' }),
+      page({ id: 'r' }),
+    ]
+    const tree = buildWikiTree(pages)
+    const ids = new Set<string>()
+    const walk = (nodes: ReturnType<typeof buildWikiTree>) => nodes.forEach(n => { ids.add(n.page.id); walk(n.children) })
+    walk(tree)
+    expect(ids).toEqual(new Set(['p', 'q', 'r']))
+    // 各ページはツリーに1回だけ現れる
+    let count = 0
+    const countWalk = (nodes: ReturnType<typeof buildWikiTree>) => nodes.forEach(n => { count++; countWalk(n.children) })
+    countWalk(tree)
+    expect(count).toBe(3)
+  })
 })
 
 describe('flattenWikiTree', () => {

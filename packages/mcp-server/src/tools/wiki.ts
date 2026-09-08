@@ -25,7 +25,7 @@ const wikiListSchema = z.object({
   limit: z.number().int().positive().max(200).default(50).describe('取得件数上限'),
 })
 
-const nullableIdSchema = z.string().nullable().optional()
+const nullableIdSchema = z.string().uuid().nullable().optional()
 
 const wikiGetSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -127,6 +127,16 @@ export async function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Prom
   return data as WikiPage
 }
 
+/** DB トリガーの拒否理由（親子・マイルストーンの境界/循環）を利用者向けの日本語に置き換える。 */
+export function describeWikiUpdateError(message: string | undefined): string {
+  const m = message ?? ''
+  if (m.includes('wiki parent cycle')) return '親ページの指定が循環しています（自分自身や子孫を親にはできません）'
+  if (m.includes('wiki parent chain too deep')) return '親ページの階層が深すぎます（最大 50 段）'
+  if (m.includes('wiki parent must be in the same space')) return '親ページは同じスペースのページだけ指定できます'
+  if (m.includes('wiki milestone must be in the same space')) return 'マイルストーンは同じスペースのものだけ指定できます'
+  return 'Wikiページの更新に失敗しました'
+}
+
 export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage> {
   await checkAuth(params.spaceId, 'write', 'wiki_update', 'wiki', params.pageId)
   const supabase = getSupabaseClient()
@@ -153,7 +163,7 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
     .select('*')
     .single()
 
-  if (error) throw new Error('Wikiページの更新に失敗しました')
+  if (error) throw new Error(describeWikiUpdateError(error.message))
 
   // Save version snapshot when body changes
   if (params.body !== undefined) {

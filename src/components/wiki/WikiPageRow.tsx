@@ -150,6 +150,7 @@ function WikiPageRowInner({
               type="button"
               onClick={handleToggleCollapse}
               aria-label={collapsed ? '展開' : '折りたたむ'}
+          aria-expanded={!collapsed}
               className="text-gray-400 hover:text-gray-600 transition-colors"
             >
               {collapsed ? <CaretRight className="text-xs" /> : <CaretDown className="text-xs" />}

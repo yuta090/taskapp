@@ -130,6 +130,16 @@ describe('WikiPageClient 表示切替', () => {
     expect(screen.getByText('子ページ')).toBeInTheDocument()
   })
 
+  it('フォルダ表示で親を折りたたんだまま検索しても、一致した子ページは表示される', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('wiki-view-folder'))
+    fireEvent.click(screen.getByLabelText('折りたたむ'))
+    expect(screen.queryByText('子ページ')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('wiki-search'), { target: { value: '子ページ' } })
+    expect(screen.getByText('子ページ')).toBeInTheDocument()
+    expect(screen.getByText('親ページ')).toBeInTheDocument() // 祖先も一緒に出る
+  })
+
   it('マイルストーン別表示にするとグループ見出しが出る', () => {
     setup()
     fireEvent.click(screen.getByTestId('wiki-view-milestone'))

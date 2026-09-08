@@ -111,11 +111,14 @@ begin
       raise exception 'wiki parent cycle detected';
     end if;
 
-    -- 親は同じ org / space のページであること
+    -- 親は同じ org / space のページであること。
+    -- for share で親の行を掴み、同時に「互いを親にする」2つの更新が両方通って
+    -- 循環が残る隙間（各々コミット前の状態しか見えない）を閉じる。
     select p.org_id, p.space_id
       into v_parent_org, v_parent_space
       from public.wiki_pages p
-     where p.id = new.parent_page_id;
+     where p.id = new.parent_page_id
+       for share;
 
     if not found
        or v_parent_org is distinct from new.org_id
