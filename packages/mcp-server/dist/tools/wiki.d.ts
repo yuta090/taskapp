@@ -46,20 +46,29 @@ declare const wikiUpdateSchema: z.ZodObject<{
     body: z.ZodOptional<z.ZodString>;
     format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    parentPageId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    milestoneId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    pinned: z.ZodOptional<z.ZodBoolean>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     pageId: string;
     title?: string | undefined;
+    milestoneId?: string | null | undefined;
     body?: string | undefined;
     format?: "markdown" | "html" | "blocks" | undefined;
     tags?: string[] | undefined;
+    parentPageId?: string | null | undefined;
+    pinned?: boolean | undefined;
 }, {
     spaceId: string;
     pageId: string;
     title?: string | undefined;
+    milestoneId?: string | null | undefined;
     body?: string | undefined;
     format?: "markdown" | "html" | "blocks" | undefined;
     tags?: string[] | undefined;
+    parentPageId?: string | null | undefined;
+    pinned?: boolean | undefined;
 }>;
 declare const wikiDeleteSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -87,6 +96,8 @@ declare const wikiVersionsSchema: z.ZodObject<{
 export declare function wikiList(params: z.infer<typeof wikiListSchema>): Promise<WikiPage[]>;
 export declare function wikiGet(params: z.infer<typeof wikiGetSchema>): Promise<WikiPage>;
 export declare function wikiCreate(params: z.infer<typeof wikiCreateSchema>): Promise<WikiPage>;
+/** DB トリガーの拒否理由（親子・マイルストーンの境界/循環）を利用者向けの日本語に置き換える。 */
+export declare function describeWikiUpdateError(message: string | undefined): string;
 export declare function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Promise<WikiPage>;
 export declare function wikiDelete(params: z.infer<typeof wikiDeleteSchema>): Promise<{
     ok: true;
@@ -153,20 +164,29 @@ export declare const wikiTools: ({
         body: z.ZodOptional<z.ZodString>;
         format: z.ZodOptional<z.ZodEnum<["markdown", "html", "blocks"]>>;
         tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        parentPageId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        milestoneId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        pinned: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
+        milestoneId?: string | null | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
+        parentPageId?: string | null | undefined;
+        pinned?: boolean | undefined;
     }, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
+        milestoneId?: string | null | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
+        parentPageId?: string | null | undefined;
+        pinned?: boolean | undefined;
     }>;
     handler: typeof wikiUpdate;
 } | {
