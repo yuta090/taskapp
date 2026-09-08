@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye } from '@phosphor-icons/react'
+import NextLink from 'next/link'
+import { X, ArrowRight, Circle, User, Calendar, Link as LinkIcon, Trash, PencilSimple, Check, Flag, Timer, TreeStructure, ChatCircleText, CaretDown, CaretRight, FileText, CopySimple, CurrencyJpy, Eye, BookOpen, PushPin } from '@phosphor-icons/react'
 import { TaskReminderField } from './TaskReminderField'
 import { AmberBadge, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
@@ -20,6 +21,7 @@ import { TaskPRList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
 import { TaskPricingPanel } from './TaskPricingPanel'
+import { pickMilestoneWikiPages } from '@/lib/wiki/listView'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -133,6 +135,15 @@ export function TaskInspector({
   const specWikiPages = useMemo(
     () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
     [wikiPages]
+  )
+  // PR3: タスク詳細から同じマイルストーンの Wiki を引ける導線（補助情報。詳細設定の件数バッジには含めない）
+  const milestoneWikiPages = useMemo(
+    () => pickMilestoneWikiPages(wikiPages, task.milestone_id),
+    [wikiPages, task.milestone_id]
+  )
+  const milestoneWikiTotalCount = useMemo(
+    () => (task.milestone_id ? wikiPages.filter((p) => p.milestone_id === task.milestone_id).length : 0),
+    [wikiPages, task.milestone_id]
   )
 
   // Space members with display names
@@ -1414,6 +1425,36 @@ export function TaskInspector({
                 </div>
               )}
             </div>
+
+            {/* Milestone Wiki (PR3): このマイルストーンに紐づく Wiki への導線。0件・milestone未設定なら非表示 */}
+            {milestoneWikiPages.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-500">このマイルストーンの Wiki</label>
+                <div className="space-y-1">
+                  {milestoneWikiPages.map((page) => (
+                    <NextLink
+                      key={page.id}
+                      href={`/${task.org_id}/project/${task.space_id}/wiki?page=${page.id}`}
+                      className="flex items-center gap-1.5 text-sm text-gray-700 hover:underline min-w-0"
+                    >
+                      {page.pinned_at != null && (
+                        <PushPin weight="fill" className="text-gray-400 text-xs flex-shrink-0" aria-hidden="true" />
+                      )}
+                      <BookOpen className="text-gray-400 flex-shrink-0" />
+                      <span className="truncate">{page.title}</span>
+                    </NextLink>
+                  ))}
+                  {milestoneWikiTotalCount > milestoneWikiPages.length && (
+                    <NextLink
+                      href={`/${task.org_id}/project/${task.space_id}/wiki`}
+                      className="block text-xs text-gray-500 hover:underline"
+                    >
+                      他 {milestoneWikiTotalCount - milestoneWikiPages.length} 件を Wiki で見る
+                    </NextLink>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Spec workflow — only for spec tasks */}
             {task.type === 'spec' && (
