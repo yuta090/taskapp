@@ -16,6 +16,7 @@ import {
   groupWikiPagesByMilestone,
   descendantIds,
   pickMilestoneWikiPages,
+  resolveWikiMilestones,
 } from '@/lib/wiki/listView'
 import type { WikiPage, Milestone } from '@/types/database'
 
@@ -301,23 +302,23 @@ describe('pruneWikiTreeToMatches', () => {
   })
 })
 
-describe('groupWikiPagesByMilestone', () => {
-  function milestone(overrides: Partial<Milestone> = {}): Milestone {
-    return {
-      id: 'm1',
-      org_id: 'org1',
-      space_id: 'space1',
-      name: 'マイルストーン1',
-      start_date: null,
-      due_date: null,
-      order_key: 0,
-      completed_at: null,
-      created_at: '2026-09-01T00:00:00+09:00',
-      updated_at: '2026-09-01T00:00:00+09:00',
-      ...overrides,
-    }
+function milestone(overrides: Partial<Milestone> = {}): Milestone {
+  return {
+    id: 'm1',
+    org_id: 'org1',
+    space_id: 'space1',
+    name: 'マイルストーン1',
+    start_date: null,
+    due_date: null,
+    order_key: 0,
+    completed_at: null,
+    created_at: '2026-09-01T00:00:00+09:00',
+    updated_at: '2026-09-01T00:00:00+09:00',
+    ...overrides,
   }
+}
 
+describe('groupWikiPagesByMilestone', () => {
   it('milestone_id ごとにグループ化し、order_key 昇順で並べる', () => {
     const m1 = milestone({ id: 'm1', order_key: 1, name: 'B' })
     const m2 = milestone({ id: 'm2', order_key: 0, name: 'A' })
@@ -325,16 +326,18 @@ describe('groupWikiPagesByMilestone', () => {
       page({ id: 'a', milestone_id: 'm1' }),
       page({ id: 'b', milestone_id: 'm2' }),
     ]
-    const groups = groupWikiPagesByMilestone(pages, [m1, m2])
+    const byPageId = new Map([['a', [m1]], ['b', [m2]]])
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2], byPageId)
     expect(groups.map(g => g.milestone?.id)).toEqual(['m2', 'm1'])
     expect(groups[0].pages.map(p => p.id)).toEqual(['b'])
     expect(groups[1].pages.map(p => p.id)).toEqual(['a'])
   })
 
-  it('未設定のページは末尾に milestone: null でまとまる', () => {
+  it('所属が1つも無いページは末尾に milestone: null でまとまる', () => {
     const m1 = milestone({ id: 'm1' })
     const pages = [page({ id: 'a', milestone_id: null }), page({ id: 'b', milestone_id: 'm1' })]
-    const groups = groupWikiPagesByMilestone(pages, [m1])
+    const byPageId = new Map([['a', []], ['b', [m1]]])
+    const groups = groupWikiPagesByMilestone(pages, [m1], byPageId)
     expect(groups.map(g => g.milestone?.id ?? null)).toEqual(['m1', null])
     expect(groups[1].pages.map(p => p.id)).toEqual(['a'])
   })
@@ -343,7 +346,8 @@ describe('groupWikiPagesByMilestone', () => {
     const m1 = milestone({ id: 'm1' })
     const m2 = milestone({ id: 'm2' })
     const pages = [page({ id: 'a', milestone_id: 'm1' })]
-    const groups = groupWikiPagesByMilestone(pages, [m1, m2])
+    const byPageId = new Map([['a', [m1]]])
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2], byPageId)
     expect(groups.map(g => g.milestone?.id)).toEqual(['m1'])
   })
 
@@ -351,8 +355,92 @@ describe('groupWikiPagesByMilestone', () => {
     const m1 = milestone({ id: 'm1', order_key: 0, due_date: '2026-09-10T00:00:00+09:00', name: 'いろは' })
     const m2 = milestone({ id: 'm2', order_key: 0, due_date: '2026-09-05T00:00:00+09:00', name: 'あいう' })
     const pages = [page({ id: 'a', milestone_id: 'm1' }), page({ id: 'b', milestone_id: 'm2' })]
-    const groups = groupWikiPagesByMilestone(pages, [m1, m2])
+    const byPageId = new Map([['a', [m1]], ['b', [m2]]])
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2], byPageId)
     expect(groups.map(g => g.milestone?.id)).toEqual(['m2', 'm1'])
+  })
+
+  it('1ページが複数グループに出てよい（所属マイルストーンが複数）', () => {
+    const m1 = milestone({ id: 'm1', order_key: 0, name: 'A' })
+    const m2 = milestone({ id: 'm2', order_key: 1, name: 'B' })
+    const pages = [page({ id: 'a', milestone_id: 'm1' })]
+    const byPageId = new Map([['a', [m1, m2]]])
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2], byPageId)
+    expect(groups.map(g => g.milestone?.id)).toEqual(['m1', 'm2'])
+    expect(groups[0].pages.map(p => p.id)).toEqual(['a'])
+    expect(groups[1].pages.map(p => p.id)).toEqual(['a'])
+  })
+
+  it('延べ行数はグループごとのページ数の合計になる（重複ぶん増える）', () => {
+    const m1 = milestone({ id: 'm1', order_key: 0 })
+    const m2 = milestone({ id: 'm2', order_key: 1 })
+    const pages = [page({ id: 'a' }), page({ id: 'b' })]
+    const byPageId = new Map([
+      ['a', [m1, m2]],
+      ['b', [m1]],
+    ])
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2], byPageId)
+    const totalRows = groups.reduce((sum, g) => sum + g.pages.length, 0)
+    expect(totalRows).toBe(3) // a は m1・m2 の2回、b は m1 の1回
+  })
+
+  it('グループ内の並びは渡された pages の順序をそのまま保つ', () => {
+    const m1 = milestone({ id: 'm1' })
+    const pages = [page({ id: 'b' }), page({ id: 'a' })]
+    const byPageId = new Map([['b', [m1]], ['a', [m1]]])
+    const groups = groupWikiPagesByMilestone(pages, [m1], byPageId)
+    expect(groups[0].pages.map(p => p.id)).toEqual(['b', 'a'])
+  })
+})
+
+describe('resolveWikiMilestones', () => {
+  it('手動選択（milestone_id）だけの所属', () => {
+    const m1 = milestone({ id: 'm1' })
+    const pages = [page({ id: 'a', milestone_id: 'm1' })]
+    const result = resolveWikiMilestones(pages, new Map(), [m1])
+    expect(result.get('a')?.map(m => m.id)).toEqual(['m1'])
+  })
+
+  it('タスク参照だけの所属', () => {
+    const m1 = milestone({ id: 'm1' })
+    const pages = [page({ id: 'a', milestone_id: null })]
+    const links = new Map([['a', ['m1']]])
+    const result = resolveWikiMilestones(pages, links, [m1])
+    expect(result.get('a')?.map(m => m.id)).toEqual(['m1'])
+  })
+
+  it('両方ある場合は和集合（重複排除）', () => {
+    const m1 = milestone({ id: 'm1', order_key: 0 })
+    const m2 = milestone({ id: 'm2', order_key: 1 })
+    const pages = [page({ id: 'a', milestone_id: 'm1' })]
+    const links = new Map([['a', ['m1', 'm2']]])
+    const result = resolveWikiMilestones(pages, links, [m1, m2])
+    expect(result.get('a')?.map(m => m.id)).toEqual(['m1', 'm2'])
+  })
+
+  it('どちらも無ければ空配列', () => {
+    const m1 = milestone({ id: 'm1' })
+    const pages = [page({ id: 'a', milestone_id: null })]
+    const result = resolveWikiMilestones(pages, new Map(), [m1])
+    expect(result.get('a')).toEqual([])
+  })
+
+  it('milestones に無い id（削除済み等）は無視する', () => {
+    const m1 = milestone({ id: 'm1' })
+    const pages = [page({ id: 'a', milestone_id: 'missing' })]
+    const links = new Map([['a', ['also-missing']]])
+    const result = resolveWikiMilestones(pages, links, [m1])
+    expect(result.get('a')).toEqual([])
+  })
+
+  it('順序は milestones の並び順になる（links の順不同でも）', () => {
+    const m1 = milestone({ id: 'm1', order_key: 0 })
+    const m2 = milestone({ id: 'm2', order_key: 1 })
+    const m3 = milestone({ id: 'm3', order_key: 2 })
+    const pages = [page({ id: 'a', milestone_id: 'm3' })]
+    const links = new Map([['a', ['m2', 'm1']]])
+    const result = resolveWikiMilestones(pages, links, [m1, m2, m3])
+    expect(result.get('a')?.map(m => m.id)).toEqual(['m1', 'm2', 'm3'])
   })
 })
 
@@ -423,6 +511,23 @@ describe('pickMilestoneWikiPages', () => {
   it('limit を指定すればその件数まで返す', () => {
     const pages = Array.from({ length: 3 }, (_, i) => page({ id: `p${i}`, milestone_id: 'm1' }))
     expect(pickMilestoneWikiPages(pages, 'm1', 2)).toHaveLength(2)
+  })
+
+  it('linksByPageId を渡すとタスク参照由来の所属も拾う（union）', () => {
+    const pages = [
+      page({ id: 'manual', milestone_id: 'm1' }),
+      page({ id: 'via-task', milestone_id: null }),
+      page({ id: 'unrelated', milestone_id: 'm2' }),
+    ]
+    const links = new Map([['via-task', ['m1']]])
+    const result = pickMilestoneWikiPages(pages, 'm1', 5, links)
+    expect(result.map(p => p.id).sort()).toEqual(['manual', 'via-task'])
+  })
+
+  it('linksByPageId を省略すれば従来どおり milestone_id だけで絞り込む', () => {
+    const pages = [page({ id: 'manual', milestone_id: 'm1' }), page({ id: 'via-task', milestone_id: null })]
+    const result = pickMilestoneWikiPages(pages, 'm1')
+    expect(result.map(p => p.id)).toEqual(['manual'])
   })
 })
 

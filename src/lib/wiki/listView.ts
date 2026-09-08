@@ -296,31 +296,60 @@ function compareMilestones(a: Milestone, b: Milestone): number {
 }
 
 /**
- * milestone_id ごとにグループ化する。マイルストーンは order_key→due_date→name(ja) 順。
- * milestone_id が未設定、または渡された milestones に見つからない場合は
+ * ページ→所属マイルストーン一覧の解決（PR4: union）。
+ * 所属 = page.milestone_id（人が選んだ主たる所属）∪ linksByPageId（そのページを参照する
+ * タスクの milestone_id）。milestones に存在しない id（削除済み等）は無視する。
+ * 返す配列の順序は milestones の並び順（order_key→due_date→name）で揃える。
+ */
+export function resolveWikiMilestones(
+  pages: WikiPage[],
+  linksByPageId: Map<string, string[]>,
+  milestones: Milestone[]
+): Map<string, Milestone[]> {
+  const result = new Map<string, Milestone[]>()
+
+  for (const page of pages) {
+    const ids = new Set<string>()
+    if (page.milestone_id != null) ids.add(page.milestone_id)
+    for (const id of linksByPageId.get(page.id) ?? []) ids.add(id)
+
+    // milestones の並び順を基準に走査することで、常に order_key 順の配列を返す
+    const resolved = milestones.filter(m => ids.has(m.id))
+    result.set(page.id, resolved)
+  }
+
+  return result
+}
+
+/**
+ * 所属マイルストーンごとにグループ化する（PR4: 1ページが複数グループに出てよい）。
+ * マイルストーンは order_key→due_date→name(ja) 順。所属が1つも無いページは
  * 「マイルストーン未設定」（milestone: null）として末尾にまとめる。
  * ページが 0 件のマイルストーンは出さない。
  * グループ内のページ順は渡された順をそのまま保つ（並べ替えは呼び出し側の責務）。
  */
 export function groupWikiPagesByMilestone(
   pages: WikiPage[],
-  milestones: Milestone[]
+  milestones: Milestone[],
+  milestonesByPageId: Map<string, Milestone[]>
 ): { milestone: Milestone | null; pages: WikiPage[] }[] {
-  const milestoneById = new Map(milestones.map(m => [m.id, m]))
   const byMilestoneId = new Map<string, WikiPage[]>()
   const unassigned: WikiPage[] = []
 
   for (const page of pages) {
-    const milestone = page.milestone_id != null ? milestoneById.get(page.milestone_id) : undefined
-    if (milestone) {
+    const pageMilestones = milestonesByPageId.get(page.id) ?? []
+    if (pageMilestones.length === 0) {
+      unassigned.push(page)
+      continue
+    }
+    for (const milestone of pageMilestones) {
       const list = byMilestoneId.get(milestone.id) ?? []
       list.push(page)
       byMilestoneId.set(milestone.id, list)
-    } else {
-      unassigned.push(page)
     }
   }
 
+  const milestoneById = new Map(milestones.map(m => [m.id, m]))
   const groups: { milestone: Milestone | null; pages: WikiPage[] }[] = Array.from(byMilestoneId.entries())
     .map(([milestoneId, groupPages]) => ({ milestone: milestoneById.get(milestoneId)!, pages: groupPages }))
     .sort((a, b) => compareMilestones(a.milestone!, b.milestone!))
@@ -336,15 +365,20 @@ export function groupWikiPagesByMilestone(
  * milestoneId に紐づく Wiki ページを、ピン留め優先→更新日の新しい順で最大 limit 件返す。
  * milestoneId が null、または一致するページが無い場合は空配列（タスク詳細のマイルストーン
  * Wiki セクションを丸ごと隠すかどうかの判定にそのまま使える）。
+ * linksByPageId を渡すと、page.milestone_id だけでなくタスク参照由来の所属も union で拾う
+ * （省略時は従来どおり milestone_id だけで絞り込む）。
  */
 export function pickMilestoneWikiPages(
   pages: WikiPage[],
   milestoneId: string | null,
-  limit = 5
+  limit = 5,
+  linksByPageId?: Map<string, string[]>
 ): WikiPage[] {
   if (milestoneId == null) return []
 
-  const matched = pages.filter(p => p.milestone_id === milestoneId)
+  const matched = pages.filter(
+    p => p.milestone_id === milestoneId || (linksByPageId?.get(p.id)?.includes(milestoneId) ?? false)
+  )
   if (matched.length === 0) return []
 
   const sorted = applyWikiListView(matched, DEFAULT_WIKI_FILTERS, DEFAULT_WIKI_SORT, () => '')
