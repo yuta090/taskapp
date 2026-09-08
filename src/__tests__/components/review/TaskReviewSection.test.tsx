@@ -28,6 +28,21 @@ let mockMembers: Array<{ id: string; displayName: string; role: string }> = [
   { id: 'i1', displayName: '田中（社内）', role: 'editor' },
 ]
 
+let mockDefaultReviewerIds: string[] = []
+const mockSetDefaultReviewer = vi.fn()
+// 実物と同じく、チェックを付け外しすると既定の一覧が変わり、画面も新しい値で描き直される。
+// 固定値を返すだけの mock だと「外したのに表示が変わらない」ぶん不具合を見逃す
+vi.mock('@/lib/hooks/useDefaultReviewers', () => ({
+  useDefaultReviewers: () => {
+    const [ids, setIds] = React.useState<string[]>(mockDefaultReviewerIds)
+    const setDefaultReviewer = React.useCallback(async (userId: string, isDefault: boolean) => {
+      mockSetDefaultReviewer(userId, isDefault)
+      setIds((prev) => (isDefault ? [...prev, userId] : prev.filter((id) => id !== userId)))
+    }, [])
+    return { defaultReviewerIds: ids, loading: false, saving: false, setDefaultReviewer }
+  },
+}))
+
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
     members: mockMembers,
@@ -261,5 +276,126 @@ describe('TaskReviewSection — 「差戻」→「差し戻し」表記統一 (A
 
     await waitFor(() => expect(screen.getByText('差し戻し')).toBeInTheDocument())
     expect(screen.queryByText('差戻')).not.toBeInTheDocument()
+  })
+})
+
+
+// プロジェクト設定の「既定の承認者」を、承認者選択の初期値として使う。
+describe('TaskReviewSection — 既定の承認者', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNoReview()
+    mockDefaultReviewerIds = []
+    mockMembers = [
+      { id: 'u1', displayName: '自分', role: 'editor' },
+      { id: 'i1', displayName: '田中（社内）', role: 'editor' },
+      { id: 'i2', displayName: '鈴木（社内）', role: 'editor' },
+    ]
+  })
+
+  it('依頼画面を開くと、既定の承認者が最初から選ばれている', async () => {
+    mockDefaultReviewerIds = ['i2']
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    expect(screen.getByRole('button', { name: /鈴木（社内）/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('既定の人がスペースから抜けていても落ちない（無視される）', async () => {
+    mockDefaultReviewerIds = ['gone']
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '依頼する' })).toBeDisabled()
+  })
+
+  it('既定で選ばれた人は、そのまま外せる', async () => {
+    mockDefaultReviewerIds = ['i1']
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    fireEvent.click(screen.getByRole('button', { name: /田中（社内）/ }))
+
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('選んだ人の横にだけ「デフォルト承認者」チェックが出る', async () => {
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /田中（社内）/ }))
+
+    expect(
+      screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' })
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+  })
+
+  it('チェックを付けるとプロジェクトの既定の承認者に登録される', async () => {
+    mockSetDefaultReviewer.mockResolvedValue(undefined)
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByRole('button', { name: /田中（社内）/ }))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' }))
+
+    await waitFor(() => expect(mockSetDefaultReviewer).toHaveBeenCalledWith('i1', true))
+  })
+
+  it('既定の人のチェックを外すと既定から解除される', async () => {
+    mockDefaultReviewerIds = ['i1']
+    mockSetDefaultReviewer.mockResolvedValue(undefined)
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    const checkbox = screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' })
+    expect(checkbox).toBeChecked()
+    fireEvent.click(checkbox)
+
+    await waitFor(() => expect(mockSetDefaultReviewer).toHaveBeenCalledWith('i1', false))
+  })
+
+  it('再依頼では、既定ではなく前回の承認者が選ばれる', async () => {
+    mockDefaultReviewerIds = ['i2']
+    mockReviewWith(
+      { id: 'r1', status: 'changes_requested', created_by: 'u1' },
+      [{ id: 'a1', reviewer_id: 'i1', state: 'blocked', blocked_reason: 'なおして' }]
+    )
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('再依頼'))
+
+    fireEvent.click(screen.getByText('再依頼'))
+
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /鈴木（社内）/ })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('「デフォルト承認者」を外しても、今回の依頼の相手からは外れない', async () => {
+    mockDefaultReviewerIds = ['i1']
+    render(<TaskReviewSection taskId="t1" spaceId="s1" orgId="o1" />)
+    await waitFor(() => screen.getByText('社内承認を依頼'))
+    fireEvent.click(screen.getByText('社内承認を依頼'))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' }))
+
+    await waitFor(() => expect(mockSetDefaultReviewer).toHaveBeenCalledWith('i1', false))
+    // 今回の依頼先としては選ばれたまま。チェック欄も消えない（消えると戻す手段が無くなる）
+    expect(screen.getByRole('button', { name: /田中（社内）/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('checkbox', { name: '田中（社内）を次回から既定の承認者にする' })
+    ).not.toBeChecked()
+    expect(screen.getByRole('button', { name: '依頼する' })).not.toBeDisabled()
   })
 })

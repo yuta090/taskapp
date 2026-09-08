@@ -18,6 +18,12 @@ interface UseSpaceMembersResult {
   clientMembers: SpaceMember[]
   internalMembers: SpaceMember[]
   loading: boolean
+  /**
+   * まだ一度も取得できていない状態。
+   * loading は既定値 [] が入るため実質いつも false で、空表示の点滅を防げない。
+   * 既存の呼び出し側の挙動を変えないよう loading はそのままにして、こちらを足している。
+   */
+  isPending: boolean
   error: string | null
   refetch: () => Promise<void>
   getMemberName: (userId: string) => string
@@ -99,6 +105,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     clientMembers,
     internalMembers,
     loading: isPending && !members,
+    isPending,
     error: errorMessage,
     refetch,
     getMemberName,
