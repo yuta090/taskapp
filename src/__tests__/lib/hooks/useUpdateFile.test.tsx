@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useUpdateFile, type ProjectFile } from '@/lib/hooks/useFiles'
+import { useUpdateFile, filesQueryKey, type ProjectFile } from '@/lib/hooks/useFiles'
 
 /**
  * 保存ボタンを置かない方針なので、説明文・公開トグルは押した瞬間に一覧へ反映し、
@@ -29,7 +29,7 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
 
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  client.setQueryData(['files', 'space-1'], [makeFile()])
+  client.setQueryData(filesQueryKey('space-1'), { files: [makeFile()], hasMore: false })
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
@@ -54,7 +54,7 @@ describe('useUpdateFile の楽観更新', () => {
     })
 
     await waitFor(() => {
-      const cached = client.getQueryData<ProjectFile[]>(['files', 'space-1'])
+      const cached = client.getQueryData<{ files: ProjectFile[] }>(filesQueryKey('space-1'))?.files
       expect(cached?.[0].description).toBe('毎月の元データ')
     })
 
@@ -71,7 +71,7 @@ describe('useUpdateFile の楽観更新', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    const cached = client.getQueryData<ProjectFile[]>(['files', 'space-1'])
+    const cached = client.getQueryData<{ files: ProjectFile[] }>(filesQueryKey('space-1'))?.files
     expect(cached?.[0].description).toBeNull()
   })
 
@@ -85,7 +85,7 @@ describe('useUpdateFile の楽観更新', () => {
     })
 
     await waitFor(() => {
-      const cached = client.getQueryData<ProjectFile[]>(['files', 'space-1'])
+      const cached = client.getQueryData<{ files: ProjectFile[] }>(filesQueryKey('space-1'))?.files
       expect(cached?.[0].clientVisible).toBe(true)
     })
   })
@@ -108,7 +108,7 @@ describe('useUpdateFile の再取得', () => {
 
     // PATCH の1本だけ。一覧の GET が追加で走らない
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    const cached = client.getQueryData<ProjectFile[]>(['files', 'space-1'])
+    const cached = client.getQueryData<{ files: ProjectFile[] }>(filesQueryKey('space-1'))?.files
     expect(cached?.[0].description).toBe('整えた説明')
     expect(cached?.[0].clientVisible).toBe(true)
   })

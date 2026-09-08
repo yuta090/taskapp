@@ -205,6 +205,36 @@ describe('QueryProvider', () => {
     }
   })
 
+  // ファイル一覧の「検索結果」は、打鍵の切れ目ごとに別キーが生まれ、1件あたり最大500件ぶんの
+  // 本文を含む。IDB が肥大すると他ページの初回描画まで遅くなるので永続しない。
+  // 全件一覧(検索なし)はキャッシュ優先で即描画したいので、そちらは永続する。
+  it('ファイル一覧の検索結果は IDB に載せず、全件一覧は載せる', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+    renderProvider()
+
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+
+    await waitFor(() => {
+      act(() => {
+        capturedClient!.setQueryData(['files', 'space-1', 'v2'], { files: [{ id: 'f1' }], hasMore: false })
+        capturedClient!.setQueryData(['files', 'space-1', 'v2', 'search', { q: '請求' }], {
+          files: [{ id: 'f2' }],
+          hasMore: false,
+        })
+      })
+      expect(idbSet).toHaveBeenCalled()
+    })
+
+    const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+    const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+    expect(keys).toContainEqual(['files', 'space-1', 'v2'])
+    expect(keys.some((k) => k[0] === 'files' && k[3] === 'search')).toBe(false)
+  })
+
   // --- legacy-key migration ---------------------------------------------------
   it('purges the legacy unscoped IDB key on startup', async () => {
     renderProvider()

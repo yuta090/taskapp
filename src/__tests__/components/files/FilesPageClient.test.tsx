@@ -19,7 +19,9 @@ const updateMutate = vi.fn()
 const deleteMutateAsync = vi.fn().mockResolvedValue({ ok: true })
 
 vi.mock('@/lib/hooks/useFiles', () => ({
-  useFiles: () => ({ data: mockFiles, isLoading: false }),
+  useFiles: () => ({ data: mockFiles, isLoading: false, hasMore: false }),
+  // 上限内のスペースではサーバー検索は使わない(enabled=false)
+  useFileSearch: () => ({ data: undefined, hasMore: false, isFetching: false, isError: false }),
   useUploadFile: () => ({ mutateAsync: uploadMutateAsync }),
   useUpdateFile: () => ({ mutate: updateMutate }),
   useDeleteFile: () => ({ mutateAsync: deleteMutateAsync }),
