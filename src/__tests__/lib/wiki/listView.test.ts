@@ -17,6 +17,7 @@ import {
   descendantIds,
   pickMilestoneWikiPages,
   resolveWikiMilestones,
+  isPageInMilestone,
 } from '@/lib/wiki/listView'
 import type { WikiPage, Milestone } from '@/types/database'
 
@@ -613,5 +614,31 @@ describe('空白だけの検索語', () => {
       { id: 'a', title: 'A', tags: [], created_by: 'u1', updated_by: 'u1', created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z', org_id: 'o', space_id: 's', body: '' },
     ] as unknown as import('@/types/database').WikiPage[]
     expect(filterWikiPages(pages, { query: '　 ', tags: [], authorIds: [] }, () => '')).toBe(pages)
+  })
+})
+
+describe('isPageInMilestone', () => {
+  const base = {
+    id: 'p1', org_id: 'o', space_id: 's', title: 'T', body: '', tags: [],
+    created_by: 'u', updated_by: 'u', created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z', parent_page_id: null, pinned_at: null, sort_order: null,
+  }
+  const page = (milestoneId: string | null) =>
+    ({ ...base, milestone_id: milestoneId }) as unknown as import('@/types/database').WikiPage
+
+  it('手動で選んだマイルストーンに一致する', () => {
+    expect(isPageInMilestone(page('m1'), 'm1')).toBe(true)
+  })
+
+  it('タスク参照由来のマイルストーンにも一致する', () => {
+    expect(isPageInMilestone(page(null), 'm1', new Map([['p1', ['m1']]]))).toBe(true)
+  })
+
+  it('どちらにも当てはまらなければ false', () => {
+    expect(isPageInMilestone(page('m2'), 'm1', new Map([['p1', ['m3']]]))).toBe(false)
+  })
+
+  it('links を渡さなければ手動選択だけを見る', () => {
+    expect(isPageInMilestone(page(null), 'm1')).toBe(false)
   })
 })

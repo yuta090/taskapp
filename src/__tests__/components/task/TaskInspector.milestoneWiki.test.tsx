@@ -219,4 +219,31 @@ describe('TaskInspector — このマイルストーンの Wiki', () => {
     expect(screen.getByText('タスク参照ページ')).toBeInTheDocument()
     expect(screen.queryByText('無関係ページ')).not.toBeInTheDocument()
   })
+
+  it('PR4: 「他 N 件を Wiki で見る」の件数もタスク参照を含めて数える', () => {
+    // 手動選択 3 件 + タスク参照 3 件 = union 6 件。表示は 5 件、残り 1 件。
+    mockPages.current = [
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeWikiPage({ id: `m${i}`, title: `手動${i}`, milestone_id: 'm1' })
+      ),
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeWikiPage({ id: `r${i}`, title: `参照${i}`, milestone_id: null })
+      ),
+    ]
+    mockLinksByPageId.current = new Map([
+      ['r0', ['m1']],
+      ['r1', ['m1']],
+      ['r2', ['m1']],
+    ])
+
+    renderInspector({
+      task: makeTask({ milestone_id: 'm1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+    fireEvent.click(screen.getByText('詳細設定'))
+
+    expect(screen.getByText((_, el) => el?.textContent === '他 1 件を Wiki で見る')).toBeInTheDocument()
+  })
 })

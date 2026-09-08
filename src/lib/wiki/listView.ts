@@ -295,15 +295,15 @@ function compareMilestones(a: Milestone, b: Milestone): number {
   return a.name.localeCompare(b.name, 'ja')
 }
 
+/** 所属マイルストーンが無いページ用の共有の空配列（毎回新しい [] を作らない）。 */
+export const EMPTY_MILESTONE_LIST: Milestone[] = []
+
 /**
  * ページ→所属マイルストーン一覧の解決（PR4: union）。
  * 所属 = page.milestone_id（人が選んだ主たる所属）∪ linksByPageId（そのページを参照する
  * タスクの milestone_id）。milestones に存在しない id（削除済み等）は無視する。
  * 返す配列の順序は milestones の並び順（order_key→due_date→name）で揃える。
  */
-/** 所属マイルストーンが無いページ用の共有の空配列（毎回新しい [] を作らない）。 */
-export const EMPTY_MILESTONE_LIST: Milestone[] = []
-
 export function resolveWikiMilestones(
   pages: WikiPage[],
   linksByPageId: Map<string, string[]>,
@@ -378,6 +378,19 @@ export function groupWikiPagesByMilestone(
  * linksByPageId を渡すと、page.milestone_id だけでなくタスク参照由来の所属も union で拾う
  * （省略時は従来どおり milestone_id だけで絞り込む）。
  */
+/**
+ * そのページが milestoneId に所属しているか（PR4 の union と同じ判定）。
+ * 一覧の絞り込みとタスク詳細の件数表示で同じ条件を使うために切り出す。
+ */
+export function isPageInMilestone(
+  page: WikiPage,
+  milestoneId: string,
+  linksByPageId?: Map<string, string[]>
+): boolean {
+  if (page.milestone_id === milestoneId) return true
+  return linksByPageId?.get(page.id)?.includes(milestoneId) ?? false
+}
+
 export function pickMilestoneWikiPages(
   pages: WikiPage[],
   milestoneId: string | null,
@@ -386,9 +399,7 @@ export function pickMilestoneWikiPages(
 ): WikiPage[] {
   if (milestoneId == null) return []
 
-  const matched = pages.filter(
-    p => p.milestone_id === milestoneId || (linksByPageId?.get(p.id)?.includes(milestoneId) ?? false)
-  )
+  const matched = pages.filter(p => isPageInMilestone(p, milestoneId, linksByPageId))
   if (matched.length === 0) return []
 
   const sorted = applyWikiListView(matched, DEFAULT_WIKI_FILTERS, DEFAULT_WIKI_SORT, () => '')

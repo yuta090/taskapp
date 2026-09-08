@@ -121,15 +121,27 @@ function WikiPageRowInner({
 
   if (columns.includes('milestones') && !inMilestoneGroupView && milestones && milestones.length > 0) {
     metaItems.push(
-      <span key="milestones" className="flex items-center gap-1">
-        <Flag className="text-indigo-400 text-xs" />
+      <span
+        key="milestones"
+        className="flex items-center gap-1 min-w-0"
+        aria-label={`所属マイルストーン: ${milestones.map(m => m.name).join('、')}`}
+      >
+        <Flag className="text-indigo-400 text-xs flex-shrink-0" aria-hidden="true" />
         {milestones.slice(0, 2).map(m => (
-          <span key={m.id} className="px-1.5 py-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-700 rounded">
+          <span
+            key={m.id}
+            className="px-1.5 py-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-ink rounded max-w-[8rem] truncate"
+          >
             {m.name}
           </span>
         ))}
         {milestones.length > 2 && (
-          <span className="text-[10px] text-gray-400">+{milestones.length - 2}</span>
+          <span
+            className="text-[10px] text-gray-400 flex-shrink-0"
+            title={milestones.slice(2).map(m => m.name).join('、')}
+          >
+            +{milestones.length - 2}
+          </span>
         )}
       </span>
     )
@@ -210,7 +222,7 @@ function WikiPageRowInner({
           </TruncatedText>
         </div>
         {metaItems.length > 0 && (
-          <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500">
+          <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 min-w-0 overflow-hidden">
             {withSeparators(metaItems)}
           </div>
         )}

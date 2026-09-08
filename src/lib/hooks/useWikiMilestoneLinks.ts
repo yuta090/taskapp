@@ -80,12 +80,14 @@ export function useWikiMilestoneLinks(
 
   const queryKey = ['wikiMilestoneLinks', orgId, spaceId] as const
 
+  const enabled = !!orgId && !!spaceId && options?.enabled !== false
+
   const { data, isPending } = useQuery<WikiMilestoneLinkRecord>({
     queryKey,
     queryFn: () => fetchWikiMilestoneLinks(supabase as SupabaseClient, orgId, spaceId),
     // 呼び出し側が「今回は使わない」と分かっているとき（マイルストーン未設定のタスクなど）は止める。
     // queryKey は同じなのでキャッシュ共有は保たれる。
-    enabled: !!orgId && !!spaceId && options?.enabled !== false,
+    enabled,
     // staleTime は QueryProvider の既定（2分）に合わせる。
     // タスクの Wiki 紐づけ / マイルストーンは人が編集したときしか変わらない。
   })
@@ -98,6 +100,7 @@ export function useWikiMilestoneLinks(
 
   return {
     linksByPageId,
-    loading: isPending && !data,
+    // 止めているときは「読み込み中」にしない（呼び出し側がスピナーから抜けられなくなる）
+    loading: enabled && isPending && !data,
   }
 }
