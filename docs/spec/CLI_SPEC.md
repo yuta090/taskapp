@@ -116,6 +116,7 @@ cat tasks.csv | agentpm task import --stdin --no-dry-run
 ```bash
 agentpm file list [--space-id <uuid>] [--limit <n>]
 agentpm file upload [--space-id <uuid>] --file <path> [--name <name>] [--mime-type <type>]
+agentpm file update --file-id <uuid> --description "<何のファイルか>"   # 空文字 "" で説明を消す。--name で表示名も変更可
 ```
 
 #### `file upload` — ローカルファイルをプロジェクトにアップロード
@@ -134,6 +135,8 @@ agentpm file upload -s <space-uuid> --file ./data.tsv --json
 - `file list` / 完了結果の `downloadPath` は Web（Cookie ログイン）用のパス。ブラウザに貼って使う（CLI からそのまま取得はできない）。
 - API キーに利用者が紐づいていない（`user_id` が空）と `uploaded_by` を埋められず失敗する。
 - **旧 CLI(0.3.x 以前)では動かない**（3 段階処理を知らないため）。`npm i -g` で 0.4.0 以上に更新する。
+
+- 説明文は 1000 文字まで（`files.description` の CHECK と同じ）。一覧画面の行に出るので「何のファイルか」を1行で書く。ファイルIDは `agentpm file list` で確認する。
 
 ### Ball（ボール管理）
 

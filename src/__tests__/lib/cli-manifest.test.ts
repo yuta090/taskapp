@@ -94,4 +94,13 @@ describe('cli-manifest: notices（CLI に出すお知らせ）', () => {
     const update = task.subcommands!.find((s) => s.name === 'update')!
     expect(update.options.some((o) => o.param === 'wikiPageId')).toBe(true)
   })
+
+  it('file list / update があり、update は --file-id 必須で --description を持つ', () => {
+    const file = manifest.commands.find((c) => c.name === 'file')!
+    expect(file.subcommands!.map((s) => s.name)).toEqual(expect.arrayContaining(['list', 'upload', 'update']))
+    const update = file.subcommands!.find((s) => s.name === 'update')!
+    expect(update.tool).toBe('file_update')
+    expect(update.options.find((o) => o.param === 'fileId')?.required).toBe(true)
+    expect(update.options.some((o) => o.param === 'description')).toBe(true)
+  })
 })
