@@ -5,6 +5,18 @@ import { createClient } from '@/lib/supabase/client'
 import { urlBase64ToUint8Array } from '@/lib/push/vapid'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+export interface UsePushNotificationsOptions {
+  /**
+   * mount時に service worker を登録して、いま購読しているかを調べるか（既定 true）。
+   *
+   * 許可が 'default'（まだ一度も答えていない）と分かっている場面 — 初回案内の帯 — では
+   * false にする。許可が無ければ購読は存在しえないので調べる意味が無く、
+   * その調査のために service worker の取得と install をページ初回ロードに載せてしまう。
+   * しかも enable() が自分でもう一度 register() を呼ぶので、前倒しにもなっていない。
+   */
+  checkOnMount?: boolean
+}
+
 export interface UsePushNotificationsResult {
   isSupported: boolean
   permission: NotificationPermission | 'unsupported'
@@ -28,18 +40,22 @@ function isPushSupported(): boolean {
  * ブラウザのWeb Push購読を管理する。保存ボタンは無く、enable/disable呼び出しで
  * 即座に購読/解除する(プロジェクト規約: 保存ボタン無しの楽観的更新必須)。
  */
-export function usePushNotifications(): UsePushNotificationsResult {
+export function usePushNotifications({
+  checkOnMount = true,
+}: UsePushNotificationsOptions = {}): UsePushNotificationsResult {
   const isSupported = isPushSupported()
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
     isSupported ? Notification.permission : 'unsupported'
   )
   const [isSubscribed, setIsSubscribed] = useState(false)
-  const [loading, setLoading] = useState(true)
+  // 調べないなら最初から「読み込み中」ではない（ボタンを無駄に押せなくしない）
+  const [loading, setLoading] = useState(checkOnMount)
   const [error, setError] = useState<string | null>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
 
   useEffect(() => {
+    if (!checkOnMount) return
     if (!isSupported) {
       setLoading(false)
       return
@@ -63,11 +79,14 @@ export function usePushNotifications(): UsePushNotificationsResult {
     return () => {
       cancelled = true
     }
-  }, [isSupported])
+  }, [isSupported, checkOnMount])
 
   const enable = useCallback(async () => {
     if (!isSupported) return
     setError(null)
+    // 押してから購読が確定するまでの二重押しを防ぐ（mount時の調査をやめたぶん、
+    // loading の役目はこちらに移る）
+    setLoading(true)
 
     try {
       const registration = await navigator.serviceWorker.register('/push-sw.js')
@@ -115,6 +134,8 @@ export function usePushNotifications(): UsePushNotificationsResult {
     } catch (err) {
       console.warn('Failed to enable push notifications:', err)
       setError('プッシュ通知の設定に失敗しました')
+    } finally {
+      setLoading(false)
     }
   }, [isSupported])
 

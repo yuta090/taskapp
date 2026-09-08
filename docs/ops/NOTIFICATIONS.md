@@ -27,6 +27,17 @@
 - **さかのぼる範囲**: 即時ワーカーは直近15分ぶんだけを見る。これが無いと、
   夜のあいだにたまった通知を朝8時の1回目で全部送ってしまい、同じ8時のまとめと二重になる
 
+## iPhone・iPad でブラウザ通知を受け取る
+
+iOS の Safari は **ホーム画面に追加した状態（standalone のPWA）にしか** Web Push を配信しない。
+ふつうのタブでは `PushManager` 自体が無いので、素朴に見ると「非対応」に見える。
+
+- `src/app/manifest.ts` が PWA マニフェスト（`display: 'standalone'` が肝）。これが無いと
+  ホーム画面に追加してもただのショートカット扱いになり、許可ダイアログすら出せない
+- 判定は `src/lib/push/environment.ts`。`ios_needs_home_screen` のときだけ
+  「共有ボタン →ホーム画面に追加」の手順を出す（Mac には出さない）
+- パソコンのブラウザは追加なしで届く
+
 ## 受信設定
 
 `notification_email_prefs`（本人1行・RLS）。**行が無い＝設定を一度も触っていない人は「オン・毎日」の既定**として扱う。
@@ -37,6 +48,17 @@
 2か所にあり、一致することを `digest.test.ts` が検査する。
 
 `digest_frequency = 'none'` と `email_enabled = false` は、まとめだけでなく**即時メールも止める**（本人のオフスイッチ）。
+
+**種類ごとの `on_*` はメールとブラウザ通知の共通設定**。片方だけ切れると
+「メールを止めたのにプッシュだけ鳴る」になるため、`isNotificationTypeMuted` を両方から使う。
+ただし設定画面に出ていない種類（見出しの無い運営向け通知など）は本人にスイッチが無いので、
+「切っていない」扱いにして黙らせない。
+
+初回の案内は `PushPromptBanner`（アプリ画面の上に1回だけ出る帯）。
+「あとで」を押すか許可すると二度と出ない（`localStorage: taskapp:pushPromptDismissed`）。
+帯は `usePushNotifications({ checkOnMount: false })` で呼ぶ。許可が `default` の時点で
+購読は存在しえないので、調べるためだけに service worker の取得と install を
+初回ロードに載せない（登録は「通知を受け取る」を押してから走る）。
 
 ## cron の設定（本番）
 

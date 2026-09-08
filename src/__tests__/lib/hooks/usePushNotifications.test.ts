@@ -183,3 +183,47 @@ describe('usePushNotifications', () => {
     expect(result.current.isSubscribed).toBe(false)
   })
 })
+
+describe('usePushNotifications — checkOnMount', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ upsert: mockUpsert, delete: mockDelete })
+    global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })) as never
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('既定では mount 時に service worker を登録して購読状態を調べる', async () => {
+    const { register } = stubSupportedEnvironment()
+
+    const { result } = renderHook(() => usePushNotifications())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(register).toHaveBeenCalledWith('/push-sw.js')
+  })
+
+  it('checkOnMount:false なら mount では何もしない(初回案内の帯むけ)', async () => {
+    const { register } = stubSupportedEnvironment()
+
+    const { result } = renderHook(() => usePushNotifications({ checkOnMount: false }))
+
+    // 調べないので最初から操作できる（ボタンを無駄に押せなくしない）
+    expect(result.current.loading).toBe(false)
+    await waitFor(() => expect(register).not.toHaveBeenCalled())
+  })
+
+  it('checkOnMount:false でも enable() は動く(押されてから登録する)', async () => {
+    const { register } = stubSupportedEnvironment()
+
+    const { result } = renderHook(() => usePushNotifications({ checkOnMount: false }))
+    await act(async () => {
+      await result.current.enable()
+    })
+
+    expect(register).toHaveBeenCalledWith('/push-sw.js')
+    expect(result.current.isSubscribed).toBe(true)
+    expect(result.current.loading).toBe(false)
+  })
+})
