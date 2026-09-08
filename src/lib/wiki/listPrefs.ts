@@ -8,13 +8,23 @@
  * 遅延初期化で localStorage を読み、変更のたびに書き込む。
  */
 import { useCallback, useState } from 'react'
-import { DEFAULT_WIKI_SORT, type WikiListSort, type WikiSortDir, type WikiSortKey } from './listView'
+import {
+  DEFAULT_WIKI_SORT,
+  type WikiListSort,
+  type WikiSortDir,
+  type WikiSortKey,
+  type WikiViewMode,
+} from './listView'
 
 export type WikiListColumn = 'tags' | 'author' | 'updater' | 'created_at' | 'updated_at'
 
 export interface WikiListPrefs {
   columns: WikiListColumn[]
   sort: WikiListSort
+  /** 表示切替（一覧/フォルダ/マイルストーン別）。 */
+  view: WikiViewMode
+  /** フォルダ表示で折りたたんだページ id。 */
+  collapsedIds: string[]
 }
 
 export const WIKI_LIST_PREFS_KEY = 'wiki-list-prefs:v1'
@@ -22,11 +32,14 @@ export const WIKI_LIST_PREFS_KEY = 'wiki-list-prefs:v1'
 export const DEFAULT_WIKI_LIST_PREFS: WikiListPrefs = {
   columns: ['tags', 'author', 'updated_at'],
   sort: DEFAULT_WIKI_SORT,
+  view: 'list',
+  collapsedIds: [],
 }
 
 const VALID_COLUMNS: readonly WikiListColumn[] = ['tags', 'author', 'updater', 'created_at', 'updated_at']
 const VALID_SORT_KEYS: readonly WikiSortKey[] = ['updated_at', 'created_at', 'title', 'author']
 const VALID_SORT_DIRS: readonly WikiSortDir[] = ['asc', 'desc']
+const VALID_VIEWS: readonly WikiViewMode[] = ['list', 'folder', 'milestone']
 
 function isWikiListColumn(value: unknown): value is WikiListColumn {
   return typeof value === 'string' && (VALID_COLUMNS as readonly string[]).includes(value)
@@ -38,6 +51,10 @@ function isWikiSortKey(value: unknown): value is WikiSortKey {
 
 function isWikiSortDir(value: unknown): value is WikiSortDir {
   return typeof value === 'string' && (VALID_SORT_DIRS as readonly string[]).includes(value)
+}
+
+function isWikiViewMode(value: unknown): value is WikiViewMode {
+  return typeof value === 'string' && (VALID_VIEWS as readonly string[]).includes(value)
 }
 
 /** 壊れた JSON・未知の列/並べ替えキーは既定値に戻す。 */
@@ -63,9 +80,18 @@ export function parseWikiListPrefs(raw: string | null): WikiListPrefs {
     const key = isWikiSortKey(rawSort.key) ? rawSort.key : DEFAULT_WIKI_SORT.key
     const dir = isWikiSortDir(rawSort.dir) ? rawSort.dir : DEFAULT_WIKI_SORT.dir
 
+    // 古い保存値（view/collapsedIds が無い）は既定に戻す。未知の view も既定の list に戻す。
+    const view = isWikiViewMode(record.view) ? record.view : DEFAULT_WIKI_LIST_PREFS.view
+
+    const collapsedIds = Array.isArray(record.collapsedIds)
+      ? record.collapsedIds.filter((id): id is string => typeof id === 'string')
+      : DEFAULT_WIKI_LIST_PREFS.collapsedIds
+
     return {
       columns,
       sort: { key, dir },
+      view,
+      collapsedIds,
     }
   } catch {
     return DEFAULT_WIKI_LIST_PREFS
@@ -89,12 +115,19 @@ function writeStored(prefs: WikiListPrefs) {
   }
 }
 
-export function useWikiListPrefs(): [WikiListPrefs, (prefs: WikiListPrefs) => void] {
+export type WikiListPrefsUpdater = WikiListPrefs | ((prev: WikiListPrefs) => WikiListPrefs)
+
+export function useWikiListPrefs(): [WikiListPrefs, (next: WikiListPrefsUpdater) => void] {
   const [prefs, setPrefsState] = useState<WikiListPrefs>(readStored)
 
-  const setPrefs = useCallback((next: WikiListPrefs) => {
-    setPrefsState(next)
-    writeStored(next)
+  // 「前の値を受け取る形」も許す。折りたたみのように頻繁に呼ぶハンドラが prefs 全体に
+  // 依存せずに済み、memo 化した行の再描画を最小にできる。
+  const setPrefs = useCallback((next: WikiListPrefsUpdater) => {
+    setPrefsState(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      writeStored(resolved)
+      return resolved
+    })
   }, [])
 
   return [prefs, setPrefs]

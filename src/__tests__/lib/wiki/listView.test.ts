@@ -10,8 +10,13 @@ import {
   formatWikiAbsoluteTime,
   formatWikiShortDate,
   normalizeForSearch,
+  buildWikiTree,
+  flattenWikiTree,
+  pruneWikiTreeToMatches,
+  groupWikiPagesByMilestone,
+  descendantIds,
 } from '@/lib/wiki/listView'
-import type { WikiPage } from '@/types/database'
+import type { WikiPage, Milestone } from '@/types/database'
 
 function page(overrides: Partial<WikiPage> = {}): WikiPage {
   return {
@@ -21,6 +26,10 @@ function page(overrides: Partial<WikiPage> = {}): WikiPage {
     title: 'タイトル',
     body: '',
     tags: [],
+    parent_page_id: null,
+    milestone_id: null,
+    pinned_at: null,
+    sort_order: null,
     created_by: 'user1',
     updated_by: 'user1',
     created_at: '2026-09-01T00:00:00+09:00',
@@ -142,6 +151,234 @@ describe('applyWikiListView', () => {
     ]
     const result = applyWikiListView(pages, { ...DEFAULT_WIKI_FILTERS, tags: ['要件'] }, DEFAULT_WIKI_SORT, getAuthorName)
     expect(result.map(p => p.id)).toEqual(['b', 'a'])
+  })
+
+  it('ピン留めしたページは並べ替えに関わらず常に先頭（pinned_at 昇順）', () => {
+    const pages = [
+      page({ id: 'a', updated_at: '2026-09-01T00:00:00+09:00' }),
+      page({ id: 'b', updated_at: '2026-09-05T00:00:00+09:00', pinned_at: '2026-09-02T00:00:00+09:00' }),
+      page({ id: 'c', updated_at: '2026-09-03T00:00:00+09:00', pinned_at: '2026-09-01T00:00:00+09:00' }),
+    ]
+    const result = applyWikiListView(pages, DEFAULT_WIKI_FILTERS, DEFAULT_WIKI_SORT, getAuthorName)
+    // ピン留め(c→b、pinned_at 古い順)が先頭、残り(a)は通常の並べ替え(updated_at desc)
+    expect(result.map(p => p.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('絞り込み中でもピン留めが一致すれば先頭に残る', () => {
+    const pages = [
+      page({ id: 'a', tags: ['要件'], updated_at: '2026-09-01T00:00:00+09:00' }),
+      page({ id: 'b', tags: ['要件'], updated_at: '2026-09-05T00:00:00+09:00', pinned_at: '2026-09-02T00:00:00+09:00' }),
+      page({ id: 'c', tags: [], updated_at: '2026-09-09T00:00:00+09:00', pinned_at: '2026-09-01T00:00:00+09:00' }),
+    ]
+    const result = applyWikiListView(pages, { ...DEFAULT_WIKI_FILTERS, tags: ['要件'] }, DEFAULT_WIKI_SORT, getAuthorName)
+    // c はタグ不一致で除外される。残った a, b のうち b がピン留めなので先頭
+    expect(result.map(p => p.id)).toEqual(['b', 'a'])
+  })
+
+  it('ピン留めが無ければ従来どおりの並べ替え結果を返す', () => {
+    const pages = [page({ id: 'a' })]
+    expect(applyWikiListView(pages, DEFAULT_WIKI_FILTERS, DEFAULT_WIKI_SORT, getAuthorName)).toEqual(pages)
+  })
+})
+
+describe('buildWikiTree', () => {
+  it('親を持たないページは根になる', () => {
+    const pages = [page({ id: 'a' }), page({ id: 'b' })]
+    const tree = buildWikiTree(pages)
+    expect(tree.map(n => n.page.id)).toEqual(['a', 'b'])
+    expect(tree.every(n => n.depth === 0 && n.children.length === 0)).toBe(true)
+  })
+
+  it('parent_page_id で親子関係を作る', () => {
+    const pages = [
+      page({ id: 'parent' }),
+      page({ id: 'child', parent_page_id: 'parent' }),
+      page({ id: 'grandchild', parent_page_id: 'child' }),
+    ]
+    const tree = buildWikiTree(pages)
+    expect(tree).toHaveLength(1)
+    expect(tree[0].page.id).toBe('parent')
+    expect(tree[0].depth).toBe(0)
+    expect(tree[0].children).toHaveLength(1)
+    expect(tree[0].children[0].page.id).toBe('child')
+    expect(tree[0].children[0].depth).toBe(1)
+    expect(tree[0].children[0].children[0].page.id).toBe('grandchild')
+    expect(tree[0].children[0].children[0].depth).toBe(2)
+  })
+
+  it('親が一覧に無い（見えない・消えた）ページは根扱いになる', () => {
+    const pages = [page({ id: 'orphan', parent_page_id: 'missing-parent' })]
+    const tree = buildWikiTree(pages)
+    expect(tree.map(n => n.page.id)).toEqual(['orphan'])
+    expect(tree[0].depth).toBe(0)
+  })
+
+  it('同階層内は sort_order 昇順、同値/未指定は渡された順', () => {
+    const pages = [
+      page({ id: 'a', sort_order: null }),
+      page({ id: 'b', sort_order: 1 }),
+      page({ id: 'c', sort_order: null }),
+      page({ id: 'd', sort_order: 0 }),
+    ]
+    const tree = buildWikiTree(pages)
+    expect(tree.map(n => n.page.id)).toEqual(['d', 'b', 'a', 'c'])
+  })
+
+  it('循環データが混在していても無限ループしない（フォールバックで打ち切る）', () => {
+    // トリガーで通常は作れないが、防御的に壊れたデータでも落ちないことを確認する
+    const pages = [
+      page({ id: 'a', parent_page_id: 'b' }),
+      page({ id: 'b', parent_page_id: 'a' }),
+    ]
+    expect(() => buildWikiTree(pages)).not.toThrow()
+  })
+
+  it('循環に巻き込まれたページも根に昇格して必ず表示される（黙って消えない）', () => {
+    const pages = [
+      page({ id: 'p', parent_page_id: 'q' }),
+      page({ id: 'q', parent_page_id: 'p' }),
+      page({ id: 'r' }),
+    ]
+    const tree = buildWikiTree(pages)
+    const ids = new Set<string>()
+    const walk = (nodes: ReturnType<typeof buildWikiTree>) => nodes.forEach(n => { ids.add(n.page.id); walk(n.children) })
+    walk(tree)
+    expect(ids).toEqual(new Set(['p', 'q', 'r']))
+    // 各ページはツリーに1回だけ現れる
+    let count = 0
+    const countWalk = (nodes: ReturnType<typeof buildWikiTree>) => nodes.forEach(n => { count++; countWalk(n.children) })
+    countWalk(tree)
+    expect(count).toBe(3)
+  })
+})
+
+describe('flattenWikiTree', () => {
+  const pages = [
+    page({ id: 'parent' }),
+    page({ id: 'child1', parent_page_id: 'parent' }),
+    page({ id: 'child2', parent_page_id: 'parent' }),
+    page({ id: 'grandchild', parent_page_id: 'child1' }),
+  ]
+
+  it('折りたたみが無ければ全ノードを深さ優先で平坦化する', () => {
+    const tree = buildWikiTree(pages)
+    const flat = flattenWikiTree(tree, new Set())
+    expect(flat.map(f => `${f.page.id}:${f.depth}`)).toEqual([
+      'parent:0',
+      'child1:1',
+      'grandchild:2',
+      'child2:1',
+    ])
+    expect(flat.find(f => f.page.id === 'parent')?.hasChildren).toBe(true)
+    expect(flat.find(f => f.page.id === 'grandchild')?.hasChildren).toBe(false)
+  })
+
+  it('折りたたんだノードの子孫は出力から除外される', () => {
+    const tree = buildWikiTree(pages)
+    const flat = flattenWikiTree(tree, new Set(['child1']))
+    expect(flat.map(f => f.page.id)).toEqual(['parent', 'child1', 'child2'])
+    expect(flat.find(f => f.page.id === 'child1')?.collapsed).toBe(true)
+  })
+})
+
+describe('pruneWikiTreeToMatches', () => {
+  const pages = [
+    page({ id: 'root' }),
+    page({ id: 'mid', parent_page_id: 'root' }),
+    page({ id: 'leaf-match', parent_page_id: 'mid' }),
+    page({ id: 'leaf-nomatch', parent_page_id: 'mid' }),
+    page({ id: 'unrelated' }),
+  ]
+
+  it('一致した行とその祖先だけを残す', () => {
+    const result = pruneWikiTreeToMatches(pages, new Set(['leaf-match']))
+    expect(result.map(p => p.id).sort()).toEqual(['leaf-match', 'mid', 'root'])
+  })
+
+  it('一致が無ければ空配列', () => {
+    expect(pruneWikiTreeToMatches(pages, new Set())).toEqual([])
+  })
+})
+
+describe('groupWikiPagesByMilestone', () => {
+  function milestone(overrides: Partial<Milestone> = {}): Milestone {
+    return {
+      id: 'm1',
+      org_id: 'org1',
+      space_id: 'space1',
+      name: 'マイルストーン1',
+      start_date: null,
+      due_date: null,
+      order_key: 0,
+      completed_at: null,
+      created_at: '2026-09-01T00:00:00+09:00',
+      updated_at: '2026-09-01T00:00:00+09:00',
+      ...overrides,
+    }
+  }
+
+  it('milestone_id ごとにグループ化し、order_key 昇順で並べる', () => {
+    const m1 = milestone({ id: 'm1', order_key: 1, name: 'B' })
+    const m2 = milestone({ id: 'm2', order_key: 0, name: 'A' })
+    const pages = [
+      page({ id: 'a', milestone_id: 'm1' }),
+      page({ id: 'b', milestone_id: 'm2' }),
+    ]
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2])
+    expect(groups.map(g => g.milestone?.id)).toEqual(['m2', 'm1'])
+    expect(groups[0].pages.map(p => p.id)).toEqual(['b'])
+    expect(groups[1].pages.map(p => p.id)).toEqual(['a'])
+  })
+
+  it('未設定のページは末尾に milestone: null でまとまる', () => {
+    const m1 = milestone({ id: 'm1' })
+    const pages = [page({ id: 'a', milestone_id: null }), page({ id: 'b', milestone_id: 'm1' })]
+    const groups = groupWikiPagesByMilestone(pages, [m1])
+    expect(groups.map(g => g.milestone?.id ?? null)).toEqual(['m1', null])
+    expect(groups[1].pages.map(p => p.id)).toEqual(['a'])
+  })
+
+  it('ページが0件のマイルストーンは出さない', () => {
+    const m1 = milestone({ id: 'm1' })
+    const m2 = milestone({ id: 'm2' })
+    const pages = [page({ id: 'a', milestone_id: 'm1' })]
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2])
+    expect(groups.map(g => g.milestone?.id)).toEqual(['m1'])
+  })
+
+  it('order_key が同じなら due_date 昇順、それも同じなら name(ja) 順', () => {
+    const m1 = milestone({ id: 'm1', order_key: 0, due_date: '2026-09-10T00:00:00+09:00', name: 'いろは' })
+    const m2 = milestone({ id: 'm2', order_key: 0, due_date: '2026-09-05T00:00:00+09:00', name: 'あいう' })
+    const pages = [page({ id: 'a', milestone_id: 'm1' }), page({ id: 'b', milestone_id: 'm2' })]
+    const groups = groupWikiPagesByMilestone(pages, [m1, m2])
+    expect(groups.map(g => g.milestone?.id)).toEqual(['m2', 'm1'])
+  })
+})
+
+describe('descendantIds', () => {
+  const pages = [
+    page({ id: 'root' }),
+    page({ id: 'child1', parent_page_id: 'root' }),
+    page({ id: 'child2', parent_page_id: 'root' }),
+    page({ id: 'grandchild', parent_page_id: 'child1' }),
+    page({ id: 'unrelated' }),
+  ]
+
+  it('子・孫を再帰的に集める', () => {
+    const result = descendantIds(pages, 'root')
+    expect([...result].sort()).toEqual(['child1', 'child2', 'grandchild'])
+  })
+
+  it('子が無ければ空集合', () => {
+    expect(descendantIds(pages, 'grandchild').size).toBe(0)
+  })
+
+  it('循環データがあっても無限ループしない', () => {
+    const cyclic = [
+      page({ id: 'a', parent_page_id: 'b' }),
+      page({ id: 'b', parent_page_id: 'a' }),
+    ]
+    expect(() => descendantIds(cyclic, 'a')).not.toThrow()
   })
 })
 

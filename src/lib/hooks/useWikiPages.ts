@@ -27,6 +27,12 @@ export interface UpdateWikiPageInput {
   title?: string
   body?: string
   tags?: string[]
+  /** 親ページ（フォルダ表示）。null で根に戻す。同一スペース外・循環はトリガーが例外で拒否する。 */
+  parent_page_id?: string | null
+  /** 紐づけるマイルストーン。null で解除。 */
+  milestone_id?: string | null
+  /** ピン留め時刻。null で解除、非 null で一覧の先頭に固定。 */
+  pinned_at?: string | null
 }
 
 interface UseWikiPagesReturn {
@@ -66,7 +72,7 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
     queryFn: async () => {
       const { data: fetchedData, error: fetchError } = await (supabase as SupabaseClient)
         .from('wiki_pages')
-        .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+        .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
         .eq('org_id', orgId)
         .eq('space_id', spaceId)
         .order('updated_at', { ascending: false })
@@ -131,17 +137,20 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
               title: DEFAULT_WIKI_TITLE,
               body: defaultBody,
               tags: DEFAULT_WIKI_TAGS,
+              // ホームページは常に一覧の先頭に固定しておく。DB へ渡す ISO 文字列なので
+              // toISOString でよい（表示用の日付計算ではないため禁止事項に抵触しない）。
+              pinned_at: new Date().toISOString(),
               created_by: userId,
               updated_by: userId,
             })
-            .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+            .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
             .single()
 
           if (!homeErr && homeData) {
             defaultCreatedRef.current = true
             const { data: allPages } = await (supabase as SupabaseClient)
               .from('wiki_pages')
-              .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+              .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
               .eq('org_id', orgId)
               .eq('space_id', spaceId)
               .order('updated_at', { ascending: false })
@@ -225,6 +234,12 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       title: input.title,
       body: '',
       tags: input.tags || [],
+      // 構造用の列（親ページ・マイルストーン・ピン留め・並び順）は
+      // 新規作成時は必ず未設定。楽観更新の行も DB の初期値（NULL）に合わせる。
+      parent_page_id: null,
+      milestone_id: null,
+      pinned_at: null,
+      sort_order: null,
       created_by: userId,
       updated_by: userId,
       created_at: now,
@@ -298,6 +313,10 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
                 title: input.title ?? p.title,
                 body: input.body !== undefined ? input.body : p.body,
                 tags: input.tags ?? p.tags,
+                // null は「未設定に戻す」なので ?? ではなく !== undefined で判定する
+                parent_page_id: input.parent_page_id !== undefined ? input.parent_page_id : p.parent_page_id,
+                milestone_id: input.milestone_id !== undefined ? input.milestone_id : p.milestone_id,
+                pinned_at: input.pinned_at !== undefined ? input.pinned_at : p.pinned_at,
                 updated_at: new Date().toISOString(),
               }
             : p
@@ -314,6 +333,9 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
       if (input.title !== undefined) updateData.title = input.title
       if (input.body !== undefined) updateData.body = input.body
       if (input.tags !== undefined) updateData.tags = input.tags
+      if (input.parent_page_id !== undefined) updateData.parent_page_id = input.parent_page_id
+      if (input.milestone_id !== undefined) updateData.milestone_id = input.milestone_id
+      if (input.pinned_at !== undefined) updateData.pinned_at = input.pinned_at
 
       const { error: updateError } = await (supabase as SupabaseClient)
         .from('wiki_pages')

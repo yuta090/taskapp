@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MagnifyingGlass, Columns, Check } from '@phosphor-icons/react'
+import { MagnifyingGlass, Columns, Check, List, TreeStructure, Flag } from '@phosphor-icons/react'
 import type { WikiPage } from '@/types/database'
 import type { SpaceMember } from '@/lib/hooks/useSpaceMembers'
 import {
@@ -9,10 +9,17 @@ import {
   collectWikiTags,
   type WikiListFilters,
   type WikiSortKey,
+  type WikiViewMode,
 } from '@/lib/wiki/listView'
 import type { WikiListColumn, WikiListPrefs } from '@/lib/wiki/listPrefs'
 
 const TAG_CHIP_LIMIT = 8
+
+const VIEW_OPTIONS: { mode: WikiViewMode; label: string; icon: typeof List }[] = [
+  { mode: 'list', label: '一覧', icon: List },
+  { mode: 'folder', label: 'フォルダ', icon: TreeStructure },
+  { mode: 'milestone', label: 'マイルストーン別', icon: Flag },
+]
 
 const SORT_OPTIONS: WikiSortKey[] = ['updated_at', 'created_at', 'title', 'author']
 const SORT_LABELS: Record<WikiSortKey, string> = {
@@ -173,6 +180,28 @@ export function WikiListToolbar({
           外側に overflow-x を付けると overflow-y も auto に計算されて下に開くメニューが切れるため、
           横スクロールはタグチップの帯だけに限定する */}
       <div className="flex items-center gap-2 px-4 py-2">
+        <div className="flex items-center flex-shrink-0 border border-gray-200 rounded-lg overflow-hidden">
+          {VIEW_OPTIONS.map(({ mode, label, icon: Icon }) => {
+            const selected = prefs.view === mode
+            return (
+              <button
+                key={mode}
+                type="button"
+                data-testid={`wiki-view-${mode}`}
+                aria-pressed={selected}
+                aria-label={label}
+                title={label}
+                onClick={() => onPrefsChange({ ...prefs, view: mode })}
+                className={`px-2 py-1.5 transition-colors ${
+                  selected ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                <Icon className="text-sm" />
+              </button>
+            )
+          })}
+        </div>
+
         <div className="relative flex-shrink-0 w-40 md:w-56">
           <MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none" />
           <input

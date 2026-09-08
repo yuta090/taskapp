@@ -15,6 +15,10 @@ function page(overrides: Partial<WikiPage> = {}): WikiPage {
     title: 'タイトル',
     body: '',
     tags: [],
+    parent_page_id: null,
+    milestone_id: null,
+    pinned_at: null,
+    sort_order: null,
     created_by: 'u1',
     updated_by: 'u1',
     created_at: '2026-09-01T00:00:00+09:00',
@@ -170,5 +174,32 @@ describe('WikiListToolbar', () => {
     setup({ pages: [page({ tags: ['仕様書'] })], filters: { ...DEFAULT_WIKI_FILTERS, tags: ['仕様書'] } })
     expect(screen.getByLabelText('タイトル・タグで検索')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /仕様書/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  describe('表示切替', () => {
+    it('既定は一覧が選択されている', () => {
+      setup()
+      expect(screen.getByTestId('wiki-view-list')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByTestId('wiki-view-folder')).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByTestId('wiki-view-milestone')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('フォルダを選ぶと onPrefsChange で view が folder になる', () => {
+      const { onPrefsChange } = setup()
+      fireEvent.click(screen.getByTestId('wiki-view-folder'))
+      expect(onPrefsChange).toHaveBeenCalledWith({ ...DEFAULT_WIKI_LIST_PREFS, view: 'folder' })
+    })
+
+    it('マイルストーン別を選ぶと onPrefsChange で view が milestone になる', () => {
+      const { onPrefsChange } = setup()
+      fireEvent.click(screen.getByTestId('wiki-view-milestone'))
+      expect(onPrefsChange).toHaveBeenCalledWith({ ...DEFAULT_WIKI_LIST_PREFS, view: 'milestone' })
+    })
+
+    it('現在の表示に応じて aria-pressed が切り替わる', () => {
+      setup({ prefs: { ...DEFAULT_WIKI_LIST_PREFS, view: 'folder' } })
+      expect(screen.getByTestId('wiki-view-list')).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByTestId('wiki-view-folder')).toHaveAttribute('aria-pressed', 'true')
+    })
   })
 })

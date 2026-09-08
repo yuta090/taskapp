@@ -34,6 +34,10 @@ interface UseMilestonesReturn {
   deleteMilestone: (id: string) => Promise<void>
 }
 
+// 読み込み中に毎レンダー新しい [] を返すと、呼び出し側の useMemo/useEffect の依存が毎回変わり
+// （effect → setState → 再レンダー → また新しい配列）無限ループになるため共有定数にする
+const EMPTY_MILESTONES: Milestone[] = []
+
 export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesReturn {
   const queryClient = useQueryClient()
 
@@ -49,7 +53,7 @@ export function useMilestones({ spaceId }: UseMilestonesOptions): UseMilestonesR
     enabled: !!spaceId,
   })
 
-  const milestones = data ?? []
+  const milestones = data ?? EMPTY_MILESTONES
 
   const fetchMilestones = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['milestones', spaceId] })

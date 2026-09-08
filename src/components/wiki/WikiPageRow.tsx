@@ -1,8 +1,8 @@
 'use client'
 
-import { memo, useCallback, type ReactNode } from 'react'
+import { memo, useCallback, type MouseEvent, type ReactNode } from 'react'
 import Image from 'next/image'
-import { Tag } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, PushPin, Tag } from '@phosphor-icons/react'
 import { TruncatedText } from '@/components/shared'
 import type { WikiPage } from '@/types/database'
 import type { WikiListColumn } from '@/lib/wiki/listPrefs'
@@ -21,6 +21,16 @@ interface WikiPageRowProps {
   /** メタ行に出す項目。'updated_at' は右端固定位置に出る。 */
   columns: WikiListColumn[]
   getMember: (userId: string) => WikiRowMember | null
+  /** フォルダ表示のインデント深さ。省略時は 0（インデント無し・一覧/マイルストーン表示）。 */
+  depth?: number
+  /**
+   * フォルダ表示で子ページを持つか。省略時はトグル領域自体を出さない
+   * （一覧/マイルストーン表示ではフォルダの概念が無いため）。
+   */
+  hasChildren?: boolean
+  collapsed?: boolean
+  /** トグルクリック時。行選択には伝播させない。 */
+  onToggleCollapse?: (pageId: string) => void
 }
 
 /** 20px 丸アバター。TaskRow の担当者アバターと同じ見た目（画像があれば画像、無ければ頭文字）。 */
@@ -59,9 +69,26 @@ function withSeparators(nodes: ReactNode[]): ReactNode[] {
   )
 }
 
-function WikiPageRowInner({ page, isSelected, onSelect, columns, getMember }: WikiPageRowProps) {
+function WikiPageRowInner({
+  page,
+  isSelected,
+  onSelect,
+  columns,
+  getMember,
+  depth,
+  hasChildren,
+  collapsed,
+  onToggleCollapse,
+}: WikiPageRowProps) {
   const metaItems: ReactNode[] = []
   const handleClick = useCallback(() => onSelect(page.id), [onSelect, page.id])
+  const handleToggleCollapse = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation()
+      onToggleCollapse?.(page.id)
+    },
+    [onToggleCollapse, page.id]
+  )
 
   if (columns.includes('tags') && page.tags.length > 0) {
     metaItems.push(
@@ -107,16 +134,44 @@ function WikiPageRowInner({ page, isSelected, onSelect, columns, getMember }: Wi
   return (
     <div
       onClick={handleClick}
-      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 ${
+      style={{ paddingLeft: 16 + (depth ?? 0) * 20 }}
+      className={`flex items-center gap-3 pr-4 py-3 cursor-pointer transition-all border-b border-gray-100 last:border-b-0 ${
         isSelected
           ? 'bg-indigo-50/60 border-l-2 border-l-indigo-500'
           : 'hover:bg-gray-50/80 border-l-2 border-l-transparent'
       }`}
     >
+      {/* フォルダ表示のみトグル領域を出す（hasChildren が指定されているときだけ）。
+          子が無い行も同幅の空スペースを置き、兄弟行のタイトル位置を揃える。 */}
+      {hasChildren !== undefined && (
+        <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+          {hasChildren && (
+            <button
+              type="button"
+              onClick={handleToggleCollapse}
+              aria-label={collapsed ? '展開' : '折りたたむ'}
+          aria-expanded={!collapsed}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              {collapsed ? <CaretRight className="text-xs" /> : <CaretDown className="text-xs" />}
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex-1 min-w-0">
-        <TruncatedText as="h3" className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
-          {page.title}
-        </TruncatedText>
+        <div className="flex items-center gap-1">
+          {page.pinned_at != null && (
+            <PushPin
+              data-testid="wiki-pin-icon"
+              weight="fill"
+              className="text-gray-400 text-xs flex-shrink-0"
+              aria-hidden="true"
+            />
+          )}
+          <TruncatedText as="h3" className={`text-sm font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
+            {page.title}
+          </TruncatedText>
+        </div>
         {metaItems.length > 0 && (
           <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500">
             {withSeparators(metaItems)}
