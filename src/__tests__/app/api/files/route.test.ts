@@ -18,6 +18,8 @@ let filesListResponse: { data: Array<Record<string, unknown>> | null; error: { m
 let profilesResponse: { data: Array<Record<string, unknown>> | null; error: null }
 
 let filesLimitArg: number | undefined
+let filesOrArgs: string[] = []
+let filesEqArgs: Array<[string, unknown]> = []
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function chain(response: any, opts: { captureLimit?: boolean } = {}) {
@@ -29,6 +31,14 @@ function chain(response: any, opts: { captureLimit?: boolean } = {}) {
   if (opts.captureLimit) {
     builder.limit = vi.fn((n: number) => {
       filesLimitArg = n
+      return builder
+    })
+    builder.or = vi.fn((expr: string) => {
+      filesOrArgs.push(expr)
+      return builder
+    })
+    builder.eq = vi.fn((col: string, val: unknown) => {
+      filesEqArgs.push([col, val])
       return builder
     })
   }
@@ -56,9 +66,10 @@ vi.mock('@/lib/supabase/server', () => ({
 const { GET } = await import('@/app/api/files/route')
 const { FILES_LIST_LIMIT } = await import('@/lib/files/limits')
 
-function callGet(spaceId?: string) {
+function callGet(spaceId?: string, params: Record<string, string> = {}) {
   const url = new URL('/api/files', 'http://localhost:3000')
   if (spaceId !== undefined) url.searchParams.set('spaceId', spaceId)
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   return GET(new NextRequest(url))
 }
 
@@ -66,6 +77,8 @@ describe('GET /api/files', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     filesLimitArg = undefined
+    filesOrArgs = []
+    filesEqArgs = []
     authResponse = { data: { user: mockUser } }
     membershipResponse = { data: { id: 'membership-1' }, error: null }
     filesListResponse = {
@@ -132,7 +145,8 @@ describe('GET /api/files', () => {
 
   it('件数に上限をかける(IDBに一覧が丸ごと載って他の画面まで遅くなるのを防ぐ)', async () => {
     await callGet(SPACE_ID)
-    expect(filesLimitArg).toBe(FILES_LIST_LIMIT)
+    // 「まだ続きがあるか」を知るために上限+1件だけ取る
+    expect(filesLimitArg).toBe(FILES_LIST_LIMIT + 1)
     expect(FILES_LIST_LIMIT).toBeLessThanOrEqual(500)
   })
 
@@ -171,5 +185,125 @@ describe('GET /api/files', () => {
     const data = await response.json()
     expect(response.status).toBe(200)
     expect(data.files).toEqual([])
+  })
+})
+
+/**
+ * 500件を超えるスペースで古いファイルも探せるように、絞り込みをSQL側で受ける。
+ * 種類(kind)は「取りこぼさない超集合」で絞り、正確な判定はクライアントが再度かける。
+ */
+describe('GET /api/files — サーバー側の絞り込み', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    filesLimitArg = undefined
+    filesOrArgs = []
+    filesEqArgs = []
+    authResponse = { data: { user: mockUser } }
+    membershipResponse = { data: { id: 'membership-1' }, error: null }
+    filesListResponse = { data: [], error: null }
+    profilesResponse = { data: [], error: null }
+  })
+
+  it('条件が無ければ余計な絞り込みをしない', async () => {
+    await callGet(SPACE_ID)
+    expect(filesOrArgs).toEqual([])
+  })
+
+  it('q はファイル名と説明文の両方にあたる', async () => {
+    await callGet(SPACE_ID, { q: '請求' })
+    expect(filesOrArgs).toHaveLength(1)
+    // 値はダブルクォートで包む(PostgREST の or= はカンマ・ピリオドで構文が決まるため)
+    expect(filesOrArgs[0]).toContain('name.ilike."%請求%"')
+    expect(filesOrArgs[0]).toContain('description.ilike."%請求%"')
+  })
+
+  it('q の中の % と _ はそのまま検索語として扱う(全件一致にしない)', async () => {
+    await callGet(SPACE_ID, { q: '100%' })
+    expect(filesOrArgs[0]).toContain('100\\%')
+  })
+
+  it('長すぎる q は 400 で弾く', async () => {
+    const res = await callGet(SPACE_ID, { q: 'あ'.repeat(201) })
+    expect(res.status).toBe(400)
+  })
+
+  it('kind は MIME と拡張子の両方で拾う', async () => {
+    await callGet(SPACE_ID, { kind: 'table' })
+    expect(filesOrArgs).toHaveLength(1)
+    expect(filesOrArgs[0]).toContain('mime_type.ilike."%text/csv%"')
+    expect(filesOrArgs[0]).toContain('name.ilike."%.csv"')
+  })
+
+  it('kind=other は SQL では絞らない(列挙できないため)', async () => {
+    await callGet(SPACE_ID, { kind: 'other' })
+    expect(filesOrArgs).toEqual([])
+  })
+
+  it('知らない kind は 400 で弾く', async () => {
+    const res = await callGet(SPACE_ID, { kind: 'unknown-kind' })
+    expect(res.status).toBe(400)
+  })
+
+  it('公開状態: 公開中はクライアント提供ファイルも含む', async () => {
+    await callGet(SPACE_ID, { visibility: 'visible' })
+    expect(filesOrArgs).toHaveLength(1)
+    expect(filesOrArgs[0]).toContain('client_visible.eq.true')
+    expect(filesOrArgs[0]).toContain('origin.eq.client')
+  })
+
+  it('公開状態: 非公開は client_visible=false かつ 社内提供', async () => {
+    await callGet(SPACE_ID, { visibility: 'hidden' })
+    expect(filesEqArgs).toEqual(
+      expect.arrayContaining([['client_visible', false], ['origin', 'internal']])
+    )
+  })
+
+  it('提供元で絞れる', async () => {
+    await callGet(SPACE_ID, { origin: 'client' })
+    expect(filesEqArgs).toEqual(expect.arrayContaining([['origin', 'client']]))
+  })
+
+  it('上限より1件多く取り、多ければ hasMore=true にして上限ぶんだけ返す', async () => {
+    filesListResponse = {
+      data: Array.from({ length: FILES_LIST_LIMIT + 1 }, (_, i) => ({
+        id: `file-${i}`,
+        name: `f${i}.pdf`,
+        mime_type: 'application/pdf',
+        size_bytes: 1,
+        origin: 'internal',
+        client_visible: false,
+        uploaded_by: UPLOADER_ID,
+        description: null,
+        created_at: '2026-07-07T00:00:00.000Z',
+      })),
+      error: null,
+    }
+    const res = await callGet(SPACE_ID)
+    const data = await res.json()
+
+    expect(filesLimitArg).toBe(FILES_LIST_LIMIT + 1)
+    expect(data.files).toHaveLength(FILES_LIST_LIMIT)
+    expect(data.hasMore).toBe(true)
+  })
+
+  it('上限ちょうどなら hasMore=false', async () => {
+    filesListResponse = {
+      data: Array.from({ length: FILES_LIST_LIMIT }, (_, i) => ({
+        id: `file-${i}`,
+        name: `f${i}.pdf`,
+        mime_type: 'application/pdf',
+        size_bytes: 1,
+        origin: 'internal',
+        client_visible: false,
+        uploaded_by: UPLOADER_ID,
+        description: null,
+        created_at: '2026-07-07T00:00:00.000Z',
+      })),
+      error: null,
+    }
+    const res = await callGet(SPACE_ID)
+    const data = await res.json()
+    expect(data.files).toHaveLength(FILES_LIST_LIMIT)
+    expect(data.hasMore).toBe(false)
   })
 })

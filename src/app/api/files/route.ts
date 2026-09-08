@@ -4,8 +4,30 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
+import { getKindMatchPatterns, type FileKind } from '@/lib/files/filters'
+
+const MAX_SEARCH_LENGTH = 200
+const KINDS: FileKind[] = ['image', 'pdf', 'document', 'table', 'other']
+const VISIBILITIES = ['visible', 'hidden'] as const
+const ORIGINS = ['internal', 'client'] as const
+
+/**
+ * PostgREST の or= に載せる値は「,」「.」「(」「)」で構文が決まるので、
+ * 検索語をそのまま埋めると壊れる/意図しない条件になる。ダブルクォートで包み、
+ * LIKE のワイルドカード(% _)も文字として扱わせる。
+ */
+function toLikePattern(raw: string): string {
+  const escaped = raw
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
+    .replace(/"/g, '\\"')
+  return `"%${escaped}%"`
+}
 
 // GET: スペースの公開済み(status='ready')ファイル一覧
+// 500件を超えるスペースでも古いファイルを探せるよう、絞り込みをSQL側でも受ける。
+// kind は「取りこぼさない超集合」で絞り、正確な判定はクライアントが getFileKind でかける。
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -21,6 +43,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid or missing spaceId' }, { status: 400 })
     }
 
+    const q = searchParams.get('q')?.trim() || ''
+    const kind = searchParams.get('kind')
+    const visibility = searchParams.get('visibility')
+    const origin = searchParams.get('origin')
+
+    if (q.length > MAX_SEARCH_LENGTH) {
+      return NextResponse.json({ error: `q must be at most ${MAX_SEARCH_LENGTH} chars` }, { status: 400 })
+    }
+    if (kind && !KINDS.includes(kind as FileKind)) {
+      return NextResponse.json({ error: 'Invalid kind' }, { status: 400 })
+    }
+    if (visibility && !VISIBILITIES.includes(visibility as (typeof VISIBILITIES)[number])) {
+      return NextResponse.json({ error: 'Invalid visibility' }, { status: 400 })
+    }
+    if (origin && !ORIGINS.includes(origin as (typeof ORIGINS)[number])) {
+      return NextResponse.json({ error: 'Invalid origin' }, { status: 400 })
+    }
+
     // Authorization: space member（可視範囲そのものはRLSに従うが、
     // メンバーでないユーザーに403を明示するためのチェック）
     const { data: membership } = await (supabase as SupabaseClient)
@@ -34,20 +74,54 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const { data: files, error } = await (supabase as SupabaseClient)
+    let query = (supabase as SupabaseClient)
       .from('files')
       .select('id, name, description, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
       .eq('space_id', spaceId)
       .eq('status', 'ready')
+
+    if (q) {
+      const pattern = toLikePattern(q)
+      query = query.or(`name.ilike.${pattern},description.ilike.${pattern}`)
+    }
+
+    if (kind) {
+      const patterns = getKindMatchPatterns(kind as FileKind)
+      // kind='other' は「どれにも当てはまらない」ので列挙できない。SQLでは絞らず
+      // クライアント側の getFileKind に任せる
+      if (patterns) {
+        const conditions = [
+          ...patterns.mimeContains.map((m) => `mime_type.ilike."%${m}%"`),
+          ...patterns.nameEndsWith.map((ext) => `name.ilike."%${ext}"`),
+        ]
+        query = query.or(conditions.join(','))
+      }
+    }
+
+    if (visibility === 'visible') {
+      // クライアント提供ファイルは仕様上つねに公開扱い
+      query = query.or('client_visible.eq.true,origin.eq.client')
+    } else if (visibility === 'hidden') {
+      query = query.eq('client_visible', false).eq('origin', 'internal')
+    }
+
+    if (origin) {
+      query = query.eq('origin', origin)
+    }
+
+    // 「まだ続きがあるか」を知るために上限+1件だけ取る
+    const { data: files, error } = await query
       .order('created_at', { ascending: false })
-      .limit(FILES_LIST_LIMIT)
+      .limit(FILES_LIST_LIMIT + 1)
 
     if (error) {
       console.error('Fetch files error:', error)
       return NextResponse.json({ error: 'Failed to fetch files' }, { status: 500 })
     }
 
-    const rows = files || []
+    const all = files || []
+    const hasMore = all.length > FILES_LIST_LIMIT
+    const rows = hasMore ? all.slice(0, FILES_LIST_LIMIT) : all
 
     const uploaderIds = [...new Set(rows.map((f: { uploaded_by: string }) => f.uploaded_by))]
     const nameMap: Record<string, string> = {}
@@ -86,7 +160,7 @@ export async function GET(request: NextRequest) {
       createdAt: f.created_at,
     }))
 
-    return NextResponse.json({ files: result })
+    return NextResponse.json({ files: result, hasMore })
   } catch (error) {
     console.error('List files error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

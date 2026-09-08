@@ -35,7 +35,8 @@ vi.mock('@/lib/hooks/useFiles', () => {
   const updateMutate = vi.fn()
   const deleteMutateAsync = vi.fn()
   return {
-    useFiles: () => ({ data: mockFiles, isLoading: false }),
+    useFiles: () => ({ data: mockFiles, isLoading: false, hasMore: false }),
+    useFileSearch: () => ({ data: undefined, hasMore: false, isFetching: false, isError: false }),
     useUploadFile: () => ({ mutateAsync: uploadMutateAsync }),
     useUpdateFile: () => ({ mutate: updateMutate }),
     useDeleteFile: () => ({ mutateAsync: deleteMutateAsync }),

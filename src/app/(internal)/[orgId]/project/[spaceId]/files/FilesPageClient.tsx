@@ -8,6 +8,8 @@ import { FileRow } from '@/components/files/FileRow'
 import {
   filterFiles,
   countActiveFileFilters,
+  toServerFileQuery,
+  hasServerSearchableCondition,
   EMPTY_FILE_FILTERS,
   FILE_KIND_OPTIONS,
   FILE_VISIBILITY_OPTIONS,
@@ -15,8 +17,10 @@ import {
   type FileFilterState,
 } from '@/lib/files/filters'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import {
   useFiles,
+  useFileSearch,
   useUploadFile,
   useUpdateFile,
   useDeleteFile,
@@ -24,6 +28,8 @@ import {
 
 // API側の上限(src/app/api/files/upload-url/route.ts の MAX_FILE_SIZE_BYTES)と揃える
 const MAX_FILE_SIZE_BYTES = 52428800
+// 打鍵のたびにサーバーへ問い合わせないための待ち時間
+const SEARCH_DEBOUNCE_MS = 350
 
 const SELECT_CLASS =
   'text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-surface text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -34,7 +40,7 @@ interface FilesPageClientProps {
 }
 
 export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
-  const { data: files, isLoading } = useFiles(spaceId)
+  const { data: files, isLoading, hasMore: hasHiddenFiles } = useFiles(spaceId)
   const uploadFile = useUploadFile()
   const updateFile = useUpdateFile()
   const deleteFile = useDeleteFile()
@@ -143,9 +149,24 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
 
   const activeFilterCount = countActiveFileFilters(filters)
   const totalCount = files?.length ?? 0
-  const visibleFiles = useMemo(() => filterFiles(files ?? [], filters), [files, filters])
 
-  const isAtListLimit = totalCount >= FILES_LIST_LIMIT
+  /**
+   * 上限を超えるスペースだけ、絞り込みをサーバーに投げる。
+   * 上限内なら手元の一覧に全部そろっているので、問い合わせずに絞るほうが速い。
+   */
+  const settledFilters = useDebouncedValue(filters, SEARCH_DEBOUNCE_MS)
+  const serverQuery = useMemo(() => toServerFileQuery(settledFilters), [settledFilters])
+  const useServerSearch = hasHiddenFiles && hasServerSearchableCondition(settledFilters)
+  const search = useFileSearch(spaceId, serverQuery, { enabled: useServerSearch })
+
+  // サーバーの結果にも手元の絞り込みを重ねてかける
+  // (SQL 側は取りこぼさない超集合なので、正確な種類判定はここで効かせる)
+  const searchResults = search.data
+  const visibleFiles = useMemo(
+    () => filterFiles(useServerSearch ? (searchResults ?? []) : (files ?? []), filters),
+    [useServerSearch, searchResults, files, filters]
+  )
+
   const isEmpty = !isLoading && uploadingNames.length === 0 && totalCount === 0
   const isFilteredEmpty = !isLoading && totalCount > 0 && visibleFiles.length === 0
 
@@ -248,13 +269,23 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
           </select>
 
           <span data-testid="files-count" className="text-xs text-gray-400 ml-auto">
-            {activeFilterCount > 0 ? `${visibleFiles.length}件 / 全${totalCount}件` : `全${totalCount}件`}
+            {useServerSearch
+              ? `${visibleFiles.length}件`
+              : activeFilterCount > 0
+                ? `${visibleFiles.length}件 / 全${totalCount}件`
+                : `全${totalCount}件`}
           </span>
 
           {/* 黙って切り捨てると「探しているファイルが無い」のか「隠れている」のか分からなくなる */}
-          {isAtListLimit && (
+          {hasHiddenFiles && !useServerSearch && (
             <span data-testid="files-limit-notice" className="text-xs text-amber-600">
-              新しい順に{FILES_LIST_LIMIT}件まで表示しています
+              新しい順に{FILES_LIST_LIMIT}件まで表示しています（検索すると古いものも探せます）
+            </span>
+          )}
+
+          {useServerSearch && search.hasMore && (
+            <span data-testid="files-search-truncated" className="text-xs text-amber-600">
+              該当が多すぎます。もう少し絞ってください
             </span>
           )}
 
@@ -296,6 +327,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
             <div className="text-center text-gray-400 py-20">
               <MagnifyingGlass className="text-4xl mx-auto mb-3 opacity-50" />
               <p className="text-sm mb-1">条件に合うファイルがありません</p>
+              {useServerSearch && (
+                <p className="text-xs mb-2">古いファイルも含めて探しましたが、見つかりませんでした</p>
+              )}
               <button
                 type="button"
                 onClick={() => setFilters(EMPTY_FILE_FILTERS)}

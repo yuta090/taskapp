@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import { useFiles, type ProjectFile } from '@/lib/hooks/useFiles'
+import { useFiles, filesQueryKey, type ProjectFile } from '@/lib/hooks/useFiles'
 
 /**
  * 読み込み中の判定。
@@ -34,9 +34,11 @@ function makeClient() {
 }
 
 function plainWrapper(client: QueryClient) {
-  return ({ children }: { children: React.ReactNode }) => (
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
+  Wrapper.displayName = 'PlainWrapper'
+  return Wrapper
 }
 
 beforeEach(() => {
@@ -69,7 +71,7 @@ describe('useFiles の読み込み判定', () => {
   it('キャッシュがあるときは読み込み中にしない', () => {
     fetchMock.mockImplementation(() => new Promise(() => {}))
     const client = makeClient()
-    client.setQueryData(['files', 'space-1'], [makeFile()])
+    client.setQueryData(filesQueryKey('space-1'), { files: [makeFile()], hasMore: false })
 
     const { result } = renderHook(() => useFiles('space-1'), { wrapper: plainWrapper(client) })
 
