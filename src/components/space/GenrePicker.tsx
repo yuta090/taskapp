@@ -123,7 +123,7 @@ export function GenrePicker({
           aria-pressed={selectedGenre === 'blank'}
           className={`w-full py-2 text-sm rounded-lg transition-colors ${
             selectedGenre === 'blank'
-              ? 'text-indigo-700 bg-indigo-50 ring-2 ring-indigo-500/20'
+              ? 'text-indigo-ink bg-indigo-50 ring-2 ring-indigo-500/20'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
           }`}
         >

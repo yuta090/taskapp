@@ -339,7 +339,7 @@ export default function MembersSettingsPage() {
   const getRoleBadgeColor = (memberRole: string) => {
     switch (memberRole) {
       case 'owner':
-        return 'bg-indigo-50 text-indigo-700'
+        return 'bg-indigo-50 text-indigo-ink'
       case 'member':
         return 'bg-gray-100 text-gray-700'
       case 'client':
@@ -412,7 +412,7 @@ export default function MembersSettingsPage() {
               onClick={() => setRoleFilter('')}
               className={`px-2 py-1 text-[11px] rounded-md border ${
                 roleFilter === ''
-                  ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                  ? 'border-indigo-200 bg-indigo-50 text-indigo-ink'
                   : 'border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -424,7 +424,7 @@ export default function MembersSettingsPage() {
                 onClick={() => setRoleFilter(roleFilter === opt.value ? '' : opt.value)}
                 className={`px-2 py-1 text-[11px] rounded-md border ${
                   roleFilter === opt.value
-                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-ink'
                     : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                 }`}
               >
