@@ -22,6 +22,7 @@ import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
 import { TaskPricingPanel } from './TaskPricingPanel'
 import { pickMilestoneWikiPages } from '@/lib/wiki/listView'
+import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -137,13 +138,22 @@ export function TaskInspector({
     [wikiPages]
   )
   // PR3: タスク詳細から同じマイルストーンの Wiki を引ける導線（補助情報。詳細設定の件数バッジには含めない）
+  // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照（同じ queryKey で一覧側とキャッシュ共有）
+  const { linksByPageId: wikiMilestoneLinks } = useWikiMilestoneLinks(task.org_id, spaceId)
   const milestoneWikiPages = useMemo(
-    () => pickMilestoneWikiPages(wikiPages, task.milestone_id),
-    [wikiPages, task.milestone_id]
+    () => pickMilestoneWikiPages(wikiPages, task.milestone_id, 5, wikiMilestoneLinks),
+    [wikiPages, task.milestone_id, wikiMilestoneLinks]
   )
   const milestoneWikiTotalCount = useMemo(
-    () => (task.milestone_id ? wikiPages.filter((p) => p.milestone_id === task.milestone_id).length : 0),
-    [wikiPages, task.milestone_id]
+    () =>
+      task.milestone_id
+        ? wikiPages.filter(
+            (p) =>
+              p.milestone_id === task.milestone_id ||
+              (wikiMilestoneLinks.get(p.id)?.includes(task.milestone_id as string) ?? false)
+          ).length
+        : 0,
+    [wikiPages, task.milestone_id, wikiMilestoneLinks]
   )
 
   // Space members with display names

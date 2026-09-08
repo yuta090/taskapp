@@ -52,6 +52,10 @@ vi.mock('@/lib/hooks/useLatestClientAction', () => ({
   useLatestClientAction: () => null,
 }))
 
+vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
+  useWikiMilestoneLinks: () => ({ linksByPageId: new Map(), loading: false }),
+}))
+
 // TaskInspector fetches milestones on mount (.from('milestones').select().eq().order()).
 // Stub the chain so it resolves cleanly instead of rejecting with "not a function".
 vi.mock('@/lib/supabase/client', () => ({

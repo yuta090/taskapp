@@ -61,6 +61,10 @@ vi.mock('@/lib/hooks/useLatestClientAction', () => ({
   useLatestClientAction: () => null,
 }))
 
+vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
+  useWikiMilestoneLinks: () => ({ linksByPageId: new Map(), loading: false }),
+}))
+
 vi.mock('@/components/task/TaskComments', () => ({
   TaskComments: () => null,
 }))
