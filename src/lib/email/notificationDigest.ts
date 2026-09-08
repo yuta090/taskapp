@@ -8,7 +8,7 @@ import { createElement } from 'react'
 import { Resend } from 'resend'
 import { buildFrom, getAppName } from './from'
 import { render } from '@react-email/components'
-import NotificationDigestEmail from './templates/NotificationDigestEmail'
+import NotificationDigestEmail, { type NotificationDigestVariant } from './templates/NotificationDigestEmail'
 import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
 
 // 遅延初期化でビルド時エラーを回避
@@ -35,6 +35,11 @@ export interface SendNotificationDigestEmailParams {
   displayName: string | null
   sections: DigestSection[]
   totalCount: number
+  /**
+   * 'daily' = 毎朝1回のまとめ（既定）/ 'immediate' = 数分ためて送る「返事待ち」のまとめ。
+   * 中身の作りが同じなのでテンプレートを共用し、件名と見出しだけを変える。
+   */
+  variant?: NotificationDigestVariant
   /** 未承諾の招待（作成から3日以上）のまとめ。0件相当なら未設定にする（節を出さない） */
   pendingInvites?: PendingInvitesSummary
   appUrl?: string
@@ -42,18 +47,22 @@ export interface SendNotificationDigestEmailParams {
 }
 
 export async function sendNotificationDigestEmail(params: SendNotificationDigestEmailParams) {
-  const { to, displayName, sections, totalCount, pendingInvites } = params
+  const { to, displayName, sections, totalCount, pendingInvites, variant = 'daily' } = params
   const appUrl = params.appUrl || getAppUrl()
   const appName = params.appName || getAppName()
   const settingsUrl = `${appUrl}/settings/notifications`
 
-  const subject = `【${appName}】今日の更新が${totalCount}件あります`
+  const subject =
+    variant === 'immediate'
+      ? `【${appName}】あなたの返事を待っている件が${totalCount}件あります`
+      : `【${appName}】今日の更新が${totalCount}件あります`
 
   const emailElement = createElement(NotificationDigestEmail, {
     appName,
     displayName,
     sections,
     totalCount,
+    variant,
     pendingInvites,
     appUrl,
     settingsUrl,

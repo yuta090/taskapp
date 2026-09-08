@@ -98,3 +98,37 @@ describe('NotificationDigestEmail', () => {
     expect(html).not.toContain('未承諾の招待')
   })
 })
+
+describe('NotificationDigestEmail — 即時のまとめ', () => {
+  it('見出しと注記が「返事待ち」の言い方になる', async () => {
+    const html = await render(
+      createElement(NotificationDigestEmail, {
+        appName: 'AgentPM',
+        displayName: '田中',
+        sections,
+        totalCount: 3,
+        variant: 'immediate',
+        appUrl: 'https://app.example.com',
+        settingsUrl: 'https://app.example.com/settings/notifications',
+      }),
+    )
+    expect(html).toContain('あなたの返事を待っている件が3件あります')
+    expect(html).not.toContain('今日の更新が3件あります')
+    expect(html).not.toContain('このメールは1日1回のまとめ通知です')
+  })
+
+  it('variant を省略すると今までどおり日次まとめの文面', async () => {
+    const html = await render(
+      createElement(NotificationDigestEmail, {
+        appName: 'AgentPM',
+        displayName: '田中',
+        sections,
+        totalCount: 3,
+        appUrl: 'https://app.example.com',
+        settingsUrl: 'https://app.example.com/settings/notifications',
+      }),
+    )
+    expect(html).toContain('今日の更新が3件あります')
+    expect(html).toContain('このメールは1日1回のまとめ通知です')
+  })
+})
