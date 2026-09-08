@@ -251,6 +251,14 @@ export function TaskInspector({
     flashSaved()
   }
 
+  // 説明欄は中身の量に合わせて高さを伸ばす（上限は className の max-h、超えたら中でスクロール）。
+  // 保存して編集を閉じれば従来どおりの本文表示に戻るので、伸びるのは編集中だけ。
+  const autoGrowDescription = (el: HTMLTextAreaElement | null) => {
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }
+
   const handleDescriptionSave = async () => {
     const newDesc = editDescription.trim() || null
     if (newDesc === (task.description || null)) {
@@ -595,20 +603,34 @@ export function TaskInspector({
           {isEditingDescription ? (
             <div className="space-y-2">
               <textarea
+                // 4行固定だと長い説明を小窓から書くことになるため、中身の量に合わせて伸ばす。
+                // ref は編集を開いた直後（既存本文の分の高さ）に一度走る。
+                ref={autoGrowDescription}
                 value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
+                onChange={(e) => {
+                  setEditDescription(e.target.value)
+                  autoGrowDescription(e.currentTarget)
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setEditDescription(task.description || '')
                     setIsEditingDescription(false)
                   }
+                  // 長文を書き終えてから保存ボタンまでマウスを動かさずに済むようにする。
+                  // 修飾キーなしの Enter は通常どおり改行。
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    void handleDescriptionSave()
+                  }
                 }}
                 data-testid="task-inspector-description-input"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                rows={4}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y max-h-[50vh] overflow-y-auto"
+                rows={6}
                 autoFocus
               />
-              <div className="flex justify-end gap-2">
+              {/* 入力欄が伸びるほど下に押し出されるので、パネルの下端に貼り付けて
+                  スクロールせずに押せるようにする。枠(p-3)いっぱいに広げて背景で透けを防ぐ。 */}
+              <div className="sticky bottom-0 -mx-3 -mb-3 flex justify-end gap-2 rounded-b-lg border-t border-gray-200 bg-gray-50 px-3 py-2">
                 <button
                   onClick={() => {
                     setEditDescription(task.description || '')
