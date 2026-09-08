@@ -34,6 +34,7 @@ export function registerTaskCommands(program) {
         .option('-s, --space-id <uuid>', 'Space UUID')
         .requiredOption('--title <title>', 'Task title')
         .option('--description <desc>', 'Task description')
+        .option('--status <status>', 'Initial status (default: backlog / spec: considering)')
         .option('--type <type>', 'task|spec', 'task')
         .option('--ball <side>', 'client|internal', 'internal')
         .option('--origin <origin>', 'client|internal', 'internal')
@@ -51,6 +52,7 @@ export function registerTaskCommands(program) {
                 spaceId: resolveSpaceId(opts),
                 title: opts.title,
                 description: opts.description,
+                status: opts.status,
                 type: opts.type,
                 ball: opts.ball,
                 origin: opts.origin,

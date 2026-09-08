@@ -55,6 +55,10 @@ export interface WikiPage {
     title: string;
     body: string;
     tags: string[];
+    parent_page_id: string | null;
+    milestone_id: string | null;
+    pinned_at: string | null;
+    sort_order: number | null;
     created_by: string;
     updated_by: string;
     created_at: string;

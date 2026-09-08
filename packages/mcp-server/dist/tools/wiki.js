@@ -20,6 +20,7 @@ const wikiListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     limit: z.number().int().positive().max(200).default(50).describe('取得件数上限'),
 });
+const nullableIdSchema = z.string().uuid().nullable().optional();
 const wikiGetSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
     pageId: z.string().describe('WikiページID'),
@@ -38,6 +39,9 @@ const wikiUpdateSchema = z.object({
     body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
     format: bodyFormatSchema,
     tags: z.array(z.string()).optional().describe('タグ配列'),
+    parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null で根に戻す。別スペースの親・循環はDB側で拒否される'),
+    milestoneId: nullableIdSchema.describe('紐づけるマイルストーンID。null で解除'),
+    pinned: z.boolean().optional().describe('true で一覧の先頭に固定、false で解除'),
 });
 const wikiDeleteSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -55,7 +59,7 @@ export async function wikiList(params) {
     const orgId = await getOrgId(params.spaceId);
     const { data, error } = await supabase
         .from('wiki_pages')
-        .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+        .select('id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at')
         .eq('org_id', orgId)
         .eq('space_id', params.spaceId)
         .order('updated_at', { ascending: false })
@@ -103,6 +107,19 @@ export async function wikiCreate(params) {
         throw new Error('Wikiページの作成に失敗しました');
     return data;
 }
+/** DB トリガーの拒否理由（親子・マイルストーンの境界/循環）を利用者向けの日本語に置き換える。 */
+export function describeWikiUpdateError(message) {
+    const m = message ?? '';
+    if (m.includes('wiki parent cycle'))
+        return '親ページの指定が循環しています（自分自身や子孫を親にはできません）';
+    if (m.includes('wiki parent chain too deep'))
+        return '親ページの階層が深すぎます（最大 50 段）';
+    if (m.includes('wiki parent must be in the same space'))
+        return '親ページは同じスペースのページだけ指定できます';
+    if (m.includes('wiki milestone must be in the same space'))
+        return 'マイルストーンは同じスペースのものだけ指定できます';
+    return 'Wikiページの更新に失敗しました';
+}
 export async function wikiUpdate(params) {
     await checkAuth(params.spaceId, 'write', 'wiki_update', 'wiki', params.pageId);
     const supabase = getSupabaseClient();
@@ -117,6 +134,12 @@ export async function wikiUpdate(params) {
     }
     if (params.tags !== undefined)
         updateData.tags = params.tags;
+    if (params.parentPageId !== undefined)
+        updateData.parent_page_id = params.parentPageId;
+    if (params.milestoneId !== undefined)
+        updateData.milestone_id = params.milestoneId;
+    if (params.pinned !== undefined)
+        updateData.pinned_at = params.pinned ? new Date().toISOString() : null;
     const { data, error } = await supabase
         .from('wiki_pages')
         .update(updateData)
@@ -126,7 +149,7 @@ export async function wikiUpdate(params) {
         .select('*')
         .single();
     if (error)
-        throw new Error('Wikiページの更新に失敗しました');
+        throw new Error(describeWikiUpdateError(error.message));
     // Save version snapshot when body changes
     if (params.body !== undefined) {
         const { error: vErr } = await supabase
