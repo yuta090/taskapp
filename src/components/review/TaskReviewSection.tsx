@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   CheckCircle,
   XCircle,
@@ -10,10 +10,13 @@ import {
   Eye,
   Prohibit,
 } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useDefaultReviewers } from '@/lib/hooks/useDefaultReviewers'
+import { resolveDefaultReviewerIds } from '@/lib/review/defaultReviewers'
 import { useConfirmDialog } from '@/components/shared'
 import type { Review, ReviewApproval } from '@/types/database'
 
@@ -42,7 +45,8 @@ export function TaskReviewSection({
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [showReviewerPicker, setShowReviewerPicker] = useState(false)
-  const [selectedReviewerIds, setSelectedReviewerIds] = useState<string[]>([])
+  // null = まだ触っていない。そのあいだはプロジェクトの既定の承認者をそのまま映す
+  const [selectedReviewerIds, setSelectedReviewerIds] = useState<string[] | null>(null)
   const [showBlockForm, setShowBlockForm] = useState(false)
   const [blockReason, setBlockReason] = useState('')
 
@@ -53,6 +57,19 @@ export function TaskReviewSection({
   const { user } = useCurrentUser()
   const { members, internalMembers, getMemberName } = useSpaceMembers(spaceId)
   const { confirm, ConfirmDialog } = useConfirmDialog()
+  const { defaultReviewerIds, setDefaultReviewer } = useDefaultReviewers(spaceId)
+
+  // 自分は自分の承認者にできないので、選択肢からも既定からも外す
+  const selectableMembers = useMemo(
+    () => internalMembers.filter((m) => m.id !== user?.id),
+    [internalMembers, user?.id]
+  )
+  const defaultSelection = useMemo(
+    () => resolveDefaultReviewerIds(defaultReviewerIds, selectableMembers.map((m) => m.id)),
+    [defaultReviewerIds, selectableMembers]
+  )
+  // 既定の読み込みが後から終わっても追随させたいので、state ではなく毎回ここで解決する
+  const selected = selectedReviewerIds ?? defaultSelection
 
   // Fetch review for this task.
   // Returns { ok: true, status } on success, { ok: false } on failure.
@@ -106,15 +123,15 @@ export function TaskReviewSection({
 
   // Open review
   const handleOpenReview = useCallback(async () => {
-    if (selectedReviewerIds.length === 0) return
+    if (selected.length === 0) return
     setSubmitting(true)
     try {
       await rpc.reviewOpen(supabase, {
         taskId,
-        reviewerIds: selectedReviewerIds,
+        reviewerIds: selected,
       })
       setShowReviewerPicker(false)
-      setSelectedReviewerIds([])
+      setSelectedReviewerIds(null)
       const result = await fetchReview()
       if (result.ok) onReviewChange?.(taskId, result.status)
     } catch (err) {
@@ -122,7 +139,7 @@ export function TaskReviewSection({
     } finally {
       setSubmitting(false)
     }
-  }, [taskId, selectedReviewerIds, supabase, fetchReview, onReviewChange])
+  }, [taskId, selected, supabase, fetchReview, onReviewChange])
 
   // Approve
   const handleApprove = useCallback(async () => {
@@ -181,13 +198,30 @@ export function TaskReviewSection({
     }
   }, [reviewData, confirm, supabase, fetchReview, onReviewChange, taskId])
 
-  const toggleReviewer = (userId: string) => {
-    setSelectedReviewerIds((prev) =>
-      prev.includes(userId)
-        ? prev.filter((id) => id !== userId)
-        : [...prev, userId]
-    )
-  }
+  const toggleReviewer = useCallback(
+    (userId: string) => {
+      setSelectedReviewerIds((prev) => {
+        const base = prev ?? defaultSelection
+        return base.includes(userId)
+          ? base.filter((id) => id !== userId)
+          : [...base, userId]
+      })
+    },
+    [defaultSelection]
+  )
+
+  // その場でプロジェクト設定の「既定の承認者」を切り替える。
+  // 次にこのプロジェクトで承認を依頼するとき、最初から選ばれた状態になる
+  const handleToggleDefault = useCallback(
+    async (userId: string, isDefault: boolean) => {
+      try {
+        await setDefaultReviewer(userId, isDefault)
+      } catch {
+        toast.error('既定の承認者を保存できませんでした')
+      }
+    },
+    [setDefaultReviewer]
+  )
 
   const isCurrentUserReviewer =
     reviewData?.approvals.some(
@@ -260,32 +294,45 @@ export function TaskReviewSection({
             クライアントへの確認依頼はボールを「外部」に切り替えてください
           </p>
           <div className="space-y-1 max-h-40 overflow-y-auto">
-            {internalMembers
-              .filter((m) => m.id !== user?.id)
-              .map((member) => {
-                const isSelected = selectedReviewerIds.includes(member.id)
-                return (
+            {selectableMembers.map((member) => {
+              const isSelected = selected.includes(member.id)
+              const isDefault = defaultReviewerIds.includes(member.id)
+              return (
+                <div
+                  key={member.id}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+                    isSelected ? 'bg-gray-200 text-gray-900' : 'hover:bg-gray-100 text-gray-700'
+                  }`}
+                >
                   <button
-                    key={member.id}
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => toggleReviewer(member.id)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors ${
-                      isSelected
-                        ? 'bg-gray-200 text-gray-900'
-                        : 'hover:bg-gray-100 text-gray-700'
-                    }`}
+                    className="flex-1 min-w-0 flex items-center gap-2 text-left"
                   >
                     <User className="text-gray-400 flex-shrink-0" />
                     <span className="truncate">{member.displayName}</span>
                     {isSelected && (
-                      <CheckCircle
-                        weight="fill"
-                        className="ml-auto text-gray-600 flex-shrink-0"
-                      />
+                      <CheckCircle weight="fill" className="ml-auto text-gray-600 flex-shrink-0" />
                     )}
                   </button>
-                )
-              })}
-            {internalMembers.filter((m) => m.id !== user?.id).length === 0 && (
+                  {/* 選んだ人だけ、その場で次回からの既定にできる */}
+                  {isSelected && (
+                    <label className="flex items-center gap-1 flex-shrink-0 text-[11px] text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isDefault}
+                        aria-label={`${member.displayName}を次回から既定の承認者にする`}
+                        onChange={(e) => handleToggleDefault(member.id, e.target.checked)}
+                        className="w-3 h-3 accent-indigo-600"
+                      />
+                      デフォルト承認者
+                    </label>
+                  )}
+                </div>
+              )
+            })}
+            {selectableMembers.length === 0 && (
               <p className="text-xs text-gray-400 py-2">
                 選択可能なメンバーがいません
               </p>
@@ -295,7 +342,7 @@ export function TaskReviewSection({
             <button
               onClick={() => {
                 setShowReviewerPicker(false)
-                setSelectedReviewerIds([])
+                setSelectedReviewerIds(null)
               }}
               className="flex-1 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
             >
@@ -303,7 +350,7 @@ export function TaskReviewSection({
             </button>
             <button
               onClick={handleOpenReview}
-              disabled={selectedReviewerIds.length === 0 || submitting}
+              disabled={selected.length === 0 || submitting}
               className="flex-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {submitting ? '送信中...' : '依頼する'}

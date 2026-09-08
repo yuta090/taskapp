@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   FolderSimple,
   UsersThree,
+  SealCheck,
   Flag,
   GithubLogo,
   ChatCircleDots,
@@ -22,6 +23,7 @@ import { GeneralSettings } from './GeneralSettings'
 import { PresetSettings } from './PresetSettings'
 import { MilestonesSettings } from './MilestonesSettings'
 import { MembersSettings } from './MembersSettings'
+import { ApprovalSettings } from './ApprovalSettings'
 import { PortalSettings } from './PortalSettings'
 import { AgencySettings } from './AgencySettings'
 import { GitHubRepoSettings } from './GitHubRepoSettings'
@@ -63,6 +65,7 @@ const categories: SettingCategory[] = [
       { id: 'general', label: '基本設定', icon: FolderSimple, keywords: ['プロジェクト名', '名前', 'name', 'general', 'プリセット', 'テンプレート', 'preset'] },
       { id: 'milestones', label: 'マイルストーン', icon: Flag, keywords: ['期日', 'スケジュール', 'deadline', 'milestone'] },
       { id: 'members', label: 'メンバー', icon: UsersThree, keywords: ['招待', 'ロール', '権限', 'invite', 'role', 'member'] },
+      { id: 'approval', label: '社内承認', icon: SealCheck, keywords: ['承認', '承認者', 'レビュー', 'デフォルト', '既定', 'approval', 'reviewer', 'review'] },
       { id: 'portal', label: 'ポータル表示', icon: Browser, keywords: ['ポータル', 'portal', 'クライアント', '表示', '非表示', '公開'] },
       { id: 'agency', label: '代理店モード', icon: Buildings, keywords: ['代理店', 'agency', 'ベンダー', 'vendor', 'マージン', 'margin', '制作会社'] },
     ],
@@ -124,6 +127,7 @@ function useIntegrationStatuses(
       general: 'none',
       milestones: 'none',
       members: 'none',
+      approval: 'none',
       portal: 'none',
       agency: 'none',
       github: 'none',
@@ -169,6 +173,8 @@ function SettingsSection({
       return <MilestonesSettings spaceId={spaceId} />
     case 'members':
       return <MembersSettings orgId={orgId} spaceId={spaceId} />
+    case 'approval':
+      return <ApprovalSettings spaceId={spaceId} />
     case 'portal':
       return <PortalSettings spaceId={spaceId} />
     case 'agency':
