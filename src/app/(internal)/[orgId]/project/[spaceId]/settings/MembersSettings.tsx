@@ -53,6 +53,9 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const [error, setError] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  // 招待は編集者にも開放する（サーバー側の /api/invites・rpc_create_invite も admin/editor を許可済み）。
+  // 役割の変更とメンバー削除は引き続き管理者だけ。
+  const [canInvite, setCanInvite] = useState(false)
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -110,7 +113,9 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
       // Check if current user is admin
       const currentMember = memberList.find((m) => m.userId === user?.id)
-      setIsAdmin(currentMember?.role === 'admin')
+      const myRole = currentMember?.role
+      setIsAdmin(myRole === 'admin')
+      setCanInvite(myRole === 'admin' || myRole === 'editor')
 
       setMembers(memberList)
     } catch (err) {
@@ -182,7 +187,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !isAdmin || inviting) return
+    if (!inviteEmail.trim() || !canInvite || inviting) return
 
     setInviting(true)
 
@@ -352,8 +357,8 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         )}
       </div>
 
-      {/* Invite form (admin only) */}
-      {isAdmin && (
+      {/* Invite form (管理者・編集者) */}
+      {canInvite && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
           <div className="text-xs font-medium text-gray-500">メンバーを招待</div>
 
@@ -396,10 +401,17 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         </div>
       )}
 
-      {!isAdmin && (
+      {!canInvite && (
         <div className="text-xs text-gray-500 text-center py-2">
           <UserCircle className="inline w-4 h-4 mr-1" />
           メンバーの管理は管理者のみ可能です
+        </div>
+      )}
+
+      {canInvite && !isAdmin && (
+        <div className="text-xs text-gray-500 text-center py-2">
+          <UserCircle className="inline w-4 h-4 mr-1" />
+          役割の変更とメンバーの削除は管理者のみ可能です
         </div>
       )}
     </div>
