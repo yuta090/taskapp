@@ -806,10 +806,17 @@ export function TaskInspector({
 
         {/* Client Scope（クライアント公開） */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-            <Eye className="text-sm" />
-            クライアント公開
-          </label>
+          {/* 何を切り替える項目か伝わらないため、ボールと同じ「?」ヘルプを添える。
+              欄はパネル幅いっぱいなのでパネルは既定の左寄せで収まる。 */}
+          <div className="flex items-center gap-1">
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <Eye className="text-sm" />
+              クライアント公開
+            </label>
+            <Hint label="クライアント公開">
+              ONにすると、このタスクがクライアント用の画面（ポータル）に表示されます。OFFなら社内だけに見えます
+            </Hint>
+          </div>
           {onUpdate ? (
             <div className="flex items-center justify-between px-3 py-2 border border-gray-200 rounded-lg bg-surface">
               <span className={`text-sm ${task.client_scope === 'deliverable' ? `font-medium ${CLIENT.accent}` : 'text-gray-500'}`}>

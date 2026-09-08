@@ -293,3 +293,44 @@ describe('TaskInspector — 説明は区切られた領域として見える', (
     expect(section?.className).toMatch(/\bborder-gray-200\b/)
   })
 })
+
+// 「クライアント公開」は何を切り替える項目か伝わらないので、ボールと同じ「?」ヘルプを添える。
+describe('TaskInspector — クライアント公開の説明はヘルプアイコンの中', () => {
+  const HELP_TEXT =
+    'ONにすると、このタスクがクライアント用の画面（ポータル）に表示されます。OFFなら社内だけに見えます'
+
+  it('クライアント公開のラベルの右に「?」ヘルプがあり、既定では説明文を出さない', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    expect(screen.getByRole('button', { name: /クライアント公開の補足/ })).toBeInTheDocument()
+    expect(screen.queryByText(HELP_TEXT)).not.toBeInTheDocument()
+  })
+
+  it('「?」を押すと説明文が開く', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'internal' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /クライアント公開の補足/ }))
+
+    expect(screen.getByText(HELP_TEXT)).toBeInTheDocument()
+  })
+
+  it('読み取り専用（onUpdate なし）でもヘルプは出す', () => {
+    renderInspector({
+      task: makeTask({ ball: 'internal', client_scope: 'deliverable' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+    })
+
+    expect(screen.getByRole('button', { name: /クライアント公開の補足/ })).toBeInTheDocument()
+  })
+})
