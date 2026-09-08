@@ -283,7 +283,9 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
             </span>
           )}
 
-          {useServerSearch && search.hasMore && (
+          {/* 待っている間の hasMore は「前の結果(＝全件一覧)」のものなので出さない
+              (出すと検索のたびに必ず一瞬点滅する) */}
+          {useServerSearch && search.hasMore && !search.isPlaceholderData && (
             <span data-testid="files-search-truncated" className="text-xs text-amber-600">
               該当が多すぎます。もう少し絞ってください
             </span>

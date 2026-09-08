@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { ServerFileQuery } from '@/lib/files/filters'
@@ -31,16 +32,44 @@ interface FilesPage {
  */
 const FILES_QUERY_VERSION = 'v2'
 
-/** 検索条件つきのときは別キーにする(検索するたびに全件のキャッシュを壊さない) */
+/**
+ * 検索条件つきのときは 'search' 枝に分ける。
+ * - 検索するたびに全件のキャッシュを壊さない
+ * - 検索結果だけ IDB に永続させない・短命にする、といった扱いを分けられる
+ *   (QueryProvider の shouldDehydrateQuery がこの枝を見ている)
+ */
 export function filesQueryKey(spaceId: string | undefined, query?: ServerFileQuery) {
   return query && Object.keys(query).length > 0
-    ? (['files', spaceId, FILES_QUERY_VERSION, query] as const)
+    ? (['files', spaceId, FILES_QUERY_VERSION, 'search', query] as const)
     : (['files', spaceId, FILES_QUERY_VERSION] as const)
 }
 
-/** 一覧の更新(楽観更新・保存後の反映)が当てる範囲。検索結果のキャッシュもまとめて直す */
+/**
+ * 一覧の更新(楽観更新・保存後の反映)が当てる範囲。全件と検索結果の両方に当てる。
+ * 版数を必ず含めること。含めないと前バージョンの永続キャッシュ(配列形状)まで前方一致で
+ * 掴んでしまい、updater が undefined.map で落ちて「画面は変わったのに保存されない」になる。
+ */
 function filesQueryScope(spaceId: string) {
-  return { queryKey: ['files', spaceId] as const }
+  return { queryKey: ['files', spaceId, FILES_QUERY_VERSION] as const }
+}
+
+/** 前バージョンの形(配列)で残っている永続キャッシュ。読まずに捨てる */
+const LEGACY_FILES_KEY = (spaceId: string) => ['files', spaceId] as const
+
+/**
+ * キャッシュ上の1件だけを差し替える。
+ * 形が違うもの(前バージョンの配列形状など)には触らずそのまま返す。
+ */
+function patchFileInPage(
+  current: FilesPage | undefined,
+  fileId: string,
+  patch: Partial<ProjectFile>
+): FilesPage | undefined {
+  if (!current || !Array.isArray(current.files)) return current
+  return {
+    ...current,
+    files: current.files.map((file) => (file.id === fileId ? { ...file, ...patch } : file)),
+  }
 }
 
 function toSearchParams(spaceId: string, query: ServerFileQuery): string {
@@ -63,11 +92,20 @@ async function fetchFiles(spaceId: string, query: ServerFileQuery): Promise<File
  * スペースの公開済みファイル一覧を取得(新しい順・上限あり)
  */
 export function useFiles(spaceId: string | undefined) {
+  const queryClient = useQueryClient()
+
   const query = useQuery({
     queryKey: filesQueryKey(spaceId),
     queryFn: () => fetchFiles(spaceId!, {}),
     enabled: !!spaceId,
   })
+
+  // 前バージョンの形で残っている永続キャッシュを捨てる。放っておくと訪問のたびに
+  // 復元・再永続されて消えず、IDB を圧迫し続ける
+  useEffect(() => {
+    if (!spaceId) return
+    queryClient.removeQueries({ queryKey: LEGACY_FILES_KEY(spaceId), exact: true })
+  }, [queryClient, spaceId])
 
   return {
     data: query.data?.files,
@@ -103,12 +141,19 @@ export function useFileSearch(
     enabled: !!spaceId && enabled,
     // 打ち直しのたびに空欄へ戻らないよう、前の結果を出したまま裏で取り直す
     placeholderData: (previous) => previous,
+    // 打鍵の切れ目ごとに別キーが生まれるので、使い終わったら早めに捨てる
+    gcTime: 5 * 60 * 1000,
   })
 
   return {
     data: result.data?.files,
     /** 該当が多すぎて出しきれていない */
     hasMore: result.data?.hasMore ?? false,
+    /**
+     * まだ「前の結果」を出している状態。この間の hasMore は全件一覧のものなので、
+     * そのまま「多すぎます」を出すと検索のたびに必ず一瞬点滅する
+     */
+    isPlaceholderData: result.isPlaceholderData,
     isFetching: result.isFetching,
     isError: result.isError,
   }
@@ -210,19 +255,11 @@ export function useUpdateFile() {
       const previous = queryClient.getQueriesData<FilesPage>(scope)
 
       queryClient.setQueriesData<FilesPage>(scope, (current) =>
-        current && {
-          ...current,
-          files: current.files.map((file) =>
-            file.id === variables.fileId
-              ? {
-                  ...file,
-                  ...(variables.clientVisible !== undefined ? { clientVisible: variables.clientVisible } : {}),
-                  ...(variables.name !== undefined ? { name: variables.name } : {}),
-                  ...(variables.description !== undefined ? { description: variables.description } : {}),
-                }
-              : file
-          ),
-        }
+        patchFileInPage(current, variables.fileId, {
+          ...(variables.clientVisible !== undefined ? { clientVisible: variables.clientVisible } : {}),
+          ...(variables.name !== undefined ? { name: variables.name } : {}),
+          ...(variables.description !== undefined ? { description: variables.description } : {}),
+        })
       )
 
       return { previous }
@@ -239,19 +276,11 @@ export function useUpdateFile() {
       if (!updated) return
 
       queryClient.setQueriesData<FilesPage>(filesQueryScope(variables.spaceId), (current) =>
-        current && {
-          ...current,
-          files: current.files.map((file) =>
-            file.id === variables.fileId
-              ? {
-                  ...file,
-                  ...(updated.name !== undefined ? { name: updated.name } : {}),
-                  ...(updated.description !== undefined ? { description: updated.description } : {}),
-                  ...(updated.client_visible !== undefined ? { clientVisible: updated.client_visible } : {}),
-                }
-              : file
-          ),
-        }
+        patchFileInPage(current, variables.fileId, {
+          ...(updated.name !== undefined ? { name: updated.name } : {}),
+          ...(updated.description !== undefined ? { description: updated.description } : {}),
+          ...(updated.client_visible !== undefined ? { clientVisible: updated.client_visible } : {}),
+        })
       )
     },
   })

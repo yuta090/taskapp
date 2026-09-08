@@ -16,6 +16,7 @@ const mockFiles: ProjectFile[] = []
 const searchResults: ProjectFile[] = []
 let listHasMore = false
 let searchHasMore = false
+let searchIsPlaceholder = false
 let searchEnabledCalls: Array<{ query: Record<string, unknown>; enabled: boolean }> = []
 
 vi.mock('@/lib/hooks/useFiles', async (importOriginal) => {
@@ -35,6 +36,7 @@ vi.mock('@/lib/hooks/useFiles', async (importOriginal) => {
       return {
         data: enabled ? searchResults : undefined,
         hasMore: enabled ? searchHasMore : false,
+        isPlaceholderData: enabled ? searchIsPlaceholder : false,
         isFetching: false,
         isError: false,
       }
@@ -75,6 +77,7 @@ beforeEach(() => {
   searchResults.length = 0
   listHasMore = false
   searchHasMore = false
+  searchIsPlaceholder = false
   searchEnabledCalls = []
 })
 
@@ -154,6 +157,20 @@ describe('FilesPageClient — 上限を超えるスペース', () => {
     act(() => { vi.advanceTimersByTime(600) })
 
     expect(screen.getByTestId('files-search-truncated')).toHaveTextContent('多すぎ')
+  })
+
+  // 検索が返るまでの「前の結果」は全件一覧のもの。全件が上限に張り付いているから
+  // サーバー検索になっているので、そのまま出すと毎回かならず一瞬点滅する
+  it('検索の結果を待っている間は「多すぎます」を出さない', () => {
+    searchHasMore = true
+    searchIsPlaceholder = true
+    searchResults.push(makeFile('old-1', '古い議事録.pdf'))
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('files-search'), { target: { value: '古い' } })
+    act(() => { vi.advanceTimersByTime(600) })
+
+    expect(screen.queryByTestId('files-search-truncated')).not.toBeInTheDocument()
   })
 
   it('条件を消したら全件の一覧に戻る', () => {

@@ -69,13 +69,14 @@ describe('filterFiles — 絞り込み', () => {
     expect(result.map((f) => f.name)).toEqual(['a.pdf'])
   })
 
-  it('検索はアップロードした人の名前にもあたる', () => {
+  // 500件を超えるスペースではサーバー(SQL)側で探す。そこでは名前と説明文しか見ないので、
+  // 件数によって探せるものが変わらないよう、手元の絞り込みも同じ2つに揃える
+  it('検索はアップロードした人の名前には当てない(サーバー検索と揃える)', () => {
     const files = [
       makeFile({ name: 'a.pdf', uploaderName: '田中太郎' }),
       makeFile({ name: 'b.pdf', uploaderName: '佐藤花子' }),
     ]
-    const result = filterFiles(files, { ...EMPTY_FILE_FILTERS, search: '佐藤' })
-    expect(result.map((f) => f.name)).toEqual(['b.pdf'])
+    expect(filterFiles(files, { ...EMPTY_FILE_FILTERS, search: '佐藤' })).toEqual([])
   })
 
   it('種類で絞り込める', () => {

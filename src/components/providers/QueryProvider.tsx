@@ -71,6 +71,10 @@ function shouldDehydrateQuery(query: Query): boolean {
   // ファイル→表ビューの変換済み表(最大4MBのCSV由来)は IDB に載せない。再取得は安いが
   // 永続化すると IDB が肥大し、他クエリの restore まで遅くなる。
   if (query.queryKey[0] === 'fileTable') return false
+  // ファイル一覧の「検索結果」も同じ理由で載せない(['files', spaceId, 版数, 'search', 条件])。
+  // 打鍵の切れ目ごとに別キーが生まれ、1件あたり最大500件ぶんの本文を含む。
+  // 全件一覧(検索なし)はキャッシュ優先で即描画したいので、そちらは永続する。
+  if (query.queryKey[0] === 'files' && query.queryKey[3] === 'search') return false
   return defaultShouldDehydrateQuery(query)
 }
 

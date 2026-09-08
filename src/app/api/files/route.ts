@@ -62,17 +62,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Authorization: space member（可視範囲そのものはRLSに従うが、
-    // メンバーでないユーザーに403を明示するためのチェック）
-    const { data: membership } = await (supabase as SupabaseClient)
+    // メンバーでないユーザーに403を明示するためのチェック）。
+    // 一覧の取得と直列にすると検索の待ちが1段ぶん伸びるので並列に投げ、判定は結果を見てから行う
+    // (メンバーでなければ RLS 側でも行は返らないので、先に走らせても漏れない)。
+    const membershipPromise = (supabase as SupabaseClient)
       .from('space_memberships')
       .select('id')
       .eq('space_id', spaceId)
       .eq('user_id', user.id)
       .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
 
     let query = (supabase as SupabaseClient)
       .from('files')
@@ -110,9 +108,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 「まだ続きがあるか」を知るために上限+1件だけ取る
-    const { data: files, error } = await query
-      .order('created_at', { ascending: false })
-      .limit(FILES_LIST_LIMIT + 1)
+    const [{ data: membership }, { data: files, error }] = await Promise.all([
+      membershipPromise,
+      query.order('created_at', { ascending: false }).limit(FILES_LIST_LIMIT + 1),
+    ])
+
+    if (!membership) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
 
     if (error) {
       console.error('Fetch files error:', error)

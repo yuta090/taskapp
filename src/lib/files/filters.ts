@@ -82,9 +82,9 @@ export function filterFiles<T extends FilterableFile>(files: T[], filters: FileF
 
   return files.filter((file) => {
     if (keyword) {
-      const haystack = [file.name, file.description ?? '', file.uploaderName ?? '']
-        .join('\n')
-        .toLowerCase()
+      // 検索対象は「名前」と「説明文」。500件を超えるスペースではサーバー(SQL)側で
+      // 同じ2つを探すので、件数によって探せるものが変わらないようここも同じにする
+      const haystack = [file.name, file.description ?? ''].join('\n').toLowerCase()
       if (!haystack.includes(keyword)) return false
     }
 
