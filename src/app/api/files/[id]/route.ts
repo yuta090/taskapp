@@ -7,13 +7,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { UUID_REGEX } from '@/lib/uuid'
 
 const MAX_NAME_LENGTH = 255
+// migration(files.description の check 制約)と揃える
+const MAX_DESCRIPTION_LENGTH = 1000
 
 function isValidName(name: unknown): name is string {
   return typeof name === 'string' && name.length >= 1 && name.length <= MAX_NAME_LENGTH
     && !name.includes('/') && !name.includes('\\')
 }
 
-// PATCH: 公開トグル・リネーム(内部ロールのみ)。storage_path は変更しない。
+// PATCH: 公開トグル・リネーム・説明文(内部ロールのみ)。storage_path は変更しない。
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -35,16 +37,33 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { clientVisible, name } = body as { clientVisible?: unknown; name?: unknown }
+    const { clientVisible, name, description } = body as {
+      clientVisible?: unknown
+      name?: unknown
+      description?: unknown
+    }
 
-    if (clientVisible === undefined && name === undefined) {
-      return NextResponse.json({ error: 'clientVisible or name is required' }, { status: 400 })
+    if (clientVisible === undefined && name === undefined && description === undefined) {
+      return NextResponse.json({ error: 'clientVisible, name or description is required' }, { status: 400 })
     }
     if (clientVisible !== undefined && typeof clientVisible !== 'boolean') {
       return NextResponse.json({ error: 'clientVisible must be a boolean' }, { status: 400 })
     }
     if (name !== undefined && !isValidName(name)) {
       return NextResponse.json({ error: `name must be 1-${MAX_NAME_LENGTH} chars without path separators` }, { status: 400 })
+    }
+    if (description !== undefined && description !== null && typeof description !== 'string') {
+      return NextResponse.json({ error: 'description must be a string or null' }, { status: 400 })
+    }
+    // 空白だけの説明は「説明なし」と同じ。DBに空文字を溜めないよう null に寄せる
+    const normalizedDescription =
+      description === undefined
+        ? undefined
+        : typeof description === 'string'
+          ? description.trim() || null
+          : null
+    if (normalizedDescription && normalizedDescription.length > MAX_DESCRIPTION_LENGTH) {
+      return NextResponse.json({ error: `description must be at most ${MAX_DESCRIPTION_LENGTH} chars` }, { status: 400 })
     }
 
     const { data: file, error: fileError } = await (supabase as SupabaseClient)
@@ -74,12 +93,13 @@ export async function PATCH(
     const updates: Record<string, unknown> = {}
     if (clientVisible !== undefined) updates.client_visible = clientVisible
     if (name !== undefined) updates.name = name
+    if (normalizedDescription !== undefined) updates.description = normalizedDescription
 
     const { data: updated, error: updateError } = await (supabase as SupabaseClient)
       .from('files')
       .update(updates)
       .eq('id', id)
-      .select('id, name, client_visible')
+      .select('id, name, description, client_visible')
       .single()
 
     if (updateError) {

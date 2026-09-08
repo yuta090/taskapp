@@ -39,6 +39,7 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
   return {
     id: 'f1',
     name: 'ターゲット一覧.csv',
+    description: null,
     mimeType: 'text/csv',
     sizeBytes: 2048,
     origin: 'internal',

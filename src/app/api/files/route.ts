@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
+import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 
 // GET: スペースの公開済み(status='ready')ファイル一覧
 export async function GET(request: NextRequest) {
@@ -35,10 +36,11 @@ export async function GET(request: NextRequest) {
 
     const { data: files, error } = await (supabase as SupabaseClient)
       .from('files')
-      .select('id, name, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
+      .select('id, name, description, mime_type, size_bytes, origin, client_visible, uploaded_by, created_at')
       .eq('space_id', spaceId)
       .eq('status', 'ready')
       .order('created_at', { ascending: false })
+      .limit(FILES_LIST_LIMIT)
 
     if (error) {
       console.error('Fetch files error:', error)
@@ -64,6 +66,7 @@ export async function GET(request: NextRequest) {
     const result = rows.map((f: {
       id: string
       name: string
+      description: string | null
       mime_type: string
       size_bytes: number
       origin: string
@@ -73,6 +76,7 @@ export async function GET(request: NextRequest) {
     }) => ({
       id: f.id,
       name: f.name,
+      description: f.description ?? null,
       mimeType: f.mime_type,
       sizeBytes: f.size_bytes,
       origin: f.origin,

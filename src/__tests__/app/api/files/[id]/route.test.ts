@@ -119,6 +119,36 @@ describe('PATCH /api/files/[id]', () => {
     expect(response.status).toBe(400)
   })
 
+  it('説明文を更新できる', async () => {
+    const response = await callPatch(FILE_ID, { description: '毎月更新する元データ' })
+    expect(response.status).toBe(200)
+    expect(fileUpdateCall).toEqual({ description: '毎月更新する元データ' })
+  })
+
+  it('説明文に null を渡すと消せる', async () => {
+    const response = await callPatch(FILE_ID, { description: null })
+    expect(response.status).toBe(200)
+    expect(fileUpdateCall).toEqual({ description: null })
+  })
+
+  it('説明文の前後の空白は落とし、空文字は null にして保存する', async () => {
+    await callPatch(FILE_ID, { description: '  余白つき  ' })
+    expect(fileUpdateCall).toEqual({ description: '余白つき' })
+
+    await callPatch(FILE_ID, { description: '   ' })
+    expect(fileUpdateCall).toEqual({ description: null })
+  })
+
+  it('長すぎる説明文は 400 で弾く', async () => {
+    const response = await callPatch(FILE_ID, { description: 'あ'.repeat(1001) })
+    expect(response.status).toBe(400)
+  })
+
+  it('説明文が文字列でも null でもなければ 400', async () => {
+    const response = await callPatch(FILE_ID, { description: 123 })
+    expect(response.status).toBe(400)
+  })
+
   it('returns 400 when neither clientVisible nor name is provided', async () => {
     const response = await callPatch(FILE_ID, {})
     expect(response.status).toBe(400)
