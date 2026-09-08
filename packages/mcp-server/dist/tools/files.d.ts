@@ -52,6 +52,8 @@ declare const fileUploadCompleteSchema: z.ZodObject<{
 export interface FileListItem {
     id: string;
     name: string;
+    /** 何のファイルか（一覧の行に出る短い説明）。未記入は null */
+    description: string | null;
     mimeType: string;
     sizeBytes: number;
     origin: 'internal' | 'client';
@@ -79,6 +81,23 @@ export declare function toStorageKeyName(name: string): string;
 export declare function fileList(params: z.infer<typeof fileListSchema>): Promise<FileListItem[]>;
 export declare function fileUploadUrl(params: z.infer<typeof fileUploadUrlSchema>): Promise<FileUploadUrlResult>;
 export declare function fileUploadComplete(params: z.infer<typeof fileUploadCompleteSchema>): Promise<FileUploadCompleteResult>;
+declare const fileUpdateSchema: z.ZodObject<{
+    spaceId: z.ZodString;
+    fileId: z.ZodString;
+    description: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    name: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    spaceId: string;
+    fileId: string;
+    description?: string | null | undefined;
+    name?: string | undefined;
+}, {
+    spaceId: string;
+    fileId: string;
+    description?: string | null | undefined;
+    name?: string | undefined;
+}>;
+export declare function fileUpdate(params: z.infer<typeof fileUpdateSchema>): Promise<FileListItem>;
 export declare const fileTools: ({
     name: string;
     description: string;
@@ -127,6 +146,26 @@ export declare const fileTools: ({
         fileId: string;
     }>;
     handler: typeof fileUploadComplete;
+} | {
+    name: string;
+    description: string;
+    inputSchema: z.ZodObject<{
+        spaceId: z.ZodString;
+        fileId: z.ZodString;
+        description: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        name: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        spaceId: string;
+        fileId: string;
+        description?: string | null | undefined;
+        name?: string | undefined;
+    }, {
+        spaceId: string;
+        fileId: string;
+        description?: string | null | undefined;
+        name?: string | undefined;
+    }>;
+    handler: typeof fileUpdate;
 })[];
 export {};
 //# sourceMappingURL=files.d.ts.map

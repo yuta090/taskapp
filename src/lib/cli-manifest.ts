@@ -595,7 +595,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
   // ── Wiki ──
   {
     name: 'file',
-    description: 'Project files (upload / list)',
+    description: 'Project files (upload / list / describe)',
     aliases: ['f'],
     subcommands: [
       {
@@ -626,6 +626,21 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '-f, --file <path>', description: 'Local file path (up to 50MB)', param: 'file', required: true },
           { flags: '--name <name>', description: 'File name shown in TaskApp (default: local file name)', param: 'name' },
           { flags: '--mime-type <type>', description: 'MIME type (default: guessed from extension)', param: 'mimeType' },
+        ],
+      },
+      {
+        name: 'update',
+        description: 'Set a file description (what the file is) or rename it',
+        tool: 'file_update',
+        examples: [
+          'agentpm file update --file-id <uuid> --description "顧客管理表 v1（列定義は Wiki 11）"',
+          'agentpm file update --file-id <uuid> --description ""   # 説明を消す',
+        ],
+        options: [
+          spaceOpt,
+          { flags: '--file-id <uuid>', description: 'File UUID (see: agentpm file list)', param: 'fileId', required: true },
+          { flags: '--description <text>', description: 'Description (what the file is, up to 1000 chars). Empty string clears it', param: 'description' },
+          { flags: '--name <name>', description: 'New display name', param: 'name' },
         ],
       },
     ],
@@ -872,7 +887,7 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.4.0',
+      version: '1.5.0',
       minCliVersion: '0.2.0',
       generatedAt: '2026-09-07T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),

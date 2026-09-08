@@ -175,6 +175,15 @@ export function PortalFilesClient({
                             </span>
                           )}
                         </span>
+                        {/* 何のファイルかの説明(チーム側で入力したもの)。読むだけ */}
+                        {file.description && (
+                          <span
+                            data-testid={`file-description-${file.id}`}
+                            className="block text-xs text-gray-600 truncate"
+                          >
+                            {file.description}
+                          </span>
+                        )}
                         <p className="text-xs text-gray-500">
                           {formatFileSize(file.sizeBytes)} • {new Date(file.createdAt).toLocaleDateString('ja-JP')}
                         </p>

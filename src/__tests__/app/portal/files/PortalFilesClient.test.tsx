@@ -48,6 +48,7 @@ function makeFile(overrides: Partial<ProjectFile> = {}): ProjectFile {
     clientVisible: true,
     uploadedBy: OTHER_USER_ID,
     uploaderName: '内部担当者',
+    description: null,
     createdAt: '2026-07-01T00:00:00+09:00',
     ...overrides,
   }
@@ -165,5 +166,19 @@ describe('PortalFilesClient アップロード', () => {
 
     expect(uploadMutateAsync).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalled()
+  })
+})
+
+describe('PortalFilesClient 説明文', () => {
+  it('説明文があればファイル名の下に表示する(クライアントは読むだけ)', () => {
+    renderWithProviders([makeFile({ id: 'file-1', description: '9月の請求内訳です' })])
+
+    expect(screen.getByTestId('file-description-file-1')).toHaveTextContent('9月の請求内訳です')
+  })
+
+  it('説明文がなければ何も出さない', () => {
+    renderWithProviders([makeFile({ id: 'file-1', description: null })])
+
+    expect(screen.queryByTestId('file-description-file-1')).not.toBeInTheDocument()
   })
 })

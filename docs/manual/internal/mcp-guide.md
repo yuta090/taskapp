@@ -144,6 +144,15 @@ AgentPMのプロジェクト一覧を表示して
 | `space_create` | プロジェクトを作成 |
 | `space_update` | プロジェクトを更新 |
 
+### ファイルツール
+
+| ツール名 | 説明 |
+|---------|------|
+| `file_list` | 添付ファイル一覧（名前・説明文・種類・サイズ） |
+| `file_update` | ファイルの説明文（何のファイルか）や表示名を更新 |
+| `file_upload_url` | アップロード開始（署名URLを発行） |
+| `file_upload_complete` | アップロード完了を確定 |
+
 ### Wikiツール
 
 > `wiki_create` / `wiki_update` の本文は Markdown / HTML / BlockNote JSON を受け、保存時に画面と同じブロック形式へ変換する（`format` で明示可）。
