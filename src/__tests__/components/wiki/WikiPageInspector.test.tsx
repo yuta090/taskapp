@@ -151,4 +151,22 @@ describe('WikiPageInspector 整理セクション', () => {
   it('onUpdate / allPages / milestones を省略しても描画できる（後方互換）', () => {
     expect(() => render(<WikiPageInspector page={page()} onClose={vi.fn()} />)).not.toThrow()
   })
+
+  describe('タスクからの参照（PR4: 読み取り専用表示）', () => {
+    it('taskLinkedMilestones があれば「タスクからの参照: 名前・名前」を出す', () => {
+      const linked = [milestone({ id: 'm1', name: 'フェーズ1' }), milestone({ id: 'm2', name: 'フェーズ3' })]
+      render(
+        <WikiPageInspector page={page()} onClose={vi.fn()} allPages={[]} milestones={[]} taskLinkedMilestones={linked} />
+      )
+      expect(screen.getByText('タスクからの参照: フェーズ1・フェーズ3')).toBeInTheDocument()
+    })
+
+    it('taskLinkedMilestones が空/未指定なら何も出さない', () => {
+      render(<WikiPageInspector page={page()} onClose={vi.fn()} allPages={[]} milestones={[]} taskLinkedMilestones={[]} />)
+      expect(screen.queryByText(/タスクからの参照/)).not.toBeInTheDocument()
+
+      render(<WikiPageInspector page={page()} onClose={vi.fn()} allPages={[]} milestones={[]} />)
+      expect(screen.queryByText(/タスクからの参照/)).not.toBeInTheDocument()
+    })
+  })
 })

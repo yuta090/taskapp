@@ -16,7 +16,7 @@ import {
   type WikiViewMode,
 } from './listView'
 
-export type WikiListColumn = 'tags' | 'author' | 'updater' | 'created_at' | 'updated_at'
+export type WikiListColumn = 'tags' | 'milestones' | 'author' | 'updater' | 'created_at' | 'updated_at'
 
 export interface WikiListPrefs {
   columns: WikiListColumn[]
@@ -27,16 +27,18 @@ export interface WikiListPrefs {
   collapsedIds: string[]
 }
 
-export const WIKI_LIST_PREFS_KEY = 'wiki-list-prefs:v1'
+// PR4 で milestones 列を追加し既定 columns を変えたため v2 に上げる（表示設定なので消えても実害なし。
+// v1 の値は読まない）。
+export const WIKI_LIST_PREFS_KEY = 'wiki-list-prefs:v2'
 
 export const DEFAULT_WIKI_LIST_PREFS: WikiListPrefs = {
-  columns: ['tags', 'author', 'updated_at'],
+  columns: ['tags', 'milestones', 'author', 'updated_at'],
   sort: DEFAULT_WIKI_SORT,
   view: 'list',
   collapsedIds: [],
 }
 
-const VALID_COLUMNS: readonly WikiListColumn[] = ['tags', 'author', 'updater', 'created_at', 'updated_at']
+const VALID_COLUMNS: readonly WikiListColumn[] = ['tags', 'milestones', 'author', 'updater', 'created_at', 'updated_at']
 const VALID_SORT_KEYS: readonly WikiSortKey[] = ['updated_at', 'created_at', 'title', 'author']
 const VALID_SORT_DIRS: readonly WikiSortDir[] = ['asc', 'desc']
 const VALID_VIEWS: readonly WikiViewMode[] = ['list', 'folder', 'milestone']

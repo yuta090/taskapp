@@ -29,9 +29,10 @@ const SORT_LABELS: Record<WikiSortKey, string> = {
   author: '作成者',
 }
 
-const COLUMN_OPTIONS: WikiListColumn[] = ['tags', 'author', 'updater', 'created_at', 'updated_at']
+const COLUMN_OPTIONS: WikiListColumn[] = ['tags', 'milestones', 'author', 'updater', 'created_at', 'updated_at']
 const COLUMN_LABELS: Record<WikiListColumn, string> = {
   tags: 'タグ',
+  milestones: 'マイルストーン',
   author: '作成者',
   updater: '更新者',
   created_at: '作成日',
@@ -49,6 +50,8 @@ interface WikiListToolbarProps {
   currentUserId: string | null
   totalCount: number
   filteredCount: number
+  /** マイルストーン別表示での延べ行数（1ページが複数グループに出るぶん増える）。他の表示では未使用。 */
+  groupedRowCount?: number
 }
 
 export function WikiListToolbar({
@@ -61,6 +64,7 @@ export function WikiListToolbar({
   currentUserId,
   totalCount,
   filteredCount,
+  groupedRowCount,
 }: WikiListToolbarProps) {
   const [tagsExpanded, setTagsExpanded] = useState(false)
 
@@ -193,7 +197,7 @@ export function WikiListToolbar({
                 title={label}
                 onClick={() => onPrefsChange({ ...prefs, view: mode })}
                 className={`px-2 py-1.5 transition-colors ${
-                  selected ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
+                  selected ? 'bg-indigo-50 text-indigo-ink' : 'text-gray-500 hover:bg-gray-50'
                 }`}
               >
                 <Icon className="text-sm" />
@@ -227,7 +231,7 @@ export function WikiListToolbar({
                   onClick={() => toggleTag(tag)}
                   className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors ${
                     selected
-                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      ? 'bg-indigo-50 text-indigo-ink border-indigo-200'
                       : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
                   }`}
                 >
@@ -266,7 +270,7 @@ export function WikiListToolbar({
             aria-pressed={isOnlyMe}
             className={`hidden md:inline-flex flex-shrink-0 px-2 py-1.5 text-xs rounded-lg border transition-colors ${
               isOnlyMe
-                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                ? 'bg-indigo-50 text-indigo-ink border-indigo-200'
                 : 'text-gray-600 border-gray-200 hover:border-gray-300 bg-surface'
             }`}
           >
@@ -282,7 +286,7 @@ export function WikiListToolbar({
             aria-expanded={isAuthorOpen}
             className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors ${
               filters.authorIds.length > 0
-                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                ? 'bg-indigo-50 text-indigo-ink border-indigo-200'
                 : 'text-gray-600 border-gray-200 hover:border-gray-300 bg-surface'
             }`}
           >
@@ -344,7 +348,7 @@ export function WikiListToolbar({
                   type="button"
                   onClick={() => selectSortKey(key)}
                   className={`w-full flex items-center justify-between px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors ${
-                    prefs.sort.key === key ? 'text-indigo-700' : 'text-gray-700'
+                    prefs.sort.key === key ? 'text-indigo-ink' : 'text-gray-700'
                   }`}
                 >
                   <span>{SORT_LABELS[key]}</span>
@@ -394,17 +398,23 @@ export function WikiListToolbar({
         </div>
       </div>
 
-      {/* 2行目: 件数 */}
+      {/* 2行目: 件数。マイルストーン別表示だけ「延べ」件数を併記する（1ページが複数グループに出るため）。 */}
       <div className="flex items-center gap-2 px-4 pb-2 text-xs text-gray-400">
         {isFiltering ? (
           <>
-            <span>全 {totalCount} 件中 {filteredCount} 件</span>
-            <button type="button" onClick={clearFilters} className="text-indigo-600 hover:text-indigo-700">
+            <span>
+              全 {totalCount} 件中 {filteredCount} 件
+              {prefs.view === 'milestone' && groupedRowCount != null && `（延べ ${groupedRowCount} 件）`}
+            </span>
+            <button type="button" onClick={clearFilters} className="text-indigo-600 hover:text-indigo-ink">
               絞り込みを解除
             </button>
           </>
         ) : (
-          <span>{totalCount} 件</span>
+          <span>
+            {totalCount} 件
+            {prefs.view === 'milestone' && groupedRowCount != null && `（延べ ${groupedRowCount} 件）`}
+          </span>
         )}
       </div>
     </div>

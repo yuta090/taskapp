@@ -110,6 +110,12 @@ describe('WikiListToolbar', () => {
     })
   })
 
+  it('表示項目メニューに「マイルストーン」がある', () => {
+    setup({ prefs: { ...DEFAULT_WIKI_LIST_PREFS, columns: DEFAULT_WIKI_LIST_PREFS.columns.filter(c => c !== 'milestones') } })
+    fireEvent.click(screen.getByTestId('wiki-columns-toggle'))
+    expect(within(screen.getByTestId('wiki-columns-menu')).getByText('マイルストーン')).toBeInTheDocument()
+  })
+
   it('表示項目メニューで ON の項目をクリックすると外れる', () => {
     const { onPrefsChange } = setup()
     fireEvent.click(screen.getByTestId('wiki-columns-toggle'))
@@ -135,6 +141,33 @@ describe('WikiListToolbar', () => {
     expect(screen.getByText('全 5 件中 2 件')).toBeInTheDocument()
     fireEvent.click(screen.getByText('絞り込みを解除'))
     expect(onFiltersChange).toHaveBeenCalledWith(DEFAULT_WIKI_FILTERS)
+  })
+
+  it('マイルストーン別表示では「延べ」件数を併記する', () => {
+    setup({
+      prefs: { ...DEFAULT_WIKI_LIST_PREFS, view: 'milestone' },
+      totalCount: 18,
+      filteredCount: 18,
+      groupedRowCount: 38,
+    })
+    expect(screen.getByText('18 件（延べ 38 件）')).toBeInTheDocument()
+  })
+
+  it('マイルストーン別表示で絞り込み中は「全N件中M件（延べK件）」になる', () => {
+    setup({
+      prefs: { ...DEFAULT_WIKI_LIST_PREFS, view: 'milestone' },
+      filters: { ...DEFAULT_WIKI_FILTERS, query: 'x' },
+      totalCount: 18,
+      filteredCount: 8,
+      groupedRowCount: 14,
+    })
+    expect(screen.getByText('全 18 件中 8 件（延べ 14 件）')).toBeInTheDocument()
+  })
+
+  it('一覧/フォルダ表示では「延べ」を出さない', () => {
+    setup({ prefs: { ...DEFAULT_WIKI_LIST_PREFS, view: 'list' }, totalCount: 5, filteredCount: 5, groupedRowCount: 99 })
+    expect(screen.getByText('5 件')).toBeInTheDocument()
+    expect(screen.queryByText(/延べ/)).not.toBeInTheDocument()
   })
 
   it('自分のページトグルで currentUserId が authorIds に入る', () => {

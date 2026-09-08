@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { WikiPageRow, type WikiRowMember } from '@/components/wiki/WikiPageRow'
-import type { WikiPage } from '@/types/database'
+import type { Milestone, WikiPage } from '@/types/database'
 
 vi.mock('next/image', () => ({
   default: (props: Record<string, unknown>) => <img {...props} alt={(props.alt as string) ?? ''} />,
@@ -33,6 +33,22 @@ const MEMBERS: Record<string, WikiRowMember> = {
   user2: { name: '鈴木花子', avatarUrl: 'https://example.com/a.png' },
 }
 const getMember = vi.fn((userId: string) => MEMBERS[userId] ?? null)
+
+function milestone(overrides: Partial<Milestone> = {}): Milestone {
+  return {
+    id: 'm1',
+    org_id: 'org1',
+    space_id: 'space1',
+    name: 'フェーズ1',
+    start_date: null,
+    due_date: null,
+    order_key: 0,
+    completed_at: null,
+    created_at: '2026-09-01T00:00:00+09:00',
+    updated_at: '2026-09-01T00:00:00+09:00',
+    ...overrides,
+  }
+}
 
 describe('WikiPageRow', () => {
   it('columns=[] だとタイトルだけでメタ情報は出ない', () => {
@@ -248,5 +264,95 @@ describe('WikiPageRow', () => {
     )
     expect(screen.queryByLabelText('展開')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('折りたたむ')).not.toBeInTheDocument()
+  })
+
+  describe('milestones 列（PR4: 所属マイルストーンをタグのように見せる）', () => {
+    it('milestones 列でチップが出る', () => {
+      render(
+        <WikiPageRow
+          page={page()}
+          isSelected={false}
+          onSelect={vi.fn()}
+          columns={['milestones']}
+          getMember={getMember}
+          milestones={[milestone({ id: 'm1', name: 'フェーズ1' })]}
+        />
+      )
+      expect(screen.getByText('フェーズ1')).toBeInTheDocument()
+    })
+
+    it('2個超は +N で省略する', () => {
+      render(
+        <WikiPageRow
+          page={page()}
+          isSelected={false}
+          onSelect={vi.fn()}
+          columns={['milestones']}
+          getMember={getMember}
+          milestones={[
+            milestone({ id: 'm1', name: 'フェーズ1' }),
+            milestone({ id: 'm2', name: 'フェーズ2' }),
+            milestone({ id: 'm3', name: 'フェーズ3' }),
+          ]}
+        />
+      )
+      expect(screen.getByText('フェーズ1')).toBeInTheDocument()
+      expect(screen.getByText('フェーズ2')).toBeInTheDocument()
+      expect(screen.queryByText('フェーズ3')).not.toBeInTheDocument()
+      expect(screen.getByText('+1')).toBeInTheDocument()
+    })
+
+    it('所属マイルストーンが無ければ milestones 列を出しても何も表示しない', () => {
+      render(
+        <WikiPageRow page={page()} isSelected={false} onSelect={vi.fn()} columns={['milestones']} getMember={getMember} milestones={[]} />
+      )
+      expect(screen.queryByText('フェーズ1')).not.toBeInTheDocument()
+    })
+
+    it('columns に milestones が無ければチップは出ない', () => {
+      render(
+        <WikiPageRow
+          page={page()}
+          isSelected={false}
+          onSelect={vi.fn()}
+          columns={[]}
+          getMember={getMember}
+          milestones={[milestone({ id: 'm1', name: 'フェーズ1' })]}
+        />
+      )
+      expect(screen.queryByText('フェーズ1')).not.toBeInTheDocument()
+    })
+
+    it('マイルストーン別表示（duplicatedInOtherGroups が渡される）ではチップを出さず「他 N 件のマイルストーンにも」を出す', () => {
+      render(
+        <WikiPageRow
+          page={page()}
+          isSelected={false}
+          onSelect={vi.fn()}
+          columns={['milestones']}
+          getMember={getMember}
+          milestones={[milestone({ id: 'm1', name: 'フェーズ1' })]}
+          duplicatedInOtherGroups={2}
+        />
+      )
+      expect(screen.queryByText('フェーズ1')).not.toBeInTheDocument()
+      expect(screen.getByText('他 2 件のマイルストーンにも')).toBeInTheDocument()
+    })
+
+    it('マイルストーン別表示で他のグループに出ていなければ（0件）何も出さない', () => {
+      render(
+        <WikiPageRow
+          page={page()}
+          isSelected={false}
+          onSelect={vi.fn()}
+          columns={['milestones']}
+          getMember={getMember}
+          milestones={[milestone({ id: 'm1', name: 'フェーズ1' })]}
+          duplicatedInOtherGroups={0}
+        />
+      )
+      expect(screen.queryByText('フェーズ1')).not.toBeInTheDocument()
+      expect(screen.queryByText(/他 \d+ 件のマイルストーンにも/)).not.toBeInTheDocument()
+    })
   })
 })
