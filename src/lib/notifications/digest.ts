@@ -152,14 +152,26 @@ function itemTitle(n: DigestNotification): string {
 }
 
 /**
- * この通知がメールに載るか（見出しがあり、本人がその種類の受信をオンにしている）。
+ * 本人が設定画面で「この種類は要らない」と切っているか。
+ * ブラウザ通知もこの設定を共有する（種類を切ったのにプッシュだけ鳴る、を防ぐため）。
+ *
+ * 設定画面に出ていない種類（見出しの無い運営向けの通知など）は、本人にスイッチが無いので
+ * 「切っていない」扱いにする。切れないものを勝手に黙らせない。
+ */
+export function isNotificationTypeMuted(type: string, prefs: NotificationEmailPrefs): boolean {
+  const category = categorizeNotificationType(type)
+  if (!category) return false
+  return !prefs[CATEGORY_PREF_KEY[category]]
+}
+
+/**
+ * この通知がメールに載るか（メールを受け取る設定＋その種類を切っていない＋見出しがある）。
  * 即時メール側も「どの通知を実際に送ったか」を知るためにこれを使う（判定の重複を避ける）。
  */
 export function isIncludedInEmail(type: string, prefs: NotificationEmailPrefs): boolean {
   if (!prefs.email_enabled || prefs.digest_frequency === 'none') return false
-  const category = categorizeNotificationType(type)
-  if (!category) return false
-  return !!prefs[CATEGORY_PREF_KEY[category]]
+  if (categorizeNotificationType(type) === null) return false
+  return !isNotificationTypeMuted(type, prefs)
 }
 
 /**

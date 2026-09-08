@@ -10,6 +10,11 @@ import {
   QUIET_HOURS_EXEMPT_TYPES,
 } from '@/lib/notifications/delivery'
 import { jstDayStartUtc, jstNow } from '@/lib/datetime/jstNow'
+import {
+  DEFAULT_NOTIFICATION_EMAIL_PREFS,
+  isNotificationTypeMuted,
+  type NotificationEmailPrefs,
+} from '@/lib/notifications/digest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // web-push is Node-only (uses the `crypto` module directly), so this route
@@ -35,6 +40,7 @@ interface PushSubscriptionRow {
  *   - 相手を待たせる種類だけ鳴らす（知らせるだけの通知では鳴らさない）
  *   - 夜21時〜朝8時・土日は鳴らさない（「至急」だけ例外）
  *   - 1人1日 PUSH_DAILY_CAP 件まで（超えたぶんは受信箱と翌朝のまとめに残る）
+ *   - 本人が設定画面でその種類を切っていたら鳴らさない（メールと同じ設定を共有する）
  * 鳴らさないと決めた通知も受信箱には残るので、消えるわけではない。
  *
  * 認証: Authorization: Bearer ${CRON_SECRET}（/api/cron/client-reminders と同一パターン）。
@@ -98,33 +104,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ sent: 0, failed: 0, removed: 0, skipped: earlySkip })
     }
 
-    // その日すでに何件鳴らしたか。押し寄せた日に端末が鳴り続けないための歯止め。
+    // ここから先に要る3つは互いに独立なので同時に投げる。順番に待つと、
+    // 「そもそも購読が1件も無い」ことを知る前に残り2つを無駄に往復することになる
+    // （購読ゼロが今のところ大多数で、しかも件数の集計が一番重い）。
+    //
+    // その日すでに何件鳴らしたか＝押し寄せた日に端末が鳴り続けないための歯止め。
     // 「鳴らした記録」は持っていないので、鳴る条件を満たす通知が今日どれだけ届いたかで数える
     // （静かな時間帯のぶんは鳴っていないので、朝8時以降に届いたものだけを対象にする）。
-    let immediateCountToday = 0
-    if (!QUIET_HOURS_EXEMPT_TYPES.includes(notificationRow.type)) {
-      const windowStart = new Date(jstDayStartUtc(nowReal).getTime() + QUIET_HOURS_END * 60 * 60 * 1000)
-      const { count, error: countError } = await admin
-        .from('notifications')
-        .select('id', { count: 'exact', head: true })
-        .eq('to_user_id', notificationRow.to_user_id)
-        .eq('channel', 'in_app')
-        .in('type', PUSH_IMMEDIATE_TYPES)
-        .gte('created_at', windowStart.toISOString())
-        .neq('id', notificationRow.id)
+    const needsCount = !QUIET_HOURS_EXEMPT_TYPES.includes(notificationRow.type)
+    const windowStart = new Date(jstDayStartUtc(nowReal).getTime() + QUIET_HOURS_END * 60 * 60 * 1000)
 
-      if (countError) {
-        // 数えられなかっただけで黙らせるのは筋が悪い（届かないほうが困る）ので、0件として続行
-        console.error('[push/dispatch] Failed to count today\'s pushes:', countError)
-      }
-      immediateCountToday = count ?? 0
+    const [subscriptionsResult, prefsResult, countResult] = await Promise.all([
+      admin
+        .from('push_subscriptions')
+        .select('id, endpoint, p256dh, auth')
+        .eq('user_id', notificationRow.to_user_id),
+      admin
+        .from('notification_email_prefs')
+        .select('email_enabled, on_task_assigned, on_task_mentioned, on_review_request, on_client_response, on_meeting_reminder, digest_frequency')
+        .eq('user_id', notificationRow.to_user_id)
+        .maybeSingle(),
+      needsCount
+        ? admin
+            .from('notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('to_user_id', notificationRow.to_user_id)
+            .eq('channel', 'in_app')
+            .in('type', PUSH_IMMEDIATE_TYPES)
+            .gte('created_at', windowStart.toISOString())
+            .neq('id', notificationRow.id)
+        : Promise.resolve({ count: 0, error: null }),
+    ])
+
+    if (subscriptionsResult.error) {
+      console.error('[push/dispatch] Failed to fetch push subscriptions:', subscriptionsResult.error)
+      return NextResponse.json({ error: 'Failed to fetch push subscriptions' }, { status: 500 })
     }
+
+    const subscriptionRows = (subscriptionsResult.data || []) as PushSubscriptionRow[]
+    if (subscriptionRows.length === 0) {
+      return NextResponse.json({ sent: 0, failed: 0, removed: 0 })
+    }
+
+    // 本人が設定画面でこの種類を切っていたら鳴らさない。設定が無い人は既定（オン）。
+    const prefs = (prefsResult.data as NotificationEmailPrefs | null) ?? DEFAULT_NOTIFICATION_EMAIL_PREFS
+    if (isNotificationTypeMuted(notificationRow.type, prefs)) {
+      return NextResponse.json({ sent: 0, failed: 0, removed: 0, skipped: 'type_off' })
+    }
+
+    if (countResult.error) {
+      // 数えられなかっただけで黙らせるのは筋が悪い（届かないほうが困る）ので、0件として続行
+      console.error('[push/dispatch] Failed to count today\'s pushes:', countResult.error)
+    }
+    const immediateCountToday = countResult.count ?? 0
 
     const skip = pushSkipReason({ type: notificationRow.type, jstDate, immediateCountToday })
     if (skip) {
       return NextResponse.json({ sent: 0, failed: 0, removed: 0, skipped: skip })
     }
 
+    // 送ると決まってから引く（送らない場合はそもそも要らない）
     const { data: membership } = await admin
       .from('org_memberships')
       .select('role')
@@ -134,22 +173,6 @@ export async function POST(request: NextRequest) {
 
     const role: PushRecipientRole =
       (membership as { role?: string } | null)?.role === 'client' ? 'client' : 'internal'
-
-    const { data: subscriptions, error: subscriptionsError } = await admin
-      .from('push_subscriptions')
-      .select('id, endpoint, p256dh, auth')
-      .eq('user_id', notificationRow.to_user_id)
-
-    if (subscriptionsError) {
-      console.error('[push/dispatch] Failed to fetch push subscriptions:', subscriptionsError)
-      return NextResponse.json({ error: 'Failed to fetch push subscriptions' }, { status: 500 })
-    }
-
-    const subscriptionRows = (subscriptions || []) as PushSubscriptionRow[]
-
-    if (subscriptionRows.length === 0) {
-      return NextResponse.json({ sent: 0, failed: 0, removed: 0 })
-    }
 
     webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey)
 
@@ -181,20 +204,20 @@ export async function POST(request: NextRequest) {
       })
     )
 
-    if (staleIds.length > 0) {
-      const { error: deleteError } = await admin.from('push_subscriptions').delete().in('id', staleIds)
-      if (deleteError) {
-        console.error('[push/dispatch] Failed to remove stale push subscriptions:', deleteError)
-      }
+    // 期限切れの購読の削除と、使えた購読の記録は互いに独立なので同時に
+    const [deleteResult, updateResult] = await Promise.all([
+      staleIds.length > 0
+        ? admin.from('push_subscriptions').delete().in('id', staleIds)
+        : Promise.resolve({ error: null }),
+      usedIds.length > 0
+        ? admin.from('push_subscriptions').update({ last_used_at: new Date().toISOString() }).in('id', usedIds)
+        : Promise.resolve({ error: null }),
+    ])
+    if (deleteResult.error) {
+      console.error('[push/dispatch] Failed to remove stale push subscriptions:', deleteResult.error)
     }
-    if (usedIds.length > 0) {
-      const { error: updateError } = await admin
-        .from('push_subscriptions')
-        .update({ last_used_at: new Date().toISOString() })
-        .in('id', usedIds)
-      if (updateError) {
-        console.error('[push/dispatch] Failed to update last_used_at:', updateError)
-      }
+    if (updateResult.error) {
+      console.error('[push/dispatch] Failed to update last_used_at:', updateResult.error)
     }
 
     return NextResponse.json({ sent, failed, removed: staleIds.length })

@@ -221,7 +221,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     setSaveStatus('idle')
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- collapse on-demand info panel when switching pages
+     
     setShowInfo(false)
 
     let cancelled = false

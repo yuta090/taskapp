@@ -6,7 +6,7 @@
  * 制御文字・バックスラッシュ・`//` を弾いたうえで、実際に基準 origin で解決して同一 origin であることを確認する。
  * 検査は必ずここ1か所（複製するとドリフトした瞬間にオープンリダイレクトになる）。
  */
-// eslint-disable-next-line no-control-regex
+ 
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/
 
 export function isSafeInternalPath(path: string | null | undefined): path is string {

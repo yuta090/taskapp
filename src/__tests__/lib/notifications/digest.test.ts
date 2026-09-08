@@ -98,3 +98,30 @@ describe('設定を触っていない人の既定値', () => {
     expect({ digest_frequency, ...rest }).toEqual(DEFAULT_NOTIFICATION_EMAIL_PREFS)
   })
 })
+
+describe('種類ごとの受信設定', () => {
+  const prefs = {
+    email_enabled: true,
+    on_task_assigned: true,
+    on_task_mentioned: true,
+    on_review_request: false,
+    on_client_response: true,
+    on_meeting_reminder: true,
+    digest_frequency: 'daily' as const,
+  }
+
+  it('切っている種類は muted', async () => {
+    const { isNotificationTypeMuted } = await import('@/lib/notifications/digest')
+    expect(isNotificationTypeMuted('review_request', prefs)).toBe(true)
+    expect(isNotificationTypeMuted('confirmation_request', prefs)).toBe(true) // 同じ見出し
+    expect(isNotificationTypeMuted('task_assigned', prefs)).toBe(false)
+  })
+
+  it('設定画面に無い種類は「切っていない」扱い(勝手に黙らせない)', async () => {
+    const { isNotificationTypeMuted, isIncludedInEmail } = await import('@/lib/notifications/digest')
+    // sink_error は見出しが無く設定画面にも出ないが、プッシュは鳴らす必要がある
+    expect(isNotificationTypeMuted('sink_error', prefs)).toBe(false)
+    // ただしメールのまとめには見出しが要るので載らない
+    expect(isIncludedInEmail('sink_error', prefs)).toBe(false)
+  })
+})

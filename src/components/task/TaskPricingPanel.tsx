@@ -41,7 +41,7 @@ export function TaskPricingPanel({
       setSellMode(pricing.sell_mode)
       setSellTotal(pricing.sell_total != null ? String(pricing.sell_total) : '')
     } else if (defaultMarginRate != null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- スペース既定の利益率をフォーム初期値に同期する
+       
       setMarginRate(String(defaultMarginRate))
     }
   }, [pricing, defaultMarginRate])

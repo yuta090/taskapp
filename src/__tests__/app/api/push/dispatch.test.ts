@@ -20,6 +20,7 @@ vi.mock('web-push', () => ({
 type TableResponses = {
   notifications: { data: unknown; error: null | { message: string } }
   notificationsCount: { count: number; error: null | { message: string } }
+  notification_email_prefs: { data: unknown; error: null | { message: string } }
   org_memberships: { data: unknown; error: null | { message: string } }
   push_subscriptions: { data: unknown[] | null; error: null | { message: string } }
 }
@@ -43,6 +44,15 @@ const adminFromMock = vi.fn((table: string) => {
     builder.then = (resolve: any, reject?: any) =>
       Promise.resolve(responses.notificationsCount).then(resolve, reject)
     return builder
+  }
+  if (table === 'notification_email_prefs') {
+    return {
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn(() => Promise.resolve(responses.notification_email_prefs)),
+        })),
+      })),
+    }
   }
   if (table === 'org_memberships') {
     return {
@@ -96,6 +106,7 @@ describe('POST /api/push/dispatch', () => {
 
     responses = {
       notificationsCount: { count: 0, error: null },
+      notification_email_prefs: { data: null, error: null },
       notifications: {
         data: {
           id: 'notif-1',
@@ -252,6 +263,7 @@ describe('POST /api/push/dispatch — 鳴らす条件', () => {
 
     responses = {
       notificationsCount: { count: 0, error: null },
+      notification_email_prefs: { data: null, error: null },
       notifications: { data: null, error: null },
       org_memberships: { data: { role: 'editor' }, error: null },
       push_subscriptions: {
@@ -330,5 +342,150 @@ describe('POST /api/push/dispatch — 鳴らす条件', () => {
     await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
 
     expect(adminFromMock).not.toHaveBeenCalledWith('push_subscriptions')
+  })
+})
+
+describe('POST /api/push/dispatch — 種類ごとの受信設定', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-09T03:00:00.000Z')) // 水 12:00 JST
+    process.env.CRON_SECRET = 'test-cron-secret'
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'test-public-key'
+    process.env.VAPID_PRIVATE_KEY = 'test-private-key'
+    process.env.VAPID_SUBJECT = 'mailto:test@example.com'
+
+    responses = {
+      notificationsCount: { count: 0, error: null },
+      notification_email_prefs: { data: null, error: null },
+      notifications: {
+        data: {
+          id: 'notif-1',
+          org_id: 'org-1',
+          space_id: 'space-1',
+          to_user_id: 'user-1',
+          type: 'review_request',
+          payload: {},
+        },
+        error: null,
+      },
+      org_memberships: { data: { role: 'editor' }, error: null },
+      push_subscriptions: {
+        data: [{ id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p', auth: 'a' }],
+        error: null,
+      },
+    }
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('その種類を切っている人には鳴らさない', async () => {
+    responses.notification_email_prefs = {
+      data: {
+        email_enabled: true,
+        on_task_assigned: true,
+        on_task_mentioned: true,
+        on_review_request: false,
+        on_client_response: true,
+        on_meeting_reminder: true,
+        digest_frequency: 'daily',
+      },
+      error: null,
+    }
+
+    const json = await (
+      await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
+    ).json()
+
+    expect(json).toMatchObject({ sent: 0, skipped: 'type_off' })
+    expect(sendNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('メールだけ止めている人でも、ブラウザ通知は鳴る(別の軸)', async () => {
+    responses.notification_email_prefs = {
+      data: {
+        email_enabled: false,
+        on_task_assigned: true,
+        on_task_mentioned: true,
+        on_review_request: true,
+        on_client_response: true,
+        on_meeting_reminder: true,
+        digest_frequency: 'none',
+      },
+      error: null,
+    }
+
+    const json = await (
+      await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
+    ).json()
+
+    expect(json.sent).toBe(1)
+  })
+
+  it('設定を保存したことがない人には鳴る(既定はオン)', async () => {
+    responses.notification_email_prefs = { data: null, error: null }
+
+    const json = await (
+      await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
+    ).json()
+
+    expect(json.sent).toBe(1)
+  })
+})
+
+describe('POST /api/push/dispatch — 無駄な問い合わせを増やさない', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-09T03:00:00.000Z')) // 水 12:00 JST
+    process.env.CRON_SECRET = 'test-cron-secret'
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'test-public-key'
+    process.env.VAPID_PRIVATE_KEY = 'test-private-key'
+    process.env.VAPID_SUBJECT = 'mailto:test@example.com'
+
+    responses = {
+      notificationsCount: { count: 0, error: null },
+      notification_email_prefs: { data: null, error: null },
+      notifications: {
+        data: {
+          id: 'notif-1',
+          org_id: 'org-1',
+          space_id: 'space-1',
+          to_user_id: 'user-1',
+          type: 'review_request',
+          payload: {},
+        },
+        error: null,
+      },
+      org_memberships: { data: { role: 'editor' }, error: null },
+      push_subscriptions: { data: [], error: null },
+    }
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('購読が1件も無ければ、宛先の役割(org_memberships)は引かない', async () => {
+    const json = await (
+      await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
+    ).json()
+
+    expect(json).toEqual({ sent: 0, failed: 0, removed: 0 })
+    expect(adminFromMock).not.toHaveBeenCalledWith('org_memberships')
+  })
+
+  it('上限で鳴らさないと決めたときも、宛先の役割は引かない', async () => {
+    responses.push_subscriptions = {
+      data: [{ id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p', auth: 'a' }],
+      error: null,
+    }
+    responses.notificationsCount = { count: 10, error: null }
+
+    await callPost({ Authorization: 'Bearer test-cron-secret' }, { notificationId: 'notif-1' })
+
+    expect(adminFromMock).not.toHaveBeenCalledWith('org_memberships')
   })
 })
