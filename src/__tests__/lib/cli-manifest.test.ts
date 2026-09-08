@@ -104,3 +104,23 @@ describe('cli-manifest: notices（CLI に出すお知らせ）', () => {
     expect(update.options.some((o) => o.param === 'description')).toBe(true)
   })
 })
+
+/**
+ * 作成時のステータス指定。以前は作成すると必ず「未着手(backlog)」になり、
+ * 「最初から着手中で作る」には作成→update の2回叩きが要った。
+ */
+describe('cli-manifest: task create --status', () => {
+  const manifest = getManifest()
+  const create = manifest.commands
+    .find((c) => c.name === 'task')!
+    .subcommands!.find((s) => s.name === 'create')!
+
+  it('task create が --status を受け取り、update と同じ 6 種から選ばせる', () => {
+    const status = create.options.find((o) => o.param === 'status')
+    expect(status).toBeDefined()
+    expect(status!.flags).toBe('--status <status>')
+    expect(status!.choices).toEqual([
+      'backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering',
+    ])
+  })
+})

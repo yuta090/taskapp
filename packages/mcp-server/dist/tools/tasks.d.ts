@@ -8,6 +8,7 @@ export declare const taskCreateSchema: z.ZodObject<{
     ball: z.ZodDefault<z.ZodEnum<["client", "internal"]>>;
     origin: z.ZodDefault<z.ZodEnum<["client", "internal"]>>;
     clientScope: z.ZodDefault<z.ZodEnum<["deliverable", "internal"]>>;
+    status: z.ZodOptional<z.ZodEnum<["backlog", "todo", "in_progress", "in_review", "done", "considering"]>>;
     clientOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     internalOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     dueDate: z.ZodOptional<z.ZodString>;
@@ -25,6 +26,7 @@ export declare const taskCreateSchema: z.ZodObject<{
     clientOwnerIds: string[];
     internalOwnerIds: string[];
     description?: string | undefined;
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
     milestoneId?: string | undefined;
@@ -38,6 +40,7 @@ export declare const taskCreateSchema: z.ZodObject<{
     ball?: "client" | "internal" | undefined;
     origin?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     clientOwnerIds?: string[] | undefined;
     internalOwnerIds?: string[] | undefined;
     dueDate?: string | undefined;
@@ -207,6 +210,7 @@ export declare const taskTools: ({
         ball: z.ZodDefault<z.ZodEnum<["client", "internal"]>>;
         origin: z.ZodDefault<z.ZodEnum<["client", "internal"]>>;
         clientScope: z.ZodDefault<z.ZodEnum<["deliverable", "internal"]>>;
+        status: z.ZodOptional<z.ZodEnum<["backlog", "todo", "in_progress", "in_review", "done", "considering"]>>;
         clientOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         internalOwnerIds: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         dueDate: z.ZodOptional<z.ZodString>;
@@ -224,6 +228,7 @@ export declare const taskTools: ({
         clientOwnerIds: string[];
         internalOwnerIds: string[];
         description?: string | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
@@ -237,6 +242,7 @@ export declare const taskTools: ({
         ball?: "client" | "internal" | undefined;
         origin?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         clientOwnerIds?: string[] | undefined;
         internalOwnerIds?: string[] | undefined;
         dueDate?: string | undefined;

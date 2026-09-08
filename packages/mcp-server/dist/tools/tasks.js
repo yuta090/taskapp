@@ -12,6 +12,7 @@ export const taskCreateSchema = z.object({
     ball: z.enum(['client', 'internal']).default('internal').describe('ボール所有者: client=クライアント, internal=社内'),
     origin: z.enum(['client', 'internal']).default('internal').describe('起源: 誰が起票したか'),
     clientScope: z.enum(['deliverable', 'internal']).default('deliverable').describe('クライアント可視性: deliverable=ポータルに表示, internal=非表示'),
+    status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']).optional().describe('作成時のステータス（省略時: task=backlog, spec=considering）'),
     clientOwnerIds: z.array(z.string().uuid()).default([]).describe('クライアント側担当者のUUID配列'),
     internalOwnerIds: z.array(z.string().uuid()).default([]).describe('社内側担当者のUUID配列'),
     dueDate: z.string().optional().describe('期限日 (YYYY-MM-DD)'),
@@ -105,7 +106,8 @@ export async function taskCreate(params) {
     if (params.ball === 'client' && params.clientOwnerIds.length === 0) {
         throw new Error('ball=clientの場合はclientOwnerIdsが必須です');
     }
-    const status = params.type === 'spec' ? 'considering' : 'backlog';
+    // 明示指定があればそれで作る（CLI の --status）。無指定のときの既定は従来どおり。
+    const status = params.status ?? (params.type === 'spec' ? 'considering' : 'backlog');
     const { data: task, error: taskError } = await supabase
         .from('tasks')
         .insert({

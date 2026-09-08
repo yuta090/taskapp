@@ -10,6 +10,7 @@ export declare const allTools: ({
         ball: import("zod").ZodDefault<import("zod").ZodEnum<["client", "internal"]>>;
         origin: import("zod").ZodDefault<import("zod").ZodEnum<["client", "internal"]>>;
         clientScope: import("zod").ZodDefault<import("zod").ZodEnum<["deliverable", "internal"]>>;
+        status: import("zod").ZodOptional<import("zod").ZodEnum<["backlog", "todo", "in_progress", "in_review", "done", "considering"]>>;
         clientOwnerIds: import("zod").ZodDefault<import("zod").ZodArray<import("zod").ZodString, "many">>;
         internalOwnerIds: import("zod").ZodDefault<import("zod").ZodArray<import("zod").ZodString, "many">>;
         dueDate: import("zod").ZodOptional<import("zod").ZodString>;
@@ -27,6 +28,7 @@ export declare const allTools: ({
         clientOwnerIds: string[];
         internalOwnerIds: string[];
         description?: string | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
@@ -40,6 +42,7 @@ export declare const allTools: ({
         ball?: "client" | "internal" | undefined;
         origin?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         clientOwnerIds?: string[] | undefined;
         internalOwnerIds?: string[] | undefined;
         dueDate?: string | undefined;
@@ -836,20 +839,29 @@ export declare const allTools: ({
         body: import("zod").ZodOptional<import("zod").ZodString>;
         format: import("zod").ZodOptional<import("zod").ZodEnum<["markdown", "html", "blocks"]>>;
         tags: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
+        parentPageId: import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>;
+        milestoneId: import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>;
+        pinned: import("zod").ZodOptional<import("zod").ZodBoolean>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
+        milestoneId?: string | null | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
+        parentPageId?: string | null | undefined;
+        pinned?: boolean | undefined;
     }, {
         spaceId: string;
         pageId: string;
         title?: string | undefined;
+        milestoneId?: string | null | undefined;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
+        parentPageId?: string | null | undefined;
+        pinned?: boolean | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiUpdate;
 } | {

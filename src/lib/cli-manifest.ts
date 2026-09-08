@@ -103,6 +103,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           spaceOpt,
           { flags: '--title <title>', description: 'Task title', param: 'title', required: true },
           { flags: '--description <desc>', description: 'Task description', param: 'description' },
+          { flags: '--status <status>', description: 'Initial status (default: backlog / spec: considering)', param: 'status', choices: ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering'] },
           { flags: '--type <type>', description: 'task|spec', param: 'type', choices: ['task', 'spec'], default: 'task' },
           { flags: '--ball <side>', description: 'client|internal', param: 'ball', choices: ['client', 'internal'], default: 'internal' },
           { flags: '--origin <origin>', description: 'client|internal', param: 'origin', choices: ['client', 'internal'], default: 'internal' },
@@ -874,6 +875,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     date: '2026-09-07',
     message: '日本語の名前のファイルがアップロードで失敗していた不具合を直しました（画面・CLI とも）。以前失敗したファイルは、そのまま上げ直せます',
   },
+  {
+    id: '2026-09-08-task-create-status',
+    date: '2026-09-08',
+    message: 'タスクを作るときに最初のステータスを指定できるようになりました: agentpm task create --title "..." --status in_progress（省略すると今までどおり未着手）',
+  },
 ]
 
 function computeChecksum(commands: ManifestCommand[]): string {
@@ -887,9 +893,9 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.5.0',
+      version: '1.6.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-09-07T09:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-09-08T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
       notices: MANIFEST_NOTICES,
