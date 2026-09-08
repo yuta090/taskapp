@@ -42,6 +42,8 @@ const fileUploadCompleteSchema = z.object({
 export interface FileListItem {
   id: string
   name: string
+  /** 何のファイルか（一覧の行に出る短い説明）。未記入は null */
+  description: string | null
   mimeType: string
   sizeBytes: number
   origin: 'internal' | 'client'
@@ -112,7 +114,7 @@ export async function fileList(params: z.infer<typeof fileListSchema>): Promise<
 
   let query = supabase
     .from('files')
-    .select('id, name, mime_type, size_bytes, origin, client_visible, status, created_at')
+    .select('id, name, description, mime_type, size_bytes, origin, client_visible, status, created_at')
     .eq('space_id', params.spaceId)
     .eq('status', 'ready')
 
@@ -129,6 +131,7 @@ export async function fileList(params: z.infer<typeof fileListSchema>): Promise<
     .map((f) => ({
       id: f.id as string,
       name: f.name as string,
+      description: (f.description as string | null) ?? null,
       mimeType: f.mime_type as string,
       sizeBytes: Number(f.size_bytes),
       origin: f.origin as 'internal' | 'client',
@@ -254,6 +257,62 @@ export async function fileUploadComplete(
   return { ok: true, fileId: file.id as string, name: file.name as string, downloadPath, tablePath, message: 'アップロードが完了しました' }
 }
 
+// ---- file_update: 説明文（何のファイルか）と表示名 ----
+
+/** migration 20260908082003_files_description.sql の CHECK（1000文字）と揃える */
+const MAX_DESCRIPTION_LENGTH = 1000
+
+const fileUpdateSchema = z.object({
+  spaceId: z.string().uuid().describe('スペースUUID（必須）'),
+  fileId: z.string().uuid().describe('ファイルUUID（file_list の id）'),
+  description: z
+    .string()
+    .max(MAX_DESCRIPTION_LENGTH)
+    .nullable()
+    .optional()
+    .describe('説明文（何のファイルか）。null または空文字で消す。1000文字まで'),
+  name: z.string().min(1).max(MAX_NAME_LENGTH).optional().describe('表示名（パス区切り不可）'),
+})
+
+export async function fileUpdate(params: z.infer<typeof fileUpdateSchema>): Promise<FileListItem> {
+  await checkAuth(params.spaceId, 'write', 'file_update', 'file', params.fileId)
+  const supabase = getSupabaseClient()
+
+  const updateData: Record<string, unknown> = {}
+  if (params.description !== undefined) {
+    // 空白だけは「消す」扱い（null）
+    const d = params.description === null ? null : params.description.trim()
+    updateData.description = d === '' ? null : d
+  }
+  if (params.name !== undefined) {
+    if (/[\\/]/.test(params.name)) throw new Error('name にパス区切り文字は使えません')
+    updateData.name = params.name.trim()
+  }
+  if (Object.keys(updateData).length === 0) throw new Error('更新するフィールドがありません（description か name を指定）')
+
+  const { data, error } = await supabase
+    .from('files')
+    .update(updateData)
+    .eq('id', params.fileId)
+    .eq('space_id', params.spaceId)
+    .eq('status', 'ready')
+    .select('id, name, description, mime_type, size_bytes, origin, client_visible, status, created_at')
+    .single()
+  if (error || !data) throw new Error('ファイルの更新に失敗しました' + (error ? ': ' + error.message : ''))
+  const f = data as Record<string, unknown>
+  return {
+    id: f.id as string,
+    name: f.name as string,
+    description: (f.description as string | null) ?? null,
+    mimeType: f.mime_type as string,
+    sizeBytes: Number(f.size_bytes),
+    origin: f.origin as 'internal' | 'client',
+    clientVisible: Boolean(f.client_visible),
+    createdAt: f.created_at as string,
+    downloadPath: `/api/files/${f.id as string}/download`,
+  }
+}
+
 export const fileTools = [
   {
     name: 'file_list',
@@ -274,5 +333,11 @@ export const fileTools = [
       'アップロード完了を確定する。Storage に実体があることを確認して status=ready にする。spaceId・fileId（file_upload_url の戻り値）必須。再実行しても副作用なし',
     inputSchema: fileUploadCompleteSchema,
     handler: fileUploadComplete,
+  },
+  {
+    name: 'file_update',
+    description: 'ファイルの説明文（何のファイルか）や表示名を更新する。description は null/空文字で消す（1000文字まで）。spaceId・fileId 必須',
+    inputSchema: fileUpdateSchema,
+    handler: fileUpdate,
   },
 ]

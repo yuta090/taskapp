@@ -1189,6 +1189,26 @@ export declare const allTools: ({
         fileId: string;
     }>;
     handler: typeof import("./files.js").fileUploadComplete;
+} | {
+    name: string;
+    description: string;
+    inputSchema: import("zod").ZodObject<{
+        spaceId: import("zod").ZodString;
+        fileId: import("zod").ZodString;
+        description: import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>;
+        name: import("zod").ZodOptional<import("zod").ZodString>;
+    }, "strip", import("zod").ZodTypeAny, {
+        spaceId: string;
+        fileId: string;
+        description?: string | null | undefined;
+        name?: string | undefined;
+    }, {
+        spaceId: string;
+        fileId: string;
+        description?: string | null | undefined;
+        name?: string | undefined;
+    }>;
+    handler: typeof import("./files.js").fileUpdate;
 })[];
 export declare function registerTools(server: Server): void;
 //# sourceMappingURL=index.d.ts.map

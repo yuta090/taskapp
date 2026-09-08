@@ -69,6 +69,11 @@ const TOOL_LABELS: Record<string, string> = {
   // Wiki
   wiki_list: 'Wiki一覧',
   wiki_get: 'Wiki詳細',
+  // ファイル
+  file_list: 'ファイル一覧',
+  file_update: 'ファイル説明更新',
+  file_upload_url: 'ファイルアップロード開始',
+  file_upload_complete: 'ファイルアップロード完了',
   wiki_create: 'Wiki作成',
   wiki_update: 'Wiki更新',
   wiki_delete: 'Wiki削除',
