@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { ServerFileQuery } from '@/lib/files/filters'
 
@@ -93,6 +93,7 @@ async function fetchFiles(spaceId: string, query: ServerFileQuery): Promise<File
  */
 export function useFiles(spaceId: string | undefined) {
   const queryClient = useQueryClient()
+  const isRestoring = useIsRestoring()
 
   const query = useQuery({
     queryKey: filesQueryKey(spaceId),
@@ -101,11 +102,13 @@ export function useFiles(spaceId: string | undefined) {
   })
 
   // 前バージョンの形で残っている永続キャッシュを捨てる。放っておくと訪問のたびに
-  // 復元・再永続されて消えず、IDB を圧迫し続ける
+  // 復元・再永続されて消えず、IDB を圧迫し続ける。
+  // 復元は非同期で、子の mount effect のほうが先に走る。isRestoring を待たずに消すと
+  // 「消す → そのあと復元で復活」になって空振りする
   useEffect(() => {
-    if (!spaceId) return
+    if (!spaceId || isRestoring) return
     queryClient.removeQueries({ queryKey: LEGACY_FILES_KEY(spaceId), exact: true })
-  }, [queryClient, spaceId])
+  }, [queryClient, spaceId, isRestoring])
 
   return {
     data: query.data?.files,
