@@ -16,6 +16,7 @@ import { useWikiPages, type UpdateWikiPageInput } from '@/lib/hooks/useWikiPages
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import {
   applyWikiListView,
   buildWikiTree,
@@ -23,17 +24,20 @@ import {
   filterWikiPages,
   flattenWikiTree,
   groupWikiPagesByMilestone,
+  resolveWikiMilestones,
   type WikiTreeNode,
   pruneWikiTreeToMatches,
   type WikiListFilters,
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
-import type { WikiPage, WikiPageVersion } from '@/types/database'
+import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
 import { SAVING } from '@/lib/design/tokens'
 
 // 表示モード外では計算せず共有の空配列を返す（毎レンダー新しい [] を作らない）
 const EMPTY_TREE: WikiTreeNode[] = []
 const EMPTY_GROUPS: ReturnType<typeof groupWikiPagesByMilestone> = []
+// 所属マイルストーンが無いページの行に渡す共有の空配列（毎レンダー新しい [] を作らない）
+const EMPTY_PAGE_MILESTONES: Milestone[] = []
 
 interface WikiPageClientProps {
   orgId: string
@@ -74,6 +78,18 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const [prefs, setPrefs] = useWikiListPrefs()
   const { members } = useSpaceMembers(spaceId)
   const { user: currentUser } = useCurrentUser()
+  // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照。既存4本と並列で取得する。
+  const { linksByPageId } = useWikiMilestoneLinks(orgId, spaceId)
+
+  // ページ id → 所属マイルストーン一覧（union・milestones の並び順）。行のチップ・グループ化の両方で使う。
+  const milestonesByPageId = useMemo(
+    () => resolveWikiMilestones(pages, linksByPageId, milestones),
+    [pages, linksByPageId, milestones]
+  )
+  const getPageMilestones = useCallback(
+    (pageId: string): Milestone[] => milestonesByPageId.get(pageId) ?? EMPTY_PAGE_MILESTONES,
+    [milestonesByPageId]
+  )
 
   const memberMap = useMemo(() => {
     const map = new Map<string, WikiRowMember>()
@@ -124,9 +140,19 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   )
 
   // マイルストーン別表示: 絞り込み・並べ替え・ピン留め済みの表示配列をそのままグループ化する。
+  // 1ページが複数グループに出てよい（PR4）ため milestonesByPageId を渡す。
   const milestoneGroups = useMemo(
-    () => (prefs.view === 'milestone' ? groupWikiPagesByMilestone(displayedPages, milestones) : EMPTY_GROUPS),
-    [displayedPages, milestones, prefs.view]
+    () =>
+      prefs.view === 'milestone'
+        ? groupWikiPagesByMilestone(displayedPages, milestones, milestonesByPageId)
+        : EMPTY_GROUPS,
+    [displayedPages, milestones, milestonesByPageId, prefs.view]
+  )
+
+  // マイルストーン別表示の「延べ」件数（1ページが複数グループに出るぶん増える）。
+  const groupedRowCount = useMemo(
+    () => (prefs.view === 'milestone' ? milestoneGroups.reduce((sum, g) => sum + g.pages.length, 0) : undefined),
+    [milestoneGroups, prefs.view]
   )
 
   // prefs 全体に依存させない（依存すると並べ替え等を触るたびに関数が変わり、memo 化した全行が再描画される）
@@ -207,6 +233,16 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     return () => { cancelled = true }
   }, [selectedPageId, fetchPage, setInspector])
 
+  // ページ情報パネルの「タスクからの参照」（読み取り専用）。手動選択(milestone_id)は含めず、
+  // タスク参照だけを渡す（手動選択は上のセレクトで既に見えているため）。
+  const taskLinkedMilestonesForActivePage = useMemo(() => {
+    if (!activePage) return undefined
+    const ids = linksByPageId.get(activePage.id)
+    if (!ids || ids.length === 0) return undefined
+    const idSet = new Set(ids)
+    return milestones.filter(m => idSet.has(m.id))
+  }, [activePage, linksByPageId, milestones])
+
   // Set inspector when active page changes.
   // Desktop: inspector sits alongside the editor (auto-open).
   // Mobile: inspector is a full-screen sheet, so only open it on demand (showInfo)
@@ -249,9 +285,23 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
         onRestoreVersion={handleRestoreVersion}
         allPages={pages}
         milestones={milestones}
+        taskLinkedMilestones={taskLinkedMilestonesForActivePage}
       />
     )
-  }, [activePage, isMobile, showInfo, setInspector, updatePage, deletePage, fetchPage, fetchVersions, updateQuery, pages, milestones])
+  }, [
+    activePage,
+    isMobile,
+    showInfo,
+    setInspector,
+    updatePage,
+    deletePage,
+    fetchPage,
+    fetchVersions,
+    updateQuery,
+    pages,
+    milestones,
+    taskLinkedMilestonesForActivePage,
+  ])
 
   // memo 化した WikiPageRow に渡すため安定参照にする
   const handleSelectPage = useCallback((pageId: string) => {
@@ -381,6 +431,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
           currentUserId={currentUser?.id ?? null}
           totalCount={pages.length}
           filteredCount={displayedPages.length}
+          groupedRowCount={groupedRowCount}
         />
       )}
 
@@ -444,6 +495,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 onSelect={handleSelectPage}
                 columns={prefs.columns}
                 getMember={getMember}
+                milestones={getPageMilestones(page.id)}
                 depth={depth}
                 hasChildren={hasChildren}
                 collapsed={collapsed}
@@ -466,6 +518,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                     onSelect={handleSelectPage}
                     columns={prefs.columns}
                     getMember={getMember}
+                    milestones={getPageMilestones(page.id)}
+                    duplicatedInOtherGroups={Math.max(0, getPageMilestones(page.id).length - 1)}
                   />
                 ))}
               </div>
@@ -481,6 +535,7 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
                 onSelect={handleSelectPage}
                 columns={prefs.columns}
                 getMember={getMember}
+                milestones={getPageMilestones(page.id)}
               />
             ))}
           </div>
