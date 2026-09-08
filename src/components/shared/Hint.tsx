@@ -6,6 +6,11 @@ import { Question } from '@phosphor-icons/react'
 interface HintProps {
   /** 何についての補足か（スクリーンリーダー向けのボタン名になる） */
   label: string
+  /**
+   * パネルの寄せ方。既定は左（アイコンの左端に揃える）。
+   * タスク詳細(400px)の右半分など、右へ広げると枠外にはみ出す場所では 'right' を使う。
+   */
+  align?: 'left' | 'right'
   children: ReactNode
 }
 
@@ -16,7 +21,7 @@ interface HintProps {
  * 常時表示すると認知負荷になるだけなので、この Hint に寄せて既定は閉じておく。
  * モーダルは使わない（UI_RULES: タスク詳細以外もダイアログ禁止の方針に合わせる）。
  */
-export function Hint({ label, children }: HintProps) {
+export function Hint({ label, align = 'left', children }: HintProps) {
   const [open, setOpen] = useState(false)
   const panelId = useId()
 
@@ -48,7 +53,7 @@ export function Hint({ label, children }: HintProps) {
         <span
           id={panelId}
           role="note"
-          className="absolute left-0 top-5 z-20 block w-64 rounded border border-gray-200 bg-surface p-2.5 text-[11px] leading-relaxed text-gray-600 shadow-lg"
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-5 z-20 block w-64 rounded border border-gray-200 bg-surface p-2.5 text-[11px] leading-relaxed text-gray-600 shadow-lg`}
         >
           {children}
         </span>
