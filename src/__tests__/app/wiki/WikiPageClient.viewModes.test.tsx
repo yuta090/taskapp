@@ -77,8 +77,9 @@ vi.mock('@/lib/hooks/useWikiPages', () => ({
   }),
 }))
 
+const mockMilestones = vi.hoisted(() => ({ current: [milestone()] as Milestone[] }))
 vi.mock('@/lib/hooks/useMilestones', () => ({
-  useMilestones: () => ({ milestones: [milestone()], loading: false }),
+  useMilestones: () => ({ milestones: mockMilestones.current, loading: false }),
 }))
 
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
@@ -91,6 +92,12 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'user1' } }),
 }))
 
+// PR4: タスク参照由来の所属マイルストーン。既定は空（このテストファイルは手動選択の union だけを見る）。
+const mockLinksByPageId = vi.hoisted(() => ({ current: new Map<string, string[]>() }))
+vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
+  useWikiMilestoneLinks: () => ({ linksByPageId: mockLinksByPageId.current, loading: false }),
+}))
+
 function setup() {
   render(<WikiPageClient orgId="org1" spaceId="space1" />)
 }
@@ -99,6 +106,7 @@ describe('WikiPageClient 表示切替', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    mockLinksByPageId.current = new Map()
   })
 
   it('既定(一覧)では全ページがフラットに並ぶ', () => {
@@ -150,5 +158,41 @@ describe('WikiPageClient 表示切替', () => {
     const groupHeading = screen.getByText('マイルストーンA')
     const group = groupHeading.parentElement as HTMLElement
     expect(within(group).getByText('無関係ページ')).toBeInTheDocument()
+  })
+
+  describe('PR4: 所属マイルストーンをタグのように見せる', () => {
+    it('一覧表示では所属マイルストーンがタグのように行に出る', () => {
+      setup()
+      const row = screen.getByText('無関係ページ').closest('div[style]') as HTMLElement
+      expect(within(row).getByText('マイルストーンA')).toBeInTheDocument()
+    })
+
+    it('タスク参照由来の所属も一覧の行に出る（union）', () => {
+      // 'child' ページはページ側の milestone_id は無いが、タスクから m1 を参照している
+      mockLinksByPageId.current = new Map([['child', ['m1']]])
+      setup()
+      const row = screen.getByText('子ページ').closest('div[style]') as HTMLElement
+      expect(within(row).getByText('マイルストーンA')).toBeInTheDocument()
+    })
+
+    it('マイルストーン別表示で1ページが複数グループに出て、延べ件数に反映される', () => {
+      const m2 = milestone({ id: 'm2', name: 'マイルストーンB', order_key: 1 })
+      mockMilestones.current = [milestone(), m2]
+      // 'other' ページ(milestone_id: m1)がタスク経由で m2 にも所属する
+      mockLinksByPageId.current = new Map([['other', ['m2']]])
+      setup()
+      fireEvent.click(screen.getByTestId('wiki-view-milestone'))
+
+      const groupA = screen.getByText('マイルストーンA').parentElement as HTMLElement
+      const groupB = screen.getByText('マイルストーンB').parentElement as HTMLElement
+      expect(within(groupA).getByText('無関係ページ')).toBeInTheDocument()
+      expect(within(groupB).getByText('無関係ページ')).toBeInTheDocument()
+      // 他のグループにも出ていることが分かる印
+      expect(within(groupA).getByText('他 1 件のマイルストーンにも')).toBeInTheDocument()
+      expect(within(groupB).getByText('他 1 件のマイルストーンにも')).toBeInTheDocument()
+
+      // 延べ件数（3ページ中「無関係ページ」が2グループに出るぶん4件）を件数表示に含める
+      expect(screen.getByText(/延べ 4 件/)).toBeInTheDocument()
+    })
   })
 })

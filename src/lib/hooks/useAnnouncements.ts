@@ -3,6 +3,7 @@
 import { useCallback, useContext, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
@@ -32,7 +33,7 @@ export function useAnnouncements() {
   const { data: announcements = [], isPending } = useQuery<Announcement[]>({
     queryKey,
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user } = await getCachedUser(supabase)
       if (!user) return []
 
       // Fetch announcements with read status via left join
@@ -63,7 +64,9 @@ export function useAnnouncements() {
         }
       })
     },
-    staleTime: 60_000,
+    // お知らせは分単位の鮮度を要さない。ベルはヘッダー側にも置かれ画面遷移のたびに
+    // マウントし直されるので、短い staleTime だと入り直すたびに取り直しになる。
+    staleTime: 5 * 60_000,
     enabled: !orgLoading,
   })
 
@@ -74,7 +77,7 @@ export function useAnnouncements() {
 
   const markAsReadMutation = useMutation({
     mutationFn: async (announcementId: string) => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user } = await getCachedUser(supabase)
       if (!user) return
 
       await (supabase as SupabaseClient)
@@ -103,7 +106,7 @@ export function useAnnouncements() {
 
   const markAllAsRead = useMutation({
     mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user } = await getCachedUser(supabase)
       if (!user) return
 
       const unread = announcements.filter((a) => a.read_at === null)

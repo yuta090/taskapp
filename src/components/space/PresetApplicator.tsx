@@ -48,7 +48,7 @@ export function PresetApplicator({ spaceId, onApplied }: PresetApplicatorProps) 
         >
           <ArrowLeft className="text-lg" />
         </button>
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded text-sm">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-ink rounded text-sm">
           <span className="text-base">
             {selectedPreset && (ICON_MAP[selectedPreset.icon] || <FileText weight="duotone" />)}
           </span>

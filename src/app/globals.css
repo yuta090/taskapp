@@ -70,6 +70,11 @@
   --color-indigo-500: #6366F1;
   --color-indigo-600: #4F46E5;
 
+  /* Indigo ink — indigo-50 の面の上に置く文字色。
+     indigo-700 は hover:bg-indigo-700 + 白文字のボタンで面としても使うため
+     .dark で反転できない。文字用の別トークンを立ててこちらを反転させる。 */
+  --color-indigo-ink: #4338CA;
+
   /* Red (Danger/Error) */
   --color-red-50: #FEF2F2;
   --color-red-100: #FEE2E2;
@@ -157,6 +162,7 @@
   --color-orange-100: #3A2510;
   --color-orange-200: #57381A;
   --color-indigo-50:  #1E2140;
+  --color-indigo-ink: #C7D2FE;
   --color-red-50:  #2E1416;
   --color-red-100: #43191C;
   --color-blue-50:  #101F35;
@@ -180,6 +186,18 @@ body {
   /* Updated for readability (5%~10%) */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   Announcement bell placement
+   ============================================ */
+
+/* AppShell はメイン領域の上部に「お知らせベルだけの行」を出す。
+   ページ側のヘッダーが自前でベルを置いている場合（[data-header-bell]）は
+   重複するうえ1行ぶん縦を食うので、その行ごと消す。
+   ページ側で完結させたい判定なので JS ではなく :has() で解決する。 */
+main:has([data-header-bell]) [data-appshell-bell-row] {
+  display: none;
 }
 
 /* ============================================

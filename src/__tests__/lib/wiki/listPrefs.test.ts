@@ -40,6 +40,11 @@ describe('parseWikiListPrefs', () => {
     })
   })
 
+  it('milestones は有効な列として残る', () => {
+    const raw = JSON.stringify({ columns: ['milestones'], sort: DEFAULT_WIKI_LIST_PREFS.sort })
+    expect(parseWikiListPrefs(raw).columns).toEqual(['milestones'])
+  })
+
   it('空配列（利用者が全部 OFF にした状態）はそのまま空で復元される', () => {
     const raw = JSON.stringify({ columns: [], sort: DEFAULT_WIKI_LIST_PREFS.sort })
     expect(parseWikiListPrefs(raw).columns).toEqual([])
@@ -98,6 +103,21 @@ describe('parseWikiListPrefs', () => {
   it('collapsedIds の要素が文字列でないものは除去する', () => {
     const raw = JSON.stringify({ columns: ['tags'], sort: DEFAULT_WIKI_LIST_PREFS.sort, collapsedIds: ['p1', 42, null] })
     expect(parseWikiListPrefs(raw).collapsedIds).toEqual(['p1'])
+  })
+})
+
+describe('既定値の v2 追補（PR4: マイルストーンをタグのように見せる）', () => {
+  it('既定 columns に milestones が入る（tags の次）', () => {
+    expect(DEFAULT_WIKI_LIST_PREFS.columns).toEqual(['tags', 'milestones', 'author', 'updated_at'])
+  })
+
+  it('保存キーは v2 に上がっている', () => {
+    expect(WIKI_LIST_PREFS_KEY).toBe('wiki-list-prefs:v2')
+  })
+
+  it('v1 キーに保存された値は読まない（v2 の既定値になる）', () => {
+    localStorage.setItem('wiki-list-prefs:v1', JSON.stringify({ columns: ['author'], sort: { key: 'title', dir: 'asc' } }))
+    expect(parseWikiListPrefs(localStorage.getItem(WIKI_LIST_PREFS_KEY))).toEqual(DEFAULT_WIKI_LIST_PREFS)
   })
 })
 

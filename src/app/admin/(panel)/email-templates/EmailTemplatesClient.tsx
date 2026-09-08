@@ -281,7 +281,7 @@ export default function EmailTemplatesClient({ initialRows, appName, authHookCon
                     onClick={() => selectTemplate(d.key)}
                     aria-current={active ? 'true' : undefined}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors mb-0.5 ${
-                      active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                      active ? 'bg-indigo-50 text-indigo-ink font-medium' : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     <Envelope size={16} weight={active ? 'fill' : 'regular'} className="shrink-0" />
@@ -289,7 +289,7 @@ export default function EmailTemplatesClient({ initialRows, appName, authHookCon
                     {unsaved ? (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 shrink-0">未保存</span>
                     ) : custom ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 shrink-0">編集済み</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-ink shrink-0">編集済み</span>
                     ) : null}
                   </button>
                 )
@@ -350,7 +350,7 @@ export default function EmailTemplatesClient({ initialRows, appName, authHookCon
                   type="button"
                   onClick={() => insertPlaceholder(placeholderToken(p))}
                   title={`${p.description}（例: ${p.sample}）`}
-                  className="px-2 py-1 text-xs font-mono rounded-md border border-gray-200 bg-gray-50 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
+                  className="px-2 py-1 text-xs font-mono rounded-md border border-gray-200 bg-gray-50 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-ink transition-colors"
                 >
                   {placeholderToken(p)}
                 </button>

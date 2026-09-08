@@ -221,7 +221,7 @@ export default function NotificationSettingsPage() {
                 key={opt.value}
                 className={`px-4 py-2 text-sm rounded-lg border cursor-pointer ${
                   prefs.digest_frequency === opt.value
-                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600 font-medium'
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-ink font-medium'
                     : 'border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
               >

@@ -3,7 +3,7 @@
  * 種類の判定(アイコンと絞り込みの食い違いを防ぐ)もここに一本化する。
  */
 
-import { isTabularFile } from '@/lib/table/tableModel'
+import { isTabularFile, TABULAR_EXTENSIONS, TABULAR_MIME_TYPES } from '@/lib/table/tableModel'
 
 /** 'all' は「すべての種類」を表す絞り込み専用の値。ファイル自体がこの種類になることはない。 */
 export type FileKind = 'image' | 'pdf' | 'document' | 'table' | 'other'
@@ -53,6 +53,7 @@ const DOCUMENT_EXTENSIONS = [
   '.pages', '.numbers', '.key',
 ]
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.heic', '.bmp']
+const PDF_EXTENSIONS = ['.pdf']
 
 export function getFileKind(name: string, mimeType: string): FileKind {
   const lowerName = name.toLowerCase()
@@ -81,9 +82,9 @@ export function filterFiles<T extends FilterableFile>(files: T[], filters: FileF
 
   return files.filter((file) => {
     if (keyword) {
-      const haystack = [file.name, file.description ?? '', file.uploaderName ?? '']
-        .join('\n')
-        .toLowerCase()
+      // 検索対象は「名前」と「説明文」。500件を超えるスペースではサーバー(SQL)側で
+      // 同じ2つを探すので、件数によって探せるものが変わらないようここも同じにする
+      const haystack = [file.name, file.description ?? ''].join('\n').toLowerCase()
       if (!haystack.includes(keyword)) return false
     }
 
@@ -131,3 +132,55 @@ export const FILE_ORIGIN_OPTIONS: Array<{ value: FileOriginFilter; label: string
   // 行のバッジ「クライアント提供」と同じ文字にすると、画面上で同じ言葉が別の意味で2つ出るため変える
   { value: 'client', label: 'クライアントから' },
 ]
+
+
+/**
+ * 500件を超えるスペースでは、絞り込みをサーバー(SQL)側に投げる。
+ *
+ * SQL 側は「その種類になりうる行を取りこぼさない」ことだけを保証する超集合。
+ * 正確な判定は getFileKind が唯一の正で、返ってきた行にクライアントが再度かける。
+ * こうしておけば、判定の定義（下の配列）を1か所で直せば両方に効く。
+ */
+export function getKindMatchPatterns(
+  kind: FileKind
+): { mimeContains: string[]; nameEndsWith: string[] } | null {
+  switch (kind) {
+    case 'image':
+      return { mimeContains: ['image'], nameEndsWith: IMAGE_EXTENSIONS }
+    case 'pdf':
+      return { mimeContains: ['pdf'], nameEndsWith: PDF_EXTENSIONS }
+    case 'table':
+      return { mimeContains: TABULAR_MIME_TYPES, nameEndsWith: TABULAR_EXTENSIONS }
+    case 'document':
+      return { mimeContains: DOCUMENT_MIME_HINTS, nameEndsWith: DOCUMENT_EXTENSIONS }
+    // 「その他」は「どれにも当てはまらない」なので列挙できない。SQLでは絞らず、
+    // 返ってきた行にクライアントが getFileKind をかけて narrow する
+    case 'other':
+      return null
+  }
+}
+
+/** サーバーに渡す絞り込み条件。効いているものだけを載せる(キャッシュキーを散らかさない) */
+export interface ServerFileQuery {
+  q?: string
+  kind?: FileKind
+  visibility?: Exclude<FileVisibilityFilter, 'all'>
+  origin?: Exclude<FileOriginFilter, 'all'>
+}
+
+export function toServerFileQuery(filters: FileFilterState): ServerFileQuery {
+  const query: ServerFileQuery = {}
+
+  const q = filters.search.trim()
+  if (q) query.q = q
+  if (filters.kind !== 'all' && getKindMatchPatterns(filters.kind)) query.kind = filters.kind
+  if (filters.visibility !== 'all') query.visibility = filters.visibility
+  if (filters.origin !== 'all') query.origin = filters.origin
+
+  return query
+}
+
+/** サーバーに問い合わせる意味があるか(条件が1つも無いなら全件取得のままでよい) */
+export function hasServerSearchableCondition(filters: FileFilterState): boolean {
+  return Object.keys(toServerFileQuery(filters)).length > 0
+}

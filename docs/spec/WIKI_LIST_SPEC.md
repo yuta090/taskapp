@@ -1,4 +1,4 @@
-# Wiki 一覧の使い勝手改善 SPEC v0.1
+# Wiki 一覧の使い勝手改善 SPEC v0.2
 
 作成: 2026-09-08 / ストリーム: `feat/wiki-list-*`
 
@@ -14,6 +14,7 @@ Wiki 一覧が「タイトル＋タグ3つ＋『○日前』」の一列表示�
 | PR1 `feat/wiki-list-enhance` | 表示項目（作成者/更新者/作成日/更新日/タグ）・表示項目の選択・検索・並べ替え・タグ絞り込み・作成者絞り込み・件数 | なし |
 | PR2 `feat/wiki-structure` | ピン留め（常に一番上）・フォルダ（親子）・マイルストーン紐づけ＋「フォルダ / マイルストーン別」表示切替 | あり（列追加） |
 | PR3 | タスク側から同じマイルストーンの Wiki を引ける導線（TaskInspector） | なし |
+| PR4 `feat/wiki-milestone-chips` | 所属マイルストーンを行にチップ表示・マイルストーン別で重複表示＋印・延べ件数 | なし |
 
 ---
 
@@ -136,3 +137,110 @@ create index if not exists wiki_pages_milestone_idx on public.wiki_pages(milesto
 
 - `TaskInspector` の Wiki セクションに「このマイルストーンの Wiki」（`milestone_id` が同じページ）を最大 5 件、リンクで表示。
 - 「仕様書」タグの扱いは既存どおり。
+
+---
+
+## PR4: 所属マイルストーンをタグのように見せる（v0.2 追補・2026-09-08）
+
+### 決定（ユーザー判断）
+
+- Wiki 一覧の既定は **`list`（一覧）** のまま。行に **所属マイルストーンをタグのように表示**する。
+- **マイルストーン別**表示では、1 ページが**複数のグループに出てよい**。ただし各行に**他のマイルストーンにも出ていることが分かる印**を付ける。
+
+理由: Wiki は「どのフェーズで使う資料か」を引く画面なので、探している場所に出てこないほうが困る。重複の見づらさは印と件数表示で消せる。
+
+### 所属マイルストーンの決め方（union）
+
+ページの所属マイルストーン = 次の和集合。
+
+1. `wiki_pages.milestone_id`（ページ情報パネルで人が選んだもの。**主たる所属**）
+2. `tasks.wiki_page_id = page.id` であるタスクの `tasks.milestone_id`（**タスクからの参照**。null は無視）
+
+実データ（本番 2026-09-08 時点）: 参照されているページ 18 件のうち 10 件が 2〜4 個のマイルストーンにまたがる。マイルストーン別の延べ行数は 38。
+
+### データ取得 `src/lib/hooks/useWikiMilestoneLinks.ts`（新規）
+
+```ts
+export function useWikiMilestoneLinks(orgId: string, spaceId: string): {
+  linksByPageId: Map<string, string[]>   // pageId → milestoneId[]（重複なし）
+  loading: boolean
+}
+```
+
+- react-query。`queryKey: ['wikiMilestoneLinks', orgId, spaceId]`、`enabled: !!orgId && !!spaceId`（呼び出し側が `{ enabled: false }` で止められる）。
+- `staleTime` は指定せず **QueryProvider の既定（2分）** に合わせる。タスクの Wiki 紐づけ / マイルストーンは人が編集したときしか変わらないため。
+- クエリの返り値は **`Record<string, string[]>`（素のオブジェクト）** にする。react-query の構造共有は Map に効かず、Map を返すと再取得のたびに参照が変わって全行が再描画される。Map 化は hook 内の `useMemo` で行う。
+- クエリは軽量に: `from('tasks').select('wiki_page_id, milestone_id').eq('org_id',orgId).eq('space_id',spaceId).not('wiki_page_id','is',null).not('milestone_id','is',null)`。`limit` は掛けない（列 2 つだけ）。
+- 読み込み中は**共有定数の空 Map** を返す（毎レンダー新しい Map を作らない。`EMPTY_PAGES` / `EMPTY_MILESTONES` と同じ型）。所属ゼロのページにも共有の空配列（`EMPTY_MILESTONE_LIST`）を返す。
+- `limit` は付けない（付けると所属が黙って欠ける）。Supabase の `max_rows` 既定 1000 に達すると同じ欠落が無言で起きるので、その規模になったらページ単位で引く形に切り替える。
+- 既存 4 本（wikiPages / milestones / spaceMembers / currentUser）と**並列**。waterfall を作らない。
+
+### 純粋ロジック `src/lib/wiki/listView.ts`
+
+```ts
+/** ページ→所属マイルストーンID[]（page.milestone_id ∪ タスク参照）。順序は milestones の並び順。 */
+export function resolveWikiMilestones(
+  pages: WikiPage[],
+  linksByPageId: Map<string, string[]>,
+  milestones: Milestone[]
+): Map<string, Milestone[]>
+
+/** マイルストーン別グループ。1ページが複数グループに出る。 */
+export function groupWikiPagesByMilestone(
+  pages: WikiPage[],
+  milestones: Milestone[],
+  milestonesByPageId: Map<string, Milestone[]>   // 追加引数
+): { milestone: Milestone | null; pages: WikiPage[] }[]
+```
+
+- グループ順は従来どおり `order_key` → `due_date` → `name`。所属が 1 つも無いページは末尾「マイルストーン未設定」。
+- 各グループ内の並びは従来どおり（ピン留め優先→選択中の並べ替え）。
+- ページが 0 件のグループは出さない。
+- `groupWikiPagesByMilestone` の第3引数は必須。既存呼び出しを更新する。
+
+### 行 `src/components/wiki/WikiPageRow.tsx`
+
+- 新しい表示項目 **`milestones`** を追加（`WikiListColumn` に追加）。メタ行にマイルストーンをチップで出す。
+  - 見た目: `Flag` アイコン＋名前。`px-1.5 py-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-ink rounded`（タグは灰色なので色で区別する）。最大 2 個＋`+N`。名前は `max-w-[8rem] truncate`、メタ行は `min-w-0 overflow-hidden`。
+  - **文字色は `text-indigo-ink`（`text-indigo-700` は使わない）**。`--color-indigo-50` は `.dark` で濃紺に反転するが `--color-indigo-700` は面（`hover:bg-indigo-700` + 白文字のボタン）としても使うため反転できない。文字用に `--color-indigo-ink` を立てて `.dark` で明るい藍に反転させる。
+  - 読み上げ用に囲みへ `aria-label="所属マイルストーン: フェーズ1、フェーズ3"`、`+N` に残りの名前を `title` で持たせる。
+- 新しい props: `milestones?: Milestone[]`（その行の所属）、`duplicatedInOtherGroups?: number`（マイルストーン別表示で、この行が他にいくつのグループにも出ているか。0 なら出さない）。
+- マイルストーン別表示のときは**チップを出さず**、代わりに `他 N 件のマイルストーンにも` を `text-[10px] text-gray-400` で出す（そのグループの見出しで所属が自明なため。重複だけを伝える）。この印は**`milestones` 列を OFF にしていても出す**（重複の理由説明なので消さない）。
+- memo 化は維持。props は安定参照で渡す。
+
+### 表示項目・保存 `src/lib/wiki/listPrefs.ts`
+
+- `WikiListColumn` に `'milestones'` を追加。
+- 既定 columns を `['tags','milestones','author','updated_at']` にする。
+- **保存キーを `wiki-list-prefs:v2` に上げる**（既存利用者にも新しい既定を届けるため。表示設定なので消えても実害なし）。v1 の値は読まない。
+
+### ツールバー `WikiListToolbar.tsx`
+
+- 表示項目メニューに「マイルストーン」を追加。
+- 件数表示: マイルストーン別表示のときだけ `18 件（延べ 38 件）` の形にする。絞り込み中は `全 N 件中 M 件（延べ K 件）`。ほかの表示では従来どおり。
+
+### ページ情報パネル `WikiPageInspector.tsx`
+
+- 既存の「マイルストーン」セレクト（＝主たる所属）はそのまま。
+- その下に、タスクからの参照で付いているマイルストーンを**読み取り専用**で表示する: `タスクからの参照: フェーズ1・フェーズ3`（`text-[10px] text-gray-400`）。無ければ出さない。
+- props に `taskLinkedMilestones?: Milestone[]` を追加し、`WikiPageClient` から渡す（新規 fetch を作らない）。
+
+### タスク側（PR3）との整合
+
+- `src/components/task/TaskInspector.tsx` の「このマイルストーンの Wiki」は、`pickMilestoneWikiPages` が `page.milestone_id` だけを見ている。**タスク参照由来の所属も拾うように**同じ union を使う。TaskInspector は既に `useTasks` 相当のデータを持たないので、`useWikiMilestoneLinks(task.org_id, spaceId)` を使う（一覧と同じ queryKey なのでキャッシュを共有し、往復は増えない）。
+
+### 受け入れ条件（テスト）
+
+- `resolveWikiMilestones`: 手動のみ / 参照のみ / 両方（重複排除）/ どちらも無し / milestones に無い id は無視 / 並び順が milestones の順 / 所属ゼロは共有の空配列。
+- `isPageInMilestone`: 手動一致 / 参照一致 / 不一致 / links 未指定。
+- `groupWikiPagesByMilestone`: 1 ページが複数グループに出る / 0 件グループは出さない / 未設定は末尾 / 延べ行数が期待どおり。
+- `WikiPageRow`: `milestones` 列でチップが出る・2 個超で `+N` / マイルストーン別表示では `他 N 件のマイルストーンにも` が出てチップは出ない。
+- `listPrefs`: v2 の既定に `milestones` が入る / v1 の保存値を読まない。
+- `useWikiMilestoneLinks`: 読み込み中は同じ参照の空 Map（回帰）/ 中身が同じ再取得で Map の参照が変わらない（回帰）/ `enabled: false` で取得しない。
+- `WikiPageClient` 統合: マイルストーン別で同じページが 2 グループに出る / 件数表示が「延べ」を含む。
+- TaskInspector: タスク参照由来のページも「このマイルストーンの Wiki」に出る / 「他 N 件を Wiki で見る」の件数も union で数える。
+
+### やらないこと
+
+- DB 変更（列追加なし）。所属は毎回計算する。
+- ドラッグでのマイルストーン移動、複数マイルストーンの手動割り当て（主たる所属は 1 つのまま）。

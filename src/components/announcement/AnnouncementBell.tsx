@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Bell, CheckCircle, Megaphone, Wrench, WarningCircle } from '@phosphor-icons/react'
 import { useAnnouncements, type Announcement } from '@/lib/hooks/useAnnouncements'
 
@@ -25,7 +25,10 @@ function timeAgo(dateStr: string): string {
 
 type Tab = 'unread' | 'all'
 
-export function AnnouncementBell() {
+// props を持たないので memo が完全に効く。ベルはタスク一覧のヘッダーにも置かれており、
+// 仮想スクロール中は親がフレームごとに描き直されるため、そのたびに巻き添えで
+// 描き直されないようにする。
+export const AnnouncementBell = memo(function AnnouncementBell() {
   const { announcements, unreadCount, markAsRead, markAllAsRead } = useAnnouncements()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('unread')
@@ -188,4 +191,4 @@ export function AnnouncementBell() {
       )}
     </div>
   )
-}
+})

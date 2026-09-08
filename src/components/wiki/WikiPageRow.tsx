@@ -2,9 +2,9 @@
 
 import { memo, useCallback, type MouseEvent, type ReactNode } from 'react'
 import Image from 'next/image'
-import { CaretDown, CaretRight, PushPin, Tag } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, Flag, PushPin, Tag } from '@phosphor-icons/react'
 import { TruncatedText } from '@/components/shared'
-import type { WikiPage } from '@/types/database'
+import type { Milestone, WikiPage } from '@/types/database'
 import type { WikiListColumn } from '@/lib/wiki/listPrefs'
 import { formatWikiAbsoluteTime, formatWikiRelativeTime, formatWikiShortDate } from '@/lib/wiki/listView'
 
@@ -21,6 +21,14 @@ interface WikiPageRowProps {
   /** メタ行に出す項目。'updated_at' は右端固定位置に出る。 */
   columns: WikiListColumn[]
   getMember: (userId: string) => WikiRowMember | null
+  /** このページの所属マイルストーン（PR4 の union: 手動選択＋タスク参照）。columns に 'milestones' が無ければ未使用。 */
+  milestones?: Milestone[]
+  /**
+   * マイルストーン別表示のときだけ渡す。この行が他にいくつのグループにも出ているか
+   * （0 なら「他のマイルストーンにも」は出さない）。渡された時点でマイルストーン別表示と
+   * みなし、milestones のチップは出さない（そのグループの見出しで所属が自明なため）。
+   */
+  duplicatedInOtherGroups?: number
   /** フォルダ表示のインデント深さ。省略時は 0（インデント無し・一覧/マイルストーン表示）。 */
   depth?: number
   /**
@@ -75,12 +83,17 @@ function WikiPageRowInner({
   onSelect,
   columns,
   getMember,
+  milestones,
+  duplicatedInOtherGroups,
   depth,
   hasChildren,
   collapsed,
   onToggleCollapse,
 }: WikiPageRowProps) {
   const metaItems: ReactNode[] = []
+  // duplicatedInOtherGroups が渡されている＝マイルストーン別表示。そのグループの見出しで
+  // 所属は自明なので、通常のチップではなく「他のグループにも出ている」印だけを出す。
+  const inMilestoneGroupView = duplicatedInOtherGroups !== undefined
   const handleClick = useCallback(() => onSelect(page.id), [onSelect, page.id])
   const handleToggleCollapse = useCallback(
     (e: MouseEvent) => {
@@ -102,6 +115,42 @@ function WikiPageRowInner({
         {page.tags.length > 3 && (
           <span className="text-[10px] text-gray-400">+{page.tags.length - 3}</span>
         )}
+      </span>
+    )
+  }
+
+  if (columns.includes('milestones') && !inMilestoneGroupView && milestones && milestones.length > 0) {
+    metaItems.push(
+      <span
+        key="milestones"
+        className="flex items-center gap-1 min-w-0"
+        aria-label={`所属マイルストーン: ${milestones.map(m => m.name).join('、')}`}
+      >
+        <Flag className="text-indigo-400 text-xs flex-shrink-0" aria-hidden="true" />
+        {milestones.slice(0, 2).map(m => (
+          <span
+            key={m.id}
+            className="px-1.5 py-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-ink rounded max-w-[8rem] truncate"
+          >
+            {m.name}
+          </span>
+        ))}
+        {milestones.length > 2 && (
+          <span
+            className="text-[10px] text-gray-400 flex-shrink-0"
+            title={milestones.slice(2).map(m => m.name).join('、')}
+          >
+            +{milestones.length - 2}
+          </span>
+        )}
+      </span>
+    )
+  }
+
+  if (inMilestoneGroupView && (duplicatedInOtherGroups ?? 0) > 0) {
+    metaItems.push(
+      <span key="duplicated-milestones" className="text-[10px] text-gray-400">
+        他 {duplicatedInOtherGroups} 件のマイルストーンにも
       </span>
     )
   }
@@ -173,7 +222,7 @@ function WikiPageRowInner({
           </TruncatedText>
         </div>
         {metaItems.length > 0 && (
-          <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500">
+          <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 min-w-0 overflow-hidden">
             {withSeparators(metaItems)}
           </div>
         )}

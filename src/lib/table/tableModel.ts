@@ -11,8 +11,8 @@ export type SortDir = 'asc' | 'desc'
 export const MAX_TABLE_FILE_BYTES = 4 * 1024 * 1024
 export const MAX_TABLE_FILE_LABEL = '4MB'
 
-const TABULAR_EXTENSIONS = ['.csv', '.tsv']
-const TABULAR_MIME_TYPES = ['text/csv', 'text/tab-separated-values']
+export const TABULAR_EXTENSIONS = ['.csv', '.tsv']
+export const TABULAR_MIME_TYPES = ['text/csv', 'text/tab-separated-values']
 
 export function isTabularFile(name: string, mimeType: string): boolean {
   const lower = name.toLowerCase()

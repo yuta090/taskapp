@@ -427,7 +427,7 @@ export default function ApiKeysSettingsPage() {
                     disabled={action.required}
                     className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                       allowedActions.includes(action.value)
-                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-ink'
                         : 'border-gray-200 bg-surface text-gray-600 hover:bg-gray-50'
                     } ${action.required ? 'cursor-not-allowed' : ''}`}
                     title={action.description}
@@ -460,7 +460,7 @@ export default function ApiKeysSettingsPage() {
         ) : (
           <button
             onClick={() => setShowCreateForm(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-indigo-600 bg-surface border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-indigo-ink bg-surface border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
             新しいAPIキーを作成
@@ -503,7 +503,7 @@ export default function ApiKeysSettingsPage() {
                     onClick={() => setStatusFilter(pill.value)}
                     className={`px-2 py-1 text-[11px] rounded-md border transition-colors ${
                       statusFilter === pill.value
-                        ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-ink'
                         : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                     }`}
                   >

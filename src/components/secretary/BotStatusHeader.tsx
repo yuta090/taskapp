@@ -120,7 +120,7 @@ export function BotStatusHeader({
           <span className="truncate">{account.displayName}</span>
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
-              isShared ? 'bg-teal-50 text-teal-700' : 'bg-indigo-50 text-indigo-700'
+              isShared ? 'bg-teal-50 text-teal-700' : 'bg-indigo-50 text-indigo-ink'
             }`}
           >
             {isShared ? '共通LINE' : '自社LINE'}

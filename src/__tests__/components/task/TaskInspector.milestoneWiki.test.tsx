@@ -19,6 +19,12 @@ function renderInspector(props: ComponentProps<typeof TaskInspector>) {
 }
 
 const mockPages = vi.hoisted(() => ({ current: [] as WikiPage[] }))
+// PR4: タスク参照由来の所属（page.id → milestoneId[]）。既定は空＝従来どおり milestone_id だけで一致判定。
+const mockLinksByPageId = vi.hoisted(() => ({ current: new Map<string, string[]>() }))
+
+vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({
+  useWikiMilestoneLinks: () => ({ linksByPageId: mockLinksByPageId.current, loading: false }),
+}))
 
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
@@ -124,6 +130,7 @@ describe('TaskInspector — このマイルストーンの Wiki', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPages.current = []
+    mockLinksByPageId.current = new Map()
   })
 
   it('milestone_id が一致するページが2件あれば見出しとリンクが出る', () => {
@@ -179,6 +186,55 @@ describe('TaskInspector — このマイルストーンの Wiki', () => {
     mockPages.current = Array.from({ length: 6 }, (_, i) =>
       makeWikiPage({ id: `w${i}`, title: `ページ${i}`, milestone_id: 'm1' })
     )
+
+    renderInspector({
+      task: makeTask({ milestone_id: 'm1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+    fireEvent.click(screen.getByText('詳細設定'))
+
+    expect(screen.getByText((_, el) => el?.textContent === '他 1 件を Wiki で見る')).toBeInTheDocument()
+  })
+
+  it('PR4: タスク参照由来（page.milestone_id は無い）のページも union で出る', () => {
+    mockPages.current = [
+      makeWikiPage({ id: 'w1', title: '手動選択ページ', milestone_id: 'm1' }),
+      makeWikiPage({ id: 'w2', title: 'タスク参照ページ', milestone_id: null }),
+      makeWikiPage({ id: 'w3', title: '無関係ページ', milestone_id: 'm2' }),
+    ]
+    mockLinksByPageId.current = new Map([['w2', ['m1']]])
+
+    renderInspector({
+      task: makeTask({ milestone_id: 'm1' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+    fireEvent.click(screen.getByText('詳細設定'))
+
+    expect(screen.getByText('このマイルストーンの Wiki')).toBeInTheDocument()
+    expect(screen.getByText('手動選択ページ')).toBeInTheDocument()
+    expect(screen.getByText('タスク参照ページ')).toBeInTheDocument()
+    expect(screen.queryByText('無関係ページ')).not.toBeInTheDocument()
+  })
+
+  it('PR4: 「他 N 件を Wiki で見る」の件数もタスク参照を含めて数える', () => {
+    // 手動選択 3 件 + タスク参照 3 件 = union 6 件。表示は 5 件、残り 1 件。
+    mockPages.current = [
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeWikiPage({ id: `m${i}`, title: `手動${i}`, milestone_id: 'm1' })
+      ),
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeWikiPage({ id: `r${i}`, title: `参照${i}`, milestone_id: null })
+      ),
+    ]
+    mockLinksByPageId.current = new Map([
+      ['r0', ['m1']],
+      ['r1', ['m1']],
+      ['r2', ['m1']],
+    ])
 
     renderInspector({
       task: makeTask({ milestone_id: 'm1' }),

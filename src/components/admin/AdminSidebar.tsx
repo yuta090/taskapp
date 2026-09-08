@@ -219,7 +219,7 @@ export function AdminSidebar({ badges, initialCollapsed = false }: AdminSidebarP
                   aria-label={collapsed ? item.label : undefined}
                   className={`relative flex items-center gap-2.5 ${collapsed ? 'justify-center px-0' : 'px-3'} py-1.5 rounded-lg text-sm transition-colors mb-0.5 ${
                     isActive
-                      ? 'bg-indigo-50 text-indigo-700 font-medium'
+                      ? 'bg-indigo-50 text-indigo-ink font-medium'
                       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                   }`}
                 >

@@ -24,6 +24,8 @@ interface WikiPageInspectorProps {
   allPages?: WikiPage[]
   /** 紐づけ候補のマイルストーン。省略時は「整理」のマイルストーン欄を出さない。 */
   milestones?: Milestone[]
+  /** タスクからの参照で付いているマイルストーン（読み取り専用表示・PR4）。空/省略なら出さない。 */
+  taskLinkedMilestones?: Milestone[]
 }
 
 export function WikiPageInspector({
@@ -35,6 +37,7 @@ export function WikiPageInspector({
   onRestoreVersion,
   allPages = [],
   milestones = [],
+  taskLinkedMilestones = [],
 }: WikiPageInspectorProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState(page.title)
@@ -220,7 +223,7 @@ export function WikiPageInspector({
                 className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 autoFocus
               />
-              <button onClick={handleSaveTitle} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded">
+              <button onClick={handleSaveTitle} className="p-1 text-indigo-ink hover:bg-indigo-50 rounded">
                 <Check className="text-sm" />
               </button>
             </div>
@@ -325,6 +328,12 @@ export function WikiPageInspector({
               ))}
             </select>
           </div>
+
+          {taskLinkedMilestones.length > 0 && (
+            <p className="text-[10px] text-gray-400">
+              タスクからの参照: {taskLinkedMilestones.map(m => m.name).join('・')}
+            </p>
+          )}
 
           {organizeError && <p className="text-xs text-red-600">{organizeError}</p>}
         </div>
