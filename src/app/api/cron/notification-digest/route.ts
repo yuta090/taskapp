@@ -70,6 +70,10 @@ export async function POST(request: NextRequest) {
       .from('notifications')
       .select('to_user_id, type, payload, space_id, created_at')
       .eq('channel', 'in_app')
+      // 即時メールで既に送ったものは外す（同じ用件が二度届かないように）。
+      // 「送る予定だった」ではなく「実際に送った」行だけが除かれるので、
+      // 夜間・休日で即時メールを止めたぶんはここで拾える
+      .is('immediate_email_sent_at', null)
       // 絶対時刻(instant)の比較なので toISOString は正しい（日付成分の切り出しではない）
       .gte('created_at', earliest.toISOString())
       .order('created_at', { ascending: false })

@@ -209,7 +209,7 @@ export function getEmailTemplateDef(key: string): EmailTemplateDef | undefined {
  * 判定基準（Fable 裁定 2026-09-07）: 外向き × 文章が主役 × 文面が売れ行き/開封に効く、を満たさないもの。
  */
 export const NON_EDITABLE_EMAILS: ReadonlyArray<{ label: string; reason: string }> = [
-  { label: '日次まとめ（事務所メンバー向け）', reason: '更新の一覧が主役で、文面を変える価値が薄いため' },
+  { label: 'まとめメール（事務所メンバー向け・毎朝のまとめと返事待ちの即時通知）', reason: '更新の一覧が主役で、文面を変える価値が薄いため' },
   { label: '共有botグループ紐付けのお知らせ', reason: '不正な紐付けに気づかせるための通知で、正確さが命のため' },
   { label: '共通LINE開通申込・リード獲得（運営向け）', reason: '運営自身が受け取る内部通知のため' },
   { label: 'TASK6 資料ダウンロード', reason: 'メディア側のコンテンツ運用で扱うため' },

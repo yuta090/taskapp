@@ -75,6 +75,11 @@ export const PUSH_IMMEDIATE_TYPES: readonly string[] = ALL_NOTIFICATION_TYPES.fi
   (type) => POLICY[type].push === 'immediate',
 )
 
+/** その場でメールを送る種類。5分ごとの即時配信ワーカーが対象を絞るのに使う */
+export const EMAIL_IMMEDIATE_TYPES: readonly string[] = ALL_NOTIFICATION_TYPES.filter(
+  (type) => POLICY[type].email === 'immediate',
+)
+
 /** 知らない種類は鳴らさない・送らない。増やした人が意図して1行足すまで静かにしておく */
 export function getDeliveryPolicy(type: string): DeliveryPolicy {
   return POLICY[type] ?? SILENT

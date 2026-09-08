@@ -152,6 +152,17 @@ function itemTitle(n: DigestNotification): string {
 }
 
 /**
+ * この通知がメールに載るか（見出しがあり、本人がその種類の受信をオンにしている）。
+ * 即時メール側も「どの通知を実際に送ったか」を知るためにこれを使う（判定の重複を避ける）。
+ */
+export function isIncludedInEmail(type: string, prefs: NotificationEmailPrefs): boolean {
+  if (!prefs.email_enabled || prefs.digest_frequency === 'none') return false
+  const category = categorizeNotificationType(type)
+  if (!category) return false
+  return !!prefs[CATEGORY_PREF_KEY[category]]
+}
+
+/**
  * prefs で有効な種類のみを対象に、通知をカテゴリ別へ集約する。
  * email_enabled=false / digest_frequency='none' / 対象0件 の場合は null（=送らない）。
  */
@@ -163,9 +174,8 @@ export function buildDigest(
 
   const byCategory = new Map<EmailCategory, DigestItem[]>()
   for (const notification of notifications) {
-    const category = categorizeNotificationType(notification.type)
-    if (!category) continue
-    if (!prefs[CATEGORY_PREF_KEY[category]]) continue
+    if (!isIncludedInEmail(notification.type, prefs)) continue
+    const category = categorizeNotificationType(notification.type)!
     const list = byCategory.get(category) ?? []
     list.push({ title: itemTitle(notification), spaceName: notification.space_name ?? null })
     byCategory.set(category, list)

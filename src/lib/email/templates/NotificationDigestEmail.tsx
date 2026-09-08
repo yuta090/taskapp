@@ -15,11 +15,18 @@ import {
 } from '@react-email/components'
 import type { DigestSection, PendingInvitesSummary } from '@/lib/notifications/digest'
 
+/**
+ * 'daily' = 毎朝1回のまとめ / 'immediate' = 数分ためて送る「返事待ち」だけのまとめ。
+ * 中身の作りは同じ（種類別の一覧）なので、見出しと注記だけを差し替える。
+ */
+export type NotificationDigestVariant = 'daily' | 'immediate'
+
 export interface NotificationDigestEmailProps {
   appName: string
   displayName: string | null
   sections: DigestSection[]
   totalCount: number
+  variant?: NotificationDigestVariant
   /** 未承諾の招待（作成から3日以上）のまとめ。未設定なら節を出さない */
   pendingInvites?: PendingInvitesSummary
   appUrl: string
@@ -31,11 +38,16 @@ export default function NotificationDigestEmail({
   displayName,
   sections,
   totalCount,
+  variant = 'daily',
   pendingInvites,
   appUrl,
   settingsUrl,
 }: NotificationDigestEmailProps) {
-  const previewText = `今日の更新が${totalCount}件あります`
+  const headline =
+    variant === 'immediate'
+      ? `あなたの返事を待っている件が${totalCount}件あります`
+      : `今日の更新が${totalCount}件あります`
+  const previewText = headline
 
   return (
     <Html lang="ja">
@@ -66,7 +78,7 @@ export default function NotificationDigestEmail({
             {/* Content */}
             <Section className="bg-white px-10 py-10">
               <Heading as="h2" className="text-gray-900 text-[20px] font-semibold m-0 mb-4">
-                今日の更新が{totalCount}件あります
+                {headline}
               </Heading>
 
               {displayName && (
@@ -134,7 +146,9 @@ export default function NotificationDigestEmail({
               <Hr className="border-gray-200 my-8" />
 
               <Text className="text-gray-400 text-[12px] leading-[1.6] m-0 text-center">
-                このメールは1日1回のまとめ通知です。
+                {variant === 'immediate'
+                  ? 'このメールは、あなたの返事を待っている件だけをお送りしています。それ以外は1日1回のまとめでお届けします。'
+                  : 'このメールは1日1回のまとめ通知です。'}
                 <br />
                 受け取る種類や頻度は{' '}
                 <Link href={settingsUrl} className="text-brand underline">

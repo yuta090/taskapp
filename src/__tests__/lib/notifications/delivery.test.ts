@@ -8,6 +8,7 @@ import {
   pushSkipReasonWithoutCount,
   PUSH_DAILY_CAP,
   QUIET_HOURS_EXEMPT_TYPES,
+  EMAIL_IMMEDIATE_TYPES,
 } from '@/lib/notifications/delivery'
 import { NOTIFICATION_TYPE_META } from '@/lib/notifications/labels'
 import { categorizeNotificationType } from '@/lib/notifications/digest'
@@ -183,5 +184,30 @@ describe('鳴らさなかった理由', () => {
     expect(pushSkipReasonWithoutCount({ type: 'review_request', jstDate: weekdayNight })).toBe('quiet_hours')
     expect(pushSkipReasonWithoutCount({ type: 'urgent_confirmation', jstDate: weekdayNight })).toBeNull()
     expect(pushSkipReasonWithoutCount({ type: 'review_request', jstDate: weekdayNoon })).toBeNull()
+  })
+})
+
+describe('即時メールの対象', () => {
+  it('相手を待たせる種類だけが対象', () => {
+    expect([...EMAIL_IMMEDIATE_TYPES].sort()).toEqual(
+      [
+        'ball_passed',
+        'client_feedback',
+        'client_question',
+        'client_replied',
+        'client_response',
+        'confirmation_request',
+        'review_request',
+        'sink_error',
+        'spec_decision_needed',
+        'urgent_confirmation',
+      ].sort()
+    )
+  })
+
+  it('まとめに回す種類は含まれない', () => {
+    for (const type of ['task_assigned', 'task_completed', 'file_uploaded', 'due_date_reminder']) {
+      expect(EMAIL_IMMEDIATE_TYPES, type).not.toContain(type)
+    }
   })
 })

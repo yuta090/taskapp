@@ -62,6 +62,7 @@ let invitesFromCallCount = 0
 let orgMembershipsFromCallCount = 0
 let profilesFromCallCount = 0
 let invitesQueryCalls: Record<string, unknown[][]> = {}
+let notificationsQueryCalls: Record<string, unknown[][]> = {}
 let prefsUpsertRows: unknown[] = []
 
 vi.mock('@/lib/supabase/admin', () => ({
@@ -76,7 +77,7 @@ vi.mock('@/lib/supabase/admin', () => ({
         })
         return builder
       }
-      if (table === 'notifications') return chain(notificationsResponse)
+      if (table === 'notifications') return recordingChain(notificationsResponse, notificationsQueryCalls)
       if (table === 'spaces') return chain(spacesResponse)
       if (table === 'profiles') {
         profilesFromCallCount += 1
@@ -143,6 +144,7 @@ function resetHarness() {
   orgMembershipsFromCallCount = 0
   profilesFromCallCount = 0
   invitesQueryCalls = {}
+  notificationsQueryCalls = {}
   prefsUpsertRows = []
 
   prefsResponse = { data: [basePrefRow(USER_A)], error: null }
@@ -400,5 +402,15 @@ describe('POST /api/cron/notification-digest — 設定を触っていない人'
 
     expect(json.candidateCount).toBe(0)
     expect(sendDigestEmailMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/cron/notification-digest — 即時メールとの二重送信', () => {
+  beforeEach(resetHarness)
+
+  it('即時メールで送り済みの通知はまとめに入れない', async () => {
+    await callPost()
+
+    expect(notificationsQueryCalls.is).toEqual([['immediate_email_sent_at', null]])
   })
 })
