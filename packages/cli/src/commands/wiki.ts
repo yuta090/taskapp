@@ -63,6 +63,10 @@ export function registerWikiCommands(program: Command): void {
     .option('--title <title>', 'New title')
     .option('--body <body>', 'New body (Markdown)')
     .option('--tags <tags...>', 'New tags')
+    .option('--parent-id <id>', 'Parent page ID (folder view)')
+    .option('--milestone-id <id>', 'Milestone ID to link')
+    .option('--pin', 'Pin to the top of the list')
+    .option('--unpin', 'Remove from the top of the list')
     .action(async (opts) => {
       try {
         const result = await callTool('wiki_update', {
@@ -71,6 +75,9 @@ export function registerWikiCommands(program: Command): void {
           title: opts.title,
           body: opts.body,
           tags: opts.tags,
+          parentPageId: opts.parentId,
+          milestoneId: opts.milestoneId,
+          pinned: opts.pin ? true : opts.unpin ? false : undefined,
         })
         output(result, program.opts().json)
       } catch (e) { outputError(e, program.opts().json) }
