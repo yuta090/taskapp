@@ -1426,7 +1426,8 @@ export function TaskInspector({
               )}
             </div>
 
-            {/* Milestone Wiki (PR3): このマイルストーンに紐づく Wiki への導線。0件・milestone未設定なら非表示 */}
+            {/* Milestone Wiki (PR3): このマイルストーンに紐づく Wiki への導線。0件・milestone未設定なら非表示。
+                prefetch={false}: 最大6本のリンクが画面に入った時点で先読みされるのを避ける（上の Wiki リンクも先読みなし） */}
             {milestoneWikiPages.length > 0 && (
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-gray-500">このマイルストーンの Wiki</label>
@@ -1435,6 +1436,7 @@ export function TaskInspector({
                     <NextLink
                       key={page.id}
                       href={`/${task.org_id}/project/${task.space_id}/wiki?page=${page.id}`}
+                      prefetch={false}
                       className="flex items-center gap-1.5 text-sm text-gray-700 hover:underline min-w-0"
                     >
                       {page.pinned_at != null && (
@@ -1447,6 +1449,7 @@ export function TaskInspector({
                   {milestoneWikiTotalCount > milestoneWikiPages.length && (
                     <NextLink
                       href={`/${task.org_id}/project/${task.space_id}/wiki`}
+                      prefetch={false}
                       className="block text-xs text-gray-500 hover:underline"
                     >
                       他 {milestoneWikiTotalCount - milestoneWikiPages.length} 件を Wiki で見る
