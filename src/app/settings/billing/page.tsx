@@ -193,7 +193,7 @@ export default function BillingSettingsPage() {
               <button
                 onClick={handleManageSubscription}
                 disabled={portalLoading}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-indigo-ink bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
               >
                 {portalLoading ? (
                   <CircleNotch className="w-4 h-4 animate-spin" />

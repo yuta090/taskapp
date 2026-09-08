@@ -85,7 +85,7 @@ export function ManualSidebar() {
                         className={`
                           block px-3 py-1.5 rounded-md text-sm transition-colors
                           ${isActive
-                            ? 'bg-indigo-50 text-indigo-700 font-medium'
+                            ? 'bg-indigo-50 text-indigo-ink font-medium'
                             : isCurrentSection
                               ? 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
                               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'

@@ -175,7 +175,7 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
                   setArchiving(false)
                 }
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-ink bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
             >
               <ArrowCounterClockwise className="text-base" weight="bold" />
               {archiving ? '解除中...' : 'アーカイブを解除する'}

@@ -295,7 +295,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                     {member.displayName}
                   </span>
                   {member.userId === currentUserId && (
-                    <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                    <span className="text-xs text-indigo-ink bg-indigo-50 px-1.5 py-0.5 rounded">
                       あなた
                     </span>
                   )}
@@ -328,7 +328,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                       : member.role === 'client'
                       ? 'bg-amber-50 text-amber-700'
                       : member.role === 'vendor'
-                      ? 'bg-indigo-50 text-indigo-700'
+                      ? 'bg-indigo-50 text-indigo-ink'
                       : 'bg-gray-100 text-gray-700'
                   }`}
                 >

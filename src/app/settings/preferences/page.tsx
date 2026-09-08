@@ -109,7 +109,7 @@ export default function PreferencesSettingsPage() {
                 title={opt.disabled ? '準備中' : undefined}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   theme === opt.value
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-ink'
                     : 'border-gray-200 bg-surface text-gray-700 hover:bg-gray-50'
                 } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
@@ -143,7 +143,7 @@ export default function PreferencesSettingsPage() {
                 title={opt.disabled ? '準備中' : undefined}
                 className={`px-4 py-2.5 text-sm rounded-lg border transition-colors ${
                   language === opt.value
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-ink'
                     : 'border-gray-200 bg-surface text-gray-700 hover:bg-gray-50'
                 } ${opt.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >

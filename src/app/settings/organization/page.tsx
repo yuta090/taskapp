@@ -149,7 +149,7 @@ export default function OrganizationSettingsPage() {
   const hasChanges = editName.trim() !== originalName
 
   const roleBadge = role === 'owner'
-    ? { label: 'オーナー', color: 'bg-indigo-50 text-indigo-700' }
+    ? { label: 'オーナー', color: 'bg-indigo-50 text-indigo-ink' }
     : role === 'member'
     ? { label: 'メンバー', color: 'bg-gray-100 text-gray-700' }
     : { label: 'クライアント', color: 'bg-amber-50 text-amber-700' }

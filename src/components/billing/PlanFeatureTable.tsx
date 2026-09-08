@@ -46,7 +46,7 @@ export function PlanFeatureTable({ orgId }: { orgId?: string }) {
                   >
                     {PLAN_LABELS[plan]}
                     {isCurrent && (
-                      <span className="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 align-middle">
+                      <span className="ml-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-ink align-middle">
                         現在
                       </span>
                     )}

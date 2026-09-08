@@ -29,7 +29,7 @@ export function DirectConnectDisclosure({ orgId }: { orgId: string }) {
         >
           {open ? <CaretDown className="h-3.5 w-3.5" /> : <CaretRight className="h-3.5 w-3.5" />}
           <span>相手先の担当者と1対1でつなぐ</span>
-          <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+          <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-ink">
             Pro
           </span>
         </button>

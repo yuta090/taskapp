@@ -85,7 +85,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
 
       {appliedPreset ? (
         <div className="text-sm text-gray-600">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded text-sm">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-ink rounded text-sm">
             {appliedPreset.label}
           </span>
           <span className="ml-2 text-gray-400">適用済み</span>
@@ -101,7 +101,7 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
             <button
               type="button"
               onClick={() => setShowPicker(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-indigo-600 border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-indigo-ink border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-colors"
             >
               テンプレートを適用
             </button>

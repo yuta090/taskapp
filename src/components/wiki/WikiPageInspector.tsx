@@ -223,7 +223,7 @@ export function WikiPageInspector({
                 className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 autoFocus
               />
-              <button onClick={handleSaveTitle} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded">
+              <button onClick={handleSaveTitle} className="p-1 text-indigo-ink hover:bg-indigo-50 rounded">
                 <Check className="text-sm" />
               </button>
             </div>
