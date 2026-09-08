@@ -589,8 +589,8 @@ export function TaskInspector({
           )}
         </div>
 
-        {/* Description — タイトル直下に配置 */}
-        <div className="space-y-2">
+        {/* Description — タイトル直下。背景色＋罫線で「どこまでが説明か」を見て分かる領域にする */}
+        <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
           <label className="text-xs font-medium text-gray-500">説明</label>
           {isEditingDescription ? (
             <div className="space-y-2">
@@ -629,7 +629,7 @@ export function TaskInspector({
           ) : onUpdate ? (
             <div
               onClick={() => setIsEditingDescription(true)}
-              className="group cursor-pointer p-2 rounded border border-transparent hover:border-gray-200 hover:bg-gray-50 min-h-[48px]"
+              className="group cursor-pointer -mx-2 px-2 py-1.5 rounded border border-transparent hover:border-gray-200 hover:bg-surface min-h-[48px]"
             >
               {task.description ? (
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">

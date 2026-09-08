@@ -265,3 +265,31 @@ describe('TaskInspector — 期限の正本境界(due_authority_connection_id)',
     expect(onUpdate).toHaveBeenCalledWith({ dueDate: '2026-08-01' })
   })
 })
+
+// 説明欄が「どこからどこまでが説明か」一目で分かるよう、背景色＋罫線で囲った領域にする。
+describe('TaskInspector — 説明は区切られた領域として見える', () => {
+  it('説明のラベルを含む枠に背景色と罫線が付いている', () => {
+    renderInspector({
+      task: makeTask({ description: '説明のテキスト' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+    })
+
+    const section = screen.getByText('説明').closest('div')
+    expect(section?.className).toMatch(/\bbg-gray-50\b/)
+    expect(section?.className).toMatch(/\bborder-gray-200\b/)
+  })
+
+  it('読み取り専用（onUpdate なし）でも同じ枠で囲む', () => {
+    renderInspector({
+      task: makeTask({ description: '説明のテキスト' }),
+      spaceId: 's1',
+      onClose: vi.fn(),
+    })
+
+    const section = screen.getByText('説明').closest('div')
+    expect(section?.className).toMatch(/\bbg-gray-50\b/)
+    expect(section?.className).toMatch(/\bborder-gray-200\b/)
+  })
+})
