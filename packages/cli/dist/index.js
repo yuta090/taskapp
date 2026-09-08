@@ -37,6 +37,10 @@ program
     }
 });
 // ── Always-builtin commands (needed before auth) ──
+// ⚠ ここに静的なコマンド定義を足さないこと。config/login/update 以外のコマンドは
+//   すべてサーバーのコマンド一覧(src/lib/cli-manifest.ts)から registerDynamicCommands で
+//   組み立てる。かつて commands/ に task/wiki 等の定義が残っていて、そちらに足しても
+//   CLI には出ない（実際に Wiki の親ページ・ピン留めが使えない状態になった）ため削除した。
 registerConfigCommand(program);
 // ── Update command (force-fetch manifest) ──
 program
