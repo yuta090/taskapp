@@ -332,6 +332,25 @@ export function groupWikiPagesByMilestone(
   return groups
 }
 
+/**
+ * milestoneId に紐づく Wiki ページを、ピン留め優先→更新日の新しい順で最大 limit 件返す。
+ * milestoneId が null、または一致するページが無い場合は空配列（タスク詳細のマイルストーン
+ * Wiki セクションを丸ごと隠すかどうかの判定にそのまま使える）。
+ */
+export function pickMilestoneWikiPages(
+  pages: WikiPage[],
+  milestoneId: string | null,
+  limit = 5
+): WikiPage[] {
+  if (milestoneId == null) return []
+
+  const matched = pages.filter(p => p.milestone_id === milestoneId)
+  if (matched.length === 0) return []
+
+  const sorted = applyWikiListView(matched, DEFAULT_WIKI_FILTERS, DEFAULT_WIKI_SORT, () => '')
+  return sorted.slice(0, limit)
+}
+
 /** pageId の子孫（子・孫…）の id をすべて集める。親ページの選択肢から循環候補を除くために使う。 */
 export function descendantIds(pages: WikiPage[], pageId: string): Set<string> {
   const childrenByParent = new Map<string, string[]>()

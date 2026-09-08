@@ -15,6 +15,7 @@ import {
   pruneWikiTreeToMatches,
   groupWikiPagesByMilestone,
   descendantIds,
+  pickMilestoneWikiPages,
 } from '@/lib/wiki/listView'
 import type { WikiPage, Milestone } from '@/types/database'
 
@@ -379,6 +380,49 @@ describe('descendantIds', () => {
       page({ id: 'b', parent_page_id: 'a' }),
     ]
     expect(() => descendantIds(cyclic, 'a')).not.toThrow()
+  })
+})
+
+describe('pickMilestoneWikiPages', () => {
+  it('milestoneId が null なら空配列', () => {
+    const pages = [page({ id: 'p1', milestone_id: 'm1' })]
+    expect(pickMilestoneWikiPages(pages, null)).toEqual([])
+  })
+
+  it('一致するページが無ければ空配列', () => {
+    const pages = [page({ id: 'p1', milestone_id: 'm2' })]
+    expect(pickMilestoneWikiPages(pages, 'm1')).toEqual([])
+  })
+
+  it('一致するページだけを、更新日の新しい順で返す', () => {
+    const pages = [
+      page({ id: 'old', milestone_id: 'm1', updated_at: '2026-09-01T00:00:00+09:00' }),
+      page({ id: 'other-milestone', milestone_id: 'm2', updated_at: '2026-09-05T00:00:00+09:00' }),
+      page({ id: 'new', milestone_id: 'm1', updated_at: '2026-09-03T00:00:00+09:00' }),
+    ]
+    const result = pickMilestoneWikiPages(pages, 'm1')
+    expect(result.map(p => p.id)).toEqual(['new', 'old'])
+  })
+
+  it('ピン留めを更新日より優先して先頭に出す', () => {
+    const pages = [
+      page({ id: 'unpinned-new', milestone_id: 'm1', updated_at: '2026-09-05T00:00:00+09:00' }),
+      page({ id: 'pinned-old', milestone_id: 'm1', updated_at: '2026-09-01T00:00:00+09:00', pinned_at: '2026-09-02T00:00:00+09:00' }),
+    ]
+    const result = pickMilestoneWikiPages(pages, 'm1')
+    expect(result.map(p => p.id)).toEqual(['pinned-old', 'unpinned-new'])
+  })
+
+  it('6件以上あっても既定の上限5件に切り詰める', () => {
+    const pages = Array.from({ length: 7 }, (_, i) =>
+      page({ id: `p${i}`, milestone_id: 'm1', updated_at: `2026-09-0${(i % 9) + 1}T00:00:00+09:00` })
+    )
+    expect(pickMilestoneWikiPages(pages, 'm1')).toHaveLength(5)
+  })
+
+  it('limit を指定すればその件数まで返す', () => {
+    const pages = Array.from({ length: 3 }, (_, i) => page({ id: `p${i}`, milestone_id: 'm1' }))
+    expect(pickMilestoneWikiPages(pages, 'm1', 2)).toHaveLength(2)
   })
 })
 
