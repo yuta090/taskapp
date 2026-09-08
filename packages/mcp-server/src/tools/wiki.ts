@@ -25,6 +25,8 @@ const wikiListSchema = z.object({
   limit: z.number().int().positive().max(200).default(50).describe('取得件数上限'),
 })
 
+const nullableIdSchema = z.string().nullable().optional()
+
 const wikiGetSchema = z.object({
   spaceId: z.string().uuid().describe('スペースUUID（必須）'),
   pageId: z.string().describe('WikiページID'),
@@ -45,6 +47,9 @@ const wikiUpdateSchema = z.object({
   body: z.string().optional().describe('本文（Markdown / HTML / BlockNote JSON。保存時に画面と同じブロック形式へ変換）'),
   format: bodyFormatSchema,
   tags: z.array(z.string()).optional().describe('タグ配列'),
+  parentPageId: nullableIdSchema.describe('親ページID（フォルダ表示）。null で根に戻す。別スペースの親・循環はDB側で拒否される'),
+  milestoneId: nullableIdSchema.describe('紐づけるマイルストーンID。null で解除'),
+  pinned: z.boolean().optional().describe('true で一覧の先頭に固定、false で解除'),
 })
 
 const wikiDeleteSchema = z.object({
@@ -67,7 +72,9 @@ export async function wikiList(params: z.infer<typeof wikiListSchema>): Promise<
 
   const { data, error } = await supabase
     .from('wiki_pages')
-    .select('id, org_id, space_id, title, tags, created_by, updated_by, created_at, updated_at')
+    .select(
+      'id, org_id, space_id, title, tags, parent_page_id, milestone_id, pinned_at, sort_order, created_by, updated_by, created_at, updated_at'
+    )
     .eq('org_id', orgId)
     .eq('space_id', params.spaceId)
     .order('updated_at', { ascending: false })
@@ -133,6 +140,9 @@ export async function wikiUpdate(params: z.infer<typeof wikiUpdateSchema>): Prom
     updateData.body = await toWikiBlocksJson(params.body, params.format as WikiBodyFormat | undefined)
   }
   if (params.tags !== undefined) updateData.tags = params.tags
+  if (params.parentPageId !== undefined) updateData.parent_page_id = params.parentPageId
+  if (params.milestoneId !== undefined) updateData.milestone_id = params.milestoneId
+  if (params.pinned !== undefined) updateData.pinned_at = params.pinned ? new Date().toISOString() : null
 
   const { data, error } = await supabase
     .from('wiki_pages')
