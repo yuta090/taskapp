@@ -839,8 +839,8 @@ export declare const allTools: ({
         body: import("zod").ZodOptional<import("zod").ZodString>;
         format: import("zod").ZodOptional<import("zod").ZodEnum<["markdown", "html", "blocks"]>>;
         tags: import("zod").ZodOptional<import("zod").ZodArray<import("zod").ZodString, "many">>;
-        parentPageId: import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>;
-        milestoneId: import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>;
+        parentPageId: import("zod").ZodEffects<import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>, string | null | undefined, unknown>;
+        milestoneId: import("zod").ZodEffects<import("zod").ZodOptional<import("zod").ZodNullable<import("zod").ZodString>>, string | null | undefined, unknown>;
         pinned: import("zod").ZodOptional<import("zod").ZodBoolean>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
@@ -856,11 +856,11 @@ export declare const allTools: ({
         spaceId: string;
         pageId: string;
         title?: string | undefined;
-        milestoneId?: string | null | undefined;
+        milestoneId?: unknown;
         body?: string | undefined;
         format?: "markdown" | "html" | "blocks" | undefined;
         tags?: string[] | undefined;
-        parentPageId?: string | null | undefined;
+        parentPageId?: unknown;
         pinned?: boolean | undefined;
     }>;
     handler: typeof import("./wiki.js").wikiUpdate;
