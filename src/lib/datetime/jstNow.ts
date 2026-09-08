@@ -41,3 +41,19 @@ export function jstNow(now: Date = new Date()): Date {
     get('second'),
   )
 }
+
+/** JST は UTC+9 固定（サマータイムが無い）ので、オフセットは定数でよい */
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000
+
+/**
+ * 「JSTの今日の 0:00」を、本物の絶対時刻(Date)として返す。
+ *
+ * jstNow() は日付「成分」の解決専用で絶対時刻がずれているため、DB の created_at と
+ * 比べる境界には使えない。1日あたりの件数を数えるといった用途はこちらを使う。
+ */
+export function jstDayStartUtc(now: Date = new Date()): Date {
+  const jst = jstNow(now)
+  return new Date(
+    Date.UTC(jst.getFullYear(), jst.getMonth(), jst.getDate(), 0, 0, 0, 0) - JST_OFFSET_MS,
+  )
+}

@@ -19,6 +19,23 @@ export interface NotificationEmailPrefs {
   digest_frequency: 'none' | 'daily' | 'weekly'
 }
 
+/**
+ * 設定を一度も触っていない人に適用する既定値（＝設定画面が表示している状態）。
+ * 設定画面は行が無くても「オン・毎日」と表示するので、配信側もそう扱わないと
+ * 「オンに見えるのに届かない」というズレになる（実際に本番で起きた）。
+ * 画面側の既定は useNotificationEmailPrefs.DEFAULT_EMAIL_PREFS。両者が一致することは
+ * digest.test.ts で検査する。
+ */
+export const DEFAULT_NOTIFICATION_EMAIL_PREFS: NotificationEmailPrefs = {
+  email_enabled: true,
+  on_task_assigned: true,
+  on_task_mentioned: true,
+  on_review_request: true,
+  on_client_response: true,
+  on_meeting_reminder: true,
+  digest_frequency: 'daily',
+}
+
 /** ダイジェスト集計に必要な通知行の部分形 */
 export interface DigestNotification {
   type: string
@@ -32,12 +49,15 @@ const TYPE_TO_CATEGORY: Record<string, EmailCategory> = {
   // 割り当て / ボール移動
   task_assigned: 'task_assigned',
   ball_passed: 'task_assigned',
+  task_completed: 'task_assigned',
+  due_date_reminder: 'task_assigned',
   // メンション / コメント
   mention: 'task_mentioned',
   comment_added: 'task_mentioned',
   comment: 'task_mentioned',
   // 承認・レビュー待ち
   review_request: 'review_request',
+  review_cancelled: 'review_request',
   confirmation_request: 'review_request',
   urgent_confirmation: 'review_request',
   spec_decision_needed: 'review_request',
@@ -45,9 +65,13 @@ const TYPE_TO_CATEGORY: Record<string, EmailCategory> = {
   // クライアントからの応答
   client_response: 'client_response',
   client_replied: 'client_response',
+  client_question: 'client_response',
+  client_feedback: 'client_response',
+  file_uploaded: 'client_response',
   // 招待の承諾
   invite_accepted: 'client_response',
   // 会議
+  meeting_scheduled: 'meeting_reminder',
   meeting_ended: 'meeting_reminder',
   meeting_reminder: 'meeting_reminder',
   scheduling_reminder: 'meeting_reminder',
@@ -66,12 +90,15 @@ const CATEGORY_PREF_KEY: Record<EmailCategory, keyof NotificationEmailPrefs> = {
   meeting_reminder: 'on_meeting_reminder',
 }
 
+// 見出しは「種類のグループ名」。1つの見出しに複数の通知タイプが入るので、
+// 特定のタイプを指す言い方（例:「あなたにボールが回ってきたタスク」）にすると
+// 完了・期限のお知らせが入ったときに嘘になる。広い言い方にしておく。
 export const CATEGORY_LABEL: Record<EmailCategory, string> = {
-  task_assigned: 'あなたにボールが回ってきたタスク',
-  task_mentioned: 'あなたへのメンション',
-  review_request: '承認・レビュー待ち',
-  client_response: '相手からの応答・承諾',
-  meeting_reminder: '会議のリマインド',
+  task_assigned: 'タスクの動き',
+  task_mentioned: 'メンション・コメント',
+  review_request: '承認・レビュー',
+  client_response: '相手先からの連絡',
+  meeting_reminder: '会議・日程調整',
 }
 
 const CATEGORY_ORDER: EmailCategory[] = [
