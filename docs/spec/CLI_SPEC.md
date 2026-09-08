@@ -64,7 +64,7 @@ CLIフラグ > 環境変数 > 設定ファイル > デフォルト値
 
 ```bash
 agentpm task list [--space-id <uuid>] [--ball <side>] [--status <status>] [--type <type>] [--client-scope <scope>] [--limit <n>]
-agentpm task create --space-id <uuid> --title <title> [--description <desc>] [--type <type>] [--ball <side>] [--origin <origin>] [--client-scope <scope>] [--due-date <date>] [--assignee-id <uuid>] [--milestone-id <uuid>]
+agentpm task create --space-id <uuid> --title <title> [--description <desc>] [--status <status>] [--type <type>] [--ball <side>] [--origin <origin>] [--client-scope <scope>] [--due-date <date>] [--assignee-id <uuid>] [--milestone-id <uuid>]
 agentpm task get [--space-id <uuid>] --task-id <uuid>
 agentpm task update [--space-id <uuid>] --task-id <uuid> [--title <title>] [--description <desc>] [--status <status>] [--due-date <date>] [--assignee-id <uuid>] [--priority <n>] [--milestone-id <uuid>]
 agentpm task delete [--space-id <uuid>] --task-id <uuid> [--no-dry-run] [--confirm-token <token>]
@@ -72,6 +72,17 @@ agentpm task list-my [--ball <side>] [--status <status>] [--client-scope <scope>
 agentpm task stale [--space-id <uuid>] [--stale-days <n>] [--ball <side>] [--limit <n>]
 agentpm task import [--space-id <uuid>] (--file <path> | --stdin) [--no-dry-run]
 ```
+
+#### `task create --status` — 最初のステータスを指定して作る
+
+省略すると従来どおり **未着手(backlog)**（仕様タスク `--type spec` は `considering`）で作られる。
+すでに動いているものを登録するときは、作成→更新の2回叩きをせずに一度で済む。
+
+```bash
+agentpm task create --title "見積もりを送る" --status in_progress
+```
+
+指定できる値は画面と同じ 6 種: `backlog` / `todo` / `in_progress` / `in_review` / `done` / `considering`。
 
 #### `task import` — CSV からの一括取り込み
 
