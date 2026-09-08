@@ -1,13 +1,9 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Pencil, Check, X, Archive, ArrowCounterClockwise } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { Pencil, Check, X } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useSpaceArchive } from '@/lib/hooks/useSpaceArchive'
-import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
-import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 
 interface GeneralSettingsProps {
   spaceId: string
@@ -20,14 +16,6 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [archiving, setArchiving] = useState(false)
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
-  const [archiveConfirmText, setArchiveConfirmText] = useState('')
-  const { isArchived, archive, unarchive } = useSpaceArchive(spaceId)
-  const { members } = useSpaceMembers(spaceId)
-  const { user } = useCurrentUser()
-  const currentMember = members.find((m) => m.id === user?.id)
-  const isAdmin = currentMember?.role === 'admin' || currentMember?.role === 'owner'
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -150,120 +138,6 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
           <div className="text-sm text-red-500">{error}</div>
         )}
       </div>
-
-      {/* 危険ゾーン (admin のみ表示) */}
-      {isAdmin && <div className="mt-8 pt-6 border-t border-red-100">
-        <h3 className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-3">
-          危険ゾーン
-        </h3>
-        {isArchived ? (
-          <div>
-            <p className="text-xs text-gray-500 mb-3">
-              このプロジェクトはアーカイブされています。解除するとサイドバーの一覧に再表示されます。
-            </p>
-            <button
-              type="button"
-              disabled={archiving}
-              onClick={async () => {
-                setArchiving(true)
-                try {
-                  await unarchive()
-                  toast.success('アーカイブを解除しました')
-                } catch {
-                  toast.error('アーカイブ解除に失敗しました')
-                } finally {
-                  setArchiving(false)
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-ink bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <ArrowCounterClockwise className="text-base" weight="bold" />
-              {archiving ? '解除中...' : 'アーカイブを解除する'}
-            </button>
-          </div>
-        ) : (
-          <div>
-            <p className="text-xs text-gray-500 mb-3">
-              このプロジェクトをアーカイブすると、サイドバーの一覧から非表示になります。データは削除されず、いつでも復元できます。
-            </p>
-            {showArchiveConfirm ? (
-              <div className="space-y-3 p-3 border border-red-200 rounded-lg bg-red-50/50">
-                <p className="text-xs text-gray-700">
-                  確認のため、プロジェクト名 <span className="font-semibold text-red-600">{originalName}</span> を入力してください。
-                </p>
-                <input
-                  type="text"
-                  value={archiveConfirmText}
-                  onChange={(e) => setArchiveConfirmText(e.target.value)}
-                  placeholder={originalName}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowArchiveConfirm(false)
-                      setArchiveConfirmText('')
-                    }
-                  }}
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={archiving || archiveConfirmText !== originalName}
-                    onClick={async () => {
-                      setArchiving(true)
-                      try {
-                        await archive()
-                        setShowArchiveConfirm(false)
-                        setArchiveConfirmText('')
-                        toast.success('アーカイブしました', {
-                          action: {
-                            label: '元に戻す',
-                            onClick: async () => {
-                              try {
-                                await unarchive()
-                                toast.success('アーカイブを解除しました')
-                              } catch {
-                                toast.error('アーカイブ解除に失敗しました')
-                              }
-                            },
-                          },
-                        })
-                      } catch {
-                        toast.error('アーカイブに失敗しました')
-                      } finally {
-                        setArchiving(false)
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Archive className="text-base" weight="bold" />
-                    {archiving ? 'アーカイブ中...' : 'アーカイブする'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowArchiveConfirm(false)
-                      setArchiveConfirmText('')
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    キャンセル
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowArchiveConfirm(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-              >
-                <Archive className="text-base" weight="bold" />
-                アーカイブする
-              </button>
-            )}
-          </div>
-        )}
-      </div>}
     </div>
   )
 }

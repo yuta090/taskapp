@@ -1,20 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import {
-  FolderSimple,
-  UsersThree,
-  SealCheck,
-  Flag,
-  GithubLogo,
-  ChatCircleDots,
-  VideoCamera,
-  Key,
-  Export,
-  MagnifyingGlass,
-  Browser,
-  Buildings,
-} from '@phosphor-icons/react'
+import { MagnifyingGlass } from '@phosphor-icons/react'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
 import { useSlackWorkspace } from '@/lib/hooks/useSlack'
@@ -31,65 +18,20 @@ import { SlackChannelSettings } from './SlackChannelSettings'
 import { VideoProviderSettings } from './VideoProviderSettings'
 import { ApiSettings } from './ApiSettings'
 import { ExportSettings } from './ExportSettings'
+import { DangerSettings } from './DangerSettings'
 import { SetupBanner } from './SetupBanner'
 import type { SettingSectionId, ConnectionStatus } from './types'
+import { getSettingsCategories } from './settingsNav'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { WARNING } from '@/lib/design/tokens'
 
 /* ─── Types ─── */
-
-interface SettingItem {
-  id: SettingSectionId
-  label: string
-  icon: React.ElementType
-  keywords: string[]
-}
-
-interface SettingCategory {
-  id: string
-  label: string
-  items: SettingItem[]
-}
 
 interface SettingsLayoutProps {
   orgId: string
   spaceId: string
 }
-
-/* ─── Category definitions ─── */
-
-const categories: SettingCategory[] = [
-  {
-    id: 'project',
-    label: 'プロジェクト運用',
-    items: [
-      { id: 'general', label: '基本設定', icon: FolderSimple, keywords: ['プロジェクト名', '名前', 'name', 'general', 'プリセット', 'テンプレート', 'preset'] },
-      { id: 'milestones', label: 'マイルストーン', icon: Flag, keywords: ['期日', 'スケジュール', 'deadline', 'milestone'] },
-      { id: 'members', label: 'メンバー', icon: UsersThree, keywords: ['招待', 'ロール', '権限', 'invite', 'role', 'member'] },
-      { id: 'approval', label: '社内承認', icon: SealCheck, keywords: ['承認', '承認者', 'レビュー', 'デフォルト', '既定', 'approval', 'reviewer', 'review'] },
-      { id: 'portal', label: 'ポータル表示', icon: Browser, keywords: ['ポータル', 'portal', 'クライアント', '表示', '非表示', '公開'] },
-      { id: 'agency', label: '代理店モード', icon: Buildings, keywords: ['代理店', 'agency', 'ベンダー', 'vendor', 'マージン', 'margin', '制作会社'] },
-    ],
-  },
-  {
-    id: 'integrations',
-    label: '外部連携',
-    items: [
-      { id: 'github', label: 'GitHub', icon: GithubLogo, keywords: ['リポジトリ', 'PR', 'プルリクエスト', 'repository'] },
-      { id: 'slack', label: 'Slack', icon: ChatCircleDots, keywords: ['通知', 'チャンネル', 'channel', 'notification'] },
-      { id: 'video-conference', label: 'ビデオ会議', icon: VideoCamera, keywords: ['Zoom', 'Teams', 'Meet', 'ミーティング', 'meeting'] },
-    ],
-  },
-  {
-    id: 'security',
-    label: 'セキュリティ・API',
-    items: [{ id: 'api', label: 'APIキー', icon: Key, keywords: ['トークン', 'token', 'key', 'セキュリティ'] }],
-  },
-  {
-    id: 'data',
-    label: 'データ管理',
-    items: [{ id: 'export', label: 'データエクスポート', icon: Export, keywords: ['CSV', 'ダウンロード', 'download', 'テンプレート'] }],
-  },
-]
 
 /* ─── Status dot component ─── */
 
@@ -135,6 +77,7 @@ function useIntegrationStatuses(
       'video-conference': 'none',
       api: 'none',
       export: 'none',
+      danger: 'none',
     }
 
     base.github = githubInstallation ? 'connected' : 'disconnected'
@@ -189,6 +132,8 @@ function SettingsSection({
       return <ApiSettings orgId={orgId} spaceId={spaceId} />
     case 'export':
       return <ExportSettings spaceId={spaceId} />
+    case 'danger':
+      return <DangerSettings spaceId={spaceId} />
   }
 }
 
@@ -215,6 +160,15 @@ export function SettingsLayout({ orgId, spaceId }: SettingsLayoutProps) {
     ).length
   }, [statuses])
 
+  // 危険設定はプロジェクトの管理者にだけ見せる
+  const { members } = useSpaceMembers(spaceId)
+  const { user } = useCurrentUser()
+  const isAdmin = useMemo(() => {
+    const role = members.find((m) => m.id === user?.id)?.role
+    return role === 'admin' || role === 'owner'
+  }, [members, user])
+  const categories = useMemo(() => getSettingsCategories({ isAdmin }), [isAdmin])
+
   // Filter categories by search query
   const filteredCategories = useMemo(() => {
     if (!searchQuery.trim()) return categories
@@ -231,7 +185,7 @@ export function SettingsLayout({ orgId, spaceId }: SettingsLayoutProps) {
         ),
       }))
       .filter((category) => category.items.length > 0)
-  }, [searchQuery])
+  }, [searchQuery, categories])
 
   // Keyboard shortcut: Cmd+K or / to focus search
   useEffect(() => {
