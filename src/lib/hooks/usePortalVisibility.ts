@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DEFAULT_PORTAL_SECTIONS } from '@/lib/portal/types'
 import type { PortalVisibleSections } from '@/lib/portal/types'
+import { patchSpaceRow } from './useSpaceRow'
 
 // Re-export for consumers that already import from here
 export type { PortalVisibleSections } from '@/lib/portal/types'
@@ -43,6 +44,9 @@ export function usePortalVisibility(spaceId: string | null) {
         .eq('id', spaceId!)
 
       if (error) throw error
+
+      // spaces の1行を共有している ['space', spaceId] にも反映しておく
+      if (spaceId) patchSpaceRow(queryClient, spaceId, { portal_visible_sections: sections })
     },
     onMutate: async (sections) => {
       await queryClient.cancelQueries({ queryKey })

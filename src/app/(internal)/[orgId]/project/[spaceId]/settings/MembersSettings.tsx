@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getCachedUser } from '@/lib/supabase/cached-auth'
 import { Users, Plus, Trash, Crown, UserCircle, CircleNotch, ArrowClockwise, X } from '@phosphor-icons/react'
 import Image from 'next/image'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { useConfirmDialog, Hint } from '@/components/shared'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useSpaceMemberJoinedAt } from '@/lib/hooks/useSpaceMemberJoinedAt'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import {
   SPACE_ROLE_GUIDE,
@@ -46,16 +46,25 @@ const INVITE_STATUS_STYLE: Record<InviteStatus, string> = {
 
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
-  const [members, setMembers] = useState<Member[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  // 権限の判定は SettingsLayout と同じキャッシュ（['currentUser'] / ['spaceMembers', spaceId]）から取る。
-  // 下の fetchMembers は参加日を出すための一覧取得で、直列3段になる。
-  // そこに判定をぶら下げると招待フォームの表示が3段の完了待ちになるので分けている。
+  // 一覧の正本は共有キャッシュ（['spaceMembers', spaceId]）ひとつ。以前はこの画面だけ
+  // 同じ RPC をもう一度自前で叩いていて、同じ内容を二重に取りに行っていた。
+  // 一本化したことで、役割を変えるとこの画面の外（担当者・承認者の選択肢）も同時に変わる。
   const { user } = useCurrentUser()
   const currentUserId = user?.id ?? null
-  const { members: cachedMembers } = useSpaceMembers(spaceId)
+  const {
+    members: sharedMembers,
+    isPending: membersPending,
+    error: membersError,
+    refetch: refetchSharedMembers,
+    patchMembers,
+  } = useSpaceMembers(spaceId)
+
+  const loading = membersPending
+  // 在庫があるうちは、背景の取り直しが一瞬こけてもエラー画面に差し替えない。
+  // （2分あけてタブに戻ると再取得が走るので、ここを素通しにすると使える一覧が
+  //   あるのに画面全体がエラー箱になる）
+  const error = sharedMembers.length === 0 ? membersError : null
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -73,6 +82,22 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const [activeTab, setActiveTab] = useState<'members' | 'pending' | 'history'>('members')
   const [invitesActionId, setInvitesActionId] = useState<string | null>(null)
 
+  // 参加日は一覧 RPC に含まれないのでここだけ別に取る（一覧とは独立・同時に走る）。
+  // 表示するのはメンバーのタブだけなので、招待のタブでは取りに行かない
+  const joinedAtByUser = useSpaceMemberJoinedAt(spaceId, activeTab === 'members')
+
+  const members: Member[] = useMemo(
+    () =>
+      sharedMembers.map((m) => ({
+        userId: m.id,
+        displayName: m.displayName,
+        avatarUrl: m.avatarUrl,
+        role: m.role,
+        joinedAt: joinedAtByUser?.[m.id] ?? '',
+      })),
+    [sharedMembers, joinedAtByUser]
+  )
+
   const supabase = useMemo(() => createClient(), [])
 
   const roleKey: 'client' | 'member' = inviteRole === 'client' ? 'client' : 'member'
@@ -84,70 +109,10 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     refresh: refreshInvites,
   } = useSpaceInvites(spaceId, activeTab === 'history' ? 'all' : 'pending', activeTab !== 'members')
 
-  const fetchMembers = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      // ログイン確認は5秒だけ共有の結果を使い回す（画面を開くたびの往復を減らす）
-      const { user, error: userError } = await getCachedUser(supabase)
-      if (userError || !user) {
-        setMembers([])
-        setError('ログインが必要です')
-        return
-      }
-
-      // メンバー一覧と参加日は互いに独立なので並列に取る
-      const [
-        { data, error: fetchError },
-        { data: membershipData, error: membershipError },
-      ] = await Promise.all([
-        (supabase as SupabaseClient).rpc('rpc_get_space_members', { p_space_id: spaceId }),
-        (supabase as SupabaseClient)
-          .from('space_memberships')
-          .select('user_id, role, created_at')
-          .eq('space_id', spaceId),
-      ])
-
-      if (fetchError) throw fetchError
-
-      // 参加日は RLS で読めないことがある。読めなくても一覧は出す
-      if (membershipError) {
-        console.warn('Could not fetch membership details:', membershipError)
-      }
-
-      const membershipMap = new Map<string, { user_id: string; role: string; created_at: string }>(
-        (membershipData || []).map((m: { user_id: string; role: string; created_at: string }) => [m.user_id, m] as const)
-      )
-
-      const memberList: Member[] = (data || []).map((m: { user_id: string; display_name: string | null; avatar_url: string | null; role: string }) => {
-        const membership = membershipMap.get(m.user_id)
-        return {
-          userId: m.user_id,
-          displayName: m.display_name || m.user_id.slice(0, 8) + '...',
-          avatarUrl: m.avatar_url,
-          role: m.role,
-          joinedAt: membership?.created_at || '',
-        }
-      })
-
-      setMembers(memberList)
-    } catch (err) {
-      console.error('Failed to fetch members:', err)
-      setError('メンバー情報の取得に失敗しました')
-    } finally {
-      setLoading(false)
-    }
-  }, [spaceId, supabase])
-
-  useEffect(() => {
-    void fetchMembers()
-  }, [fetchMembers])
-
-  const myRole = useMemo(() => {
-    const fromCache = cachedMembers.find((m) => m.id === currentUserId)?.role
-    return fromCache ?? members.find((m) => m.userId === currentUserId)?.role
-  }, [cachedMembers, members, currentUserId])
+  const myRole = useMemo(
+    () => sharedMembers.find((m) => m.id === currentUserId)?.role,
+    [sharedMembers, currentUserId]
+  )
 
   // 招待は編集者にも開放する（サーバー側の /api/invites・rpc_create_invite も admin/editor を許可済み）。
   // 役割の変更とメンバー削除は引き続き管理者だけ。
@@ -164,10 +129,9 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       return
     }
 
-    const prevMembers = members
-    // Optimistic update
-    setMembers((prev) =>
-      prev.map((m) => (m.userId === userId ? { ...m, role: newRole } : m))
+    // 共有キャッシュを先に書き換える（この画面の外の選択肢も同時に変わる）
+    const rollback = patchMembers((prev) =>
+      prev.map((m) => (m.id === userId ? { ...m, role: newRole } : m))
     )
 
     try {
@@ -176,9 +140,11 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
       if (error) throw error
       toast.success('役割を変更しました')
+      // サーバーの結果で上書きし直す（役割の変換など、こちらの想定と違ってもズレない）
+      void refetchSharedMembers()
     } catch (err) {
       console.error('Failed to update role:', err)
-      setMembers(prevMembers) // Rollback
+      rollback()
       toast.error('役割の変更に失敗しました')
     }
   }
@@ -193,9 +159,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     })
     if (!ok) return
 
-    const prevMembers = members
-    // Optimistic update
-    setMembers((prev) => prev.filter((m) => m.userId !== userId))
+    const rollback = patchMembers((prev) => prev.filter((m) => m.id !== userId))
 
     try {
       const { error } = await (supabase as SupabaseClient)
@@ -203,9 +167,10 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
       if (error) throw error
       toast.success('メンバーを削除しました')
+      void refetchSharedMembers()
     } catch (err) {
       console.error('Failed to remove member:', err)
-      setMembers(prevMembers) // Rollback
+      rollback()
       toast.error('メンバーの削除に失敗しました')
     }
   }
@@ -294,6 +259,8 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       setTemplateResetSeq((n) => n + 1)
       setInviteName('')
       refreshInvites()
+      // すでに登録済みの相手を招待した場合はその場で参加者になる。一覧に出るよう取り直す
+      void refetchSharedMembers()
       setInviteEmail('')
     } catch (err) {
       console.error('Failed to invite member:', err)

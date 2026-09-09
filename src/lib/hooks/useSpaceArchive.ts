@@ -1,40 +1,28 @@
 'use client'
 
 import { useCallback, useMemo, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useCurrentUser } from './useCurrentUser'
+import { useSpaceRow, spaceQueryKey } from './useSpaceRow'
 
 /**
- * スペースのアーカイブ状態を管理するフック
+ * スペースのアーカイブ状態を管理するフック。
+ * 状態そのものは useSpaceRow（プロジェクト1行）から読む。
  */
 export function useSpaceArchive(spaceId: string) {
   const queryClient = useQueryClient()
   const { user } = useCurrentUser()
+  const { space } = useSpaceRow(spaceId)
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  const { data } = useQuery({
-    queryKey: ['spaceArchive', spaceId],
-    queryFn: async () => {
-      const { data, error } = await (supabase as SupabaseClient)
-        .from('spaces')
-        .select('archived_at, archived_by')
-        .eq('id', spaceId)
-        .single()
-      if (error) throw error
-      return data as { archived_at: string | null; archived_by: string | null }
-    },
-    staleTime: 30_000,
-    enabled: !!spaceId,
-  })
-
   const invalidate = useCallback(async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['spaceArchive', spaceId] }),
+      queryClient.invalidateQueries({ queryKey: spaceQueryKey(spaceId) }),
       queryClient.invalidateQueries({ queryKey: ['userSpaces'] }),
     ])
   }, [queryClient, spaceId])
@@ -59,9 +47,9 @@ export function useSpaceArchive(spaceId: string) {
   }, [supabase, spaceId, invalidate])
 
   return useMemo(() => ({
-    isArchived: data?.archived_at !== null && data?.archived_at !== undefined,
-    archivedAt: data?.archived_at ?? null,
+    isArchived: space?.archived_at !== null && space?.archived_at !== undefined,
+    archivedAt: space?.archived_at ?? null,
     archive,
     unarchive,
-  }), [data, archive, unarchive])
+  }), [space, archive, unarchive])
 }

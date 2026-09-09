@@ -1,5 +1,7 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/MembersSettings'
 
 const toastSuccess = vi.fn()
@@ -21,13 +23,15 @@ vi.mock('@/components/shared', async () => {
   }
 })
 
-// 権限判定は共有キャッシュから取る。ここでは空にして、一覧取得からの取り出し（フォールバック）を通す
 vi.mock('@/lib/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'user-1' }, loading: false, error: null }),
 }))
 
-vi.mock('@/lib/hooks/useSpaceMembers', () => ({
-  useSpaceMembers: () => ({ members: [], loading: false, isPending: false }),
+// 一覧は共有キャッシュ（useSpaceMembers）が正本。本物を通して、役割変更・削除の
+// 楽観更新とロールバックがキャッシュ越しに効くところまで見る
+vi.mock('@/lib/supabase/cached-auth', () => ({
+  getCachedUser: () => Promise.resolve({ user: { id: 'user-1' }, error: null }),
+  invalidateCachedUser: vi.fn(),
 }))
 
 // 招待メールの文面は開いたときだけ読みに行く（この一連のテストでは開かない）
@@ -63,6 +67,15 @@ function getRoleSelectFor(displayName: string): HTMLElement {
   return within(row).getByRole('combobox')
 }
 
+function renderMembers() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MembersSettings orgId="org-1" spaceId="space-1" />
+    </QueryClientProvider>
+  )
+}
+
 describe('MembersSettings role change / removal (RPC-backed writes)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -93,7 +106,7 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
       return Promise.resolve({ data: null, error: null })
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
 
     const select = getRoleSelectFor('Editor User')
@@ -122,7 +135,7 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
       return Promise.resolve({ data: null, error: null })
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
 
     const select = getRoleSelectFor('Editor User')
@@ -134,17 +147,20 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
   })
 
   it('calls rpc_remove_space_member with space_id/user_id and removes the row only after RPC succeeds', async () => {
-    mockRpc.mockImplementation((fnName: string) => {
+    // 成功したあとは共有キャッシュを取り直すので、サーバー側も減った状態を返すようにする
+    let remaining = membersFixture()
+    mockRpc.mockImplementation((fnName: string, args?: { p_user_id?: string }) => {
       if (fnName === 'rpc_get_space_members') {
-        return Promise.resolve({ data: membersFixture(), error: null })
+        return Promise.resolve({ data: remaining, error: null })
       }
       if (fnName === 'rpc_remove_space_member') {
+        remaining = remaining.filter((m) => m.user_id !== args?.p_user_id)
         return Promise.resolve({ data: { ok: true }, error: null })
       }
       return Promise.resolve({ data: null, error: null })
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('メンバーを削除'))
@@ -157,7 +173,7 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
     })
 
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('メンバーを削除しました'))
-    expect(screen.queryByText('Editor User')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Editor User')).not.toBeInTheDocument())
   })
 
   it('rolls back the optimistic removal and shows an error toast when rpc_remove_space_member fails (no false success)', async () => {
@@ -171,7 +187,7 @@ describe('MembersSettings role change / removal (RPC-backed writes)', () => {
       return Promise.resolve({ data: null, error: null })
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('Editor User')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTitle('メンバーを削除'))
@@ -203,7 +219,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
   })
 
   it('offers only client and member as invite role choices (not admin/editor/viewer/vendor)', async () => {
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
 
     const roleSelect = screen.getByLabelText('役割')
@@ -218,7 +234,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
       json: () => Promise.resolve({ token: 'tok-1', expires_at: '2026-10-01', email_sent: true }),
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
 
     fireEvent.change(screen.getByPlaceholderText('email@example.com'), {
@@ -248,7 +264,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
       json: () => Promise.resolve({ token: 'tok-1', expires_at: '2026-10-01', email_sent: true }),
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
 
     const emailInput = screen.getByPlaceholderText('email@example.com') as HTMLInputElement
@@ -265,7 +281,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
       json: () => Promise.resolve({ error: 'Organization has reached member limit. Please upgrade your plan.' }),
     })
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
 
     const emailInput = screen.getByPlaceholderText('email@example.com') as HTMLInputElement
@@ -282,7 +298,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
     let resolveFetch!: (value: unknown) => void
     global.fetch = vi.fn(() => new Promise(resolve => { resolveFetch = resolve })) as unknown as typeof fetch
 
-    render(<MembersSettings orgId="org-1" spaceId="space-1" />)
+    renderMembers()
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
 
     fireEvent.change(screen.getByPlaceholderText('email@example.com'), {

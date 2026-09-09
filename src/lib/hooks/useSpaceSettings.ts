@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { patchSpaceRow } from './useSpaceRow'
 
 interface SpaceSettings {
   ownerFieldEnabled: boolean | null // null = 組織設定に従う
@@ -30,6 +32,7 @@ export function useSpaceSettings(spaceId: string | null): UseSpaceSettingsResult
   currentSpaceIdRef.current = spaceId
 
   const supabase = useMemo(() => createClient(), [])
+  const queryClient = useQueryClient()
 
   const fetchSettings = useCallback(async () => {
     // spaceIdが変わった/nullになった場合もリクエストIDをインクリメント
@@ -105,6 +108,9 @@ export function useSpaceSettings(spaceId: string | null): UseSpaceSettingsResult
 
         if (updateError) throw updateError
 
+        // spaces の1行を共有している ['space', spaceId] にも反映しておく
+        patchSpaceRow(queryClient, targetSpaceId, { owner_field_enabled: enabled })
+
         // ナビゲーション後は再取得しない（異なるspaceの状態を上書きしないため）
         if (currentSpaceIdRef.current !== targetSpaceId) return
 
@@ -115,7 +121,7 @@ export function useSpaceSettings(spaceId: string | null): UseSpaceSettingsResult
         throw new Error('設定の更新に失敗しました')
       }
     },
-    [spaceId, supabase, fetchSettings]
+    [spaceId, supabase, fetchSettings, queryClient]
   )
 
   return {

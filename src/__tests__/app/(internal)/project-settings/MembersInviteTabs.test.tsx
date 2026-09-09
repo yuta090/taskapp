@@ -15,8 +15,20 @@ vi.mock('@/components/shared', async () => {
 vi.mock('@/lib/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'user-1' }, loading: false, error: null }),
 }))
+// 参加日は一覧とは別のクエリ。ここでは中身を見ないので空で返す
+vi.mock('@/lib/hooks/useSpaceMemberJoinedAt', () => ({
+  useSpaceMemberJoinedAt: () => null,
+}))
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
-  useSpaceMembers: () => ({ members: [], loading: false, isPending: false }),
+  useSpaceMembers: () => ({
+    // 一覧はこのフックが正本。自分の役割（=招待できるか）もここから決まる
+    members: [{ id: 'user-1', displayName: '自分', avatarUrl: null, role: 'admin' }],
+    loading: false,
+    isPending: false,
+    error: null,
+    refetch: vi.fn(),
+    patchMembers: vi.fn(() => () => {}),
+  }),
 }))
 vi.mock('@/lib/hooks/useInviteTemplate', () => ({
   useInviteTemplate: () => ({ template: null, loading: false, error: null, refresh: vi.fn() }),

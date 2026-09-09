@@ -221,5 +221,50 @@ npx @next/bundle-analyzer        # バンドル分析
 
 ---
 
+## 8. 取得の作法（後から足すときの規約）
+
+### 8-1. プロジェクト(spaces)の1行は `useSpaceRow` 経由で読む（厳守）
+
+`spaces` の1行は、名前・アーカイブ状態・初期構成(preset_genre)・既定の会議ツール・代理店設定が
+すべて同じ行の別の列。列ごとに別のクエリを書くと、**同じ行に何度も往復する**（実際に
+プロジェクト設定を開くだけで4〜6往復していた）。
+
+- 読み取りは必ず `src/lib/hooks/useSpaceRow.ts`（queryKey `['space', spaceId]`、`select('*')`）から派生させる。
+  `useSpaceName` / `useSpaceArchive` / `useAgencyMode` / `useSpaceVideoProvider` はすべてこの派生。
+- 列を1つ足すときにクエリを増やさない。`useSpaceRow` の戻り値から読むだけにする。
+- 保存した直後の反映は `patchSpaceRow(queryClient, spaceId, { 列: 値 })`。
+  invalidate だけだと再取得が返るまで古い値が残り、**改名直後に古い名前を要求する画面**が出る
+  （危険設定の確認入力で実際に起きた退行）。
+- **`spaces` に書いたら、読み取りをどこから行っていても必ず `patchSpaceRow()` を呼ぶ**。
+  自分専用の queryKey（`['defaultReviewers']` / `['portalVisibility']` など）しか更新しないと、
+  次にその列を `useSpaceRow` から読む人が「保存したのに古い値が返る」罠を踏む。
+  現在の書き込み元: `GeneralSettings`(name) / `useSpaceArchive`(archived_at) / `useAgencyMode` /
+  `VideoProviderSettings`(default_video_provider) / `useDefaultReviewers` /
+  `usePortalVisibility` / `useSpaceSettings`(owner_field_enabled)。
+- 楽観更新のロールバックは**触った列だけ**戻す。行スナップショットを丸ごと控えて戻すと、
+  保存が失敗するまでの間に入った別の列の更新（改名など）まで巻き戻る。
+
+### 8-2. staleTime のティア
+
+| ティア | staleTime | 対象 |
+|--------|-----------|------|
+| STRUCTURE（設定・構成） | 5分 | `useSpaceRow` / `useUserSpaces` / `useChannelAccount` / `useUserName` 等 |
+| WAITING（接続待ち） | 15秒ポーリング | 画面がマウント中の「承認待ち」系のみ |
+| 既定 | 2分 | `QueryProvider` の defaultOptions |
+
+- **アプリ既定(2分)より短い staleTime を個別に置かない**。短くすると画面を移るたびに取り直しになる。
+  30秒を置いていた `useSpaceMembers` / `useUserName` はこれに該当した。
+- ただし **「他人の操作で変わるもの」は STRUCTURE(5分) に乗せない**。`useSpaceMembers`（参加者）は
+  招待の受諾・役割変更・削除で変わるので既定の2分どまりにする。`useUserSpaces` や `useSpaceRow` は
+  自分たちの設定なので5分でよい。
+- 長くする代わりに、**変えた側が明示的に反映する**。参加者なら役割変更・削除を
+  `useSpaceMembers().patchMembers()`（楽観更新＋ロールバック）で共有キャッシュへ直接書き、
+  成功後に `refetch()` でサーバーの結果へ揃える（`MembersSettings`）。
+- **同じ一覧を画面ごとに取り直さない**。`MembersSettings` は共有キャッシュと同じ RPC を
+  自前でもう一度叩いていた（二重取得＋画面の外が古いまま）。一覧の正本はフックひとつにする。
+
+---
+
 *分析実施: 2026-02-12*
 *分析者: Claude (3 Explore agents) + Codex Architect (GPT)*
+*8章 追記: 2026-09-09（spaces 1行の集約・staleTime ティア統一）*

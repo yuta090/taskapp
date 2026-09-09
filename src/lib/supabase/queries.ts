@@ -138,16 +138,28 @@ export async function fetchMeetingsQuery(
 }
 
 /**
- * Fetch space name by ID.
+ * プロジェクト1行の queryKey。クライアントの useSpaceRow と server 側の prefetch が
+ * 同じキーを使うための正本（'use client' の無いこのファイルに置く）。
  */
-export async function fetchSpaceNameQuery(
+export function spaceQueryKey(spaceId: string | null) {
+  return ['space', spaceId] as const
+}
+
+/**
+ * Fetch the space (project) row by ID.
+ * 名前・アーカイブ状態・初期構成などは全て同じ1行なので、クライアント側の
+ * useSpaceRow（queryKey: ['space', spaceId]）と同じ形で1回だけ取る。
+ */
+export async function fetchSpaceRowQuery(
   supabase: SupabaseClient,
   spaceId: string
-): Promise<string> {
-  const { data } = await supabase
+): Promise<Record<string, unknown> | null> {
+  // クライアントの useSpaceRow と同じく maybeSingle（行が無いのはエラーにしない）
+  const { data, error } = await supabase
     .from('spaces')
-    .select('name')
+    .select('*')
     .eq('id', spaceId)
-    .single()
-  return (data as { name: string } | null)?.name ?? ''
+    .maybeSingle()
+  if (error) throw error
+  return (data as Record<string, unknown> | null) ?? null
 }

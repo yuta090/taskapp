@@ -32,6 +32,7 @@ import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { RiskSummaryBanner } from '@/components/risk/RiskSummaryBanner'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
@@ -220,24 +221,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const lastBall = lastBallBySpace[spaceId] ?? 'internal'
   const lastClientOwnerIds = lastClientOwnersBySpace[spaceId] ?? []
 
-  // Supabase client for space name query
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (supabaseRef.current == null) supabaseRef.current = createClient()
-
-  const { data: spaceNameData } = useQuery<string>({
-    queryKey: ['spaceName', spaceId],
-    queryFn: async (): Promise<string> => {
-      const { data } = await (supabaseRef.current! as SupabaseClient)
-        .from('spaces')
-        .select('name')
-        .eq('id', spaceId)
-        .single()
-      return (data as { name: string } | null)?.name ?? ''
-    },
-    staleTime: 30_000,
-    enabled: !!spaceId,
-  })
-  const spaceName = spaceNameData ?? ''
+  // 名前はプロジェクト1行の共有キャッシュ（['space', spaceId]）から。
+  // 詳細パネルの代理店設定なども同じ行を見るので、この画面での取得は1回で済む。
+  const spaceName = useSpaceName(spaceId)
 
   const projectBasePath = `/${orgId}/project/${spaceId}`
 
@@ -275,7 +261,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     return 'all'
   }, [searchParams])
 
-  // useQuery auto-fetches tasks, milestones, and spaceName — no manual useEffect needed
+  // useQuery auto-fetches tasks, milestones, and the space row — no manual useEffect needed
 
   useEffect(() => {
     return () => {
