@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const VALID_INVITE_ID = '33333333-3333-4333-8333-333333333333'
+const VALID_SPACE_ID = '22222222-2222-4222-8222-222222222222'
 const VALID_ORG_ID = '11111111-1111-4111-8111-111111111111'
 
 const mockUser = { id: 'user-1', email: 'owner@example.com' }
 
 let authResponse: { data: { user: typeof mockUser | null } }
 let orgMembershipResponse: { data: { role: string } | null }
+let spaceMembershipResponse: { data: { role: string } | null }
 let inviteLookupResponse: { data: { id: string; org_id: string } | null; error: { message: string } | null }
 let deleteResponse: { error: { message: string } | null }
 
@@ -32,6 +34,17 @@ vi.mock('@/lib/supabase/server', () => ({
               eq: vi.fn(() => ({
                 eq: vi.fn(() => ({
                   single: vi.fn(() => Promise.resolve(orgMembershipResponse)),
+                })),
+              })),
+            })),
+          }
+        }
+        if (table === 'space_memberships') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  single: vi.fn(() => Promise.resolve(spaceMembershipResponse)),
                 })),
               })),
             })),
@@ -66,7 +79,8 @@ describe('DELETE /api/invites/pending/[inviteId]', () => {
     vi.clearAllMocks()
     authResponse = { data: { user: mockUser } }
     orgMembershipResponse = { data: { role: 'owner' } }
-    inviteLookupResponse = { data: { id: VALID_INVITE_ID, org_id: VALID_ORG_ID }, error: null }
+    spaceMembershipResponse = { data: null }
+    inviteLookupResponse = { data: { id: VALID_INVITE_ID, org_id: VALID_ORG_ID, space_id: VALID_SPACE_ID }, error: null }
     deleteResponse = { error: null }
   })
 
@@ -110,5 +124,23 @@ describe('DELETE /api/invites/pending/[inviteId]', () => {
     const response = await callDelete(VALID_INVITE_ID)
 
     expect(response.status).toBe(500)
+  })
+
+  it('プロジェクトの管理者も、自分のプロジェクトの招待なら取り消せる', async () => {
+    orgMembershipResponse = { data: { role: 'member' } }
+    spaceMembershipResponse = { data: { role: 'admin' } }
+
+    const response = await callDelete(VALID_INVITE_ID)
+
+    expect(response.status).toBe(200)
+  })
+
+  it('編集者は取り消せない', async () => {
+    orgMembershipResponse = { data: { role: 'member' } }
+    spaceMembershipResponse = { data: { role: 'editor' } }
+
+    const response = await callDelete(VALID_INVITE_ID)
+
+    expect(response.status).toBe(403)
   })
 })

@@ -5,11 +5,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
+import { canManageInvite } from '@/lib/invites/canManage'
 
 /**
  * DELETE /api/invites/pending/[inviteId]
  *
- * 保留中の招待を取り消す（行を削除）。呼出者はその招待が属するorgのオーナーに限る。
+ * 保留中の招待を取り消す（行を削除）。
+ * 呼出者は、その招待が属する事務所のオーナー/管理者か、そのプロジェクトの管理者。
  */
 export async function DELETE(
   request: NextRequest,
@@ -35,22 +37,31 @@ export async function DELETE(
 
     const { data: invite, error: lookupError } = await admin
       .from('invites')
-      .select('id, org_id')
+      .select('id, org_id, space_id')
       .eq('id', inviteId)
       .single()
 
     if (lookupError || !invite) {
       return NextResponse.json({ error: 'Invite not found' }, { status: 404 })
     }
+    const inviteRow = invite as { org_id: string; space_id: string }
 
-    const { data: orgMembership } = await (supabase as SupabaseClient)
-      .from('org_memberships')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('org_id', (invite as { org_id: string }).org_id)
-      .single()
+    const [{ data: orgMembership }, { data: spaceMembership }] = await Promise.all([
+      (supabase as SupabaseClient)
+        .from('org_memberships')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('org_id', inviteRow.org_id)
+        .single(),
+      (supabase as SupabaseClient)
+        .from('space_memberships')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('space_id', inviteRow.space_id)
+        .single(),
+    ])
 
-    if (!orgMembership || orgMembership.role !== 'owner') {
+    if (!canManageInvite(orgMembership?.role, spaceMembership?.role)) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
     }
 
