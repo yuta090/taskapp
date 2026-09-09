@@ -197,8 +197,8 @@ describe('GET /api/invites/pending — プロジェクト単位', () => {
 
     expect(response.status).toBe(200)
     expect(invitesQueryChain.eq).toHaveBeenCalledWith('space_id', VALID_SPACE_ID)
-    // 取り消し・再送は事務所のオーナーだけ
-    expect(data.can_manage).toBe(false)
+    // プロジェクトの管理者なので、取り消し・再送もできる
+    expect(data.can_manage).toBe(true)
   })
 
   it('事務所のオーナーなら取り消し・再送もできると返す', async () => {
@@ -207,6 +207,16 @@ describe('GET /api/invites/pending — プロジェクト単位', () => {
     const data = await (await callGetSpace(VALID_SPACE_ID)).json()
 
     expect(data.can_manage).toBe(true)
+  })
+
+  it('編集者は一覧は見られるが、取り消し・再送はできない', async () => {
+    spaceMembershipResponse = { data: { role: 'editor' } }
+
+    const response = await callGetSpace(VALID_SPACE_ID)
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data.can_manage).toBe(false)
   })
 
   it('status=all のときは承諾済み・期限切れも含めて返す（絞り込まない）', async () => {

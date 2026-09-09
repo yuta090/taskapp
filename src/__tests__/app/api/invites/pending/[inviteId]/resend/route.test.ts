@@ -19,6 +19,7 @@ interface InviteRow {
 
 let authResponse: { data: { user: typeof mockUser | null } }
 let orgMembershipResponse: { data: { role: string } | null }
+let spaceMembershipResponse: { data: { role: string } | null }
 let inviteLookupResponse: { data: InviteRow | null; error: { message: string } | null }
 let updateResponse: { error: { message: string } | null }
 let organizationResponse: { data: { name: string } | null }
@@ -83,6 +84,17 @@ vi.mock('@/lib/supabase/server', () => ({
             })),
           }
         }
+        if (table === 'space_memberships') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  single: vi.fn(() => Promise.resolve(spaceMembershipResponse)),
+                })),
+              })),
+            })),
+          }
+        }
         return {}
       }),
     })
@@ -113,6 +125,7 @@ describe('POST /api/invites/pending/[inviteId]/resend', () => {
     vi.clearAllMocks()
     authResponse = { data: { user: mockUser } }
     orgMembershipResponse = { data: { role: 'owner' } }
+    spaceMembershipResponse = { data: null }
     inviteLookupResponse = {
       data: {
         id: VALID_INVITE_ID,
@@ -219,5 +232,23 @@ describe('POST /api/invites/pending/[inviteId]/resend', () => {
     expect(response.status).toBe(200)
     const sent = sendInviteEmailMock.mock.calls[0][0] as { orgId?: string }
     expect(sent.orgId).toBe(VALID_ORG_ID)
+  })
+
+  it('プロジェクトの管理者も、自分のプロジェクトの招待なら送り直せる', async () => {
+    orgMembershipResponse = { data: { role: 'member' } }
+    spaceMembershipResponse = { data: { role: 'admin' } }
+
+    const response = await callResend(VALID_INVITE_ID)
+
+    expect(response.status).toBe(200)
+  })
+
+  it('編集者は送り直せない', async () => {
+    orgMembershipResponse = { data: { role: 'member' } }
+    spaceMembershipResponse = { data: { role: 'editor' } }
+
+    const response = await callResend(VALID_INVITE_ID)
+
+    expect(response.status).toBe(403)
   })
 })

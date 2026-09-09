@@ -274,7 +274,8 @@
 ```
 
 `status` は `accepted_at` と `expires_at` から決まる（`src/lib/invites/status.ts` が正本）。
-`can_manage`（取り消し・再送の可否）は事務所のオーナーのときだけ true。
+`can_manage`（取り消し・再送の可否）は**事務所のオーナー/管理者、またはそのプロジェクトの管理者**のとき true
+（`src/lib/invites/canManage.ts` が正本）。編集者は招待は出せるが取り消し・再送はできない。
 
 ---
 

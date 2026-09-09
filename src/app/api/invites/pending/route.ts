@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { inviteStatus, type InviteStatus } from '@/lib/invites/status'
+import { canManageInvite } from '@/lib/invites/canManage'
 
 interface InviteRow {
   id: string
@@ -37,7 +38,7 @@ export interface InviteListItem {
  * GET /api/invites/pending?space_id=<uuid>          … そのプロジェクトだけ（プロジェクトの admin/editor）
  *   &status=all を付けると、承諾済み・期限切れも含めた履歴を返す（既定は保留中だけ）
  *
- * 取り消し・再送は事務所のオーナーだけなので、can_manage で画面に伝える。
+ * 取り消し・再送ができるかは can_manage で画面に伝える（判定は lib/invites/canManage.ts）。
  */
 export async function GET(request: NextRequest) {
   try {
@@ -96,7 +97,8 @@ export async function GET(request: NextRequest) {
         : Promise.resolve({ data: null }),
     ])
 
-    const isOrgOwner = orgMembership?.role === 'owner'
+    // 取り消し・再送ができるか。プロジェクト指定のときはそのプロジェクトの管理者も含む
+    const canManage = canManageInvite(orgMembership?.role, spaceMembership?.role)
     if (spaceId) {
       if (!orgMembership || !['owner', 'member'].includes(orgMembership.role)) {
         return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
@@ -104,7 +106,7 @@ export async function GET(request: NextRequest) {
       if (!spaceMembership || !['admin', 'editor'].includes(spaceMembership.role)) {
         return NextResponse.json({ error: 'Permission denied for this space' }, { status: 403 })
       }
-    } else if (!isOrgOwner) {
+    } else if (orgMembership?.role !== 'owner') {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
     }
 
@@ -146,7 +148,7 @@ export async function GET(request: NextRequest) {
       status: inviteStatus(row, now),
     }))
 
-    return NextResponse.json({ invites, can_manage: isOrgOwner })
+    return NextResponse.json({ invites, can_manage: canManage })
   } catch (err) {
     console.error('List pending invites error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
