@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toggleDefaultReviewer } from '@/lib/review/defaultReviewers'
+import { patchSpaceRow } from './useSpaceRow'
 
 // 読み込み中に毎回新しい [] を返すと、呼び出し側の useMemo が毎レンダー無効になるため共有定数にする
 const EMPTY: string[] = []
@@ -63,6 +64,10 @@ export function useDefaultReviewers(spaceId: string | null) {
         .eq('id', spaceId!)
 
       if (error) throw error
+
+      // spaces の1行を共有している ['space', spaceId] にも反映しておく。
+      // ここを書かないと、将来この列を useSpaceRow から読んだ人が古い値を掴む
+      if (spaceId) patchSpaceRow(queryClient, spaceId, { default_reviewer_ids: next })
     },
     // 保存ボタンを置かない方針なので、押した瞬間に反映し、失敗したときだけ戻す
     onMutate: async ({ userId, isDefault }) => {

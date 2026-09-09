@@ -26,6 +26,12 @@ interface UseSpaceMembersResult {
   isPending: boolean
   error: string | null
   refetch: () => Promise<void>
+  /**
+   * 役割変更・削除の楽観更新。戻り値を呼ぶと直前の状態へ戻せる。
+   * 画面ローカルの state ではなく共有キャッシュを動かすので、担当者や承認者の選択肢など
+   * 同じ一覧を見ている場所も同時に変わる。
+   */
+  patchMembers: (updater: (prev: SpaceMember[]) => SpaceMember[]) => () => void
   getMemberName: (userId: string) => string
 }
 
@@ -64,7 +70,11 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
         role: m.role,
       }))
     },
-    staleTime: 30_000,
+    // アプリ既定(2分)に揃える。以前は30秒で既定より短く、画面を移るたびに取り直していた。
+    // useUserSpaces などの STRUCTURE ティア(5分)には**乗せない**: 参加者は「他人の操作」
+    // （招待の受諾・役割変更・削除）で変わるので、5分は待たせすぎになる。
+    // 自分の操作ぶんは呼び出し側が refetch()/patchMembers() で即座に揃える。
+    staleTime: 2 * 60_000,
     enabled: !!spaceId,
     retry: (count, err) => {
       // Don't retry auth errors
@@ -97,6 +107,18 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     await queryClient.invalidateQueries({ queryKey: ['spaceMembers', spaceId] })
   }, [queryClient, spaceId])
 
+  const patchMembers = useCallback(
+    (updater: (prev: SpaceMember[]) => SpaceMember[]): (() => void) => {
+      const key = ['spaceMembers', spaceId]
+      const previous = queryClient.getQueryData<SpaceMember[]>(key)
+      queryClient.setQueryData<SpaceMember[]>(key, (prev) => updater(prev ?? EMPTY_MEMBERS))
+      return () => {
+        queryClient.setQueryData<SpaceMember[] | undefined>(key, previous)
+      }
+    },
+    [queryClient, spaceId]
+  )
+
   // Convert Error to string for backward compatibility
   const errorMessage = queryError ? (queryError instanceof Error ? queryError.message : 'メンバー情報の取得に失敗しました') : null
 
@@ -108,6 +130,7 @@ export function useSpaceMembers(spaceId: string | null): UseSpaceMembersResult {
     isPending,
     error: errorMessage,
     refetch,
+    patchMembers,
     getMemberName,
   }
 }
@@ -137,7 +160,8 @@ export function useUserName(userId: string | null): {
       if (error) throw error
       return data?.display_name || userId.slice(0, 8) + '...'
     },
-    staleTime: 30_000,
+    // 表示名も設定と同じ STRUCTURE ティア(5分)に揃える。
+    staleTime: 5 * 60_000,
     enabled: !!userId,
   })
 

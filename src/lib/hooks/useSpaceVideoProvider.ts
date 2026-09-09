@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { useMemo } from 'react'
+import { useSpaceRow } from './useSpaceRow'
 
 type VideoProvider = 'google_meet' | 'zoom' | 'teams'
 
@@ -12,42 +11,11 @@ interface UseSpaceVideoProviderReturn {
   loading: boolean
 }
 
+/**
+ * 会議ツールの既定。値はプロジェクト1行（useSpaceRow）から読む。
+ */
 export function useSpaceVideoProvider(spaceId: string | null): UseSpaceVideoProviderReturn {
-  const [defaultProvider, setDefaultProvider] = useState<VideoProvider | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  const supabase = useMemo(() => createClient(), [])
-
-  useEffect(() => {
-    if (!spaceId) {
-      setDefaultProvider(null)
-      return
-    }
-
-    let cancelled = false
-    setLoading(true)
-
-    const fetch = async () => {
-      try {
-        const { data } = await (supabase as SupabaseClient)
-          .from('spaces')
-          .select('default_video_provider')
-          .eq('id', spaceId)
-          .single()
-
-        if (!cancelled && data?.default_video_provider) {
-          setDefaultProvider(data.default_video_provider as VideoProvider)
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    void fetch()
-    return () => { cancelled = true }
-  }, [spaceId, supabase])
+  const { space, isPending } = useSpaceRow(spaceId)
 
   // Build available providers based on environment variables
   const availableProviders = useMemo(() => {
@@ -67,8 +35,8 @@ export function useSpaceVideoProvider(spaceId: string | null): UseSpaceVideoProv
   }, [])
 
   return {
-    defaultProvider,
+    defaultProvider: (space?.default_video_provider as VideoProvider | null) ?? null,
     availableProviders,
-    loading,
+    loading: !!spaceId && isPending,
   }
 }

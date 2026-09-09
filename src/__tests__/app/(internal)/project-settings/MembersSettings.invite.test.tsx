@@ -30,6 +30,10 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'u1' }, loading: false, error: null }),
 }))
 
+// 参加日は一覧とは別のクエリ。ここでは中身を見ないので空で返す
+vi.mock('@/lib/hooks/useSpaceMemberJoinedAt', () => ({
+  useSpaceMemberJoinedAt: () => null,
+}))
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
     members: rpcMembers().map((m) => ({
@@ -40,6 +44,9 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
     })),
     loading: false,
     isPending: false,
+    error: null,
+    refetch: vi.fn(),
+    patchMembers: vi.fn(() => () => {}),
   }),
 }))
 

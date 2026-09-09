@@ -17,20 +17,20 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
-// 名前の取得はキャッシュ（['spaceName', spaceId]）から。取得経路はここでは検証しない
+// 名前の取得はプロジェクト1行のキャッシュ（['space', spaceId]）から。取得経路はここでは検証しない
 vi.mock('@/lib/hooks/useSpaceName', async () => {
   const { useQueryClient } = await import('@tanstack/react-query')
   return {
     useSpaceName: (spaceId: string) => {
       const qc = useQueryClient()
-      return (qc.getQueryData(['spaceName', spaceId]) as string) ?? ''
+      return (qc.getQueryData(['space', spaceId]) as { name?: string } | undefined)?.name ?? ''
     },
   }
 })
 
 function renderWithClient() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(['spaceName', 's1'], '旧プロジェクト名')
+  queryClient.setQueryData(['space', 's1'], { id: 's1', name: '旧プロジェクト名' })
   const utils = render(
     <QueryClientProvider client={queryClient}>
       <GeneralSettings spaceId="s1" />
@@ -61,7 +61,9 @@ describe('GeneralSettings — プロジェクト名', () => {
 
     await waitFor(() => expect(update).toHaveBeenCalledWith({ name: '新プロジェクト名' }))
     await waitFor(() =>
-      expect(queryClient.getQueryData(['spaceName', 's1'])).toBe('新プロジェクト名')
+      expect(
+        (queryClient.getQueryData(['space', 's1']) as { name: string }).name
+      ).toBe('新プロジェクト名')
     )
     expect(screen.getByText('新プロジェクト名')).toBeInTheDocument()
   })

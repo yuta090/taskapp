@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { VideoCamera, Info, ArrowRight } from '@phosphor-icons/react'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
 import { IntegrationStatusBadge } from '@/components/integrations'
 import { createClient } from '@/lib/supabase/client'
+import { useSpaceRow, patchSpaceRow } from '@/lib/hooks/useSpaceRow'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 
@@ -24,8 +26,10 @@ interface VideoProviderSettingsProps {
 export function VideoProviderSettings({ orgId, spaceId }: VideoProviderSettingsProps) {
   const { loading, isConnected } = useIntegrations(orgId)
 
-  const [defaultProvider, setDefaultProvider] = useState<VideoProvider | ''>('')
-  const [defaultProviderLoading, setDefaultProviderLoading] = useState(true)
+  // 既定の会議ツールはプロジェクト1行の共有キャッシュから読む（同じ行への往復を増やさない）
+  const { space, isPending: defaultProviderLoading } = useSpaceRow(spaceId)
+  const defaultProvider = (space?.default_video_provider as VideoProvider | null) ?? ''
+  const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
 
   const isZoomEnabled = process.env.NEXT_PUBLIC_ZOOM_ENABLED === 'true'
@@ -36,32 +40,10 @@ export function VideoProviderSettings({ orgId, spaceId }: VideoProviderSettingsP
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  useEffect(() => {
-    let cancelled = false
-    const fetchDefault = async () => {
-      try {
-        const { data } = await (supabase as SupabaseClient)
-          .from('spaces')
-          .select('default_video_provider')
-          .eq('id', spaceId)
-          .single()
-
-        if (!cancelled && data?.default_video_provider) {
-          setDefaultProvider(data.default_video_provider)
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setDefaultProviderLoading(false)
-      }
-    }
-    void fetchDefault()
-    return () => { cancelled = true }
-  }, [spaceId, supabase])
-
   const handleDefaultProviderChange = useCallback(
     async (provider: VideoProvider | '') => {
-      setDefaultProvider(provider)
+      // 保存ボタンのないUIなので画面は先に切り替える。同じ行を見ている他の画面もここで揃う。
+      patchSpaceRow(queryClient, spaceId, { default_video_provider: provider || null })
       setSaving(true)
       try {
         await (supabase as SupabaseClient)
@@ -74,7 +56,7 @@ export function VideoProviderSettings({ orgId, spaceId }: VideoProviderSettingsP
         setSaving(false)
       }
     },
-    [supabase, spaceId]
+    [supabase, spaceId, queryClient]
   )
 
   const availableProviders: { provider: VideoProvider; enabled: boolean; connected: boolean }[] = [
