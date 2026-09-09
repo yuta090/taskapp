@@ -1,9 +1,10 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useSpaceRow, spaceQueryKey, patchSpaceRow, type SpaceRow } from './useSpaceRow'
 
 export interface VendorSettings {
   show_client_name: boolean
@@ -21,42 +22,23 @@ const DEFAULT_VENDOR_SETTINGS: VendorSettings = {
   allow_client_comments: false,
 }
 
+const DEFAULT_AGENCY_DATA: AgencyModeData = {
+  agency_mode: false,
+  default_margin_rate: null,
+  vendor_settings: DEFAULT_VENDOR_SETTINGS,
+}
+
+/**
+ * 代理店モードの設定。値はプロジェクト1行（useSpaceRow）から読む。
+ * 列がまだ無い（マイグレーション未適用の）DBでは undefined になるので既定値へ落とす。
+ */
 export function useAgencyMode(spaceId: string | null) {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (supabaseRef.current == null) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
   const queryClient = useQueryClient()
-  const queryKey = ['agencyMode', spaceId]
-
-  const query = useQuery({
-    queryKey,
-    enabled: !!spaceId,
-    queryFn: async (): Promise<AgencyModeData> => {
-      const { data, error } = await (supabase as SupabaseClient)
-        .from('spaces')
-        .select('agency_mode, default_margin_rate, vendor_settings')
-        .eq('id', spaceId!)
-        .single()
-
-      // Columns may not exist yet (migration not applied) — return defaults
-      if (error) {
-        return {
-          agency_mode: false,
-          default_margin_rate: null,
-          vendor_settings: DEFAULT_VENDOR_SETTINGS,
-        }
-      }
-      return {
-        agency_mode: data?.agency_mode ?? false,
-        default_margin_rate: data?.default_margin_rate ?? null,
-        vendor_settings: {
-          ...DEFAULT_VENDOR_SETTINGS,
-          ...(data?.vendor_settings as Partial<VendorSettings> | null),
-        },
-      }
-    },
-  })
+  const { space, isPending } = useSpaceRow(spaceId)
 
   const mutation = useMutation({
     mutationFn: async (updates: Partial<AgencyModeData>) => {
@@ -68,26 +50,43 @@ export function useAgencyMode(spaceId: string | null) {
       if (error) throw error
     },
     onMutate: async (updates) => {
+      const queryKey = spaceQueryKey(spaceId)
       await queryClient.cancelQueries({ queryKey })
-      const previous = queryClient.getQueryData<AgencyModeData>(queryKey)
-      if (previous) {
-        queryClient.setQueryData<AgencyModeData>(queryKey, { ...previous, ...updates })
+      // 控えるのは「これから触る列」の旧値だけ。行スナップショットを丸ごと控えると、
+      // 保存が失敗するまでの間に入った改名など別の列の更新まで巻き戻ってしまう
+      const row = queryClient.getQueryData<SpaceRow | null>(queryKey)
+      const previousColumns: Partial<SpaceRow> = {}
+      for (const column of Object.keys(updates)) {
+        previousColumns[column] = row ? row[column] : undefined
       }
-      return { previous }
+      if (spaceId) patchSpaceRow(queryClient, spaceId, updates as Partial<SpaceRow>)
+      return { previousColumns }
     },
     onError: (_err, _updates, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous)
+      if (spaceId && context?.previousColumns) {
+        patchSpaceRow(queryClient, spaceId, context.previousColumns)
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey })
+      void queryClient.invalidateQueries({ queryKey: spaceQueryKey(spaceId) })
     },
   })
 
+  const data: AgencyModeData = space
+    ? {
+        agency_mode: (space.agency_mode as boolean | null) ?? false,
+        default_margin_rate: (space.default_margin_rate as number | null) ?? null,
+        vendor_settings: {
+          ...DEFAULT_VENDOR_SETTINGS,
+          ...((space.vendor_settings as Partial<VendorSettings> | null) ?? {}),
+        },
+      }
+    : DEFAULT_AGENCY_DATA
+
   return {
-    data: query.data ?? { agency_mode: false, default_margin_rate: null, vendor_settings: DEFAULT_VENDOR_SETTINGS },
-    loading: query.isLoading,
+    data,
+    // enabled:false でも isPending は true のままなので、spaceId が無いときは読み込み中にしない
+    loading: !!spaceId && isPending,
     update: mutation.mutateAsync,
   }
 }

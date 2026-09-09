@@ -14,7 +14,8 @@ import {
   fetchTasksQuery,
   fetchMilestonesQuery,
   fetchMeetingsQuery,
-  fetchSpaceNameQuery,
+  fetchSpaceRowQuery,
+  spaceQueryKey,
 } from './queries'
 import type { TasksQueryData, MeetingsQueryData } from './queries'
 
@@ -41,14 +42,14 @@ export async function prefetchMilestones(
   })
 }
 
-export async function prefetchSpaceName(
+export async function prefetchSpaceRow(
   queryClient: QueryClient,
   supabase: SupabaseClient,
   spaceId: string
 ) {
-  await queryClient.prefetchQuery<string>({
-    queryKey: ['spaceName', spaceId],
-    queryFn: () => fetchSpaceNameQuery(supabase, spaceId),
+  await queryClient.prefetchQuery<Record<string, unknown> | null>({
+    queryKey: spaceQueryKey(spaceId),
+    queryFn: () => fetchSpaceRowQuery(supabase, spaceId),
   })
 }
 

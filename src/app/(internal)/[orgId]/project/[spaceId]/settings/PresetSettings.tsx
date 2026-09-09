@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Sparkle } from '@phosphor-icons/react'
-import { createClient } from '@/lib/supabase/client'
+import { useSpaceRow, spaceQueryKey } from '@/lib/hooks/useSpaceRow'
+import { useSpaceContentCounts } from '@/lib/hooks/useSpaceContentCounts'
 import { PresetApplicator } from '@/components/space/PresetApplicator'
 import { getPreset, isValidPresetGenre } from '@/lib/presets'
 import type { PresetGenre } from '@/lib/presets'
@@ -14,32 +16,18 @@ interface PresetSettingsProps {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
-  const [presetGenre, setPresetGenre] = useState<string | null>(null)
-  const [wikiCount, setWikiCount] = useState<number | null>(null)
-  const [msCount, setMsCount] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
+  // 初期構成(preset_genre)はプロジェクト1行の共有キャッシュから読む
+  const { space, isPending: spacePending } = useSpaceRow(spaceId)
+  const presetGenre = (space?.preset_genre as string | null) ?? null
+  const queryClient = useQueryClient()
+
   const [showPicker, setShowPicker] = useState(false)
 
-  const supabaseRef = useRef(createClient())
-
-  useEffect(() => {
-    const load = async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabaseRef.current as any
-
-      const [spaceRes, wikiRes, msRes] = await Promise.all([
-        sb.from('spaces').select('*').eq('id', spaceId).single(),
-        sb.from('wiki_pages').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
-        sb.from('milestones').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
-      ])
-
-      setPresetGenre(spaceRes.data?.preset_genre ?? null)
-      setWikiCount(wikiRes.count ?? 0)
-      setMsCount(msRes.count ?? 0)
-      setLoading(false)
-    }
-    void load()
-  }, [spaceId])
+  // 「まだ空か」の判定に使う件数。「はじめての設定」バナーと同じキャッシュを見る
+  const { counts, isPending: countsPending } = useSpaceContentCounts(spaceId)
+  const wikiCount = counts?.wikiPages ?? null
+  const msCount = counts?.milestones ?? null
+  const loading = countsPending || spacePending
 
   if (loading) {
     return (
@@ -59,21 +47,9 @@ export function PresetSettings({ orgId, spaceId }: PresetSettingsProps) {
 
   const handleApplied = () => {
     setShowPicker(false)
-    // Re-fetch counts
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabaseRef.current as any
-    Promise.all([
-      sb.from('spaces').select('*').eq('id', spaceId).single(),
-      sb.from('wiki_pages').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
-      sb.from('milestones').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
-    ]).then(([spaceRes, wikiRes, msRes]: [
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      any, any, any,
-    ]) => {
-      setPresetGenre(spaceRes.data?.preset_genre ?? null)
-      setWikiCount(wikiRes.count ?? 0)
-      setMsCount(msRes.count ?? 0)
-    })
+    // 初期構成は共有キャッシュ側を取り直す（同じ行を見ている他の画面も一緒に揃う）
+    void queryClient.invalidateQueries({ queryKey: spaceQueryKey(spaceId) })
+    void queryClient.invalidateQueries({ queryKey: ['spaceContentCounts', spaceId] })
   }
 
   return (

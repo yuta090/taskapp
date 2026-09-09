@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   RocketLaunch,
   Check,
   CaretRight,
   X,
 } from '@phosphor-icons/react'
-import { createClient } from '@/lib/supabase/client'
 import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
 import { useSlackWorkspace } from '@/lib/hooks/useSlack'
+import { useSpaceRow } from '@/lib/hooks/useSpaceRow'
+import { useSpaceContentCounts } from '@/lib/hooks/useSpaceContentCounts'
 import type { SettingSectionId } from './types'
 
 interface SetupStep {
@@ -31,63 +32,25 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
   const { data: githubInstallation } = useGitHubInstallation(orgId)
   const { data: slackWorkspace } = useSlackWorkspace(orgId)
   const [dismissed, setDismissed] = useState(false)
-  const [memberCount, setMemberCount] = useState<number | null>(null)
-  const [milestoneCount, setMilestoneCount] = useState<number | null>(null)
-  const [presetGenre, setPresetGenre] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [fetchError, setFetchError] = useState(false)
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (supabaseRef.current == null) supabaseRef.current = createClient()
-  const supabase = supabaseRef.current
+  // 初期構成(preset_genre)はプロジェクト1行の共有キャッシュから。件数は「初期構成」設定と
+  // 同じ ['spaceContentCounts', spaceId] を見る。どちらもここで別に取ると往復が増える。
+  const { space, isPending: spacePending } = useSpaceRow(spaceId)
+  const presetGenre = (space?.preset_genre as string | null) ?? null
+  const { counts, isPending: countsPending, isError: fetchError } = useSpaceContentCounts(spaceId)
+  const memberCount = counts?.members ?? null
+  const milestoneCount = counts?.milestones ?? null
+  const loading = countsPending
 
-  // C2 fix: reset all state on spaceId change, check localStorage correctly
+  // C2 fix: check localStorage on spaceId change
   useEffect(() => {
     const key = `setup-dismissed-${spaceId}`
-    const isDismissed = localStorage.getItem(key) === 'true'
-    setDismissed(isDismissed)
-    setLoading(true)
-    setFetchError(false)
-    setMemberCount(null)
-    setMilestoneCount(null)
-    setPresetGenre(null)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage（外部ストレージ）との同期
+    setDismissed(localStorage.getItem(key) === 'true')
   }, [spaceId])
-
-  // R2 fix: fetch with error handling and cancellation guard
-  useEffect(() => {
-    let cancelled = false
-
-    const load = async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sb = supabase as any
-        const [spaceRes, memberRes, msRes] = await Promise.all([
-          sb.from('spaces').select('*').eq('id', spaceId).single(),
-          sb.from('space_memberships').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
-          sb.from('milestones').select('id', { count: 'exact', head: true }).eq('space_id', spaceId),
-        ])
-        if (cancelled) return
-        // R2 fix: Supabase returns { data, error } without throwing — check explicitly
-        if (spaceRes.error || memberRes.error || msRes.error) {
-          setFetchError(true)
-          return
-        }
-        setPresetGenre(spaceRes.data?.preset_genre ?? null)
-        setMemberCount(memberRes.count ?? 0)
-        setMilestoneCount(msRes.count ?? 0)
-      } catch {
-        if (!cancelled) setFetchError(true)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    void load()
-
-    return () => { cancelled = true }
-  }, [spaceId, supabase])
 
   // C3 fix: use activeConnectionCount prop (already filtered to active status)
   const steps: SetupStep[] = useMemo(() => {
-    if (loading) return []
+    if (loading || spacePending) return []
     const hasMembers = (memberCount ?? 0) > 1
     const hasMilestones = (milestoneCount ?? 0) > 0
     const hasIntegration = activeConnectionCount > 0 || !!githubInstallation || !!slackWorkspace
@@ -116,7 +79,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
         completed: hasIntegration,
       },
     ]
-  }, [loading, memberCount, milestoneCount, activeConnectionCount, githubInstallation, slackWorkspace, presetGenre])
+  }, [loading, spacePending, memberCount, milestoneCount, activeConnectionCount, githubInstallation, slackWorkspace, presetGenre])
 
   const completedCount = steps.filter((s) => s.completed).length
   const allDone = steps.length > 0 && completedCount === steps.length
@@ -126,14 +89,15 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
     localStorage.setItem(`setup-dismissed-${spaceId}`, 'true')
   }, [spaceId])
 
-  // Auto-dismiss when all steps complete
+  // 全部終わったら閉じた印を残す。表示するかどうかは下の allDone で決めるので、
+  // ここは localStorage への書き込みだけ（state は触らない）
   useEffect(() => {
     if (allDone && !dismissed) {
-      handleDismiss()
+      localStorage.setItem(`setup-dismissed-${spaceId}`, 'true')
     }
-  }, [allDone, dismissed, handleDismiss])
+  }, [allDone, dismissed, spaceId])
 
-  if (dismissed || loading || fetchError || steps.length === 0) return null
+  if (dismissed || allDone || loading || fetchError || steps.length === 0) return null
 
   const progressPercent = Math.round((completedCount / steps.length) * 100)
 

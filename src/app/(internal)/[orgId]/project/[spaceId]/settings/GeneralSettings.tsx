@@ -6,14 +6,16 @@ import { Pencil, Check, X } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { patchSpaceRow } from '@/lib/hooks/useSpaceRow'
 
 interface GeneralSettingsProps {
   spaceId: string
 }
 
 export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
-  // 名前の正本は ['spaceName', spaceId]。パンくず・危険設定の確認入力も同じキャッシュを見ている。
-  // ここで独自に取り直すと、改名した直後に「古い名前」を要求する画面が出てしまう。
+  // 名前の正本は ['space', spaceId]（プロジェクト1行）。パンくず・危険設定の確認入力も
+  // 同じキャッシュを見ている。ここで独自に取り直すと、改名した直後に「古い名前」を
+  // 要求する画面が出てしまう。
   const spaceName = useSpaceName(spaceId)
   const queryClient = useQueryClient()
 
@@ -49,7 +51,7 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
       setError('プロジェクト名の更新に失敗しました')
     } else {
       // 同じ名前を見ている場所（パンくず・危険設定の確認入力・サイドバー）を即座に揃える
-      queryClient.setQueryData(['spaceName', spaceId], nextName)
+      patchSpaceRow(queryClient, spaceId, { name: nextName })
       void queryClient.invalidateQueries({ queryKey: ['userSpaces'] })
       setIsEditing(false)
     }
