@@ -2,11 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const VALID_ORG_ID = '11111111-1111-4111-8111-111111111111'
+const VALID_SPACE_ID = '22222222-2222-4222-8222-222222222222'
 
 const mockUser = { id: 'user-1', email: 'owner@example.com' }
 
 let authResponse: { data: { user: typeof mockUser | null } }
 let orgMembershipResponse: { data: { role: string } | null }
+let spaceMembershipResponse: { data: { role: string } | null }
+let spaceResponse: { data: { org_id: string } | null }
 let pendingInvitesResponse: { data: Record<string, unknown>[] | null; error: { message: string } | null }
 
 const orderMock = vi.fn(() => Promise.resolve(pendingInvitesResponse))
@@ -16,6 +19,7 @@ const invitesQueryChain = {
   is: vi.fn(function (this: unknown) { return this }),
   gt: vi.fn(function (this: unknown) { return this }),
   order: orderMock,
+  limit: vi.fn(() => Promise.resolve(pendingInvitesResponse)),
 }
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -36,6 +40,24 @@ vi.mock('@/lib/supabase/server', () => ({
             })),
           }
         }
+        if (table === 'space_memberships') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  single: vi.fn(() => Promise.resolve(spaceMembershipResponse)),
+                })),
+              })),
+            })),
+          }
+        }
+        if (table === 'spaces') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({ single: vi.fn(() => Promise.resolve(spaceResponse)) })),
+            })),
+          }
+        }
         return {}
       }),
     })
@@ -52,6 +74,13 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 const { GET } = await import('@/app/api/invites/pending/route')
+
+function callGetSpace(spaceId: string, status?: string) {
+  const url = new URL('/api/invites/pending', 'http://localhost:3000')
+  url.searchParams.set('space_id', spaceId)
+  if (status) url.searchParams.set('status', status)
+  return GET(new NextRequest(url))
+}
 
 function callGet(orgId?: string) {
   const url = new URL('/api/invites/pending', 'http://localhost:3000')
@@ -130,13 +159,17 @@ describe('GET /api/invites/pending', () => {
       {
         id: 'invite-1',
         email: 'invitee@example.com',
+        invitee_name: null,
         role: 'member',
         space_id: 'space-1',
         space_name: 'テストプロジェクト',
         created_at: '2026-07-01T00:00:00Z',
         expires_at: '2026-09-29T00:00:00Z',
+        accepted_at: null,
+        status: 'pending',
       },
     ])
+    expect(data.can_manage).toBe(true)
   })
 
   it('filters to accepted_at is null and expires_at > now via query builder', async () => {
@@ -145,5 +178,70 @@ describe('GET /api/invites/pending', () => {
     expect(invitesQueryChain.eq).toHaveBeenCalledWith('org_id', VALID_ORG_ID)
     expect(invitesQueryChain.is).toHaveBeenCalledWith('accepted_at', null)
     expect(invitesQueryChain.gt).toHaveBeenCalledWith('expires_at', expect.any(String))
+  })
+})
+
+describe('GET /api/invites/pending — プロジェクト単位', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    authResponse = { data: { user: mockUser } }
+    orgMembershipResponse = { data: { role: 'member' } }
+    spaceMembershipResponse = { data: { role: 'admin' } }
+    spaceResponse = { data: { org_id: VALID_ORG_ID } }
+    pendingInvitesResponse = { data: [], error: null }
+  })
+
+  it('プロジェクトの管理者なら、事務所のオーナーでなくても一覧を見られる', async () => {
+    const response = await callGetSpace(VALID_SPACE_ID)
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(invitesQueryChain.eq).toHaveBeenCalledWith('space_id', VALID_SPACE_ID)
+    // プロジェクトの管理者なので、取り消し・再送もできる
+    expect(data.can_manage).toBe(true)
+  })
+
+  it('事務所のオーナーなら取り消し・再送もできると返す', async () => {
+    orgMembershipResponse = { data: { role: 'owner' } }
+
+    const data = await (await callGetSpace(VALID_SPACE_ID)).json()
+
+    expect(data.can_manage).toBe(true)
+  })
+
+  it('編集者は一覧は見られるが、取り消し・再送はできない', async () => {
+    spaceMembershipResponse = { data: { role: 'editor' } }
+
+    const response = await callGetSpace(VALID_SPACE_ID)
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data.can_manage).toBe(false)
+  })
+
+  it('status=all のときは承諾済み・期限切れも含めて返す（絞り込まない）', async () => {
+    await callGetSpace(VALID_SPACE_ID, 'all')
+
+    expect(invitesQueryChain.is).not.toHaveBeenCalled()
+    expect(invitesQueryChain.gt).not.toHaveBeenCalled()
+    expect(invitesQueryChain.limit).toHaveBeenCalledWith(100)
+  })
+
+  it('プロジェクトの閲覧者は見られない', async () => {
+    spaceMembershipResponse = { data: { role: 'viewer' } }
+
+    expect((await callGetSpace(VALID_SPACE_ID)).status).toBe(403)
+  })
+
+  it('事務所に属していなければ見られない', async () => {
+    orgMembershipResponse = { data: null }
+
+    expect((await callGetSpace(VALID_SPACE_ID)).status).toBe(403)
+  })
+
+  it('存在しないプロジェクトなら404', async () => {
+    spaceResponse = { data: null }
+
+    expect((await callGetSpace(VALID_SPACE_ID)).status).toBe(404)
   })
 })

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Users, Plus, Trash, Crown, UserCircle, CircleNotch } from '@phosphor-icons/react'
+import { getCachedUser } from '@/lib/supabase/cached-auth'
+import { Users, Plus, Trash, Crown, UserCircle, CircleNotch, ArrowClockwise, X } from '@phosphor-icons/react'
 import Image from 'next/image'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
@@ -16,6 +17,9 @@ import {
   isSpaceAdminRole,
   canInviteMembers,
 } from '@/lib/roles/spaceRoles'
+import { InviteTemplateEditor, type InviteTemplateState } from './InviteTemplateEditor'
+import { useSpaceInvites } from '@/lib/hooks/useSpaceInvites'
+import { INVITE_STATUS_LABEL, type InviteStatus } from '@/lib/invites/status'
 
 interface Member {
   userId: string
@@ -34,6 +38,12 @@ const ROLE_LABELS = SPACE_ROLE_LABELS
 
 const VALID_ROLES = new Set<string>(SPACE_ROLE_GUIDE.map((r) => r.value))
 
+const INVITE_STATUS_STYLE: Record<InviteStatus, string> = {
+  pending: 'bg-amber-50 text-amber-700',
+  expired: 'bg-gray-100 text-gray-600',
+  accepted: 'bg-green-50 text-green-700',
+}
+
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [members, setMembers] = useState<Member[]>([])
@@ -49,37 +59,59 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
   const [inviting, setInviting] = useState(false)
 
+  // 文面の下書きは子コンポーネントが持つ（打鍵のたびに一覧まで描き直さないため）。
+  // 送るときだけ ref 越しに読み、送ったあとは key を変えて作り直す
+  const templateStateRef = useRef<InviteTemplateState>({ fields: null, saveAsTemplate: false, refresh: () => {} })
+  const [templateResetSeq, setTemplateResetSeq] = useState(0)
+  const [templateOpen, setTemplateOpen] = useState(false)
+
+  // メンバー / 返事待ち / 招待の履歴 の切り替え
+  const [activeTab, setActiveTab] = useState<'members' | 'pending' | 'history'>('members')
+  const [invitesActionId, setInvitesActionId] = useState<string | null>(null)
+
   const supabase = useMemo(() => createClient(), [])
+
+  const roleKey: 'client' | 'member' = inviteRole === 'client' ? 'client' : 'member'
+
+  const {
+    invites,
+    canManage: canManageInvites,
+    loading: invitesLoading,
+    refresh: refreshInvites,
+  } = useSpaceInvites(spaceId, activeTab === 'history' ? 'all' : 'pending', activeTab !== 'members')
 
   const fetchMembers = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     try {
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      // ログイン確認は5秒だけ共有の結果を使い回す（画面を開くたびの往復を減らす）
+      const { user, error: userError } = await getCachedUser(supabase)
       if (userError || !user) {
         setMembers([])
         setError('ログインが必要です')
         return
       }
 
-      // Use RPC to get members with profiles
-      const { data, error: fetchError } = await (supabase as SupabaseClient)
-        .rpc('rpc_get_space_members', { p_space_id: spaceId })
+      // メンバー一覧と参加日は互いに独立なので並列に取る
+      const [
+        { data, error: fetchError },
+        { data: membershipData, error: membershipError },
+      ] = await Promise.all([
+        (supabase as SupabaseClient).rpc('rpc_get_space_members', { p_space_id: spaceId }),
+        (supabase as SupabaseClient)
+          .from('space_memberships')
+          .select('user_id, role, created_at')
+          .eq('space_id', spaceId),
+      ])
 
       if (fetchError) throw fetchError
 
-      // Get membership dates (separate query for join dates)
-      // Note: If this fails due to RLS, we still show members without dates
-      const { data: membershipData, error: membershipError } = await (supabase as SupabaseClient)
-        .from('space_memberships')
-        .select('user_id, role, created_at')
-        .eq('space_id', spaceId)
-
+      // 参加日は RLS で読めないことがある。読めなくても一覧は出す
       if (membershipError) {
         console.warn('Could not fetch membership details:', membershipError)
       }
@@ -178,12 +210,56 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     }
   }
 
+  const handleResendInvite = useCallback(
+    async (inviteId: string) => {
+      setInvitesActionId(inviteId)
+      try {
+        const res = await fetch(`/api/invites/pending/${inviteId}/resend`, { method: 'POST' })
+        if (!res.ok) throw new Error('resend failed')
+        toast.success('招待メールをもう一度送りました（期限も延びました）')
+        refreshInvites()
+      } catch {
+        toast.error('招待メールを送り直せませんでした')
+      } finally {
+        setInvitesActionId(null)
+      }
+    },
+    [refreshInvites]
+  )
+
+  const handleCancelInvite = useCallback(
+    async (inviteId: string) => {
+      const ok = await confirm({
+        title: '招待を取り消す',
+        message: 'この招待を取り消しますか？相手のリンクは使えなくなります。',
+        confirmLabel: '取り消す',
+        variant: 'danger',
+      })
+      if (!ok) return
+      setInvitesActionId(inviteId)
+      try {
+        const res = await fetch(`/api/invites/pending/${inviteId}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error('cancel failed')
+        toast.success('招待を取り消しました')
+        refreshInvites()
+      } catch {
+        toast.error('招待を取り消せませんでした')
+      } finally {
+        setInvitesActionId(null)
+      }
+    },
+    [confirm, refreshInvites]
+  )
+
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !canInvite || inviting) return
 
     setInviting(true)
 
     try {
+      // 文面は子コンポーネントが持っている。触っていなければ null（いつもの文面で送る）
+      const { fields: templateFields, saveAsTemplate, refresh: refreshTemplate } = templateStateRef.current
+
       const response = await fetch('/api/invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -192,6 +268,9 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
           space_id: spaceId,
           email: inviteEmail.trim(),
           role: inviteRole,
+          ...(inviteName.trim() ? { name: inviteName.trim() } : {}),
+          ...(templateFields ? { template: templateFields } : {}),
+          ...(saveAsTemplate ? { save_as_template: true } : {}),
         }),
       })
 
@@ -207,6 +286,14 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
           ? `${inviteEmail.trim()} に招待メールを送信しました`
           : '招待を作成しました（メール送信に失敗したため招待リンクを直接共有してください）'
       )
+      if (data.template_saved === false) {
+        toast.error('メールは送りましたが、テンプレートとして保存できませんでした')
+      }
+      if (saveAsTemplate) refreshTemplate()
+      // その場の編集は1通かぎり。作り直して次の人に持ち越さない
+      setTemplateResetSeq((n) => n + 1)
+      setInviteName('')
+      refreshInvites()
       setInviteEmail('')
     } catch (err) {
       console.error('Failed to invite member:', err)
@@ -251,9 +338,6 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         <div className="flex items-center gap-2 text-gray-700">
           <Users className="text-lg" />
           <h3 className="font-medium">メンバー</h3>
-          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-            {members.length}人
-          </span>
           <Hint label="役割ごとにできること">
             <span className="mb-1 block font-medium text-gray-700">役割ごとにできること</span>
             {SPACE_ROLE_GUIDE.map((role) => (
@@ -266,7 +350,32 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         </div>
       </div>
 
+      {/* 「いま居る人」と「返事待ち」と「これまでの招待」を切り替える */}
+      <div className="flex items-center gap-1 border-b border-gray-200" role="tablist">
+        {([
+          { id: 'members' as const, label: 'メンバー', count: members.length },
+          { id: 'pending' as const, label: '返事待ち', count: null },
+          { id: 'history' as const, label: '招待の履歴', count: null },
+        ]).map((tab) => (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${
+              activeTab === tab.id
+                ? 'border-indigo-600 text-gray-900 font-medium'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+            {tab.count !== null && <span className="ml-1.5 text-xs text-gray-500">{tab.count}</span>}
+          </button>
+        ))}
+      </div>
+
       {/* Members list */}
+      {activeTab === 'members' && (
       <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
         {members.length === 0 ? (
           <div className="px-4 py-6 text-sm text-gray-500 text-center">
@@ -357,6 +466,68 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
           ))
         )}
       </div>
+      )}
+
+      {activeTab !== 'members' && (
+        <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+          {invitesLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <CircleNotch className="w-5 h-5 text-gray-400 animate-spin" />
+            </div>
+          ) : invites.length === 0 ? (
+            <div className="px-4 py-6 text-sm text-gray-500 text-center">
+              {activeTab === 'pending' ? '返事待ちの招待はありません' : 'まだ招待していません'}
+            </div>
+          ) : (
+            invites.map((invite) => (
+              <div key={invite.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-900 truncate">
+                      {invite.invitee_name || invite.email}
+                    </span>
+                    <span className="text-xs text-gray-500 flex-shrink-0">
+                      {ROLE_LABELS[invite.role] || invite.role}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 truncate">
+                    {invite.invitee_name ? `${invite.email}・` : ''}
+                    {`送信: ${new Date(invite.created_at).toLocaleDateString('ja-JP')}`}
+                    {invite.status === 'accepted' && invite.accepted_at
+                      ? `・参加: ${new Date(invite.accepted_at).toLocaleDateString('ja-JP')}`
+                      : `・期限: ${new Date(invite.expires_at).toLocaleDateString('ja-JP')}`}
+                  </div>
+                </div>
+
+                <span className={`px-2 py-1 text-xs rounded flex-shrink-0 ${INVITE_STATUS_STYLE[invite.status]}`}>
+                  {INVITE_STATUS_LABEL[invite.status]}
+                </span>
+
+                {canManageInvites && invite.status !== 'accepted' && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => handleResendInvite(invite.id)}
+                      disabled={invitesActionId === invite.id}
+                      title={invite.status === 'expired' ? 'もう一度送る（期限も延びます）' : 'もう一度送る'}
+                      className="p-1.5 text-gray-400 hover:text-indigo-ink hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                    >
+                      <ArrowClockwise className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleCancelInvite(invite.id)}
+                      disabled={invitesActionId === invite.id}
+                      title="この招待を取り消す"
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Invite form (管理者・編集者) */}
       {canInvite && (
@@ -364,6 +535,17 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
           <div className="text-xs font-medium text-gray-500">メンバーを招待</div>
 
           <div className="flex items-end gap-3">
+            <div className="w-40">
+              <label htmlFor="space-invite-name" className="text-xs text-gray-500">名前（任意）</label>
+              <input
+                id="space-invite-name"
+                type="text"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                placeholder="山田 太郎"
+                className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
             <div className="flex-1">
               <label htmlFor="space-invite-email" className="text-xs text-gray-500">メールアドレス</label>
               <input
@@ -410,6 +592,16 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
               {inviting ? '送信中...' : '招待'}
             </button>
           </div>
+
+          <InviteTemplateEditor
+            key={`invite-template-${templateResetSeq}`}
+            spaceId={spaceId}
+            role={roleKey}
+            stateRef={templateStateRef}
+            confirm={confirm}
+            open={templateOpen}
+            onToggle={() => setTemplateOpen((v) => !v)}
+          />
         </div>
       )}
 

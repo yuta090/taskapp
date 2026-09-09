@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { sendInviteEmail } from '@/lib/email'
 import { resolveSenderOrgName } from '@/lib/email/senderOrgName'
 import { NextRequest, NextResponse } from 'next/server'
@@ -6,6 +7,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { UUID_REGEX } from '@/lib/uuid'
 import { seatLimitFromRpcError } from '@/lib/billing/seatLimitMessage'
+import { INVITE_PLACEHOLDERS } from '@/lib/email/templates/invite'
+import { isTemplateEdited, validateTemplateOverride } from '@/lib/email/templates/inviteOverride'
+import { resolveEmailTemplate } from '@/lib/email/templates/orgEmailTemplate'
+import type { TemplateFields } from '@/lib/email/templates/core'
 // Email format validation
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -20,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { org_id, space_id, email, role, message } = body
+    const { org_id, space_id, email, role, name, message, template, save_as_template } = body
 
     // バリデーション
     if (!org_id || !space_id || !email || !role) {
@@ -29,6 +34,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // 相手の名前は任意入力・最大100文字（一覧表示とメールの宛名に使う）
+    const trimmedName = typeof name === 'string' ? name.trim().slice(0, 100) : ''
 
     // メッセージは任意入力・最大500文字
     const trimmedMessage = typeof message === 'string' ? message.trim() : ''
@@ -93,6 +101,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 文面のその場編集。既定はこの1通かぎりで、save_as_template のときだけ事務所の文面として残す。
+    // 保存は事務所全体（全プロジェクト）に効くので、プロジェクトの管理者ではなく事務所の管理者に限る。
+    // 招待を作る前に断ることで「招待は出たが保存はされていない」を避ける。
+    const wantsSave = save_as_template === true
+    if (wantsSave && !['owner', 'admin'].includes(orgMembership.role)) {
+      return NextResponse.json(
+        { error: 'テンプレートとして保存できるのは事務所の管理者だけです' },
+        { status: 403 }
+      )
+    }
+
+    const templateKey = role === 'client' ? 'invite_client' : 'invite_member'
+    let overrideFields: TemplateFields | undefined
+    if (template !== undefined && template !== null) {
+      const current = await resolveEmailTemplate(org_id, templateKey)
+      const validation = validateTemplateOverride(
+        current.fields,
+        template,
+        INVITE_PLACEHOLDERS.map((p) => p.name)
+      )
+      if (!validation.ok) {
+        return NextResponse.json({ error: validation.error }, { status: 400 })
+      }
+      // 触っていないなら渡さない（送信側のいつもの決まり方に任せる）
+      if (wantsSave || isTemplateEdited(current.fields, validation.fields)) {
+        overrideFields = validation.fields
+      }
+    }
+
     // 組織名・スペース名・招待者の表示名を取得
     const [orgResult, spaceResult, profileResult] = await Promise.all([
       (supabase as SupabaseClient)
@@ -148,6 +185,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 名前は招待を作ったあとに書く（rpc_create_invite の引数を増やさずに済ませる）。
+    // 失敗しても招待自体は成立しているので止めない
+    if (trimmedName && data?.invite_id) {
+      const { error: nameError } = await (createAdminClient() as SupabaseClient)
+        .from('invites')
+        .update({ invitee_name: trimmedName })
+        .eq('id', data.invite_id)
+      if (nameError) console.error('Failed to save invitee name:', nameError)
+    }
+
+    // テンプレートとして保存（失敗しても招待とメールは止めず、保存できなかったことだけ返す）
+    let templateSaved: boolean | undefined
+    if (wantsSave) {
+      const fieldsToSave = overrideFields ?? (await resolveEmailTemplate(org_id, templateKey)).fields
+      const { error: saveError } = await (supabase as SupabaseClient).rpc('rpc_set_org_email_template', {
+        p_org_id: org_id,
+        p_key: templateKey,
+        p_subject: fieldsToSave.subject,
+        p_heading: fieldsToSave.heading,
+        p_body: fieldsToSave.body,
+        p_cta_label: fieldsToSave.cta_label,
+        p_note: fieldsToSave.note,
+      })
+      if (saveError) {
+        console.error('Failed to save org email template:', saveError)
+      }
+      templateSaved = !saveError
+    }
+
     // メール送信（失敗してもAPIは成功として扱う）
     let emailSent = false
     if (data?.token && data?.expires_at) {
@@ -161,6 +227,10 @@ export async function POST(request: NextRequest) {
           token: data.token,
           expiresAt: data.expires_at,
           message: trimmedMessage || undefined,
+          toName: trimmedName || undefined,
+          // 事務所が保存した文面を使う。その場で直したときは fields が優先される
+          orgId: org_id,
+          fields: overrideFields,
           // 相手が返信したら招待した本人に届くように
           replyTo: user.email,
           // 有料プランの事務所だけ「{事務所名} (AgentPM)」で名乗る
@@ -176,6 +246,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ...data,
       email_sent: emailSent,
+      ...(templateSaved === undefined ? {} : { template_saved: templateSaved }),
     })
   } catch (err) {
     console.error('Create invite error:', err)

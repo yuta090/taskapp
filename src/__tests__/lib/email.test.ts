@@ -17,9 +17,20 @@ vi.mock('resend', () => {
 
 // 文面の読み込み(email_templates)は DB を見に行かない: 行なし = コード既定の文面で送る
 let templateRows: Array<Record<string, unknown>> = []
+// 事務所(org)が保存した文面。null = 保存なし
+let orgTemplateRow: Record<string, unknown> | null = null
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
-    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: templateRows, error: null }) }) }),
+    from: (table: string) => {
+      if (table === 'org_email_templates') {
+        return {
+          select: () => ({
+            eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: orgTemplateRow, error: null }) }) }),
+          }),
+        }
+      }
+      return { select: () => ({ in: () => Promise.resolve({ data: templateRows, error: null }) }) }
+    },
   }),
 }))
 
@@ -37,6 +48,7 @@ describe('Email Service', () => {
   resetEmailTemplateCache()
     vi.clearAllMocks()
     templateRows = []
+    orgTemplateRow = null
     mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
   })
 
@@ -320,5 +332,66 @@ describe('sendInviteEmail — 差出人と返信先', () => {
     await sendInviteEmail({ ...baseParams, role: 'member', replyTo: 'x\r\nBcc: y@z' })
     expect(mockSend.mock.calls[0][0].replyTo).toBeUndefined()
     expect(mockSend.mock.calls[0][0].from).toBe('"TestApp" <test@example.com>')
+  })
+})
+
+describe('sendInviteEmail — 事務所の文面とその場の差し替え', () => {
+  const ORG_ID = '11111111-1111-4111-8111-111111111111'
+  const baseParams = {
+    to: 'recipient@example.com',
+    inviterName: 'John Doe',
+    orgName: 'Test Org',
+    spaceName: 'Test Project',
+    role: 'member' as const,
+    token: 'abc123token',
+    expiresAt: '2026-03-01T00:00:00Z',
+  }
+
+  beforeEach(() => {
+    resetEmailTemplateCache()
+    vi.clearAllMocks()
+    templateRows = []
+    orgTemplateRow = null
+    mockSend.mockResolvedValue({ data: { id: 'test-message-id' }, error: null })
+  })
+
+  it('事務所が保存した文面があれば、それで送る', async () => {
+    orgTemplateRow = {
+      subject: '事務所の件名',
+      heading: '事務所の見出し',
+      body: '事務所の本文',
+      cta_label: '参加する',
+      note: '',
+    }
+    await sendInviteEmail({ ...baseParams, orgId: ORG_ID })
+    const sent = mockSend.mock.calls[0][0]
+    expect(sent.subject).toBe('事務所の件名')
+    expect(sent.html).toContain('事務所の本文')
+  })
+
+  it('事務所の保存より、その場で差し替えた文面が優先される（保存はしない）', async () => {
+    orgTemplateRow = {
+      subject: '事務所の件名',
+      heading: '事務所の見出し',
+      body: '事務所の本文',
+      cta_label: '参加する',
+      note: '',
+    }
+    await sendInviteEmail({
+      ...baseParams,
+      orgId: ORG_ID,
+      fields: { subject: '今回だけの件名', heading: '見出し', body: '今回だけの本文', cta_label: '参加する', note: '' },
+    })
+    const sent = mockSend.mock.calls[0][0]
+    expect(sent.subject).toBe('今回だけの件名')
+    expect(sent.html).toContain('今回だけの本文')
+    expect(sent.html).not.toContain('事務所の本文')
+  })
+
+  it('事務所が分からないときは、これまでどおり運営/既定の文面で送る', async () => {
+    orgTemplateRow = { subject: '事務所の件名', heading: 'H', body: 'B', cta_label: 'C', note: '' }
+    await sendInviteEmail(baseParams)
+    const sent = mockSend.mock.calls[0][0]
+    expect(sent.subject).not.toBe('事務所の件名')
   })
 })
