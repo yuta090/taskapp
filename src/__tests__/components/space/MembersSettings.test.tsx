@@ -12,8 +12,22 @@ vi.mock('sonner', () => ({
 }))
 
 const mockConfirm = vi.fn().mockResolvedValue(true)
-vi.mock('@/components/shared', () => ({
-  useConfirmDialog: () => ({ confirm: (...args: unknown[]) => mockConfirm(...args), ConfirmDialog: null }),
+vi.mock('@/components/shared', async () => {
+  // Hint（「?」の補足）は実物を使う
+  const { Hint } = await import('@/components/shared/Hint')
+  return {
+    Hint,
+    useConfirmDialog: () => ({ confirm: (...args: unknown[]) => mockConfirm(...args), ConfirmDialog: null }),
+  }
+})
+
+// 権限判定は共有キャッシュから取る。ここでは空にして、一覧取得からの取り出し（フォールバック）を通す
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'user-1' }, loading: false, error: null }),
+}))
+
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({
+  useSpaceMembers: () => ({ members: [], loading: false, isPending: false }),
 }))
 
 const mockGetUser = vi.fn()
@@ -185,7 +199,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
     const roleSelect = screen.getByLabelText('役割')
     const optionLabels = within(roleSelect).getAllByRole('option').map(o => o.textContent)
 
-    expect(optionLabels).toEqual(['クライアント', 'メンバー'])
+    expect(optionLabels).toEqual(['メンバー', 'クライアント'])
   })
 
   it('submits org_id, space_id, email, and role to /api/invites', async () => {
@@ -201,7 +215,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
       target: { value: 'invitee@example.com' },
     })
     fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'client' } })
-    fireEvent.click(screen.getByRole('button', { name: /招待/ }))
+    fireEvent.click(screen.getByRole('button', { name: '招待' }))
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith('/api/invites', expect.objectContaining({ method: 'POST' }))
@@ -229,7 +243,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
 
     const emailInput = screen.getByPlaceholderText('email@example.com') as HTMLInputElement
     fireEvent.change(emailInput, { target: { value: 'invitee@example.com' } })
-    fireEvent.click(screen.getByRole('button', { name: /招待/ }))
+    fireEvent.click(screen.getByRole('button', { name: '招待' }))
 
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('invitee@example.com に招待メールを送信しました'))
     expect(emailInput.value).toBe('')
@@ -246,7 +260,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
 
     const emailInput = screen.getByPlaceholderText('email@example.com') as HTMLInputElement
     fireEvent.change(emailInput, { target: { value: 'invitee@example.com' } })
-    fireEvent.click(screen.getByRole('button', { name: /招待/ }))
+    fireEvent.click(screen.getByRole('button', { name: '招待' }))
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith('Organization has reached member limit. Please upgrade your plan.')
@@ -264,7 +278,7 @@ describe('MembersSettings invite form (POST /api/invites)', () => {
     fireEvent.change(screen.getByPlaceholderText('email@example.com'), {
       target: { value: 'invitee@example.com' },
     })
-    const inviteButton = screen.getByRole('button', { name: /招待/ })
+    const inviteButton = screen.getByRole('button', { name: '招待' })
     fireEvent.click(inviteButton)
 
     await waitFor(() => expect(inviteButton).toBeDisabled())

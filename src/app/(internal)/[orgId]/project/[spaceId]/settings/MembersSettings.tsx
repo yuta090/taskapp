@@ -6,7 +6,16 @@ import { Users, Plus, Trash, Crown, UserCircle, CircleNotch } from '@phosphor-ic
 import Image from 'next/image'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
-import { useConfirmDialog } from '@/components/shared'
+import { useConfirmDialog, Hint } from '@/components/shared'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import {
+  SPACE_ROLE_GUIDE,
+  SPACE_ROLE_LABELS,
+  INVITE_ROLE_GUIDE,
+  isSpaceAdminRole,
+  canInviteMembers,
+} from '@/lib/roles/spaceRoles'
 
 interface Member {
   userId: string
@@ -21,38 +30,22 @@ interface MembersSettingsProps {
   spaceId: string
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  admin: '管理者',
-  editor: '編集者',
-  viewer: '閲覧者',
-  client: 'クライアント',
-  vendor: 'ベンダー',
-}
+const ROLE_LABELS = SPACE_ROLE_LABELS
 
-const ROLE_OPTIONS = [
-  { value: 'admin', label: '管理者', desc: '全機能にアクセス可能。メンバー管理・設定変更ができます' },
-  { value: 'editor', label: '編集者', desc: 'タスクの作成・編集・ボール操作ができます' },
-  { value: 'viewer', label: '閲覧者', desc: 'タスクの閲覧とコメントのみ。編集はできません' },
-  { value: 'client', label: 'クライアント', desc: 'ポータルからタスクの確認・承認を行います' },
-  { value: 'vendor', label: 'ベンダー', desc: '制作会社。ベンダーポータルから進捗報告・見積もり提出を行います（代理店モード時のみ）' },
-]
-
-const VALID_ROLES = new Set(['admin', 'editor', 'viewer', 'client', 'vendor'])
-
-// 招待時の役割は invites.role の制約 (client|member) に合わせる。
-// メンバー一覧のロール変更用 ROLE_OPTIONS（space_memberships 用）とは別物。
-const INVITE_ROLE_OPTIONS = [
-  { value: 'client', label: 'クライアント' },
-  { value: 'member', label: 'メンバー' },
-]
+const VALID_ROLES = new Set<string>(SPACE_ROLE_GUIDE.map((r) => r.value))
 
 export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+
+  // 権限の判定は SettingsLayout と同じキャッシュ（['currentUser'] / ['spaceMembers', spaceId]）から取る。
+  // 下の fetchMembers は参加日を出すための一覧取得で、直列3段になる。
+  // そこに判定をぶら下げると招待フォームの表示が3段の完了待ちになるので分けている。
+  const { user } = useCurrentUser()
+  const currentUserId = user?.id ?? null
+  const { members: cachedMembers } = useSpaceMembers(spaceId)
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -70,11 +63,9 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         setMembers([])
-        setCurrentUserId(null)
         setError('ログインが必要です')
         return
       }
-      setCurrentUserId(user.id)
 
       // Use RPC to get members with profiles
       const { data, error: fetchError } = await (supabase as SupabaseClient)
@@ -108,10 +99,6 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         }
       })
 
-      // Check if current user is admin
-      const currentMember = memberList.find((m) => m.userId === user?.id)
-      setIsAdmin(currentMember?.role === 'admin')
-
       setMembers(memberList)
     } catch (err) {
       console.error('Failed to fetch members:', err)
@@ -124,6 +111,16 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   useEffect(() => {
     void fetchMembers()
   }, [fetchMembers])
+
+  const myRole = useMemo(() => {
+    const fromCache = cachedMembers.find((m) => m.id === currentUserId)?.role
+    return fromCache ?? members.find((m) => m.userId === currentUserId)?.role
+  }, [cachedMembers, members, currentUserId])
+
+  // 招待は編集者にも開放する（サーバー側の /api/invites・rpc_create_invite も admin/editor を許可済み）。
+  // 役割の変更とメンバー削除は引き続き管理者だけ。
+  const isAdmin = isSpaceAdminRole(myRole)
+  const canInvite = canInviteMembers(myRole)
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     if (!isAdmin || userId === currentUserId) return
@@ -182,7 +179,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
   }
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !isAdmin || inviting) return
+    if (!inviteEmail.trim() || !canInvite || inviting) return
 
     setInviting(true)
 
@@ -257,6 +254,15 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
           <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
             {members.length}人
           </span>
+          <Hint label="役割ごとにできること">
+            <span className="mb-1 block font-medium text-gray-700">役割ごとにできること</span>
+            {SPACE_ROLE_GUIDE.map((role) => (
+              <span key={role.value} className="mt-1.5 block first:mt-0">
+                <span className="font-medium text-gray-700">{role.label}</span>
+                <span className="block">{role.desc}</span>
+              </span>
+            ))}
+          </Hint>
         </div>
       </div>
 
@@ -314,7 +320,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                   onChange={(e) => handleRoleChange(member.userId, e.target.value)}
                   className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {ROLE_OPTIONS.map((opt) => (
+                  {SPACE_ROLE_GUIDE.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
@@ -352,8 +358,8 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         )}
       </div>
 
-      {/* Invite form (admin only) */}
-      {isAdmin && (
+      {/* Invite form (管理者・編集者) */}
+      {canInvite && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
           <div className="text-xs font-medium text-gray-500">メンバーを招待</div>
 
@@ -371,13 +377,24 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
             </div>
             <div className="w-40">
               <label htmlFor="space-invite-role" className="text-xs text-gray-500">役割</label>
+              <Hint label="招待する役割" align="right">
+                {INVITE_ROLE_GUIDE.map((role) => (
+                  <span key={role.value} className="mt-1.5 block first:mt-0">
+                    <span className="font-medium text-gray-700">{role.label}</span>
+                    <span className="block">{role.desc}</span>
+                  </span>
+                ))}
+                <span className="mt-2 block border-t border-gray-100 pt-1.5 text-gray-500">
+                  参加したあとの役割（管理者・編集者・閲覧者）は、上のメンバー一覧から管理者が変えられます。
+                </span>
+              </Hint>
               <select
                 id="space-invite-role"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value)}
                 className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                {INVITE_ROLE_OPTIONS.map((opt) => (
+                {INVITE_ROLE_GUIDE.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -396,10 +413,17 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         </div>
       )}
 
-      {!isAdmin && (
+      {!canInvite && (
         <div className="text-xs text-gray-500 text-center py-2">
           <UserCircle className="inline w-4 h-4 mr-1" />
           メンバーの管理は管理者のみ可能です
+        </div>
+      )}
+
+      {canInvite && !isAdmin && (
+        <div className="text-xs text-gray-500 text-center py-2">
+          <UserCircle className="inline w-4 h-4 mr-1" />
+          役割の変更とメンバーの削除は管理者のみ可能です
         </div>
       )}
     </div>

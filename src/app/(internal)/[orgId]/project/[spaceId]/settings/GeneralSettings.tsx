@@ -1,59 +1,38 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Pencil, Check, X, Archive, ArrowCounterClockwise } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { useState, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Pencil, Check, X } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useSpaceArchive } from '@/lib/hooks/useSpaceArchive'
-import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
-import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 
 interface GeneralSettingsProps {
   spaceId: string
 }
 
 export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
-  const [name, setName] = useState('')
-  const [originalName, setOriginalName] = useState('')
+  // 名前の正本は ['spaceName', spaceId]。パンくず・危険設定の確認入力も同じキャッシュを見ている。
+  // ここで独自に取り直すと、改名した直後に「古い名前」を要求する画面が出てしまう。
+  const spaceName = useSpaceName(spaceId)
+  const queryClient = useQueryClient()
+
+  const [draft, setDraft] = useState('')
   const [isEditing, setIsEditing] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [archiving, setArchiving] = useState(false)
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
-  const [archiveConfirmText, setArchiveConfirmText] = useState('')
-  const { isArchived, archive, unarchive } = useSpaceArchive(spaceId)
-  const { members } = useSpaceMembers(spaceId)
-  const { user } = useCurrentUser()
-  const currentMember = members.find((m) => m.id === user?.id)
-  const isAdmin = currentMember?.role === 'admin' || currentMember?.role === 'owner'
 
   const supabase = useMemo(() => createClient(), [])
 
-  useEffect(() => {
-    async function fetchSpace() {
-       
-      const { data, error } = await (supabase as SupabaseClient)
-        .from('spaces')
-        .select('name')
-        .eq('id', spaceId)
-        .single()
-
-      if (error) {
-        setError('プロジェクト情報の取得に失敗しました')
-      } else {
-        setName(data.name)
-        setOriginalName(data.name)
-      }
-      setLoading(false)
-    }
-
-    fetchSpace()
-  }, [supabase, spaceId])
+  const handleEdit = () => {
+    setDraft(spaceName)
+    setError(null)
+    setIsEditing(true)
+  }
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    const nextName = draft.trim()
+    if (!nextName) {
       setError('プロジェクト名を入力してください')
       return
     }
@@ -61,34 +40,26 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
     setSaving(true)
     setError(null)
 
-     
     const { error } = await (supabase as SupabaseClient)
       .from('spaces')
-      .update({ name: name.trim() })
+      .update({ name: nextName })
       .eq('id', spaceId)
 
     if (error) {
       setError('プロジェクト名の更新に失敗しました')
     } else {
-      setOriginalName(name.trim())
+      // 同じ名前を見ている場所（パンくず・危険設定の確認入力・サイドバー）を即座に揃える
+      queryClient.setQueryData(['spaceName', spaceId], nextName)
+      void queryClient.invalidateQueries({ queryKey: ['userSpaces'] })
       setIsEditing(false)
     }
     setSaving(false)
   }
 
   const handleCancel = () => {
-    setName(originalName)
+    setDraft(spaceName)
     setIsEditing(false)
     setError(null)
-  }
-
-  if (loading) {
-    return (
-      <div>
-        <h2 className="text-sm font-semibold text-gray-900 mb-4">基本設定</h2>
-        <div className="text-sm text-gray-400">読み込み中...</div>
-      </div>
-    )
   }
 
   return (
@@ -105,8 +76,8 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
                 className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="プロジェクト名"
                 autoFocus
@@ -134,10 +105,13 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-900">{name}</span>
+              <span className="text-sm text-gray-900">
+                {spaceName || <span className="text-gray-400">読み込み中...</span>}
+              </span>
               <button
-                onClick={() => setIsEditing(true)}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                onClick={handleEdit}
+                disabled={!spaceName}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-40"
                 title="編集"
               >
                 <Pencil className="text-sm" />
@@ -150,120 +124,6 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
           <div className="text-sm text-red-500">{error}</div>
         )}
       </div>
-
-      {/* 危険ゾーン (admin のみ表示) */}
-      {isAdmin && <div className="mt-8 pt-6 border-t border-red-100">
-        <h3 className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-3">
-          危険ゾーン
-        </h3>
-        {isArchived ? (
-          <div>
-            <p className="text-xs text-gray-500 mb-3">
-              このプロジェクトはアーカイブされています。解除するとサイドバーの一覧に再表示されます。
-            </p>
-            <button
-              type="button"
-              disabled={archiving}
-              onClick={async () => {
-                setArchiving(true)
-                try {
-                  await unarchive()
-                  toast.success('アーカイブを解除しました')
-                } catch {
-                  toast.error('アーカイブ解除に失敗しました')
-                } finally {
-                  setArchiving(false)
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-ink bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <ArrowCounterClockwise className="text-base" weight="bold" />
-              {archiving ? '解除中...' : 'アーカイブを解除する'}
-            </button>
-          </div>
-        ) : (
-          <div>
-            <p className="text-xs text-gray-500 mb-3">
-              このプロジェクトをアーカイブすると、サイドバーの一覧から非表示になります。データは削除されず、いつでも復元できます。
-            </p>
-            {showArchiveConfirm ? (
-              <div className="space-y-3 p-3 border border-red-200 rounded-lg bg-red-50/50">
-                <p className="text-xs text-gray-700">
-                  確認のため、プロジェクト名 <span className="font-semibold text-red-600">{originalName}</span> を入力してください。
-                </p>
-                <input
-                  type="text"
-                  value={archiveConfirmText}
-                  onChange={(e) => setArchiveConfirmText(e.target.value)}
-                  placeholder={originalName}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowArchiveConfirm(false)
-                      setArchiveConfirmText('')
-                    }
-                  }}
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={archiving || archiveConfirmText !== originalName}
-                    onClick={async () => {
-                      setArchiving(true)
-                      try {
-                        await archive()
-                        setShowArchiveConfirm(false)
-                        setArchiveConfirmText('')
-                        toast.success('アーカイブしました', {
-                          action: {
-                            label: '元に戻す',
-                            onClick: async () => {
-                              try {
-                                await unarchive()
-                                toast.success('アーカイブを解除しました')
-                              } catch {
-                                toast.error('アーカイブ解除に失敗しました')
-                              }
-                            },
-                          },
-                        })
-                      } catch {
-                        toast.error('アーカイブに失敗しました')
-                      } finally {
-                        setArchiving(false)
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Archive className="text-base" weight="bold" />
-                    {archiving ? 'アーカイブ中...' : 'アーカイブする'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowArchiveConfirm(false)
-                      setArchiveConfirmText('')
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    キャンセル
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowArchiveConfirm(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-              >
-                <Archive className="text-base" weight="bold" />
-                アーカイブする
-              </button>
-            )}
-          </div>
-        )}
-      </div>}
     </div>
   )
 }

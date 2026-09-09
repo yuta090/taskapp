@@ -9,7 +9,9 @@ import {
   SquaresFour,
   ChartBar,
   Question,
+  IdentificationBadge,
 } from '@phosphor-icons/react/dist/ssr'
+import { SPACE_ROLE_GUIDE, INVITE_ROLE_GUIDE } from '@/lib/roles/spaceRoles'
 
 export const metadata = {
   title: '使い方マニュアル | AgentPM',
@@ -25,7 +27,7 @@ const STEPS = [
   {
     icon: UserPlus,
     title: '2. メンバー・クライアントを招待する',
-    description: 'プロジェクト設定のメンバーセクションから、社内メンバーやクライアント担当者をメールで招待します。',
+    description: 'プロジェクト設定のメンバーセクションから、社内メンバーやクライアント担当者をメールで招待します。招待できるのは管理者と編集者です。',
   },
   {
     icon: Eye,
@@ -152,6 +154,36 @@ export default function HelpPage() {
               <div key={item.term} className="p-4">
                 <dt className="text-sm font-medium text-gray-900">{item.term}</dt>
                 <dd className="text-sm text-gray-600 mt-1">{item.description}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        {/* メンバーの役割 */}
+        <section id="roles" className="space-y-4 scroll-mt-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <IdentificationBadge className="w-5 h-5 text-gray-500" />
+            メンバーの役割
+          </h2>
+          <p className="text-sm text-gray-600">
+            プロジェクトごとに、メンバーには次のどれかの役割が付きます。役割の変更は管理者が
+            プロジェクト設定のメンバー画面から行います。
+          </p>
+          <dl className="bg-surface rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {SPACE_ROLE_GUIDE.map((role) => (
+              <div key={role.value} className="p-4">
+                <dt className="text-sm font-medium text-gray-900">{role.label}</dt>
+                <dd className="text-sm text-gray-600 mt-1">{role.desc}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <h3 className="text-sm font-semibold text-gray-900">招待するときに選ぶ役割</h3>
+          <dl className="bg-surface rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {INVITE_ROLE_GUIDE.map((role) => (
+              <div key={role.value} className="p-4">
+                <dt className="text-sm font-medium text-gray-900">{role.label}</dt>
+                <dd className="text-sm text-gray-600 mt-1">{role.desc}</dd>
               </div>
             ))}
           </dl>
