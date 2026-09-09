@@ -10,7 +10,7 @@ const mockUser = { id: 'user-1', email: 'owner@example.com' }
 let authResponse: { data: { user: typeof mockUser | null } }
 let orgMembershipResponse: { data: { role: string } | null }
 let spaceMembershipResponse: { data: { role: string } | null }
-let inviteLookupResponse: { data: { id: string; org_id: string } | null; error: { message: string } | null }
+let inviteLookupResponse: { data: { id: string; org_id: string; space_id: string } | null; error: { message: string } | null }
 let deleteResponse: { error: { message: string } | null }
 
 const deleteEqMock = vi.fn(() => Promise.resolve(deleteResponse))
