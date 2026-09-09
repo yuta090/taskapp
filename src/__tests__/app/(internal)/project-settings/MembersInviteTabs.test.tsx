@@ -4,8 +4,19 @@ import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/sett
 
 /** 招待するときの名前入力と、「返事待ち」「招待の履歴」タブ */
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-vi.mock('@/components/shared', () => ({
-  useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(true), ConfirmDialog: null }),
+vi.mock('@/components/shared', async () => {
+  // Hint（「?」の補足）は実物を使う
+  const { Hint } = await import('@/components/shared/Hint')
+  return {
+    Hint,
+    useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(true), ConfirmDialog: null }),
+  }
+})
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'user-1' }, loading: false, error: null }),
+}))
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({
+  useSpaceMembers: () => ({ members: [], loading: false, isPending: false }),
 }))
 vi.mock('@/lib/hooks/useInviteTemplate', () => ({
   useInviteTemplate: () => ({ template: null, loading: false, error: null, refresh: vi.fn() }),

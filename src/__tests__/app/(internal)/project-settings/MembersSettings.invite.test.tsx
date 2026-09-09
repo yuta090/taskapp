@@ -43,6 +43,14 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   }),
 }))
 
+// 招待メールの文面・招待の一覧は、開いたときだけ読みに行く（このテストでは開かない）
+vi.mock('@/lib/hooks/useInviteTemplate', () => ({
+  useInviteTemplate: () => ({ template: null, loading: false, error: null, refresh: vi.fn() }),
+}))
+vi.mock('@/lib/hooks/useSpaceInvites', () => ({
+  useSpaceInvites: () => ({ invites: [], canManage: true, loading: false, error: null, refresh: vi.fn() }),
+}))
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 vi.mock('@/components/shared', async () => {

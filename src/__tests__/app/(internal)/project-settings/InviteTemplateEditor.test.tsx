@@ -6,8 +6,19 @@ import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/sett
  * 招待フォームでの「送るメールの文面」の確認・その場編集・テンプレート保存。
  */
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-vi.mock('@/components/shared', () => ({
-  useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(true), ConfirmDialog: null }),
+vi.mock('@/components/shared', async () => {
+  // Hint（「?」の補足）は実物を使う
+  const { Hint } = await import('@/components/shared/Hint')
+  return {
+    Hint,
+    useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(true), ConfirmDialog: null }),
+  }
+})
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'user-1' }, loading: false, error: null }),
+}))
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({
+  useSpaceMembers: () => ({ members: [], loading: false, isPending: false }),
 }))
 
 // 招待の一覧はタブを開いたときだけ読みに行く
