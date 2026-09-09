@@ -1,47 +1,38 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Pencil, Check, X } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useSpaceName } from '@/lib/hooks/useSpaceName'
 
 interface GeneralSettingsProps {
   spaceId: string
 }
 
 export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
-  const [name, setName] = useState('')
-  const [originalName, setOriginalName] = useState('')
+  // 名前の正本は ['spaceName', spaceId]。パンくず・危険設定の確認入力も同じキャッシュを見ている。
+  // ここで独自に取り直すと、改名した直後に「古い名前」を要求する画面が出てしまう。
+  const spaceName = useSpaceName(spaceId)
+  const queryClient = useQueryClient()
+
+  const [draft, setDraft] = useState('')
   const [isEditing, setIsEditing] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
-  useEffect(() => {
-    async function fetchSpace() {
-       
-      const { data, error } = await (supabase as SupabaseClient)
-        .from('spaces')
-        .select('name')
-        .eq('id', spaceId)
-        .single()
-
-      if (error) {
-        setError('プロジェクト情報の取得に失敗しました')
-      } else {
-        setName(data.name)
-        setOriginalName(data.name)
-      }
-      setLoading(false)
-    }
-
-    fetchSpace()
-  }, [supabase, spaceId])
+  const handleEdit = () => {
+    setDraft(spaceName)
+    setError(null)
+    setIsEditing(true)
+  }
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    const nextName = draft.trim()
+    if (!nextName) {
       setError('プロジェクト名を入力してください')
       return
     }
@@ -49,34 +40,26 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
     setSaving(true)
     setError(null)
 
-     
     const { error } = await (supabase as SupabaseClient)
       .from('spaces')
-      .update({ name: name.trim() })
+      .update({ name: nextName })
       .eq('id', spaceId)
 
     if (error) {
       setError('プロジェクト名の更新に失敗しました')
     } else {
-      setOriginalName(name.trim())
+      // 同じ名前を見ている場所（パンくず・危険設定の確認入力・サイドバー）を即座に揃える
+      queryClient.setQueryData(['spaceName', spaceId], nextName)
+      void queryClient.invalidateQueries({ queryKey: ['userSpaces'] })
       setIsEditing(false)
     }
     setSaving(false)
   }
 
   const handleCancel = () => {
-    setName(originalName)
+    setDraft(spaceName)
     setIsEditing(false)
     setError(null)
-  }
-
-  if (loading) {
-    return (
-      <div>
-        <h2 className="text-sm font-semibold text-gray-900 mb-4">基本設定</h2>
-        <div className="text-sm text-gray-400">読み込み中...</div>
-      </div>
-    )
   }
 
   return (
@@ -93,8 +76,8 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
                 className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="プロジェクト名"
                 autoFocus
@@ -122,10 +105,13 @@ export function GeneralSettings({ spaceId }: GeneralSettingsProps) {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-900">{name}</span>
+              <span className="text-sm text-gray-900">
+                {spaceName || <span className="text-gray-400">読み込み中...</span>}
+              </span>
               <button
-                onClick={() => setIsEditing(true)}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                onClick={handleEdit}
+                disabled={!spaceName}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-40"
                 title="編集"
               >
                 <Pencil className="text-sm" />

@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/MembersSettings'
 
 // ログイン中の人の役割をテストごとに差し替える
@@ -25,11 +25,34 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
+// 権限判定は共有キャッシュ（['currentUser'] / ['spaceMembers']）から取る
+vi.mock('@/lib/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { id: 'u1' }, loading: false, error: null }),
+}))
+
+vi.mock('@/lib/hooks/useSpaceMembers', () => ({
+  useSpaceMembers: () => ({
+    members: rpcMembers().map((m) => ({
+      id: m.user_id,
+      displayName: m.display_name,
+      avatarUrl: m.avatar_url,
+      role: m.role,
+    })),
+    loading: false,
+    isPending: false,
+  }),
+}))
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
-vi.mock('@/components/shared', () => ({
-  useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(true), ConfirmDialog: null }),
-}))
+vi.mock('@/components/shared', async () => {
+  // Hint（「?」の補足）は実物を使う。確認ダイアログだけ差し替える
+  const { Hint } = await import('@/components/shared/Hint')
+  return {
+    Hint,
+    useConfirmDialog: () => ({ confirm: vi.fn().mockResolvedValue(true), ConfirmDialog: null }),
+  }
+})
 
 beforeEach(() => {
   myRole = 'editor'
@@ -40,7 +63,7 @@ describe('MembersSettings — 招待できる人', () => {
     render(<MembersSettings orgId="o1" spaceId="s1" />)
 
     await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /招待/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '招待' })).toBeInTheDocument()
   })
 
   it('編集者には役割の変更・削除は出さない', async () => {
@@ -66,5 +89,34 @@ describe('MembersSettings — 招待できる人', () => {
     await waitFor(() => expect(screen.getByText('田中')).toBeInTheDocument())
     expect(screen.queryByText('メンバーを招待')).not.toBeInTheDocument()
     expect(screen.getByText(/管理者のみ/)).toBeInTheDocument()
+  })
+})
+
+describe('MembersSettings — 役割の説明ヒント', () => {
+  it('招待の役割に「?」があり、押すと各役割でできることが出る', async () => {
+    render(<MembersSettings orgId="o1" spaceId="s1" />)
+
+    await waitFor(() => expect(screen.getByText('メンバーを招待')).toBeInTheDocument())
+
+    const hint = screen.getByRole('button', { name: '招待する役割の補足' })
+    fireEvent.click(hint)
+
+    const note = screen.getByRole('note')
+    expect(note).toHaveTextContent('メンバー')
+    expect(note).toHaveTextContent('クライアント')
+    expect(note).toHaveTextContent('編集者')
+  })
+
+  it('メンバー一覧の「?」で全ての役割ができることを説明する', async () => {
+    render(<MembersSettings orgId="o1" spaceId="s1" />)
+
+    await waitFor(() => expect(screen.getByText('田中')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: '役割ごとにできることの補足' }))
+
+    const note = screen.getByRole('note')
+    for (const label of ['管理者', '編集者', '閲覧者', 'クライアント', 'ベンダー']) {
+      expect(note).toHaveTextContent(label)
+    }
   })
 })

@@ -23,6 +23,18 @@ describe('HelpPage (/help)', () => {
     expect(withinGlossary.getByText(/^スペック/)).toBeInTheDocument()
   })
 
+  it('renders the member role guide', () => {
+    render(<HelpPage />)
+    const roles = document.getElementById('roles')
+    expect(roles).toBeInTheDocument()
+    const withinRoles = within(roles as HTMLElement)
+    for (const label of ['管理者', '編集者', '閲覧者', 'クライアント', 'ベンダー']) {
+      // 「クライアント」は役割一覧と招待時の選択肢の両方に出る
+      expect(withinRoles.getAllByText(label).length).toBeGreaterThan(0)
+    }
+    expect(withinRoles.getByText('招待するときに選ぶ役割')).toBeInTheDocument()
+  })
+
   it('renders the main screens overview', () => {
     render(<HelpPage />)
     expect(screen.getByText('受信トレイ')).toBeInTheDocument()

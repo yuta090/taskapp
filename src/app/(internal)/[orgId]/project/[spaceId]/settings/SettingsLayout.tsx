@@ -160,7 +160,10 @@ export function SettingsLayout({ orgId, spaceId }: SettingsLayoutProps) {
     ).length
   }, [statuses])
 
-  // 危険設定はプロジェクトの管理者にだけ見せる
+  // 危険設定はプロジェクトの管理者にだけ見せる。
+  // メンバー取得前は「管理者ではない」側に倒れるため、完全なコールドスタートでは
+  // 項目が一拍あとから現れる。滅多に使わない項目なので、枠を先に出すより
+  // 「確定してから出す」を選ぶ（プロジェクト画面と同じキャッシュなので通常は温まっている）。
   const { members } = useSpaceMembers(spaceId)
   const { user } = useCurrentUser()
   const isAdmin = useMemo(() => {
