@@ -144,17 +144,27 @@
   "org_id": "uuid",
   "space_id": "uuid",
   "email": "invitee@example.com",
-  "role": "client|member"
+  "role": "client|member",
+  "name": "山田 太郎（任意・100文字まで。一覧表示とメールの宛名に使う）",
+  "message": "招待に添える一言（任意・500文字まで）",
+  "template": { "subject": "...", "heading": "...", "body": "...", "cta_label": "...", "note": "..." },
+  "save_as_template": false
 }
 ```
 
+`template` は招待メールの文面をこの1通だけ差し替えるもの（任意・部分指定可）。
+`save_as_template: true` のときだけ、事務所の文面として保存される（→ 2.4）。
+
 **Process**
 1. 権限チェック（owner or admin）
-2. RPC: `rpc_create_invite(org_id, space_id, email, role, created_by)`
+2. `save_as_template` のときは事務所の owner/admin かを先に確認（招待を作る前に 403 で断る）
+3. `template` があれば「いまの文面」に重ねて検証（必須・長さ・差し込み語）。不正なら 400
+4. RPC: `rpc_create_invite(org_id, space_id, email, role, created_by)`
    - 制限チェック
    - トークン生成
    - invites 作成
-3. Edge Function: メール送信
+5. `save_as_template` のときは RPC: `rpc_set_org_email_template(...)`
+6. メール送信
    - role='client' → `/portal/:token`
    - role='member' → `/invite/:token`
 
@@ -163,12 +173,18 @@
 {
   "invite_id": "uuid",
   "token": "string",
-  "expires_at": "2025-03-04T00:00:00Z"
+  "expires_at": "2025-03-04T00:00:00Z",
+  "email_sent": true,
+  "template_saved": true
 }
 ```
 
+`template_saved` は `save_as_template` を頼んだときだけ返る。保存に失敗しても招待とメールは止めない。
+
 **Errors**
-- `403`: 権限なし
+- `400`: 文面が不正（必須が空・長すぎる・使えない差し込み語）
+- `402`: 人数枠に達した
+- `403`: 権限なし／事務所の管理者でないのに保存を頼んだ
 - `429`: プラン制限超過
 
 ---
@@ -235,6 +251,65 @@
 **Errors**
 - `400`: トークン無効
 - `429`: プラン制限超過
+
+---
+
+### 2.4 GET /api/invites/pending
+
+招待の一覧。`org_id`（事務所ぜんぶ・オーナーのみ）か `space_id`（そのプロジェクトだけ・
+プロジェクトの admin/editor）のどちらかで引く。`status=all` を付けると承諾済み・期限切れも含む履歴（直近100件）。
+
+**Output**
+```json
+{
+  "invites": [
+    {
+      "id": "uuid", "email": "...", "invitee_name": "山田 太郎", "role": "member",
+      "space_id": "uuid", "space_name": "...", "created_at": "...", "expires_at": "...",
+      "accepted_at": null, "status": "pending|expired|accepted"
+    }
+  ],
+  "can_manage": true
+}
+```
+
+`status` は `accepted_at` と `expires_at` から決まる（`src/lib/invites/status.ts` が正本）。
+`can_manage`（取り消し・再送の可否）は事務所のオーナーのときだけ true。
+
+---
+
+### 2.5 GET / DELETE /api/invites/template
+
+招待フォームに出す「いま使われている文面」の読み取りと、事務所の保存の取り消し。
+
+**Query**: `space_id=<uuid>&role=client|member`
+
+事務所(org)は `space_id` からサーバー側で引く（画面から渡された org_id は信用しない）。
+権限は招待と同じ（事務所のメンバー かつ プロジェクトの admin/editor）。
+
+**文面の決まり方（優先順）**
+1. 事務所が保存したもの … `org_email_templates`（`source: "org"`）
+2. 運営が管理画面で保存したもの … `email_templates`（`source: "platform"`）
+3. コード既定 … `src/lib/email/templates/registry.ts`（`source: "code"`）
+
+**GET Output**
+```json
+{
+  "fields": { "subject": "...", "heading": "...", "body": "...", "cta_label": "...", "note": "..." },
+  "source": "org|platform|code",
+  "can_save_template": true
+}
+```
+
+`can_save_template` は事務所の owner/admin のときだけ true。
+保存は事務所全体（全プロジェクト）に効くため、プロジェクトの管理者では足りない。
+
+**DELETE**: 事務所の保存を消して標準の文面に戻す（`rpc_reset_org_email_template`）。事務所の owner/admin のみ。
+
+**Errors**
+- `400`: role が不正／space_id の形式が不正
+- `403`: 権限なし（DELETE は事務所の管理者以外）
+- `404`: プロジェクトが無い
 
 ---
 

@@ -118,6 +118,8 @@ export async function POST(
         role: inviteRow.role,
         token: inviteRow.token,
         expiresAt: newExpiresAt,
+        // 事務所が保存した招待文面があればそれで送る
+        orgId: inviteRow.org_id,
         // 相手が返信したら再送した本人に届くように
         replyTo: user.email,
         senderOrgName: await resolveSenderOrgName(admin, inviteRow.org_id),

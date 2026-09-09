@@ -17,11 +17,17 @@ let organizationResponse: { data: { name: string } | null }
 let spaceResponse: { data: { name: string } | null }
 let profileResponse: { data: { display_name: string } | null }
 let rpcResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
+let setTemplateResponse: { data: null; error: { message: string } | null }
 
 const sendInviteEmailMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true, messageId: 'msg-1' }))
 
 vi.mock('@/lib/email', () => ({
   sendInviteEmail: (...args: unknown[]) => sendInviteEmailMock(...args),
+}))
+
+const inviteUpdateMock = vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ error: null })) }))
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ from: () => ({ update: inviteUpdateMock }) }),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -82,7 +88,10 @@ vi.mock('@/lib/supabase/server', () => ({
         }
         return {}
       }),
-      rpc: vi.fn(() => Promise.resolve(rpcResponse)),
+      rpc: vi.fn((fn: string) => {
+        if (fn === 'rpc_set_org_email_template') return Promise.resolve(setTemplateResponse)
+        return Promise.resolve(rpcResponse)
+      }),
     })
   ),
 }))
@@ -119,6 +128,7 @@ describe('POST /api/invites', () => {
       data: { invite_id: 'invite-1', token: 'tok-123', expires_at: '2026-08-01T00:00:00' },
       error: null,
     }
+    setTemplateResponse = { data: null, error: null }
     sendInviteEmailMock.mockResolvedValue({ success: true, messageId: 'msg-1' })
   })
 
@@ -262,5 +272,155 @@ describe('POST /api/invites', () => {
     expect(response.status).toBe(200)
     expect(data.email_sent).toBe(false)
     expect(data.token).toBe('tok-123')
+  })
+})
+
+/**
+ * 招待フォームでの「その場編集」。
+ * 既定はその1通かぎり。「テンプレートとして保存する」を選んだときだけ事務所の文面として残る。
+ */
+describe('POST /api/invites — 文面のその場編集と保存', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    authResponse = { data: { user: { ...mockUser, user_metadata: {} } } }
+    orgMembershipResponse = { data: { role: 'owner' } }
+    spaceMembershipResponse = { data: { role: 'admin' } }
+    organizationResponse = { data: { name: 'テスト組織' } }
+    spaceResponse = { data: { name: 'テストプロジェクト' } }
+    profileResponse = { data: { display_name: 'プロフィール太郎' } }
+    rpcResponse = {
+      data: { invite_id: 'invite-1', token: 'tok-123', expires_at: '2026-08-01T00:00:00' },
+      error: null,
+    }
+    setTemplateResponse = { data: null, error: null }
+    sendInviteEmailMock.mockResolvedValue({ success: true, messageId: 'msg-1' })
+  })
+
+  it('その場で直した文面で送る', async () => {
+    const response = await callPost({ ...baseBody, template: { subject: '差し替えた件名', body: '差し替えた本文' } })
+
+    expect(response.status).toBe(200)
+    const sent = sendInviteEmailMock.mock.calls[0][0] as { fields?: { subject: string; body: string } }
+    expect(sent.fields?.subject).toBe('差し替えた件名')
+    expect(sent.fields?.body).toBe('差し替えた本文')
+  })
+
+  it('文面を触っていなければ、送信側に文面を渡さない（いつもの決まり方に任せる）', async () => {
+    const response = await callPost(baseBody)
+
+    expect(response.status).toBe(200)
+    const sent = sendInviteEmailMock.mock.calls[0][0] as { fields?: unknown; orgId?: string }
+    expect(sent.fields).toBeUndefined()
+    expect(sent.orgId).toBe(VALID_ORG_ID)
+  })
+
+  it('使えない差し込み語があれば400で断り、招待も作らない', async () => {
+    const response = await callPost({ ...baseBody, template: { body: '{{存在しない語}}' } })
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toContain('存在しない語')
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('件名を空にはできない', async () => {
+    const response = await callPost({ ...baseBody, template: { subject: '   ' } })
+
+    expect(response.status).toBe(400)
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('保存にチェックしていなければ、テンプレートは書き換えない', async () => {
+    await callPost({ ...baseBody, template: { subject: '今回だけ' } })
+
+    const response = await callPost({ ...baseBody, template: { subject: '今回だけ' } })
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data.template_saved).toBeUndefined()
+  })
+
+  it('保存にチェックすると、事務所の文面として保存する', async () => {
+    const response = await callPost({
+      ...baseBody,
+      template: { subject: '保存する件名' },
+      save_as_template: true,
+    })
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data.template_saved).toBe(true)
+  })
+
+  it('事務所の管理者でなければ保存させない（招待も作らない）', async () => {
+    orgMembershipResponse = { data: { role: 'member' } }
+
+    const response = await callPost({
+      ...baseBody,
+      template: { subject: '保存する件名' },
+      save_as_template: true,
+    })
+    const data = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(data.error).toContain('管理者')
+    expect(sendInviteEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('保存に失敗しても招待とメールは止めない（保存できなかったことは返す）', async () => {
+    setTemplateResponse = { data: null, error: { message: 'boom' } }
+
+    const response = await callPost({
+      ...baseBody,
+      template: { subject: '保存する件名' },
+      save_as_template: true,
+    })
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data.template_saved).toBe(false)
+    expect(sendInviteEmailMock).toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/invites — 相手の名前', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    authResponse = { data: { user: { ...mockUser, user_metadata: {} } } }
+    orgMembershipResponse = { data: { role: 'owner' } }
+    spaceMembershipResponse = { data: { role: 'admin' } }
+    organizationResponse = { data: { name: 'テスト組織' } }
+    spaceResponse = { data: { name: 'テストプロジェクト' } }
+    profileResponse = { data: { display_name: 'プロフィール太郎' } }
+    rpcResponse = {
+      data: { invite_id: 'invite-1', token: 'tok-123', expires_at: '2026-08-01T00:00:00' },
+      error: null,
+    }
+    setTemplateResponse = { data: null, error: null }
+    sendInviteEmailMock.mockResolvedValue({ success: true, messageId: 'msg-1' })
+  })
+
+  it('名前を招待に保存し、メールの宛名にも使う', async () => {
+    const response = await callPost({ ...baseBody, name: '  山田 太郎  ' })
+
+    expect(response.status).toBe(200)
+    expect(inviteUpdateMock).toHaveBeenCalledWith({ invitee_name: '山田 太郎' })
+    const sent = sendInviteEmailMock.mock.calls[0][0] as { toName?: string }
+    expect(sent.toName).toBe('山田 太郎')
+  })
+
+  it('名前が空なら書き込まない', async () => {
+    await callPost({ ...baseBody, name: '   ' })
+
+    expect(inviteUpdateMock).not.toHaveBeenCalled()
+    const sent = sendInviteEmailMock.mock.calls[0][0] as { toName?: string }
+    expect(sent.toName).toBeUndefined()
+  })
+
+  it('長すぎる名前は切り詰める（招待自体は通す）', async () => {
+    await callPost({ ...baseBody, name: 'あ'.repeat(150) })
+
+    expect(inviteUpdateMock).toHaveBeenCalledWith({ invitee_name: 'あ'.repeat(100) })
   })
 })
