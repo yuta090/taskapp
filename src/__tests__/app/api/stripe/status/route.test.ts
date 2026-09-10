@@ -50,7 +50,7 @@ describe('GET /api/stripe/status', () => {
       missingOptionalKeys: [],
     })
 
-    const response = await GET()
+    const response = await GET(new Request('http://localhost/api/stripe/status'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -66,7 +66,7 @@ describe('GET /api/stripe/status', () => {
       missingOptionalKeys: ['STRIPE_ENTERPRISE_PRICE_ID'],
     })
 
-    const response = await GET()
+    const response = await GET(new Request('http://localhost/api/stripe/status'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -82,7 +82,7 @@ describe('GET /api/stripe/status', () => {
       missingOptionalKeys: ['STRIPE_ENTERPRISE_PRICE_ID'],
     })
 
-    const response = await GET()
+    const response = await GET(new Request('http://localhost/api/stripe/status'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -98,7 +98,7 @@ describe('GET /api/stripe/status', () => {
       missingOptionalKeys: [],
     })
 
-    const response = await GET()
+    const response = await GET(new Request('http://localhost/api/stripe/status'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -127,7 +127,7 @@ describe('GET /api/stripe/status — オンライン申し込みの元栓', () =
     vi.mocked(canCreateCheckout).mockReturnValue(false)
     getUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
 
-    const data = await (await GET()).json()
+    const data = await (await GET(new Request('http://localhost/api/stripe/status'))).json()
 
     expect(data.canCheckout).toBe(false)
     expect(data.keysConfigured).toBe(true)
@@ -145,7 +145,7 @@ describe('GET /api/stripe/status — オンライン申し込みの元栓', () =
     vi.mocked(canCreateCheckout).mockReturnValue(true)
     getUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
 
-    const data = await (await GET()).json()
+    const data = await (await GET(new Request('http://localhost/api/stripe/status'))).json()
 
     expect(data.canCheckout).toBe(true)
     expect(data.keysConfigured).toBe(true)
@@ -157,11 +157,56 @@ describe('GET /api/stripe/status — 認証', () => {
   it('未ログインには設定の配備状況を返さない', async () => {
     getUser.mockResolvedValue({ data: { user: null }, error: null })
 
-    const res = await GET()
+    const res = await GET(new Request('http://localhost/api/stripe/status'))
     const body = await res.json()
 
     expect(res.status).toBe(401)
     expect(body.keysConfigured).toBeUndefined()
     expect(body.selfServeEnabled).toBeUndefined()
+  })
+})
+
+/**
+ * 画面は「いま開いている組織」で判定を出し分ける必要がある（許可リスト対応）。
+ * org_id を渡せること・渡した値がそのまま判定に使われることを固定する。
+ */
+describe('GET /api/stripe/status — 組織ごとの判定', () => {
+  const ORG = '11111111-2222-3333-4444-555555555555'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+    vi.mocked(getStripeServerConfigStatus).mockReturnValue({
+      isConfigured: true,
+      hasPublishableKey: true,
+      missingKeys: [],
+      missingOptionalKeys: [],
+    })
+    vi.mocked(isSelfServeCheckoutEnabled).mockReturnValue(false)
+  })
+
+  it('org_id をそのまま判定に渡す', async () => {
+    vi.mocked(canCreateCheckout).mockImplementation((orgId?: string | null) => orgId === ORG)
+
+    const allowed = await (
+      await GET(new Request(`http://localhost/api/stripe/status?org_id=${ORG}`))
+    ).json()
+    const other = await (
+      await GET(new Request('http://localhost/api/stripe/status?org_id=other'))
+    ).json()
+
+    expect(allowed.canCheckout).toBe(true)
+    expect(other.canCheckout).toBe(false)
+    expect(vi.mocked(canCreateCheckout)).toHaveBeenCalledWith(ORG)
+  })
+
+  it('org_id が無くても落ちない（全体の元栓だけで判断）', async () => {
+    vi.mocked(canCreateCheckout).mockReturnValue(false)
+
+    const res = await GET(new Request('http://localhost/api/stripe/status'))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.canCheckout).toBe(false)
   })
 })
