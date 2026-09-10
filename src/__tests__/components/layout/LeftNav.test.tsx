@@ -52,6 +52,8 @@ function renderWithOrg(value: Partial<ActiveOrgContextValue>) {
     activeOrgName: 'テスト組織',
     activeOrgRole: 'owner',
     orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+    orgsStatus: 'verified',
+    orgsRefreshFailed: false,
     switchOrg: vi.fn(),
     loading: false,
   }

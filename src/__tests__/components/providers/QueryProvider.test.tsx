@@ -5,7 +5,7 @@ import { useQueryClient, dehydrate, QueryClient as RQQueryClient, type QueryClie
 import type { PersistedClient } from '@tanstack/react-query-persist-client'
 import { QueryProvider, PERSIST_BUSTER } from '@/components/providers/QueryProvider'
 
-type AuthEvent = 'SIGNED_OUT' | 'SIGNED_IN' | 'INITIAL_SESSION' | 'TOKEN_REFRESHED'
+type AuthEvent = 'SIGNED_OUT' | 'SIGNED_IN' | 'INITIAL_SESSION' | 'TOKEN_REFRESHED' | 'MFA_CHALLENGE_VERIFIED'
 type Session = { user: { id: string; email?: string } } | null
 
 let authCallback: (event: AuthEvent, session: Session) => void = () => {}
@@ -22,6 +22,11 @@ vi.mock('@/lib/supabase/client', () => ({
       },
     },
   }),
+}))
+
+const mockClearActiveOrgId = vi.fn()
+vi.mock('@/lib/org/activeOrg', () => ({
+  clearActiveOrgId: (...args: unknown[]) => mockClearActiveOrgId(...args),
 }))
 
 const idbGet = vi.fn()
@@ -271,6 +276,28 @@ describe('QueryProvider', () => {
     expect(idbDel).not.toHaveBeenCalledWith('some-other-app-key')
   })
 
+  // --- SIGNED_OUT also clears the active-org cookie ---------------------------
+  // 以前は SIGNED_OUT でキャッシュ(IDB/react-query)だけを消しており、active org の cookie は
+  // 残っていた。サインアウト→別ユーザーでサインイン（リロード無し）をすると、Bの最初の描画で
+  // Aが選んでいた org id の cookie がそのまま読まれてしまう（ActiveOrgProvider は cookie を
+  // 「まだ知らないユーザーの初回選択」として一度だけ信用するため）。clearActiveOrgId() が
+  // 存在するのに呼ばれていなかった（src/lib/org/activeOrg.ts）
+  it('clears the active-org cookie on SIGNED_OUT', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+
+    await waitFor(() => {
+      expect(mockClearActiveOrgId).toHaveBeenCalledTimes(1)
+    })
+  })
+
   // --- currentUser stays in sync with auth events -----------------------------
   it('sets currentUser query data to null on SIGNED_OUT', async () => {
     mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
@@ -389,5 +416,50 @@ describe('QueryProvider', () => {
     await waitFor(() => {
       expect(getByTestId('user').textContent).toBe('user-B')
     })
+  })
+
+  // --- MFA recovery: 二要素認証コード入力後は orgMemberships を必ず取り直す ------------------
+  // パスワードログイン直後（aal1）は org_memberships が 42501 で失敗し、/login/mfa は門番の
+  // 対象外パスなのでリダイレクトも起きない。そのままコード入力を終えて router.replace で
+  // 戻っても（フルリロードではないため）ActiveOrgProvider は再マウントされず、
+  // orgsStatus は 'unknown' のまま固定されてしまう（ApiSettings が「権限を確認中...」を
+  // 永久に出し続ける）。MFA_CHALLENGE_VERIFIED を受けたら明示的に取り直す
+  it('invalidates orgMemberships on MFA_CHALLENGE_VERIFIED', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+    const invalidateSpy = vi.spyOn(capturedClient!, 'invalidateQueries')
+
+    act(() => {
+      authCallback('MFA_CHALLENGE_VERIFIED', sessionFor('user-A'))
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['orgMemberships'] })
+    })
+  })
+
+  // 通常の SIGNED_IN（タブ再フォーカス等でも supabase-js が発火し得る）では取り直さない。
+  // ユーザー識別の変化はキャッシュクリアで既に処理済みなので、ここでも取り直すとフォーカスの
+  // たびに毎回フェッチが増える
+  it('does NOT invalidate orgMemberships on plain SIGNED_IN', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    renderProvider()
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+    const invalidateSpy = vi.spyOn(capturedClient!, 'invalidateQueries')
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-A'))
+    })
+
+    // 他の非同期処理が終わるのを一拍待ってから、呼ばれていないことを確認する
+    await waitFor(() => {
+      expect(capturedClient!.getQueryData<{ id: string }>(['currentUser'])?.id).toBe('user-A')
+    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['orgMemberships'] })
   })
 })
