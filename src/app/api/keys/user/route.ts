@@ -4,6 +4,7 @@ import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
+import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
 
 // Create admin client with service role key (bypasses RLS)
 function createAdminClient() {
@@ -81,10 +82,10 @@ export async function POST(request: NextRequest) {
     const spaces = membership.spaces as unknown as { org_id: string } | { org_id: string }[]
     const orgId = Array.isArray(spaces) ? spaces[0]?.org_id : spaces?.org_id
 
-    // Verify user has access to all selected spaces
+    // Verify user has access to all selected spaces（役割も取り、相手先としての所属を見分ける）
     const { data: userSpaces, error: spacesError } = await adminClient
       .from('space_memberships')
-      .select('space_id')
+      .select('space_id, role')
       .eq('user_id', user.id)
       .in('space_id', allowedSpaceIds)
 
@@ -103,6 +104,15 @@ export async function POST(request: NextRequest) {
     if (invalidSpaces.length > 0) {
       return NextResponse.json(
         { error: 'Access denied to some selected spaces' },
+        { status: 403 }
+      )
+    }
+
+    // API キーは社内メンバー（admin / editor / viewer）専用。それ以外の役割（相手先の client / vendor・不明な役割）で
+    // 所属するプロジェクトが1つでも含まれていたら全体を断る（一部だけ発行すると、画面で選んだ内容と食い違うため）
+    if (userSpaces.some((s) => !isInternalSpaceRole(s.role as string | undefined))) {
+      return NextResponse.json(
+        { error: 'API keys are available to internal members only' },
         { status: 403 }
       )
     }

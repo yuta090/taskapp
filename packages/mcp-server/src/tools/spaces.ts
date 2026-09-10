@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { getSupabaseClient, Space } from '../supabase/client.js'
 import { config } from '../config.js'
 import { checkAuth, checkAuthOrg } from '../auth/helpers.js'
+import { authorizeAndLog } from '../auth/index.js'
 
 // Schemas
 export const spaceCreateSchema = z.object({
@@ -89,9 +90,46 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
     return (data || []) as Space[]
   }
 
-  // scope=user: allowed_space_ids でフィルタして返す
-  // scope=org: 全スペース返す
-  if (ctx.scope !== 'org' && ctx.scope !== 'user' && ctx.keyId !== 'dev-key') {
+  // scope=user（個人用の鍵）: 選んだプロジェクトのうち、今もメンバーで読み取りが許されるものだけを返す。
+  // ほかの道具と同じ権限確認(mcp_authorize)をプロジェクトごとに通すので、役割が後から相手先に変わった・
+  // プロジェクトから外れた鍵にも追従する。個人用の鍵は組織をまたげるので、鍵の組織では絞らない
+  if (ctx.scope === 'user' && ctx.keyId !== 'dev-key') {
+    if (!ctx.userId) {
+      throw new Error('権限エラー: API key owner is not set')
+    }
+    const { data: memberRows, error: memberError } = await supabase
+      .from('space_memberships')
+      .select('space_id')
+      .eq('user_id', ctx.userId)
+    if (memberError) throw new Error('プロジェクト一覧の取得に失敗しました: ' + memberError.message)
+
+    const allowedIds = ctx.allowedSpaceIds
+    const candidateIds = (memberRows || [])
+      .map((m) => m.space_id as string)
+      .filter((id) => !allowedIds || allowedIds.includes(id))
+    const permitted: string[] = []
+    for (const spaceId of candidateIds) {
+      const result = await authorizeAndLog({
+        ctx,
+        spaceId,
+        action: 'read',
+        toolName: 'space_list',
+        resourceType: 'space',
+        resourceId: spaceId,
+      })
+      if (result.allowed) permitted.push(spaceId)
+    }
+    if (permitted.length === 0) return []
+
+    let mine = supabase.from('spaces').select('*').in('id', permitted).order('created_at', { ascending: false })
+    if (params.type) mine = mine.eq('type', params.type)
+    const { data, error } = await mine
+    if (error) throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message)
+    return (data || []) as Space[]
+  }
+
+  // scope=org: 組織のプロジェクトを全部返す（org 鍵を発行する経路は無い）
+  if (ctx.scope !== 'org' && ctx.keyId !== 'dev-key') {
     throw new Error(`権限エラー: Tool "space_list" requires scope=org or scope=user (current: ${ctx.scope})`)
   }
   if (!ctx.allowedActions.includes('read')) {
@@ -103,11 +141,6 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
     .select('*')
     .eq('org_id', ctx.orgId)
     .order('created_at', { ascending: false })
-
-  // scope=user: 許可されたスペースのみ
-  if (ctx.scope === 'user' && ctx.allowedSpaceIds && ctx.allowedSpaceIds.length > 0) {
-    query = query.in('id', ctx.allowedSpaceIds)
-  }
 
   if (params.type) {
     query = query.eq('type', params.type)

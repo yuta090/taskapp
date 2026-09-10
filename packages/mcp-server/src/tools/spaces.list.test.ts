@@ -29,7 +29,19 @@ const query = {
 }
 
 vi.mock('../config.js', () => ({ config: {}, getAuthContext: () => ctx }))
-vi.mock('../supabase/client.js', () => ({ getSupabaseClient: () => ({ from: () => query }) }))
+/** 個人用の鍵の持ち主が今所属しているプロジェクト（space_memberships の問い合わせ結果） */
+let memberships: Array<{ space_id: string }> = []
+const membershipsQuery = {
+  select: () => membershipsQuery,
+  eq: () => membershipsQuery,
+  then: (resolve: (v: { data: unknown; error: null }) => unknown) => resolve({ data: memberships, error: null }),
+}
+const authorizeMock = vi.fn(async (_args: { spaceId: string }) => ({ allowed: true }))
+
+vi.mock('../supabase/client.js', () => ({
+  getSupabaseClient: () => ({ from: (table: string) => (table === 'space_memberships' ? membershipsQuery : query) }),
+}))
+vi.mock('../auth/index.js', () => ({ authorizeAndLog: (args: { spaceId: string }) => authorizeMock(args) }))
 vi.mock('../auth/helpers.js', () => ({
   checkAuth: (...args: unknown[]) => checkAuthMock(...args),
   checkAuthOrg: vi.fn(),
@@ -40,6 +52,9 @@ const { spaceList } = await import('./spaces.js')
 beforeEach(() => {
   filters.length = 0
   checkAuthMock.mockClear()
+  memberships = []
+  authorizeMock.mockReset()
+  authorizeMock.mockImplementation(async () => ({ allowed: true }))
 })
 
 describe('space_list', () => {
@@ -75,5 +90,53 @@ describe('space_list', () => {
     expect(filters).toContainEqual(['eq', 'org_id', 'org-1'])
     expect(filters.some(([, col]) => col === 'id')).toBe(false)
     expect(checkAuthMock).not.toHaveBeenCalled()
+  })
+
+  // 個人用の鍵（scope=user）: 選んだプロジェクトのうち、今もメンバーで読み取りが許されるものだけを返す。
+  // 役割が後から相手先に変わった・プロジェクトから外れた鍵にも追従する（ほかの道具と同じ権限確認を通す）
+  it('個人用の鍵は、権限確認を通ったプロジェクトだけを返す', async () => {
+    ctx = { keyId: 'k3', userId: 'u1', orgId: 'org-1', scope: 'user', allowedSpaceIds: ['space-1', 'space-2'], allowedActions: ['read'] }
+    memberships = [{ space_id: 'space-1' }, { space_id: 'space-2' }]
+    authorizeMock.mockImplementation(async ({ spaceId }) => ({ allowed: spaceId === 'space-1' }))
+
+    await spaceList({})
+
+    expect(authorizeMock).toHaveBeenCalledTimes(2)
+    expect(filters).toContainEqual(['in', 'id', ['space-1']])
+  })
+
+  it('個人用の鍵は組織をまたげるので、鍵の組織では絞らない', async () => {
+    ctx = { keyId: 'k3', userId: 'u1', orgId: 'org-1', scope: 'user', allowedSpaceIds: ['space-1'], allowedActions: ['read'] }
+    memberships = [{ space_id: 'space-1' }]
+
+    await spaceList({})
+
+    expect(filters.some(([, col]) => col === 'org_id')).toBe(false)
+  })
+
+  it('選んだプロジェクトでも、今メンバーでなければ確認にも回さない', async () => {
+    ctx = { keyId: 'k3', userId: 'u1', orgId: 'org-1', scope: 'user', allowedSpaceIds: ['space-1', 'space-9'], allowedActions: ['read'] }
+    memberships = [{ space_id: 'space-1' }]
+
+    await spaceList({})
+
+    expect(authorizeMock).toHaveBeenCalledTimes(1)
+    expect(filters).toContainEqual(['in', 'id', ['space-1']])
+  })
+
+  it('個人用の鍵で読めるプロジェクトが1つも無ければ空を返す', async () => {
+    ctx = { keyId: 'k3', userId: 'u1', orgId: 'org-1', scope: 'user', allowedSpaceIds: ['space-1'], allowedActions: ['read'] }
+    memberships = [{ space_id: 'space-1' }]
+    authorizeMock.mockImplementation(async () => ({ allowed: false }))
+
+    const result = await spaceList({})
+
+    expect(result).toEqual([])
+  })
+
+  it('個人用の鍵に持ち主が無ければ断る', async () => {
+    ctx = { keyId: 'k3', userId: null, orgId: 'org-1', scope: 'user', allowedSpaceIds: ['space-1'], allowedActions: ['read'] }
+
+    await expect(spaceList({})).rejects.toThrow(/^権限エラー:/)
   })
 })

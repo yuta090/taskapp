@@ -78,3 +78,14 @@ export function isSpaceAdminRole(role: string | undefined | null): boolean {
 export function canInviteMembers(role: string | undefined | null): boolean {
   return isSpaceAdminRole(role) || role === 'editor'
 }
+
+/**
+ * 社内メンバーの役割か（admin / editor / viewer）。相手先（client / vendor）や不明な役割は false。
+ * 通す役割を並べる形にして、役割が取れなかったとき・新しい役割が増えたときは「社外」側に倒す。
+ * API キーは社内メンバー専用（利用の拒否の正本は DB の mcp_authorize。発行側でもこの判定で二重に守る）。
+ */
+export const INTERNAL_SPACE_ROLES = ['admin', 'editor', 'viewer'] as const
+
+export function isInternalSpaceRole(role: string | undefined | null): boolean {
+  return (INTERNAL_SPACE_ROLES as readonly string[]).includes(role ?? '')
+}
