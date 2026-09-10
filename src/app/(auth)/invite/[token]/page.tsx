@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -30,7 +30,6 @@ export default function InviteAcceptPage({
 }) {
   const { token } = use(params)
   const router = useRouter()
-  const queryClient = useQueryClient()
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -79,23 +78,26 @@ export default function InviteAcceptPage({
         }
       }
 
-      // ActiveOrgProvider（ルート直下に常駐し、画面遷移しても再マウントしない）が持つ
-      // ['orgMemberships', uid] のキャッシュは、いま増えた所属をまだ知らない。遷移先の組織スコープ
-      // 画面（/{orgId}/...）が「所属していない」扱いにならないよう、遷移前に取り直しておく
-      await queryClient.invalidateQueries({ queryKey: ['orgMemberships'] })
-
-      // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）
+      // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）。
+      // サインイン識別が変わりうる（新規アカウント作成／別アカウントからの参加）ため、SPA遷移では
+      // なくフルページ遷移で終える。フルリロードしても IDB に永続化された ['orgMemberships', uid]
+      // は普通に復元される（＝「まだ増えた所属を知らない」古いキャッシュが一度は戻ってくる）ため
+      // 無害なのはリロードそのものの効果ではなく、ActiveOrgProvider の staleTime 判定が理由:
+      // dataUpdatedAt がこのページ読み込み開始時刻（PAGE_LOADED_AT）より前のデータは常に stale 扱い
+      // され、React Query が即座に取り直す（src/lib/org/ActiveOrgProvider.tsx）。
+      // （以前は invalidateQueries で個別に手当てしていたが、フル遷移なら PAGE_LOADED_AT 判定に
+      // 任せられるので不要）
       if (data.role === 'client') {
-        router.push('/portal')
+        window.location.assign('/portal')
       } else {
-        router.push(`/${data.org_id}/project/${data.space_id}`)
+        window.location.assign(`/${data.org_id}/project/${data.space_id}`)
       }
     } catch (err) {
       console.error('Accept error:', err)
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, token, router, queryClient])
+  }, [password, token])
 
   useEffect(() => {
     async function loadInvite() {
@@ -199,13 +201,7 @@ export default function InviteAcceptPage({
         </p>
         <AuthButton
           type="button"
-          onClick={async () => {
-            const supabase = createClient()
-            await supabase.auth.signOut()
-            setIsLoggedIn(false)
-            setSessionEmail(null)
-            setEmailMismatch(false)
-          }}
+          onClick={() => signOutAndLeave({ to: window.location.href })}
         >
           ログアウトして招待を受ける
         </AuthButton>

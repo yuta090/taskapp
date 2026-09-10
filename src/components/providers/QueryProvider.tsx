@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/client'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
 import { clearActiveOrgId } from '@/lib/org/activeOrg'
+import { isSignOutInProgress } from '@/lib/auth/signOutClient'
+import { isPublicPathMatch } from '@/lib/routes/publicPaths'
 
 const IDB_KEY_PREFIX = 'taskapp-query-cache'
 
@@ -146,6 +148,42 @@ export async function clearQueryCache() {
   await Promise.all(cacheKeys.map((k) => del(k)))
 }
 
+const AUTH_RELOAD_GUARD_KEY = 'taskapp:auth-reload-at'
+const AUTH_RELOAD_GUARD_WINDOW_MS = 10_000
+
+/**
+ * signOutAndLeave() を経由しないログアウト/ユーザー識別変化（例: 他タブでのセッション切れ、
+ * 想定外の経路での signOut() 直呼び）を検知したときの最後の砦。ルート常駐のクライアント状態
+ * （query cache の観測者・ActiveOrgProvider・cached-auth 等のモジュール変数）は SPA 遷移では
+ * 作り直されないため、保護されたページ（未ログインで開けないページ）にいる場合はフルリロード
+ * して全て作り直す。
+ *
+ * - signOutAndLeave() 実行中はここでは何もしない（自身が既にフルページ遷移するため、
+ *   二重リロードを防ぐ）。
+ * - 未ログインで開けるページ（/login 等）では、そもそも保護されたクライアント状態が
+ *   問題にならないのでリロードしない。
+ * - 同一イベントの重複発火などで無限リロードに陥らないよう、直近10秒以内に一度リロードして
+ *   いれば何もしない（sessionStorage は毎回のフルリロードでは消えないため、次のトリガーに跨って
+ *   ガードできる）。
+ */
+function hardResetIfNeeded(): void {
+  if (typeof window === 'undefined') return
+  if (isSignOutInProgress()) return
+  if (isPublicPathMatch(window.location.pathname)) return
+
+  try {
+    const lastReloadAt = window.sessionStorage.getItem(AUTH_RELOAD_GUARD_KEY)
+    if (lastReloadAt && Date.now() - Number(lastReloadAt) < AUTH_RELOAD_GUARD_WINDOW_MS) {
+      return
+    }
+    window.sessionStorage.setItem(AUTH_RELOAD_GUARD_KEY, String(Date.now()))
+  } catch {
+    // sessionStorage が使えない環境でもリロード自体は続行する（フォールバック優先）
+  }
+
+  window.location.reload()
+}
+
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(makeQueryClient)
   const [supabase] = useState(createClient)
@@ -189,6 +227,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         // 前のユーザーの org id を一度だけ信用してしまう（sign out → 別ユーザーで sign in の
         // フォームレース対策）
         clearActiveOrgId()
+        // signOutAndLeave() 経由でないログアウト（他タブでのセッション切れ等）は、ここまでの
+        // キャッシュクリアだけでは ActiveOrgProvider 等ルート常駐の状態が作り直されない。
+        // 保護されたページにいればフルリロードで確実に作り直す
+        hardResetIfNeeded()
         return
       }
 
@@ -200,6 +242,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         // User identity changed — clear stale cache from previous user
         if (prevUserId && newUserId && prevUserId !== newUserId) {
           clearAllCaches()
+          // signOutAndLeave() を経由しない識別変化（例: 別タブでの別ユーザーログイン）も同様に
+          // フルリロードで作り直す
+          hardResetIfNeeded()
         }
 
         // setQueryData (not invalidate) to avoid a refetch storm on every

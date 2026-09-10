@@ -2,13 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import LoginClient from '@/app/(auth)/login/LoginClient'
 
-const mockPush = vi.fn()
 let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   useSearchParams: () => mockSearchParams,
   usePathname: () => '/login',
 }))
+
+let locationAssignSpy: ReturnType<typeof vi.fn>
+function stubLocationAssign() {
+  locationAssignSpy = vi.fn()
+  Object.defineProperty(window, 'location', {
+    value: { ...window.location, assign: locationAssignSpy },
+    writable: true,
+  })
+}
 
 const mockSignInWithPassword = vi.fn()
 const mockGetSession = vi.fn()
@@ -33,6 +40,7 @@ describe('LoginClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.unstubAllEnvs()
+    stubLocationAssign()
     mockGetSession.mockResolvedValue({ data: { session: null } })
     mockFrom.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ eq: mockEq })
@@ -171,12 +179,13 @@ describe('LoginClient — ログイン後リダイレクト', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalled()
+      expect(locationAssignSpy).toHaveBeenCalled()
     })
   }
 
   beforeEach(() => {
     vi.clearAllMocks()
+    stubLocationAssign()
     mockGetSession.mockResolvedValue({ data: { session: null } })
     mockSignInWithPassword.mockResolvedValue({
       data: { user: { id: 'user-1' } },
@@ -190,34 +199,34 @@ describe('LoginClient — ログイン後リダイレクト', () => {
 
   it('組織未所属なら /onboarding へ（/inbox の空画面に落とさない）', async () => {
     await login()
-    expect(mockPush).toHaveBeenCalledWith('/onboarding')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
   })
 
   it('組織はあるがプロジェクトが無ければ /onboarding へ（Step2から再開）', async () => {
     membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
     spaceResponse = { data: null }
     await login()
-    expect(mockPush).toHaveBeenCalledWith('/onboarding')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
   })
 
   it('組織もプロジェクトもあれば最初のプロジェクトへ', async () => {
     membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
     spaceResponse = { data: { id: 'space-1' } }
     await login()
-    expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-1')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/org-1/project/space-1')
   })
 
   it('clientロールは /portal へ', async () => {
     membershipResponse = { data: [{ org_id: 'org-1', role: 'client' }] }
     await login()
-    expect(mockPush).toHaveBeenCalledWith('/portal')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/portal')
   })
 
   it('clientロールでも同org内にvendorのspace所属があれば /vendor-portal へ', async () => {
     membershipResponse = { data: [{ org_id: 'org-1', role: 'client' }] }
     vendorResponse = { data: { id: 'sm-1' } }
     await login()
-    expect(mockPush).toHaveBeenCalledWith('/vendor-portal')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/vendor-portal')
   })
 
   it('ACTIVE_ORG_COOKIE があれば複数org所属時にそちらを優先する（org切替中の着地）', async () => {
@@ -230,10 +239,132 @@ describe('LoginClient — ログイン後リダイレクト', () => {
     document.cookie = 'taskapp:activeOrgId=org-2'
     try {
       await login()
-      expect(mockPush).toHaveBeenCalledWith('/portal')
+      expect(locationAssignSpy).toHaveBeenCalledWith('/portal')
     } finally {
       document.cookie = 'taskapp:activeOrgId=; max-age=0'
     }
+  })
+
+  it('「アプリへ戻る」はフルページ遷移で着地判定へ（router.push はしない）', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: 'user-1', email: 'already@example.com' } } },
+    })
+    membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
+    spaceResponse = { data: { id: 'space-1' } }
+
+    render(<LoginClient />)
+    await screen.findByRole('button', { name: 'アプリへ戻る' })
+    fireEvent.click(screen.getByRole('button', { name: 'アプリへ戻る' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+  })
+})
+
+// window.location.assign() は遷移を予約するだけで即座に返るため、成功後に setLoading(false) 等で
+// ローディングを解除するとフルページ遷移が終わるまでの間（遅い回線で0.5〜1秒）ボタンが一瞬
+// 操作可能に戻り、二重送信（サインイン＋着地判定のやり直し）を招く。ページが破棄されるまで
+// ローディング状態を維持し続けることを保証する回帰テスト。
+describe('LoginClient — 成功後はページ破棄までローディングを解除しない', () => {
+  let membershipResponse: { data: { org_id: string; role: string }[] | null }
+  let spaceResponse: { data: { id: string } | null }
+  let vendorResponse: { data: { id: string } | null }
+
+  function setupTableMocks() {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'spaces') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          order: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          single: vi.fn(() => Promise.resolve(spaceResponse)),
+        }
+      }
+      if (table === 'space_memberships') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          maybeSingle: vi.fn(() => Promise.resolve(vendorResponse)),
+        }
+      }
+      return {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn(() => Promise.resolve(membershipResponse)),
+      }
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stubLocationAssign()
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    membershipResponse = { data: null }
+    spaceResponse = { data: null }
+    vendorResponse = { data: null }
+    setupTableMocks()
+  })
+
+  it('メール+パスワードでのログイン成功後、ボタンはローディング表示のまま（window.location.assign は呼ばれる）', async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+
+    render(<LoginClient />)
+    fireEvent.change(screen.getByLabelText(/^メールアドレス\*?$/), { target: { value: 'user@example.com' } })
+    fireEvent.change(screen.getByLabelText(/^パスワード\*?$/), { target: { value: 'password123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
+    })
+    expect(screen.getByText('処理中...')).toBeInTheDocument()
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+  })
+
+  it('メール+パスワードでのログイン失敗時は、ボタンのローディングを解除する', async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: null }, error: { message: 'invalid' } })
+
+    render(<LoginClient />)
+    fireEvent.change(screen.getByLabelText(/^メールアドレス\*?$/), { target: { value: 'user@example.com' } })
+    fireEvent.change(screen.getByLabelText(/^パスワード\*?$/), { target: { value: 'wrong' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('メールアドレスまたはパスワードが正しくありません')).toBeInTheDocument()
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'ログイン' })).not.toBeDisabled()
+  })
+
+  it('デモアカウントのクイックログイン成功後も、そのボタンはローディング表示のまま', async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+
+    render(<LoginClient />)
+    fireEvent.click(screen.getByRole('button', { name: /田中 太郎/ }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
+    })
+    expect(screen.getByText('ログイン中...')).toBeInTheDocument()
+  })
+
+  it('「アプリへ戻る」の成功後も、ボタンはローディング（無効化）のまま', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: 'user-1', email: 'already@example.com' } } },
+    })
+    membershipResponse = { data: [{ org_id: 'org-1', role: 'owner' }] }
+    spaceResponse = { data: { id: 'space-1' } }
+
+    render(<LoginClient />)
+    const returnButton = await screen.findByRole('button', { name: 'アプリへ戻る' })
+    fireEvent.click(returnButton)
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+    expect(screen.getByRole('button', { name: 'アプリへ戻る' })).toBeDisabled()
   })
 })
 
@@ -242,6 +373,7 @@ describe('LoginClient — redirect パラメータ（招待ログインリンク
 
   beforeEach(() => {
     vi.clearAllMocks()
+    stubLocationAssign()
     mockSearchParams = new URLSearchParams()
     mockGetSession.mockResolvedValue({ data: { session: null } })
     mockSignInWithPassword.mockResolvedValue({
@@ -273,7 +405,7 @@ describe('LoginClient — redirect パラメータ（招待ログインリンク
     })
     fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalled()
+      expect(locationAssignSpy).toHaveBeenCalled()
     })
   }
 
@@ -282,7 +414,7 @@ describe('LoginClient — redirect パラメータ（招待ログインリンク
 
     await login()
 
-    expect(mockPush).toHaveBeenCalledWith('/invite/tok-1')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/invite/tok-1')
   })
 
   it('不正な redirect（// 始まり）は無視して通常の着地判定へ', async () => {
@@ -290,6 +422,6 @@ describe('LoginClient — redirect パラメータ（招待ログインリンク
 
     await login()
 
-    expect(mockPush).toHaveBeenCalledWith('/onboarding')
+    expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
   })
 })
