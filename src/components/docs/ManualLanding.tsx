@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import { Buildings, Users, CaretRight } from '@phosphor-icons/react/dist/ssr'
 import { CategoryCard } from './CategoryCard'
+import { getManualArticleCount } from '@/lib/docs/manualNav'
 
 const popularPages = [
   { href: '/docs/manual/internal/getting-started', label: 'はじめに・初期設定' },
   { href: '/docs/manual/internal/tasks', label: 'タスク管理' },
   { href: '/docs/manual/client/dashboard', label: 'ダッシュボードの使い方' },
-  { href: '/docs/manual/internal/mcp-guide', label: 'MCP（AI連携）ガイド' },
+  { href: '/docs/manual/internal/secretary', label: 'AI秘書・チャット連携' },
+  { href: '/docs/manual/internal/notifications', label: '通知の届き方' },
 ]
 
 export function ManualLanding() {
@@ -25,14 +27,14 @@ export function ManualLanding() {
           icon={<Buildings size={20} />}
           title="開発会社向けマニュアル"
           description="プロジェクト管理・タスク・会議・Wikiを活用"
-          badge="12 記事"
+          badge={`${getManualArticleCount('internal')} 記事`}
         />
         <CategoryCard
           href="/docs/manual/client"
           icon={<Users size={20} />}
           title="クライアント向けご利用ガイド"
           description="進捗確認・承認・日程調整をかんたんに"
-          badge="6 記事"
+          badge={`${getManualArticleCount('client')} 記事`}
         />
       </div>
 

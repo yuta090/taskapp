@@ -7,6 +7,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
 import fs from 'fs/promises'
 import path from 'path'
+import { MANUAL_SECTIONS, getManualNavEntries } from '@/lib/docs/manualNav'
 
 /** Extended sanitize schema: default + id attributes (for rehype-slug anchors) */
 const sanitizeSchema = {
@@ -14,6 +15,9 @@ const sanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     '*': [...(defaultSchema.attributes?.['*'] ?? []), 'id', 'className'],
+    // 画面写真の遅延読み込みと場所取り。許可しないとサニタイズで捨てられ、
+    // 「記事の写真が全部いっぺんに読み込まれる」「届いた瞬間に本文がずれる」が起きる
+    img: [...(defaultSchema.attributes?.img ?? []), 'loading', 'width', 'height'],
   },
 }
 
@@ -96,8 +100,24 @@ export async function getManualPage(slugParts: string[]): Promise<{
 
   let html = await renderMarkdownToHtml(raw)
   html = rewriteLinks(html, slugParts, isIndex)
+  html = addImageHints(html)
 
   return { html, title, isIndex }
+}
+
+/**
+ * 記事本文の画面写真に、縦横（場所取り）と遅延読み込みを付ける。
+ *
+ * Markdown には属性を書けないので変換後に足す。写真は撮影の仕様で 1200x750 に揃えている
+ * （public/img/help/）。1枚目は見出し直後で画面内に入るため後回しにしない。
+ */
+function addImageHints(html: string): string {
+  let index = 0
+  return html.replace(/<img /g, () => {
+    const attrs = index === 0 ? 'width="1200" height="750" ' : 'width="1200" height="750" loading="lazy" '
+    index += 1
+    return `<img ${attrs}`
+  })
 }
 
 function rewriteLinks(html: string, currentSlugParts: string[], isIndex: boolean): string {
@@ -131,26 +151,13 @@ function rewriteLinks(html: string, currentSlugParts: string[], isIndex: boolean
 }
 
 export async function getAllManualSlugs(): Promise<string[][]> {
+  // 目次（manualNav.ts）が真実源。手書きの3つ目の一覧を作らない
   return [
     [],
-    ['internal'],
-    ['internal', 'getting-started'],
-    ['internal', 'tasks'],
-    ['internal', 'meetings'],
-    ['internal', 'wiki'],
-    ['internal', 'reviews'],
-    ['internal', 'scheduling'],
-    ['internal', 'settings'],
-    ['internal', 'mcp-guide'],
-    ['internal', 'notifications'],
-    ['internal', 'troubleshooting'],
-    ['internal', 'glossary'],
-    ['client'],
-    ['client', 'getting-started'],
-    ['client', 'dashboard'],
-    ['client', 'tasks'],
-    ['client', 'meetings'],
-    ['client', 'approvals'],
-    ['client', 'troubleshooting'],
+    ...MANUAL_SECTIONS.flatMap((section) => [
+      [section],
+      ...getManualNavEntries(section).map((entry) => [section, entry.slug]),
+    ]),
   ]
 }
+

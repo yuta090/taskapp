@@ -10,6 +10,12 @@ import {
   ChartBar,
   Question,
   IdentificationBadge,
+  Robot,
+  Folder,
+  BookOpen,
+  Bell,
+  ShieldCheck,
+  ArrowRight,
 } from '@phosphor-icons/react/dist/ssr'
 import { SPACE_ROLE_GUIDE, INVITE_ROLE_GUIDE } from '@/lib/roles/spaceRoles'
 
@@ -33,6 +39,34 @@ const STEPS = [
     icon: Eye,
     title: '3. クライアントに公開する',
     description: 'ボールを「外部」にすると、そのタスクはクライアントポータルにも表示され、確認・回答を依頼できます。',
+  },
+]
+
+/** 画面写真つきの案内。写真はデモ組織のもの（public/img/help/）。 */
+const SCREENSHOTS = [
+  {
+    src: '/img/help/task-inspector.webp',
+    title: 'タスク画面（左：メニュー／中央：一覧／右：詳細）',
+    caption:
+      'タスクの行をクリックすると、右側に詳細が開きます。詳細は開いたまま一覧を操作できます。保存ボタンはありません（入力するとその場で保存されます）。',
+  },
+  {
+    src: '/img/help/inbox.webp',
+    title: '受信トレイ（あなた宛ての知らせ）',
+    caption:
+      'クライアントの承認・修正依頼、ボールの受け渡しなどが時系列で並びます。「要対応」が付いているものが、あなたの返事を待っている件です。',
+  },
+  {
+    src: '/img/help/secretary-connect.webp',
+    title: 'AI秘書とチャットをつなぐ画面',
+    caption:
+      '左メニュー「秘書」→「チャット連携」。①自分のチャットをつなぐ ②相手先とのグループをつなぐ、の2段階でつなぎます。',
+  },
+  {
+    src: '/img/help/settings-notifications.webp',
+    title: '通知設定',
+    caption:
+      '急ぎ（あなたの返事待ち）はすぐメール、それ以外は1日1回のまとめ。夜9時〜朝8時と土日は止まり、翌営業日の朝にまわります。',
   },
 ]
 
@@ -62,6 +96,16 @@ const GLOSSARY = [
     description:
       '仕様に関する意思決定を追跡する特別なタスクです。「検討中 → 決定 → 実装済み」の状態で管理し、誰がいつ何を決定したかの記録を残します。',
   },
+  {
+    term: '合言葉（連携コード）',
+    description:
+      'チャットと AgentPM をつなぐときに使う、その場かぎりの文字列です。相手先のグループに投稿してもらうと、そのグループがプロジェクトと結びつきます。本人確認用のコードは有効期限15分・1回かぎりで、グループには貼らずに1対1のトークへ送ります。',
+  },
+  {
+    term: '相手先',
+    description:
+      '一緒に仕事を進める外部の関係者（クライアント）と、そのグループを指します。AgentPM ではプロジェクト単位で結びつけて管理します。',
+  },
 ]
 
 const SCREENS = [
@@ -85,6 +129,31 @@ const SCREENS = [
     name: 'バーンダウンチャート',
     description: '期限付きタスクの消化ペースをグラフで確認できます。理想線と実績線のずれから遅延の兆候をつかめます。',
   },
+  {
+    icon: Robot,
+    name: '秘書（チャット連携）',
+    description: 'LINE や Slack などのチャットをつなぐと、会話の中の「やること」を拾ってタスクにします。',
+  },
+  {
+    icon: Folder,
+    name: 'ファイル',
+    description: '資料の受け渡し場所です。公開にすると相手先からも見え、CSV はそのまま表で開けます。',
+  },
+  {
+    icon: BookOpen,
+    name: 'Wiki',
+    description: '決まったこと・仕様のまとめを残す場所です。タスクと結びつけて経緯を追えます。',
+  },
+]
+
+/** アプリ内では要約だけ見せ、詳しい手順は /docs/manual に置く（内容の重複を避ける）。 */
+const MANUAL_LINKS = [
+  { href: '/docs/manual/internal/secretary', icon: Robot, label: 'AI秘書・チャット連携', note: 'LINE等のつなぎ方・打てる合図' },
+  { href: '/docs/manual/internal/notifications', icon: Bell, label: '通知ガイド', note: '届き方・設定・届かない時' },
+  { href: '/docs/manual/internal/files', icon: Folder, label: 'ファイル', note: 'アップロード・公開・CSVを表で見る' },
+  { href: '/docs/manual/internal/integrations', icon: SquaresFour, label: 'ツール連携', note: '他のタスク管理ツールとつなぐ' },
+  { href: '/docs/manual/internal/security', icon: ShieldCheck, label: 'ログインとセキュリティ', note: '二要素認証・APIキー' },
+  { href: '/docs/manual/internal/settings', icon: IdentificationBadge, label: 'プロジェクト設定', note: 'メンバー・承認・表示' },
 ]
 
 const TROUBLESHOOTING = [
@@ -101,7 +170,17 @@ const TROUBLESHOOTING = [
   {
     question: '通知が届かない',
     answer:
-      '設定画面でメール通知・Slack通知が有効になっているか確認してください。アプリ内の受信トレイには常に通知が記録されています。',
+      '「設定 → 通知設定」でメール通知が有効か、種類ごとのスイッチが切られていないかを確認してください。急ぎ以外は1日1回のまとめで届きます。夜9時〜朝8時と土日は、すぐ送るぶんが翌営業日の朝にまわります。アプリ内の受信トレイには常に記録が残ります。',
+  },
+  {
+    question: 'チャットで「完了 3」と送っても反応がない',
+    answer:
+      'Chatwork の「返信」ボタンを使うと、お名前が文の先頭に入って合図として読み取れません。「完了 3」だけを送ってください。番号は直前に届いたお知らせの番号です。',
+  },
+  {
+    question: '承認や期限の知らせが自分のチャットに届かない',
+    answer:
+      '相手先のグループをつないだだけでは、本人には届きません。「秘書 → チャット連携」の「自分のチャットをつなぐ」を済ませてください。',
   },
 ]
 
@@ -142,6 +221,35 @@ export default function HelpPage() {
                   <p className="text-sm text-gray-600 mt-1">{step.description}</p>
                 </div>
               </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 画面の見かた（写真つき） */}
+        <section id="screens" className="space-y-4 scroll-mt-6">
+          <h2 className="text-lg font-semibold text-gray-900">画面の見かた</h2>
+          <p className="text-sm text-gray-600">実際の画面です（サンプルのデータを表示しています）。</p>
+          <div className="space-y-6">
+            {SCREENSHOTS.map((shot, index) => (
+              <figure key={shot.src} className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
+                {/*
+                  縦横を必ず書く: 書かないと写真が届いた瞬間に本文が数百px下へずれる。
+                  1枚目はスマホだと画面内に入るので後回しにしない（表示完了が遅れるため）。
+                */}
+                <img
+                  src={shot.src}
+                  alt={shot.title}
+                  width={1200}
+                  height={750}
+                  loading={index === 0 ? 'eager' : 'lazy'}
+                  fetchPriority={index === 0 ? 'high' : undefined}
+                  className="w-full border-b border-gray-100"
+                />
+                <figcaption className="p-4">
+                  <h3 className="text-sm font-medium text-gray-900">{shot.title}</h3>
+                  <p className="text-sm text-gray-600 mt-1">{shot.caption}</p>
+                </figcaption>
+              </figure>
             ))}
           </div>
         </section>
@@ -201,6 +309,29 @@ export default function HelpPage() {
                 </div>
                 <p className="text-sm text-gray-600">{screen.description}</p>
               </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 詳しい手順へ */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">詳しい手順を見る</h2>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {MANUAL_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="flex items-start gap-3 bg-surface rounded-lg border border-gray-200 p-4 hover:border-indigo-200 hover:shadow-sm transition-all"
+              >
+                <link.icon className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-900 flex items-center gap-1">
+                    {link.label}
+                    <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
+                  </div>
+                  <p className="text-sm text-gray-600 mt-0.5">{link.note}</p>
+                </div>
+              </Link>
             ))}
           </div>
         </section>

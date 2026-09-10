@@ -126,7 +126,7 @@ AgentPMのプロジェクト一覧を表示して
 
 | ツール名 | 説明 |
 |---------|------|
-| `client_invite_create` | クライアントを招待 |
+| `client_invite_create` | 招待を作成（`role=client` 相手先／`role=member` 社内メンバー）。招待リンクを返す・メールは送らない |
 | `client_invite_bulk_create` | クライアントを一括招待（最大50件） |
 | `client_list` | クライアント一覧を取得 |
 | `client_get` | クライアントの詳細を取得 |
