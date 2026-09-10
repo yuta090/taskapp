@@ -1,7 +1,7 @@
 # GitHub Issues 連携 仕様書
 
-> **Version**: 1.1（設計確定・未実装。1.1 で調査にもとづく追加: §4-14〜16・§7.2 の PR→Issue→タスク・§7.3 のタイトル・§9 PR1.5）
-> **Last Updated**: 2026-09-10
+> **Version**: 1.2（設計確定・未実装。1.1 で調査にもとづく追加: §4-14〜16・§7.2 の PR→Issue→タスク・§7.3 のタイトル・§9 PR1.5。1.2: Issue の書き換えと再計算を1回の RPC に（通知の取りこぼし防止）・紐づけのトリガー）
+> **Last Updated**: 2026-09-11
 > **Status**: 設計確定（Fable 裁定 2026-09-10・追加裁定込み）。実装は §9 の PR0a〜PR3 で順に行う
 > **関連**: `spec/GITHUB_INTEGRATION_SPEC.md`（既存の PR 連携）／`spec/AGENCY_MODE_SPEC.md`（見せ分け表。本仕様に合わせて 2026-09-10 改訂）／`design/GITHUB_MILESTONE_INTEGRATION.md`（旧設計。本仕様で廃止。§12）
 
@@ -89,7 +89,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 | `github_installations`（既存・列追加） | `permissions jsonb`, `permissions_updated_at timestamptz` | — | callback / webhook（service role） |
 | `github_issues`（新） | `id, org_id, github_repo_id → github_repositories (cascade), issue_number int, title, url, state check (open\|closed), state_reason text null, author_login, assignee_logins text[], issue_created_at, closed_at, github_updated_at, last_synced_at` | `unique (github_repo_id, issue_number)`／index `(org_id, state)` | service role のみ |
 | `task_github_issue_links`（新） | `id, org_id, task_id → tasks (cascade), github_issue_id → github_issues (cascade), link_type check (auto\|manual\|created), created_by, created_at` | `unique (task_id, github_issue_id)`／org 一致トリガー（`check_task_pr_org_match` と同型） | 手動=space admin/editor（社内メンバー）、auto/created=service role |
-| `task_github_issue_rollups`（新） | `task_id pk → tasks (cascade), org_id, open_count, completed_count, not_planned_count, all_closed_at timestamptz null, notified_at timestamptz null, updated_at` | 関数 `github_recompute_issue_rollup(p_task_id, p_notify bool)` だけが書く | 上記関数のみ |
+| `task_github_issue_rollups`（新） | `task_id pk → tasks (cascade), org_id, open_count, completed_count, not_planned_count, all_closed_at timestamptz null, notified_at timestamptz null, updated_at` | 関数 `github_recompute_issue_rollup(p_task_id uuid)` だけが書く（戻り値は1行: `open_count_before, open_count_after, completed_count_after, not_planned_count_after, all_closed_at_after, became_all_closed`）。この関数を呼ぶのは、`github_apply_issue_state(...)`（Issue の upsert と、紐づく全タスクの再計算を1つの DB 取引で行う RPC。service role のみ。戻り値は紐づくタスクごとに1行＝`task_id`＋上の6列）と、紐づけの追加・削除のトリガー（`task_github_issue_links`・文ごと。戻り値は使わない）。複数タスクはどちらも task_id の順にロックする。紐づきが0件になったら行を消す | 上記関数のみ |
 | `github_issue_create_intents`（新） | `id, org_id, task_id, github_repo_id, idempotency_key, status check (pending\|done\|failed), github_issue_id null, error, created_by, created_at` | `unique (idempotency_key)`／部分一意 `(task_id, github_repo_id) where status = 'pending'` | service role のみ |
 
 ### 読み取り権限（RLS）
@@ -104,7 +104,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 | `github_pull_requests`（既存） | internal | なし | なし | なし |
 | `task_github_links`（既存） | internal かつ タスクの space の member | internal かつ space admin/editor | なし | 作成者 or space admin（internal に限る） |
 | `github_issues`（新） | internal | なし | なし | なし |
-| `task_github_issue_links`（新） | internal かつ space member | internal かつ space admin/editor | なし | 作成者 or space admin（internal に限る） |
+| `task_github_issue_links`（新） | internal かつ space member | internal かつ space admin/editor（`link_type='manual'` のときだけ） | なし | 作成者 or space admin（internal に限る） |
 | `task_github_issue_rollups`（新） | internal かつ space member | なし | なし | なし |
 | `github_issue_create_intents`（新） | internal かつ space member | なし（API/RPC が service role で書く） | なし | なし |
 
@@ -130,10 +130,11 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 - 購読するイベント: `pull_request`, `issues`（installation 系は App に常に届く）
 - `issues` で扱う action: opened / edited / closed / reopened / deleted / transferred / assigned / unassigned
 - 流れ: 署名検証 → `github_webhook_events` に insert（delivery_id 重複＝`23505` なら処理せず 200 を返す）→ handler → 成功時だけ `processed=true`、失敗時は `processed=false`＋`error_message`（後で拾い直せるようにする）
-- `github_issues` を upsert（`unique (github_repo_id, issue_number)` で冪等）→ 紐づくタスクごとに rollup を再計算（`closed` 由来のときだけ `notify=true`）
+- `github_apply_issue_state` で、Issue の upsert（`unique (github_repo_id, issue_number)` で冪等）と、その Issue に紐づく全タスクの rollup 再計算を1回（1つの DB 取引）で行う。通知は、戻り値の `became_all_closed` と原因（`closed` イベントか）で判定する（通知は PR3）
+- 届く順番の入れ替わり: 引数の `github_updated_at` が保存済みより古い（厳密に小さい）通知は、Issue の行を書き換えず、再計算もしない（戻り値は紐づくタスクごとに件数は変化なし・`became_all_closed=false`）。同じ時刻なら書き換える（同じ時刻に複数の action が来るため）。どちらかが null なら比べずに書き換える
 - 対象は `github_repositories` にあるリポジトリだけ。GitHub の Issues API は PR も Issue として返すので、`pull_request` キーを持つものは除外する
-- 転送（`transferred`）: 転送先が同じ org の `github_repositories` にあれば repo・番号・URL を書き換える。無ければ削除扱い（通知しない）
-- 削除（`deleted`）: 行を削除（link は cascade で消える）→ rollup 再計算（通知しない）
+- 転送（`transferred`）: 転送先が同じ org の `github_repositories` にあれば repo・番号・URL を書き換える（件数は変わらないので再計算は要らない）。無ければ削除扱い（下の削除と同じ。通知しない）
+- 削除（`deleted`）: 行を削除（link は cascade で消え、紐づけのトリガーが rollup を再計算する。通知しない）
 
 ### 7.2 紐づけの入口
 
@@ -145,7 +146,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 | Issue のタイトル/本文に `TP-123` | `auto` | `issues.opened` / `edited` で `extractTaskIds` を流用。そのタスクの space がリポジトリと紐づいているときだけ（既存の PR と同じ規則） |
 | 手動で選ぶ | `manual` | 同じ space に紐づくリポジトリの Issue を番号/タイトルで検索。space editor 以上の社内メンバーのみ |
 
-- 解除: space editor 以上。解除後の rollup 再計算は `notify=false`。
+- 解除: 紐づけを作った本人か space admin（社内メンバーに限る。§5 の RLS）。解除すると紐づけのトリガーが rollup を再計算する（通知しない）。
 
 **PR とタスク**（既存の `task_github_links`）
 
@@ -174,13 +175,15 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 ### 7.4 全部閉じたときの判定と通知
 
 - 集計（rollup）はタスクごと: open / completed / not_planned の件数
-- **通知する条件**（両方を満たすとき）:
+- **通知する条件**（すべてを満たすとき）:
   - open 件数が **1以上 → 0** に変わった
   - 変わった原因が **Issue のクローズ**（`issues.closed`、または照合 cron が閉じたことを検知）
+  - その再計算の呼び出しで `became_all_closed` が true になった（紐づけ・解除のトリガー経由の再計算では通知しない）
 - **通知しない**: 紐づけの解除・Issue の削除・転送で対象外になった・既に閉じている Issue を後から紐づけて 0 になった（表示だけ更新する）
 - `state_reason='not_planned'`（見送り）も「閉じた」に含めるが、本文に「完了 N 件／見送り M 件」を必ず出す（人が判断する）
 - 再オープンで open>0 に戻ったら `all_closed_at` を NULL に戻す。もう一度全部閉じたら再通知する
 - single-winner: `update … set notified_at = now() where task_id = $1 and all_closed_at is not null and (notified_at is null or notified_at < all_closed_at) returning …` の勝者だけが通知を作る
+- PR3 向け: 部分解除（閉じた Issue が残る形で open の Issue だけ外す）でも `all_closed_at` は入るので、`notified_at` の条件だけで通知を判定しない（上の `became_all_closed` と原因の両方を必須にする）
 - 一部だけ閉じた: 表示だけ更新する
 - `client_scope='internal'` のタスクでも通知は出す（渡すかどうかは人が決める。既存 UI が「お客さんに見えるようになります」の警告を出す）
 - **宛先**: `task_owners (side='internal')` → いなければ紐づけ/作成した人（`created_by`）→ いなければ `spaces.default_reviewer_ids`
@@ -190,7 +193,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 ### 7.5 照合 cron（取りこぼし対策）
 
 - 1時間ごと。対象は「紐づきがあり、かつ `state='open'`」の `github_issues` だけ。1回あたりの件数に上限を置く
-- 対象の番号を個別に GET し、閉じていれば upsert → rollup 再計算（`notify=true`）。webhook と同じ経路で通知する
+- 対象の番号を個別に GET し、閉じていれば `github_apply_issue_state` で書き換えと再計算を1回で行う。戻り値の `became_all_closed` が true のタスクへ、webhook と同じ経路で通知する（原因は「閉じたことの検知」）
 - 既存 cron の呼び出し方式（vault secret・`app_invoke_*`）に合わせる
 
 ### 7.6 許可範囲と承認待ち
@@ -231,7 +234,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 
 ### PR1 `feat/github-issues-link`（受信・保存・紐づけ・表示）
 
-- `issues` webhook → `github_issues` upsert → rollup 再計算（`closed` 由来だけ `notify=true`。ただし通知の発火は PR3 まで何もしない）
+- `issues` webhook → `github_apply_issue_state`（Issue の upsert と、紐づくタスクの rollup 再計算を1回で）。通知の判定（`became_all_closed` かつ `closed` 由来）と発火は PR3。紐づけの追加・解除では DB のトリガーが再計算する
 - `TP-番号` の自動紐づけ・手動の紐づけ/解除・Inspector の Issue 一覧＋バッジ
 - テスト: upsert が冪等／PR を含む一覧から `pull_request` キー付きを除外／TP 抽出は space↔repo が紐づくときだけ／解除で rollup が更新される／client・vendor ロールから見えない／`tasks` が更新されない
 
