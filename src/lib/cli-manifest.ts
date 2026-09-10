@@ -554,11 +554,12 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'invite-create',
-        description: 'Create a client invite',
+        description: 'Create an invite (client portal by default; --role member for internal)',
         tool: 'client_invite_create',
         options: [
           spaceOpt,
-          { flags: '--email <email>', description: 'Client email', param: 'email', required: true },
+          { flags: '--email <email>', description: 'Invitee email', param: 'email', required: true },
+          { flags: '--role <role>', description: 'client=portal / member=internal member', param: 'role', choices: ['client', 'member'], default: 'client' },
           { flags: '--expires-in-days <n>', description: 'Expiry days', param: 'expiresInDays', type: 'int', default: '7' },
         ],
       },
@@ -574,16 +575,60 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'invite-list',
-        description: 'List client invites',
+        description: 'List invites (client by default; --role member/all)',
         tool: 'client_invite_list',
         options: [
           { flags: '-s, --space-id <uuid>', description: 'Filter by space', param: 'spaceId' },
+          { flags: '--role <role>', description: 'client / member / all', param: 'role', choices: ['client', 'member', 'all'], default: 'client' },
           { flags: '--status <status>', description: 'pending|accepted|expired|all', param: 'status', choices: ['pending', 'accepted', 'expired', 'all'], default: 'pending' },
         ],
       },
       {
         name: 'invite-resend',
         description: 'Resend a client invite',
+        tool: 'client_invite_resend',
+        options: [
+          { flags: '--invite-id <uuid>', description: 'Invite UUID', param: 'inviteId', required: true },
+          { flags: '--expires-in-days <n>', description: 'New expiry days', param: 'expiresInDays', type: 'int', default: '7' },
+        ],
+      },
+    ],
+  },
+
+  // ── Invite（相手先・社内メンバー共通の入口。client グループの別名で、既定は社内メンバー） ──
+  {
+    name: 'invite',
+    description: 'Invites (internal member / client portal)',
+    subcommands: [
+      {
+        name: 'create',
+        description: 'Invite someone. Default role is member (internal). Returns the invite link',
+        tool: 'client_invite_create',
+        examples: [
+          'agentpm invite create --email tabata@example.co.jp',
+          'agentpm invite create --email client@example.com --role client',
+        ],
+        options: [
+          spaceOpt,
+          { flags: '--email <email>', description: 'Invitee email', param: 'email', required: true },
+          { flags: '--role <role>', description: 'member=internal member / client=portal', param: 'role', choices: ['member', 'client'], default: 'member' },
+          { flags: '--expires-in-days <n>', description: 'Expiry days', param: 'expiresInDays', type: 'int', default: '7' },
+        ],
+      },
+      {
+        name: 'list',
+        description: 'List invites (default: all roles, pending)',
+        aliases: ['ls'],
+        tool: 'client_invite_list',
+        options: [
+          { flags: '-s, --space-id <uuid>', description: 'Filter by space', param: 'spaceId' },
+          { flags: '--role <role>', description: 'member / client / all', param: 'role', choices: ['member', 'client', 'all'], default: 'all' },
+          { flags: '--status <status>', description: 'pending|accepted|expired|all', param: 'status', choices: ['pending', 'accepted', 'expired', 'all'], default: 'pending' },
+        ],
+      },
+      {
+        name: 'resend',
+        description: 'Extend an invite expiry and get the link again',
         tool: 'client_invite_resend',
         options: [
           { flags: '--invite-id <uuid>', description: 'Invite UUID', param: 'inviteId', required: true },

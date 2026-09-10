@@ -5,8 +5,12 @@ import { checkAuth, checkAuthOrg } from '../auth/helpers.js';
 import crypto from 'crypto';
 // Schemas
 export const clientInviteCreateSchema = z.object({
-    email: z.string().email().describe('クライアントのメールアドレス'),
+    email: z.string().email().describe('招待する人のメールアドレス'),
     spaceId: z.string().uuid().describe('招待先のスペース（プロジェクト）UUID'),
+    role: z
+        .enum(['client', 'member'])
+        .default('client')
+        .describe("役割。client=相手先（ポータル）／member=社内メンバー（アプリ本体）"),
     expiresInDays: z.number().min(1).max(30).default(7).describe('招待の有効期限（日数、デフォルト7日）'),
 });
 export const clientInviteBulkCreateSchema = z.object({
@@ -34,6 +38,10 @@ export const clientAddToSpaceSchema = z.object({
 export const clientInviteListSchema = z.object({
     spaceId: z.string().uuid().optional().describe('スペースUUIDでフィルタ'),
     status: z.enum(['pending', 'accepted', 'expired', 'all']).default('pending').describe('招待のステータス'),
+    role: z
+        .enum(['client', 'member', 'all'])
+        .default('client')
+        .describe('役割で絞る。client=相手先／member=社内メンバー／all=両方'),
 });
 export const clientInviteResendSchema = z.object({
     inviteId: z.string().uuid().describe('招待UUID'),
@@ -43,7 +51,6 @@ export const clientInviteResendSchema = z.object({
 function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
-// Tool implementations
 export async function clientInviteCreate(params) {
     await checkAuth(params.spaceId, 'write', 'client_invite_create', 'invite');
     const supabase = getSupabaseClient();
@@ -51,14 +58,36 @@ export async function clientInviteCreate(params) {
     const actorId = config.actorId;
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + params.expiresInDays);
+    const email = params.email.toLowerCase();
+    // 既に有効な招待（未承諾・未失効）があれば作り直さず期限だけ延ばす。
+    // 画面側の rpc_create_invite と同じ約束（同じ宛先に複数のリンクを配らない）
+    const { data: existing } = await supabase
+        .from('invites')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('email', email)
+        .is('accepted_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+    if (existing) {
+        const { data: extended, error: extendError } = await supabase
+            .from('invites')
+            .update({ expires_at: expiresAt.toISOString() })
+            .eq('id', existing.id)
+            .select('*')
+            .single();
+        if (extendError)
+            throw new Error('招待の期限延長に失敗しました: ' + extendError.message);
+        return withInviteUrl(extended, true);
+    }
     const token = generateToken();
     const { data, error } = await supabase
         .from('invites')
         .insert({
         org_id: orgId,
         space_id: params.spaceId,
-        email: params.email.toLowerCase(),
-        role: 'client',
+        email,
+        role: params.role,
         token,
         expires_at: expiresAt.toISOString(),
         created_by: actorId,
@@ -67,7 +96,25 @@ export async function clientInviteCreate(params) {
         .single();
     if (error)
         throw new Error('招待の作成に失敗しました: ' + error.message);
-    return data;
+    return withInviteUrl(data, false);
+}
+/**
+ * 招待リンクを添えて返す。CLI/MCP 経由の招待は**メールを送らない**（送信はアプリ側の経路が持つ）ため、
+ * 受け取った人がそのまま相手に渡せるリンクが要る。画面の「保留中の招待 → 再送」でも同じリンクが送られる。
+ * 役割ごとに入口が違う: 社内メンバーは /invite/<token>、相手先はポータル /portal/<token>。
+ */
+function withInviteUrl(invite, reused) {
+    const base = (process.env.NEXT_PUBLIC_APP_URL || 'https://agentpm.app').replace(/\/$/, '');
+    const path = invite.role === 'client' ? 'portal' : 'invite';
+    return {
+        ...invite,
+        inviteUrl: `${base}/${path}/${invite.token}`,
+        reused,
+        emailSent: false,
+        message: reused
+            ? '同じ宛先に有効な招待があったので、期限を延ばして同じリンクを返しました（メールは送っていません）'
+            : '招待を作成しました。メールは送っていないので、リンクを渡すか、設定→メンバーの「保留中の招待」から再送してください',
+    };
 }
 export async function clientInviteBulkCreate(params) {
     await checkAuth(params.spaceId, 'bulk', 'client_invite_bulk_create', 'invite');
@@ -106,7 +153,6 @@ export async function clientList(params) {
         .from('org_memberships')
         .select('*')
         .eq('org_id', orgId)
-        .eq('role', 'client')
         .order('created_at', { ascending: false });
     const { data: members, error: membersError } = await membersQuery;
     if (membersError)
@@ -205,6 +251,9 @@ export async function clientInviteList(params) {
         .eq('org_id', orgId)
         .eq('role', 'client')
         .order('created_at', { ascending: false });
+    if (params.role !== 'all') {
+        query = query.eq('role', params.role);
+    }
     if (params.spaceId) {
         query = query.eq('space_id', params.spaceId);
     }
@@ -251,7 +300,7 @@ export async function clientInviteResend(params) {
 export const clientTools = [
     {
         name: 'client_invite_create',
-        description: 'クライアント招待作成。email+spaceId指定',
+        description: '招待を作成する。role=client なら相手先（ポータル）、role=member なら社内メンバー。招待リンクを返す（メールは送らない）',
         inputSchema: clientInviteCreateSchema,
         handler: clientInviteCreate,
     },
@@ -287,7 +336,7 @@ export const clientTools = [
     },
     {
         name: 'client_invite_list',
-        description: '招待一覧取得。pending/accepted/expired/allフィルタ',
+        description: '招待一覧。role で相手先／社内メンバー／両方を切り替え、status で保留・承諾済み・期限切れを絞る',
         inputSchema: clientInviteListSchema,
         handler: clientInviteList,
     },

@@ -148,4 +148,21 @@ describe('cli-manifest: wiki update の構造オプション', () => {
     expect(pinned[0].type).toBe('bool')
     expect(pinned[1].type).toBe('negatable')
   })
+
+  it('invite グループがあり、既定は社内メンバー招待（相手先は --role client）', () => {
+    const invite = manifest.commands.find((c) => c.name === 'invite')!
+    expect(invite.subcommands!.map((s) => s.name)).toEqual(['create', 'list', 'resend'])
+    const create = invite.subcommands!.find((s) => s.name === 'create')!
+    expect(create.tool).toBe('client_invite_create')
+    const role = create.options.find((o) => o.param === 'role')!
+    expect(role.default).toBe('member')
+    expect(role.choices).toEqual(expect.arrayContaining(['member', 'client']))
+    expect(create.options.find((o) => o.param === 'email')?.required).toBe(true)
+  })
+
+  it('client invite-create からも role を選べる（既定は相手先のまま）', () => {
+    const client = manifest.commands.find((c) => c.name === 'client')!
+    const create = client.subcommands!.find((s) => s.name === 'invite-create')!
+    expect(create.options.find((o) => o.param === 'role')?.default).toBe('client')
+  })
 })

@@ -663,14 +663,17 @@ export declare const allTools: ({
     inputSchema: import("zod").ZodObject<{
         email: import("zod").ZodString;
         spaceId: import("zod").ZodString;
+        role: import("zod").ZodDefault<import("zod").ZodEnum<["client", "member"]>>;
         expiresInDays: import("zod").ZodDefault<import("zod").ZodNumber>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
+        role: "client" | "member";
         email: string;
         expiresInDays: number;
     }, {
         spaceId: string;
         email: string;
+        role?: "client" | "member" | undefined;
         expiresInDays?: number | undefined;
     }>;
     handler: typeof import("./clients.js").clientInviteCreate;
@@ -756,11 +759,14 @@ export declare const allTools: ({
     inputSchema: import("zod").ZodObject<{
         spaceId: import("zod").ZodOptional<import("zod").ZodString>;
         status: import("zod").ZodDefault<import("zod").ZodEnum<["pending", "accepted", "expired", "all"]>>;
+        role: import("zod").ZodDefault<import("zod").ZodEnum<["client", "member", "all"]>>;
     }, "strip", import("zod").ZodTypeAny, {
+        role: "client" | "member" | "all";
         status: "pending" | "accepted" | "expired" | "all";
         spaceId?: string | undefined;
     }, {
         spaceId?: string | undefined;
+        role?: "client" | "member" | "all" | undefined;
         status?: "pending" | "accepted" | "expired" | "all" | undefined;
     }>;
     handler: typeof import("./clients.js").clientInviteList;

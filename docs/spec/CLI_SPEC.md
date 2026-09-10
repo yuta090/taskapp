@@ -122,6 +122,20 @@ cat tasks.csv | agentpm task import --stdin --no-dry-run
 
 エラーは「CSV の何行目・どの列・何が悪いか」を返す（セル内改行があっても行番号は元ファイル基準）。
 
+### Invite（招待：社内メンバー・相手先）
+
+```bash
+agentpm invite create --email tabata@example.co.jp                 # 社内メンバー（既定）
+agentpm invite create --email client@example.com --role client     # 相手先（ポータル）
+agentpm invite list [--role member|client|all] [--status pending|accepted|expired|all]
+agentpm invite resend --invite-id <uuid> [--expires-in-days <n>]
+```
+
+- **この経路はメールを送らない。** 返ってくる `inviteUrl` を相手に渡すか、画面の「設定 → メンバー → 保留中の招待 → 再送」から送る（送信はアプリ側の経路が持つ）。
+- 同じ宛先に**有効な招待が既にあれば作り直さず期限だけ延ばす**（`reused: true`）。同じ人に複数のリンクを配らないため。
+- 役割で入口が違う: 社内メンバーは `/invite/<token>`、相手先は `/portal/<token>`。
+- `agentpm client invite-create --role member` でも同じことができる（既定は `client`）。
+
 ### File（ファイル）
 
 ```bash
