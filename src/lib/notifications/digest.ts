@@ -51,6 +51,7 @@ const TYPE_TO_CATEGORY: Record<string, EmailCategory> = {
   ball_passed: 'task_assigned',
   task_completed: 'task_assigned',
   due_date_reminder: 'task_assigned',
+  github_pr_merged: 'task_assigned',
   // メンション / コメント
   mention: 'task_mentioned',
   comment_added: 'task_mentioned',

@@ -83,6 +83,7 @@ function getNotificationIcon(type: string, urgent?: boolean) {
     case 'meeting_ended':
       return <CheckCircle className={`${iconClass} text-blue-500`} weight="fill" />
     case 'task_completed':
+    case 'github_pr_merged':
       return <CheckCircle className={`${iconClass} text-green-500`} weight="fill" />
     case 'confirmation_request':
     case 'urgent_confirmation':

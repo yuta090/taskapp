@@ -51,6 +51,11 @@ function req(body: unknown): Request {
 describe('POST /api/stripe/checkout — Enterprise は sales-led で拒否', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // 既存の観点（enterprise 拒否・pro 作成）は「受け付けている」前提
+    process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
   })
 
   it('enterprise は priceId が設定済みでも 400 で拒否し、Stripe を呼ばない', async () => {
@@ -88,5 +93,62 @@ describe('POST /api/stripe/checkout — Enterprise は sales-led で拒否', () 
 
     const res = await POST(req({ org_id: 'org-1', plan_id: 'enterprise' }) as never)
     expect(res.status).toBe(401)
+  })
+})
+
+/**
+ * オンライン申し込みの元栓はサーバでも効かせる。
+ * 画面のボタンを無効にするだけでは、直接この API を叩かれたときに素通りしてしまい、
+ * 「まだ本番で決済を開けていない」時期にお客様が決済画面へ進めてしまう。
+ */
+describe('POST /api/stripe/checkout — オンライン申し込みの元栓', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('元栓が閉じているあいだは 503 で断り、Stripe を呼ばない', async () => {
+    delete process.env.STRIPE_SELF_SERVE_ENABLED
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+
+    const res = await POST(req({ org_id: 'org1', plan_id: 'pro' }) as never)
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.code).toBe('self_serve_disabled')
+    expect(sessionCreate).not.toHaveBeenCalled()
+  })
+
+  it('元栓は開いていても、必須の設定が欠けていたら決済を作らない', async () => {
+    process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
+    delete process.env.STRIPE_WEBHOOK_SECRET // 決済後の同期が動かない状態
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+
+    const res = await POST(req({ org_id: 'org1', plan_id: 'pro' }) as never)
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.code).toBe('self_serve_disabled')
+    expect(sessionCreate).not.toHaveBeenCalled()
+  })
+
+  it('元栓を開ければ従来どおり進む', async () => {
+    process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+
+    const res = await POST(req({ org_id: 'org1', plan_id: 'pro' }) as never)
+
+    expect(res.status).toBe(200)
+    expect(sessionCreate).toHaveBeenCalled()
   })
 })

@@ -282,7 +282,7 @@ describe('MembersSettingsPage pending invites section', () => {
     render(<MembersSettingsPage />)
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTitle('招待を取り消す'))
+    fireEvent.click(screen.getByRole('button', { name: '招待を取り消す' }))
 
     expect(screen.getByText(/pending@example\.com.*取り消しますか/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
@@ -302,7 +302,7 @@ describe('MembersSettingsPage pending invites section', () => {
     render(<MembersSettingsPage />)
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTitle('招待を取り消す'))
+    fireEvent.click(screen.getByRole('button', { name: '招待を取り消す' }))
     fireEvent.click(screen.getByRole('button', { name: '取り消す' }))
 
     await waitFor(() => {
@@ -323,7 +323,7 @@ describe('MembersSettingsPage pending invites section', () => {
     render(<MembersSettingsPage />)
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTitle('招待を取り消す'))
+    fireEvent.click(screen.getByRole('button', { name: '招待を取り消す' }))
     fireEvent.click(screen.getByRole('button', { name: '取り消す' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('招待の取り消しに失敗しました'))
@@ -343,7 +343,7 @@ describe('MembersSettingsPage pending invites section', () => {
     render(<MembersSettingsPage />)
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTitle('招待を再送する'))
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度送る' }))
 
     await waitFor(() => {
       expect(resendMock).toHaveBeenCalled()
@@ -362,9 +362,25 @@ describe('MembersSettingsPage pending invites section', () => {
     render(<MembersSettingsPage />)
     await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTitle('招待を再送する'))
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度送る' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('招待の再送に失敗しました'))
+  })
+
+  // アイコンだけだと見つけてもらえない（実際に「再送ボタンが見当たらない」と言われた）。
+  // マウスを乗せないと分からない tooltip ではなく、字が出ていることを保証する
+  it('保留中の招待の操作は、字の出ているボタンにする', async () => {
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: 'もう一度送る' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '招待を取り消す' })).toBeInTheDocument()
+    expect(screen.getByText(/メールが届いていないとき/)).toBeInTheDocument()
   })
 })
 

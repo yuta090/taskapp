@@ -33,6 +33,7 @@
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
 | **Space Archive & Folders** | `spec/SPACE_ARCHIVE_AND_FOLDERS_SPEC.md` | スペースアーカイブ・フォルダグループ |
 | **GitHub Integration** | `spec/GITHUB_INTEGRATION_SPEC.md` | GitHub App連携・PR追跡・Webhook |
+| **GitHub Issues Link** | `spec/GITHUB_ISSUES_LINK_SPEC.md` | GitHub Issues をタスクに添付（1:多・ミラーではない）・AgentPMからIssue作成・全部閉じたら社内へ確認通知 v1.0（設計確定・未実装） |
 | **Slack Integration** | `spec/SLACK_INTEGRATION_SPEC.md` | Slack Bot通知・コマンド・OAuth |
 | **Admin Panel** | `spec/ADMIN_PANEL_SPEC.md` | スーパー管理者運用パネル（17ページ） |
 | **Admin Funnel Analytics** | `spec/ADMIN_FUNNEL_ANALYTICS.md` | 会員登録後の節目（22個）と流入経路の記録・運営分析 v1.0 |
@@ -70,7 +71,7 @@
 | Document | Path | Description |
 |----------|------|-------------|
 | **Slack Setup** | `SLACK_SETUP.md` | Slack連携セットアップガイド |
-| **GitHub Milestone Design** | `design/GITHUB_MILESTONE_INTEGRATION.md` | GitHubマイルストーン連携設計 |
+| **GitHub Milestone Design** | `design/GITHUB_MILESTONE_INTEGRATION.md` | GitHubマイルストーン連携設計（**廃止**・`spec/GITHUB_ISSUES_LINK_SPEC.md` §12 に置換） |
 | **UX Improvements** | `ux/*.md` | UX改善ドキュメント（20件） |
 | **LP Design** | `LP_DESIGN_SPEC.md` | ランディングページデザイン仕様 |
 | **Strong Points** | `STRONG_POINTS.md` | 製品強み・差別化ポイント |
@@ -184,7 +185,9 @@
 |-------|---------|--------|
 | Phase 1 | GitHub App Webhook + PR同期 + リポジトリ連携 | ✅ |
 | Phase 2 | タスク-PRリンク（手動・自動） | ✅ |
-| Phase 3 | GitHubマイルストーン連携（PR merge→タスク完了） | 計画中 |
+| Phase 2.5 | PR 取り込み時に社内の担当者・責任者へ通知 | ✅ |
+| Phase 3 | GitHubマイルストーン連携（PR merge→タスク完了） | 廃止（Issues 連携仕様 §12 に置換・2026-09-10） |
+| Phase 4 | GitHub Issues 連携（添付モデル・Issue作成・全部閉じたら社内へ確認通知。`spec/GITHUB_ISSUES_LINK_SPEC.md`） | 設計確定・未実装 |
 
 ### Slack Integration (Slack連携)
 

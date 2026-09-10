@@ -1,10 +1,20 @@
 name: CI
 
+# テストするのは「作業ブランチ → develop の PR」と「develop への取り込み（直接 push を含む）」だけ。
+# develop → main の昇格 PR と main への取り込みでは回さない。中身は develop で試験済みのものと同じで、
+# 同じテストを 3〜4 回流して待ち時間だけが増えていた（2026-09-10 は 1 日 29 回のうち 10 回が重複）。
+# main / develop とも「チェック必須」の保護は掛けていないので、ここで外しても取り込みは止まらない。
 on:
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
-    branches: [main, develop]
+    branches: [develop]
+
+# 同じ PR に続けて push したら、古いほうのテストは止める。
+# develop への push はコミットごとに別のグループ（sha）にして、止めも待たせもしない。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   test:

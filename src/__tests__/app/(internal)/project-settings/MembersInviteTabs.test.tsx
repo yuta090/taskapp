@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/MembersSettings'
 
 /** 招待するときの名前入力と、「返事待ち」「招待の履歴」タブ */
@@ -156,7 +156,7 @@ describe('返事待ち・履歴のタブ', () => {
     fireEvent.click(screen.getByRole('tab', { name: /招待の履歴/ }))
     await waitFor(() => expect(screen.getByText('期限切れ')).toBeInTheDocument())
 
-    fireEvent.click(screen.getAllByTitle(/もう一度送る/)[1])
+    fireEvent.click(screen.getAllByRole('button', { name: 'もう一度送る' })[1])
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/api/invites/pending/inv-2/resend', { method: 'POST' })
@@ -170,6 +170,37 @@ describe('返事待ち・履歴のタブ', () => {
     fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
 
     await waitFor(() => expect(screen.getByText('山田 太郎')).toBeInTheDocument())
-    expect(screen.queryByTitle(/もう一度送る/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'もう一度送る' })).toBeNull()
+  })
+
+  // アイコンだけのボタンは見つけてもらえなかった（実際に「再送ボタンが見当たらない」と言われた）。
+  // マウスを乗せないと分からない tooltip ではなく、字が出ていることを保証する
+  it('送り直し・取り消しは、字の出ているボタンにする', async () => {
+    await renderScreen()
+    fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
+
+    await waitFor(() => expect(screen.getByText('山田 太郎')).toBeInTheDocument())
+    expect(screen.getAllByRole('button', { name: 'もう一度送る' })).toHaveLength(invites.length)
+    expect(screen.getAllByRole('button', { name: '招待を取り消す' })).toHaveLength(invites.length)
+  })
+
+  // 招待の役割は client | member。参加後の役割（管理者・編集者…）とは別の言葉なので、
+  // 参加後の対応表を使うと 'member' が英語のまま出てしまう
+  it('招待の役割は日本語で出す', async () => {
+    await renderScreen()
+    fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
+
+    await waitFor(() => expect(screen.getByText('山田 太郎')).toBeInTheDocument())
+    const row = screen.getByText('山田 太郎').closest('[data-testid="invite-row"]')!
+    expect(within(row as HTMLElement).getByText('メンバー')).toBeInTheDocument()
+    expect(screen.queryByText('member')).toBeNull()
+  })
+
+  it('返事待ちのタブに、もう一度送れることの案内を出す', async () => {
+    await renderScreen()
+    fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
+
+    await waitFor(() => expect(screen.getByText('山田 太郎')).toBeInTheDocument())
+    expect(screen.getByText(/メールが届いていないとき/)).toBeInTheDocument()
   })
 })

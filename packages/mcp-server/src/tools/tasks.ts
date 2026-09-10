@@ -58,6 +58,7 @@ export const taskListSchema = z.object({
   type: z.enum(['task', 'spec']).optional().describe('タイプでフィルタ'),
   clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性でフィルタ'),
   limit: z.number().min(1).max(100).default(50).describe('取得件数'),
+  offset: z.number().int().min(0).default(0).describe('先頭からスキップする件数（続きから取る用。既定0）'),
 })
 
 export const taskGetSchema = z.object({
@@ -78,6 +79,7 @@ export const taskListMySchema = z.object({
   status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'considering']).optional().describe('ステータスでフィルタ'),
   clientScope: z.enum(['deliverable', 'internal']).optional().describe('クライアント可視性でフィルタ'),
   limit: z.number().min(1).max(100).default(50).describe('取得件数'),
+  offset: z.number().int().min(0).default(0).describe('先頭からスキップする件数（続きから取る用。既定0）'),
 })
 
 // Helper: 権限チェック
@@ -306,7 +308,7 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
     .select('*')
     .eq('space_id', params.spaceId)
     .order('created_at', { ascending: false })
-    .limit(params.limit)
+    .range(params.offset, params.offset + params.limit - 1)
 
   if (params.ball) {
     query = query.eq('ball', params.ball)
@@ -455,7 +457,7 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
       .select('*')
       .eq('space_id', membership.space_id)
       .order('created_at', { ascending: false })
-      .limit(params.limit)
+      .range(params.offset, params.offset + params.limit - 1)
 
     if (params.ball) {
       query = query.eq('ball', params.ball)
@@ -534,7 +536,7 @@ export const taskTools = [
   },
   {
     name: 'task_list',
-    description: 'タスク一覧取得。ball/status/type/clientScopeフィルタ可',
+    description: 'タスク一覧取得。ball/status/type/clientScopeフィルタ可。offsetで続きから取得可',
     inputSchema: taskListSchema,
     handler: taskList,
   },

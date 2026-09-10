@@ -53,7 +53,7 @@
 | 原価（工数 x 原価単価） | x | o | o |
 | 売値（マージン込み） | o | o | x |
 | マージン率・金額 | x | o | x |
-| 技術仕様・GitHubリンク | x | o | o |
+| 技術仕様・GitHubリンク | x | o | △（GitHub は計画・未実装。v1 は社内のみ／`GITHUB_ISSUES_LINK_SPEC.md` §5） |
 | 議事録 | delta | o | o |
 | 監査ログ | x | o | x |
 | ボール状態 | 自分側のみ | 全方向 | 自分側のみ |
@@ -226,7 +226,7 @@ const BALL_STATUS_LABELS_AGENCY = {
 | マージン率 | x | 絶対に非表示 |
 | マイルストーン | o | |
 | ガントチャート | o | |
-| GitHub PR リンク | o | |
+| GitHub PR リンク | （将来） | 未実装。v1 は社内のみ（`GITHUB_ISSUES_LINK_SPEC.md` §5） |
 | 技術仕様 (Wiki) | o | |
 | 日程調整 | o | 回答可能 |
 | ボール状態 | o | 自社（vendor）と代理店（agency）のみ。client の存在は「依頼元」と表示 |

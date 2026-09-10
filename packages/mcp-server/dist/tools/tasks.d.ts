@@ -108,9 +108,11 @@ export declare const taskListSchema: z.ZodObject<{
     type: z.ZodOptional<z.ZodEnum<["task", "spec"]>>;
     clientScope: z.ZodOptional<z.ZodEnum<["deliverable", "internal"]>>;
     limit: z.ZodDefault<z.ZodNumber>;
+    offset: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     limit: number;
+    offset: number;
     type?: "task" | "spec" | undefined;
     ball?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
@@ -122,6 +124,7 @@ export declare const taskListSchema: z.ZodObject<{
     clientScope?: "internal" | "deliverable" | undefined;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     limit?: number | undefined;
+    offset?: number | undefined;
 }>;
 export declare const taskGetSchema: z.ZodObject<{
     spaceId: z.ZodString;
@@ -154,8 +157,10 @@ export declare const taskListMySchema: z.ZodObject<{
     status: z.ZodOptional<z.ZodEnum<["backlog", "todo", "in_progress", "in_review", "done", "considering"]>>;
     clientScope: z.ZodOptional<z.ZodEnum<["deliverable", "internal"]>>;
     limit: z.ZodDefault<z.ZodNumber>;
+    offset: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     limit: number;
+    offset: number;
     ball?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
@@ -164,6 +169,7 @@ export declare const taskListMySchema: z.ZodObject<{
     clientScope?: "internal" | "deliverable" | undefined;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     limit?: number | undefined;
+    offset?: number | undefined;
 }>;
 export declare function taskCreate(params: z.infer<typeof taskCreateSchema>): Promise<{
     task: Task;
@@ -324,9 +330,11 @@ export declare const taskTools: ({
         type: z.ZodOptional<z.ZodEnum<["task", "spec"]>>;
         clientScope: z.ZodOptional<z.ZodEnum<["deliverable", "internal"]>>;
         limit: z.ZodDefault<z.ZodNumber>;
+        offset: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         limit: number;
+        offset: number;
         type?: "task" | "spec" | undefined;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
@@ -338,6 +346,7 @@ export declare const taskTools: ({
         clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         limit?: number | undefined;
+        offset?: number | undefined;
     }>;
     handler: typeof taskList;
 } | {
@@ -382,8 +391,10 @@ export declare const taskTools: ({
         status: z.ZodOptional<z.ZodEnum<["backlog", "todo", "in_progress", "in_review", "done", "considering"]>>;
         clientScope: z.ZodOptional<z.ZodEnum<["deliverable", "internal"]>>;
         limit: z.ZodDefault<z.ZodNumber>;
+        offset: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         limit: number;
+        offset: number;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
@@ -392,6 +403,7 @@ export declare const taskTools: ({
         clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         limit?: number | undefined;
+        offset?: number | undefined;
     }>;
     handler: typeof taskListMy;
 } | {
