@@ -113,6 +113,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 401 })
       }
 
+      // 権限で断られた（鍵の操作不足・古い鍵・プロジェクト違い・役割）。理由は mcp_authorize 等の決まった文言で
+      // 秘密を含まないので、鍵の持ち主にそのまま返す。以前は 500 に化けて CLI / AI に理由が見えなかった
+      if (error.message.startsWith('権限エラー:')) {
+        return NextResponse.json({ error: error.message }, { status: 403 })
+      }
+
       // Tool not found
       if (error.name === 'ToolNotFoundError') {
         return NextResponse.json({ error: error.message }, { status: 400 })

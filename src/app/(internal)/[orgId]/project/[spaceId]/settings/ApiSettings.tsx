@@ -4,7 +4,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Key, Plus, Trash, Copy, Check, Eye, EyeSlash, Warning } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import Link from 'next/link'
 import { toast } from 'sonner'
+import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
+import { API_KEY_ACTION_OPTIONS, formatApiKeyActions } from '@/lib/api-keys/actionOptions'
 
 interface ApiKey {
   id: string
@@ -14,6 +17,9 @@ interface ApiKey {
   last_used_at: string | null
   expires_at: string | null
   is_active: boolean
+  allowed_actions: string[]
+  /** 鍵の持ち主。空なら持ち主を記録する前（〜2026-09）の古い鍵で、CLI では必ず断られる */
+  user_id: string | null
 }
 
 interface ApiSettingsProps {
@@ -50,13 +56,15 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
 
   // New key form
   const [newKeyName, setNewKeyName] = useState('')
+  // この画面の鍵は CLI / AI からこのプロジェクトを操作するためのもの。読み取りだけだと
+  // いちばんよく使うタスク作成で必ず断られるので、書き込みまでを初期値にする（外すこともできる）
+  const [allowedActions, setAllowedActions] = useState<string[]>(['read', 'write'])
   const [creating, setCreating] = useState(false)
 
   // Newly created key (shown once)
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
-  const [configCopied, setConfigCopied] = useState(false)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -173,6 +181,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
           name: newKeyName.trim(),
           keyHash,
           keyPrefix,
+          allowedActions,
         }),
       })
 
@@ -216,6 +225,11 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
     setNewlyCreatedKey(null)
     setShowKey(false)
     setCopied(false)
+  }
+
+  const toggleAction = (action: string) => {
+    if (action === 'read') return // 読み取りは全キーに必須
+    setAllowedActions((prev) => (prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]))
   }
 
   // Loading state
@@ -281,7 +295,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       </div>
 
       <p className="text-sm text-gray-500">
-        外部ツール（Claude Code、MCPクライアント等）からAgentPMにアクセスするためのAPIキーを管理します。
+        AI（Claude Code など）や CLI から、このプロジェクトを操作するための APIキーを発行します。
       </p>
 
       {/* Newly created key modal */}
@@ -314,10 +328,13 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
                 {copied ? <Check className="text-lg text-green-600" /> : <Copy className="text-lg" />}
               </button>
             </div>
+            <p className="mt-4 text-xs text-gray-500">
+              次は、下の「AI（Claude Code など）から使う準備」の手順2で、このキーを登録します。
+            </p>
             <div className="mt-6 flex justify-end">
               <button
                 onClick={closeNewKeyModal}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="h-8 rounded-md px-3 text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
               >
                 閉じる
               </button>
@@ -346,6 +363,15 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
                 <div className="text-xs text-gray-500 font-mono">
                   {key.key_prefix}
                 </div>
+                {key.user_id ? (
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {formatApiKeyActions(key.allowed_actions ?? [])}
+                  </div>
+                ) : (
+                  <div className="text-xs text-red-600 mt-0.5">
+                    CLI では使えない古い形式のキーです。削除して発行し直してください
+                  </div>
+                )}
               </div>
               <div className="text-xs text-gray-400">
                 {key.last_used_at
@@ -365,8 +391,8 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       </div>
 
       {/* Add new API key */}
-      <div className="border border-gray-200 rounded-lg p-4">
-        <div className="text-xs font-medium text-gray-500 mb-2">
+      <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+        <div className="text-xs font-medium text-gray-500">
           新規APIキー
         </div>
         <div className="flex items-end gap-3">
@@ -383,44 +409,45 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
           <button
             onClick={handleCreate}
             disabled={!newKeyName.trim() || creating}
-            className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+            className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
           >
             <Plus className="text-sm" />
             {creating ? '作成中...' : '発行'}
           </button>
         </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1.5">許可する操作</div>
+          <div className="flex flex-wrap gap-2">
+            {API_KEY_ACTION_OPTIONS.map((action) => (
+              <button
+                key={action.value}
+                type="button"
+                onClick={() => toggleAction(action.value)}
+                disabled={action.required}
+                aria-pressed={allowedActions.includes(action.value)}
+                title={action.description}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  allowedActions.includes(action.value)
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-ink'
+                    : 'border-gray-200 bg-surface text-gray-600 hover:bg-gray-50'
+                } ${action.required ? 'cursor-not-allowed' : ''}`}
+              >
+                {action.label}
+                {action.required && <span className="ml-1 text-gray-400">(必須)</span>}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-gray-400">
+            このプロジェクトだけで使えるキーです。操作は、キーを作ったあなたの権限の範囲で行われます。
+            複数のプロジェクトで使うキーは
+            <Link href="/settings/api-keys" className="text-indigo-ink hover:underline">アカウントのAPIキー</Link>
+            で作れます。
+          </p>
+        </div>
       </div>
 
-      {/* Usage instructions */}
-      <div className="bg-gray-50 rounded-lg p-4 text-sm">
-        <h4 className="font-medium text-gray-700 mb-2">環境変数設定</h4>
-        <p className="text-gray-600 mb-2">
-          発行したAPIキーと以下の設定を<code className="bg-gray-200 px-1 rounded">.env.local</code>に追加してください:
-        </p>
-        <div className="relative">
-          <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto">
-{`TASKAPP_API_KEY=<発行したAPIキー>
-TASKAPP_ORG_ID=${orgId}
-TASKAPP_SPACE_ID=${spaceId}
-TASKAPP_API_URL=${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api`}
-          </pre>
-          <button
-            onClick={() => {
-              const config = `TASKAPP_API_KEY=<発行したAPIキー>\nTASKAPP_ORG_ID=${orgId}\nTASKAPP_SPACE_ID=${spaceId}\nTASKAPP_API_URL=${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api`
-              navigator.clipboard.writeText(config)
-              setConfigCopied(true)
-              setTimeout(() => setConfigCopied(false), 2000)
-            }}
-            className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700 rounded"
-            title="コピー"
-          >
-            {configCopied ? <Check className="text-green-400" /> : <Copy />}
-          </button>
-        </div>
-        <p className="text-xs text-gray-500 mt-2">
-          ※ <code className="bg-gray-200 px-1 rounded">&lt;発行したAPIキー&gt;</code> の部分を実際のキーに置き換えてください
-        </p>
-      </div>
+      {/* CLI のインストール → ログイン → AI に覚えさせる（以前はここに旧MCP向けの .env.local の見本だけがあった） */}
+      <CliSetupGuide spaceId={spaceId} />
     </div>
   )
 }

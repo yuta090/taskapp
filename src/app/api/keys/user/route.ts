@@ -3,6 +3,7 @@ import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
 
 // Create admin client with service role key (bypasses RLS)
 function createAdminClient() {
@@ -52,6 +53,12 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields' },
         { status: 400 }
       )
+    }
+
+    // 知らない操作は DB の CHECK 制約に任せず、ここで 400 にする（プロジェクト設定の /api/keys と同じ）
+    const normalizedActions = normalizeAllowedActions(allowedActions)
+    if (!normalizedActions) {
+      return NextResponse.json({ error: 'Invalid allowedActions' }, { status: 400 })
     }
 
     const adminClient = createAdminClient()
@@ -113,14 +120,15 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         scope: 'user',
         allowed_space_ids: allowedSpaceIds,
-        allowed_actions: allowedActions || ['read'],
+        allowed_actions: normalizedActions,
       })
       .select()
       .single()
 
     if (error) {
       console.error('Failed to create API key:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      // DB のエラー文（制約名など）は画面に返さない。詳細はサーバーログだけに出す
+      return NextResponse.json({ error: 'Failed to create API key' }, { status: 500 })
     }
 
     return NextResponse.json({ data })
@@ -168,7 +176,7 @@ export async function DELETE(request: NextRequest) {
 
     if (error) {
       console.error('Failed to delete API key:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to delete API key' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
@@ -193,14 +201,16 @@ export async function GET(_request: NextRequest) {
     const { data, error } = await adminClient
       .from('api_keys')
       .select(
-        'id, name, key_prefix, created_at, last_used_at, expires_at, is_active, scope, allowed_space_ids, allowed_actions'
+        // space_id: プロジェクト設定で作った鍵（scope=space）も持ち主が入ってここに並ぶ。
+        // allowed_space_ids が空なので、どのプロジェクトの鍵かを返さないと「全スペース」と誤表示される
+        'id, name, key_prefix, created_at, last_used_at, expires_at, is_active, scope, space_id, allowed_space_ids, allowed_actions'
       )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
     if (error) {
       console.error('Failed to fetch API keys:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to fetch API keys' }, { status: 500 })
     }
 
     return NextResponse.json({ data })

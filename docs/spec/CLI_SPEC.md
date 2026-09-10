@@ -12,16 +12,44 @@ AI (Claude Code等) → agentpm CLI → HTTP POST /api/tools → Next.js → Sup
 ## インストール
 
 ```bash
-npm install -g @uzukko/agentpm
+npm install -g @uzukko/agentpm   # Node.js 18 以上
 ```
+
+- npm に公開する名前は `packages/cli/package.json` の `name`（`@uzukko/agentpm`）。画面と AI 用の説明書に出す「入れ方」の正本は `src/lib/cli-setup.ts` で、両者の一致は `src/__tests__/lib/cli-setup.test.ts` が見張る。
+- 公開は `cd packages/cli && npm pack --dry-run`（中身の確認）→ `npm publish`。`prepublishOnly` で `dist` を消してから `tsc` で作り直す（消したソースの古い成果物を載せないため）。載せるのは `bin` と `dist` だけ。版を上げるときは `package.json` の `version` と `src/index.ts` の `CLI_VERSION` を揃える（これもテストで検査）。
 
 ## セットアップ
 
 ```bash
 agentpm login
-# API Key を入力（Settings → APIキー管理 で発行）
-# API URL はデフォルトで https://agentpm.app
+# API URL: 何も入れずに Enter で https://agentpm.app（0.5.0 から既定値。0.4.x 以前は手入力が必要だった）
+# API Key: 画面で発行したキーを貼る（下の「APIキーの種類」）
+# Default Space ID: よく使うプロジェクトのID（省略可）
 ```
+
+APIキーは合鍵なので、AI のチャットに貼らせず、本人がターミナルで入力する（AI 用の説明書にもそう書いてある）。
+
+## APIキーの種類
+
+| 発行する画面 | 使える範囲 | 許可する操作 |
+|---|---|---|
+| アカウントの「設定 → APIキー」（`/settings/api-keys` → `/api/keys/user`、scope=`user`） | 選んだ複数のプロジェクト | 画面で選ぶ（既定: 読み取り） |
+| プロジェクト設定の「API設定」（`ApiSettings` → `/api/keys`、scope=`space`） | そのプロジェクトだけ | 画面で選ぶ（既定: 読み取り＋書き込み） |
+
+- どちらの鍵も「作った人」（`user_id`）の代理として動き、操作の可否はその人のプロジェクトでの役割で決まる（`mcp_authorize`）。
+- プロジェクト設定の鍵で `agentpm space list` を打つと、そのプロジェクト1件だけを返す（以前は断っていて、画面の確認手順が必ず失敗していた）。
+- 権限で断られると `/api/tools` は **403 と `権限エラー: <理由>`** を返し、CLI にそのまま出る（以前は 500 "Internal server error" に化けて理由が見えなかった）。理由は `mcp_authorize` の決まった文言で、秘密は含まない。
+- 両方の一覧に「許可した操作」を出す。プロジェクト設定の一覧では、持ち主が空の古い鍵に「CLI では使えない。発行し直して」と出す。アカウントの一覧では、プロジェクト設定の鍵を「〇〇のみ（プロジェクト設定で発行）」と出す（`allowed_space_ids` が空でも「全スペース」と出さない）。
+- **プロジェクト設定の鍵に `user_id` を記録するようになる前（〜2026-09）に作った鍵は `user_id` が空で、CLI からは `User is not a member of this space` で必ず断られる**（しかも読み取りのみ）。作り直してもらう。
+
+## AI に使い方を覚えさせる（スキル）
+
+- 説明書は `/skills/agentpm/SKILL.md`（Claude Code のスキルと同じ「<名前>/SKILL.md」の形）。中身はコマンド一覧（`src/lib/cli-manifest.ts`）から `src/lib/cli-skill.ts` が組み立てるので、コマンドを足せば説明書にも自動で載る。旧 URL `/skills/agentpm.md` も同じ中身を返す。
+- パスに「.」を含むので proxy（ログインの門番）を通らず、未ログインの端末から curl で取れる。
+- Claude Code: `mkdir -p ~/.claude/skills/agentpm && curl -fsSL https://agentpm.app/skills/agentpm/SKILL.md -o ~/.claude/skills/agentpm/SKILL.md` → Claude Code を開き直す。
+  - ⚠ `~/.claude/skills/agentpm.md` のような1枚置きは Claude Code に読まれない（以前の案内はこれだった）。
+- ほかの AI（Codex・Cursor など）: 説明書の URL を読ませる一文をチャットに貼る（画面からコピーできる）。
+- 画面では、アカウントの「APIキー」とプロジェクト設定の「API設定」の両方に同じ手順（`src/components/settings/CliSetupGuide.tsx`）を出す。
 
 ## 設定
 

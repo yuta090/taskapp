@@ -72,6 +72,22 @@ export async function spaceUpdate(params: z.infer<typeof spaceUpdateSchema>): Pr
 
 export async function spaceList(params: z.infer<typeof spaceListSchema>): Promise<Space[]> {
   const ctx = (await import('../config.js')).getAuthContext()
+  const supabase = getSupabaseClient()
+
+  // scope=space（プロジェクト設定で作った鍵）: 使えるのはそのプロジェクトだけなので、その1件を返す。
+  // 以前はここで断っていて、画面の案内どおり `agentpm space list` で接続を確かめると必ず失敗していた。
+  // メンバーかどうか・読み取りが許されているかは、ほかの操作と同じ権限確認(checkAuth)で見る
+  if (ctx.scope === 'space' && ctx.keyId !== 'dev-key') {
+    if (!ctx.spaceId) {
+      throw new Error('権限エラー: This API key is not bound to a space')
+    }
+    await checkAuth(ctx.spaceId, 'read', 'space_list', 'space', ctx.spaceId)
+    let own = supabase.from('spaces').select('*').eq('id', ctx.spaceId).eq('org_id', ctx.orgId)
+    if (params.type) own = own.eq('type', params.type)
+    const { data, error } = await own
+    if (error) throw new Error('プロジェクト一覧の取得に失敗しました: ' + error.message)
+    return (data || []) as Space[]
+  }
 
   // scope=user: allowed_space_ids でフィルタして返す
   // scope=org: 全スペース返す
@@ -81,8 +97,6 @@ export async function spaceList(params: z.infer<typeof spaceListSchema>): Promis
   if (!ctx.allowedActions.includes('read')) {
     throw new Error('権限エラー: Action "read" not allowed for this API key')
   }
-
-  const supabase = getSupabaseClient()
 
   let query = supabase
     .from('spaces')

@@ -228,6 +228,38 @@ describe('POST /api/keys', () => {
     )
   })
 
+  // CLI から使えない鍵が作られていた不具合の回帰（2026-09-10）。
+  // 鍵に「使う人」(user_id) が無いと、CLI 側の権限確認(mcp_authorize)がメンバーを特定できず
+  // 「User is not a member of this space」で必ず断られていた。
+  it('records the creator as the key user so the CLI can act as that member', async () => {
+    await callPost(basePostBody)
+
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: mockUser.id, created_by: mockUser.id })
+    )
+  })
+
+  it('defaults to read-only when no actions are given', async () => {
+    await callPost(basePostBody)
+
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ allowed_actions: ['read'] }))
+  })
+
+  it('stores the chosen actions and always includes read', async () => {
+    await callPost({ ...basePostBody, allowedActions: ['write', 'bulk'] })
+
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ allowed_actions: ['read', 'write', 'bulk'] })
+    )
+  })
+
+  it('returns 400 for an unknown action and never passes it to the DB', async () => {
+    const response = await callPost({ ...basePostBody, allowedActions: ['write', 'admin'] })
+
+    expect(response.status).toBe(400)
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
   it('returns a generic 500 (no internal error detail) when insert fails', async () => {
     adminInsertResponse = { data: null, error: { message: 'duplicate key value violates unique constraint' } }
 
@@ -343,5 +375,14 @@ describe('GET /api/keys', () => {
     expect(response.status).toBe(200)
     expect(data.data).toEqual(adminListResponse.data)
     expect(selectQueryMock).toHaveBeenCalledWith(expect.not.stringContaining('key_hash'))
+  })
+
+  // 鍵が作った人の代理として実際に動くようになったので、管理者が一覧で「何を許したか」と
+  // 「CLI では動かない古い鍵（持ち主が空）か」を見分けられるようにする
+  it('returns the allowed actions and the key user so the list can flag old keys', async () => {
+    await callGet({ orgId: ORG_ID, spaceId: SPACE_ID })
+
+    const columns = String(selectQueryMock.mock.calls.at(-1)?.[0] ?? '').split(',').map((c) => c.trim())
+    expect(columns).toEqual(expect.arrayContaining(['allowed_actions', 'user_id']))
   })
 })

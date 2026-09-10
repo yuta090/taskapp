@@ -158,6 +158,18 @@ describe('POST /api/tools', () => {
     expect(data.details).toEqual(issues)
   })
 
+  // 権限で断られた理由（鍵の操作不足・古い鍵・プロジェクト違い）が 500 に化けて CLI / AI に見えず、
+  // 何を直せばよいか分からなかった（2026-09-10）。理由は決まった文言で秘密を含まないので、鍵の持ち主に返す
+  it('returns 403 with the reason when dispatch rejects with a permission error', async () => {
+    dispatchImpl = () => Promise.reject(new Error('権限エラー: User is not a member of this space'))
+
+    const response = await callTools({ tool: 'task_list' })
+    const data = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(data.error).toBe('権限エラー: User is not a member of this space')
+  })
+
   it('returns a generic 500 without leaking the error message or stack trace', async () => {
     dispatchImpl = () => Promise.reject(new Error('unexpected internal failure'))
 
