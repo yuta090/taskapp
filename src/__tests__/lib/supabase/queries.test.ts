@@ -79,7 +79,7 @@ describe('fetchTasksQuery — 全件をページングで読む', () => {
     expect(tasksChain.range).toHaveBeenCalledWith(0, TASKS_PAGE_SIZE - 1)
   })
 
-  it('1ページ目がちょうどTASKS_PAGE_SIZE件のときだけ2ページ目を取得し、重複なく結合する', async () => {
+  it('1ページ目がちょうどTASKS_PAGE_SIZE件のときだけ2ページ目を取得し、結合する', async () => {
     const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeTask(`p1-${i}`))
     const page2 = [makeTask('p2-0'), makeTask('p2-1')]
     const tasksChain = makeTasksChain([
@@ -92,10 +92,51 @@ describe('fetchTasksQuery — 全件をページングで読む', () => {
 
     expect(result.tasks).toHaveLength(TASKS_PAGE_SIZE + 2)
     const ids = result.tasks.map((t) => t.id)
-    expect(new Set(ids).size).toBe(ids.length) // 重複なし
     expect(tasksChain.range).toHaveBeenCalledTimes(2)
     expect(tasksChain.range).toHaveBeenNthCalledWith(1, 0, TASKS_PAGE_SIZE - 1)
     expect(tasksChain.range).toHaveBeenNthCalledWith(2, TASKS_PAGE_SIZE, TASKS_PAGE_SIZE * 2 - 1)
+    expect(ids[0]).toBe('p1-0')
+    expect(ids[ids.length - 1]).toBe('p2-1')
+  })
+
+  it('ページ境界をまたいで別の誰かがタスクを作成し行がずれても、跨ページの重複idを1件にまとめる', async () => {
+    // offsetページングは「順位」で切るため、ページ取得の間に別の誰かが1件作成すると
+    // 全行が1つずれ、1ページ目の最後の行が2ページ目の先頭にもう一度現れうる。
+    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeTask(`p1-${i}`))
+    const overlappingId = page1[page1.length - 1].id // 'p1-999'
+    const page2 = [makeTask(overlappingId), makeTask('p2-1')]
+    const tasksChain = makeTasksChain([
+      { data: page1, error: null },
+      { data: page2, error: null },
+    ])
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    const ids = result.tasks.map((t) => t.id)
+    expect(new Set(ids).size).toBe(ids.length) // 重複なし
+    expect(ids.filter((id) => id === overlappingId)).toHaveLength(1)
+    expect(result.tasks).toHaveLength(TASKS_PAGE_SIZE + 1) // page1(1000) + page2の新規1件のみ
+  })
+
+  it('3ページ目まで存在する場合、range(2000, 2999) まで順に取得し全件結合する', async () => {
+    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeTask(`p1-${i}`))
+    const page2 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeTask(`p2-${i}`))
+    const page3 = [makeTask('p3-0')]
+    const tasksChain = makeTasksChain([
+      { data: page1, error: null },
+      { data: page2, error: null },
+      { data: page3, error: null },
+    ])
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    expect(result.tasks).toHaveLength(TASKS_PAGE_SIZE * 2 + 1)
+    expect(tasksChain.range).toHaveBeenCalledTimes(3)
+    expect(tasksChain.range).toHaveBeenNthCalledWith(1, 0, TASKS_PAGE_SIZE - 1)
+    expect(tasksChain.range).toHaveBeenNthCalledWith(2, TASKS_PAGE_SIZE, TASKS_PAGE_SIZE * 2 - 1)
+    expect(tasksChain.range).toHaveBeenNthCalledWith(3, TASKS_PAGE_SIZE * 2, TASKS_PAGE_SIZE * 3 - 1)
   })
 
   it('created_at 降順・id 降順（タイブレーク）で並び替えている', async () => {

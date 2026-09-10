@@ -39,15 +39,31 @@ export interface FetchTasksQueryOptions {
    * （例: /my の詳細パネルで開いたタスクが、何らかの理由でまだ手元に無いケース）。
    * 指定があれば同じ Promise.all の中で（waterfallにせず）追加取得し、
    * 読み込み済みの結果に重複しないよう追加する。
+   *
+   * TODO: 今は tasks を全件読み切るため、このオプションは実質的に不要（読み込み範囲の
+   * 「外」がほぼ発生しない）になっている。本番投入後の様子を見て、MyTasksClient /
+   * useTasks / queries.ts から一括で削除するクリーンアップPRを出す。
    */
   ensureTaskIds?: string[]
 }
 
 /**
  * tasks クエリ1ページあたりの件数。
- * PostgREST（Supabase）は1リクエストあたりデフォルトで最大1000件までしか返さないため、
- * range を明示せずに全件取得しようとしても、1000件を超えるプロジェクトでは黙って
- * 打ち切られてしまう。そのため常に range ページングで明示的に全ページを読み切る。
+ *
+ * - これは「1回のリクエストで返る上限」であって、プロジェクトの想定タスク数の固定値ではない。
+ *   204件のプロジェクトなら1回のリクエストで204件がそのまま返る（ページングは発生しない）。
+ * - PostgREST（Supabase）は1リクエストあたりデフォルトで最大1000件までしか返さないため、
+ *   range を明示せずに全件取得しようとしても、1000件を超えるプロジェクトでは黙って
+ *   打ち切られてしまう。そのため常に range ページングで明示的に全ページを読み切る。
+ * - 下の「ちょうど上限件数なら次ページがあるとみなす」という停止条件は、サーバー側の
+ *   max_rows がこの値（1000）以上であることが前提（`supabase/config.toml` の
+ *   `[api] max_rows = 1000` = Supabaseのデフォルト）。max_rows をこれより下げると、
+ *   1ページ目が「ちょうど上限」に見えないまま黙って打ち切られる状態に逆戻りするので注意。
+ * - 見直しの目安: 実際に1,000件を超えて2ページ目以降が発生するプロジェクトが出てきた場合、
+ *   または tasks レスポンスの生サイズが約1MBを超える／再取得のp95が1秒を超える／
+ *   Gantt の初回描画が500msを超える、のいずれかに達したら、案C（オープンタスクは常に全件、
+ *   完了タスクは遅延読み込み/「もっと見る」・ダッシュボードの完了件数はサーバー側count・
+ *   Ganttも同じ絞り込み対象に乗せる）へ移行する。
  */
 export const TASKS_PAGE_SIZE = 1000
 
@@ -136,7 +152,18 @@ export async function fetchTasksQuery(
     page += 1
   }
 
-  const rawTasks = pagedTaskRows
+  // ページ跨ぎの重複除去（id優先・先勝ち）。
+  // offsetページングは「順位」で境界を切るため、ページ取得の間に別の誰かがタスクを
+  // 作成すると全行が1つずれ、あるページの最後の行が次ページの先頭にもう一度現れうる。
+  // ensureTaskIds のマージより前にここで潰しておかないと、React の key 重複警告や
+  // 件数の二重カウントに繋がる。
+  const seenIds = new Set<string>()
+  const rawTasks: Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }> = []
+  for (const t of pagedTaskRows) {
+    if (seenIds.has(t.id)) continue
+    seenIds.add(t.id)
+    rawTasks.push(t)
+  }
 
   // ensureTaskIds で取れた分は、既に読み込み済みの中に入っているものは重複させず追加する
   const existingIds = new Set(rawTasks.map((t) => t.id))
