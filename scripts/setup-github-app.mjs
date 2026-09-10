@@ -19,6 +19,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { GITHUB_APP_PERMISSIONS, GITHUB_APP_EVENTS } from '../src/lib/github/permissions.mjs'
 
 const args = process.argv.slice(2)
 const opt = (k, d) => {
@@ -54,8 +55,8 @@ const manifest = {
   // 作成直後の一時コードはローカルで受け取る
   redirect_url: `http://localhost:${PORT}/callback`,
   hook_attributes: { url: `${BASE}/api/github/webhook`, active: true },
-  default_permissions: { pull_requests: 'read', metadata: 'read' },
-  default_events: ['pull_request'],
+  default_permissions: GITHUB_APP_PERMISSIONS,
+  default_events: [...GITHUB_APP_EVENTS],
 }
 
 const page = `<!doctype html><meta charset="utf-8"><title>AgentPM GitHub App</title>

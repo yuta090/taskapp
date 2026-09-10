@@ -166,6 +166,8 @@ export interface GitHubInstallationPayload {
       login: string
       type: string
     }
+    // new_permissions_accepted のときに GitHub から届く、そのインストールの現在の許可範囲
+    permissions?: Record<string, string>
   }
   repositories?: Array<{
     id: number
