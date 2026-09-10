@@ -9,6 +9,17 @@ import type { ProjectFile } from '@/lib/hooks/useFiles'
  * 検索をサーバーに投げる。上限内のスペースでは今までどおり手元で絞る(速いまま)。
  */
 
+// お知らせベルがヘッダーに入ったので、その取得層(react-query)を差し替える。
+// 差し替えないと QueryClientProvider の無いテストが「No QueryClient set」で落ちる。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 vi.mock('@/lib/files/limits', () => ({ FILES_LIST_LIMIT: 2 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 

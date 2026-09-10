@@ -16,6 +16,17 @@ import type { ProjectFile } from '@/lib/hooks/useFiles'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const receivedProps: Record<string, any[]> = {}
 
+// お知らせベルがヘッダーに入ったので、その取得層(react-query)を差し替える。
+// 差し替えないと QueryClientProvider の無いテストが「No QueryClient set」で落ちる。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 vi.mock('@/components/files/FileRow', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   FileRow: (props: any) => {

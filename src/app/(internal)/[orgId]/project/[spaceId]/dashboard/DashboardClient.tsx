@@ -19,6 +19,7 @@ import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskLevel } from '@/lib/risk/calculateRisk'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { buildMeetingHref } from '@/lib/navigation/meetingLinks'
 
 // -- Constants --
@@ -522,23 +523,32 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
     [reviews]
   )
 
-  if (loading) return <LoadingState />
-  if (tasksError) return <ErrorRetry message="データの読み込みに失敗しました" onRetry={fetchTasks} />
-
   const basePath = `/${orgId}/project/${spaceId}`
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       {/* Header */}
-      <div className="px-6 pt-4 pb-2">
+      <div className="px-6 pt-4 pb-2 flex items-center gap-2">
         <Breadcrumb
           items={[
             { label: 'プロジェクト', href: basePath },
             { label: 'ダッシュボード' },
           ]}
         />
+        {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+            AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+            モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+        <div data-header-bell className="hidden md:block ml-auto -my-1.5">
+          <AnnouncementBell />
+        </div>
       </div>
 
+      {/* ヘッダーは上で必ず描いてから、本文だけを差し替える */}
+      {loading ? (
+        <LoadingState />
+      ) : tasksError ? (
+        <ErrorRetry message="データの読み込みに失敗しました" onRetry={fetchTasks} />
+      ) : (
       <div className="px-6 pb-8 space-y-6 max-w-5xl">
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -593,6 +603,7 @@ export function DashboardClient({ orgId, spaceId }: DashboardClientProps) {
           />
         </div>
       </div>
+      )}
     </div>
   )
 }

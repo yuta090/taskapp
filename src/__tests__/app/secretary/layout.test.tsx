@@ -8,6 +8,17 @@ import { render, screen } from '@testing-library/react'
  * remountされないようにする(骨格の永続化)。
  */
 
+// お知らせベルがヘッダーに入ったので、その取得層(react-query)を差し替える。
+// 差し替えないと QueryClientProvider の無いテストが「No QueryClient set」で落ちる。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 vi.mock('next/link', () => ({
   default: ({ children, href, ...rest }: React.ComponentProps<'a'> & { href: string }) => (
     <a href={href} {...rest}>

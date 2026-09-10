@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { ChatCircleDots, Plugs, IdentificationCard, ClipboardText } from '@phosphor-icons/react'
 
 type SecretaryTab = 'messages' | 'approvals' | 'integrations' | 'connect'
@@ -87,6 +88,12 @@ export function SecretaryTabNav({ orgId }: SecretaryTabNavProps) {
           </Link>
         )
       })}
+      {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+          AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+          モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+      <div data-header-bell className="hidden md:block ml-auto">
+        <AnnouncementBell />
+      </div>
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ViewsTabNav } from '@/components/shared/ViewsTabNav'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { IMPLEMENTED_ACCOUNTING_PROVIDERS } from '@/lib/accounting/implemented'
 
 /**
@@ -230,7 +231,18 @@ export function BillingPageClient({ orgId, spaceId }: { orgId: string; spaceId: 
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-gray-25">
-      <ViewsTabNav orgId={orgId} spaceId={spaceId} activeView="billing" />
+      {/* この画面だけ自前のヘッダー帯を持たないので、タブの右端にお知らせベルを間借りさせる。
+          目印(data-header-bell)があると AppShell の「ベルだけの1行」が消える。 */}
+      <ViewsTabNav
+        orgId={orgId}
+        spaceId={spaceId}
+        activeView="billing"
+        trailing={
+          <div data-header-bell className="hidden md:block">
+            <AnnouncementBell />
+          </div>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 flex flex-col gap-6">

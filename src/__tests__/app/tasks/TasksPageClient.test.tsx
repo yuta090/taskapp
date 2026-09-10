@@ -139,9 +139,10 @@ describe('TasksPageClient header create button', () => {
 /**
  * お知らせベルはページ上部に単独の行として浮いていて、設定ボタンから離れていた。
  * ヘッダーの操作アイコン群（プレビュー・設定）と同じ行にまとめる。
+ * 置き場所は全ページ共通で「ヘッダーの一番右」— どの画面でも同じ場所を探せるようにする。
  */
 describe('TasksPageClient header announcement bell', () => {
-  it('ヘッダーに「お知らせ」ベルがあり、設定ボタンより左（DOM順で前）に並ぶ', () => {
+  it('ヘッダーの一番右にあり、設定ボタンより右（DOM順で後ろ）に並ぶ', () => {
     renderPage()
 
     const bell = screen.getByRole('button', { name: 'お知らせ' })
@@ -150,9 +151,9 @@ describe('TasksPageClient header announcement bell', () => {
     // 同じヘッダー行にいる
     expect(bell.closest('header')).not.toBeNull()
     expect(bell.closest('header')).toBe(settingsLink.closest('header'))
-    // DOM順でベルが先 = 画面上は設定ボタンの左
+    // DOM順で設定ボタンが先 = 画面上はベルが一番右
     expect(
-      bell.compareDocumentPosition(settingsLink) & Node.DOCUMENT_POSITION_FOLLOWING
+      settingsLink.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
   })
 

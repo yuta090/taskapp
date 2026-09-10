@@ -94,4 +94,20 @@ describe('AppShell — モバイルシェル (PR1)', () => {
       screen.queryByRole('dialog', { name: 'ナビゲーションメニュー' })
     ).not.toBeInTheDocument()
   })
+
+  /**
+   * ガントの画面で、本体(main)が画面の幅を 400px はみ出していた。
+   * 中央エリアが flex-1 だけで min-width の下限を外していなかったため、
+   * 中身の最小幅までふくらんでしまうのが原因。はみ出した右端は
+   * 画面の外に切り落とされ、ヘッダー右端のお知らせベル・案内文・
+   * ビュー切替タブが押せなくなっていた。
+   *
+   * jsdom は幅を計算しないので、ここでは「下限を外す指定が付いていること」を守る。
+   * 実際の幅は本番プレビューで測って確認する。
+   */
+  it('中央エリアは中身の最小幅で広がらない（min-w-0）', () => {
+    const { container } = renderShell()
+    const center = container.querySelector('#main-content')!.closest('.justify-center')!
+    expect(center.className).toContain('min-w-0')
+  })
 })

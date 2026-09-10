@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { SquaresFour, ChartLine, Receipt } from '@phosphor-icons/react'
 
@@ -9,6 +10,12 @@ interface ViewsTabNavProps {
   orgId: string
   spaceId: string
   activeView: ViewType
+  /**
+   * タブの右端に置くもの。自前のヘッダー帯を持たないページ（見積・請求）が
+   * ここにお知らせベルを間借りさせるために使う。ヘッダーを持つページ
+   * （ガント・バーンダウン）は自分のヘッダーに置くので渡さない。
+   */
+  trailing?: ReactNode
 }
 
 const tabs: { key: ViewType; label: string; icon: typeof SquaresFour }[] = [
@@ -18,7 +25,7 @@ const tabs: { key: ViewType; label: string; icon: typeof SquaresFour }[] = [
   { key: 'billing', label: '見積・請求', icon: Receipt },
 ]
 
-export function ViewsTabNav({ orgId, spaceId, activeView }: ViewsTabNavProps) {
+export function ViewsTabNav({ orgId, spaceId, activeView, trailing }: ViewsTabNavProps) {
   const basePath = `/${orgId}/project/${spaceId}/views`
 
   return (
@@ -41,6 +48,7 @@ export function ViewsTabNav({ orgId, spaceId, activeView }: ViewsTabNavProps) {
           </Link>
         )
       })}
+      {trailing && <div className="ml-auto">{trailing}</div>}
     </div>
   )
 }
