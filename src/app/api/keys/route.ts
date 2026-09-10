@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
+import { canManageSpaceKeys } from '@/lib/api-keys/permissions'
+
+const MANAGE_DENIED = 'Only org owners and project admins can manage API keys'
 
 /** Rate limit: 20 API key operations per IP per 15 minutes */
 const KEYS_RATE_LIMIT = {
@@ -50,11 +53,11 @@ function createAdminClient() {
 
 /**
  * Verify the current user is authenticated and is a member of the given org.
- * Returns the user id on success, or a NextResponse error.
+ * Returns the user id and org role on success, or a NextResponse error.
  */
 async function authorizeOrgMember(
   orgId: string
-): Promise<{ userId: string } | NextResponse> {
+): Promise<{ userId: string; orgRole: string } | NextResponse> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -79,7 +82,19 @@ async function authorizeOrgMember(
     return NextResponse.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  return { userId: user.id }
+  return { userId: user.id, orgRole: membership.role as string }
+}
+
+/** そのプロジェクトでの役割（メンバーでなければ null） */
+async function getSpaceRole(userId: string, spaceId: string): Promise<string | null> {
+  const supabase = await createClient()
+  const { data } = await (supabase as SupabaseClient)
+    .from('space_memberships')
+    .select('id, role')
+    .eq('user_id', userId)
+    .eq('space_id', spaceId)
+    .single()
+  return (data?.role as string | undefined) ?? null
 }
 
 // POST /api/keys - Create a new API key
@@ -119,7 +134,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient()
     const { data: spaceMembership } = await (supabase as SupabaseClient)
       .from('space_memberships')
-      .select('id')
+      .select('id, role')
       .eq('user_id', authResult.userId)
       .eq('space_id', spaceId)
       .single()
@@ -129,6 +144,10 @@ export async function POST(request: NextRequest) {
         { error: 'Access denied to this space' },
         { status: 403 }
       )
+    }
+
+    if (!canManageSpaceKeys(authResult.orgRole, spaceMembership.role as string | undefined)) {
+      return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
     }
 
     const { data, error } = await adminClient
@@ -195,7 +214,7 @@ export async function DELETE(request: NextRequest) {
     // Verify the key belongs to this org before deleting
     const { data: existingKey } = await adminClient
       .from('api_keys')
-      .select('org_id')
+      .select('org_id, space_id, created_by, user_id')
       .eq('id', id)
       .single()
 
@@ -205,6 +224,18 @@ export async function DELETE(request: NextRequest) {
 
     if (existingKey.org_id !== orgId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
+    // 自分が作った・自分の代理のキーは誰でも消せる。それ以外は組織の owner かそのプロジェクトの admin だけ
+    const isOwnKey = existingKey.created_by === authResult.userId || existingKey.user_id === authResult.userId
+    if (!isOwnKey) {
+      const spaceRole =
+        authResult.orgRole === 'owner' || !existingKey.space_id
+          ? null
+          : await getSpaceRole(authResult.userId, existingKey.space_id as string)
+      if (!canManageSpaceKeys(authResult.orgRole, spaceRole)) {
+        return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
+      }
     }
 
     const { error } = await adminClient
@@ -252,6 +283,12 @@ export async function GET(request: NextRequest) {
     const authResult = await authorizeOrgMember(orgId)
     if (authResult instanceof NextResponse) {
       return authResult
+    }
+
+    // 一覧を見られるのも、組織の owner とそのプロジェクトの admin だけ（画面の「管理者限定」と同じ）
+    const spaceRole = authResult.orgRole === 'owner' ? null : await getSpaceRole(authResult.userId, spaceId)
+    if (!canManageSpaceKeys(authResult.orgRole, spaceRole)) {
+      return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
     }
 
     const adminClient = createAdminClient()

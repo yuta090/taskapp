@@ -17,10 +17,12 @@ const mockUser = { id: 'user-1' }
 
 let authResponse: { data: { user: typeof mockUser | null } }
 let orgMembershipResponse: { data: { role: string } | null }
-let spaceMembershipResponse: { data: { id: string } | null }
+let spaceMembershipResponse: { data: { id: string; role?: string } | null }
 
 let adminInsertResponse: { data: Record<string, unknown> | null; error: { message: string } | null }
-let adminSelectSingleResponse: { data: { org_id: string } | null }
+let adminSelectSingleResponse: {
+  data: { org_id: string; space_id?: string; created_by?: string; user_id?: string | null } | null
+}
 let adminDeleteResponse: { error: { message: string } | null }
 let adminListResponse: { data: Record<string, unknown>[] | null; error: { message: string } | null }
 
@@ -157,13 +159,15 @@ beforeEach(() => {
   rateLimitAllowedMock.mockReturnValue({ allowed: true, remaining: 19, resetAt: Date.now() + 1000 })
   authResponse = { data: { user: mockUser } }
   orgMembershipResponse = { data: { role: 'owner' } }
-  spaceMembershipResponse = { data: { id: 'space-membership-1' } }
+  spaceMembershipResponse = { data: { id: 'space-membership-1', role: 'admin' } }
 
   adminInsertResponse = {
     data: { id: 'key-1', org_id: ORG_ID, space_id: SPACE_ID, name: 'My Key' },
     error: null,
   }
-  adminSelectSingleResponse = { data: { org_id: ORG_ID } }
+  adminSelectSingleResponse = {
+    data: { org_id: ORG_ID, space_id: SPACE_ID, created_by: 'someone-else', user_id: 'someone-else' },
+  }
   adminDeleteResponse = { error: null }
   adminListResponse = {
     data: [{ id: 'key-1', name: 'My Key', key_prefix: 'sk_live_ab' }],
@@ -384,5 +388,97 @@ describe('GET /api/keys', () => {
 
     const columns = String(selectQueryMock.mock.calls.at(-1)?.[0] ?? '').split(',').map((c) => c.trim())
     expect(columns).toEqual(expect.arrayContaining(['allowed_actions', 'user_id']))
+  })
+})
+
+// プロジェクトの APIキーを発行・一覧・削除できるのは、組織の owner とそのプロジェクトの admin だけ
+// （削除は、自分が作ったキーなら誰でも）。画面の「管理者限定」と同じ条件をサーバーでも守る。
+describe('project API keys are managed by org owners and project admins only', () => {
+  beforeEach(() => {
+    orgMembershipResponse = { data: { role: 'member' } }
+  })
+
+  it('POST: a project editor cannot issue a key', async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'editor' } }
+
+    const response = await callPost(basePostBody)
+
+    expect(response.status).toBe(403)
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('POST: a project admin can issue a key', async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'admin' } }
+
+    const response = await callPost(basePostBody)
+
+    expect(response.status).toBe(200)
+    expect(insertMock).toHaveBeenCalled()
+  })
+
+  it('GET: a project editor cannot list the keys', async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'editor' } }
+
+    const response = await callGet({ orgId: ORG_ID, spaceId: SPACE_ID })
+
+    expect(response.status).toBe(403)
+    expect(selectQueryMock).not.toHaveBeenCalled()
+  })
+
+  it('GET: a client member cannot list the keys', async () => {
+    orgMembershipResponse = { data: { role: 'client' } }
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'client' } }
+
+    const response = await callGet({ orgId: ORG_ID, spaceId: SPACE_ID })
+
+    expect(response.status).toBe(403)
+    expect(selectQueryMock).not.toHaveBeenCalled()
+  })
+
+  it('GET: a project admin can list the keys', async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'admin' } }
+
+    const response = await callGet({ orgId: ORG_ID, spaceId: SPACE_ID })
+
+    expect(response.status).toBe(200)
+  })
+
+  it('GET: an org owner can list the keys without being a project member', async () => {
+    orgMembershipResponse = { data: { role: 'owner' } }
+    spaceMembershipResponse = { data: null }
+
+    const response = await callGet({ orgId: ORG_ID, spaceId: SPACE_ID })
+
+    expect(response.status).toBe(200)
+  })
+
+  it("DELETE: a project editor cannot delete someone else's key", async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'editor' } }
+
+    const response = await callDelete({ id: 'key-1', orgId: ORG_ID })
+
+    expect(response.status).toBe(403)
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('DELETE: anyone in the org can delete a key they created themselves', async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'editor' } }
+    adminSelectSingleResponse = {
+      data: { org_id: ORG_ID, space_id: SPACE_ID, created_by: mockUser.id, user_id: mockUser.id },
+    }
+
+    const response = await callDelete({ id: 'key-1', orgId: ORG_ID })
+
+    expect(response.status).toBe(200)
+    expect(deleteMock).toHaveBeenCalled()
+  })
+
+  it("DELETE: a project admin can delete another member's key in that project", async () => {
+    spaceMembershipResponse = { data: { id: 'sm-1', role: 'admin' } }
+
+    const response = await callDelete({ id: 'key-1', orgId: ORG_ID })
+
+    expect(response.status).toBe(200)
+    expect(deleteMock).toHaveBeenCalled()
   })
 })
