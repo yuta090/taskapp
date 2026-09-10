@@ -80,9 +80,13 @@ export default function InviteAcceptPage({
 
       // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）。
       // サインイン識別が変わりうる（新規アカウント作成／別アカウントからの参加）ため、SPA遷移では
-      // なくフルページ遷移で終える。これによりルート常駐の ['orgMemberships', uid] キャッシュ
-      // （ActiveOrgProvider）も含めクライアント状態が丸ごと作り直され、「まだ増えた所属を知らない」
-      // 問題が起きない（以前は invalidateQueries で個別に手当てしていたが、フル遷移なら不要）
+      // なくフルページ遷移で終える。フルリロードしても IDB に永続化された ['orgMemberships', uid]
+      // は普通に復元される（＝「まだ増えた所属を知らない」古いキャッシュが一度は戻ってくる）ため
+      // 無害なのはリロードそのものの効果ではなく、ActiveOrgProvider の staleTime 判定が理由:
+      // dataUpdatedAt がこのページ読み込み開始時刻（PAGE_LOADED_AT）より前のデータは常に stale 扱い
+      // され、React Query が即座に取り直す（src/lib/org/ActiveOrgProvider.tsx）。
+      // （以前は invalidateQueries で個別に手当てしていたが、フル遷移なら PAGE_LOADED_AT 判定に
+      // 任せられるので不要）
       if (data.role === 'client') {
         window.location.assign('/portal')
       } else {
@@ -197,7 +201,7 @@ export default function InviteAcceptPage({
         </p>
         <AuthButton
           type="button"
-          onClick={() => signOutAndLeave({ to: window.location.href, pushCleanup: false })}
+          onClick={() => signOutAndLeave({ to: window.location.href })}
         >
           ログアウトして招待を受ける
         </AuthButton>

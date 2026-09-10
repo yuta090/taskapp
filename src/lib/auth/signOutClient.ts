@@ -12,12 +12,17 @@ import { DRAFT_PREFIX } from '@/lib/hooks/useFormDraft'
  *
  * QueryProvider の onAuthStateChange が SIGNED_OUT を検知しても自前でリロードしないよう、
  * `isSignOutInProgress()` でこの関数の実行中であることを伝える(既にここでリロードするため、
- * 二重リロードを防ぐ)。
+ * 二重リロードを防ぐ)。この旗は時間で自動失効する（下記 SIGN_OUT_IN_PROGRESS_WINDOW_MS）—
+ * 何らかの理由でこの関数が実際のページ遷移に辿り着けなかった場合（例: 同一URL#hash への
+ * location.replace は遷移が起きない）でも、QueryProvider 側のフォールバック（hardResetIfNeeded）
+ * が永久に無効化されたままにならないための安全弁。
  */
-let signOutInProgress = false
+let signOutInProgressAt: number | null = null
+const SIGN_OUT_IN_PROGRESS_WINDOW_MS = 10_000
 
 export function isSignOutInProgress(): boolean {
-  return signOutInProgress
+  if (signOutInProgressAt === null) return false
+  return Date.now() - signOutInProgressAt < SIGN_OUT_IN_PROGRESS_WINDOW_MS
 }
 
 /** フォーム下書き(useFormDraft)の localStorage キーだけを消す。他のキー(最終アクセスパス・
@@ -35,11 +40,52 @@ function clearFormDrafts(): void {
   }
 }
 
+/**
+ * auth.signOut() が `{ error }` を返す（ネットワーク断・5xx 等。auth-js はこの場合 throw せず、
+ * かつ Cookie も消さない）と、共有PCで次の人が開いたときに proxy がまだ有効なセッションを見つけ
+ * 「ログアウトしたはずなのにログイン中のまま」になってしまう。signOut() が失敗を報告した／例外に
+ * なった場合は、Supabase の auth cookie（`sb-<project-ref>-auth-token` とその分割チャンク
+ * `.0` `.1` …）をここで明示的に失効させる。`signOut({ scope: 'local' })` は依然として
+ * サーバーへ `/logout` を呼び、失敗時はセッションが残るため代替にならない。
+ */
+function clearSupabaseAuthCookies(): void {
+  try {
+    const names = document.cookie
+      .split(';')
+      .map((pair) => pair.split('=')[0]?.trim())
+      .filter((name): name is string => !!name && name.startsWith('sb-') && name.includes('-auth-token'))
+    for (const name of names) {
+      document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+    }
+  } catch {
+    // document.cookie が使えない環境でもログアウト自体は続行する
+  }
+}
+
+/** `to` が「現在のページと同一URL（#hash 違いのみ）」に解決されるかどうか。
+ *  location.replace() はこの場合ブラウザ的には in-page navigation 扱いになり実際にはリロード
+ *  されない（hash 変更のみ）。呼び出し側はこのとき location.reload() に倒す必要がある。 */
+function resolvesToCurrentPageIgnoringHash(to: string): boolean {
+  try {
+    const target = new URL(to, window.location.href)
+    const current = new URL(window.location.href)
+    target.hash = ''
+    current.hash = ''
+    return target.href === current.href
+  } catch {
+    return false
+  }
+}
+
 interface SignOutAndLeaveOptions {
   /** サインアウト後に遷移する先。既定は /login */
   to?: string
-  /** Web Push 購読の解除を signOut() の前に行うか。/api/push/unsubscribe はセッションが要るため、
-   *  既にセッションが無い画面（MFA 未登録・オンボーディング未加入など）からは false にする */
+  /** Web Push 購読の解除を signOut() の前に行うか。既定は true。
+   *  ボタンを押す時点でユーザーがまだログイン中（アカウント切替・通常のログアウト等）なら
+   *  必ず true のままにする — false のままだと押した本人の購読が端末に残り、共有端末で
+   *  次にログインした別ユーザーが前の人宛の通知を受け取ってしまう。
+   *  false にしてよいのは「押す時点で使えるセッションが無い（or 使うべきでない）」画面だけ
+   *  （例: MFA コード入力前・オンボーディングでまだ組織に入っていない状態からのやり直し）。 */
   pushCleanup?: boolean
 }
 
@@ -52,7 +98,7 @@ export async function signOutAndLeave({
   to = '/login',
   pushCleanup = true,
 }: SignOutAndLeaveOptions = {}): Promise<void> {
-  signOutInProgress = true
+  signOutInProgressAt = Date.now()
   try {
     if (pushCleanup) {
       // /api/push/unsubscribe は有効なセッションを要求するため、signOut() より前に行う
@@ -66,11 +112,22 @@ export async function signOutAndLeave({
     clearFormDrafts()
 
     try {
-      await createClient().auth.signOut()
+      const { error } = await createClient().auth.signOut()
+      if (error) {
+        // auth-js はネットワーク断・5xx などで throw せず { error } を返すだけで、
+        // この場合 Cookie は削除されない。ここで検知して手動で失効させないと
+        // 「ログアウトしたつもりが実はまだログイン中」になる
+        clearSupabaseAuthCookies()
+      }
     } catch {
-      // signOut の失敗（ネットワーク断等）でもクライアント側の離脱は続行する
+      // signOut の呼び出し自体が例外（ネットワーク断等）でも同様にCookieを手動で失効させる
+      clearSupabaseAuthCookies()
     }
   } finally {
-    window.location.replace(to)
+    if (resolvesToCurrentPageIgnoringHash(to)) {
+      window.location.reload()
+    } else {
+      window.location.replace(to)
+    }
   }
 }

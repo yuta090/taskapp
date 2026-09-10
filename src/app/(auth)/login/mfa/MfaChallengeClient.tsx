@@ -47,6 +47,8 @@ export default function MfaChallengeClient() {
           const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
           if (!alive) return
           if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            // 門番との往復ループを諦めて強制ログアウトする救済経路。この画面で push 購読を
+            // 登録できることは通常無いので pushCleanup は省略する
             await signOutAndLeave({ to: '/login', pushCleanup: false })
             return
           }
@@ -103,6 +105,7 @@ export default function MfaChallengeClient() {
   )
 
   const handleSignOut = useCallback(async () => {
+    // コード入力を突破していない(aal2未達)ため、この画面までで push 購読を登録できることは無い
     await signOutAndLeave({ to: '/login', pushCleanup: false })
   }, [])
 

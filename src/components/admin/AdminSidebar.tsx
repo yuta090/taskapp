@@ -164,7 +164,9 @@ export function AdminSidebar({ badges, initialCollapsed = false }: AdminSidebarP
   const [collapsed, toggleCollapsed] = useSidebarCollapsed(initialCollapsed)
 
   async function handleLogout() {
-    await signOutAndLeave({ to: '/admin/login', pushCleanup: false })
+    // 運営はこのボタンを押す時点で必ずログイン中なので pushCleanup は既定(true)のまま
+    // （false にすると、この端末に残った push 購読が次にログインした別の運営に届いてしまう）
+    await signOutAndLeave({ to: '/admin/login' })
   }
 
   return (

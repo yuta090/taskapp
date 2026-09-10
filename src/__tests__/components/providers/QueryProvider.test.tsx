@@ -645,4 +645,101 @@ describe('QueryProvider — 認証状態変化でのハードリセット', () =
     // ガードにより2回目はリロードされない
     expect(reloadSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('10秒経過後の再トリガーは再びリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const dateSpy = vi.spyOn(Date, 'now')
+    try {
+      dateSpy.mockReturnValue(1_000_000)
+      const getClient = renderProvider()
+      await waitFor(() => expect(getClient()).not.toBeNull())
+
+      act(() => {
+        authCallback('SIGNED_OUT', null)
+      })
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
+
+      dateSpy.mockReturnValue(1_000_000 + 10_000)
+      act(() => {
+        authCallback('SIGNED_OUT', null)
+      })
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(2))
+    } finally {
+      dateSpy.mockRestore()
+    }
+  })
+
+  it('sessionStorage が使えなくても（例外を投げても）リロードは続行する', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('sessionStorage blocked (private browsing)')
+    })
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('sessionStorage blocked (private browsing)')
+    })
+    try {
+      const getClient = renderProvider()
+      await waitFor(() => expect(getClient()).not.toBeNull())
+
+      act(() => {
+        authCallback('SIGNED_OUT', null)
+      })
+
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
+    } finally {
+      getItemSpy.mockRestore()
+      setItemSpy.mockRestore()
+    }
+  })
+
+  it('未ログインで開けるページでは SIGNED_IN のユーザー識別が変わってもリロードしない', async () => {
+    const reloadSpy = stubLocation('/login')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(getClient()!.getQueryData<{ id: string }>(['currentUser'])?.id).toBe('user-B')
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('保護されたページで TOKEN_REFRESHED によるユーザー識別変化もフルリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('TOKEN_REFRESHED', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('保護されたページで INITIAL_SESSION によるユーザー識別変化もフルリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    })
+  })
 })

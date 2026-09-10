@@ -142,7 +142,13 @@ describe('PortalInvitePage — 受諾動線', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('切替案内から「ログアウトして招待を受ける」で signOutAndLeave({ to: 現在のURL, pushCleanup: false }) を呼ぶ（フルページ遷移で通常フォームへ）', async () => {
+  // /portal/[token] は proxy に保護されているため（未ログインでは開けない）、ログアウト後に
+  // 同じURLへ戻ると /login?redirect=... に弾かれ、アカウントを持たないクライアントが招待を
+  // 受け直せなくなる（回帰）。/invite/[token] は同じ token に対応する公開ページで、
+  // role==='client' の招待は受諾後 /portal へ着地するため、必ずそちらへ戻す。
+  // また、このボタンはログイン中に押されるので pushCleanup は既定(true)のまま渡す
+  // （push購読の解除は必要）
+  it('切替案内から「ログアウトして招待を受ける」で signOutAndLeave({ to: "/invite/tok-1" }) を呼ぶ（公開ページへ・pushCleanupは既定のまま）', async () => {
     mockGetSession.mockResolvedValue(session('other@example.com'))
 
     renderPage()
@@ -154,7 +160,7 @@ describe('PortalInvitePage — 受諾動線', () => {
     fireEvent.click(screen.getByRole('button', { name: /ログアウトして招待を受ける/ }))
 
     await waitFor(() => {
-      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: window.location.href, pushCleanup: false })
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/invite/tok-1' })
     })
   })
 

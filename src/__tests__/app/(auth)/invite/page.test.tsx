@@ -148,7 +148,9 @@ describe('InviteAcceptPage — 受諾動線', () => {
     expect(locationAssignSpy).not.toHaveBeenCalled()
   })
 
-  it('切替案内から「ログアウトして招待を受ける」で signOutAndLeave({ to: 現在のURL, pushCleanup: false }) を呼ぶ', async () => {
+  // /invite/[token] 自体は公開ページなので to は現在のURLのままでよい。ただしこのボタンは
+  // ログイン中に押されるので pushCleanup は既定(true)のまま渡す（push購読の解除は必要）
+  it('切替案内から「ログアウトして招待を受ける」で signOutAndLeave({ to: 現在のURL }) を呼ぶ（pushCleanupは既定のまま）', async () => {
     mockGetSession.mockResolvedValue(session('other@example.com'))
 
     renderPage()
@@ -160,7 +162,7 @@ describe('InviteAcceptPage — 受諾動線', () => {
     fireEvent.click(screen.getByRole('button', { name: /ログアウトして招待を受ける/ }))
 
     await waitFor(() => {
-      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: window.location.href, pushCleanup: false })
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: window.location.href })
     })
   })
 

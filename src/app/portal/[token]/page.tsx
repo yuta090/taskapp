@@ -195,7 +195,12 @@ export default function PortalInvitePage({
         </p>
         <AuthButton
           type="button"
-          onClick={() => signOutAndLeave({ to: window.location.href, pushCleanup: false })}
+          // /portal/[token] は proxy が保護するページ（未ログインでは開けない）なので、
+          // ログアウト後に同じURLへ戻ると /login?redirect=... へ弾かれ、アカウントを持たない
+          // クライアントが招待を受け直せなくなる。/invite/[token] は同じ token に対して
+          // rpc_validate_invite / accept API を使う公開ページで、role==='client' の招待は
+          // 受諾後 /portal へ着地するため、ここでは常にそちらへ戻す
+          onClick={() => signOutAndLeave({ to: `/invite/${token}` })}
         >
           ログアウトして招待を受ける
         </AuthButton>

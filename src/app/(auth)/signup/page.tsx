@@ -97,11 +97,13 @@ function SignupForm() {
         } else {
           setError(authError.message)
         }
+        setLoading(false)
         return
       }
 
       if (!authData.user) {
         setError('ユーザー作成に失敗しました')
+        setLoading(false)
         return
       }
 
@@ -109,6 +111,7 @@ function SignupForm() {
       // (匿名でのRPC実行を避けるため)
       if (!authData.session) {
         setSuccess(true)
+        setLoading(false)
         return
       }
 
@@ -124,17 +127,21 @@ function SignupForm() {
       if (orgError) {
         console.error('Org creation error:', orgError)
         setError('組織の作成に失敗しました。もう一度お試しください。')
+        setLoading(false)
         return
       }
 
       // 組織は出来たがプロジェクトが無い状態 → テンプレート選択（Step2）へ。
       // signUp がセッションを確立した（=識別が変わりうる）ので、SPA遷移ではなくフルページ遷移で
-      // 終える（ルート常駐のクライアント状態［ActiveOrgProvider・query cache］を作り直すため）
+      // 終える（ルート常駐のクライアント状態［ActiveOrgProvider・query cache］を作り直すため）。
+      // window.location.assign() は遷移を予約するだけですぐ返るため、ここで setLoading(false)
+      // すると実際にページが切り替わるまでボタンが一瞬押せる状態に戻ってしまう
+      // （遅い回線で二重送信を招く）。ページが破棄されるまでローディングのままにする
       window.location.assign('/onboarding')
+      return
     } catch (err) {
       console.error('Signup error:', err)
       setError('登録中にエラーが発生しました')
-    } finally {
       setLoading(false)
     }
   }

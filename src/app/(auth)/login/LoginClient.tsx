@@ -74,12 +74,16 @@ export default function LoginClient() {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
-        // フルページ遷移で終える（ルート常駐のクライアント状態を作り直すため。router.push はしない）
+        // フルページ遷移で終える（ルート常駐のクライアント状態を作り直すため。router.push はしない）。
+        // window.location.assign() は遷移を予約するだけですぐ返るため、ここで
+        // setReturningToApp(false) すると実際にページが切り替わるまでボタンが一瞬押せる状態に
+        // 戻ってしまう（遅い回線で顕著・二重実行の原因）。ページが破棄されるまで戻さない
         window.location.assign(mfa ?? (await resolveRedirect(supabase as SupabaseClient, session.user.id)))
+        return
       }
+      setReturningToApp(false)
     } catch {
       setError('ログイン中にエラーが発生しました')
-    } finally {
       setReturningToApp(false)
     }
   }
@@ -98,6 +102,7 @@ export default function LoginClient() {
 
       if (authError) {
         setError('メールアドレスまたはパスワードが正しくありません')
+        setLoading(false)
         return
       }
 
@@ -105,7 +110,11 @@ export default function LoginClient() {
         const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
         // サインインの完了はフルページ遷移で終える（ルート常駐のクライアント状態
         // ["currentUser"]・query cache・ActiveOrgProvider 等が前のユーザーの
-        // ものを引きずらないようにするため。router.push はしない）
+        // ものを引きずらないようにするため。router.push はしない）。
+        // window.location.assign() は遷移を予約するだけですぐ返るため、ここで
+        // setLoading(false) すると実際にページが切り替わるまでボタンが一瞬押せる状態に戻り、
+        // 遅い回線で二重送信（サインイン＋着地判定のやり直し）を招く。ページが破棄されるまで
+        // ローディングのままにする（MfaChallengeClient・invite ページと同じ方針）
         if (mfa) {
           window.location.assign(mfa)
           return
@@ -117,10 +126,12 @@ export default function LoginClient() {
         } else {
           window.location.assign(await resolveRedirect(supabase as SupabaseClient, data.user.id))
         }
+        return
       }
+
+      setLoading(false)
     } catch {
       setError('ログイン中にエラーが発生しました')
-    } finally {
       setLoading(false)
     }
   }
@@ -138,11 +149,14 @@ export default function LoginClient() {
 
       if (authError) {
         setError('デモアカウントでのログインに失敗しました')
+        setQuickLoginLoading(null)
         return
       }
 
       if (data.user) {
         const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
+        // 成功時はフルページ遷移で終えるので、ページが破棄されるまで
+        // setQuickLoginLoading(null) しない（handleSubmit と同じ理由）
         if (mfa) {
           window.location.assign(mfa)
           return
@@ -152,10 +166,12 @@ export default function LoginClient() {
         } else {
           window.location.assign(await resolveRedirect(supabase as SupabaseClient, data.user.id))
         }
+        return
       }
+
+      setQuickLoginLoading(null)
     } catch {
       setError('ログイン中にエラーが発生しました')
-    } finally {
       setQuickLoginLoading(null)
     }
   }

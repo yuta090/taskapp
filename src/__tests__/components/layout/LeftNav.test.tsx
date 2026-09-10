@@ -4,10 +4,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LeftNav } from '@/components/layout/LeftNav'
 import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 
+const { mockRouterPush, mockRouterReplace } = vi.hoisted(() => ({
+  mockRouterPush: vi.fn(),
+  mockRouterReplace: vi.fn(),
+}))
 vi.mock('next/navigation', () => ({
   usePathname: () => '/org1/project/space1',
   useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace, prefetch: vi.fn(), back: vi.fn() }),
 }))
 
 vi.mock('@/lib/hooks/useUnreadNotificationCount', () => ({
@@ -185,6 +189,8 @@ describe('LeftNav — ログアウトは signOutAndLeave に集約する', () =>
   beforeEach(() => {
     mockCurrentUser = { user_metadata: { name: 'テスト太郎' }, email: 'user@example.com' }
     mockSignOutAndLeave.mockClear()
+    mockRouterPush.mockClear()
+    mockRouterReplace.mockClear()
   })
 
   it('ログアウトを押すと signOutAndLeave({ to: "/login" }) を呼び、router.push/replace は呼ばない', async () => {
@@ -195,5 +201,7 @@ describe('LeftNav — ログアウトは signOutAndLeave に集約する', () =>
     await waitFor(() => {
       expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/login' })
     })
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(mockRouterReplace).not.toHaveBeenCalled()
   })
 })

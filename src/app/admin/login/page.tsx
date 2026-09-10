@@ -76,6 +76,7 @@ export default function AdminLoginPage() {
 
       if (authError) {
         setError('メールアドレスまたはパスワードが正しくありません')
+        setLoading(false)
         return
       }
 
@@ -90,15 +91,22 @@ export default function AdminLoginPage() {
         if (!profile?.is_superadmin) {
           await supabase.auth.signOut()
           setError('管理者権限がありません')
+          setLoading(false)
           return
         }
 
-        // サインインの完了はフルページ遷移で終える（ルート常駐のクライアント状態を作り直すため）
+        // サインインの完了はフルページ遷移で終える（ルート常駐のクライアント状態を作り直すため）。
+        // window.location.assign() は遷移を予約するだけで戻り値を待たずに戻ってくるため、ここで
+        // setLoading(false) してしまうとページが実際に切り替わるまでの間（遅い回線で0.5〜1秒）
+        // ボタンが一瞬操作可能に戻り、二重送信を招く。読み込みが終わる（=このコンポーネントごと
+        // 破棄される）まで意図的にローディング状態のままにする
         window.location.assign(ADMIN_HOME)
+        return
       }
+
+      setLoading(false)
     } catch {
       setError('ログイン中にエラーが発生しました')
-    } finally {
       setLoading(false)
     }
   }

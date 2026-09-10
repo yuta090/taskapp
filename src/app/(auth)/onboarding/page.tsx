@@ -198,6 +198,8 @@ export default function OnboardingPage() {
     if (signingOut) return
     setSigningOut(true)
     try {
+      // この画面はまだどの組織にも所属していない（Step1未完了）ので、push 購読を登録できる
+      // 場所に到達していない。pushCleanup は省略してよい
       await signOutAndLeave({ to: '/login', pushCleanup: false })
     } catch (err) {
       console.warn('Sign out failed:', err)

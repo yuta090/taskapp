@@ -155,20 +155,21 @@ describe('AdminSidebar — 折りたたみ', () => {
 
 /**
  * ログアウトは signOutAndLeave に集約する（router.push はしない。signOutAndLeave 自身が
- * window.location.replace でフルページ遷移する）。push解除(cleanupPushOnLogout)は運営パネルの
- * ログアウトでは不要なので pushCleanup:false を渡す。
+ * window.location.replace でフルページ遷移する）。運営はこのボタンを押す時点で必ずログイン中
+ * なので pushCleanup は既定(true)のまま渡す（false にすると、この端末に残った push 購読が
+ * 次にログインした別の運営に届いてしまう）。
  */
 describe('AdminSidebar — ログアウト', () => {
   beforeEach(() => {
     mockSignOutAndLeave.mockClear()
   })
 
-  it('ログアウトを押すと signOutAndLeave({ to: "/admin/login", pushCleanup: false }) を呼ぶ', async () => {
+  it('ログアウトを押すと signOutAndLeave({ to: "/admin/login" }) を呼ぶ（pushCleanupは既定のまま）', async () => {
     render(<AdminSidebar />)
     fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
 
     await waitFor(() => {
-      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/admin/login', pushCleanup: false })
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/admin/login' })
     })
   })
 })

@@ -102,6 +102,61 @@ describe('SignupPage', () => {
     expect(mockPush).not.toHaveBeenCalledWith('/onboarding')
   })
 
+  // window.location.assign() は遷移を予約するだけですぐ返るため、成功直後に loading を解除すると
+  // 実際にページが切り替わるまでボタンが一瞬押せる状態に戻り、遅い回線で二重送信を招く。
+  it('should keep the submit button in its loading state until the page is torn down on success', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
+      error: null,
+    })
+    mockRpc.mockResolvedValue({ error: null })
+
+    render(<SignupPage />)
+    fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'アカウント作成' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
+    })
+    expect(screen.getByText('処理中...')).toBeInTheDocument()
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+  })
+
+  it('should reset the submit button loading state when signUp fails', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'このメールアドレスは既に登録されています' },
+    })
+
+    render(<SignupPage />)
+    fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'アカウント作成' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('このメールアドレスは既に登録されています')).toBeInTheDocument()
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'アカウント作成' })).not.toBeDisabled()
+  })
+
+  it('should reset the submit button loading state when the org RPC fails', async () => {
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
+      error: null,
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'boom' } })
+
+    render(<SignupPage />)
+    fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'アカウント作成' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('組織の作成に失敗しました。もう一度お試しください。')).toBeInTheDocument()
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'アカウント作成' })).not.toBeDisabled()
+  })
+
   it('should show an error (not the success screen) when RPC fails with a session', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
