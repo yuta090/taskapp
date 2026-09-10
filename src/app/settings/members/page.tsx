@@ -639,12 +639,18 @@ export default function MembersSettingsPage() {
                 </span>
               </div>
             </div>
+            <p className="px-4 pt-3 text-xs text-gray-500">
+              相手にメールが届いていないときは、その人の行にある「もう一度送る」を押してください。招待メールをもう一度送り直せます。
+            </p>
             <div className="divide-y divide-gray-100">
               {pendingInvites.map(invite => {
                 const actionInFlight = pendingInviteActionId === invite.id
                 return (
-                  <div key={invite.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="flex-1 min-w-0">
+                  <div
+                    key={invite.id}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3"
+                  >
+                    <div className="flex-1 min-w-0 basis-48">
                       <div className="text-sm font-medium text-gray-900 truncate">{invite.email}</div>
                       <div className="text-xs text-gray-500 truncate">
                         {invite.space_name}
@@ -656,22 +662,26 @@ export default function MembersSettingsPage() {
                         </span>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleResendInvite(invite.id)}
-                      disabled={actionInFlight}
-                      className="p-1.5 text-gray-400 hover:text-indigo-ink hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="招待を再送する"
-                    >
-                      <ArrowClockwise className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleCancelInvite(invite.id)}
-                      disabled={actionInFlight}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="招待を取り消す"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleResendInvite(invite.id)}
+                        disabled={actionInFlight}
+                        className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="招待メールをもう一度送ります"
+                      >
+                        <ArrowClockwise className="w-3.5 h-3.5 flex-shrink-0" />
+                        もう一度送る
+                      </button>
+                      <button
+                        onClick={() => handleCancelInvite(invite.id)}
+                        disabled={actionInFlight}
+                        className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="この招待のリンクを使えなくします"
+                      >
+                        <X className="w-3.5 h-3.5 flex-shrink-0" />
+                        招待を取り消す
+                      </button>
+                    </div>
                   </div>
                 )
               })}
