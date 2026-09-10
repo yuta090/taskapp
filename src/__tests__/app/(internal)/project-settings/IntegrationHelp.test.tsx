@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { GitHubRepoSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/GitHubRepoSettings'
 import { SlackChannelSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/SlackChannelSettings'
 import { getSetupGuide } from '@/lib/integrations/setupGuides'
+import { useGitHubInstallation } from '@/lib/hooks'
 
 /**
  * プロジェクト設定 → 外部連携（GitHub / Slack）の「連携のしかた」ボタン。
@@ -26,7 +27,7 @@ const idle = { data: undefined, isLoading: false }
 const mutation = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }
 
 vi.mock('@/lib/hooks', () => ({
-  useGitHubInstallation: () => idle,
+  useGitHubInstallation: vi.fn(() => idle),
   useGitHubRepositories: () => ({ data: [], isLoading: false }),
   useSpaceGitHubRepos: () => ({ data: [], isLoading: false }),
   useLinkRepoToSpace: () => mutation,
@@ -54,6 +55,15 @@ describe('プロジェクト設定の GitHub / Slack に「連携のしかた」
     // 利用者が実際に押すボタン名がそのまま手順に出ている
     expect(guide.steps.join('\n')).toMatch(/GitHubと連携する/)
     expect(guide.steps.join('\n')).toMatch(/リポジトリを追加/)
+  })
+
+  it('GitHub: 連携済みのときの常設の説明に、タスク番号(TP-○○)の場所への案内がある', () => {
+    vi.mocked(useGitHubInstallation).mockReturnValueOnce({
+      data: { account_login: 'my-org' },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useGitHubInstallation>)
+    render(<GitHubRepoSettings orgId="org-1" spaceId="space-1" />)
+    expect(screen.getByText(/タスク番号（TP-○○）は、タスク詳細のタイトルの上に出ています/)).toBeInTheDocument()
   })
 
   it('Slack: 未接続でもボタンがあり、押すと手順（組織設定→Slackと連携する→/invite→チャンネルを選択）が出る', () => {

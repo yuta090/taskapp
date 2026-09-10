@@ -92,4 +92,24 @@ describe('buildAgentpmSkill', () => {
   it('最新版の置き場所を書いている', () => {
     expect(skill).toContain(SKILL_URL)
   })
+
+  it('説明文(description)に PR/プルリクエスト/GitHub の語があり、PRを作る場面でも読み込まれる', () => {
+    const description = skill.split('\n')[2]
+    expect(description.startsWith('description: ')).toBe(true)
+    expect(description).toMatch(/PR/)
+    expect(description).toMatch(/プルリクエスト/)
+    expect(description).toMatch(/GitHub/)
+  })
+
+  it('PRのタイトル/本文/ブランチ名に TP-番号を書くと紐づき、通知が届くことが書いてある', () => {
+    expect(skill).toMatch(/タイトルか本文、またはブランチ名/)
+    expect(skill).toMatch(/TP-42/)
+    expect(skill).toMatch(/タスクの担当者に通知が届く/)
+  })
+
+  it('番号は task list --json / task get --json の number で分かることが書いてある', () => {
+    expect(skill).toContain('agentpm task list --json')
+    expect(skill).toContain('agentpm task get --json')
+    expect(skill).toMatch(/`number`/)
+  })
 })

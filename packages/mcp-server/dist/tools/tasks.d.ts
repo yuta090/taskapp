@@ -19,14 +19,14 @@ export declare const taskCreateSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
     title: string;
-    type: "task" | "spec";
     ball: "client" | "internal";
+    type: "task" | "spec";
     origin: "client" | "internal";
     clientScope: "internal" | "deliverable";
     clientOwnerIds: string[];
     internalOwnerIds: string[];
-    description?: string | undefined;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+    description?: string | undefined;
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
     milestoneId?: string | undefined;
@@ -35,12 +35,12 @@ export declare const taskCreateSchema: z.ZodObject<{
 }, {
     spaceId: string;
     title: string;
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+    ball?: "client" | "internal" | undefined;
     description?: string | undefined;
     type?: "task" | "spec" | undefined;
-    ball?: "client" | "internal" | undefined;
     origin?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
-    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     clientOwnerIds?: string[] | undefined;
     internalOwnerIds?: string[] | undefined;
     dueDate?: string | undefined;
@@ -70,9 +70,9 @@ export declare const taskUpdateSchema: z.ZodObject<{
     spaceId: string;
     taskId: string;
     title?: string | undefined;
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     description?: string | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
-    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
     milestoneId?: string | null | undefined;
@@ -87,9 +87,9 @@ export declare const taskUpdateSchema: z.ZodObject<{
     spaceId: string;
     taskId: string;
     title?: string | undefined;
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     description?: string | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
-    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     dueDate?: string | undefined;
     assigneeId?: string | undefined;
     milestoneId?: string | null | undefined;
@@ -113,16 +113,16 @@ export declare const taskListSchema: z.ZodObject<{
     spaceId: string;
     limit: number;
     offset: number;
-    type?: "task" | "spec" | undefined;
-    ball?: "client" | "internal" | undefined;
-    clientScope?: "internal" | "deliverable" | undefined;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+    ball?: "client" | "internal" | undefined;
+    type?: "task" | "spec" | undefined;
+    clientScope?: "internal" | "deliverable" | undefined;
 }, {
     spaceId: string;
-    type?: "task" | "spec" | undefined;
-    ball?: "client" | "internal" | undefined;
-    clientScope?: "internal" | "deliverable" | undefined;
     status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+    ball?: "client" | "internal" | undefined;
+    type?: "task" | "spec" | undefined;
+    clientScope?: "internal" | "deliverable" | undefined;
     limit?: number | undefined;
     offset?: number | undefined;
 }>;
@@ -161,13 +161,13 @@ export declare const taskListMySchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     limit: number;
     offset: number;
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     ball?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
-    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
 }, {
+    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     ball?: "client" | "internal" | undefined;
     clientScope?: "internal" | "deliverable" | undefined;
-    status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     limit?: number | undefined;
     offset?: number | undefined;
 }>;
@@ -233,14 +233,14 @@ export declare const taskTools: ({
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
         title: string;
-        type: "task" | "spec";
         ball: "client" | "internal";
+        type: "task" | "spec";
         origin: "client" | "internal";
         clientScope: "internal" | "deliverable";
         clientOwnerIds: string[];
         internalOwnerIds: string[];
-        description?: string | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        description?: string | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
@@ -249,12 +249,12 @@ export declare const taskTools: ({
     }, {
         spaceId: string;
         title: string;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        ball?: "client" | "internal" | undefined;
         description?: string | undefined;
         type?: "task" | "spec" | undefined;
-        ball?: "client" | "internal" | undefined;
         origin?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         clientOwnerIds?: string[] | undefined;
         internalOwnerIds?: string[] | undefined;
         dueDate?: string | undefined;
@@ -288,9 +288,9 @@ export declare const taskTools: ({
         spaceId: string;
         taskId: string;
         title?: string | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         description?: string | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
@@ -305,9 +305,9 @@ export declare const taskTools: ({
         spaceId: string;
         taskId: string;
         title?: string | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         description?: string | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
@@ -335,16 +335,16 @@ export declare const taskTools: ({
         spaceId: string;
         limit: number;
         offset: number;
-        type?: "task" | "spec" | undefined;
-        ball?: "client" | "internal" | undefined;
-        clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        ball?: "client" | "internal" | undefined;
+        type?: "task" | "spec" | undefined;
+        clientScope?: "internal" | "deliverable" | undefined;
     }, {
         spaceId: string;
-        type?: "task" | "spec" | undefined;
-        ball?: "client" | "internal" | undefined;
-        clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        ball?: "client" | "internal" | undefined;
+        type?: "task" | "spec" | undefined;
+        clientScope?: "internal" | "deliverable" | undefined;
         limit?: number | undefined;
         offset?: number | undefined;
     }>;
@@ -395,13 +395,13 @@ export declare const taskTools: ({
     }, "strip", z.ZodTypeAny, {
         limit: number;
         offset: number;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     }, {
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         limit?: number | undefined;
         offset?: number | undefined;
     }>;

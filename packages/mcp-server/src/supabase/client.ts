@@ -42,6 +42,8 @@ export interface Task {
   parent_task_id: string | null
   start_date: string | null
   actual_hours: number | null
+  // サービス全体の通し番号(TP-42等の表示に使う)。tasks_short_id_seq のトリガーで自動採番。
+  short_id?: number | null
   created_at: string
   updated_at: string
 }

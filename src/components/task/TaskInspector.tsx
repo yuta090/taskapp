@@ -26,6 +26,7 @@ import { isPageInMilestone, pickMilestoneWikiPages } from '@/lib/wiki/listView'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
 import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { formatTaskNumber } from '@/lib/tasks/taskNumber'
 
 interface TaskInspectorProps {
   task: Task
@@ -101,7 +102,9 @@ export function TaskInspector({
   const [showDetails, setShowDetails] = useState(false)
   const [estimateInput, setEstimateInput] = useState('')
   const [isSendingEstimate, setIsSendingEstimate] = useState(false)
+  const [taskNumberCopied, setTaskNumberCopied] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const taskNumberCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // AT-009: Spec task 2-click workflow state
   const [specConfirmClickTime, setSpecConfirmClickTime] = useState<number | null>(null)
@@ -118,6 +121,10 @@ export function TaskInspector({
     setEditingOwners(false)
     setEstimateInput(task.estimated_cost != null ? String(task.estimated_cost) : '')
     setIsSendingEstimate(false)
+    // タスク切り替え時は前のタスクの「コピーしました」タイマーを引き継がない（Inspector は
+    // タスクを切り替えてもアンマウントされないため、放置すると別タスクの番号欄に一瞬出る）
+    if (taskNumberCopiedTimerRef.current) clearTimeout(taskNumberCopiedTimerRef.current)
+    setTaskNumberCopied(false)
     // Progressive disclosure: 詳細設定に値があれば展開
     const hasDetails = !!(
       task.parent_task_id ||
@@ -241,8 +248,23 @@ export function TaskInspector({
   useEffect(() => {
     return () => {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      if (taskNumberCopiedTimerRef.current) clearTimeout(taskNumberCopiedTimerRef.current)
     }
   }, [])
+
+  const taskNumber = formatTaskNumber(task.short_id)
+
+  const handleCopyTaskNumber = async () => {
+    if (!taskNumber) return
+    try {
+      await navigator.clipboard.writeText(taskNumber)
+      setTaskNumberCopied(true)
+      if (taskNumberCopiedTimerRef.current) clearTimeout(taskNumberCopiedTimerRef.current)
+      taskNumberCopiedTimerRef.current = setTimeout(() => setTaskNumberCopied(false), 1500)
+    } catch {
+      // コピー失敗はユーザー操作の妨げにならないよう無視する
+    }
+  }
 
   const handleTitleSave = async () => {
     if (!editTitle.trim() || editTitle === task.title) {
@@ -582,6 +604,20 @@ export function TaskInspector({
 
         {/* Title */}
         <div>
+          {taskNumber && (
+            <div className="mb-1">
+              <Tooltip content="タスク番号です。GitHub の PR のタイトルなどに書くと、このタスクにつながります">
+                <button
+                  type="button"
+                  onClick={handleCopyTaskNumber}
+                  data-testid="task-inspector-task-number"
+                  className="font-mono text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  {taskNumberCopied ? 'コピーしました' : taskNumber}
+                </button>
+              </Tooltip>
+            </div>
+          )}
           {isEditingTitle ? (
             <div className="flex items-center gap-2">
               <input
