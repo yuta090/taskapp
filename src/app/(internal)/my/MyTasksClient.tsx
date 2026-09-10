@@ -1,12 +1,17 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback, useContext } from 'react'
+import { useEffect, useState, useMemo, useCallback, useContext, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { useQueryClient } from '@tanstack/react-query'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
+import { rpc } from '@/lib/supabase/rpc'
 import { TaskRow } from '@/components/task/TaskRow'
+import { useInspector } from '@/components/layout'
+import { useTasks } from '@/lib/hooks/useTasks'
+import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
@@ -15,6 +20,11 @@ import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 
 const TaskCreateSheet = dynamic(
   () => import('@/components/task/TaskCreateSheet').then((m) => ({ default: m.TaskCreateSheet })),
+  { ssr: false }
+)
+
+const TaskInspector = dynamic(
+  () => import('@/components/task/TaskInspector').then((m) => ({ default: m.TaskInspector })),
   { ssr: false }
 )
 
@@ -109,6 +119,87 @@ const sortLabels: Record<SortField, string> = {
   title: 'タイトル',
 }
 
+interface MyTaskInspectorProps {
+  task: Task
+  onClose: () => void
+  onSynced: (task: Task) => void
+  onDeleted: (taskId: string) => void
+}
+
+/**
+ * 選んだタスクの詳細を右側(Inspector)に出す。更新はプロジェクト画面と同じ useTasks を通す
+ * （承認メール・通知などの副作用をそろえるため）。そのプロジェクトのタスクは親タスク候補・
+ * 子タスクの表示にも要る。
+ */
+function MyTaskInspector({ task, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
+  const { setInspector } = useInspector()
+  const { tasks, owners, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+    orgId: task.org_id,
+    spaceId: task.space_id,
+  })
+  const spaceTask = tasks.find((t) => t.id === task.id)
+  const current = spaceTask ?? task
+
+  // 詳細で変えた内容を一覧にも映す。一覧側の変更で task が変わっただけでは戻さない（古い値で上書きしない）
+  const onSyncedRef = useRef(onSynced)
+  useEffect(() => {
+    onSyncedRef.current = onSynced
+  })
+  useEffect(() => {
+    if (spaceTask) onSyncedRef.current(spaceTask)
+  }, [spaceTask])
+
+  useEffect(() => () => setInspector(null), [setInspector])
+
+  useEffect(() => {
+    const taskOwners = owners[current.id] || []
+    setInspector(
+      <TaskInspector
+        task={current}
+        spaceId={current.space_id}
+        owners={taskOwners}
+        parentTasks={getEligibleParents(tasks, current.id).map((t) => ({ id: t.id, title: t.title }))}
+        childTasks={tasks.filter((t) => t.parent_task_id === current.id)}
+        onClose={onClose}
+        onPassBall={async (ball, overrideClientOwnerIds, overrideInternalOwnerIds) => {
+          const clientOwnerIds = overrideClientOwnerIds ?? taskOwners
+            .filter((owner) => owner.side === 'client')
+            .map((owner) => owner.user_id)
+          const internalOwnerIds = overrideInternalOwnerIds ?? taskOwners
+            .filter((owner) => owner.side === 'internal')
+            .map((owner) => owner.user_id)
+          // バリデーションはTaskInspector側で処理済み（フォールバック用のみ残す）
+          if (ball === 'client' && clientOwnerIds.length === 0) return
+          await passBall(current.id, ball, clientOwnerIds, internalOwnerIds)
+        }}
+        onUpdate={(updates) => updateTask(current.id, updates)}
+        onDelete={async () => {
+          await deleteTask(current.id)
+          onDeleted(current.id)
+        }}
+        onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
+          passBall(current.id, current.ball, clientOwnerIds, internalOwnerIds)
+        }
+        onSetSpecState={
+          current.type === 'spec'
+            ? async (decisionState) => {
+                if (decisionState !== 'considering' && !current.wiki_page_id && !current.spec_path) {
+                  throw new Error('仕様書のWikiページが紐付けられていません')
+                }
+                await rpc.setSpecState(createClient(), { taskId: current.id, decisionState })
+                await fetchTasks()
+              }
+            : undefined
+        }
+        onConsideringDecided={fetchTasks}
+        onReviewChange={handleReviewChange}
+      />
+    )
+  }, [current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+
+  return null
+}
+
 export default function MyTasksClient() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [spaces, setSpaces] = useState<Space[]>([])
@@ -134,6 +225,46 @@ export default function MyTasksClient() {
   const isCreateOpen = searchParams.get('create') !== null
   const supabase = useMemo(() => createClient() as SupabaseClient, [])
   const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
+
+  // 選んだタスクは右側に詳細を出す（ページは移動しない）。URL にも残し、再読み込み・共有で同じ表示に戻せるようにする
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('task'))
+  const selectedTaskIdRef = useRef(selectedTaskId)
+  useEffect(() => {
+    selectedTaskIdRef.current = selectedTaskId
+  })
+
+  const selectTask = useCallback((taskId: string | null) => {
+    setSelectedTaskId(taskId)
+    const params = new URLSearchParams(window.location.search)
+    if (taskId) {
+      params.set('task', taskId)
+    } else {
+      params.delete('task')
+    }
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `/my?${query}` : '/my')
+  }, [])
+
+  const handleTaskClick = useCallback((taskId: string) => {
+    // 同じタスクをもう一度押したら閉じる
+    selectTask(taskId === selectedTaskIdRef.current ? null : taskId)
+  }, [selectTask])
+
+  const handleInspectorClose = useCallback(() => selectTask(null), [selectTask])
+
+  const handleInspectorSynced = useCallback((updated: Task) => {
+    setTasks(prev => (prev.includes(updated) ? prev : prev.map(t => (t.id === updated.id ? updated : t))))
+  }, [])
+
+  const handleInspectorDeleted = useCallback((taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId))
+    selectTask(null)
+  }, [selectTask])
+
+  const selectedTask = useMemo(
+    () => (selectedTaskId ? tasks.find(t => t.id === selectedTaskId) ?? null : null),
+    [tasks, selectedTaskId]
+  )
 
   // Space options for global create
   const spaceOptions = useMemo(
@@ -274,6 +405,7 @@ export default function MyTasksClient() {
     })
   }, [])
 
+  const queryClient = useQueryClient()
   const updateTaskStatus = useCallback(async (taskId: string, status: TaskStatus) => {
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t))
@@ -287,8 +419,15 @@ export default function MyTasksClient() {
       // Revert on error
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: tasks.find(task => task.id === taskId)?.status || t.status } : t))
       console.error('Failed to update task status:', error)
+      return
     }
-  }, [supabase, tasks])
+
+    // 右側の詳細（プロジェクト単位の読み込み結果）も新しい状態に合わせる
+    const target = tasks.find(t => t.id === taskId)
+    if (target) {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', target.org_id, target.space_id] })
+    }
+  }, [supabase, tasks, queryClient])
 
   useEffect(() => {
     // org解決前はフェッチしない（cross-org leak防止）
@@ -679,11 +818,8 @@ export default function MyTasksClient() {
                                 <TaskRow
                                   key={task.id}
                                   task={task}
-                                  onClick={() => {
-                                    const orgId = task.org_id
-                                    const spaceId = task.space_id
-                                    window.location.href = `/${orgId}/project/${spaceId}?task=${task.id}`
-                                  }}
+                                  isSelected={task.id === selectedTaskId}
+                                  onClick={handleTaskClick}
                                   onStatusChange={updateTaskStatus}
                                 />
                               ))}
@@ -709,11 +845,8 @@ export default function MyTasksClient() {
                       <TaskRow
                         key={task.id}
                         task={task}
-                        onClick={() => {
-                          const orgId = task.org_id
-                          const spaceId = task.space_id
-                          window.location.href = `/${orgId}/project/${spaceId}?task=${task.id}`
-                        }}
+                        isSelected={task.id === selectedTaskId}
+                        onClick={handleTaskClick}
                         onStatusChange={updateTaskStatus}
                       />
                     ))}
@@ -733,6 +866,16 @@ export default function MyTasksClient() {
         onSubmit={handleCreateSubmit}
         spaces={spaceOptions}
       />
+
+      {selectedTask && (
+        <MyTaskInspector
+          key={selectedTask.id}
+          task={selectedTask}
+          onClose={handleInspectorClose}
+          onSynced={handleInspectorSynced}
+          onDeleted={handleInspectorDeleted}
+        />
+      )}
     </div>
   )
 }
