@@ -37,6 +37,8 @@ describe('配信ポリシー(delivery)', () => {
       'ball_passed',
       'client_question',
       'client_feedback',
+      // 招待の承諾: 招待した人が待っているので、まとめではなくその場で知らせる
+      'invite_accepted',
     ]) {
       expect(getDeliveryPolicy(type).push, type).toBe('immediate')
       expect(getDeliveryPolicy(type).email, type).toBe('immediate')
@@ -47,7 +49,6 @@ describe('配信ポリシー(delivery)', () => {
     for (const type of [
       'task_completed',
       'file_uploaded',
-      'invite_accepted',
       'meeting_scheduled',
       'meeting_ended',
       'scheduling_reminder',
@@ -197,6 +198,7 @@ describe('即時メールの対象', () => {
         'client_replied',
         'client_response',
         'confirmation_request',
+        'invite_accepted',
         'review_request',
         'sink_error',
         'spec_decision_needed',
