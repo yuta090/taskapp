@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { mfaRedirectResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
-import { getInstallationRepositories } from '@/lib/github'
+import { getInstallationRepositories, getInstallationPermissions } from '@/lib/github'
 import { verifySignedState } from '@/lib/github/config'
 
 export const runtime = 'nodejs'
@@ -121,6 +121,29 @@ export async function GET(request: NextRequest) {
           new URL(`${redirectUri}?error=save_failed`, request.url)
         )
       }
+    }
+
+    // その時点の許可範囲を記録する（GITHUB_ISSUES_LINK_SPEC.md §5・§7.6）。
+    // permissions / permissions_updated_at 列は本番マイグレーション適用前にこのコードが
+    // 先に出ても壊れないよう、失敗してもログのみでインストール自体は止めない。
+    try {
+      const permissions = await getInstallationPermissions(parseInt(installationId, 10))
+      if (permissions) {
+        const { error: permissionsError } = await getSupabaseAdmin()
+          .from('github_installations')
+          .update({
+            permissions,
+            permissions_updated_at: new Date().toISOString(),
+          })
+          .eq('org_id', orgId)
+          .eq('installation_id', parseInt(installationId, 10))
+
+        if (permissionsError) {
+          console.error('Failed to save installation permissions:', permissionsError)
+        }
+      }
+    } catch (permErr) {
+      console.error('Failed to fetch installation permissions:', permErr)
     }
 
     // リポジトリ情報を保存

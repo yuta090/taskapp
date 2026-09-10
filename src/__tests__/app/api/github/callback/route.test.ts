@@ -18,6 +18,25 @@ let sessionUser: { id: string } | null
 const insertMock = vi.fn(() => Promise.resolve({ error: null }))
 const upsertMock = vi.fn(() => Promise.resolve({ error: null }))
 
+let permissionsUpdateError: { message: string } | null = null
+let permissionsUpdatePatch: Record<string, unknown> | null = null
+const permissionsUpdateEqCalls: Array<[string, unknown]> = []
+const permissionsUpdateMock = vi.fn((patch: Record<string, unknown>) => {
+  permissionsUpdatePatch = patch
+  return {
+    eq: vi.fn((col: string, value: unknown) => {
+      permissionsUpdateEqCalls.push([col, value])
+      return {
+        eq: vi.fn((col2: string, value2: unknown) => {
+          permissionsUpdateEqCalls.push([col2, value2])
+          return Promise.resolve({ error: permissionsUpdateError })
+        }),
+      }
+    }),
+  }
+})
+const getInstallationPermissionsMock = vi.fn()
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
@@ -37,6 +56,7 @@ vi.mock('@supabase/supabase-js', () => ({
             })),
           })),
           insert: insertMock,
+          update: permissionsUpdateMock,
         }
       }
       if (table === 'github_repositories') {
@@ -53,6 +73,7 @@ vi.mock('@/lib/github', () => ({
       { id: 71585999, name: 'taskapp', owner: { login: 'yuta090', type: 'User' }, private: false, default_branch: 'main' },
     ]),
   ),
+  getInstallationPermissions: (...args: unknown[]) => getInstallationPermissionsMock(...args),
 }))
 
 async function load() {
@@ -76,6 +97,12 @@ describe('GET /api/github/callback', () => {
     vi.unstubAllEnvs()
     insertMock.mockClear()
     upsertMock.mockClear()
+    permissionsUpdateMock.mockClear()
+    getInstallationPermissionsMock.mockClear()
+    getInstallationPermissionsMock.mockResolvedValue({ pull_requests: 'read', issues: 'write', metadata: 'read' })
+    permissionsUpdateError = null
+    permissionsUpdatePatch = null
+    permissionsUpdateEqCalls.length = 0
     sessionUser = { id: USER_ID }
   })
 
@@ -104,5 +131,32 @@ describe('GET /api/github/callback', () => {
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
     expect(location.searchParams.get('error')).toBe('unauthorized')
+  })
+
+  it('インストール完了時に、その時点の許可範囲を github_installations.permissions に保存する', async () => {
+    const { GET, createSignedState } = await load()
+    const res = await GET(req('159612227', createSignedState(ORG_ID, '/settings/org-integrations')))
+
+    expect(res.status).toBe(307)
+    expect(getInstallationPermissionsMock).toHaveBeenCalledWith(159612227)
+    expect(permissionsUpdateMock).toHaveBeenCalledTimes(1)
+    expect(permissionsUpdatePatch).toMatchObject({
+      permissions: { pull_requests: 'read', issues: 'write', metadata: 'read' },
+    })
+    expect(typeof permissionsUpdatePatch?.permissions_updated_at).toBe('string')
+    expect(permissionsUpdateEqCalls).toContainEqual(['org_id', ORG_ID])
+    expect(permissionsUpdateEqCalls).toContainEqual(['installation_id', 159612227])
+  })
+
+  it('許可範囲の取得・保存に失敗しても、インストール自体は成功のまま止まらない（列未追加のマイグレーション未適用に備える）', async () => {
+    getInstallationPermissionsMock.mockRejectedValueOnce(new Error('column "permissions" does not exist'))
+    const { GET, createSignedState } = await load()
+
+    const res = await GET(req('159612227', createSignedState(ORG_ID, '/settings/org-integrations')))
+
+    expect(insertMock).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(307)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('success')).toBe('true')
   })
 })
