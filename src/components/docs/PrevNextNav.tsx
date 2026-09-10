@@ -1,35 +1,22 @@
 import Link from 'next/link'
+import { MANUAL_SECTIONS, getManualNavEntries, type ManualSection } from '@/lib/docs/manualNav'
 
 interface NavEntry {
   slug: string[]
   label: string
 }
 
-const navOrder: NavEntry[] = [
-  { slug: ['internal'], label: '概要' },
-  { slug: ['internal', 'getting-started'], label: 'はじめに・初期設定' },
-  { slug: ['internal', 'dashboard'], label: 'ダッシュボード' },
-  { slug: ['internal', 'my-tasks'], label: 'マイタスク' },
-  { slug: ['internal', 'inbox'], label: '受信トレイ' },
-  { slug: ['internal', 'tasks'], label: 'タスク管理' },
-  { slug: ['internal', 'meetings'], label: '会議管理' },
-  { slug: ['internal', 'wiki'], label: 'Wiki・仕様管理' },
-  { slug: ['internal', 'reviews'], label: 'レビュー・承認' },
-  { slug: ['internal', 'scheduling'], label: '日程調整' },
-  { slug: ['internal', 'settings'], label: 'プロジェクト設定' },
-  { slug: ['internal', 'user-settings'], label: 'ユーザー・組織設定' },
-  { slug: ['internal', 'mcp-guide'], label: 'MCP（AI連携）' },
-  { slug: ['internal', 'notifications'], label: '通知ガイド' },
-  { slug: ['internal', 'troubleshooting'], label: 'トラブルシューティング' },
-  { slug: ['internal', 'glossary'], label: '用語集' },
-  { slug: ['client'], label: '概要' },
-  { slug: ['client', 'getting-started'], label: 'はじめに' },
-  { slug: ['client', 'dashboard'], label: 'ダッシュボード' },
-  { slug: ['client', 'tasks'], label: 'タスクの確認と対応' },
-  { slug: ['client', 'meetings'], label: '会議と日程調整' },
-  { slug: ['client', 'approvals'], label: '承認・レビュー' },
-  { slug: ['client', 'troubleshooting'], label: 'お困りの場合' },
-]
+/**
+ * 前後リンクの並びは manualNav.ts（目次の真実源）から作る。
+ * 各セクションの先頭は概要ページ（/docs/manual/<section>）。
+ */
+const navOrder: NavEntry[] = MANUAL_SECTIONS.flatMap((section: ManualSection) => [
+  { slug: [section], label: '概要' },
+  ...getManualNavEntries(section).map((entry) => ({
+    slug: [section, entry.slug],
+    label: entry.title,
+  })),
+])
 
 function slugsEqual(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((s, i) => s === b[i])
