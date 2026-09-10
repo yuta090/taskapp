@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import {
   GearSix,
@@ -10,8 +9,7 @@ import {
   PlugsConnected,
   SignOut,
 } from '@phosphor-icons/react'
-import { createClient } from '@/lib/supabase/client'
-import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 
 interface OrgMenuProps {
   isOpen: boolean
@@ -20,10 +18,6 @@ interface OrgMenuProps {
 }
 
 export function OrgMenu({ isOpen, onClose, collapsed }: OrgMenuProps) {
-  const router = useRouter()
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (supabaseRef.current == null) supabaseRef.current = createClient()
-
   // Escape key handler
   useEffect(() => {
     if (!isOpen) return
@@ -38,13 +32,8 @@ export function OrgMenu({ isOpen, onClose, collapsed }: OrgMenuProps) {
   }, [isOpen, onClose])
 
   const handleLogout = useCallback(async () => {
-    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
-    // valid session, so it must run while the user is still logged in.
-    await cleanupPushOnLogout()
-    const supabase = supabaseRef.current!
-    await supabase.auth.signOut()
-    router.push('/login')
-  }, [router])
+    await signOutAndLeave({ to: '/login' })
+  }, [])
 
   if (!isOpen) return null
 

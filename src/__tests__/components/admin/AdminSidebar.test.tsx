@@ -16,7 +16,13 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/admin/dashboard',
   useRouter: () => ({ push: vi.fn() }),
 }))
-vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { signOut: vi.fn() } }) }))
+
+const { mockSignOutAndLeave } = vi.hoisted(() => ({
+  mockSignOutAndLeave: vi.fn(() => Promise.resolve()),
+}))
+vi.mock('@/lib/auth/signOutClient', () => ({
+  signOutAndLeave: mockSignOutAndLeave,
+}))
 
 /** 変更前(フラット19項目)＋追加分と完全一致すべきURL集合。1つでも欠けたら外部リンクが死ぬ。 */
 const EXPECTED_HREFS = [
@@ -144,5 +150,25 @@ describe('AdminSidebar — 折りたたみ', () => {
     render(<AdminSidebar badges={{ '/admin/shared-bot-access': 3 }} />)
     fireEvent.click(screen.getByRole('button', { name: 'メニューを畳む' }))
     expect(screen.getByTestId('admin-nav-badge-/admin/shared-bot-access')).toHaveTextContent('3')
+  })
+})
+
+/**
+ * ログアウトは signOutAndLeave に集約する（router.push はしない。signOutAndLeave 自身が
+ * window.location.replace でフルページ遷移する）。push解除(cleanupPushOnLogout)は運営パネルの
+ * ログアウトでは不要なので pushCleanup:false を渡す。
+ */
+describe('AdminSidebar — ログアウト', () => {
+  beforeEach(() => {
+    mockSignOutAndLeave.mockClear()
+  })
+
+  it('ログアウトを押すと signOutAndLeave({ to: "/admin/login", pushCleanup: false }) を呼ぶ', async () => {
+    render(<AdminSidebar />)
+    fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
+
+    await waitFor(() => {
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/admin/login', pushCleanup: false })
+    })
   })
 })

@@ -29,6 +29,13 @@ const mockGetUser = vi.fn()
 const mockSignOut = vi.fn().mockResolvedValue({ error: null })
 const mockRpc = vi.fn()
 
+const { mockSignOutAndLeave } = vi.hoisted(() => ({
+  mockSignOutAndLeave: vi.fn(() => Promise.resolve()),
+}))
+vi.mock('@/lib/auth/signOutClient', () => ({
+  signOutAndLeave: mockSignOutAndLeave,
+}))
+
 // テーブル別に応答を差し替えられる Supabase mock
 let membershipResponse: { data: { org_id: string; role: string } | null }
 let spaceResponse: { data: { id: string } | null }
@@ -545,7 +552,7 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
     expect(screen.getByRole('button', { name: /別のアカウントでログイン/ })).toBeInTheDocument()
   })
 
-  it('押すとログアウトしてから /login に移動する（ログアウトが先・遷移が後）', async () => {
+  it('押すと signOutAndLeave({ to: "/login", pushCleanup: false }) を呼ぶ（router.replace はしない）', async () => {
     mockUser({}, 'taro@example.com')
     renderPage()
     await waitFor(() => {
@@ -555,9 +562,8 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
     fireEvent.click(screen.getByRole('button', { name: /別のアカウントでログイン/ }))
 
     await waitFor(() => {
-      expect(mockSignOut).toHaveBeenCalledTimes(1)
-      expect(mockReplace).toHaveBeenCalledWith('/login')
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/login', pushCleanup: false })
     })
-    expect(mockSignOut.mock.invocationCallOrder[0]).toBeLessThan(mockReplace.mock.invocationCallOrder[0])
+    expect(mockReplace).not.toHaveBeenCalledWith('/login')
   })
 })

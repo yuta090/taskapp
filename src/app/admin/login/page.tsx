@@ -93,7 +93,8 @@ export default function AdminLoginPage() {
           return
         }
 
-        router.push(ADMIN_HOME)
+        // サインインの完了はフルページ遷移で終える（ルート常駐のクライアント状態を作り直すため）
+        window.location.assign(ADMIN_HOME)
       }
     } catch {
       setError('ログイン中にエラーが発生しました')

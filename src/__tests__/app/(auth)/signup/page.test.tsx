@@ -29,9 +29,16 @@ function fillForm({ orgName = '株式会社テスト', email = 'test@example.com
   fireEvent.change(screen.getByLabelText(/^パスワード\*?$/), { target: { value: password } })
 }
 
+let locationAssignSpy: ReturnType<typeof vi.fn>
+
 describe('SignupPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    locationAssignSpy = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: locationAssignSpy },
+      writable: true,
+    })
   })
 
   afterEach(() => {
@@ -69,7 +76,7 @@ describe('SignupPage', () => {
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('should call the org RPC and continue to /onboarding (template step) when a session exists', async () => {
+  it('should call the org RPC and continue to /onboarding (template step) with a full page navigation when a session exists', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
       error: null,
@@ -87,10 +94,12 @@ describe('SignupPage', () => {
       })
     })
 
+    // signUp がセッションを確立した（=識別が変わりうる）ので、SPA遷移(router.push)ではなく
+    // フルページ遷移で終える（ルート常駐のクライアント状態を作り直すため）
     await waitFor(() => {
-      // 組織は出来たがプロジェクトが無い状態なので、テンプレート選択（Step2）へ
-      expect(mockPush).toHaveBeenCalledWith('/onboarding')
+      expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
     })
+    expect(mockPush).not.toHaveBeenCalledWith('/onboarding')
   })
 
   it('should show an error (not the success screen) when RPC fails with a session', async () => {
@@ -110,6 +119,7 @@ describe('SignupPage', () => {
 
     expect(screen.queryByText('確認メールを送信しました')).not.toBeInTheDocument()
     expect(mockPush).not.toHaveBeenCalled()
+    expect(locationAssignSpy).not.toHaveBeenCalled()
   })
 
   it('should show the updated success screen copy with resend guidance', async () => {

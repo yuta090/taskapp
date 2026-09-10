@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
@@ -79,14 +80,17 @@ export default function PortalInvitePage({
         }
       }
 
-      // リダイレクト（クライアント用）
-      router.push('/portal')
+      // 受諾完了はフルページ遷移で終える（isAutoAccept=false は直前に signInWithPassword で
+      // 識別が変わりうる。isAutoAccept=true と経路を分けず一貫してフルリロードするのは
+      // invite/[token]/page.tsx と同じ方針。ルート常駐のクライアント状態
+      // ［ActiveOrgProvider・query cache］を作り直すため router.push はしない）
+      window.location.assign('/portal')
     } catch (err) {
       console.error('Accept error:', err)
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, token, router])
+  }, [password, token])
 
   useEffect(() => {
     async function loadInvite() {
@@ -191,13 +195,7 @@ export default function PortalInvitePage({
         </p>
         <AuthButton
           type="button"
-          onClick={async () => {
-            const supabase = createClient()
-            await supabase.auth.signOut()
-            setIsLoggedIn(false)
-            setSessionEmail(null)
-            setEmailMismatch(false)
-          }}
+          onClick={() => signOutAndLeave({ to: window.location.href, pushCleanup: false })}
         >
           ログアウトして招待を受ける
         </AuthButton>

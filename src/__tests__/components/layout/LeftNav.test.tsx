@@ -1,5 +1,5 @@
 import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LeftNav } from '@/components/layout/LeftNav'
 import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
@@ -14,8 +14,16 @@ vi.mock('@/lib/hooks/useUnreadNotificationCount', () => ({
   useUnreadNotificationCount: () => ({ count: 0, pendingCount: 0, loading: false, error: null, refresh: vi.fn() }),
 }))
 
+let mockCurrentUser: { user_metadata?: { name?: string }; email?: string } | null = null
 vi.mock('@/lib/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: null, loading: false, error: null }),
+  useCurrentUser: () => ({ user: mockCurrentUser, loading: false, error: null }),
+}))
+
+const { mockSignOutAndLeave } = vi.hoisted(() => ({
+  mockSignOutAndLeave: vi.fn(() => Promise.resolve()),
+}))
+vi.mock('@/lib/auth/signOutClient', () => ({
+  signOutAndLeave: mockSignOutAndLeave,
 }))
 
 vi.mock('@/lib/hooks/useUserSpaces', () => ({
@@ -164,5 +172,28 @@ describe('LeftNav — 名称の明確化 (初回UX改善)', () => {
       'title',
       '自分が担当者になっているタスク'
     )
+  })
+})
+
+/**
+ * ログアウト→別ユーザーでサインインをフルリロード無しで行うと、ルート常駐のクライアント状態
+ * （ActiveOrgProvider・query cache 等）が前のユーザーのデータを持ったまま残ってしまう問題の
+ * 修正。あらゆるログアウト経路を signOutAndLeave() に集約し、router.push/replace はしない
+ * （signOutAndLeave 自身が window.location.replace でフルページ遷移する）。
+ */
+describe('LeftNav — ログアウトは signOutAndLeave に集約する', () => {
+  beforeEach(() => {
+    mockCurrentUser = { user_metadata: { name: 'テスト太郎' }, email: 'user@example.com' }
+    mockSignOutAndLeave.mockClear()
+  })
+
+  it('ログアウトを押すと signOutAndLeave({ to: "/login" }) を呼び、router.push/replace は呼ばない', async () => {
+    render(<LeftNav />)
+    fireEvent.click(screen.getByRole('button', { name: /テスト太郎/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }))
+
+    await waitFor(() => {
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/login' })
+    })
   })
 })

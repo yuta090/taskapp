@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
@@ -15,7 +15,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 const RESEND_COOLDOWN_SECONDS = 60
 
 function SignupForm() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const [orgName, setOrgName] = useState('')
   const [email, setEmail] = useState('')
@@ -128,8 +127,10 @@ function SignupForm() {
         return
       }
 
-      // 組織は出来たがプロジェクトが無い状態 → テンプレート選択（Step2）へ
-      router.push('/onboarding')
+      // 組織は出来たがプロジェクトが無い状態 → テンプレート選択（Step2）へ。
+      // signUp がセッションを確立した（=識別が変わりうる）ので、SPA遷移ではなくフルページ遷移で
+      // 終える（ルート常駐のクライアント状態［ActiveOrgProvider・query cache］を作り直すため）
+      window.location.assign('/onboarding')
     } catch (err) {
       console.error('Signup error:', err)
       setError('登録中にエラーが発生しました')

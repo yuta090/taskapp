@@ -2,7 +2,7 @@
 
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton, GoogleSignInButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
@@ -48,7 +48,6 @@ async function mfaChallengeUrl(supabase: SupabaseClient, redirect: string | null
 }
 
 export default function LoginClient() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const redirect = searchParams.get('redirect')
   const errorFromUrl = searchParams.get('error')
@@ -75,7 +74,8 @@ export default function LoginClient() {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
-        router.push(mfa ?? (await resolveRedirect(supabase as SupabaseClient, session.user.id)))
+        // フルページ遷移で終える（ルート常駐のクライアント状態を作り直すため。router.push はしない）
+        window.location.assign(mfa ?? (await resolveRedirect(supabase as SupabaseClient, session.user.id)))
       }
     } catch {
       setError('ログイン中にエラーが発生しました')
@@ -103,16 +103,19 @@ export default function LoginClient() {
 
       if (data.user) {
         const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
+        // サインインの完了はフルページ遷移で終える（ルート常駐のクライアント状態
+        // ["currentUser"]・query cache・ActiveOrgProvider 等が前のユーザーの
+        // ものを引きずらないようにするため。router.push はしない）
         if (mfa) {
-          router.push(mfa)
+          window.location.assign(mfa)
           return
         }
         // redirect パラメータ付き（招待のログインリンク等）は行き先が明示されて
         // いるのでそちらへ復帰。Google ログイン（auth/callback の next）と同じ挙動
         if (isSafeInternalPath(redirect)) {
-          router.push(redirect)
+          window.location.assign(redirect)
         } else {
-          router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+          window.location.assign(await resolveRedirect(supabase as SupabaseClient, data.user.id))
         }
       }
     } catch {
@@ -141,13 +144,13 @@ export default function LoginClient() {
       if (data.user) {
         const mfa = await mfaChallengeUrl(supabase as SupabaseClient, redirect)
         if (mfa) {
-          router.push(mfa)
+          window.location.assign(mfa)
           return
         }
         if (isSafeInternalPath(redirect)) {
-          router.push(redirect)
+          window.location.assign(redirect)
         } else {
-          router.push(await resolveRedirect(supabase as SupabaseClient, data.user.id))
+          window.location.assign(await resolveRedirect(supabase as SupabaseClient, data.user.id))
         }
       }
     } catch {

@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useRef, useSyncExternalStore } from 'react'
 
-const DRAFT_PREFIX = 'taskapp_draft_'
+/** ローカル下書きの localStorage キー接頭辞。ログアウト時の一括削除（signOutClient.ts）と共有する */
+export const DRAFT_PREFIX = 'taskapp_draft_'
 const DEBOUNCE_MS = 500
 
 interface UseFormDraftOptions {

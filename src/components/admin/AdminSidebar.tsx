@@ -29,8 +29,7 @@ import {
   CaretDoubleLeft,
   CaretDoubleRight,
 } from '@phosphor-icons/react'
-import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
 
 /**
@@ -162,13 +161,10 @@ function useSidebarCollapsed(initialCollapsed: boolean): [boolean, () => void] {
 
 export function AdminSidebar({ badges, initialCollapsed = false }: AdminSidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const [collapsed, toggleCollapsed] = useSidebarCollapsed(initialCollapsed)
 
   async function handleLogout() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/admin/login')
+    await signOutAndLeave({ to: '/admin/login', pushCleanup: false })
   }
 
   return (
