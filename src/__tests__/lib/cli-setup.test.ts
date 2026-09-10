@@ -41,4 +41,13 @@ describe('cli-setup', () => {
   it('AI に渡す文には説明書の URL が入っている', () => {
     expect(AI_READ_SKILL_PROMPT).toContain(SKILL_URL)
   })
+
+  // ヘルプは画面と別に手書きしているので、コマンドがずれたらここで気づく
+  it('ヘルプ（コマンドラインのページ）は画面と同じコマンド・同じ一文を載せている', () => {
+    const manual = readFileSync(path.resolve(process.cwd(), 'docs/manual/internal/cli.md'), 'utf-8')
+    expect(manual).toContain(CLI_INSTALL_COMMAND)
+    expect(manual).toContain(CLAUDE_CODE_SKILL_COMMAND)
+    expect(manual).toContain(AI_READ_SKILL_PROMPT)
+    expect(manual).not.toContain('一般向けの配布はしていません')
+  })
 })
