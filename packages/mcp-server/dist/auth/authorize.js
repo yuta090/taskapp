@@ -107,6 +107,7 @@ export function createAuthContext(keyData) {
         userId: keyData.user_id,
         orgId: keyData.org_id,
         scope: keyData.scope,
+        spaceId: keyData.space_id ?? null,
         allowedSpaceIds: keyData.allowed_space_ids,
         allowedActions: keyData.allowed_actions,
     };

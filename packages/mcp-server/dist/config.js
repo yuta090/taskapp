@@ -78,6 +78,7 @@ export async function initializeAuth() {
         scope: row.scope,
         allowed_space_ids: row.allowed_space_ids || null,
         allowed_actions: row.allowed_actions || ['read'],
+        space_id: row.space_id || null,
     });
     config.orgId = row.org_id;
     if (row.space_id)
@@ -104,6 +105,7 @@ export async function initializeAuthWithApiKey(apiKey) {
         scope: row.scope,
         allowed_space_ids: row.allowed_space_ids || null,
         allowed_actions: row.allowed_actions || ['read'],
+        space_id: row.space_id || null,
     });
     config.orgId = row.org_id;
     if (row.space_id)

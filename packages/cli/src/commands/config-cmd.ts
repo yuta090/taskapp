@@ -1,7 +1,7 @@
 import { Command } from 'commander'
 import { writeFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { createInterface } from 'node:readline'
-import { getConfigPath } from '../config.js'
+import { getConfigPath, DEFAULT_API_URL } from '../config.js'
 
 async function prompt(question: string, defaultValue?: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr })
@@ -43,10 +43,11 @@ export function registerConfigCommand(program: Command): void {
 
       const config: Record<string, string> = { ...existing }
 
-      const apiUrl = await prompt('API URL', existing.apiUrl || undefined)
+      // 初めての人は API URL を知らないので、Enter だけで本番になるよう既定値を出す
+      const apiUrl = await prompt('API URL', existing.apiUrl || DEFAULT_API_URL)
       if (apiUrl) config.apiUrl = apiUrl
 
-      console.error('\nPaste your API Key from Web UI → Settings → API Keys:')
+      console.error('\nPaste your API Key (issue one in AgentPM: Settings → API Keys, or Project settings → API):')
       const apiKey = await prompt('API Key', existing.apiKey ? maskSecret(existing.apiKey) : undefined)
       if (apiKey && !apiKey.includes('...')) {
         config.apiKey = apiKey

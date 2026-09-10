@@ -20,7 +20,9 @@ import { toast } from 'sonner'
 import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
-import { API_KEY_ACTION_OPTIONS } from '@/lib/api-keys/actionOptions'
+import { API_KEY_ACTION_OPTIONS, formatApiKeyActions } from '@/lib/api-keys/actionOptions'
+import { describeKeySpaces } from '@/lib/api-keys/keySpaces'
+import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
 
 interface ApiKey {
   id: string
@@ -31,6 +33,7 @@ interface ApiKey {
   expires_at: string | null
   is_active: boolean
   scope: 'space' | 'org' | 'user'
+  space_id: string | null
   allowed_space_ids: string[] | null
   allowed_actions: string[]
 }
@@ -74,9 +77,6 @@ export default function ApiKeysSettingsPage() {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
-
-  // Code block copy
-  const [copiedBlock, setCopiedBlock] = useState<string | null>(null)
 
 
   // Filter state
@@ -211,20 +211,6 @@ export default function ApiKeysSettingsPage() {
 
   const deselectAllSpaces = () => {
     setSelectedSpaces([])
-  }
-
-  // Get space names for display
-  const getSpaceNames = (spaceIds: string[] | null): string => {
-    if (!spaceIds || spaceIds.length === 0) return '全スペース'
-    if (spaceIds.length === spaces.length) return '全スペース'
-    const names = spaceIds
-      .map((id) => spaces.find((s) => s.id === id)?.name)
-      .filter(Boolean)
-      .slice(0, 2)
-    if (spaceIds.length > 2) {
-      return `${names.join(', ')} 他${spaceIds.length - 2}件`
-    }
-    return names.join(', ')
   }
 
   if (userLoading || spacesLoading) {
@@ -546,10 +532,10 @@ export default function ApiKeysSettingsPage() {
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-gray-500">
                         <span>
-                          プロジェクト: {getSpaceNames(key.allowed_space_ids)}
+                          プロジェクト: {describeKeySpaces(key, spaces)}
                         </span>
                         <span>
-                          操作: {key.allowed_actions.join(', ')}
+                          操作: {formatApiKeyActions(key.allowed_actions)}
                         </span>
                       </div>
                       <div className="text-xs text-gray-400 mt-1">
@@ -575,80 +561,8 @@ export default function ApiKeysSettingsPage() {
           )}
         </div>
 
-        {/* Setup instructions */}
-        <div className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="font-medium text-gray-900">セットアップ</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              AIエージェント (Claude Code等) からAgentPMを操作するための設定
-            </p>
-          </div>
-
-          <div className="p-4 space-y-5">
-            {/* Step 1: CLI Install */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">
-                Step 1: CLI インストール
-              </h4>
-              <div className="relative group">
-                <pre className="bg-gray-900 text-gray-100 p-3 pr-10 rounded-lg text-xs overflow-x-auto">
-{`npm install -g @uzukko/agentpm
-agentpm login`}
-                </pre>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText('npm install -g @uzukko/agentpm\nagentpm login')
-                    setCopiedBlock('cli')
-                    setTimeout(() => setCopiedBlock(null), 2000)
-                  }}
-                  className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="コピー"
-                >
-                  {copiedBlock === 'cli' ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Step 2: Skill Install */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">
-                Step 2: Claude Code スキル登録
-              </h4>
-              <p className="text-xs text-gray-500 mb-2">
-                AIがCLIの使い方を理解するためのスキルファイルをダウンロードします。
-              </p>
-              {(() => {
-                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://agentpm.app'
-                const cmd = `mkdir -p ~/.claude/skills\ncurl -o ~/.claude/skills/agentpm.md ${origin}/skills/agentpm.md`
-                return (
-                  <div className="relative group">
-                    <pre className="bg-gray-900 text-gray-100 p-3 pr-10 rounded-lg text-xs overflow-x-auto">
-                      {cmd}
-                    </pre>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(cmd)
-                        setCopiedBlock('skill')
-                        setTimeout(() => setCopiedBlock(null), 2000)
-                      }}
-                      className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="コピー"
-                    >
-                      {copiedBlock === 'skill' ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                )
-              })()}
-              <p className="text-xs text-gray-400 mt-1.5">
-                特定プロジェクトのみで使う場合は <code className="text-gray-500">~</code> を外して <code className="text-gray-500">.claude/skills/</code> に配置してください。
-              </p>
-            </div>
-
-            <p className="text-xs text-gray-500">
-              MCPサーバーは段階的に廃止予定です。CLI + スキルへの移行を推奨します。
-            </p>
-          </div>
-        </div>
+        {/* CLI のインストール → ログイン → AI に覚えさせる（プロジェクト設定の API設定 と同じ部品） */}
+        <CliSetupGuide />
       </main>
     </div>
   )

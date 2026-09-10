@@ -27,6 +27,8 @@ let insertResponse: { data: Record<string, unknown> | null; error: { message: st
 let keyLookupResponse: { data: { user_id: string } | null; error: { message: string } | null }
 let deleteResponse: { error: { message: string } | null }
 let listResponse: { data: Record<string, unknown>[] | null; error: { message: string } | null }
+/** api_keys に対する select の列指定（GET が何を返すかの確認用） */
+let apiKeysSelectColumns: string[] = []
 
 const insertMock = vi.fn(() => ({
   select: vi.fn(() => ({
@@ -77,6 +79,7 @@ vi.mock('@supabase/supabase-js', () => ({
       return {
         insert: insertMock,
         select: vi.fn((columns: string) => {
+          apiKeysSelectColumns.push(columns)
           if (columns.includes('user_id') && !columns.includes('allowed_space_ids')) {
             // DELETE lookup: select('user_id').eq(id).single()
             return {
@@ -142,6 +145,7 @@ beforeEach(() => {
   keyLookupResponse = { data: { user_id: USER_ID }, error: null }
   deleteResponse = { error: null }
   listResponse = { data: [{ id: 'key-1', name: 'CLI Key' }], error: null }
+  apiKeysSelectColumns = []
 })
 
 describe('POST /api/keys/user', () => {
@@ -197,6 +201,32 @@ describe('POST /api/keys/user', () => {
 
     expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ allowed_actions: ['read'] }))
   })
+
+  it('stores the chosen actions in a fixed order and always includes read', async () => {
+    await callPost({ ...basePostBody, allowedActions: ['bulk', 'write'] })
+
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ allowed_actions: ['read', 'write', 'bulk'] })
+    )
+  })
+
+  // プロジェクト設定側（/api/keys）と同じ検証。以前は知らない値を DB に渡し、CHECK 制約の文言を画面に返していた
+  it('returns 400 for an unknown action and never passes it to the DB', async () => {
+    const response = await callPost({ ...basePostBody, allowedActions: ['write', 'admin'] })
+
+    expect(response.status).toBe(400)
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('returns a generic 500 without the DB error text when insert fails', async () => {
+    insertResponse = { data: null, error: { message: 'new row violates check constraint "api_keys_allowed_actions_check"' } }
+
+    const response = await callPost(basePostBody)
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('Failed to create API key')
+  })
 })
 
 describe('DELETE /api/keys/user', () => {
@@ -243,6 +273,16 @@ describe('DELETE /api/keys/user', () => {
     expect(data.success).toBe(true)
     expect(deleteMock).toHaveBeenCalled()
   })
+
+  it('returns a generic 500 without the DB error text when delete fails', async () => {
+    deleteResponse = { error: { message: 'db unreachable' } }
+
+    const response = await callDelete({ id: 'key-1' })
+    const data = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(data.error).toBe('Failed to delete API key')
+  })
 })
 
 describe('GET /api/keys/user', () => {
@@ -262,13 +302,22 @@ describe('GET /api/keys/user', () => {
     expect(data.data).toEqual(listResponse.data)
   })
 
-  it('returns the raw error message on failure (informational — matches current route behavior)', async () => {
+  // プロジェクト設定で作ったキーにも持ち主が入り、この一覧に並ぶようになった。
+  // allowed_space_ids が空なので、どのプロジェクトのキーかを返さないと「全スペース」と誤表示される
+  it("returns each key's own project so project-settings keys are not shown as usable everywhere", async () => {
+    await callGet()
+
+    const columns = (apiKeysSelectColumns.at(-1) ?? '').split(',').map((c) => c.trim())
+    expect(columns).toEqual(expect.arrayContaining(['scope', 'space_id', 'allowed_space_ids']))
+  })
+
+  it('returns a generic 500 without the DB error text on failure', async () => {
     listResponse = { data: null, error: { message: 'db unreachable' } }
 
     const response = await callGet()
     const data = await response.json()
 
     expect(response.status).toBe(500)
-    expect(data.error).toBe('db unreachable')
+    expect(data.error).toBe('Failed to fetch API keys')
   })
 })
