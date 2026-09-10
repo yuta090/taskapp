@@ -50,7 +50,7 @@ function renderRow(task: Task, extra: Partial<ComponentProps<typeof GanttRow>> =
       <GanttRow
         task={task}
         startDate={new Date('2023-12-25')}
-        endDate={new Date('2024-01-20')}
+        totalWidth={40 * 27}
         dayWidth={40}
         rowIndex={0}
         onDateChange={vi.fn()}

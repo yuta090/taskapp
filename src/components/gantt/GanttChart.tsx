@@ -17,15 +17,18 @@ import {
   SIDEBAR_WIDTH_KEY_STEP,
 } from '@/lib/gantt/sidebarWidth'
 import { useGanttSidebarWidth } from '@/lib/hooks/useGanttSidebarWidth'
+import { useStableDateRange } from '@/lib/hooks/useStableDateRange'
 import {
   calcDateRange,
   getDatesInRange,
   isToday,
+  isWeekend,
   dateToX,
 } from '@/lib/gantt/dateUtils'
 import { getDescendantIds, getAncestorIds, buildTaskTree } from '@/lib/gantt/treeUtils'
+import { computeConnectionLines } from '@/lib/gantt/connectionLines'
 import { GanttHeader } from './GanttHeader'
-import { GanttRow } from './GanttRow'
+import { GanttRow, type LinkHighlightState } from './GanttRow'
 import { GanttMilestone } from './GanttMilestone'
 import type { Task, Milestone } from '@/types/database'
 import type { RiskAssessment } from '@/lib/risk/calculateRisk'
@@ -112,10 +115,14 @@ export function GanttChart({
   const hoverTaskIdRef = useRef<string | null>(null)
 
   // Calculate date range
-  const { start: startDate, end: endDate } = useMemo(
+  const rawDateRange = useMemo(
     () => calcDateRange(tasks, milestones),
     [tasks, milestones]
   )
+  // calcDateRangeはtasksが変わるたびに新しいDateを返すため、値(getTime())が
+  // 同じ間は前回のDate参照を使い回す。これによりGanttRowのmemoが
+  // 関係ないタスク更新では効くようになる(全行の無駄な再レンダリングを防ぐ)。
+  const { start: startDate, end: endDate } = useStableDateRange(rawDateRange)
 
   const dayWidth = VIEW_MODE_CONFIG[viewMode].dayWidth
   const dates = useMemo(
@@ -523,20 +530,29 @@ export function GanttChart({
     }
   }, [isLinkDragging, onParentChange])
 
-  // Compute link highlight per task
+  // Compute link highlight per task.
+  // 以前はオブジェクト({type, mode})を毎回新規生成して返していたため、値が
+  // 同じでも参照が変わり、memo化されたGanttRowの浅い比較が常に「変化あり」に
+  // なっていた。文字列(プリミティブ)にすることで、ハイライトが変わらない行は
+  // 実際に再レンダリングされなくなる。
   const getLinkHighlight = useCallback(
-    (taskId: string) => {
+    (taskId: string): LinkHighlightState => {
       if (!linkDrag) return null
       if (taskId === linkDrag.sourceTaskId) return null
       if (!eligibleTargetIds.has(taskId)) return null
 
       const isOver = hoverTaskId === taskId
-      return {
-        type: isOver ? 'over' as const : 'eligible' as const,
-        mode: linkDrag.mode,
-      }
+      return `${linkDrag.mode}-${isOver ? 'over' : 'eligible'}` as LinkHighlightState
     },
     [linkDrag, eligibleTargetIds, hoverTaskId]
+  )
+
+  // 親子タスクの接続線。rowData/startDate/dayWidthが変わらない限り再計算しない
+  // ようmemo化する(リンクドラッグ中のマウス移動ではlinkDrag/hoverTaskIdだけが
+  // 変わりこれらは依存配列に含まれないため、ドラッグ中に再計算されない)。
+  const connectionLines = useMemo(
+    () => computeConnectionLines(rowData, startDate, dayWidth),
+    [rowData, startDate, dayWidth]
   )
 
   return (
@@ -911,6 +927,40 @@ export function GanttChart({
               height={Math.max(chartHeight, 200)}
               className="block"
             >
+              {/* Weekend backgrounds / day grid lines: 行数に関係なくチャート全体で
+                  1回だけ描画する(以前はGanttRowが行ごとにdates分描いており、
+                  SVG要素数が「行数×日数」で増殖していた)。 */}
+              <g aria-hidden="true">
+                {dates.map((date, i) => {
+                  if (!isWeekend(date)) return null
+                  return (
+                    <rect
+                      key={`weekend-${i}`}
+                      data-testid="gantt-weekend-rect"
+                      x={i * dayWidth}
+                      y={0}
+                      width={dayWidth}
+                      height={chartHeight}
+                      fill={GANTT_CONFIG.COLORS.WEEKEND}
+                      opacity={0.5}
+                    />
+                  )
+                })}
+                {dates.map((_, i) => (
+                  <line
+                    key={`grid-${i}`}
+                    data-testid="gantt-grid-line"
+                    x1={i * dayWidth}
+                    y1={0}
+                    x2={i * dayWidth}
+                    y2={chartHeight}
+                    stroke={GANTT_CONFIG.COLORS.GRID_LINE}
+                    strokeWidth={0.5}
+                    opacity={0.3}
+                  />
+                ))}
+              </g>
+
               {/* Render rows */}
               {rowData.map((row) => {
                 if (row.type === 'header') {
@@ -941,7 +991,7 @@ export function GanttChart({
                     key={task.id}
                     task={task}
                     startDate={startDate}
-                    endDate={endDate}
+                    totalWidth={totalWidth}
                     dayWidth={dayWidth}
                     rowIndex={row.rowIndex}
                     isSelected={task.id === selectedTaskId}
@@ -953,31 +1003,14 @@ export function GanttChart({
                 )
               })}
 
-              {/* Parent-child connection lines */}
-              {rowData.map((row) => {
-                if (row.type !== 'task' || !row.task?.parent_task_id) return null
-                const childTask = row.task
-                const parentRow = rowData.find(
-                  (r) => r.type === 'task' && r.task?.id === childTask.parent_task_id
-                )
-                if (!parentRow || !parentRow.task) return null
-
-                const parentEnd = parentRow.task.due_date
-                const childStart = childTask.start_date || childTask.created_at
-
-                if (!parentEnd || !childStart) return null
-
-                const parentEndX = dateToX(new Date(parentEnd), startDate, dayWidth)
-                const childStartX = dateToX(new Date(childStart), startDate, dayWidth)
-                const parentY = parentRow.rowIndex * GANTT_CONFIG.ROW_HEIGHT + GANTT_CONFIG.ROW_HEIGHT / 2
-                const childY = row.rowIndex * GANTT_CONFIG.ROW_HEIGHT + GANTT_CONFIG.ROW_HEIGHT / 2
-
+              {/* Parent-child connection lines (Map化して事前計算済み・memo化されている) */}
+              {connectionLines.map((line) => {
                 // Draw an L-shaped connector from parent bar end to child bar start
-                const midX = (parentEndX + childStartX) / 2
+                const midX = (line.parentEndX + line.childStartX) / 2
                 return (
-                  <g key={`link-${childTask.id}`} style={{ pointerEvents: 'none' }}>
+                  <g key={`link-${line.childTaskId}`} style={{ pointerEvents: 'none' }}>
                     <path
-                      d={`M ${parentEndX} ${parentY} L ${midX} ${parentY} L ${midX} ${childY} L ${childStartX} ${childY}`}
+                      d={`M ${line.parentEndX} ${line.parentY} L ${midX} ${line.parentY} L ${midX} ${line.childY} L ${line.childStartX} ${line.childY}`}
                       fill="none"
                       stroke="#94A3B8"
                       strokeWidth={1.5}
@@ -986,7 +1019,7 @@ export function GanttChart({
                     />
                     {/* Arrow at child end */}
                     <polygon
-                      points={`${childStartX},${childY} ${childStartX - 5},${childY - 3} ${childStartX - 5},${childY + 3}`}
+                      points={`${line.childStartX},${line.childY} ${line.childStartX - 5},${line.childY - 3} ${line.childStartX - 5},${line.childY + 3}`}
                       fill="#94A3B8"
                       opacity={0.6}
                     />
