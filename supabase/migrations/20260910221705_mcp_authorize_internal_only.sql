@@ -1,8 +1,33 @@
--- API キーは社内メンバー（admin / editor / viewer）専用にする。
--- 1) mcp_authorize: 役割ごとの許可（ステップ5）のうち、相手先（client / vendor）の分岐だけを「拒否」に変える。
---    他の分岐・引数・戻り値の形は変えない（本番の pg_get_functiondef を元にしている）。
--- 2) 持ち主（user_id）の無い古い space 鍵を無効化する。今の CLI からは使えない鍵で、
---    削除すると利用記録（mcp_usage_logs 等）まで消えるため、止めるだけにする。冪等。
+-- API キーの権限の是正。
+-- 1) api_keys: 書き込みはサーバーの窓口（service role）だけに限る。読み取りのポリシーは SELECT 専用に作り直す
+--    （authenticated の SELECT は api_key_usage の RLS が参照するため残す）。
+-- 2) mcp_authorize: 鍵の持ち主と組織の整合を確かめる。相手先（client / vendor）の役割では API キーを使えない
+--    （社内メンバー専用）。ほかの判定・引数・戻り値の形は変えない（本番の pg_get_functiondef を元にしている）。
+-- 3) 持ち主（user_id）の無い古い space 鍵を無効化する（削除は利用記録まで消えるのでしない）。冪等。
+
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.api_keys FROM anon, authenticated;
+REVOKE SELECT ON public.api_keys FROM anon;
+
+DROP POLICY IF EXISTS api_keys_admin_policy ON public.api_keys;
+DROP POLICY IF EXISTS api_keys_select_policy ON public.api_keys;
+CREATE POLICY api_keys_select_policy ON public.api_keys
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM org_memberships om
+      WHERE om.org_id = api_keys.org_id
+        AND om.user_id = auth.uid()
+        AND om.role = 'owner'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM space_memberships sm
+      WHERE sm.space_id = api_keys.space_id
+        AND sm.user_id = auth.uid()
+        AND sm.role = 'admin'
+    )
+  );
+
 CREATE OR REPLACE FUNCTION public.mcp_authorize(p_key_id uuid, p_user_id uuid, p_space_id uuid, p_action text, p_resource_type text DEFAULT NULL::text, p_resource_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -31,6 +56,25 @@ BEGIN
     );
   END IF;
 
+  -- 1b) 鍵の持ち主の確認: 鍵は発行した本人の代わりにだけ動き、持ち主はその組織のメンバーであること
+  IF v_key_record.user_id IS NULL OR v_key_record.user_id IS DISTINCT FROM v_key_record.created_by THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'reason', 'API key owner mismatch'
+    );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM org_memberships om
+    WHERE om.org_id = v_key_record.org_id
+      AND om.user_id = v_key_record.user_id
+  ) THEN
+    RETURN jsonb_build_object(
+      'allowed', false,
+      'reason', 'Key owner is not a member of the organization'
+    );
+  END IF;
+
   -- 2) アクションの許可チェック
   IF NOT (p_action = ANY(v_key_record.allowed_actions)) THEN
     RETURN jsonb_build_object(
@@ -47,6 +91,17 @@ BEGIN
         RETURN jsonb_build_object(
           'allowed', false,
           'reason', 'Space ID does not match API key scope'
+        );
+      END IF;
+
+      -- そのプロジェクトが鍵の組織のものである必要がある
+      IF NOT EXISTS (
+        SELECT 1 FROM spaces s
+        WHERE s.id = p_space_id AND s.org_id = v_key_record.org_id
+      ) THEN
+        RETURN jsonb_build_object(
+          'allowed', false,
+          'reason', 'Space does not belong to the organization'
         );
       END IF;
 

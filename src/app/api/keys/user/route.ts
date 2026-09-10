@@ -4,7 +4,7 @@ import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
-import { isExternalSpaceRole } from '@/lib/api-keys/internalOnly'
+import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
 
 // Create admin client with service role key (bypasses RLS)
 function createAdminClient() {
@@ -108,9 +108,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // API キーは社内メンバー専用。相手先（client / vendor）として所属するプロジェクトが
-    // 1つでも含まれていたら全体を断る（一部だけ発行すると、画面で選んだ内容と食い違うため）
-    if (userSpaces.some((s) => isExternalSpaceRole(s.role as string | undefined))) {
+    // API キーは社内メンバー（admin / editor / viewer）専用。それ以外の役割（相手先の client / vendor・不明な役割）で
+    // 所属するプロジェクトが1つでも含まれていたら全体を断る（一部だけ発行すると、画面で選んだ内容と食い違うため）
+    if (userSpaces.some((s) => !isInternalSpaceRole(s.role as string | undefined))) {
       return NextResponse.json(
         { error: 'API keys are available to internal members only' },
         { status: 403 }
