@@ -14,6 +14,7 @@ import {
   SPACE_ROLE_GUIDE,
   SPACE_ROLE_LABELS,
   INVITE_ROLE_GUIDE,
+  INVITE_ROLE_LABELS,
   isSpaceAdminRole,
   canInviteMembers,
 } from '@/lib/roles/spaceRoles'
@@ -459,6 +460,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
               invites.map((invite) => (
                 <div
                   key={invite.id}
+                  data-testid="invite-row"
                   className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-gray-50"
                 >
                   <div className="flex-1 min-w-0 basis-48">
@@ -467,7 +469,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
                         {invite.invitee_name || invite.email}
                       </span>
                       <span className="text-xs text-gray-500 flex-shrink-0">
-                        {ROLE_LABELS[invite.role] || invite.role}
+                        {INVITE_ROLE_LABELS[invite.role] || invite.role}
                       </span>
                     </div>
                     <div className="text-xs text-gray-500 truncate">

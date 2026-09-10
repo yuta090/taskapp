@@ -60,6 +60,15 @@ export const INVITE_ROLE_GUIDE = [
   },
 ] as const
 
+/**
+ * 招待の役割（client | member）の表示名。
+ * 参加したあとの役割（SPACE_ROLE_LABELS: 管理者・編集者…）とは別の言葉なので混ぜない。
+ * 混ぜると、まだ参加していない人の 'member' が英語のまま画面に出る。
+ */
+export const INVITE_ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  INVITE_ROLE_GUIDE.map((r) => [r.value, r.label])
+)
+
 /** プロジェクトの管理者か（owner は組織側の役割だが、念のため管理者扱いにする） */
 export function isSpaceAdminRole(role: string | undefined | null): boolean {
   return role === 'admin' || role === 'owner'
