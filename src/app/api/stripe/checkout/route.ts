@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStripe, PLANS, PlanId } from '@/lib/stripe'
+import { isSelfServeCheckoutEnabled } from '@/lib/stripe/config'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -21,6 +22,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
+      )
+    }
+
+    // オンライン申し込みの元栓。Stripe 側の準備が終わるまではここで断る。
+    // 画面のボタンを無効にするだけでは、直接叩かれたときに決済画面まで進んでしまう。
+    if (!isSelfServeCheckoutEnabled()) {
+      return NextResponse.json(
+        {
+          error: 'オンラインでのお申し込みは現在ご利用いただけません。お問い合わせください。',
+          code: 'self_serve_disabled',
+        },
+        { status: 503 }
       )
     }
 

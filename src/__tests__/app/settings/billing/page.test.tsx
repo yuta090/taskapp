@@ -83,32 +83,61 @@ describe('BillingSettingsPage', () => {
     expect(screen.getByText('プランと請求')).toBeInTheDocument()
   })
 
-  it('should show setup guide when Stripe is not configured', () => {
+  /**
+   * 未設定のときに出していたのは「Stripeアカウントを作成 → APIキーを取得 → .env.local に
+   * 環境変数を追加」という**開発者向けの手順**で、環境変数の見本まで本番のお客様の画面に
+   * 出ていた。お客様に見せるのは「いまオンラインで申し込めないこと」と問い合わせ先だけにする。
+   */
+  it('未設定でも、開発者向けの設定手順や環境変数名をお客様に見せない', () => {
     mockUseStripeStatus.mockReturnValue({
       serverConfigured: false,
       loading: false,
       error: null,
-      clientConfigured: false,
     })
 
     render(<BillingSettingsPage />)
 
-    expect(screen.getByText('Stripe決済の設定が必要です')).toBeInTheDocument()
-    expect(screen.getByText('設定手順')).toBeInTheDocument()
-    expect(screen.getByText('Stripeアカウントを作成')).toBeInTheDocument()
+    expect(screen.queryByText('設定手順')).not.toBeInTheDocument()
+    expect(screen.queryByText('Stripeアカウントを作成')).not.toBeInTheDocument()
+    expect(screen.queryByText(/STRIPE_SECRET_KEY/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/env\.local/)).not.toBeInTheDocument()
   })
 
-  it('should not show setup guide when Stripe is configured', () => {
+  it('未設定のときは、お客様向けの案内と問い合わせ先を出す', () => {
+    mockUseStripeStatus.mockReturnValue({
+      serverConfigured: false,
+      loading: false,
+      error: null,
+    })
+
+    render(<BillingSettingsPage />)
+
+    expect(screen.getByTestId('billing-unavailable-notice')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /お問い合わせ/ })).toHaveAttribute('href', '/contact')
+  })
+
+  it('設定済みなら案内を出さない', () => {
     mockUseStripeStatus.mockReturnValue({
       serverConfigured: true,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     render(<BillingSettingsPage />)
 
-    expect(screen.queryByText('Stripe決済の設定が必要です')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('billing-unavailable-notice')).not.toBeInTheDocument()
+  })
+
+  it('確認中は案内を出さない（ちらつき防止）', () => {
+    mockUseStripeStatus.mockReturnValue({
+      serverConfigured: false,
+      loading: true,
+      error: null,
+    })
+
+    render(<BillingSettingsPage />)
+
+    expect(screen.queryByTestId('billing-unavailable-notice')).not.toBeInTheDocument()
   })
 
   // Enterprise は Stripe 決済ではなく営業窓口での個別契約（/contact?plan=enterprise へ誘導）。
@@ -151,7 +180,7 @@ describe('BillingSettingsPage', () => {
 
     render(<BillingSettingsPage />)
 
-    expect(screen.getByText('決済機能を利用するにはStripeの設定が必要です')).toBeInTheDocument()
+    expect(screen.getByText('いまオンラインでのお申し込みはご利用いただけません')).toBeInTheDocument()
   })
 
   it('should call checkout API when upgrade button is clicked', async () => {

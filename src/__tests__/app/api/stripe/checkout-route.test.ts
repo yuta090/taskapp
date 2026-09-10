@@ -51,6 +51,8 @@ function req(body: unknown): Request {
 describe('POST /api/stripe/checkout — Enterprise は sales-led で拒否', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // 既存の観点（enterprise 拒否・pro 作成）は「オンライン申し込みが開いている」前提
+    process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
   })
 
   it('enterprise は priceId が設定済みでも 400 で拒否し、Stripe を呼ばない', async () => {
@@ -88,5 +90,42 @@ describe('POST /api/stripe/checkout — Enterprise は sales-led で拒否', () 
 
     const res = await POST(req({ org_id: 'org-1', plan_id: 'enterprise' }) as never)
     expect(res.status).toBe(401)
+  })
+})
+
+/**
+ * オンライン申し込みの元栓はサーバでも効かせる。
+ * 画面のボタンを無効にするだけでは、直接この API を叩かれたときに素通りしてしまい、
+ * 「まだ本番で決済を開けていない」時期にお客様が決済画面へ進めてしまう。
+ */
+describe('POST /api/stripe/checkout — オンライン申し込みの元栓', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('元栓が閉じているあいだは 503 で断り、Stripe を呼ばない', async () => {
+    delete process.env.STRIPE_SELF_SERVE_ENABLED
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+
+    const res = await POST(req({ org_id: 'org1', plan_id: 'pro' }) as never)
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.code).toBe('self_serve_disabled')
+    expect(sessionCreate).not.toHaveBeenCalled()
+  })
+
+  it('元栓を開ければ従来どおり進む', async () => {
+    process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+
+    const res = await POST(req({ org_id: 'org1', plan_id: 'pro' }) as never)
+
+    expect(res.status).toBe(200)
+    expect(sessionCreate).toHaveBeenCalled()
   })
 })

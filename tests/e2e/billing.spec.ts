@@ -1,0 +1,89 @@
+import { test, expect } from './fixtures'
+
+/**
+ * 「プランと請求」画面が、決済の受け付け状況と食い違っていないことを見る。
+ *
+ * **実際に起きていた不具合**: 判定するはずのフックが仮実装（常に「未設定」）のまま本番に出て、
+ * 環境変数の設定にかかわらず
+ *   - 開発者向けの設定手順（環境変数の見本つき）がお客様の画面に出る
+ *   - 「Proにアップグレード」が永久に押せない＝自分で有料化できない
+ * という状態が7か月続いた。単体テストはモックを見ているだけで気づけないため、
+ * **実際に動いている環境の `/api/stripe/status` と画面を突き合わせる**ここで押さえる。
+ *
+ * 受付が開いているかは環境（本番／プレビュー）で変わるので、期待値は API から取る。
+ */
+test.describe('プランと請求', () => {
+  test('決済の受け付け状況と画面の表示が一致している', async ({ page }) => {
+    await page.goto('/settings/billing')
+
+    // 真実源。ここが画面の期待値になる
+    const status = await page.evaluate(async () => {
+      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+      return (await res.json()) as { configured: boolean; selfServeEnabled?: boolean }
+    })
+
+    const proButton = page.getByRole('button', { name: 'Proにアップグレード' })
+    await expect(proButton).toBeVisible()
+
+    const notice = page.getByTestId('billing-unavailable-notice')
+
+    if (status.configured) {
+      // 受け付けている: ボタンが押せて、準備中の案内は出ない
+      await expect(proButton).toBeEnabled()
+      await expect(notice).toHaveCount(0)
+    } else {
+      // 受け付けていない: ボタンは押せず、お客様向けの案内が出る
+      await expect(proButton).toBeDisabled()
+      await expect(notice).toBeVisible()
+      await expect(notice.getByRole('link', { name: /お問い合わせ/ })).toHaveAttribute(
+        'href',
+        '/contact',
+      )
+    }
+  })
+
+  test('開発者向けの設定手順・環境変数名をお客様の画面に出さない', async ({ page }) => {
+    await page.goto('/settings/billing')
+    await expect(page.getByRole('heading', { name: 'プランと請求' })).toBeVisible()
+
+    const body = page.locator('body')
+    await expect(body).not.toContainText('STRIPE_SECRET_KEY')
+    await expect(body).not.toContainText('STRIPE_WEBHOOK_SECRET')
+    await expect(body).not.toContainText('.env.local')
+    await expect(body).not.toContainText('設定手順')
+  })
+
+  test('Enterprise は決済の状況にかかわらず相談できる（営業窓口の受け皿）', async ({ page }) => {
+    await page.goto('/settings/billing')
+
+    await expect(page.getByRole('button', { name: 'Enterpriseを相談する' })).toBeEnabled()
+  })
+
+  /**
+   * 画面のボタンを無効にするだけでは、直接 API を叩かれたときに素通りしてしまう。
+   * 受け付けを閉じているあいだは、サーバが 503 で断ることを確かめる。
+   */
+  test('受け付けていないあいだは、API を直接叩いても決済に進めない', async ({ page }) => {
+    await page.goto('/settings/billing')
+
+    const status = await page.evaluate(async () => {
+      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+      return (await res.json()) as { configured: boolean }
+    })
+    test.skip(status.configured, '受け付けが開いている環境ではこの観点は対象外')
+
+    const result = await page.evaluate(async () => {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ org_id: '00000000-0000-0000-0000-000000000001', plan_id: 'pro' }),
+      })
+      return { status: res.status, body: await res.json().catch(() => ({})) }
+    })
+
+    // 503（受け付け停止）か 403（オーナーでない）で必ず止まる。決済URLは返らない
+    expect([403, 503]).toContain(result.status)
+    expect(result.body?.url).toBeUndefined()
+  })
+})

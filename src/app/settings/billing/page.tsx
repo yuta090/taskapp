@@ -7,6 +7,7 @@ import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
 import { useBillingLimits } from '@/lib/hooks/useBillingLimits'
 import { CreditCard, Sparkle, Warning, Wrench, ArrowSquareOut, CircleNotch, Gear } from '@phosphor-icons/react'
 import { SettingsBackButton } from '@/components/shared'
+import Link from 'next/link'
 
 export default function BillingSettingsPage() {
   const { serverConfigured, loading: stripeLoading } = useStripeStatus()
@@ -110,10 +111,15 @@ export default function BillingSettingsPage() {
           </div>
         )}
 
-        {/* Stripe未設定警告 */}
-        {!stripeLoading && !serverConfigured && (
-          <StripeSetupGuide />
-        )}
+        {/*
+          決済がまだ出せないときの案内。
+          以前はここに「Stripeアカウントを作成 → APIキーを取得 → .env.local に環境変数を追加」という
+          開発者向けの手順（環境変数の見本つき）を出しており、本番のお客様の画面にもそのまま
+          表示されていた。お客様に必要なのは「いま申し込めないこと」と「どこに言えばいいか」だけ。
+          開発時の手順は下の StripeSetupGuide（開発環境でのみ表示）に残す。
+        */}
+        {!stripeLoading && !serverConfigured && <BillingUnavailableNotice />}
+        {!stripeLoading && !serverConfigured && isDevEnvironment && <StripeSetupGuide />}
 
         {/* 組織名表示 */}
         {!orgLoading && orgId && orgName && (
@@ -173,7 +179,7 @@ export default function BillingSettingsPage() {
               {!serverConfigured && (
                 <p className="mt-3 text-white/60 text-xs flex items-center gap-1">
                   <Warning className="w-4 h-4" />
-                  決済機能を利用するにはStripeの設定が必要です
+                  いまオンラインでのお申し込みはご利用いただけません
                 </p>
               )}
             </div>
@@ -234,7 +240,46 @@ export default function BillingSettingsPage() {
   )
 }
 
-// Stripe未設定時のガイド表示
+/** 開発環境かどうか。お客様の画面に開発者向けの手順を出さないための境目。 */
+const isDevEnvironment = process.env.NODE_ENV === 'development'
+
+/**
+ * 決済がまだ出せないときに、お客様に見せる案内。
+ *
+ * 出すのは「オンラインでは申し込めないこと」と「連絡先」だけにする。
+ * 設定の中身（環境変数名・鍵の取り方）は運営の事情であって、お客様には関係がない。
+ */
+function BillingUnavailableNotice() {
+  return (
+    <div
+      data-testid="billing-unavailable-notice"
+      className="bg-amber-50 border border-amber-200 rounded-lg p-5"
+    >
+      <div className="flex items-start gap-3">
+        <div className="p-2 bg-amber-100 rounded-lg">
+          <Warning className="w-5 h-5 text-amber-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold text-amber-900">
+            オンラインでのお申し込みは準備中です
+          </h3>
+          <p className="mt-1 text-sm text-amber-800">
+            いまこの画面からのお支払い手続きはご利用いただけません。
+            プランのご相談・お申し込みは、お問い合わせよりご連絡ください。折り返しご案内します。
+          </p>
+          <Link
+            href="/contact"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-amber-900 underline"
+          >
+            お問い合わせはこちら
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Stripe未設定時のガイド表示（開発環境でのみ表示。お客様には出さない）
 function StripeSetupGuide() {
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
