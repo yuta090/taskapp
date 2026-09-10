@@ -66,6 +66,12 @@ describe('GTM install: Content-Security-Policy', () => {
     expect(d['connect-src']).toContain('https://*.analytics.google.com')
   })
 
+  it('connect-src: GA4 が www.google.com/g/collect に送る計測を止めない', async () => {
+    // 実画面の確認で https://www.google.com/g/collect?tid=G-... が CSP で毎回止められていた（計測の取りこぼし）
+    const d = await csp()
+    expect(d['connect-src'].split(' ')).toContain('https://www.google.com')
+  })
+
   it('frame-src: noscript 用 iframe を許可', async () => {
     const d = await csp()
     expect(d['frame-src']).toContain('https://www.googletagmanager.com')
