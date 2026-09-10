@@ -173,3 +173,30 @@ describe('cli-manifest: wiki update の構造オプション', () => {
     expect(update.options.some((o) => o.param === 'assigneeInviteId')).toBe(true)
   })
 })
+
+/**
+ * task list / list-my の --offset。limit の上限(100)しか無く、100件を超えるプロジェクトの
+ * 「続きから取る」手段が CLI に無かった。
+ */
+describe('cli-manifest: task list --offset', () => {
+  const manifest = getManifest()
+  const task = manifest.commands.find((c) => c.name === 'task')!
+
+  it('task list に --offset <n>（int・既定0）がある', () => {
+    const list = task.subcommands!.find((s) => s.name === 'list')!
+    const offset = list.options.find((o) => o.param === 'offset')
+    expect(offset).toBeDefined()
+    expect(offset!.flags).toBe('--offset <n>')
+    expect(offset!.type).toBe('int')
+    expect(offset!.default).toBe('0')
+  })
+
+  it('task list-my にも --offset <n>（int・既定0）がある', () => {
+    const listMy = task.subcommands!.find((s) => s.name === 'list-my')!
+    const offset = listMy.options.find((o) => o.param === 'offset')
+    expect(offset).toBeDefined()
+    expect(offset!.flags).toBe('--offset <n>')
+    expect(offset!.type).toBe('int')
+    expect(offset!.default).toBe('0')
+  })
+})
