@@ -799,6 +799,12 @@ function SpaceNavItem({
   )
 }
 
+/** 組織アイコンに入れる1文字（w-5 の枠に2文字は収まらない）。Array.from で絵文字を途中で割らない */
+function orgInitialOf(name: string | null | undefined): string {
+  const first = Array.from(name?.trim() ?? '')[0]
+  return first ? first.toUpperCase() : '-'
+}
+
 export const LeftNav = memo(function LeftNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -876,12 +882,7 @@ export const LeftNav = memo(function LeftNav() {
     return defaultActive
   }, [pendingHref])
 
-  // 組織名のイニシャル（最初の2文字）
-  const orgInitial = activeOrgName
-    ? activeOrgName.length <= 2
-      ? activeOrgName
-      : activeOrgName.slice(0, 2)
-    : '--'
+  const orgInitial = orgInitialOf(activeOrgName)
   const orgDisplayName = activeOrgName ?? '組織未設定'
 
   // spaceId はURLから取得、なければ最初のアクティブスペース
@@ -1027,7 +1028,7 @@ export const LeftNav = memo(function LeftNav() {
                       }`}
                     >
                       <div className="w-5 h-5 bg-orange-600 rounded flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                        {org.orgName.length <= 2 ? org.orgName : org.orgName.slice(0, 2)}
+                        {orgInitialOf(org.orgName)}
                       </div>
                       <TruncatedText className="flex-1 text-left">{org.orgName}</TruncatedText>
                       {org.orgId === activeOrgId && (
