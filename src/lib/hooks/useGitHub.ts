@@ -9,6 +9,8 @@ import type {
   SpaceGitHubRepo,
   GitHubPullRequest,
   TaskGitHubLink,
+  GitHubIssue,
+  TaskGitHubIssueLink,
 } from '@/lib/github/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -304,6 +306,209 @@ export function useUnlinkPR() {
       queryClient.invalidateQueries({
         queryKey: ['task-github-links', variables.taskId],
       })
+    },
+  })
+}
+
+// =============================================================================
+// GitHub Issues（GITHUB_ISSUES_LINK_SPEC.md §8・§9 PR1）
+// =============================================================================
+
+interface TaskGitHubIssuesData {
+  links: TaskGitHubIssueLink[]
+}
+
+function taskGitHubIssuesQueryKey(taskId: string) {
+  return ['task-github-issues', taskId] as const
+}
+
+/**
+ * タスクに紐づく Issue の一覧を取得。
+ *
+ * 完了件数（「N件中M件完了」）は task_github_issue_rollups を別に取らず、この一覧の
+ * 各 Issue の状態から画面側で数える（表示速度レビューでの是正・2026-09-11）。
+ * 理由: 表を分けて2回取っても、一覧と集計が同時に更新されない一瞬（紐づけ・解除の直後）が
+ * 生まれうる。一覧から数えれば同じデータなので原理的にずれない。通知の判定（PR3・サーバー側）は
+ * 引き続き DB の集計行(task_github_issue_rollups)を正本にする。ここは画面の数え方だけの変更
+ */
+export function useTaskGitHubIssues(taskId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
+  return useQuery({
+    queryKey: taskId ? taskGitHubIssuesQueryKey(taskId) : ['task-github-issues', undefined],
+    queryFn: async (): Promise<TaskGitHubIssuesData> => {
+      if (!taskId) return { links: [] }
+
+      const { data, error } = await supabase
+        .from('task_github_issue_links')
+        .select(`
+          *,
+          github_issues (*)
+        `)
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      return { links: (data ?? []) as TaskGitHubIssueLink[] }
+    },
+    enabled: !!taskId && githubEnabled,
+  })
+}
+
+/**
+ * 手動で紐づけるための候補Issue（そのプロジェクトに紐づくリポジトリのIssue）を
+ * 番号・タイトルで検索する。
+ *
+ * repoIds は呼び出し側が既存の `useSpaceGitHubRepos(spaceId)` から作って渡す
+ * （表示速度レビューでの是正・2026-09-11）。この hook 自身は space_github_repos を
+ * 引かない＝検索の問い合わせは github_issues の1回だけになる。呼び出し側は search を
+ * `useDebouncedValue` で落ち着かせてから渡すこと（打鍵ごとに問い合わせない）
+ */
+export function useIssueLinkCandidates(repoIds: string[], search: string) {
+  const githubEnabled = isGitHubConfigured()
+  // 配列の参照は毎レンダー変わりうるが、react-query の queryKey は値で比較するので
+  // 中身が同じなら再取得しない。順序だけ揺れないよう並べておく
+  const sortedRepoIds = [...repoIds].sort()
+
+  return useQuery({
+    queryKey: ['space-github-issue-candidates', sortedRepoIds, search],
+    queryFn: async () => {
+      if (sortedRepoIds.length === 0) return []
+
+      let query = supabase
+        .from('github_issues')
+        .select('*')
+        .in('github_repo_id', sortedRepoIds)
+        .order('issue_number', { ascending: false })
+        .limit(50)
+
+      const trimmed = search.trim()
+      if (trimmed) {
+        const numeric = trimmed.replace(/^#/, '')
+        if (/^\d+$/.test(numeric)) {
+          query = query.eq('issue_number', Number(numeric))
+        } else {
+          query = query.ilike('title', `%${trimmed}%`)
+        }
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+      return data as GitHubIssue[]
+    },
+    enabled: repoIds.length > 0 && githubEnabled,
+    // 打ち直しのたびに空欄へ戻らないよう、前の結果を出したまま裏で取り直す
+    // （FilesPageClient の useFileSearch と同じ型。一瞬「該当するIssueがありません」が出ない）
+    placeholderData: (previous: GitHubIssue[] | undefined) => previous,
+    // 打鍵の切れ目ごとに別キーが生まれるので、使い終わったら早めに捨てる
+    gcTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * 手動でIssueをタスクに紐付け。保存ボタンを置かない方針なので、押した瞬間に
+ * 一覧へ反映し、失敗したときだけ元に戻す（楽観的更新）。完了件数の再計算は
+ * DB のトリガーが行うので、確定したら取り直す
+ */
+export function useManualLinkIssue() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      issue,
+      orgId,
+    }: {
+      taskId: string
+      issue: GitHubIssue
+      orgId: string
+    }) => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const { error } = await supabase
+        .from('task_github_issue_links')
+        .insert({
+          org_id: orgId,
+          task_id: taskId,
+          github_issue_id: issue.id,
+          link_type: 'manual',
+          created_by: user.id,
+        })
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Issue is already linked to this task')
+        }
+        throw error
+      }
+    },
+    onMutate: async ({ taskId, issue, orgId }) => {
+      const queryKey = taskGitHubIssuesQueryKey(taskId)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<TaskGitHubIssuesData>(queryKey)
+
+      queryClient.setQueryData<TaskGitHubIssuesData>(queryKey, (current) => {
+        const base = current ?? { links: [] }
+        const optimisticLink: TaskGitHubIssueLink = {
+          id: `optimistic-${issue.id}`,
+          org_id: orgId,
+          task_id: taskId,
+          github_issue_id: issue.id,
+          link_type: 'manual',
+          created_at: new Date().toISOString(),
+          github_issues: issue,
+        }
+        return { ...base, links: [optimisticLink, ...base.links] }
+      })
+
+      return { previous }
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(taskGitHubIssuesQueryKey(variables.taskId), context.previous)
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: taskGitHubIssuesQueryKey(variables.taskId) })
+    },
+  })
+}
+
+/**
+ * Issueとタスクの紐付けを解除。押した瞬間に一覧から消し、失敗したら元に戻す（楽観的更新）
+ */
+export function useUnlinkIssue() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ linkId }: { linkId: string; taskId: string }) => {
+      const { error } = await supabase
+        .from('task_github_issue_links')
+        .delete()
+        .eq('id', linkId)
+
+      if (error) throw error
+    },
+    onMutate: async ({ taskId, linkId }) => {
+      const queryKey = taskGitHubIssuesQueryKey(taskId)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<TaskGitHubIssuesData>(queryKey)
+
+      queryClient.setQueryData<TaskGitHubIssuesData>(queryKey, (current) =>
+        current ? { ...current, links: current.links.filter((l) => l.id !== linkId) } : current
+      )
+
+      return { previous }
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(taskGitHubIssuesQueryKey(variables.taskId), context.previous)
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: taskGitHubIssuesQueryKey(variables.taskId) })
     },
   })
 }

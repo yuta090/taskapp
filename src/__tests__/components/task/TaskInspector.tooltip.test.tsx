@@ -90,6 +90,7 @@ vi.mock('@/components/task/TaskPricingPanel', () => ({
 
 vi.mock('@/components/github', () => ({
   TaskPRList: () => null,
+  TaskIssueList: () => null,
 }))
 
 vi.mock('@/components/slack', () => ({

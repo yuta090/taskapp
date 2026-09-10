@@ -240,6 +240,35 @@ describe('QueryProvider', () => {
     expect(keys.some((k) => k[0] === 'files' && k[3] === 'search')).toBe(false)
   })
 
+  // GitHub Issue の紐付け候補検索(useIssueLinkCandidates)は、打鍵の切れ目ごとに
+  // 別キーが生まれる検索結果を IDB に載せない。空の検索語(候補の一覧)は載せてよい
+  // （表示速度レビューでの是正・ファイル検索と同じ理由・2026-09-11）。
+  it('GitHub Issue の紐付け候補検索は IDB に載せず、空の検索は載せる', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+    renderProvider()
+
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+
+    await waitFor(() => {
+      act(() => {
+        capturedClient!.setQueryData(['space-github-issue-candidates', ['repo-1'], ''], [{ id: 'i1' }])
+        capturedClient!.setQueryData(['space-github-issue-candidates', ['repo-1'], '42'], [{ id: 'i2' }])
+      })
+      expect(idbSet).toHaveBeenCalled()
+    })
+
+    const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+    const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+    expect(keys).toContainEqual(['space-github-issue-candidates', ['repo-1'], ''])
+    expect(
+      keys.some((k) => k[0] === 'space-github-issue-candidates' && k[2] === '42')
+    ).toBe(false)
+  })
+
   // --- legacy-key migration ---------------------------------------------------
   it('purges the legacy unscoped IDB key on startup', async () => {
     renderProvider()
