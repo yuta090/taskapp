@@ -458,6 +458,10 @@ export interface Database {
           // 期限(due_date)の正本。NULL=TaskApp正本(編集可)／値=期限を管理する外部import接続のid(編集不可)。
           // 強制はDBトリガー trg_guard_external_due(AI秘書 Stage5 PR-0)。
           due_authority_connection_id: string | null
+          // サービス全体の通し番号(TP-42等の表示に使う)。tasks_short_id_seq のトリガーで自動採番
+          // される実在列(bigint・スキーマ上はnull許容で、トリガーが挿入時に値を埋める)。
+          // 楽観的更新でDB反映前のタスクは値を持たないため、この型でも null を許容する。
+          short_id: number | null
           created_at: string
           updated_at: string
         }
@@ -488,6 +492,7 @@ export interface Database {
           completed_at?: string | null
           is_sample?: boolean
           due_authority_connection_id?: string | null
+          short_id?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -518,6 +523,7 @@ export interface Database {
           completed_at?: string | null
           is_sample?: boolean
           due_authority_connection_id?: string | null
+          short_id?: number | null
           created_at?: string
           updated_at?: string
         }

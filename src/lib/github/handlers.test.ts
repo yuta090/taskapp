@@ -119,6 +119,7 @@ describe('handlePullRequestEvent', () => {
       PR_ROW_ID,
       'fix: login bug',
       null,
+      'fix/login',
     )
     expect(notifyTasksForMergedPRMock).toHaveBeenCalledTimes(1)
     expect(notifyTasksForMergedPRMock).toHaveBeenCalledWith(
@@ -151,6 +152,29 @@ describe('handlePullRequestEvent', () => {
 
     expect(linkPRToTasksMock).toHaveBeenCalledTimes(1)
     expect(notifyTasksForMergedPRMock).not.toHaveBeenCalled()
+  })
+
+  it('opened: ブランチ名(pr.head.ref)も linkPRToTasks に渡す（タイトル/本文に無くても紐づけられるように）', async () => {
+    const { handlePullRequestEvent } = await load()
+    const payload = makePayload({
+      action: 'opened',
+      state: 'open',
+      merged: false,
+      title: 'ちょっとした修正',
+      head: { ref: 'feat/tp-42-login' },
+    })
+
+    await handlePullRequestEvent(payload)
+
+    expect(linkPRToTasksMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ORG_ID,
+      REPO_ROW_ID,
+      PR_ROW_ID,
+      'ちょっとした修正',
+      null,
+      'feat/tp-42-login',
+    )
   })
 
   it('edited: linkPRToTasks は呼ばれるが通知処理は呼ばれない', async () => {

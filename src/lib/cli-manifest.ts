@@ -83,7 +83,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
     subcommands: [
       {
         name: 'list',
-        description: 'List tasks',
+        description: 'List tasks. Each task includes number (TP-##) — put it in a PR title to auto-link the PR to the task',
         aliases: ['ls'],
         tool: 'task_list',
         options: [
@@ -138,7 +138,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
       },
       {
         name: 'get',
-        description: 'Get task details',
+        description: 'Get task details. Includes number (TP-##) — put it in a PR title to auto-link the PR to the task',
         tool: 'task_get',
         options: [
           spaceOpt,
@@ -956,9 +956,9 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.9.0',
+      version: '1.10.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-09-10T09:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-09-10T14:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
       notices: MANIFEST_NOTICES,

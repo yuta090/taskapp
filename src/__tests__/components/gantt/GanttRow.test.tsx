@@ -37,6 +37,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     completed_at: null,
     is_sample: false,
     due_authority_connection_id: null,
+    short_id: null,
     created_at: '2024-01-01',
     updated_at: '2024-01-01',
     ...overrides,

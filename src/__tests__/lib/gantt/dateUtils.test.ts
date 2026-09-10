@@ -99,6 +99,7 @@ describe('dateUtils', () => {
           wiki_page_id: null,
           completed_at: null,
           due_authority_connection_id: null,
+          short_id: null,
           created_at: '2024-01-01',
           updated_at: '2024-01-01',
         },
@@ -143,6 +144,7 @@ describe('dateUtils', () => {
           wiki_page_id: null,
           completed_at: null,
           due_authority_connection_id: null,
+          short_id: null,
           created_at: '2020-01-01', // created_at should NOT affect range
           updated_at: '2020-01-01',
         },
@@ -306,6 +308,7 @@ describe('dateUtils', () => {
         wiki_page_id: null,
         completed_at: null,
         due_authority_connection_id: null,
+        short_id: null,
         created_at: '',
         updated_at: '',
       }
@@ -341,6 +344,7 @@ describe('dateUtils', () => {
         wiki_page_id: null,
         completed_at: null,
         due_authority_connection_id: null,
+        short_id: null,
         created_at: '2024-01-05',
         updated_at: '2024-01-05',
       }
@@ -379,6 +383,7 @@ describe('dateUtils', () => {
         wiki_page_id: null,
         completed_at: null,
         due_authority_connection_id: null,
+        short_id: null,
         created_at: '2024-01-05',
         updated_at: '2024-01-05',
       }

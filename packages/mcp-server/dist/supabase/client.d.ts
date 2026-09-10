@@ -21,6 +21,7 @@ export interface Task {
     parent_task_id: string | null;
     start_date: string | null;
     actual_hours: number | null;
+    short_id?: number | null;
     created_at: string;
     updated_at: string;
 }
