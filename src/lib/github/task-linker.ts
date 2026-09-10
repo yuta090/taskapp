@@ -1,16 +1,22 @@
 // タスクID自動検出とPR紐付け
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { TASK_NUMBER_PREFIX } from '@/lib/tasks/taskNumber'
 
-// タスクID検出パターン: #TP-001, TP-001, [TP-001]
-// 単語境界を使用して誤検出を防止（例: HTTP-001 を TP-001 と誤認しない）
-const TASK_ID_PATTERN = /(?:^|[\s\[\(#])(?:#?)(TP-\d+)(?:[\]\)\s,.:;]|$)/gi
+// タスクID検出パターン: #TP-001, TP-001, [TP-001], TP-42の修正, TP-42、TP-43,
+// （TP-42）, feat/TP-42-x（ブランチ名）, tp-42-x（大文字小文字を区別しない）
+// 直前が英数字でないこと（行頭・記号・日本語・全角かっこ・/ など）で HTTP-001 / STP-1 の
+// ような誤検出を防ぎ、直後が数字でないことで TP-番号の桁を正しく区切る。
+const TASK_ID_PATTERN = new RegExp(
+  `(?<![A-Za-z0-9])${TASK_NUMBER_PREFIX}-(\\d+)(?!\\d)`,
+  'gi'
+)
 
 /**
  * テキストからタスクIDを抽出
  */
 export function extractTaskIds(text: string): string[] {
   const matches = [...text.matchAll(TASK_ID_PATTERN)]
-  const taskIds = matches.map(m => m[1].toUpperCase())
+  const taskIds = matches.map(m => `${TASK_NUMBER_PREFIX}-${m[1]}`)
   return [...new Set(taskIds)] // 重複除去
 }
 
@@ -23,12 +29,13 @@ export async function linkPRToTasks(
   githubRepoId: string,
   prId: string,
   prTitle: string,
-  prBody: string | null
+  prBody: string | null,
+  headBranchRef?: string | null
 ): Promise<{ linkedTasks: string[] }> {
   const linkedTasks: string[] = []
 
-  // タイトルと本文からタスクID抽出
-  const text = `${prTitle} ${prBody || ''}`
+  // タイトル・本文・ブランチ名（例: feat/tp-42-login）からタスクID抽出
+  const text = `${prTitle} ${prBody || ''} ${headBranchRef || ''}`
   const taskShortIds = extractTaskIds(text)
 
   if (taskShortIds.length === 0) {
@@ -38,7 +45,7 @@ export async function linkPRToTasks(
   // 該当タスクを検索
   for (const shortId of taskShortIds) {
     // short_id から数字部分を抽出（TP-042 → 42）
-    const numericId = parseInt(shortId.replace('TP-', ''), 10)
+    const numericId = parseInt(shortId.replace(`${TASK_NUMBER_PREFIX}-`, ''), 10)
 
     const { data: task } = await supabase
       .from('tasks')

@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LeftNav } from '@/components/layout/LeftNav'
+import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/org1/project/space1',
@@ -44,6 +45,56 @@ vi.mock('@/lib/hooks/useSpaceGroups', () => ({
     moveSpaceToGroup: vi.fn(),
   }),
 }))
+
+function renderWithOrg(value: Partial<ActiveOrgContextValue>) {
+  const base: ActiveOrgContextValue = {
+    activeOrgId: 'org1',
+    activeOrgName: 'テスト組織',
+    activeOrgRole: 'owner',
+    orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+    orgsStatus: 'verified',
+    orgsRefreshFailed: false,
+    switchOrg: vi.fn(),
+    loading: false,
+  }
+  return render(
+    <ActiveOrgContext.Provider value={{ ...base, ...value }}>
+      <LeftNav />
+    </ActiveOrgContext.Provider>
+  )
+}
+
+describe('LeftNav — 組織アイコンは1文字（2文字だと枠からはみ出す）', () => {
+  it.each([
+    ['テスト組織', 'テ'],
+    ['skara株式会社', 'S'],
+    ['  前後に空白', '前'],
+    ['😀カンパニー', '😀'],
+  ])('左上のアイコン: 「%s」→「%s」', (orgName, expected) => {
+    renderWithOrg({ activeOrgName: orgName })
+    expect(screen.getByTestId('leftnav-workspace').firstElementChild?.textContent).toBe(expected)
+  })
+
+  it('組織名が未取得でもアイコンは1文字', () => {
+    renderWithOrg({ activeOrgName: null })
+    expect(screen.getByTestId('leftnav-workspace').firstElementChild?.textContent).toHaveLength(1)
+  })
+
+  it('組織切替リストのアイコンも1文字', () => {
+    renderWithOrg({
+      orgs: [
+        { orgId: 'org1', orgName: 'テスト組織', role: 'owner' },
+        { orgId: 'org2', orgName: 'skara株式会社', role: 'member' },
+      ],
+    })
+    fireEvent.click(screen.getByTestId('leftnav-workspace'))
+
+    const iconOf = (name: string) => screen.getByText(name).closest('button')?.firstElementChild?.textContent
+    expect(iconOf('skara株式会社')).toBe('S')
+    const activeRow = screen.getAllByText('テスト組織').map(el => el.closest('button')).find(b => b?.dataset.testid !== 'leftnav-workspace')
+    expect(activeRow?.firstElementChild?.textContent).toBe('テ')
+  })
+})
 
 describe('LeftNav — 用語統一 (M-1)', () => {
   it('サイドバーのリンクが「クライアント確認待ち」を使う', () => {

@@ -100,7 +100,8 @@ export async function handlePullRequestEvent(
       repo.id,
       prRecord.id,
       pr.title,
-      pr.body
+      pr.body,
+      pr.head.ref
     )
     linkedTasks = result.linkedTasks
   } else if (action === 'closed' && pr.merged) {
@@ -113,7 +114,8 @@ export async function handlePullRequestEvent(
       repo.id,
       prRecord.id,
       pr.title,
-      pr.body
+      pr.body,
+      pr.head.ref
     )
     linkedTasks = result.linkedTasks
 

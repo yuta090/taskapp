@@ -3,6 +3,7 @@ import { getSupabaseClient, Task, TaskOwner, TaskStatus } from '../supabase/clie
 import { config, getAuthContext } from '../config.js'
 import { authorizeAndLog, type ActionType } from '../auth/index.js'
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js'
+import { withTaskNumber } from '../lib/taskNumber.js'
 
 // Schemas
 export const taskCreateSchema = z.object({
@@ -326,7 +327,7 @@ export async function taskList(params: z.infer<typeof taskListSchema>): Promise<
   const { data, error } = await query
 
   if (error) throw new Error('タスク一覧の取得に失敗しました')
-  return (data || []) as Task[]
+  return ((data || []) as Task[]).map(withTaskNumber)
 }
 
 export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ task: Task; owners: TaskOwner[] }> {
@@ -352,7 +353,7 @@ export async function taskGet(params: z.infer<typeof taskGetSchema>): Promise<{ 
 
   if (ownersError) throw new Error('担当者の取得に失敗しました')
 
-  return { task: task as Task, owners: (owners || []) as TaskOwner[] }
+  return { task: withTaskNumber(task as Task), owners: (owners || []) as TaskOwner[] }
 }
 
 export async function taskDelete(params: z.infer<typeof taskDeleteSchema>): Promise<{
@@ -476,7 +477,7 @@ export async function taskListMy(params: z.infer<typeof taskListMySchema>): Prom
     results.push({
       spaceId: membership.space_id,
       spaceName: spaceData?.name || 'Unknown',
-      tasks: (tasks || []) as Task[],
+      tasks: ((tasks || []) as Task[]).map(withTaskNumber),
     })
   }
 
