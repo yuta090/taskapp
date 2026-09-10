@@ -163,6 +163,8 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--actual-hours <n>', description: 'Actual hours', param: 'actualHours', type: 'float' },
           { flags: '--milestone-id <uuid>', description: 'Milestone UUID', param: 'milestoneId' },
           { flags: '--wiki-page-id <uuid>', description: 'Link a wiki page (仕様書連携)', param: 'wikiPageId' },
+          { flags: '--assignee-email <email>', description: 'Assign by email. Works for members and pending invites (handed over on accept)', param: 'assigneeEmail' },
+          { flags: '--assignee-invite-id <uuid>', description: 'Assign a pending invite directly', param: 'assigneeInviteId' },
         ],
       },
       {
@@ -947,7 +949,7 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.7.0',
+      version: '1.8.0',
       minCliVersion: '0.2.0',
       generatedAt: '2026-09-08T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),

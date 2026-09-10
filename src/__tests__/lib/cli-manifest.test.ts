@@ -165,4 +165,11 @@ describe('cli-manifest: wiki update の構造オプション', () => {
     const create = client.subcommands!.find((s) => s.name === 'invite-create')!
     expect(create.options.find((o) => o.param === 'role')?.default).toBe('client')
   })
+
+  it('task update でメール指定の担当割り当てができる（招待中の人も含む）', () => {
+    const task = manifest.commands.find((c) => c.name === 'task')!
+    const update = task.subcommands!.find((s) => s.name === 'update')!
+    expect(update.options.some((o) => o.param === 'assigneeEmail')).toBe(true)
+    expect(update.options.some((o) => o.param === 'assigneeInviteId')).toBe(true)
+  })
 })

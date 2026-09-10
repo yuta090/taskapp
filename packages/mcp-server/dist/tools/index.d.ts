@@ -70,6 +70,8 @@ export declare const allTools: ({
         actualHours: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodNumber>>;
         milestoneId: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodString>>;
         wikiPageId: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodString>>;
+        assigneeEmail: import("zod").ZodOptional<import("zod").ZodString>;
+        assigneeInviteId: import("zod").ZodNullable<import("zod").ZodOptional<import("zod").ZodString>>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         taskId: string;
@@ -85,6 +87,8 @@ export declare const allTools: ({
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
         wikiPageId?: string | null | undefined;
+        assigneeEmail?: string | undefined;
+        assigneeInviteId?: string | null | undefined;
     }, {
         spaceId: string;
         taskId: string;
@@ -100,6 +104,8 @@ export declare const allTools: ({
         parentTaskId?: string | null | undefined;
         actualHours?: number | null | undefined;
         wikiPageId?: string | null | undefined;
+        assigneeEmail?: string | undefined;
+        assigneeInviteId?: string | null | undefined;
     }>;
     handler: typeof import("./tasks.js").taskUpdate;
 } | {
