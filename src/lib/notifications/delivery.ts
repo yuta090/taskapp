@@ -39,6 +39,9 @@ const POLICY: Readonly<Record<string, DeliveryPolicy>> = {
   client_replied: IMMEDIATE,
   // 連携が止まっている＝気づくのが遅れるほど取りこぼしが増えるので即時
   sink_error: IMMEDIATE,
+  // 招待した人は「相手が入ってくれたか」を待っている。承諾を待たせず知らせる
+  // （まとめメールだと翌日まで気づけず、催促の重複や作業の割り当て遅れにつながる）
+  invite_accepted: IMMEDIATE,
 
   // ── 知りたいが今すぐ動く必要はない: 鳴らすがメールはまとめ ──
   task_assigned: PUSH_ONLY,
@@ -51,7 +54,6 @@ const POLICY: Readonly<Record<string, DeliveryPolicy>> = {
   // ── 知らせるだけ: まとめのみ ──
   task_completed: DIGEST_ONLY,
   file_uploaded: DIGEST_ONLY,
-  invite_accepted: DIGEST_ONLY,
   meeting_scheduled: DIGEST_ONLY,
   meeting_ended: DIGEST_ONLY,
   scheduling_reminder: DIGEST_ONLY,
