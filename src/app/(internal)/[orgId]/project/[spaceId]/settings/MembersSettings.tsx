@@ -192,7 +192,7 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
         // ここで分けないと「送りました」と出たまま相手に届いていない状態になる
         if (data.email_sent === false) {
           toast.error('招待メールを送れませんでした（期限は延びています）', {
-            description: '下のリンクをコピーして、相手に直接お渡しください。',
+            description: '「リンクをコピー」を押して、相手に直接お渡しください。',
             duration: 20000,
             ...(data.invite_url
               ? {
