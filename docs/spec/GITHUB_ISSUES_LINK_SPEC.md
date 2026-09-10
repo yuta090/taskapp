@@ -1,6 +1,6 @@
 # GitHub Issues 連携 仕様書
 
-> **Version**: 1.0（設計確定・未実装）
+> **Version**: 1.1（設計確定・未実装。1.1 で調査にもとづく追加: §4-14〜16・§7.2 の PR→Issue→タスク・§7.3 のタイトル・§9 PR1.5）
 > **Last Updated**: 2026-09-10
 > **Status**: 設計確定（Fable 裁定 2026-09-10・追加裁定込み）。実装は §9 の PR0a〜PR3 で順に行う
 > **関連**: `spec/GITHUB_INTEGRATION_SPEC.md`（既存の PR 連携）／`spec/AGENCY_MODE_SPEC.md`（見せ分け表。本仕様に合わせて 2026-09-10 改訂）／`design/GITHUB_MILESTONE_INTEGRATION.md`（旧設計。本仕様で廃止。§12）
@@ -57,7 +57,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 お客さん：「確認お願いします」（既存の ball_passed 通知）
 ```
 
-紐づけは ① のほか、Issue のタイトル/本文に `TP-123` と書く（自動）、既存の Issue を選ぶ（手動）でもできる。
+紐づけは ① のほか、Issue のタイトル/本文に `TP-123` と書く（自動）、既存の Issue を選ぶ（手動）でもできる。PR は、タイトル・本文・ブランチ名の `TP-123` に加えて、**つながった Issue を経由して**も自動でタスクにつながる（§7.2。PR 本文の `Fixes #12`、Issue から作ったブランチ、GitHub 上での手動リンク）。
 
 ## 4. 設計判断（Fable 裁定 2026-09-10）
 
@@ -76,6 +76,9 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 | 11 | PR 分割 | §9 の順で固定 | 土台（見せ分け・重複排除）を先に直さないと、新しい表が同じ穴を引き継ぐ |
 | 12 | 制作会社（vendor）への見せ方 | v1 は github_* の全表を社内メンバーのみ。見せ分け表を「制作会社: 計画・未実装」に改める。vendor に Issue 作成・紐づけはさせない（将来も既定は否） | 読む画面が無いのに権限だけ開けるのは順序が逆。閉じておいて後で開けるのは安いが、逆は漏えい事故で取り消せない。Issue 作成は組織の GitHub App で外へ書く行為で、外部の人に持たせる権限ではない |
 | 13 | 旧設計（PR マージで自動完了） | 廃止。不変条件 3〜5 は PR を含む GitHub 由来の処理すべてに適用する | 「PR マージ＝約束の完了」ではない。旧設計の目的は本仕様の 1:多紐づけ＋全閉じ検知＋社内確認で置き換えられる（§12） |
+| 14 | Issue のタイトル（調査にもとづく追加） | AgentPM から作る Issue は、タイトルの先頭に `[TP-42] ` を付ける（本文にも番号と戻りリンク） | 見ればどのタスクか分かる。Issue 画面から作るブランチ（既定の名前は「Issue 番号＋タイトル」）や、Issue のタイトルを写した PR にも番号が乗りやすい |
+| 15 | PR→Issue→タスクの自動紐づけ（調査にもとづく追加） | PR が Issue につながっていれば、その Issue に紐づくタスクにも PR を自動で紐づける（§7.2・PR1.5）。目印は PR 本文の閉じる言葉（**自前で読む**）と GraphQL の `closingIssuesReferences` | 「番号を PR に写す」決まりに頼ると、人や Copilot が忘れたら効かない。サーバーでたどれば、誰が作った PR にも効く。GitHub の閉じる言葉は既定ブランチ（このリポジトリでは main）宛ての PR にしか効かず、develop 宛てでは無視されるため、自前で読む |
+| 16 | スキル化（調査にもとづく追加） | 新しいスキルは作らない。既存の agentpm スキル（`src/lib/cli-skill.ts` が manifest から生成し `/skills/agentpm/SKILL.md` で配る）に「PR に TP-番号を書く・番号の調べ方」の一節を足し、説明文に PR / GitHub の語を入れる | 効くのはスキルを入れた AI だけで、補助にとどまる。配る URL と更新の手間を増やさない |
 
 ## 5. データモデル
 
@@ -134,6 +137,8 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 
 ### 7.2 紐づけの入口
 
+**Issue とタスク**（`task_github_issue_links`）
+
 | 入口 | link_type | 条件 |
 |---|---|---|
 | AgentPM から作成 | `created` | §7.3 |
@@ -141,6 +146,18 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 | 手動で選ぶ | `manual` | 同じ space に紐づくリポジトリの Issue を番号/タイトルで検索。space editor 以上の社内メンバーのみ |
 
 - 解除: space editor 以上。解除後の rollup 再計算は `notify=false`。
+
+**PR とタスク**（既存の `task_github_links`）
+
+| 入口 | 条件 |
+|---|---|
+| PR のタイトル・本文・ブランチ名に `TP-123` | 既存の `task-linker`。番号の拾い方は「直前が英数字でない＋`TP-`＋数字、直後は数字でない、大文字小文字を区別しない」。日本語が直後に続く（`TP-42の修正`）・読点・全角かっこ・ブランチ名（`feat/tp-42-login`）も拾い、`HTTP-001` は拾わない（番号表示の PR で是正） |
+| **PR がつながった Issue を経由（PR1.5）** | PR の opened / edited / synchronize / closed のたびに、つながった Issue を次の2つで調べる。① PR 本文の閉じる言葉（close / closes / closed / fix / fixes / fixed / resolve / resolves / resolved ＋ `#n` または `owner/repo#n`）を**自前で読む**（宛て先ブランチに関係なく効かせるため）。② GraphQL の `PullRequest.closingIssuesReferences`（Issue 画面から作ったブランチ・Development 欄の手動リンク。GitHub がつなぐのは既定ブランチ宛ての PR だけ）。見つかった Issue が `github_issues` にあってタスクに紐づいていれば、そのタスクへ PR を `auto` で紐づける（`unique (task_id, github_pr_id)` で重複しない） |
+| 手動（既存） | タスクの「関連PR」→「PRを紐付け」 |
+
+- 閉じる言葉の付かない `#12`（ついでに名前を出しただけ）は拾わない。
+- 経由でつないだ PR も、取り込まれたら既存の社内通知（`github_pr_merged`）の対象になる。タスク行は更新しない（§6-3）。
+- 補助（v1 では作らない）: Issue が閉じたとき、GitHub の履歴（GraphQL の `ClosedEvent.closer` / REST の issue events）から閉じた PR を拾ってつなぐ。照合 cron に相乗りできる。
 
 ### 7.3 Issue 作成（AgentPM → GitHub）
 
@@ -151,7 +168,7 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 5. Issue を作成 → `github_issues` を upsert → link（`created`）→ intent を `done` にする
 6. あとから `issues.opened` の webhook が来ても同じ行に upsert される。本文の `TP-番号` による自動紐づけも `unique (task_id, github_issue_id)` で重複しない
 
-- **あらかじめ入れる文面の規則**: タイトル＝タスクのタイトル。本文＝タスクの説明＋AgentPM への戻りリンク＋`TP-番号`。**お客さんの名前・会社名・連絡先や、LINE などの元メッセージの引用は自動で入れない**（文面を作る関数の単体テストで固定）。
+- **あらかじめ入れる文面の規則**: タイトル＝`[TP-42] `＋タスクのタイトル（§4-14）。本文＝タスクの説明＋AgentPM への戻りリンク＋`TP-番号`＋「対応する PR の本文には、この Issue を閉じる言葉（例: `Closes #番号`）を書いてください」の一文（PR→Issue→タスクの自動紐づけの目印になる。§7.2）。**お客さんの名前・会社名・連絡先や、LINE などの元メッセージの引用は自動で入れない**（文面を作る関数の単体テストで固定）。
 - 作成は外への書き込みで取り消せないので、楽観更新はしない（送信中の表示 → 結果を反映）。
 
 ### 7.4 全部閉じたときの判定と通知
@@ -218,6 +235,13 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 - `TP-番号` の自動紐づけ・手動の紐づけ/解除・Inspector の Issue 一覧＋バッジ
 - テスト: upsert が冪等／PR を含む一覧から `pull_request` キー付きを除外／TP 抽出は space↔repo が紐づくときだけ／解除で rollup が更新される／client・vendor ロールから見えない／`tasks` が更新されない
 
+### PR1.5 `feat/github-pr-issue-link`（PR→Issue→タスクの自動紐づけ）
+
+- §7.2「PR がつながった Issue を経由」を実装する。PR の opened / edited / synchronize / closed で、本文の閉じる言葉を自前で読み、GraphQL の `closingIssuesReferences` も1回引く（失敗しても PR の受信・既存の紐づけ・通知は止めない）
+- 見つかった Issue に紐づくタスクへ、PR を `auto` で紐づける（既存の `task_github_links`・重複しない）
+- テスト: `Fixes #12`／`closes owner/repo#12` を拾う・閉じる言葉の無い `#12` は拾わない／develop 宛ての PR でも本文の閉じる言葉で紐づく／GraphQL の結果（Issue から作ったブランチ・手動リンク）で紐づく／`github_issues` に無い Issue・どのタスクにも紐づかない Issue では何もしない／`tasks` が更新されない／GraphQL が失敗しても webhook は成功する
+- 前提: PR1（`github_issues` と `task_github_issue_links`）がマージ済み。GraphQL で `closingIssuesReferences` を読むのに要る App の許可は、実装時に実機で確かめる（計画中の `pull_requests: read`＋`issues: write` で足りる見込み・未確認）
+
 ### PR2 `feat/github-issue-create`（AgentPM → GitHub）
 
 - Inspector の作成欄。intent 行 → その場で非公開か確認 → 作成 → `github_issues`＋link（`created`）。許可が足りなければ無効化＋承認案内
@@ -268,3 +292,11 @@ AgentPM：ぶら下がった Issue の集計（open 件数）
 - `space_memberships.role` は admin / editor / viewer / client / vendor（`20260308_000_agency_mode_foundation.sql`）
 - ベンダーポータル（`src/app/vendor-portal/`）に GitHub の表示は無い
 - GitHub Issues には期限の欄が無い。状態は open / closed＋`state_reason`。REST の issues 一覧は PR も含む。App の許可を広げても、導入先が承認するまでは旧い許可のまま動く
+
+**調査で確かめた GitHub の動き（§4-14〜16・§7.2 の根拠）**
+- 閉じる言葉（close / closes / closed / fix / fixes / fixed / resolve / resolves / resolved）は、**既定ブランチ宛ての PR でしか読まれず**、ほかの宛て先では無視されリンクも作られない（https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue ）。このリポジトリの既定ブランチは main で、ふだんの PR は develop 宛て
+- `pull_request` の webhook には「この PR が閉じる Issue」は入らない。取るには GraphQL の `PullRequest.closingIssuesReferences`（https://docs.github.com/en/graphql/reference/pulls ）
+- Issue 画面の「Create a branch」で作ったブランチは Issue とつながり、名前の既定は「Issue 番号＋タイトル」（GraphQL `createLinkedBranch` の説明。https://docs.github.com/en/graphql/reference/issues ）。正確な形は未確認
+- Copilot coding agent に Issue を割り当てると PR を開くが、ブランチ名は `copilot/…` の形で Issue 番号は入らない（https://github.blog/changelog/2025-10-16-copilot-coding-agent-uses-better-branch-names-and-pull-request-titles/ ）。PR 本文に `Fixes #n` が入るかは未確認
+- Issue を閉じた PR は webhook には入らず、GraphQL の `ClosedEvent.closer` や REST の issue events の `commit_id` で分かる（https://docs.github.com/en/rest/using-the-rest-api/issue-event-types ）
+- agentpm スキルは `src/lib/cli-skill.ts` が manifest から組み立て、`/skills/agentpm/SKILL.md`（`src/app/skills/agentpm/SKILL.md/route.ts`）で配る。利用者の手元にあるのは写しなので、更新には取り直しが要る

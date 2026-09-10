@@ -33,7 +33,7 @@
 | **Design System** | `design/DESIGN_SYSTEM.md` | デザイントークン・ステータス色・コンポーネントパターン |
 | **Space Archive & Folders** | `spec/SPACE_ARCHIVE_AND_FOLDERS_SPEC.md` | スペースアーカイブ・フォルダグループ |
 | **GitHub Integration** | `spec/GITHUB_INTEGRATION_SPEC.md` | GitHub App連携・PR追跡・Webhook |
-| **GitHub Issues Link** | `spec/GITHUB_ISSUES_LINK_SPEC.md` | GitHub Issues をタスクに添付（1:多・ミラーではない）・AgentPMからIssue作成・全部閉じたら社内へ確認通知 v1.0（設計確定・未実装） |
+| **GitHub Issues Link** | `spec/GITHUB_ISSUES_LINK_SPEC.md` | GitHub Issues をタスクに添付（1:多・ミラーではない）・AgentPMからIssue作成（タイトルに [TP-番号]）・PR→Issue→タスクの自動紐づけ・全部閉じたら社内へ確認通知 v1.1（設計確定・未実装） |
 | **Slack Integration** | `spec/SLACK_INTEGRATION_SPEC.md` | Slack Bot通知・コマンド・OAuth |
 | **Admin Panel** | `spec/ADMIN_PANEL_SPEC.md` | スーパー管理者運用パネル（17ページ） |
 | **Admin Funnel Analytics** | `spec/ADMIN_FUNNEL_ANALYTICS.md` | 会員登録後の節目（22個）と流入経路の記録・運営分析 v1.0 |
