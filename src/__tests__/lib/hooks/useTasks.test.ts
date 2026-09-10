@@ -573,3 +573,116 @@ describe('useTasks — 期限の正本境界(due_authority_connection_id)', () =
     expect(mockToastError).not.toHaveBeenCalled()
   })
 })
+
+// /my の詳細パネル(MyTaskInspector)は ensureTaskIds で「直近50件の外にあっても必ず
+// 含めたいタスク」を指定する。fetchTasksQuery 自体のテスト（queries.test.ts）とは別に、
+// useTasks がそれを実際の fetch（初回・fetchTasks() による再取得の両方）まで
+// 取りこぼさず渡していることを確認する。
+describe('useTasks — ensureTaskIds が実際の fetch まで届く', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchTasksQuery.mockResolvedValue({ tasks: [], owners: {}, reviewStatuses: {} })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('初回取得と fetchTasks() による再取得の両方で ensureTaskIds を渡す', async () => {
+    const { result } = renderHook(
+      () => useTasks({ orgId: 'o1', spaceId: 's1', ensureTaskIds: ['t9'] }),
+      { wrapper: createWrapper() }
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(mockFetchTasksQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      'o1',
+      's1',
+      { ensureTaskIds: ['t9'] }
+    )
+
+    mockFetchTasksQuery.mockClear()
+
+    await act(async () => {
+      await result.current.fetchTasks()
+    })
+
+    expect(mockFetchTasksQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      'o1',
+      's1',
+      { ensureTaskIds: ['t9'] }
+    )
+  })
+})
+
+// react-query v5 の useQuery は「読まれたプロパティだけを追跡する」トラッキングProxyを
+// 返す（trackResult）。useTasks が dataUpdatedAt/isFetching を普通に分割代入すると、
+// それを一切使わない TasksPageClient/GanttPageClient/DashboardClient まで、変化なしの
+// 再取得（window focus 等）のたびに再レンダーしてしまう。getter で遅延させることで、
+// 実際に .dataUpdatedAt/.isFetching を読むコンシューマ（MyTasksClient）だけが
+// その変化を追跡するようにする。
+describe('useTasks — dataUpdatedAt/isFetching は実際に読んだコンシューマだけ追跡する（getter化）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('tasks だけを読むコンシューマは、内容不変の再取得では再レンダーされない。isFetching を読むコンシューマは再レンダーされる', async () => {
+    // 常に同一参照を返す — structural sharing により data の参照も維持されることを保証する。
+    // 即時解決だと「取得開始(isFetching:true)→完了」が同一tickにまとまって React の
+    // コミットが1回も走らない（= 検証したい違いが見えない）ことがあるため、わずかに
+    // 遅延させて2つの状態遷移を確実に別コミットにする
+    const stableData = { tasks: [makeTask()], owners: {}, reviewStatuses: {} }
+    mockFetchTasksQuery.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(stableData), 5))
+    )
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    let renderCountTasksOnly = 0
+    const { result: resultTasksOnly } = renderHook(
+      () => {
+        renderCountTasksOnly++
+        const r = useTasks({ orgId: 'o1', spaceId: 's1' })
+        // TasksPageClient 等と同じく tasks しか読まない
+        return r.tasks
+      },
+      { wrapper }
+    )
+
+    let renderCountIsFetching = 0
+    const { result: resultIsFetching } = renderHook(
+      () => {
+        renderCountIsFetching++
+        return useTasks({ orgId: 'o1', spaceId: 's1' })
+      },
+      { wrapper }
+    )
+    // isFetching を明示的に読む（getter を発火させる）
+    void resultIsFetching.current.isFetching
+
+    await waitFor(() => expect(resultIsFetching.current.loading).toBe(false))
+    await waitFor(() => expect(resultTasksOnly.current).toHaveLength(1))
+
+    const beforeTasksOnly = renderCountTasksOnly
+    const beforeIsFetching = renderCountIsFetching
+
+    // 内容が変わらない再取得（invalidateQueries → refetch）
+    await act(async () => {
+      await resultIsFetching.current.fetchTasks()
+    })
+    // 2巡目のレンダーでも isFetching を読み続ける（tracked Proxy は毎レンダーで
+    // アクセスされたプロパティを再計算するため、読み続けないと追跡が外れる）
+    void resultIsFetching.current.isFetching
+
+    expect(renderCountTasksOnly).toBe(beforeTasksOnly)
+    expect(renderCountIsFetching).toBeGreaterThan(beforeIsFetching)
+  })
+})

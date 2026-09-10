@@ -1,20 +1,32 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback, useContext } from 'react'
+import { useEffect, useState, useMemo, useCallback, useContext, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { useQueryClient } from '@tanstack/react-query'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
+import { rpc } from '@/lib/supabase/rpc'
 import { TaskRow } from '@/components/task/TaskRow'
+import { useInspector } from '@/components/layout'
+import { useTasks } from '@/lib/hooks/useTasks'
+import type { TasksQueryData } from '@/lib/hooks/useTasks'
+import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
+import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
 
 const TaskCreateSheet = dynamic(
   () => import('@/components/task/TaskCreateSheet').then((m) => ({ default: m.TaskCreateSheet })),
+  { ssr: false }
+)
+
+const TaskInspector = dynamic(
+  () => import('@/components/task/TaskInspector').then((m) => ({ default: m.TaskInspector })),
   { ssr: false }
 )
 
@@ -109,8 +121,224 @@ const sortLabels: Record<SortField, string> = {
   title: 'タイトル',
 }
 
+interface MyTaskInspectorProps {
+  task: Task
+  /**
+   * このタスクを開いた時刻（Date.now()）。表示の許容誤差(SHOW_TOLERANCE_MS)の基準に使う。
+   * 一覧の読み込み時刻(listFetchedAt)を基準にすると、/my を開いたまま30分放置してから
+   * タスクを押した場合に31分前のキャッシュを即表示してしまう。「開いた瞬間」を基準にする
+   * ことでそれを防ぐ。イベントハンドラ(selectTask)側で記録し、レンダー中には計算しない。
+   * 初期表示の `?task=` ディープリンクだけは押した瞬間が無いため listFetchedAt で代用する。
+   */
+  openedAt: number
+  /**
+   * /my の一覧を読み込み始めた時刻（Date.now()）。useTasks が持つプロジェクト単位の
+   * キャッシュが、この時刻より新しく更新されているかどうかで「一覧と同じくらい新しいか」
+   * を判定する（古い永続キャッシュ(IndexedDB)で担当者[]のまま出してしまう事故を防ぐ）。
+   * バックグラウンド更新の要否・一覧への同期の要否は、表示の許容誤差とは別にこちらを使う
+   * （openedAt はあくまで「表示していいか」の基準で、データの新旧そのものの基準ではない）。
+   */
+  listFetchedAt: number
+  onClose: () => void
+  onSynced: (task: Task) => void
+  onDeleted: (taskId: string) => void
+}
+
+/**
+ * 一覧より少しくらい古いキャッシュなら、そのまま見せてよい許容誤差。QueryProvider の
+ * staleTime と同じ値（DEFAULT_STALE_TIME_MS）を使う — プロジェクト画面自身が
+ * 「staleTime以内はキャッシュを信頼する」のだから、詳細パネルにも同じだけの信頼を与える
+ * （毎回ネットワークを待たせない）。
+ *
+ * この理屈は react-query の既定動作（refetchOnMount: データが staleTime を過ぎていたら
+ * マウント時に自動で取り直す）に依存している。staleTime そのもの・refetchOnMount の
+ * 既定を変える場合は、この許容誤差の妥当性も一緒に見直すこと。
+ *
+ * 表示の可否はこの許容誤差付きで判定し、バックグラウンド更新の要否は厳密な新旧比較で判定する
+ * （isStale は invalidate/refetch のたびに true になり、編集中の詳細がスピナーに化けてしまうため使わない）。
+ */
+const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
+
+/**
+ * 選んだタスクの詳細を右側(Inspector)に出す。更新はプロジェクト画面と同じ useTasks を通す
+ * （承認メール・通知などの副作用をそろえるため）。そのプロジェクトのタスクは親タスク候補・
+ * 子タスクの表示にも要る。
+ *
+ * useTasks は直近50件しか取らないため、一覧で選んだタスクがその外にあると担当者が
+ * 永遠に空配列のまま（＝ボール操作で担当者を消してしまう）になる。ensureTaskIds で
+ * そのタスクだけ確実に含め、担当者が揃うまでは TaskInspector を出さない。
+ */
+function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
+  const { setInspector } = useInspector()
+
+  // TaskInspector 自体（コード）は、データが揃うのを待たずマウント時点から先読みしておく。
+  // 待ってから import すると「データ取得→chunk取得→内部の追加取得」が直列になってしまう。
+  useEffect(() => {
+    void import('@/components/task/TaskInspector')
+  }, [])
+
+  const ensureTaskIds = useMemo(() => [task.id], [task.id])
+  const { tasks, owners, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+    orgId: task.org_id,
+    spaceId: task.space_id,
+    ensureTaskIds,
+  })
+  const spaceTask = tasks.find((t) => t.id === task.id)
+  const current = spaceTask ?? task
+
+  // 削除中は「消えた」を一覧に古いデータで上書きしたり、削除リクエストと再取得が
+  // 競合したりしないよう、以降の判定をすべて止める（詳細は onDelete 参照）
+  const [deleting, setDeleting] = useState(false)
+
+  // 開いた時刻(openedAt)より SHOW_TOLERANCE_MS だけ古いところまでは、そのまま表示してよい
+  // （プロジェクト画面のキャッシュと同じだけ信頼する）。listFetchedAt ではなく openedAt を
+  // 基準にするのは、/my を開いたまま放置してからタスクを押したケースを考慮するため。
+  const recentEnough = dataUpdatedAt >= openedAt - SHOW_TOLERANCE_MS
+  const canShow = !loading && !!spaceTask && recentEnough && !deleting
+
+  // 表示は許容誤差つきで進めつつ、裏では厳密な新旧比較で「一覧より古い／担当者が
+  // まだ無い」場合に限り、listFetchedAt ごとに1回だけ更新を要求する（不要な待たせをしない）。
+  // 取得済みエラーがある間は自動で再要求しない — 復帰は ErrorRetry の再試行ボタンに任せる
+  // （さもないと ErrorRetry→スピナー→ErrorRetry のちらつきになる）
+  const [doneForListFetchedAt, setDoneForListFetchedAt] = useState<number | null>(null)
+  const requestedForRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (loading || isFetching || deleting || error) return
+    if (spaceTask && dataUpdatedAt >= listFetchedAt) return
+    if (requestedForRef.current === listFetchedAt) return
+    requestedForRef.current = listFetchedAt
+    fetchTasks().finally(() => setDoneForListFetchedAt(listFetchedAt))
+  }, [loading, isFetching, deleting, error, spaceTask, dataUpdatedAt, listFetchedAt, fetchTasks])
+  const notFound = doneForListFetchedAt === listFetchedAt && !spaceTask && !isFetching && !error && !deleting
+
+  // 詳細で変えた内容を一覧にも映す。一覧の取得時刻より新しいデータになったときだけ同期する
+  // （古いキャッシュ・削除中で一覧側を上書きしない）
+  const onSyncedRef = useRef(onSynced)
+  useEffect(() => {
+    onSyncedRef.current = onSynced
+  })
+  useEffect(() => {
+    if (spaceTask && dataUpdatedAt >= listFetchedAt && !deleting) onSyncedRef.current(spaceTask)
+  }, [spaceTask, dataUpdatedAt, listFetchedAt, deleting])
+
+  useEffect(() => () => setInspector(null), [setInspector])
+
+  // プレースホルダの種類はレンダー中に計算しておき、setInspector エフェクトの依存には
+  // これ1つだけを使う。isFetching/error を直接依存に入れると、揃って表示中
+  // (canShow=true)の裏で走るバックグラウンド再取得(isFetching の一時的な変化)のたびに
+  // 準備済みの TaskInspector 要素を作り直すことになってしまう（canShow=true の間、
+  // placeholderKind は null のまま変化しない）
+  const placeholderKind: 'error' | 'notFound' | 'loading' | null = canShow
+    ? null
+    : error && !isFetching
+      ? 'error'
+      : notFound
+        ? 'notFound'
+        : 'loading'
+
+  useEffect(() => {
+    if (placeholderKind !== null) {
+      let body: React.ReactNode
+      if (placeholderKind === 'error') {
+        body = (
+          <ErrorRetry
+            message="タスクを読み込めませんでした"
+            onRetry={() => {
+              void fetchTasks()
+            }}
+          />
+        )
+      } else if (placeholderKind === 'notFound') {
+        body = (
+          <p className="text-sm text-gray-500">
+            このタスクを開けませんでした。削除されたか、見る権限がない可能性があります。
+          </p>
+        )
+      } else {
+        body = <LoadingState />
+      }
+      setInspector(
+        <div className="h-full flex flex-col bg-surface">
+          <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
+            <h2 className="text-sm font-medium text-gray-900 truncate">{task.title}</h2>
+            <button
+              onClick={onClose}
+              aria-label="閉じる"
+              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            >
+              <X className="text-lg" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">{body}</div>
+        </div>
+      )
+      return
+    }
+
+    const taskOwners = owners[current.id] || []
+    setInspector(
+      <TaskInspector
+        key={current.space_id}
+        task={current}
+        spaceId={current.space_id}
+        owners={taskOwners}
+        parentTasks={getEligibleParents(tasks, current.id).map((t) => ({ id: t.id, title: t.title }))}
+        childTasks={tasks.filter((t) => t.parent_task_id === current.id)}
+        onClose={onClose}
+        onPassBall={async (ball, overrideClientOwnerIds, overrideInternalOwnerIds) => {
+          const clientOwnerIds = overrideClientOwnerIds ?? taskOwners
+            .filter((owner) => owner.side === 'client')
+            .map((owner) => owner.user_id)
+          const internalOwnerIds = overrideInternalOwnerIds ?? taskOwners
+            .filter((owner) => owner.side === 'internal')
+            .map((owner) => owner.user_id)
+          // バリデーションはTaskInspector側で処理済み（フォールバック用のみ残す）
+          if (ball === 'client' && clientOwnerIds.length === 0) return
+          await passBall(current.id, ball, clientOwnerIds, internalOwnerIds)
+        }}
+        onUpdate={(updates) => updateTask(current.id, updates)}
+        onDelete={async () => {
+          // 楽観的更新で spaceTask が先に消えるため、削除リクエスト中は notFound 判定・
+          // 背景更新の再取得（消えたタスクを復活させかねない）を止める
+          setDeleting(true)
+          try {
+            await deleteTask(current.id)
+            onDeleted(current.id)
+          } catch (err) {
+            setDeleting(false)
+            throw err
+          }
+        }}
+        onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
+          passBall(current.id, current.ball, clientOwnerIds, internalOwnerIds)
+        }
+        onSetSpecState={
+          current.type === 'spec'
+            ? async (decisionState) => {
+                if (decisionState !== 'considering' && !current.wiki_page_id && !current.spec_path) {
+                  throw new Error('仕様書のWikiページが紐付けられていません')
+                }
+                await rpc.setSpecState(createClient(), { taskId: current.id, decisionState })
+                await fetchTasks()
+              }
+            : undefined
+        }
+        onConsideringDecided={fetchTasks}
+        onReviewChange={handleReviewChange}
+      />
+    )
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+
+  return null
+}
+
 export default function MyTasksClient() {
   const [tasks, setTasks] = useState<Task[]>([])
+  // 行の完了トグル(updateTaskStatus)を tasks の変更のたびに作り直さない（TaskRow の memo を効かせる）ための ref
+  const tasksRef = useRef(tasks)
+  useEffect(() => {
+    tasksRef.current = tasks
+  })
   const [spaces, setSpaces] = useState<Space[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
@@ -120,6 +348,9 @@ export default function MyTasksClient() {
   const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const [showFilters, setShowFilters] = useState(false)
+  // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
+  // 一覧と同じくらい新しいか」を判定するために渡す（詳細参照）
+  const [listFetchedAt, setListFetchedAt] = useState(0)
 
   // Restore persisted state from localStorage after hydration
   useEffect(() => {
@@ -135,18 +366,81 @@ export default function MyTasksClient() {
   const supabase = useMemo(() => createClient() as SupabaseClient, [])
   const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
 
+  // 選んだタスクは右側に詳細を出す（ページは移動しない）。URL にも残し、再読み込み・共有で同じ表示に戻せるようにする
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('task'))
+  const selectedTaskIdRef = useRef(selectedTaskId)
+  useEffect(() => {
+    selectedTaskIdRef.current = selectedTaskId
+  })
+
+  // タスクを「開いた」時刻。詳細パネルの表示許容誤差(SHOW_TOLERANCE_MS)の基準に使う
+  // （詳細は MyTaskInspector の openedAt コメント参照）。イベントハンドラで記録する
+  // （レンダー中に Date.now() を呼ばない）。初期表示の `?task=` ディープリンクでは
+  // クリックが発生しないため null のままにし、MyTaskInspector 側で listFetchedAt に
+  // フォールバックさせる。
+  const [openedAt, setOpenedAt] = useState<number | null>(null)
+
+  // `?task=` 付きで開かれた（初期表示から詳細を出す）場合、一覧の読み込みや
+  // MyTaskInspector のマウントを待たず、TaskInspector の chunk 先読みを始めておく
+  useEffect(() => {
+    if (selectedTaskIdRef.current) {
+      void import('@/components/task/TaskInspector')
+    }
+    // マウント時に一度だけ（初期表示のディープリンクのみを対象にするため）
+  }, [])
+
+  const selectTask = useCallback((taskId: string | null) => {
+    setSelectedTaskId(taskId)
+    if (taskId) setOpenedAt(Date.now())
+    const params = new URLSearchParams(window.location.search)
+    if (taskId) {
+      params.set('task', taskId)
+    } else {
+      params.delete('task')
+    }
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `/my?${query}` : '/my')
+  }, [])
+
+  const handleTaskClick = useCallback((taskId: string) => {
+    // 同じタスクをもう一度押したら閉じる
+    selectTask(taskId === selectedTaskIdRef.current ? null : taskId)
+  }, [selectTask])
+
+  const handleInspectorClose = useCallback(() => selectTask(null), [selectTask])
+
+  const handleInspectorSynced = useCallback((updated: Task) => {
+    setTasks(prev => (prev.includes(updated) ? prev : prev.map(t => (t.id === updated.id ? updated : t))))
+  }, [])
+
+  const handleInspectorDeleted = useCallback((taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId))
+    selectTask(null)
+  }, [selectTask])
+
+  const selectedTask = useMemo(
+    () => (selectedTaskId ? tasks.find(t => t.id === selectedTaskId) ?? null : null),
+    [tasks, selectedTaskId]
+  )
+
   // Space options for global create
   const spaceOptions = useMemo(
     () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: s.org_id || '' })),
     [spaces]
   )
 
+  // create=1 の付け外しだけを行い、他のクエリ（選択中タスク task= など）は保持する
   const handleCreateOpen = useCallback(() => {
-    router.push('/my?create=1')
+    const params = new URLSearchParams(window.location.search)
+    params.set('create', '1')
+    router.push(`/my?${params.toString()}`)
   }, [router])
 
   const handleCreateClose = useCallback(() => {
-    router.push('/my')
+    const params = new URLSearchParams(window.location.search)
+    params.delete('create')
+    const query = params.toString()
+    router.push(query ? `/my?${query}` : '/my')
   }, [router])
 
   const handleCreateSubmit = useCallback(
@@ -274,7 +568,12 @@ export default function MyTasksClient() {
     })
   }, [])
 
+  const queryClient = useQueryClient()
+  // tasks を直接依存に入れると一覧の変更のたびに作り直され、TaskRow の memo を素通りしてしまう
+  // ため、直前の状態は tasksRef 経由で読む（onStatusChange は安定した参照のまま渡せる）
   const updateTaskStatus = useCallback(async (taskId: string, status: TaskStatus) => {
+    const prevStatus = tasksRef.current.find(t => t.id === taskId)?.status
+
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t))
 
@@ -285,10 +584,28 @@ export default function MyTasksClient() {
 
     if (error) {
       // Revert on error
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: tasks.find(task => task.id === taskId)?.status || t.status } : t))
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: prevStatus ?? t.status } : t))
       console.error('Failed to update task status:', error)
+      return
     }
-  }, [supabase, tasks])
+
+    // 右側の詳細（プロジェクト単位の読み込み結果）のキャッシュも合わせる。ネットワークは
+    // 発行しない — invalidateQueries はプロジェクト全体を丸ごと読み直す重い操作になるため、
+    // 該当タスクだけをキャッシュ上で書き換える
+    const target = tasksRef.current.find(t => t.id === taskId)
+    if (target) {
+      const key = ['tasks', target.org_id, target.space_id] as const
+      // setQueryData は既定で dataUpdatedAt を「今」に更新してしまう。ここでは一覧の行だけを
+      // 直接いじっているのであって、そのプロジェクトを丸ごと読み直したわけではないので、
+      // 更新時刻はそのまま据え置く（更新したことにすると、1日前の永続キャッシュが
+      // 「今取れたばかり」に見えてしまい、詳細パネル側の新旧判定が壊れる）
+      queryClient.setQueryData<TasksQueryData>(
+        key,
+        (old) => (old ? { ...old, tasks: old.tasks.map(t => (t.id === taskId ? { ...t, status } : t)) } : old),
+        { updatedAt: queryClient.getQueryState(key)?.dataUpdatedAt }
+      )
+    }
+  }, [supabase, queryClient])
 
   useEffect(() => {
     // org解決前はフェッチしない（cross-org leak防止）
@@ -296,6 +613,9 @@ export default function MyTasksClient() {
 
     async function fetchData(uid: string) {
       setUserId(uid)
+      // クエリ発行の直前に記録。MyTaskInspector 側で useTasks のキャッシュ(プロジェクト単位)が
+      // この一覧取得より新しいかどうかを判定するのに使う
+      const fetchStartedAt = Date.now()
 
       let tasksQuery = supabase
         .from('tasks')
@@ -329,6 +649,7 @@ export default function MyTasksClient() {
         setTasks(tasksRes.data || [])
         setSpaces(spacesRes.data || [])
         setMilestones(milestonesRes.data || [])
+        setListFetchedAt(fetchStartedAt)
       }
       setLoading(false)
     }
@@ -679,11 +1000,8 @@ export default function MyTasksClient() {
                                 <TaskRow
                                   key={task.id}
                                   task={task}
-                                  onClick={() => {
-                                    const orgId = task.org_id
-                                    const spaceId = task.space_id
-                                    window.location.href = `/${orgId}/project/${spaceId}?task=${task.id}`
-                                  }}
+                                  isSelected={task.id === selectedTaskId}
+                                  onClick={handleTaskClick}
                                   onStatusChange={updateTaskStatus}
                                 />
                               ))}
@@ -709,11 +1027,8 @@ export default function MyTasksClient() {
                       <TaskRow
                         key={task.id}
                         task={task}
-                        onClick={() => {
-                          const orgId = task.org_id
-                          const spaceId = task.space_id
-                          window.location.href = `/${orgId}/project/${spaceId}?task=${task.id}`
-                        }}
+                        isSelected={task.id === selectedTaskId}
+                        onClick={handleTaskClick}
                         onStatusChange={updateTaskStatus}
                       />
                     ))}
@@ -733,6 +1048,20 @@ export default function MyTasksClient() {
         onSubmit={handleCreateSubmit}
         spaces={spaceOptions}
       />
+
+      {selectedTask && (
+        <MyTaskInspector
+          key={selectedTask.id}
+          task={selectedTask}
+          // クリックで開いた場合は openedAt（イベント時刻）、初期表示の `?task=` ディープ
+          // リンクでは openedAt がまだ無いので listFetchedAt を代わりに使う
+          openedAt={openedAt ?? listFetchedAt}
+          listFetchedAt={listFetchedAt}
+          onClose={handleInspectorClose}
+          onSynced={handleInspectorSynced}
+          onDeleted={handleInspectorDeleted}
+        />
+      )}
     </div>
   )
 }

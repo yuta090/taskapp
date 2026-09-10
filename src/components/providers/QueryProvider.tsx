@@ -8,6 +8,7 @@ import { get, set, del, keys } from 'idb-keyval'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
+import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
 import { clearActiveOrgId } from '@/lib/org/activeOrg'
 
 const IDB_KEY_PREFIX = 'taskapp-query-cache'
@@ -50,7 +51,7 @@ function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 2 * 60_000, // 2 minutes — balance between speed and multi-user freshness
+        staleTime: DEFAULT_STALE_TIME_MS, // 2 minutes — balance between speed and multi-user freshness
         gcTime: 1000 * 60 * 60 * 24, // 24 hours — keep cache for persistence
         // アプリ全体では無効化しない: ball ownership(誰の番か)の唯一の更新経路である
         // useTasks/useMeetings(realtime/ポーリング無し)がフォーカス再取得に依拠している。
