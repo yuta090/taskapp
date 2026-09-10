@@ -236,6 +236,14 @@ describe('proxy — 保護パスの未認証ガード（回帰）', () => {
     expect(redirectPath(response)).toBeNull()
   })
 
+  // AI に読ませる CLI の説明書。ログインしていない端末から curl で取りに来るので、
+  // /login に飛ばすと HTML がスキルとして保存されてしまう。
+  it('CLI の説明書（/skills/agentpm/SKILL.md）は未認証でも通す', async () => {
+    const response = await proxy(makeRequest('/skills/agentpm/SKILL.md'))
+
+    expect(redirectPath(response)).toBeNull()
+  })
+
   // 本番で /tokushoho・/features 等がログイン必須になっていた回帰。
   // 特商法表示は法令上、購入前の誰もが閲覧できる必要がある。
   // マーケティング・ヘルプページも未認証で見られなければ集客・サポートが成立しない。

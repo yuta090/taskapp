@@ -5,6 +5,9 @@ import { setApiConfig } from './api-client.js'
 
 const CONFIG_PATH = join(homedir(), '.taskapprc.json')
 
+/** 接続先の既定値。初めての人が login で API URL を空欄のまま Enter しても本番につながる */
+export const DEFAULT_API_URL = 'https://agentpm.app'
+
 interface CliConfig {
   apiUrl?: string
   apiKey?: string
@@ -39,11 +42,11 @@ export function loadCliConfig(cliOpts: {
     }
   }
 
-  // Priority: CLI flags > env vars > config file
-  const apiUrl = process.env.TASKAPP_API_URL || fileConfig.apiUrl
+  // Priority: CLI flags > env vars > config file > default
+  const apiUrl = process.env.TASKAPP_API_URL || fileConfig.apiUrl || DEFAULT_API_URL
   const apiKey = cliOpts.apiKey || process.env.TASKAPP_API_KEY || fileConfig.apiKey
 
-  if (!apiUrl || !apiKey) {
+  if (!apiKey) {
     throw new ConfigError('Not configured. Run: agentpm login')
   }
 

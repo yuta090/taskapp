@@ -103,6 +103,7 @@ export async function initializeAuth(): Promise<void> {
     scope: row.scope as string,
     allowed_space_ids: (row.allowed_space_ids as string[]) || null,
     allowed_actions: (row.allowed_actions as string[]) || ['read'],
+    space_id: (row.space_id as string) || null,
   })
   config.orgId = row.org_id as string
   if (row.space_id) config.spaceId = row.space_id as string
@@ -132,6 +133,7 @@ export async function initializeAuthWithApiKey(apiKey: string): Promise<void> {
     scope: row.scope as string,
     allowed_space_ids: (row.allowed_space_ids as string[]) || null,
     allowed_actions: (row.allowed_actions as string[]) || ['read'],
+    space_id: (row.space_id as string) || null,
   })
   config.orgId = row.org_id as string
   if (row.space_id) config.spaceId = row.space_id as string

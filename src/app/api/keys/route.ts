@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
+import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
 
 /** Rate limit: 20 API key operations per IP per 15 minutes */
 const KEYS_RATE_LIMIT = {
@@ -97,6 +98,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 知らない操作は DB の CHECK 制約に任せず、ここで 400 にする（DB のエラー文を返さない）
+    const allowedActions = normalizeAllowedActions(body.allowedActions)
+    if (!allowedActions) {
+      return NextResponse.json(
+        { error: 'Invalid allowedActions' },
+        { status: 400 }
+      )
+    }
+
     // Authenticate and authorize: user must belong to the org
     const authResult = await authorizeOrgMember(orgId)
     if (authResult instanceof NextResponse) {
@@ -130,6 +140,11 @@ export async function POST(request: NextRequest) {
         key_hash: keyHash,
         key_prefix: keyPrefix,
         created_by: authResult.userId,
+        // 鍵の「使う人」。これが空だと CLI 側の権限確認(mcp_authorize)がメンバーを特定できず、
+        // どの操作も「User is not a member of this space」で断られる（2026-09-10 まで実際にそうだった）。
+        // 使える範囲は scope='space' のままこのプロジェクトだけで、中身は作った人の役割で判定される。
+        user_id: authResult.userId,
+        allowed_actions: allowedActions,
       })
       .select()
       .single()
@@ -243,7 +258,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await adminClient
       .from('api_keys')
-      .select('id, name, key_prefix, created_at, last_used_at, expires_at, is_active')
+      .select('id, name, key_prefix, created_at, last_used_at, expires_at, is_active, allowed_actions, user_id')
       .eq('org_id', orgId)
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false })

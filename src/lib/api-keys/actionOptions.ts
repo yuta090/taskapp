@@ -22,3 +22,24 @@ export const API_KEY_ACTION_OPTIONS: readonly ApiKeyActionOption[] = [
 ] as const
 
 export const API_KEY_ACTION_VALUES = API_KEY_ACTION_OPTIONS.map((o) => o.value)
+
+/**
+ * 画面から届いた「許可する操作」を DB に入れられる形にそろえる。
+ * 未指定は読み取りだけ・読み取りは必ず含める・並びはこの一覧の順。
+ * 知らない値や配列以外は null（呼び出し側で 400 にし、DB の CHECK 制約のエラー文を返さない）。
+ */
+export function normalizeAllowedActions(input: unknown): ApiKeyActionOption['value'][] | null {
+  if (input === undefined || input === null) return ['read']
+  if (!Array.isArray(input)) return null
+  const known = new Set<string>(API_KEY_ACTION_VALUES)
+  if (!input.every((v) => typeof v === 'string' && known.has(v))) return null
+  const chosen = new Set<string>(['read', ...input])
+  return API_KEY_ACTION_VALUES.filter((v) => chosen.has(v))
+}
+
+/** 一覧に出す「許可した操作」。画面の名前で画面の順に並べ、知らない値はそのまま出す */
+export function formatApiKeyActions(actions: readonly string[]): string {
+  const known = API_KEY_ACTION_OPTIONS.filter((o) => actions.includes(o.value)).map((o) => o.label)
+  const unknown = actions.filter((a) => !API_KEY_ACTION_OPTIONS.some((o) => o.value === a))
+  return [...known, ...unknown].join('・')
+}

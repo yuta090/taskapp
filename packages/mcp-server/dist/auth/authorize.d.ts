@@ -9,6 +9,8 @@ export interface AuthContext {
     userId: string | null;
     orgId: string;
     scope: 'space' | 'org' | 'user';
+    /** scope=space の鍵（プロジェクト設定で作った鍵）が属するプロジェクト。取れなければ null */
+    spaceId?: string | null;
     allowedSpaceIds: string[] | null;
     allowedActions: ActionType[];
 }
@@ -65,5 +67,6 @@ export declare function createAuthContext(keyData: {
     scope: string;
     allowed_space_ids: string[] | null;
     allowed_actions: string[];
+    space_id?: string | null;
 }): AuthContext;
 //# sourceMappingURL=authorize.d.ts.map

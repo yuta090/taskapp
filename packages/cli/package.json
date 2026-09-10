@@ -1,16 +1,20 @@
 {
-  "name": "agentpm",
-  "version": "0.4.2",
-  "description": "CLI for TaskApp - AI-first task management",
+  "name": "@uzukko/agentpm",
+  "version": "0.5.0",
+  "description": "AgentPM CLI - operate AgentPM tasks, wiki and files from your terminal or an AI agent (Claude Code etc.)",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "agentpm": "./bin/taskapp.js"
   },
+  "files": [
+    "bin",
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "rm -rf dist && npm run build"
   },
   "dependencies": {
     "commander": "^13.0.0",
@@ -24,6 +28,14 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "homepage": "https://agentpm.app",
+  "keywords": [
+    "agentpm",
+    "task-management",
+    "cli",
+    "claude-code",
+    "ai-agent"
+  ],
   "publishConfig": {
     "access": "public"
   },
