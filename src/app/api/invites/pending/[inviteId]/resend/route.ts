@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendInviteEmail } from '@/lib/email'
+import { buildInviteUrl } from '@/lib/invites/inviteUrl'
 import { resolveSenderOrgName } from '@/lib/email/senderOrgName'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -142,6 +143,17 @@ export async function POST(
       success: true,
       expires_at: newExpiresAt,
       email_sent: emailSent,
+      // 送れなかったときだけ、招待した人が手で相手に渡せるリンクを返す。
+      // （送れているなら合言葉を画面に出す理由がない）
+      ...(emailSent
+        ? {}
+        : {
+            invite_url: buildInviteUrl(
+              inviteRow.role,
+              inviteRow.token,
+              process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+            ),
+          }),
     })
   } catch (err) {
     console.error('Resend invite error:', err)
