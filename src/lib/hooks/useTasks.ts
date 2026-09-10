@@ -82,6 +82,8 @@ interface UseTasksReturn {
   error: Error | null
   /** このデータが最後に更新された時刻（ms）。react-query の dataUpdatedAt をそのまま渡す */
   dataUpdatedAt: number
+  /** バックグラウンド再取得（invalidate/refetch）が進行中かどうか。react-query の isFetching をそのまま渡す */
+  isFetching: boolean
   fetchTasks: () => Promise<void>
   createTask: (task: CreateTaskInput) => Promise<Task>
   updateTask: (taskId: string, input: UpdateTaskInput) => Promise<void>
@@ -232,7 +234,7 @@ export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): Us
 
   const queryKey = ['tasks', orgId, spaceId] as const
 
-  const { data, isPending, error: queryError, dataUpdatedAt } = useQuery<TasksQueryData>({
+  const { data, isPending, error: queryError, dataUpdatedAt, isFetching } = useQuery<TasksQueryData>({
     queryKey,
     queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId, { ensureTaskIds }),
     enabled: !!orgId && !!spaceId,
@@ -870,6 +872,7 @@ export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): Us
     loading: isPending && !data,
     error: queryError,
     dataUpdatedAt,
+    isFetching,
     fetchTasks,
     createTask,
     updateTask,

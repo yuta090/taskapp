@@ -85,8 +85,12 @@ export async function fetchTasksQuery(
     console.warn('[fetchTasksQuery] reviews query failed:', reviewsResult.error.message)
   }
 
-  if (ensureResult.error) {
-    console.warn('[fetchTasksQuery] ensureTaskIds query failed:', (ensureResult.error as { message?: string }).message)
+  // reviews と違い、ensureTaskIds は「選択中タスクを確実に含める」という呼び出し元の要求そのもの。
+  // ここを黙って握りつぶすと、後続の再取得(fetchTasks)が一時的に失敗しただけで選択中タスクが
+  // キャッシュから消え、開いている詳細パネルが「見つからない」表示に化けてしまう。react-query に
+  // 失敗として扱わせ、前回の(選択中タスクを含んだ)データを保持させる。
+  if (ensureTaskIds.length > 0 && ensureResult.error) {
+    throw ensureResult.error
   }
 
   const rawTasks = [...((tasksResult.data || []) as Array<

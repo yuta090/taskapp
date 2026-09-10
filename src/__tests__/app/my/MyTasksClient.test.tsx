@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   owners: {} as Record<string, unknown[]>,
   loading: false,
   dataUpdatedAt: 0,
+  isFetching: false,
+  error: null as Error | null,
   setInspector: vi.fn(),
   useTasksArgs: [] as unknown[],
   updateTask: vi.fn(() => Promise.resolve()),
@@ -57,7 +59,8 @@ vi.mock('@/lib/hooks/useTasks', () => ({
       reviewStatuses: {},
       loading: mocks.loading,
       dataUpdatedAt: mocks.dataUpdatedAt,
-      error: null,
+      isFetching: mocks.isFetching,
+      error: mocks.error,
       fetchTasks: mocks.fetchTasks,
       createTask: vi.fn(),
       updateTask: mocks.updateTask,
@@ -164,13 +167,16 @@ beforeEach(() => {
   mocks.loading = false
   // 既定は「一覧の取得(listFetchedAt)より新しい」= 揃っている状態
   mocks.dataUpdatedAt = Date.now() + 60_000
+  mocks.isFetching = false
+  mocks.error = null
   mocks.useTasksArgs = []
   mocks.setInspector.mockClear()
-  mocks.updateTask.mockClear()
-  mocks.deleteTask.mockClear()
-  mocks.passBall.mockClear()
-  mocks.fetchTasks.mockClear()
-  mocks.fetchTasks.mockResolvedValue(undefined)
+  // mockClear だけだと、あるテストで mockImplementation/mockResolvedValue を差し替えた場合に
+  // 次のテストへ持ち越されてしまう（例: 削除中テストの pending Promise）。毎回既定の実装に戻す
+  mocks.updateTask.mockReset().mockResolvedValue(undefined)
+  mocks.deleteTask.mockReset().mockResolvedValue(undefined)
+  mocks.passBall.mockReset().mockResolvedValue(undefined)
+  mocks.fetchTasks.mockReset().mockResolvedValue(undefined)
   mocks.push.mockClear()
   window.history.replaceState(null, '', '/my')
 })
@@ -237,6 +243,117 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     // 再レンダーが起きても、同じ一覧取得(listFetchedAt)に対しては1回しか要求しない
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(mocks.fetchTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('一覧より少し古い(許容誤差2分以内)キャッシュはそのまま表示しつつ、裏で1回だけ更新する', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    // 一覧の取得時刻より60秒古い（許容誤差=2分以内なのですぐ表示してよい）
+    mocks.dataUpdatedAt = Date.now() - 60_000
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    // 許容誤差内なのでネットワークを待たずにすぐ表示される
+    await waitFor(() => expect(lastInspectorNode()?.props.task?.id).toBe('t1'))
+    // ただし一覧より古いことに変わりはないので、裏で1回だけ更新を要求する
+    await waitFor(() => expect(mocks.fetchTasks).toHaveBeenCalledTimes(1))
+  })
+
+  it('許容誤差を超えて古いときはプレースホルダのまま。取得中(isFetching)は重ねて要求せず、揃ったら表示に切り替わる', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    mocks.dataUpdatedAt = Date.now() - 10 * 60_000 // 許容誤差(2分)を超えて古い
+    mocks.isFetching = true // ちょうど裏で取得中
+    const { rerender, queryClient } = renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() => expect(mocks.setInspector).toHaveBeenCalled())
+    expect(lastInspectorNode()?.props?.task).toBeUndefined() // まだプレースホルダ
+    // 取得中に重ねて要求しない（F: invalidate/refetch の二重発火を防ぐ）
+    expect(mocks.fetchTasks).not.toHaveBeenCalled()
+
+    // 取得が終わり、一覧より新しいデータになった
+    mocks.isFetching = false
+    mocks.dataUpdatedAt = Date.now() + 60_000
+    rerender(buildTree(queryClient))
+
+    await waitFor(() => expect(lastInspectorNode()?.props.task?.id).toBe('t1'))
+  })
+
+  it('新しいデータの取得中(isFetching)でも、すでに表示できているものをスピナーに戻さない', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    mocks.dataUpdatedAt = Date.now() + 60_000
+    const { rerender, queryClient } = renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task?.id).toBe('t1'))
+
+    // 編集中に、バックグラウンドの再取得(isStale相当)が走った
+    mocks.isFetching = true
+    rerender(buildTree(queryClient))
+
+    // 詳細は出したまま（isStale ベースだとここでスピナーに化けてしまう）
+    expect(lastInspectorNode()?.props.task?.id).toBe('t1')
+  })
+
+  it('取得に失敗していて表示できるデータも無いときは、エラー表示から再試行できる', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = []
+    mocks.dataUpdatedAt = Date.now() - 10 * 60_000
+    mocks.isFetching = false
+    mocks.error = new Error('network error')
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() => {
+      const { getByText } = renderNode(lastInspectorNode() as React.ReactElement)
+      expect(getByText('タスクを読み込めませんでした')).toBeTruthy()
+    })
+
+    const callsBefore = mocks.fetchTasks.mock.calls.length
+    const { getByRole } = renderNode(lastInspectorNode() as React.ReactElement)
+    fireEvent.click(getByRole('button', { name: '再試行' }))
+    expect(mocks.fetchTasks.mock.calls.length).toBe(callsBefore + 1)
+  })
+
+  it('削除中は、消えたタスクを更新要求で復活させたり「開けませんでした」を出したりしない', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    let resolveDelete: () => void = () => {}
+    mocks.deleteTask.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveDelete = resolve })
+    )
+    const { rerender, queryClient } = renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task?.id).toBe('t1'))
+
+    act(() => {
+      void lastInspectorNode().props.onDelete()
+    })
+
+    // deleteTask がまだ解決していない間に、一覧側(spaceTasks)が楽観的更新で空になった状態を再現
+    mocks.spaceTasks = []
+    rerender(buildTree(queryClient))
+    await Promise.resolve()
+
+    expect(mocks.fetchTasks).not.toHaveBeenCalled()
+    expect(lastInspectorNode()?.props?.task).toBeUndefined()
+    const { queryByText } = renderNode(lastInspectorNode() as React.ReactElement)
+    expect(
+      queryByText('このタスクを開けませんでした。削除されたか、見る権限がない可能性があります。')
+    ).toBeNull()
+
+    await act(async () => {
+      resolveDelete()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(lastInspectorNode()).toBeNull())
   })
 
   it('更新してもタスクが見つからなければ「開けませんでした」を表示する', async () => {
@@ -342,6 +459,23 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     expect(lastInspectorNode()?.props.task.title).toBe('マイタスクA')
   })
 
+  it('一覧より古いキャッシュ(spaceTask)の内容では、一覧側を上書きしない（同期ガード）', async () => {
+    // spaceTask 自体は存在するが、一覧取得時刻(listFetchedAt)より古い更新時刻のまま
+    // ＝ 永続キャッシュ等からの古いデータ。ここで一覧側へ同期すると、一覧の方が新しい
+    // タイトルを持っていても古いタイトルで巻き戻ってしまう
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask({ title: '古いプロジェクト側のタイトル' })]
+    mocks.dataUpdatedAt = 1 // 一覧の取得時刻より確実に古い
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(mocks.fetchTasks).toHaveBeenCalledTimes(1))
+
+    // 一覧側の行タイトルは元のまま（古いキャッシュの内容で上書きされていない）
+    expect(await screen.findByText('マイタスクA')).toBeInTheDocument()
+    expect(screen.queryByText('古いプロジェクト側のタイトル')).not.toBeInTheDocument()
+  })
+
   it('別プロジェクトのタスクに切り替えると、詳細の要素キーがそのプロジェクトIDになる', async () => {
     mocks.taskRows = [
       makeTask({ id: 't1', space_id: 'space-1', title: 'マイタスクA' }),
@@ -377,25 +511,31 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     expect(lastInspectorNode()).toBeNull()
   })
 
-  it('一覧で完了にしたら、そのプロジェクトの読み込み結果のキャッシュだけを書き換える（invalidateはしない）', async () => {
+  it('一覧で完了にしたら、そのプロジェクトの読み込み結果のキャッシュだけを書き換える（invalidateはしない・更新時刻も変えない）', async () => {
+    // react-query の setQueryData は既定で dataUpdatedAt を「今」に進めてしまう。ここでは
+    // プロジェクト全体を読み直したわけではない（該当行だけの書き換え）ので、更新時刻は
+    // 据え置かれるべき — さもないと1日前の永続キャッシュが「今取れたばかり」に見えてしまい、
+    // 詳細パネル側の新旧判定（recentEnough/自動更新）が壊れる。
     mocks.taskRows = [makeTask()]
     const queryClient = new QueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-    queryClient.setQueryData(['tasks', 'org-1', 'space-1'], {
-      tasks: [makeTask()],
-      owners: {},
-      reviewStatuses: {},
-    })
+    const key = ['tasks', 'org-1', 'space-1']
+    queryClient.setQueryData(
+      key,
+      { tasks: [makeTask()], owners: {}, reviewStatuses: {} },
+      { updatedAt: 1000 }
+    )
     renderPage(queryClient)
 
     fireEvent.click(await screen.findByRole('button', { name: '完了にする' }))
 
     await waitFor(() => {
-      const cached = queryClient.getQueryData(['tasks', 'org-1', 'space-1']) as {
+      const cached = queryClient.getQueryData(key) as {
         tasks: Array<{ id: string; status: string }>
       }
       expect(cached.tasks[0].status).toBe('done')
     })
+    expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBe(1000)
     expect(invalidateSpy).not.toHaveBeenCalled()
   })
 

@@ -134,6 +134,15 @@ interface MyTaskInspectorProps {
 }
 
 /**
+ * /my の一覧より少しくらい古いキャッシュなら、そのまま見せてよい許容誤差。QueryProvider の
+ * staleTime（2分）と同じ値 — プロジェクト画面自身が「2分以内はキャッシュを信頼する」の
+ * だから、詳細パネルにも同じだけの信頼を与える（毎回ネットワークを待たせない）。
+ * 表示の可否はこの許容誤差付きで判定し、バックグラウンド更新の要否は厳密な新旧比較で判定する
+ * （isStale は invalidate/refetch のたびに true になり、編集中の詳細がスピナーに化けてしまうため使わない）。
+ */
+const SHOW_TOLERANCE_MS = 2 * 60_000
+
+/**
  * 選んだタスクの詳細を右側(Inspector)に出す。更新はプロジェクト画面と同じ useTasks を通す
  * （承認メール・通知などの副作用をそろえるため）。そのプロジェクトのタスクは親タスク候補・
  * 子タスクの表示にも要る。
@@ -144,8 +153,15 @@ interface MyTaskInspectorProps {
  */
 function MyTaskInspector({ task, listFetchedAt, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
+
+  // TaskInspector 自体（コード）は、データが揃うのを待たずマウント時点から先読みしておく。
+  // 待ってから import すると「データ取得→chunk取得→内部の追加取得」が直列になってしまう。
+  useEffect(() => {
+    void import('@/components/task/TaskInspector')
+  }, [])
+
   const ensureTaskIds = useMemo(() => [task.id], [task.id])
-  const { tasks, owners, loading, dataUpdatedAt, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+  const { tasks, owners, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
     orgId: task.org_id,
     spaceId: task.space_id,
     ensureTaskIds,
@@ -153,40 +169,61 @@ function MyTaskInspector({ task, listFetchedAt, onClose, onSynced, onDeleted }: 
   const spaceTask = tasks.find((t) => t.id === task.id)
   const current = spaceTask ?? task
 
-  // 一覧を読み込んだ時刻以降に更新されたデータかどうか。これが揃うまでは、担当者が
-  // まだ空のまま／一覧より古いキャッシュのまま TaskInspector を出さない。
-  const isFresh = dataUpdatedAt >= listFetchedAt
-  const ready = !loading && isFresh && !!spaceTask
+  // 削除中は「消えた」を一覧に古いデータで上書きしたり、削除リクエストと再取得が
+  // 競合したりしないよう、以降の判定をすべて止める（詳細は onDelete 参照）
+  const [deleting, setDeleting] = useState(false)
 
-  // 揃っていない場合、更新を1回だけ要求する（listFetchedAt が変わる＝別の一覧読み込みごとに1回）。
-  // 「この listFetchedAt に対する更新は完了した」を state（doneForListFetchedAt）に持たせることで、
-  // listFetchedAt が変わったときのリセットを別のエフェクトで行わずに済む（値が一致しなくなるだけで
-  // 自然に「未完了」に戻る）
+  // 一覧の取得時刻(listFetchedAt)より SHOW_TOLERANCE_MS だけ古いところまでは、
+  // そのまま表示してよい（プロジェクト画面のキャッシュと同じだけ信頼する）
+  const recentEnough = dataUpdatedAt >= listFetchedAt - SHOW_TOLERANCE_MS
+  const canShow = !loading && !!spaceTask && recentEnough && !deleting
+
+  // 表示は許容誤差つきで進めつつ、裏では厳密な新旧比較で「一覧より古い／担当者が
+  // まだ無い」場合に限り、listFetchedAt ごとに1回だけ更新を要求する（不要な待たせをしない）
   const [doneForListFetchedAt, setDoneForListFetchedAt] = useState<number | null>(null)
   const requestedForRef = useRef<number | null>(null)
   useEffect(() => {
-    if (loading) return
-    if (isFresh && spaceTask) return
+    if (loading || isFetching || deleting) return
+    if (spaceTask && dataUpdatedAt >= listFetchedAt) return
     if (requestedForRef.current === listFetchedAt) return
     requestedForRef.current = listFetchedAt
     fetchTasks().finally(() => setDoneForListFetchedAt(listFetchedAt))
-  }, [loading, isFresh, spaceTask, listFetchedAt, fetchTasks])
-  const notFound = doneForListFetchedAt === listFetchedAt && !spaceTask
+  }, [loading, isFetching, deleting, spaceTask, dataUpdatedAt, listFetchedAt, fetchTasks])
+  const notFound = doneForListFetchedAt === listFetchedAt && !spaceTask && !isFetching && !error && !deleting
 
-  // 詳細で変えた内容を一覧にも映す。揃う（ready）前の値・一覧側の変更で task が変わった
-  // だけでは戻さない（古い値・一覧専用の変更で上書きしない）
+  // 詳細で変えた内容を一覧にも映す。一覧の取得時刻より新しいデータになったときだけ同期する
+  // （古いキャッシュ・削除中で一覧側を上書きしない）
   const onSyncedRef = useRef(onSynced)
   useEffect(() => {
     onSyncedRef.current = onSynced
   })
   useEffect(() => {
-    if (ready && spaceTask) onSyncedRef.current(spaceTask)
-  }, [ready, spaceTask])
+    if (spaceTask && dataUpdatedAt >= listFetchedAt && !deleting) onSyncedRef.current(spaceTask)
+  }, [spaceTask, dataUpdatedAt, listFetchedAt, deleting])
 
   useEffect(() => () => setInspector(null), [setInspector])
 
   useEffect(() => {
-    if (!ready || !spaceTask) {
+    if (!canShow) {
+      let body: React.ReactNode
+      if (error && !isFetching) {
+        body = (
+          <ErrorRetry
+            message="タスクを読み込めませんでした"
+            onRetry={() => {
+              void fetchTasks()
+            }}
+          />
+        )
+      } else if (notFound) {
+        body = (
+          <p className="text-sm text-gray-500">
+            このタスクを開けませんでした。削除されたか、見る権限がない可能性があります。
+          </p>
+        )
+      } else {
+        body = <LoadingState />
+      }
       setInspector(
         <div className="h-full flex flex-col bg-surface">
           <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
@@ -199,15 +236,7 @@ function MyTaskInspector({ task, listFetchedAt, onClose, onSynced, onDeleted }: 
               <X className="text-lg" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {notFound ? (
-              <p className="text-sm text-gray-500">
-                このタスクを開けませんでした。削除されたか、見る権限がない可能性があります。
-              </p>
-            ) : (
-              <LoadingState />
-            )}
-          </div>
+          <div className="flex-1 overflow-y-auto p-4">{body}</div>
         </div>
       )
       return
@@ -236,8 +265,16 @@ function MyTaskInspector({ task, listFetchedAt, onClose, onSynced, onDeleted }: 
         }}
         onUpdate={(updates) => updateTask(current.id, updates)}
         onDelete={async () => {
-          await deleteTask(current.id)
-          onDeleted(current.id)
+          // 楽観的更新で spaceTask が先に消えるため、削除リクエスト中は notFound 判定・
+          // 背景更新の再取得（消えたタスクを復活させかねない）を止める
+          setDeleting(true)
+          try {
+            await deleteTask(current.id)
+            onDeleted(current.id)
+          } catch (err) {
+            setDeleting(false)
+            throw err
+          }
         }}
         onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
           passBall(current.id, current.ball, clientOwnerIds, internalOwnerIds)
@@ -257,7 +294,7 @@ function MyTaskInspector({ task, listFetchedAt, onClose, onSynced, onDeleted }: 
         onReviewChange={handleReviewChange}
       />
     )
-  }, [ready, spaceTask, notFound, task.title, current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+  }, [canShow, error, isFetching, notFound, task.title, current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
 
   return null
 }
@@ -507,8 +544,15 @@ export default function MyTasksClient() {
     // 該当タスクだけをキャッシュ上で書き換える
     const target = tasksRef.current.find(t => t.id === taskId)
     if (target) {
-      queryClient.setQueryData<TasksQueryData>(['tasks', target.org_id, target.space_id], (old) =>
-        old ? { ...old, tasks: old.tasks.map(t => (t.id === taskId ? { ...t, status } : t)) } : old
+      const key = ['tasks', target.org_id, target.space_id] as const
+      // setQueryData は既定で dataUpdatedAt を「今」に更新してしまう。ここでは一覧の行だけを
+      // 直接いじっているのであって、そのプロジェクトを丸ごと読み直したわけではないので、
+      // 更新時刻はそのまま据え置く（更新したことにすると、1日前の永続キャッシュが
+      // 「今取れたばかり」に見えてしまい、詳細パネル側の新旧判定が壊れる）
+      queryClient.setQueryData<TasksQueryData>(
+        key,
+        (old) => (old ? { ...old, tasks: old.tasks.map(t => (t.id === taskId ? { ...t, status } : t)) } : old),
+        { updatedAt: queryClient.getQueryState(key)?.dataUpdatedAt }
       )
     }
   }, [supabase, queryClient])

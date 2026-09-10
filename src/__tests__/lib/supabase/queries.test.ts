@@ -87,18 +87,31 @@ describe('fetchTasksQuery — ensureTaskIds（50件の外にあるタスクを�
     expect(tasksChain.in).not.toHaveBeenCalled()
   })
 
-  it('補完クエリがエラーでも、警告を出すだけで本体の結果は返す', async () => {
+  it('補完クエリがエラーのときは、本体の結果を握りつぶさず reject する', async () => {
+    // ensureTaskIds は「選択中タスクを確実に含める」という呼び出し元の要求そのもの。ここを
+    // reviews のように警告だけで握りつぶすと、一時的な失敗で選択中タスクがキャッシュから
+    // 静かに消え、開いている詳細パネルが「見つからない」表示に化けてしまう（D）。
+    // react-query に失敗として扱わせ、前回の（選択中タスクを含んだ）データを保持させる。
     const tasksChain = makeTasksChain(
       { data: [{ id: 'a', title: 'A', task_owners: [] }], error: null },
       { data: [], error: { message: 'boom' } }
     )
     const supabase = makeSupabase(tasksChain)
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1', { ensureTaskIds: ['z'] })
+    await expect(
+      fetchTasksQuery(supabase, 'org-1', 'space-1', { ensureTaskIds: ['z'] })
+    ).rejects.toMatchObject({ message: 'boom' })
+  })
+
+  it('ensureTaskIds が無いときは、たとえ本体クエリ以外が失敗していても reject しない（補完クエリを発行していないため）', async () => {
+    const tasksChain = makeTasksChain(
+      { data: [{ id: 'a', title: 'A', task_owners: [] }], error: null },
+      { data: [], error: { message: 'boom' } }
+    )
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
 
     expect(result.tasks.map((t) => t.id)).toEqual(['a'])
-    expect(warnSpy).toHaveBeenCalled()
-    warnSpy.mockRestore()
   })
 })
