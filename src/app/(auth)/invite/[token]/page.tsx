@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
@@ -29,6 +30,7 @@ export default function InviteAcceptPage({
 }) {
   const { token } = use(params)
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -77,6 +79,11 @@ export default function InviteAcceptPage({
         }
       }
 
+      // ActiveOrgProvider（ルート直下に常駐し、画面遷移しても再マウントしない）が持つ
+      // ['orgMemberships', uid] のキャッシュは、いま増えた所属をまだ知らない。遷移先の組織スコープ
+      // 画面（/{orgId}/...）が「所属していない」扱いにならないよう、遷移前に取り直しておく
+      await queryClient.invalidateQueries({ queryKey: ['orgMemberships'] })
+
       // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）
       if (data.role === 'client') {
         router.push('/portal')
@@ -88,7 +95,7 @@ export default function InviteAcceptPage({
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, token, router])
+  }, [password, token, router, queryClient])
 
   useEffect(() => {
     async function loadInvite() {

@@ -1,6 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import OnboardingPage from '@/app/(auth)/onboarding/page'
+
+let queryClient: QueryClient
+
+beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+})
+
+function renderPage() {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <OnboardingPage />
+    </QueryClientProvider>
+  )
+}
 
 const mockPush = vi.fn()
 const mockReplace = vi.fn()
@@ -67,7 +82,7 @@ describe('OnboardingPage — Step 1: 組織作成', () => {
   it('should prefill the org name from user_metadata.org_name', async () => {
     mockUser({ org_name: '株式会社サンプル' })
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^組織名\*?$/)).toHaveValue('株式会社サンプル')
@@ -77,7 +92,7 @@ describe('OnboardingPage — Step 1: 組織作成', () => {
   it('should show the prefill-specific description when org_name is available', async () => {
     mockUser({ org_name: '株式会社サンプル' })
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('登録時の組織名を確認して開始してください。')).toBeInTheDocument()
@@ -87,7 +102,7 @@ describe('OnboardingPage — Step 1: 組織作成', () => {
   it('should keep the default description when org_name is not available', async () => {
     mockUser()
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('あと少しで完了です。組織名を入力してください。')).toBeInTheDocument()
@@ -100,7 +115,7 @@ describe('OnboardingPage — Step 1: 組織作成', () => {
     mockUser({ full_name: '山田太郎', org_name: '株式会社サンプル' })
     mockRpc.mockResolvedValue({ data: { org_id: 'org-1', plan_id: 'free' }, error: null })
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^組織名\*?$/)).toHaveValue('株式会社サンプル')
@@ -135,7 +150,7 @@ describe('OnboardingPage — Step 1: あなたの名前入力', () => {
   it('組織名の上に「あなたの名前」入力欄が表示される', async () => {
     mockUser()
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^あなたの名前\*?$/)).toBeInTheDocument()
@@ -145,7 +160,7 @@ describe('OnboardingPage — Step 1: あなたの名前入力', () => {
   it('user_metadata.full_name があればプレフィルする', async () => {
     mockUser({ full_name: '山田太郎' })
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('山田太郎')
@@ -155,7 +170,7 @@ describe('OnboardingPage — Step 1: あなたの名前入力', () => {
   it('full_name も name も無ければメールのローカル部をプレフィルする', async () => {
     mockUser({}, 'taro@example.com')
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('taro')
@@ -166,7 +181,7 @@ describe('OnboardingPage — Step 1: あなたの名前入力', () => {
     mockUser({ full_name: '佐藤花子', org_name: '株式会社テスト' })
     mockRpc.mockResolvedValue({ data: { org_id: 'org-1', plan_id: 'free' }, error: null })
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('佐藤花子')
@@ -188,7 +203,7 @@ describe('OnboardingPage — Step 1: あなたの名前入力', () => {
     profilesChain.upsert.mockResolvedValueOnce({ data: null, error: { message: 'RLS violation' } })
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByLabelText(/^あなたの名前\*?$/)).toHaveValue('佐藤花子')
@@ -218,7 +233,7 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
     membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
     spaceResponse = { data: null }
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
@@ -231,7 +246,7 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
     membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
     spaceResponse = { data: { id: 'space-1' } }
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/org-1/project/space-1')
@@ -242,7 +257,7 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
     mockUser()
     membershipResponse = { data: { org_id: 'org-1', role: 'client' } }
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/portal')
@@ -255,7 +270,7 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
     spaceResponse = { data: null }
     localStorage.setItem('taskapp:lastPath', '/inbox')
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
@@ -269,7 +284,7 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
     spaceResponse = { data: { id: 'space-1' } }
     localStorage.setItem('taskapp:lastPath', '/org-1/project/space-2')
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/org-1/project/space-2')
@@ -282,7 +297,7 @@ describe('OnboardingPage — 再開・リダイレクト', () => {
     spaceResponse = { data: { id: 'space-1' } }
     localStorage.setItem('taskapp:lastPath', '/other-org/project/space-9')
 
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/org-1/project/space-1')
@@ -300,7 +315,7 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
 
   async function renderStep2() {
     mockUser()
-    render(<OnboardingPage />)
+    renderPage()
     await waitFor(() => {
       expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
     })
@@ -382,6 +397,64 @@ describe('OnboardingPage — Step 2: テンプレート選択とプロジェク�
     })
   })
 
+  it('遷移の前に所属組織一覧（orgMemberships）のキャッシュを取り直す（ActiveOrgProviderはルート常駐で画面遷移しても再マウントしないため）', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ space: { id: 'space-9' } }),
+    }) as unknown as typeof fetch
+
+    await renderStep2()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    fireEvent.change(screen.getByLabelText(/^プロジェクト名\*?$/), {
+      target: { value: 'コーポレートサイト制作' },
+    })
+    fireEvent.click(screen.getByText('Web/アプリ開発'))
+    fireEvent.click(screen.getByRole('button', { name: /プロジェクトを作成する/ }))
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-9?onboarded=1')
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['orgMemberships'] }))
+    const invalidateOrder = invalidateSpy.mock.invocationCallOrder[0]
+    const pushOrder = mockPush.mock.invocationCallOrder[0]
+    expect(invalidateOrder).toBeLessThan(pushOrder)
+  })
+
+  it('invalidateQueriesの解決を待ってから遷移する（awaitしていなければここで落ちる）', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ space: { id: 'space-9' } }),
+    }) as unknown as typeof fetch
+
+    await renderStep2()
+    let resolveInvalidate: () => void = () => {}
+    const pending = new Promise<void>((resolve) => { resolveInvalidate = resolve })
+    vi.spyOn(queryClient, 'invalidateQueries').mockReturnValue(pending)
+
+    fireEvent.change(screen.getByLabelText(/^プロジェクト名\*?$/), {
+      target: { value: 'コーポレートサイト制作' },
+    })
+    fireEvent.click(screen.getByText('Web/アプリ開発'))
+    fireEvent.click(screen.getByRole('button', { name: /プロジェクトを作成する/ }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/spaces/create-with-preset',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+
+    // invalidateQueries がまだ解決していない間は遷移しない
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+    expect(mockPush).not.toHaveBeenCalled()
+
+    resolveInvalidate()
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-9?onboarded=1')
+    })
+  })
+
   it('API失敗時はエラーを表示してステップに留まる', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -433,7 +506,7 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
 
   it('Step1（組織作成）にログイン中のメールと「別のアカウントでログイン」導線が出る', async () => {
     mockUser({}, 'taro@example.com')
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('組織を作成')).toBeInTheDocument()
@@ -445,7 +518,7 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
   it('Step2（最初のプロジェクト作成）は横に広いカードで出す（ジャンル10種が縦長に並ばない）', async () => {
     mockUser()
     membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
-    render(<OnboardingPage />)
+    renderPage()
     await waitFor(() => {
       expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
     })
@@ -454,7 +527,7 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
 
   it('Step1（組織作成）は従来どおり狭いカードのまま', async () => {
     mockUser()
-    render(<OnboardingPage />)
+    renderPage()
     await waitFor(() => {
       expect(screen.getByText('組織を作成')).toBeInTheDocument()
     })
@@ -464,7 +537,7 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
   it('Step2（最初のプロジェクト作成）にも同じ導線が出る', async () => {
     mockUser({}, 'taro@example.com')
     membershipResponse = { data: { org_id: 'org-1', role: 'owner' } }
-    render(<OnboardingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('最初のプロジェクトを作成')).toBeInTheDocument()
@@ -474,7 +547,7 @@ describe('OnboardingPage — 別のアカウントでやり直せる（ログア
 
   it('押すとログアウトしてから /login に移動する（ログアウトが先・遷移が後）', async () => {
     mockUser({}, 'taro@example.com')
-    render(<OnboardingPage />)
+    renderPage()
     await waitFor(() => {
       expect(screen.getByText('組織を作成')).toBeInTheDocument()
     })
