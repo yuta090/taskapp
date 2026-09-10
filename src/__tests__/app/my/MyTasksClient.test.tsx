@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   deleteTask: vi.fn(() => Promise.resolve()),
   passBall: vi.fn(() => Promise.resolve()),
   fetchTasks: vi.fn(() => Promise.resolve()),
+  createTask: vi.fn(),
+  handleReviewChange: vi.fn(),
   push: vi.fn(),
 }))
 
@@ -62,11 +64,11 @@ vi.mock('@/lib/hooks/useTasks', () => ({
       isFetching: mocks.isFetching,
       error: mocks.error,
       fetchTasks: mocks.fetchTasks,
-      createTask: vi.fn(),
+      createTask: mocks.createTask,
       updateTask: mocks.updateTask,
       deleteTask: mocks.deleteTask,
       passBall: mocks.passBall,
-      handleReviewChange: vi.fn(),
+      handleReviewChange: mocks.handleReviewChange,
     }
   },
 }))
@@ -177,6 +179,8 @@ beforeEach(() => {
   mocks.deleteTask.mockReset().mockResolvedValue(undefined)
   mocks.passBall.mockReset().mockResolvedValue(undefined)
   mocks.fetchTasks.mockReset().mockResolvedValue(undefined)
+  mocks.createTask.mockClear()
+  mocks.handleReviewChange.mockClear()
   mocks.push.mockClear()
   window.history.replaceState(null, '', '/my')
 })
@@ -260,6 +264,34 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     await waitFor(() => expect(mocks.fetchTasks).toHaveBeenCalledTimes(1))
   })
 
+  it('一覧を開いたまま放置してからタスクを押した場合、一覧取得時刻ではなく「開いた時刻」を基準に許容誤差を判定する', async () => {
+    // listFetchedAt を基準にすると、/my を開いたまま31分放置してから押したケースで
+    // 「一覧取得時刻からは31分前でも許容誤差(2分)を超えている」を見逃し、実際には
+    // 開いた瞬間からは5分前(許容誤差超)のキャッシュを即表示してしまう。openedAt
+    // （押した瞬間）を基準にすることでこれを防ぐ。
+    const t0 = 1_700_000_000_000
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(t0)
+    try {
+      mocks.taskRows = [makeTask()]
+      mocks.spaceTasks = [makeTask()]
+      // 一覧取得時刻(t0)からは26分後の更新 = listFetchedAt基準だと余裕で許容誤差内
+      mocks.dataUpdatedAt = t0 + 26 * 60_000
+
+      renderPage()
+      const row = await screen.findByText('マイタスクA') // ここまでで listFetchedAt = t0 が確定する
+
+      // 31分放置してからタスクを押す（openedAt = t0 + 31分）
+      nowSpy.mockReturnValue(t0 + 31 * 60_000)
+      fireEvent.click(row)
+
+      await waitFor(() => expect(mocks.setInspector).toHaveBeenCalled())
+      // openedAt基準(t0+29分)より dataUpdatedAt(t0+26分)は古いので、まだプレースホルダ
+      expect(lastInspectorNode()?.props?.task).toBeUndefined()
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
   it('許容誤差を超えて古いときはプレースホルダのまま。取得中(isFetching)は重ねて要求せず、揃ったら表示に切り替わる', async () => {
     mocks.taskRows = [makeTask()]
     mocks.spaceTasks = [makeTask()]
@@ -290,6 +322,7 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
 
     fireEvent.click(await screen.findByText('マイタスクA'))
     await waitFor(() => expect(lastInspectorNode()?.props.task?.id).toBe('t1'))
+    const callsBeforeRefetch = mocks.setInspector.mock.calls.length
 
     // 編集中に、バックグラウンドの再取得(isStale相当)が走った
     mocks.isFetching = true
@@ -297,6 +330,9 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
 
     // 詳細は出したまま（isStale ベースだとここでスピナーに化けてしまう）
     expect(lastInspectorNode()?.props.task?.id).toBe('t1')
+    // 表示中(canShow=true)の間は isFetching が変化しても TaskInspector 要素を作り直さない
+    // （setInspector を呼び直さない） — placeholderKind をエフェクトの依存にしているため
+    expect(mocks.setInspector.mock.calls.length).toBe(callsBeforeRefetch)
   })
 
   it('取得に失敗していて表示できるデータも無いときは、エラー表示から再試行できる', async () => {
@@ -318,6 +354,26 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     const { getByRole } = renderNode(lastInspectorNode() as React.ReactElement)
     fireEvent.click(getByRole('button', { name: '再試行' }))
     expect(mocks.fetchTasks.mock.calls.length).toBe(callsBefore + 1)
+  })
+
+  it('取得エラーが出ている間は自動では再取得を要求しない（復帰は再試行ボタンから。さもないとErrorRetry→スピナー→ErrorRetryのちらつきになる）', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = []
+    mocks.dataUpdatedAt = Date.now() - 10 * 60_000
+    mocks.isFetching = false
+    mocks.error = new Error('network error')
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() => {
+      const { getByText } = renderNode(lastInspectorNode() as React.ReactElement)
+      expect(getByText('タスクを読み込めませんでした')).toBeTruthy()
+    })
+
+    // 少し待っても、エラーが出ている間は自動で fetchTasks を呼ばない
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mocks.fetchTasks).not.toHaveBeenCalled()
   })
 
   it('削除中は、消えたタスクを更新要求で復活させたり「開けませんでした」を出したりしない', async () => {

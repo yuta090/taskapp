@@ -234,11 +234,12 @@ export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): Us
 
   const queryKey = ['tasks', orgId, spaceId] as const
 
-  const { data, isPending, error: queryError, dataUpdatedAt, isFetching } = useQuery<TasksQueryData>({
+  const query = useQuery<TasksQueryData>({
     queryKey,
     queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId, { ensureTaskIds }),
     enabled: !!orgId && !!spaceId,
   })
+  const { data, isPending, error: queryError } = query
 
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks])
   const owners = useMemo(() => data?.owners ?? {}, [data?.owners])
@@ -871,8 +872,20 @@ export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): Us
     reviewStatuses,
     loading: isPending && !data,
     error: queryError,
-    dataUpdatedAt,
-    isFetching,
+    // dataUpdatedAt/isFetching は getter にして、実際に読まれるまで query から
+    // 値を取り出さない。react-query v5 の useQuery は「読まれたプロパティだけを
+    // 再レンダー対象として追跡する」トラッキングProxyを返す（trackResult）ため、
+    // ここで普通に分割代入してしまうと、この2つを一切使わない呼び出し元
+    // （TasksPageClient/GanttPageClient/DashboardClient 等）まで、内容不変の
+    // バックグラウンド再取得（window focus 等）のたびに再レンダーしてしまう。
+    // getter にすることで、実際に .dataUpdatedAt/.isFetching を読む呼び出し元
+    // （MyTasksClient）だけがその変化を追跡する。
+    get dataUpdatedAt() {
+      return query.dataUpdatedAt
+    },
+    get isFetching() {
+      return query.isFetching
+    },
     fetchTasks,
     createTask,
     updateTask,
