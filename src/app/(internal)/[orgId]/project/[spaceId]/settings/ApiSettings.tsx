@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useMemo, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Key, Plus, Trash, Copy, Check, Eye, EyeSlash, Warning } from '@phosphor-icons/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -8,6 +9,9 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
 import { API_KEY_ACTION_OPTIONS, formatApiKeyActions } from '@/lib/api-keys/actionOptions'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
+import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 
 interface ApiKey {
   id: string
@@ -47,12 +51,57 @@ async function hashKey(key: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+/**
+ * 組織の役割（org owner かどうかの判定用）。
+ * 「いま選んでいる組織」(useCurrentOrg / ActiveOrgContext)がこの画面の orgId と一致するときは
+ * SettingsLayout のナビ等と同じキャッシュをそのまま使い回す。URL直リンクなどで一致しない
+ * ときだけ、org_memberships を1回だけ引く（react-query に乗せてこの画面内では取り直さない）。
+ */
+function useOrgRoleForApiSettings(orgId: string): { role: string | null; loading: boolean } {
+  const currentOrg = useCurrentOrg()
+  const { user } = useCurrentUser()
+  const matchesActiveOrg = currentOrg.orgId === orgId
+
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (supabaseRef.current == null) supabaseRef.current = createClient()
+
+  const { data, isPending } = useQuery<string | null>({
+    queryKey: ['orgMembershipRole', orgId, user?.id],
+    queryFn: async () => {
+      const { data, error } = await (supabaseRef.current as SupabaseClient)
+        .from('org_memberships')
+        .select('role')
+        .eq('org_id', orgId)
+        .eq('user_id', user!.id)
+        .maybeSingle()
+      if (error) throw error
+      return (data as { role: string } | null)?.role ?? null
+    },
+    enabled: !matchesActiveOrg && !!user?.id,
+    staleTime: 2 * 60_000,
+  })
+
+  if (matchesActiveOrg) {
+    return { role: currentOrg.role, loading: currentOrg.loading }
+  }
+  return { role: data ?? null, loading: isPending }
+}
+
 export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [checkingRole, setCheckingRole] = useState(true)
+  const queryClient = useQueryClient()
+  const { user } = useCurrentUser()
+  const orgRole = useOrgRoleForApiSettings(orgId)
+  const { members, isPending: membersPending } = useSpaceMembers(spaceId)
+
+  const spaceRole = useMemo(
+    () => members.find((m) => m.id === user?.id)?.role ?? null,
+    [members, user]
+  )
+
+  // 管理者＝組織の owner、または このプロジェクトの admin（サーバー側の判定条件と同じ。変えないこと）
+  const isAdmin = orgRole.role === 'owner' || spaceRole === 'admin'
+  // まだ管理者と分かっていない間だけ「確認中」。どちらかが先に true と分かればそこで確定する
+  const checkingRole = !isAdmin && (orgRole.loading || membersPending)
 
   // New key form
   const [newKeyName, setNewKeyName] = useState('')
@@ -66,106 +115,29 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
 
-  const supabase = useMemo(() => createClient(), [])
+  const keysQueryKey = useMemo(() => ['apiKeys', orgId, spaceId] as const, [orgId, spaceId])
 
-  // Check if user is admin
-  const checkAdminRole = useCallback(async () => {
-    setCheckingRole(true)
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-      // Development mode: if no auth session, allow access for testing
-      if (!user || authError) {
-        console.log('[ApiSettings] No auth session, checking development mode...')
-        // In development, allow access if we're on localhost
-        if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-          console.log('[ApiSettings] Development mode: allowing admin access')
-          setIsAdmin(true)
-          return
-        }
-        setIsAdmin(false)
-        return
-      }
-
-      // Check org owner
-       
-      const { data: orgMember } = await (supabase as SupabaseClient)
-        .from('org_memberships')
-        .select('role')
-        .eq('org_id' as never, orgId as never)
-        .eq('user_id' as never, user.id as never)
-        .single()
-
-      if (orgMember?.role === 'owner') {
-        setIsAdmin(true)
-        return
-      }
-
-      // Check space admin
-       
-      const { data: spaceMember } = await (supabase as SupabaseClient)
-        .from('space_memberships')
-        .select('role')
-        .eq('space_id' as never, spaceId as never)
-        .eq('user_id' as never, user.id as never)
-        .single()
-
-      setIsAdmin(spaceMember?.role === 'admin')
-    } catch (err) {
-      console.error('[ApiSettings] Failed to check admin role:', err)
-      // Development fallback
-      if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-        setIsAdmin(true)
-        return
-      }
-      setIsAdmin(false)
-    } finally {
-      setCheckingRole(false)
-    }
-  }, [supabase, orgId, spaceId])
-
-  const fetchApiKeys = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
+  const {
+    data: apiKeys = [],
+    isPending: keysPending,
+    error: keysError,
+  } = useQuery<ApiKey[]>({
+    queryKey: keysQueryKey,
+    queryFn: async () => {
       const response = await fetch(`/api/keys?orgId=${orgId}&spaceId=${spaceId}`)
       const result = await response.json()
-
       if (!response.ok) throw new Error(result.error)
-      setApiKeys(result.data || [])
-    } catch (err) {
-      console.error('Failed to fetch API keys:', err)
-      setError('APIキーの取得に失敗しました')
-    } finally {
-      setLoading(false)
-    }
-  }, [orgId, spaceId])
+      return result.data || []
+    },
+    enabled: isAdmin,
+  })
 
-  useEffect(() => {
-    void checkAdminRole()
-  }, [checkAdminRole])
-
-  useEffect(() => {
-    if (isAdmin) {
-      void fetchApiKeys()
-    }
-  }, [isAdmin, fetchApiKeys])
+  const invalidateKeys = () => queryClient.invalidateQueries({ queryKey: keysQueryKey })
 
   const handleCreate = async () => {
-    if (!newKeyName.trim()) return
+    if (!newKeyName.trim() || !user?.id) return
     setCreating(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-
-      // Development mode fallback
-      let userId = user?.id
-      if (!userId && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-        console.log('[ApiSettings] Development mode: using demo user for API key creation')
-        userId = '0124bcca-7c66-406c-b1ae-2be8dac241c5' // demo user
-      }
-
-      if (!userId) throw new Error('認証が必要です')
-
       // Generate key
       const rawKey = generateApiKey()
       const keyHash = await hashKey(rawKey)
@@ -191,7 +163,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       // Show the key (only once)
       setNewlyCreatedKey(rawKey)
       setNewKeyName('')
-      await fetchApiKeys()
+      await invalidateKeys()
     } catch (err) {
       console.error('Failed to create API key:', err)
       toast.error('APIキーの作成に失敗しました')
@@ -207,7 +179,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
       const result = await response.json()
 
       if (!response.ok) throw new Error(result.error)
-      await fetchApiKeys()
+      await invalidateKeys()
     } catch (err) {
       console.error('Failed to delete API key:', err)
       toast.error('APIキーの削除に失敗しました')
@@ -251,14 +223,12 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
         </div>
         <p className="text-sm text-gray-500">
           API設定は管理者（org owner または space admin）のみ利用可能です。
-          <br />
-          <span className="text-xs text-gray-400">※ コンソールでデバッグ情報を確認してください</span>
         </p>
       </div>
     )
   }
 
-  if (loading) {
+  if (keysPending) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-gray-700">
@@ -272,7 +242,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
     )
   }
 
-  if (error) {
+  if (keysError) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-gray-700">
@@ -280,7 +250,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
           <h3 className="font-medium">API設定</h3>
         </div>
         <div className="p-4 text-sm text-red-600">
-          {error}
+          APIキーの取得に失敗しました
         </div>
       </div>
     )
