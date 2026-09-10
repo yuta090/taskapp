@@ -58,6 +58,7 @@ function orgContextFixture(overrides: Partial<ActiveOrgContextValue> = {}): Acti
     activeOrgRole: 'owner',
     orgs: [{ orgId: 'org-1', orgName: 'Org', role: 'owner' }],
     orgsStatus: 'verified',
+    orgsRefreshFailed: false,
     switchOrg: vi.fn(),
     loading: false,
     ...overrides,

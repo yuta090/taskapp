@@ -14,6 +14,7 @@ function createWrapper(value: Partial<ActiveOrgContextValue>) {
     activeOrgRole: null,
     orgs: [],
     orgsStatus: 'unknown',
+    orgsRefreshFailed: false,
     switchOrg: () => {},
     loading: true,
     ...value,
@@ -86,6 +87,14 @@ describe('useCurrentOrg', () => {
     })
 
     expect(result.current.error).toBe(null)
+  })
+
+  it('should pass through orgsRefreshFailed from context', () => {
+    const { result } = renderHook(() => useCurrentOrg(), {
+      wrapper: createWrapper({ loading: false, orgsStatus: 'verified', orgsRefreshFailed: true }),
+    })
+
+    expect(result.current.orgsRefreshFailed).toBe(true)
   })
 
   it('should handle different roles correctly', () => {

@@ -28,6 +28,13 @@ export interface ActiveOrgContextValue {
   activeOrgRole: string | null
   orgs: OrgEntry[]
   orgsStatus: OrgsStatus
+  /**
+   * orgsStatus:'verified' のまま（H1: activeOrgId を後退させないための意図した挙動）、
+   * 直近の裏取り直しだけが失敗している状態か。true の間は、orgs が「本当に古い」のか
+   * 「取り直しに失敗しただけ」なのか区別できないため、orgs に対する所属外ガード等の
+   * 強い判定（403 など）には使わないこと。
+   */
+  orgsRefreshFailed: boolean
   switchOrg: (orgId: string) => void
   loading: boolean
 }
@@ -38,6 +45,7 @@ const defaultValue: ActiveOrgContextValue = {
   activeOrgRole: null,
   orgs: [],
   orgsStatus: 'unknown',
+  orgsRefreshFailed: false,
   switchOrg: () => {},
   loading: true,
 }
@@ -139,36 +147,53 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   const [selection, setSelection] = useState<{ uid: string | null; orgId: string } | null>(null)
   // 直前に見たユーザーID。undefined = まだ一度もユーザー確定を観測していない
   const [lastSeenUserId, setLastSeenUserId] = useState<string | null | undefined>(undefined)
+  // cookie をすでに（最初の非nullユーザーに）紐付け済みか。「最初に確定したユーザー」ではなく
+  // 「最初に確定した“非null”ユーザー」に紐付けたい: セッション切れで /login をフルリロードで開くと
+  // 最初に確定するユーザーは null で、その後サインインしてもここが「初回」扱いのままだと
+  // 二度と cookie を紐付けられず、有効な cookie を持っているのに orgs[0] へ誤フォールバックする
+  const [cookieBound, setCookieBound] = useState(false)
 
   // ユーザーIDの変化を検知して selection を補正する。
   // 「前回レンダーの情報を保存し、変化を検知したら render 中に setState で補正する」という
   // React公式パターン（useEffectを使わない）。setState は呼ぶが、guard (currentUserId !== lastSeenUserId)
   // があるので無限ループにはならず、コミットされる最終レンダーは補正後の値で描画される。
   if (currentUserId !== undefined && currentUserId !== lastSeenUserId) {
-    const isFirstResolution = lastSeenUserId === undefined
     setLastSeenUserId(currentUserId)
-    if (isFirstResolution) {
-      // 初回だけ: cookie の値を、いま分かった最初のユーザーに紐付ける
-      if (cookieOrgId && currentUserId) {
-        setSelection({ uid: currentUserId, orgId: cookieOrgId })
+    if (currentUserId !== null) {
+      if (!cookieBound) {
+        // 最初に判明した非nullユーザー（起動時から／ログアウト表示中に開いた後のサインイン、
+        // いずれも該当）: cookie の値をこのユーザーに紐付ける。以後は二度と行わない
+        setCookieBound(true)
+        if (cookieOrgId) {
+          setSelection({ uid: currentUserId, orgId: cookieOrgId })
+        }
+      } else if (selection && selection.uid !== currentUserId) {
+        // 既に一度紐付けた後、別の（非null）ユーザーに変わった
+        // （サインアウト→別ユーザーでサインイン、リロード無し）。前ユーザーの選択は持ち越さない
+        setSelection(null)
       }
-    } else if (selection && selection.uid !== currentUserId) {
-      // ユーザーが変わった（サインアウト→別ユーザーでサインイン、リロード無し）。
-      // 前ユーザーの選択は次のユーザーに持ち越さない
-      setSelection(null)
     }
   }
 
-  // 表示に使う「生の」選択値。いま分かっているユーザーに紐付いているときだけ有効（上の補正が
+  // 表示に使う「生の」選択値。
+  // まだ誰のセッションか確定していない間（IDB 復元中など。currentUserId が undefined で、
+  // かつユーザー確定を一度も観測していない = lastSeenUserId も undefined）は、selection が
+  // 育つ前でも従来どおり cookie を仮のスコープとして使う。ここで null にすると、cookie が
+  // あるのに一瞬だけ「無所属」(loading:false && activeOrgId:null) のレンダーが生じ、
+  // /my・通知が無所属スコープで先に1回走ってしまう（このコミットが直したperf回帰）。
+  // ユーザーが一度でも判明した後は、従来どおり uid ごとの選択に厳密に従う（上の補正が
   // 反映される前の中間レンダーでも安全なように、ここでも uid の一致を確認する）
-  const rawActiveOrgId = selection && selection.uid === currentUserId ? selection.orgId : null
+  const rawActiveOrgId =
+    currentUserId === undefined && lastSeenUserId === undefined
+      ? cookieOrgId
+      : selection && selection.uid === currentUserId ? selection.orgId : null
 
   // 同じ理由でクライアントもレイジーな useState で1回だけ作る（SSR では window が無いので null のまま）
   const [supabase] = useState<ReturnType<typeof createClient> | null>(() =>
     typeof window !== 'undefined' ? createClient() : null
   )
 
-  const { data, dataUpdatedAt, isPending } = useQuery<OrgEntry[]>({
+  const { data, dataUpdatedAt, isPending, isError } = useQuery<OrgEntry[]>({
     queryKey: ['orgMemberships', user?.id],
     queryFn: () => fetchOrgMemberships(supabase as SupabaseClient, user!.id),
     enabled: !!user?.id,
@@ -195,10 +220,20 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   const orgsStatus: OrgsStatus =
     data === undefined ? 'unknown' : dataUpdatedAt >= PAGE_LOADED_AT ? 'verified' : 'cached'
 
+  // 直近の裏取り直しだけが失敗している状態か（H1により data・orgsStatus は前回成功分のまま
+  // 'verified' を保つため、これは別途見る必要がある）。招待受諾などで所属が増えた直後に
+  // invalidate → refetch が失敗すると、新しい org を含まない古い一覧のまま 'verified' になり、
+  // 「一覧に無い＝所属していない」という強い判定（所属外ガードの403等）に使うと誤爆する
+  const orgsRefreshFailed = isError && data !== undefined
+
   // loading の意味は従来どおり据え置く（通知・/my・お知らせが !orgLoading を起点に取得を始めるため）。
-  // cookie に org id が残っていれば即座に false（cookie 由来で先に activeOrgId を出せるため）。
-  // cookie が無いときだけ、ユーザー確定 → 所属一覧の初回取得完了 を待つ
-  const loading = cookieOrgId ? false : userLoading || (!!user && isPending)
+  // rawActiveOrgId（cookie 由来 or ユーザーの選択）があれば即座に false。
+  // マウント時の cookieOrgId ではなく rawActiveOrgId を見るのがポイント: cookieOrgId は
+  // マウント時に1回だけ読んだ値で以後変わらないため、それだけを見ると「サインアウトで cookie が
+  // 消え、別ユーザーBでサインイン（リロード無し）」しても loading が false のまま固定され、
+  // Bの所属確認を待たずに /my・通知が無所属スコープで先に走ってしまう。
+  // それ以外（cookieもrawActiveOrgIdも無い）は、ユーザー確定 → 所属一覧の初回取得完了 を待つ
+  const loading = rawActiveOrgId ? false : userLoading || (!!user && isPending)
 
   // 表示用の activeOrgId は render 中に導出する（effect + setState を使わない）。
   // - ユーザーが確定していて所属を持たない（未ログイン等）ときは null
@@ -253,9 +288,10 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
     activeOrgRole,
     orgs,
     orgsStatus,
+    orgsRefreshFailed,
     switchOrg,
     loading,
-  }), [activeOrgId, activeOrgName, activeOrgRole, orgs, orgsStatus, switchOrg, loading])
+  }), [activeOrgId, activeOrgName, activeOrgRole, orgs, orgsStatus, orgsRefreshFailed, switchOrg, loading])
 
   return (
     <ActiveOrgContext.Provider value={value}>

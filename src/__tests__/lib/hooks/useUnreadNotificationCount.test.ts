@@ -52,6 +52,7 @@ function createWrapper(orgValue: Partial<ActiveOrgContextValue> = {}) {
     activeOrgRole: null,
     orgs: [],
     orgsStatus: 'verified',
+    orgsRefreshFailed: false,
     switchOrg: () => {},
     loading: false,
     ...orgValue,

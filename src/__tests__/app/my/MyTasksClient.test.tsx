@@ -49,6 +49,7 @@ function renderPage() {
         activeOrgRole: 'admin',
         orgs: [],
         orgsStatus: 'verified',
+        orgsRefreshFailed: false,
         switchOrg: vi.fn(),
         loading: false,
       }}

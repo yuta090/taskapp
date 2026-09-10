@@ -62,6 +62,7 @@ function Probe() {
       <div data-testid="active">{ctx.activeOrgId ?? ''}</div>
       <div data-testid="count">{ctx.orgs.length}</div>
       <div data-testid="role">{ctx.activeOrgRole ?? ''}</div>
+      <div data-testid="loading">{String(ctx.loading)}</div>
       <button onClick={() => ctx.switchOrg('org-2')}>switch</button>
     </div>
   )
@@ -166,6 +167,92 @@ describe('ActiveOrgProvider — 鮮度判定（dataUpdatedAt 基準）', () => {
     expect(t('status')).toBe('cached')
 
     await waitFor(() => expect(t('status')).toBe('verified'))
+  })
+})
+
+describe('ActiveOrgProvider — 復元中に unscoped の activeOrgId を出さない（perf回帰）', () => {
+  // cookie が既にある（＝以前どの組織を見ていたか分かっている）のに、IDB 復元が終わるまでの
+  // 一瞬だけ loading:false・activeOrgId:null を出してしまうと、/my・通知などの
+  // 「!orgLoading になったら取得を始める」勢が無所属スコープで先に1回走り、
+  // 復元完了後にもう一度スコープ付きで走る（1リロードあたり数リクエスト分の無駄・
+  // 別組織のタスクが一瞬見える恐れ）。waitFor ではなく、コミットされた
+  // レンダーを毎回記録して「そのレンダーが実在したか」を確認する。
+  it('cookie=org-1 + IDB復元中でも、コミットされる最初のレンダーから activeOrgId は org-1', async () => {
+    const log: Array<{ loading: boolean; activeOrgId: string | null }> = []
+    function Recorder() {
+      const ctx = useContext(ActiveOrgContext)
+      log.push({ loading: ctx.loading, activeOrgId: ctx.activeOrgId })
+      return null
+    }
+
+    const qc = appClient()
+    const persisted = persistedWith(['org-1', 'org-2'], 30_000)
+    const persister: Persister = {
+      persistClient: async () => {},
+      restoreClient: async () => {
+        await Promise.resolve()
+        qc.setQueryData(['currentUser'], USER)
+        return persisted as never
+      },
+      removeClient: async () => {},
+    }
+    render(
+      <PersistQueryClientProvider client={qc} persistOptions={{ persister, buster: 'b', maxAge: 86_400_000 }}>
+        <ActiveOrgProvider><Recorder /></ActiveOrgProvider>
+      </PersistQueryClientProvider>
+    )
+
+    await waitFor(() => expect(log.some((s) => s.activeOrgId === 'org-1')).toBe(true))
+
+    // 最初にコミットされたレンダーから既に org-1（cookie 由来）
+    expect(log[0]).toEqual({ loading: false, activeOrgId: 'org-1' })
+    // loading:false なのに activeOrgId:null という「無所属スコープ」レンダーが一度も無い
+    expect(log.some((s) => s.loading === false && s.activeOrgId === null)).toBe(false)
+  })
+})
+
+describe('ActiveOrgProvider — loading', () => {
+  it('cookieがあれば、ユーザー確定前（IDB復元中）から一貫してloadingはfalse', async () => {
+    const log: boolean[] = []
+    function Recorder() {
+      const ctx = useContext(ActiveOrgContext)
+      log.push(ctx.loading)
+      return null
+    }
+    const qc = appClient()
+    const persisted = persistedWith(['org-1'], 30_000)
+    const persister: Persister = {
+      persistClient: async () => {},
+      restoreClient: async () => {
+        await Promise.resolve()
+        qc.setQueryData(['currentUser'], USER)
+        return persisted as never
+      },
+      removeClient: async () => {},
+    }
+    render(
+      <PersistQueryClientProvider client={qc} persistOptions={{ persister, buster: 'b', maxAge: 86_400_000 }}>
+        <ActiveOrgProvider><Recorder /></ActiveOrgProvider>
+      </PersistQueryClientProvider>
+    )
+
+    await sleep(50)
+    expect(log.length).toBeGreaterThan(0)
+    expect(log.every((v) => v === false)).toBe(true)
+  })
+
+  it('cookieが無ければ、ユーザー確定 → 所属一覧の初回取得完了までloadingはtrueのまま', async () => {
+    cookie = null
+    orderMock.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(membershipsResult), 20)))
+    const qc = appClient()
+    renderPlain(qc)
+
+    // ユーザーは最初から分かっているが、所属一覧の初回取得（20ms delay）がまだ終わっていない間はtrue
+    expect(t('loading')).toBe('true')
+    expect(t('status')).toBe('unknown')
+
+    await waitFor(() => expect(t('status')).toBe('verified'))
+    expect(t('loading')).toBe('false')
   })
 })
 
@@ -279,6 +366,30 @@ describe('ActiveOrgProvider — ユーザー切り替え（リロード無し）
     await waitFor(() => expect(t('status')).toBe('verified'))
     expect(t('active')).toBe('org-9')
     expect(t('count')).toBe('1')
+  })
+})
+
+describe('ActiveOrgProvider — ログアウト状態で開いた後にサインイン', () => {
+  // /login をフルリロードで開く（セッション切れ等）と、最初に確定する「ユーザー」は null。
+  // 以前の実装は「最初に判明したユーザー」= null の時点で cookie 紐付けを一度きり試みて
+  // 何もしない（currentUserId が falsy で弾かれる）ため、その後サインインしても二度と
+  // cookie が紐付けられず、有効な org-2 の cookie があるのに orgs[0]（org-1）へ
+  // フォールバックしてしまっていた。cookie は「最初に判明した非nullユーザー」に紐付けるのが正しい
+  it('ログアウト表示中に開いたページで後からサインインしても、起動時のcookieが有効な所属なら使われる', async () => {
+    cookie = 'org-2'
+    membershipsResult = { data: [row('org-1'), row('org-2')], error: null }
+    const qc = appClient()
+    renderPlain(qc, null) // ログアウト状態で開く
+
+    expect(t('active')).toBe('')
+
+    // Aがサインイン（リロード無し。LoginClient は router.push で遷移するのでフルリロードではない）
+    act(() => { qc.setQueryData(['currentUser'], USER) })
+
+    await waitFor(() => expect(t('status')).toBe('verified'))
+    expect(t('active')).toBe('org-2')
+    // 有効な cookie だったので書き換えは発生しない
+    expect(setCookieMock).not.toHaveBeenCalled()
   })
 })
 
