@@ -10,6 +10,7 @@ export interface Task {
     status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'considering';
     priority: number | null;
     assignee_id: string | null;
+    assignee_invite_id?: string | null;
     due_date: string | null;
     ball: 'client' | 'internal';
     origin: 'client' | 'internal';

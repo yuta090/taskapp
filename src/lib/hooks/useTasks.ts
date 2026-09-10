@@ -54,6 +54,8 @@ export interface UpdateTaskInput {
   startDate?: string | null
   dueDate?: string | null
   assigneeId?: string | null
+  /** 招待中の担当者（invites.id）。承諾時にDB側で本人へ移る。assigneeId とは排他 */
+  assigneeInviteId?: string | null
   milestoneId?: string | null
   parentTaskId?: string | null
   actualHours?: number | null
@@ -463,7 +465,18 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
                 priority: input.priority !== undefined ? input.priority : t.priority,
                 start_date: input.startDate !== undefined ? input.startDate : t.start_date,
                 due_date: input.dueDate !== undefined ? input.dueDate : t.due_date,
-                assignee_id: input.assigneeId !== undefined ? input.assigneeId : t.assignee_id,
+                assignee_id:
+                  input.assigneeInviteId !== undefined && input.assigneeInviteId !== null
+                    ? null
+                    : input.assigneeId !== undefined
+                      ? input.assigneeId
+                      : t.assignee_id,
+                assignee_invite_id:
+                  input.assigneeId !== undefined && input.assigneeId !== null
+                    ? null
+                    : input.assigneeInviteId !== undefined
+                      ? input.assigneeInviteId
+                      : t.assignee_invite_id,
                 milestone_id: input.milestoneId !== undefined ? input.milestoneId : t.milestone_id,
                 parent_task_id: input.parentTaskId !== undefined ? input.parentTaskId : t.parent_task_id,
                 actual_hours: input.actualHours !== undefined ? input.actualHours : t.actual_hours,
@@ -498,7 +511,16 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.priority !== undefined) updateData.priority = input.priority
         if (input.startDate !== undefined) updateData.start_date = input.startDate
         if (input.dueDate !== undefined) updateData.due_date = input.dueDate
-        if (input.assigneeId !== undefined) updateData.assignee_id = input.assigneeId
+        // 担当者は「本人」か「招待中の招待」のどちらか一方（DB の tasks_single_assignee_chk）。
+        // 片方を入れるときは、もう片方を明示的に消す
+        if (input.assigneeId !== undefined) {
+          updateData.assignee_id = input.assigneeId
+          if (input.assigneeId !== null && input.assigneeInviteId === undefined) updateData.assignee_invite_id = null
+        }
+        if (input.assigneeInviteId !== undefined) {
+          updateData.assignee_invite_id = input.assigneeInviteId
+          if (input.assigneeInviteId !== null && input.assigneeId === undefined) updateData.assignee_id = null
+        }
         if (input.milestoneId !== undefined) updateData.milestone_id = input.milestoneId
         if (input.clientScope !== undefined) updateData.client_scope = input.clientScope
         if (input.parentTaskId !== undefined) updateData.parent_task_id = input.parentTaskId

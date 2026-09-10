@@ -36,6 +36,17 @@ export const taskUpdateSchema = z.object({
     actualHours: z.number().min(0).optional().nullable().describe('実績工数'),
     milestoneId: z.string().uuid().optional().nullable().describe('マイルストーンUUID'),
     wikiPageId: z.string().uuid().optional().nullable().describe('紐づける WikiページUUID（null で解除）。画面の「仕様書連携」に対応'),
+    assigneeEmail: z
+        .string()
+        .email()
+        .optional()
+        .describe('担当者をメールで指定する。組織メンバーなら本人、招待中なら招待を担当にする（承諾時に自動で本人へ移る）'),
+    assigneeInviteId: z
+        .string()
+        .uuid()
+        .optional()
+        .nullable()
+        .describe('招待中の担当者（invites.id）。承諾時に本人へ自動で移る。assigneeId とは排他（片方を入れると他方は消える）'),
 });
 export const taskListSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -160,6 +171,49 @@ export async function taskCreate(params) {
     }
     return { task: task, owners };
 }
+/**
+ * 担当者をメールから解決する。組織メンバーなら本人（assignee_id）、まだ承諾していない招待なら
+ * その招待（assignee_invite_id）を返す。招待中の人も担当にできるようにするための入口で、
+ * 「参加するまで担当欄が空のまま」を避ける。
+ */
+async function resolveAssigneeByEmail(orgId, spaceId, email) {
+    const supabase = getSupabaseClient();
+    const normalized = email.trim().toLowerCase();
+    // 1) 参加済みのメンバー（auth.users はメールで直接引けないので listUsers を使う）
+    const { data: members, error: memberError } = await supabase
+        .from('org_memberships')
+        .select('user_id')
+        .eq('org_id', orgId);
+    if (memberError)
+        throw new Error('メンバーの確認に失敗しました: ' + memberError.message);
+    const memberIds = new Set((members ?? []).map((m) => m.user_id));
+    for (let page = 1; page <= 10; page++) {
+        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error)
+            throw new Error('ユーザー情報の取得に失敗しました: ' + error.message);
+        const users = data?.users ?? [];
+        const hit = users.find((u) => u.email?.toLowerCase() === normalized && memberIds.has(u.id));
+        if (hit)
+            return { assignee_id: hit.id, assignee_invite_id: null };
+        if (users.length < 1000)
+            break;
+    }
+    // 2) まだ承諾していない招待（同じスペース宛のもの）
+    const { data: invite, error: inviteError } = await supabase
+        .from('invites')
+        .select('id')
+        .eq('org_id', orgId)
+        .eq('space_id', spaceId)
+        .eq('email', normalized)
+        .is('accepted_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+    if (inviteError)
+        throw new Error('招待の確認に失敗しました: ' + inviteError.message);
+    if (invite)
+        return { assignee_id: null, assignee_invite_id: invite.id };
+    throw new Error(`「${email}」はこの組織のメンバーにも、このプロジェクトの有効な招待にも見つかりません（先に招待してください）`);
+}
 export async function taskUpdate(params) {
     // 権限チェック（write権限が必要、リソースIDも渡して所有権チェック）
     await checkAuth(params.spaceId, 'write', 'task_update', params.taskId);
@@ -189,6 +243,24 @@ export async function taskUpdate(params) {
         updateData.milestone_id = params.milestoneId;
     if (params.wikiPageId !== undefined)
         updateData.wiki_page_id = params.wikiPageId;
+    // 担当者は「本人」か「招待中の招待」のどちらか一方だけ（DB の tasks_single_assignee_chk）。
+    // 片方を指定したら、もう片方は明示的に消してから入れる
+    if (params.assigneeEmail !== undefined) {
+        const { data: space } = await supabase.from('spaces').select('org_id').eq('id', params.spaceId).single();
+        if (!space)
+            throw new Error('スペースが見つかりません');
+        const resolved = await resolveAssigneeByEmail(space.org_id, params.spaceId, params.assigneeEmail);
+        updateData.assignee_id = resolved.assignee_id;
+        updateData.assignee_invite_id = resolved.assignee_invite_id;
+    }
+    if (params.assigneeInviteId !== undefined) {
+        updateData.assignee_invite_id = params.assigneeInviteId;
+        if (params.assigneeInviteId !== null && params.assigneeId === undefined)
+            updateData.assignee_id = null;
+    }
+    if (params.assigneeId !== undefined && params.assigneeId !== null && params.assigneeInviteId === undefined) {
+        updateData.assignee_invite_id = null;
+    }
     if (Object.keys(updateData).length === 0) {
         throw new Error('更新するフィールドがありません');
     }
