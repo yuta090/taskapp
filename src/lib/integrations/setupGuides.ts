@@ -588,7 +588,7 @@ export const INTEGRATION_SETUP_GUIDES: Partial<Record<SetupGuideKey, Integration
       'プロジェクトの設定を開きます',
       '左の「外部連携」の中の「GitHub」を選びます',
       '「リポジトリを追加」でリポジトリを選び、「追加」を押します（このプロジェクトのタスクに紐付くのは、ここで追加したリポジトリの PR だけです）',
-      'PR を作るときに、タイトルか本文にタスクID（例: #TP-042 / [TP-123] / TP-001）を書きます。それだけで自動で紐付きます',
+      'PR を作るときに、タイトルか本文にタスクID（例: #TP-042 / [TP-123] / TP-001）を書きます。それだけで自動で紐付きます。番号はタスク詳細のタイトルの上に表示されています',
     ],
     notes: [
       'TaskApp に出てくるリポジトリは、手順6で GitHub に許可したものだけです。あとから増やしたいときは、GitHub の Settings →「Applications」→「Installed GitHub Apps」（Organization の場合は Settings →「GitHub Apps」）で「Configure」を押し、「Repository access」でリポジトリを足して「Save」を押します。',

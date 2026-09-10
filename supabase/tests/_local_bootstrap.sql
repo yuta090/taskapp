@@ -22,11 +22,27 @@ create schema if not exists auth;
 
 create table if not exists auth.users (
   id uuid primary key default gen_random_uuid(),
+  -- instance_id / aud / role / banned_until / updated_at は 20260720210220_connector_system_user.sql の
+  -- システムユーザー作成が使う（型は本番に合わせてある）
+  instance_id uuid,
+  aud varchar(255),
+  role varchar(255),
   email text,
   phone text,
   raw_user_meta_data jsonb not null default '{}'::jsonb,
   raw_app_meta_data jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
+  banned_until timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz,
+  -- 合言葉（トークン）系の列。20260722085634_fix_auth_user_null_tokens.sql が NULL を '' に直す
+  confirmation_token varchar(255),
+  recovery_token varchar(255),
+  email_change varchar(255),
+  email_change_token_new varchar(255),
+  email_change_token_current varchar(255) default '',
+  phone_change text default '',
+  phone_change_token varchar(255) default '',
+  reauthentication_token varchar(255) default ''
 );
 
 -- 二要素認証（mfa_rls_enforcement / mfa_pre_request が参照）。本物は GoTrue が作る
@@ -57,4 +73,51 @@ $$;
 
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb);
+$$;
+
+-- 連携トークン暗号化の migration（20260717075717 / 20260723110839）は、本番では psql セッションで
+-- set app.system_encryption_key = '<SYSTEM_ENCRYPTION_KEY>' してから流す。空DBでは暗号化する行が無いので、
+-- 確認専用の仮の値をDB単位で入れておく（migration ごとに別の psql セッションで流すため、set では足りない）。
+do $$ begin
+  execute format(
+    'alter database %I set app.system_encryption_key = %L',
+    current_database(),
+    'local-verify-only-not-a-real-key-000000000000000000000000000000'
+  );
+end $$;
+
+-- storage スキーマ（ファイル置き場。本物は Supabase Storage が作る）。
+-- migration が参照する列だけ（buckets への登録と、objects への RLS ポリシー）
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  owner uuid,
+  public boolean default false,
+  file_size_limit bigint,
+  allowed_mime_types text[],
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text references storage.buckets(id),
+  name text,
+  owner uuid,
+  metadata jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+alter table storage.objects enable row level security;
+
+-- 本番の定義をそのまま写したもの（2026-09-10 に pg_get_functiondef で確認）
+create or replace function storage.foldername(name text) returns text[] language plpgsql immutable as $$
+declare
+  _parts text[];
+begin
+  select string_to_array(name, '/') into _parts;
+  return _parts[1 : array_length(_parts, 1) - 1];
+end
 $$;

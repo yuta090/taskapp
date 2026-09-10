@@ -276,6 +276,8 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         // 新規作成タスクはTaskApp発。権威はNULL(TaskApp正本)。gtasks importはINSERT時に自身で
         // 権威列をセットするため、ここ(client起票の楽観更新)がNULL以外を持つことはない。
         due_authority_connection_id: null,
+        // サーバーへINSERTされるまで通し番号は未採番。
+        short_id: null,
         created_at: now,
         updated_at: now,
       }
