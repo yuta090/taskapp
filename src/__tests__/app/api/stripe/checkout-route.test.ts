@@ -51,8 +51,11 @@ function req(body: unknown): Request {
 describe('POST /api/stripe/checkout — Enterprise は sales-led で拒否', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // 既存の観点（enterprise 拒否・pro 作成）は「オンライン申し込みが開いている」前提
+    // 既存の観点（enterprise 拒否・pro 作成）は「受け付けている」前提
     process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
   })
 
   it('enterprise は priceId が設定済みでも 400 で拒否し、Stripe を呼ばない', async () => {
@@ -117,8 +120,28 @@ describe('POST /api/stripe/checkout — オンライン申し込みの元栓', (
     expect(sessionCreate).not.toHaveBeenCalled()
   })
 
+  it('元栓は開いていても、必須の設定が欠けていたら決済を作らない', async () => {
+    process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
+    delete process.env.STRIPE_WEBHOOK_SECRET // 決済後の同期が動かない状態
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+
+    const res = await POST(req({ org_id: 'org1', plan_id: 'pro' }) as never)
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.code).toBe('self_serve_disabled')
+    expect(sessionCreate).not.toHaveBeenCalled()
+  })
+
   it('元栓を開ければ従来どおり進む', async () => {
     process.env.STRIPE_SELF_SERVE_ENABLED = 'true'
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
     vi.mocked(createClient).mockResolvedValue(
       makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
     )

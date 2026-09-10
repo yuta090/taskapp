@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStripe, PLANS, PlanId } from '@/lib/stripe'
-import { isSelfServeCheckoutEnabled } from '@/lib/stripe/config'
+import { canCreateCheckout } from '@/lib/stripe/config'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -25,9 +25,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // オンライン申し込みの元栓。Stripe 側の準備が終わるまではここで断る。
-    // 画面のボタンを無効にするだけでは、直接叩かれたときに決済画面まで進んでしまう。
-    if (!isSelfServeCheckoutEnabled()) {
+    // オンライン申し込みの受け付け判定。画面と同じ `canCreateCheckout()` を通す。
+    // 画面のボタンを無効にするだけでは直接叩かれたときに素通りするうえ、
+    // 元栓だけ見て鍵の欠けを見逃すと「払えたのにプランが上がらない」状態を作る。
+    if (!canCreateCheckout()) {
       return NextResponse.json(
         {
           error: 'オンラインでのお申し込みは現在ご利用いただけません。お問い合わせください。',

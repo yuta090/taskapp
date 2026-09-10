@@ -70,3 +70,14 @@ export function getStripeServerConfigStatus(): StripeConfigStatus {
     missingOptionalKeys,
   }
 }
+
+/**
+ * オンラインで決済に進んでよいか。**画面もサーバも必ずここを通す**（判定を二重に持たない）。
+ *
+ * 鍵が揃っていること（技術的に呼べる）と、受け付けを開けていること（営業判断）の両方が要る。
+ * 片方だけで通すと、たとえば Webhook の鍵が無いまま決済だけ成立し、**支払われたのに
+ * プランが上がらない**（同期が動かない）状態を作ってしまう。
+ */
+export function canCreateCheckout(): boolean {
+  return getStripeServerConfigStatus().isConfigured && isSelfServeCheckoutEnabled()
+}

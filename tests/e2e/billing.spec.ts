@@ -19,7 +19,11 @@ test.describe('プランと請求', () => {
     // 真実源。ここが画面の期待値になる
     const status = await page.evaluate(async () => {
       const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
-      return (await res.json()) as { configured: boolean; selfServeEnabled?: boolean }
+      return (await res.json()) as {
+        canCheckout: boolean
+        keysConfigured: boolean
+        selfServeEnabled: boolean
+      }
     })
 
     const proButton = page.getByRole('button', { name: 'Proにアップグレード' })
@@ -27,7 +31,7 @@ test.describe('プランと請求', () => {
 
     const notice = page.getByTestId('billing-unavailable-notice')
 
-    if (status.configured) {
+    if (status.canCheckout) {
       // 受け付けている: ボタンが押せて、準備中の案内は出ない
       await expect(proButton).toBeEnabled()
       await expect(notice).toHaveCount(0)
@@ -68,9 +72,9 @@ test.describe('プランと請求', () => {
 
     const status = await page.evaluate(async () => {
       const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
-      return (await res.json()) as { configured: boolean }
+      return (await res.json()) as { canCheckout: boolean }
     })
-    test.skip(status.configured, '受け付けが開いている環境ではこの観点は対象外')
+    test.skip(status.canCheckout, '受け付けが開いている環境ではこの観点は対象外')
 
     const result = await page.evaluate(async () => {
       const res = await fetch('/api/stripe/checkout', {
@@ -82,8 +86,45 @@ test.describe('プランと請求', () => {
       return { status: res.status, body: await res.json().catch(() => ({})) }
     })
 
-    // 503（受け付け停止）か 403（オーナーでない）で必ず止まる。決済URLは返らない
-    expect([403, 503]).toContain(result.status)
+    /*
+      受け付けの判定は、所属や役割の確認より**前**に効く（route の並び）。
+      そのため「オーナーでないから 403」で通ってしまうことはなく、必ず 503 で止まる。
+      ここを 403 も許すと、ガードを消しても気づけないテストになる。
+    */
+    expect(result.status).toBe(503)
+    expect(result.body?.code).toBe('self_serve_disabled')
     expect(result.body?.url).toBeUndefined()
+  })
+
+  /**
+   * 受け付けを閉じている間も、既に払っている方の「支払い方法の変更・請求書・解約」は
+   * 塞がない。ここを1つの判定にまとめると、閉じた瞬間に解約手段まで消える。
+   */
+  test('受け付けの開閉と、既存契約の管理は別で判定している', async ({ page }) => {
+    await page.goto('/settings/billing')
+
+    const status = await page.evaluate(async () => {
+      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+      return (await res.json()) as {
+        canCheckout: boolean
+        keysConfigured: boolean
+        selfServeEnabled: boolean
+      }
+    })
+
+    // 別々の値として返っていること（同じ値の言い換えになっていない）
+    expect(typeof status.keysConfigured).toBe('boolean')
+    expect(typeof status.selfServeEnabled).toBe('boolean')
+    // 申し込みに進めるのは「鍵が揃い、かつ受け付けている」ときだけ
+    expect(status.canCheckout).toBe(status.keysConfigured && status.selfServeEnabled)
+  })
+
+  test('未ログインには設定の配備状況を返さない', async ({ browser }) => {
+    // ログイン状態を持たない素のコンテキストで叩く
+    const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+    const response = await context.request.get('/api/stripe/status')
+
+    expect(response.status()).toBe(401)
+    await context.close()
   })
 })

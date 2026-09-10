@@ -64,10 +64,21 @@ export async function POST(request: NextRequest) {
     const stripe = getStripe()
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
-    // カスタマーポータルセッション作成
+    /*
+      カスタマーポータル。支払い方法の変更・請求書・解約のための窓口で、
+      オンライン申し込みを閉じている間も既存のお客様には開けておく。
+
+      ⚠ ただし Stripe の既定のポータル設定では「プランの変更」まで許可されていることがあり、
+      そこから申し込みの元栓（STRIPE_SELF_SERVE_ENABLED）を迂回できてしまう。
+      `STRIPE_PORTAL_CONFIGURATION_ID` に「プラン変更を無効にしたポータル設定」を指定すると、
+      支払い方法・請求書・解約だけを許す形に固定できる（Stripe ダッシュボードで作成する）。
+      未指定なら Stripe 側の既定設定が使われる。
+    */
+    const portalConfigurationId = process.env.STRIPE_PORTAL_CONFIGURATION_ID
     const session = await stripe.billingPortal.sessions.create({
       customer: billing.stripe_customer_id,
       return_url: `${appUrl}/settings/billing`,
+      ...(portalConfigurationId ? { configuration: portalConfigurationId } : {}),
     })
 
     return NextResponse.json({

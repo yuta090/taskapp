@@ -10,7 +10,9 @@ import { SettingsBackButton } from '@/components/shared'
 import Link from 'next/link'
 
 export default function BillingSettingsPage() {
-  const { serverConfigured, loading: stripeLoading } = useStripeStatus()
+  // 新規の申し込み（canCheckout）と、既存契約の管理（keysConfigured）は別。
+  // 受け付けを閉じたときに、すでに払っている方の支払い方法変更・解約まで塞がないため。
+  const { canCheckout, keysConfigured, loading: stripeLoading } = useStripeStatus()
   const { orgId, orgName, role, loading: orgLoading, error: orgError } = useCurrentOrg()
   const { limits } = useBillingLimits(orgId ?? undefined)
   const [upgradeLoading, setUpgradeLoading] = useState(false)
@@ -21,7 +23,7 @@ export default function BillingSettingsPage() {
   const isOwner = role === 'owner'
 
   async function handleManageSubscription() {
-    if (!serverConfigured || !orgId || !isOwner) return
+    if (!keysConfigured || !orgId || !isOwner) return
 
     setPortalLoading(true)
     try {
@@ -53,7 +55,7 @@ export default function BillingSettingsPage() {
       return
     }
 
-    if (!serverConfigured || !orgId) return
+    if (!canCheckout || !orgId) return
 
     setUpgradeLoading(true)
     try {
@@ -118,8 +120,8 @@ export default function BillingSettingsPage() {
           表示されていた。お客様に必要なのは「いま申し込めないこと」と「どこに言えばいいか」だけ。
           開発時の手順は下の StripeSetupGuide（開発環境でのみ表示）に残す。
         */}
-        {!stripeLoading && !serverConfigured && <BillingUnavailableNotice />}
-        {!stripeLoading && !serverConfigured && isDevEnvironment && <StripeSetupGuide />}
+        {!stripeLoading && !canCheckout && <BillingUnavailableNotice />}
+        {!stripeLoading && !keysConfigured && isDevEnvironment && <StripeSetupGuide />}
 
         {/* 組織名表示 */}
         {!orgLoading && orgId && orgName && (
@@ -140,12 +142,12 @@ export default function BillingSettingsPage() {
 
         {/* Upgrade Card */}
         <div className={`rounded-lg p-6 text-white ${
-          serverConfigured
+          canCheckout
             ? 'bg-gradient-to-r from-indigo-500 to-purple-600'
             : 'bg-gray-400'
         }`}>
           <div className="flex items-start gap-4">
-            <div className={`p-3 rounded-lg ${serverConfigured ? 'bg-surface/20' : 'bg-surface/10'}`}>
+            <div className={`p-3 rounded-lg ${canCheckout ? 'bg-surface/20' : 'bg-surface/10'}`}>
               <Sparkle className="w-6 h-6" weight="fill" />
             </div>
             <div className="flex-1">
@@ -157,9 +159,9 @@ export default function BillingSettingsPage() {
               <div className="mt-4 flex gap-3">
                 <button
                   onClick={() => handleUpgrade('pro')}
-                  disabled={!serverConfigured || !orgId || upgradeLoading}
+                  disabled={!canCheckout || !orgId || upgradeLoading}
                   className={`px-4 py-2 font-medium rounded-lg transition-colors ${
-                    serverConfigured && orgId
+                    canCheckout && orgId
                       ? 'bg-surface text-indigo-600 hover:bg-surface/90'
                       : 'bg-surface/20 text-white/60 cursor-not-allowed'
                   }`}
@@ -176,7 +178,7 @@ export default function BillingSettingsPage() {
               <p className="mt-3 text-white/70 text-xs">
                 Enterprise は営業窓口での個別契約です。ボタンからお問い合わせください。
               </p>
-              {!serverConfigured && (
+              {!canCheckout && (
                 <p className="mt-3 text-white/60 text-xs flex items-center gap-1">
                   <Warning className="w-4 h-4" />
                   いまオンラインでのお申し込みはご利用いただけません
@@ -195,7 +197,8 @@ export default function BillingSettingsPage() {
                 {isPaidPlan ? 'サブスクリプション管理' : 'お支払い方法'}
               </h3>
             </div>
-            {isPaidPlan && isOwner && serverConfigured && (
+            {/* 既存契約の管理は、受け付けを閉じていても使えるようにする（鍵さえあれば足りる） */}
+            {isPaidPlan && isOwner && keysConfigured && (
               <button
                 onClick={handleManageSubscription}
                 disabled={portalLoading}

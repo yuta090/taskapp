@@ -90,7 +90,10 @@ describe('BillingSettingsPage', () => {
    */
   it('未設定でも、開発者向けの設定手順や環境変数名をお客様に見せない', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: false,
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
       loading: false,
       error: null,
     })
@@ -105,7 +108,10 @@ describe('BillingSettingsPage', () => {
 
   it('未設定のときは、お客様向けの案内と問い合わせ先を出す', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: false,
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
       loading: false,
       error: null,
     })
@@ -118,7 +124,10 @@ describe('BillingSettingsPage', () => {
 
   it('設定済みなら案内を出さない', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
     })
@@ -130,7 +139,10 @@ describe('BillingSettingsPage', () => {
 
   it('確認中は案内を出さない（ちらつき防止）', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: false,
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
       loading: true,
       error: null,
     })
@@ -144,10 +156,12 @@ describe('BillingSettingsPage', () => {
   // よって Stripe 未設定でも押せる必要がある。Stripe 設定に連動するのは Pro だけ。
   it('should disable only the Pro button when Stripe is not configured', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: false,
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: false,
     })
 
     render(<BillingSettingsPage />)
@@ -158,10 +172,12 @@ describe('BillingSettingsPage', () => {
 
   it('should enable upgrade buttons when Stripe is configured and org is loaded', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     render(<BillingSettingsPage />)
@@ -172,10 +188,12 @@ describe('BillingSettingsPage', () => {
 
   it('should show warning message when Stripe is not configured', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: false,
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: false,
     })
 
     render(<BillingSettingsPage />)
@@ -185,10 +203,12 @@ describe('BillingSettingsPage', () => {
 
   it('should call checkout API when upgrade button is clicked', async () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -227,10 +247,12 @@ describe('BillingSettingsPage', () => {
 
   it('should show payment method section', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     render(<BillingSettingsPage />)
@@ -240,10 +262,12 @@ describe('BillingSettingsPage', () => {
 
   it('should show invoice history component', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     render(<BillingSettingsPage />)
@@ -253,10 +277,12 @@ describe('BillingSettingsPage', () => {
 
   it('should show a back button that falls back to /inbox when there is no history', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
     Object.defineProperty(window.history, 'length', { value: 1, configurable: true })
 
@@ -268,10 +294,12 @@ describe('BillingSettingsPage', () => {
 
   it('should show org name when loaded', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     render(<BillingSettingsPage />)
@@ -281,10 +309,12 @@ describe('BillingSettingsPage', () => {
 
   it('should show error when org loading fails', () => {
     mockUseStripeStatus.mockReturnValue({
-      serverConfigured: true,
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
       loading: false,
       error: null,
-      clientConfigured: true,
     })
 
     mockUseCurrentOrg.mockReturnValue({
@@ -298,5 +328,59 @@ describe('BillingSettingsPage', () => {
     render(<BillingSettingsPage />)
 
     expect(screen.getByText('ログインが必要です')).toBeInTheDocument()
+  })
+
+  /**
+   * Codex レビュー指摘: 受け付け（元栓）を閉じたとき、既に払っている方の
+   * 「支払い方法の変更・請求書・解約」まで消えてはいけない。今回直そうとしている本番障害の
+   * 一部をそのまま残すことになる。鍵さえ揃っていれば契約管理は出す。
+   */
+  it('受け付けを閉じていても、有料組織のオーナーには契約管理を出す', () => {
+    mockUseStripeStatus.mockReturnValue({
+      canCheckout: false,
+      keysConfigured: true,
+      selfServeEnabled: false,
+      partial: false,
+      loading: false,
+      error: null,
+    })
+    mockUseCurrentOrg.mockReturnValue({
+      orgId: 'org-1',
+      orgName: 'テスト組織',
+      role: 'owner',
+      loading: false,
+      error: null,
+    })
+    mockUseBillingLimits.mockReturnValue({ limits: { plan_name: 'Pro' } })
+
+    render(<BillingSettingsPage />)
+
+    expect(screen.getByRole('button', { name: /Stripeで管理/ })).toBeInTheDocument()
+    // 新規の申し込みは閉じたまま
+    expect(screen.getByRole('button', { name: 'Proにアップグレード' })).toBeDisabled()
+    expect(screen.getByTestId('billing-unavailable-notice')).toBeInTheDocument()
+  })
+
+  it('鍵が無いときは契約管理も出さない（押しても失敗するだけなので）', () => {
+    mockUseStripeStatus.mockReturnValue({
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
+      loading: false,
+      error: null,
+    })
+    mockUseCurrentOrg.mockReturnValue({
+      orgId: 'org-1',
+      orgName: 'テスト組織',
+      role: 'owner',
+      loading: false,
+      error: null,
+    })
+    mockUseBillingLimits.mockReturnValue({ limits: { plan_name: 'Pro' } })
+
+    render(<BillingSettingsPage />)
+
+    expect(screen.queryByRole('button', { name: /Stripeで管理/ })).not.toBeInTheDocument()
   })
 })

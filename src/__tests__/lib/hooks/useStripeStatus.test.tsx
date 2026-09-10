@@ -37,18 +37,44 @@ describe('useStripeStatus', () => {
     global.fetch = originalFetch
   })
 
-  it('サーバに設定が揃っていれば serverConfigured=true を返す', async () => {
-    global.fetch = mockFetch({ configured: true, partial: false })
+  it('受け付けていれば canCheckout=true を返す', async () => {
+    global.fetch = mockFetch({
+      canCheckout: true,
+      keysConfigured: true,
+      selfServeEnabled: true,
+      partial: false,
+    })
 
     const { result } = renderHook(() => useStripeStatus(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.serverConfigured).toBe(true)
+    expect(result.current.canCheckout).toBe(true)
+    expect(result.current.keysConfigured).toBe(true)
     expect(result.current.error).toBeNull()
   })
 
+  /**
+   * 受け付け（元栓）を閉じても、既に払っている方の契約管理は続けられなければならない。
+   * ここを1つの真偽値にまとめると、閉じた瞬間に支払い方法の変更・解約まで塞いでしまう。
+   */
+  it('受け付けを閉じていても、鍵が揃っていれば keysConfigured=true のまま', async () => {
+    global.fetch = mockFetch({
+      canCheckout: false,
+      keysConfigured: true,
+      selfServeEnabled: false,
+      partial: false,
+    })
+
+    const { result } = renderHook(() => useStripeStatus(), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.canCheckout).toBe(false)
+    expect(result.current.keysConfigured).toBe(true)
+    expect(result.current.selfServeEnabled).toBe(false)
+  })
+
   it('実際に /api/stripe/status を見に行く（決め打ちしない）', async () => {
-    const fetchMock = mockFetch({ configured: true, partial: false })
+    const fetchMock = mockFetch({ canCheckout: true, keysConfigured: true, partial: false })
     global.fetch = fetchMock
 
     const { result } = renderHook(() => useStripeStatus(), { wrapper: createWrapper() })
@@ -58,13 +84,19 @@ describe('useStripeStatus', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/api/stripe/status')
   })
 
-  it('サーバが未設定と答えたら serverConfigured=false を返す', async () => {
-    global.fetch = mockFetch({ configured: false, partial: true })
+  it('サーバが未設定と答えたら canCheckout=false を返す', async () => {
+    global.fetch = mockFetch({
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: true,
+    })
 
     const { result } = renderHook(() => useStripeStatus(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.serverConfigured).toBe(false)
+    expect(result.current.canCheckout).toBe(false)
+    expect(result.current.keysConfigured).toBe(false)
     expect(result.current.partial).toBe(true)
   })
 
@@ -73,8 +105,9 @@ describe('useStripeStatus', () => {
 
     const { result } = renderHook(() => useStripeStatus(), { wrapper: createWrapper() })
 
-    await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.serverConfigured).toBe(false)
+    await waitFor(() => expect(result.current.loading).toBe(false), { timeout: 3000 })
+    expect(result.current.canCheckout).toBe(false)
+    expect(result.current.keysConfigured).toBe(false)
     expect(result.current.error).not.toBeNull()
   })
 
@@ -84,6 +117,6 @@ describe('useStripeStatus', () => {
     const { result } = renderHook(() => useStripeStatus(), { wrapper: createWrapper() })
 
     expect(result.current.loading).toBe(true)
-    expect(result.current.serverConfigured).toBe(false)
+    expect(result.current.canCheckout).toBe(false)
   })
 })

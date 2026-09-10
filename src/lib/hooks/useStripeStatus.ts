@@ -18,16 +18,28 @@ import { useQuery } from '@tanstack/react-query'
  */
 
 export interface StripeStatus {
-  /** サーバ側に決済に必要な設定が揃っているか */
-  serverConfigured: boolean
-  /** 一部だけ設定済み（運用時の手がかり。UIの出し分けには使わない） */
+  /**
+   * 新しくオンラインで申し込めるか（鍵が揃っている AND 受け付けを開けている）。
+   * 「Proにアップグレード」を出してよいかの判定はこれ。
+   */
+  canCheckout: boolean
+  /**
+   * 鍵が揃っているか。**既存契約の管理**（支払い方法の変更・請求書・解約）はこちらで判断する。
+   * 受け付けを閉じたときに、既に払っている方の管理まで塞がないため、canCheckout と分けている。
+   */
+  keysConfigured: boolean
+  /** 受け付けを開けているか（運用の手がかり） */
+  selfServeEnabled: boolean
+  /** 一部だけ設定済み（運用の手がかり。UIの出し分けには使わない） */
   partial: boolean
   loading: boolean
   error: Error | null
 }
 
 interface StripeStatusResponse {
-  configured?: unknown
+  canCheckout?: unknown
+  keysConfigured?: unknown
+  selfServeEnabled?: unknown
   partial?: unknown
 }
 
@@ -43,13 +55,19 @@ export function useStripeStatus(): StripeStatus {
       }
       return (await res.json()) as StripeStatusResponse
     },
-    // 環境変数の設定状況はデプロイ単位でしか変わらない。画面を開くたびに聞きに行かない
-    staleTime: 5 * 60 * 1000,
-    retry: false,
+    // 受け付けの開閉は運用中に切り替わる。画面を開いたときは必ず取り直す
+    // （キャッシュだけ見ていると、開けた直後に来た人へ古い「準備中」を出し続ける）
+    staleTime: 30 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    // 一時的な失敗で申し込みと契約管理を止めないよう1回だけ再試行する
+    retry: 1,
   })
 
   return {
-    serverConfigured: data?.configured === true,
+    canCheckout: data?.canCheckout === true,
+    keysConfigured: data?.keysConfigured === true,
+    selfServeEnabled: data?.selfServeEnabled === true,
     partial: data?.partial === true,
     loading: isPending,
     error: (error as Error | null) ?? null,
