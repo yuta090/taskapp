@@ -75,6 +75,9 @@ function shouldDehydrateQuery(query: Query): boolean {
   // 打鍵の切れ目ごとに別キーが生まれ、1件あたり最大500件ぶんの本文を含む。
   // 全件一覧(検索なし)はキャッシュ優先で即描画したいので、そちらは永続する。
   if (query.queryKey[0] === 'files' && query.queryKey[3] === 'search') return false
+  // 決済の受け付け状況は運用中に切り替わる。IDB に載せると、受け付けを開けた直後の
+  // 再読み込みでも古い「準備中」を出し続けてしまう（安いので毎回取り直す）。
+  if (query.queryKey[0] === 'stripeStatus') return false
   return defaultShouldDehydrateQuery(query)
 }
 
