@@ -1,6 +1,7 @@
 // GitHub Webhook Event Handlers
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { linkPRToTasks } from './task-linker'
+import { notifyTasksForMergedPR } from './merge-notify'
 import type {
   GitHubPullRequestPayload,
   GitHubInstallationPayload,
@@ -100,6 +101,28 @@ export async function handlePullRequestEvent(
       pr.body
     )
     linkedTasks = result.linkedTasks
+  } else if (action === 'closed' && pr.merged) {
+    // 取り込まれた(merge)時点でも、リポジトリ連携前に作られたPR等のつなぎ漏れを拾う。
+    // その上で、紐づく社内の担当者・責任者に「知らせるだけ」の通知を送る
+    // （GITHUB_ISSUES_LINK_SPEC §6 §12: タスク行は更新しない・ボールは動かさない）。
+    const result = await linkPRToTasks(
+      getSupabaseAdmin(),
+      inst.org_id,
+      repo.id,
+      prRecord.id,
+      pr.title,
+      pr.body
+    )
+    linkedTasks = result.linkedTasks
+
+    await notifyTasksForMergedPR(getSupabaseAdmin(), {
+      orgId: inst.org_id,
+      prId: prRecord.id,
+      prNumber: pr.number,
+      prTitle: pr.title,
+      prUrl: pr.html_url,
+      repoFullName: repository.full_name,
+    })
   }
 
   return { success: true, linkedTasks }

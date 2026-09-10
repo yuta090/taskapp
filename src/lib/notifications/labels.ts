@@ -77,6 +77,10 @@ export const NOTIFICATION_TYPE_META: Readonly<Record<string, NotificationTypeMet
     label: 'ファイル',
     description: 'タスクにファイルが追加された通知',
   },
+  github_pr_merged: {
+    label: 'PRの取り込み',
+    description: 'タスクに紐づいた変更（PR）が取り込まれた通知',
+  },
 
   // ── 会議・日程調整 ──
   meeting_reminder: {
