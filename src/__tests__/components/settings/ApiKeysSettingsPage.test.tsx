@@ -126,6 +126,45 @@ describe('ApiKeysSettingsPage — 一覧取得のキャッシュ化', () => {
   })
 })
 
+// API キーは社内メンバー（admin / editor / viewer）専用。相手先として参加しているプロジェクトは選べない
+// （サーバーも /api/keys/user で断る。画面では最初から選択肢に出さない）
+describe('ApiKeysSettingsPage — 社内メンバーのプロジェクトだけを選べる', () => {
+  it('相手先として参加しているプロジェクトは、発行フォームの選択肢に出さない', async () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [
+        { id: 'space-1', name: 'Space 1', orgId: 'org-1', orgName: 'Org', role: 'admin' },
+        { id: 'space-2', name: 'Client Space', orgId: 'org-2', orgName: 'Other', role: 'client' },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('My Key')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '新しいAPIキーを作成' }))
+
+    expect(screen.getByText('Space 1')).toBeInTheDocument()
+    expect(screen.queryByText('Client Space')).not.toBeInTheDocument()
+  })
+
+  it('選べるプロジェクトが1つも無ければ、社内メンバー向けの機能だと知らせる', async () => {
+    mockUseUserSpaces.mockReturnValue({
+      spaces: [{ id: 'space-2', name: 'Client Space', orgId: 'org-2', orgName: 'Other', role: 'client' }],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByText('My Key')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '新しいAPIキーを作成' }))
+
+    expect(screen.getByText(/APIキーは社内メンバー向けの機能です/)).toBeInTheDocument()
+    expect(screen.queryByText('Client Space')).not.toBeInTheDocument()
+  })
+})
+
 describe('ApiKeysSettingsPage — 【是正3】プロジェクト設定側の一覧との整合', () => {
   it('発行後、プロジェクト設定のAPI設定タブが持つ一覧（apiKeys）のキャッシュも取り直す', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

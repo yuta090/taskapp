@@ -233,6 +233,8 @@ describe('ApiSettings — 【是正2】裏の取り直し失敗と新規鍵モ�
     await waitFor(() => expect(getCallCount).toBeGreaterThanOrEqual(2))
     expect(screen.getByText('APIキーを保存してください')).toBeInTheDocument()
     expect(screen.queryByText('APIキーの取得に失敗しました')).not.toBeInTheDocument()
+    // 失敗したことは小さな帯で知らせる（黙って古い一覧を出し続けない）
+    await waitFor(() => expect(screen.getByText(/最新の一覧の取得に失敗しました/)).toBeInTheDocument())
   })
 })
 
@@ -312,7 +314,9 @@ describe('ApiSettings — 【是正4・任意】403は再試行せずspaceMember
       json: () => Promise.resolve({ error: 'forbidden' }),
     })
 
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    // 本番の既定は「失敗したら再試行」。テストでも再試行ありにしておき、画面側の「4xx は再試行しない」
+    // という決まりを外したら呼び出し回数が増えてこのテストが落ちるようにする
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 0 } } })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     renderApiSettings(queryClient, orgContextFixture({
