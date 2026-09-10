@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchTasksQuery, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
+import { fetchTasksQuery, fetchMeetingsQuery, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
 
 /**
  * fetchTasksQuery は空間(space)の全タスクを、TASKS_PAGE_SIZE件ずつ range ページングで
@@ -253,5 +253,126 @@ describe('fetchTasksQuery — ensureTaskIds（一覧の読み込み範囲外の�
     const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
 
     expect(result.tasks.map((t) => t.id)).toEqual(['a'])
+  })
+})
+
+/**
+ * fetchMeetingsQuery も tasks と同じ range ページング（共通ヘルパー）で全件読む。
+ * 以前は `.limit(50)` で打ち切っていたため、週次ミーティングなどで空間の会議数が
+ * 51件を超えると古い会議が一覧から静かに消えていた。
+ */
+
+type MeetingsChain = {
+  select: ReturnType<typeof vi.fn>
+  eq: ReturnType<typeof vi.fn>
+  order: ReturnType<typeof vi.fn>
+  range: ReturnType<typeof vi.fn>
+}
+
+/**
+ * meetings テーブル用のチェイン可能モック。
+ * pageResults は `.range()` が呼ばれるたびに順番に返す結果（1回目=1ページ目、2回目=2ページ目…）。
+ */
+function makeMeetingsChain(pageResults: Array<{ data: unknown[]; error: unknown }>): MeetingsChain {
+  const chain = {} as MeetingsChain
+  let pageCall = 0
+  chain.select = vi.fn(() => chain)
+  chain.eq = vi.fn(() => chain)
+  chain.order = vi.fn(() => chain)
+  chain.range = vi.fn(() => {
+    const result = pageResults[pageCall] ?? { data: [], error: null }
+    pageCall += 1
+    return Promise.resolve(result)
+  })
+  return chain
+}
+
+function makeMeetingsSupabase(meetingsChain: MeetingsChain) {
+  const from = vi.fn((table: string) => {
+    if (table === 'meetings') return meetingsChain
+    throw new Error(`unexpected table: ${table}`)
+  })
+  return { from } as unknown as import('@supabase/supabase-js').SupabaseClient
+}
+
+function makeMeeting(id: string, overrides: Record<string, unknown> = {}) {
+  return { id, title: `meeting-${id}`, meeting_participants: [], ...overrides }
+}
+
+describe('fetchMeetingsQuery — 全件をページングで読む', () => {
+  it('50件を超えても、TASKS_PAGE_SIZE件未満なら1回のリクエストで全件返る（.limit(50)による打ち切りが無い）', async () => {
+    const rows = Array.from({ length: 120 }, (_, i) => makeMeeting(String(i)))
+    const meetingsChain = makeMeetingsChain([{ data: rows, error: null }])
+    const supabase = makeMeetingsSupabase(meetingsChain)
+
+    const result = await fetchMeetingsQuery(supabase, 'space-1')
+
+    expect(result.meetings).toHaveLength(120)
+    expect(meetingsChain.range).toHaveBeenCalledTimes(1)
+    expect(meetingsChain.range).toHaveBeenCalledWith(0, TASKS_PAGE_SIZE - 1)
+  })
+
+  it('1ページ目がちょうどTASKS_PAGE_SIZE件のときだけ2ページ目を取得し、境界の重複idを1件にまとめて結合する', async () => {
+    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeMeeting(`p1-${i}`))
+    const overlappingId = page1[page1.length - 1].id // 'p1-999'
+    const page2 = [makeMeeting(overlappingId), makeMeeting('p2-1')]
+    const meetingsChain = makeMeetingsChain([
+      { data: page1, error: null },
+      { data: page2, error: null },
+    ])
+    const supabase = makeMeetingsSupabase(meetingsChain)
+
+    const result = await fetchMeetingsQuery(supabase, 'space-1')
+
+    const ids = result.meetings.map((m) => m.id)
+    expect(new Set(ids).size).toBe(ids.length) // 重複なし
+    expect(result.meetings).toHaveLength(TASKS_PAGE_SIZE + 1) // page1(1000) + page2の新規1件のみ
+    expect(meetingsChain.range).toHaveBeenCalledTimes(2)
+    expect(meetingsChain.range).toHaveBeenNthCalledWith(1, 0, TASKS_PAGE_SIZE - 1)
+    expect(meetingsChain.range).toHaveBeenNthCalledWith(2, TASKS_PAGE_SIZE, TASKS_PAGE_SIZE * 2 - 1)
+  })
+
+  it('2ページ目の取得がエラーなら reject する', async () => {
+    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeMeeting(`p1-${i}`))
+    const meetingsChain = makeMeetingsChain([
+      { data: page1, error: null },
+      { data: [], error: { message: 'page2 boom' } },
+    ])
+    const supabase = makeMeetingsSupabase(meetingsChain)
+
+    await expect(fetchMeetingsQuery(supabase, 'space-1')).rejects.toMatchObject({
+      message: 'page2 boom',
+    })
+  })
+
+  it('held_at 降順・id 降順（タイブレーク）で並び替えている', async () => {
+    const meetingsChain = makeMeetingsChain([{ data: [makeMeeting('a')], error: null }])
+    const supabase = makeMeetingsSupabase(meetingsChain)
+
+    await fetchMeetingsQuery(supabase, 'space-1')
+
+    expect(meetingsChain.order).toHaveBeenNthCalledWith(1, 'held_at', { ascending: false })
+    expect(meetingsChain.order).toHaveBeenNthCalledWith(2, 'id', { ascending: false })
+  })
+
+  it('participants を meeting_participants から取り出し、id ごとに整理する', async () => {
+    const meetingsChain = makeMeetingsChain([
+      {
+        data: [
+          makeMeeting('a', {
+            meeting_participants: [{ id: 'p1', meeting_id: 'a', side: 'client', user_id: 'u1' }],
+          }),
+        ],
+        error: null,
+      },
+    ])
+    const supabase = makeMeetingsSupabase(meetingsChain)
+
+    const result = await fetchMeetingsQuery(supabase, 'space-1')
+
+    expect(result.participants['a']).toEqual([
+      { id: 'p1', meeting_id: 'a', side: 'client', user_id: 'u1' },
+    ])
+    expect((result.meetings[0] as unknown as { meeting_participants?: unknown }).meeting_participants).toBeUndefined()
   })
 })
