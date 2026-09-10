@@ -8,6 +8,8 @@
 
 GitHub Appを通じたPR追跡・リポジトリ連携機能。タスクとPull Requestを紐づけ、開発進捗を可視化する。
 
+> GitHub Issues との連携（タスクへの添付・AgentPM からの Issue 作成・全部閉じたときの確認通知）は `GITHUB_ISSUES_LINK_SPEC.md`（v1.0・設計確定・未実装）を参照。既存表の読み取り権限の是正（同仕様 §11）もそちらで扱う。
+
 ## アーキテクチャ
 
 ```
