@@ -35,16 +35,61 @@ export const MEETING_LIST_COLUMNS = `
 
 export interface FetchTasksQueryOptions {
   /**
-   * 一覧の直近50件に入っていなくても、詳細表示のために必ず含めたいタスクID
-   * （例: /my の詳細パネルで開いたタスクが古くて50件の外にあるケース）。
+   * 一覧の読み込み範囲に入っていなくても、詳細表示のために必ず含めたいタスクID
+   * （例: /my の詳細パネルで開いたタスクが、何らかの理由でまだ手元に無いケース）。
    * 指定があれば同じ Promise.all の中で（waterfallにせず）追加取得し、
-   * 50件の結果に重複しないよう追加する。
+   * 読み込み済みの結果に重複しないよう追加する。
+   *
+   * TODO: 今は tasks を全件読み切るため、このオプションは実質的に不要（読み込み範囲の
+   * 「外」がほぼ発生しない）になっている。本番投入後の様子を見て、MyTasksClient /
+   * useTasks / queries.ts から一括で削除するクリーンアップPRを出す。
    */
   ensureTaskIds?: string[]
 }
 
 /**
+ * tasks クエリ1ページあたりの件数。
+ *
+ * - これは「1回のリクエストで返る上限」であって、プロジェクトの想定タスク数の固定値ではない。
+ *   204件のプロジェクトなら1回のリクエストで204件がそのまま返る（ページングは発生しない）。
+ * - PostgREST（Supabase）は1リクエストあたりデフォルトで最大1000件までしか返さないため、
+ *   range を明示せずに全件取得しようとしても、1000件を超えるプロジェクトでは黙って
+ *   打ち切られてしまう。そのため常に range ページングで明示的に全ページを読み切る。
+ * - 下の「ちょうど上限件数なら次ページがあるとみなす」という停止条件は、サーバー側の
+ *   max_rows がこの値（1000）以上であることが前提（`supabase/config.toml` の
+ *   `[api] max_rows = 1000` = Supabaseのデフォルト）。max_rows をこれより下げると、
+ *   1ページ目が「ちょうど上限」に見えないまま黙って打ち切られる状態に逆戻りするので注意。
+ * - 見直しの目安: 実際に1,000件を超えて2ページ目以降が発生するプロジェクトが出てきた場合、
+ *   または tasks レスポンスの生サイズが約1MBを超える／再取得のp95が1秒を超える／
+ *   Gantt の初回描画が500msを超える、のいずれかに達したら、案C（オープンタスクは常に全件、
+ *   完了タスクは遅延読み込み/「もっと見る」・ダッシュボードの完了件数はサーバー側count・
+ *   Ganttも同じ絞り込み対象に乗せる）へ移行する。
+ */
+export const TASKS_PAGE_SIZE = 1000
+
+/** tasks テーブルから1ページ分（range指定）を取得する共通クエリ */
+function fetchTasksPage(
+  supabase: SupabaseClient,
+  orgId: string,
+  spaceId: string,
+  from: number,
+  to: number
+) {
+  return supabase
+    .from('tasks')
+    .select('*, task_owners (*)')
+    .eq('org_id', orgId)
+    .eq('space_id', spaceId)
+    // created_at だけだと一括インポート等で同じ時刻のタスクが並び、ページ境界で
+    // 行の見落とし・重複が起きうるため、id をタイブレークに使い並び順を安定させる。
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, to)
+}
+
+/**
  * Fetch tasks + owners + review statuses for a space.
+ * tasks は空間の全件を range ページングで読み切る（TASKS_PAGE_SIZE を参照）。
  */
 export async function fetchTasksQuery(
   supabase: SupabaseClient,
@@ -54,15 +99,9 @@ export async function fetchTasksQuery(
 ): Promise<TasksQueryData> {
   const ensureTaskIds = (options?.ensureTaskIds ?? []).filter(Boolean)
 
-  // Run tasks + reviews (+ 必要なら ensureTaskIds の補完取得) を同じ Promise.all で並列に実行する
+  // Run tasks 1ページ目 + reviews (+ 必要なら ensureTaskIds の補完取得) を同じ Promise.all で並列に実行する
   const [tasksResult, reviewsResult, ensureResult] = await Promise.all([
-    supabase
-      .from('tasks')
-      .select('*, task_owners (*)')
-      .eq('org_id', orgId)
-      .eq('space_id', spaceId)
-      .order('created_at', { ascending: false })
-      .limit(50),
+    fetchTasksPage(supabase, orgId, spaceId, 0, TASKS_PAGE_SIZE - 1),
     supabase
       .from('reviews')
       .select('task_id, status')
@@ -93,11 +132,40 @@ export async function fetchTasksQuery(
     throw ensureResult.error
   }
 
-  const rawTasks = [...((tasksResult.data || []) as Array<
+  const pagedTaskRows = [...((tasksResult.data || []) as Array<
     Record<string, unknown> & { id: string; task_owners?: unknown[] }
   >)]
 
-  // ensureTaskIds で取れた分は、既に50件の中に入っているものは重複させず追加する
+  // 1ページ目がちょうど上限件数だった場合のみ、続きのページが存在しうるとみなし
+  // 順番に取得する（waterfall。件数が上限未満なら空間の全件を読み切れているので発生しない）。
+  let page = 1
+  while (pagedTaskRows.length === page * TASKS_PAGE_SIZE) {
+    const from = page * TASKS_PAGE_SIZE
+    const to = from + TASKS_PAGE_SIZE - 1
+    const pageResult = await fetchTasksPage(supabase, orgId, spaceId, from, to)
+    if (pageResult.error) throw pageResult.error
+    const rows = (pageResult.data || []) as Array<
+      Record<string, unknown> & { id: string; task_owners?: unknown[] }
+    >
+    pagedTaskRows.push(...rows)
+    if (rows.length < TASKS_PAGE_SIZE) break
+    page += 1
+  }
+
+  // ページ跨ぎの重複除去（id優先・先勝ち）。
+  // offsetページングは「順位」で境界を切るため、ページ取得の間に別の誰かがタスクを
+  // 作成すると全行が1つずれ、あるページの最後の行が次ページの先頭にもう一度現れうる。
+  // ensureTaskIds のマージより前にここで潰しておかないと、React の key 重複警告や
+  // 件数の二重カウントに繋がる。
+  const seenIds = new Set<string>()
+  const rawTasks: Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }> = []
+  for (const t of pagedTaskRows) {
+    if (seenIds.has(t.id)) continue
+    seenIds.add(t.id)
+    rawTasks.push(t)
+  }
+
+  // ensureTaskIds で取れた分は、既に読み込み済みの中に入っているものは重複させず追加する
   const existingIds = new Set(rawTasks.map((t) => t.id))
   const ensureRawTasks = (ensureResult.data || []) as Array<
     Record<string, unknown> & { id: string; task_owners?: unknown[] }
