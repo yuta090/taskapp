@@ -10,6 +10,7 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
+import { copyInviteUrl } from '@/lib/invites/copyInviteUrl'
 
 const INVITE_MESSAGE_MAX_LENGTH = 500
 
@@ -327,7 +328,19 @@ export default function MembersSettingsPage() {
       setPendingInvites(prev =>
         prev.map(i => (i.id === inviteId ? { ...i, expires_at: data.expires_at || i.expires_at } : i))
       )
-      toast.success('招待を再送しました')
+      // 期限を延ばす処理とメールを送る処理は別。メールだけこけても response.ok は真になるので、
+      // ここで分けないと「送りました」と出たまま相手に届いていない状態になる
+      if (data.email_sent === false) {
+        toast.error('招待メールを送れませんでした（期限は延びています）', {
+          description: '下のリンクをコピーして、相手に直接お渡しください。',
+          duration: 20000,
+          ...(data.invite_url
+            ? { action: { label: 'リンクをコピー', onClick: () => void copyInviteUrl(data.invite_url as string) } }
+            : {}),
+        })
+      } else {
+        toast.success('招待を再送しました')
+      }
     } catch (err: unknown) {
       console.error('Failed to resend invite:', err)
       toast.error('招待の再送に失敗しました')

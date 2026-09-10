@@ -79,6 +79,21 @@ export async function getPullRequest(
   return data
 }
 
+// そのインストールの現在の許可範囲を取得（App の JWT 認証で GET /app/installations/{id}）。
+// インストール完了時のコールバックで github_installations.permissions に保存するために使う
+// （GITHUB_ISSUES_LINK_SPEC.md §7.6）。
+export async function getInstallationPermissions(
+  installationId: number
+): Promise<Record<string, string> | null> {
+  const octokit = createAppOctokit()
+
+  const { data } = await octokit.apps.getInstallation({
+    installation_id: installationId,
+  })
+
+  return (data as { permissions?: Record<string, string> }).permissions ?? null
+}
+
 // リポジトリのPR一覧を取得（ページネーション対応）
 export async function listPullRequests(
   installationId: number,

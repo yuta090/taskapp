@@ -3,7 +3,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MembersSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/MembersSettings'
 
 /** 招待するときの名前入力と、「返事待ち」「招待の履歴」タブ */
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+vi.mock('sonner', () => ({ toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) } }))
 vi.mock('@/components/shared', async () => {
   // Hint（「?」の補足）は実物を使う
   const { Hint } = await import('@/components/shared/Hint')
@@ -194,6 +196,39 @@ describe('返事待ち・履歴のタブ', () => {
     const row = screen.getByText('山田 太郎').closest('[data-testid="invite-row"]')!
     expect(within(row as HTMLElement).getByText('メンバー')).toBeInTheDocument()
     expect(screen.queryByText('member')).toBeNull()
+  })
+
+  // 期限を延ばす処理とメールを送る処理は別で、後者だけこけることがある。
+  // それを「送りました」と言ってしまうと、届いていないことに誰も気づけない
+  it('メールが送れなかったときは、送れたことにしない', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, email_sent: false, invite_url: 'https://agentpm.app/invite/tok-1' }),
+    })
+    await renderScreen()
+    fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
+    await waitFor(() => expect(screen.getByText('山田 太郎')).toBeInTheDocument())
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'もう一度送る' })[0])
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(String(toastError.mock.calls[0][0])).toMatch(/送れませんでした/)
+  })
+
+  it('メールが送れたときだけ、送れたと伝える', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, email_sent: true }),
+    })
+    await renderScreen()
+    fireEvent.click(screen.getByRole('tab', { name: /返事待ち/ }))
+    await waitFor(() => expect(screen.getByText('山田 太郎')).toBeInTheDocument())
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'もう一度送る' })[0])
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+    expect(toastError).not.toHaveBeenCalled()
   })
 
   it('返事待ちのタブに、もう一度送れることの案内を出す', async () => {

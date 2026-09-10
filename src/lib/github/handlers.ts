@@ -164,6 +164,25 @@ export async function handleInstallationEvent(
       break
     }
 
+    case 'new_permissions_accepted': {
+      // 導入先が許可範囲の変更を承認したときの通知。現在の許可範囲を記録する
+      // （GITHUB_ISSUES_LINK_SPEC.md §5・§7.6）。
+      // 列（permissions / permissions_updated_at）は本番マイグレーション適用前に
+      // このコードが先に出ても壊れないよう、失敗してもログのみで webhook 処理は止めない。
+      const { error } = await getSupabaseAdmin()
+        .from('github_installations')
+        .update({
+          permissions: installation.permissions ?? null,
+          permissions_updated_at: new Date().toISOString(),
+        })
+        .eq('installation_id', installation.id)
+
+      if (error) {
+        console.error('Failed to save installation permissions:', error)
+      }
+      break
+    }
+
     default:
       console.log(`Unhandled installation action: ${action}`)
   }
