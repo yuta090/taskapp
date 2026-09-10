@@ -9,6 +9,9 @@ import type {
   SpaceGitHubRepo,
   GitHubPullRequest,
   TaskGitHubLink,
+  GitHubIssue,
+  TaskGitHubIssueLink,
+  TaskGitHubIssueRollup,
 } from '@/lib/github/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -304,6 +307,213 @@ export function useUnlinkPR() {
       queryClient.invalidateQueries({
         queryKey: ['task-github-links', variables.taskId],
       })
+    },
+  })
+}
+
+// =============================================================================
+// GitHub Issues（GITHUB_ISSUES_LINK_SPEC.md §8・§9 PR1）
+// =============================================================================
+
+interface TaskGitHubIssuesData {
+  links: TaskGitHubIssueLink[]
+  rollup: TaskGitHubIssueRollup | null
+}
+
+function taskGitHubIssuesQueryKey(taskId: string) {
+  return ['task-github-issues', taskId] as const
+}
+
+/**
+ * タスクに紐づく Issue の一覧と、完了件数の集計（rollup）を取得。
+ * 表が分かれているので並行して取る（ウォーターフォールにしない）
+ */
+export function useTaskGitHubIssues(taskId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
+  return useQuery({
+    queryKey: taskId ? taskGitHubIssuesQueryKey(taskId) : ['task-github-issues', undefined],
+    queryFn: async (): Promise<TaskGitHubIssuesData> => {
+      if (!taskId) return { links: [], rollup: null }
+
+      const [linksRes, rollupRes] = await Promise.all([
+        supabase
+          .from('task_github_issue_links')
+          .select(`
+            *,
+            github_issues (*)
+          `)
+          .eq('task_id', taskId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('task_github_issue_rollups')
+          .select('*')
+          .eq('task_id', taskId)
+          .maybeSingle(),
+      ])
+
+      if (linksRes.error) throw linksRes.error
+      if (rollupRes.error) throw rollupRes.error
+
+      return {
+        links: (linksRes.data ?? []) as TaskGitHubIssueLink[],
+        rollup: (rollupRes.data ?? null) as TaskGitHubIssueRollup | null,
+      }
+    },
+    enabled: !!taskId && githubEnabled,
+  })
+}
+
+/**
+ * 手動で紐づけるための候補Issue（そのプロジェクトに紐づくリポジトリのIssue）を
+ * 番号・タイトルで検索する
+ */
+export function useIssueLinkCandidates(spaceId: string | undefined, search: string) {
+  const githubEnabled = isGitHubConfigured()
+
+  return useQuery({
+    queryKey: ['space-github-issue-candidates', spaceId, search],
+    queryFn: async () => {
+      if (!spaceId) return []
+
+      const { data: spaceRepos } = await supabase
+        .from('space_github_repos')
+        .select('github_repo_id')
+        .eq('space_id', spaceId)
+
+      if (!spaceRepos || spaceRepos.length === 0) return []
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const repoIds = spaceRepos.map((r: any) => r.github_repo_id)
+
+      let query = supabase
+        .from('github_issues')
+        .select('*')
+        .in('github_repo_id', repoIds)
+        .order('issue_number', { ascending: false })
+        .limit(50)
+
+      const trimmed = search.trim()
+      if (trimmed) {
+        const numeric = trimmed.replace(/^#/, '')
+        if (/^\d+$/.test(numeric)) {
+          query = query.eq('issue_number', Number(numeric))
+        } else {
+          query = query.ilike('title', `%${trimmed}%`)
+        }
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+      return data as GitHubIssue[]
+    },
+    enabled: !!spaceId && githubEnabled,
+  })
+}
+
+/**
+ * 手動でIssueをタスクに紐付け。保存ボタンを置かない方針なので、押した瞬間に
+ * 一覧へ反映し、失敗したときだけ元に戻す（楽観的更新）。完了件数の再計算は
+ * DB のトリガーが行うので、確定したら取り直す
+ */
+export function useManualLinkIssue() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      issue,
+      orgId,
+    }: {
+      taskId: string
+      issue: GitHubIssue
+      orgId: string
+    }) => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const { error } = await supabase
+        .from('task_github_issue_links')
+        .insert({
+          org_id: orgId,
+          task_id: taskId,
+          github_issue_id: issue.id,
+          link_type: 'manual',
+          created_by: user.id,
+        })
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Issue is already linked to this task')
+        }
+        throw error
+      }
+    },
+    onMutate: async ({ taskId, issue, orgId }) => {
+      const queryKey = taskGitHubIssuesQueryKey(taskId)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<TaskGitHubIssuesData>(queryKey)
+
+      queryClient.setQueryData<TaskGitHubIssuesData>(queryKey, (current) => {
+        const base = current ?? { links: [], rollup: null }
+        const optimisticLink: TaskGitHubIssueLink = {
+          id: `optimistic-${issue.id}`,
+          org_id: orgId,
+          task_id: taskId,
+          github_issue_id: issue.id,
+          link_type: 'manual',
+          created_at: new Date().toISOString(),
+          github_issues: issue,
+        }
+        return { ...base, links: [optimisticLink, ...base.links] }
+      })
+
+      return { previous }
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(taskGitHubIssuesQueryKey(variables.taskId), context.previous)
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: taskGitHubIssuesQueryKey(variables.taskId) })
+    },
+  })
+}
+
+/**
+ * Issueとタスクの紐付けを解除。押した瞬間に一覧から消し、失敗したら元に戻す（楽観的更新）
+ */
+export function useUnlinkIssue() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ linkId }: { linkId: string; taskId: string }) => {
+      const { error } = await supabase
+        .from('task_github_issue_links')
+        .delete()
+        .eq('id', linkId)
+
+      if (error) throw error
+    },
+    onMutate: async ({ taskId, linkId }) => {
+      const queryKey = taskGitHubIssuesQueryKey(taskId)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<TaskGitHubIssuesData>(queryKey)
+
+      queryClient.setQueryData<TaskGitHubIssuesData>(queryKey, (current) =>
+        current ? { ...current, links: current.links.filter((l) => l.id !== linkId) } : current
+      )
+
+      return { previous }
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(taskGitHubIssuesQueryKey(variables.taskId), context.previous)
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: taskGitHubIssuesQueryKey(variables.taskId) })
     },
   })
 }

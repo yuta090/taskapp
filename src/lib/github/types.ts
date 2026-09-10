@@ -72,6 +72,61 @@ export interface TaskGitHubLink {
   github_pull_requests?: GitHubPullRequest
 }
 
+// GitHub Issues 連携（GITHUB_ISSUES_LINK_SPEC.md §5・§9 PR1）
+
+export interface GitHubIssue {
+  id: string
+  org_id: string
+  github_repo_id: string
+  issue_number: number
+  title: string
+  url: string
+  state: 'open' | 'closed'
+  state_reason: string | null
+  author_login: string | null
+  assignee_logins: string[]
+  issue_created_at: string | null
+  closed_at: string | null
+  github_updated_at: string | null
+  last_synced_at: string
+  created_at: string
+  updated_at: string
+  github_repositories?: GitHubRepository
+}
+
+export interface TaskGitHubIssueLink {
+  id: string
+  org_id: string
+  task_id: string
+  github_issue_id: string
+  link_type: 'auto' | 'manual' | 'created'
+  created_by?: string | null
+  created_at: string
+  github_issues?: GitHubIssue
+}
+
+export interface TaskGitHubIssueRollup {
+  task_id: string
+  org_id: string
+  open_count: number
+  completed_count: number
+  not_planned_count: number
+  all_closed_at: string | null
+  notified_at: string | null
+  updated_at: string
+}
+
+/** github_apply_issue_state / github_recompute_issue_rollup が返す1タスクぶんの行 */
+export interface GithubApplyIssueStateRow {
+  task_id: string
+  open_count_before: number
+  open_count_after: number
+  completed_count_after: number
+  not_planned_count_after: number
+  all_closed_at_after: string | null
+  became_all_closed: boolean
+}
+
 // GitHub Webhook Event Types
 export interface GitHubWebhookEvent {
   id: string
@@ -156,6 +211,54 @@ export interface GitHubPullRequestPayload {
   installation: {
     id: number
   }
+}
+
+export interface GitHubIssuePayload {
+  action:
+    | 'opened'
+    | 'edited'
+    | 'closed'
+    | 'reopened'
+    | 'deleted'
+    | 'transferred'
+    | 'assigned'
+    | 'unassigned'
+    | string
+  issue: {
+    id: number
+    number: number
+    title: string
+    body: string | null
+    html_url: string
+    state: string
+    state_reason: string | null
+    user: { login: string } | null
+    assignees: Array<{ login: string }>
+    // PR も Issues API に含まれる。このキーがあれば PR（GitHub Issues 側では扱わない）
+    pull_request?: { url: string }
+    created_at: string
+    updated_at: string
+    closed_at: string | null
+  }
+  // transferred のときだけ届く（移動先の情報）。実ペイロードの形は未確認（§7.1・実装時の注記）
+  changes?: {
+    new_repository?: {
+      id: number
+      name: string
+      full_name: string
+      owner: { login: string }
+    }
+    new_issue?: {
+      number: number
+    }
+  }
+  repository: {
+    id: number
+    name: string
+    full_name: string
+    owner: { login: string }
+  }
+  installation: { id: number }
 }
 
 export interface GitHubInstallationPayload {

@@ -18,7 +18,7 @@ import { toast } from 'sonner'
 import { TaskComments } from './TaskComments'
 import { TaskEventTimeline } from './TaskEventTimeline'
 import { ConsideringDecisionPanel } from './ConsideringDecisionPanel'
-import { TaskPRList } from '@/components/github'
+import { TaskPRList, TaskIssueList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
 import { TaskPricingPanel } from './TaskPricingPanel'
@@ -1703,6 +1703,14 @@ export function TaskInspector({
 
         {/* GitHub PRs */}
         <TaskPRList
+          taskId={task.id}
+          spaceId={spaceId}
+          orgId={task.org_id}
+          readOnly={!onUpdate}
+        />
+
+        {/* GitHub Issues */}
+        <TaskIssueList
           taskId={task.id}
           spaceId={spaceId}
           orgId={task.org_id}

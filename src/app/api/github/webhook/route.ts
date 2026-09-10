@@ -6,6 +6,7 @@ import {
   handlePullRequestEvent,
   handleInstallationEvent,
   handleInstallationRepositoriesEvent,
+  handleIssueEvent,
 } from '@/lib/github'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -76,6 +77,10 @@ export async function POST(request: NextRequest) {
     switch (event) {
       case 'pull_request':
         result = await handlePullRequestEvent(data)
+        break
+
+      case 'issues':
+        result = await handleIssueEvent(data)
         break
 
       case 'installation':

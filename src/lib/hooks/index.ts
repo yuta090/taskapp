@@ -20,6 +20,10 @@ export {
   useSpacePullRequests,
   useManualLinkPR,
   useUnlinkPR,
+  useTaskGitHubIssues,
+  useIssueLinkCandidates,
+  useManualLinkIssue,
+  useUnlinkIssue,
 } from './useGitHub'
 export {
   useSlackWorkspace,
