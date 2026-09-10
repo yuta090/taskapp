@@ -51,7 +51,6 @@ export function resolveMergeNotifyRecipients(
 
 export interface MergeNotifyMessageInput {
   taskTitle: string
-  repoFullName: string
   prNumber: number
   prTitle: string
   /** そのタスクに紐づく PR のうち、取り込み済み(merged)の件数 */
@@ -60,13 +59,20 @@ export interface MergeNotifyMessageInput {
   totalCount: number
 }
 
-/** 通知の見出し・本文を組み立てる（純粋関数） */
+/**
+ * 通知の見出し・本文を組み立てる（純粋関数）。
+ *
+ * 注意（ユーザー絶対条件・2026-09-11）: GitHub のリポジトリ名は、GitHub を
+ * 接続した本人以外に一切見せない（制作会社の顧客名が類推されるため）。この
+ * 通知は接続した本人以外にも届くため、宛先によらず一律でリポジトリ名・
+ * GitHub の URL を文面に入れない。
+ */
 export function buildMergeNotifyMessage(
   input: MergeNotifyMessageInput,
 ): { title: string; message: string } {
   const title = `「${input.taskTitle}」の変更（PR）が取り込まれました`
   const message =
-    `${input.repoFullName} の PR #${input.prNumber}「${input.prTitle}」が取り込まれました` +
+    `PR #${input.prNumber}「${input.prTitle}」が取り込まれました` +
     `（このタスクの関連PR: 取り込み済み ${input.mergedCount} / 全 ${input.totalCount}）。` +
     `お客さんに確認をお願いする場合は、タスクからボールを渡してください。`
   return { title, message }
@@ -77,8 +83,6 @@ export interface MergedPRInfo {
   prId: string
   prNumber: number
   prTitle: string
-  prUrl: string
-  repoFullName: string
 }
 
 interface TaskRow {
@@ -187,7 +191,6 @@ async function notifySingleTask(
 
     const { title, message } = buildMergeNotifyMessage({
       taskTitle: taskRow.title,
-      repoFullName: pr.repoFullName,
       prNumber: pr.prNumber,
       prTitle: pr.prTitle,
       mergedCount,
@@ -209,9 +212,7 @@ async function notifySingleTask(
         title,
         message,
         link,
-        pr_url: pr.prUrl,
         pr_number: pr.prNumber,
-        repo_full_name: pr.repoFullName,
       },
     }))
 
