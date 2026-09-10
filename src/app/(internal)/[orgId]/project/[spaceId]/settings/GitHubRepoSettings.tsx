@@ -205,6 +205,7 @@ export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) 
             </h4>
             <p className="text-gray-600 mb-2">
               PRのタイトルまたは本文にタスクIDを含めると、自動的に紐付けられます。
+              タスク番号（TP-○○）は、タスク詳細のタイトルの上に出ています（押すとコピーできます）。
             </p>
             <div className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs font-mono">
               # 対応フォーマット<br />

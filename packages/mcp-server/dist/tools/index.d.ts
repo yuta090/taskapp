@@ -21,14 +21,14 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         title: string;
-        type: "task" | "spec";
         ball: "client" | "internal";
+        type: "task" | "spec";
         origin: "client" | "internal";
         clientScope: "internal" | "deliverable";
         clientOwnerIds: string[];
         internalOwnerIds: string[];
-        description?: string | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        description?: string | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | undefined;
@@ -37,12 +37,12 @@ export declare const allTools: ({
     }, {
         spaceId: string;
         title: string;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        ball?: "client" | "internal" | undefined;
         description?: string | undefined;
         type?: "task" | "spec" | undefined;
-        ball?: "client" | "internal" | undefined;
         origin?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         clientOwnerIds?: string[] | undefined;
         internalOwnerIds?: string[] | undefined;
         dueDate?: string | undefined;
@@ -76,9 +76,9 @@ export declare const allTools: ({
         spaceId: string;
         taskId: string;
         title?: string | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         description?: string | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
@@ -93,9 +93,9 @@ export declare const allTools: ({
         spaceId: string;
         taskId: string;
         title?: string | undefined;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         description?: string | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         dueDate?: string | undefined;
         assigneeId?: string | undefined;
         milestoneId?: string | null | undefined;
@@ -123,16 +123,16 @@ export declare const allTools: ({
         spaceId: string;
         limit: number;
         offset: number;
-        type?: "task" | "spec" | undefined;
-        ball?: "client" | "internal" | undefined;
-        clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        ball?: "client" | "internal" | undefined;
+        type?: "task" | "spec" | undefined;
+        clientScope?: "internal" | "deliverable" | undefined;
     }, {
         spaceId: string;
-        type?: "task" | "spec" | undefined;
-        ball?: "client" | "internal" | undefined;
-        clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
+        ball?: "client" | "internal" | undefined;
+        type?: "task" | "spec" | undefined;
+        clientScope?: "internal" | "deliverable" | undefined;
         limit?: number | undefined;
         offset?: number | undefined;
     }>;
@@ -183,13 +183,13 @@ export declare const allTools: ({
     }, "strip", import("zod").ZodTypeAny, {
         limit: number;
         offset: number;
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
     }, {
+        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
-        status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         limit?: number | undefined;
         offset?: number | undefined;
     }>;

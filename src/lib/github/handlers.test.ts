@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { GitHubPullRequestPayload } from './types'
+import type { GitHubPullRequestPayload, GitHubInstallationPayload } from './types'
 
 /**
  * handlePullRequestEvent — PR が取り込まれた(closed+merged)ときだけ、
@@ -13,6 +13,16 @@ const PR_ROW_ID = 'pr-row-1'
 
 const linkPRToTasksMock = vi.fn(() => Promise.resolve({ linkedTasks: [] }))
 const notifyTasksForMergedPRMock = vi.fn(() => Promise.resolve())
+
+let updateInstallationPatch: Record<string, unknown> | null = null
+let updateInstallationError: { message: string } | null = null
+const updateInstallationEqMock = vi.fn(() =>
+  Promise.resolve({ error: updateInstallationError }),
+)
+const updateInstallationMock = vi.fn((patch: Record<string, unknown>) => {
+  updateInstallationPatch = patch
+  return { eq: updateInstallationEqMock }
+})
 
 vi.mock('./task-linker', () => ({
   linkPRToTasks: linkPRToTasksMock,
@@ -32,6 +42,7 @@ vi.mock('@supabase/supabase-js', () => ({
               single: () => Promise.resolve({ data: { org_id: ORG_ID }, error: null }),
             }),
           }),
+          update: (patch: Record<string, unknown>) => updateInstallationMock(patch),
         }
       }
       if (table === 'github_repositories') {
@@ -101,6 +112,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   linkPRToTasksMock.mockResolvedValue({ linkedTasks: [] })
   notifyTasksForMergedPRMock.mockResolvedValue(undefined)
+  updateInstallationPatch = null
+  updateInstallationError = null
 })
 
 describe('handlePullRequestEvent', () => {
@@ -119,6 +132,7 @@ describe('handlePullRequestEvent', () => {
       PR_ROW_ID,
       'fix: login bug',
       null,
+      'fix/login',
     )
     expect(notifyTasksForMergedPRMock).toHaveBeenCalledTimes(1)
     expect(notifyTasksForMergedPRMock).toHaveBeenCalledWith(
@@ -153,6 +167,29 @@ describe('handlePullRequestEvent', () => {
     expect(notifyTasksForMergedPRMock).not.toHaveBeenCalled()
   })
 
+  it('opened: ブランチ名(pr.head.ref)も linkPRToTasks に渡す（タイトル/本文に無くても紐づけられるように）', async () => {
+    const { handlePullRequestEvent } = await load()
+    const payload = makePayload({
+      action: 'opened',
+      state: 'open',
+      merged: false,
+      title: 'ちょっとした修正',
+      head: { ref: 'feat/tp-42-login' },
+    })
+
+    await handlePullRequestEvent(payload)
+
+    expect(linkPRToTasksMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ORG_ID,
+      REPO_ROW_ID,
+      PR_ROW_ID,
+      'ちょっとした修正',
+      null,
+      'feat/tp-42-login',
+    )
+  })
+
   it('edited: linkPRToTasks は呼ばれるが通知処理は呼ばれない', async () => {
     const { handlePullRequestEvent } = await load()
     const payload = makePayload({ action: 'edited', state: 'open', merged: false })
@@ -161,5 +198,49 @@ describe('handlePullRequestEvent', () => {
 
     expect(linkPRToTasksMock).toHaveBeenCalledTimes(1)
     expect(notifyTasksForMergedPRMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * handleInstallationEvent — `new_permissions_accepted` で導入先の許可範囲を保存する
+ * （GITHUB_ISSUES_LINK_SPEC.md §5・§7.6・§9 PR0b）。
+ * 列（permissions / permissions_updated_at）がまだ本番に無くても webhook 処理は止めない。
+ */
+describe('handleInstallationEvent', () => {
+  function makePayload(
+    overrides: Partial<GitHubInstallationPayload['installation']> = {},
+  ): GitHubInstallationPayload {
+    return {
+      action: 'new_permissions_accepted',
+      installation: {
+        id: 123,
+        account: { login: 'yuta090', type: 'User' },
+        permissions: { pull_requests: 'read', issues: 'write', metadata: 'read' },
+        ...overrides,
+      },
+    } as GitHubInstallationPayload
+  }
+
+  it('許可範囲と更新時刻を github_installations に保存する', async () => {
+    const { handleInstallationEvent } = await load()
+
+    const result = await handleInstallationEvent(makePayload())
+
+    expect(result.success).toBe(true)
+    expect(updateInstallationMock).toHaveBeenCalledTimes(1)
+    expect(updateInstallationPatch).toMatchObject({
+      permissions: { pull_requests: 'read', issues: 'write', metadata: 'read' },
+    })
+    expect(typeof updateInstallationPatch?.permissions_updated_at).toBe('string')
+    expect(updateInstallationEqMock).toHaveBeenCalledWith('installation_id', 123)
+  })
+
+  it('列がまだ無い等で更新が失敗しても、処理は止めない（success のまま）', async () => {
+    updateInstallationError = { message: 'column "permissions" does not exist' }
+    const { handleInstallationEvent } = await load()
+
+    const result = await handleInstallationEvent(makePayload())
+
+    expect(result.success).toBe(true)
   })
 })

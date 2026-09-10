@@ -367,6 +367,30 @@ describe('MembersSettingsPage pending invites section', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('招待の再送に失敗しました'))
   })
 
+  // 期限を延ばす処理とメールを送る処理は別で、後者だけこけることがある。
+  // それを「送りました」と言ってしまうと、届いていないことに誰も気づけない
+  it('メールが送れなかったときは、送れたことにしない', async () => {
+    global.fetch = mockFetchByUrl({
+      '/api/invites/pending/invite-1/resend': () =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ success: true, email_sent: false, invite_url: 'https://agentpm.app/invite/tok-1' }),
+        }),
+      '/api/invites/pending?org_id=org-123': () =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ invites: pendingInvitesFixture() }) }),
+    }) as unknown as typeof fetch
+
+    render(<MembersSettingsPage />)
+    await waitFor(() => expect(screen.getByText('pending@example.com')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度送る' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(toastSuccess).not.toHaveBeenCalledWith('招待を再送しました')
+    expect(String(toastError.mock.calls[0][0])).toMatch(/送れませんでした/)
+  })
+
   // アイコンだけだと見つけてもらえない（実際に「再送ボタンが見当たらない」と言われた）。
   // マウスを乗せないと分からない tooltip ではなく、字が出ていることを保証する
   it('保留中の招待の操作は、字の出ているボタンにする', async () => {

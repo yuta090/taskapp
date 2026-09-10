@@ -1,5 +1,6 @@
 // GitHub App Configuration
 import { createHmac, timingSafeEqual } from 'crypto'
+import { GITHUB_APP_PERMISSIONS } from './permissions.mjs'
 
 export const GITHUB_CONFIG = {
   appId: process.env.GITHUB_APP_ID || '',
@@ -13,8 +14,8 @@ export const GITHUB_CONFIG = {
   apiBaseUrl: 'https://api.github.com',
   installUrl: `https://github.com/apps/${process.env.GITHUB_APP_SLUG || 'taskapp'}/installations/new`,
 
-  // Scopes
-  requiredPermissions: ['pull_requests:read', 'contents:read', 'metadata:read'],
+  // Scopes（正本は ./permissions.mjs。config.ts と scripts/setup-github-app.mjs の両方がそこから読む）
+  requiredPermissions: GITHUB_APP_PERMISSIONS,
 }
 
 // 判定だけを使う画面側は './enabled' から直接 import すること（このファイルは crypto を持ち込む）

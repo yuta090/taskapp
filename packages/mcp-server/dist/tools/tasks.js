@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../supabase/client.js';
 import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js';
+import { withTaskNumber } from '../lib/taskNumber.js';
 // Schemas
 export const taskCreateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -303,7 +304,7 @@ export async function taskList(params) {
     const { data, error } = await query;
     if (error)
         throw new Error('タスク一覧の取得に失敗しました');
-    return (data || []);
+    return (data || []).map(withTaskNumber);
 }
 export async function taskGet(params) {
     // 権限チェック（read権限が必要）
@@ -324,7 +325,7 @@ export async function taskGet(params) {
         .eq('space_id', params.spaceId);
     if (ownersError)
         throw new Error('担当者の取得に失敗しました');
-    return { task: task, owners: (owners || []) };
+    return { task: withTaskNumber(task), owners: (owners || []) };
 }
 export async function taskDelete(params) {
     // 権限チェック（delete権限が必要）
@@ -420,7 +421,7 @@ export async function taskListMy(params) {
         results.push({
             spaceId: membership.space_id,
             spaceName: spaceData?.name || 'Unknown',
-            tasks: (tasks || []),
+            tasks: (tasks || []).map(withTaskNumber),
         });
     }
     return results;

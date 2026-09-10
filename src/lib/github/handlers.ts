@@ -98,7 +98,8 @@ export async function handlePullRequestEvent(
       repo.id,
       prRecord.id,
       pr.title,
-      pr.body
+      pr.body,
+      pr.head.ref
     )
     linkedTasks = result.linkedTasks
   } else if (action === 'closed' && pr.merged) {
@@ -111,7 +112,8 @@ export async function handlePullRequestEvent(
       repo.id,
       prRecord.id,
       pr.title,
-      pr.body
+      pr.body,
+      pr.head.ref
     )
     linkedTasks = result.linkedTasks
 
@@ -161,6 +163,25 @@ export async function handleInstallationEvent(
     case 'unsuspend': {
       // 将来的に一時停止状態を管理する場合はここで処理
       console.log(`Installation ${action}: ${installation.id}`)
+      break
+    }
+
+    case 'new_permissions_accepted': {
+      // 導入先が許可範囲の変更を承認したときの通知。現在の許可範囲を記録する
+      // （GITHUB_ISSUES_LINK_SPEC.md §5・§7.6）。
+      // 列（permissions / permissions_updated_at）は本番マイグレーション適用前に
+      // このコードが先に出ても壊れないよう、失敗してもログのみで webhook 処理は止めない。
+      const { error } = await getSupabaseAdmin()
+        .from('github_installations')
+        .update({
+          permissions: installation.permissions ?? null,
+          permissions_updated_at: new Date().toISOString(),
+        })
+        .eq('installation_id', installation.id)
+
+      if (error) {
+        console.error('Failed to save installation permissions:', error)
+      }
       break
     }
 
