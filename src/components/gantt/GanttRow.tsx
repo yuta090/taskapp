@@ -2,20 +2,30 @@
 
 import { useMemo, useState, useCallback, useEffect, useRef, memo } from 'react'
 import { GANTT_CONFIG } from '@/lib/gantt/constants'
-import { getTaskBarPosition, isWeekend, getDatesInRange, xToDate, formatDateToLocalString, dateToX } from '@/lib/gantt/dateUtils'
+import { getTaskBarPosition, xToDate, formatDateToLocalString, dateToX } from '@/lib/gantt/dateUtils'
 import type { Task } from '@/types/database'
+
+/**
+ * リンクドラッグ中のハイライト状態。以前は `{ type, mode }` のオブジェクトを親
+ * (GanttChart)側で毎回新規生成して渡していたため、値が同じでも参照が変わり、
+ * memo化されたGanttRowの浅い比較(shallow compare)が常に「変化あり」と判定して
+ * 全行が再レンダリングされていた。文字列(プリミティブ)にすることで、値が
+ * 同じ行は再レンダリングされない。
+ */
+export type LinkHighlightState = 'child-eligible' | 'child-over' | 'parent-eligible' | 'parent-over' | null
 
 interface GanttRowProps {
   task: Task
   startDate: Date
-  endDate: Date
+  /** チャート全体の横幅(dates.length * dayWidth)。行ごとに日付配列を作り直さないよう親から渡す */
+  totalWidth: number
   dayWidth: number
   rowIndex: number
   isSelected?: boolean
   onDateChange?: (taskId: string, field: 'start' | 'end', newDate: string) => void
   onBarMove?: (taskId: string, newStart: string, newEnd: string) => void
   onLinkDragStart?: (taskId: string, mode: 'child' | 'parent', startX: number, startY: number) => void
-  linkHighlight?: { type: 'eligible' | 'over'; mode: 'child' | 'parent' } | null
+  linkHighlight?: LinkHighlightState
   /** Parent task with summary bar */
   isParent?: boolean
   /** Summary start date (auto-computed from children) */
@@ -27,7 +37,7 @@ interface GanttRowProps {
 export const GanttRow = memo(function GanttRow({
   task,
   startDate,
-  endDate,
+  totalWidth,
   dayWidth,
   rowIndex,
   isSelected,
@@ -48,11 +58,6 @@ export const GanttRow = memo(function GanttRow({
   } | null>(null)
   const [dragPreview, setDragPreview] = useState<{ x: number; width: number } | null>(null)
   const dragPreviewRef = useRef<{ x: number; width: number } | null>(null)
-
-  const dates = useMemo(
-    () => getDatesInRange(startDate, endDate),
-    [startDate, endDate]
-  )
 
   const barPosition = useMemo(
     () => getTaskBarPosition(task, startDate, dayWidth),
@@ -81,8 +86,15 @@ export const GanttRow = memo(function GanttRow({
     return null
   }, [isParent, summaryStart, summaryEnd, startDate, dayWidth])
 
-  const totalWidth = dates.length * dayWidth
   const y = rowIndex * GANTT_CONFIG.ROW_HEIGHT
+
+  // linkHighlight(プリミティブ文字列)から type/mode を復元する
+  const highlightMode: 'child' | 'parent' | null = linkHighlight
+    ? linkHighlight.startsWith('child') ? 'child' : 'parent'
+    : null
+  const highlightType: 'eligible' | 'over' | null = linkHighlight
+    ? linkHighlight.endsWith('over') ? 'over' : 'eligible'
+    : null
 
   // AI秘書 Stage5 期限リマインド PR-0(§2.1/§5.2): external権威タスク(due_authority_connection_id
   // 非NULL)は期限(due_date)がTaskAppから編集不可。バー移動(start+due両方が動く)と右(終了)リサイズ
@@ -253,45 +265,23 @@ export const GanttRow = memo(function GanttRow({
       />
 
       {/* Link highlight: row-wide glow for eligible targets */}
-      {linkHighlight && linkHighlight.type === 'eligible' && (
+      {highlightType === 'eligible' && (
         <rect
           x={0} y={y} width={totalWidth} height={GANTT_CONFIG.ROW_HEIGHT}
-          fill={linkHighlight.mode === 'child' ? '#EEF2FF' : '#ECFDF5'}
+          fill={highlightMode === 'child' ? '#EEF2FF' : '#ECFDF5'}
           opacity={0.4}
         />
       )}
-      {linkHighlight && linkHighlight.type === 'over' && (
+      {highlightType === 'over' && (
         <rect
           x={0} y={y} width={totalWidth} height={GANTT_CONFIG.ROW_HEIGHT}
-          fill={linkHighlight.mode === 'child' ? '#C7D2FE' : '#A7F3D0'}
+          fill={highlightMode === 'child' ? '#C7D2FE' : '#A7F3D0'}
           opacity={0.5}
         />
       )}
 
-      {/* Weekend backgrounds */}
-      {dates.map((date, i) => {
-        if (!isWeekend(date)) return null
-        return (
-          <rect
-            key={i}
-            x={i * dayWidth} y={y}
-            width={dayWidth} height={GANTT_CONFIG.ROW_HEIGHT}
-            fill={GANTT_CONFIG.COLORS.WEEKEND}
-            opacity={0.5}
-          />
-        )
-      })}
-
-      {/* Grid lines */}
-      {dates.map((_, i) => (
-        <line
-          key={i}
-          x1={i * dayWidth} y1={y}
-          x2={i * dayWidth} y2={y + GANTT_CONFIG.ROW_HEIGHT}
-          stroke={GANTT_CONFIG.COLORS.GRID_LINE}
-          strokeWidth={0.5} opacity={0.3}
-        />
-      ))}
+      {/* Weekend backgrounds / Grid lines: チャート全体で1回だけ描画するように
+          GanttChart側へ移した(行×日数ぶんSVG要素が増殖するのを防ぐため)。 */}
 
       {/* Bottom border */}
       <line
@@ -351,7 +341,7 @@ export const GanttRow = memo(function GanttRow({
           />
 
           {/* Bar glow when link-highlighted */}
-          {linkHighlight && linkHighlight.type === 'over' && (
+          {highlightType === 'over' && (
             <rect
               x={displayPosition.x - 2}
               y={y + GANTT_CONFIG.BAR_VERTICAL_PADDING - 2}
@@ -359,7 +349,7 @@ export const GanttRow = memo(function GanttRow({
               height={GANTT_CONFIG.BAR_HEIGHT + 4}
               rx={GANTT_CONFIG.RADIUS.SM + 2}
               fill="none"
-              stroke={linkHighlight.mode === 'child' ? '#6366F1' : '#10B981'}
+              stroke={highlightMode === 'child' ? '#6366F1' : '#10B981'}
               strokeWidth={2} opacity={0.8}
               style={{ pointerEvents: 'none' }}
             />
