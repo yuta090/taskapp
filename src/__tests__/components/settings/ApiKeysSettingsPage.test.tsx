@@ -125,3 +125,51 @@ describe('ApiKeysSettingsPage — 一覧取得のキャッシュ化', () => {
     await waitFor(() => expect(screen.getByText('発行済みAPIキー')).toBeInTheDocument())
   })
 })
+
+describe('ApiKeysSettingsPage — 【是正3】プロジェクト設定側の一覧との整合', () => {
+  it('発行後、プロジェクト設定のAPI設定タブが持つ一覧（apiKeys）のキャッシュも取り直す', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderPage(queryClient)
+    await waitFor(() => expect(screen.getByText('My Key')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: '新しいAPIキーを作成' }))
+    fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'New Key' } })
+    fireEvent.click(screen.getByText('Space 1').closest('label')!.querySelector('button')!)
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/keys/user') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'key-2' }) })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /APIキーを発行/ }))
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['apiKeys'] }))
+    )
+  })
+
+  it('削除後、プロジェクト設定のAPI設定タブが持つ一覧（apiKeys）のキャッシュも取り直す', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderPage(queryClient)
+    await waitFor(() => expect(screen.getByText('My Key')).toBeInTheDocument())
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+    })
+
+    fireEvent.click(screen.getByTitle('削除'))
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['apiKeys'] }))
+    )
+  })
+})

@@ -100,7 +100,14 @@ export default function ApiKeysSettingsPage() {
   })
   const error = queryError ? 'APIキーの取得に失敗しました' : null
 
-  const invalidateApiKeys = () => queryClient.invalidateQueries({ queryKey: userApiKeysQueryKey })
+  // アカウントのAPIキー一覧（['userApiKeys', userId]）と、プロジェクト設定のAPI設定タブが持つ
+  // プロジェクト別の一覧（['apiKeys', orgId, spaceId]）は同じ鍵を別のキャッシュで持つため、
+  // 片方だけ取り直すと最大 staleTime（既定2分）ずれる。発行・削除のたびに両方取り直す
+  const invalidateApiKeys = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: userApiKeysQueryKey }),
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] }),
+    ])
 
   const filteredKeys = useMemo(() => {
     return apiKeys.filter((key) => {
