@@ -2,7 +2,7 @@
 
 すでにお使いのツール（Google ToDo、Asana、Backlog、Notion など）と AgentPM をつなぐ機能です。**相手先や社内のメンバーに「AgentPM に乗り換えて」とお願いしなくてよくなる**のが目的です。
 
-![ツール連携の画面](/img/help/tool-integrations.png)
+![ツール連携の画面](/img/help/tool-integrations.webp)
 
 ---
 
@@ -22,23 +22,29 @@
 
 ## つなげる相手（ツール連携タブ）
 
-### タスクの同期（Pro プラン）
+### タスクの同期（**Pro プラン**）
 
-Google Tasks（Google ToDo）／ multica ／ Backlog ／ Jooto ／ Jira ／ Redmine ／ Asana ／ Trello ／ Linear ／ Chatwork タスク ／ kintone ／ その他のツール（Webhook）
+**いま使えるもの**: Google Tasks（Google ToDo）／ multica ／ Backlog ／ Jooto ／ Jira ／ Redmine ／ Asana ／ Trello ／ Linear ／ Chatwork タスク ／ kintone ／ その他のツール（Webhook で受け取る）
 
-- **双方向**でつながるものは、AgentPM で完了にすると相手ツールでも完了になります（逆も同じ）
-- 「近日」と付いているもの（Microsoft To Do など）は準備中です
+**準備中（一覧には出ますが、まだつなげません）**: Microsoft To Do ／ Wrike ／ ClickUp ／ monday.com ／ Garoon
 
-### データの書き出し・通知
+- **双方向**のものは、AgentPM で完了にすると相手ツールでも完了になります（逆も同じ）
+- **Chatwork タスク**は、相手ツールからの取り込みと完了の書き戻しだけです（AgentPM から新しく起票することはできません）
+- **Jooto・Chatwork は期限を取り込みますが、期限リマインドの根拠にはしません**（取りこぼす可能性があるため、催促には使わない設計です）
+- **Webhook で受け取る連携は受信専用**です。相手側で完了にしても AgentPM には戻りません
 
-Webhook ／ Notion ／ Google Sheets ／ CSVエクスポート
+### データの書き出し・通知（無料プランでも使えます）
+
+Webhook ／ Notion ／ Google Sheets ／ CSVエクスポート（Airtable は準備中）
 
 - AgentPM の内容を外に出す方向の連携です
-- CSV エクスポートは無料プランでも使えます
+- Notion は書き出しに加えて、取り込みにも対応しています
 
 ### 見積書・請求書の作成
 
-freee（近日・Pro プラン）
+freee ／ マネーフォワード クラウド請求書 ／ Misoca — **いずれも準備中**です。
+
+- つながるのは**見積書・請求書の作成だけ**で、仕訳・帳簿・入出金・決算は扱いません
 
 ---
 
@@ -61,6 +67,10 @@ freee（近日・Pro プラン）
 2. 「どの欄をどこに入れるか」を AI が下書きします（例: 相手ツールの「件名」→ AgentPM の「タスク名」）
 3. **人が1回だけ確認して確定**します
 4. 以降は、その対応づけで自動的に取り込まれます
+
+> Notion・kintone では、この対応づけを AI が下書きします。AI に渡すのは**項目の名前と種類だけ**で、
+> 中身のデータや鍵は渡しません。相手ツール側で項目名や選択肢を変えると対応づけが外れるので、
+> そのときは同じ画面でつけ直してください。
 
 秘書が拾ったものについては、上部タブ「**秘書からの確認**」に「これはタスクにしていいですか？」という形で並びます。承認するとタスクになります。
 

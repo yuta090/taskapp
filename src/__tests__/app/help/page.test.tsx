@@ -51,7 +51,7 @@ describe('HelpPage (/help)', () => {
     expect(images.length).toBeGreaterThanOrEqual(3)
     for (const img of images) {
       // 画面写真は public/img/help/ 配下（デモ組織のもの）
-      expect(img.getAttribute('src')).toMatch(/^\/img\/help\/.+\.png$/)
+      expect(img.getAttribute('src')).toMatch(/^\/img\/help\/.+\.webp$/)
       expect(img.getAttribute('alt')).toBeTruthy()
     }
   })

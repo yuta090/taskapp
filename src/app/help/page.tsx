@@ -45,25 +45,25 @@ const STEPS = [
 /** 画面写真つきの案内。写真はデモ組織のもの（public/img/help/）。 */
 const SCREENSHOTS = [
   {
-    src: '/img/help/task-inspector.png',
+    src: '/img/help/task-inspector.webp',
     title: 'タスク画面（左：メニュー／中央：一覧／右：詳細）',
     caption:
       'タスクの行をクリックすると、右側に詳細が開きます。詳細は開いたまま一覧を操作できます。保存ボタンはありません（入力するとその場で保存されます）。',
   },
   {
-    src: '/img/help/inbox.png',
+    src: '/img/help/inbox.webp',
     title: '受信トレイ（あなた宛ての知らせ）',
     caption:
       'クライアントの承認・修正依頼、ボールの受け渡しなどが時系列で並びます。「要対応」が付いているものが、あなたの返事を待っている件です。',
   },
   {
-    src: '/img/help/secretary-connect.png',
+    src: '/img/help/secretary-connect.webp',
     title: 'AI秘書とチャットをつなぐ画面',
     caption:
       '左メニュー「秘書」→「チャット連携」。①自分のチャットをつなぐ ②相手先とのグループをつなぐ、の2段階でつなぎます。',
   },
   {
-    src: '/img/help/settings-notifications.png',
+    src: '/img/help/settings-notifications.webp',
     title: '通知設定',
     caption:
       '急ぎ（あなたの返事待ち）はすぐメール、それ以外は1日1回のまとめ。夜9時〜朝8時と土日は止まり、翌営業日の朝にまわります。',
@@ -230,12 +230,19 @@ export default function HelpPage() {
           <h2 className="text-lg font-semibold text-gray-900">画面の見かた</h2>
           <p className="text-sm text-gray-600">実際の画面です（サンプルのデータを表示しています）。</p>
           <div className="space-y-6">
-            {SCREENSHOTS.map((shot) => (
+            {SCREENSHOTS.map((shot, index) => (
               <figure key={shot.src} className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
+                {/*
+                  縦横を必ず書く: 書かないと写真が届いた瞬間に本文が数百px下へずれる。
+                  1枚目はスマホだと画面内に入るので後回しにしない（表示完了が遅れるため）。
+                */}
                 <img
                   src={shot.src}
                   alt={shot.title}
-                  loading="lazy"
+                  width={1200}
+                  height={750}
+                  loading={index === 0 ? 'eager' : 'lazy'}
+                  fetchPriority={index === 0 ? 'high' : undefined}
                   className="w-full border-b border-gray-100"
                 />
                 <figcaption className="p-4">

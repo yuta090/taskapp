@@ -40,19 +40,19 @@ const STEPS = [
 /** 画面写真（デモ組織のもの・public/img/help/） */
 const SCREENSHOTS = [
   {
-    src: '/img/help/portal-tasks.png',
+    src: '/img/help/portal-tasks.webp',
     title: '「要対応」— あなたの確認待ちの一覧',
     caption:
       'ログインすると、まずここをご覧ください。上から順に対応いただければ、やり取りが止まりません。',
   },
   {
-    src: '/img/help/portal-files.png',
+    src: '/img/help/portal-files.webp',
     title: 'ファイル — 資料の受け渡し',
     caption:
       '制作チームが公開した資料の受け取りと、こちらからの資料のお渡しができます。アップロードすると自動でお知らせが届きます。',
   },
   {
-    src: '/img/help/portal-requests.png',
+    src: '/img/help/portal-requests.webp',
     title: '送信リクエスト — 送った依頼の進み具合',
     caption:
       'バグ報告・機能要望・質問として送ったものが、いまどうなっているか（要確認／対応中／完了）を確認できます。',
@@ -189,12 +189,19 @@ export default function ClientHelpPage() {
           <h2 className="text-lg font-semibold text-gray-900">画面の見かた</h2>
           <p className="text-sm text-gray-600">実際の画面です（サンプルのデータを表示しています）。</p>
           <div className="space-y-6">
-            {SCREENSHOTS.map((shot) => (
+            {SCREENSHOTS.map((shot, index) => (
               <figure key={shot.src} className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
+                {/*
+                  縦横を必ず書く: 書かないと写真が届いた瞬間に本文が数百px下へずれる。
+                  1枚目はスマホだと画面内に入るので後回しにしない（表示完了が遅れるため）。
+                */}
                 <img
                   src={shot.src}
                   alt={shot.title}
-                  loading="lazy"
+                  width={1200}
+                  height={750}
+                  loading={index === 0 ? 'eager' : 'lazy'}
+                  fetchPriority={index === 0 ? 'high' : undefined}
                   className="w-full border-b border-gray-100"
                 />
                 <figcaption className="p-4">

@@ -65,7 +65,34 @@ describe('マニュアル本文の画面写真', () => {
     const page = await getManualPage(['internal', 'files'])
     expect(page).not.toBeNull()
     // src="/img/help/..." の画面写真が本文に残っていること（消えると手順が読めなくなる）
-    expect(page!.html).toMatch(/<img[^>]+src="\/img\/help\/[^"]+\.png"/)
+    expect(page!.html).toMatch(/<img[^>]+src="\/img\/help\/[^"]+\.webp"/)
+  })
+
+  it('画面写真に縦横と遅延読み込みが付く（サニタイズで落ちない）', async () => {
+    const { getManualPage } = await import('@/lib/markdown')
+    const page = await getManualPage(['internal', 'secretary'])
+    const imgs = page!.html.match(/<img [^>]+>/g) ?? []
+    expect(imgs.length).toBeGreaterThan(1)
+    // 全部に場所取り（これが無いと写真が届いた瞬間に本文がずれる）
+    for (const img of imgs) {
+      expect(img).toMatch(/width="1200"/)
+      expect(img).toMatch(/height="750"/)
+    }
+    // 1枚目は先に読み、2枚目以降は後回し
+    expect(imgs[0]).not.toMatch(/loading="lazy"/)
+    expect(imgs[1]).toMatch(/loading="lazy"/)
+  })
+
+  it('事前生成の一覧が目次と一致する', async () => {
+    const { getAllManualSlugs } = await import('@/lib/markdown')
+    const slugs = await getAllManualSlugs()
+    const joined = new Set(slugs.map((s) => s.join('/')))
+    for (const section of MANUAL_SECTIONS) {
+      expect(joined.has(section)).toBe(true)
+      for (const entry of getManualNavEntries(section)) {
+        expect(joined.has(`${section}/${entry.slug}`), `${section}/${entry.slug} が事前生成に無い`).toBe(true)
+      }
+    }
   })
 
   it('本文が参照する画面写真のファイルが実在する', async () => {

@@ -4,7 +4,7 @@
 
 送ったものは左メニューの「**送信リクエスト**」から、いまどうなっているか確認できます。
 
-![送信リクエストの一覧](/img/help/portal-requests.png)
+![送信リクエストの一覧](/img/help/portal-requests.webp)
 
 ---
 
