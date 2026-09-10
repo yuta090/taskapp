@@ -33,16 +33,29 @@ export const MEETING_LIST_COLUMNS = `
 
 // ── Shared query functions ──
 
+export interface FetchTasksQueryOptions {
+  /**
+   * 一覧の直近50件に入っていなくても、詳細表示のために必ず含めたいタスクID
+   * （例: /my の詳細パネルで開いたタスクが古くて50件の外にあるケース）。
+   * 指定があれば同じ Promise.all の中で（waterfallにせず）追加取得し、
+   * 50件の結果に重複しないよう追加する。
+   */
+  ensureTaskIds?: string[]
+}
+
 /**
  * Fetch tasks + owners + review statuses for a space.
  */
 export async function fetchTasksQuery(
   supabase: SupabaseClient,
   orgId: string,
-  spaceId: string
+  spaceId: string,
+  options?: FetchTasksQueryOptions
 ): Promise<TasksQueryData> {
-  // Run tasks + reviews in parallel (independent queries)
-  const [tasksResult, reviewsResult] = await Promise.all([
+  const ensureTaskIds = (options?.ensureTaskIds ?? []).filter(Boolean)
+
+  // Run tasks + reviews (+ 必要なら ensureTaskIds の補完取得) を同じ Promise.all で並列に実行する
+  const [tasksResult, reviewsResult, ensureResult] = await Promise.all([
     supabase
       .from('tasks')
       .select('*, task_owners (*)')
@@ -56,6 +69,14 @@ export async function fetchTasksQuery(
       .eq('org_id', orgId)
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false }),
+    ensureTaskIds.length > 0
+      ? supabase
+          .from('tasks')
+          .select('*, task_owners (*)')
+          .eq('org_id', orgId)
+          .eq('space_id', spaceId)
+          .in('id', ensureTaskIds)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
   ])
 
   if (tasksResult.error) throw tasksResult.error
@@ -64,9 +85,26 @@ export async function fetchTasksQuery(
     console.warn('[fetchTasksQuery] reviews query failed:', reviewsResult.error.message)
   }
 
-  const rawTasks = (tasksResult.data || []) as Array<
+  if (ensureResult.error) {
+    console.warn('[fetchTasksQuery] ensureTaskIds query failed:', (ensureResult.error as { message?: string }).message)
+  }
+
+  const rawTasks = [...((tasksResult.data || []) as Array<
+    Record<string, unknown> & { id: string; task_owners?: unknown[] }
+  >)]
+
+  // ensureTaskIds で取れた分は、既に50件の中に入っているものは重複させず追加する
+  const existingIds = new Set(rawTasks.map((t) => t.id))
+  const ensureRawTasks = (ensureResult.data || []) as Array<
     Record<string, unknown> & { id: string; task_owners?: unknown[] }
   >
+  for (const t of ensureRawTasks) {
+    if (!existingIds.has(t.id)) {
+      rawTasks.push(t)
+      existingIds.add(t.id)
+    }
+  }
+
   const ownersByTask: Record<string, TaskOwner[]> = {}
   const cleanTasks: Task[] = rawTasks.map((t) => {
     const { task_owners, ...taskFields } = t

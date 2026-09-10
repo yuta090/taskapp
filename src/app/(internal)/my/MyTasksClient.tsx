@@ -11,6 +11,7 @@ import { rpc } from '@/lib/supabase/rpc'
 import { TaskRow } from '@/components/task/TaskRow'
 import { useInspector } from '@/components/layout'
 import { useTasks } from '@/lib/hooks/useTasks'
+import type { TasksQueryData } from '@/lib/hooks/useTasks'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -121,6 +122,12 @@ const sortLabels: Record<SortField, string> = {
 
 interface MyTaskInspectorProps {
   task: Task
+  /**
+   * /my の一覧を読み込み始めた時刻（Date.now()）。useTasks が持つプロジェクト単位の
+   * キャッシュが、この時刻より新しく更新されているかどうかで「一覧と同じくらい新しいか」
+   * を判定する（古い永続キャッシュ(IndexedDB)で担当者[]のまま出してしまう事故を防ぐ）。
+   */
+  listFetchedAt: number
   onClose: () => void
   onSynced: (task: Task) => void
   onDeleted: (taskId: string) => void
@@ -130,31 +137,86 @@ interface MyTaskInspectorProps {
  * 選んだタスクの詳細を右側(Inspector)に出す。更新はプロジェクト画面と同じ useTasks を通す
  * （承認メール・通知などの副作用をそろえるため）。そのプロジェクトのタスクは親タスク候補・
  * 子タスクの表示にも要る。
+ *
+ * useTasks は直近50件しか取らないため、一覧で選んだタスクがその外にあると担当者が
+ * 永遠に空配列のまま（＝ボール操作で担当者を消してしまう）になる。ensureTaskIds で
+ * そのタスクだけ確実に含め、担当者が揃うまでは TaskInspector を出さない。
  */
-function MyTaskInspector({ task, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
+function MyTaskInspector({ task, listFetchedAt, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
-  const { tasks, owners, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+  const ensureTaskIds = useMemo(() => [task.id], [task.id])
+  const { tasks, owners, loading, dataUpdatedAt, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
     orgId: task.org_id,
     spaceId: task.space_id,
+    ensureTaskIds,
   })
   const spaceTask = tasks.find((t) => t.id === task.id)
   const current = spaceTask ?? task
 
-  // 詳細で変えた内容を一覧にも映す。一覧側の変更で task が変わっただけでは戻さない（古い値で上書きしない）
+  // 一覧を読み込んだ時刻以降に更新されたデータかどうか。これが揃うまでは、担当者が
+  // まだ空のまま／一覧より古いキャッシュのまま TaskInspector を出さない。
+  const isFresh = dataUpdatedAt >= listFetchedAt
+  const ready = !loading && isFresh && !!spaceTask
+
+  // 揃っていない場合、更新を1回だけ要求する（listFetchedAt が変わる＝別の一覧読み込みごとに1回）。
+  // 「この listFetchedAt に対する更新は完了した」を state（doneForListFetchedAt）に持たせることで、
+  // listFetchedAt が変わったときのリセットを別のエフェクトで行わずに済む（値が一致しなくなるだけで
+  // 自然に「未完了」に戻る）
+  const [doneForListFetchedAt, setDoneForListFetchedAt] = useState<number | null>(null)
+  const requestedForRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (loading) return
+    if (isFresh && spaceTask) return
+    if (requestedForRef.current === listFetchedAt) return
+    requestedForRef.current = listFetchedAt
+    fetchTasks().finally(() => setDoneForListFetchedAt(listFetchedAt))
+  }, [loading, isFresh, spaceTask, listFetchedAt, fetchTasks])
+  const notFound = doneForListFetchedAt === listFetchedAt && !spaceTask
+
+  // 詳細で変えた内容を一覧にも映す。揃う（ready）前の値・一覧側の変更で task が変わった
+  // だけでは戻さない（古い値・一覧専用の変更で上書きしない）
   const onSyncedRef = useRef(onSynced)
   useEffect(() => {
     onSyncedRef.current = onSynced
   })
   useEffect(() => {
-    if (spaceTask) onSyncedRef.current(spaceTask)
-  }, [spaceTask])
+    if (ready && spaceTask) onSyncedRef.current(spaceTask)
+  }, [ready, spaceTask])
 
   useEffect(() => () => setInspector(null), [setInspector])
 
   useEffect(() => {
+    if (!ready || !spaceTask) {
+      setInspector(
+        <div className="h-full flex flex-col bg-surface">
+          <div className="h-12 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
+            <h2 className="text-sm font-medium text-gray-900 truncate">{task.title}</h2>
+            <button
+              onClick={onClose}
+              aria-label="閉じる"
+              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            >
+              <X className="text-lg" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {notFound ? (
+              <p className="text-sm text-gray-500">
+                このタスクを開けませんでした。削除されたか、見る権限がない可能性があります。
+              </p>
+            ) : (
+              <LoadingState />
+            )}
+          </div>
+        </div>
+      )
+      return
+    }
+
     const taskOwners = owners[current.id] || []
     setInspector(
       <TaskInspector
+        key={current.space_id}
         task={current}
         spaceId={current.space_id}
         owners={taskOwners}
@@ -195,13 +257,18 @@ function MyTaskInspector({ task, onClose, onSynced, onDeleted }: MyTaskInspector
         onReviewChange={handleReviewChange}
       />
     )
-  }, [current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+  }, [ready, spaceTask, notFound, task.title, current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
 
   return null
 }
 
 export default function MyTasksClient() {
   const [tasks, setTasks] = useState<Task[]>([])
+  // 行の完了トグル(updateTaskStatus)を tasks の変更のたびに作り直さない（TaskRow の memo を効かせる）ための ref
+  const tasksRef = useRef(tasks)
+  useEffect(() => {
+    tasksRef.current = tasks
+  })
   const [spaces, setSpaces] = useState<Space[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
@@ -211,6 +278,9 @@ export default function MyTasksClient() {
   const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const [showFilters, setShowFilters] = useState(false)
+  // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
+  // 一覧と同じくらい新しいか」を判定するために渡す（詳細参照）
+  const [listFetchedAt, setListFetchedAt] = useState(0)
 
   // Restore persisted state from localStorage after hydration
   useEffect(() => {
@@ -272,12 +342,18 @@ export default function MyTasksClient() {
     [spaces]
   )
 
+  // create=1 の付け外しだけを行い、他のクエリ（選択中タスク task= など）は保持する
   const handleCreateOpen = useCallback(() => {
-    router.push('/my?create=1')
+    const params = new URLSearchParams(window.location.search)
+    params.set('create', '1')
+    router.push(`/my?${params.toString()}`)
   }, [router])
 
   const handleCreateClose = useCallback(() => {
-    router.push('/my')
+    const params = new URLSearchParams(window.location.search)
+    params.delete('create')
+    const query = params.toString()
+    router.push(query ? `/my?${query}` : '/my')
   }, [router])
 
   const handleCreateSubmit = useCallback(
@@ -406,7 +482,11 @@ export default function MyTasksClient() {
   }, [])
 
   const queryClient = useQueryClient()
+  // tasks を直接依存に入れると一覧の変更のたびに作り直され、TaskRow の memo を素通りしてしまう
+  // ため、直前の状態は tasksRef 経由で読む（onStatusChange は安定した参照のまま渡せる）
   const updateTaskStatus = useCallback(async (taskId: string, status: TaskStatus) => {
+    const prevStatus = tasksRef.current.find(t => t.id === taskId)?.status
+
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t))
 
@@ -417,17 +497,21 @@ export default function MyTasksClient() {
 
     if (error) {
       // Revert on error
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: tasks.find(task => task.id === taskId)?.status || t.status } : t))
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: prevStatus ?? t.status } : t))
       console.error('Failed to update task status:', error)
       return
     }
 
-    // 右側の詳細（プロジェクト単位の読み込み結果）も新しい状態に合わせる
-    const target = tasks.find(t => t.id === taskId)
+    // 右側の詳細（プロジェクト単位の読み込み結果）のキャッシュも合わせる。ネットワークは
+    // 発行しない — invalidateQueries はプロジェクト全体を丸ごと読み直す重い操作になるため、
+    // 該当タスクだけをキャッシュ上で書き換える
+    const target = tasksRef.current.find(t => t.id === taskId)
     if (target) {
-      void queryClient.invalidateQueries({ queryKey: ['tasks', target.org_id, target.space_id] })
+      queryClient.setQueryData<TasksQueryData>(['tasks', target.org_id, target.space_id], (old) =>
+        old ? { ...old, tasks: old.tasks.map(t => (t.id === taskId ? { ...t, status } : t)) } : old
+      )
     }
-  }, [supabase, tasks, queryClient])
+  }, [supabase, queryClient])
 
   useEffect(() => {
     // org解決前はフェッチしない（cross-org leak防止）
@@ -435,6 +519,9 @@ export default function MyTasksClient() {
 
     async function fetchData(uid: string) {
       setUserId(uid)
+      // クエリ発行の直前に記録。MyTaskInspector 側で useTasks のキャッシュ(プロジェクト単位)が
+      // この一覧取得より新しいかどうかを判定するのに使う
+      const fetchStartedAt = Date.now()
 
       let tasksQuery = supabase
         .from('tasks')
@@ -468,6 +555,7 @@ export default function MyTasksClient() {
         setTasks(tasksRes.data || [])
         setSpaces(spacesRes.data || [])
         setMilestones(milestonesRes.data || [])
+        setListFetchedAt(fetchStartedAt)
       }
       setLoading(false)
     }
@@ -871,6 +959,7 @@ export default function MyTasksClient() {
         <MyTaskInspector
           key={selectedTask.id}
           task={selectedTask}
+          listFetchedAt={listFetchedAt}
           onClose={handleInspectorClose}
           onSynced={handleInspectorSynced}
           onDeleted={handleInspectorDeleted}

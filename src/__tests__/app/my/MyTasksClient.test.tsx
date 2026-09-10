@@ -15,11 +15,25 @@ import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 const mocks = vi.hoisted(() => ({
   taskRows: [] as unknown[],
   spaceTasks: [] as unknown[],
+  owners: {} as Record<string, unknown[]>,
+  loading: false,
+  dataUpdatedAt: 0,
   setInspector: vi.fn(),
   useTasksArgs: [] as unknown[],
   updateTask: vi.fn(() => Promise.resolve()),
   deleteTask: vi.fn(() => Promise.resolve()),
   passBall: vi.fn(() => Promise.resolve()),
+  fetchTasks: vi.fn(() => Promise.resolve()),
+  push: vi.fn(),
+}))
+
+// next/navigation はグローバルの setup.ts で常に空の URLSearchParams を返すモックに
+// なっているため、このファイルでは実際の URL(window.location.search)を反映するよう
+// 上書きする（task= が保持されるか等をここで検証するため）。push も個別に捕まえる。
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mocks.push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
+  usePathname: () => '/my',
 }))
 
 vi.mock('@/components/task/TaskCreateSheet', () => ({
@@ -39,11 +53,12 @@ vi.mock('@/lib/hooks/useTasks', () => ({
     mocks.useTasksArgs.push(opts)
     return {
       tasks: mocks.spaceTasks,
-      owners: {},
+      owners: mocks.owners,
       reviewStatuses: {},
-      loading: false,
+      loading: mocks.loading,
+      dataUpdatedAt: mocks.dataUpdatedAt,
       error: null,
-      fetchTasks: vi.fn(),
+      fetchTasks: mocks.fetchTasks,
       createTask: vi.fn(),
       updateTask: mocks.updateTask,
       deleteTask: mocks.deleteTask,
@@ -107,8 +122,8 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function renderPage(queryClient = new QueryClient()) {
-  return render(
+function buildTree(queryClient: QueryClient) {
+  return (
     <QueryClientProvider client={queryClient}>
       <ActiveOrgContext.Provider
         value={{
@@ -126,20 +141,37 @@ function renderPage(queryClient = new QueryClient()) {
   )
 }
 
+function renderPage(queryClient = new QueryClient()) {
+  return { ...render(buildTree(queryClient)), queryClient }
+}
+
 /** 右側パネルに最後に渡されたもの（閉じていれば null） */
 function lastInspectorNode() {
   const calls = mocks.setInspector.mock.calls
   return calls.length > 0 ? calls[calls.length - 1][0] : undefined
 }
 
+/** setInspector に渡された要素の中身を確かめるため、切り離した container に描画する
+ *  （document.body には積まない＝他のテストの screen クエリを汚さない） */
+function renderNode(node: React.ReactElement) {
+  return render(node, { container: document.createElement('div') })
+}
+
 beforeEach(() => {
   mocks.taskRows = []
   mocks.spaceTasks = []
+  mocks.owners = {}
+  mocks.loading = false
+  // 既定は「一覧の取得(listFetchedAt)より新しい」= 揃っている状態
+  mocks.dataUpdatedAt = Date.now() + 60_000
   mocks.useTasksArgs = []
   mocks.setInspector.mockClear()
   mocks.updateTask.mockClear()
   mocks.deleteTask.mockClear()
   mocks.passBall.mockClear()
+  mocks.fetchTasks.mockClear()
+  mocks.fetchTasks.mockResolvedValue(undefined)
+  mocks.push.mockClear()
   window.history.replaceState(null, '', '/my')
 })
 
@@ -157,21 +189,91 @@ describe('MyTasksClient — 空状態の教育化 (初回UX改善 D)', () => {
 describe('MyTasksClient — タスクの詳細を右側に出す', () => {
   it('タスクをクリックすると、ページを移動せず右側に詳細を出す', async () => {
     mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
     renderPage()
 
     fireEvent.click(await screen.findByText('マイタスクA'))
 
     await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
     expect(lastInspectorNode()?.props.spaceId).toBe('space-1')
-    // 更新はそのタスクのプロジェクトを対象にした useTasks を通す
-    expect(mocks.useTasksArgs).toContainEqual({ orgId: 'org-1', spaceId: 'space-1' })
+    // 50件の外にあっても担当者が揃うまで待てるよう、そのタスクIDを明示して取得する
+    expect(mocks.useTasksArgs).toContainEqual({ orgId: 'org-1', spaceId: 'space-1', ensureTaskIds: ['t1'] })
     // ページは移動せず、URL にだけ選択中のタスクを残す（再読み込み・共有で同じ表示に戻せる）
     expect(window.location.pathname).toBe('/my')
     expect(new URLSearchParams(window.location.search).get('task')).toBe('t1')
   })
 
+  it('読み込み中は詳細をまだ出さない（更新は要求しない）', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = []
+    mocks.loading = true
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() => expect(mocks.setInspector).toHaveBeenCalled())
+    // プレースホルダのみで、TaskInspector（task プロパティを持つ要素）はまだ出ていない
+    expect(lastInspectorNode()?.props?.task).toBeUndefined()
+    // getByText は見つからないと例外を投げるため、これ自体が「表示されている」ことの検証になる
+    // （分離した container には toBeInTheDocument が使えないため）
+    const { getByText } = renderNode(lastInspectorNode() as React.ReactElement)
+    expect(getByText('読み込み中...')).toBeTruthy()
+    expect(mocks.fetchTasks).not.toHaveBeenCalled()
+  })
+
+  it('一覧より古いキャッシュ(stale)のときは詳細をまだ出さず、更新を1回だけ要求する', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    mocks.loading = false
+    // 一覧の取得時刻(listFetchedAt)より明確に古い
+    mocks.dataUpdatedAt = 1
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() => expect(mocks.fetchTasks).toHaveBeenCalledTimes(1))
+    expect(lastInspectorNode()?.props?.task).toBeUndefined()
+
+    // 再レンダーが起きても、同じ一覧取得(listFetchedAt)に対しては1回しか要求しない
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mocks.fetchTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('更新してもタスクが見つからなければ「開けませんでした」を表示する', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [] // プロジェクト側にそのタスクが存在しない
+    mocks.dataUpdatedAt = 1
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(mocks.fetchTasks).toHaveBeenCalledTimes(1))
+
+    await waitFor(() => {
+      const { getByText } = renderNode(lastInspectorNode() as React.ReactElement)
+      expect(
+        getByText('このタスクを開けませんでした。削除されたか、見る権限がない可能性があります。')
+      ).toBeTruthy()
+    })
+  })
+
+  it('揃ったとき、詳細の担当者は useTasks の結果から渡される', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    mocks.owners = { t1: [{ id: 'o1', task_id: 't1', side: 'internal', user_id: 'u1' }] }
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() =>
+      expect(lastInspectorNode()?.props.owners).toEqual([
+        { id: 'o1', task_id: 't1', side: 'internal', user_id: 'u1' },
+      ])
+    )
+  })
+
   it('同じタスクをもう一度クリックすると詳細を閉じる', async () => {
     mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
     renderPage()
 
     const row = await screen.findByText('マイタスクA')
@@ -185,6 +287,7 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
 
   it('詳細の「閉じる」で閉じる', async () => {
     mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
     renderPage()
 
     fireEvent.click(await screen.findByText('マイタスクA'))
@@ -196,6 +299,7 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
 
   it('詳細での変更はプロジェクト画面と同じ更新処理を通す', async () => {
     mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
     renderPage()
 
     fireEvent.click(await screen.findByText('マイタスクA'))
@@ -207,19 +311,59 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     expect(mocks.updateTask).toHaveBeenCalledWith('t1', { title: '新しい名前' })
   })
 
-  it('詳細で変えた内容が一覧にも映る', async () => {
+  it('詳細で変えた内容が一覧にも映る（担当者まで揃ってから同期する）', async () => {
     mocks.taskRows = [makeTask()]
-    mocks.spaceTasks = [makeTask({ title: 'マイタスクA（更新後）' })]
-    renderPage()
+    mocks.spaceTasks = [makeTask()]
+    const { rerender, queryClient } = renderPage()
 
     fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    mocks.spaceTasks = [makeTask({ title: 'マイタスクA（更新後）' })]
+    rerender(buildTree(queryClient))
 
     expect(await screen.findByText('マイタスクA（更新後）')).toBeInTheDocument()
     expect(lastInspectorNode()?.props.task.title).toBe('マイタスクA（更新後）')
   })
 
+  it('一覧だけの変更（行の完了）は詳細側に上書きされない', async () => {
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    fireEvent.click(await screen.findByRole('button', { name: '完了にする' }))
+
+    // 一覧側は完了扱いになりアクティブ一覧から消える
+    await waitFor(() => expect(screen.queryByText('マイタスクA')).not.toBeInTheDocument())
+    // 詳細側（useTasks のキャッシュ）は変わっていないので、古い値で上書きされていない
+    expect(lastInspectorNode()?.props.task.title).toBe('マイタスクA')
+  })
+
+  it('別プロジェクトのタスクに切り替えると、詳細の要素キーがそのプロジェクトIDになる', async () => {
+    mocks.taskRows = [
+      makeTask({ id: 't1', space_id: 'space-1', title: 'マイタスクA' }),
+      makeTask({ id: 't2', space_id: 'space-2', title: 'マイタスクB' }),
+    ]
+    mocks.spaceTasks = [makeTask({ id: 't1', space_id: 'space-1', title: 'マイタスクA' })]
+    renderPage()
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+    expect(lastInspectorNode()?.key).toBe('space-1')
+
+    mocks.spaceTasks = [makeTask({ id: 't2', space_id: 'space-2', title: 'マイタスクB' })]
+    fireEvent.click(await screen.findByText('マイタスクB'))
+
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t2'))
+    expect(lastInspectorNode()?.key).toBe('space-2')
+  })
+
   it('詳細から削除すると一覧から消えて詳細も閉じる', async () => {
     mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
     renderPage()
 
     fireEvent.click(await screen.findByText('マイタスクA'))
@@ -233,16 +377,49 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     expect(lastInspectorNode()).toBeNull()
   })
 
-  it('一覧で完了にしたら、そのプロジェクトの読み込み結果も更新する（詳細が古い状態のまま残らない）', async () => {
+  it('一覧で完了にしたら、そのプロジェクトの読み込み結果のキャッシュだけを書き換える（invalidateはしない）', async () => {
     mocks.taskRows = [makeTask()]
     const queryClient = new QueryClient()
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    queryClient.setQueryData(['tasks', 'org-1', 'space-1'], {
+      tasks: [makeTask()],
+      owners: {},
+      reviewStatuses: {},
+    })
     renderPage(queryClient)
 
     fireEvent.click(await screen.findByRole('button', { name: '完了にする' }))
 
-    await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['tasks', 'org-1', 'space-1'] })
-    )
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(['tasks', 'org-1', 'space-1']) as {
+        tasks: Array<{ id: string; status: string }>
+      }
+      expect(cached.tasks[0].status).toBe('done')
+    })
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it('新規作成を開いても、選択中タスクのURLパラメータ(task=)を保持する', async () => {
+    window.history.replaceState(null, '', '/my?task=t1')
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    renderPage()
+
+    fireEvent.click(screen.getByTestId('my-tasks-create'))
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled())
+    const pushedUrl = mocks.push.mock.calls[0][0] as string
+    const params = new URLSearchParams(pushedUrl.split('?')[1] ?? '')
+    expect(params.get('create')).toBe('1')
+    expect(params.get('task')).toBe('t1')
+  })
+
+  it('初期表示で ?task=t1 のとき、一覧が読み込まれたあとに詳細を開く', async () => {
+    window.history.replaceState(null, '', '/my?task=t1')
+    mocks.taskRows = [makeTask()]
+    mocks.spaceTasks = [makeTask()]
+    renderPage()
+
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
   })
 })

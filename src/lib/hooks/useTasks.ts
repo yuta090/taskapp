@@ -25,6 +25,12 @@ import type {
 interface UseTasksOptions {
   orgId: string
   spaceId: string
+  /**
+   * 一覧の直近50件に入っていなくても、必ず結果へ含めたいタスクID
+   * （/my の詳細パネルなど）。queryKey は変えない — 変えると楽観的更新・
+   * prevTask・副作用がすべて見ているキャッシュと別物になってしまうため。
+   */
+  ensureTaskIds?: string[]
 }
 
 export interface CreateTaskInput {
@@ -74,6 +80,8 @@ interface UseTasksReturn {
   reviewStatuses: Record<string, ReviewStatus>
   loading: boolean
   error: Error | null
+  /** このデータが最後に更新された時刻（ms）。react-query の dataUpdatedAt をそのまま渡す */
+  dataUpdatedAt: number
   fetchTasks: () => Promise<void>
   createTask: (task: CreateTaskInput) => Promise<Task>
   updateTask: (taskId: string, input: UpdateTaskInput) => Promise<void>
@@ -214,7 +222,7 @@ function getMaxDescendantDepth(taskId: string, tasks: Task[]): number {
   return maxDepth
 }
 
-export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
+export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): UseTasksReturn {
   const queryClient = useQueryClient()
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
@@ -224,9 +232,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const queryKey = ['tasks', orgId, spaceId] as const
 
-  const { data, isPending, error: queryError } = useQuery<TasksQueryData>({
+  const { data, isPending, error: queryError, dataUpdatedAt } = useQuery<TasksQueryData>({
     queryKey,
-    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId),
+    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId, { ensureTaskIds }),
     enabled: !!orgId && !!spaceId,
   })
 
@@ -861,6 +869,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
     reviewStatuses,
     loading: isPending && !data,
     error: queryError,
+    dataUpdatedAt,
     fetchTasks,
     createTask,
     updateTask,
