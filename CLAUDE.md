@@ -46,6 +46,22 @@ npm run test:e2e:prod     # 本番(agentpm.app)に対して
 - ログイン処理は `tests/e2e/login.ts` に集約している。hydration 前に入力すると値が消えて
   **送信自体が起きず無言で落ちる**ため、必ずこのヘルパー経由で書く。
 
+### CLI（agentpm）を npm に公開する
+
+- 公開が要るのは **`packages/cli` 自体を変えたときだけ**。コマンドの追加・変更はサーバーのコマンド一覧
+  （`src/lib/cli-manifest.ts`）から届くので不要。版は `packages/cli/package.json` と `src/index.ts` の
+  `CLI_VERSION` を揃えて上げる（テストが検査）。
+- **main に取り込んでから** `scripts/publish-cli.sh` で公開する。origin/main の `packages/cli` を作り直して載せ、
+  反映待ちと入れ直しまで行う。中身の事前確認は Claude が `scripts/publish-cli.sh --dry-run <リポジトリ>` で行える。
+- npm は公開のたびにブラウザでの本人確認が要るので、**Claude の Bash や `!` からは公開できない（EOTP で落ちる）**。
+  ユーザー本人のターミナルで動かしてもらう。**長いコマンドを文面で渡さずクリップボードに入れる**（貼り付けで
+  改行が入って壊れる）。メインの作業ディレクトリは別ブランチのことがあるので、develop の最新版を取り出して渡す:
+  ```bash
+  git -C /Volumes/WIN-MAC2/scripts/taskapp show origin/develop:scripts/publish-cli.sh > ~/agentpm-publish.sh && chmod +x ~/agentpm-publish.sh
+  printf '%s' "$HOME/agentpm-publish.sh /Volumes/WIN-MAC2/scripts/taskapp" | pbcopy   # →「ターミナルに貼って Enter」
+  ```
+  終わったら `~/agentpm-publish.sh` を消す。
+
 ## Specifications
 
 **See `docs/SPEC_INDEX.md` for the complete specification index.**

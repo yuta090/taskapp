@@ -16,7 +16,7 @@ npm install -g @uzukko/agentpm   # Node.js 18 以上
 ```
 
 - npm に公開する名前は `packages/cli/package.json` の `name`（`@uzukko/agentpm`）。画面と AI 用の説明書に出す「入れ方」の正本は `src/lib/cli-setup.ts` で、両者の一致は `src/__tests__/lib/cli-setup.test.ts` が見張る。
-- 公開は `cd packages/cli && npm pack --dry-run`（中身の確認）→ `npm publish`。`prepublishOnly` で `dist` を消してから `tsc` で作り直す（消したソースの古い成果物を載せないため）。載せるのは `bin` と `dist` だけ。版を上げるときは `package.json` の `version` と `src/index.ts` の `CLI_VERSION` を揃える（これもテストで検査）。
+- 公開は `scripts/publish-cli.sh`（ユーザー本人のターミナルで。渡し方は CLAUDE.md「CLI（agentpm）を npm に公開する」）。origin/main の `packages/cli` を取り出し、`dist` を消して `tsc` で作り直してから載せる（消したソースの古い成果物を載せないため）。載せるのは `bin` と `dist` だけ。`--dry-run` で公開せずに中身を確かめられる。公開済みの版のままなら止まる。版を上げるときは `package.json` の `version` と `src/index.ts` の `CLI_VERSION` を揃える（テストで検査）。
 
 ## セットアップ
 
