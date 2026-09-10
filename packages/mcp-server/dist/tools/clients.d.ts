@@ -28,14 +28,17 @@ export interface SpaceMembership {
 export declare const clientInviteCreateSchema: z.ZodObject<{
     email: z.ZodString;
     spaceId: z.ZodString;
+    role: z.ZodDefault<z.ZodEnum<["client", "member"]>>;
     expiresInDays: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     spaceId: string;
+    role: "client" | "member";
     email: string;
     expiresInDays: number;
 }, {
     spaceId: string;
     email: string;
+    role?: "client" | "member" | undefined;
     expiresInDays?: number | undefined;
 }>;
 export declare const clientInviteBulkCreateSchema: z.ZodObject<{
@@ -97,11 +100,14 @@ export declare const clientAddToSpaceSchema: z.ZodObject<{
 export declare const clientInviteListSchema: z.ZodObject<{
     spaceId: z.ZodOptional<z.ZodString>;
     status: z.ZodDefault<z.ZodEnum<["pending", "accepted", "expired", "all"]>>;
+    role: z.ZodDefault<z.ZodEnum<["client", "member", "all"]>>;
 }, "strip", z.ZodTypeAny, {
+    role: "client" | "member" | "all";
     status: "pending" | "accepted" | "expired" | "all";
     spaceId?: string | undefined;
 }, {
     spaceId?: string | undefined;
+    role?: "client" | "member" | "all" | undefined;
     status?: "pending" | "accepted" | "expired" | "all" | undefined;
 }>;
 export declare const clientInviteResendSchema: z.ZodObject<{
@@ -114,7 +120,16 @@ export declare const clientInviteResendSchema: z.ZodObject<{
     inviteId: string;
     expiresInDays?: number | undefined;
 }>;
-export declare function clientInviteCreate(params: z.infer<typeof clientInviteCreateSchema>): Promise<ClientInvite>;
+export interface ClientInviteWithUrl extends ClientInvite {
+    /** そのまま相手に渡せる招待リンク */
+    inviteUrl: string;
+    /** 既存の有効な招待を使い回したか（期限だけ延ばした） */
+    reused: boolean;
+    /** この経路ではメールを送らない（常に false）。送信はアプリ側の再送から */
+    emailSent: false;
+    message: string;
+}
+export declare function clientInviteCreate(params: z.infer<typeof clientInviteCreateSchema>): Promise<ClientInviteWithUrl>;
 export declare function clientInviteBulkCreate(params: z.infer<typeof clientInviteBulkCreateSchema>): Promise<{
     created: number;
     failed: string[];
@@ -138,14 +153,17 @@ export declare const clientTools: ({
     inputSchema: z.ZodObject<{
         email: z.ZodString;
         spaceId: z.ZodString;
+        role: z.ZodDefault<z.ZodEnum<["client", "member"]>>;
         expiresInDays: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         spaceId: string;
+        role: "client" | "member";
         email: string;
         expiresInDays: number;
     }, {
         spaceId: string;
         email: string;
+        role?: "client" | "member" | undefined;
         expiresInDays?: number | undefined;
     }>;
     handler: typeof clientInviteCreate;
@@ -231,11 +249,14 @@ export declare const clientTools: ({
     inputSchema: z.ZodObject<{
         spaceId: z.ZodOptional<z.ZodString>;
         status: z.ZodDefault<z.ZodEnum<["pending", "accepted", "expired", "all"]>>;
+        role: z.ZodDefault<z.ZodEnum<["client", "member", "all"]>>;
     }, "strip", z.ZodTypeAny, {
+        role: "client" | "member" | "all";
         status: "pending" | "accepted" | "expired" | "all";
         spaceId?: string | undefined;
     }, {
         spaceId?: string | undefined;
+        role?: "client" | "member" | "all" | undefined;
         status?: "pending" | "accepted" | "expired" | "all" | undefined;
     }>;
     handler: typeof clientInviteList;
