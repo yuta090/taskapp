@@ -252,7 +252,11 @@ export default function ClientHelpPage() {
         </section>
 
         <p className="text-xs text-gray-400 text-center">
-          解決しない場合は開発チームにタスクのコメントでお問い合わせください。
+          さらに詳しい内容は
+          <Link href="/docs/manual/client" className="text-indigo-600 hover:underline mx-1">
+            ご利用ガイド（詳細版）
+          </Link>
+          をご覧ください。解決しない場合は、開発チームにタスクのコメントでお問い合わせください。
         </p>
       </main>
     </div>
