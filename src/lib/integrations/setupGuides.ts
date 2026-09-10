@@ -575,7 +575,7 @@ export const INTEGRATION_SETUP_GUIDES: Partial<Record<SetupGuideKey, Integration
 /* ---- 組織の外部連携（組織で一度つなぐ → プロジェクトごとに選ぶ） ---- */
   github: {
     summary:
-      'GitHub をつなぐと、プルリクエスト（PR）のタイトルか本文にタスクID（例: #TP-042）を書くだけで、そのタスクに PR が自動で紐付きます。組織で一度 GitHub App を入れ、プロジェクトごとに見るリポジトリを選ぶ二段構えです。',
+      'GitHub をつなぐと、プルリクエスト（PR）のタイトルか本文にタスクID（例: #TP-042）を書くだけで、そのタスクに PR が自動で紐付きます。PR が取り込まれると、タスクの担当者に知らせます。組織で一度 GitHub App を入れ、プロジェクトごとに見るリポジトリを選ぶ二段構えです。',
     steps: [
       'ブラウザで GitHub（https://github.com）に、つなぎたいリポジトリを持っているアカウントでサインインしておきます',
       'TaskApp で、左上の組織名を押して「組織設定」を選びます',

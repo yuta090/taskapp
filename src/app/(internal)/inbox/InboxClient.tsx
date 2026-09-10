@@ -36,7 +36,7 @@ const NOTIFICATION_TYPE_GROUPS: ReadonlyArray<{ label: string; types: ReadonlyAr
   { label: 'タスク割り当て', types: ['task_assigned', 'ball_passed'] },
   { label: '期限リマインド', types: ['due_date_reminder'] },
   { label: '会議関連', types: ['meeting_reminder', 'meeting_scheduled', 'meeting_ended'] },
-  { label: 'タスク完了', types: ['task_completed'] },
+  { label: 'タスク完了', types: ['task_completed', 'github_pr_merged'] },
   { label: '仕様決定', types: ['spec_decision_needed'] },
   { label: 'ファイル', types: ['file_uploaded'] },
 ]
@@ -153,6 +153,7 @@ function getNotificationIcon(type: string) {
       return <Calendar />
     case 'meeting_ended':
     case 'task_completed':
+    case 'github_pr_merged':
       return <CheckCircle weight="fill" />
     case 'spec_decision_needed':
       return <Bell />

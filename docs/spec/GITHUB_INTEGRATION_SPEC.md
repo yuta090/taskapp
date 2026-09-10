@@ -64,6 +64,21 @@ GitHub App
 | `useManualLinkPR()` | 手動PR紐づけ |
 | `useUnlinkPR()` | PR紐づけ解除 |
 
+## PRが取り込まれたときの通知（Phase 2.5）
+
+`pull_request` webhookで `action === 'closed' && pull_request.merged === true` を受けたとき（`handlePullRequestEvent` のPR upsert後）:
+
+1. **つなぎ漏れを拾う**: 通知の前に `linkPRToTasks`（タイトル/本文のTP-番号で紐づけ）を実行する。リポジトリをプロジェクトに結びつける前に作られたPRも、取り込み時点で拾うため。opened/editedの既存の動きは変えない。
+2. **対象タスク**: そのPRに紐づく全タスク（`task_github_links`。auto/manual とも）。**statusが `done` のタスクには通知しない**。
+3. **宛先**（`src/lib/github/merge-notify.ts` の `resolveMergeNotifyRecipients`、優先順）:
+   1. 担当者(`tasks.assignee_id`) と社内側の責任者(`task_owners` side='internal')の和集合（org内部メンバー=owner/admin/memberのみ）
+   2. 空なら `tasks.created_by`（内部メンバーなら）
+   3. それも空なら `spaces.default_reviewer_ids`（内部メンバーのみ）
+   4. それも空なら送らない
+4. **通知**: `notifications` に `type: 'github_pr_merged'`・`channel: 'in_app'` で1行（宛先ごと）。`dedupe_key: 'github_pr_merged:<task_id>:<github_pull_requests.id>'` で二重webhookでも重複させない（`upsert` + `ignoreDuplicates`）。payloadは `task_id`・`task_title`・`title`・`message`・`link`・`pr_url`・`pr_number`・`repo_full_name`。
+5. **方針の再確認**（§6 §12・Fable裁定と同じ）: この処理は**タスク行を更新しない・ボールを動かさない・お客さん/制作会社には通知しない**。あくまで社内の担当者・責任者に「知らせるだけ」。
+6. 通知の失敗はログのみで、webhookの応答（PR upsert結果）には影響しない。
+
 ## セキュリティ
 
 - Webhook署名検証（HMAC SHA-256）

@@ -50,6 +50,9 @@ const POLICY: Readonly<Record<string, DeliveryPolicy>> = {
   mention: PUSH_ONLY,
   comment_added: PUSH_ONLY,
   comment: PUSH_ONLY,
+  // タスクに紐づいたPRが取り込まれた通知。知らせるだけの内容だが、担当者が
+  // 気づかないままお客さんへの確認が遅れがちなので、プッシュだけその場で鳴らす
+  github_pr_merged: PUSH_ONLY,
 
   // ── 知らせるだけ: まとめのみ ──
   task_completed: DIGEST_ONLY,
