@@ -11,7 +11,6 @@ import type {
   TaskGitHubLink,
   GitHubIssue,
   TaskGitHubIssueLink,
-  TaskGitHubIssueRollup,
 } from '@/lib/github/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -317,7 +316,6 @@ export function useUnlinkPR() {
 
 interface TaskGitHubIssuesData {
   links: TaskGitHubIssueLink[]
-  rollup: TaskGitHubIssueRollup | null
 }
 
 function taskGitHubIssuesQueryKey(taskId: string) {
@@ -325,8 +323,13 @@ function taskGitHubIssuesQueryKey(taskId: string) {
 }
 
 /**
- * タスクに紐づく Issue の一覧と、完了件数の集計（rollup）を取得。
- * 表が分かれているので並行して取る（ウォーターフォールにしない）
+ * タスクに紐づく Issue の一覧を取得。
+ *
+ * 完了件数（「N件中M件完了」）は task_github_issue_rollups を別に取らず、この一覧の
+ * 各 Issue の状態から画面側で数える（表示速度レビューでの是正・2026-09-11）。
+ * 理由: 表を分けて2回取っても、一覧と集計が同時に更新されない一瞬（紐づけ・解除の直後）が
+ * 生まれうる。一覧から数えれば同じデータなので原理的にずれない。通知の判定（PR3・サーバー側）は
+ * 引き続き DB の集計行(task_github_issue_rollups)を正本にする。ここは画面の数え方だけの変更
  */
 export function useTaskGitHubIssues(taskId: string | undefined) {
   const githubEnabled = isGitHubConfigured()
@@ -334,31 +337,20 @@ export function useTaskGitHubIssues(taskId: string | undefined) {
   return useQuery({
     queryKey: taskId ? taskGitHubIssuesQueryKey(taskId) : ['task-github-issues', undefined],
     queryFn: async (): Promise<TaskGitHubIssuesData> => {
-      if (!taskId) return { links: [], rollup: null }
+      if (!taskId) return { links: [] }
 
-      const [linksRes, rollupRes] = await Promise.all([
-        supabase
-          .from('task_github_issue_links')
-          .select(`
-            *,
-            github_issues (*)
-          `)
-          .eq('task_id', taskId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('task_github_issue_rollups')
-          .select('*')
-          .eq('task_id', taskId)
-          .maybeSingle(),
-      ])
+      const { data, error } = await supabase
+        .from('task_github_issue_links')
+        .select(`
+          *,
+          github_issues (*)
+        `)
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: false })
 
-      if (linksRes.error) throw linksRes.error
-      if (rollupRes.error) throw rollupRes.error
+      if (error) throw error
 
-      return {
-        links: (linksRes.data ?? []) as TaskGitHubIssueLink[],
-        rollup: (rollupRes.data ?? null) as TaskGitHubIssueRollup | null,
-      }
+      return { links: (data ?? []) as TaskGitHubIssueLink[] }
     },
     enabled: !!taskId && githubEnabled,
   })
@@ -366,30 +358,28 @@ export function useTaskGitHubIssues(taskId: string | undefined) {
 
 /**
  * 手動で紐づけるための候補Issue（そのプロジェクトに紐づくリポジトリのIssue）を
- * 番号・タイトルで検索する
+ * 番号・タイトルで検索する。
+ *
+ * repoIds は呼び出し側が既存の `useSpaceGitHubRepos(spaceId)` から作って渡す
+ * （表示速度レビューでの是正・2026-09-11）。この hook 自身は space_github_repos を
+ * 引かない＝検索の問い合わせは github_issues の1回だけになる。呼び出し側は search を
+ * `useDebouncedValue` で落ち着かせてから渡すこと（打鍵ごとに問い合わせない）
  */
-export function useIssueLinkCandidates(spaceId: string | undefined, search: string) {
+export function useIssueLinkCandidates(repoIds: string[], search: string) {
   const githubEnabled = isGitHubConfigured()
+  // 配列の参照は毎レンダー変わりうるが、react-query の queryKey は値で比較するので
+  // 中身が同じなら再取得しない。順序だけ揺れないよう並べておく
+  const sortedRepoIds = [...repoIds].sort()
 
   return useQuery({
-    queryKey: ['space-github-issue-candidates', spaceId, search],
+    queryKey: ['space-github-issue-candidates', sortedRepoIds, search],
     queryFn: async () => {
-      if (!spaceId) return []
-
-      const { data: spaceRepos } = await supabase
-        .from('space_github_repos')
-        .select('github_repo_id')
-        .eq('space_id', spaceId)
-
-      if (!spaceRepos || spaceRepos.length === 0) return []
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const repoIds = spaceRepos.map((r: any) => r.github_repo_id)
+      if (sortedRepoIds.length === 0) return []
 
       let query = supabase
         .from('github_issues')
         .select('*')
-        .in('github_repo_id', repoIds)
+        .in('github_repo_id', sortedRepoIds)
         .order('issue_number', { ascending: false })
         .limit(50)
 
@@ -407,7 +397,12 @@ export function useIssueLinkCandidates(spaceId: string | undefined, search: stri
       if (error) throw error
       return data as GitHubIssue[]
     },
-    enabled: !!spaceId && githubEnabled,
+    enabled: repoIds.length > 0 && githubEnabled,
+    // 打ち直しのたびに空欄へ戻らないよう、前の結果を出したまま裏で取り直す
+    // （FilesPageClient の useFileSearch と同じ型。一瞬「該当するIssueがありません」が出ない）
+    placeholderData: (previous: GitHubIssue[] | undefined) => previous,
+    // 打鍵の切れ目ごとに別キーが生まれるので、使い終わったら早めに捨てる
+    gcTime: 5 * 60 * 1000,
   })
 }
 
@@ -455,7 +450,7 @@ export function useManualLinkIssue() {
       const previous = queryClient.getQueryData<TaskGitHubIssuesData>(queryKey)
 
       queryClient.setQueryData<TaskGitHubIssuesData>(queryKey, (current) => {
-        const base = current ?? { links: [], rollup: null }
+        const base = current ?? { links: [] }
         const optimisticLink: TaskGitHubIssueLink = {
           id: `optimistic-${issue.id}`,
           org_id: orgId,

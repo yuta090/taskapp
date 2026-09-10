@@ -8,17 +8,23 @@ import {
   useManualLinkIssue,
   useUnlinkIssue,
 } from '@/lib/hooks/useGitHub'
-import type { GitHubIssue, TaskGitHubIssueLink, TaskGitHubIssueRollup } from '@/lib/github/types'
+import type { GitHubIssue, TaskGitHubIssueLink } from '@/lib/github/types'
 
 /**
  * GitHub Issues 連携の hooks（GITHUB_ISSUES_LINK_SPEC.md §8・§9 PR1）。
  * 手動の紐づけ・解除は保存ボタンを置かない方針にならい、押した瞬間に一覧へ反映し
- * 失敗したら元に戻す（楽観的更新）。集計（rollup）は DB のトリガーが数え直すので、
- * 確定したら取り直す。
+ * 失敗したら元に戻す（楽観的更新）。
+ *
+ * 表示速度レビュー(REQUEST CHANGES)の是正:
+ * - 完了件数は task_github_issue_rollups を別問い合わせせず、一覧(links)の Issue の状態から数える
+ *   （問い合わせを1回減らし、一覧とバッジが同じデータなのでずれない）
+ * - 紐づけ候補(useIssueLinkCandidates)は space_github_repos を毎回引かず、呼び出し側が
+ *   useSpaceGitHubRepos で得た repoIds を渡す（候補の取得は github_issues の1回だけ）
+ * - 検索中は placeholderData で前の結果を出したまま裏で取り直す（一瞬「ありません」が出ない）
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeChain(getResult: () => { data: any; error: any }) {
+function makeChain(getResult: () => { data: any; error: any } | Promise<{ data: any; error: any }>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chain: any = {
     select: () => chain,
@@ -37,9 +43,9 @@ function makeChain(getResult: () => { data: any; error: any }) {
 
 let linksData: TaskGitHubIssueLink[] = []
 let linksError: { message: string } | null = null
-let rollupData: TaskGitHubIssueRollup | null = null
-let spaceReposData: Array<{ github_repo_id: string }> = []
 let issuesData: GitHubIssue[] = []
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let issuesResultProvider: (() => { data: any; error: any } | Promise<{ data: any; error: any }>) | null = null
 
 // useGitHub.ts はモジュールの読み込み時（トップレベル）で createClient() を1回だけ呼ぶ実装のため、
 // vi.mock のファクトリが読み込まれる前に fromMock 等の実体が要る。vi.hoisted で先出しする
@@ -59,19 +65,9 @@ fromMock.mockImplementation((table: string) => {
       delete: deleteMock,
     }
   }
-  if (table === 'task_github_issue_rollups') {
-    return {
-      select: () => makeChain(() => ({ data: rollupData, error: null })),
-    }
-  }
-  if (table === 'space_github_repos') {
-    return {
-      select: () => makeChain(() => ({ data: spaceReposData, error: null })),
-    }
-  }
   if (table === 'github_issues') {
     return {
-      select: () => makeChain(() => ({ data: issuesData, error: null })),
+      select: () => makeChain(issuesResultProvider ?? (() => ({ data: issuesData, error: null }))),
     }
   }
   return {}
@@ -96,9 +92,8 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_GITHUB_ENABLED = 'true'
   linksData = []
   linksError = null
-  rollupData = null
-  spaceReposData = []
   issuesData = []
+  issuesResultProvider = null
   insertMock.mockClear()
   insertMock.mockResolvedValue({ error: null })
   deleteEqMock.mockClear()
@@ -113,7 +108,6 @@ afterEach(() => {
 
 const TASK_ID = 'task-1'
 const ORG_ID = 'org-1'
-const SPACE_ID = 'space-1'
 
 const ISSUE_A: GitHubIssue = {
   id: 'issue-a',
@@ -135,7 +129,7 @@ const ISSUE_A: GitHubIssue = {
 }
 
 describe('useTaskGitHubIssues', () => {
-  it('紐づいた Issue の一覧と集計を取得する', async () => {
+  it('紐づいた Issue の一覧を取得する', async () => {
     linksData = [
       {
         id: 'link-1',
@@ -148,16 +142,6 @@ describe('useTaskGitHubIssues', () => {
         github_issues: ISSUE_A,
       },
     ]
-    rollupData = {
-      task_id: TASK_ID,
-      org_id: ORG_ID,
-      open_count: 1,
-      completed_count: 0,
-      not_planned_count: 0,
-      all_closed_at: null,
-      notified_at: null,
-      updated_at: '2026-09-01T00:00:00.000Z',
-    }
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { result } = renderHook(() => useTaskGitHubIssues(TASK_ID), {
@@ -166,7 +150,6 @@ describe('useTaskGitHubIssues', () => {
 
     await waitFor(() => expect(result.current.data?.links).toHaveLength(1))
     expect(result.current.data?.links[0].github_issues?.title).toBe('ログインできない')
-    expect(result.current.data?.rollup?.open_count).toBe(1)
   })
 
   it('taskId が無ければ取得しない', () => {
@@ -175,45 +158,84 @@ describe('useTaskGitHubIssues', () => {
 
     expect(fromMock).not.toHaveBeenCalled()
   })
+
+  it('task_github_issue_rollups には問い合わせない（完了件数は一覧から数える。表示速度レビュー是正）', async () => {
+    linksData = [
+      {
+        id: 'link-1',
+        org_id: ORG_ID,
+        task_id: TASK_ID,
+        github_issue_id: ISSUE_A.id,
+        link_type: 'auto',
+        created_by: 'user-1',
+        created_at: '2026-09-01T00:00:00.000Z',
+        github_issues: ISSUE_A,
+      },
+    ]
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useTaskGitHubIssues(TASK_ID), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await waitFor(() => expect(result.current.data?.links).toHaveLength(1))
+    expect(fromMock).not.toHaveBeenCalledWith('task_github_issue_rollups')
+  })
 })
 
 describe('useIssueLinkCandidates', () => {
-  it('space に紐づくリポジトリの Issue を返す', async () => {
-    spaceReposData = [{ github_repo_id: 'repo-1' }]
+  it('渡された repoIds に属する Issue を返す（space_github_repos は問い合わせない）', async () => {
     issuesData = [ISSUE_A]
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { result } = renderHook(() => useIssueLinkCandidates(SPACE_ID, ''), {
+    const { result } = renderHook(() => useIssueLinkCandidates(['repo-1'], ''), {
       wrapper: createWrapper(queryClient),
     })
 
     await waitFor(() => expect(result.current.data).toHaveLength(1))
     expect(result.current.data?.[0].issue_number).toBe(42)
+    expect(fromMock).not.toHaveBeenCalledWith('space_github_repos')
   })
 
-  it('space にリポジトリが無ければ空配列', async () => {
-    spaceReposData = []
-
+  it('repoIds が空なら取得しない', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { result } = renderHook(() => useIssueLinkCandidates(SPACE_ID, ''), {
-      wrapper: createWrapper(queryClient),
-    })
-
-    await waitFor(() => expect(result.current.data).toEqual([]))
-  })
-
-  it('spaceId が無ければ取得しない', () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    renderHook(() => useIssueLinkCandidates(undefined, ''), { wrapper: createWrapper(queryClient) })
+    renderHook(() => useIssueLinkCandidates([], ''), { wrapper: createWrapper(queryClient) })
 
     expect(fromMock).not.toHaveBeenCalled()
+  })
+
+  it('検索語を変えている間も、確定するまで前の候補を表示したまま裏で取り直す(placeholderData)', async () => {
+    issuesData = [ISSUE_A]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result, rerender } = renderHook(
+      ({ search }: { search: string }) => useIssueLinkCandidates(['repo-1'], search),
+      { wrapper: createWrapper(queryClient), initialProps: { search: '' } }
+    )
+
+    await waitFor(() => expect(result.current.data).toHaveLength(1))
+
+    // 2回目の検索はまだ確定させない
+    let resolveSecond: (v: { data: unknown; error: null }) => void = () => {}
+    const pending = new Promise<{ data: unknown; error: null }>((resolve) => {
+      resolveSecond = resolve
+    })
+    issuesResultProvider = () => pending
+
+    rerender({ search: '42' })
+
+    // 確定していない間も前の候補を出したまま（空にならない）
+    expect(result.current.data).toEqual([ISSUE_A])
+    expect(result.current.isPlaceholderData).toBe(true)
+
+    resolveSecond({ data: [ISSUE_A], error: null })
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false))
   })
 })
 
 describe('useManualLinkIssue', () => {
   it('押した瞬間に一覧へ反映し（楽観的更新）、insert を link_type=manual で呼ぶ', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [], rollup: null })
+    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [] })
 
     const { result } = renderHook(() => useManualLinkIssue(), { wrapper: createWrapper(queryClient) })
 
@@ -238,7 +260,7 @@ describe('useManualLinkIssue', () => {
   it('失敗したら一覧を元に戻す', async () => {
     insertMock.mockResolvedValueOnce({ error: { message: 'boom' } })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [], rollup: null })
+    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [] })
 
     const { result } = renderHook(() => useManualLinkIssue(), { wrapper: createWrapper(queryClient) })
 
@@ -264,7 +286,7 @@ describe('useUnlinkIssue', () => {
       github_issues: ISSUE_A,
     }
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [existingLink], rollup: null })
+    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [existingLink] })
 
     const { result } = renderHook(() => useUnlinkIssue(), { wrapper: createWrapper(queryClient) })
 
@@ -290,7 +312,7 @@ describe('useUnlinkIssue', () => {
       github_issues: ISSUE_A,
     }
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [existingLink], rollup: null })
+    queryClient.setQueryData(['task-github-issues', TASK_ID], { links: [existingLink] })
 
     const { result } = renderHook(() => useUnlinkIssue(), { wrapper: createWrapper(queryClient) })
 

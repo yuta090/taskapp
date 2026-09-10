@@ -6,12 +6,14 @@ import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
 import {
   useTaskGitHubIssues,
+  useSpaceGitHubRepos,
   useIssueLinkCandidates,
   useManualLinkIssue,
   useUnlinkIssue,
 } from '@/lib/hooks'
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import { isGitHubConfigured } from '@/lib/github/enabled'
-import type { GitHubIssue } from '@/lib/github/types'
+import type { GitHubIssue, TaskGitHubIssueLink } from '@/lib/github/types'
 
 interface TaskIssueListProps {
   taskId: string
@@ -19,6 +21,9 @@ interface TaskIssueListProps {
   orgId: string
   readOnly?: boolean
 }
+
+// FilesPageClient と同じ 350ms（打鍵の切れ目を待ってから問い合わせる）
+const SEARCH_DEBOUNCE_MS = 350
 
 // GITHUB_ISSUES_LINK_SPEC.md §8: 開いている／完了／見送り（state_reason が not_planned）の3状態
 function issueStateLabel(issue: GitHubIssue): string {
@@ -33,6 +38,23 @@ function issueStateStyle(issue: GitHubIssue): string {
   return 'bg-indigo-50 border-indigo-200 text-indigo-ink'
 }
 
+/**
+ * 「N件中M件完了」の数え方。task_github_issue_rollups を別に取らず、この一覧に
+ * 含まれる Issue の状態からその場で数える（表示速度レビューでの是正・§useTaskGitHubIssues 参照）。
+ * N=紐づいた全件、M=closed かつ state_reason が not_planned 以外
+ */
+function summarizeIssueLinks(links: TaskGitHubIssueLink[]): { total: number; completed: number } {
+  let total = 0
+  let completed = 0
+  for (const link of links) {
+    const issue = link.github_issues
+    if (!issue) continue
+    total += 1
+    if (issue.state === 'closed' && issue.state_reason !== 'not_planned') completed += 1
+  }
+  return { total, completed }
+}
+
 export function TaskIssueList({ taskId, spaceId, orgId, readOnly = false }: TaskIssueListProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [showLinkPanel, setShowLinkPanel] = useState(false)
@@ -43,11 +65,19 @@ export function TaskIssueList({ taskId, spaceId, orgId, readOnly = false }: Task
 
   const { data, isLoading } = useTaskGitHubIssues(githubEnabled ? taskId : undefined)
   const links = data?.links ?? []
-  const rollup = data?.rollup ?? null
 
-  const { data: candidates = [] } = useIssueLinkCandidates(
-    githubEnabled && showLinkPanel ? spaceId : undefined,
-    search
+  // リポジトリ一覧は既存の useSpaceGitHubRepos を使い回す（space_github_repos を別に問い合わせない）。
+  // 紐付け欄を開いたときだけ取得する
+  const { data: spaceRepos = [] } = useSpaceGitHubRepos(
+    githubEnabled && showLinkPanel ? spaceId : undefined
+  )
+  const repoIds = spaceRepos.map((r) => r.github_repo_id)
+
+  // 打鍵ごとに問い合わせないよう、落ち着いた値で検索する（FilesPageClient と同じ 350ms）
+  const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS)
+  const { data: candidates = [], isLoading: candidatesLoading } = useIssueLinkCandidates(
+    repoIds,
+    debouncedSearch
   )
   const linkIssue = useManualLinkIssue()
   const unlinkIssue = useUnlinkIssue()
@@ -107,7 +137,7 @@ export function TaskIssueList({ taskId, spaceId, orgId, readOnly = false }: Task
     return null
   }
 
-  const total = (rollup?.open_count ?? 0) + (rollup?.completed_count ?? 0) + (rollup?.not_planned_count ?? 0)
+  const { total, completed } = summarizeIssueLinks(links)
 
   return (
     <div className="space-y-2" data-testid="task-issue-list">
@@ -121,7 +151,7 @@ export function TaskIssueList({ taskId, spaceId, orgId, readOnly = false }: Task
               className="px-1.5 py-0.5 text-2xs bg-gray-100 rounded"
               data-testid="task-issue-rollup-badge"
             >
-              {total}件中{rollup?.completed_count ?? 0}件完了
+              {total}件中{completed}件完了
             </span>
           )}
         </div>
@@ -193,19 +223,22 @@ export function TaskIssueList({ taskId, spaceId, orgId, readOnly = false }: Task
             data-testid="task-issue-search-input"
           />
           <div className="max-h-40 overflow-y-auto space-y-1">
-            {availableCandidates.map((issue) => (
-              <button
-                key={issue.id}
-                onClick={() => handleLink(issue)}
-                disabled={linkIssue.isPending}
-                className="w-full text-left px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded"
-                data-testid={`task-issue-candidate-${issue.issue_number}`}
-              >
-                #{issue.issue_number} {issue.title.slice(0, 50)}
-              </button>
-            ))}
-            {availableCandidates.length === 0 && (
+            {candidatesLoading ? (
+              <div className="text-xs text-gray-400 px-2 py-1">読み込み中...</div>
+            ) : availableCandidates.length === 0 ? (
               <div className="text-xs text-gray-400 px-2 py-1">該当するIssueがありません</div>
+            ) : (
+              availableCandidates.map((issue) => (
+                <button
+                  key={issue.id}
+                  onClick={() => handleLink(issue)}
+                  disabled={linkIssue.isPending}
+                  className="w-full text-left px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded"
+                  data-testid={`task-issue-candidate-${issue.issue_number}`}
+                >
+                  #{issue.issue_number} {issue.title.slice(0, 50)}
+                </button>
+              ))
             )}
           </div>
           <div className="flex justify-end">
