@@ -14,6 +14,7 @@ import {
   SPACE_ROLE_GUIDE,
   SPACE_ROLE_LABELS,
   INVITE_ROLE_GUIDE,
+  INVITE_ROLE_LABELS,
   isSpaceAdminRole,
   canInviteMembers,
 } from '@/lib/roles/spaceRoles'
@@ -108,6 +109,10 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
     loading: invitesLoading,
     refresh: refreshInvites,
   } = useSpaceInvites(spaceId, activeTab === 'history' ? 'all' : 'pending', activeTab !== 'members')
+
+  // 「もう一度送る」が実際に出ている行があるときだけ案内を出す
+  // （履歴タブが参加済みだけのときに、押せないボタンの話をしないため）
+  const hasResendableInvite = canManageInvites && invites.some((i) => i.status !== 'accepted')
 
   const myRole = useMemo(
     () => sharedMembers.find((m) => m.id === currentUserId)?.role,
@@ -436,64 +441,81 @@ export function MembersSettings({ orgId, spaceId }: MembersSettingsProps) {
       )}
 
       {activeTab !== 'members' && (
-        <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
-          {invitesLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <CircleNotch className="w-5 h-5 text-gray-400 animate-spin" />
-            </div>
-          ) : invites.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-gray-500 text-center">
-              {activeTab === 'pending' ? '返事待ちの招待はありません' : 'まだ招待していません'}
-            </div>
-          ) : (
-            invites.map((invite) => (
-              <div key={invite.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900 truncate">
-                      {invite.invitee_name || invite.email}
-                    </span>
-                    <span className="text-xs text-gray-500 flex-shrink-0">
-                      {ROLE_LABELS[invite.role] || invite.role}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500 truncate">
-                    {invite.invitee_name ? `${invite.email}・` : ''}
-                    {`送信: ${new Date(invite.created_at).toLocaleDateString('ja-JP')}`}
-                    {invite.status === 'accepted' && invite.accepted_at
-                      ? `・参加: ${new Date(invite.accepted_at).toLocaleDateString('ja-JP')}`
-                      : `・期限: ${new Date(invite.expires_at).toLocaleDateString('ja-JP')}`}
-                  </div>
-                </div>
-
-                <span className={`px-2 py-1 text-xs rounded flex-shrink-0 ${INVITE_STATUS_STYLE[invite.status]}`}>
-                  {INVITE_STATUS_LABEL[invite.status]}
-                </span>
-
-                {canManageInvites && invite.status !== 'accepted' && (
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => handleResendInvite(invite.id)}
-                      disabled={invitesActionId === invite.id}
-                      title={invite.status === 'expired' ? 'もう一度送る（期限も延びます）' : 'もう一度送る'}
-                      className="p-1.5 text-gray-400 hover:text-indigo-ink hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
-                    >
-                      <ArrowClockwise className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleCancelInvite(invite.id)}
-                      disabled={invitesActionId === invite.id}
-                      title="この招待を取り消す"
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))
+        <>
+          {hasResendableInvite && (
+            <p className="text-xs text-gray-500">
+              相手にメールが届いていないときは、その人の行にある「もう一度送る」を押してください。招待メールをもう一度送り直せます。
+            </p>
           )}
-        </div>
+          <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+            {invitesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <CircleNotch className="w-5 h-5 text-gray-400 animate-spin" />
+              </div>
+            ) : invites.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-gray-500 text-center">
+                {activeTab === 'pending' ? '返事待ちの招待はありません' : 'まだ招待していません'}
+              </div>
+            ) : (
+              invites.map((invite) => (
+                <div
+                  key={invite.id}
+                  data-testid="invite-row"
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-gray-50"
+                >
+                  <div className="flex-1 min-w-0 basis-48">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 truncate">
+                        {invite.invitee_name || invite.email}
+                      </span>
+                      <span className="text-xs text-gray-500 flex-shrink-0">
+                        {INVITE_ROLE_LABELS[invite.role] || invite.role}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {invite.invitee_name ? `${invite.email}・` : ''}
+                      {`送信: ${new Date(invite.created_at).toLocaleDateString('ja-JP')}`}
+                      {invite.status === 'accepted' && invite.accepted_at
+                        ? `・参加: ${new Date(invite.accepted_at).toLocaleDateString('ja-JP')}`
+                        : `・期限: ${new Date(invite.expires_at).toLocaleDateString('ja-JP')}`}
+                    </div>
+                  </div>
+
+                  <span className={`px-2 py-1 text-xs rounded flex-shrink-0 ${INVITE_STATUS_STYLE[invite.status]}`}>
+                    {INVITE_STATUS_LABEL[invite.status]}
+                  </span>
+
+                  {canManageInvites && invite.status !== 'accepted' && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleResendInvite(invite.id)}
+                        disabled={invitesActionId === invite.id}
+                        title={
+                          invite.status === 'expired'
+                            ? '招待メールをもう一度送ります（期限も延びます）'
+                            : '招待メールをもう一度送ります'
+                        }
+                        className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowClockwise className="w-3.5 h-3.5 flex-shrink-0" />
+                        もう一度送る
+                      </button>
+                      <button
+                        onClick={() => handleCancelInvite(invite.id)}
+                        disabled={invitesActionId === invite.id}
+                        title="この招待のリンクを使えなくします"
+                        className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <X className="w-3.5 h-3.5 flex-shrink-0" />
+                        招待を取り消す
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </>
       )}
 
       {/* Invite form (管理者・編集者) */}
