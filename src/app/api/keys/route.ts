@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
+import { canManageSpaceKeys } from '@/lib/api-keys/permissions'
+
+const MANAGE_DENIED = 'Only org owners and project admins can manage API keys'
 
 /** Rate limit: 20 API key operations per IP per 15 minutes */
 const KEYS_RATE_LIMIT = {
@@ -50,11 +53,11 @@ function createAdminClient() {
 
 /**
  * Verify the current user is authenticated and is a member of the given org.
- * Returns the user id on success, or a NextResponse error.
+ * Returns the user id and org role on success, or a NextResponse error.
  */
 async function authorizeOrgMember(
   orgId: string
-): Promise<{ userId: string } | NextResponse> {
+): Promise<{ userId: string; orgRole: string } | NextResponse> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -79,7 +82,25 @@ async function authorizeOrgMember(
     return NextResponse.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  return { userId: user.id }
+  return { userId: user.id, orgRole: membership.role as string }
+}
+
+/** そのプロジェクトが指定の組織のものか（送られてきた orgId とプロジェクトの組み合わせを信用しない） */
+async function spaceBelongsToOrg(adminClient: SupabaseClient, spaceId: string, orgId: string): Promise<boolean> {
+  const { data } = await adminClient.from('spaces').select('org_id').eq('id', spaceId).single()
+  return Boolean(data && data.org_id === orgId)
+}
+
+/** そのプロジェクトでの役割（メンバーでなければ null） */
+async function getSpaceRole(userId: string, spaceId: string): Promise<string | null> {
+  const supabase = await createClient()
+  const { data } = await (supabase as SupabaseClient)
+    .from('space_memberships')
+    .select('id, role')
+    .eq('user_id', userId)
+    .eq('space_id', spaceId)
+    .single()
+  return (data?.role as string | undefined) ?? null
 }
 
 // POST /api/keys - Create a new API key
@@ -115,20 +136,22 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient()
 
-    // Verify the user also has access to the specific space
-    const supabase = await createClient()
-    const { data: spaceMembership } = await (supabase as SupabaseClient)
-      .from('space_memberships')
-      .select('id')
-      .eq('user_id', authResult.userId)
-      .eq('space_id', spaceId)
-      .single()
+    // 送られてきた組織とプロジェクトの組み合わせを確かめる（役割はその組織・そのプロジェクトで判定する）
+    if (!(await spaceBelongsToOrg(adminClient, spaceId, orgId))) {
+      return NextResponse.json({ error: 'Access denied to this space' }, { status: 403 })
+    }
 
-    if (!spaceMembership) {
+    // 鍵は発行した本人の代わりに動くので、本人がそのプロジェクトのメンバーでなければ使えない＝発行しない
+    const spaceRole = await getSpaceRole(authResult.userId, spaceId)
+    if (!spaceRole) {
       return NextResponse.json(
         { error: 'Access denied to this space' },
         { status: 403 }
       )
+    }
+
+    if (!canManageSpaceKeys(authResult.orgRole, spaceRole)) {
+      return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
     }
 
     const { data, error } = await adminClient
@@ -195,7 +218,7 @@ export async function DELETE(request: NextRequest) {
     // Verify the key belongs to this org before deleting
     const { data: existingKey } = await adminClient
       .from('api_keys')
-      .select('org_id')
+      .select('org_id, space_id, scope, created_by, user_id')
       .eq('id', id)
       .single()
 
@@ -205,6 +228,20 @@ export async function DELETE(request: NextRequest) {
 
     if (existingKey.org_id !== orgId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
+    // 自分が作った・自分の代理のキーは誰でも消せる。それ以外は組織の owner と、
+    // プロジェクト専用の鍵（scope 'space'）ならそのプロジェクトの admin だけ。
+    // 個人用の鍵（scope 'user'）は複数のプロジェクトで使われるので、1つのプロジェクトの admin には消させない
+    const isOwnKey = existingKey.created_by === authResult.userId || existingKey.user_id === authResult.userId
+    if (!isOwnKey) {
+      const spaceRole =
+        authResult.orgRole === 'owner' || existingKey.scope !== 'space' || !existingKey.space_id
+          ? null
+          : await getSpaceRole(authResult.userId, existingKey.space_id as string)
+      if (!canManageSpaceKeys(authResult.orgRole, spaceRole)) {
+        return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
+      }
     }
 
     const { error } = await adminClient
@@ -256,11 +293,24 @@ export async function GET(request: NextRequest) {
 
     const adminClient = createAdminClient()
 
+    // 送られてきた組織とプロジェクトの組み合わせを確かめる
+    if (!(await spaceBelongsToOrg(adminClient, spaceId, orgId))) {
+      return NextResponse.json({ error: 'Access denied to this space' }, { status: 403 })
+    }
+
+    // 一覧を見られるのも、組織の owner とそのプロジェクトの admin だけ（画面の「管理者限定」と同じ）
+    const spaceRole = authResult.orgRole === 'owner' ? null : await getSpaceRole(authResult.userId, spaceId)
+    if (!canManageSpaceKeys(authResult.orgRole, spaceRole)) {
+      return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
+    }
+
+    // このプロジェクト専用の鍵だけを出す（個人用の鍵＝scope 'user' は本人のアカウント画面で扱う）
     const { data, error } = await adminClient
       .from('api_keys')
       .select('id, name, key_prefix, created_at, last_used_at, expires_at, is_active, allowed_actions, user_id')
       .eq('org_id', orgId)
       .eq('space_id', spaceId)
+      .eq('scope', 'space')
       .order('created_at', { ascending: false })
 
     if (error) {
