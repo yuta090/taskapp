@@ -438,6 +438,9 @@ export interface Database {
           status: TaskStatus
           priority: number | null
           assignee_id: string | null
+          // 招待中の担当者（invites.id）。あとから足した列なので、既存のテスト用データや
+          // 一部の select が持たなくても壊れないよう任意にしている（DB では NULL 可の実在列）
+          assignee_invite_id?: string | null
           start_date: string | null
           due_date: string | null
           ball: BallSide
@@ -469,6 +472,7 @@ export interface Database {
           status?: TaskStatus
           priority?: number | null
           assignee_id?: string | null
+          assignee_invite_id?: string | null
           start_date?: string | null
           due_date?: string | null
           ball?: BallSide
@@ -498,6 +502,7 @@ export interface Database {
           status?: TaskStatus
           priority?: number | null
           assignee_id?: string | null
+          assignee_invite_id?: string | null
           start_date?: string | null
           due_date?: string | null
           ball?: BallSide

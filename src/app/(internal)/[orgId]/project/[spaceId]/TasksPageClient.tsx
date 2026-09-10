@@ -26,6 +26,7 @@ import { MilestoneGroupHeader } from '@/components/task/MilestoneGroupHeader'
 import { InternalOnboardingWalkthrough } from '@/components/onboarding/InternalOnboardingWalkthrough'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
+import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpacePendingInvites'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
@@ -179,6 +180,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     useTasks({ orgId, spaceId })
   const { milestones } = useMilestones({ spaceId })
   const { getMemberName } = useSpaceMembers(spaceId)
+
+  // 招待中の人が担当のときは、一覧でもその名前を出す（承諾すると本人に切り替わる）
+  const { pendingInvites } = useSpacePendingInvites(spaceId)
+  const pendingInviteNameById = useMemo(
+    () => new Map(pendingInvites.map((i) => [i.id, pendingInviteLabel(i)])),
+    [pendingInvites],
+  )
   const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
 
   // リスク/期限超過サマリー (#89): ガントを開かなくても一覧先頭で気づける
@@ -1277,7 +1285,13 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     indent={row.indent}
                     onStatusChange={handleStatusChange}
                     reviewStatus={reviewStatuses[row.task.id]}
-                    assigneeName={row.task.assignee_id ? getMemberName(row.task.assignee_id) : null}
+                    assigneeName={
+                      row.task.assignee_id
+                        ? getMemberName(row.task.assignee_id)
+                        : row.task.assignee_invite_id
+                          ? pendingInviteNameById.get(row.task.assignee_invite_id) ?? '招待中'
+                          : null
+                    }
                     isNew={recentTaskIds.has(row.task.id)}
                     bulkMode={bulkMode}
                     isChecked={selectedTaskIds.has(row.task.id)}

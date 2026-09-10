@@ -7,6 +7,7 @@ import { TaskReminderField } from './TaskReminderField'
 import { AmberBadge, Hint, Tooltip, TruncatedText, useConfirmDialog } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
+import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpacePendingInvites'
 import { useWikiPages } from '@/lib/hooks/useWikiPages'
 import { useSpaceSettings } from '@/lib/hooks/useSpaceSettings'
 import { useAgencyMode } from '@/lib/hooks/useAgencyMode'
@@ -40,6 +41,7 @@ interface TaskInspectorProps {
     dueDate?: string | null
     milestoneId?: string | null
     assigneeId?: string | null
+    assigneeInviteId?: string | null
     parentTaskId?: string | null
     actualHours?: number | null
     wikiPageId?: string | null
@@ -154,6 +156,8 @@ export function TaskInspector({
 
   // Space members with display names
   const { members, clientMembers, internalMembers, getMemberName, loading: membersLoading } = useSpaceMembers(spaceId)
+  // 招待中（まだ承諾していない）の人も担当者に選べる。承諾するとDB側で本人へ自動で移る
+  const { pendingInvites } = useSpacePendingInvites(spaceId)
 
   // H-1: derived (no new column) — surfaces "client requested changes" when the ball is back internally
   const latestClientAction = useLatestClientAction(task.id)
@@ -374,10 +378,19 @@ export function TaskInspector({
     }
   }
 
-  const handleAssigneeChange = async (assigneeId: string) => {
-    const newAssigneeId = assigneeId || null
-    if (newAssigneeId !== task.assignee_id) {
-      await onUpdate?.({ assigneeId: newAssigneeId })
+  const handleAssigneeChange = async (value: string) => {
+    // 招待中の人は "invite:<招待ID>" という値で表す（本人のIDと混ざらないようにする）
+    if (value.startsWith('invite:')) {
+      const inviteId = value.slice('invite:'.length)
+      if (inviteId !== task.assignee_invite_id) {
+        await onUpdate?.({ assigneeInviteId: inviteId })
+        flashSaved()
+      }
+      return
+    }
+    const newAssigneeId = value || null
+    if (newAssigneeId !== task.assignee_id || (newAssigneeId === null && task.assignee_invite_id)) {
+      await onUpdate?.({ assigneeId: newAssigneeId, assigneeInviteId: null })
       flashSaved()
     }
   }
@@ -1001,7 +1014,7 @@ export function TaskInspector({
           </label>
           {onUpdate ? (
             <select
-              value={task.assignee_id || ''}
+              value={task.assignee_invite_id ? `invite:${task.assignee_invite_id}` : task.assignee_id || ''}
               onChange={(e) => handleAssigneeChange(e.target.value)}
               data-testid="task-inspector-assignee"
               className={`w-full px-2 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface ${
@@ -1016,6 +1029,15 @@ export function TaskInspector({
                   {internalMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.displayName}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {pendingInvites.length > 0 && (
+                <optgroup label="招待中（承諾すると自動で引き継ぎ）">
+                  {pendingInvites.map((inv) => (
+                    <option key={inv.id} value={`invite:${inv.id}`}>
+                      {pendingInviteLabel(inv)}
                     </option>
                   ))}
                 </optgroup>
