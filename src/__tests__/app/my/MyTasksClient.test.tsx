@@ -40,6 +40,17 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/my',
 }))
 
+// お知らせベルは Supabase/組織コンテキストを引くので、取得層だけ差し替えて
+// 「ヘッダーのどこに置かれているか」だけを検証する。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 vi.mock('@/components/task/TaskCreateSheet', () => ({
   TaskCreateSheet: () => null,
 }))
@@ -619,5 +630,14 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
     renderPage()
 
     await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+  })
+})
+
+describe('MyTasksClient — お知らせベルの置き場所', () => {
+  it('ヘッダーの中にあり、ベル行を消す目印が付いている', () => {
+    renderPage()
+    const bell = screen.getByRole('button', { name: 'お知らせ' })
+    expect(bell.closest('header')).not.toBeNull()
+    expect(bell.closest('[data-header-bell]')).not.toBeNull()
   })
 })

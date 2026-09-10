@@ -13,6 +13,17 @@ vi.mock('sonner', () => ({
   },
 }))
 
+// お知らせベルは Supabase/組織コンテキストを引くので、取得層だけ差し替えて
+// 「ヘッダーのどこに置かれているか」だけを検証する。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 const mockFiles: ProjectFile[] = []
 const uploadMutateAsync = vi.fn().mockResolvedValue({ ok: true })
 const updateMutate = vi.fn()
@@ -360,5 +371,14 @@ describe('FilesPageClient 絞り込み', () => {
   it('ファイルが1つもないときは絞り込みバーを出さない', () => {
     renderPage()
     expect(screen.queryByTestId('files-search')).not.toBeInTheDocument()
+  })
+})
+
+describe('FilesPageClient — お知らせベルの置き場所', () => {
+  it('ヘッダーの中にあり、ベル行を消す目印が付いている', () => {
+    renderPage()
+    const bell = screen.getByRole('button', { name: 'お知らせ' })
+    expect(bell.closest('header')).not.toBeNull()
+    expect(bell.closest('[data-header-bell]')).not.toBeNull()
   })
 })

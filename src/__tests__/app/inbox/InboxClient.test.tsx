@@ -9,6 +9,17 @@ import InboxClient from '@/app/(internal)/inbox/InboxClient'
  * unhelpful "通知はありません" with no guidance on what to do next.
  */
 
+// お知らせベルがヘッダーに入ったので、その取得層(react-query)を差し替える。
+// 差し替えないと QueryClientProvider の無いテストが「No QueryClient set」で落ちる。
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 vi.mock('@/lib/hooks/useNotifications', () => ({
   useNotifications: () => ({
     notifications: [],

@@ -5,6 +5,7 @@ import { Breadcrumb, LoadingState } from '@/components/shared'
 import { DataTableView } from '@/components/table/DataTableView'
 import { useFiles } from '@/lib/hooks/useFiles'
 import { formatFileSize } from '@/lib/files/format'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { useFileTable } from '@/lib/hooks/useFileTable'
 
 interface FileTablePageClientProps {
@@ -58,6 +59,12 @@ export function FileTablePageClient({ orgId, spaceId, fileId }: FileTablePageCli
             <DownloadSimple className="text-sm" />
             ダウンロード
           </a>
+          {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+              AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block">
+            <AnnouncementBell />
+          </div>
         </div>
       </header>
 

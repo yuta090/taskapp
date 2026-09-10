@@ -15,6 +15,16 @@ vi.mock('next/navigation', () => ({
   usePathname: () => usePathnameMock(),
 }))
 
+// お知らせベルは Supabase/組織コンテキストを引くので、取得層だけ差し替える
+vi.mock('@/lib/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({
+    announcements: [],
+    unreadCount: 0,
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}))
+
 const ORG = '11111111-1111-4111-8111-111111111111'
 
 /**
@@ -84,5 +94,21 @@ describe('SecretaryTabNav', () => {
       if (key === activeKey) continue
       expect(classTokens(`secretary-tab-${key}`)).not.toContain('bg-gray-50')
     }
+  })
+
+  // 秘書コンソールの7画面はこのタブバーが一番上の帯。ここにベルを置くことで、
+  // AppShell が出す「ベルだけの1行」が7画面ぶんまとめて消える
+  it('お知らせベルがタブバーの右端にあり、ベル行を消す目印が付いている', () => {
+    usePathnameMock.mockReturnValue(`/${ORG}/secretary`)
+    render(<SecretaryTabNav orgId={ORG} />)
+
+    const bell = screen.getByRole('button', { name: 'お知らせ' })
+    expect(bell.closest('[data-header-bell]')).not.toBeNull()
+
+    // DOM順で最後のタブより後ろ = 画面上はタブの右
+    const lastTab = screen.getByTestId('secretary-tab-connect')
+    expect(
+      lastTab.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 })

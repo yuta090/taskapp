@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
 
 const TaskCreateSheet = dynamic(
@@ -847,6 +848,12 @@ export default function MyTasksClient() {
           )}
           {sortLabels[filters.sortField]}
         </button>
+        {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+            AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+            モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+        <div data-header-bell className="hidden md:block ml-1">
+          <AnnouncementBell />
+        </div>
       </header>
 
       {/* Filter bar */}
