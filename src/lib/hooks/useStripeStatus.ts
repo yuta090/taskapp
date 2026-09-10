@@ -43,13 +43,23 @@ interface StripeStatusResponse {
   partial?: unknown
 }
 
-export const STRIPE_STATUS_QUERY_KEY = ['stripeStatus'] as const
+/** 組織ごとに1本。判定は組織で変わる（許可リスト）ので、答えを使い回さない。 */
+export function stripeStatusQueryKey(orgId?: string | null) {
+  return ['stripeStatus', orgId ?? null] as const
+}
 
-export function useStripeStatus(): StripeStatus {
+/**
+ * @param orgId いま画面が見ている組織。省略すると全体の元栓だけで判断される
+ *   （＝許可リストが効かないので、組織が分かってから渡すこと）。
+ */
+export function useStripeStatus(orgId?: string | null): StripeStatus {
   const { data, isPending, error } = useQuery<StripeStatusResponse>({
-    queryKey: STRIPE_STATUS_QUERY_KEY,
+    queryKey: stripeStatusQueryKey(orgId),
     queryFn: async () => {
-      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+      const url = orgId
+        ? `/api/stripe/status?org_id=${encodeURIComponent(orgId)}`
+        : '/api/stripe/status'
+      const res = await fetch(url, { credentials: 'same-origin' })
       if (!res.ok) {
         throw new Error(`stripe status: ${res.status}`)
       }

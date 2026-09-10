@@ -12,19 +12,23 @@ import { test, expect } from './fixtures'
  *
  * 受付が開いているかは環境（本番／プレビュー）で変わるので、期待値は API から取る。
  */
+// デモ組織。状態の問い合わせと API 直叩きで**同じ組織**を使う
+// （受け付けは組織ごとに開けられるため、別の組織で判定すると食い違う）
+const DEMO_ORG_ID = '00000000-0000-0000-0000-000000000001'
+
 test.describe('プランと請求', () => {
   test('決済の受け付け状況と画面の表示が一致している', async ({ page }) => {
     await page.goto('/settings/billing')
 
     // 真実源。ここが画面の期待値になる
-    const status = await page.evaluate(async () => {
-      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+    const status = await page.evaluate(async (orgId) => {
+      const res = await fetch(`/api/stripe/status?org_id=${orgId}`, { credentials: 'same-origin' })
       return (await res.json()) as {
         canCheckout: boolean
         keysConfigured: boolean
         selfServeEnabled: boolean
       }
-    })
+    }, DEMO_ORG_ID)
 
     const proButton = page.getByRole('button', { name: 'Proにアップグレード' })
     await expect(proButton).toBeVisible()
@@ -70,21 +74,21 @@ test.describe('プランと請求', () => {
   test('受け付けていないあいだは、API を直接叩いても決済に進めない', async ({ page }) => {
     await page.goto('/settings/billing')
 
-    const status = await page.evaluate(async () => {
-      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+    const status = await page.evaluate(async (orgId) => {
+      const res = await fetch(`/api/stripe/status?org_id=${orgId}`, { credentials: 'same-origin' })
       return (await res.json()) as { canCheckout: boolean }
-    })
-    test.skip(status.canCheckout, '受け付けが開いている環境ではこの観点は対象外')
+    }, DEMO_ORG_ID)
+    test.skip(status.canCheckout, 'この組織で受け付けが開いている環境では対象外')
 
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (orgId) => {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ org_id: '00000000-0000-0000-0000-000000000001', plan_id: 'pro' }),
+        body: JSON.stringify({ org_id: orgId, plan_id: 'pro' }),
       })
       return { status: res.status, body: await res.json().catch(() => ({})) }
-    })
+    }, DEMO_ORG_ID)
 
     /*
       受け付けの判定は、所属や役割の確認より**前**に効く（route の並び）。
@@ -103,20 +107,22 @@ test.describe('プランと請求', () => {
   test('受け付けの開閉と、既存契約の管理は別で判定している', async ({ page }) => {
     await page.goto('/settings/billing')
 
-    const status = await page.evaluate(async () => {
-      const res = await fetch('/api/stripe/status', { credentials: 'same-origin' })
+    const status = await page.evaluate(async (orgId) => {
+      const res = await fetch(`/api/stripe/status?org_id=${orgId}`, { credentials: 'same-origin' })
       return (await res.json()) as {
         canCheckout: boolean
         keysConfigured: boolean
         selfServeEnabled: boolean
       }
-    })
+    }, DEMO_ORG_ID)
 
     // 別々の値として返っていること（同じ値の言い換えになっていない）
     expect(typeof status.keysConfigured).toBe('boolean')
     expect(typeof status.selfServeEnabled).toBe('boolean')
-    // 申し込みに進めるのは「鍵が揃い、かつ受け付けている」ときだけ
-    expect(status.canCheckout).toBe(status.keysConfigured && status.selfServeEnabled)
+    // 鍵が無ければ、受け付けの状態にかかわらず申し込みには進めない
+    if (!status.keysConfigured) expect(status.canCheckout).toBe(false)
+    // 全体の元栓が開いているなら、鍵さえあれば進める
+    if (status.selfServeEnabled && status.keysConfigured) expect(status.canCheckout).toBe(true)
   })
 
   test('未ログインには設定の配備状況を返さない', async ({ browser }) => {

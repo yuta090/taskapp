@@ -10,10 +10,14 @@ import { SettingsBackButton } from '@/components/shared'
 import Link from 'next/link'
 
 export default function BillingSettingsPage() {
+  const { orgId, orgName, role, loading: orgLoading, error: orgError } = useCurrentOrg()
   // 新規の申し込み（canCheckout）と、既存契約の管理（keysConfigured）は別。
   // 受け付けを閉じたときに、すでに払っている方の支払い方法変更・解約まで塞がないため。
-  const { canCheckout, keysConfigured, loading: stripeLoading } = useStripeStatus()
-  const { orgId, orgName, role, loading: orgLoading, error: orgError } = useCurrentOrg()
+  // 受け付けは組織ごとに開けられる（許可リスト）ので、見ている組織を渡す。
+  const { canCheckout, keysConfigured, loading: stripeStatusLoading } = useStripeStatus(orgId)
+  // 組織が分かる前の判定は「全体の元栓だけ」の答えになる。確定前に「準備中」を出すと
+  // 許可リストで開いている組織にも一瞬そう見えるので、組織の読み込み中は待つ。
+  const stripeLoading = stripeStatusLoading || orgLoading
   const { limits } = useBillingLimits(orgId ?? undefined)
   const [upgradeLoading, setUpgradeLoading] = useState(false)
   const [portalLoading, setPortalLoading] = useState(false)

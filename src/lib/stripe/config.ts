@@ -72,12 +72,37 @@ export function getStripeServerConfigStatus(): StripeConfigStatus {
 }
 
 /**
+ * 「この組織だけ決済を通す」許可リスト（`STRIPE_SELF_SERVE_ORG_IDS`・カンマ区切り）。
+ *
+ * 元栓はサイト全体に効くので、本番で一度試すだけでも全員に開けるしかなかった。
+ * ここに自分の組織IDを入れておけば、**その組織だけ本番URLで購入まで通せて、
+ * ほかのお客様には「準備中」のまま**にできる。試し終わったら設定を消す。
+ *
+ * 表記ゆれ（前後の空白・大文字小文字・末尾のカンマ）は吸収する。
+ * 貼り付けの事故で「通るはずの組織が通らない」ほうが困るため。
+ */
+export function isSelfServeAllowedForOrg(orgId: string | null | undefined): boolean {
+  if (!orgId) return false
+  const raw = process.env.STRIPE_SELF_SERVE_ORG_IDS
+  if (!raw) return false
+  const allowed = raw
+    .split(',')
+    .map((id) => id.trim().toLowerCase())
+    .filter((id) => id.length > 0)
+  return allowed.includes(orgId.trim().toLowerCase())
+}
+
+/**
  * オンラインで決済に進んでよいか。**画面もサーバも必ずここを通す**（判定を二重に持たない）。
  *
- * 鍵が揃っていること（技術的に呼べる）と、受け付けを開けていること（営業判断）の両方が要る。
- * 片方だけで通すと、たとえば Webhook の鍵が無いまま決済だけ成立し、**支払われたのに
- * プランが上がらない**（同期が動かない）状態を作ってしまう。
+ * 条件は「鍵が揃っている」AND「受け付けている」。受け付けは元栓（全体）か、
+ * 許可リスト（その組織だけ）のどちらかで開く。
+ * 鍵の側を省略しないのが肝心で、たとえば Webhook の鍵が無いまま決済だけ成立すると
+ * **支払われたのにプランが上がらない**（同期が動かない）状態を作ってしまう。
+ *
+ * `orgId` を渡さない場合は全体の元栓だけで判断する（＝許可リストは効かない）。
  */
-export function canCreateCheckout(): boolean {
-  return getStripeServerConfigStatus().isConfigured && isSelfServeCheckoutEnabled()
+export function canCreateCheckout(orgId?: string | null): boolean {
+  if (!getStripeServerConfigStatus().isConfigured) return false
+  return isSelfServeCheckoutEnabled() || isSelfServeAllowedForOrg(orgId)
 }

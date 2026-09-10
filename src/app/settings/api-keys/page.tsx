@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Key,
   Plus,
@@ -23,6 +24,7 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { API_KEY_ACTION_OPTIONS, formatApiKeyActions } from '@/lib/api-keys/actionOptions'
 import { describeKeySpaces } from '@/lib/api-keys/keySpaces'
 import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
+import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
 
 interface ApiKey {
   id: string
@@ -62,9 +64,11 @@ export default function ApiKeysSettingsPage() {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const { user, loading: userLoading } = useCurrentUser()
   const { spaces, loading: spacesLoading } = useUserSpaces()
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  // API キーは社内メンバー（admin / editor / viewer）専用。相手先として参加しているプロジェクトは
+  // 発行フォームの選択肢に出さない（サーバーの /api/keys/user も同じ条件で断る）。
+  // 一覧のプロジェクト名の表示には、全部の所属（spaces）をそのまま使う
+  const selectableSpaces = useMemo(() => spaces.filter((s) => isInternalSpaceRole(s.role)), [spaces])
 
   // New key form state
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -83,6 +87,33 @@ export default function ApiKeysSettingsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
+  const userApiKeysQueryKey = useMemo(() => ['userApiKeys', user?.id] as const, [user?.id])
+
+  const {
+    data: apiKeys = [],
+    isPending: loading,
+    error: queryError,
+  } = useQuery<ApiKey[]>({
+    queryKey: userApiKeysQueryKey,
+    queryFn: async () => {
+      const response = await fetch(`/api/keys/user`)
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error)
+      return result.data || []
+    },
+    enabled: !!user,
+  })
+  const error = queryError ? 'APIキーの取得に失敗しました' : null
+
+  // アカウントのAPIキー一覧（['userApiKeys', userId]）と、プロジェクト設定のAPI設定タブが持つ
+  // プロジェクト別の一覧（['apiKeys', orgId, spaceId]）は同じ鍵を別のキャッシュで持つため、
+  // 片方だけ取り直すと最大 staleTime（既定2分）ずれる。発行・削除のたびに両方取り直す
+  const invalidateApiKeys = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: userApiKeysQueryKey }),
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] }),
+    ])
+
   const filteredKeys = useMemo(() => {
     return apiKeys.filter((key) => {
       if (statusFilter === 'active' && !key.is_active) return false
@@ -91,31 +122,6 @@ export default function ApiKeysSettingsPage() {
       return true
     })
   }, [apiKeys, statusFilter, searchQuery])
-
-  const fetchApiKeys = useCallback(async () => {
-    if (!user) return
-
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await fetch(`/api/keys/user`)
-      const result = await response.json()
-
-      if (!response.ok) throw new Error(result.error)
-      setApiKeys(result.data || [])
-    } catch (err) {
-      console.error('Failed to fetch API keys:', err)
-      setError('APIキーの取得に失敗しました')
-    } finally {
-      setLoading(false)
-    }
-  }, [user])
-
-  useEffect(() => {
-    if (!userLoading && user) {
-      void fetchApiKeys()
-    }
-  }, [userLoading, user, fetchApiKeys])
 
   const handleCreate = async () => {
     if (!newKeyName.trim() || selectedSpaces.length === 0) return
@@ -149,7 +155,7 @@ export default function ApiKeysSettingsPage() {
       setSelectedSpaces([])
       setAllowedActions(['read'])
       setShowCreateForm(false)
-      await fetchApiKeys()
+      await invalidateApiKeys()
     } catch (err) {
       console.error('Failed to create API key:', err)
       toast.error('APIキーの作成に失敗しました')
@@ -171,7 +177,7 @@ export default function ApiKeysSettingsPage() {
       const result = await response.json()
 
       if (!response.ok) throw new Error(result.error)
-      await fetchApiKeys()
+      await invalidateApiKeys()
       toast.success('APIキーを削除しました')
     } catch (err) {
       console.error('Failed to delete API key:', err)
@@ -206,14 +212,17 @@ export default function ApiKeysSettingsPage() {
   }
 
   const selectAllSpaces = () => {
-    setSelectedSpaces(spaces.map((s) => s.id))
+    setSelectedSpaces(selectableSpaces.map((s) => s.id))
   }
 
   const deselectAllSpaces = () => {
     setSelectedSpaces([])
   }
 
-  if (userLoading || spacesLoading) {
+  // ページ全体の待ちはログイン確認（userLoading）だけにする。プロジェクト一覧（spacesLoading）は
+  // 「アクセス許可するプロジェクト」欄とキー一覧のプロジェクト名表示だけが使う値なので、
+  // そこだけ個別に待たせ、鍵一覧自体は spaces を待たずに出す。
+  if (userLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <CircleNotch className="w-8 h-8 text-indigo-500 animate-spin" />
@@ -358,12 +367,20 @@ export default function ApiKeysSettingsPage() {
                 </div>
               </div>
               <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
-                {spaces.length === 0 ? (
+                {spacesLoading ? (
+                  <div className="px-4 py-3 text-sm text-gray-500">
+                    読み込み中...
+                  </div>
+                ) : spaces.length === 0 ? (
                   <div className="px-4 py-3 text-sm text-gray-500">
                     所属しているプロジェクトがありません
                   </div>
+                ) : selectableSpaces.length === 0 ? (
+                  <div className="px-4 py-3 text-sm text-gray-500">
+                    APIキーは社内メンバー向けの機能です。相手先として参加しているプロジェクトでは発行できません
+                  </div>
                 ) : (
-                  spaces.map((space) => (
+                  selectableSpaces.map((space) => (
                     <label
                       key={space.id}
                       className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
@@ -532,7 +549,7 @@ export default function ApiKeysSettingsPage() {
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-gray-500">
                         <span>
-                          プロジェクト: {describeKeySpaces(key, spaces)}
+                          プロジェクト: {spacesLoading ? '読み込み中...' : describeKeySpaces(key, spaces)}
                         </span>
                         <span>
                           操作: {formatApiKeyActions(key.allowed_actions)}

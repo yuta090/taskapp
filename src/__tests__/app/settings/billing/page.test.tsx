@@ -383,4 +383,31 @@ describe('BillingSettingsPage', () => {
 
     expect(screen.queryByRole('button', { name: /Stripeで管理/ })).not.toBeInTheDocument()
   })
+
+  /**
+   * 受け付けは組織ごとに開けられる（許可リスト）。組織が確定する前の判定は
+   * 「全体の元栓だけ」の答えなので、そのまま「準備中」を出すと、許可された組織にも
+   * 一瞬そう見えてしまう。組織の読み込み中は案内を出さない。
+   */
+  it('組織の読み込み中は案内を出さない', () => {
+    mockUseStripeStatus.mockReturnValue({
+      canCheckout: false,
+      keysConfigured: false,
+      selfServeEnabled: false,
+      partial: false,
+      loading: false,
+      error: null,
+    })
+    mockUseCurrentOrg.mockReturnValue({
+      orgId: null,
+      orgName: null,
+      role: null,
+      loading: true,
+      error: null,
+    })
+
+    render(<BillingSettingsPage />)
+
+    expect(screen.queryByTestId('billing-unavailable-notice')).not.toBeInTheDocument()
+  })
 })
