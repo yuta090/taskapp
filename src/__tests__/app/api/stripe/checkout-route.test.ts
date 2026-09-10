@@ -152,3 +152,40 @@ describe('POST /api/stripe/checkout — オンライン申し込みの元栓', (
     expect(sessionCreate).toHaveBeenCalled()
   })
 })
+
+/**
+ * 本番URLで「自分の組織だけ」決済を試すための許可リスト。
+ * 画面だけでなく **API 側でも組織を見て判定する**（直接叩かれても他組織は通らない）。
+ */
+describe('POST /api/stripe/checkout — 組織ごとの許可リスト', () => {
+  const ALLOWED_ORG = '11111111-2222-3333-4444-555555555555'
+  const OTHER_ORG = '99999999-8888-7777-6666-555555555555'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete process.env.STRIPE_SELF_SERVE_ENABLED
+    process.env.STRIPE_SECRET_KEY = 'sk_test_xxx'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_xxx'
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test'
+    process.env.STRIPE_SELF_SERVE_ORG_IDS = ALLOWED_ORG
+    vi.mocked(createClient).mockResolvedValue(
+      makeSupabase({ user: { id: 'u1', email: 'o@example.com' }, membershipRole: 'owner' }),
+    )
+  })
+
+  it('許可リストの組織は、元栓が閉じていても決済に進める', async () => {
+    const res = await POST(req({ org_id: ALLOWED_ORG, plan_id: 'pro' }) as never)
+
+    expect(res.status).toBe(200)
+    expect(sessionCreate).toHaveBeenCalled()
+  })
+
+  it('許可リストに無い組織は、直接叩いても 503 で止まる', async () => {
+    const res = await POST(req({ org_id: OTHER_ORG, plan_id: 'pro' }) as never)
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.code).toBe('self_serve_disabled')
+    expect(sessionCreate).not.toHaveBeenCalled()
+  })
+})

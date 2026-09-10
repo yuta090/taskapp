@@ -120,3 +120,43 @@ describe('useStripeStatus', () => {
     expect(result.current.canCheckout).toBe(false)
   })
 })
+
+/**
+ * 許可リスト（この組織だけ決済を通す）に対応するため、判定は組織ごとに変わる。
+ * 画面が見ている組織をそのまま問い合わせに乗せること・組織ごとに別のキャッシュに
+ * なることを固定する（別の組織の答えを使い回さない）。
+ */
+describe('useStripeStatus — 組織ごとの判定', () => {
+  const originalFetch = global.fetch
+  const ORG = '11111111-2222-3333-4444-555555555555'
+
+  afterEach(() => {
+    global.fetch = originalFetch
+  })
+
+  it('組織IDを問い合わせに含める', async () => {
+    const fetchMock = mockFetch({ canCheckout: true, keysConfigured: true, partial: false })
+    global.fetch = fetchMock
+
+    const { result } = renderHook(() => useStripeStatus(ORG), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain(`org_id=${ORG}`)
+  })
+
+  it('組織が違えば別々に問い合わせる（前の組織の答えを使い回さない）', async () => {
+    const fetchMock = mockFetch({ canCheckout: true, keysConfigured: true, partial: false })
+    global.fetch = fetchMock
+    const wrapper = createWrapper()
+
+    const first = renderHook(() => useStripeStatus(ORG), { wrapper })
+    await waitFor(() => expect(first.result.current.loading).toBe(false))
+
+    const second = renderHook(() => useStripeStatus('99999999-0000-0000-0000-000000000000'), {
+      wrapper,
+    })
+    await waitFor(() => expect(second.result.current.loading).toBe(false))
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
