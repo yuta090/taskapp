@@ -217,6 +217,27 @@ describe('POST /api/invites/pending/[inviteId]/resend', () => {
     expect(data.email_sent).toBe(false)
   })
 
+  // メールが送れなかったときは、招待した人が手で相手にリンクを渡すしかない。
+  // そのリンクを返さないと、画面は「送れませんでした」としか言えず手詰まりになる
+  it('メールを送れなかったときは、手で渡せる招待リンクを返す', async () => {
+    sendInviteEmailMock.mockRejectedValueOnce(new Error('Resend down'))
+
+    const response = await callResend(VALID_INVITE_ID)
+    const data = await response.json()
+
+    expect(data.email_sent).toBe(false)
+    expect(data.invite_url).toContain('/invite/tok-existing')
+  })
+
+  // 合言葉は必要なときだけ出す（送れているなら画面に出す理由がない）
+  it('メールが送れたときは、招待リンクを返さない', async () => {
+    const response = await callResend(VALID_INVITE_ID)
+    const data = await response.json()
+
+    expect(data.email_sent).toBe(true)
+    expect(data.invite_url).toBeUndefined()
+  })
+
   it('returns 500 when the expires_at update fails', async () => {
     updateResponse = { error: { message: 'db error' } }
 

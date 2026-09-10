@@ -21,6 +21,7 @@ function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 }
 
+import { buildInviteUrl } from '@/lib/invites/inviteUrl'
 import { renderInviteEmail, type InviteTemplateVars } from './templates/invite'
 import { resolveEmailTemplate } from './templates/orgEmailTemplate'
 import type { TemplateFields } from './templates/core'
@@ -60,9 +61,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams) {
 
   // クライアントと内部メンバーで異なるURLとテンプレート
   const isClient = role === 'client'
-  const inviteUrl = isClient
-    ? `${appUrl}/portal/${token}`
-    : `${appUrl}/invite/${token}`
+  const inviteUrl = buildInviteUrl(role, token, appUrl)
 
   const expiresDate = new Date(expiresAt).toLocaleDateString('ja-JP', {
     year: 'numeric',
