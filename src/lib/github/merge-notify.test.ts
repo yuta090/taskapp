@@ -76,21 +76,22 @@ describe('resolveMergeNotifyRecipients（宛先の決定・純粋関数）', () 
 })
 
 describe('buildMergeNotifyMessage（文面の組み立て・純粋関数）', () => {
-  it('タイトル・本文・件数を含む', () => {
+  it('タイトル・本文・件数を含む（リポジトリ名・GitHubのURLは含まない）', () => {
     const { title, message } = buildMergeNotifyMessage({
       taskTitle: 'ログイン画面の実装',
-      repoFullName: 'yuta090/taskapp',
       prNumber: 42,
       prTitle: 'fix: login bug',
       mergedCount: 1,
       totalCount: 3,
     })
     expect(title).toBe('「ログイン画面の実装」の変更（PR）が取り込まれました')
-    expect(message).toContain('yuta090/taskapp')
     expect(message).toContain('#42')
     expect(message).toContain('fix: login bug')
     expect(message).toContain('取り込み済み 1 / 全 3')
     expect(message).toContain('ボールを渡してください')
+    // GitHub の接続元しか知らないはずのリポジトリ名・URL を含まないこと（ユーザー絶対条件）
+    expect(message).not.toContain('yuta090/taskapp')
+    expect(message).not.toContain('github.com')
   })
 })
 
@@ -190,8 +191,6 @@ const prInfo = {
   prId: PR_ID,
   prNumber: 42,
   prTitle: 'fix: login bug',
-  prUrl: 'https://github.com/yuta090/taskapp/pull/42',
-  repoFullName: 'yuta090/taskapp',
 }
 
 describe('notifyTasksForMergedPR（通知処理）', () => {
@@ -217,11 +216,14 @@ describe('notifyTasksForMergedPR（通知処理）', () => {
       expect(row.space_id).toBe(SPACE_ID)
       expect(row.dedupe_key).toBe(`github_pr_merged:${TASK_ID}:${PR_ID}`)
       expect(row.payload.task_id).toBe(TASK_ID)
-      expect(row.payload.pr_url).toBe(prInfo.prUrl)
       expect(row.payload.pr_number).toBe(42)
-      expect(row.payload.repo_full_name).toBe('yuta090/taskapp')
       expect(row.payload.title).toContain('ログイン画面の実装')
-      expect(row.payload.message).toContain('yuta090/taskapp')
+      expect(row.payload.message).toContain('fix: login bug')
+      // リポジトリ名・GitHubのURLを payload に含めない（ユーザー絶対条件）
+      expect(row.payload).not.toHaveProperty('pr_url')
+      expect(row.payload).not.toHaveProperty('repo_full_name')
+      expect(JSON.stringify(row.payload)).not.toContain('github.com')
+      expect(JSON.stringify(row.payload)).not.toContain('yuta090/taskapp')
     }
 
     // タスクを更新していない・ボールを動かしていないこと

@@ -124,8 +124,6 @@ export async function handlePullRequestEvent(
       prId: prRecord.id,
       prNumber: pr.number,
       prTitle: pr.title,
-      prUrl: pr.html_url,
-      repoFullName: repository.full_name,
     })
   }
 

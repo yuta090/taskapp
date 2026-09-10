@@ -14,7 +14,7 @@ const ISSUE_ROW_ID = 'issue-row-1'
 
 const linkPRToTasksMock = vi.fn(() => Promise.resolve({ linkedTasks: [] }))
 const linkIssueToTasksMock = vi.fn(() => Promise.resolve({ linkedTasks: [] }))
-const notifyTasksForMergedPRMock = vi.fn(() => Promise.resolve())
+const notifyTasksForMergedPRMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 
 let updateInstallationPatch: Record<string, unknown> | null = null
 let updateInstallationError: { message: string } | null = null
@@ -205,10 +205,12 @@ describe('handlePullRequestEvent', () => {
         prId: PR_ROW_ID,
         prNumber: 42,
         prTitle: 'fix: login bug',
-        prUrl: 'https://github.com/yuta090/taskapp/pull/42',
-        repoFullName: 'yuta090/taskapp',
       }),
     )
+    // リポジトリ名・GitHubのURLは社内通知に渡さない（ユーザー絶対条件）
+    const notifyArg = notifyTasksForMergedPRMock.mock.calls[0][1] as Record<string, unknown>
+    expect(notifyArg).not.toHaveProperty('prUrl')
+    expect(notifyArg).not.toHaveProperty('repoFullName')
   })
 
   it('closed + merged=false: 通知処理は呼ばれない（取り込まれずに閉じただけ）', async () => {
