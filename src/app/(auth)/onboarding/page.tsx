@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { FileText } from '@phosphor-icons/react'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { GenrePicker, GenrePreview, ICON_MAP } from '@/components/space/GenrePicker'
@@ -14,6 +15,7 @@ type Step = 'org' | 'project'
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [step, setStep] = useState<Step>('org')
   const [orgId, setOrgId] = useState<string | null>(null)
   const [orgName, setOrgName] = useState('')
@@ -267,6 +269,12 @@ export default function OnboardingPage() {
         setError('プロジェクトの作成に失敗しました。もう一度お試しください。')
         return
       }
+
+      // この画面に来た時点では所属組織（org_memberships）がまだ無かった／新規に作られたばかりのため、
+      // ActiveOrgProvider（ルート直下に常駐し、画面遷移を跨いでも再マウントしない）が持つ
+      // ['orgMemberships', uid] のキャッシュは古いまま。遷移先の組織スコープ画面が空扱いにならないよう、
+      // 遷移前に取り直しておく
+      await queryClient.invalidateQueries({ queryKey: ['orgMemberships'] })
 
       // 初回セットアップ完了の目印 ?onboarded=1 を付けて遷移する。
       // アクセス解析（GTM/GA4）で「会員登録→設定完了」をこのURLで CV として数える。

@@ -8,6 +8,8 @@ import { get, set, del, keys } from 'idb-keyval'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
+import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
+import { clearActiveOrgId } from '@/lib/org/activeOrg'
 
 const IDB_KEY_PREFIX = 'taskapp-query-cache'
 
@@ -49,7 +51,7 @@ function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 2 * 60_000, // 2 minutes — balance between speed and multi-user freshness
+        staleTime: DEFAULT_STALE_TIME_MS, // 2 minutes — balance between speed and multi-user freshness
         gcTime: 1000 * 60 * 60 * 24, // 24 hours — keep cache for persistence
         // アプリ全体では無効化しない: ball ownership(誰の番か)の唯一の更新経路である
         // useTasks/useMeetings(realtime/ポーリング無し)がフォーカス再取得に依拠している。
@@ -178,6 +180,11 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         currentUserIdRef.current = null
         clearAllCaches()
         queryClient.setQueryData(['currentUser'], null)
+        // active org の cookie もここで消す。残したままだと、リロード無しで別ユーザーが
+        // サインインしたとき、ActiveOrgProvider が「まだ知らないユーザーの初回選択」として
+        // 前のユーザーの org id を一度だけ信用してしまう（sign out → 別ユーザーで sign in の
+        // フォームレース対策）
+        clearActiveOrgId()
         return
       }
 
@@ -194,6 +201,19 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         // setQueryData (not invalidate) to avoid a refetch storm on every
         // auth event — the session payload already has the up-to-date user.
         queryClient.setQueryData(['currentUser'], session?.user ?? null)
+      }
+
+      // 二要素認証のコード入力（challengeAndVerify）が成功すると supabase-js が発火する。
+      // パスワードログイン直後（aal1）は org_memberships が 42501 で失敗しており、
+      // /login/mfa は門番(proxy)の対象外パスなのでリダイレクトも起きない。コード入力を終えて
+      // router.replace で元の画面に戻ってもフルリロードではないため ActiveOrgProvider は
+      // 再マウントされず、orgsStatus が 'unknown' のまま固定されてしまう
+      // （ApiSettings などが「権限を確認中...」を永久に出し続ける）。ここで明示的に取り直す。
+      // 通常の SIGNED_IN（タブ再フォーカス等でも発火し得る）では行わない —
+      // ユーザー識別の変化は上のキャッシュクリアで既に処理済みで、ここでも取り直すと
+      // フォーカスのたびに毎回フェッチが増えてしまう
+      if (event === 'MFA_CHALLENGE_VERIFIED') {
+        void queryClient.invalidateQueries({ queryKey: ['orgMemberships'] })
       }
     })
     return () => subscription.unsubscribe()

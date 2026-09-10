@@ -30,6 +30,8 @@ const orgContext: ActiveOrgContextValue = {
   activeOrgName: 'Org',
   activeOrgRole: 'owner',
   orgs: [],
+  orgsStatus: 'verified',
+  orgsRefreshFailed: false,
   switchOrg: () => {},
   loading: false,
 }

@@ -1,10 +1,8 @@
 'use client'
 
-import { useState, useMemo, useRef, useContext, useEffect } from 'react'
+import { useState, useMemo, useContext, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
 import { Key, Plus, Trash, Copy, Check, Eye, EyeSlash, Warning } from '@phosphor-icons/react'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
@@ -65,48 +63,15 @@ function isClientError(error: unknown): boolean {
   return error instanceof ApiKeysFetchError && error.status >= 400 && error.status < 500
 }
 
-/**
- * 組織の役割（org owner かどうかの判定用）。
- * 「いま選んでいる組織」1件だけでなく、ActiveOrgContext が持つ所属組織の一覧（orgs）から
- * URLのorgIdに一致する行を探す。cookieの都合でActiveOrgContextのloadingは早々にfalseになるが、
- * orgsの取得自体（組織一覧のfetch）はまだ終わっていないことがあり、その間は一致する行が
- * 見つからず role は null（＝不明。owner確定ではないが「ownerではない」でもない）。
- * 見つからないとき（未取得中・本当に非所属のいずれも含む）だけ org_memberships を1回引いて確定させる。
- */
-function useOrgRoleForApiSettings(orgId: string): { role: string | null; loading: boolean } {
-  const ctx = useContext(ActiveOrgContext)
-  const { user } = useCurrentUser()
-  const ctxRole = ctx.orgs.find((o) => o.orgId === orgId)?.role ?? null
-
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (supabaseRef.current == null) supabaseRef.current = createClient()
-
-  const { data, isPending } = useQuery<string | null>({
-    queryKey: ['orgMembershipRole', orgId, user?.id],
-    queryFn: async () => {
-      const { data, error } = await (supabaseRef.current as SupabaseClient)
-        .from('org_memberships')
-        .select('role')
-        .eq('org_id', orgId)
-        .eq('user_id', user!.id)
-        .maybeSingle()
-      if (error) throw error
-      return (data as { role: string } | null)?.role ?? null
-    },
-    enabled: ctxRole == null && !!user?.id,
-    staleTime: 2 * 60_000,
-  })
-
-  if (ctxRole != null) {
-    return { role: ctxRole, loading: false }
-  }
-  return { role: data ?? null, loading: isPending }
-}
-
 export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
   const queryClient = useQueryClient()
   const { user } = useCurrentUser()
-  const orgRole = useOrgRoleForApiSettings(orgId)
+  const ctx = useContext(ActiveOrgContext)
+  // 組織の役割（org owner かどうかの判定用）。ユーザーは複数組織に所属し得るため、
+  // 「いま選んでいる組織」1件だけでなく、ActiveOrgContext が持つ所属組織の一覧（orgs）から
+  // URLのorgIdに一致する行を探す（このプロジェクトのorgIdは、必ずしも「いま選んでいる組織」と
+  // 一致するとは限らない）。
+  const orgRole = ctx.orgs.find((o) => o.orgId === orgId)?.role ?? null
   const { members, isPending: membersPending } = useSpaceMembers(spaceId)
 
   const spaceRole = useMemo(
@@ -115,9 +80,11 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
   )
 
   // 管理者＝組織の owner、または このプロジェクトの admin（サーバー側の判定条件と同じ。変えないこと）
-  const isAdmin = orgRole.role === 'owner' || spaceRole === 'admin'
-  // まだ管理者と分かっていない間だけ「確認中」。どちらかが先に true と分かればそこで確定する
-  const checkingRole = !isAdmin && (orgRole.loading || membersPending)
+  const isAdmin = orgRole === 'owner' || spaceRole === 'admin'
+  // まだ管理者と分かっていない間だけ「確認中」。所属組織一覧がネットワークで一度も確認できていない
+  // (orgsStatus: 'unknown') 間はキャッシュも無いので確定できず「確認中」を出す。
+  // 'cached'（IDB永続キャッシュから復元済み）なら、そのまま orgRole を信用して即座に出す
+  const checkingRole = !isAdmin && (ctx.orgsStatus === 'unknown' || membersPending)
 
   // New key form
   const [newKeyName, setNewKeyName] = useState('')
@@ -155,11 +122,14 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
   const hasCachedKeys = apiKeysData !== undefined
   const keysFatalError = !!keysError && !hasCachedKeys
 
-  // 403（権限が無い）を受けたら、キャッシュ済みの space の役割が古くなっている可能性が高いので
-  // 取り直す。次のレンダーで isAdmin が false に変われば、この画面自体が「管理者のみ」表示に切り替わる
+  // 403（権限が無い）を受けたら、キャッシュ済みの role が古くなっている可能性が高いので取り直す。
+  // space の役割（spaceMembers）だけでなく、org owner かどうかも今は永続キャッシュされた
+  // orgMemberships 由来なので、そちらも合わせて取り直す。次のレンダーで isAdmin が false に
+  // 変われば、この画面自体が「管理者のみ」表示に切り替わる
   useEffect(() => {
     if (keysError instanceof ApiKeysFetchError && keysError.status === 403) {
       void queryClient.invalidateQueries({ queryKey: ['spaceMembers', spaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['orgMemberships'] })
     }
   }, [keysError, queryClient, spaceId])
 

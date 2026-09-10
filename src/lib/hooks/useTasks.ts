@@ -25,6 +25,12 @@ import type {
 interface UseTasksOptions {
   orgId: string
   spaceId: string
+  /**
+   * 一覧の直近50件に入っていなくても、必ず結果へ含めたいタスクID
+   * （/my の詳細パネルなど）。queryKey は変えない — 変えると楽観的更新・
+   * prevTask・副作用がすべて見ているキャッシュと別物になってしまうため。
+   */
+  ensureTaskIds?: string[]
 }
 
 export interface CreateTaskInput {
@@ -74,6 +80,10 @@ interface UseTasksReturn {
   reviewStatuses: Record<string, ReviewStatus>
   loading: boolean
   error: Error | null
+  /** このデータが最後に更新された時刻（ms）。react-query の dataUpdatedAt をそのまま渡す */
+  dataUpdatedAt: number
+  /** バックグラウンド再取得（invalidate/refetch）が進行中かどうか。react-query の isFetching をそのまま渡す */
+  isFetching: boolean
   fetchTasks: () => Promise<void>
   createTask: (task: CreateTaskInput) => Promise<Task>
   updateTask: (taskId: string, input: UpdateTaskInput) => Promise<void>
@@ -214,7 +224,7 @@ function getMaxDescendantDepth(taskId: string, tasks: Task[]): number {
   return maxDepth
 }
 
-export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
+export function useTasks({ orgId, spaceId, ensureTaskIds }: UseTasksOptions): UseTasksReturn {
   const queryClient = useQueryClient()
 
   // Supabase client を useRef で安定化（遅延初期化で毎レンダー評価を回避）
@@ -224,11 +234,12 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
 
   const queryKey = ['tasks', orgId, spaceId] as const
 
-  const { data, isPending, error: queryError } = useQuery<TasksQueryData>({
+  const query = useQuery<TasksQueryData>({
     queryKey,
-    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId),
+    queryFn: () => fetchTasksQuery(supabase as SupabaseClient, orgId, spaceId, { ensureTaskIds }),
     enabled: !!orgId && !!spaceId,
   })
+  const { data, isPending, error: queryError } = query
 
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks])
   const owners = useMemo(() => data?.owners ?? {}, [data?.owners])
@@ -861,6 +872,20 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
     reviewStatuses,
     loading: isPending && !data,
     error: queryError,
+    // dataUpdatedAt/isFetching は getter にして、実際に読まれるまで query から
+    // 値を取り出さない。react-query v5 の useQuery は「読まれたプロパティだけを
+    // 再レンダー対象として追跡する」トラッキングProxyを返す（trackResult）ため、
+    // ここで普通に分割代入してしまうと、この2つを一切使わない呼び出し元
+    // （TasksPageClient/GanttPageClient/DashboardClient 等）まで、内容不変の
+    // バックグラウンド再取得（window focus 等）のたびに再レンダーしてしまう。
+    // getter にすることで、実際に .dataUpdatedAt/.isFetching を読む呼び出し元
+    // （MyTasksClient）だけがその変化を追跡する。
+    get dataUpdatedAt() {
+      return query.dataUpdatedAt
+    },
+    get isFetching() {
+      return query.isFetching
+    },
     fetchTasks,
     createTask,
     updateTask,
