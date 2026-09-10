@@ -43,6 +43,32 @@ describe('HelpPage (/help)', () => {
     expect(screen.getByText('バーンダウンチャート')).toBeInTheDocument()
   })
 
+  it('shows real screenshots of the app', () => {
+    render(<HelpPage />)
+    const screens = document.getElementById('screens')
+    expect(screens).toBeInTheDocument()
+    const images = (screens as HTMLElement).querySelectorAll('img')
+    expect(images.length).toBeGreaterThanOrEqual(3)
+    for (const img of images) {
+      // 画面写真は public/img/help/ 配下（デモ組織のもの）
+      expect(img.getAttribute('src')).toMatch(/^\/img\/help\/.+\.png$/)
+      expect(img.getAttribute('alt')).toBeTruthy()
+    }
+  })
+
+  it('links to the detailed manual pages for the newer features', () => {
+    render(<HelpPage />)
+    for (const href of [
+      '/docs/manual/internal/secretary',
+      '/docs/manual/internal/notifications',
+      '/docs/manual/internal/files',
+      '/docs/manual/internal/integrations',
+      '/docs/manual/internal/security',
+    ]) {
+      expect(document.querySelector(`a[href="${href}"]`), href).toBeInTheDocument()
+    }
+  })
+
   it('links back to the internal inbox', () => {
     render(<HelpPage />)
     expect(screen.getByRole('link', { name: '戻る' })).toHaveAttribute('href', '/inbox')

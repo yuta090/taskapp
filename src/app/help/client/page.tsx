@@ -8,6 +8,10 @@ import {
   Lightning,
   ListChecks,
   Question,
+  Folder,
+  PaperPlaneTilt,
+  CalendarCheck,
+  BookOpen,
 } from '@phosphor-icons/react/dist/ssr'
 
 export const metadata = {
@@ -33,6 +37,28 @@ const STEPS = [
   },
 ]
 
+/** 画面写真（デモ組織のもの・public/img/help/） */
+const SCREENSHOTS = [
+  {
+    src: '/img/help/portal-tasks.png',
+    title: '「要対応」— あなたの確認待ちの一覧',
+    caption:
+      'ログインすると、まずここをご覧ください。上から順に対応いただければ、やり取りが止まりません。',
+  },
+  {
+    src: '/img/help/portal-files.png',
+    title: 'ファイル — 資料の受け渡し',
+    caption:
+      '制作チームが公開した資料の受け取りと、こちらからの資料のお渡しができます。アップロードすると自動でお知らせが届きます。',
+  },
+  {
+    src: '/img/help/portal-requests.png',
+    title: '送信リクエスト — 送った依頼の進み具合',
+    caption:
+      'バグ報告・機能要望・質問として送ったものが、いまどうなっているか（要確認／対応中／完了）を確認できます。',
+  },
+]
+
 const GLOSSARY = [
   {
     term: '黄色（Amber）のバッジ',
@@ -46,6 +72,11 @@ const GLOSSARY = [
   {
     term: '要対応',
     description: 'あなたの確認や回答を開発チームが待っている状態です。ダッシュボードの「要対応」セクションにまとまっています。',
+  },
+  {
+    term: 'リクエスト',
+    description:
+      '「ここが崩れている」「こうしてほしい」「これはどういう意味？」を、その場で制作チームに送れるしくみです。バグ報告・機能要望・質問の3種類から選びます。',
   },
 ]
 
@@ -65,6 +96,26 @@ const SCREENS = [
     name: 'タスク一覧',
     description: 'プロジェクトのすべてのタスクを確認できます。',
   },
+  {
+    icon: Folder,
+    name: 'ファイル',
+    description: '資料の受け取りと、こちらからの資料のお渡しができます（1ファイル50MBまで）。',
+  },
+  {
+    icon: PaperPlaneTilt,
+    name: '送信リクエスト',
+    description: '送ったバグ報告・機能要望・質問の進み具合を確認できます。',
+  },
+  {
+    icon: CalendarCheck,
+    name: '日程調整',
+    description: '打ち合わせの候補日に、都合のよい枠を選んでご回答いただけます。',
+  },
+  {
+    icon: BookOpen,
+    name: 'Wiki',
+    description: '打ち合わせで決まったこと・仕様のまとめを読めます（公開されている場合）。',
+  },
 ]
 
 const TROUBLESHOOTING = [
@@ -79,6 +130,16 @@ const TROUBLESHOOTING = [
   {
     question: '間違えて承認してしまいました',
     answer: '該当タスクのコメント欄に「承認を取り消したい」旨を記載してください。開発チームが確認して対応します。',
+  },
+  {
+    question: '資料の送り方が分かりません',
+    answer:
+      '左メニューの「ファイル」から「ファイルをアップロード」で送れます。メールに添付いただかなくても、制作チームに自動でお知らせが届きます（1ファイル50MBまで）。',
+  },
+  {
+    question: 'メニューに「ファイル」や「Wiki」がありません',
+    answer:
+      'プロジェクトによっては、それらの画面を使わない設定になっていることがあります。必要な場合は制作チームにお申し付けください。',
   },
 ]
 
@@ -119,6 +180,28 @@ export default function ClientHelpPage() {
                   <p className="text-sm text-gray-600 mt-1">{step.description}</p>
                 </div>
               </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 画面の見かた（写真つき） */}
+        <section id="screens" className="space-y-4 scroll-mt-6">
+          <h2 className="text-lg font-semibold text-gray-900">画面の見かた</h2>
+          <p className="text-sm text-gray-600">実際の画面です（サンプルのデータを表示しています）。</p>
+          <div className="space-y-6">
+            {SCREENSHOTS.map((shot) => (
+              <figure key={shot.src} className="bg-surface rounded-lg border border-gray-200 overflow-hidden">
+                <img
+                  src={shot.src}
+                  alt={shot.title}
+                  loading="lazy"
+                  className="w-full border-b border-gray-100"
+                />
+                <figcaption className="p-4">
+                  <h3 className="text-sm font-medium text-gray-900">{shot.title}</h3>
+                  <p className="text-sm text-gray-600 mt-1">{shot.caption}</p>
+                </figcaption>
+              </figure>
             ))}
           </div>
         </section>

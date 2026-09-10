@@ -16,56 +16,75 @@ import {
   Target,
   Tray,
   UserGear,
+  ChatCircleDots,
+  PlugsConnected,
+  Folder,
+  ShieldCheck,
+  CreditCard,
+  Terminal,
+  PaperPlaneTilt,
+  House,
 } from '@phosphor-icons/react/dist/ssr'
 import { CategoryCard } from './CategoryCard'
+import { getManualNavEntries, type ManualSection } from '@/lib/docs/manualNav'
 
 interface SectionIndexProps {
-  section: 'internal' | 'client'
+  section: ManualSection
   extraContent?: string
 }
 
-const internalCards = [
-  { href: '/docs/manual/internal/getting-started', icon: <Rocket size={20} />, title: 'はじめに・初期設定', description: 'アカウント作成・権限設定' },
-  { href: '/docs/manual/internal/dashboard', icon: <SquaresFour size={20} />, title: 'ダッシュボード', description: 'KPI・リスク・フォローアップ' },
-  { href: '/docs/manual/internal/my-tasks', icon: <Target size={20} />, title: 'マイタスク', description: '全プロジェクト横断の担当タスク' },
-  { href: '/docs/manual/internal/inbox', icon: <Tray size={20} />, title: '受信トレイ', description: '通知確認・アクション実行' },
-  { href: '/docs/manual/internal/tasks', icon: <CheckSquare size={20} />, title: 'タスク管理', description: '作成・編集・ボール管理' },
-  { href: '/docs/manual/internal/meetings', icon: <VideoCamera size={20} />, title: '会議管理', description: '議事録・決定事項・タスク生成' },
-  { href: '/docs/manual/internal/wiki', icon: <BookOpen size={20} />, title: 'Wiki・仕様管理', description: 'ページ作成・カスタムブロック' },
-  { href: '/docs/manual/internal/reviews', icon: <Stamp size={20} />, title: 'レビュー・承認', description: '承認フロー・監査証跡' },
-  { href: '/docs/manual/internal/scheduling', icon: <CalendarBlank size={20} />, title: '日程調整', description: '提案・確定・GCal連携' },
-  { href: '/docs/manual/internal/settings', icon: <GearSix size={20} />, title: 'プロジェクト設定', description: 'メンバー・連携・通知' },
-  { href: '/docs/manual/internal/user-settings', icon: <UserGear size={20} />, title: 'ユーザー・組織設定', description: 'アカウント・課金・外部連携' },
-  { href: '/docs/manual/internal/mcp-guide', icon: <Robot size={20} />, title: 'MCP（AI連携）', description: 'ツール一覧・会話例' },
-  { href: '/docs/manual/internal/notifications', icon: <Bell size={20} />, title: '通知ガイド', description: 'チャネル別設定・受信者' },
-  { href: '/docs/manual/internal/troubleshooting', icon: <Wrench size={20} />, title: 'トラブルシューティング', description: 'よくある問題と対処法' },
-  { href: '/docs/manual/internal/glossary', icon: <ListBullets size={20} />, title: '用語集', description: '専門用語の一覧' },
-]
+/**
+ * 目次の並び・見出し・説明は manualNav.ts が持つ。ここは絵柄だけを足す。
+ * 絵柄が無いページは既定の絵柄で出す（目次に載せたのに表示が壊れる、を防ぐ）。
+ */
+const ICONS: Record<string, React.ReactNode> = {
+  'internal/getting-started': <Rocket size={20} />,
+  'internal/dashboard': <SquaresFour size={20} />,
+  'internal/my-tasks': <Target size={20} />,
+  'internal/inbox': <Tray size={20} />,
+  'internal/tasks': <CheckSquare size={20} />,
+  'internal/meetings': <VideoCamera size={20} />,
+  'internal/wiki': <BookOpen size={20} />,
+  'internal/files': <Folder size={20} />,
+  'internal/reviews': <Stamp size={20} />,
+  'internal/scheduling': <CalendarBlank size={20} />,
+  'internal/secretary': <Robot size={20} />,
+  'internal/integrations': <PlugsConnected size={20} />,
+  'internal/slack-setup': <ChatCircleDots size={20} />,
+  'internal/notifications': <Bell size={20} />,
+  'internal/settings': <GearSix size={20} />,
+  'internal/user-settings': <UserGear size={20} />,
+  'internal/security': <ShieldCheck size={20} />,
+  'internal/billing': <CreditCard size={20} />,
+  'internal/cli': <Terminal size={20} />,
+  'internal/mcp-guide': <Robot size={20} />,
+  'internal/troubleshooting': <Wrench size={20} />,
+  'internal/glossary': <ListBullets size={20} />,
+  'client/getting-started': <Rocket size={20} />,
+  'client/dashboard': <House size={20} />,
+  'client/tasks': <CheckSquare size={20} />,
+  'client/approvals': <Stamp size={20} />,
+  'client/meetings': <VideoCamera size={20} />,
+  'client/files': <Folder size={20} />,
+  'client/wiki': <BookOpen size={20} />,
+  'client/requests': <PaperPlaneTilt size={20} />,
+  'client/troubleshooting': <Question size={20} />,
+}
 
-const clientCards = [
-  { href: '/docs/manual/client/getting-started', icon: <Rocket size={20} />, title: 'はじめに', description: 'ポータルへのアクセス方法' },
-  { href: '/docs/manual/client/dashboard', icon: <ChartBar size={20} />, title: 'ダッシュボード', description: 'プロジェクト全体の状況確認' },
-  { href: '/docs/manual/client/tasks', icon: <CheckSquare size={20} />, title: 'タスクの確認と対応', description: '確認・コメント・回答' },
-  { href: '/docs/manual/client/meetings', icon: <VideoCamera size={20} />, title: '会議と日程調整', description: '日程回答・決定事項の確認' },
-  { href: '/docs/manual/client/approvals', icon: <Stamp size={20} />, title: '承認・レビュー', description: '承認・変更依頼の操作' },
-  { href: '/docs/manual/client/troubleshooting', icon: <Question size={20} />, title: 'お困りの場合', description: 'よくある問題と解決方法' },
-]
-
-const sectionMeta = {
+const sectionMeta: Record<ManualSection, { title: string; subtitle: string }> = {
   internal: {
     title: '開発会社向けマニュアル',
     subtitle: 'プロジェクト管理に必要な機能の使い方を解説します',
-    cards: internalCards,
   },
   client: {
     title: 'クライアント向けご利用ガイド',
     subtitle: 'ポータルからの進捗確認・承認・日程調整の操作方法をご案内します',
-    cards: clientCards,
   },
 }
 
 export function SectionIndex({ section, extraContent }: SectionIndexProps) {
   const meta = sectionMeta[section]
+  const entries = getManualNavEntries(section)
 
   return (
     <div className="max-w-3xl mx-auto px-6 md:px-8 py-8 md:py-12">
@@ -75,8 +94,14 @@ export function SectionIndex({ section, extraContent }: SectionIndexProps) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
-        {meta.cards.map((card) => (
-          <CategoryCard key={card.href} {...card} />
+        {entries.map((entry) => (
+          <CategoryCard
+            key={entry.slug}
+            href={`/docs/manual/${section}/${entry.slug}`}
+            icon={ICONS[`${section}/${entry.slug}`] ?? <BookOpen size={20} />}
+            title={entry.title}
+            description={entry.description}
+          />
         ))}
       </div>
 
