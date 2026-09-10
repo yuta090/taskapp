@@ -24,6 +24,7 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import { API_KEY_ACTION_OPTIONS, formatApiKeyActions } from '@/lib/api-keys/actionOptions'
 import { describeKeySpaces } from '@/lib/api-keys/keySpaces'
 import { CliSetupGuide } from '@/components/settings/CliSetupGuide'
+import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
 
 interface ApiKey {
   id: string
@@ -64,6 +65,10 @@ export default function ApiKeysSettingsPage() {
   const { user, loading: userLoading } = useCurrentUser()
   const { spaces, loading: spacesLoading } = useUserSpaces()
   const queryClient = useQueryClient()
+  // API キーは社内メンバー（admin / editor / viewer）専用。相手先として参加しているプロジェクトは
+  // 発行フォームの選択肢に出さない（サーバーの /api/keys/user も同じ条件で断る）。
+  // 一覧のプロジェクト名の表示には、全部の所属（spaces）をそのまま使う
+  const selectableSpaces = useMemo(() => spaces.filter((s) => isInternalSpaceRole(s.role)), [spaces])
 
   // New key form state
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -207,7 +212,7 @@ export default function ApiKeysSettingsPage() {
   }
 
   const selectAllSpaces = () => {
-    setSelectedSpaces(spaces.map((s) => s.id))
+    setSelectedSpaces(selectableSpaces.map((s) => s.id))
   }
 
   const deselectAllSpaces = () => {
@@ -370,8 +375,12 @@ export default function ApiKeysSettingsPage() {
                   <div className="px-4 py-3 text-sm text-gray-500">
                     所属しているプロジェクトがありません
                   </div>
+                ) : selectableSpaces.length === 0 ? (
+                  <div className="px-4 py-3 text-sm text-gray-500">
+                    APIキーは社内メンバー向けの機能です。相手先として参加しているプロジェクトでは発行できません
+                  </div>
                 ) : (
-                  spaces.map((space) => (
+                  selectableSpaces.map((space) => (
                     <label
                       key={space.id}
                       className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer"

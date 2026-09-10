@@ -37,10 +37,16 @@ APIキーは合鍵なので、AI のチャットに貼らせず、本人がタ�
 | プロジェクト設定の「API設定」（`ApiSettings` → `/api/keys`、scope=`space`） | そのプロジェクトだけ | 画面で選ぶ（既定: 読み取り＋書き込み） |
 
 - どちらの鍵も「作った人」（`user_id`）の代理として動き、操作の可否はその人のプロジェクトでの役割で決まる（`mcp_authorize`）。
+- **API キーは社内メンバー（admin / editor / viewer）専用**。相手先（client / vendor）の役割では発行も利用もできない。
+  - 利用の拒否の正本は `mcp_authorize`（役割が後から相手先に変わった鍵も止まる）。発行側は `/api/keys/user`（社内の役割のプロジェクトだけ）・`/api/keys`（組織 owner / space admin だけ）・画面の選択肢で二重に守る。判定は `src/lib/roles/spaceRoles.ts` の `isInternalSpaceRole`（通す役割を並べる形）
+  - `mcp_authorize` は鍵の持ち主（`user_id`）が作成者（`created_by`）と一致し、鍵の組織のメンバーであることも確かめる。プロジェクトの鍵は、そのプロジェクトが鍵の組織のものであることも確かめる
+  - `api_keys` 表への書き込みはサーバーの窓口（service role）だけ。ブラウザ側のロールは読み取りのみ（`api_key_usage` の RLS が参照するため authenticated の SELECT は残す）
+  - 将来、相手先に CLI を開くなら、ツールを利用者の JWT で実行して RLS に任せる形で行う（ツールごとの見せ分けは採らない）
+- 個人用の鍵（scope=`user`）の `agentpm space list` は、選んだプロジェクトのうち今もメンバーで読めるものだけを返す（プロジェクトごとに `mcp_authorize` を通す）。個人用の鍵は組織をまたげる
 - プロジェクト設定の鍵で `agentpm space list` を打つと、そのプロジェクト1件だけを返す（以前は断っていて、画面の確認手順が必ず失敗していた）。
 - 権限で断られると `/api/tools` は **403 と `権限エラー: <理由>`** を返し、CLI にそのまま出る（以前は 500 "Internal server error" に化けて理由が見えなかった）。理由は `mcp_authorize` の決まった文言で、秘密は含まない。
 - 両方の一覧に「許可した操作」を出す。プロジェクト設定の一覧では、持ち主が空の古い鍵に「CLI では使えない。発行し直して」と出す。アカウントの一覧では、プロジェクト設定の鍵を「〇〇のみ（プロジェクト設定で発行）」と出す（`allowed_space_ids` が空でも「全スペース」と出さない）。
-- **プロジェクト設定の鍵に `user_id` を記録するようになる前（〜2026-09）に作った鍵は `user_id` が空で、CLI からは `User is not a member of this space` で必ず断られる**（しかも読み取りのみ）。作り直してもらう。
+- プロジェクト設定の鍵に `user_id` を記録するようになる前（〜2026-09）に作った鍵は `user_id` が空で CLI では使えなかったため、**無効化した**（`is_active=false`。利用記録を残すため削除はしない）。使う場合は発行し直してもらう。
 
 ## AI に使い方を覚えさせる（スキル）
 
@@ -186,7 +192,7 @@ agentpm file upload -s <space-uuid> --file ./data.tsv --json
 - MIME は拡張子から推定（csv/tsv/pdf/png/jpg/xlsx/docx/md/json/zip など）。`--mime-type` で上書き可。
 - **ファイル名は日本語のままでよい。** 表示名(`files.name`)はそのまま保存し、Storage の保存先(`storage_path`)だけ英数字に変換する（Storage の鍵は ASCII しか受け付けず、日本語のままだと `InvalidKey` で PUT が失敗するため）。規則は Web と共通（`src/lib/files/storageKey.ts`）: 英数字と `. _ -` 以外は `_` にまとめ、拡張子は残す。
 - 完了結果に `downloadPath` と、CSV/TSV なら **表ビューのパス** `tablePath`（`/{orgId}/project/{spaceId}/files/{fileId}`）が返る。
-- 必要な権限: API キーの `write`（内部メンバーの鍵）。client/vendor 権限の鍵は認可(`mcp_authorize`)がファイルへの write を許可しないため **アップロード不可**。`file list` は client/vendor 鍵ではクライアント公開分と自分がアップロードした分だけ返る（Web と同じ見える範囲）。
+- 必要な権限: API キーの `write`。API キーは社内メンバー専用なので、相手先（client / vendor）の役割では使えない（`mcp_authorize` が断る）。`file list` の相手先向けの見せ分け（クライアント公開分と自分が上げた分だけ）は二重の守りとして残している。
 - `file list` / 完了結果の `downloadPath` は Web（Cookie ログイン）用のパス。ブラウザに貼って使う（CLI からそのまま取得はできない）。
 - API キーに利用者が紐づいていない（`user_id` が空）と `uploaded_by` を埋められず失敗する。
 - **旧 CLI(0.3.x 以前)では動かない**（3 段階処理を知らないため）。`npm i -g` で 0.4.0 以上に更新する。
