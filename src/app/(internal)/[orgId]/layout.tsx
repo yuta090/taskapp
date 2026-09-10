@@ -12,23 +12,24 @@ import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
  * セキュリティ境界は引き続き DB 側の RLS。ここは「所属しない組織のURLを踏むと
  * RLSで中身が空になるだけで原因が分からない空画面」になるのを防ぐための表示ガード。
  *
- * 誤ブロック回避（重要）: 所属org一覧のロードが確定するまでは children を出す
- * （false negative 側に倒す）。orgs をロード済みで、かつ URL の org に所属して
- * いないときだけ 403 を表示する。active org Cookie はここでは一切書き換えない
- * （誤URL踏みで active org を汚染しないため）。
+ * 誤ブロック回避（重要）: ネットワークで所属org一覧の確認が取れる(orgsStatus === 'verified')まで
+ * children を出す（false negative 側に倒す）。IDB の永続キャッシュから復元しただけの一覧
+ * （orgsStatus === 'cached'）は、再読み込み直後のまだ古いかもしれない一覧なのでブロック判定には
+ * 使わない。verified 済みで、かつ URL の org に所属していないときだけ 403 を表示する。
+ * active org Cookie はここでは一切書き換えない（誤URL踏みで active org を汚染しないため）。
  */
 export default function OrgScopedLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const { orgs, loading } = useContext(ActiveOrgContext)
+  const { orgs, orgsStatus } = useContext(ActiveOrgContext)
   const params = useParams<{ orgId: string }>()
   const orgId = typeof params?.orgId === 'string' ? params.orgId : ''
 
   const isMember = orgs.some((o) => o.orgId === orgId)
 
-  if (!loading && orgs.length > 0 && !isMember) {
+  if (orgsStatus === 'verified' && orgs.length > 0 && !isMember) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="max-w-sm text-center">

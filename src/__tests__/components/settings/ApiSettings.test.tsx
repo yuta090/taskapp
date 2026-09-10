@@ -13,7 +13,8 @@ import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOr
  * 鍵一覧は react-query に乗せる。
  *
  * 組織の役割は ActiveOrgContext（所属組織の一覧＋役割）から、URLのorgIdに一致する1件を探す。
- * 「いま選んでいる組織」だけでなく所属組織一覧全体を見るのがポイント（表示速度レビュー指摘#1）。
+ * 「いま選んでいる組織」だけでなく所属組織一覧全体を見るのがポイント
+ * （このプロジェクトのorgIdは、必ずしも「いま選んでいる組織」と一致するとは限らないため）。
  */
 
 const mockUseSpaceMembers = vi.fn()
@@ -56,6 +57,7 @@ function orgContextFixture(overrides: Partial<ActiveOrgContextValue> = {}): Acti
     activeOrgName: 'Org',
     activeOrgRole: 'owner',
     orgs: [{ orgId: 'org-1', orgName: 'Org', role: 'owner' }],
+    orgsStatus: 'verified',
     switchOrg: vi.fn(),
     loading: false,
     ...overrides,
@@ -151,19 +153,19 @@ describe('ApiSettings — 権限に応じた表示', () => {
     expect(screen.getByText('APIキーはまだ作成されていません')).toBeInTheDocument()
   })
 
-  it('URLのorgIdが所属組織一覧に見つからないときはorg_membershipsを1回だけ引く', async () => {
-    mockUseSpaceMembers.mockReturnValue(membersFixture('admin'))
-    mockFrom.mockReturnValue({
-      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { role: 'owner' }, error: null }) }) }) }),
-    })
+  it('URLのorgIdが所属組織一覧（verified）に見つからなければ、org_membershipsは引かず「管理者のみ」の案内を出す', async () => {
+    mockUseSpaceMembers.mockReturnValue(membersFixture('viewer'))
 
     renderApiSettings(undefined, orgContextFixture({
       activeOrgId: 'org-other',
       orgs: [{ orgId: 'org-other', orgName: 'Other', role: 'owner' }],
+      orgsStatus: 'verified',
     }))
 
-    await waitFor(() => expect(mockFrom).toHaveBeenCalledWith('org_memberships'))
-    await waitFor(() => expect(screen.getByText('APIキーはまだ作成されていません')).toBeInTheDocument())
+    expect(
+      await screen.findByText(/API設定は管理者（org owner または space admin）のみ利用可能です/)
+    ).toBeInTheDocument()
+    expect(mockFrom).not.toHaveBeenCalledWith('org_memberships')
   })
 
   it('所属組織一覧の中に「いま選んでいる組織」以外でこのURLのorgIdがあれば、それも見つけて即座に管理画面を出す（org_membershipsは引かない）', async () => {
@@ -182,19 +184,27 @@ describe('ApiSettings — 権限に応じた表示', () => {
     expect(mockFrom).not.toHaveBeenCalledWith('org_memberships')
   })
 
-  it('【是正1】組織一覧の取得がまだ終わっていない（role不明）ときは「管理者のみ」ではなく「権限を確認中」を出す', async () => {
+  it('【是正1】組織一覧の取得がまだ終わっていない（orgsStatus: unknown）ときは「管理者のみ」ではなく「権限を確認中」を出す', async () => {
     mockUseSpaceMembers.mockReturnValue(membersFixture('viewer'))
-    // cookieでloadingは早々にfalseになるが、orgsはまだ空 = role不明（表示速度レビュー指摘#1の再現）
-    mockFrom.mockReturnValue({
-      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => new Promise(() => {}) }) }) }),
-    })
 
-    renderApiSettings(undefined, orgContextFixture({ orgs: [], loading: false }))
+    renderApiSettings(undefined, orgContextFixture({ orgs: [], orgsStatus: 'unknown', loading: false }))
 
     expect(await screen.findByText('権限を確認中...')).toBeInTheDocument()
     expect(
       screen.queryByText(/API設定は管理者（org owner または space admin）のみ利用可能です/)
     ).not.toBeInTheDocument()
+  })
+
+  it('【新規】orgsStatus: cached（永続キャッシュ復元のみ）でも org owner なら「権限を確認中」を出さず即座に管理画面を出す', async () => {
+    mockUseSpaceMembers.mockReturnValue(membersFixture('viewer'))
+
+    renderApiSettings(undefined, orgContextFixture({
+      orgs: [{ orgId: 'org-1', orgName: 'Org', role: 'owner' }],
+      orgsStatus: 'cached',
+    }))
+
+    await waitFor(() => expect(screen.getByText('APIキーはまだ作成されていません')).toBeInTheDocument())
+    expect(screen.queryByText('権限を確認中...')).not.toBeInTheDocument()
   })
 })
 
@@ -326,6 +336,8 @@ describe('ApiSettings — 【是正4・任意】403は再試行せずspaceMember
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['spaceMembers', 'space-1'] })
     )
+    // org owner かどうかも永続キャッシュされた orgMemberships 由来になったため、こちらも取り直す
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['orgMemberships'] })
 
     const keysGetCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) =>
       String(c[0]).startsWith('/api/keys?')

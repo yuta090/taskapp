@@ -15,6 +15,7 @@ function renderWithOrg(value: Partial<ActiveOrgContextValue>) {
     activeOrgName: null,
     activeOrgRole: null,
     orgs: [],
+    orgsStatus: 'verified',
     loading: false,
     switchOrg: vi.fn(),
     ...value,
@@ -33,29 +34,52 @@ beforeEach(() => {
 })
 
 describe('OrgScopedLayout（所属外org URLガード）', () => {
-  it('ロード中は誤ブロックせず children を出す', () => {
+  it('ロード中（orgsStatus: unknown）は誤ブロックせず children を出す', () => {
     mockParams = { orgId: 'org-B' }
-    renderWithOrg({ loading: true, orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }] })
+    renderWithOrg({
+      orgsStatus: 'unknown',
+      orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }],
+    })
     expect(screen.getByText('子コンテンツ')).toBeInTheDocument()
     expect(screen.queryByText('この組織へのアクセス権がありません')).not.toBeInTheDocument()
   })
 
   it('所属orgのURLなら children を出す', () => {
     mockParams = { orgId: 'org-A' }
-    renderWithOrg({ loading: false, orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }] })
+    renderWithOrg({ orgsStatus: 'verified', orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }] })
     expect(screen.getByText('子コンテンツ')).toBeInTheDocument()
   })
 
   it('所属外orgのURLなら403を出し、children を出さない', () => {
     mockParams = { orgId: 'org-B' }
-    renderWithOrg({ loading: false, orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }] })
+    renderWithOrg({ orgsStatus: 'verified', orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }] })
     expect(screen.getByText('この組織へのアクセス権がありません')).toBeInTheDocument()
     expect(screen.queryByText('子コンテンツ')).not.toBeInTheDocument()
   })
 
   it('所属orgが空（未取得/無所属）なら誤ブロックしない', () => {
     mockParams = { orgId: 'org-B' }
-    renderWithOrg({ loading: false, orgs: [] })
+    renderWithOrg({ orgsStatus: 'verified', orgs: [] })
     expect(screen.getByText('子コンテンツ')).toBeInTheDocument()
+  })
+
+  it('orgsStatus: cached（永続キャッシュ復元のみ・まだネットワーク確認前）で URL の org が一覧に無くても誤ブロックしない', () => {
+    mockParams = { orgId: 'org-B' }
+    renderWithOrg({
+      orgsStatus: 'cached',
+      orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }],
+    })
+    expect(screen.getByText('子コンテンツ')).toBeInTheDocument()
+    expect(screen.queryByText('この組織へのアクセス権がありません')).not.toBeInTheDocument()
+  })
+
+  it('orgsStatus: verified（ネットワーク確認済み）で URL の org が一覧に無ければ403', () => {
+    mockParams = { orgId: 'org-B' }
+    renderWithOrg({
+      orgsStatus: 'verified',
+      orgs: [{ orgId: 'org-A', orgName: 'A', role: 'owner' }],
+    })
+    expect(screen.getByText('この組織へのアクセス権がありません')).toBeInTheDocument()
+    expect(screen.queryByText('子コンテンツ')).not.toBeInTheDocument()
   })
 })

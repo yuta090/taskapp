@@ -48,6 +48,7 @@ function renderPage() {
         activeOrgName: 'テスト組織',
         activeOrgRole: 'admin',
         orgs: [],
+        orgsStatus: 'verified',
         switchOrg: vi.fn(),
         loading: false,
       }}

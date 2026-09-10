@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Suspense } from 'react'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import InviteAcceptPage from '@/app/(auth)/invite/[token]/page'
 
 /**
@@ -78,17 +79,22 @@ function fulfilledParams<T>(value: T): Promise<T> {
   return promise
 }
 
+let queryClient: QueryClient
+
 function renderPage() {
   return render(
-    <Suspense fallback={null}>
-      <InviteAcceptPage params={fulfilledParams({ token: 'tok-1' })} />
-    </Suspense>
+    <QueryClientProvider client={queryClient}>
+      <Suspense fallback={null}>
+        <InviteAcceptPage params={fulfilledParams({ token: 'tok-1' })} />
+      </Suspense>
+    </QueryClientProvider>
   )
 }
 
 describe('InviteAcceptPage — 受諾動線', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     vi.stubGlobal('fetch', mockFetch)
     mockGetSession.mockResolvedValue({ data: { session: null } })
     mockRpc.mockResolvedValue({ data: { ...validInvite }, error: null })
@@ -112,6 +118,46 @@ describe('InviteAcceptPage — 受諾動線', () => {
         expect.objectContaining({ method: 'POST' })
       )
     })
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+  })
+
+  it('遷移の前に所属組織一覧（orgMemberships）のキャッシュを取り直す（ActiveOrgProviderはルート常駐で画面遷移しても再マウントしないため）', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['orgMemberships'] }))
+    const invalidateOrder = invalidateSpy.mock.invocationCallOrder[0]
+    const pushOrder = mockPush.mock.invocationCallOrder[0]
+    expect(invalidateOrder).toBeLessThan(pushOrder)
+  })
+
+  it('invalidateQueriesの解決を待ってから遷移する（awaitしていなければここで落ちる）', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    let resolveInvalidate: () => void = () => {}
+    const pending = new Promise<void>((resolve) => { resolveInvalidate = resolve })
+    vi.spyOn(queryClient, 'invalidateQueries').mockReturnValue(pending)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/invites/tok-1/accept',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+
+    // invalidateQueries がまだ解決していない間は遷移しない
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+    expect(mockPush).not.toHaveBeenCalled()
+
+    resolveInvalidate()
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith('/org-1/project/space-1')
     })

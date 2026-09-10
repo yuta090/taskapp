@@ -13,6 +13,7 @@ function createWrapper(value: Partial<ActiveOrgContextValue>) {
     activeOrgName: null,
     activeOrgRole: null,
     orgs: [],
+    orgsStatus: 'unknown',
     switchOrg: () => {},
     loading: true,
     ...value,
