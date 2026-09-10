@@ -118,9 +118,11 @@ export declare const allTools: ({
         type: import("zod").ZodOptional<import("zod").ZodEnum<["task", "spec"]>>;
         clientScope: import("zod").ZodOptional<import("zod").ZodEnum<["deliverable", "internal"]>>;
         limit: import("zod").ZodDefault<import("zod").ZodNumber>;
+        offset: import("zod").ZodDefault<import("zod").ZodNumber>;
     }, "strip", import("zod").ZodTypeAny, {
         spaceId: string;
         limit: number;
+        offset: number;
         type?: "task" | "spec" | undefined;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
@@ -132,6 +134,7 @@ export declare const allTools: ({
         clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         limit?: number | undefined;
+        offset?: number | undefined;
     }>;
     handler: typeof import("./tasks.js").taskList;
 } | {
@@ -176,8 +179,10 @@ export declare const allTools: ({
         status: import("zod").ZodOptional<import("zod").ZodEnum<["backlog", "todo", "in_progress", "in_review", "done", "considering"]>>;
         clientScope: import("zod").ZodOptional<import("zod").ZodEnum<["deliverable", "internal"]>>;
         limit: import("zod").ZodDefault<import("zod").ZodNumber>;
+        offset: import("zod").ZodDefault<import("zod").ZodNumber>;
     }, "strip", import("zod").ZodTypeAny, {
         limit: number;
+        offset: number;
         ball?: "client" | "internal" | undefined;
         clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
@@ -186,6 +191,7 @@ export declare const allTools: ({
         clientScope?: "internal" | "deliverable" | undefined;
         status?: "backlog" | "todo" | "in_progress" | "in_review" | "done" | "considering" | undefined;
         limit?: number | undefined;
+        offset?: number | undefined;
     }>;
     handler: typeof import("./tasks.js").taskListMy;
 } | {

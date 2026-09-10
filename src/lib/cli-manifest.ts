@@ -93,6 +93,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--type <type>', description: 'Filter: task|spec', param: 'type', choices: ['task', 'spec'] },
           { flags: '--client-scope <scope>', description: 'Filter: deliverable|internal', param: 'clientScope', choices: ['deliverable', 'internal'] },
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '50' },
+          { flags: '--offset <n>', description: 'Skip the first n results (page with --limit: 0, 100, 200...)', param: 'offset', type: 'int', default: '0' },
         ],
       },
       {
@@ -187,6 +188,7 @@ const MANIFEST_COMMANDS: ManifestCommand[] = [
           { flags: '--status <status>', description: 'Filter by status', param: 'status' },
           { flags: '--client-scope <scope>', description: 'Filter: deliverable|internal', param: 'clientScope', choices: ['deliverable', 'internal'] },
           { flags: '--limit <n>', description: 'Max results', param: 'limit', type: 'int', default: '50' },
+          { flags: '--offset <n>', description: 'Skip the first n results (page with --limit: 0, 100, 200...)', param: 'offset', type: 'int', default: '0' },
         ],
       },
       {
@@ -936,6 +938,11 @@ export const MANIFEST_NOTICES: ManifestNotice[] = [
     date: '2026-09-08',
     message: 'Wiki の並べ方を CLI からも変えられるようになりました: agentpm wiki update --page-id <id> --parent-page-id <親のID> / --milestone-id <ID> / --pinned（外すときは none・--no-pinned）',
   },
+  {
+    id: '2026-09-10-task-list-offset',
+    date: '2026-09-10',
+    message: 'タスク一覧を続きから取れるようになりました: agentpm task list --limit 100 --offset 100（101件目から）',
+  },
 ]
 
 function computeChecksum(commands: ManifestCommand[]): string {
@@ -949,9 +956,9 @@ let _cached: Manifest | null = null
 export function getManifest(): Manifest {
   if (!_cached) {
     _cached = {
-      version: '1.8.0',
+      version: '1.9.0',
       minCliVersion: '0.2.0',
-      generatedAt: '2026-09-08T09:00:00Z', // Fixed per version (not per-request)
+      generatedAt: '2026-09-10T09:00:00Z', // Fixed per version (not per-request)
       checksum: computeChecksum(MANIFEST_COMMANDS),
       commands: MANIFEST_COMMANDS,
       notices: MANIFEST_NOTICES,
