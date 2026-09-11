@@ -306,7 +306,8 @@ export function WikiPageLinkPicker({
               ) : (
                 <>
                   <Plus className="shrink-0 text-gray-500" />
-                  <span className="min-w-0 truncate text-gray-700">
+                  {/* 長い名前でも「新しく作って紐づける」が切れて読めなくならないよう、末尾を切らずに折り返す */}
+                  <span className="min-w-0 break-words text-gray-700">
                     「<span className="font-medium text-gray-900">{option.title}</span>」を新しく作って紐づける
                   </span>
                 </>

@@ -120,6 +120,15 @@ describe('WikiPageLinkPicker — その場で作る', () => {
     expect(onCreate.mock.invocationCallOrder[0]).toBeLessThan(onSelect.mock.invocationCallOrder[0])
   })
 
+  it('長い名前でも「新しく作って紐づける」を切らずに折り返す（スマホ幅で末尾が「紐づ…」と切れていた）', () => {
+    setup()
+    type('とても長い名前の打ち合わせメモ（2026年9月 第2週 定例）')
+
+    const create = screen.getByTestId('picker-create')
+    expect(create).toHaveTextContent('を新しく作って紐づける')
+    expect(create.querySelector('.truncate')).toBeNull()
+  })
+
   it('候補がないときは Enter でそのまま作れる', async () => {
     const { onCreate } = setup()
     type('新しい資料')
