@@ -62,4 +62,19 @@ describe('clampPanelPosition', () => {
     expect(top + panelSize.height).toBeLessThanOrEqual(smallViewport.height)
     expect(left + panelSize.width).toBeLessThanOrEqual(smallViewport.width)
   })
+
+  it('390px幅のスマホ画面でも、パネルが右端からはみ出さない', () => {
+    // 本番計測(390x844)の再現: パネル幅は `w-[calc(100vw-2rem)]` により
+    // ビューポート幅から左右マージン(16px×2)を引いた358pxになる。
+    const phoneViewport = { width: 390, height: 844 }
+    const targetRect = { top: 1227, bottom: 1267, left: 16, width: 358 }
+    const panelSize = { width: 358, height: 260 }
+
+    const { top, left } = clampPanelPosition(targetRect, panelSize, phoneViewport)
+
+    expect(left).toBeGreaterThanOrEqual(0)
+    expect(left + panelSize.width).toBeLessThanOrEqual(phoneViewport.width)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(top + panelSize.height).toBeLessThanOrEqual(phoneViewport.height)
+  })
 })

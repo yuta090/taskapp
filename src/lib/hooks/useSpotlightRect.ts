@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface SpotlightMatch {
   rect: DOMRect | null
@@ -15,6 +15,17 @@ const NO_MATCH: SpotlightMatch = { rect: null, matchedSelector: null }
 // 改行を区切りに使う。
 const SEP = '\n'
 
+/** 対象が画面外にはみ出していないか（4辺ともビューポート内か）を判定する。 */
+function isFullyVisible(rect: DOMRect): boolean {
+  if (typeof window === 'undefined') return true
+  return (
+    rect.top >= 0 &&
+    rect.left >= 0 &&
+    rect.bottom <= window.innerHeight &&
+    rect.right <= window.innerWidth
+  )
+}
+
 /**
  * Tracks the bounding rect of the first matching element among
  * `targetSelectors` (priority order — earlier selectors win even if a later
@@ -26,18 +37,35 @@ const SEP = '\n'
  * Fallback selectors exist so steps can still highlight something relevant
  * in states where the primary target is absent (e.g. a brand-new project
  * with zero task rows).
+ *
+ * An element that matches but reports a zero-size rect (hidden via
+ * `display:none`, collapsed, or not yet laid out) is treated as "not
+ * matched" — the next selector is tried instead, since a spotlight ring
+ * around nothing is worse than falling through to a fallback (or the
+ * centered dialog).
+ *
+ * When the matched element changes (new step, or a new element matches),
+ * and it isn't fully inside the viewport, it is scrolled into view once —
+ * this keeps mobile spotlight targets reachable instead of leaving the
+ * ring off-screen with `scrollY` stuck at 0.
  */
 export function useSpotlightRect(
   targetSelectors: string | readonly string[] | undefined,
   active: boolean
 ): SpotlightMatch {
   const [match, setMatch] = useState<SpotlightMatch>(NO_MATCH)
+  // 同じステップ内で連続する scroll/resize/mutation 更新のたびに
+  // scrollIntoView を呼び直さないよう、直近でスクロール判定済みの要素を覚えておく。
+  const scrolledElRef = useRef<Element | null>(null)
 
   const selectorKey = (
     typeof targetSelectors === 'string' ? [targetSelectors] : targetSelectors ?? []
   ).join(SEP)
 
   useEffect(() => {
+    // 新しいステップに入るたび、スクロール済み判定をリセットする。
+    scrolledElRef.current = null
+
     const selectors = selectorKey ? selectorKey.split(SEP) : []
     if (!active || selectors.length === 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- resets to the no-spotlight state when deactivated/selector cleared
@@ -48,10 +76,24 @@ export function useSpotlightRect(
     const update = () => {
       for (const selector of selectors) {
         const el = document.querySelector(selector)
-        if (el) {
-          setMatch({ rect: el.getBoundingClientRect(), matchedSelector: selector })
-          return
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        // 非表示(display:none)・折り畳み・未描画で潰れた要素は「一致なし」
+        // として次のセレクタ（フォールバック）にフォールスルーする。
+        if (rect.width <= 0 || rect.height <= 0) continue
+
+        setMatch({ rect, matchedSelector: selector })
+
+        if (scrolledElRef.current !== el) {
+          scrolledElRef.current = el
+          if (!isFullyVisible(rect)) {
+            // ビューポートより縦に大きい要素は先頭合わせ、それ以外は中央合わせ。
+            const block = rect.height > window.innerHeight ? 'start' : 'center'
+            // jsdom には scrollIntoView が実装されていないためガードする。
+            el.scrollIntoView?.({ block, behavior: 'smooth' })
+          }
         }
+        return
       }
       setMatch(NO_MATCH)
     }

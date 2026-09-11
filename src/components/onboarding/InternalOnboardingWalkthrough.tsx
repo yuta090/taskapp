@@ -185,7 +185,7 @@ export function InternalOnboardingWalkthrough() {
       <div
         ref={panelRef}
         data-testid="walkthrough-panel"
-        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-full max-w-lg bg-surface rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
+        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-[calc(100vw-2rem)] max-w-lg bg-surface rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
           fadeIn ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         }`}
         style={panelStyle}
@@ -203,12 +203,12 @@ export function InternalOnboardingWalkthrough() {
         </button>
 
         {/* Content */}
-        <div className="px-8 pt-8 pb-6">
+        <div className="px-5 pt-6 pb-5 md:px-8 md:pt-8 md:pb-6">
           {/* Icon */}
           <div
-            className={`w-14 h-14 rounded-xl ${step.iconBg} flex items-center justify-center mb-5`}
+            className={`w-11 h-11 md:w-14 md:h-14 rounded-xl ${step.iconBg} flex items-center justify-center mb-4 md:mb-5`}
           >
-            <Icon className={`w-7 h-7 ${step.iconColor}`} weight="duotone" />
+            <Icon className={`w-5 h-5 md:w-7 md:h-7 ${step.iconColor}`} weight="duotone" />
           </div>
 
           {/* Step indicator */}
@@ -233,7 +233,7 @@ export function InternalOnboardingWalkthrough() {
           {/* Title */}
           <h2
             id="internal-onboarding-title"
-            className="text-xl font-bold text-gray-900 mb-2"
+            className="text-lg md:text-xl font-bold text-gray-900 mb-2"
           >
             {step.title}
           </h2>
@@ -248,7 +248,7 @@ export function InternalOnboardingWalkthrough() {
         </div>
 
         {/* Footer Actions */}
-        <div className="px-8 pb-6 flex items-center justify-between">
+        <div className="px-5 pb-5 md:px-8 md:pb-6 flex items-center justify-between">
           <div>
             {currentStep === 0 ? (
               <button

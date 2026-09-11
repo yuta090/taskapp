@@ -21,29 +21,51 @@ function renderWithTarget() {
   )
 }
 
+// jsdomはレイアウトを計算せず getBoundingClientRect() は既定で全0のDOMRectを
+// 返す。useSpotlightRect は0サイズの一致要素を「非表示」とみなしてスキップする
+// ため、実際に画面上に存在するという体で書かれたテストには現実的な非ゼロサイズを
+// 与える必要がある。target/panel を個別に上書きできるようにしつつ、既定値は
+// 「表示されている」を表す非ゼロ矩形にする。
+const nativeGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+const DEFAULT_TARGET_RECT: Partial<DOMRect> = {
+  top: 100,
+  left: 20,
+  right: 320,
+  bottom: 140,
+  width: 300,
+  height: 40,
+}
+const DEFAULT_PANEL_RECT: Partial<DOMRect> = { width: 320, height: 200 }
+
 /** Stubs getBoundingClientRect for elements matched by `selector` (and the walkthrough panel). */
-function mockRects(rects: {
-  target?: Partial<DOMRect>
-  panel?: Partial<DOMRect>
-}) {
-  const original = HTMLElement.prototype.getBoundingClientRect
+function mockRects(rects: { target?: Partial<DOMRect>; panel?: Partial<DOMRect> } = {}) {
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-    if (rects.panel && this.dataset.testid === 'walkthrough-panel') {
-      return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {}, ...rects.panel }
+    if (this.dataset.testid === 'walkthrough-panel') {
+      return {
+        top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {},
+        ...DEFAULT_PANEL_RECT,
+        ...rects.panel,
+      } as DOMRect
     }
-    if (rects.target && this.hasAttribute('data-walkthrough')) {
-      return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {}, ...rects.target }
+    if (this.hasAttribute('data-walkthrough')) {
+      return {
+        top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {},
+        ...DEFAULT_TARGET_RECT,
+        ...rects.target,
+      } as DOMRect
     }
-    return original.call(this)
-  }
-  return () => {
-    HTMLElement.prototype.getBoundingClientRect = original
+    return nativeGetBoundingClientRect.call(this)
   }
 }
 
 describe('InternalOnboardingWalkthrough spotlight', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRects()
+  })
+
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = nativeGetBoundingClientRect
   })
 
   it('renders a centered dialog (no spotlight) for a step without targetSelector', async () => {
@@ -174,6 +196,13 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
     expect(screen.getByText(/コード送信/)).toBeInTheDocument()
   })
 
+  it('パネル幅はビューポート幅を超えないクラス(calc(100vw-2rem))で制御される', async () => {
+    render(<InternalOnboardingWalkthrough />)
+
+    await waitFor(() => screen.getByRole('dialog'))
+    expect(screen.getByTestId('walkthrough-panel').className).toContain('w-[calc(100vw-2rem)]')
+  })
+
   it('calls markDone (server + localStorage) when the walkthrough is completed', async () => {
     render(<InternalOnboardingWalkthrough />)
 
@@ -193,18 +222,11 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
   })
 
   describe('viewport clamping, escape hatches, and target interaction', () => {
-    let restoreRects: (() => void) | undefined
-
-    afterEach(() => {
-      restoreRects?.()
-      restoreRects = undefined
-    })
-
     it('clamps the panel inside the viewport when the target sits near the bottom-right corner', async () => {
       window.innerWidth = 500
       window.innerHeight = 400
 
-      restoreRects = mockRects({
+      mockRects({
         target: { top: 370, bottom: 395, left: 460, right: 495, width: 35, height: 25 },
         panel: { width: 320, height: 260 },
       })
