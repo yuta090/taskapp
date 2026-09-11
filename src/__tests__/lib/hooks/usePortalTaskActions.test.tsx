@@ -99,6 +99,25 @@ describe('usePortalTaskActions', () => {
     )
   })
 
+  // 見積もり確認待ちの409は、画面を開いた後に社内側が見積もりを送った場合にも
+  // 返ってくる。この一覧・右パネルは開いた時点の見積もり状態でボタンを出し
+  // 分けているため、reason: 'blocked' でも取り直さないと古いボタン（承認する等）
+  // が残ったまま先に進めなくなる。
+  it('409 で reason: blocked のときも、router.refresh() を呼ぶ', async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 409,
+      body: { error: '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。', reason: 'blocked' },
+    })
+    const { result } = renderHook(() => usePortalTaskActions())
+
+    await act(async () => {
+      await result.current.handleApprove('task-3', '')
+    })
+
+    expect(mockRefresh).toHaveBeenCalled()
+  })
+
   it('estimate 系も対応する action 名で送られる', async () => {
     mockFetchOnce({ ok: true })
     const { result } = renderHook(() => usePortalTaskActions())
