@@ -15,6 +15,7 @@ import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import type { BallSide, TaskStatus } from '@/types/database'
 
 interface GanttPageClientProps {
@@ -331,6 +332,12 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
               バーをドラッグして日付を変更できます
             </span>
           )}
+          {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+              AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block -my-1.5">
+            <AnnouncementBell />
+          </div>
         </div>
       </div>
 

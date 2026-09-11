@@ -14,6 +14,7 @@ import { useMeetings } from '@/lib/hooks/useMeetings'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { useSchedulingProposals, type ProposalDetail, type ProposalWithDetails } from '@/lib/hooks/useSchedulingProposals'
 import type { Meeting } from '@/types/database'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { MEETING_QUERY_PARAM, PROPOSAL_QUERY_PARAM } from '@/lib/navigation/meetingLinks'
 
 interface MeetingsPageClientProps {
@@ -472,6 +473,12 @@ export function MeetingsPageClient({ orgId, spaceId }: MeetingsPageClientProps) 
               </button>
             </div>
           )}
+        </div>
+        {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+            AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+            モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+        <div data-header-bell className="hidden md:block ml-2">
+          <AnnouncementBell />
         </div>
       </header>
 

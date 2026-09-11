@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, CircleNotch } from '@phosphor-icons/react'
 import { createClient } from '@/lib/supabase/client'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { normalizeTotpCode } from '@/lib/auth/mfa'
 import { isSafeInternalPath, safeInternalPathOr } from '@/lib/auth/safeRedirect'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
@@ -46,8 +47,9 @@ export default function MfaChallengeClient() {
           const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
           if (!alive) return
           if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-            await supabase.auth.signOut()
-            router.replace('/login')
+            // 門番との往復ループを諦めて強制ログアウトする救済経路。この画面で push 購読を
+            // 登録できることは通常無いので pushCleanup は省略する
+            await signOutAndLeave({ to: '/login', pushCleanup: false })
             return
           }
           router.replace(safeInternalPathOr(redirect))
@@ -86,25 +88,26 @@ export default function MfaChallengeClient() {
           return
         }
         // 行き先の指定が無ければ、ログイン直後と同じ着地判定（コード入力後なので組織情報が読める）
+        // 識別が変わりうるサインイン完了はフルページ遷移で終える（ルート常駐のクライアント状態が
+        // 前のユーザーのものを引きずらないようにするため。router.replace はしない）
         if (isSafeInternalPath(redirect)) {
-          router.replace(redirect)
+          window.location.replace(redirect)
         } else {
           const userId = verified?.user?.id
-          router.replace(userId ? await resolvePostLoginLanding(supabase as SupabaseClient, userId, { preferredOrgId: getActiveOrgId() }) : '/')
+          window.location.replace(userId ? await resolvePostLoginLanding(supabase as SupabaseClient, userId, { preferredOrgId: getActiveOrgId() }) : '/')
         }
       } catch {
         setError('確認に失敗しました。しばらくしてからもう一度お試しください。')
         setSubmitting(false)
       }
     },
-    [factorId, code, submitting, redirect, router],
+    [factorId, code, submitting, redirect],
   )
 
   const handleSignOut = useCallback(async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.replace('/login')
-  }, [router])
+    // コード入力を突破していない(aal2未達)ため、この画面までで push 購読を登録できることは無い
+    await signOutAndLeave({ to: '/login', pushCleanup: false })
+  }, [])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

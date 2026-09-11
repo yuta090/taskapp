@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 /**
  * /admin/login — 管理者ログイン画面。
@@ -18,12 +18,13 @@ vi.mock('next/navigation', () => ({
 const getUserMock = vi.fn()
 const signOutMock = vi.fn()
 const singleMock = vi.fn()
+const signInWithPasswordMock = vi.fn()
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: {
       getUser: getUserMock,
       signOut: signOutMock,
-      signInWithPassword: vi.fn(),
+      signInWithPassword: signInWithPasswordMock,
       signInWithOAuth: vi.fn(),
     },
     from: () => ({ select: () => ({ eq: () => ({ single: singleMock }) }) }),
@@ -32,9 +33,16 @@ vi.mock('@/lib/supabase/client', () => ({
 
 const { default: AdminLoginPage } = await import('@/app/admin/login/page')
 
+let locationAssignSpy: ReturnType<typeof vi.fn>
+
 beforeEach(() => {
   vi.clearAllMocks()
   getUserMock.mockResolvedValue({ data: { user: null } })
+  locationAssignSpy = vi.fn()
+  Object.defineProperty(window, 'location', {
+    value: { ...window.location, assign: locationAssignSpy },
+    writable: true,
+  })
 })
 
 describe('AdminLoginPage', () => {
@@ -57,5 +65,93 @@ describe('AdminLoginPage', () => {
     expect(await screen.findByText(/管理者権限がありません/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ログアウト/ })).toBeInTheDocument()
     expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('メール+パスワードで運営としてログインに成功すると、フルページ遷移で dashboard へ（router.push はしない）', async () => {
+    signInWithPasswordMock.mockResolvedValue({ data: { user: { id: 'u-admin' } }, error: null })
+    singleMock.mockResolvedValue({ data: { is_superadmin: true } })
+
+    render(<AdminLoginPage />)
+    await screen.findByRole('button', { name: /Google/ })
+
+    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), {
+      target: { value: 'admin@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('パスワードを入力'), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/admin/dashboard')
+    })
+    expect(pushMock).not.toHaveBeenCalledWith('/admin/dashboard')
+  })
+
+  // window.location.assign() は遷移を予約するだけですぐ返るため、成功直後に loading を解除すると
+  // 実際にページが切り替わるまでボタンが一瞬押せる状態に戻り、遅い回線で二重送信を招く。
+  it('ログイン成功後、ボタンはページが破棄されるまでローディング表示のまま', async () => {
+    signInWithPasswordMock.mockResolvedValue({ data: { user: { id: 'u-admin' } }, error: null })
+    singleMock.mockResolvedValue({ data: { is_superadmin: true } })
+
+    render(<AdminLoginPage />)
+    await screen.findByRole('button', { name: /Google/ })
+
+    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), {
+      target: { value: 'admin@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('パスワードを入力'), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/admin/dashboard')
+    })
+    expect(screen.getByText('処理中...')).toBeInTheDocument()
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+  })
+
+  it('ログイン失敗時は、ボタンのローディングを解除する', async () => {
+    signInWithPasswordMock.mockResolvedValue({ data: { user: null }, error: { message: 'invalid' } })
+
+    render(<AdminLoginPage />)
+    await screen.findByRole('button', { name: /Google/ })
+
+    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), {
+      target: { value: 'admin@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('パスワードを入力'), {
+      target: { value: 'wrong' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('メールアドレスまたはパスワードが正しくありません')).toBeInTheDocument()
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'ログイン' })).not.toBeDisabled()
+  })
+
+  it('運営権限が無い場合も、ボタンのローディングを解除する', async () => {
+    signInWithPasswordMock.mockResolvedValue({ data: { user: { id: 'u-normal' } }, error: null })
+    singleMock.mockResolvedValue({ data: { is_superadmin: false } })
+
+    render(<AdminLoginPage />)
+    await screen.findByRole('button', { name: /Google/ })
+
+    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), {
+      target: { value: 'normal@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('パスワードを入力'), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/管理者権限がありません/).length).toBeGreaterThan(0)
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'ログイン' })).not.toBeDisabled()
   })
 })

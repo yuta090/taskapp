@@ -25,6 +25,7 @@ const parseWebhookHeadersMock = vi.fn()
 const handlePullRequestEventMock = vi.fn()
 const handleInstallationEventMock = vi.fn()
 const handleInstallationRepositoriesEventMock = vi.fn()
+const handleIssueEventMock = vi.fn()
 
 vi.mock('@/lib/github', () => ({
   verifyWebhookSignature: (...args: unknown[]) => verifyWebhookSignatureMock(...args),
@@ -32,6 +33,7 @@ vi.mock('@/lib/github', () => ({
   handlePullRequestEvent: (...args: unknown[]) => handlePullRequestEventMock(...args),
   handleInstallationEvent: (...args: unknown[]) => handleInstallationEventMock(...args),
   handleInstallationRepositoriesEvent: (...args: unknown[]) => handleInstallationRepositoriesEventMock(...args),
+  handleIssueEvent: (...args: unknown[]) => handleIssueEventMock(...args),
 }))
 
 function makeGithubWebhookEventsTable() {
@@ -99,6 +101,7 @@ describe('POST /api/github/webhook', () => {
     verifyWebhookSignatureMock.mockReturnValue(true)
     parseWebhookHeadersMock.mockReturnValue({ event: 'pull_request', delivery: DELIVERY, signature: 'sha256=sig' })
     handlePullRequestEventMock.mockResolvedValue({ success: true })
+    handleIssueEventMock.mockResolvedValue({ success: true })
   })
 
   it('初回配達は handler を呼び、成功したら processed=true にする', async () => {
@@ -154,5 +157,16 @@ describe('POST /api/github/webhook', () => {
 
     expect(handlePullRequestEventMock).toHaveBeenCalledTimes(2)
     expect(res.status).toBe(200)
+  })
+
+  it('event=issues は handleIssueEvent に振り分ける（GITHUB_ISSUES_LINK_SPEC §9 PR1）', async () => {
+    parseWebhookHeadersMock.mockReturnValue({ event: 'issues', delivery: DELIVERY, signature: 'sha256=sig' })
+
+    const res = await post({ action: 'opened' })
+
+    expect(handleIssueEventMock).toHaveBeenCalledTimes(1)
+    expect(handlePullRequestEventMock).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(rows.get(DELIVERY)?.processed).toBe(true)
   })
 })

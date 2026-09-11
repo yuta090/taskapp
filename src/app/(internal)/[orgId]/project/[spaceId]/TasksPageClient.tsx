@@ -964,12 +964,6 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             <Plus className="text-sm" weight="bold" />
             タスクを追加
           </button>
-          {/* お知らせベル。以前は AppShell がページ上部に単独の行として出していて、設定ボタンから
-              離れて浮いていた。ここに置くと globals.css の :has() ルールでその行が自動的に消える。
-              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
-          <div data-header-bell className="hidden md:block mr-0.5">
-            <AnnouncementBell />
-          </div>
           <Link
             href={`/portal/preview/${spaceId}`}
             data-testid="client-preview-link"
@@ -986,6 +980,12 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
           >
             <GearSix className="text-lg" />
           </Link>
+          {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+              AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block ml-0.5">
+            <AnnouncementBell />
+          </div>
         </div>
 
         {/* Bottom row: Filters + Sort — stacks into 2 rows on mobile (<md) */}

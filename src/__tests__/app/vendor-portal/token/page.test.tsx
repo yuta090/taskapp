@@ -19,7 +19,6 @@ vi.mock('next/navigation', () => ({
 
 const mockGetSession = vi.fn()
 const mockSignInWithPassword = vi.fn()
-const mockSignOut = vi.fn()
 const mockRpc = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
@@ -27,10 +26,16 @@ vi.mock('@/lib/supabase/client', () => ({
     auth: {
       getSession: mockGetSession,
       signInWithPassword: mockSignInWithPassword,
-      signOut: mockSignOut,
     },
     rpc: mockRpc,
   }),
+}))
+
+const { mockSignOutAndLeave } = vi.hoisted(() => ({
+  mockSignOutAndLeave: vi.fn(() => Promise.resolve()),
+}))
+vi.mock('@/lib/auth/signOutClient', () => ({
+  signOutAndLeave: mockSignOutAndLeave,
 }))
 
 const validInvite = {
@@ -82,6 +87,8 @@ function renderPage() {
   )
 }
 
+let locationAssignSpy: ReturnType<typeof vi.fn>
+
 describe('VendorInvitePage — 受諾動線', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -90,7 +97,11 @@ describe('VendorInvitePage — 受諾動線', () => {
     mockRpc.mockResolvedValue({ data: { ...validInvite }, error: null })
     mockFetch.mockResolvedValue(acceptResponse())
     mockSignInWithPassword.mockResolvedValue({ error: null })
-    mockSignOut.mockResolvedValue({ error: null })
+    locationAssignSpy = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: locationAssignSpy },
+      writable: true,
+    })
   })
 
   afterEach(() => {
@@ -126,17 +137,37 @@ describe('VendorInvitePage — 受諾動線', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('ログイン中でメールが一致すれば自動受諾してベンダーポータルへ（回帰）', async () => {
+  // /invite/[token] は role==='client' としか分岐せず vendor 招待を正しく導けないため
+  // （別課題として追跡）、ここでは to は現在のURLのまま。ただしこのボタンはログイン中に
+  // 押されるので pushCleanup は既定(true)のまま渡す（push購読の解除は必要）
+  it('切替案内から「別のアカウントでログインし直す」で signOutAndLeave({ to: 現在のURL }) を呼ぶ（pushCleanupは既定のまま）', async () => {
+    mockGetSession.mockResolvedValue(session('other@example.com'))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/別のアカウントでログイン中/)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログインし直す' }))
+
+    await waitFor(() => {
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: window.location.href })
+    })
+  })
+
+  it('ログイン中でメールが一致すれば自動受諾してベンダーポータルへ（回帰・フルページ遷移）', async () => {
     mockGetSession.mockResolvedValue(session('invitee@example.com'))
 
     renderPage()
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/vendor-portal')
+      expect(locationAssignSpy).toHaveBeenCalledWith('/vendor-portal')
     })
+    expect(mockPush).not.toHaveBeenCalledWith('/vendor-portal')
   })
 
-  it('未ログインの新規ユーザーはパスワード設定→受諾→ログイン→ベンダーポータルへ（回帰）', async () => {
+  it('未ログインの新規ユーザーはパスワード設定→受諾→ログイン→ベンダーポータルへ（回帰・フルページ遷移）', async () => {
     renderPage()
 
     await waitFor(() => {
@@ -155,8 +186,9 @@ describe('VendorInvitePage — 受諾動線', () => {
       })
     })
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/vendor-portal')
+      expect(locationAssignSpy).toHaveBeenCalledWith('/vendor-portal')
     })
+    expect(mockPush).not.toHaveBeenCalledWith('/vendor-portal')
   })
 
   it('無効な招待はエラーカードを表示（回帰）', async () => {

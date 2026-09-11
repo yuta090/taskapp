@@ -29,6 +29,13 @@ vi.mock('@/lib/org/activeOrg', () => ({
   clearActiveOrgId: (...args: unknown[]) => mockClearActiveOrgId(...args),
 }))
 
+// signOutAndLeave() 自身が既にフルページ遷移するため、その最中に onAuthStateChange の
+// SIGNED_OUT が発火しても二重リロードしないようにするためのガード。既定は false（実行中でない）
+let mockSignOutInProgress = false
+vi.mock('@/lib/auth/signOutClient', () => ({
+  isSignOutInProgress: () => mockSignOutInProgress,
+}))
+
 const idbGet = vi.fn()
 const idbSet = vi.fn()
 const idbDel = vi.fn()
@@ -238,6 +245,35 @@ describe('QueryProvider', () => {
 
     expect(keys).toContainEqual(['files', 'space-1', 'v2'])
     expect(keys.some((k) => k[0] === 'files' && k[3] === 'search')).toBe(false)
+  })
+
+  // GitHub Issue の紐付け候補検索(useIssueLinkCandidates)は、打鍵の切れ目ごとに
+  // 別キーが生まれる検索結果を IDB に載せない。空の検索語(候補の一覧)は載せてよい
+  // （表示速度レビューでの是正・ファイル検索と同じ理由・2026-09-11）。
+  it('GitHub Issue の紐付け候補検索は IDB に載せず、空の検索は載せる', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+    renderProvider()
+
+    await waitFor(() => {
+      expect(capturedClient).not.toBeNull()
+    })
+
+    await waitFor(() => {
+      act(() => {
+        capturedClient!.setQueryData(['space-github-issue-candidates', ['repo-1'], ''], [{ id: 'i1' }])
+        capturedClient!.setQueryData(['space-github-issue-candidates', ['repo-1'], '42'], [{ id: 'i2' }])
+      })
+      expect(idbSet).toHaveBeenCalled()
+    })
+
+    const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+    const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+    expect(keys).toContainEqual(['space-github-issue-candidates', ['repo-1'], ''])
+    expect(
+      keys.some((k) => k[0] === 'space-github-issue-candidates' && k[2] === '42')
+    ).toBe(false)
   })
 
   // --- legacy-key migration ---------------------------------------------------
@@ -461,5 +497,278 @@ describe('QueryProvider', () => {
       expect(capturedClient!.getQueryData<{ id: string }>(['currentUser'])?.id).toBe('user-A')
     })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['orgMemberships'] })
+  })
+})
+
+// --- ハードリセット: ログアウト/別ユーザーへのサインインをフルリロード無しで行うと、
+// ルート常駐のクライアント状態（ActiveOrgProvider・query observer・モジュール変数）が前の
+// ユーザーのデータを持ったまま残ってしまう。signOutAndLeave() 経由のログアウトは自身で
+// フルページ遷移するため対象外（isSignOutInProgress() で判定）。それ以外の経路
+// （フォーム外でセッションが切れた等）で SIGNED_OUT / ユーザー識別変化を検知したときは、
+// 保護されたページ（未ログインで開けるページ以外）にいる場合だけ、ここでフルリロードする。
+describe('QueryProvider — 認証状態変化でのハードリセット', () => {
+  const originalLocation = window.location
+
+  function stubLocation(pathname: string) {
+    const reloadSpy = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, pathname, reload: reloadSpy },
+      writable: true,
+      configurable: true,
+    })
+    return reloadSpy
+  }
+
+  function Probe({ onClient }: { onClient: (qc: QueryClient) => void }) {
+    const qc = useQueryClient()
+    useEffect(() => {
+      onClient(qc)
+    }, [qc, onClient])
+    return null
+  }
+
+  function renderProvider() {
+    let client: QueryClient | null = null
+    render(
+      <QueryProvider>
+        <Probe onClient={(qc) => { client = qc }} />
+      </QueryProvider>
+    )
+    return () => client
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSignOutInProgress = false
+    idbGet.mockResolvedValue(undefined)
+    idbKeys.mockResolvedValue([])
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: true,
+      configurable: true,
+    })
+    sessionStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('保護されたページで SIGNED_OUT を検知したらフルリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('/login など未ログインで開けるページでは SIGNED_OUT でもリロードしない', async () => {
+    const reloadSpy = stubLocation('/login')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+
+    // clearActiveOrgId 等、他の同期処理が終わるのを一拍待つ
+    await waitFor(() => {
+      expect(mockClearActiveOrgId).toHaveBeenCalled()
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('signOutAndLeave() 実行中（自分でフルページ遷移する）はリロードしない（二重リロード防止）', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockSignOutInProgress = true
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+
+    await waitFor(() => {
+      expect(mockClearActiveOrgId).toHaveBeenCalled()
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('保護されたページで SIGNED_IN のユーザー識別が変わったらフルリロードする（A→B）', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('同一ユーザーの SIGNED_IN（A→A）ではリロードしない', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-A'))
+    })
+
+    await waitFor(() => {
+      expect(getClient()!.getQueryData<{ id: string }>(['currentUser'])?.id).toBe('user-A')
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('初回セッション確立（null→B）ではリロードしない（サインイン識別の"変化"ではないため）', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).toBe(null))
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(getClient()!.getQueryData<{ id: string }>(['currentUser'])?.id).toBe('user-B')
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('10秒以内の連続トリガーは2回目以降リロードしない（sessionStorage の時間ガード）', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+    await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
+
+    // 直後にもう一度 SIGNED_OUT（例: 何らかの理由でイベントが重複発火）
+    act(() => {
+      authCallback('SIGNED_OUT', null)
+    })
+    await waitFor(() => expect(mockClearActiveOrgId).toHaveBeenCalledTimes(2))
+    // ガードにより2回目はリロードされない
+    expect(reloadSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('10秒経過後の再トリガーは再びリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const dateSpy = vi.spyOn(Date, 'now')
+    try {
+      dateSpy.mockReturnValue(1_000_000)
+      const getClient = renderProvider()
+      await waitFor(() => expect(getClient()).not.toBeNull())
+
+      act(() => {
+        authCallback('SIGNED_OUT', null)
+      })
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
+
+      dateSpy.mockReturnValue(1_000_000 + 10_000)
+      act(() => {
+        authCallback('SIGNED_OUT', null)
+      })
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(2))
+    } finally {
+      dateSpy.mockRestore()
+    }
+  })
+
+  it('sessionStorage が使えなくても（例外を投げても）リロードは続行する', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('sessionStorage blocked (private browsing)')
+    })
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('sessionStorage blocked (private browsing)')
+    })
+    try {
+      const getClient = renderProvider()
+      await waitFor(() => expect(getClient()).not.toBeNull())
+
+      act(() => {
+        authCallback('SIGNED_OUT', null)
+      })
+
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
+    } finally {
+      getItemSpy.mockRestore()
+      setItemSpy.mockRestore()
+    }
+  })
+
+  it('未ログインで開けるページでは SIGNED_IN のユーザー識別が変わってもリロードしない', async () => {
+    const reloadSpy = stubLocation('/login')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('SIGNED_IN', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(getClient()!.getQueryData<{ id: string }>(['currentUser'])?.id).toBe('user-B')
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('保護されたページで TOKEN_REFRESHED によるユーザー識別変化もフルリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('TOKEN_REFRESHED', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('保護されたページで INITIAL_SESSION によるユーザー識別変化もフルリロードする', async () => {
+    const reloadSpy = stubLocation('/org-1/inbox')
+    mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+    const getClient = renderProvider()
+    await waitFor(() => expect(getClient()).not.toBeNull())
+    await waitFor(() => expect(getClient()!.getQueryData(['currentUser'])).not.toBe(undefined))
+
+    act(() => {
+      authCallback('INITIAL_SESSION', sessionFor('user-B'))
+    })
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    })
   })
 })

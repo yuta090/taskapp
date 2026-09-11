@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
 
 const TaskCreateSheet = dynamic(
@@ -164,9 +165,12 @@ const SHOW_TOLERANCE_MS = DEFAULT_STALE_TIME_MS
  * （承認メール・通知などの副作用をそろえるため）。そのプロジェクトのタスクは親タスク候補・
  * 子タスクの表示にも要る。
  *
- * useTasks は直近50件しか取らないため、一覧で選んだタスクがその外にあると担当者が
- * 永遠に空配列のまま（＝ボール操作で担当者を消してしまう）になる。ensureTaskIds で
- * そのタスクだけ確実に含め、担当者が揃うまでは TaskInspector を出さない。
+ * useTasks は今はそのプロジェクトの全タスクを読み込むが、念のための保険として
+ * ensureTaskIds でこのタスクIDを明示的に含める（万一そのタスクが読み込み結果に
+ * 無いと担当者が永遠に空配列のまま＝ボール操作で担当者を消してしまうため）。
+ * 担当者が揃うまでは TaskInspector を出さない。
+ * TODO: ensureTaskIds は全件読み込みにより実質的に不要になっている。本番投入後の
+ * 様子を見て、useTasks / queries.ts と合わせて削除するクリーンアップPRを出す。
  */
 function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onDeleted }: MyTaskInspectorProps) {
   const { setInspector } = useInspector()
@@ -847,6 +851,12 @@ export default function MyTasksClient() {
           )}
           {sortLabels[filters.sortField]}
         </button>
+        {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+            AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+            モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+        <div data-header-bell className="hidden md:block ml-1">
+          <AnnouncementBell />
+        </div>
       </header>
 
       {/* Filter bar */}

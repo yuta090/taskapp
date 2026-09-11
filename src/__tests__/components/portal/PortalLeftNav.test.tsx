@@ -40,17 +40,11 @@ vi.mock('@/lib/hooks/usePortalVisibility', () => ({
   }),
 }))
 
-const { mockSignOut, mockCleanupPushOnLogout } = vi.hoisted(() => ({
-  mockSignOut: vi.fn(() => Promise.resolve()),
-  mockCleanupPushOnLogout: vi.fn(() => Promise.resolve()),
+const { mockSignOutAndLeave } = vi.hoisted(() => ({
+  mockSignOutAndLeave: vi.fn(() => Promise.resolve()),
 }))
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({
-    auth: { signOut: mockSignOut },
-  }),
-}))
-vi.mock('@/lib/push/cleanupPushOnLogout', () => ({
-  cleanupPushOnLogout: mockCleanupPushOnLogout,
+vi.mock('@/lib/auth/signOutClient', () => ({
+  signOutAndLeave: mockSignOutAndLeave,
 }))
 
 vi.mock('@/components/portal/PortalOnboardingWalkthrough', () => ({
@@ -170,16 +164,19 @@ describe('PortalLeftNav — project switcher (S6)', () => {
  * supabase.auth.signOut() directly without releasing the Web Push
  * subscription first — mirroring the fix already applied to the internal
  * app's LeftNav.tsx / OrgMenu.tsx (see src/lib/push/cleanupPushOnLogout.ts).
+ *
+ * ログアウトは signOutAndLeave() に集約した（push解除→下書き削除→signOut→フルページ遷移の
+ * 順序自体は signOutClient.test.ts で検証済み）。ここでは、正しい引数で呼ばれ、
+ * router.push/replace は呼ばれないことだけを確認する。
  */
-describe('PortalLeftNav — logout push cleanup (S7)', () => {
+describe('PortalLeftNav — ログアウトは signOutAndLeave に集約する (S7)', () => {
   beforeEach(() => {
     mockUser = { email: 'client1@example.com' }
     mockPathname = '/portal'
-    mockCleanupPushOnLogout.mockClear()
-    mockSignOut.mockClear()
+    mockSignOutAndLeave.mockClear()
   })
 
-  it('releases the push subscription before signing out', async () => {
+  it('ログアウトを押すと signOutAndLeave({ to: "/login" }) を呼ぶ', async () => {
     render(<PortalLeftNav currentProject={{ id: 'space-1', name: 'テストプロジェクト', orgId: 'org-1' }} />)
 
     fireEvent.click(screen.getByRole('button', { name: /client1/ }))
@@ -187,10 +184,6 @@ describe('PortalLeftNav — logout push cleanup (S7)', () => {
 
     await Promise.resolve()
 
-    expect(mockCleanupPushOnLogout).toHaveBeenCalled()
-    expect(mockSignOut).toHaveBeenCalled()
-    expect(mockCleanupPushOnLogout.mock.invocationCallOrder[0]).toBeLessThan(
-      mockSignOut.mock.invocationCallOrder[0]
-    )
+    expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/login' })
   })
 })

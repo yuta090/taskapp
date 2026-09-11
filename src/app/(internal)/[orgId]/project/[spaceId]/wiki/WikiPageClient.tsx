@@ -32,6 +32,7 @@ import {
 } from '@/lib/wiki/listView'
 import { useWikiListPrefs } from '@/lib/wiki/listPrefs'
 import type { Milestone, WikiPage, WikiPageVersion } from '@/types/database'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { SAVING } from '@/lib/design/tokens'
 
 // 表示モード外では計算せず共有の空配列を返す（毎レンダー新しい [] を作らない）
@@ -381,6 +382,12 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             >
               <Info className="text-lg" />
             </button>
+            {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+                AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+                モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+            <div data-header-bell className="hidden md:block -my-1">
+              <AnnouncementBell />
+            </div>
           </div>
         </div>
 
@@ -412,13 +419,21 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
             <span className="font-medium text-gray-900">Wiki</span>
           </div>
         </div>
-        <button
-          onClick={() => setIsCreateSheetOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
-        >
-          <Plus className="text-base" />
-          新規ページ
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsCreateSheetOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+          >
+            <Plus className="text-base" />
+            新規ページ
+          </button>
+          {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+              AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block">
+            <AnnouncementBell />
+          </div>
+        </div>
       </div>
 
       {/* Toolbar — 検索・タグ・作成者・並べ替え・表示項目（ページが1件以上あるときだけ出す） */}

@@ -46,8 +46,7 @@ import { useUserSpaces } from '@/lib/hooks/useUserSpaces'
 import type { UserSpace } from '@/lib/hooks/useUserSpaces'
 import { useSpaceGroups } from '@/lib/hooks/useSpaceGroups'
 import type { SpaceGroupItem } from '@/lib/hooks/useSpaceGroups'
-import { createClient } from '@/lib/supabase/client'
-import { cleanupPushOnLogout } from '@/lib/push/cleanupPushOnLogout'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { TruncatedText } from '@/components/shared'
 import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
@@ -146,17 +145,11 @@ function SubNavItem({ href, icon, label, active, collapsed, onNavigate }: SubNav
 
 function UserMenu({ collapsed }: { collapsed?: boolean }) {
   const { user, loading } = useCurrentUser()
-  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
 
   const handleLogout = useCallback(async () => {
-    // Unsubscribe push before signOut(): /api/push/unsubscribe requires a
-    // valid session, so it must run while the user is still logged in.
-    await cleanupPushOnLogout()
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-  }, [router])
+    await signOutAndLeave({ to: '/login' })
+  }, [])
 
   // Escape key handler
   useEffect(() => {

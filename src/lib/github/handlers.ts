@@ -1,10 +1,12 @@
 // GitHub Webhook Event Handlers
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { linkPRToTasks } from './task-linker'
+import { linkPRToTasks, linkIssueToTasks } from './task-linker'
 import { notifyTasksForMergedPR } from './merge-notify'
 import type {
   GitHubPullRequestPayload,
   GitHubInstallationPayload,
+  GitHubIssuePayload,
+  GithubApplyIssueStateRow,
 } from './types'
 
 let _supabaseAdmin: SupabaseClient | null = null
@@ -122,12 +124,193 @@ export async function handlePullRequestEvent(
       prId: prRecord.id,
       prNumber: pr.number,
       prTitle: pr.title,
-      prUrl: pr.html_url,
-      repoFullName: repository.full_name,
     })
   }
 
   return { success: true, linkedTasks }
+}
+
+/**
+ * became_all_closed のタスクのうち、原因が Issue のクローズであるものだけを選ぶ。
+ * 通知（PR3）はここでは出さない。紐づけ・解除のトリガー経由の再計算では通知しないのと同じく、
+ * closed 以外のイベント（opened/edited/reopened/assigned/unassigned・照合 cron 以外）でも
+ * became_all_closed が true になることは無いはずだが、念のため action で絞る（GITHUB_ISSUES_LINK_SPEC §7.4）。
+ */
+export function selectTasksBecameAllClosedByIssueClose(
+  action: string,
+  results: GithubApplyIssueStateRow[]
+): string[] {
+  if (action !== 'closed') return []
+  return results.filter((r) => r.became_all_closed).map((r) => r.task_id)
+}
+
+export interface HandleIssueEventResult {
+  success: boolean
+  results?: GithubApplyIssueStateRow[]
+  /** became_all_closed かつ原因が closed イベントのタスク（PR3 がそのまま通知に使う。ここでは通知しない） */
+  becameAllClosedByClose?: string[]
+}
+
+/**
+ * Issue イベントを処理（GITHUB_ISSUES_LINK_SPEC.md §7.1・§7.2・§9 PR1）
+ *
+ * - opened/edited/closed/reopened/assigned/unassigned: Issue の書き換えと、紐づく全タスクの
+ *   再計算を1回の RPC（github_apply_issue_state）で行う（通知の取りこぼし防止のため、
+ *   github_issues への直接の upsert はしない）
+ * - deleted: github_issues の行を削除（紐づけは cascade で消え、DB のトリガーが再計算する）
+ * - transferred: 転送先が同じ org の github_repositories にあれば repo・番号・URL を書き換える。
+ *   無ければ削除扱い（§7.1）
+ * - TP-番号の自動紐づけは opened/edited のときだけ（linkIssueToTasks に委譲）
+ * - tasks 行には一切書かない（§6-3）
+ */
+export async function handleIssueEvent(
+  data: GitHubIssuePayload
+): Promise<HandleIssueEventResult> {
+  const { action, issue, repository, installation } = data
+
+  // GitHub の Issues API は PR も Issue として返す。pull_request キーがあれば PR なので無視する
+  if (issue.pull_request) {
+    return { success: true }
+  }
+
+  const { data: inst } = await getSupabaseAdmin()
+    .from('github_installations')
+    .select('org_id')
+    .eq('installation_id', installation.id)
+    .single()
+
+  if (!inst) {
+    console.log(`Unknown installation: ${installation.id}`)
+    return { success: false }
+  }
+
+  const { data: repo } = await getSupabaseAdmin()
+    .from('github_repositories')
+    .select('id')
+    .eq('org_id', inst.org_id)
+    .eq('repo_id', repository.id)
+    .single()
+
+  if (!repo) {
+    console.log(`Unknown repository: ${repository.id}`)
+    return { success: false }
+  }
+
+  if (action === 'deleted') {
+    const { error } = await getSupabaseAdmin()
+      .from('github_issues')
+      .delete()
+      .eq('github_repo_id', repo.id)
+      .eq('issue_number', issue.number)
+
+    if (error) {
+      console.error('Failed to delete issue:', error)
+      return { success: false }
+    }
+    return { success: true }
+  }
+
+  if (action === 'transferred') {
+    const newRepoPayload = data.changes?.new_repository
+
+    const newRepo = newRepoPayload
+      ? await getSupabaseAdmin()
+          .from('github_repositories')
+          .select('id')
+          .eq('org_id', inst.org_id)
+          .eq('repo_id', newRepoPayload.id)
+          .single()
+          .then((res) => res.data as { id: string } | null)
+      : null
+
+    if (!newRepo) {
+      // 転送先が同じ org の github_repositories に無い → 削除と同じ扱い（§7.1）
+      const { error } = await getSupabaseAdmin()
+        .from('github_issues')
+        .delete()
+        .eq('github_repo_id', repo.id)
+        .eq('issue_number', issue.number)
+
+      if (error) {
+        console.error('Failed to delete transferred issue:', error)
+        return { success: false }
+      }
+      return { success: true }
+    }
+
+    const newIssueNumber = data.changes?.new_issue?.number ?? issue.number
+    const newUrl = `https://github.com/${newRepoPayload!.full_name}/issues/${newIssueNumber}`
+
+    const { error } = await getSupabaseAdmin()
+      .from('github_issues')
+      .update({
+        github_repo_id: newRepo.id,
+        issue_number: newIssueNumber,
+        url: newUrl,
+      })
+      .eq('github_repo_id', repo.id)
+      .eq('issue_number', issue.number)
+
+    if (error) {
+      console.error('Failed to update transferred issue:', error)
+      return { success: false }
+    }
+    return { success: true }
+  }
+
+  // opened/edited/closed/reopened/assigned/unassigned:
+  // Issue の書き換えと、紐づく全タスクの再計算を1つの取引で行う
+  const { data: rpcRows, error: rpcError } = await getSupabaseAdmin().rpc(
+    'github_apply_issue_state',
+    {
+      p_org_id: inst.org_id,
+      p_github_repo_id: repo.id,
+      p_issue_number: issue.number,
+      p_title: issue.title,
+      p_url: issue.html_url,
+      p_state: issue.state,
+      p_state_reason: issue.state_reason ?? null,
+      p_author_login: issue.user?.login ?? null,
+      p_assignee_logins: (issue.assignees ?? []).map((a) => a.login),
+      p_issue_created_at: issue.created_at,
+      p_closed_at: issue.closed_at,
+      p_github_updated_at: issue.updated_at,
+    }
+  )
+
+  if (rpcError) {
+    console.error('Failed to apply issue state:', rpcError)
+    return { success: false }
+  }
+
+  const results = (rpcRows ?? []) as GithubApplyIssueStateRow[]
+
+  // TP-番号の自動紐づけ（opened / edited のみ。§7.2）
+  if (action === 'opened' || action === 'edited') {
+    const { data: issueRow } = await getSupabaseAdmin()
+      .from('github_issues')
+      .select('id')
+      .eq('github_repo_id', repo.id)
+      .eq('issue_number', issue.number)
+      .single()
+
+    if (issueRow) {
+      await linkIssueToTasks(
+        getSupabaseAdmin(),
+        inst.org_id,
+        repo.id,
+        issueRow.id,
+        issue.title,
+        issue.body
+      )
+    }
+  }
+
+  return {
+    success: true,
+    results,
+    becameAllClosedByClose: selectTasksBecameAllClosedByIssueClose(action, results),
+  }
 }
 
 /**

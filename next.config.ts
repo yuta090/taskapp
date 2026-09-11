@@ -92,8 +92,9 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              // GTM のコンテナ取得と GA4 の計測送信先（GTM に GA4 以外のタグを足すときはここにも追加する）
-              `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} https://*.supabase.co wss://*.supabase.co https://www.googletagmanager.com https://*.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com`,
+              // GTM のコンテナ取得と GA4 の計測送信先（GTM に GA4 以外のタグを足すときはここにも追加する）。
+              // GA4 は www.google.com/g/collect にも送る（許可しないと CSP で止まり計測が欠ける）
+              `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} https://*.supabase.co wss://*.supabase.co https://www.googletagmanager.com https://*.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.google.com`,
               // GTM の noscript フォールバック(iframe)
               "frame-src 'self' https://vercel.live https://www.googletagmanager.com",
               "frame-ancestors 'none'",

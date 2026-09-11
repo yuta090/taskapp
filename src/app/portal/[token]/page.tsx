@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AgentPmMark } from '@/components/brand/AgentPmMark'
@@ -79,14 +80,17 @@ export default function PortalInvitePage({
         }
       }
 
-      // リダイレクト（クライアント用）
-      router.push('/portal')
+      // 受諾完了はフルページ遷移で終える（isAutoAccept=false は直前に signInWithPassword で
+      // 識別が変わりうる。isAutoAccept=true と経路を分けず一貫してフルリロードするのは
+      // invite/[token]/page.tsx と同じ方針。ルート常駐のクライアント状態
+      // ［ActiveOrgProvider・query cache］を作り直すため router.push はしない）
+      window.location.assign('/portal')
     } catch (err) {
       console.error('Accept error:', err)
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, token, router])
+  }, [password, token])
 
   useEffect(() => {
     async function loadInvite() {
@@ -191,13 +195,12 @@ export default function PortalInvitePage({
         </p>
         <AuthButton
           type="button"
-          onClick={async () => {
-            const supabase = createClient()
-            await supabase.auth.signOut()
-            setIsLoggedIn(false)
-            setSessionEmail(null)
-            setEmailMismatch(false)
-          }}
+          // /portal/[token] は proxy が保護するページ（未ログインでは開けない）なので、
+          // ログアウト後に同じURLへ戻ると /login?redirect=... へ弾かれ、アカウントを持たない
+          // クライアントが招待を受け直せなくなる。/invite/[token] は同じ token に対して
+          // rpc_validate_invite / accept API を使う公開ページで、role==='client' の招待は
+          // 受諾後 /portal へ着地するため、ここでは常にそちらへ戻す
+          onClick={() => signOutAndLeave({ to: `/invite/${token}` })}
         >
           ログアウトして招待を受ける
         </AuthButton>

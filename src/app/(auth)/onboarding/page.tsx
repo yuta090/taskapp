@@ -7,6 +7,7 @@ import { FileText } from '@phosphor-icons/react'
 import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { GenrePicker, GenrePreview, ICON_MAP } from '@/components/space/GenrePicker'
 import { createClient } from '@/lib/supabase/client'
+import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getPreset, type PresetGenre } from '@/lib/presets'
 import { recordOrgAcquisition } from '@/lib/acquisition/recordOrgAcquisition'
@@ -197,12 +198,11 @@ export default function OnboardingPage() {
     if (signingOut) return
     setSigningOut(true)
     try {
-      const supabase = createClient()
-      await supabase.auth.signOut()
+      // この画面はまだどの組織にも所属していない（Step1未完了）ので、push 購読を登録できる
+      // 場所に到達していない。pushCleanup は省略してよい
+      await signOutAndLeave({ to: '/login', pushCleanup: false })
     } catch (err) {
       console.warn('Sign out failed:', err)
-    } finally {
-      router.replace('/login')
     }
   }
 

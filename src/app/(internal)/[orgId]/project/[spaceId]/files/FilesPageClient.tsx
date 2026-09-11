@@ -18,6 +18,7 @@ import {
 } from '@/lib/files/filters'
 import { FILES_LIST_LIMIT } from '@/lib/files/limits'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import {
   useFiles,
   useFileSearch,
@@ -186,7 +187,7 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
           <FolderOpen className="text-lg text-gray-500 flex-shrink-0" />
           <Breadcrumb items={[{ label: 'プロジェクト', href: basePath }, { label: 'ファイル' }]} />
         </div>
-        <div className="ml-auto flex-shrink-0">
+        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
           <input
             ref={fileInputRef}
             type="file"
@@ -203,6 +204,12 @@ export function FilesPageClient({ orgId, spaceId }: FilesPageClientProps) {
             <Plus className="text-sm" weight="bold" />
             アップロード
           </button>
+          {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+              AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+              モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+          <div data-header-bell className="hidden md:block">
+            <AnnouncementBell />
+          </div>
         </div>
       </header>
 

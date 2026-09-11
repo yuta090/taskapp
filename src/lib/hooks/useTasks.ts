@@ -26,9 +26,13 @@ interface UseTasksOptions {
   orgId: string
   spaceId: string
   /**
-   * 一覧の直近50件に入っていなくても、必ず結果へ含めたいタスクID
+   * 一覧の読み込み結果に入っていなくても、必ず結果へ含めたいタスクID
    * （/my の詳細パネルなど）。queryKey は変えない — 変えると楽観的更新・
    * prevTask・副作用がすべて見ているキャッシュと別物になってしまうため。
+   *
+   * TODO: fetchTasksQuery は今はそのプロジェクトの全タスクを読み込むため、
+   * このオプションは実質的に不要（保険）になっている。本番投入後の様子を見て、
+   * MyTasksClient / queries.ts と合わせて削除するクリーンアップPRを出す。
    */
   ensureTaskIds?: string[]
 }

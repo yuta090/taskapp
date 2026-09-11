@@ -7,6 +7,7 @@ import { BurndownChart, BurndownControls } from '@/components/burndown'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useBurndown } from '@/lib/hooks/useBurndown'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
+import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { ViewsTabNav } from '@/components/shared/ViewsTabNav'
 
 interface BurndownPageClientProps {
@@ -66,6 +67,12 @@ export function BurndownPageClient({ orgId, spaceId }: BurndownPageClientProps) 
         <div className="flex items-center gap-2">
           <ChartLine className="text-lg text-gray-500" />
           <Breadcrumb items={breadcrumbItems} />
+        </div>
+        {/* お知らせベル。ヘッダーの一番右に置く。この目印(data-header-bell)があると、
+            AppShell がページ上部に出す「ベルだけの1行」が globals.css の :has() で消える。
+            モバイルは AppShell のヘッダーにベルがあるので md 未満では出さない。 */}
+        <div data-header-bell className="hidden md:block ml-auto -my-1.5">
+          <AnnouncementBell />
         </div>
       </div>
 

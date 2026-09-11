@@ -21,7 +21,6 @@ vi.mock('next/navigation', () => ({
 
 const mockGetSession = vi.fn()
 const mockSignInWithPassword = vi.fn()
-const mockSignOut = vi.fn()
 const mockRpc = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
@@ -29,10 +28,16 @@ vi.mock('@/lib/supabase/client', () => ({
     auth: {
       getSession: mockGetSession,
       signInWithPassword: mockSignInWithPassword,
-      signOut: mockSignOut,
     },
     rpc: mockRpc,
   }),
+}))
+
+const { mockSignOutAndLeave } = vi.hoisted(() => ({
+  mockSignOutAndLeave: vi.fn(() => Promise.resolve()),
+}))
+vi.mock('@/lib/auth/signOutClient', () => ({
+  signOutAndLeave: mockSignOutAndLeave,
 }))
 
 const validInvite = {
@@ -84,6 +89,8 @@ function renderPage() {
   )
 }
 
+let locationAssignSpy: ReturnType<typeof vi.fn>
+
 describe('PortalInvitePage — 受諾動線', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -92,7 +99,11 @@ describe('PortalInvitePage — 受諾動線', () => {
     mockRpc.mockResolvedValue({ data: { ...validInvite }, error: null })
     mockFetch.mockResolvedValue(acceptResponse())
     mockSignInWithPassword.mockResolvedValue({ error: null })
-    mockSignOut.mockResolvedValue({ error: null })
+    locationAssignSpy = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: locationAssignSpy },
+      writable: true,
+    })
   })
 
   afterEach(() => {
@@ -131,7 +142,13 @@ describe('PortalInvitePage — 受諾動線', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('切替案内から「ログアウトして招待を受ける」でサインアウトし通常フォームへ', async () => {
+  // /portal/[token] は proxy に保護されているため（未ログインでは開けない）、ログアウト後に
+  // 同じURLへ戻ると /login?redirect=... に弾かれ、アカウントを持たないクライアントが招待を
+  // 受け直せなくなる（回帰）。/invite/[token] は同じ token に対応する公開ページで、
+  // role==='client' の招待は受諾後 /portal へ着地するため、必ずそちらへ戻す。
+  // また、このボタンはログイン中に押されるので pushCleanup は既定(true)のまま渡す
+  // （push購読の解除は必要）
+  it('切替案内から「ログアウトして招待を受ける」で signOutAndLeave({ to: "/invite/tok-1" }) を呼ぶ（公開ページへ・pushCleanupは既定のまま）', async () => {
     mockGetSession.mockResolvedValue(session('other@example.com'))
 
     renderPage()
@@ -143,14 +160,11 @@ describe('PortalInvitePage — 受諾動線', () => {
     fireEvent.click(screen.getByRole('button', { name: /ログアウトして招待を受ける/ }))
 
     await waitFor(() => {
-      expect(mockSignOut).toHaveBeenCalled()
-    })
-    await waitFor(() => {
-      expect(screen.getByLabelText(/^パスワードを設定\*?$/)).toBeInTheDocument()
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/invite/tok-1' })
     })
   })
 
-  it('ログイン中でメールが一致すれば自動受諾してポータルへ（回帰）', async () => {
+  it('ログイン中でメールが一致すれば自動受諾してポータルへ（回帰・フルページ遷移）', async () => {
     mockGetSession.mockResolvedValue(session('invitee@example.com'))
 
     renderPage()
@@ -162,11 +176,12 @@ describe('PortalInvitePage — 受諾動線', () => {
       )
     })
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/portal')
+      expect(locationAssignSpy).toHaveBeenCalledWith('/portal')
     })
+    expect(mockPush).not.toHaveBeenCalledWith('/portal')
   })
 
-  it('未ログインの新規ユーザーはパスワード設定→受諾→ログイン→ポータルへ（回帰）', async () => {
+  it('未ログインの新規ユーザーはパスワード設定→受諾→ログイン→ポータルへ（回帰・フルページ遷移）', async () => {
     renderPage()
 
     await waitFor(() => {
@@ -185,8 +200,9 @@ describe('PortalInvitePage — 受諾動線', () => {
       })
     })
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/portal')
+      expect(locationAssignSpy).toHaveBeenCalledWith('/portal')
     })
+    expect(mockPush).not.toHaveBeenCalledWith('/portal')
   })
 
   it('無効な招待はエラーカードを表示（回帰）', async () => {

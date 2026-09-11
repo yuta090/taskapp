@@ -169,7 +169,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Suspense>
 
         {/* 2) Center area - Main + Inspector grouped together */}
-        <div className="flex-1 min-h-0 flex justify-center bg-gray-50/50 pt-12 md:pt-0">
+        {/* min-w-0 が要る。これが無いと中央エリアが「中身の最小幅」までふくらみ、
+            画面より広くなった右端が切り落とされる（ガントで実際に main が 1600px に
+            なり、ヘッダー右端のベル・案内文・ビュー切替タブが画面外に出ていた）。
+            下限を外せば画面幅に収まり、はみ出しは中身側の overflow で処理される。 */}
+        <div className="flex-1 min-w-0 min-h-0 flex justify-center bg-gray-50/50 pt-12 md:pt-0">
           <div className="flex h-full min-h-0 w-full max-w-[1600px]">
             {/* Main Content */}
             <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface relative z-0">
