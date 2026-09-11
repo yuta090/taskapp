@@ -40,6 +40,32 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // リポジトリ一覧・リポジトリ名は GitHub を接続した本人だけに見せる。
+  // github_installations は RLS で created_by = 自分 の行しか返らないため、
+  // ログイン中の本人のセッションで読んで 0 行なら本人ではないと判定できる。
+  const { data: installation, error: installationError } = await supabase
+    .from('github_installations')
+    .select('id')
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  // 問い合わせ自体が失敗したときは「本人ではない(403)」と区別する。ここを区別しないと、
+  // 一時的な障害のたびに本人にまで「接続した人だけが操作できます」という誤った案内が出る。
+  if (installationError) {
+    console.error('Failed to check GitHub installation ownership:', installationError)
+    return NextResponse.json(
+      { error: '接続状態の確認に失敗しました' },
+      { status: 500 }
+    )
+  }
+
+  if (!installation) {
+    return NextResponse.json(
+      { error: 'GitHub を接続した人だけが操作できます' },
+      { status: 403 }
+    )
+  }
+
   // リポジトリ一覧取得
   const { data: repositories, error } = await supabase
     .from('github_repositories')

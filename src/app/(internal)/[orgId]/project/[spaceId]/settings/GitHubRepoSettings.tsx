@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { GithubLogo, Link as LinkIcon, Trash, Plus, ArrowSquareOut, CheckCircle, ArrowRight } from '@phosphor-icons/react'
 import {
   useGitHubInstallation,
@@ -8,11 +8,14 @@ import {
   useSpaceGitHubRepos,
   useLinkRepoToSpace,
   useUnlinkRepoFromSpace,
+  useGitHubConnection,
+  useUserName,
 } from '@/lib/hooks'
 import { isGitHubConfigured } from '@/lib/github/enabled'
 import { toast } from 'sonner'
 import { useConfirmDialog } from '@/components/shared'
 import { ToolSetupGuide } from '@/components/integrations/ToolSetupGuide'
+import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import Link from 'next/link'
 
 interface GitHubRepoSettingsProps {
@@ -25,10 +28,26 @@ export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) 
   const [selectedRepoId, setSelectedRepoId] = useState<string>('')
 
   const { data: installation, isLoading: loadingInstallation } = useGitHubInstallation(orgId)
-  const { data: repositories = [], isLoading: loadingRepos } = useGitHubRepositories(orgId)
-  const { data: linkedRepos = [], isLoading: loadingLinked } = useSpaceGitHubRepos(spaceId)
+  // リポジトリ一覧・リポジトリ名は GitHub を接続した本人にしか見えない（RLS）ため、
+  // 「いま誰が接続しているか」は社内メンバーに返るこの RPC 経由の状態で出し分ける。
+  const { data: connection, isPending: pendingConnection } = useGitHubConnection(orgId)
+  const isMe = connection?.isMe === true
+  // 本人だと確定するまでは、そもそも問い合わせに行かない（本人以外には空の結果が
+  // 返るだけの無駄な往復になるうえ、RLS前提の空配列と「まだ聞いていない」が区別できなくなる）
+  const { data: repositories = [], isLoading: loadingRepos } = useGitHubRepositories(isMe ? orgId : undefined)
+  const { data: linkedRepos = [], isLoading: loadingLinked } = useSpaceGitHubRepos(isMe ? spaceId : undefined)
   const linkRepo = useLinkRepoToSpace()
   const unlinkRepo = useUnlinkRepoFromSpace()
+
+  // 接続を始められるのは組織のオーナーだけ。「いま選んでいる組織」ではなく所属組織一覧から
+  // このプロジェクトの orgId に一致する役割を見る（ApiSettings と同じ判定）
+  const ctx = useContext(ActiveOrgContext)
+  const isOrgOwner = ctx.orgs.find((o) => o.orgId === orgId)?.role === 'owner'
+
+  // 接続した人の表示名。プロジェクトのメンバーとは限らない（組織のオーナーだが
+  // このプロジェクトの参加者ではない、等）ため、組織設定の GitHubOrgConnectionCard と
+  // 同じく profiles を直接引く useUserName を使う（本人のときは問い合わせない）
+  const { name: connectedByName } = useUserName(connection && !isMe ? connection.connectedBy : null)
 
   const isConfigured = isGitHubConfigured()
 
@@ -78,7 +97,10 @@ export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) 
     )
   }
 
-  const isLoading = loadingInstallation || loadingRepos || loadingLinked
+  // connection は isPending（まだデータが無い）で見る。isLoading（実際に通信中）だと、
+  // IDBからの復元直後の一瞬（fetchStatusがidleでデータもまだ無い）を素通りしてしまい、
+  // 本当は接続済みでも「未接続」が一瞬出てしまう。
+  const isLoading = loadingInstallation || loadingRepos || loadingLinked || pendingConnection
 
   return (
     <div className="space-y-4">
@@ -94,25 +116,43 @@ export function GitHubRepoSettings({ orgId, spaceId }: GitHubRepoSettingsProps) 
 
       {isLoading ? (
         <div className="p-4 text-sm text-gray-500">読み込み中...</div>
-      ) : !installation ? (
+      ) : !connection?.connected ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
           <p className="text-sm text-amber-800">
             GitHubアプリが組織にインストールされていません。
           </p>
-          <Link
-            href="/settings/org-integrations"
-            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-          >
-            組織設定で連携する
-            <ArrowRight className="text-xs" />
-          </Link>
+          {isOrgOwner ? (
+            <Link
+              href="/settings/org-integrations"
+              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+            >
+              組織設定で連携する
+              <ArrowRight className="text-xs" />
+            </Link>
+          ) : (
+            <p className="text-sm text-amber-700">組織のオーナーが接続できます。</p>
+          )}
+        </div>
+      ) : !isMe ? (
+        // 接続済みだが本人ではない: github_installations / github_repositories は RLS で
+        // 本人以外に0行しか返らないため、リポジトリ一覧・追加/解除は出さず接続者名だけ出す
+        <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle className="text-green-500" weight="fill" />
+            <span className="text-gray-600">
+              GitHub は接続済みです（接続した人: <strong>{connectedByName || '...'}</strong>）
+            </span>
+          </div>
+          <p className="text-xs text-gray-500">
+            リポジトリの追加・解除は、接続した人だけができます。
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle className="text-green-500" weight="fill" />
             <span className="text-gray-600">
-              <strong>{installation.account_login}</strong> と連携中
+              <strong>{installation?.account_login}</strong> と連携中
             </span>
           </div>
 
