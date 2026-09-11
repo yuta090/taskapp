@@ -219,8 +219,8 @@ describe('MyTasksClient — タスクの詳細を右側に出す', () => {
 
     await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
     expect(lastInspectorNode()?.props.spaceId).toBe('space-1')
-    // 50件の外にあっても担当者が揃うまで待てるよう、そのタスクIDを明示して取得する
-    expect(mocks.useTasksArgs).toContainEqual({ orgId: 'org-1', spaceId: 'space-1', ensureTaskIds: ['t1'] })
+    // useTasks はプロジェクトの全タスクを読み込むため、タスクIDを明示指定する補完オプションは渡さない
+    expect(mocks.useTasksArgs).toContainEqual({ orgId: 'org-1', spaceId: 'space-1' })
     // ページは移動せず、URL にだけ選択中のタスクを残す（再読み込み・共有で同じ表示に戻せる）
     expect(window.location.pathname).toBe('/my')
     expect(new URLSearchParams(window.location.search).get('task')).toBe('t1')

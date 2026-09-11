@@ -1,15 +1,19 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchTasksQuery, fetchMeetingsQuery, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
+import {
+  fetchTasksQuery,
+  fetchMeetingsQuery,
+  collectRemainingPages,
+  MEETING_LIST_COLUMNS,
+  TASKS_PAGE_SIZE,
+  MAX_COLLECT_PAGES,
+} from '@/lib/supabase/queries'
 
 /**
  * fetchTasksQuery は空間(space)の全タスクを、TASKS_PAGE_SIZE件ずつ range ページングで
  * 全件読む（PostgRESTの1リクエストあたりの上限がデフォルト1000件のため、range指定なしでは
- * 大きいプロジェクトで黙って打ち切られる）。1ページ目は reviews / ensureTaskIds と同じ
- * Promise.all で並列取得し、1ページ目がちょうど TASKS_PAGE_SIZE 件だった場合のみ続きの
- * ページを順番に取得する。
- *
- * ensureTaskIds は「一覧の（読み込み済み）結果に入っていなくても、詳細表示のために
- * 必ず含めたいタスクID」を、同じ Promise.all の中で追加取得し重複なく足す機能。
+ * 大きいプロジェクトで黙って打ち切られる）。1ページ目は reviews と同じ Promise.all で
+ * 並列取得し、1ページ目がちょうど TASKS_PAGE_SIZE 件だった場合のみ続きのページを
+ * 順番に取得する。
  */
 
 type TableChain = {
@@ -23,11 +27,10 @@ type TableChain = {
 /**
  * tasks テーブル用のチェイン可能モック。
  * pageResults は `.range()` が呼ばれるたびに順番に返す結果（1回目=1ページ目、2回目=2ページ目…）。
+ * `.in()` は fetchTasksQuery からはもう発行されない（補完クエリ廃止）が、それを確かめる
+ * ためだけにモックとして残す。
  */
-function makeTasksChain(
-  pageResults: Array<{ data: unknown[]; error: unknown }>,
-  inResult: { data: unknown[]; error: unknown } = { data: [], error: null }
-): TableChain {
+function makeTasksChain(pageResults: Array<{ data: unknown[]; error: unknown }>): TableChain {
   const chain = {} as TableChain
   let pageCall = 0
   chain.select = vi.fn(() => chain)
@@ -38,7 +41,7 @@ function makeTasksChain(
     pageCall += 1
     return Promise.resolve(result)
   })
-  chain.in = vi.fn(() => Promise.resolve(inResult))
+  chain.in = vi.fn(() => Promise.resolve({ data: [], error: null }))
   return chain
 }
 
@@ -162,97 +165,40 @@ describe('fetchTasksQuery — 全件をページングで読む', () => {
     })
   })
 
-  it('ensureTaskIds は2ページ目まで読み込んだ全件に対して重複を除いて追加する', async () => {
-    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) => makeTask(`p1-${i}`))
-    const page2 = [makeTask('p2-0')]
-    const tasksChain = makeTasksChain(
-      [
-        { data: page1, error: null },
-        { data: page2, error: null },
-      ],
-      // ensureTaskIds で 'p2-0'（既に2ページ目に含まれる）と 'z'（未含有）を要求
-      { data: [makeTask('p2-0'), makeTask('z')], error: null }
+  it('1ページ目・2ページ目それぞれの task_owners を owners へ id ごとに取り出し、tasks側には残さない', async () => {
+    // ensureTaskIds 撤去後、担当者を揃えるのはこの取り出し処理だけになった。ここが壊れると
+    // ボールを渡すときに担当者が空のまま rpc_pass_ball に渡り、担当者が消えてしまう。
+    const owner1 = { id: 'o1', task_id: 'p1-0', side: 'internal', user_id: 'u1' }
+    const owner2 = { id: 'o2', task_id: 'p2-0', side: 'client', user_id: 'u2' }
+    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) =>
+      i === 0 ? makeTask('p1-0', { task_owners: [owner1] }) : makeTask(`p1-${i}`)
     )
+    const page2 = [makeTask('p2-0', { task_owners: [owner2] })]
+    const tasksChain = makeTasksChain([
+      { data: page1, error: null },
+      { data: page2, error: null },
+    ])
     const supabase = makeSupabase(tasksChain)
 
-    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1', {
-      ensureTaskIds: ['p2-0', 'z'],
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    expect(result.owners['p1-0']).toEqual([owner1])
+    expect(result.owners['p2-0']).toEqual([owner2])
+    result.tasks.forEach((t) => {
+      expect((t as unknown as { task_owners?: unknown }).task_owners).toBeUndefined()
     })
-
-    expect(result.tasks).toHaveLength(TASKS_PAGE_SIZE + 2) // page1 + page2(1件) + z(1件)、p2-0は重複させない
-    const ids = result.tasks.map((t) => t.id)
-    expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toContain('z')
-  })
-})
-
-describe('fetchTasksQuery — ensureTaskIds（一覧の読み込み範囲外のタスクを補完取得する）', () => {
-  it('読み込み済みに無い ensureTaskIds のタスクを、担当者ごと結果へ追加する', async () => {
-    const tasksChain = makeTasksChain(
-      [{ data: [{ id: 'a', title: 'A', task_owners: [] }], error: null }],
-      { data: [{ id: 'z', title: 'Z', task_owners: [{ id: 'o1', task_id: 'z', side: 'internal', user_id: 'u1' }] }], error: null }
-    )
-    const supabase = makeSupabase(tasksChain)
-
-    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1', { ensureTaskIds: ['z'] })
-
-    expect(result.tasks.map((t) => t.id).sort()).toEqual(['a', 'z'])
-    expect(result.owners['z']).toEqual([{ id: 'o1', task_id: 'z', side: 'internal', user_id: 'u1' }])
-    // 同じ Promise.all の中で並列に取得している（.in が呼ばれている）こと
-    expect(tasksChain.in).toHaveBeenCalledWith('id', ['z'])
+    // task_owners を同じクエリで一緒に読んでいること（実装どおりの列指定）
+    expect(tasksChain.select).toHaveBeenCalledWith('*, task_owners (*)')
   })
 
-  it('読み込み済みに既にある id は重複させない', async () => {
-    const tasksChain = makeTasksChain(
-      [{ data: [{ id: 'a', title: 'A', task_owners: [] }], error: null }],
-      { data: [{ id: 'a', title: 'A', task_owners: [] }], error: null }
-    )
-    const supabase = makeSupabase(tasksChain)
-
-    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1', { ensureTaskIds: ['a'] })
-
-    expect(result.tasks.map((t) => t.id)).toEqual(['a'])
-  })
-
-  it('ensureTaskIds が無いときは補完クエリを発行しない', async () => {
-    const tasksChain = makeTasksChain(
-      [{ data: [{ id: 'a', title: 'A', task_owners: [] }], error: null }],
-      { data: [{ id: 'z', title: 'Z', task_owners: [] }], error: null }
-    )
+  it('補完クエリ（.in(\'id\', …)）は発行しない（options 自体を廃止済み）', async () => {
+    const tasksChain = makeTasksChain([{ data: [makeTask('a')], error: null }])
     const supabase = makeSupabase(tasksChain)
 
     const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
 
     expect(result.tasks.map((t) => t.id)).toEqual(['a'])
     expect(tasksChain.in).not.toHaveBeenCalled()
-  })
-
-  it('補完クエリがエラーのときは、本体の結果を握りつぶさず reject する', async () => {
-    // ensureTaskIds は「選択中タスクを確実に含める」という呼び出し元の要求そのもの。ここを
-    // reviews のように警告だけで握りつぶすと、一時的な失敗で選択中タスクがキャッシュから
-    // 静かに消え、開いている詳細パネルが「見つからない」表示に化けてしまう（D）。
-    // react-query に失敗として扱わせ、前回の（選択中タスクを含んだ）データを保持させる。
-    const tasksChain = makeTasksChain(
-      [{ data: [{ id: 'a', title: 'A', task_owners: [] }], error: null }],
-      { data: [], error: { message: 'boom' } }
-    )
-    const supabase = makeSupabase(tasksChain)
-
-    await expect(
-      fetchTasksQuery(supabase, 'org-1', 'space-1', { ensureTaskIds: ['z'] })
-    ).rejects.toMatchObject({ message: 'boom' })
-  })
-
-  it('ensureTaskIds が無いときは、たとえ本体クエリ以外が失敗していても reject しない（補完クエリを発行していないため）', async () => {
-    const tasksChain = makeTasksChain(
-      [{ data: [{ id: 'a', title: 'A', task_owners: [] }], error: null }],
-      { data: [], error: { message: 'boom' } }
-    )
-    const supabase = makeSupabase(tasksChain)
-
-    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
-
-    expect(result.tasks.map((t) => t.id)).toEqual(['a'])
   })
 })
 
@@ -374,5 +320,110 @@ describe('fetchMeetingsQuery — 全件をページングで読む', () => {
       { id: 'p1', meeting_id: 'a', side: 'client', user_id: 'u1' },
     ])
     expect((result.meetings[0] as unknown as { meeting_participants?: unknown }).meeting_participants).toBeUndefined()
+  })
+})
+
+/**
+ * collectRemainingPages は fetchTasksQuery/fetchMeetingsQuery 以外の呼び出し元
+ * （例: ポータルの会議一覧 fetchPortalMeetingsData）からも使えるよう export されている。
+ * ここではテーブル固有の形に依らない、ヘルパー単体としての振る舞いを確かめる。
+ */
+describe('collectRemainingPages（export された共通ヘルパー単体）', () => {
+  it('1ページ目が pageSize 未満なら続きのページを取得しない', async () => {
+    const fetchPage = vi.fn()
+    const firstPage = [{ id: 'a' }, { id: 'b' }]
+
+    const result = await collectRemainingPages(firstPage, fetchPage, 10)
+
+    expect(result).toEqual(firstPage)
+    expect(fetchPage).not.toHaveBeenCalled()
+  })
+
+  it('1ページ目がちょうど pageSize 件なら続きを取得し、境界の重複idを1件にまとめる', async () => {
+    const firstPage = [{ id: 'a' }, { id: 'b' }]
+    // 1回目は pageSize と同数（=まだ続きがあるかもしれない）を返し、2回目（呼ばれなければ
+    // 既定値）は pageSize 未満（=空）を返して読み切りを終える。fetchPage が常に pageSize
+    // と同数を返し続ける固定モックにすると collectRemainingPages が無限ループし OOM する
+    // ため、必ずページが尽きるキュー形式のモックにする。
+    const pageResults = [{ data: [{ id: 'b' }, { id: 'c' }], error: null }]
+    let callCount = 0
+    const fetchPage = vi.fn(() => {
+      const result = pageResults[callCount] ?? { data: [], error: null }
+      callCount += 1
+      return Promise.resolve(result)
+    })
+
+    const result = await collectRemainingPages(firstPage, fetchPage, 2)
+
+    expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c'])
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+    expect(fetchPage).toHaveBeenNthCalledWith(1, 2, 3)
+    expect(fetchPage).toHaveBeenNthCalledWith(2, 4, 5)
+  })
+
+  it('ページ取得がエラーを返すと reject する', async () => {
+    const firstPage = [{ id: 'a' }, { id: 'b' }]
+    const fetchPage = vi.fn(() => Promise.resolve({ data: null, error: { message: 'boom' } }))
+
+    await expect(collectRemainingPages(firstPage, fetchPage, 2)).rejects.toMatchObject({
+      message: 'boom',
+    })
+  })
+
+  /**
+   * 呼び出し元が .range() を付け忘れる等でDBが「常に満杯（pageSizeと同数）」を返し続ける
+   * バグを踏むと、従来はページ取得が終わらず無限ループしてしまっていた（テスト実装中に
+   * 実際にJSヒープを使い切ってクラッシュした）。呼び出し元が増えたため、ページ数に
+   * 上限を設けて安全に停止できることを確かめる。
+   *
+   * このテスト自身のモックも「常に満杯」を返し続けるため、万一実装側の上限が効かない
+   * 場合にテストプロセスがOOMしないよう、モック側にも呼び出し回数の安全弁を設けている。
+   */
+  it('DBが常に満杯を返し続けても、ページ数の上限に達するとエラーを投げて停止する', async () => {
+    const pageSize = 10
+    const firstPage = Array.from({ length: pageSize }, (_, i) => ({ id: `p0-${i}` }))
+    // 固定の安全弁（MAX_COLLECT_PAGES を使わない）。実装が未修正/上限が壊れている場合でも
+    // テストプロセスが長時間ハングしたりOOMしたりしないようにするための保険なので、
+    // 実装側の値に依存させない（未実装で MAX_COLLECT_PAGES が undefined でも安全に動く）。
+    const TEST_SAFETY_CAP = 200
+    let callCount = 0
+    const fetchPage = vi.fn(() => {
+      callCount += 1
+      if (callCount > TEST_SAFETY_CAP) {
+        throw new Error(
+          `test safety cap (${TEST_SAFETY_CAP}) exceeded — collectRemainingPages did not stop`
+        )
+      }
+      return Promise.resolve({
+        data: Array.from({ length: pageSize }, (_, i) => ({ id: `p${callCount}-${i}` })),
+        error: null,
+      })
+    })
+
+    await expect(collectRemainingPages(firstPage, fetchPage, pageSize)).rejects.toThrow(
+      new RegExp(String(MAX_COLLECT_PAGES))
+    )
+    // 上限ページ数までしか呼ばれず、そこで止まっていること
+    expect(fetchPage).toHaveBeenCalledTimes(MAX_COLLECT_PAGES - 1)
+  })
+})
+
+/**
+ * notes はどの画面でも読んでおらず、一覧の全件ぶんが読み込まれブラウザの永続キャッシュ
+ * (IndexedDB)にも保存されるだけの無駄なので、一覧クエリでは読まない。
+ *
+ * minutes_md（議事録本文）は詳細パネル専用。一覧には含めず、開いたときに
+ * useMeetings.fetchMeetingDetail が `select('*')` でオンデマンド取得する。一覧の行が
+ * `minutes_md === undefined` のままであること自体が「詳細をまだ取っていない」の
+ * 目印(MeetingsPageClient)として使われているため、null 等に揃えず、そのまま
+ * 列自体を返さないでおく必要がある。
+ */
+describe('MEETING_LIST_COLUMNS — 使っていない列は読まない・議事録本文は一覧に含めない', () => {
+  it('notes を含まない', () => {
+    expect(MEETING_LIST_COLUMNS).not.toMatch(/\bnotes\b/)
+  })
+
+  it('minutes_md を含まない（詳細パネルの fetchMeetingDetail が別途取得するため）', () => {
+    expect(MEETING_LIST_COLUMNS).not.toMatch(/\bminutes_md\b/)
   })
 })

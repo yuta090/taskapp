@@ -109,18 +109,104 @@ interface PersisterDeps {
  * Default-deny: while the uid is unknown (no session), every method is a
  * no-op. We never read or write an unscoped/shared key, which is what
  * caused the cross-tenant leak this design replaces.
+ *
+ * Write throttling + sticky disable (Fable裁定):
+ * react-query calls `persistClient` on every single cache add/remove/update
+ * event, with no throttling of its own. Now that project task lists are
+ * fetched in full, a single write can be large, so writes to IDB are
+ * coalesced to at most once per second — `persistClient` only records the
+ * latest snapshot (`pending`) and arms a single 1s timer; the timer's
+ * `flush()` is what actually calls `set`. The retained snapshot is a *live*
+ * reference to `state.data` for up to 1s, but react-query treats query data
+ * as immutable (structural sharing hands back a new object on every change
+ * rather than mutating in place), so the referenced snapshot never changes
+ * out from under us while it waits to be flushed.
+ *
+ * `boundUid` is resolved once inside `restoreClient` and then fixed for the
+ * lifetime of this persister instance ("uid が文書ごとに固定される" — a
+ * document that starts on the login screen has no session, so `boundUid`
+ * is `null` and that document never persists; the next user's data is only
+ * ever written from the *next* document, loaded fresh after a full
+ * navigation post-login). `persistDisabled` is a one-way ratchet: once a
+ * user-identity change or sign-out is observed, this persister instance
+ * never writes again, even if the same user signs back in — a fresh
+ * persister (and a fresh `boundUid`) only comes from a fresh page load.
  */
-function makeIdbPersister({ supabase, queryClient, currentUserIdRef }: PersisterDeps): Persister {
+function makeIdbPersister(
+  { supabase, queryClient, currentUserIdRef }: PersisterDeps
+): Persister & { disablePersistence(): void; cancelPending(): void } {
+  let boundUid: string | null = null
+  let persistDisabled = false
+  let pending: PersistedClient | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  function canPersist(): boolean {
+    return (
+      !persistDisabled &&
+      boundUid !== null &&
+      currentUserIdRef.current === boundUid &&
+      // signOut() 呼び出し後、通信が失敗するなどして SIGNED_OUT が発火しないまま
+      // /login へ遷移する経路がある。その間もここで書かない側に倒しておく
+      // （判定を厳しくする方向なので安全 — メイン判断済み）。
+      !isSignOutInProgress()
+    )
+  }
+
+  /** 今 予約されている書き込みだけを取り消す（粘着させない）。timer/pending の
+   *  後片付けのみで、`persistDisabled` には触れない。 */
+  function cancelPending() {
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+    pending = null
+  }
+
+  async function flush() {
+    timer = null
+    const client = pending
+    pending = null
+    if (!client) return
+    // Re-check right before writing — the 1s wait is exactly the window in
+    // which sign-out/user-switch can happen.
+    if (!canPersist()) return
+    const key = idbKey(boundUid!)
+    try {
+      await set(key, client)
+    } catch {
+      // IDB write failures (e.g. QuotaExceededError) are best-effort —
+      // persistence is a cache warmer, not a source of truth. Swallow so we
+      // never produce an unhandled promise rejection from a timer callback.
+    }
+    // Identity may have changed again while `set` was in flight — we
+    // `await`ed `set` above, so that's what actually orders "set, then
+    // maybe del" here. The underlying IDB connection's own ordering only
+    // matters for the separate case where something else (e.g.
+    // clearQueryCache() from a SIGNED_OUT that fired while `set` was still
+    // pending) issues its own `del` concurrently with this `set`.
+    if (!canPersist()) {
+      try {
+        await del(key)
+      } catch {
+        // Best-effort cleanup — nothing else depends on this succeeding,
+        // and a timer callback must never produce an unhandled rejection.
+      }
+    }
+  }
+
   return {
     persistClient: async (client: PersistedClient) => {
-      const uid = currentUserIdRef.current
-      if (!uid) return
-      await set(idbKey(uid), client)
+      if (!canPersist()) return
+      pending = client
+      if (timer === null) {
+        timer = setTimeout(() => { void flush() }, 1000)
+      }
     },
     restoreClient: async () => {
       const { data } = await supabase.auth.getSession()
       const uid = data.session?.user?.id ?? null
       currentUserIdRef.current = uid
+      boundUid = uid
 
       // Seed ['currentUser'] immediately — zero extra wait, and this is the
       // only place currentUser data ever comes from since it's excluded
@@ -131,10 +217,14 @@ function makeIdbPersister({ supabase, queryClient, currentUserIdRef }: Persister
       return await get<PersistedClient>(idbKey(uid))
     },
     removeClient: async () => {
-      const uid = currentUserIdRef.current
-      if (!uid) return
-      await del(idbKey(uid))
+      if (!boundUid) return
+      await del(idbKey(boundUid))
     },
+    disablePersistence: () => {
+      persistDisabled = true
+      cancelPending()
+    },
+    cancelPending,
   }
 }
 
@@ -219,6 +309,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       invalidateCachedUser()
 
       if (event === 'SIGNED_OUT') {
+        // Stop the persister first: it must never write another snapshot
+        // for the user who just signed out, including anything already
+        // debounced and waiting on its 1s timer.
+        persister.disablePersistence()
         currentUserIdRef.current = null
         clearAllCaches()
         queryClient.setQueryData(['currentUser'], null)
@@ -241,6 +335,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
 
         // User identity changed — clear stale cache from previous user
         if (prevUserId && newUserId && prevUserId !== newUserId) {
+          // Same as SIGNED_OUT: stop the persister before touching caches,
+          // so nothing debounced for the previous user can still land.
+          persister.disablePersistence()
           clearAllCaches()
           // signOutAndLeave() を経由しない識別変化（例: 別タブでの別ユーザーログイン）も同様に
           // フルリロードで作り直す
@@ -265,8 +362,18 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: ['orgMemberships'] })
       }
     })
-    return () => subscription.unsubscribe()
-  }, [supabase, queryClient, clearAllCaches])
+    return () => {
+      subscription.unsubscribe()
+      // Next 16 の開発既定である StrictMode は、この effect を「実行→片付け→
+      // 再実行」で一度余分に走らせる。`persister` は useState に保持されたまま
+      // 生き延びる（片付けで作り直されない）ため、ここで disablePersistence()
+      // （粘着・二度と戻らない）を呼ぶと、開発環境ではこの文書が一度も保存
+      // されないまま固定されてしまう。ここでは「今 予約されている書き込み
+      // だけ」を取り消す cancelPending() を使う。本当の身元喪失（SIGNED_OUT・
+      // uid交代）は上の分岐で disablePersistence() を使う。
+      persister.cancelPending()
+    }
+  }, [supabase, queryClient, clearAllCaches, persister])
 
   return (
     <PersistQueryClientProvider

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { PortalMeetingsClient } from './PortalMeetingsClient'
 import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import { getClientProjects, resolveCurrentProject } from '@/lib/portal/getClientProjects'
+import { fetchPortalMeetingsData } from '@/lib/portal/fetchPortalMeetingsData'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface PageProps {
@@ -40,58 +41,20 @@ export default async function PortalMeetingsPage({ searchParams }: PageProps) {
     redirect('/portal')
   }
 
-  // meetings と actionCount を並列取得（spaceId 確定後）
-  const [meetingsResult, actionCountResult] = await Promise.all([
-    supabase
-      .from('meetings')
-      .select(`
-        id,
-        title,
-        held_at,
-        status,
-        minutes_md,
-        summary_subject,
-        summary_body,
-        started_at,
-        ended_at
-      `)
-      .eq('space_id', spaceId)
-      .in('status', ['ended', 'in_progress'])
-      .order('held_at', { ascending: false })
-      .limit(50),
-    supabase
-      .from('tasks')
-      .select('id', { count: 'exact', head: true })
-      .eq('space_id', spaceId)
-      .eq('ball', 'client')
-      .neq('status', 'done'),
-  ])
-
-  // エラーログ（graceful degradation: 空データで続行）
-  if (meetingsResult.error) console.error('[Portal Meetings] meetings query error:', meetingsResult.error)
-  if (actionCountResult.error) console.error('[Portal Meetings] actionCount query error:', actionCountResult.error)
-
-  const meetings = meetingsResult.data
-  const actionCount = actionCountResult.count
-
-  const formattedMeetings = (meetings || []).map((m: { id: string; title: string; held_at: string | null; status: string; minutes_md: string | null; summary_subject: string | null; summary_body: string | null; started_at: string | null; ended_at: string | null }) => ({
-    id: m.id,
-    title: m.title,
-    heldAt: m.held_at || '',
-    status: m.status,
-    minutesMd: m.minutes_md,
-    summarySubject: m.summary_subject,
-    summaryBody: m.summary_body,
-    startedAt: m.started_at,
-    endedAt: m.ended_at,
-  }))
+  // meetings は全件を range ページングで読み切る（社内一覧と同じ collectRemainingPages）。
+  // 失敗時は「1ページ目が失敗→空データ」「2ページ目以降が失敗→1ページ目だけ」で続行する
+  // graceful degradation を守るため、例外を投げない fetchPortalMeetingsData に処理を委ねる。
+  const { meetings: formattedMeetings, actionCount } = await fetchPortalMeetingsData(
+    supabase as SupabaseClient,
+    spaceId
+  )
 
   return (
     <PortalMeetingsClient
       currentProject={currentProject}
       projects={projects}
       meetings={formattedMeetings}
-      actionCount={actionCount || 0}
+      actionCount={actionCount}
     />
   )
 }
