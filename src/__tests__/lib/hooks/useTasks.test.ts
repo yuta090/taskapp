@@ -494,6 +494,98 @@ describe('useTasks — レビュー整合性: status=done への変更ガード'
   })
 })
 
+// タスク詳細の「仕様書連携」は候補を Wiki の全ページに広げた。紐づけで仕様タスク(検討中)にすると
+// 決定するまで完了できないため、議事録などの参考資料(wikiPageIsSpec=false)はリンクだけ保存する。
+// wikiPageIsSpec を渡さない呼び出しは従来どおり仕様タスクにする。
+describe('useTasks — Wiki ページの紐づけと仕様タスク化', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
+    mockUpdateEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [{ id: 't1', parent_task_id: null }], error: null }),
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function renderWithTask(task: Task) {
+    mockFetchTasksQuery.mockResolvedValue({ tasks: [task], owners: {}, reviewStatuses: {} })
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+    return result
+  }
+
+  it('参考資料(wikiPageIsSpec=false)はリンクだけ保存し、仕様タスクにしない', async () => {
+    const result = await renderWithTask(makeTask({ id: 't1', type: 'task', decision_state: null }))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { wikiPageId: 'w2', wikiPageIsSpec: false })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith({ wiki_page_id: 'w2' })
+    // 画面への先出し(楽観更新)は react-query の通知が非同期なので、反映を待ってから見る
+    await waitFor(() =>
+      expect(result.current.tasks[0]).toMatchObject({ wiki_page_id: 'w2', type: 'task', decision_state: null })
+    )
+  })
+
+  it('仕様書(wikiPageIsSpec=true)は従来どおり仕様タスク(検討中)にする', async () => {
+    const result = await renderWithTask(makeTask({ id: 't1', type: 'task', decision_state: null }))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { wikiPageId: 'w1', wikiPageIsSpec: true })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith({ wiki_page_id: 'w1', type: 'spec', decision_state: 'considering' })
+    await waitFor(() =>
+      expect(result.current.tasks[0]).toMatchObject({ wiki_page_id: 'w1', type: 'spec', decision_state: 'considering' })
+    )
+  })
+
+  it('wikiPageIsSpec を渡さない呼び出しは従来どおり仕様タスクにする', async () => {
+    const result = await renderWithTask(makeTask({ id: 't1', type: 'task', decision_state: null }))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { wikiPageId: 'w1' })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith({ wiki_page_id: 'w1', type: 'spec', decision_state: 'considering' })
+  })
+
+  it('決定済みの仕様タスクに参考資料を付け替えても、決定の状態は消さない', async () => {
+    const result = await renderWithTask(
+      makeTask({ id: 't1', type: 'spec', decision_state: 'decided', wiki_page_id: 'w1' })
+    )
+
+    await act(async () => {
+      await result.current.updateTask('t1', { wikiPageId: 'w2', wikiPageIsSpec: false })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith({ wiki_page_id: 'w2' })
+    await waitFor(() =>
+      expect(result.current.tasks[0]).toMatchObject({ wiki_page_id: 'w2', type: 'spec', decision_state: 'decided' })
+    )
+  })
+
+  it('紐づけを外すと従来どおりふつうのタスクに戻す', async () => {
+    const result = await renderWithTask(
+      makeTask({ id: 't1', type: 'spec', decision_state: 'considering', wiki_page_id: 'w1' })
+    )
+
+    await act(async () => {
+      await result.current.updateTask('t1', { wikiPageId: null })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith({ wiki_page_id: null, type: 'task', decision_state: null })
+  })
+})
+
 // AI秘書 Stage5 期限リマインド PR-0(§5.2): external権威タスク(due_authority_connection_id 非NULL)の
 // due_date 変更は DB トリガー trg_guard_external_due が拒否する(メッセージに 'due_managed_externally' を
 // 含む)。ブラウザ(authenticated)からの直書きはここで弾かれるため、useTasks 側は

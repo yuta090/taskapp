@@ -60,6 +60,11 @@ export interface UpdateTaskInput {
   parentTaskId?: string | null
   actualHours?: number | null
   wikiPageId?: string | null
+  /**
+   * 紐づけるページが仕様書か（wikiPageId と一緒に渡す）。false ならリンクだけ保存し、
+   * 仕様タスク(検討中)にしない。未指定は従来どおり仕様タスクにする。
+   */
+  wikiPageIsSpec?: boolean
   estimatedCost?: number | null
   estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
   clientScope?: ClientScope
@@ -199,6 +204,23 @@ function assertReviewCompletionGate(
     toast.error(message)
     throw new Error(message)
   }
+}
+
+/**
+ * Wiki ページの紐づけで変わる type / decision_state（画面の先出しと DB 書き込みで共通）。変えないときは空。
+ * - 外す(null): ふつうのタスクに戻す
+ * - 仕様書を紐づける(wikiPageIsSpec が true / 未指定): 仕様タスクにし、未決なら検討中にする
+ * - 参考資料を紐づける(wikiPageIsSpec=false): リンクだけ。検討中にすると決定まで完了できなく
+ *   なるため変えない。仕様タスクに付け替えた場合も決定の状態は消さない
+ */
+function specChangesForWikiLink(
+  input: Pick<UpdateTaskInput, 'wikiPageId' | 'wikiPageIsSpec'>,
+  current: Pick<Task, 'decision_state'> | undefined
+): Partial<Pick<Task, 'type' | 'decision_state'>> {
+  if (input.wikiPageId === undefined) return {}
+  if (input.wikiPageId === null) return { type: 'task', decision_state: null }
+  if (input.wikiPageIsSpec === false) return {}
+  return current?.decision_state ? { type: 'spec' } : { type: 'spec', decision_state: 'considering' }
 }
 
 /** Get max depth of descendant subtree (self=0, direct child=1, ...) */
@@ -490,10 +512,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
                 estimated_cost: input.estimatedCost !== undefined ? input.estimatedCost : t.estimated_cost,
                 estimate_status: input.estimateStatus !== undefined ? input.estimateStatus : t.estimate_status,
                 wiki_page_id: input.wikiPageId !== undefined ? input.wikiPageId : t.wiki_page_id,
-                type: input.wikiPageId !== undefined ? (input.wikiPageId ? 'spec' : 'task') : t.type,
-                decision_state: input.wikiPageId !== undefined
-                  ? (input.wikiPageId ? (t.decision_state ?? 'considering') : null)
-                  : t.decision_state,
+                ...specChangesForWikiLink(input, t),
                 client_scope: input.clientScope !== undefined ? input.clientScope : t.client_scope,
                 completed_at: newStatus === 'done' && t.status !== 'done'
                   ? new Date().toISOString()
@@ -536,16 +555,7 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         if (input.estimateStatus !== undefined) updateData.estimate_status = input.estimateStatus
         if (input.wikiPageId !== undefined) {
           updateData.wiki_page_id = input.wikiPageId
-          updateData.type = input.wikiPageId ? 'spec' : 'task'
-          if (input.wikiPageId) {
-            // Set decision_state to 'considering' if not already set
-            const currentTask = previousData?.tasks.find((t) => t.id === taskId)
-            if (!currentTask?.decision_state) {
-              updateData.decision_state = 'considering'
-            }
-          } else {
-            updateData.decision_state = null
-          }
+          Object.assign(updateData, specChangesForWikiLink(input, prevTask))
         }
 
         const { data: updatedRows, error: updateError } = await (supabase as SupabaseClient)
