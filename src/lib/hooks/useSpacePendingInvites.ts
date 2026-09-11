@@ -29,6 +29,10 @@ async function fetchPendingInvites(spaceId: string): Promise<PendingInviteOption
   }))
 }
 
+// 読み込み中に毎レンダー新しい [] を作ると、呼び出し側の useMemo（タスク一覧の担当者の名簿・組み分け）が
+// 毎回無効化されるため共有定数にする
+const EMPTY_INVITES: PendingInviteOption[] = []
+
 export function useSpacePendingInvites(spaceId: string | null) {
   const { data, isLoading } = useQuery({
     queryKey: ['spacePendingInvites', spaceId],
@@ -37,7 +41,7 @@ export function useSpacePendingInvites(spaceId: string | null) {
     // 招待は頻繁に変わらない。開くたびに取り直さない
     staleTime: 5 * 60 * 1000,
   })
-  return { pendingInvites: data ?? [], loading: isLoading }
+  return { pendingInvites: data ?? EMPTY_INVITES, loading: isLoading }
 }
 
 /** 選択肢の表示名。名前があれば「名前（招待中）」、無ければ「メール（招待中）」 */

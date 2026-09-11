@@ -4,7 +4,7 @@ import { QueryClient, defaultShouldDehydrateQuery } from '@tanstack/react-query'
 import type { Query } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client'
-import { get, set, del, keys } from 'idb-keyval'
+import { get, set, del } from 'idb-keyval'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
@@ -12,8 +12,7 @@ import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
 import { clearActiveOrgId } from '@/lib/org/activeOrg'
 import { isSignOutInProgress } from '@/lib/auth/signOutClient'
 import { isPublicPathMatch } from '@/lib/routes/publicPaths'
-
-const IDB_KEY_PREFIX = 'taskapp-query-cache'
+import { IDB_KEY_PREFIX, clearQueryCache } from '@/lib/query/persistedCache'
 
 /**
  * Persisted-cache version. When this string changes, PersistQueryClientProvider
@@ -228,15 +227,10 @@ function makeIdbPersister(
   }
 }
 
-/** Clear all persisted query caches (call on logout / user switch). Matches
- *  both scoped (`taskapp-query-cache:<uid>`) and the legacy unscoped key. */
-export async function clearQueryCache() {
-  const allKeys = await keys()
-  const cacheKeys = allKeys.filter(
-    (k) => typeof k === 'string' && k.startsWith(IDB_KEY_PREFIX)
-  )
-  await Promise.all(cacheKeys.map((k) => del(k)))
-}
+// clearQueryCache 本体は src/lib/query/persistedCache.ts に切り出した（signOutClient.ts
+// からも参照するため。循環import回避の理由は同ファイルのコメント参照）。既存の import 元
+// （本ファイル内・テスト）が壊れないよう、ここから re-export しておく。
+export { clearQueryCache } from '@/lib/query/persistedCache'
 
 const AUTH_RELOAD_GUARD_KEY = 'taskapp:auth-reload-at'
 const AUTH_RELOAD_GUARD_WINDOW_MS = 10_000

@@ -279,9 +279,11 @@ export default function InboxClient() {
 
   const filteredNotifications = useMemo(() => {
     return notifications.filter(n => {
-      // Read status filter
-      if (readFilter === 'unread' && n.read_at !== null) return false
-      if (readFilter === 'read' && n.read_at === null) return false
+      // Read status filter。開いている通知は開いた時点で既読になるので、ここでは外さない
+      // （外すと「未読のみ」で開いた瞬間に一覧から消え、詳細も閉じてしまう）
+      const isOpen = n.id === selectedId
+      if (readFilter === 'unread' && n.read_at !== null && !isOpen) return false
+      if (readFilter === 'read' && n.read_at === null && !isOpen) return false
 
       // Actionable filter
       if (actionFilter === 'actionable') {
@@ -296,7 +298,7 @@ export default function InboxClient() {
 
       return true
     })
-  }, [notifications, readFilter, actionFilter, typeFilter])
+  }, [notifications, readFilter, actionFilter, typeFilter, selectedId])
 
   // Find selected notification and its index within the filtered list
   const { selectedNotification, selectedIndex } = useMemo(() => {
@@ -307,6 +309,17 @@ export default function InboxClient() {
       selectedIndex: index,
     }
   }, [selectedId, filteredNotifications])
+
+  // 開いた通知は既読にする（一覧で押す・↑↓で移る・メールやプッシュのリンクから直接開く、のどれでも）。
+  // 以前は「既読にして次へ」などを押したときだけ既読になり、開いて読んでもバッジが消えなかった。
+  // 描き直しのたびに二重に呼ばないよう、既読にしに行った通知を覚えておく。
+  const markedReadIdsRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (!selectedNotification || selectedNotification.read_at !== null) return
+    if (markedReadIdsRef.current.has(selectedNotification.id)) return
+    markedReadIdsRef.current.add(selectedNotification.id)
+    void markAsRead(selectedNotification.id)
+  }, [selectedNotification, markAsRead])
 
   // Update URL without navigation
   const selectNotification = useCallback((id: string | null) => {

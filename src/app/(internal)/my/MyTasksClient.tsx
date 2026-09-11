@@ -13,7 +13,8 @@ import { useInspector } from '@/components/layout'
 import { useTasks } from '@/lib/hooks/useTasks'
 import type { TasksQueryData } from '@/lib/hooks/useTasks'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
-import type { Task, Space, Milestone, TaskStatus } from '@/types/database'
+import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
+import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
@@ -141,7 +142,8 @@ interface MyTaskInspectorProps {
    */
   listFetchedAt: number
   onClose: () => void
-  onSynced: (task: Task) => void
+  /** reviewStatus は詳細（プロジェクト単位の読み込み結果）が持つ、最新の社内承認の状態 */
+  onSynced: (task: Task, reviewStatus: ReviewStatus | undefined) => void
   onDeleted: (taskId: string) => void
 }
 
@@ -175,7 +177,7 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
     void import('@/components/task/TaskInspector')
   }, [])
 
-  const { tasks, owners, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
+  const { tasks, owners, reviewStatuses, loading, error, dataUpdatedAt, isFetching, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange } = useTasks({
     orgId: task.org_id,
     spaceId: task.space_id,
   })
@@ -213,9 +215,11 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
   useEffect(() => {
     onSyncedRef.current = onSynced
   })
+  // 社内承認の状態も一緒に映す（詳細から承認を依頼したら、一覧の「社内承認を依頼」を「社内承認待ち」に変える）
+  const spaceReviewStatus = reviewStatuses[task.id]
   useEffect(() => {
-    if (spaceTask && dataUpdatedAt >= listFetchedAt && !deleting) onSyncedRef.current(spaceTask)
-  }, [spaceTask, dataUpdatedAt, listFetchedAt, deleting])
+    if (spaceTask && dataUpdatedAt >= listFetchedAt && !deleting) onSyncedRef.current(spaceTask, spaceReviewStatus)
+  }, [spaceTask, spaceReviewStatus, dataUpdatedAt, listFetchedAt, deleting])
 
   useEffect(() => () => setInspector(null), [setInspector])
 
@@ -340,6 +344,8 @@ export default function MyTasksClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const [retryKey, setRetryKey] = useState(0)
+  // タスクごとの最新の社内承認の状態。無いと「社内承認中」の行すべてに「社内承認を依頼」が出てしまう
+  const [reviewStatuses, setReviewStatuses] = useState<Record<string, ReviewStatus>>({})
   const [userId, setUserId] = useState<string | null>(null)
   const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
@@ -405,8 +411,13 @@ export default function MyTasksClient() {
 
   const handleInspectorClose = useCallback(() => selectTask(null), [selectTask])
 
-  const handleInspectorSynced = useCallback((updated: Task) => {
+  const handleInspectorSynced = useCallback((updated: Task, reviewStatus: ReviewStatus | undefined) => {
     setTasks(prev => (prev.includes(updated) ? prev : prev.map(t => (t.id === updated.id ? updated : t))))
+    // 詳細側で承認が見つからないときは、一覧の状態を消さない（詳細側の承認の読み込みは失敗しても
+    // 黙って空になるため。消すと依頼済みのタスクに「社内承認を依頼」が戻ってしまう）
+    if (reviewStatus) {
+      setReviewStatuses(prev => (prev[updated.id] === reviewStatus ? prev : { ...prev, [updated.id]: reviewStatus }))
+    }
   }, [])
 
   const handleInspectorDeleted = useCallback((taskId: string) => {
@@ -613,9 +624,10 @@ export default function MyTasksClient() {
       // この一覧取得より新しいかどうかを判定するのに使う
       const fetchStartedAt = Date.now()
 
+      // 社内承認の状態（reviews）も同じ1回の取得で読む（別に取りに行くと待ちが直列になる）
       let tasksQuery = supabase
         .from('tasks')
-        .select('*')
+        .select('*, reviews(status, created_at)')
         .eq('assignee_id', uid)
 
       let spacesQuery = supabase
@@ -633,21 +645,32 @@ export default function MyTasksClient() {
         milestonesQuery = milestonesQuery.eq('org_id', activeOrgId)
       }
 
-      const [tasksRes, spacesRes, milestonesRes] = await Promise.all([
-        tasksQuery,
-        spacesQuery,
-        milestonesQuery,
-      ])
+      // 想定外の形のデータや通信の失敗で落ちても、「読み込み中」のまま止めない
+      try {
+        const [tasksRes, spacesRes, milestonesRes] = await Promise.all([
+          tasksQuery,
+          spacesQuery,
+          milestonesQuery,
+        ])
 
-      if (tasksRes.error) {
+        if (tasksRes.error) {
+          setError(new Error('タスクの取得に失敗しました'))
+        } else {
+          const { tasks: fetchedTasks, reviewStatuses: fetchedReviewStatuses } = splitEmbeddedReviews(
+            (tasksRes.data || []) as Array<Task & { reviews?: EmbeddedReviews }>
+          )
+          setTasks(fetchedTasks)
+          setReviewStatuses(fetchedReviewStatuses)
+          setSpaces(spacesRes.data || [])
+          setMilestones(milestonesRes.data || [])
+          setListFetchedAt(fetchStartedAt)
+        }
+      } catch (err) {
+        console.error('Failed to load my tasks:', err)
         setError(new Error('タスクの取得に失敗しました'))
-      } else {
-        setTasks(tasksRes.data || [])
-        setSpaces(spacesRes.data || [])
-        setMilestones(milestonesRes.data || [])
-        setListFetchedAt(fetchStartedAt)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     async function initAuth() {
@@ -1005,6 +1028,7 @@ export default function MyTasksClient() {
                                   isSelected={task.id === selectedTaskId}
                                   onClick={handleTaskClick}
                                   onStatusChange={updateTaskStatus}
+                                  reviewStatus={reviewStatuses[task.id]}
                                 />
                               ))}
                             </div>
@@ -1032,6 +1056,7 @@ export default function MyTasksClient() {
                         isSelected={task.id === selectedTaskId}
                         onClick={handleTaskClick}
                         onStatusChange={updateTaskStatus}
+                        reviewStatus={reviewStatuses[task.id]}
                       />
                     ))}
                   </div>

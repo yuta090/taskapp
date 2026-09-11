@@ -112,6 +112,36 @@ describe('AdminLoginPage', () => {
     expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
   })
 
+  // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
+  // 実際には破棄されておらず、成功直後に維持しているローディングを戻す機会が無いまま
+  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
+  it('ログイン成功後にbfcacheから復元されたら、ローディングを解除する', async () => {
+    signInWithPasswordMock.mockResolvedValue({ data: { user: { id: 'u-admin' } }, error: null })
+    singleMock.mockResolvedValue({ data: { is_superadmin: true } })
+
+    render(<AdminLoginPage />)
+    await screen.findByRole('button', { name: /Google/ })
+
+    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), {
+      target: { value: 'admin@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('パスワードを入力'), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/admin/dashboard')
+    })
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+
+    const event = new Event('pageshow') as PageTransitionEvent
+    Object.defineProperty(event, 'persisted', { value: true })
+    fireEvent(window, event)
+
+    expect(screen.getByRole('button', { name: 'ログイン' })).not.toBeDisabled()
+  })
+
   it('ログイン失敗時は、ボタンのローディングを解除する', async () => {
     signInWithPasswordMock.mockResolvedValue({ data: { user: null }, error: { message: 'invalid' } })
 

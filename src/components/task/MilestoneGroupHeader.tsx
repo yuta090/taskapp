@@ -46,7 +46,7 @@ export function MilestoneGroupHeader({
       </div>
 
       {/* Milestone name - bold */}
-      <span className="text-[13px] font-semibold text-gray-800 tracking-tight">
+      <span data-testid="task-group-label" className="text-[13px] font-semibold text-gray-800 tracking-tight">
         {label || milestone?.name || 'マイルストーン未設定'}
       </span>
 

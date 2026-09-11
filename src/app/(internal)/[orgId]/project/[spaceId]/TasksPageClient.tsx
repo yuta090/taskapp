@@ -28,6 +28,7 @@ import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpacePendingInvites'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
+import { buildAssigneeOptions, groupTasksByAssignee, taskAssigneeKey } from '@/lib/tasks/taskAssignees'
 import { useTasks } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
@@ -179,14 +180,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const { tasks, owners, reviewStatuses, loading, error, fetchTasks, createTask, updateTask, deleteTask, passBall, handleReviewChange } =
     useTasks({ orgId, spaceId })
   const { milestones } = useMilestones({ spaceId })
-  const { getMemberName } = useSpaceMembers(spaceId)
+  const { members, getMemberName } = useSpaceMembers(spaceId)
 
   // 招待中の人が担当のときは、一覧でもその名前を出す（承諾すると本人に切り替わる）
   const { pendingInvites } = useSpacePendingInvites(spaceId)
-  const pendingInviteNameById = useMemo(
-    () => new Map(pendingInvites.map((i) => [i.id, pendingInviteLabel(i)])),
-    [pendingInvites],
-  )
   const { forecasts: riskForecasts } = useRiskForecast({ tasks, milestones })
 
   // リスク/期限超過サマリー (#89): ガントを開かなくても一覧先頭で気づける
@@ -241,22 +238,30 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     [tasks]
   )
 
-  // Create unique owners list for filter (with display names from profiles)
-  const uniqueOwners = useMemo(() => {
-    const ownerMap = new Map<string, { user_id: string; display_name: string | null; side: BallSide }>()
-    Object.values(owners).forEach((taskOwners) => {
-      taskOwners.forEach((owner) => {
-        if (!ownerMap.has(owner.user_id)) {
-          ownerMap.set(owner.user_id, {
-            user_id: owner.user_id,
-            display_name: getMemberName(owner.user_id),
-            side: owner.side,
-          })
-        }
-      })
-    })
-    return Array.from(ownerMap.values())
-  }, [owners, getMemberName])
+  // 担当者の名簿。絞り込みの選択肢・行の名前・担当者別の見出しは、すべてここから引く。
+  // task_owners（ボールを持っている人）は担当者とは別物なので使わない（以前はそれを名簿にしていて、
+  // ボールの情報が無いタスクばかりだと、選択肢が「未割り当て」だけになっていた）。
+  const assigneeOptions = useMemo(
+    () =>
+      buildAssigneeOptions({
+        members,
+        pendingInvites: pendingInvites.map((i) => ({ id: i.id, label: pendingInviteLabel(i), role: i.role })),
+        tasks,
+        getMemberName,
+      }),
+    [members, pendingInvites, tasks, getMemberName]
+  )
+  const assigneeLabelById = useMemo(
+    () => new Map(assigneeOptions.map((o) => [o.id, o.label])),
+    [assigneeOptions]
+  )
+  const assigneeNameOf = useCallback(
+    (task: Task): string | null => {
+      const key = taskAssigneeKey(task)
+      return key ? assigneeLabelById.get(key) ?? null : null
+    },
+    [assigneeLabelById]
+  )
 
   // Derive UI state directly from URL params (no sync needed)
   const isCreateOpen = searchParams.get('create') !== null
@@ -379,24 +384,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     }
 
     if (sortKey === 'assignee') {
-      const byAssignee = new Map<string, Task[]>()
-      filteredTasks.forEach((task) => {
-        const key = task.assignee_id || '__unassigned__'
-        if (!byAssignee.has(key)) byAssignee.set(key, [])
-        byAssignee.get(key)!.push(task)
-      })
-      const groups: TaskGroup[] = []
-      byAssignee.forEach((groupTasks, key) => {
-        const label = key === '__unassigned__' ? '未割り当て' : getMemberName(key)
-        groups.push({ milestone: null, tasks: groupTasks, label })
-      })
-      // Put 未割り当て last
-      groups.sort((a, b) => {
-        if (a.label === '未割り当て') return 1
-        if (b.label === '未割り当て') return -1
-        return (a.label || '').localeCompare(b.label || '')
-      })
-      return groups
+      // 招待中の人が担当のタスクも、その人の見出しにまとめる（以前は「未割り当て」に紛れていた）
+      return groupTasksByAssignee(filteredTasks, (key) => assigneeLabelById.get(key) ?? getMemberName(key)).map(
+        (group) => ({ milestone: null, tasks: group.tasks, label: group.label })
+      )
     }
 
     if (sortKey === 'status') {
@@ -455,7 +446,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
     }
 
     return groups
-  }, [filteredTasks, milestones, sortKey, getMemberName])
+  }, [filteredTasks, milestones, sortKey, assigneeLabelById, getMemberName])
 
   const selectedTask: Task | null = useMemo(() => {
     if (!selectedTaskId) return null
@@ -1062,7 +1053,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
             filters={advancedFilters}
             onFiltersChange={setAdvancedFilters}
             milestones={milestones}
-            owners={uniqueOwners}
+            assignees={assigneeOptions}
           />
 
           {/* Active filters display */}
@@ -1071,7 +1062,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
               filters={advancedFilters}
               onFiltersChange={setAdvancedFilters}
               milestones={milestones}
-              owners={uniqueOwners}
+              assignees={assigneeOptions}
             />
           )}
 
@@ -1285,13 +1276,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
                     indent={row.indent}
                     onStatusChange={handleStatusChange}
                     reviewStatus={reviewStatuses[row.task.id]}
-                    assigneeName={
-                      row.task.assignee_id
-                        ? getMemberName(row.task.assignee_id)
-                        : row.task.assignee_invite_id
-                          ? pendingInviteNameById.get(row.task.assignee_invite_id) ?? '招待中'
-                          : null
-                    }
+                    assigneeName={assigneeNameOf(row.task)}
                     isNew={recentTaskIds.has(row.task.id)}
                     bulkMode={bulkMode}
                     isChecked={selectedTaskIds.has(row.task.id)}

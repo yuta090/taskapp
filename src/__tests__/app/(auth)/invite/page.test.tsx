@@ -9,7 +9,7 @@ import InviteAcceptPage from '@/app/(auth)/invite/[token]/page'
  * V5（vendor-portal で導入済み）と同じ wrong-account join 防止を適用する:
  * ログイン中のメールが招待メールと一致するときだけ自動受諾し、
  * 不一致なら招待を消費せずアカウント切替を案内する。
- * 受諾後の着地は role に応じて分岐（client → /portal）。
+ * 受諾後の着地は role に応じて分岐（client → /portal、vendor → /vendor-portal）。
  *
  * サインイン識別が変わりうる受諾後の着地・アカウント切替は、ルート常駐のクライアント状態
  * （ActiveOrgProvider・query cache）を作り直すためフルページ遷移（window.location.assign /
@@ -89,6 +89,7 @@ function fulfilledParams<T>(value: T): Promise<T> {
 }
 
 let locationAssignSpy: ReturnType<typeof vi.fn>
+let locationReloadSpy: ReturnType<typeof vi.fn>
 
 function renderPage() {
   return render(
@@ -107,8 +108,9 @@ describe('InviteAcceptPage — 受諾動線', () => {
     mockFetch.mockResolvedValue(acceptResponse())
     mockSignInWithPassword.mockResolvedValue({ error: null })
     locationAssignSpy = vi.fn()
+    locationReloadSpy = vi.fn()
     Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign: locationAssignSpy },
+      value: { ...window.location, assign: locationAssignSpy, reload: locationReloadSpy },
       writable: true,
     })
   })
@@ -179,6 +181,19 @@ describe('InviteAcceptPage — 受諾動線', () => {
     expect(locationAssignSpy).not.toHaveBeenCalledWith('/org-1/project/space-1')
   })
 
+  it('vendorロールの招待は受諾後 /vendor-portal へ（内部URLに送らない）', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    mockRpc.mockResolvedValue({ data: { ...validInvite, role: 'vendor' }, error: null })
+    mockFetch.mockResolvedValue(acceptResponse({ role: 'vendor' }))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/vendor-portal')
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalledWith('/org-1/project/space-1')
+  })
+
   it('未ログインの新規ユーザーはパスワード設定→受諾→ログイン→プロジェクトへ（回帰・フルページ遷移）', async () => {
     renderPage()
 
@@ -202,6 +217,135 @@ describe('InviteAcceptPage — 受諾動線', () => {
     })
   })
 
+  // 回帰: パスワード入力欄への1文字ごとの入力が招待読み込み(getSession/rpc_validate_invite)を
+  // 再実行してはならない。acceptInvite が password state を閉じ込めていると、
+  // useCallback の参照が毎回変わり、それに依存する読み込み用 useEffect も毎回再実行されてしまう
+  it('パスワード入力の1文字ごとに招待の再読み込み（getSession/rpc_validate_invite）が走らない', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^パスワードを設定\*?$/)).toBeInTheDocument()
+    })
+
+    expect(mockGetSession).toHaveBeenCalledTimes(1)
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), { target: { value: 'p' } })
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), { target: { value: 'pa' } })
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), { target: { value: 'pas' } })
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), { target: { value: 'pass' } })
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), { target: { value: 'password123' } })
+
+    expect(mockGetSession).toHaveBeenCalledTimes(1)
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+  })
+
+  // 本番バグの再現テスト: 相手先（client）の招待メールが指す /invite/<token> は
+  // 未ログインでも開ける公開ページで、初めての相手先はここでパスワードを決めるだけで
+  // 参加できる（旧 /portal/<token> は公開ページでなくログイン画面に弾かれ参加できなかった）
+  it('未ログイン・アカウント未作成の相手先（client）はパスワード設定→受諾→ログイン→ポータルへ（本番バグの再現・回帰）', async () => {
+    mockRpc.mockResolvedValue({ data: { ...validInvite, role: 'client' }, error: null })
+    mockFetch.mockResolvedValue(acceptResponse({ role: 'client' }))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^パスワードを設定\*?$/)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを作成して参加' }))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/invites/tok-1/accept',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+    await waitFor(() => {
+      expect(mockSignInWithPassword).toHaveBeenCalledWith({
+        email: validInvite.email,
+        password: 'password123',
+      })
+    })
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/portal')
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalledWith('/org-1/project/space-1')
+  })
+
+  // 既存ユーザー×ログイン中×メール一致は本来ログイン直後に自動受諾されるが、通信エラー等で
+  // 自動受諾が失敗すると、手動で再試行できるようフォームへフォールバックする。このときのボタン文言は
+  // 内部っぽい「チームに参加」ではなく、相手先/ベンダーにも通じる中立な「参加する」であること
+  it('既存ユーザーの自動受諾が失敗した場合、手動再試行フォームに中立な文言「参加する」を出す', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    mockRpc.mockResolvedValue({ data: { ...validInvite, is_existing_user: true }, error: null })
+    mockFetch.mockRejectedValueOnce(new Error('network error'))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '参加する' })).toBeInTheDocument()
+    })
+  })
+
+  // 回帰: パスワード欄が無い既存ユーザーの再試行は、パスワード確認なしの自動受諾パスで
+  // 再試行しなければならない。password 引数で受諾する経路のままだと
+  // 「パスワードは8文字以上で入力してください」という的外れなエラーになる
+  it('既存ユーザーが「参加する」で再試行すると、パスワードなしで受諾APIを呼び直す（誤ったパスワードエラーを出さない）', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    mockRpc.mockResolvedValue({ data: { ...validInvite, is_existing_user: true }, error: null })
+    mockFetch.mockRejectedValueOnce(new Error('network error'))
+    mockFetch.mockResolvedValueOnce(acceptResponse())
+
+    renderPage()
+
+    const retryButton = await screen.findByRole('button', { name: '参加する' })
+    fireEvent.click(retryButton)
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+    const secondCallInit = mockFetch.mock.calls[1][1] as RequestInit
+    expect(secondCallInit.body).toBeUndefined()
+    expect(screen.queryByText('パスワードは8文字以上で入力してください')).not.toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+  })
+
+  // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
+  // 実際には破棄されておらず、受諾成功直後に維持している loading を戻す機会が無いまま
+  // ボタンが永久に押せなくなる。招待の受諾は取り消せない（受諾済みトークンで再送信すると
+  // 「招待リンクが無効です」になる）ため、loading を戻すだけでなく reload() してこのページ
+  // 自身の実際の状態から作り直す（コードレビュー指摘）。
+  it('受諾成功後にbfcacheから復元されたら、ページを reload() する（loading解除だけにしない）', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^パスワードを設定\*?$/)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText(/^パスワードを設定\*?$/), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを作成して参加' }))
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/org-1/project/space-1')
+    })
+    expect(screen.getByText('処理中...').closest('button')).toBeDisabled()
+
+    const event = new Event('pageshow') as PageTransitionEvent
+    Object.defineProperty(event, 'persisted', { value: true })
+    fireEvent(window, event)
+
+    expect(locationReloadSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('無効なトークンはエラーカードを表示（回帰）', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'invalid' } })
 
@@ -223,7 +367,7 @@ describe('InviteAcceptPage — 受諾動線', () => {
 
     // パスワード検証に到達させない（手詰まりバグの再現防止）
     expect(screen.queryByLabelText(/パスワードを設定/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'チームに参加' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '参加する' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'ログインして参加' }))
 

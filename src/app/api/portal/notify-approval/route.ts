@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       .select('role')
       .eq('space_id', task.space_id)
       .eq('user_id', user.id)
-      .neq('role', 'client')
+      .not('role', 'in', '("client","vendor")')
       .single()
 
     let authorized = !!spaceMembership
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         .select('role')
         .eq('org_id', task.org_id)
         .eq('user_id', user.id)
-        .neq('role', 'client')
+        .not('role', 'in', '("client","vendor")')
         .single()
 
       authorized = !!orgMembership

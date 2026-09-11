@@ -7,6 +7,7 @@ import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -39,12 +40,24 @@ export default function InviteAcceptPage({
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
   const [emailMismatch, setEmailMismatch] = useState(false)
 
-  const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
+  // 受諾成功後は window.location.assign() がページを破棄するまで loading を維持し続ける設計
+  // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。
+  // 招待の受諾は取り消せない（受諾済みトークンで再送信すると「招待リンクが無効です」に
+  // なる）ため、loading を戻すだけでは古い（受諾前の）画面のまま再操作させてしまう。
+  // reload() してこのページ自身の実際の状態（= 招待は既に使用済み）から作り直す
+  useResetOnBfcacheRestore(() => window.location.reload())
+
+  // password state を閉じ込めない（呼び出し側から引数で渡す）。閉じ込めると
+  // 1文字入力するたびにこの useCallback の参照が変わり、これに依存する下の
+  // 招待読み込み用 useEffect まで毎回再実行されてしまう（getSession/rpc_validate_invite の
+  // 再発行・パスワード入力中に再検証が走る不具合の原因だった）
+  const acceptInvite = useCallback(async (isAutoAccept: boolean, passwordArg?: string) => {
     setLoading(true)
     setError('')
 
     try {
-      if (!isAutoAccept && password.length < 8) {
+      if (!isAutoAccept && (!passwordArg || passwordArg.length < 8)) {
         setError('パスワードは8文字以上で入力してください')
         setLoading(false)
         return
@@ -54,7 +67,7 @@ export default function InviteAcceptPage({
       const response = await fetch(`/api/invites/${token}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: isAutoAccept ? undefined : JSON.stringify({ password }),
+        body: isAutoAccept ? undefined : JSON.stringify({ password: passwordArg }),
       })
       const data = await response.json()
 
@@ -68,7 +81,7 @@ export default function InviteAcceptPage({
         const supabase = createClient()
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: data.email,
-          password,
+          password: passwordArg as string,
         })
 
         if (signInError) {
@@ -78,7 +91,8 @@ export default function InviteAcceptPage({
         }
       }
 
-      // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）。
+      // 受諾後の着地は role で分岐（client / vendor は内部レイアウトに入れないため、
+      // それぞれ専用のポータルへ）。
       // サインイン識別が変わりうる（新規アカウント作成／別アカウントからの参加）ため、SPA遷移では
       // なくフルページ遷移で終える。フルリロードしても IDB に永続化された ['orgMemberships', uid]
       // は普通に復元される（＝「まだ増えた所属を知らない」古いキャッシュが一度は戻ってくる）ため
@@ -89,6 +103,8 @@ export default function InviteAcceptPage({
       // 任せられるので不要）
       if (data.role === 'client') {
         window.location.assign('/portal')
+      } else if (data.role === 'vendor') {
+        window.location.assign('/vendor-portal')
       } else {
         window.location.assign(`/${data.org_id}/project/${data.space_id}`)
       }
@@ -97,7 +113,7 @@ export default function InviteAcceptPage({
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, token])
+  }, [token])
 
   useEffect(() => {
     async function loadInvite() {
@@ -137,7 +153,15 @@ export default function InviteAcceptPage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await acceptInvite(false)
+    // 既存ユーザー（is_existing_user）はここに到達する時点で必ずログイン済み（未ログインなら
+    // 前段の「ログインして参加」カードで止まる）。パスワード欄自体が無いため、自動受諾に失敗
+    // した後の手動再試行はパスワード確認なしの自動受諾パスで再試行する（誤って
+    // 「パスワードは8文字以上」を出さない）
+    if (inviteInfo?.is_existing_user) {
+      await acceptInvite(true)
+    } else {
+      await acceptInvite(false, password)
+    }
   }
 
   if (checkingAuth) {
@@ -284,7 +308,7 @@ export default function InviteAcceptPage({
         )}
 
         <AuthButton type="submit" loading={loading}>
-          {inviteInfo.is_existing_user ? 'チームに参加' : 'アカウントを作成して参加'}
+          {inviteInfo.is_existing_user ? '参加する' : 'アカウントを作成して参加'}
         </AuthButton>
       </form>
     </AuthCard>
