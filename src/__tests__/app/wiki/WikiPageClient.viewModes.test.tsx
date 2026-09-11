@@ -103,6 +103,10 @@ vi.mock('@/lib/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'user1' } }),
 }))
 
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, loading: false }),
+}))
+
 // PR4: タスク参照由来の所属マイルストーン。既定は空（このテストファイルは手動選択の union だけを見る）。
 const mockLinksByPageId = vi.hoisted(() => ({ current: new Map<string, string[]>() }))
 vi.mock('@/lib/hooks/useWikiMilestoneLinks', () => ({

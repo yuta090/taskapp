@@ -89,3 +89,34 @@ export const INTERNAL_SPACE_ROLES = ['admin', 'editor', 'viewer'] as const
 export function isInternalSpaceRole(role: string | undefined | null): boolean {
   return (INTERNAL_SPACE_ROLES as readonly string[]).includes(role ?? '')
 }
+
+/**
+ * 組織（org_memberships.role）の役割が「社内」か。owner / admin / member のみ。
+ * client（相手先・vendor も org 側は 'client'）や、まだ取れていない役割は false（社外側に倒す）。
+ * DB 側の判定（app_is_org_internal, 20260703_*_rls_helpers.sql）と同じ規則。
+ */
+const ORG_INTERNAL_ROLES = ['owner', 'admin', 'member'] as const
+
+export function isOrgInternalRole(role: string | undefined | null): boolean {
+  return (ORG_INTERNAL_ROLES as readonly string[]).includes(role ?? '')
+}
+
+const EDITABLE_SPACE_ROLES = ['admin', 'editor'] as const
+
+/**
+ * この space の内容（タスク・ガント・Wiki・見積など）を編集できるか。
+ * DB 側の判定（app_can_write_space, 20260911143112_space_role_boundary.sql）と同じ規則:
+ * 組織の役割が社内（owner/admin/member）で、かつ space の役割が admin/editor か、
+ * space_memberships に行が無い（社内メンバーは editor 扱い）人だけ編集できる。
+ * 閲覧者（viewer）・相手先（client）・vendor、および組織側が社外の人はできない。
+ *
+ * 画面はこの判定だけを唯一の正本にし、直接 role 文字列を比較しないこと（DB の規則が
+ * 変わったらここだけ直せばよい状態を保つ）。
+ */
+export function canEditSpaceContent(
+  spaceRole: string | undefined | null,
+  orgRole: string | undefined | null
+): boolean {
+  if (!isOrgInternalRole(orgRole)) return false
+  return spaceRole == null || (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole)
+}

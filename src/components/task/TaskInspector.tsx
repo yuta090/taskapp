@@ -1345,7 +1345,10 @@ export function TaskInspector({
         )}
 
         {/* Agency Mode: Pricing Panel (admin/editor only) */}
-        {agencyData.agency_mode && isInternalMember && (
+        {/* isInternalMember は viewer も真になるため使わない。編集できる人だけに絞る
+            正本は呼び出し元の canEditSpaceContent で、ここでは onUpdate の有無で判定する
+            （onUpdate は編集できない人には渡さない設計。他の編集項目と同じ判定に揃える） */}
+        {agencyData.agency_mode && !!onUpdate && (
           <TaskPricingPanel
             taskId={task.id}
             orgId={task.org_id}

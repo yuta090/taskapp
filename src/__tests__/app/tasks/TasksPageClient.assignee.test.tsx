@@ -59,6 +59,10 @@ vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   }),
 }))
 
+vi.mock('@/lib/hooks/useCanEditSpace', () => ({
+  useCanEditSpace: () => ({ canEdit: true, loading: false }),
+}))
+
 vi.mock('@/lib/hooks/useSpacePendingInvites', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/hooks/useSpacePendingInvites')>()
   return {

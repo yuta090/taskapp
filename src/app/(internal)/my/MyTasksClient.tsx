@@ -20,6 +20,7 @@ import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewSt
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { EmptyState, ErrorRetry, LoadingState } from '@/components/shared'
 import { ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
+import { useCanEditSpace, useCanEditSpaces } from '@/lib/hooks/useCanEditSpace'
 import type { TaskCreateData } from '@/components/task/TaskCreateSheet'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { DEFAULT_STALE_TIME_MS } from '@/lib/query/constants'
@@ -183,6 +184,9 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
     orgId: task.org_id,
     spaceId: task.space_id,
   })
+  // 閲覧者（viewer）・相手先には編集操作を渡さない。タスクごとに space が違うため、
+  // このタスクの space（task.space_id）で個別に判定する
+  const { canEdit } = useCanEditSpace(task.space_id)
   const spaceTask = tasks.find((t) => t.id === task.id)
   const current = spaceTask ?? task
 
@@ -295,7 +299,8 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         parentTasks={getEligibleParents(tasks, current.id).map((t) => ({ id: t.id, title: t.title }))}
         childTasks={tasks.filter((t) => t.parent_task_id === current.id)}
         onClose={onClose}
-        onPassBall={async (ball, overrideClientOwnerIds, overrideInternalOwnerIds) => {
+        // 閲覧者（viewer）・相手先には編集操作を渡さない（onUpdate 等が無ければ表示だけになる設計）
+        onPassBall={canEdit ? async (ball, overrideClientOwnerIds, overrideInternalOwnerIds) => {
           const clientOwnerIds = overrideClientOwnerIds ?? taskOwners
             .filter((owner) => owner.side === 'client')
             .map((owner) => owner.user_id)
@@ -305,9 +310,9 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
           // バリデーションはTaskInspector側で処理済み（フォールバック用のみ残す）
           if (ball === 'client' && clientOwnerIds.length === 0) return
           await passBall(current.id, ball, clientOwnerIds, internalOwnerIds)
-        }}
-        onUpdate={(updates) => updateTask(current.id, updates)}
-        onDelete={async () => {
+        } : undefined}
+        onUpdate={canEdit ? (updates) => updateTask(current.id, updates) : undefined}
+        onDelete={canEdit ? async () => {
           // 楽観的更新で spaceTask が先に消えるため、削除リクエスト中は notFound 判定・
           // 背景更新の再取得（消えたタスクを復活させかねない）を止める
           setDeleting(true)
@@ -318,12 +323,12 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
             setDeleting(false)
             throw err
           }
-        }}
-        onUpdateOwners={(clientOwnerIds, internalOwnerIds) =>
+        } : undefined}
+        onUpdateOwners={canEdit ? (clientOwnerIds, internalOwnerIds) =>
           passBall(current.id, current.ball, clientOwnerIds, internalOwnerIds)
-        }
+        : undefined}
         onSetSpecState={
-          current.type === 'spec'
+          canEdit && current.type === 'spec'
             ? async (decisionState) => {
                 if (decisionState !== 'considering' && !current.wiki_page_id && !current.spec_path) {
                   throw new Error('仕様書のWikiページが紐付けられていません')
@@ -333,11 +338,11 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
               }
             : undefined
         }
-        onConsideringDecided={fetchTasks}
+        onConsideringDecided={canEdit ? fetchTasks : undefined}
         onReviewChange={handleReviewChange}
       />
     )
-  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
 
   return null
 }
@@ -452,6 +457,11 @@ export default function MyTasksClient() {
   // ダミーの一覧を出してから本人の一覧に切り替わる、という事故を防ぐため）
   const userId = authUser?.id ?? (!authLoading && isLocalhostDev ? DEV_USER_ID : null)
   const loginRequired = !authLoading && !userId
+
+  // 閲覧者（viewer）・相手先には編集操作を出さない。タスクごとに space の役割が違いうるため、
+  // 一覧・作成先の選択肢はここでまとめて判定する（詳細パネルは task.space_id ごとに
+  // useCanEditSpace を使う。MyTaskInspector 参照）
+  const { canEditSpace } = useCanEditSpaces()
 
   // 一覧(tasks/spaces/milestones の3本)を1つのキャッシュにまとめる。userId と activeOrgId を
   // 必ず含めることで、別の人・別の組織のデータが混ざらない（org切り替えで取り直す）
@@ -597,10 +607,12 @@ export default function MyTasksClient() {
     [tasks, selectedTaskId]
   )
 
-  // Space options for global create
+  // Space options for global create。編集できない space（閲覧者・相手先）は選択肢から外し、
+  // 「押せるのに選ぶと失敗する」を防ぐ（ヘッダーの「作成」ボタン自体は出したままにする —
+  // 全spaceが閲覧者ということは稀で、その場合はシート側の選択肢が空になるだけで実害は無い）
   const spaceOptions = useMemo(
-    () => spaces.map((s) => ({ id: s.id, name: s.name, orgId: s.org_id || '' })),
-    [spaces]
+    () => spaces.filter((s) => canEditSpace(s.id)).map((s) => ({ id: s.id, name: s.name, orgId: s.org_id || '' })),
+    [spaces, canEditSpace]
   )
 
   // create=1 の付け外しだけを行い、他のクエリ（選択中タスク task= など）は保持する
@@ -1147,7 +1159,7 @@ export default function MyTasksClient() {
                                   task={task}
                                   isSelected={task.id === selectedTaskId}
                                   onClick={handleTaskClick}
-                                  onStatusChange={updateTaskStatus}
+                                  onStatusChange={canEditSpace(task.space_id) ? updateTaskStatus : undefined}
                                   reviewStatus={reviewStatuses[task.id]}
                                   awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                                 />
@@ -1176,7 +1188,7 @@ export default function MyTasksClient() {
                         task={task}
                         isSelected={task.id === selectedTaskId}
                         onClick={handleTaskClick}
-                        onStatusChange={updateTaskStatus}
+                        onStatusChange={canEditSpace(task.space_id) ? updateTaskStatus : undefined}
                         reviewStatus={reviewStatuses[task.id]}
                         awaitingMyApproval={myPendingReviewTaskIds.has(task.id)}
                       />
