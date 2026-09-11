@@ -2,6 +2,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 /**
+ * Regression tests for the audit-log/Slack-notify fire-and-forget fix:
+ * an un-awaited write can be cut off once the response is sent. Both side
+ * effects must be handed to next/server's after() so they run to completion
+ * even after the response goes out.
+ *
+ * The mock only queues the callback (it does NOT run it immediately) so tests
+ * can assert that side effects have not run yet at response time, and only
+ * happen once the queued after() tasks are actually drained — a mock that
+ * auto-invokes would pass even if the code called createAuditLog directly
+ * instead of through after().
+ */
+const afterTasks: Array<() => unknown> = []
+const mockAfter = vi.fn((task: () => unknown) => {
+  afterTasks.push(task)
+})
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return { ...actual, after: (task: () => unknown) => mockAfter(task) }
+})
+/** Runs and clears every after() task queued so far, in the order they were registered. */
+async function runAfterTasks() {
+  const tasks = afterTasks.splice(0, afterTasks.length)
+  for (const task of tasks) await task()
+}
+
+/**
  * Regression tests for the "0-row update treated as success" race-condition fix.
  *
  * The POST handler performs a state-conditioned `tasks` update
@@ -116,6 +142,7 @@ function callPost(token = 'valid-token') {
 describe('POST /api/portal/email-action/[token]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    afterTasks.length = 0
 
     process.env.INTERNAL_NOTIFY_SECRET = 'test-secret'
     ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
@@ -138,9 +165,19 @@ describe('POST /api/portal/email-action/[token]', () => {
       expect(response.status).toBe(200)
       expect(data.success).toBe(true)
 
+      expect(tokenUpdateEqMock).toHaveBeenCalledWith('id', approveTokenRecord.id)
+
+      // 監査ログ・Slack通知は応答を返したあとも確実に実行されるよう after() に回す。
+      // 応答が返った時点では、まだキューに積まれているだけで実行されていない
+      // （直接 createAuditLog を呼ぶ実装に戻っても検知できるよう、ここで確認する）。
+      expect(mockAfter).toHaveBeenCalledTimes(2)
+      expect(createAuditLog).not.toHaveBeenCalled()
+      expect(global.fetch).not.toHaveBeenCalled()
+
+      await runAfterTasks()
+
       expect(createAuditLog).toHaveBeenCalledTimes(1)
       expect(global.fetch).toHaveBeenCalledTimes(1)
-      expect(tokenUpdateEqMock).toHaveBeenCalledWith('id', approveTokenRecord.id)
 
       // CAS condition: approve must guard against a pending estimate
       expect(lastTaskUpdateChain.neq).toHaveBeenCalledWith('estimate_status', 'pending')
@@ -178,6 +215,8 @@ describe('POST /api/portal/email-action/[token]', () => {
     it('marks the token as used immediately after the task CAS succeeds, before the audit log and Slack notification', async () => {
       const response = await callPost()
       expect(response.status).toBe(200)
+
+      await runAfterTasks()
 
       const tokenOrder = tokenUpdateEqMock.mock.invocationCallOrder[0]
       const auditOrder = (createAuditLog as unknown as ReturnType<typeof vi.fn>).mock
@@ -217,9 +256,18 @@ describe('POST /api/portal/email-action/[token]', () => {
       expect(response.status).toBe(200)
       expect(data.success).toBe(true)
 
+      expect(tokenUpdateEqMock).toHaveBeenCalledWith('id', estimateApproveTokenRecord.id)
+
+      // 監査ログ・Slack通知は応答を返したあとも確実に実行されるよう after() に回す。
+      // 応答が返った時点では、まだキューに積まれているだけで実行されていない。
+      expect(mockAfter).toHaveBeenCalledTimes(2)
+      expect(createAuditLog).not.toHaveBeenCalled()
+      expect(global.fetch).not.toHaveBeenCalled()
+
+      await runAfterTasks()
+
       expect(createAuditLog).toHaveBeenCalledTimes(1)
       expect(global.fetch).toHaveBeenCalledTimes(1)
-      expect(tokenUpdateEqMock).toHaveBeenCalledWith('id', estimateApproveTokenRecord.id)
 
       // CAS condition: estimate_approve must guard against an already-completed task
       expect(lastTaskUpdateChain.neq).toHaveBeenCalledWith('status', 'done')

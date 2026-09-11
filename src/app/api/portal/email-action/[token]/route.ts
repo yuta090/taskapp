@@ -1,10 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
- * Fire-and-forget Slack notification (server-side, uses internal secret).
+ * Server-side Slack notification (uses internal secret). Returns a promise so
+ * callers can hand it to `after()` and keep the function alive until the
+ * request actually settles (a plain un-awaited fetch can be cut off once the
+ * response is sent).
  */
 function fireSlackNotification(
   origin: string,
@@ -15,20 +18,23 @@ function fireSlackNotification(
     actorId: string
     changes?: Record<string, string | undefined>
   },
-): void {
+): Promise<void> {
   const secret = process.env.INTERNAL_NOTIFY_SECRET
-  if (!secret) return
+  if (!secret) return Promise.resolve()
 
-  fetch(`${origin}/api/slack/notify`, {
+  return fetch(`${origin}/api/slack/notify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-internal-secret': secret,
     },
     body: JSON.stringify(params),
-  }).catch((err) => {
-    console.warn('[email-action-notify] Failed:', err)
-  })
+  }).then(
+    () => undefined,
+    (err) => {
+      console.warn('[email-action-notify] Failed:', err)
+    }
+  )
 }
 
 /**
@@ -223,34 +229,39 @@ export async function POST(
         console.error('[email-action] Failed to mark token as used:', tokenUpdateError)
       }
 
-      // 監査ログ
-      createAuditLog({
-        supabase: admin,
-        orgId: task.org_id,
-        spaceId: task.space_id,
-        actorId: tokenRecord.recipient_user_id,
-        actorRole: 'client',
-        eventType: 'estimate.approved',
-        targetType: 'task',
-        targetId: task.id,
-        summary: generateAuditSummary('estimate.approved', { title: task.title }),
-        dataBefore: { estimate_status: 'pending' },
-        dataAfter: { estimate_status: 'approved' },
-        metadata: { estimated_cost: task.estimated_cost, via: 'email' },
-        visibility: 'client',
-      }).catch(err => console.error('Audit log failed (email estimate_approve):', err))
+      // 監査ログ — 応答を返したあとも確実に実行されるよう after() に回す
+      // （await しない書き込みは応答送出後に打ち切られることがある）
+      after(() =>
+        createAuditLog({
+          supabase: admin,
+          orgId: task.org_id,
+          spaceId: task.space_id,
+          actorId: tokenRecord.recipient_user_id,
+          actorRole: 'client',
+          eventType: 'estimate.approved',
+          targetType: 'task',
+          targetId: task.id,
+          summary: generateAuditSummary('estimate.approved', { title: task.title }),
+          dataBefore: { estimate_status: 'pending' },
+          dataAfter: { estimate_status: 'approved' },
+          metadata: { estimated_cost: task.estimated_cost, via: 'email' },
+          visibility: 'client',
+        }).catch(err => console.error('Audit log failed (email estimate_approve):', err))
+      )
 
-      // Slack通知（見積もり承認）
-      fireSlackNotification(request.nextUrl.origin, {
-        event: 'estimate_approved',
-        taskId: task.id,
-        spaceId: task.space_id,
-        actorId: tokenRecord.recipient_user_id,
-        changes: {
-          oldEstimateStatus: 'pending',
-          newEstimateStatus: 'approved',
-        },
-      })
+      // Slack通知（見積もり承認）— 同様に after() に回す
+      after(() =>
+        fireSlackNotification(request.nextUrl.origin, {
+          event: 'estimate_approved',
+          taskId: task.id,
+          spaceId: task.space_id,
+          actorId: tokenRecord.recipient_user_id,
+          changes: {
+            oldEstimateStatus: 'pending',
+            newEstimateStatus: 'approved',
+          },
+        })
+      )
     } else {
       // タスク承認
       if (task.estimate_status === 'pending') {
@@ -297,34 +308,39 @@ export async function POST(
         console.error('[email-action] Failed to mark token as used:', tokenUpdateError)
       }
 
-      // 監査ログ
-      createAuditLog({
-        supabase: admin,
-        orgId: task.org_id,
-        spaceId: task.space_id,
-        actorId: tokenRecord.recipient_user_id,
-        actorRole: 'client',
-        eventType: 'approval.approved',
-        targetType: 'task',
-        targetId: task.id,
-        summary: generateAuditSummary('approval.approved', { title: task.title }),
-        dataBefore: { status: task.status, ball: task.ball },
-        dataAfter: { status: 'done', ball: 'internal' },
-        metadata: { via: 'email' },
-        visibility: 'client',
-      }).catch(err => console.error('Audit log failed (email approve):', err))
+      // 監査ログ — 応答を返したあとも確実に実行されるよう after() に回す
+      // （await しない書き込みは応答送出後に打ち切られることがある）
+      after(() =>
+        createAuditLog({
+          supabase: admin,
+          orgId: task.org_id,
+          spaceId: task.space_id,
+          actorId: tokenRecord.recipient_user_id,
+          actorRole: 'client',
+          eventType: 'approval.approved',
+          targetType: 'task',
+          targetId: task.id,
+          summary: generateAuditSummary('approval.approved', { title: task.title }),
+          dataBefore: { status: task.status, ball: task.ball },
+          dataAfter: { status: 'done', ball: 'internal' },
+          metadata: { via: 'email' },
+          visibility: 'client',
+        }).catch(err => console.error('Audit log failed (email approve):', err))
+      )
 
-      // Slack通知（タスク承認）
-      fireSlackNotification(request.nextUrl.origin, {
-        event: 'status_changed',
-        taskId: task.id,
-        spaceId: task.space_id,
-        actorId: tokenRecord.recipient_user_id,
-        changes: {
-          oldStatus: task.status,
-          newStatus: 'done',
-        },
-      })
+      // Slack通知（タスク承認）— 同様に after() に回す
+      after(() =>
+        fireSlackNotification(request.nextUrl.origin, {
+          event: 'status_changed',
+          taskId: task.id,
+          spaceId: task.space_id,
+          actorId: tokenRecord.recipient_user_id,
+          changes: {
+            oldStatus: task.status,
+            newStatus: 'done',
+          },
+        })
+      )
     }
 
     const message = tokenRecord.action_type === 'estimate_approve'

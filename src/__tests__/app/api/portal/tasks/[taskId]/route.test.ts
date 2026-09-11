@@ -2,6 +2,33 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 /**
+ * Regression tests for the audit-log/Slack-notify fire-and-forget fix:
+ * an un-awaited write can be cut off once the response is sent (observed in
+ * production: audit_logs stayed empty for portal requests). Both side effects
+ * must be handed to next/server's after() so they run to completion even
+ * after the response goes out.
+ *
+ * The mock only queues the callback (it does NOT run it immediately) so tests
+ * can assert that side effects have not run yet at response time, and only
+ * happen once the queued after() tasks are actually drained — a mock that
+ * auto-invokes would pass even if the code called createAuditLog directly
+ * instead of through after().
+ */
+const afterTasks: Array<() => unknown> = []
+const mockAfter = vi.fn((task: () => unknown) => {
+  afterTasks.push(task)
+})
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return { ...actual, after: (task: () => unknown) => mockAfter(task) }
+})
+/** Runs and clears every after() task queued so far, in the order they were registered. */
+async function runAfterTasks() {
+  const tasks = afterTasks.splice(0, afterTasks.length)
+  for (const task of tasks) await task()
+}
+
+/**
  * Regression tests for H-1 (UX audit 2026-07-05):
  * - Approve/request_changes only fired a fire-and-forget Slack notification;
  *   nothing showed up in the internal in-app Inbox, so the loop was easily
@@ -184,6 +211,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
     vi.clearAllMocks()
     adminUpdateCalls.length = 0
     adminCommentInsertCalls.length = 0
+    afterTasks.length = 0
 
     authResponse = { data: { user: mockUser } }
     sessionAccessToken = null
@@ -380,6 +408,12 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       expect(response.status).toBe(500)
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
 
+      // コメントの保存に失敗して ball を戻した場合、「修正を依頼した」という
+      // 監査ログ・Slack通知を after() に登録してはいけない（相手先にも見える
+      // visibility='client' の履歴に、実際には起きなかった操作が残るのを防ぐ）。
+      expect(mockAfter).not.toHaveBeenCalled()
+      expect(createAuditLogMock).not.toHaveBeenCalled()
+
       // Second update() call is the rollback; must restore the original assignee,
       // scoped to the same confirmed space and the ball value it is reverting from.
       expect(adminUpdateCalls[1].payload).toMatchObject({
@@ -463,6 +497,11 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       const rollbackConditions = Object.fromEntries(adminUpdateCalls[1].eqCalls)
       expect(rollbackConditions).toMatchObject({ id: 'task-1', space_id: 'space-1', estimate_status: 'rejected' })
       expect(rollbackConditions.updated_at).toBe(adminUpdateCalls[0].payload.updated_at)
+
+      // コメントの保存に失敗して見積状態を戻した場合、「再見積もりを依頼した」
+      // という監査ログ・Slack通知を after() に登録してはいけない。
+      expect(mockAfter).not.toHaveBeenCalled()
+      expect(createAuditLogMock).not.toHaveBeenCalled()
     })
 
     it('見積もりのコメントも visibility=client・確認済みの org_id で INSERT される', async () => {
@@ -496,6 +535,9 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
 
       expect(response.status).toBe(409)
       expect(body.error).toBe('社内レビューが完了していないため承認できません')
+      // 業務ルールで止まっている(=他の誰かが先に操作したわけではない)ことを
+      // 画面側が区別できるよう、理由付きの reason を返す。
+      expect(body.reason).toBe('blocked')
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
     })
 
@@ -510,10 +552,11 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
 
       expect(response.status).toBe(409)
       expect(body.error).toBe('決定事項が未決のため承認できません')
+      expect(body.reason).toBe('blocked')
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
     })
 
-    it('その他の理由で行が更新されない場合は、従来どおり汎用メッセージを返す', async () => {
+    it('その他の理由で行が更新されない場合は、従来どおり汎用メッセージを返す（reason は付けない＝先に操作された扱い）', async () => {
       updateTaskResponse = { data: null, error: null }
 
       const response = await callPost({ action: 'approve' })
@@ -521,6 +564,128 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
 
       expect(response.status).toBe(409)
       expect(body.error).toBe('タスクの状態が変更されました。ページを再読み込みしてください。')
+      expect(body.reason).toBeUndefined()
+    })
+  })
+
+  // 見積もりが確認待ちのまま approve/request_changes を叩いた場合の 409 も、
+  // 業務ルールで止まっている(reason: 'blocked')ため、画面はその理由をそのまま出す。
+  describe('approve/request_changes — 見積もり確認待ちで止まる場合', () => {
+    it('見積もり確認が必要な旨と reason: blocked を返す（approve）', async () => {
+      taskResponse = { data: { ...baseTask, estimate_status: 'pending', estimated_cost: 50000 }, error: null }
+
+      const response = await callPost({ action: 'approve' })
+      const body = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(body.error).toBe('見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。')
+      expect(body.reason).toBe('blocked')
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+
+    it('見積もり確認が必要な旨と reason: blocked を返す（request_changes）', async () => {
+      taskResponse = { data: { ...baseTask, estimate_status: 'pending', estimated_cost: 50000 }, error: null }
+
+      const response = await callPost({ action: 'request_changes', comment: 'コメント' })
+      const body = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(body.error).toBe('見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。')
+      expect(body.reason).toBe('blocked')
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+  })
+
+  // 監査ログ・Slack通知は応答を返したあとも確実に実行されるよう after() に回す
+  // （await しない書き込みは Vercel 上で応答送出後に打ち切られることがある —
+  // 本番で「依頼を作っても audit_logs が0件」という形で確認された不具合の回帰テスト）。
+  describe('監査ログ・Slack通知は after() 経由で実行される', () => {
+    it('approve: 応答時点ではまだ実行されず、after() のタスクを実行して初めて監査ログが記録される', async () => {
+      const response = await callPost({ action: 'approve' })
+      expect(response.status).toBe(200)
+
+      // 応答が返った時点では、まだキューに積まれているだけで実行されていない
+      // （直接 createAuditLog を呼ぶ実装に戻っても検知できるよう、ここで確認する）。
+      expect(mockAfter).toHaveBeenCalledTimes(2)
+      expect(createAuditLogMock).not.toHaveBeenCalled()
+
+      await runAfterTasks()
+
+      expect(createAuditLogMock).toHaveBeenCalledTimes(1)
+      expect(createAuditLogMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          actorId: mockUser.id,
+          eventType: 'approval.approved',
+          targetId: 'task-1',
+        })
+      )
+    })
+
+    it('request_changes: 応答時点ではまだ実行されず、after() のタスクを実行して初めて監査ログが記録される', async () => {
+      const response = await callPost({ action: 'request_changes', comment: '直してください' })
+      expect(response.status).toBe(200)
+
+      expect(mockAfter).toHaveBeenCalledTimes(2)
+      expect(createAuditLogMock).not.toHaveBeenCalled()
+
+      await runAfterTasks()
+
+      expect(createAuditLogMock).toHaveBeenCalledTimes(1)
+      expect(createAuditLogMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          actorId: mockUser.id,
+          eventType: 'approval.changes_requested',
+          targetId: 'task-1',
+        })
+      )
+    })
+
+    it('estimate_approve: 応答時点ではまだ実行されず、after() のタスクを実行して初めて監査ログが記録される', async () => {
+      taskResponse = { data: { ...baseTask, estimate_status: 'pending', estimated_cost: 50000 }, error: null }
+      const response = await callPost({ action: 'estimate_approve' })
+      expect(response.status).toBe(200)
+
+      expect(mockAfter).toHaveBeenCalledTimes(2)
+      expect(createAuditLogMock).not.toHaveBeenCalled()
+
+      await runAfterTasks()
+
+      expect(createAuditLogMock).toHaveBeenCalledTimes(1)
+      expect(createAuditLogMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          actorId: mockUser.id,
+          eventType: 'estimate.approved',
+          targetId: 'task-1',
+        })
+      )
+    })
+
+    it('estimate_reject: 応答時点ではまだ実行されず、after() のタスクを実行して初めて監査ログが記録される', async () => {
+      taskResponse = { data: { ...baseTask, estimate_status: 'pending', estimated_cost: 50000 }, error: null }
+      const response = await callPost({ action: 'estimate_reject', comment: '再検討をお願いします' })
+      expect(response.status).toBe(200)
+
+      expect(mockAfter).toHaveBeenCalledTimes(2)
+      expect(createAuditLogMock).not.toHaveBeenCalled()
+
+      await runAfterTasks()
+
+      expect(createAuditLogMock).toHaveBeenCalledTimes(1)
+      expect(createAuditLogMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          spaceId: 'space-1',
+          actorId: mockUser.id,
+          eventType: 'estimate.rejected',
+          targetId: 'task-1',
+        })
+      )
     })
   })
 })

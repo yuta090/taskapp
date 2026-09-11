@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
@@ -27,8 +27,10 @@ function reviewGateErrorMessage(updateError: { message: string } | null): string
 }
 
 /**
- * Fire-and-forget server-side notification.
- * Uses X-Internal-Secret header for authentication (no user session needed).
+ * Server-side notification. Uses X-Internal-Secret header for authentication
+ * (no user session needed). Returns a promise so callers can hand it to
+ * `after()` and keep the function alive until the request actually settles
+ * (a plain un-awaited fetch can be cut off once the response is sent).
  */
 function fireServerNotification(
   request: NextRequest,
@@ -39,21 +41,24 @@ function fireServerNotification(
     actorId: string
     changes?: Record<string, string | undefined>
   },
-): void {
+): Promise<void> {
   const secret = process.env.INTERNAL_NOTIFY_SECRET
-  if (!secret) return
+  if (!secret) return Promise.resolve()
 
   const origin = request.nextUrl.origin
-  fetch(`${origin}/api/slack/notify`, {
+  return fetch(`${origin}/api/slack/notify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-internal-secret': secret,
     },
     body: JSON.stringify(params),
-  }).catch((err) => {
-    console.warn('[portal-notify] Failed:', err)
-  })
+  }).then(
+    () => undefined,
+    (err) => {
+      console.warn('[portal-notify] Failed:', err)
+    }
+  )
 }
 
 /**
@@ -221,7 +226,7 @@ export async function POST(
     // Client must use estimate_approve/estimate_reject instead
     if ((action === 'approve' || action === 'request_changes') && task.estimate_status === 'pending') {
       return NextResponse.json(
-        { error: '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。' },
+        { error: '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。', reason: 'blocked' },
         { status: 409 }
       )
     }
@@ -259,29 +264,33 @@ export async function POST(
         )
       }
 
-      createAuditLog({
-        supabase,
-        orgId: task.org_id,
-        spaceId: task.space_id,
-        actorId: user.id,
-        actorRole: 'client',
-        eventType: 'estimate.approved',
-        targetType: 'task',
-        targetId: taskId,
-        summary: generateAuditSummary('estimate.approved', { title: task.title }),
-        dataBefore: { estimate_status: 'pending' },
-        dataAfter: { estimate_status: 'approved' },
-        metadata: { estimated_cost: task.estimated_cost, comment: trimmedComment || null },
-        visibility: 'client',
-      }).catch(err => console.error('Audit log failed (estimate_approve):', err))
+      after(() =>
+        createAuditLog({
+          supabase,
+          orgId: task.org_id,
+          spaceId: task.space_id,
+          actorId: user.id,
+          actorRole: 'client',
+          eventType: 'estimate.approved',
+          targetType: 'task',
+          targetId: taskId,
+          summary: generateAuditSummary('estimate.approved', { title: task.title }),
+          dataBefore: { estimate_status: 'pending' },
+          dataAfter: { estimate_status: 'approved' },
+          metadata: { estimated_cost: task.estimated_cost, comment: trimmedComment || null },
+          visibility: 'client',
+        }).catch(err => console.error('Audit log failed (estimate_approve):', err))
+      )
 
-      fireServerNotification(request, {
-        event: 'estimate_approved',
-        taskId,
-        spaceId: task.space_id,
-        actorId: user.id,
-        changes: { estimatedCost: String(task.estimated_cost) },
-      })
+      after(() =>
+        fireServerNotification(request, {
+          event: 'estimate_approved',
+          taskId,
+          spaceId: task.space_id,
+          actorId: user.id,
+          changes: { estimatedCost: String(task.estimated_cost) },
+        })
+      )
 
       return NextResponse.json({
         success: true,
@@ -314,8 +323,10 @@ export async function POST(
         )
       }
 
-      // Insert comment
-      const commentPromise = (admin as SupabaseClient)
+      // Insert comment — required before the audit log/notification below,
+      // since a failed insert reverts the estimate status and must not leave
+      // a "rejected" audit trail or notification behind.
+      const { error: commentError } = await (admin as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -328,31 +339,6 @@ export async function POST(
           updated_at: now,
         })
 
-      createAuditLog({
-        supabase,
-        orgId: task.org_id,
-        spaceId: task.space_id,
-        actorId: user.id,
-        actorRole: 'client',
-        eventType: 'estimate.rejected',
-        targetType: 'task',
-        targetId: taskId,
-        summary: generateAuditSummary('estimate.rejected', { title: task.title }),
-        dataBefore: { estimate_status: 'pending' },
-        dataAfter: { estimate_status: 'rejected' },
-        metadata: { estimated_cost: task.estimated_cost, comment: trimmedComment },
-        visibility: 'client',
-      }).catch(err => console.error('Audit log failed (estimate_reject):', err))
-
-      fireServerNotification(request, {
-        event: 'estimate_rejected',
-        taskId,
-        spaceId: task.space_id,
-        actorId: user.id,
-        changes: { estimatedCost: String(task.estimated_cost) },
-      })
-
-      const { error: commentError } = await commentPromise
       if (commentError) {
         console.error('Failed to create estimate reject comment:', commentError)
         // Attempt to revert estimate status (conditional to avoid clobbering newer state)
@@ -369,6 +355,38 @@ export async function POST(
           { status: 500 }
         )
       }
+
+      // Audit log and Slack notification must still run after the response is
+      // sent, so they are handed to after(). Registered only once the comment
+      // insert has actually succeeded, so a failed/reverted request never
+      // leaves a "rejected" trail behind.
+      after(() =>
+        createAuditLog({
+          supabase,
+          orgId: task.org_id,
+          spaceId: task.space_id,
+          actorId: user.id,
+          actorRole: 'client',
+          eventType: 'estimate.rejected',
+          targetType: 'task',
+          targetId: taskId,
+          summary: generateAuditSummary('estimate.rejected', { title: task.title }),
+          dataBefore: { estimate_status: 'pending' },
+          dataAfter: { estimate_status: 'rejected' },
+          metadata: { estimated_cost: task.estimated_cost, comment: trimmedComment },
+          visibility: 'client',
+        }).catch(err => console.error('Audit log failed (estimate_reject):', err))
+      )
+
+      after(() =>
+        fireServerNotification(request, {
+          event: 'estimate_rejected',
+          taskId,
+          spaceId: task.space_id,
+          actorId: user.id,
+          changes: { estimatedCost: String(task.estimated_cost) },
+        })
+      )
 
       return NextResponse.json({
         success: true,
@@ -405,36 +423,43 @@ export async function POST(
         console.error('Error approving task:', updateError || 'No rows updated')
         const gateMessage = reviewGateErrorMessage(updateError)
         return NextResponse.json(
-          { error: gateMessage ?? 'タスクの状態が変更されました。ページを再読み込みしてください。' },
+          gateMessage
+            ? { error: gateMessage, reason: 'blocked' }
+            : { error: 'タスクの状態が変更されました。ページを再読み込みしてください。' },
           { status: 409 }
         )
       }
 
-      // Fire-and-forget: audit log should not block the response
-      createAuditLog({
-        supabase,
-        orgId: task.org_id,
-        spaceId: task.space_id,
-        actorId: user.id,
-        actorRole: 'client',
-        eventType: 'approval.approved',
-        targetType: 'task',
-        targetId: taskId,
-        summary: generateAuditSummary('approval.approved', { title: task.title }),
-        dataBefore: { status: task.status, ball: task.ball },
-        dataAfter: { status: 'done', ball: 'internal' },
-        metadata: { comment: comment?.trim() || null },
-        visibility: 'client',
-      }).catch(err => console.error('Audit log failed (approve):', err))
+      // Audit log must still run after the response is sent, so it is handed
+      // to after() instead of being fired-and-forgotten.
+      after(() =>
+        createAuditLog({
+          supabase,
+          orgId: task.org_id,
+          spaceId: task.space_id,
+          actorId: user.id,
+          actorRole: 'client',
+          eventType: 'approval.approved',
+          targetType: 'task',
+          targetId: taskId,
+          summary: generateAuditSummary('approval.approved', { title: task.title }),
+          dataBefore: { status: task.status, ball: task.ball },
+          dataAfter: { status: 'done', ball: 'internal' },
+          metadata: { comment: comment?.trim() || null },
+          visibility: 'client',
+        }).catch(err => console.error('Audit log failed (approve):', err))
+      )
 
-      // Fire-and-forget: Slack notification for status change
-      fireServerNotification(request, {
-        event: 'status_changed',
-        taskId,
-        spaceId: task.space_id,
-        actorId: user.id,
-        changes: { oldStatus: task.status, newStatus: 'done' },
-      })
+      // Slack notification for status change — same reasoning as the audit log above.
+      after(() =>
+        fireServerNotification(request, {
+          event: 'status_changed',
+          taskId,
+          spaceId: task.space_id,
+          actorId: user.id,
+          changes: { oldStatus: task.status, newStatus: 'done' },
+        })
+      )
 
       // In-app inbox notification so the approval is visible without Slack
       await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
@@ -493,9 +518,11 @@ export async function POST(
         )
       }
 
-      // Run audit log (fire-and-forget) and comment insert (required) in parallel
-
-      const commentPromise = (admin as SupabaseClient)
+      // Comment is required — insert and await it before the audit log/
+      // notification below, since a failed insert reverts the ball/assignee
+      // change and must not leave a "changes requested" audit trail or
+      // notification behind.
+      const { error: commentError } = await (admin as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -507,35 +534,6 @@ export async function POST(
           created_at: now,
           updated_at: now,
         })
-
-      // Fire-and-forget: audit log should not block the response
-      createAuditLog({
-        supabase,
-        orgId: task.org_id,
-        spaceId: task.space_id,
-        actorId: user.id,
-        actorRole: 'client',
-        eventType: 'approval.changes_requested',
-        targetType: 'task',
-        targetId: taskId,
-        summary: generateAuditSummary('approval.changes_requested', { title: task.title }),
-        dataBefore: { ball: task.ball },
-        dataAfter: { ball: 'internal' },
-        metadata: { comment: trimmedComment },
-        visibility: 'client',
-      }).catch(err => console.error('Audit log failed (request_changes):', err))
-
-      // Fire-and-forget: Slack notification for ball passed back to internal
-      fireServerNotification(request, {
-        event: 'ball_passed',
-        taskId,
-        spaceId: task.space_id,
-        actorId: user.id,
-        changes: { newBall: 'internal' },
-      })
-
-      // Comment is required — await it
-      const { error: commentError } = await commentPromise
 
       if (commentError) {
         console.error('Failed to create task comment:', commentError)
@@ -555,6 +553,39 @@ export async function POST(
           { status: 500 }
         )
       }
+
+      // Audit log and Slack notification must still run after the response is
+      // sent, so they are handed to after(). Registered only once the comment
+      // insert has actually succeeded, so a failed/reverted request never
+      // leaves a "changes requested" trail behind.
+      after(() =>
+        createAuditLog({
+          supabase,
+          orgId: task.org_id,
+          spaceId: task.space_id,
+          actorId: user.id,
+          actorRole: 'client',
+          eventType: 'approval.changes_requested',
+          targetType: 'task',
+          targetId: taskId,
+          summary: generateAuditSummary('approval.changes_requested', { title: task.title }),
+          dataBefore: { ball: task.ball },
+          dataAfter: { ball: 'internal' },
+          metadata: { comment: trimmedComment },
+          visibility: 'client',
+        }).catch(err => console.error('Audit log failed (request_changes):', err))
+      )
+
+      // Slack notification for ball passed back to internal — same reasoning as above.
+      after(() =>
+        fireServerNotification(request, {
+          event: 'ball_passed',
+          taskId,
+          spaceId: task.space_id,
+          actorId: user.id,
+          changes: { newBall: 'internal' },
+        })
+      )
 
       // In-app inbox notification so the change request is visible without Slack
       await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
