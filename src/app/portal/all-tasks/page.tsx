@@ -51,7 +51,7 @@ export default async function PortalAllTasksPage({ searchParams }: PageProps) {
      
     (supabase as SupabaseClient)
       .from('tasks')
-      .select('id, title, status, ball, due_date, type, decision_state, created_at, description, milestone_id')
+      .select('id, title, status, ball, due_date, type, decision_state, created_at, description, milestone_id, estimated_cost, estimate_status')
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false })
       .limit(100),
@@ -88,6 +88,8 @@ export default async function PortalAllTasksPage({ searchParams }: PageProps) {
     type: task.type as 'task' | 'spec',
     createdAt: task.created_at,
     milestoneId: task.milestone_id,
+    estimatedCost: task.estimated_cost as number | null,
+    estimateStatus: (task.estimate_status || 'none') as 'none' | 'pending' | 'approved' | 'rejected',
   }))
 
   return (

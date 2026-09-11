@@ -29,6 +29,8 @@ interface Task {
   type?: 'task' | 'spec'
   createdAt?: string
   milestoneId?: string | null
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface PortalAllTasksClientProps {
@@ -84,7 +86,12 @@ export function PortalAllTasksClient({
   const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
-  const { handleApprove, handleRequestChanges } = usePortalTaskActions({
+  const {
+    handleApprove,
+    handleRequestChanges,
+    handleEstimateApprove,
+    handleEstimateReject,
+  } = usePortalTaskActions({
     onActionStart: () => setSelectedTask(null),
   })
 
@@ -155,13 +162,22 @@ export function PortalAllTasksClient({
   // ハンドラを渡すとインスペクタが承認パネルを表示するため、対象外のタスクには渡さない。
   const isApprovable =
     selectedTask != null && selectedTask.ball === 'client' && selectedTask.status !== 'done'
+  // 見積もり確認待ちは通常の承認/修正依頼ではなく見積もりの承認・却下を渡す。
+  // 通常のハンドラを渡すと押した瞬間にサーバーが409(見積もり確認が必要)で
+  // 断ってしまい先に進めなくなる（要対応一覧と同じ切り分け）。
+  const isEstimatePending =
+    isApprovable &&
+    selectedTask!.estimateStatus === 'pending' &&
+    selectedTask!.estimatedCost != null
 
   const inspector = inspectorTask ? (
     <PortalTaskInspector
       task={inspectorTask}
       onClose={() => setSelectedTask(null)}
-      onApprove={isApprovable ? handleApprove : undefined}
-      onRequestChanges={isApprovable ? handleRequestChanges : undefined}
+      onApprove={isApprovable && !isEstimatePending ? handleApprove : undefined}
+      onRequestChanges={isApprovable && !isEstimatePending ? handleRequestChanges : undefined}
+      onEstimateApprove={isEstimatePending ? handleEstimateApprove : undefined}
+      onEstimateReject={isEstimatePending ? handleEstimateReject : undefined}
     />
   ) : null
 

@@ -12,6 +12,8 @@ import {
   PaperPlaneTilt,
   FileText,
   Checks,
+  ArrowCounterClockwise,
+  CurrencyJpy,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { PortalShell } from '@/components/portal'
@@ -38,6 +40,8 @@ interface Task {
   updatedAt: string
   waitingDays: number
   isOverdue: boolean
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface Comment {
@@ -82,6 +86,18 @@ const ballLabels = PORTAL_BALL_LABELS
 /** 本当に他の誰かが先に操作していた場合（API が理由を返さない場合）に表示する既定文言。 */
 const STALE_CONFLICT_MESSAGE = '他のユーザーが先に操作しました。画面を更新します。'
 
+type PortalTaskAction = 'approve' | 'request_changes' | 'estimate_approve' | 'estimate_reject'
+
+/** 送信中のボタンに出すくるくる（4つの送信処理で共通利用）。 */
+function ButtonSpinner() {
+  return (
+    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  )
+}
+
 export function PortalTaskDetailClient({
   currentProject,
   projects,
@@ -92,85 +108,88 @@ export function PortalTaskDetailClient({
   const [comment, setComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleApprove = async () => {
+  /**
+   * 承認・修正依頼・見積もり承認・再見積もり依頼の4つの送信処理を1つにまとめたもの。
+   * 成功・409・401・403・400・想定外エラーの扱いはどの操作でも同じにする。
+   * 成功時は router.push('/portal') で画面が切り替わるまでボタンを押させない
+   * ため isSubmitting を戻さない。失敗したときだけ戻して再操作できるようにする。
+   */
+  const submitAction = async (
+    action: PortalTaskAction,
+    options: { successMessage: string; requireCommentMessage?: string }
+  ) => {
+    if (options.requireCommentMessage && !comment.trim()) {
+      toast.warning(options.requireCommentMessage)
+      return
+    }
     if (isSubmitting) return
     setIsSubmitting(true)
+
     try {
       const response = await fetch(`/api/portal/tasks/${task.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve', comment }),
+        body: JSON.stringify({ action, comment }),
       })
 
       if (response.ok) {
-        toast.success('承認しました')
+        toast.success(options.successMessage)
         router.push('/portal')
-      } else if (response.status === 409) {
-        const errorData = await response.json().catch(() => ({}))
+        return
+      }
+
+      const errorData = await response.json().catch(() => ({} as { error?: string; reason?: string }))
+
+      if (response.status === 409) {
         toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
-        // この画面は見積もり・社内レビュー・決定事項の状態を表示しないので、
-        // 業務の409（reason: 'blocked'）で取り直しても表示は変わらない。
-        // 将来この画面に見積もりの承認ボタン等を足すときは取り直しを戻すこと。
-        if (errorData.reason !== 'blocked') {
-          router.refresh()
-        }
+        // この画面は見積もりの状態でボタンを切り替えるので、業務の理由の409でも
+        // 取り直して最新の状態を出す。
+        router.refresh()
       } else if (response.status === 401) {
         toast.error('セッションが切れました。再度アクセスしてください。')
         router.push('/login')
-      } else {
-        toast.error('操作に失敗しました。しばらくしてからお試しください。')
-      }
-    } catch (error) {
-      console.error('Approve failed:', error)
-      toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const handleRequestChanges = async () => {
-    if (!comment.trim()) {
-      toast.warning('修正内容を入力してください')
-      return
-    }
-
-    if (isSubmitting) return
-    setIsSubmitting(true)
-    try {
-      const response = await fetch(`/api/portal/tasks/${task.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'request_changes', comment }),
-      })
-
-      if (response.ok) {
-        toast.success('修正依頼を送信しました')
-        router.push('/portal')
-      } else if (response.status === 409) {
-        const errorData = await response.json().catch(() => ({}))
-        toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
-        // この画面は見積もり・社内レビュー・決定事項の状態を表示しないので、
-        // 業務の409（reason: 'blocked'）で取り直しても表示は変わらない。
-        // 将来この画面に見積もりの承認ボタン等を足すときは取り直しを戻すこと。
-        if (errorData.reason !== 'blocked') {
-          router.refresh()
-        }
+      } else if (response.status === 403) {
+        // mfaGuardResponse（二要素認証のコード未入力）とアクセス権限なしは、
+        // どちらもステータス 403 だが error コードで区別できる。前者は
+        // 何をすればよいか分かる文言にする。
+        toast.error(
+          errorData.error === 'mfa_required'
+            ? '二要素認証のコード入力が必要です。ログイン画面からやり直してください。'
+            : 'このタスクにはアクセスできません。'
+        )
       } else if (response.status === 400) {
-        const errorData = await response.json().catch(() => ({}))
         toast.error(errorData.error || 'コメントを入力してください。')
       } else {
         toast.error('操作に失敗しました。しばらくしてからお試しください。')
       }
+      setIsSubmitting(false)
     } catch (error) {
-      console.error('Request changes failed:', error)
+      console.error(`Portal task action failed (${action}):`, error)
       toast.error('ネットワークエラーが発生しました。しばらくしてからお試しください。')
-    } finally {
       setIsSubmitting(false)
     }
   }
 
+  const handleApprove = () => submitAction('approve', { successMessage: '承認しました' })
+  const handleRequestChanges = () =>
+    submitAction('request_changes', {
+      successMessage: '修正依頼を送信しました',
+      requireCommentMessage: '修正内容を入力してください',
+    })
+  const handleEstimateApprove = () =>
+    submitAction('estimate_approve', { successMessage: '見積もりを承認しました' })
+  const handleEstimateReject = () =>
+    submitAction('estimate_reject', {
+      successMessage: '再見積もりを依頼しました',
+      requireCommentMessage: '再見積もり依頼の理由を入力してください',
+    })
+
   const isClientBall = task.ball === 'client'
   const canTakeAction = isClientBall && task.status !== 'done'
+  // 見積もり確認待ちは通常の承認/修正依頼ではなく見積もりの承認・却下を出す。
+  // 通常のボタンを出すと押した瞬間にサーバーが409(見積もりの確認が必要)で
+  // 断ってしまい先に進めなくなる（要対応一覧・PortalTaskInspector と同じ切り分け）。
+  const isEstimatePending = task.estimateStatus === 'pending' && task.estimatedCost != null
 
   return (
     <PortalShell
@@ -289,52 +308,90 @@ export function PortalTaskDetailClient({
           <div className="bg-surface rounded-xl border border-gray-200 shadow-sm p-6">
             <h3 className="text-sm font-medium text-gray-700 mb-4">アクション</h3>
 
+            {/* Estimate banner — shown when estimate is pending, mirrors PortalTaskInspector */}
+            {isEstimatePending && (
+              <div className="mb-4 px-4 py-3 rounded-lg border border-amber-200 bg-amber-50/80">
+                <div className="flex items-center gap-2 mb-1">
+                  <CurrencyJpy className="w-4 h-4 text-amber-600" />
+                  <span className="text-xs font-medium text-amber-700">見積もり確認</span>
+                </div>
+                <div className="text-2xl font-semibold text-gray-900 tracking-tight">
+                  ¥{task.estimatedCost!.toLocaleString()}
+                </div>
+              </div>
+            )}
+
             {/* Comment input */}
             <div className="mb-4">
               <textarea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="コメントを入力（任意）"
+                placeholder={isEstimatePending ? 'コメントを入力（再見積もり依頼時は必須）' : 'コメントを入力（任意）'}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 resize-none"
                 rows={3}
               />
             </div>
 
-            {/* Action buttons */}
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={handleApprove}
-                disabled={isSubmitting}
-                aria-busy={isSubmitting}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? (
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                ) : (
-                  <Checks className="w-4 h-4" />
-                )}
-                {isSubmitting ? '承認中...' : '承認する'}
-              </button>
-              <button
-                onClick={handleRequestChanges}
-                disabled={isSubmitting}
-                aria-busy={isSubmitting}
-                className="flex items-center gap-2 px-4 py-2 bg-surface border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? (
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                ) : (
-                  <PaperPlaneTilt className="w-4 h-4" />
-                )}
-                {isSubmitting ? '送信中...' : '修正を依頼'}
-              </button>
-            </div>
+            {/* Action buttons — estimate vs regular, mirrors PortalTaskInspector */}
+            {isEstimatePending ? (
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleEstimateApprove}
+                  disabled={isSubmitting}
+                  aria-busy={isSubmitting}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? (
+                    <ButtonSpinner />
+                  ) : (
+                    <Checks className="w-4 h-4" />
+                  )}
+                  {isSubmitting ? '処理中...' : '見積もり承認'}
+                </button>
+                <button
+                  onClick={handleEstimateReject}
+                  disabled={isSubmitting || !comment.trim()}
+                  aria-busy={isSubmitting}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-100 text-amber-700 text-sm font-medium rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? (
+                    <ButtonSpinner />
+                  ) : (
+                    <ArrowCounterClockwise className="w-4 h-4" />
+                  )}
+                  {isSubmitting ? '送信中...' : '再見積もり依頼'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleApprove}
+                  disabled={isSubmitting}
+                  aria-busy={isSubmitting}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? (
+                    <ButtonSpinner />
+                  ) : (
+                    <Checks className="w-4 h-4" />
+                  )}
+                  {isSubmitting ? '承認中...' : '承認する'}
+                </button>
+                <button
+                  onClick={handleRequestChanges}
+                  disabled={isSubmitting}
+                  aria-busy={isSubmitting}
+                  className="flex items-center gap-2 px-4 py-2 bg-surface border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? (
+                    <ButtonSpinner />
+                  ) : (
+                    <PaperPlaneTilt className="w-4 h-4" />
+                  )}
+                  {isSubmitting ? '送信中...' : '修正を依頼'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
