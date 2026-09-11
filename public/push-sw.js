@@ -18,9 +18,40 @@ self.addEventListener('push', (event) => {
   )
 })
 
+// Only ever navigate to an app-internal path. This mirrors
+// src/lib/auth/safeRedirect.ts (isSafeInternalPath), duplicated here because
+// this file is plain JS served as-is (not part of the Next.js build) and
+// cannot import it — keep the two in sync.
+function isSafeInternalPath(path) {
+  if (typeof path !== 'string' || path.length === 0) {
+    return false
+  }
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    return false
+  }
+  if (path.includes('\\') || /[\x00-\x1f\x7f]/.test(path)) {
+    return false
+  }
+  try {
+    const u = new URL(path, self.location.origin)
+    if (u.origin !== self.location.origin) {
+      return false
+    }
+    // Also reject a resolved path starting with `//`, so the path part alone
+    // can never be read as a different host.
+    if (u.pathname.startsWith('//')) {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = event.notification.data && event.notification.data.url ? event.notification.data.url : '/'
+  const rawUrl = event.notification.data && event.notification.data.url
+  const url = isSafeInternalPath(rawUrl) ? rawUrl : '/'
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

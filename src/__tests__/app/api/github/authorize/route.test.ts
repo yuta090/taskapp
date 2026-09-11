@@ -124,4 +124,13 @@ describe('GET /api/github/authorize', () => {
     const prState = new URL(protocolRelative.headers.get('location')!).searchParams.get('state')!
     expect(verifySignedState(prState)?.redirectUri).toBe('/settings/org-integrations')
   })
+
+  it('制御文字を含む戻り先も既定に置き換える', async () => {
+    const { GET, verifySignedState } = await loadRoute()
+
+    // %09 はタブ（制御文字）
+    const withTab = await GET(req(`?orgId=${ORG_ID}&redirect=%2F%09%2Fevil.example`))
+    const tabState = new URL(withTab.headers.get('location')!).searchParams.get('state')!
+    expect(verifySignedState(tabState)?.redirectUri).toBe('/settings/org-integrations')
+  })
 })

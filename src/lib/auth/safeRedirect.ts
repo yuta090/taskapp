@@ -15,7 +15,11 @@ export function isSafeInternalPath(path: string | null | undefined): path is str
   if (path.includes('\\') || CONTROL_CHARS.test(path)) return false
   try {
     const u = new URL(path, 'https://internal.invalid')
-    return u.origin === 'https://internal.invalid'
+    if (u.origin !== 'https://internal.invalid') return false
+    // 解決後のパスが `//` で始まるもの（例: `..` のあとに `//`）は、パス部分だけを
+    // 取り出して使われると別ホスト扱いになりうるため、念のため弾く。
+    if (u.pathname.startsWith('//')) return false
+    return true
   } catch {
     return false
   }
