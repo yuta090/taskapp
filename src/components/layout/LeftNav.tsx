@@ -825,9 +825,9 @@ export const LeftNav = memo(function LeftNav() {
   const hasProjectRoute = !!match
   // 組織IDは、URLに [orgId] を含む画面（/project・/secretary）では必ずURL側を使う
   // （サーバー・ブラウザで同じ値になるため）。URLに組織IDが無い画面（/my・/inbox等）
-  // では、hydration が済むまで選択中の組織(activeOrgId)を使わない。activeOrgId は
-  // cookie由来でサーバーでは必ず null のため、hydration前に使うとサーバーとブラウザで
-  // 「事務所／秘書」の段の有無が食い違う
+  // では、hydration が済むまで選択中の組織(activeOrgId)を使わない。ActiveOrgProvider
+  // もhydrationが済むまではcookieの組織IDを使わないが、ここでも念のため、hydration
+  // が済むまではactiveOrgIdを使わず「事務所／秘書」の段の有無をサーバーと合わせる
   const routeOrgId = typeof params?.orgId === 'string' ? params.orgId : undefined
   const orgId = routeOrgId ?? (hydrated ? activeOrgId : null) ?? ''
   const { count: rawInboxCount } = useUnreadNotificationCount()
