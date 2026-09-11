@@ -1,21 +1,34 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LeftNav } from '@/components/layout/LeftNav'
 import { ActiveOrgContext, type ActiveOrgContextValue } from '@/lib/org/ActiveOrgProvider'
 
-const { mockRouterPush, mockRouterReplace } = vi.hoisted(() => ({
+const { mockRouterPush, mockRouterReplace, mockUsePathname, mockUseParams } = vi.hoisted(() => ({
   mockRouterPush: vi.fn(),
   mockRouterReplace: vi.fn(),
+  mockUsePathname: vi.fn(() => '/org1/project/space1'),
+  mockUseParams: vi.fn((): { orgId?: string; spaceId?: string } => ({ orgId: 'org1', spaceId: 'space1' })),
 }))
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/org1/project/space1',
+  usePathname: mockUsePathname,
+  useParams: mockUseParams,
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace, prefetch: vi.fn(), back: vi.fn() }),
 }))
 
+const { mockUseUnreadNotificationCount } = vi.hoisted(() => ({
+  mockUseUnreadNotificationCount: vi.fn(() => ({ count: 0, pendingCount: 0, loading: false, error: null, refresh: vi.fn() })),
+}))
 vi.mock('@/lib/hooks/useUnreadNotificationCount', () => ({
-  useUnreadNotificationCount: () => ({ count: 0, pendingCount: 0, loading: false, error: null, refresh: vi.fn() }),
+  useUnreadNotificationCount: mockUseUnreadNotificationCount,
+}))
+
+const { mockUseHydrated } = vi.hoisted(() => ({
+  mockUseHydrated: vi.fn(() => true),
+}))
+vi.mock('@/lib/hooks/useHydrated', () => ({
+  useHydrated: mockUseHydrated,
 }))
 
 let mockCurrentUser: { user_metadata?: { name?: string }; email?: string } | null = null
@@ -203,5 +216,100 @@ describe('LeftNav — ログアウトは signOutAndLeave に集約する', () =>
     })
     expect(mockRouterPush).not.toHaveBeenCalled()
     expect(mockRouterReplace).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * URLに [orgId] を含む画面（/project・/secretary）では、組織IDは必ずURLから取る
+ * （サーバーとブラウザで同じ値になるため）。URLに組織IDが無い画面では、hydration
+ * が済むまで選択中の組織(activeOrgId。cookie由来でサーバーでは必ずnull)を使わない。
+ */
+describe('LeftNav — 組織IDはURLを優先する（cookie由来のactiveOrgIdと食い違っても崩れない）', () => {
+  afterEach(() => {
+    mockUsePathname.mockReturnValue('/org1/project/space1')
+    mockUseParams.mockReturnValue({ orgId: 'org1', spaceId: 'space1' })
+    mockUseHydrated.mockReturnValue(true)
+  })
+
+  it('秘書ページ(/[orgId]/secretary)ではURLのorgIdを使う（activeOrgIdが別の組織でも）', () => {
+    mockUsePathname.mockReturnValue('/org1/secretary')
+    mockUseParams.mockReturnValue({ orgId: 'org1' })
+    renderWithOrg({ activeOrgId: 'other-org', activeOrgName: '別組織' })
+    expect(screen.getByText('秘書').closest('a')).toHaveAttribute('href', '/org1/secretary')
+  })
+
+  it('URLにorgIdが無い画面（/my等）ではactiveOrgIdにフォールバックする', () => {
+    mockUsePathname.mockReturnValue('/my')
+    mockUseParams.mockReturnValue({})
+    renderWithOrg({ activeOrgId: 'org1', activeOrgName: 'テスト組織' })
+    expect(screen.getByText('秘書').closest('a')).toHaveAttribute('href', '/org1/secretary')
+  })
+
+  it('URLに組織IDが無い画面では、hydrationが済むまでactiveOrgIdを使わない（サーバーでは必ずnullのため）', () => {
+    mockUsePathname.mockReturnValue('/my')
+    mockUseParams.mockReturnValue({})
+    mockUseHydrated.mockReturnValue(false)
+    renderWithOrg({ activeOrgId: 'org1', activeOrgName: 'テスト組織' })
+    expect(screen.queryByText('秘書')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * React #418 対策: react-query の永続キャッシュ(IndexedDB)の復元が、Suspense境界の
+ * 遅延ハイドレーションより先に終わることがある。その場合でも、ハイドレーション時の
+ * 描画はサーバーと同じ表示（読み込み中の枠・空の一覧・バッジ無し）を保ち、
+ * ハイドレーション完了直後にキャッシュの中身をすぐ出す（通信を待たない）。
+ * ここでは useHydrated をモックしてその境目の挙動だけを検証する
+ * （実際のハイドレーションのタイミング自体は useHydrated.test.tsx で検証済み）。
+ */
+describe('LeftNav — hydration前はキャッシュ由来の表示をサーバーと合わせる（React #418対策）', () => {
+  beforeEach(() => {
+    mockCurrentUser = { user_metadata: { name: 'テスト太郎' }, email: 'user@example.com' }
+    mockUseUnreadNotificationCount.mockReturnValue({
+      count: 5,
+      pendingCount: 5,
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    })
+  })
+
+  afterEach(() => {
+    mockUseHydrated.mockReturnValue(true)
+    mockUseUnreadNotificationCount.mockReturnValue({
+      count: 0,
+      pendingCount: 0,
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    })
+  })
+
+  it('hydration前はユーザー欄をローディング表示のままにする（キャッシュに既にユーザーがいても）', () => {
+    mockUseHydrated.mockReturnValue(false)
+    const { container } = render(<LeftNav />)
+    expect(screen.queryByText('テスト太郎')).not.toBeInTheDocument()
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
+  })
+
+  it('hydration前はプロジェクト一覧をサーバーと同じ「プロジェクトがありません」表示にする（キャッシュに既にプロジェクトがあっても）', () => {
+    mockUseHydrated.mockReturnValue(false)
+    render(<LeftNav />)
+    expect(screen.queryByText('テストプロジェクト')).not.toBeInTheDocument()
+    expect(screen.getByText('プロジェクトがありません')).toBeInTheDocument()
+  })
+
+  it('hydration前は未読バッジを出さない（キャッシュに既に未読があっても）', () => {
+    mockUseHydrated.mockReturnValue(false)
+    render(<LeftNav />)
+    expect(screen.queryByText('5')).not.toBeInTheDocument()
+  })
+
+  it('hydration後はキャッシュの中身をすぐに表示する（通信を待たない）', () => {
+    mockUseHydrated.mockReturnValue(true)
+    render(<LeftNav />)
+    expect(screen.getByText('テスト太郎')).toBeInTheDocument()
+    expect(screen.getByText('テストプロジェクト')).toBeInTheDocument()
+    expect(screen.getByText('5')).toBeInTheDocument()
   })
 })

@@ -12,6 +12,8 @@
 --   chg_<表>_update_org_to_other   … 行の org_id を、space の組織と違う組織に変えられない（23503）
 --   same_delete_space_removes_rows … space を消すと、その space の行が消える（CASCADE の 11 表）
 --   same_delete_space_with_task_pricing_blocked … task_pricing の行がある space は消せない（space の外部キーが NO ACTION）
+--     ※ 本 migration の時点の規則（このハーネスは本 migration までしか流さない）。task_pricing の space の外部キーは
+--       *_task_pricing_space_cascade.sql で CASCADE にそろえた。その後の挙動は run_task_pricing_cascade.sh で確かめる。
 --
 -- label:
 --   chg_*    本 migration で定める規則
@@ -283,6 +285,7 @@ select test.check('same_delete_space_removes_rows', test.flow(
   array[format('delete from public.spaces where id = %L', :'SD')],
   format('select test.tables_with_rows(%L)', :'SD')), 'ok:0');
 -- task_pricing の行がある space は消せない（task_pricing の space の外部キーは NO ACTION）
+--   ※ 本 migration の時点の挙動。*_task_pricing_space_cascade.sql の後は run_task_pricing_cascade.sh で確かめる
 select test.check('same_delete_space_with_task_pricing_blocked', test.try(format(
   'delete from public.spaces where id = %L', :'SPR')), 'like:err:23503:%"task_pricing_space_%fkey"%');
 commit;

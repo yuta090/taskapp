@@ -5,11 +5,28 @@ import { Buildings, Check, CircleNotch, Crown, Users, PlugsConnected, CreditCard
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
+import { useHydrated } from '@/lib/hooks/useHydrated'
 import { SettingsBackButton } from '@/components/shared'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export default function OrganizationSettingsPage() {
-  const { orgId, orgName, role, loading: orgLoading } = useCurrentOrg()
+  const {
+    orgId: rawOrgId,
+    orgName: rawOrgName,
+    role: rawRole,
+    loading: rawOrgLoading,
+  } = useCurrentOrg()
+  // 組織ID(orgId)と読み込み中かどうか(loading)はブラウザのcookieから同期的に読むため、
+  // cookieが既にあるブラウザではハイドレーション時の描画だけサーバーと違う値になる
+  // （サーバーはcookieを読めず必ずloading:true・orgId:null）。hydrationが済むまでは
+  // orgId/loadingをサーバーと同じ「読み込み中」表示に固定する（React #418対策。
+  // orgName/roleはcookie由来ではなく所属一覧の取得結果から決まるが、orgIdがある間に
+  // 表示が中途半端に混ざらないよう合わせて固定する。詳細はuseHydrated参照）
+  const hydrated = useHydrated()
+  const orgId = hydrated ? rawOrgId : null
+  const orgName = hydrated ? rawOrgName : null
+  const role = hydrated ? rawRole : null
+  const orgLoading = hydrated ? rawOrgLoading : true
   const [editName, setEditName] = useState('')
   const [originalName, setOriginalName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -148,7 +165,12 @@ export default function OrganizationSettingsPage() {
 
   const hasChanges = editName.trim() !== originalName
 
-  const roleBadge = role === 'owner'
+  // role===nullは「まだ役割が確定していない」状態（hydration前・所属一覧取得中）。
+  // ここを既定値のクライアント扱いにすると、オーナーにも一瞬「クライアント」バッジや
+  // 「組織名の変更はオーナーのみ可能です」の案内が出てしまうため、中立の表示にする
+  const roleBadge = role === null
+    ? { label: '確認中', color: 'bg-gray-100 text-gray-500' }
+    : role === 'owner'
     ? { label: 'オーナー', color: 'bg-indigo-50 text-indigo-ink' }
     : role === 'member'
     ? { label: 'メンバー', color: 'bg-gray-100 text-gray-700' }
@@ -233,9 +255,12 @@ export default function OrganizationSettingsPage() {
                   disabled
                   className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  組織名の変更はオーナーのみ可能です
-                </p>
+                {/* role===nullの間（確認中）は、実際はオーナーかもしれないので断定した案内を出さない */}
+                {role !== null && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    組織名の変更はオーナーのみ可能です
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -300,7 +325,10 @@ export default function OrganizationSettingsPage() {
               <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
             </label>
           </div>
-          {!isOwner && <p className="text-xs text-gray-500 mt-3">オーナーのみ変更できます</p>}
+          {/* role===nullの間（確認中）は、実際はオーナーかもしれないので断定した案内を出さない */}
+          {role !== null && !isOwner && (
+            <p className="text-xs text-gray-500 mt-3">オーナーのみ変更できます</p>
+          )}
           {isOwner && dueRemindersFetchError && (
             <p className="text-xs text-red-600 mt-3">
               設定を読み込めませんでした。時間をおいて再度お試しください。
