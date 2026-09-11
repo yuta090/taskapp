@@ -52,14 +52,16 @@ describe('findDueReminderCandidateTasks', () => {
     expect(call.not).toHaveBeenCalledWith('assignee_id', 'is', null)
   })
 
-  it('spaces!inner(org_id)を埋め込みで取得する（perf是正: 別途space→org往復解決をしない）', async () => {
+  it('spaces を外部キー名つき（tasks_space_id_fkey）の!inner で埋め込む（perf是正: 別途space→org往復解決をしない）', async () => {
     fromResponse = { data: [], error: null }
     fromMock.mockImplementation(() => chain(fromResponse))
     await store.findDueReminderCandidateTasks()
 
+    // tasks → spaces の外部キーは2本ある（20260911155718_space_org_fk.sql）。道を指定しないと
+    // 本番で「more than one relationship was found」になり cron が止まる（2026-09-12 に発生）
     const call = fromMock.mock.results[0].value
     expect(call.select).toHaveBeenCalledWith(
-      expect.stringContaining('spaces!inner(org_id)'),
+      expect.stringContaining('spaces!tasks_space_id_fkey!inner(org_id)'),
     )
   })
 
