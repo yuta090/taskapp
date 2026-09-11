@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useContext, useMemo, memo, useRef } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Tray,
@@ -52,9 +52,15 @@ import { SpaceCreateSheet } from '@/components/space/SpaceCreateSheet'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import { resetInternalOnboarding } from '@/components/onboarding/InternalOnboardingWalkthrough'
 import { resetSetupChecklist } from '@/components/onboarding/SetupChecklist'
+import { useHydrated } from '@/lib/hooks/useHydrated'
 
 const STORAGE_KEY = 'taskapp:sidebar:internal:collapsed'
 const GROUP_COLLAPSED_KEY = 'taskapp:sidebar:group-collapsed'
+
+// ハイドレーション前（＝サーバーと同じ表示にしておく間）に使う空配列。呼び出しのたびに
+// 新しい配列を作ると依存配列で無駄な再計算を招くため、固定の参照を使い回す。
+const EMPTY_SPACES: UserSpace[] = []
+const EMPTY_GROUPS: SpaceGroupItem[] = []
 
 /** localStorage からグループ折畳状態を復元 */
 function getCollapsedGroups(): Set<string> {
@@ -143,7 +149,7 @@ function SubNavItem({ href, icon, label, active, collapsed, onNavigate }: SubNav
   )
 }
 
-function UserMenu({ collapsed }: { collapsed?: boolean }) {
+function UserMenu({ collapsed, hydrated }: { collapsed?: boolean; hydrated: boolean }) {
   const { user, loading } = useCurrentUser()
   const [isOpen, setIsOpen] = useState(false)
 
@@ -164,7 +170,9 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen])
 
-  if (loading) {
+  // hydrated になるまでは、キャッシュに既にユーザー情報があってもサーバーと同じ
+  // 読み込み中表示にする（React #418対策。詳細は useHydrated 参照）
+  if (!hydrated || loading) {
     return (
       <div className={`${collapsed ? 'px-1.5' : 'px-3'} py-3 pb-4 border-t border-gray-200`}>
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2'} px-2 py-2`}>
@@ -800,35 +808,63 @@ function orgInitialOf(name: string | null | undefined): string {
 
 export const LeftNav = memo(function LeftNav() {
   const pathname = usePathname()
+  const params = useParams<{ orgId?: string }>()
   const searchParams = useSearchParams()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const { activeOrgId, activeOrgName, orgs, switchOrg } = useContext(ActiveOrgContext)
   const [isOrgSwitcherOpen, setIsOrgSwitcherOpen] = useState(false)
 
+  // ハイドレーション完了（サーバーと同じ表示から、ブラウザの実際の値への切替）が
+  // 済んだかどうか。キャッシュ(react-query の永続化)・localStorage 由来の表示は
+  // これが true になるまでサーバーと同じ表示にしておく（React #418対策）
+  const hydrated = useHydrated()
+
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
-  const orgId = match?.[1] ?? activeOrgId ?? ''
   const spaceId = match?.[2] ?? undefined
   const hasProjectRoute = !!match
-  const { count: inboxCount } = useUnreadNotificationCount()
+  // 組織IDは、URLに [orgId] を含む画面（/project・/secretary）では常にURL側を使う
+  // （サーバー・ブラウザで必ず一致する）。URLに組織IDが無い画面（/my・/inbox・
+  // /settings等）だけ、選択中の組織(activeOrgId。cookie由来で環境ごとに変わりうる)に
+  // フォールバックする。以前は /project 用の正規表現一致だけを見ていたため、
+  // /secretary では常に activeOrgId 側になり、サーバーとブラウザで表示が食い違っていた
+  const routeOrgId = typeof params?.orgId === 'string' ? params.orgId : undefined
+  const orgId = routeOrgId ?? activeOrgId ?? ''
+  const { count: rawInboxCount } = useUnreadNotificationCount()
+  // hydration前はサーバーと同じ「バッジ無し」にする（キャッシュに既に未読があっても）
+  const inboxCount = hydrated ? rawInboxCount : undefined
   const [isSpaceCreateOpen, setIsSpaceCreateOpen] = useState(false)
 
-  // 動的スペースリスト（アーカイブ含む）
-  const { spaces: allSpaces } = useUserSpaces({ includeArchived: true })
+  // 動的スペースリスト（アーカイブ含む）。hydration前はサーバーと同じ「空」にする
+  const { spaces: rawAllSpaces } = useUserSpaces({ includeArchived: true })
+  const allSpaces = hydrated ? rawAllSpaces : EMPTY_SPACES
   const [showArchived, setShowArchived] = useState(false)
 
-  // グループ管理
+  // グループ管理。hydration前はサーバーと同じ「空」にする
   const {
-    groups,
+    groups: rawGroups,
     createGroup,
     renameGroup,
     deleteGroup,
     reorderGroups,
     moveSpaceToGroup,
   } = useSpaceGroups(orgId)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => getCollapsedGroups())
+  const groups = hydrated ? rawGroups : EMPTY_GROUPS
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const [isCreatingGroup, setIsCreatingGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
+
+  // グループの折りたたみ状態は localStorage（ブラウザにしかない）由来なので、
+  // ハイドレーション完了後に読み込む。lazy useState の初期値で直接読むと、
+  // サーバー（常に空）とブラウザの最初の描画が食い違う恐れがある
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = getCollapsedGroups()
+    if (saved.size > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing with external storage (localStorage)
+      setCollapsedGroups(saved)
+    }
+  }, [])
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -1372,7 +1408,7 @@ export const LeftNav = memo(function LeftNav() {
       </div>
 
       {/* User Menu at bottom */}
-      <UserMenu collapsed={collapsed} />
+      <UserMenu collapsed={collapsed} hydrated={hydrated} />
 
       {/* Space Create Sheet */}
       <SpaceCreateSheet
