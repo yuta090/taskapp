@@ -125,9 +125,11 @@ export function canEditSpaceContent(
  * 価格の枠（TaskPricingPanel）・代理店設定（AgencySettings）を操作できるか。
  * DB 側は2段構え: トリガー（guard_agency_settings, 20260308_002_agency_settings_write_guard.sql /
  * guard_task_pricing_write・guard_task_pricing_delete, 20260308_003_task_pricing_write_guard.sql）が
- * 「space_memberships の行がはっきり admin/editor の人だけ」を課し、agency 設定の実体は
- * spaces の列なので、そこへの書き込み自体は RLS（app_can_write_space 経由）の
- * 「組織の役割が社内（owner/admin/member）」も同時に満たす必要がある。
+ * 「space_memberships の行がはっきり admin/editor の人だけ」を課す。加えて、
+ * agency 設定の実体は spaces の列なので、その書き込みは RLS（app_can_write_space 経由）の
+ * 「組織の役割が社内（owner/admin/member）」も同時に満たす必要があり、
+ * 価格の枠（task_pricing）も自身の RLS（task_pricing_*_member, 20260703_011_rls_task_pricing_internal_only.sql
+ * の app_is_org_internal）で同じく組織の役割が社内であることを求める。
  *
  * canEditSpaceContent と違い、space_memberships に行が無い社内メンバーへの
  * 「editor 扱い」フォールバックは無い（トリガーは space_memberships を直接引き、

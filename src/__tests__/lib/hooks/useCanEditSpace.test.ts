@@ -12,12 +12,18 @@ import type { UserSpace } from '@/lib/hooks/useUserSpaces'
 let mockSpaces: UserSpace[] = []
 let mockIsPending = false
 let mockIsLoadingError = false
+// react-query の isError は「一度も取れないまま失敗した」ときも「前回取れたデータがある
+// 状態で裏の取り直しだけ失敗した」ときも true になる（isLoadingError と違い区別しない）。
+// モックでもその実物の形（isError:true かつ isLoadingError:false かつ spaces は前回分が残る）
+// を再現し、hook が isError を見てしまう後退を検出できるようにする。
+let mockIsError = false
 
 const useUserSpacesMock = vi.fn<(options?: { includeArchived?: boolean }) => Record<string, unknown>>(() => ({
   spaces: mockSpaces,
   loading: mockIsPending,
   isPending: mockIsPending,
   isLoadingError: mockIsLoadingError,
+  isError: mockIsError,
   error: null,
   refetch: async () => {},
 }))
@@ -64,6 +70,7 @@ beforeEach(() => {
   mockSpaces = []
   mockIsPending = false
   mockIsLoadingError = false
+  mockIsError = false
   useUserSpacesMock.mockClear()
 })
 
@@ -122,6 +129,9 @@ describe('useCanEditSpace', () => {
   // （useUserSpaces 側の仕様）。react-query の isError（裏の取り直し失敗でも true になる）を
   // 使うと、編集者の役割が一時的に読み取り専用へ後退してしまうため、isLoadingError だけを見る。
   it('前回取れた役割がある状態での裏の取り直し失敗では、編集できるまま（読み取り専用に後退しない）', () => {
+    // 実物の react-query が返す形を再現: isError は true（前回のデータがある状態での
+    // 裏の取り直し失敗でも true になる）だが、isLoadingError は false（前回取れているため）
+    mockIsError = true
     mockIsLoadingError = false
     mockSpaces = [makeSpace({ role: 'editor' })]
     const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
