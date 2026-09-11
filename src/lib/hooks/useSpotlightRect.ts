@@ -27,6 +27,19 @@ function isFullyVisible(rect: DOMRect): boolean {
 }
 
 /**
+ * OSの「視差効果を減らす」設定を尊重する。jsdom/SSRでは `matchMedia` が
+ * 存在しないことがあるためガードし、未対応環境では通常の `smooth` を返す。
+ */
+function getScrollBehavior(): ScrollBehavior {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'smooth'
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  } catch {
+    return 'smooth'
+  }
+}
+
+/**
  * Tracks the bounding rect of the first matching element among
  * `targetSelectors` (priority order — earlier selectors win even if a later
  * one also matches) while `active`, updating on resize/scroll. Returns
@@ -44,10 +57,19 @@ function isFullyVisible(rect: DOMRect): boolean {
  * around nothing is worse than falling through to a fallback (or the
  * centered dialog).
  *
- * When the matched element changes (new step, or a new element matches),
- * and it isn't fully inside the viewport, it is scrolled into view once —
- * this keeps mobile spotlight targets reachable instead of leaving the
- * ring off-screen with `scrollY` stuck at 0.
+ * When the matched selector changes within this step (i.e. hasn't been
+ * scrolled-to yet for this step) and the matched element isn't fully inside
+ * the viewport, it is scrolled into view once — this keeps mobile spotlight
+ * targets reachable instead of leaving the ring off-screen with `scrollY`
+ * stuck at 0.
+ *
+ * The "already scrolled" check is keyed by the matched *selector string*,
+ * not the matched *element*: virtualized lists (e.g. the internal task
+ * list) recycle DOM nodes as the user scrolls, so the element behind a
+ * given selector can be swapped out mid-step. Keying by element would
+ * re-trigger `scrollIntoView` for every swap and fight the user's own
+ * scrolling; keying by selector scrolls once per step and then leaves
+ * scrolling to the user.
  */
 export function useSpotlightRect(
   targetSelectors: string | readonly string[] | undefined,
@@ -55,8 +77,9 @@ export function useSpotlightRect(
 ): SpotlightMatch {
   const [match, setMatch] = useState<SpotlightMatch>(NO_MATCH)
   // 同じステップ内で連続する scroll/resize/mutation 更新のたびに
-  // scrollIntoView を呼び直さないよう、直近でスクロール判定済みの要素を覚えておく。
-  const scrolledElRef = useRef<Element | null>(null)
+  // scrollIntoView を呼び直さないよう、直近でスクロール判定済みのセレクタを
+  // 覚えておく（要素ではなくセレクタで判定 — 仮想リストは要素を使い回すため）。
+  const scrolledSelectorRef = useRef<string | null>(null)
 
   const selectorKey = (
     typeof targetSelectors === 'string' ? [targetSelectors] : targetSelectors ?? []
@@ -64,7 +87,7 @@ export function useSpotlightRect(
 
   useEffect(() => {
     // 新しいステップに入るたび、スクロール済み判定をリセットする。
-    scrolledElRef.current = null
+    scrolledSelectorRef.current = null
 
     const selectors = selectorKey ? selectorKey.split(SEP) : []
     if (!active || selectors.length === 0) {
@@ -84,13 +107,13 @@ export function useSpotlightRect(
 
         setMatch({ rect, matchedSelector: selector })
 
-        if (scrolledElRef.current !== el) {
-          scrolledElRef.current = el
+        if (scrolledSelectorRef.current !== selector) {
+          scrolledSelectorRef.current = selector
           if (!isFullyVisible(rect)) {
             // ビューポートより縦に大きい要素は先頭合わせ、それ以外は中央合わせ。
             const block = rect.height > window.innerHeight ? 'start' : 'center'
             // jsdom には scrollIntoView が実装されていないためガードする。
-            el.scrollIntoView?.({ block, behavior: 'smooth' })
+            el.scrollIntoView?.({ block, behavior: getScrollBehavior() })
           }
         }
         return

@@ -215,4 +215,201 @@ describe('useSpotlightRect — 画面外ターゲットのスクロール追従'
     expect(result.current.matchedSelector).toBe('[data-testid="visible-target"]')
     expect(scrollSpy).not.toHaveBeenCalled()
   })
+
+  it('対象が画面下端寄りで、ビューポートより高さが大きいときは block:"start" で呼ばれる', () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
+
+    const raf = stubRaf()
+    const el = document.createElement('div')
+    el.setAttribute('data-testid', 'tall-target')
+    // ビューポート(844)より縦に長い対象（例: アクションセクション全体）
+    stubNonZeroRect(el, { top: 109, bottom: 1000, left: 16, right: 374, height: 891 })
+    const scrollSpy = vi.fn()
+    el.scrollIntoView = scrollSpy
+    document.body.appendChild(el)
+
+    renderHook(() => useSpotlightRect('[data-testid="tall-target"]', true))
+    act(() => {
+      raf.flush()
+    })
+
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }))
+  })
+
+  it('対象がビューポートより高さが小さいときは block:"center" で呼ばれる', () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
+
+    const raf = stubRaf()
+    const el = document.createElement('div')
+    el.setAttribute('data-testid', 'short-offscreen-target')
+    stubNonZeroRect(el, { top: 1227, bottom: 1267, left: 16, right: 374, height: 40 })
+    const scrollSpy = vi.fn()
+    el.scrollIntoView = scrollSpy
+    document.body.appendChild(el)
+
+    renderHook(() => useSpotlightRect('[data-testid="short-offscreen-target"]', true))
+    act(() => {
+      raf.flush()
+    })
+
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ block: 'center' }))
+  })
+})
+
+describe('useSpotlightRect — 「視差効果を減らす」設定の尊重', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+    vi.unstubAllGlobals()
+  })
+
+  function renderOffscreenTargetWithMatchMedia(matches: boolean) {
+    const raf = stubRaf()
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({ matches } as unknown as MediaQueryList)
+    )
+
+    const el = document.createElement('div')
+    el.setAttribute('data-testid', 'reduced-motion-target')
+    stubNonZeroRect(el, { top: 1227, bottom: 1267, left: 16, right: 374, height: 40 })
+    const scrollSpy = vi.fn()
+    el.scrollIntoView = scrollSpy
+    document.body.appendChild(el)
+
+    renderHook(() => useSpotlightRect('[data-testid="reduced-motion-target"]', true))
+    act(() => {
+      raf.flush()
+    })
+
+    return scrollSpy
+  }
+
+  it('prefers-reduced-motion: reduce のとき、scrollIntoView は behavior:"auto" で呼ばれる', () => {
+    const scrollSpy = renderOffscreenTargetWithMatchMedia(true)
+
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('視差効果を減らす設定が無いときは behavior:"smooth" で呼ばれる', () => {
+    const scrollSpy = renderOffscreenTargetWithMatchMedia(false)
+
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+  })
+
+  it('matchMedia が無い環境(jsdom既定)でもエラーにならず、behavior:"smooth" で呼ばれる', () => {
+    const raf = stubRaf()
+    // jsdom には既定で matchMedia が実装されていない
+    expect(typeof window.matchMedia).toBe('undefined')
+
+    const el = document.createElement('div')
+    el.setAttribute('data-testid', 'no-matchmedia-target')
+    stubNonZeroRect(el, { top: 1227, bottom: 1267, left: 16, right: 374, height: 40 })
+    const scrollSpy = vi.fn()
+    el.scrollIntoView = scrollSpy
+    document.body.appendChild(el)
+
+    renderHook(() => useSpotlightRect('[data-testid="no-matchmedia-target"]', true))
+    act(() => {
+      raf.flush()
+    })
+
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+  })
+})
+
+describe('useSpotlightRect — 仮想リストでの要素入れ替え（同一ステップ内の再スクロール抑止）', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+    vi.unstubAllGlobals()
+  })
+
+  it('同じセレクタのまま一致する要素が入れ替わっても、2回目は scrollIntoView を呼ばない', async () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
+
+    const raf = stubRaf()
+    const selector = '[data-walkthrough="task-row-ball"]'
+
+    // 仮想リストの1行目相当（画面外）
+    const rowA = document.createElement('div')
+    rowA.setAttribute('data-walkthrough', 'task-row-ball')
+    stubNonZeroRect(rowA, { top: 1200, bottom: 1240, left: 16, right: 374, height: 40 })
+    const scrollSpyA = vi.fn()
+    rowA.scrollIntoView = scrollSpyA
+    document.body.appendChild(rowA)
+
+    const { result } = renderHook(() => useSpotlightRect(selector, true))
+    act(() => {
+      raf.flush()
+    })
+
+    expect(result.current.matchedSelector).toBe(selector)
+    expect(scrollSpyA).toHaveBeenCalledTimes(1)
+
+    // ユーザーがリスト内をスクロールし、仮想化により行Aがアンマウントされ、
+    // 同じセレクタに一致する別の(オーバースキャンされた画面外の)行Bへ差し替わる。
+    const rowB = document.createElement('div')
+    rowB.setAttribute('data-walkthrough', 'task-row-ball')
+    stubNonZeroRect(rowB, { top: 1500, bottom: 1540, left: 16, right: 374, height: 40 })
+    const scrollSpyB = vi.fn()
+    rowB.scrollIntoView = scrollSpyB
+    document.body.removeChild(rowA)
+    document.body.appendChild(rowB)
+
+    // MutationObserver がこの差し替えを検知して update() をスケジュールする想定。
+    await act(async () => {
+      await Promise.resolve()
+    })
+    act(() => {
+      raf.flush()
+    })
+
+    expect(result.current.matchedSelector).toBe(selector)
+    // 同一ステップ・同一セレクタなので、要素が変わっても再スクロールしない。
+    expect(scrollSpyB).not.toHaveBeenCalled()
+  })
+
+  it('要素が同じでも、ステップ（セレクタの組）が変わればスクロール判定はリセットされ、画面外なら再度スクロールする', () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
+
+    const raf = stubRaf()
+    // ポータル側: 要対応0件のとき、step1〜3すべてが同じ「アクション一覧セクション」
+    // 要素を対象にする（セレクタ配列は異なるが、一致するのは同じ要素）。
+    const section = document.createElement('div')
+    section.setAttribute('data-walkthrough', 'portal-action-section')
+    stubNonZeroRect(section, { top: 1227, bottom: 1900, left: 16, right: 374, height: 673 })
+    const scrollSpy = vi.fn()
+    section.scrollIntoView = scrollSpy
+    document.body.appendChild(section)
+
+    const { rerender } = renderHook(
+      ({ selectors }: { selectors: readonly string[] }) => useSpotlightRect(selectors, true),
+      {
+        initialProps: {
+          selectors: ['[data-walkthrough="portal-action-section"]'] as readonly string[],
+        },
+      }
+    )
+    act(() => {
+      raf.flush()
+    })
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+
+    // 次のステップへ（セレクタの組が変わる＝新しいステップ）。一致する要素は同じ。
+    rerender({
+      selectors: [
+        '[data-walkthrough="portal-action-card"]',
+        '[data-walkthrough="portal-action-section"]',
+      ],
+    })
+    act(() => {
+      raf.flush()
+    })
+
+    // ステップが変わったのでスクロール判定はリセットされ、画面外のままなら再度呼ばれる。
+    expect(scrollSpy).toHaveBeenCalledTimes(2)
+  })
 })
