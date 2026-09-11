@@ -37,6 +37,9 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
+/** サーバーが作る鍵の形（tsk_ + 英数字32文字）にそろえたテスト用の値 */
+const TEST_SERVER_KEY = 'tsk_0123456789abcdefghijklmnopqrstuv'
+
 function membersFixture(role: string) {
   return {
     members: [{ id: 'user-1', displayName: 'Me', avatarUrl: null, role }],
@@ -224,7 +227,7 @@ describe('ApiSettings — 【是正2】裏の取り直し失敗と新規鍵モ�
         return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: 'bad request' }) })
       }
       if (url === '/api/keys' && init?.method === 'POST') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'key-new' }) })
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-new' }, key: TEST_SERVER_KEY }) })
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
     })
@@ -254,7 +257,7 @@ describe('ApiSettings — 【是正3】アカウントのAPIキー一覧との�
     mockUseSpaceMembers.mockReturnValue(membersFixture('viewer'))
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === '/api/keys' && init?.method === 'POST') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'key-new' }) })
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-new' }, key: TEST_SERVER_KEY }) })
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
     })
@@ -313,6 +316,59 @@ describe('ApiSettings — 【是正3】アカウントのAPIキー一覧との�
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['userApiKeys'] }))
     )
+  })
+})
+
+// キーはサーバー側で作る。画面はそれをそのまま表示するだけで、自分では作らない
+describe('ApiSettings — キーはサーバーで作る（画面では作らない）', () => {
+  it('サーバーから返ってきたキーをそのまま表示する', async () => {
+    mockUseSpaceMembers.mockReturnValue(membersFixture('viewer'))
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/keys' && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-new' }, key: TEST_SERVER_KEY }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+    })
+
+    renderApiSettings(undefined, orgContextFixture({
+      orgs: [{ orgId: 'org-1', orgName: 'Org', role: 'owner' }],
+    }))
+    await waitFor(() => expect(screen.getByText('APIキーはまだ作成されていません')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'テストキー' } })
+    fireEvent.click(screen.getByRole('button', { name: '発行' }))
+
+    await waitFor(() => expect(screen.getByText('APIキーを保存してください')).toBeInTheDocument())
+    fireEvent.click(screen.getByTitle('キーを表示'))
+    expect(screen.getByText(TEST_SERVER_KEY)).toBeInTheDocument()
+  })
+
+  it('発行の送信内容に keyHash・keyPrefix を含めない', async () => {
+    mockUseSpaceMembers.mockReturnValue(membersFixture('viewer'))
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/keys' && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-new' }, key: TEST_SERVER_KEY }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+    })
+
+    renderApiSettings(undefined, orgContextFixture({
+      orgs: [{ orgId: 'org-1', orgName: 'Org', role: 'owner' }],
+    }))
+    await waitFor(() => expect(screen.getByText('APIキーはまだ作成されていません')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'テストキー' } })
+    fireEvent.click(screen.getByRole('button', { name: '発行' }))
+
+    await waitFor(() => {
+      const postCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/api/keys' && c[1]?.method === 'POST'
+      )
+      expect(postCall).toBeTruthy()
+      const body = JSON.parse(postCall![1].body as string)
+      expect(body).not.toHaveProperty('keyHash')
+      expect(body).not.toHaveProperty('keyPrefix')
+    })
   })
 })
 

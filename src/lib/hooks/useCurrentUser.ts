@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { getCachedUser } from '@/lib/supabase/cached-auth'
+import { isNavigationAbort } from '@/lib/net/isNavigationAbort'
 import { AuthSessionMissingError, type User } from '@supabase/supabase-js'
 
 export interface CurrentUserState {
@@ -34,7 +35,11 @@ export function useCurrentUser(): CurrentUserState {
           return null
         }
 
-        console.error('Failed to fetch user:', err)
+        // ページ移動によってブラウザに打ち切られただけの失敗（AbortError / "Failed to fetch"）は
+        // 通信障害ではなく利用者への実害も無いため、エラーとして記録しない
+        if (!isNavigationAbort(err)) {
+          console.error('Failed to fetch user:', err)
+        }
         throw new Error('ユーザー情報の取得に失敗しました')
       }
     },

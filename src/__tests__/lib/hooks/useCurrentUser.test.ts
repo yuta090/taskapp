@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthSessionMissingError } from '@supabase/supabase-js'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
+import { __resetNavigationLeavingStateForTest } from '@/lib/net/isNavigationAbort'
 
 const mockGetUser = vi.fn()
 
@@ -27,6 +28,7 @@ describe('useCurrentUser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     invalidateCachedUser()
+    __resetNavigationLeavingStateForTest()
   })
 
   afterEach(() => {
@@ -57,6 +59,65 @@ describe('useCurrentUser', () => {
     mockGetUser.mockResolvedValue({
       data: { user: null },
       error: new Error('network down'),
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useCurrentUser(), { wrapper: createWrapper(queryClient) })
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+
+    expect(result.current.error).toBe('ユーザー情報の取得に失敗しました')
+    expect(consoleErrorSpy).toHaveBeenCalled()
+  })
+
+  // @supabase/auth-js の実際の挙動: getUser() は AuthError を reject ではなく
+  // `{ data: { user: null }, error }` として resolve する（GoTrueClient._getUser の try/catch）。
+  // 以降の打ち切り判定のテストも、実物と同じくこの形で渡す
+  it('should not log a console error when getUser is aborted by page navigation (AbortError)', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const abortErr = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: abortErr })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useCurrentUser(), { wrapper: createWrapper(queryClient) })
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+
+    expect(result.current.error).toBe('ユーザー情報の取得に失敗しました')
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('should not log a console error when getUser fails with "Failed to fetch" after pagehide (navigation abort)', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // @supabase/auth-js が fetch の失敗を包み直した形（AuthRetryableFetchError相当）
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+      error: { name: 'AuthRetryableFetchError', message: 'Failed to fetch', status: 0 },
+    })
+    window.dispatchEvent(new Event('pagehide'))
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { result } = renderHook(() => useCurrentUser(), { wrapper: createWrapper(queryClient) })
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+
+    expect(result.current.error).toBe('ユーザー情報の取得に失敗しました')
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  // 境目のテスト: pagehide が無ければ、同じ AuthRetryableFetchError('Failed to fetch') でも
+  // ページ移動と無関係なふつうの通信失敗として今までどおり記録する
+  it('should still log a console error for AuthRetryableFetchError("Failed to fetch") when there was no pagehide', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+      error: { name: 'AuthRetryableFetchError', message: 'Failed to fetch', status: 0 },
     })
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

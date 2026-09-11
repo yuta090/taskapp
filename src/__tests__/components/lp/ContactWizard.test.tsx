@@ -41,15 +41,22 @@ async function advanceToContactStep() {
 /**
  * 入力してから、その値が画面に反映されるまで待つ。
  *
- * ⚠ fireEvent.change の直後に送信ボタンを押すと、入力が React に取り込まれる前に
- *   ハンドラが走り、**その項目だけ空のまま送信される**ことがある。
- *   実際に CI（負荷が高く、単一選択の自動前進 320ms と重なる）で message が空のまま届き、
- *   このファイルだけが時々落ちていた。「見出しが出た＝入力が反映済み」とは限らない。
+ * ⚠ 入力が React に取り込まれる前に次の操作をすると、その項目だけ空のまま進むことがある。
+ *   「見出しが出た＝入力を受け付けられる」とは限らない（負荷の高い CI では、画面の切り替え直後の
+ *   入力が取り込まれないことがある）。要素は毎回取り直し、値が入っていなければ入力し直して、
  *   値が入ったことを確かめてから次へ進む。
  */
-async function typeInto(element: HTMLElement, value: string) {
-  fireEvent.change(element, { target: { value } })
-  await waitFor(() => expect(element).toHaveValue(value))
+async function typeInto(getElement: () => HTMLElement, value: string) {
+  await waitFor(
+    () => {
+      const element = getElement()
+      if ((element as HTMLInputElement | HTMLTextAreaElement).value !== value) {
+        fireEvent.change(element, { target: { value } })
+      }
+      expect(element).toHaveValue(value)
+    },
+    { timeout: 3000 },
+  )
 }
 
 async function waitForStep(heading: string | RegExp) {
@@ -165,8 +172,8 @@ describe('ContactWizard', () => {
     render(<ContactWizard />)
     await advanceToContactStep()
 
-    await typeInto(screen.getByLabelText(/お名前/), '山田太郎')
-    await typeInto(screen.getByLabelText(/メールアドレス/), 'invalid-email')
+    await typeInto(() => screen.getByLabelText(/お名前/), '山田太郎')
+    await typeInto(() => screen.getByLabelText(/メールアドレス/), 'invalid-email')
     fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
 
     expect(await screen.findByText(/メールアドレスの形式/)).toBeInTheDocument()
@@ -177,7 +184,7 @@ describe('ContactWizard', () => {
     render(<ContactWizard />)
     await advanceToContactStep()
 
-    await typeInto(screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
+    await typeInto(() => screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
     fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
 
     expect(await screen.findByText(/お名前を入力してください/)).toBeInTheDocument()
@@ -197,13 +204,13 @@ describe('ContactWizard', () => {
     await waitForStep('やり取りする相手先（顧問先・クライアント）はどのくらい？')
     fireEvent.click(screen.getByRole('radio', { name: '〜5社' }))
     await waitForStep('いまの状況やお気持ちを、そのまま教えてください')
-    await typeInto(screen.getByRole('textbox', { name: /お気持ち/ }), '月末にいつも探しています')
+    await typeInto(() => screen.getByRole('textbox', { name: /お気持ち/ }), '月末にいつも探しています')
     fireEvent.click(screen.getByRole('button', { name: '次へ' }))
     await waitForStep('最後に、ご連絡先を教えてください')
 
-    await typeInto(screen.getByLabelText(/お名前/), '山田太郎')
-    await typeInto(screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
-    await typeInto(screen.getByLabelText(/会社名/), '山田事務所')
+    await typeInto(() => screen.getByLabelText(/お名前/), '山田太郎')
+    await typeInto(() => screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
+    await typeInto(() => screen.getByLabelText(/会社名/), '山田事務所')
     fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
@@ -229,8 +236,8 @@ describe('ContactWizard', () => {
     render(<ContactWizard />)
     await advanceToContactStep()
 
-    await typeInto(screen.getByLabelText(/お名前/), '山田太郎')
-    await typeInto(screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
+    await typeInto(() => screen.getByLabelText(/お名前/), '山田太郎')
+    await typeInto(() => screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
     fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('送信に失敗しました')
@@ -258,8 +265,8 @@ describe('ContactWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'スキップ' }))
     await waitForStep('最後に、ご連絡先を教えてください')
 
-    await typeInto(screen.getByLabelText(/お名前/), '山田太郎')
-    await typeInto(screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
+    await typeInto(() => screen.getByLabelText(/お名前/), '山田太郎')
+    await typeInto(() => screen.getByLabelText(/メールアドレス/), 'yamada@example.com')
     fireEvent.click(screen.getByRole('button', { name: '相談内容を送信する' }))
 
     await waitFor(() => expect(screen.getByText(/送信ありがとうございます/)).toBeInTheDocument())
