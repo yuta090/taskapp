@@ -45,6 +45,7 @@ const mockInsertSingle = vi.fn()
 const mockTaskOwnersInsert = vi.fn()
 const mockTaskOwnersSelect = vi.fn()
 const mockTaskOwnersEq = vi.fn()
+const mockMetricsUpsert = vi.fn()
 
 const mockFrom = vi.fn((table: string) => {
   if (table === 'tasks') {
@@ -57,6 +58,11 @@ const mockFrom = vi.fn((table: string) => {
     return {
       insert: mockTaskOwnersInsert,
       select: mockTaskOwnersSelect,
+    }
+  }
+  if (table === 'task_internal_metrics') {
+    return {
+      upsert: mockMetricsUpsert,
     }
   }
   throw new Error(`unexpected table: ${table}`)
@@ -491,6 +497,128 @@ describe('useTasks — レビュー整合性: status=done への変更ガード'
     })
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: '新しいタイトル' }))
+  })
+})
+
+// C2: 実績工数(actual_hours)は社内専用の別表 task_internal_metrics（task_id が主キー・
+// tasks と1:1）に移した。tasks.actual_hours（旧列。C3で削除予定のつなぎ経由）には
+// 書かず、新表へ upsert する。
+describe('useTasks — 実績工数(actual_hours)は task_internal_metrics へ書く', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    mockUpdate.mockReturnValue({ eq: mockUpdateEq })
+    mockUpdateEq.mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [{ id: 't1', parent_task_id: null }], error: null }),
+    })
+    mockMetricsUpsert.mockResolvedValue({ error: null })
+
+    mockInsert.mockReturnValue({ select: mockInsertSelect })
+    mockInsertSelect.mockReturnValue({ single: mockInsertSingle })
+
+    mockTaskOwnersInsert.mockResolvedValue({ error: null })
+    mockTaskOwnersSelect.mockReturnValue({ eq: mockTaskOwnersEq })
+    mockTaskOwnersEq.mockResolvedValue({ data: [], error: null })
+
+    mockPassBall.mockResolvedValue({ ok: true })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('actualHours だけの更新は tasks を更新せず、task_internal_metrics へ upsert する', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { actualHours: 12.5 })
+    })
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockFrom).toHaveBeenCalledWith('task_internal_metrics')
+    expect(mockMetricsUpsert).toHaveBeenCalledWith(
+      { task_id: 't1', actual_hours: 12.5 },
+      { onConflict: 'task_id' }
+    )
+    await waitFor(() => expect(result.current.tasks[0].actual_hours).toBe(12.5))
+  })
+
+  it('actualHours を null にする更新も upsert する（行は残す）', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', actual_hours: 5 })],
+      owners: {},
+      reviewStatuses: {},
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { actualHours: null })
+    })
+
+    expect(mockMetricsUpsert).toHaveBeenCalledWith(
+      { task_id: 't1', actual_hours: null },
+      { onConflict: 'task_id' }
+    )
+    await waitFor(() => expect(result.current.tasks[0].actual_hours).toBeNull())
+  })
+
+  it('actualHours と他の列を同時に更新すると、tasks の更新と task_internal_metrics の upsert が両方走る', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1' })],
+      owners: {},
+      reviewStatuses: {},
+    })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.updateTask('t1', { title: '新タイトル', actualHours: 3 })
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: '新タイトル' }))
+    expect(mockUpdate.mock.calls[0][0]).not.toHaveProperty('actual_hours')
+    expect(mockMetricsUpsert).toHaveBeenCalledWith(
+      { task_id: 't1', actual_hours: 3 },
+      { onConflict: 'task_id' }
+    )
+  })
+
+  it('task_internal_metrics への書き込みが失敗すると、楽観的更新をロールバックする', async () => {
+    mockFetchTasksQuery.mockResolvedValue({
+      tasks: [makeTask({ id: 't1', actual_hours: 1 })],
+      owners: {},
+      reviewStatuses: {},
+    })
+    mockMetricsUpsert.mockResolvedValue({ error: { message: 'boom' } })
+
+    const { result } = renderHook(() => useTasks({ orgId: 'o1', spaceId: 's1' }), {
+      wrapper: createWrapper(),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1))
+
+    await expect(result.current.updateTask('t1', { actualHours: 99 })).rejects.toThrow()
+
+    expect(result.current.tasks[0].actual_hours).toBe(1)
   })
 })
 

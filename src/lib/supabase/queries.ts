@@ -141,6 +141,20 @@ export async function collectRemainingPages<T extends { id: string }>(
   return dedupedRows
 }
 
+/**
+ * 実績工数(actual_hours)は社内専用の別表 task_internal_metrics（task_id が主キー・
+ * tasks と1:1）に置く。読める人は task_internal_metrics 側のRLS（社内メンバーだけ）で
+ * 決まるため、埋め込みは通常の(!inner を付けない)ままにする — 読めない人・行が無い
+ * タスクは埋め込みが null になるだけで、tasks 自体の行は変わらず返る。
+ */
+function flattenTaskInternalMetrics(row: Record<string, unknown>): Record<string, unknown> {
+  const { task_internal_metrics, ...rest } = row
+  const metrics = (
+    Array.isArray(task_internal_metrics) ? task_internal_metrics[0] : task_internal_metrics
+  ) as { actual_hours: number | null } | null | undefined
+  return { ...rest, actual_hours: metrics?.actual_hours ?? null }
+}
+
 /** tasks テーブルから1ページ分（range指定）を取得する共通クエリ */
 function fetchTasksPage(
   supabase: SupabaseClient,
@@ -151,7 +165,7 @@ function fetchTasksPage(
 ) {
   return supabase
     .from('tasks')
-    .select('*, task_owners (*)')
+    .select('*, task_owners (*), task_internal_metrics (actual_hours)')
     .eq('org_id', orgId)
     .eq('space_id', spaceId)
     // created_at だけだと一括インポート等で同じ時刻のタスクが並び、ページ境界で
@@ -205,7 +219,7 @@ export async function fetchTasksQuery(
     if (Array.isArray(task_owners)) {
       ownersByTask[t.id] = task_owners as TaskOwner[]
     }
-    return taskFields as unknown as Task
+    return flattenTaskInternalMetrics(taskFields) as unknown as Task
   })
 
   const reviewsByTask: Record<string, ReviewStatus> = {}
@@ -295,6 +309,30 @@ export function spaceQueryKey(spaceId: string | null) {
   return ['space', spaceId] as const
 }
 
+/** space_agency_settings が無い space（既定値のまま一度も保存していない）の既定値 */
+const DEFAULT_VENDOR_SETTINGS = {
+  show_client_name: false,
+  allow_client_comments: false,
+} as const
+
+/**
+ * 代理店設定(default_margin_rate・vendor_settings)は社内専用の別表 space_agency_settings
+ * （space_id が主キー・spaces と1:1）に置く。埋め込みで一緒に読み、呼び出し側からは
+ * 今までどおり同じ行の列に見えるよう平らにする。行が無い（既定値のまま）space は
+ * 埋め込みが null になるため、既定値で補う。
+ */
+function flattenSpaceAgencySettings(row: Record<string, unknown>): Record<string, unknown> {
+  const { space_agency_settings, ...rest } = row
+  const settings = (
+    Array.isArray(space_agency_settings) ? space_agency_settings[0] : space_agency_settings
+  ) as { default_margin_rate: number | null; vendor_settings: Record<string, unknown> } | null | undefined
+  return {
+    ...rest,
+    default_margin_rate: settings?.default_margin_rate ?? null,
+    vendor_settings: settings?.vendor_settings ?? DEFAULT_VENDOR_SETTINGS,
+  }
+}
+
 /**
  * Fetch the space (project) row by ID.
  * 名前・アーカイブ状態・初期構成などは全て同じ1行なので、クライアント側の
@@ -307,9 +345,9 @@ export async function fetchSpaceRowQuery(
   // クライアントの useSpaceRow と同じく maybeSingle（行が無いのはエラーにしない）
   const { data, error } = await supabase
     .from('spaces')
-    .select('*')
+    .select('*, space_agency_settings (default_margin_rate, vendor_settings)')
     .eq('id', spaceId)
     .maybeSingle()
   if (error) throw error
-  return (data as Record<string, unknown> | null) ?? null
+  return data ? flattenSpaceAgencySettings(data as Record<string, unknown>) : null
 }

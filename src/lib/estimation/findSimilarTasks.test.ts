@@ -32,12 +32,13 @@ function chainable(response: unknown, calls: RecordedCall[]) {
   return proxy
 }
 
-interface FixtureTask {
-  id: string
-  title: string
+// actual_hours lives in task_internal_metrics (task_id 1:1 with tasks), embedded with
+// the matching task via tasks!inner(...). Fixtures model the row shape PostgREST
+// returns: metrics columns at the top level, the joined task under `tasks`.
+interface FixtureMetricsRow {
+  task_id: string
   actual_hours: number
-  completed_at: string | null
-  updated_at: string
+  tasks: { id: string; title: string; completed_at: string | null; updated_at: string }
 }
 
 interface FixtureEvent {
@@ -47,8 +48,17 @@ interface FixtureEvent {
   created_at: string
 }
 
+/** Convenience: build a FixtureMetricsRow from the old flat shape used throughout this file. */
+function metricsRow(t: { id: string; title: string; actual_hours: number; completed_at: string | null; updated_at: string }): FixtureMetricsRow {
+  return {
+    task_id: t.id,
+    actual_hours: t.actual_hours,
+    tasks: { id: t.id, title: t.title, completed_at: t.completed_at, updated_at: t.updated_at },
+  }
+}
+
 function makeSupabase(opts: {
-  tasks: { data: FixtureTask[] | null; error: { message: string } | null }
+  tasks: { data: FixtureMetricsRow[] | null; error: { message: string } | null }
   events?: { data: FixtureEvent[] | null; error: { message: string } | null }
 }) {
   const tasksCalls: RecordedCall[] = []
@@ -57,7 +67,7 @@ function makeSupabase(opts: {
 
   const supabase = {
     from: (table: string) => {
-      if (table === 'tasks') return chainable(opts.tasks, tasksCalls)
+      if (table === 'task_internal_metrics') return chainable(opts.tasks, tasksCalls)
       if (table === 'task_events') return chainable(eventsResponse, eventsCalls)
       throw new Error(`unexpected table in test: ${table}`)
     },
@@ -133,9 +143,9 @@ describe('findSimilarTasks', () => {
       const { supabase } = makeSupabase({
         tasks: {
           data: [
-            { id: 't1', title: 'ロゴ制作A', actual_hours: 3, completed_at: '2026-06-01T00:00:00Z', updated_at: '2026-06-01T00:00:00Z' },
-            { id: 't2', title: 'ロゴ制作B', actual_hours: 4, completed_at: '2026-06-02T00:00:00Z', updated_at: '2026-06-02T00:00:00Z' },
-            { id: 't3', title: 'ロゴ制作C', actual_hours: 4, completed_at: '2026-06-03T00:00:00Z', updated_at: '2026-06-03T00:00:00Z' },
+            metricsRow({ id: 't1', title: 'ロゴ制作A', actual_hours: 3, completed_at: '2026-06-01T00:00:00Z', updated_at: '2026-06-01T00:00:00Z' }),
+            metricsRow({ id: 't2', title: 'ロゴ制作B', actual_hours: 4, completed_at: '2026-06-02T00:00:00Z', updated_at: '2026-06-02T00:00:00Z' }),
+            metricsRow({ id: 't3', title: 'ロゴ制作C', actual_hours: 4, completed_at: '2026-06-03T00:00:00Z', updated_at: '2026-06-03T00:00:00Z' }),
           ],
           error: null,
         },
@@ -152,7 +162,7 @@ describe('findSimilarTasks', () => {
       const { supabase } = makeSupabase({
         tasks: {
           data: [
-            { id: 't1', title: 'ロゴ制作', actual_hours: 2, completed_at: null, updated_at: '2026-06-05T00:00:00Z' },
+            metricsRow({ id: 't1', title: 'ロゴ制作', actual_hours: 2, completed_at: null, updated_at: '2026-06-05T00:00:00Z' }),
           ],
           error: null,
         },
@@ -164,13 +174,15 @@ describe('findSimilarTasks', () => {
     })
 
     it('returns at most 5 similarTasks but computes avgHours from all fetched (up to 10)', async () => {
-      const tasks: FixtureTask[] = Array.from({ length: 6 }, (_, i) => ({
-        id: `t${i + 1}`,
-        title: `ロゴ制作${i + 1}`,
-        actual_hours: 10, // constant so avg is trivially checkable
-        completed_at: `2026-06-0${i + 1}T00:00:00Z`,
-        updated_at: `2026-06-0${i + 1}T00:00:00Z`,
-      }))
+      const tasks: FixtureMetricsRow[] = Array.from({ length: 6 }, (_, i) =>
+        metricsRow({
+          id: `t${i + 1}`,
+          title: `ロゴ制作${i + 1}`,
+          actual_hours: 10, // constant so avg is trivially checkable
+          completed_at: `2026-06-0${i + 1}T00:00:00Z`,
+          updated_at: `2026-06-0${i + 1}T00:00:00Z`,
+        })
+      )
       const { supabase } = makeSupabase({ tasks: { data: tasks, error: null } })
 
       const result = await findSimilarTasks(supabase, { title: 'ロゴ制作', ...baseParams })
@@ -183,8 +195,8 @@ describe('findSimilarTasks', () => {
       const { supabase } = makeSupabase({
         tasks: {
           data: [
-            { id: 't1', title: 'ロゴ制作A', actual_hours: 2, completed_at: '2026-06-10T00:00:00Z', updated_at: '2026-06-10T00:00:00Z' },
-            { id: 't2', title: 'ロゴ制作B', actual_hours: 2, completed_at: '2026-06-10T00:00:00Z', updated_at: '2026-06-10T00:00:00Z' },
+            metricsRow({ id: 't1', title: 'ロゴ制作A', actual_hours: 2, completed_at: '2026-06-10T00:00:00Z', updated_at: '2026-06-10T00:00:00Z' }),
+            metricsRow({ id: 't2', title: 'ロゴ制作B', actual_hours: 2, completed_at: '2026-06-10T00:00:00Z', updated_at: '2026-06-10T00:00:00Z' }),
           ],
           error: null,
         },
@@ -213,7 +225,7 @@ describe('findSimilarTasks', () => {
     function completedTaskWithEvents(events: FixtureEvent[], completedAt = '2026-06-10T00:00:00Z') {
       return makeSupabase({
         tasks: {
-          data: [{ id: 't1', title: 'ロゴ制作', actual_hours: 1, completed_at: completedAt, updated_at: completedAt }],
+          data: [metricsRow({ id: 't1', title: 'ロゴ制作', actual_hours: 1, completed_at: completedAt, updated_at: completedAt })],
           error: null,
         },
         events: { data: events, error: null },

@@ -31,6 +31,10 @@ const DEFAULT_AGENCY_DATA: AgencyModeData = {
 /**
  * 代理店モードの設定。値はプロジェクト1行（useSpaceRow）から読む。
  * 列がまだ無い（マイグレーション未適用の）DBでは undefined になるので既定値へ落とす。
+ *
+ * 書き込み先はフィールドごとに分かれる: agency_mode は spaces の列（協力会社の画面が
+ * agency_mode だけを見るため残す）、default_margin_rate・vendor_settings は社内専用の
+ * 別表 space_agency_settings（space_id が主キー・spaces と1:1）へ upsert する。
  */
 export function useAgencyMode(spaceId: string | null) {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
@@ -42,12 +46,22 @@ export function useAgencyMode(spaceId: string | null) {
 
   const mutation = useMutation({
     mutationFn: async (updates: Partial<AgencyModeData>) => {
-      const { error } = await (supabase as SupabaseClient)
-        .from('spaces')
-        .update(updates)
-        .eq('id', spaceId!)
+      const { agency_mode, ...agencySettingsUpdates } = updates
 
-      if (error) throw error
+      if (agency_mode !== undefined) {
+        const { error } = await (supabase as SupabaseClient)
+          .from('spaces')
+          .update({ agency_mode })
+          .eq('id', spaceId!)
+        if (error) throw error
+      }
+
+      if (Object.keys(agencySettingsUpdates).length > 0) {
+        const { error } = await (supabase as SupabaseClient)
+          .from('space_agency_settings')
+          .upsert({ space_id: spaceId!, ...agencySettingsUpdates }, { onConflict: 'space_id' })
+        if (error) throw error
+      }
     },
     onMutate: async (updates) => {
       const queryKey = spaceQueryKey(spaceId)
