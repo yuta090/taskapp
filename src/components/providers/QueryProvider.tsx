@@ -85,6 +85,11 @@ function shouldDehydrateQuery(query: Query): boolean {
   // 決済の受け付け状況は運用中に切り替わる。IDB に載せると、受け付けを開けた直後の
   // 再読み込みでも古い「準備中」を出し続けてしまう（安いので毎回取り直す）。
   if (query.queryKey[0] === 'stripeStatus') return false
+  // GitHub の接続状態(useGitHubConnection)・github_installations の1行(useGitHubInstallation)
+  // も同じ理由で載せない。組織の外での操作（別の人が接続/解除）で切り替わるため、
+  // 古い「未接続」を出し続けるより毎回取り直すほうが安全（stripeStatus と同じ判断）。
+  if (query.queryKey[0] === 'github-connection-status') return false
+  if (query.queryKey[0] === 'github-installation') return false
   return defaultShouldDehydrateQuery(query)
 }
 

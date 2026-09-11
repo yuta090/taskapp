@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { GitHubRepoSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/GitHubRepoSettings'
 import { SlackChannelSettings } from '@/app/(internal)/[orgId]/project/[spaceId]/settings/SlackChannelSettings'
 import { getSetupGuide } from '@/lib/integrations/setupGuides'
-import { useGitHubInstallation } from '@/lib/hooks'
+import { useGitHubInstallation, useGitHubConnection } from '@/lib/hooks'
 
 /**
  * プロジェクト設定 → 外部連携（GitHub / Slack）の「連携のしかた」ボタン。
@@ -23,15 +23,17 @@ vi.mock('@/components/shared', () => ({
 vi.mock('@/lib/github/enabled', () => ({ isGitHubConfigured: () => true }))
 vi.mock('@/lib/slack/config', () => ({ isSlackConfigured: () => true }))
 
-const idle = { data: undefined, isLoading: false }
+const idle = { data: undefined, isLoading: false, isPending: false }
 const mutation = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }
 
 vi.mock('@/lib/hooks', () => ({
   useGitHubInstallation: vi.fn(() => idle),
-  useGitHubRepositories: () => ({ data: [], isLoading: false }),
-  useSpaceGitHubRepos: () => ({ data: [], isLoading: false }),
+  useGitHubRepositories: () => ({ data: [], isLoading: false, isPending: false }),
+  useSpaceGitHubRepos: () => ({ data: [], isLoading: false, isPending: false }),
   useLinkRepoToSpace: () => mutation,
   useUnlinkRepoFromSpace: () => mutation,
+  useGitHubConnection: vi.fn(() => idle),
+  useUserName: () => ({ name: 'ダミーさん', loading: false }),
 }))
 vi.mock('@/lib/hooks/useSlack', () => ({
   useSlackWorkspace: () => idle,
@@ -62,6 +64,10 @@ describe('プロジェクト設定の GitHub / Slack に「連携のしかた」
       data: { account_login: 'my-org' },
       isLoading: false,
     } as unknown as ReturnType<typeof useGitHubInstallation>)
+    vi.mocked(useGitHubConnection).mockReturnValueOnce({
+      data: { connected: true, connectedBy: 'user-1', connectedAt: null, isMe: true },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useGitHubConnection>)
     render(<GitHubRepoSettings orgId="org-1" spaceId="space-1" />)
     expect(screen.getByText(/タスク番号（TP-○○）は、タスク詳細のタイトルの上に出ています/)).toBeInTheDocument()
   })

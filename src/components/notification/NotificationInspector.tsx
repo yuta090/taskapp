@@ -24,6 +24,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { rpc } from '@/lib/supabase/rpc'
 import { isActionableNotification } from '@/lib/notifications/classify'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { getNotificationTypeLabel } from '@/lib/notifications/labels'
 import type { NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import type { Task, TaskStatus } from '@/types/database'
@@ -122,6 +123,7 @@ export function NotificationInspector({
   const isUnread = notification.read_at === null
   const isUrgent = payload.urgent === true
   const taskId = payload.task_id
+  const safeLink = isSafeInternalPath(payload.link) ? payload.link : null
   const isActionable = isActionableNotification(notification.type)
 
   // Task state
@@ -535,12 +537,12 @@ export function NotificationInspector({
     }
 
     // Confirmation / Urgent confirmation: Link to scheduling page
-    if ((notification.type === 'confirmation_request' || notification.type === 'urgent_confirmation') && payload.link) {
+    if ((notification.type === 'confirmation_request' || notification.type === 'urgent_confirmation') && safeLink) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">日程調整への回答が必要です</p>
           <Link
-            href={payload.link}
+            href={safeLink}
             className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
           >
             <Calendar />
@@ -551,12 +553,12 @@ export function NotificationInspector({
     }
 
     // Scheduling reminder / expired: Link to scheduling page
-    if ((notification.type === 'scheduling_reminder' || notification.type === 'scheduling_proposal_expired') && payload.link) {
+    if ((notification.type === 'scheduling_reminder' || notification.type === 'scheduling_proposal_expired') && safeLink) {
       return (
         <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
           <p className="text-xs text-gray-500 mb-2 font-medium">日程調整への回答が必要です</p>
           <Link
-            href={payload.link}
+            href={safeLink}
             className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
           >
             <Calendar />
@@ -935,9 +937,9 @@ export function NotificationInspector({
         )}
 
         {/* Secondary: Link to detail page (outline style) */}
-        {payload.link && (
+        {safeLink && (
           <Link
-            href={payload.link}
+            href={safeLink}
             className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-md transition-colors"
           >
             <span>詳細を見る</span>

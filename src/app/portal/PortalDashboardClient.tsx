@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle, Warning, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { resolvePortalConflictMessage } from '@/lib/portal/resolvePortalConflictMessage'
 import {
   PortalShell,
   PortalTaskInspector,
@@ -78,6 +79,9 @@ interface Approval {
   approvedAt: string
   comment?: string
 }
+
+/** 本当に他の誰かが先に操作していた場合（API が理由を返さない場合）に表示する既定文言。 */
+const STALE_CONFLICT_MESSAGE = '他のユーザーが先に操作しました。画面を更新します。'
 
 interface DashboardData {
   health: {
@@ -158,7 +162,7 @@ export function PortalDashboardClient({
         console.error('Approve error:', { status: response.status, ...errorData })
 
         if (response.status === 409) {
-          toast.error('他のユーザーが先に操作しました。画面を更新します。')
+          toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
           router.refresh()
         } else if (response.status === 403) {
           toast.error('このタスクにはアクセスできません。')
@@ -196,7 +200,7 @@ export function PortalDashboardClient({
         const error = await response.json()
         console.error('Request changes error:', error)
         if (response.status === 409) {
-          toast.error('他のユーザーが先に操作しました。画面を更新します。')
+          toast.error(resolvePortalConflictMessage(error, STALE_CONFLICT_MESSAGE))
           router.refresh()
         } else if (response.status === 400) {
           toast.error(error.error || 'コメントを入力してください。')
@@ -505,6 +509,7 @@ export function PortalDashboardClient({
         isOpen={requestSheetOpen}
         onClose={() => setRequestSheetOpen(false)}
         onSuccess={() => router.refresh()}
+        spaceId={currentProject.id}
       />
     </PortalShell>
   )

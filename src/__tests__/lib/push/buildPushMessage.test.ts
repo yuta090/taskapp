@@ -117,6 +117,36 @@ describe('buildPushMessage', () => {
     })
   })
 
+  // The push url ends up in a service-worker notificationclick handler that
+  // navigates the browser to it, so an unsafe link (external host, javascript:
+  // scheme, etc.) must never reach there — it falls back to the same default
+  // as "no link at all".
+  describe('unsafe payload.link', () => {
+    it('falls back to the default url for an absolute external URL (internal)', () => {
+      const msg = buildPushMessage(
+        makeRow({ type: 'scheduling_reminder', payload: { link: 'https://evil.example.com' } }),
+        'internal'
+      )
+      expect(msg.url).toBe('/inbox')
+    })
+
+    it('falls back to the default url for a protocol-relative URL (client)', () => {
+      const msg = buildPushMessage(
+        makeRow({ type: 'file_uploaded', payload: { link: '//evil.example.com' } }),
+        'client'
+      )
+      expect(msg.url).toBe('/portal')
+    })
+
+    it('falls back to the default url for a javascript: URL', () => {
+      const msg = buildPushMessage(
+        makeRow({ type: 'invite_accepted', payload: { link: 'javascript:alert(1)' } }),
+        'internal'
+      )
+      expect(msg.url).toBe('/inbox')
+    })
+  })
+
   // file_uploaded has no fixed title (unlike ball_passed etc.) — it needs the
   // uploader name and file name baked in, since a push notification must stand
   // on its own outside the app.

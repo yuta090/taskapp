@@ -176,6 +176,9 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
   //   ため、このブロックの getSession() は「未認証かどうかのルーティング判定」以上の
   //   セキュリティ境界ではない
   // - 仮にsessionが不正でも、RLSがデータアクセスをブロック
+  // - ポータル(/api/portal/*)のAPIの書き込みはservice role（RLSを経由しない）で行う。
+  //   本人確認・所属確認は各APIが自分でgetUser()とログイン中のセッションを使って
+  //   行う（ここのgetSession()はルーティング判定用であり、その代わりにはならない）
   if (!needsServerVerification) {
     const { data: { session } } = await supabase.auth.getSession()
 

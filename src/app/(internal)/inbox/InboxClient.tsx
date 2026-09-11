@@ -21,6 +21,7 @@ import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/component
 import { WARNING } from '@/lib/design/tokens'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
 import { isActionableNotification } from '@/lib/notifications/classify'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { useInspector } from '@/components/layout'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
 import { NotificationInspector } from '@/components/notification/NotificationInspector'
@@ -414,12 +415,14 @@ export default function InboxClient() {
           e.preventDefault()
           handleCloseInspector()
           break
-        case 'Enter':
+        case 'Enter': {
           e.preventDefault()
-          if (selectedNotification?.payload.link) {
-            window.location.href = selectedNotification.payload.link
+          const link = selectedNotification?.payload.link
+          if (isSafeInternalPath(link)) {
+            window.location.href = link
           }
           break
+        }
       }
     }
 

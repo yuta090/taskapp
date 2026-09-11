@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getGitHubInstallUrl, isGitHubFullyConfigured } from '@/lib/github/config'
+import { safeInternalPathOr } from '@/lib/auth/safeRedirect'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
 const DEFAULT_REDIRECT = '/settings/org-integrations'
-
-/**
- * インストール後の戻り先はサイト内パスだけ許可する（open redirect 防止）。
- * "/foo" は可、"//evil" や "https://..." は既定に置き換える。
- */
-function sanitizeRedirect(value: string | null): string {
-  if (!value) return DEFAULT_REDIRECT
-  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return DEFAULT_REDIRECT
-  return value
-}
 
 /**
  * GET /api/github/authorize?orgId=...&redirect=/settings/org-integrations
@@ -56,7 +47,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'GitHub App is not configured' }, { status: 503 })
     }
 
-    const redirectUri = sanitizeRedirect(searchParams.get('redirect'))
+    const redirectUri = safeInternalPathOr(searchParams.get('redirect'), DEFAULT_REDIRECT)
     return NextResponse.redirect(getGitHubInstallUrl(orgId, redirectUri))
   } catch (err) {
     console.error('GitHub authorize error:', err)

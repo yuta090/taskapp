@@ -255,6 +255,7 @@ export function PortalRequestsClient({
         isOpen={requestSheetOpen}
         onClose={() => setRequestSheetOpen(false)}
         onSuccess={() => router.refresh()}
+        spaceId={currentProject.id}
       />
     </PortalShell>
   )

@@ -12,9 +12,17 @@ export interface PanelPosition {
 /**
  * Computes a fixed top/left for the walkthrough panel that keeps it fully
  * inside the viewport: prefers placing it below the target, flips above when
- * there isn't enough room, and clamps both axes so the panel (and its action
- * buttons) never render off-screen regardless of target position or window
- * size.
+ * there isn't enough room below (but there is above), and clamps both axes
+ * so the panel (and its action buttons) never render off-screen regardless
+ * of target position or window size.
+ *
+ * When the panel fits on NEITHER side (e.g. a tall spotlighted section on a
+ * short mobile viewport), it docks to the bottom of the viewport instead of
+ * naively flipping above — flipping above would push the panel up over the
+ * target's top edge (its heading / first item), which is exactly the part
+ * that should stay visible. But on a short viewport with a small target
+ * (e.g. phone landscape), docking to the bottom can still cover the target
+ * entirely — in that case it docks to the top instead.
  */
 export function clampPanelPosition(
   targetRect: Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>,
@@ -24,11 +32,23 @@ export function clampPanelPosition(
 ): PanelPosition {
   const spaceBelow = viewport.height - targetRect.bottom
   const spaceAbove = targetRect.top
-  const placeBelow = spaceBelow >= panelSize.height + margin || spaceBelow >= spaceAbove
+  const fitsBelow = spaceBelow >= panelSize.height + margin
+  const fitsAbove = spaceAbove >= panelSize.height + margin
 
-  const rawTop = placeBelow
-    ? targetRect.bottom + margin
-    : targetRect.top - panelSize.height - margin
+  let rawTop: number
+  if (fitsBelow) {
+    rawTop = targetRect.bottom + margin
+  } else if (fitsAbove) {
+    rawTop = targetRect.top - panelSize.height - margin
+  } else {
+    // Fits neither side: dock to the bottom of the viewport so the target's
+    // top (heading / first item) stays uncovered instead of getting hidden
+    // under the panel. But on a short viewport, the bottom dock can still
+    // land on top of a small target — if it would cover the target's top,
+    // dock to the top of the viewport instead.
+    const bottomDock = viewport.height - panelSize.height - margin
+    rawTop = targetRect.top >= bottomDock ? margin : bottomDock
+  }
 
   const maxTop = Math.max(margin, viewport.height - panelSize.height - margin)
   const top = Math.min(Math.max(rawTop, margin), maxTop)
@@ -61,10 +81,12 @@ export function usePanelPosition(
     const measure = () => {
       const panelEl = panelRef.current
       if (!panelEl) return
-      const panelRect = panelEl.getBoundingClientRect()
+      // getBoundingClientRect() はCSS transform(フェードイン時の scale-95)の
+      // 影響を受け、アニメーション中は実寸より小さい値を返す。レイアウト上の
+      // 実寸(transformの影響を受けない offsetWidth/offsetHeight)で計測する。
       const { top, left } = clampPanelPosition(
         targetRect,
-        { width: panelRect.width, height: panelRect.height },
+        { width: panelEl.offsetWidth, height: panelEl.offsetHeight },
         { width: window.innerWidth, height: window.innerHeight }
       )
       setStyle({ position: 'fixed', top, left })

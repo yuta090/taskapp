@@ -174,3 +174,59 @@ describe('PortalDashboardClient — approval success feedback (B3)', () => {
     )
   })
 })
+
+/**
+ * 承認が409で止まったとき、API が理由(reason: 'blocked')付きで返した具体的な
+ * メッセージ（例: 見積もり確認が必要）はそのまま出し、本当に他の誰かが先に
+ * 操作していた場合(reasonなし)だけ既存の汎用文言を出す。
+ */
+describe('PortalDashboardClient — 409 の文言 (承認が止まったときの案内)', () => {
+  it('reason: blocked のときは API が返した具体的な理由をそのまま出す', async () => {
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。',
+        reason: 'blocked',
+      }),
+    })
+
+    renderWithProviders(
+      <PortalDashboardClient
+        currentProject={project}
+        projects={[project]}
+        dashboardData={dashboardData}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '承認' }))
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。'
+      )
+    )
+  })
+
+  it('reason が無いときは、本当に先に操作された場合の既存の汎用文言を出す', async () => {
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'タスクの状態が変更されました。ページを再読み込みしてください。' }),
+    })
+
+    renderWithProviders(
+      <PortalDashboardClient
+        currentProject={project}
+        projects={[project]}
+        dashboardData={dashboardData}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '承認' }))
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('他のユーザーが先に操作しました。画面を更新します。')
+    )
+  })
+})

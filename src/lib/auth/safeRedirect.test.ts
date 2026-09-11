@@ -20,4 +20,18 @@ describe('isSafeInternalPath', () => {
     expect(safeInternalPathOr('//evil.example')).toBe('/')
     expect(safeInternalPathOr('/inbox')).toBe('/inbox')
   })
+
+  // `/../` や %エンコードでの正規化後に `//host` へ化けるものは、origin だけの
+  // 確認では見抜けない（origin は内部のままでも、パスが `//host` になる）。
+  it('正規化後にプロトコル相対になるパスは弾く', () => {
+    for (const bad of ['/..//evil.example', '/.//evil.example', '/%2e%2e//evil.example']) {
+      expect(isSafeInternalPath(bad), JSON.stringify(bad)).toBe(false)
+    }
+  })
+
+  it('タブ・大文字スキーム・先頭空白・NUL を含む値は弾く', () => {
+    for (const bad of ['/\t/evil.example', 'JAVASCRIPT:alert(1)', ' //evil.example', '/\x00evil']) {
+      expect(isSafeInternalPath(bad), JSON.stringify(bad)).toBe(false)
+    }
+  })
 })

@@ -3,6 +3,48 @@ import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
+ * リポジトリの追加・解除は GitHub を接続した本人だけができる。
+ * github_installations は RLS で created_by = 自分 の行しか返らないため、ログイン中の
+ * 本人のセッションで読んで 0 行なら本人ではないと判定できる。
+ *
+ * 1つの組織に複数の接続がありうる（過去の再接続の残り等）ため `.maybeSingle()`
+ * （複数行だとエラーになる）ではなく `.limit(1)` ＋行数で見る。
+ *
+ * 問い合わせ自体が失敗したとき（DBの一時障害等）は、本人ではない(403)と区別して null を
+ * 返さず、呼び出し側で 500 を返せるようにエラーをそのまま持ち帰る。
+ */
+async function checkGithubConnectorAccess(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+  const { data: installations, error } = await supabase
+    .from('github_installations')
+    .select('id')
+    .eq('org_id', orgId)
+    .limit(1)
+
+  if (error) {
+    console.error('Failed to check GitHub installation ownership:', error)
+    return {
+      ok: false,
+      response: NextResponse.json({ error: '接続状態の確認に失敗しました' }, { status: 500 }),
+    }
+  }
+
+  if (!installations || installations.length === 0) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'GitHub を接続した人だけが操作できます' },
+        { status: 403 }
+      ),
+    }
+  }
+
+  return { ok: true }
+}
+
+/**
  * Spaceの連携リポジトリ一覧を取得
  */
 export async function GET(request: NextRequest) {
@@ -126,6 +168,12 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // リポジトリの追加は GitHub を接続した本人だけができる
+  const connectorAccess = await checkGithubConnectorAccess(supabase as SupabaseClient, space.org_id)
+  if (!connectorAccess.ok) {
+    return connectorAccess.response
+  }
+
   // リポジトリが同じ組織に属しているか検証（クロス組織リンク防止）
    
   const { data: repo } = await (supabase as SupabaseClient)
@@ -213,10 +261,10 @@ export async function DELETE(request: NextRequest) {
   }
 
   // リンク情報取得
-   
+
   const { data: link } = await (supabase as SupabaseClient)
     .from('space_github_repos')
-    .select('space_id')
+    .select('space_id, org_id')
     .eq('id', linkId)
     .single()
 
@@ -228,7 +276,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   // Spaceメンバーシップ確認（admin/editor のみ）
-   
+
   const { data: membership } = await (supabase as SupabaseClient)
     .from('space_memberships')
     .select('role')
@@ -243,18 +291,33 @@ export async function DELETE(request: NextRequest) {
     )
   }
 
-  // 紐付け解除
-   
-  const { error } = await (supabase as SupabaseClient)
+  // 連携の解除も GitHub を接続した本人だけができる（POSTと同じ判定）
+  const connectorAccess = await checkGithubConnectorAccess(supabase as SupabaseClient, link.org_id)
+  if (!connectorAccess.ok) {
+    return connectorAccess.response
+  }
+
+  // 紐付け解除。`.select('id')` で実際に消えた行を確認する — ここまでの確認（メンバーシップ・
+  // 接続者判定）を通っていても、RLS 等で実際には 0 行しか消えないことがありうるため、
+  // その場合は「解除しました」を返さず 403 にする。
+  const { data: deleted, error } = await (supabase as SupabaseClient)
     .from('space_github_repos')
     .delete()
     .eq('id', linkId)
+    .select('id')
 
   if (error) {
     console.error('Failed to unlink repository:', error)
     return NextResponse.json(
       { error: 'Failed to unlink repository' },
       { status: 500 }
+    )
+  }
+
+  if (!deleted || deleted.length === 0) {
+    return NextResponse.json(
+      { error: 'GitHub を接続した人だけが操作できます' },
+      { status: 403 }
     )
   }
 

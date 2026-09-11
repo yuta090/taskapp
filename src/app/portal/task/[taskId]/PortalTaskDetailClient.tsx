@@ -15,6 +15,7 @@ import {
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { PortalShell } from '@/components/portal'
+import { resolvePortalConflictMessage } from '@/lib/portal/resolvePortalConflictMessage'
 
 interface Project {
   id: string
@@ -78,6 +79,9 @@ import { PORTAL_STATUS_LABELS, PORTAL_BALL_LABELS } from '@/components/portal/la
 const statusLabels = PORTAL_STATUS_LABELS
 const ballLabels = PORTAL_BALL_LABELS
 
+/** 本当に他の誰かが先に操作していた場合（API が理由を返さない場合）に表示する既定文言。 */
+const STALE_CONFLICT_MESSAGE = '他のユーザーが先に操作しました。画面を更新します。'
+
 export function PortalTaskDetailClient({
   currentProject,
   projects,
@@ -103,7 +107,8 @@ export function PortalTaskDetailClient({
         router.push('/portal')
         router.refresh()
       } else if (response.status === 409) {
-        toast.error('他のユーザーが先に操作しました。画面を更新します。')
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
         router.refresh()
       } else if (response.status === 401) {
         toast.error('セッションが切れました。再度アクセスしてください。')
@@ -139,7 +144,8 @@ export function PortalTaskDetailClient({
         router.push('/portal')
         router.refresh()
       } else if (response.status === 409) {
-        toast.error('他のユーザーが先に操作しました。画面を更新します。')
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(resolvePortalConflictMessage(errorData, STALE_CONFLICT_MESSAGE))
         router.refresh()
       } else if (response.status === 400) {
         const errorData = await response.json().catch(() => ({}))

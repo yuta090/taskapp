@@ -445,6 +445,7 @@ export function PortalLeftNav({
         isOpen={requestSheetOpen}
         onClose={() => setRequestSheetOpen(false)}
         onSuccess={() => router.refresh()}
+        spaceId={currentProject?.id}
       />
     </aside>
   )

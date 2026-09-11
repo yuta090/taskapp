@@ -285,6 +285,33 @@ describe('QueryProvider', () => {
         keys.some((k) => k[0] === 'space-github-issue-candidates' && k[2] === '42')
       ).toBe(false)
     })
+
+    // GitHub の接続状態(github-connection-status)・github_installations の1行
+    // (github-installation)は、組織の外での操作（別の人が接続/解除）で切り替わりうる。
+    // stripeStatus と同じ理由で IDB に載せない（取り直しは安く、古い「未接続」を
+    // 出し続けるほうが害が大きい）。
+    it('GitHub の接続状態(github-connection-status)・github-installation は IDB に載せない', async () => {
+      mockGetSession.mockResolvedValue({ data: { session: sessionFor('user-A') } })
+
+      renderProvider()
+      await flushMicrotasks()
+      expect(capturedClient).not.toBeNull()
+
+      act(() => {
+        capturedClient!.setQueryData(['github-connection-status', 'org-1'], { connected: true })
+        capturedClient!.setQueryData(['github-installation', 'org-1'], { id: 'install-1' })
+        capturedClient!.setQueryData(['userSpaces', 'user-A', false], [{ id: 's1' }])
+      })
+      await advance(1000)
+
+      expect(idbSet).toHaveBeenCalled()
+      const persisted = (idbSet.mock.calls as Array<[string, PersistedClient]>).at(-1)![1]
+      const keys = persisted.clientState.queries.map((q) => q.queryKey)
+
+      expect(keys.some((k) => k[0] === 'github-connection-status')).toBe(false)
+      expect(keys.some((k) => k[0] === 'github-installation')).toBe(false)
+      expect(keys).toContainEqual(['userSpaces', 'user-A', false])
+    })
   })
 
   // --- legacy-key migration ---------------------------------------------------

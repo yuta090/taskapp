@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { MagnifyingGlass } from '@phosphor-icons/react'
 import { useIntegrations } from '@/lib/hooks/useIntegrations'
-import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
+import { useGitHubInstallation, useGitHubConnection } from '@/lib/hooks/useGitHub'
 import { useSlackWorkspace } from '@/lib/hooks/useSlack'
 import type { IntegrationProvider, IntegrationConnectionSafe } from '@/lib/integrations/types'
 import { GeneralSettings } from './GeneralSettings'
@@ -62,6 +62,10 @@ function useIntegrationStatuses(
 ): Record<SettingSectionId, ConnectionStatus> {
   const { isConnected } = integrationData
   const { data: githubInstallation } = useGitHubInstallation(orgId)
+  // github_installations は接続した本人にしか行が返らない（RLS）ため、それだけで判定すると
+  // 本人以外には常に「未接続」ドットに見えてしまう。社内メンバーに connected を返す
+  // useGitHubConnection もあわせて見る
+  const { data: githubConnection } = useGitHubConnection(orgId)
   const { data: slackWorkspace } = useSlackWorkspace(orgId)
 
   return useMemo(() => {
@@ -80,7 +84,7 @@ function useIntegrationStatuses(
       danger: 'none',
     }
 
-    base.github = githubInstallation ? 'connected' : 'disconnected'
+    base.github = githubInstallation || githubConnection?.connected ? 'connected' : 'disconnected'
     base.slack = slackWorkspace ? 'connected' : 'disconnected'
 
     const hasZoom = isConnected('zoom')
@@ -89,7 +93,7 @@ function useIntegrationStatuses(
     base['video-conference'] = hasZoom || hasTeams || hasMeet ? 'connected' : 'disconnected'
 
     return base
-  }, [githubInstallation, slackWorkspace, isConnected])
+  }, [githubInstallation, githubConnection, slackWorkspace, isConnected])
 }
 
 /* ─── Section renderer (C1 fix: PresetSettings embedded in general) ─── */
