@@ -6,6 +6,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import type { Persister } from '@tanstack/react-query-persist-client'
 import { ActiveOrgProvider, ActiveOrgContext, PAGE_LOADED_AT } from '@/lib/org/ActiveOrgProvider'
 import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
+import OrgScopedLayout from '@/app/(internal)/[orgId]/layout'
 
 /**
  * ActiveOrgProvider（所属組織一覧＋いま選んでいる組織）。
@@ -54,6 +55,12 @@ vi.mock('@/lib/org/activeOrg', () => ({
   setActiveOrgId: (id: string) => setCookieMock(id),
 }))
 
+// OrgScopedLayout（[orgId]/layout.tsx）を実物のまま重ねる統合テスト用（下部の describe）
+let mockParams: Record<string, string> = {}
+vi.mock('next/navigation', () => ({
+  useParams: () => mockParams,
+}))
+
 function Probe() {
   const ctx = useContext(ActiveOrgContext)
   return (
@@ -63,6 +70,7 @@ function Probe() {
       <div data-testid="count">{ctx.orgs.length}</div>
       <div data-testid="role">{ctx.activeOrgRole ?? ''}</div>
       <div data-testid="loading">{String(ctx.loading)}</div>
+      <div data-testid="refreshFailed">{String(ctx.orgsRefreshFailed)}</div>
       <button onClick={() => ctx.switchOrg('org-2')}>switch</button>
     </div>
   )
@@ -116,10 +124,23 @@ function renderPlain(qc: QueryClient, user: typeof USER | null = USER) {
   )
 }
 
+/** OrgScopedLayout を実物のまま重ねて描画する（orgsRefreshFailed の実運用シナリオを統合的に検証するため） */
+function renderLayoutIntegration(qc: QueryClient, user: typeof USER | null = USER) {
+  qc.setQueryData(['currentUser'], user)
+  return render(
+    <QueryClientProvider client={qc}>
+      <ActiveOrgProvider>
+        <OrgScopedLayout><div>子コンテンツ</div></OrgScopedLayout>
+      </ActiveOrgProvider>
+    </QueryClientProvider>
+  )
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   invalidateCachedUser()
   cookie = 'org-1'
+  mockParams = {}
   membershipsResult = { data: [row('org-1'), row('org-2')], error: null }
   getUserMock.mockResolvedValue({ data: { user: USER }, error: null })
   refreshSessionMock.mockResolvedValue({ data: {}, error: null })
@@ -390,6 +411,80 @@ describe('ActiveOrgProvider — ログアウト状態で開いた後にサイン
     expect(t('active')).toBe('org-2')
     // 有効な cookie だったので書き換えは発生しない
     expect(setCookieMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ActiveOrgProvider — orgsRefreshFailed（直近の裏取り直し失敗の検出）', () => {
+  // verified 後の再取得が（自動リトライも尽きて）失敗しても、H1（activeOrgId を後退させない）
+  // により orgs/orgsStatus/activeOrgId は前回成功分のまま保たれる。orgsRefreshFailed だけが
+  // それとは別に「今まさに一覧が古いかもしれない」を伝える。ここが壊れると、
+  // OrgScopedLayout の誤403回避（招待受諾直後の取り直し失敗）が気づかれずに壊れる
+  it('verified後の再取得が失敗するとorgsRefreshFailed:trueになる。orgsStatus・orgs・activeOrgIdは変わらない。成功する再取得でfalseに戻る', async () => {
+    cookie = null
+    const qc = appClient()
+    renderPlain(qc)
+    await waitFor(() => expect(t('status')).toBe('verified'))
+    expect(t('refreshFailed')).toBe('false')
+    const beforeActive = t('active')
+    const beforeCount = t('count')
+
+    // 以後のフェッチ（初回 + 自動リトライ1回）を両方失敗させる。react-query の通知は
+    // refetchQueries() の解決とは別タイミングで届くことがあるため waitFor で待つ
+    // （notifyManager のバッチ通知が Promise 解決の1マイクロタスク後に来るケースがある）
+    membershipsResult = NETERR
+    await act(async () => { await qc.refetchQueries({ queryKey: ['orgMemberships'] }) })
+    await waitFor(() => expect(t('refreshFailed')).toBe('true'))
+
+    expect(t('status')).toBe('verified')
+    expect(t('active')).toBe(beforeActive)
+    expect(t('count')).toBe(beforeCount)
+
+    // 取り直しが成功すれば false に戻る
+    membershipsResult = { data: [row('org-1'), row('org-2')], error: null }
+    await act(async () => { await qc.refetchQueries({ queryKey: ['orgMemberships'] }) })
+    await waitFor(() => expect(t('refreshFailed')).toBe('false'))
+
+    expect(t('status')).toBe('verified')
+  })
+
+  it('初回フェッチ自体が失敗（データ無し）の間は、orgsStatusはunknownのままorgsRefreshFailedはfalse', async () => {
+    cookie = null
+    membershipsResult = NETERR
+    const qc = appClient()
+    renderPlain(qc)
+
+    // 初回 + 自動リトライ1回、両方失敗するまで待つ
+    await waitFor(() => expect(fromMock).toHaveBeenCalledTimes(2))
+    await sleep(50)
+
+    expect(t('status')).toBe('unknown')
+    expect(t('refreshFailed')).toBe('false')
+  })
+})
+
+describe('ActiveOrgProvider × OrgScopedLayout — 統合: 取り直し失敗中は誤403にしない', () => {
+  // 招待受諾直後など「新しいorgを含む一覧への取り直し」が失敗するケースの端到端の再現。
+  // orgsRefreshFailed の計算がここで壊れると、OrgScopedLayout.test.tsx 側は
+  // 値を外から注入しているだけなので気づけない
+  it('一覧に無いURLでも、直近の取り直しが失敗している間は誤403にしない。取り直しが成功してもまだ一覧に無ければ403に戻る', async () => {
+    mockParams = { orgId: 'org-9' } // まだ verified な一覧には含まれないURL
+    cookie = 'org-1'
+    const qc = appClient()
+    renderLayoutIntegration(qc)
+
+    await waitFor(() => expect(screen.getByText('この組織へのアクセス権がありません')).toBeInTheDocument())
+
+    // 取り直しが（リトライも尽きて）失敗 → orgsRefreshFailed:true の間は誤403にしない
+    membershipsResult = NETERR
+    await act(async () => { await qc.refetchQueries({ queryKey: ['orgMemberships'] }) })
+    await waitFor(() => expect(screen.getByText('子コンテンツ')).toBeInTheDocument())
+    expect(screen.queryByText('この組織へのアクセス権がありません')).not.toBeInTheDocument()
+
+    // 取り直しが成功し、それでも一覧に org-9 が無ければ403に戻る
+    membershipsResult = { data: [row('org-1'), row('org-2')], error: null }
+    await act(async () => { await qc.refetchQueries({ queryKey: ['orgMemberships'] }) })
+    await waitFor(() => expect(screen.getByText('この組織へのアクセス権がありません')).toBeInTheDocument())
+    expect(screen.queryByText('子コンテンツ')).not.toBeInTheDocument()
   })
 })
 
