@@ -1,52 +1,35 @@
 'use client'
 
 import { GitPullRequest, ArrowSquareOut } from '@phosphor-icons/react'
+import { formatTimeAgo } from '@/lib/github/formatTimeAgo'
 
 interface PRBadgeProps {
   state: 'open' | 'closed' | 'merged'
   prNumber: number
-  prUrl: string
   title: string
-  repoName: string
-  authorLogin?: string
+  updatedAt: string
   additions?: number
   deletions?: number
-  updatedAt: string
   compact?: boolean
+  /**
+   * 接続した本人（または埋め込みが読める行）のときだけ渡す。PR-B: pr_url は
+   * authenticated から読めない列になったため、リンクは画面側で組み立てる。
+   * 未指定なら「GitHub で開く」リンク・リポジトリ名を出さず、番号・タイトル・状態・日付だけにする
+   */
+  repoFullName?: string
 }
 
-// 簡易的な相対時間表示
-function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSecs = Math.floor(diffMs / 1000)
-  const diffMins = Math.floor(diffSecs / 60)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-
-  if (diffDays > 0) {
-    return `${diffDays}日前`
-  } else if (diffHours > 0) {
-    return `${diffHours}時間前`
-  } else if (diffMins > 0) {
-    return `${diffMins}分前`
-  } else {
-    return 'たった今'
-  }
-}
+// 簡易的な相対時間表示（PR-B: TaskIssueList とも共有するため lib 側に切り出し済み）
 
 export function PRBadge({
   state,
   prNumber,
-  prUrl,
   title,
-  repoName,
-  authorLogin,
+  updatedAt,
   additions = 0,
   deletions = 0,
-  updatedAt,
   compact = false,
+  repoFullName,
 }: PRBadgeProps) {
   const stateStyles = {
     open: {
@@ -71,58 +54,77 @@ export function PRBadge({
 
   const style = stateStyles[state]
   const timeAgo = formatTimeAgo(updatedAt)
+  const prUrl = repoFullName ? `https://github.com/${repoFullName}/pull/${prNumber}` : undefined
 
   if (compact) {
+    const content = (
+      <>
+        <GitPullRequest className={style.icon} weight="bold" />
+        <span className="font-medium">#{prNumber}</span>
+      </>
+    )
+    const className = `inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-full ${style.bg} ${style.border} border hover:opacity-80 transition-opacity`
+
+    if (prUrl) {
+      return (
+        <a href={prUrl} target="_blank" rel="noopener noreferrer" className={className}>
+          {content}
+        </a>
+      )
+    }
+    return <span className={className}>{content}</span>
+  }
+
+  const body = (
+    <div className="flex items-start gap-2">
+      <GitPullRequest className={`${style.icon} text-lg flex-shrink-0 mt-0.5`} weight="bold" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-semibold ${style.icon}`}>
+            #{prNumber}
+          </span>
+          {repoFullName && (
+            <span className="text-xs text-gray-500 truncate">
+              {repoFullName}
+            </span>
+          )}
+          {prUrl && (
+            <ArrowSquareOut className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs" />
+          )}
+        </div>
+        <p className="text-sm text-gray-800 font-medium truncate mt-0.5">
+          {title}
+        </p>
+        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+          <span>{timeAgo}</span>
+          {(additions > 0 || deletions > 0) && (
+            <span>
+              <span className="text-green-600">+{additions}</span>
+              {' / '}
+              <span className="text-red-600">-{deletions}</span>
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  if (prUrl) {
     return (
       <a
         href={prUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-full ${style.bg} ${style.border} border hover:opacity-80 transition-opacity`}
+        className={`block p-3 rounded-lg border ${style.bg} ${style.border} hover:opacity-90 transition-opacity group`}
       >
-        <GitPullRequest className={style.icon} weight="bold" />
-        <span className="font-medium">#{prNumber}</span>
+        {body}
       </a>
     )
   }
 
   return (
-    <a
-      href={prUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`block p-3 rounded-lg border ${style.bg} ${style.border} hover:opacity-90 transition-opacity group`}
-    >
-      <div className="flex items-start gap-2">
-        <GitPullRequest className={`${style.icon} text-lg flex-shrink-0 mt-0.5`} weight="bold" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`text-xs font-semibold ${style.icon}`}>
-              #{prNumber}
-            </span>
-            <span className="text-xs text-gray-500 truncate">
-              {repoName}
-            </span>
-            <ArrowSquareOut className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs" />
-          </div>
-          <p className="text-sm text-gray-800 font-medium truncate mt-0.5">
-            {title}
-          </p>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-            {authorLogin && (
-              <span>by {authorLogin}</span>
-            )}
-            <span>{timeAgo}</span>
-            {(additions > 0 || deletions > 0) && (
-              <span>
-                <span className="text-green-600">+{additions}</span>
-                {' / '}
-                <span className="text-red-600">-{deletions}</span>
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </a>
+    <div className={`p-3 rounded-lg border ${style.bg} ${style.border}`}>
+      {body}
+    </div>
   )
 }

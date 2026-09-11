@@ -67,6 +67,50 @@ export interface FetchTasksQueryOptions {
  */
 export const TASKS_PAGE_SIZE = 1000
 
+/**
+ * tasks / meetings 共通の「続きのページを読み切る」ヘルパー。
+ *
+ * 1ページ目がちょうど pageSize 件だった場合のみ続きのページが存在しうるとみなし、
+ * range を1ページずつずらしながら順番に取得する（waterfall。1ページ目が pageSize
+ * 未満なら空間の全件を読み切れているので発生しない）。
+ *
+ * offsetページングは「順位」で境界を切るため、ページ取得の間に別の誰かが行を
+ * 作成すると全行が1つずれ、あるページの最後の行が次ページの先頭にもう一度現れうる。
+ * そのため最後に id で重複除去（先勝ち）してから返す。
+ */
+async function collectRemainingPages<T extends { id: string }>(
+  firstPageRows: T[],
+  // Supabase のクエリビルダは Promise ではなく PromiseLike（then を持つだけ）のため、
+  // Promise<...> にすると tsc が型不一致で弾く。await は PromiseLike で十分動くので
+  // 呼び出し側は fetchTasksPage / fetchMeetingsPage をそのまま渡せる。
+  fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  pageSize: number
+): Promise<T[]> {
+  const allRows: T[] = [...firstPageRows]
+
+  let page = 1
+  while (allRows.length === page * pageSize) {
+    const from = page * pageSize
+    const to = from + pageSize - 1
+    const pageResult = await fetchPage(from, to)
+    if (pageResult.error) throw pageResult.error
+    const rows = pageResult.data || []
+    allRows.push(...rows)
+    if (rows.length < pageSize) break
+    page += 1
+  }
+
+  // ページ跨ぎの重複除去（id優先・先勝ち）
+  const seenIds = new Set<string>()
+  const dedupedRows: T[] = []
+  for (const row of allRows) {
+    if (seenIds.has(row.id)) continue
+    seenIds.add(row.id)
+    dedupedRows.push(row)
+  }
+  return dedupedRows
+}
+
 /** tasks テーブルから1ページ分（range指定）を取得する共通クエリ */
 function fetchTasksPage(
   supabase: SupabaseClient,
@@ -132,38 +176,18 @@ export async function fetchTasksQuery(
     throw ensureResult.error
   }
 
-  const pagedTaskRows = [...((tasksResult.data || []) as Array<
+  const firstPageRows = (tasksResult.data || []) as Array<
     Record<string, unknown> & { id: string; task_owners?: unknown[] }
-  >)]
+  >
 
-  // 1ページ目がちょうど上限件数だった場合のみ、続きのページが存在しうるとみなし
-  // 順番に取得する（waterfall。件数が上限未満なら空間の全件を読み切れているので発生しない）。
-  let page = 1
-  while (pagedTaskRows.length === page * TASKS_PAGE_SIZE) {
-    const from = page * TASKS_PAGE_SIZE
-    const to = from + TASKS_PAGE_SIZE - 1
-    const pageResult = await fetchTasksPage(supabase, orgId, spaceId, from, to)
-    if (pageResult.error) throw pageResult.error
-    const rows = (pageResult.data || []) as Array<
-      Record<string, unknown> & { id: string; task_owners?: unknown[] }
-    >
-    pagedTaskRows.push(...rows)
-    if (rows.length < TASKS_PAGE_SIZE) break
-    page += 1
-  }
-
-  // ページ跨ぎの重複除去（id優先・先勝ち）。
-  // offsetページングは「順位」で境界を切るため、ページ取得の間に別の誰かがタスクを
-  // 作成すると全行が1つずれ、あるページの最後の行が次ページの先頭にもう一度現れうる。
-  // ensureTaskIds のマージより前にここで潰しておかないと、React の key 重複警告や
-  // 件数の二重カウントに繋がる。
-  const seenIds = new Set<string>()
-  const rawTasks: Array<Record<string, unknown> & { id: string; task_owners?: unknown[] }> = []
-  for (const t of pagedTaskRows) {
-    if (seenIds.has(t.id)) continue
-    seenIds.add(t.id)
-    rawTasks.push(t)
-  }
+  // 続きのページ取得＋ページ跨ぎの重複除去（id優先・先勝ち）は tasks / meetings 共通の
+  // ヘルパーに委ねる。ensureTaskIds のマージより前にここで潰しておかないと、React の
+  // key 重複警告や件数の二重カウントに繋がる。
+  const rawTasks = await collectRemainingPages(
+    firstPageRows,
+    (from, to) => fetchTasksPage(supabase, orgId, spaceId, from, to),
+    TASKS_PAGE_SIZE
+  )
 
   // ensureTaskIds で取れた分は、既に読み込み済みの中に入っているものは重複させず追加する
   const existingIds = new Set(rawTasks.map((t) => t.id))
@@ -216,25 +240,43 @@ export async function fetchMilestonesQuery(
   return (data || []) as Milestone[]
 }
 
+/** meetings テーブルから1ページ分（range指定）を取得する共通クエリ */
+function fetchMeetingsPage(supabase: SupabaseClient, spaceId: string, from: number, to: number) {
+  return supabase
+    .from('meetings')
+    .select(MEETING_LIST_COLUMNS)
+    .eq('space_id', spaceId)
+    // held_at だけだと同時刻登録で並び順が安定しないため、id をタイブレークに使う
+    // （tasks の created_at + id と同じ考え方）。
+    .order('held_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, to)
+}
+
 /**
  * Fetch meetings + participants for a space.
+ * 以前は `.limit(50)` で最新50件のみを返しており、週次ミーティング等で会議数が
+ * 51件を超えるプロジェクトでは古い会議が一覧から静かに消えていた。tasks と同じ
+ * range ページング（TASKS_PAGE_SIZE / collectRemainingPages）で全件読み切る。
  */
 export async function fetchMeetingsQuery(
   supabase: SupabaseClient,
   spaceId: string
 ): Promise<MeetingsQueryData> {
-  const { data, error } = await supabase
-    .from('meetings')
-    .select(MEETING_LIST_COLUMNS)
-    .eq('space_id', spaceId)
-    .order('held_at', { ascending: false })
-    .limit(50)
+  const { data, error } = await fetchMeetingsPage(supabase, spaceId, 0, TASKS_PAGE_SIZE - 1)
 
   if (error) throw error
 
-  const rawMeetings = (data || []) as Array<
+  const firstPageRows = (data || []) as Array<
     Record<string, unknown> & { id: string; meeting_participants?: unknown[] }
   >
+
+  const rawMeetings = await collectRemainingPages(
+    firstPageRows,
+    (from, to) => fetchMeetingsPage(supabase, spaceId, from, to),
+    TASKS_PAGE_SIZE
+  )
+
   const participantsByMeeting: Record<string, MeetingParticipant[]> = {}
   const cleanMeetings: Meeting[] = rawMeetings.map((m) => {
     const { meeting_participants, ...meetingFields } = m
