@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   GithubLogo,
   ChatCircleDots,
   Brain,
   Trash,
   CheckCircle,
-  ArrowSquareOut,
   PlugsConnected,
   Key,
   CaretDown,
@@ -18,7 +18,6 @@ import {
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useCurrentOrg } from '@/lib/hooks/useCurrentOrg'
-import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
 import {
   useSlackWorkspace,
   useSaveSlackToken,
@@ -28,6 +27,53 @@ import { useAiConfig, useSaveAiConfig, useDeleteAiConfig } from '@/lib/hooks/use
 import { isGitHubConfigured } from '@/lib/github/enabled'
 import { isSlackConfigured } from '@/lib/slack/config'
 import { useConfirmDialog, SettingsBackButton } from '@/components/shared'
+import { GitHubOrgConnectionCard } from '@/components/settings/GitHubOrgConnectionCard'
+
+/**
+ * /api/github/callback から ?github=<種類> で戻ってくるエラー種別ごとの案内文。
+ *
+ * `code` は URL から来る値をそのまま渡すため、プレーンオブジェクトの `Record` だと
+ * `__proto__` / `constructor` / `hasOwnProperty` のような名前で継承済みのプロパティ
+ * （関数やプロトタイプそのもの）を引き当ててしまい、文字列以外の値が toast に渡って
+ * 画面が壊れる。Map はそうした継承済みのキーを一切持たないため、存在しないキーは
+ * 必ず undefined になる。
+ */
+const GITHUB_CALLBACK_ERROR_MESSAGES = new Map<string, string>([
+  [
+    'installation_not_owned',
+    'GitHub 側で、そのアカウントの持ち主（組織の場合はオーナー）である必要があります。GitHub 組織のオーナーが接続してください',
+  ],
+  [
+    'installation_not_accessible',
+    'GitHub 側で、そのアカウントの持ち主（組織の場合はオーナー）である必要があります。GitHub 組織のオーナーが接続してください',
+  ],
+  ['forbidden', 'GitHub の接続は、この組織のオーナーだけができます'],
+  ['already_linked', 'この GitHub の接続は、別の組織ですでに使われています'],
+  ['state_mismatch', '接続を始めた人と、戻ってきた人が違います。この画面の「接続する」からやり直してください'],
+  ['oauth_required', 'GitHub での確認が完了しませんでした。もう一度お試しください'],
+  ['oauth_failed', 'GitHub での確認が完了しませんでした。もう一度お試しください'],
+  ['invalid_state', '接続の手順がうまくつながりませんでした。この画面の「接続する」からやり直してください'],
+  ['missing_org_id', '接続の手順がうまくつながりませんでした。この画面の「接続する」からやり直してください'],
+  ['missing_installation_id', '接続の手順がうまくつながりませんでした。この画面の「接続する」からやり直してください'],
+  ['unauthorized', 'ログインし直してから、もう一度お試しください'],
+  ['no_repositories', 'リポジトリが選ばれていません。GitHubでリポジトリを選んでから、もう一度お試しください'],
+])
+
+const GITHUB_CALLBACK_DEFAULT_ERROR_MESSAGE = 'うまく接続できませんでした。時間をおいてもう一度お試しください'
+
+function githubCallbackErrorMessage(code: string): string {
+  return GITHUB_CALLBACK_ERROR_MESSAGES.get(code) ?? GITHUB_CALLBACK_DEFAULT_ERROR_MESSAGE
+}
+
+/** リポジトリ件数は URL から来る値なので、数字(最大5桁)のときだけ表示に使う */
+const REPOS_COUNT_PATTERN = /^\d{1,5}$/
+
+function githubConnectedMessage(reposParam: string | null): string {
+  if (reposParam && REPOS_COUNT_PATTERN.test(reposParam)) {
+    return `GitHub と接続しました（リポジトリ ${reposParam} 件）`
+  }
+  return 'GitHub と接続しました'
+}
 
 const AI_PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
@@ -47,11 +93,12 @@ const AI_MODELS: Record<string, { value: string; label: string }[]> = {
 
 export default function OrgIntegrationsPage() {
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const { orgId, role, loading: orgLoading } = useCurrentOrg()
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const isOwner = role === 'owner'
 
-  // OAuthコールバック後のトースト表示
+  // OAuthコールバック後のトースト表示（Slackと同じ形）
   useEffect(() => {
     const slack = searchParams.get('slack')
     if (!slack) return
@@ -68,9 +115,30 @@ export default function OrgIntegrationsPage() {
     window.history.replaceState({}, '', '/settings/org-integrations')
   }, [searchParams])
 
+  // GitHub App コールバック後のトースト表示。/api/github/callback から
+  // ?github=<種類>（エラー）または ?github=connected&repos=<N>（成功）で戻ってくる。
+  // orgId が決まるまでは何もしない（トースト・キャッシュの取り直し・URLのクリアのどれも
+  // 行わない）。ここで先に URL を消してしまうと、orgId が決まった後にこの effect が
+  // 再実行されても github パラメータがもう読めず、接続直後のキャッシュ取り直しが
+  // 一生行われないまま「未接続」の表示が残ってしまう。
+  useEffect(() => {
+    const github = searchParams.get('github')
+    if (!github) return
+    if (!orgId) return
+
+    if (github === 'connected') {
+      toast.success(githubConnectedMessage(searchParams.get('repos')))
+      queryClient.invalidateQueries({ queryKey: ['github-connection-status', orgId] })
+      queryClient.invalidateQueries({ queryKey: ['github-installation', orgId] })
+    } else {
+      toast.error(githubCallbackErrorMessage(github))
+    }
+
+    window.history.replaceState({}, '', '/settings/org-integrations')
+  }, [searchParams, orgId, queryClient])
+
   // GitHub
   const gitHubConfigured = isGitHubConfigured()
-  const { data: installation, isLoading: loadingGitHub } = useGitHubInstallation(orgId ?? undefined)
 
   // Slack
   const slackConfigured = isSlackConfigured()
@@ -217,53 +285,14 @@ export default function OrgIntegrationsPage() {
         )}
 
         {/* GitHub */}
-        {gitHubConfigured && (
+        {gitHubConfigured && orgId && (
           <div className="bg-surface rounded-lg border border-gray-200 p-6 space-y-4">
             <div className="flex items-center gap-2 text-gray-700">
               <GithubLogo className="text-lg" weight="bold" />
               <h3 className="font-medium">GitHub</h3>
             </div>
 
-            {loadingGitHub ? (
-              <div className="p-4 text-sm text-gray-500">読み込み中...</div>
-            ) : installation ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle className="text-green-500" weight="fill" />
-                  <span className="text-gray-600">
-                    <strong>{installation.account_login}</strong> と連携中
-                  </span>
-                  <a
-                    href="https://github.com/settings/installations"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline ml-2"
-                  >
-                    設定を変更
-                    <ArrowSquareOut className="inline ml-0.5 text-xs" />
-                  </a>
-                </div>
-                <p className="text-xs text-gray-500">
-                  各プロジェクト設定でリポジトリを紐付けできます。
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-gray-600">
-                  GitHubと連携して、PRとタスクを自動で紐付けできます。
-                </p>
-                {isOwner && (
-                  <a
-                    href={`/api/github/authorize?orgId=${encodeURIComponent(orgId)}&redirect=${encodeURIComponent('/settings/org-integrations')}`}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                  >
-                    <GithubLogo className="text-lg" />
-                    GitHubと連携する
-                    <ArrowSquareOut className="text-sm" />
-                  </a>
-                )}
-              </div>
-            )}
+            <GitHubOrgConnectionCard orgId={orgId} isOwner={isOwner} />
           </div>
         )}
 

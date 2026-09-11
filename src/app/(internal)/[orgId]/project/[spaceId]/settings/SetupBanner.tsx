@@ -7,7 +7,7 @@ import {
   CaretRight,
   X,
 } from '@phosphor-icons/react'
-import { useGitHubInstallation } from '@/lib/hooks/useGitHub'
+import { useGitHubInstallation, useGitHubConnection } from '@/lib/hooks/useGitHub'
 import { useSlackWorkspace } from '@/lib/hooks/useSlack'
 import { useSpaceRow } from '@/lib/hooks/useSpaceRow'
 import { useSpaceContentCounts } from '@/lib/hooks/useSpaceContentCounts'
@@ -30,6 +30,13 @@ interface SetupBannerProps {
 
 export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount }: SetupBannerProps) {
   const { data: githubInstallation } = useGitHubInstallation(orgId)
+  // github_installations は接続した本人にしか行が返らない（RLS）ため、それだけで判定すると
+  // 本人以外には「まだ連携していない」に見えてしまう。社内メンバーに connected を返す
+  // useGitHubConnection もあわせて見る。読み込み判定は isPending ではなく isLoading を使う
+  // ——GitHub未設定の環境ではこのクエリ自体を実行しない(enabled:false)ため、isPending は
+  // 実行されないまま永久に true が続く。isPending を条件にすると、その環境ではバナーが
+  // 二度と表示されなくなってしまう。
+  const { data: githubConnection, isLoading: loadingGithubConnection } = useGitHubConnection(orgId)
   const { data: slackWorkspace } = useSlackWorkspace(orgId)
   const [dismissed, setDismissed] = useState(false)
   // 初期構成(preset_genre)はプロジェクト1行の共有キャッシュから。件数は「初期構成」設定と
@@ -39,7 +46,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
   const { counts, isPending: countsPending, isError: fetchError } = useSpaceContentCounts(spaceId)
   const memberCount = counts?.members ?? null
   const milestoneCount = counts?.milestones ?? null
-  const loading = countsPending
+  const loading = countsPending || loadingGithubConnection
 
   // C2 fix: check localStorage on spaceId change
   useEffect(() => {
@@ -53,7 +60,8 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
     if (loading || spacePending) return []
     const hasMembers = (memberCount ?? 0) > 1
     const hasMilestones = (milestoneCount ?? 0) > 0
-    const hasIntegration = activeConnectionCount > 0 || !!githubInstallation || !!slackWorkspace
+    const hasIntegration =
+      activeConnectionCount > 0 || !!githubInstallation || !!githubConnection?.connected || !!slackWorkspace
     const hasPreset = !!presetGenre && presetGenre !== 'blank'
 
     return [
@@ -79,7 +87,7 @@ export function SetupBanner({ orgId, spaceId, onNavigate, activeConnectionCount 
         completed: hasIntegration,
       },
     ]
-  }, [loading, spacePending, memberCount, milestoneCount, activeConnectionCount, githubInstallation, slackWorkspace, presetGenre])
+  }, [loading, spacePending, memberCount, milestoneCount, activeConnectionCount, githubInstallation, githubConnection, slackWorkspace, presetGenre])
 
   const completedCount = steps.filter((s) => s.completed).length
   const allDone = steps.length > 0 && completedCount === steps.length
