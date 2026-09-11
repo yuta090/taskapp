@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
 
   if (!installationId) {
     return NextResponse.redirect(
-      new URL('/settings/integrations?error=missing_installation_id', request.url)
+      new URL('/settings/org-integrations?github=missing_installation_id', request.url)
     )
   }
   const installationIdNum = parseInt(installationId, 10)
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
   // 1. state の署名・期限・利用者 ID（sub）を検証して orgId と redirectUri を取得
   let orgId: string | null = null
   let stateUserId: string | null = null
-  let redirectUri = '/settings/integrations/github'
+  let redirectUri = '/settings/org-integrations'
 
   if (state) {
     const verified = verifySignedState(state)
@@ -91,14 +91,14 @@ export async function GET(request: NextRequest) {
     } else {
       console.error('Invalid or expired OAuth state')
       return NextResponse.redirect(
-        new URL('/settings/integrations?error=invalid_state', request.url)
+        new URL('/settings/org-integrations?github=invalid_state', request.url)
       )
     }
   }
 
   if (!orgId) {
     return NextResponse.redirect(
-      new URL('/settings/integrations?error=missing_org_id', request.url)
+      new URL('/settings/org-integrations?github=missing_org_id', request.url)
     )
   }
 
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=unauthorized`, request.url)
+      new URL(`${redirectUri}?github=unauthorized`, request.url)
     )
   }
 
@@ -120,14 +120,14 @@ export async function GET(request: NextRequest) {
   // 4. インストールを始めたのと同じ利用者かどうか
   if (user.id !== stateUserId) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=state_mismatch`, request.url)
+      new URL(`${redirectUri}?github=state_mismatch`, request.url)
     )
   }
 
   // 5. その組織の owner か（authorize と同じ判定関数を共用）
   if (!(await isOrgOwner(supabase as SupabaseClient, orgId, user.id))) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=forbidden`, request.url)
+      new URL(`${redirectUri}?github=forbidden`, request.url)
     )
   }
 
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
   // 付与される code。新規インストール・既存インストールの更新のどちらでも必須にする
   if (!code) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=oauth_required`, request.url)
+      new URL(`${redirectUri}?github=oauth_required`, request.url)
     )
   }
 
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
   const userToken = await exchangeCodeForUserToken(code)
   if (!userToken) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=oauth_failed`, request.url)
+      new URL(`${redirectUri}?github=oauth_failed`, request.url)
     )
   }
 
@@ -183,19 +183,19 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error('Failed to verify GitHub installation ownership:', err)
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=api_error`, request.url)
+      new URL(`${redirectUri}?github=api_error`, request.url)
     )
   }
 
   if (!matchedInstallation) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=installation_not_accessible`, request.url)
+      new URL(`${redirectUri}?github=installation_not_accessible`, request.url)
     )
   }
 
   if (!isOwner) {
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=installation_not_owned`, request.url)
+      new URL(`${redirectUri}?github=installation_not_owned`, request.url)
     )
   }
 
@@ -214,13 +214,13 @@ export async function GET(request: NextRequest) {
     if (existingInstallError) {
       console.error('Failed to look up existing GitHub installation:', existingInstallError)
       return NextResponse.redirect(
-        new URL(`${redirectUri}?error=api_error`, request.url)
+        new URL(`${redirectUri}?github=api_error`, request.url)
       )
     }
 
     if (existingInstall && existingInstall.org_id !== orgId) {
       return NextResponse.redirect(
-        new URL(`${redirectUri}?error=already_linked`, request.url)
+        new URL(`${redirectUri}?github=already_linked`, request.url)
       )
     }
 
@@ -230,7 +230,7 @@ export async function GET(request: NextRequest) {
 
     if (repositories.length === 0) {
       return NextResponse.redirect(
-        new URL(`${redirectUri}?error=no_repositories`, request.url)
+        new URL(`${redirectUri}?github=no_repositories`, request.url)
       )
     }
 
@@ -263,7 +263,7 @@ export async function GET(request: NextRequest) {
       if (installError) {
         console.error('Failed to save installation:', installError)
         return NextResponse.redirect(
-          new URL(`${redirectUri}?error=save_failed`, request.url)
+          new URL(`${redirectUri}?github=save_failed`, request.url)
         )
       }
     }
@@ -312,12 +312,12 @@ export async function GET(request: NextRequest) {
 
     // 成功時はリダイレクト
     return NextResponse.redirect(
-      new URL(`${redirectUri}?success=true&repos=${repositories.length}`, request.url)
+      new URL(`${redirectUri}?github=connected&repos=${repositories.length}`, request.url)
     )
   } catch (err) {
     console.error('GitHub callback error:', err)
     return NextResponse.redirect(
-      new URL(`${redirectUri}?error=api_error`, request.url)
+      new URL(`${redirectUri}?github=api_error`, request.url)
     )
   }
 }

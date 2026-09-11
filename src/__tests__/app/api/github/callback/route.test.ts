@@ -223,7 +223,21 @@ describe('GET /api/github/callback', () => {
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
     expect(location.pathname).toBe('/settings/org-integrations')
-    expect(location.searchParams.get('success')).toBe('true')
+    expect(location.searchParams.get('github')).toBe('connected')
+    // 旧形式（error= / success=）は出ない。結果は github= だけに一本化する
+    expect(location.searchParams.has('error')).toBe(false)
+    expect(location.searchParams.has('success')).toBe(false)
+  })
+
+  it('state に戻り先が無ければ、既定は設定画面（/settings/org-integrations）', async () => {
+    const { GET, createSignedState } = await load()
+    // redirectUri を空にして「state に戻り先が無い」状態を作る
+    const state = createSignedState(ORG_ID, '', USER_ID)
+    const res = await GET(req({ state }))
+
+    const location = new URL(res.headers.get('location')!)
+    expect(location.pathname).toBe('/settings/org-integrations')
+    expect(location.searchParams.get('github')).toBe('connected')
   })
 
   it('利用者 ID の入っていない state（古い形式）は無効', async () => {
@@ -242,7 +256,7 @@ describe('GET /api/github/callback', () => {
 
     expect(insertMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('invalid_state')
+    expect(location.searchParams.get('github')).toBe('invalid_state')
   })
 
   it('未ログインなら保存せずにエラーで戻す（仮ユーザーで保存しない）', async () => {
@@ -254,7 +268,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).not.toHaveBeenCalled()
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('unauthorized')
+    expect(location.searchParams.get('github')).toBe('unauthorized')
   })
 
   it('インストールを始めた利用者とログイン中の利用者が異なれば保存しない', async () => {
@@ -265,7 +279,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).not.toHaveBeenCalled()
     expect(exchangeCodeForUserTokenMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('state_mismatch')
+    expect(location.searchParams.get('github')).toBe('state_mismatch')
   })
 
   it('その組織の owner でなければ保存しない', async () => {
@@ -277,7 +291,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).not.toHaveBeenCalled()
     expect(exchangeCodeForUserTokenMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('forbidden')
+    expect(location.searchParams.get('github')).toBe('forbidden')
   })
 
   it('code が無ければ保存しない（新規インストール）', async () => {
@@ -288,7 +302,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).not.toHaveBeenCalled()
     expect(exchangeCodeForUserTokenMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('oauth_required')
+    expect(location.searchParams.get('github')).toBe('oauth_required')
   })
 
   it('code が無ければ保存しない（既存インストールの更新でも同じ検査を通す）', async () => {
@@ -299,7 +313,7 @@ describe('GET /api/github/callback', () => {
 
     expect(updateMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('oauth_required')
+    expect(location.searchParams.get('github')).toBe('oauth_required')
   })
 
   it('code をトークンに交換できなければ保存しない', async () => {
@@ -311,7 +325,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).not.toHaveBeenCalled()
     expect(findUserInstallationMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('oauth_failed')
+    expect(location.searchParams.get('github')).toBe('oauth_failed')
   })
 
   it('利用者のインストール一覧に installation_id が無ければ保存しない', async () => {
@@ -327,7 +341,7 @@ describe('GET /api/github/callback', () => {
     expect(upsertMock).not.toHaveBeenCalled()
     expect(revokeUserTokenMock).toHaveBeenCalledWith('user-token-abc')
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('installation_not_accessible')
+    expect(location.searchParams.get('github')).toBe('installation_not_accessible')
   })
 
   it('個人アカウントのインストールで、ログイン中の GitHub アカウントと id が一致しなければ保存しない', async () => {
@@ -344,7 +358,7 @@ describe('GET /api/github/callback', () => {
     expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     expect(revokeUserTokenMock).toHaveBeenCalledWith('user-token-abc')
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('installation_not_owned')
+    expect(location.searchParams.get('github')).toBe('installation_not_owned')
   })
 
   it('ログイン中の GitHub アカウント（/user）が取得できなければ、持ち主ではないではなく一時的な失敗として戻す', async () => {
@@ -361,7 +375,7 @@ describe('GET /api/github/callback', () => {
     expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     expect(revokeUserTokenMock).toHaveBeenCalledWith('user-token-abc')
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('api_error')
+    expect(location.searchParams.get('github')).toBe('api_error')
   })
 
   it('User / Organization 以外の account.type（例: Enterprise）は持ち主として扱わない', async () => {
@@ -378,7 +392,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).not.toHaveBeenCalled()
     expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('installation_not_owned')
+    expect(location.searchParams.get('github')).toBe('installation_not_owned')
   })
 
   it('組織アカウントで account.login が空文字なら、isOrgAdmin を呼ばず持ち主として扱わない', async () => {
@@ -393,7 +407,7 @@ describe('GET /api/github/callback', () => {
     expect(isOrgAdminMock).not.toHaveBeenCalled()
     expect(insertMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('installation_not_owned')
+    expect(location.searchParams.get('github')).toBe('installation_not_owned')
   })
 
   it.each([
@@ -417,7 +431,7 @@ describe('GET /api/github/callback', () => {
     expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     expect(revokeUserTokenMock).toHaveBeenCalledWith('user-token-abc')
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('installation_not_owned')
+    expect(location.searchParams.get('github')).toBe('installation_not_owned')
   })
 
   it('組織アカウントで role=admin かつ state=active（isOrgAdmin が true）なら保存される', async () => {
@@ -437,7 +451,7 @@ describe('GET /api/github/callback', () => {
     // account_login / account_type は、見つかった項目の account から入る
     expect(payload).toMatchObject({ account_login: ORG_LOGIN, account_type: 'Organization' })
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('success')).toBe('true')
+    expect(location.searchParams.get('github')).toBe('connected')
   })
 
   it('account_login / account_type は、見つかったインストール項目の account から入る（リポジトリの owner ではない）', async () => {
@@ -466,7 +480,7 @@ describe('GET /api/github/callback', () => {
     expect(revokeUserTokenMock).toHaveBeenCalledWith('user-token-abc')
     expect(insertMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('api_error')
+    expect(location.searchParams.get('github')).toBe('api_error')
   })
 
   it('トークンの破棄に失敗しても、確認が通っていれば成功で戻す', async () => {
@@ -480,7 +494,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).toHaveBeenCalledTimes(1)
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('success')).toBe('true')
+    expect(location.searchParams.get('github')).toBe('connected')
   })
 
   it('既存の紐づけの検索に失敗したら、保存に進まずエラーで戻す', async () => {
@@ -494,7 +508,7 @@ describe('GET /api/github/callback', () => {
     // DB エラーの時点で打ち切り、App の資格情報でのリポジトリ取得には進まない
     expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('api_error')
+    expect(location.searchParams.get('github')).toBe('api_error')
   })
 
   it('既存の紐づけが別の組織であれば、検査に通っても付け替えない', async () => {
@@ -507,7 +521,7 @@ describe('GET /api/github/callback', () => {
     expect(updateMock).not.toHaveBeenCalled()
     expect(getInstallationRepositoriesMock).not.toHaveBeenCalled()
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('error')).toBe('already_linked')
+    expect(location.searchParams.get('github')).toBe('already_linked')
   })
 
   it('既存の紐づけが同じ組織なら更新する', async () => {
@@ -524,7 +538,7 @@ describe('GET /api/github/callback', () => {
     expect(accountUpdate?.patch).not.toHaveProperty('org_id')
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('success')).toBe('true')
+    expect(location.searchParams.get('github')).toBe('connected')
   })
 
   it('インストール完了時に、その時点の許可範囲を github_installations.permissions に保存する', async () => {
@@ -576,7 +590,7 @@ describe('GET /api/github/callback', () => {
     expect(insertMock).toHaveBeenCalledTimes(1)
     expect(res.status).toBe(307)
     const location = new URL(res.headers.get('location')!)
-    expect(location.searchParams.get('success')).toBe('true')
+    expect(location.searchParams.get('github')).toBe('connected')
   })
 
   it('入口のログに installation_id・state・code の値そのものは出さない（付いていたかどうかだけ）', async () => {
