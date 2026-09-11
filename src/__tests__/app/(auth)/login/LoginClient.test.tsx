@@ -425,3 +425,77 @@ describe('LoginClient — redirect パラメータ（招待ログインリンク
     expect(locationAssignSpy).toHaveBeenCalledWith('/onboarding')
   })
 })
+
+// 旧: 招待メールの本文が /portal/<token> を指していた時期に送られたメールが残っている。
+// アカウント未作成の受信者がそのリンクからログイン画面へ飛ばされると、そのままでは
+// 招待を受諾できない（「新規登録」を押すと別組織が新規に作られてしまう）ため、
+// /invite/<token> への案内を出す。
+describe('LoginClient — 旧 /portal/<token> リンクからの案内', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stubLocationAssign()
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn(() => Promise.resolve({ data: null })),
+      limit: vi.fn().mockReturnThis(),
+      single: vi.fn(() => Promise.resolve({ data: null })),
+      maybeSingle: vi.fn(() => Promise.resolve({ data: null })),
+    }))
+  })
+
+  afterEach(() => {
+    mockSearchParams = new URLSearchParams()
+  })
+
+  const uuid = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+
+  it('/portal/<uuid> への redirect は招待受諾への案内を出す', () => {
+    mockSearchParams = new URLSearchParams(`redirect=/portal/${uuid}`)
+
+    render(<LoginClient />)
+
+    expect(screen.getByText(/招待メールのリンクから来た方/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /こちら/ })).toHaveAttribute(
+      'href',
+      `/invite/${uuid}`
+    )
+  })
+
+  it('/vendor-portal/<uuid> への redirect も招待受諾への案内を出す', () => {
+    mockSearchParams = new URLSearchParams(`redirect=/vendor-portal/${uuid}`)
+
+    render(<LoginClient />)
+
+    expect(screen.getByText(/招待メールのリンクから来た方/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /こちら/ })).toHaveAttribute(
+      'href',
+      `/invite/${uuid}`
+    )
+  })
+
+  it('/portal/files のような固定パスへの redirect では案内を出さない', () => {
+    mockSearchParams = new URLSearchParams('redirect=/portal/files')
+
+    render(<LoginClient />)
+
+    expect(screen.queryByText(/招待メールのリンクから来た方/)).not.toBeInTheDocument()
+  })
+
+  it('/org/... のような無関係な redirect では案内を出さない', () => {
+    mockSearchParams = new URLSearchParams('redirect=/org-1/project/space-1')
+
+    render(<LoginClient />)
+
+    expect(screen.queryByText(/招待メールのリンクから来た方/)).not.toBeInTheDocument()
+  })
+
+  it('UUID形式でないトークンでは案内を出さない', () => {
+    mockSearchParams = new URLSearchParams('redirect=/portal/not-a-uuid')
+
+    render(<LoginClient />)
+
+    expect(screen.queryByText(/招待メールのリンクから来た方/)).not.toBeInTheDocument()
+  })
+})

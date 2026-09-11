@@ -8,9 +8,15 @@ describe('招待リンクの作り方', () => {
     )
   })
 
-  it('相手先（クライアント）はポータルの入口', () => {
+  it('相手先（クライアント）も /invite/<合言葉>（承諾後にポータルへ誘導する）', () => {
     expect(buildInviteUrl('client', 'tok-2', 'https://agentpm.app')).toBe(
-      'https://agentpm.app/portal/tok-2'
+      'https://agentpm.app/invite/tok-2'
+    )
+  })
+
+  it('ベンダーも /invite/<合言葉>', () => {
+    expect(buildInviteUrl('vendor', 'tok-4', 'https://agentpm.app')).toBe(
+      'https://agentpm.app/invite/tok-4'
     )
   })
 

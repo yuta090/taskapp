@@ -137,10 +137,11 @@ describe('VendorInvitePage — 受諾動線', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  // /invite/[token] は role==='client' としか分岐せず vendor 招待を正しく導けないため
-  // （別課題として追跡）、ここでは to は現在のURLのまま。ただしこのボタンはログイン中に
-  // 押されるので pushCleanup は既定(true)のまま渡す（push購読の解除は必要）
-  it('切替案内から「別のアカウントでログインし直す」で signOutAndLeave({ to: 現在のURL }) を呼ぶ（pushCleanupは既定のまま）', async () => {
+  // /invite/[token] は vendor 招待も /vendor-portal へ正しく導けるようになったため、
+  // ログアウト後の戻り先は招待受諾画面 /invite/<token>（このURLへ戻ると未ログインでは
+  // proxy に弾かれてしまうため）。このボタンはログイン中に押されるので pushCleanup は
+  // 既定(true)のまま渡す（push購読の解除は必要）
+  it('切替案内から「別のアカウントでログインし直す」で signOutAndLeave({ to: /invite/<token> }) を呼ぶ（pushCleanupは既定のまま）', async () => {
     mockGetSession.mockResolvedValue(session('other@example.com'))
 
     renderPage()
@@ -152,7 +153,7 @@ describe('VendorInvitePage — 受諾動線', () => {
     fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログインし直す' }))
 
     await waitFor(() => {
-      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: window.location.href })
+      expect(mockSignOutAndLeave).toHaveBeenCalledWith({ to: '/invite/tok-1' })
     })
   })
 

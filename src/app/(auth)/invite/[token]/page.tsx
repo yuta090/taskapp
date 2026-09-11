@@ -78,7 +78,8 @@ export default function InviteAcceptPage({
         }
       }
 
-      // 受諾後の着地は role で分岐（client は内部レイアウトに入れないためポータルへ）。
+      // 受諾後の着地は role で分岐（client / vendor は内部レイアウトに入れないため、
+      // それぞれ専用のポータルへ）。
       // サインイン識別が変わりうる（新規アカウント作成／別アカウントからの参加）ため、SPA遷移では
       // なくフルページ遷移で終える。フルリロードしても IDB に永続化された ['orgMemberships', uid]
       // は普通に復元される（＝「まだ増えた所属を知らない」古いキャッシュが一度は戻ってくる）ため
@@ -89,6 +90,8 @@ export default function InviteAcceptPage({
       // 任せられるので不要）
       if (data.role === 'client') {
         window.location.assign('/portal')
+      } else if (data.role === 'vendor') {
+        window.location.assign('/vendor-portal')
       } else {
         window.location.assign(`/${data.org_id}/project/${data.space_id}`)
       }
@@ -284,7 +287,7 @@ export default function InviteAcceptPage({
         )}
 
         <AuthButton type="submit" loading={loading}>
-          {inviteInfo.is_existing_user ? 'チームに参加' : 'アカウントを作成して参加'}
+          {inviteInfo.is_existing_user ? '参加する' : 'アカウントを作成して参加'}
         </AuthButton>
       </form>
     </AuthCard>

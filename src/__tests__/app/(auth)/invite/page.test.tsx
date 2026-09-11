@@ -9,7 +9,7 @@ import InviteAcceptPage from '@/app/(auth)/invite/[token]/page'
  * V5（vendor-portal で導入済み）と同じ wrong-account join 防止を適用する:
  * ログイン中のメールが招待メールと一致するときだけ自動受諾し、
  * 不一致なら招待を消費せずアカウント切替を案内する。
- * 受諾後の着地は role に応じて分岐（client → /portal）。
+ * 受諾後の着地は role に応じて分岐（client → /portal、vendor → /vendor-portal）。
  *
  * サインイン識別が変わりうる受諾後の着地・アカウント切替は、ルート常駐のクライアント状態
  * （ActiveOrgProvider・query cache）を作り直すためフルページ遷移（window.location.assign /
@@ -179,6 +179,19 @@ describe('InviteAcceptPage — 受諾動線', () => {
     expect(locationAssignSpy).not.toHaveBeenCalledWith('/org-1/project/space-1')
   })
 
+  it('vendorロールの招待は受諾後 /vendor-portal へ（内部URLに送らない）', async () => {
+    mockGetSession.mockResolvedValue(session('invitee@example.com'))
+    mockRpc.mockResolvedValue({ data: { ...validInvite, role: 'vendor' }, error: null })
+    mockFetch.mockResolvedValue(acceptResponse({ role: 'vendor' }))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(locationAssignSpy).toHaveBeenCalledWith('/vendor-portal')
+    })
+    expect(locationAssignSpy).not.toHaveBeenCalledWith('/org-1/project/space-1')
+  })
+
   it('未ログインの新規ユーザーはパスワード設定→受諾→ログイン→プロジェクトへ（回帰・フルページ遷移）', async () => {
     renderPage()
 
@@ -223,7 +236,7 @@ describe('InviteAcceptPage — 受諾動線', () => {
 
     // パスワード検証に到達させない（手詰まりバグの再現防止）
     expect(screen.queryByLabelText(/パスワードを設定/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'チームに参加' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '参加する' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'ログインして参加' }))
 
