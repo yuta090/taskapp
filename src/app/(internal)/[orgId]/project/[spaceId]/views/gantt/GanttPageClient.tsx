@@ -8,7 +8,7 @@ import { Breadcrumb, ViewsTabNav } from '@/components/shared'
 import { GanttChart } from '@/components/gantt'
 import { useInspector } from '@/components/layout'
 import { TaskInspector } from '@/components/task/TaskInspector'
-import { useTasks } from '@/lib/hooks/useTasks'
+import { useTasks, type UpdateTaskInput } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { useSpaceMembers } from '@/lib/hooks/useSpaceMembers'
@@ -16,7 +16,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useSpaceName } from '@/lib/hooks/useSpaceName'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import { AnnouncementBell } from '@/components/announcement/AnnouncementBell'
-import type { BallSide, TaskStatus } from '@/types/database'
+import type { BallSide } from '@/types/database'
 
 interface GanttPageClientProps {
   orgId: string
@@ -116,15 +116,9 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   // Update task handler
   const handleUpdateTask = useCallback(
-    async (taskId: string, updates: {
-      title?: string
-      description?: string | null
-      status?: TaskStatus
-      startDate?: string | null
-      dueDate?: string | null
-      milestoneId?: string | null
-      assigneeId?: string | null
-    }) => {
+    // 受け取った更新内容は詰め直さずにそのまま渡す（wikiPageIsSpec を落とすと、参考資料を
+    // 紐づけただけで仕様タスクになり完了できなくなる）
+    async (taskId: string, updates: UpdateTaskInput) => {
       await updateTask(taskId, updates)
     },
     [updateTask]

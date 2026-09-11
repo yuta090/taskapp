@@ -29,7 +29,7 @@ import { SetupChecklist } from '@/components/onboarding/SetupChecklist'
 import { useSpacePendingInvites, pendingInviteLabel } from '@/lib/hooks/useSpacePendingInvites'
 import { TaskFilterMenu, ActiveFilterChips, TaskFilters, defaultFilters, applyTaskFilters } from '@/components/task/TaskFilterMenu'
 import { buildAssigneeOptions, groupTasksByAssignee, taskAssigneeKey } from '@/lib/tasks/taskAssignees'
-import { useTasks } from '@/lib/hooks/useTasks'
+import { useTasks, type UpdateTaskInput } from '@/lib/hooks/useTasks'
 import { useMilestones } from '@/lib/hooks/useMilestones'
 import { useRiskForecast } from '@/lib/hooks/useRiskForecast'
 import { RiskSummaryBanner } from '@/components/risk/RiskSummaryBanner'
@@ -474,19 +474,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   )
 
   const handleUpdateTask = useCallback(
-    async (taskId: string, updates: {
-      title?: string
-      description?: string | null
-      status?: TaskStatus
-      startDate?: string | null
-      dueDate?: string | null
-      milestoneId?: string | null
-      assigneeId?: string | null
-      actualHours?: number | null
-      wikiPageId?: string | null
-      estimatedCost?: number | null
-      estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
-    }) => {
+    // 受け取った更新内容は詰め直さずにそのまま渡す（wikiPageIsSpec を落とすと、参考資料を
+    // 紐づけただけで仕様タスクになり完了できなくなる）
+    async (taskId: string, updates: UpdateTaskInput) => {
       await updateTask(taskId, updates)
     },
     [updateTask]

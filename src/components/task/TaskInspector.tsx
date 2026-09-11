@@ -22,9 +22,10 @@ import { TaskPRList, TaskIssueList } from '@/components/github'
 import { SlackPostButton } from '@/components/slack'
 import { TaskReviewSection } from '@/components/review'
 import { TaskPricingPanel } from './TaskPricingPanel'
+import { WikiPageLinkPicker } from './WikiPageLinkPicker'
 import { isPageInMilestone, pickMilestoneWikiPages } from '@/lib/wiki/listView'
 import { useWikiMilestoneLinks } from '@/lib/hooks/useWikiMilestoneLinks'
-import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope } from '@/types/database'
+import type { Task, TaskOwner, TaskStatus, Milestone, DecisionState, ClientScope, WikiPage } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatTaskNumber } from '@/lib/tasks/taskNumber'
 
@@ -46,6 +47,8 @@ interface TaskInspectorProps {
     parentTaskId?: string | null
     actualHours?: number | null
     wikiPageId?: string | null
+    /** 紐づけるページが仕様書か。false ならリンクだけ保存し、仕様タスク(検討中)にしない */
+    wikiPageIsSpec?: boolean
     estimatedCost?: number | null
     estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
     clientScope?: ClientScope
@@ -138,12 +141,13 @@ export function TaskInspector({
   // Milestone data
   const [milestones, setMilestones] = useState<Milestone[]>([])
 
-  // Wiki pages for spec link
-  const { pages: wikiPages } = useWikiPages({ orgId: task.org_id, spaceId })
-  const specWikiPages = useMemo(
-    () => wikiPages.filter((p) => p.tags?.includes('仕様書')),
-    [wikiPages]
-  )
+  // Wiki pages for spec link（候補はタグの有無に関係なく全ページ。資料が増えても名前で探せるように）
+  const {
+    pages: wikiPages,
+    createPage,
+    loading: wikiPagesLoading,
+    error: wikiPagesError,
+  } = useWikiPages({ orgId: task.org_id, spaceId })
   // PR3: タスク詳細から同じマイルストーンの Wiki を引ける導線（補助情報。詳細設定の件数バッジには含めない）
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照（同じ queryKey で一覧側とキャッシュ共有）
   // マイルストーン未設定のタスクではこの情報を一切使わないので取りに行かない
@@ -417,13 +421,23 @@ export function TaskInspector({
     }
   }
 
-  const handleWikiPageChange = async (wikiPageId: string) => {
-    const newWikiPageId = wikiPageId || null
-    if (newWikiPageId !== task.wiki_page_id) {
-      await onUpdate?.({ wikiPageId: newWikiPageId })
-      flashSaved()
+  const handleWikiPageChange = async (wikiPageId: string | null, page?: Pick<WikiPage, 'tags'>) => {
+    if (wikiPageId === task.wiki_page_id) return
+    if (wikiPageId === null) {
+      await onUpdate?.({ wikiPageId: null })
+    } else {
+      // 紐づけると「検討中→決定→実装済み」の仕様タスクになり、決定するまで完了できない。
+      // 候補は全ページなので、議事録などの参考資料を付けただけで完了できなくならないよう、
+      // 仕様タスクにするのは「仕様書」タグのページだけにする（参考資料の扱いは CLI の紐づけと同じ）。
+      // 作った直後のページはこの時点の一覧に無いので、渡されたページのタグを優先して見る
+      const tags = (page ?? wikiPages.find((p) => p.id === wikiPageId))?.tags
+      await onUpdate?.({ wikiPageId, wikiPageIsSpec: tags?.includes('仕様書') ?? false })
     }
+    flashSaved()
   }
+
+  // その場で作るページは参考資料として紐づける（仕様書の印は付けない＝紐づけても完了を止めない）
+  const handleWikiPageCreate = (title: string) => createPage({ title })
 
   // 不変条件: ball='client' のタスクは client_scope='deliverable' から変更不可
   // （RLS上クライアントから不可視になり、渡した先で誰も動けなくなるため）
@@ -749,25 +763,18 @@ export function TaskInspector({
           </label>
           {onUpdate ? (
             <div className="space-y-3">
-              {specWikiPages.length > 0 ? (
-                <select
-                  value={task.wiki_page_id || ''}
-                  onChange={(e) => handleWikiPageChange(e.target.value)}
-                  data-testid="task-inspector-wiki-page"
-                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-surface"
-                >
-                  <option value="">紐付けなし</option>
-                  {specWikiPages.map((page) => (
-                    <option key={page.id} value={page.id}>
-                      {page.title}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="text-xs text-gray-400 py-1">
-                  仕様書タグのWikiページがありません
-                </p>
-              )}
+              {/* key: Inspector はタスクを切り替えてもアンマウントされないので、打ちかけの検索語を持ち越さない */}
+              <WikiPageLinkPicker
+                key={task.id}
+                pages={wikiPages}
+                value={task.wiki_page_id}
+                loading={wikiPagesLoading}
+                // 手元に一覧が残っていれば、裏の取り直しに失敗しても探す・作るはそのまま使える
+                loadError={!!wikiPagesError && wikiPages.length === 0}
+                onSelect={handleWikiPageChange}
+                onCreate={handleWikiPageCreate}
+                testId="task-inspector-wiki-page"
+              />
               {task.wiki_page_id && (
                 <a
                   href={`/${task.org_id}/project/${task.space_id}/wiki?page=${task.wiki_page_id}`}

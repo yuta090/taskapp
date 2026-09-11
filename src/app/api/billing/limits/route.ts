@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       }
 
       orgId = resolved.org_id
-    } else if (searchParams.has('org_id')) {
+    } else {
       // org_id が指定された場合、ユーザーがその組織のメンバーか確認
       const { data: membership } = await (supabase as SupabaseClient)
         .from('org_memberships')
@@ -64,14 +64,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // RPC で制限情報を取得
-    const { data, error } = await (supabase as SupabaseClient).rpc('rpc_check_org_limits', {
+    // この関数は、本人の所属を確かめたあと、管理用の鍵からだけ呼ぶ
+    const admin = createAdminClient()
+    const { data, error } = await admin.rpc('rpc_check_org_limits', {
       p_org_id: orgId,
     })
 
     if (error) {
+      console.error('[billing/limits] rpc_check_org_limits failed:', error.message)
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Failed to check limits' },
         { status: 400 }
       )
     }
@@ -79,7 +81,6 @@ export async function GET(request: NextRequest) {
     // features: 表示専用（フェーズ1）。実際の機能ゲートはここでは行わない。
     // 真実源は org_billing.plan_id のみ — service-role client で改めて確定する
     // (rpc_check_org_limits の plan_name は表示名であり判定には使わない)。
-    const admin = createAdminClient()
     const { planId } = await resolveOrgEntitlements(admin, orgId, new Date())
     const features = Array.from(PLAN_FEATURES[planId])
 
@@ -92,8 +93,8 @@ export async function GET(request: NextRequest) {
       members_used: data?.members?.current ?? 0,
       clients_limit: data?.clients?.limit ?? null,
       clients_used: data?.clients?.current ?? 0,
-      storage_limit_bytes: data?.storage?.limit ?? null,
-      storage_used_bytes: data?.storage?.current ?? 0,
+      storage_limit_bytes: data?.storage?.limit_bytes ?? null,
+      storage_used_bytes: data?.storage?.current_bytes ?? 0,
       features, // 表示専用。判定ロジックには使用しないこと
     }
 

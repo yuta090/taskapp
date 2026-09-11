@@ -63,7 +63,7 @@ export type AuditTargetType =
 export type AuditVisibility = 'client' | 'team'
 
 // ユーザーロール
-export type AuditActorRole = 'client' | 'owner' | 'member'
+export type AuditActorRole = 'client' | 'owner' | 'member' | 'vendor'
 
 /**
  * 監査ログ作成パラメータ
