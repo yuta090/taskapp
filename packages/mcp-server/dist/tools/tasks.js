@@ -4,6 +4,7 @@ import { config, getAuthContext } from '../config.js';
 import { authorizeAndLog } from '../auth/index.js';
 import { dryRunDelete, confirmDelete } from '../auth/dryrun.js';
 import { withTaskNumber } from '../lib/taskNumber.js';
+import { ToolUserError } from '../errors.js';
 // Schemas
 export const taskCreateSchema = z.object({
     spaceId: z.string().uuid().describe('スペースUUID（必須）'),
@@ -217,6 +218,21 @@ async function resolveAssigneeByEmail(orgId, spaceId, email) {
         return { assignee_id: null, assignee_invite_id: invite.id };
     throw new Error(`「${email}」はこの組織のメンバーにも、このプロジェクトの有効な招待にも見つかりません（先に招待してください）`);
 }
+/**
+ * 完了の関所（DB の enforce_review_gate・check_violation）に止められたときの、呼んだ人向けの理由。
+ * 止めた理由は決まった文言で秘密を含まない。該当しなければ null
+ */
+function completionGateReason(error) {
+    if (error.code !== '23514')
+        return null;
+    if (error.message?.includes('review is not approved')) {
+        return 'レビューの承認が済んでいないため、完了にできません。承認されてから完了にしてください';
+    }
+    if (error.message?.includes('spec decision is not made')) {
+        return '仕様の決定（decision_state）が済んでいないため、完了にできません';
+    }
+    return null;
+}
 export async function taskUpdate(params) {
     // 権限チェック（write権限が必要、リソースIDも渡して所有権チェック）
     await checkAuth(params.spaceId, 'write', 'task_update', params.taskId);
@@ -275,8 +291,14 @@ export async function taskUpdate(params) {
         .eq('space_id', params.spaceId)
         .select('*')
         .single();
-    if (error)
+    if (error) {
+        const gateReason = completionGateReason(error);
+        if (gateReason)
+            throw new ToolUserError(gateReason, 409);
+        // それ以外の DB の理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
+        console.error('task_update failed:', error.code, error.message);
         throw new Error('タスク更新に失敗しました');
+    }
     return data;
 }
 export async function taskList(params) {
@@ -369,7 +391,7 @@ export async function taskListMy(params) {
     const supabase = getSupabaseClient();
     // scope='user' でない場合はエラー
     if (ctx.scope !== 'user') {
-        throw new Error('このツールはscope=userのAPIキーでのみ使用できます');
+        throw new ToolUserError('このツールはscope=userのAPIキーでのみ使用できます（個人用の鍵が必要です。プロジェクト内の一覧は task list を使ってください）', 403);
     }
     if (!ctx.userId) {
         throw new Error('user_idが設定されていません');

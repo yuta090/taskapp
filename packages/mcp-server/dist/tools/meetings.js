@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { getSupabaseClient } from '../supabase/client.js';
 import { checkAuth } from '../auth/helpers.js';
+import { getAuthContext } from '../config.js';
+import { ToolUserError } from '../errors.js';
 // Helper: get orgId from spaceId
 async function getOrgId(spaceId) {
     const supabase = getSupabaseClient();
@@ -37,6 +39,12 @@ export const meetingGetSchema = z.object({
 // Tool implementations
 export async function meetingCreate(params) {
     await checkAuth(params.spaceId, 'write', 'meeting_create', 'meeting');
+    // 作成者（meetings.created_by・NOT NULL）は、この呼び出しの鍵の利用者。
+    // config.actorId は前の呼び出しの値が残ることがあるので使わない
+    const createdBy = getAuthContext().userId;
+    if (!createdBy) {
+        throw new ToolUserError('この鍵には利用者が紐づいていないため、会議を作成できません。個人の鍵を使ってください', 400);
+    }
     const supabase = getSupabaseClient();
     const orgId = await getOrgId(params.spaceId);
     const { data: meeting, error } = await supabase
@@ -45,14 +53,19 @@ export async function meetingCreate(params) {
         org_id: orgId,
         space_id: params.spaceId,
         title: params.title,
-        held_at: params.heldAt || null,
+        // held_at は NOT NULL。省いたら今の時刻（timestamptz なので UTC の ISO 文字列でよい）
+        held_at: params.heldAt || new Date().toISOString(),
         notes: params.notes || null,
         status: 'planned',
+        created_by: createdBy,
     })
         .select('*')
         .single();
-    if (error)
+    if (error) {
+        // DB の理由は中身を含むので呼んだ人には返さず、サーバーのログにだけ残す
+        console.error('meeting_create failed:', error.code, error.message);
         throw new Error('会議の作成に失敗しました');
+    }
     if (params.participantIds.length > 0) {
         const participantRows = params.participantIds.map((userId) => ({
             org_id: orgId,
