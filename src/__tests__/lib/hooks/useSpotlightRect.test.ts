@@ -258,64 +258,30 @@ describe('useSpotlightRect — 画面外ターゲットのスクロール追従'
   })
 })
 
-describe('useSpotlightRect — 「視差効果を減らす」設定の尊重', () => {
+describe('useSpotlightRect — スクロールは即座に移動する（smoothは使わない）', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     vi.unstubAllGlobals()
   })
 
-  function renderOffscreenTargetWithMatchMedia(matches: boolean) {
-    const raf = stubRaf()
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn().mockReturnValue({ matches } as unknown as MediaQueryList)
-    )
+  it('scrollIntoView は behavior:"auto" で呼ばれる（smoothはパネルの位置再計算と競合して跳ねるため使わない）', () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
 
+    const raf = stubRaf()
     const el = document.createElement('div')
-    el.setAttribute('data-testid', 'reduced-motion-target')
+    el.setAttribute('data-testid', 'instant-scroll-target')
     stubNonZeroRect(el, { top: 1227, bottom: 1267, left: 16, right: 374, height: 40 })
     const scrollSpy = vi.fn()
     el.scrollIntoView = scrollSpy
     document.body.appendChild(el)
 
-    renderHook(() => useSpotlightRect('[data-testid="reduced-motion-target"]', true))
+    renderHook(() => useSpotlightRect('[data-testid="instant-scroll-target"]', true))
     act(() => {
       raf.flush()
     })
-
-    return scrollSpy
-  }
-
-  it('prefers-reduced-motion: reduce のとき、scrollIntoView は behavior:"auto" で呼ばれる', () => {
-    const scrollSpy = renderOffscreenTargetWithMatchMedia(true)
 
     expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
-  })
-
-  it('視差効果を減らす設定が無いときは behavior:"smooth" で呼ばれる', () => {
-    const scrollSpy = renderOffscreenTargetWithMatchMedia(false)
-
-    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
-  })
-
-  it('matchMedia が無い環境(jsdom既定)でもエラーにならず、behavior:"smooth" で呼ばれる', () => {
-    const raf = stubRaf()
-    // jsdom には既定で matchMedia が実装されていない
-    expect(typeof window.matchMedia).toBe('undefined')
-
-    const el = document.createElement('div')
-    el.setAttribute('data-testid', 'no-matchmedia-target')
-    stubNonZeroRect(el, { top: 1227, bottom: 1267, left: 16, right: 374, height: 40 })
-    const scrollSpy = vi.fn()
-    el.scrollIntoView = scrollSpy
-    document.body.appendChild(el)
-
-    renderHook(() => useSpotlightRect('[data-testid="no-matchmedia-target"]', true))
-    act(() => {
-      raf.flush()
-    })
-
-    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
   })
 })
 

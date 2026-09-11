@@ -20,7 +20,9 @@ export interface PanelPosition {
  * short mobile viewport), it docks to the bottom of the viewport instead of
  * naively flipping above — flipping above would push the panel up over the
  * target's top edge (its heading / first item), which is exactly the part
- * that should stay visible.
+ * that should stay visible. But on a short viewport with a small target
+ * (e.g. phone landscape), docking to the bottom can still cover the target
+ * entirely — in that case it docks to the top instead.
  */
 export function clampPanelPosition(
   targetRect: Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>,
@@ -41,8 +43,11 @@ export function clampPanelPosition(
   } else {
     // Fits neither side: dock to the bottom of the viewport so the target's
     // top (heading / first item) stays uncovered instead of getting hidden
-    // under the panel.
-    rawTop = viewport.height - panelSize.height - margin
+    // under the panel. But on a short viewport, the bottom dock can still
+    // land on top of a small target — if it would cover the target's top,
+    // dock to the top of the viewport instead.
+    const bottomDock = viewport.height - panelSize.height - margin
+    rawTop = targetRect.top >= bottomDock ? margin : bottomDock
   }
 
   const maxTop = Math.max(margin, viewport.height - panelSize.height - margin)

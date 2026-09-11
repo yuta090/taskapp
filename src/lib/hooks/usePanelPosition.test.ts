@@ -106,6 +106,30 @@ describe('clampPanelPosition', () => {
 
     expect(top).toBe(534)
   })
+
+  it('低い横画面(スマホ横向き等)で下端固定にすると対象を覆ってしまう場合は、代わりに画面上端に固定する', () => {
+    // 高さ320pxの短いビューポートで、小さな対象(40px)が画面中央付近(250-290)にある
+    // ケース。パネル(253px)は上にも下にも収まらない。下端固定(top=51)だと
+    // 対象(250-290)がパネル(51-304)にすっぽり覆われてしまうため、上端固定にする。
+    const shortViewport = { width: 390, height: 320 }
+    const targetRect = { top: 250, bottom: 290, left: 16, width: 358 }
+    const panelSize = { width: 358, height: 253 }
+
+    const { top } = clampPanelPosition(targetRect, panelSize, shortViewport)
+
+    expect(top).toBe(16)
+  })
+
+  it('対象が縦長で上下どちらにも収まらない場合は、これまで通り画面下部に固定する（回帰確認）', () => {
+    const phoneViewport = { width: 390, height: 844 }
+    const targetRect = { top: 109, bottom: 782, left: 16, width: 358 }
+    const panelSize = { width: 358, height: 253 }
+
+    const { top } = clampPanelPosition(targetRect, panelSize, phoneViewport)
+
+    expect(top).toBeGreaterThan(targetRect.top)
+    expect(top + panelSize.height).toBeLessThanOrEqual(phoneViewport.height)
+  })
 })
 
 describe('usePanelPosition — 実寸(offsetWidth/offsetHeight)での計測', () => {

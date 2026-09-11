@@ -27,19 +27,6 @@ function isFullyVisible(rect: DOMRect): boolean {
 }
 
 /**
- * OSの「視差効果を減らす」設定を尊重する。jsdom/SSRでは `matchMedia` が
- * 存在しないことがあるためガードし、未対応環境では通常の `smooth` を返す。
- */
-function getScrollBehavior(): ScrollBehavior {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'smooth'
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
-  } catch {
-    return 'smooth'
-  }
-}
-
-/**
  * Tracks the bounding rect of the first matching element among
  * `targetSelectors` (priority order — earlier selectors win even if a later
  * one also matches) while `active`, updating on resize/scroll. Returns
@@ -61,7 +48,10 @@ function getScrollBehavior(): ScrollBehavior {
  * scrolled-to yet for this step) and the matched element isn't fully inside
  * the viewport, it is scrolled into view once — this keeps mobile spotlight
  * targets reachable instead of leaving the ring off-screen with `scrollY`
- * stuck at 0.
+ * stuck at 0. The scroll is instant (`behavior: 'auto'`), not smooth: a
+ * ~0.5s smooth scroll fights the panel's own position recompute (and its
+ * `transition-all`), making both the ring and the panel visibly bounce
+ * before settling.
  *
  * The "already scrolled" check is keyed by the matched *selector string*,
  * not the matched *element*: virtualized lists (e.g. the internal task
@@ -113,7 +103,9 @@ export function useSpotlightRect(
             // ビューポートより縦に大きい要素は先頭合わせ、それ以外は中央合わせ。
             const block = rect.height > window.innerHeight ? 'start' : 'center'
             // jsdom には scrollIntoView が実装されていないためガードする。
-            el.scrollIntoView?.({ block, behavior: getScrollBehavior() })
+            // smooth だとパネルの位置再計算(と transition-all)と競合して
+            // リングごと跳ねて見えるため、即座に移動する。
+            el.scrollIntoView?.({ block, behavior: 'auto' })
           }
         }
         return
