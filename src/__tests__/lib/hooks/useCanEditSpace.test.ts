@@ -38,13 +38,17 @@ function makeSpace(overrides: Partial<UserSpace> = {}): UserSpace {
   }
 }
 
-function createWrapper(orgs: ActiveOrgContextValue['orgs'], loading = false) {
+function createWrapper(
+  orgs: ActiveOrgContextValue['orgs'],
+  options: { loading?: boolean; orgsStatus?: ActiveOrgContextValue['orgsStatus'] } = {}
+) {
+  const { loading = false, orgsStatus = 'verified' } = options
   const value: ActiveOrgContextValue = {
     activeOrgId: orgs[0]?.orgId ?? null,
     activeOrgName: orgs[0]?.orgName ?? null,
     activeOrgRole: orgs[0]?.role ?? null,
     orgs,
-    orgsStatus: 'verified',
+    orgsStatus,
     orgsRefreshFailed: false,
     switchOrg: () => {},
     loading,
@@ -165,6 +169,43 @@ describe('useCanEditSpace', () => {
       })
       expect(result.current.canEdit).toBe(true)
       expect(result.current.canEditMoney).toBe(false)
+    })
+  })
+
+  // 操作ガイド（InternalOnboardingWalkthrough）向け:「役割が確定したか」。
+  // ActiveOrgProvider.loading は cookie があると（orgs がまだ届いていなくても）早く false になるため、
+  // それだけでは「確定した」と誤認してしまう。orgsStatus も合わせて見る必要がある。
+  describe('resolved（役割が確定したか）', () => {
+    it('space・組織一覧とも揃っていれば確定している', () => {
+      mockSpaces = [makeSpace({ role: 'editor' })]
+      const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
+        wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }], { orgsStatus: 'verified' }),
+      })
+      expect(result.current.resolved).toBe(true)
+    })
+
+    it('space一覧がまだ取れていない間は確定していない', () => {
+      mockIsPending = true
+      const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
+        wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }], { orgsStatus: 'verified' }),
+      })
+      expect(result.current.resolved).toBe(false)
+    })
+
+    it('ActiveOrgProvider.loading が false でも、組織一覧が unknown（cookieだけで確定前）なら未確定扱い', () => {
+      mockSpaces = [makeSpace({ role: 'editor' })]
+      const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
+        wrapper: createWrapper([], { loading: false, orgsStatus: 'unknown' }),
+      })
+      expect(result.current.resolved).toBe(false)
+    })
+
+    it('組織一覧が cached（IDB由来）でも確定扱いにする', () => {
+      mockSpaces = [makeSpace({ role: 'editor' })]
+      const { result } = renderHook(() => useCanEditSpace('space-1', 'org-1'), {
+        wrapper: createWrapper([{ orgId: 'org-1', orgName: 'Org', role: 'member' }], { orgsStatus: 'cached' }),
+      })
+      expect(result.current.resolved).toBe(true)
     })
   })
 })

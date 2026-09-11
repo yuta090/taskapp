@@ -274,6 +274,43 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
     })
   })
 
+  // 役割（canEdit）が確定する前にガイドを開くと、あとで手順の数が変わって
+  // 表示中の内容がすり替わってしまう。役割が確定するまでは開かない。
+  describe('役割が確定するまでガイドを開かない（roleResolved）', () => {
+    it('roleResolved=false の間はダイアログが開かない', () => {
+      render(<InternalOnboardingWalkthrough canEdit={false} roleResolved={false} />)
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('確定後（編集者）なら手順1「タスク作成の流れ」を含めて開く', async () => {
+      const { rerender } = render(<InternalOnboardingWalkthrough canEdit={false} roleResolved={false} />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      rerender(<InternalOnboardingWalkthrough canEdit={true} roleResolved={true} />)
+
+      await waitFor(() => screen.getByRole('dialog'))
+      expect(screen.getByText('タスク作成の流れ')).toBeInTheDocument()
+    })
+
+    it('確定後（閲覧者）なら手順1を飛ばして開く', async () => {
+      const { rerender } = render(<InternalOnboardingWalkthrough canEdit={false} roleResolved={false} />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      rerender(<InternalOnboardingWalkthrough canEdit={false} roleResolved={true} />)
+
+      await waitFor(() => screen.getByRole('dialog'))
+      expect(screen.getByText('ボールの概念')).toBeInTheDocument()
+      expect(screen.queryByText('タスク作成の流れ')).not.toBeInTheDocument()
+    })
+
+    it('roleResolved を渡さない（既定 true）ときは、これまでどおりすぐ開く', async () => {
+      render(<InternalOnboardingWalkthrough />)
+
+      await waitFor(() => screen.getByRole('dialog'))
+    })
+  })
+
   describe('viewport clamping, escape hatches, and target interaction', () => {
     it('clamps the panel inside the viewport when the target sits near the bottom-right corner', async () => {
       window.innerWidth = 500

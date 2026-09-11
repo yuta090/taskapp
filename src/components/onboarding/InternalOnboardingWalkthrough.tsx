@@ -101,9 +101,21 @@ interface InternalOnboardingWalkthroughProps {
    * 「タスクを追加」ボタンを案内する手順1「タスク作成の流れ」を飛ばす。
    */
   canEdit?: boolean
+  /**
+   * canEdit の元になる役割の判定が確定しているか（既定 true）。false の間は
+   * ガイドを開かない。役割が未確定のまま開くと、後で確定して手順の数
+   * （visibleSteps）が変わったときに、開いたまま表示中の手順の中身が
+   * すり替わってしまう（例: 手順1が飛ばされた状態で開いた直後に、実は
+   * 編集者だと分かって手順1が追加され、同じ番号なのに違う内容になる）。
+   * 呼び出し元は useCanEditSpace の resolved を渡す。
+   */
+  roleResolved?: boolean
 }
 
-export function InternalOnboardingWalkthrough({ canEdit = true }: InternalOnboardingWalkthroughProps = {}) {
+export function InternalOnboardingWalkthrough({
+  canEdit = true,
+  roleResolved = true,
+}: InternalOnboardingWalkthroughProps = {}) {
   const { shouldShow, markDone } = useOnboardingFlag('internal_walkthrough', ONBOARDING_KEY)
   const [isOpen, setIsOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
@@ -115,13 +127,14 @@ export function InternalOnboardingWalkthrough({ canEdit = true }: InternalOnboar
   )
 
   useEffect(() => {
-    if (shouldShow) {
+    // 役割が確定するまでは開かない（詳細は roleResolved の説明を参照）
+    if (shouldShow && roleResolved) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- opens once the async server/localStorage flag check resolves
       setIsOpen(true)
       const timer = setTimeout(() => setFadeIn(true), 50)
       return () => clearTimeout(timer)
     }
-  }, [shouldShow])
+  }, [shouldShow, roleResolved])
 
   const handleClose = useCallback(() => {
     setFadeIn(false)

@@ -12,6 +12,15 @@ export interface UseCanEditSpaceResult {
   canEditMoney: boolean
   /** 判定に必要な情報（自分の所属space一覧・組織一覧）がまだ揃っていない間は true */
   loading: boolean
+  /**
+   * 役割（canEdit/canEditMoney）が確定したか。ActiveOrgProvider.loading は cookie が
+   * あると（所属組織一覧がまだ届いていなくても）早く false になるため、それだけでは
+   * 「確定した」と誤認する。orgsStatus も合わせて見る（'unknown' の間は未確定）。
+   * 操作ガイド（InternalOnboardingWalkthrough）のように、役割が定まるまで内容を
+   * 出し始めたくない（確定前に出すと、あとで手順の数が変わって表示中の内容が
+   * すり替わってしまう）呼び出し元向け。
+   */
+  resolved: boolean
 }
 
 /**
@@ -37,7 +46,7 @@ export interface UseCanEditSpaceResult {
  * 受け渡し・Wiki編集・見積など）を出し分ける。コメント欄は別（viewer でも書けるため対象外）。
  */
 export function useCanEditSpace(spaceId: string | null, orgId: string | null): UseCanEditSpaceResult {
-  const { orgs, loading: orgsLoading } = useContext(ActiveOrgContext)
+  const { orgs, orgsStatus, loading: orgsLoading } = useContext(ActiveOrgContext)
   const { spaces, isPending, isError } = useUserSpaces({ includeArchived: true })
 
   const membership = useMemo(
@@ -61,7 +70,11 @@ export function useCanEditSpace(spaceId: string | null, orgId: string | null): U
   const canEdit = !unknown && canEditSpaceContent(spaceRole, orgRole)
   const canEditMoney = !unknown && canEditSpaceMoney(spaceRole)
 
-  return { canEdit, canEditMoney, loading }
+  // orgsStatus:'unknown' は ActiveOrgProvider.loading がまだ true のはずだが、cookie 由来の
+  // rawActiveOrgId があると loading だけ早く false に倒れる実装のため、念のため両方見る
+  const resolved = !loading && orgsStatus !== 'unknown'
+
+  return { canEdit, canEditMoney, loading, resolved }
 }
 
 export interface UseCanEditSpacesResult {

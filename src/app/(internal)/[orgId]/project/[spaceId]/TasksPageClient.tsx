@@ -187,7 +187,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const { members, getMemberName } = useSpaceMembers(spaceId)
   // 閲覧者（viewer）・相手先には編集操作を出さない。判定の正本は canEditSpaceContent。
   // 組織の役割は URL の orgId（このページが属する組織）で判定する
-  const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
+  const { canEdit, canEditMoney, resolved: roleResolved } = useCanEditSpace(spaceId, orgId)
 
   // 招待中の人が担当のときは、一覧でもその名前を出す（承諾すると本人に切り替わる）
   const { pendingInvites } = useSpacePendingInvites(spaceId)
@@ -929,7 +929,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <InternalOnboardingWalkthrough canEdit={canEdit} />
+      <InternalOnboardingWalkthrough canEdit={canEdit} roleResolved={roleResolved} />
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}
