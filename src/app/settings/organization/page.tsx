@@ -325,7 +325,10 @@ export default function OrganizationSettingsPage() {
               <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
             </label>
           </div>
-          {!isOwner && <p className="text-xs text-gray-500 mt-3">オーナーのみ変更できます</p>}
+          {/* role===nullの間（確認中）は、実際はオーナーかもしれないので断定した案内を出さない */}
+          {role !== null && !isOwner && (
+            <p className="text-xs text-gray-500 mt-3">オーナーのみ変更できます</p>
+          )}
           {isOwner && dueRemindersFetchError && (
             <p className="text-xs text-red-600 mt-3">
               設定を読み込めませんでした。時間をおいて再度お試しください。

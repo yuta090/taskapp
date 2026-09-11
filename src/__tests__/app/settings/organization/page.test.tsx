@@ -236,4 +236,10 @@ describe('role確認中（role===null。hydration前・所属一覧取得中）�
     render(<OrganizationSettingsPage />)
     expect(screen.queryByText('組織名の変更はオーナーのみ可能です')).not.toBeInTheDocument()
   })
+
+  it('自動期限リマインドの「オーナーのみ変更できます」の注記も出さない（実際はオーナーの可能性があるため）', async () => {
+    render(<OrganizationSettingsPage />)
+    await screen.findByRole('checkbox', { name: '自動期限リマインドを使う' })
+    expect(screen.queryByText('オーナーのみ変更できます')).not.toBeInTheDocument()
+  })
 })

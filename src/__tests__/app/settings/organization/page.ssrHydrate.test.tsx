@@ -10,10 +10,9 @@ import { hydrateRoot } from 'react-dom/client'
  * ActiveOrgProvider の activeOrgId と loading はブラウザの cookie から同期的に
  * 決まるため、サーバーでは必ず activeOrgId:null / loading:true（document が無い）
  * だが、cookie が既にあるブラウザではハイドレーション時の最初の描画からこの2つが
- * 確定する。このページは useCurrentOrg().loading をそのまま描画に使っているため、
- * 「読み込み中の枠」と「組織名・役割バッジ・入力欄の編集可否まで入った本体」という
- * 別構造のDOMがサーバーとブラウザで食い違い、React #418 が発生していた
- * （orgName・role は cookie 由来ではなく所属一覧の取得結果から決まる値）。
+ * 確定しうる（orgName・role は cookie 由来ではなく所属一覧の取得結果から決まる値）。
+ * このページは hydration が済むまで orgId/loading をサーバーと同じ「読み込み中」
+ * 表示に固定し、「読み込み中の枠」と「本体」が一致することをここで確かめる。
  */
 
 vi.mock('next/link', () => ({
