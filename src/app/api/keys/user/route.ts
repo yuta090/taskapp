@@ -5,6 +5,13 @@ import { createClient as createBrowserClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
 import { isInternalSpaceRole } from '@/lib/roles/spaceRoles'
+import { generateApiKey, STALE_CLIENT_KEY_MESSAGE } from '@/lib/api-keys/generateKey'
+
+// 一覧（GET）と発行直後の応答（POST）は同じ列だけを返す。key_hash など画面が使わない列は返さない。
+// space_id: プロジェクト設定で作った鍵（scope=space）も持ち主が入ってここに並ぶ。
+// allowed_space_ids が空なので、どのプロジェクトの鍵かを返さないと「全スペース」と誤表示される
+const USER_KEY_COLUMNS =
+  'id, name, key_prefix, created_at, last_used_at, expires_at, is_active, scope, space_id, allowed_space_ids, allowed_actions'
 
 // Create admin client with service role key (bypasses RLS)
 function createAdminClient() {
@@ -47,9 +54,18 @@ export async function POST(request: NextRequest) {
     const user = current.user
 
     const body = await request.json()
-    const { name, keyHash, keyPrefix, allowedSpaceIds, allowedActions } = body
+    const { name, allowedSpaceIds, allowedActions } = body
 
-    if (!name || !keyHash || !keyPrefix || !allowedSpaceIds || allowedSpaceIds.length === 0) {
+    // キーは必ずサーバーで作る。keyHash/keyPrefix が入っているのは、本番切り替え前に開いたままの
+    // 古い画面（ブラウザ側でキーを自分で作る旧版）からの送信。その画面は失敗時に決まった文言
+    // 「APIキーの作成に失敗しました」を出すだけなので、この応答の文言そのものは利用者に見えない。
+    // 狙いは文言を見せることではなく、保存できない・画面に出せないキーを黙って作らないこと。
+    // 再読み込みして今の画面を使えば、キーはサーバーで作られて直る
+    if (body.keyHash || body.keyPrefix) {
+      return NextResponse.json({ error: STALE_CLIENT_KEY_MESSAGE }, { status: 400 })
+    }
+
+    if (!name || !allowedSpaceIds || allowedSpaceIds.length === 0) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -117,6 +133,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // キーの本体は画面から受け取らず、ここ（サーバー）で推測できない乱数から作る。
+    // 保存するのはハッシュと prefix だけで、平文はこの応答でしか返さない
+    const { key, keyHash, keyPrefix } = generateApiKey()
+
     // Create the API key with user scope
     const { data, error } = await adminClient
       .from('api_keys')
@@ -132,7 +152,7 @@ export async function POST(request: NextRequest) {
         allowed_space_ids: allowedSpaceIds,
         allowed_actions: normalizedActions,
       })
-      .select()
+      .select(USER_KEY_COLUMNS)
       .single()
 
     if (error) {
@@ -141,7 +161,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create API key' }, { status: 500 })
     }
 
-    return NextResponse.json({ data })
+    // 平文キーはこの応答でしか返らないので、ブラウザやCDNにキャッシュさせない
+    return NextResponse.json({ data, key }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     console.error('API key creation error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -210,11 +231,7 @@ export async function GET(_request: NextRequest) {
 
     const { data, error } = await adminClient
       .from('api_keys')
-      .select(
-        // space_id: プロジェクト設定で作った鍵（scope=space）も持ち主が入ってここに並ぶ。
-        // allowed_space_ids が空なので、どのプロジェクトの鍵かを返さないと「全スペース」と誤表示される
-        'id, name, key_prefix, created_at, last_used_at, expires_at, is_active, scope, space_id, allowed_space_ids, allowed_actions'
-      )
+      .select(USER_KEY_COLUMNS)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
