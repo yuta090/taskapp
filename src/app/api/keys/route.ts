@@ -6,8 +6,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 import { normalizeAllowedActions } from '@/lib/api-keys/actionOptions'
 import { canManageSpaceKeys } from '@/lib/api-keys/permissions'
+import { generateApiKey, STALE_CLIENT_KEY_MESSAGE } from '@/lib/api-keys/generateKey'
 
 const MANAGE_DENIED = 'Only org owners and project admins can manage API keys'
+
+// 一覧（GET）と発行直後の応答（POST）は同じ列だけを返す。key_hash など画面が使わない列は返さない
+const SPACE_KEY_COLUMNS = 'id, name, key_prefix, created_at, last_used_at, expires_at, is_active, allowed_actions, user_id'
 
 /** Rate limit: 20 API key operations per IP per 15 minutes */
 const KEYS_RATE_LIMIT = {
@@ -110,9 +114,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { orgId, spaceId, name, keyHash, keyPrefix } = body
+    const { orgId, spaceId, name } = body
 
-    if (!orgId || !spaceId || !name || !keyHash || !keyPrefix) {
+    // キーは必ずサーバーで作る。keyHash/keyPrefix が入っているのは、本番切り替え前に開いたままの
+    // 古い画面（ブラウザ側でキーを自分で作る旧版）からの送信。その画面は失敗時に決まった文言
+    // 「APIキーの作成に失敗しました」を出すだけなので、この応答の文言そのものは利用者に見えない。
+    // 狙いは文言を見せることではなく、保存できない・画面に出せないキーを黙って作らないこと。
+    // 再読み込みして今の画面を使えば、キーはサーバーで作られて直る
+    if (body.keyHash || body.keyPrefix) {
+      return NextResponse.json({ error: STALE_CLIENT_KEY_MESSAGE }, { status: 400 })
+    }
+
+    if (!orgId || !spaceId || !name) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -154,6 +167,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: MANAGE_DENIED }, { status: 403 })
     }
 
+    // キーの本体は画面から受け取らず、ここ（サーバー）で推測できない乱数から作る。
+    // 保存するのはハッシュと prefix だけで、平文はこの応答でしか返さない
+    const { key, keyHash, keyPrefix } = generateApiKey()
+
     const { data, error } = await adminClient
       .from('api_keys')
       .insert({
@@ -169,7 +186,7 @@ export async function POST(request: NextRequest) {
         user_id: authResult.userId,
         allowed_actions: allowedActions,
       })
-      .select()
+      .select(SPACE_KEY_COLUMNS)
       .single()
 
     if (error) {
@@ -180,7 +197,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ data })
+    // 平文キーはこの応答でしか返らないので、ブラウザやCDNにキャッシュさせない
+    return NextResponse.json({ data, key }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     console.error('API key creation error:', err)
     return NextResponse.json(
@@ -307,7 +325,7 @@ export async function GET(request: NextRequest) {
     // このプロジェクト専用の鍵だけを出す（個人用の鍵＝scope 'user' は本人のアカウント画面で扱う）
     const { data, error } = await adminClient
       .from('api_keys')
-      .select('id, name, key_prefix, created_at, last_used_at, expires_at, is_active, allowed_actions, user_id')
+      .select(SPACE_KEY_COLUMNS)
       .eq('org_id', orgId)
       .eq('space_id', spaceId)
       .eq('scope', 'space')

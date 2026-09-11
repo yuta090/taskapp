@@ -38,6 +38,9 @@ vi.mock('@/components/settings/CliSetupGuide', () => ({
   CliSetupGuide: () => <div data-testid="cli-setup-guide" />,
 }))
 
+/** サーバーが作る鍵の形（tsk_ + 英数字32文字）にそろえたテスト用の値 */
+const TEST_SERVER_KEY = 'tsk_0123456789abcdefghijklmnopqrstuv'
+
 function keysFixture(): Array<Record<string, unknown>> {
   return [
     {
@@ -96,11 +99,11 @@ describe('ApiKeysSettingsPage — 一覧取得のキャッシュ化', () => {
     fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'New Key' } })
     fireEvent.click(screen.getByText('Space 1').closest('label')!.querySelector('button')!)
 
-    global.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url === '/api/keys/user') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/keys/user' && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-2' }, key: TEST_SERVER_KEY }) })
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'key-2' }) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
     })
 
     fireEvent.click(screen.getByRole('button', { name: /APIキーを発行/ }))
@@ -123,6 +126,59 @@ describe('ApiKeysSettingsPage — 一覧取得のキャッシュ化', () => {
 
     // userLoading が false なので、鍵一覧のヘッダーはすぐ出る（全画面スピナーで止まらない）
     await waitFor(() => expect(screen.getByText('発行済みAPIキー')).toBeInTheDocument())
+  })
+})
+
+// キーはサーバー側で作る。画面はそれをそのまま表示するだけで、自分では作らない
+describe('ApiKeysSettingsPage — キーはサーバーで作る（画面では作らない）', () => {
+  function startCreatingKey() {
+    fireEvent.click(screen.getByRole('button', { name: '新しいAPIキーを作成' }))
+    fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'New Key' } })
+    fireEvent.click(screen.getByText('Space 1').closest('label')!.querySelector('button')!)
+  }
+
+  it('サーバーから返ってきたキーをそのまま表示する', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('My Key')).toBeInTheDocument())
+    startCreatingKey()
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/keys/user' && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-2' }, key: TEST_SERVER_KEY }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /APIキーを発行/ }))
+
+    await waitFor(() => expect(screen.getByText('APIキーを保存してください')).toBeInTheDocument())
+    fireEvent.click(screen.getByTitle('キーを表示'))
+    expect(screen.getByText(TEST_SERVER_KEY)).toBeInTheDocument()
+  })
+
+  it('発行の送信内容に keyHash・keyPrefix を含めない', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('My Key')).toBeInTheDocument())
+    startCreatingKey()
+
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/keys/user' && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-2' }, key: TEST_SERVER_KEY }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /APIキーを発行/ }))
+
+    await waitFor(() => {
+      const postCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === '/api/keys/user' && c[1]?.method === 'POST'
+      )
+      expect(postCall).toBeTruthy()
+      const body = JSON.parse(postCall![1].body as string)
+      expect(body).not.toHaveProperty('keyHash')
+      expect(body).not.toHaveProperty('keyPrefix')
+    })
   })
 })
 
@@ -177,11 +233,11 @@ describe('ApiKeysSettingsPage — 【是正3】プロジェクト設定側の一
     fireEvent.change(screen.getByPlaceholderText('例: Claude Code用'), { target: { value: 'New Key' } })
     fireEvent.click(screen.getByText('Space 1').closest('label')!.querySelector('button')!)
 
-    global.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url === '/api/keys/user') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/keys/user' && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { id: 'key-2' }, key: TEST_SERVER_KEY }) })
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'key-2' }) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: keysFixture() }) })
     })
 
     fireEvent.click(screen.getByRole('button', { name: /APIキーを発行/ }))

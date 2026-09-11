@@ -29,26 +29,6 @@ interface ApiSettingsProps {
   spaceId: string
 }
 
-// Generate a random API key
-function generateApiKey(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  const prefix = 'tsk_'
-  let key = prefix
-  for (let i = 0; i < 32; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return key
-}
-
-// SHA-256 hash function
-async function hashKey(key: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(key)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
 /** GET /api/keys が非2xxを返したときの状態付きエラー。403のときだけ spaceMembers を取り直す判定などに使う */
 class ApiKeysFetchError extends Error {
   status: number
@@ -146,11 +126,7 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
     if (!newKeyName.trim() || !user?.id) return
     setCreating(true)
     try {
-      // Generate key
-      const rawKey = generateApiKey()
-      const keyHash = await hashKey(rawKey)
-      const keyPrefix = rawKey.substring(0, 12) + '...'
-
+      // キーの本体はサーバー側で作る（画面では作らない）。応答に一度だけ平文が入る。
       // Use API route to bypass RLS (userId is extracted from session server-side)
       const response = await fetch('/api/keys', {
         method: 'POST',
@@ -159,17 +135,20 @@ export function ApiSettings({ orgId, spaceId }: ApiSettingsProps) {
           orgId,
           spaceId,
           name: newKeyName.trim(),
-          keyHash,
-          keyPrefix,
           allowedActions,
         }),
       })
 
       const result = await response.json()
       if (!response.ok) throw new Error(result.error)
+      // サーバーから平文キーを受け取れていなければ、入力欄を空にする前に失敗として扱う
+      // （消してしまうと、キーを画面に出せないまま入力し直しもできなくなる）
+      if (typeof result.key !== 'string' || !result.key) {
+        throw new Error('サーバーからキーを受け取れませんでした')
+      }
 
       // Show the key (only once)
-      setNewlyCreatedKey(rawKey)
+      setNewlyCreatedKey(result.key)
       setNewKeyName('')
       await invalidateRelatedCaches()
     } catch (err) {
