@@ -31,6 +31,12 @@ interface WalkthroughStep {
    * pending-action cards). Falls back to a centered dialog if none match.
    */
   targetSelectors?: readonly string[]
+  /**
+   * Shown instead of `description` when the matched target is a fallback
+   * selector (i.e. `targetSelectors[0]` was absent) — keeps the copy
+   * accurate for whatever is actually highlighted (e.g. "0件" state).
+   */
+  fallbackDescription?: string
 }
 
 const steps: WalkthroughStep[] = [
@@ -46,12 +52,14 @@ const steps: WalkthroughStep[] = [
     icon: Cursor,
     iconColor: 'text-indigo-600',
     iconBg: 'bg-indigo-100',
-    title: 'クリックして詳細を見る',
-    description: 'クリックすると右側に詳細説明や期限が開きます。',
+    title: 'カードを押して詳細を見る',
+    description: 'カードを押すと、詳しい説明や期限が開きます。',
     targetSelectors: [
       '[data-walkthrough="portal-action-card"]',
       '[data-walkthrough="portal-action-section"]',
     ],
+    fallbackDescription:
+      '確認が必要なものが届くと、ここにカードが並びます。カードを押すと、詳しい説明や期限が開きます。',
   },
   {
     icon: CheckCircle,
@@ -63,6 +71,7 @@ const steps: WalkthroughStep[] = [
       '[data-walkthrough="portal-action-buttons"]',
       '[data-walkthrough="portal-action-section"]',
     ],
+    fallbackDescription: 'カードを開くと、承認するか修正を依頼するかを選べます。',
   },
   {
     icon: RocketLaunch,
@@ -150,6 +159,13 @@ export function PortalOnboardingWalkthrough() {
 
   const Icon = step.icon
   const isLast = currentStep === steps.length - 1
+  // 一致したのが先頭(primary)セレクタでなければフォールバック表示中とみなし、
+  // 実際にハイライトしている対象に合う説明文に差し替える。
+  const isFallbackMatch = Boolean(
+    matchedSelector && step.targetSelectors && step.targetSelectors[0] !== matchedSelector
+  )
+  const displayDescription =
+    isFallbackMatch && step.fallbackDescription ? step.fallbackDescription : step.description
 
   // 親ペインのスタッキングコンテキストに閉じ込められないよう body 直下に出す
   return createPortal(
@@ -181,7 +197,7 @@ export function PortalOnboardingWalkthrough() {
       <div
         ref={panelRef}
         data-testid="walkthrough-panel"
-        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-full max-w-lg bg-surface rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
+        className={`${targetRect ? '' : 'relative'} pointer-events-auto w-[calc(100vw-2rem)] max-w-lg bg-surface rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
           fadeIn ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         }`}
         style={panelStyle}
@@ -199,12 +215,12 @@ export function PortalOnboardingWalkthrough() {
         </button>
 
         {/* Content */}
-        <div className="px-8 pt-8 pb-6">
+        <div className="px-5 pt-6 pb-5 md:px-8 md:pt-8 md:pb-6">
           {/* Icon */}
           <div
-            className={`w-14 h-14 rounded-xl ${step.iconBg} flex items-center justify-center mb-5`}
+            className={`w-11 h-11 md:w-14 md:h-14 rounded-xl ${step.iconBg} flex items-center justify-center mb-4 md:mb-5`}
           >
-            <Icon className={`w-7 h-7 ${step.iconColor}`} weight="duotone" />
+            <Icon className={`w-5 h-5 md:w-7 md:h-7 ${step.iconColor}`} weight="duotone" />
           </div>
 
           {/* Step indicator */}
@@ -229,7 +245,7 @@ export function PortalOnboardingWalkthrough() {
           {/* Title */}
           <h2
             id="onboarding-title"
-            className="text-xl font-semibold text-gray-900 mb-2"
+            className="text-lg md:text-xl font-semibold text-gray-900 mb-2"
           >
             {step.title}
           </h2>
@@ -239,12 +255,12 @@ export function PortalOnboardingWalkthrough() {
             id="onboarding-description"
             className="text-sm text-gray-600 leading-relaxed"
           >
-            {step.description}
+            {displayDescription}
           </p>
         </div>
 
         {/* Footer Actions */}
-        <div className="px-8 pb-6 flex items-center justify-between">
+        <div className="px-5 pb-5 md:px-8 md:pb-6 flex items-center justify-between">
           {/* Left side: Skip or Back */}
           <div>
             {currentStep === 0 ? (
