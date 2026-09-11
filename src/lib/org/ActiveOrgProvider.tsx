@@ -6,6 +6,7 @@ import { needsMfaChallenge, isMfaExemptPath, MFA_CHALLENGE_PATH } from '@/lib/au
 import { isNavigationAbort } from '@/lib/net/isNavigationAbort'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useHydrated } from '@/lib/hooks/useHydrated'
 import { getActiveOrgId, setActiveOrgId } from './activeOrg'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -146,6 +147,11 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   // Lazy useState initializer (not useRef.current) so the value is computed once without
   // reading a ref during render (react-hooks/refs).
   const [cookieOrgId] = useState<string | null>(() => getActiveOrgId())
+  // hydrationが済んだか。cookieの読み取りはサーバーでは常にnull(document無し)だが、
+  // cookieが既にあるブラウザではハイドレーション時の最初の描画から値が入ってしまうため、
+  // 表示に使う側（rawActiveOrgId、下記）だけはhydrationが済むまでサーバーと同じ「未確定」
+  // 扱いにする（React #418対策。詳細はuseHydrated参照）
+  const hydrated = useHydrated()
 
   // ユーザー操作（switchOrg）または初回の cookie 復元で決まる「生の」選択値。
   // どのユーザーの選択かを uid ごと保持する（sign out → 別ユーザーで sign in を、リロード無しで
@@ -187,11 +193,15 @@ export function ActiveOrgProvider({ children }: { children: React.ReactNode }) {
   // 育つ前でも従来どおり cookie を仮のスコープとして使う。ここで null にすると、cookie が
   // あるのに一瞬だけ「無所属」(loading:false && activeOrgId:null) のレンダーが生じ、
   // /my・通知が無所属スコープで先に1回走ってしまう（このコミットが直したperf回帰）。
+  // ただし cookie の読み取り自体は「サーバーでは常にnull・cookieがあるブラウザではhydration時の
+  // 最初の描画から値が入る」という食い違いを持つため、hydrationが済むまではサーバーと同じnullに
+  // しておく（React #418対策。hydrated完了直後の再描画で本来の値に切り替わるだけで、その後の
+  // 挙動・上のcookieとユーザーの紐付け(selection)自体は変えない）。
   // ユーザーが一度でも判明した後は、従来どおり uid ごとの選択に厳密に従う（上の補正が
   // 反映される前の中間レンダーでも安全なように、ここでも uid の一致を確認する）
   const rawActiveOrgId =
     currentUserId === undefined && lastSeenUserId === undefined
-      ? cookieOrgId
+      ? (hydrated ? cookieOrgId : null)
       : selection && selection.uid === currentUserId ? selection.orgId : null
 
   // 同じ理由でクライアントもレイジーな useState で1回だけ作る（SSR では window が無いので null のまま）
