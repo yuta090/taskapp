@@ -83,7 +83,7 @@ export const EMAIL_TEMPLATE_DEFS: ReadonlyArray<EmailTemplateDef> = [
         variant: 'client',
         fields,
         vars: inviteSample(appName),
-        inviteUrl: `${PREVIEW_APP_URL}/portal/xxxxxxxx`,
+        inviteUrl: `${PREVIEW_APP_URL}/invite/xxxxxxxx`,
         message: PREVIEW_MESSAGE,
       }),
   },

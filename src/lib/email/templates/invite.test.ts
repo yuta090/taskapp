@@ -20,7 +20,7 @@ const fixture = (name: string) => readFileSync(path.join(FIXTURES, name), 'utf8'
  */
 describe('renderInviteEmail — 既定文面は共通化前と完全一致', () => {
   const cases = [
-    ['client', 'invite_client', 'https://agentpm.app/portal/tok-1?x=1&y=2'],
+    ['client', 'invite_client', 'https://agentpm.app/invite/tok-1?x=1&y=2'],
     ['member', 'invite_member', 'https://agentpm.app/invite/tok-2'],
   ] as const
   for (const [variant, key, url] of cases) {
@@ -44,7 +44,7 @@ describe('inviteVarsByName / INVITE_PLACEHOLDERS', () => {
 })
 
 describe('renderInviteEmail', () => {
-  const inviteUrl = 'https://agentpm.app/portal/tok-1'
+  const inviteUrl = 'https://agentpm.app/invite/tok-1'
 
   it('差し込み値と文面内のHTMLはエスケープされる（XSS対策）', () => {
     const out = renderInviteEmail({
@@ -72,6 +72,6 @@ describe('renderInviteEmail', () => {
 
   it('補足(note)が空ならボタン下の補足は出ない', () => {
     const out = renderInviteEmail({ variant: 'client', fields: { ...INVITE_TEMPLATE_DEFAULTS.invite_client, note: '' }, vars, inviteUrl })
-    expect(out.html).not.toContain('アカウント登録は不要です')
+    expect(out.html).not.toContain('リンク先でパスワードを決めるだけで参加できます')
   })
 })
