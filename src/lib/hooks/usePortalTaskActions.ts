@@ -3,6 +3,7 @@
 import { useState, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { resolvePortalConflictMessage } from '@/lib/portal/resolvePortalConflictMessage'
 
 /** タスクごとの処理状態（楽観的UI用） */
 export type PortalTaskActionState = 'processing' | 'done' | 'error'
@@ -60,7 +61,10 @@ export function usePortalTaskActions({ onActionStart }: UsePortalTaskActionsOpti
         if (!response.ok) {
           setTaskState(taskId, null)
           if (response.status === 409) {
-            toast.error('タスクの状態が変更されました。ページを再読み込みします。')
+            const errorData = await response.json().catch(() => ({}))
+            toast.error(
+              resolvePortalConflictMessage(errorData, 'タスクの状態が変更されました。ページを再読み込みします。')
+            )
           } else if (response.status === 400) {
             const error = await response.json().catch(() => ({}))
             toast.error(error.error || 'コメントを入力してください。')

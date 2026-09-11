@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
+import { isValidUuid } from '@/lib/uuid'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const MAX_TITLE_LENGTH = 200
@@ -27,10 +28,14 @@ interface RequestBody {
   category: RequestCategory
   description?: string
   bugDetails?: BugDetails
+  /** The project the screen was showing when the request was submitted (S6-style multi-project accounts). */
+  spaceId?: string
 }
 
 /**
- * Fire-and-forget server-side notification.
+ * Server-side notification. Returns a promise so callers can hand it to
+ * `after()` and keep the function alive until the request actually settles
+ * (a plain un-awaited fetch can be cut off once the response is sent).
  */
 function fireServerNotification(
   _request: NextRequest,
@@ -41,23 +46,26 @@ function fireServerNotification(
     actorId: string
     changes?: Record<string, string | undefined>
   },
-): void {
+): Promise<void> {
   const secret = process.env.INTERNAL_NOTIFY_SECRET
-  if (!secret) return
+  if (!secret) return Promise.resolve()
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-  if (!appUrl) return
+  if (!appUrl) return Promise.resolve()
   const baseUrl = appUrl.startsWith('http') ? appUrl : `https://${appUrl}`
-  fetch(`${baseUrl}/api/slack/notify`, {
+  return fetch(`${baseUrl}/api/slack/notify`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-internal-secret': secret,
     },
     body: JSON.stringify(params),
-  }).catch((err) => {
-    console.warn('[portal-request-notify] Failed:', err)
-  })
+  }).then(
+    () => undefined,
+    (err) => {
+      console.warn('[portal-request-notify] Failed:', err)
+    }
+  )
 }
 
 /** Map category to a label prefix for task title */
@@ -111,7 +119,17 @@ export async function POST(request: NextRequest) {
     if (mfaBlock) return mfaBlock
 
     const body: RequestBody = await request.json()
-    const { title, category, description, bugDetails } = body
+    const { title, category, description, bugDetails, spaceId: requestedSpaceId } = body
+
+    // Validation: spaceId, when present, must be a real UUID — the column it
+    // is compared against is a Postgres uuid, so a malformed value would
+    // otherwise fail as an opaque 500 instead of a clear 400.
+    if (requestedSpaceId !== undefined && !isValidUuid(requestedSpaceId)) {
+      return NextResponse.json(
+        { error: 'プロジェクトの指定が不正です' },
+        { status: 400 }
+      )
+    }
 
     // Validation: common fields
     if (!title || title.trim().length === 0) {
@@ -184,8 +202,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get the user's client membership (space + org)
-    const { data: membership, error: membershipError } = await (supabase as SupabaseClient)
+    // Get the user's client membership (space + org). When the screen tells us
+    // which project it was showing (spaceId), confirm membership on exactly
+    // that project so the request always lands where the client meant it to —
+    // never on an arbitrary one of their other projects.
+    let membershipQuery = (supabase as SupabaseClient)
       .from('space_memberships')
       .select(`
         space_id,
@@ -196,11 +217,14 @@ export async function POST(request: NextRequest) {
       `)
       .eq('user_id', user.id)
       .eq('role', 'client')
-      .limit(1)
-      .single()
 
-    if (membershipError && membershipError.code !== 'PGRST116') {
-      // PGRST116 = no rows found (permission issue), other codes = DB error
+    if (requestedSpaceId) {
+      membershipQuery = membershipQuery.eq('space_id', requestedSpaceId)
+    }
+
+    const { data: memberships, error: membershipError } = await membershipQuery
+
+    if (membershipError) {
       console.error('[portal-request] Membership query error:', membershipError)
       return NextResponse.json(
         { error: 'サーバーエラーが発生しました' },
@@ -208,13 +232,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!membership) {
+    if (!memberships || memberships.length === 0) {
       return NextResponse.json(
         { error: 'アクセス権限がありません' },
         { status: 403 }
       )
     }
 
+    // Legacy callers that don't say which project they mean can only be
+    // resolved unambiguously when the client belongs to exactly one project.
+    if (!requestedSpaceId && memberships.length > 1) {
+      return NextResponse.json(
+        { error: '画面を再読み込みしてから、もう一度送信してください' },
+        { status: 400 }
+      )
+    }
+
+    const membership = memberships[0]
     const spaceId = membership.space_id
     const spaces = membership.spaces as unknown as { org_id: string }
     const orgId = spaces.org_id
@@ -274,29 +308,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Audit log (fire-and-forget)
-    createAuditLog({
-      supabase,
-      orgId,
-      spaceId,
-      actorId: user.id,
-      actorRole: 'client',
-      eventType: 'task.created',
-      targetType: 'task',
-      targetId: task.id,
-      summary: generateAuditSummary('task.created', { title: taskTitle }),
-      dataAfter: { title: taskTitle, origin: 'client', category },
-      visibility: 'client',
-    }).catch(err => console.error('Audit log failed (portal request):', err))
+    // Audit log and Slack notification must still run after the response is
+    // sent, so they are handed to after() instead of being fired-and-forgotten
+    // (an un-awaited write can otherwise be cut off once the response goes out).
+    after(() =>
+      createAuditLog({
+        supabase,
+        orgId,
+        spaceId,
+        actorId: user.id,
+        actorRole: 'client',
+        eventType: 'task.created',
+        targetType: 'task',
+        targetId: task.id,
+        summary: generateAuditSummary('task.created', { title: taskTitle }),
+        dataAfter: { title: taskTitle, origin: 'client', category },
+        visibility: 'client',
+      }).catch(err => console.error('Audit log failed (portal request):', err))
+    )
 
-    // Slack notification (fire-and-forget)
-    fireServerNotification(request, {
-      event: 'task_created',
-      taskId: task.id,
-      spaceId,
-      actorId: user.id,
-      changes: { origin: 'client', category },
-    })
+    after(() =>
+      fireServerNotification(request, {
+        event: 'task_created',
+        taskId: task.id,
+        spaceId,
+        actorId: user.id,
+        changes: { origin: 'client', category },
+      })
+    )
 
     return NextResponse.json({
       success: true,

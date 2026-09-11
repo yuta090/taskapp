@@ -19,6 +19,9 @@ interface PortalRequestSheetProps {
   isOpen: boolean
   onClose: () => void
   onSuccess?: () => void
+  /** 送信先プロジェクト。複数プロジェクトに属する相手先アカウントで、
+      いま画面に表示中のプロジェクトへ確実にリクエストを作るために渡す。 */
+  spaceId?: string
 }
 
 const CATEGORIES: { value: RequestCategory; label: string; icon: React.ReactNode; description: string }[] = [
@@ -56,7 +59,7 @@ const INITIAL_BUG_DETAILS: BugDetails = {
   frequency: 'every_time',
 }
 
-export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequestSheetProps) {
+export function PortalRequestSheet({ isOpen, onClose, onSuccess, spaceId }: PortalRequestSheetProps) {
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState<RequestCategory>('feature')
   const [description, setDescription] = useState('')
@@ -148,6 +151,7 @@ export function PortalRequestSheet({ isOpen, onClose, onSuccess }: PortalRequest
           title: trimmedTitle,
           category,
           description: description.trim() || undefined,
+          ...(spaceId ? { spaceId } : {}),
           ...(isBug ? {
             bugDetails: {
               screen: bugDetails.screen.trim(),

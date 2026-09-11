@@ -63,7 +63,7 @@ describe('usePortalTaskActions', () => {
     )
   })
 
-  it('409 では状態を巻き戻し、競合の toast を出す', async () => {
+  it('409 では状態を巻き戻し、競合の toast を出す（reason が無ければ汎用文言）', async () => {
     mockFetchOnce({ ok: false, status: 409 })
     const { result } = renderHook(() => usePortalTaskActions())
 
@@ -77,6 +77,26 @@ describe('usePortalTaskActions', () => {
     // 巻き戻しで processing/done が残らない
     expect(result.current.taskStates.get('task-3')).toBeUndefined()
     expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  // 業務ルールで止まっている(reason: 'blocked')場合は、API が返した具体的な理由を
+  // そのまま出す。汎用文言に丸めてしまうと「見積もりの確認が必要です」のような
+  // 次に何をすればいいか分かる案内が消えてしまう。
+  it('409 で reason: blocked のときは、API が返した理由をそのまま toast に出す', async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 409,
+      body: { error: '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。', reason: 'blocked' },
+    })
+    const { result } = renderHook(() => usePortalTaskActions())
+
+    await act(async () => {
+      await result.current.handleApprove('task-3', '')
+    })
+
+    expect(mockToastError).toHaveBeenCalledWith(
+      '見積もりの確認が必要です。見積もりを承認または再見積もり依頼してください。'
+    )
   })
 
   it('estimate 系も対応する action 名で送られる', async () => {

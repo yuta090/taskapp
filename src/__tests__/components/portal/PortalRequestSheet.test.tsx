@@ -67,4 +67,40 @@ describe('PortalRequestSheet', () => {
     expect(onClose).toHaveBeenCalled()
     expect(onSuccess).toHaveBeenCalled()
   })
+
+  // 複数プロジェクトに属する相手先アカウントで、いま画面に表示中のプロジェクトへ
+  // 確実にリクエストを作るため、送信本体に spaceId を含める。
+  it('includes spaceId in the request body when provided', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true, taskId: 'task-1' }),
+    })
+
+    render(<PortalRequestSheet isOpen onClose={vi.fn()} onSuccess={vi.fn()} spaceId="space-002" />)
+    fillFeatureRequest()
+    fireEvent.click(screen.getByRole('button', { name: '送信する' }))
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.spaceId).toBe('space-002')
+  })
+
+  it('omits spaceId from the request body when not provided', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true, taskId: 'task-1' }),
+    })
+
+    render(<PortalRequestSheet isOpen onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fillFeatureRequest()
+    fireEvent.click(screen.getByRole('button', { name: '送信する' }))
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.spaceId).toBeUndefined()
+  })
 })
