@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import os from 'os'
 import path from 'path'
 import dotenv from 'dotenv'
 
@@ -28,6 +29,13 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:4000'
 /** ローカル以外を対象にするときは dev サーバーを起動しない（起動しても使われず待ち時間になるだけ）。 */
 const IS_LOCAL = BASE_URL.includes('localhost') || BASE_URL.includes('127.0.0.1')
 
+/**
+ * ローカル実行の成果物（スクショ・トレース・HTMLレポート）は OS の一時フォルダに出す。
+ * この Mac の exFAT ボリュームでは macOS が `._*` を作るため、Playwright が前回の
+ * `test-results/` を消せず `ENOTEMPTY` で起動前に落ちる（2026-09-12 に実際に踏んだ）。
+ */
+const LOCAL_ARTIFACTS = path.join(os.tmpdir(), 'taskapp-e2e')
+
 export default defineConfig({
   testDir: './tests/e2e',
   /**
@@ -40,7 +48,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  reporter: IS_LOCAL ? [['html', { outputFolder: path.join(LOCAL_ARTIFACTS, 'report') }]] : 'html',
+  outputDir: IS_LOCAL ? path.join(LOCAL_ARTIFACTS, 'results') : 'test-results',
+  // ローカルはページや API の初回表示が本番より遅いので、待ち時間をローカルだけ延ばす
+  // （本番・release プレビュー向けは Playwright の既定のまま）
+  timeout: IS_LOCAL ? 120_000 : 30_000,
+  expect: { timeout: IS_LOCAL ? 30_000 : 5_000 },
   globalSetup: require.resolve('./tests/e2e/global-setup'),
   use: {
     baseURL: BASE_URL,
@@ -55,12 +68,15 @@ export default defineConfig({
     },
   ],
   // リモート対象時は webServer を立てない（undefined を渡すと Playwright は起動をスキップする）
+  // ローカルは本番ビルド（webpack）を立てる。dev サーバーはこの Mac で受信トレイ・マイタスクなど
+  // 一部ページの初回コンパイルが止まり、E2E が遷移待ちで落ちるため（2026-09-12 に実測）。
+  // ビルドに約3分かかるので、すでに起動しているサーバーがあればそれを使う。
   webServer: IS_LOCAL
     ? {
-        command: 'npm run dev',
+        command: 'npm run build:local && npm run start:local',
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        timeout: 600_000,
       }
     : undefined,
 })
