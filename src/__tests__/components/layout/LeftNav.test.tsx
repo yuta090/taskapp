@@ -220,14 +220,15 @@ describe('LeftNav — ログアウトは signOutAndLeave に集約する', () =>
 })
 
 /**
- * React #418（サーバーとブラウザの最初の描画の食い違い）の修正: 組織IDは、URLに
- * [orgId] を含む画面（/project・/secretary）では常にURLから取る。cookie由来の
- * activeOrgId（サーバーでは無い値）に切り替えていたのが原因だった。
+ * URLに [orgId] を含む画面（/project・/secretary）では、組織IDは必ずURLから取る
+ * （サーバーとブラウザで同じ値になるため）。URLに組織IDが無い画面では、hydration
+ * が済むまで選択中の組織(activeOrgId。cookie由来でサーバーでは必ずnull)を使わない。
  */
 describe('LeftNav — 組織IDはURLを優先する（cookie由来のactiveOrgIdと食い違っても崩れない）', () => {
   afterEach(() => {
     mockUsePathname.mockReturnValue('/org1/project/space1')
     mockUseParams.mockReturnValue({ orgId: 'org1', spaceId: 'space1' })
+    mockUseHydrated.mockReturnValue(true)
   })
 
   it('秘書ページ(/[orgId]/secretary)ではURLのorgIdを使う（activeOrgIdが別の組織でも）', () => {
@@ -242,6 +243,14 @@ describe('LeftNav — 組織IDはURLを優先する（cookie由来のactiveOrgId
     mockUseParams.mockReturnValue({})
     renderWithOrg({ activeOrgId: 'org1', activeOrgName: 'テスト組織' })
     expect(screen.getByText('秘書').closest('a')).toHaveAttribute('href', '/org1/secretary')
+  })
+
+  it('URLに組織IDが無い画面では、hydrationが済むまでactiveOrgIdを使わない（サーバーでは必ずnullのため）', () => {
+    mockUsePathname.mockReturnValue('/my')
+    mockUseParams.mockReturnValue({})
+    mockUseHydrated.mockReturnValue(false)
+    renderWithOrg({ activeOrgId: 'org1', activeOrgName: 'テスト組織' })
+    expect(screen.queryByText('秘書')).not.toBeInTheDocument()
   })
 })
 

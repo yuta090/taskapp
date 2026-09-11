@@ -823,13 +823,13 @@ export const LeftNav = memo(function LeftNav() {
   const match = pathname.match(new RegExp('^/([^/]+)/project/([^/?]+)'))
   const spaceId = match?.[2] ?? undefined
   const hasProjectRoute = !!match
-  // 組織IDは、URLに [orgId] を含む画面（/project・/secretary）では常にURL側を使う
-  // （サーバー・ブラウザで必ず一致する）。URLに組織IDが無い画面（/my・/inbox・
-  // /settings等）だけ、選択中の組織(activeOrgId。cookie由来で環境ごとに変わりうる)に
-  // フォールバックする。以前は /project 用の正規表現一致だけを見ていたため、
-  // /secretary では常に activeOrgId 側になり、サーバーとブラウザで表示が食い違っていた
+  // 組織IDは、URLに [orgId] を含む画面（/project・/secretary）では必ずURL側を使う
+  // （サーバー・ブラウザで同じ値になるため）。URLに組織IDが無い画面（/my・/inbox等）
+  // では、hydration が済むまで選択中の組織(activeOrgId)を使わない。activeOrgId は
+  // cookie由来でサーバーでは必ず null のため、hydration前に使うとサーバーとブラウザで
+  // 「事務所／秘書」の段の有無が食い違う
   const routeOrgId = typeof params?.orgId === 'string' ? params.orgId : undefined
-  const orgId = routeOrgId ?? activeOrgId ?? ''
+  const orgId = routeOrgId ?? (hydrated ? activeOrgId : null) ?? ''
   const { count: rawInboxCount } = useUnreadNotificationCount()
   // hydration前はサーバーと同じ「バッジ無し」にする（キャッシュに既に未読があっても）
   const inboxCount = hydrated ? rawInboxCount : undefined
@@ -850,21 +850,12 @@ export const LeftNav = memo(function LeftNav() {
     moveSpaceToGroup,
   } = useSpaceGroups(orgId)
   const groups = hydrated ? rawGroups : EMPTY_GROUPS
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
+  // hydration前は groups 自体が空(EMPTY_GROUPS)でグループヘッダーごと描画されないため、
+  // 折りたたみ状態を lazy useState の初期値で localStorage から読んでも表示は食い違わない
+  // （グループが実際に描かれるのは hydration 後のみ）
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => getCollapsedGroups())
   const [isCreatingGroup, setIsCreatingGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
-
-  // グループの折りたたみ状態は localStorage（ブラウザにしかない）由来なので、
-  // ハイドレーション完了後に読み込む。lazy useState の初期値で直接読むと、
-  // サーバー（常に空）とブラウザの最初の描画が食い違う恐れがある
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const saved = getCollapsedGroups()
-    if (saved.size > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing with external storage (localStorage)
-      setCollapsedGroups(saved)
-    }
-  }, [])
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -911,8 +902,11 @@ export const LeftNav = memo(function LeftNav() {
     return defaultActive
   }, [pendingHref])
 
-  const orgInitial = orgInitialOf(activeOrgName)
-  const orgDisplayName = activeOrgName ?? '組織未設定'
+  // 組織名(activeOrgName)は所属組織一覧(react-query のキャッシュ)から引く値なので、
+  // hydration前はサーバーと同じ「未設定」にしておく
+  const effectiveOrgName = hydrated ? activeOrgName : null
+  const orgInitial = orgInitialOf(effectiveOrgName)
+  const orgDisplayName = effectiveOrgName ?? '組織未設定'
 
   // spaceId はURLから取得、なければ最初のアクティブスペース
   const effectiveSpaceId = spaceId ?? activeSpaces[0]?.id
