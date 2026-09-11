@@ -185,8 +185,8 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
     spaceId: task.space_id,
   })
   // 閲覧者（viewer）・相手先には編集操作を渡さない。タスクごとに space が違うため、
-  // このタスクの space（task.space_id）で個別に判定する
-  const { canEdit } = useCanEditSpace(task.space_id)
+  // このタスクの space（task.space_id）・組織（task.org_id）で個別に判定する
+  const { canEdit, canEditMoney } = useCanEditSpace(task.space_id, task.org_id)
   const spaceTask = tasks.find((t) => t.id === task.id)
   const current = spaceTask ?? task
 
@@ -340,9 +340,10 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
         }
         onConsideringDecided={canEdit ? fetchTasks : undefined}
         onReviewChange={handleReviewChange}
+        canEditPricing={canEditMoney}
       />
     )
-  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
+  }, [placeholderKind, task.title, current, tasks, owners, onClose, onDeleted, setInspector, canEdit, canEditMoney, fetchTasks, updateTask, deleteTask, passBall, handleReviewChange])
 
   return null
 }

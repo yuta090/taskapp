@@ -63,6 +63,9 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const savedTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [showPresetApplicator, setShowPresetApplicator] = useState(false)
 
+  // 閲覧者（viewer）・相手先には編集操作を出さない。組織の役割は URL の orgId で判定する
+  const { canEdit } = useCanEditSpace(spaceId, orgId)
+
   const {
     pages,
     loading,
@@ -73,7 +76,8 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
     deletePage,
     fetchPage,
     fetchVersions,
-  } = useWikiPages({ orgId, spaceId })
+    // 空のWikiの自動作成（ホームページ等）は編集できる人のときだけ行う
+  } = useWikiPages({ orgId, spaceId, canEdit })
   const { milestones } = useMilestones({ spaceId })
   const milestonesEmpty = pages.length === 0 ? milestones.length === 0 : null
 
@@ -82,8 +86,6 @@ export function WikiPageClient({ orgId, spaceId }: WikiPageClientProps) {
   const [prefs, setPrefs] = useWikiListPrefs()
   const { members } = useSpaceMembers(spaceId)
   const { user: currentUser } = useCurrentUser()
-  // 閲覧者（viewer）・相手先には編集操作を出さない
-  const { canEdit } = useCanEditSpace(spaceId)
   // PR4: 所属マイルストーン = page.milestone_id ∪ タスク参照。既存4本と並列で取得する。
   const { linksByPageId } = useWikiMilestoneLinks(orgId, spaceId)
 

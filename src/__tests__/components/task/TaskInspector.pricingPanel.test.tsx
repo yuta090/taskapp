@@ -7,16 +7,16 @@ import type { ComponentProps } from 'react'
 import type { Task } from '@/types/database'
 import { vi } from 'vitest'
 
-// 代理店モードの「価格の枠」(TaskPricingPanel) は admin/editor だけに出す規則
-// （viewer が見えてはいけない）。以前は isInternalMember（viewer も真になる）で
-// 出し分けていたバグの回帰テスト。onUpdate の有無（呼び出し元が canEditSpaceContent
-// で決める）だけを唯一の判定にする。
+// 代理店モードの「価格の枠」(TaskPricingPanel) は、DB の書き込み判定
+// （guard_task_pricing_write/delete, 20260308_003_task_pricing_write_guard.sql）と同じ規則:
+// その space の space_memberships の行がはっきり admin/editor の人だけ。
+// canEditPricing（呼び出し元が canEditSpaceMoney で判定して渡す）だけを唯一の判定にする。
 
 vi.mock('@/lib/hooks/useSpaceMembers', () => ({
   useSpaceMembers: () => ({
     members: [],
     clientMembers: [],
-    internalMembers: [{ id: 'u1', displayName: 'あなた', avatarUrl: null, role: 'viewer' }],
+    internalMembers: [{ id: 'u1', displayName: 'あなた', avatarUrl: null, role: 'admin' }],
     loading: false,
     error: null,
     getMemberName: (id: string) => id,
@@ -110,8 +110,32 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   }
 }
 
-describe('TaskInspector — 代理店モードの価格の枠は admin/editor だけ', () => {
-  it('onUpdate がある（編集できる）なら価格の枠を出す', () => {
+describe('TaskInspector — 代理店モードの価格の枠', () => {
+  it('canEditPricing=true（space の行が admin/editor）なら価格の枠を出す', () => {
+    renderInspector({
+      task: makeTask(),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+      canEditPricing: true,
+    })
+
+    expect(screen.getByTestId('task-pricing-panel')).toBeInTheDocument()
+  })
+
+  it('canEditPricing=false（行が無い社内メンバー等）なら、他の項目が編集できても価格の枠は出さない', () => {
+    renderInspector({
+      task: makeTask(),
+      spaceId: 's1',
+      onClose: vi.fn(),
+      onUpdate: vi.fn(),
+      canEditPricing: false,
+    })
+
+    expect(screen.queryByTestId('task-pricing-panel')).not.toBeInTheDocument()
+  })
+
+  it('canEditPricing を渡さない（既定）なら価格の枠を出さない（安全側）', () => {
     renderInspector({
       task: makeTask(),
       spaceId: 's1',
@@ -119,10 +143,10 @@ describe('TaskInspector — 代理店モードの価格の枠は admin/editor �
       onUpdate: vi.fn(),
     })
 
-    expect(screen.getByTestId('task-pricing-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-pricing-panel')).not.toBeInTheDocument()
   })
 
-  it('onUpdate が無い（viewer・読み取り専用）なら価格の枠を出さない', () => {
+  it('閲覧者（onUpdate も無い）なら価格の枠を出さない', () => {
     renderInspector({
       task: makeTask(),
       spaceId: 's1',

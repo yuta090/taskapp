@@ -65,6 +65,14 @@ interface TaskInspectorProps {
   parentTasks?: { id: string; title: string }[]
   /** Child tasks of this task */
   childTasks?: Task[]
+  /**
+   * 代理店モードの価格の枠（TaskPricingPanel）を出してよいか。
+   * DB側の書き込み判定（guard_task_pricing_write/delete, 20260308_003）と同じ規則:
+   * その space の space_memberships の行がはっきり admin/editor の人だけ
+   * （行が無い社内メンバーも含めて、それ以外は false）。呼び出し元が
+   * canEditSpaceMoney（spaceRoles.ts）で判定して渡す。既定は false（安全側）。
+   */
+  canEditPricing?: boolean
 }
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -91,6 +99,7 @@ export function TaskInspector({
   onReviewChange,
   parentTasks = [],
   childTasks = [],
+  canEditPricing = false,
 }: TaskInspectorProps) {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -1345,10 +1354,11 @@ export function TaskInspector({
         )}
 
         {/* Agency Mode: Pricing Panel (admin/editor only) */}
-        {/* isInternalMember は viewer も真になるため使わない。編集できる人だけに絞る
-            正本は呼び出し元の canEditSpaceContent で、ここでは onUpdate の有無で判定する
-            （onUpdate は編集できない人には渡さない設計。他の編集項目と同じ判定に揃える） */}
-        {agencyData.agency_mode && !!onUpdate && (
+        {/* isInternalMember は viewer も真になるため使わない。onUpdate の有無（社内の編集者なら
+            真）でもない — DB のガード(guard_task_pricing_write/delete)は space_memberships の
+            行がはっきり admin/editor の人だけで、行が無い社内メンバーは対象外（app_can_write_space
+            より狭い）。呼び出し元が canEditSpaceMoney で判定した値を canEditPricing として渡す */}
+        {agencyData.agency_mode && canEditPricing && (
           <TaskPricingPanel
             taskId={task.id}
             orgId={task.org_id}

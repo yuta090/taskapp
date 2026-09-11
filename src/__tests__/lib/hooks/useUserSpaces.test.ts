@@ -78,4 +78,28 @@ describe('useUserSpaces', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['userSpaces'] })
   })
+
+  // useCanEditSpace(s) が「まだ取れていない」「失敗した」を区別して編集不可側に倒すために使う。
+  // 既存の loading（userLoading || isLoading）の意味は変えない。
+  it('取得が終わるまで isPending は true、終われば false になる', async () => {
+    const { Wrapper } = createWrapper()
+    const { result } = renderHook(() => useUserSpaces(), { wrapper: Wrapper })
+
+    expect(result.current.isPending).toBe(true)
+    await waitFor(() => expect(result.current.isPending).toBe(false))
+  })
+
+  it('取得に失敗すると isError が true になる', async () => {
+    mockEqUser.mockReturnValue({
+      then: (
+        resolve: (v: { data: null; error: null }) => unknown,
+        reject: (e: Error) => unknown
+      ) => reject(new Error('boom')),
+    })
+    const { Wrapper } = createWrapper()
+    const { result } = renderHook(() => useUserSpaces(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.isPending).toBe(false)
+  })
 })

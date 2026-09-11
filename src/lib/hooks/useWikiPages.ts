@@ -16,6 +16,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 interface UseWikiPagesOptions {
   orgId: string
   spaceId: string
+  /**
+   * 編集できる人か（既定 true）。false（閲覧者・相手先）のときは、Wiki が空でも
+   * ホームページ・仕様書テンプレートの自動作成を行わない（読んだだけで書き込みが
+   * 走ってしまうのを防ぐ）。呼び出し元（WikiPageClient）は canEditSpaceContent の
+   * 結果を渡す。TaskInspector・TaskCreateSheet からの呼び出しは既定のまま。
+   */
+  canEdit?: boolean
 }
 
 export interface CreateWikiPageInput {
@@ -52,7 +59,7 @@ interface UseWikiPagesReturn {
 // 読み込み中に毎レンダー新しい [] を返すと呼び出し側の useMemo が毎回無効化されるため共有定数にする
 const EMPTY_PAGES: WikiPage[] = []
 
-export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPagesReturn {
+export function useWikiPages({ orgId, spaceId, canEdit = true }: UseWikiPagesOptions): UseWikiPagesReturn {
   const queryClient = useQueryClient()
 
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
@@ -81,8 +88,9 @@ export function useWikiPages({ orgId, spaceId }: UseWikiPagesOptions): UseWikiPa
 
       const fetchedPages = (fetchedData || []) as WikiPage[]
 
-      // Auto-create default pages on first access when wiki is empty
-      if (fetchedPages.length === 0 && !defaultCreatedRef.current) {
+      // Auto-create default pages on first access when wiki is empty.
+      // 編集できない人（閲覧者・相手先）には行わない — 読んだだけで書き込みが走るのを防ぐ
+      if (fetchedPages.length === 0 && !defaultCreatedRef.current && canEdit) {
         // Check if space was created with a preset
         try {
           const { data: spaceData } = await (supabase as SupabaseClient)

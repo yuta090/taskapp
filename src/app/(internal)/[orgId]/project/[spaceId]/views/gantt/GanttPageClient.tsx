@@ -44,8 +44,9 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
 
   const { user } = useCurrentUser()
   const { members } = useSpaceMembers(spaceId)
-  // 閲覧者（viewer）・相手先には編集操作（ドラッグでの日付変更・親子付け替え・タスク編集）を出さない
-  const { canEdit } = useCanEditSpace(spaceId)
+  // 閲覧者（viewer）・相手先には編集操作（ドラッグでの日付変更・親子付け替え・タスク編集）を出さない。
+  // 組織の役割は URL の orgId（このページが属する組織）で判定する
+  const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
   const canEditMilestones = useMemo(() => {
     if (!canEdit || !user) return false
     const me = members.find((m) => m.id === user.id)
@@ -183,9 +184,10 @@ export function GanttPageClient({ orgId, spaceId }: GanttPageClientProps) {
         onUpdateOwners={canEdit ? (clientOwnerIds, internalOwnerIds) =>
           handleUpdateOwners(selectedTask.id, clientOwnerIds, internalOwnerIds)
         : undefined}
+        canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, owners, selectedTask, setInspector, syncUrlWithState, spaceId, parentTaskOptions, childTasksOfSelected])
 
   // Stable refs for handleTaskClick to avoid recreating on every selection change
   const selectedTaskIdRef = useRef(selectedTaskId)

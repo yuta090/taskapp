@@ -120,3 +120,18 @@ export function canEditSpaceContent(
   if (!isOrgInternalRole(orgRole)) return false
   return spaceRole == null || (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole)
 }
+
+/**
+ * 価格の枠（TaskPricingPanel）・代理店設定（AgencySettings）を操作できるか。
+ * DB 側の判定（guard_agency_settings, 20260308_002_agency_settings_write_guard.sql /
+ * guard_task_pricing_write・guard_task_pricing_delete, 20260308_003_task_pricing_write_guard.sql）
+ * と同じ規則: space_memberships の行がはっきり admin/editor の人だけ。
+ *
+ * canEditSpaceContent と違い、
+ * - space_memberships に行が無い社内メンバーへの「editor 扱い」フォールバックは無い
+ *   （トリガーは space_memberships を直接引き、行が無ければ caller_role が NULL のまま弾く）
+ * - 組織の役割（org_memberships）は見ない（トリガー自体が見ていない）
+ */
+export function canEditSpaceMoney(spaceRole: string | undefined | null): boolean {
+  return (EDITABLE_SPACE_ROLES as readonly string[]).includes(spaceRole ?? '')
+}

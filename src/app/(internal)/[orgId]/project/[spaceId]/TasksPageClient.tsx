@@ -185,8 +185,9 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
   const { taskIds: myPendingReviewTaskIds } = useMyPendingReviews(orgId)
   const { milestones } = useMilestones({ spaceId })
   const { members, getMemberName } = useSpaceMembers(spaceId)
-  // 閲覧者（viewer）・相手先には編集操作を出さない。判定の正本は canEditSpaceContent
-  const { canEdit } = useCanEditSpace(spaceId)
+  // 閲覧者（viewer）・相手先には編集操作を出さない。判定の正本は canEditSpaceContent。
+  // 組織の役割は URL の orgId（このページが属する組織）で判定する
+  const { canEdit, canEditMoney } = useCanEditSpace(spaceId, orgId)
 
   // 招待中の人が担当のときは、一覧でもその名前を出す（承諾すると本人に切り替わる）
   const { pendingInvites } = useSpacePendingInvites(spaceId)
@@ -568,9 +569,10 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
         }
         onConsideringDecided={canEdit ? fetchTasks : undefined}
         onReviewChange={handleReviewChange}
+        canEditPricing={canEditMoney}
       />
     )
-  }, [canEdit, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
+  }, [canEdit, canEditMoney, handlePassBall, handleUpdateTask, handleDeleteTask, handleUpdateOwners, handleSetSpecState, handleReviewChange, fetchTasks, owners, selectedTask, setInspector, syncUrlWithState, isCreateOpen, activeFilter, spaceId, tasks])
 
   const handleFilterChange = useCallback((filter: FilterKey) => {
     syncUrlWithState(isCreateOpen, selectedTaskId, filter)
@@ -927,7 +929,7 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <InternalOnboardingWalkthrough />
+      <InternalOnboardingWalkthrough canEdit={canEdit} />
       {/* Header */}
       <header className="border-b border-gray-100 flex-shrink-0">
         {/* Top row: Breadcrumb + Settings */}
@@ -1218,8 +1220,8 @@ export function TasksPageClient({ orgId, spaceId }: TasksPageClientProps) {
 
       <SetupChecklist orgId={orgId} spaceId={spaceId} />
 
-      {/* サンプルタスク一括削除バナー */}
-      {sampleTaskIds.length > 0 && (
+      {/* サンプルタスク一括削除バナー。削除操作なので閲覧者には出さない */}
+      {canEdit && sampleTaskIds.length > 0 && (
         <SampleTaskBanner count={sampleTaskIds.length} onDeleteAll={handleDeleteSampleTasks} />
       )}
 

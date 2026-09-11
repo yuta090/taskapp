@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   PlusCircle,
@@ -95,11 +95,24 @@ export async function resetInternalOnboarding(): Promise<void> {
   await resetOnboardingFlagOnServer('internal_walkthrough')
 }
 
-export function InternalOnboardingWalkthrough() {
+interface InternalOnboardingWalkthroughProps {
+  /**
+   * 編集できる人か（既定 true）。false（閲覧者・相手先）のときは、無い
+   * 「タスクを追加」ボタンを案内する手順1「タスク作成の流れ」を飛ばす。
+   */
+  canEdit?: boolean
+}
+
+export function InternalOnboardingWalkthrough({ canEdit = true }: InternalOnboardingWalkthroughProps = {}) {
   const { shouldShow, markDone } = useOnboardingFlag('internal_walkthrough', ONBOARDING_KEY)
   const [isOpen, setIsOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [fadeIn, setFadeIn] = useState(false)
+
+  const visibleSteps = useMemo(
+    () => (canEdit ? steps : steps.filter((s) => s.title !== 'タスク作成の流れ')),
+    [canEdit]
+  )
 
   useEffect(() => {
     if (shouldShow) {
@@ -120,12 +133,12 @@ export function InternalOnboardingWalkthrough() {
   }, [markDone])
 
   const handleNext = useCallback(() => {
-    if (currentStep < steps.length - 1) {
+    if (currentStep < visibleSteps.length - 1) {
       setCurrentStep((prev) => prev + 1)
     } else {
       handleClose()
     }
-  }, [currentStep, handleClose])
+  }, [currentStep, handleClose, visibleSteps.length])
 
   const handlePrev = useCallback(() => {
     if (currentStep > 0) {
@@ -133,7 +146,7 @@ export function InternalOnboardingWalkthrough() {
     }
   }, [currentStep])
 
-  const step = steps[currentStep]
+  const step = visibleSteps[currentStep]
   const { rect: targetRect, matchedSelector } = useSpotlightRect(step.targetSelectors, isOpen)
   const panelRef = useRef<HTMLDivElement>(null)
   const panelStyle = usePanelPosition(panelRef, targetRect)
@@ -152,7 +165,7 @@ export function InternalOnboardingWalkthrough() {
   if (!isOpen) return null
 
   const Icon = step.icon
-  const isLast = currentStep === steps.length - 1
+  const isLast = currentStep === visibleSteps.length - 1
 
   // 親ペイン（main等）のスタッキングコンテキストに閉じ込められると
   // サイドバーの下に描画されるため、body直下にポータルで出す
@@ -213,7 +226,7 @@ export function InternalOnboardingWalkthrough() {
 
           {/* Step indicator */}
           <div className="flex items-center gap-1 mb-4">
-            {steps.map((_, i) => (
+            {visibleSteps.map((_, i) => (
               <div
                 key={i}
                 className={`h-1 rounded-full transition-all duration-300 ${
@@ -226,7 +239,7 @@ export function InternalOnboardingWalkthrough() {
               />
             ))}
             <span className="ml-2 text-xs text-gray-400 font-medium">
-              {currentStep + 1}/{steps.length}
+              {currentStep + 1}/{visibleSteps.length}
             </span>
           </div>
 

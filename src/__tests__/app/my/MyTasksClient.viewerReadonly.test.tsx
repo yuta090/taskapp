@@ -63,7 +63,7 @@ vi.mock('@/lib/hooks/useMyPendingReviews', () => ({
 
 // このファイル専用: すべて閲覧者（編集できない）として振る舞う
 vi.mock('@/lib/hooks/useCanEditSpace', () => ({
-  useCanEditSpace: () => ({ canEdit: false, loading: false }),
+  useCanEditSpace: () => ({ canEdit: false, canEditMoney: false, loading: false }),
   useCanEditSpaces: () => ({ canEditSpace: () => false, loading: false }),
 }))
 

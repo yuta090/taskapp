@@ -256,6 +256,24 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
     })
   })
 
+  // 閲覧者（viewer）には「タスクを追加」ボタンが無いため、それを案内する最初の手順は飛ばす
+  describe('編集できない人（canEdit=false）には手順1「タスク作成の流れ」を飛ばす', () => {
+    it('最初から「ボールの概念」が出る（タスク作成の案内をしない）', async () => {
+      render(<InternalOnboardingWalkthrough canEdit={false} />)
+
+      await waitFor(() => screen.getByRole('dialog'))
+      expect(screen.getByText('ボールの概念')).toBeInTheDocument()
+      expect(screen.queryByText('タスク作成の流れ')).not.toBeInTheDocument()
+    })
+
+    it('canEdit を渡さない（既定）ときは、これまでどおり手順1から出る', async () => {
+      render(<InternalOnboardingWalkthrough />)
+
+      await waitFor(() => screen.getByRole('dialog'))
+      expect(screen.getByText('タスク作成の流れ')).toBeInTheDocument()
+    })
+  })
+
   describe('viewport clamping, escape hatches, and target interaction', () => {
     it('clamps the panel inside the viewport when the target sits near the bottom-right corner', async () => {
       window.innerWidth = 500

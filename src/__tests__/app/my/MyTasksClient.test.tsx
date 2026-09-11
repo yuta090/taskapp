@@ -79,7 +79,7 @@ vi.mock('@/components/task/TaskCreateSheet', () => ({
 // useUserSpaces 経由の実問い合わせ（supabase.from）を避けるため直接差し替える
 // （fromCalls を検証するテストが汚染されるのを防ぐ）。
 vi.mock('@/lib/hooks/useCanEditSpace', () => ({
-  useCanEditSpace: () => ({ canEdit: true, loading: false }),
+  useCanEditSpace: () => ({ canEdit: true, canEditMoney: true, loading: false }),
   useCanEditSpaces: () => ({ canEditSpace: () => true, loading: false }),
 }))
 

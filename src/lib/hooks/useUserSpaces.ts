@@ -38,7 +38,7 @@ export function useUserSpaces(options?: UseUserSpacesOptions) {
     [user?.id, includeArchived],
   )
 
-  const { data, isLoading, error: queryError } = useQuery<UserSpace[]>({
+  const { data, isLoading, isPending, isError, error: queryError } = useQuery<UserSpace[]>({
     queryKey,
     queryFn: async (): Promise<UserSpace[]> => {
       if (!user) return []
@@ -106,6 +106,10 @@ export function useUserSpaces(options?: UseUserSpacesOptions) {
   return {
     spaces: data ?? [],
     loading: userLoading || isLoading,
+    // 「まだ取れていない」「失敗した」を区別したい呼び出し側(useCanEditSpace(s))向け。
+    // 既存の loading の意味（画面のスケルトン表示用）はそのまま変えない。
+    isPending: userLoading || isPending,
+    isError,
     error: queryError ? (queryError instanceof Error ? queryError.message : 'スペースの取得に失敗しました') : null,
     refetch,
   }

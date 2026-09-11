@@ -6,6 +6,7 @@ import { useAgencyMode, type VendorSettings } from '@/lib/hooks/useAgencyMode'
 import { useCanEditSpace } from '@/lib/hooks/useCanEditSpace'
 
 interface AgencySettingsProps {
+  orgId: string
   spaceId: string
 }
 
@@ -52,11 +53,13 @@ function ToggleItem({
   )
 }
 
-export function AgencySettings({ spaceId }: AgencySettingsProps) {
+export function AgencySettings({ orgId, spaceId }: AgencySettingsProps) {
   const { data, loading, update } = useAgencyMode(spaceId)
-  // agency_mode 等は spaces の列（DB の書き込み判定は app_can_write_space）なので、
-  // 社内の編集者（admin/editor）だけが操作できる。閲覧者（viewer）には disabled で出す
-  const { canEdit } = useCanEditSpace(spaceId)
+  // agency_mode 等は spaces の列だが、DB のガード（guard_agency_settings,
+  // 20260308_002_agency_settings_write_guard.sql）は app_can_write_space より狭く、
+  // space_memberships の行がはっきり admin/editor の人だけ（行が無い社内メンバーは対象外）。
+  // 判定は canEditMoney（canEditSpaceMoney）を使う
+  const { canEditMoney: canEdit } = useCanEditSpace(spaceId, orgId)
   const [marginInput, setMarginInput] = useState('')
 
   useEffect(() => {
