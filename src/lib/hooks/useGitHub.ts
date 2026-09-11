@@ -11,10 +11,40 @@ import type {
   TaskGitHubLink,
   GitHubIssue,
   TaskGitHubIssueLink,
+  GitHubConnectionStatus,
 } from '@/lib/github/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const supabase: any = createClient()
+
+// =============================================================================
+// PR-B: 列の絞り込み（GitHub の表は authenticated に select('*') を許さない）
+//
+// ここで名指しした列だけが、authenticated ロールに GRANT された列（本番 migration適用後）
+// と一致する。select('*') のままだと migration 適用後に permission denied で全滅するため、
+// 許可列を明示する形にしている。migration 適用前でも同じ列は当然読めるので、
+// このコードは適用の前後どちらでも動く。
+//
+// pr_url / head_branch / base_branch / author_login / author_avatar_url（PR）、
+// url / author_login / assignee_logins（Issue）は authenticated から一切読めない列
+// （接続した本人でも読めない）。リンクは github_repositories の埋め込み(full_name)から
+// 画面側で組み立てる。
+// =============================================================================
+
+const GITHUB_INSTALLATION_COLUMNS =
+  'id, org_id, installation_id, account_login, account_type, created_by, created_at, updated_at'
+
+const GITHUB_REPOSITORY_COLUMNS =
+  'id, org_id, installation_id, repo_id, owner_login, repo_name, full_name, default_branch, is_private, created_at, updated_at'
+
+// PR/Issue に埋め込むときは、画面がリンクを組み立てるのに必要な full_name だけで十分
+const GITHUB_REPOSITORY_EMBED_COLUMNS = 'full_name'
+
+const GITHUB_PULL_REQUEST_COLUMNS =
+  'id, org_id, github_repo_id, pr_number, pr_title, pr_state, additions, deletions, commits_count, merged_at, closed_at, pr_created_at, updated_at'
+
+const GITHUB_ISSUE_COLUMNS =
+  'id, org_id, github_repo_id, issue_number, title, state, state_reason, issue_created_at, closed_at, github_updated_at, last_synced_at, created_at, updated_at'
 
 // =============================================================================
 // Organization Level Hooks
@@ -33,7 +63,7 @@ export function useGitHubInstallation(orgId: string | undefined) {
 
       const { data, error } = await supabase
         .from('github_installations')
-        .select('*')
+        .select(GITHUB_INSTALLATION_COLUMNS)
         .eq('org_id', orgId)
         .maybeSingle()
 
@@ -57,7 +87,7 @@ export function useGitHubRepositories(orgId: string | undefined) {
 
       const { data, error } = await supabase
         .from('github_repositories')
-        .select('*')
+        .select(GITHUB_REPOSITORY_COLUMNS)
         .eq('org_id', orgId)
         .order('full_name')
 
@@ -86,8 +116,8 @@ export function useSpaceGitHubRepos(spaceId: string | undefined) {
       const { data, error } = await supabase
         .from('space_github_repos')
         .select(`
-          *,
-          github_repositories (*)
+          id, org_id, space_id, github_repo_id, sync_prs, sync_commits, created_by, created_at,
+          github_repositories (${GITHUB_REPOSITORY_COLUMNS})
         `)
         .eq('space_id', spaceId)
 
@@ -183,11 +213,11 @@ export function useTaskGitHubLinks(taskId: string | undefined) {
       const { data, error } = await supabase
         .from('task_github_links')
         .select(`
-          *,
+          id, org_id, task_id, github_pr_id, link_type, created_by, created_at,
           github_pull_requests (
-            *,
+            ${GITHUB_PULL_REQUEST_COLUMNS},
             github_repositories (
-              full_name
+              ${GITHUB_REPOSITORY_EMBED_COLUMNS}
             )
           )
         `)
@@ -226,9 +256,9 @@ export function useSpacePullRequests(spaceId: string | undefined) {
       const { data, error } = await supabase
         .from('github_pull_requests')
         .select(`
-          *,
+          ${GITHUB_PULL_REQUEST_COLUMNS},
           github_repositories (
-            full_name
+            ${GITHUB_REPOSITORY_EMBED_COLUMNS}
           )
         `)
         .in('github_repo_id', repoIds)
@@ -342,8 +372,13 @@ export function useTaskGitHubIssues(taskId: string | undefined) {
       const { data, error } = await supabase
         .from('task_github_issue_links')
         .select(`
-          *,
-          github_issues (*)
+          id, org_id, task_id, github_issue_id, link_type, created_by, created_at,
+          github_issues (
+            ${GITHUB_ISSUE_COLUMNS},
+            github_repositories (
+              ${GITHUB_REPOSITORY_EMBED_COLUMNS}
+            )
+          )
         `)
         .eq('task_id', taskId)
         .order('created_at', { ascending: false })
@@ -378,7 +413,7 @@ export function useIssueLinkCandidates(repoIds: string[], search: string) {
 
       let query = supabase
         .from('github_issues')
-        .select('*')
+        .select(GITHUB_ISSUE_COLUMNS)
         .in('github_repo_id', sortedRepoIds)
         .order('issue_number', { ascending: false })
         .limit(50)
@@ -510,5 +545,65 @@ export function useUnlinkIssue() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: taskGitHubIssuesQueryKey(variables.taskId) })
     },
+  })
+}
+
+// =============================================================================
+// GitHub 接続状態
+//
+// 「リポジトリ名・GitHubへのリンクを出してよいか」はタスク画面では使わない
+// （github_repositories は接続した本人だけが読める RLS で既に守られており、埋め込みの
+// full_name の有無がそのまま判定結果になる。isMe を足しても常に同じ結果にしかならず、
+// 無駄な RPC を1回増やすだけのため、TaskPRList/TaskIssueList はこの hook を呼ばない）。
+//
+// 「いま誰が接続しているか」の社内向け情報（アカウント名・許可範囲までは返さない）で、
+// 次の PR-C で設定画面・組織の連携画面の接続状態の表示に使う
+// =============================================================================
+
+interface GithubConnectionStatusRow {
+  connected: boolean
+  connected_by: string | null
+  connected_at: string | null
+  is_me: boolean
+}
+
+const EMPTY_CONNECTION_STATUS: GitHubConnectionStatus = {
+  connected: false,
+  connectedBy: null,
+  connectedAt: null,
+  isMe: false,
+}
+
+/**
+ * RPC は `RETURNS TABLE`（配列で返る）と単一行（オブジェクトで返る）のどちらで実装されても
+ * 動くよう、両方の形を吸収する。
+ */
+function normalizeConnectionStatusRow(raw: unknown): GithubConnectionStatusRow | null {
+  const row = Array.isArray(raw) ? raw[0] : raw
+  if (!row || typeof row !== 'object') return null
+  return row as GithubConnectionStatusRow
+}
+
+export function useGitHubConnection(orgId: string | undefined) {
+  const githubEnabled = isGitHubConfigured()
+
+  return useQuery({
+    queryKey: ['github-connection-status', orgId],
+    queryFn: async (): Promise<GitHubConnectionStatus> => {
+      const { data, error } = await supabase.rpc('github_connection_status', { p_org: orgId })
+
+      if (error) throw error
+
+      const row = normalizeConnectionStatusRow(data)
+      if (!row) return EMPTY_CONNECTION_STATUS
+
+      return {
+        connected: row.connected ?? false,
+        connectedBy: row.connected_by ?? null,
+        connectedAt: row.connected_at ?? null,
+        isMe: row.is_me ?? false,
+      }
+    },
+    enabled: !!orgId && githubEnabled,
   })
 }

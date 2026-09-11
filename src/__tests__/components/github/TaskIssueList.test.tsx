@@ -54,6 +54,12 @@ const mockUseManualLinkIssue = vi.fn(() => ({ mutateAsync: mockLinkMutateAsync, 
 const mockUnlinkMutateAsync = vi.fn(() => Promise.resolve())
 const mockUseUnlinkIssue = vi.fn(() => ({ mutateAsync: mockUnlinkMutateAsync, isPending: false }))
 
+// PR-B: リポジトリ名・リンクは接続した本人だけに出す。既定は本人以外（isMe: false）
+let mockIsMe = false
+const mockUseGitHubConnection = vi.fn(() => ({
+  data: { connected: true, connectedBy: 'someone', connectedAt: null, isMe: mockIsMe },
+}))
+
 vi.mock('@/lib/hooks', () => ({
   useTaskGitHubIssues: (taskId: string | undefined) => mockUseTaskGitHubIssues(taskId),
   useSpaceGitHubRepos: (spaceId: string | undefined) => mockUseSpaceGitHubRepos(spaceId),
@@ -61,6 +67,7 @@ vi.mock('@/lib/hooks', () => ({
     mockUseIssueLinkCandidates(repoIds, search),
   useManualLinkIssue: () => mockUseManualLinkIssue(),
   useUnlinkIssue: () => mockUseUnlinkIssue(),
+  useGitHubConnection: () => mockUseGitHubConnection(),
 }))
 
 const ORIGINAL_GITHUB_ENABLED = process.env.NEXT_PUBLIC_GITHUB_ENABLED
@@ -72,11 +79,8 @@ function makeIssue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
     github_repo_id: 'repo-1',
     issue_number: 42,
     title: 'ログインできない',
-    url: 'https://github.com/yuta090/taskapp/issues/42',
     state: 'open',
     state_reason: null,
-    author_login: 'yuta090',
-    assignee_logins: [],
     issue_created_at: '2026-09-01T00:00:00.000Z',
     closed_at: null,
     github_updated_at: '2026-09-01T00:00:00.000Z',
@@ -108,11 +112,13 @@ beforeEach(() => {
   mockSpaceRepos = [{ github_repo_id: 'repo-1' }]
   mockCandidates = []
   mockCandidatesLoading = false
+  mockIsMe = false
   mockLinkMutateAsync.mockClear()
   mockLinkMutateAsync.mockResolvedValue(undefined)
   mockUnlinkMutateAsync.mockClear()
   mockUnlinkMutateAsync.mockResolvedValue(undefined)
   mockUseIssueLinkCandidates.mockClear()
+  mockUseGitHubConnection.mockClear()
   toastSuccess.mockClear()
   toastError.mockClear()
 })
@@ -123,6 +129,13 @@ afterEach(() => {
 })
 
 describe('TaskIssueList', () => {
+  it('useGitHubConnection を呼ばない（本人判定は RLS の埋め込みの有無だけで足りるため、無駄なRPCを出さない）', () => {
+    mockIssuesData = { links: [] }
+    render(<TaskIssueList taskId="task-1" spaceId="space-1" orgId="org-1" />)
+
+    expect(mockUseGitHubConnection).not.toHaveBeenCalled()
+  })
+
   it('GitHub 連携が無効なら何も表示しない', () => {
     process.env.NEXT_PUBLIC_GITHUB_ENABLED = 'false'
     render(<TaskIssueList taskId="task-1" spaceId="space-1" orgId="org-1" />)

@@ -121,15 +121,18 @@ export function TaskPRList({ taskId, spaceId, orgId, readOnly = false }: TaskPRL
             const pr = link.github_pull_requests
             if (!pr) return null
 
+            // 埋め込みが読める（full_name がある）＝ RLS（github_repositories は接続した
+            // 本人だけが読める）で既に守られている。isMe は使わない（常に full_name の有無と
+            // 同じ結果にしかならず、無駄な RPC を1回増やすだけのため）
+            const canSeeSource = Boolean(pr.github_repositories?.full_name)
+
             return (
               <div key={link.id} className="relative group">
                 <PRBadge
                   state={pr.pr_state}
                   prNumber={pr.pr_number}
-                  prUrl={pr.pr_url}
                   title={pr.pr_title}
-                  repoName={pr.github_repositories?.full_name || ''}
-                  authorLogin={pr.author_login || undefined}
+                  repoFullName={canSeeSource ? pr.github_repositories?.full_name : undefined}
                   additions={pr.additions}
                   deletions={pr.deletions}
                   updatedAt={pr.updated_at}
