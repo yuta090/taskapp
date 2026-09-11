@@ -208,3 +208,32 @@ describe('AI秘書の自動期限リマインド トグル（org_channel_policy.
     })
   })
 })
+
+describe('role確認中（role===null。hydration前・所属一覧取得中）は断定した表示をしない', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    policyResponse = { data: null, error: null }
+
+    mockUseCurrentOrg.mockReturnValue({
+      orgId: null,
+      orgName: null,
+      role: null,
+      loading: false,
+      error: null,
+    })
+  })
+
+  it('役割バッジは中立の「確認中」を表示し、オーナー/メンバー/クライアントと断定しない', () => {
+    render(<OrganizationSettingsPage />)
+    // ヘッダーと「あなたの役割」の2箇所に同じバッジが出る
+    expect(screen.getAllByText('確認中').length).toBeGreaterThan(0)
+    expect(screen.queryByText('オーナー')).not.toBeInTheDocument()
+    expect(screen.queryByText('メンバー')).not.toBeInTheDocument()
+    expect(screen.queryByText('クライアント')).not.toBeInTheDocument()
+  })
+
+  it('「組織名の変更はオーナーのみ可能です」の案内を出さない（実際はオーナーの可能性があるため）', () => {
+    render(<OrganizationSettingsPage />)
+    expect(screen.queryByText('組織名の変更はオーナーのみ可能です')).not.toBeInTheDocument()
+  })
+})

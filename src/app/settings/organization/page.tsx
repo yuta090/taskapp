@@ -16,10 +16,12 @@ export default function OrganizationSettingsPage() {
     role: rawRole,
     loading: rawOrgLoading,
   } = useCurrentOrg()
-  // activeOrgId等はブラウザのcookieから同期的に読むため、サーバーでは必ずloading:trueの
-  // 「読み込み中」表示になるが、cookieが既にあるブラウザではハイドレーション時の最初の
-  // 描画から組織ID・名前・役割が確定してしまう。hydrationが済むまではサーバーと同じ
-  // 「読み込み中」表示に固定する（React #418対策。詳細はuseHydrated参照）
+  // 組織ID(orgId)と読み込み中かどうか(loading)はブラウザのcookieから同期的に読むため、
+  // cookieが既にあるブラウザではハイドレーション時の描画だけサーバーと違う値になる
+  // （サーバーはcookieを読めず必ずloading:true・orgId:null）。hydrationが済むまでは
+  // orgId/loadingをサーバーと同じ「読み込み中」表示に固定する（React #418対策。
+  // orgName/roleはcookie由来ではなく所属一覧の取得結果から決まるが、orgIdがある間に
+  // 表示が中途半端に混ざらないよう合わせて固定する。詳細はuseHydrated参照）
   const hydrated = useHydrated()
   const orgId = hydrated ? rawOrgId : null
   const orgName = hydrated ? rawOrgName : null
@@ -163,7 +165,12 @@ export default function OrganizationSettingsPage() {
 
   const hasChanges = editName.trim() !== originalName
 
-  const roleBadge = role === 'owner'
+  // role===nullは「まだ役割が確定していない」状態（hydration前・所属一覧取得中）。
+  // ここを既定値のクライアント扱いにすると、オーナーにも一瞬「クライアント」バッジや
+  // 「組織名の変更はオーナーのみ可能です」の案内が出てしまうため、中立の表示にする
+  const roleBadge = role === null
+    ? { label: '確認中', color: 'bg-gray-100 text-gray-500' }
+    : role === 'owner'
     ? { label: 'オーナー', color: 'bg-indigo-50 text-indigo-ink' }
     : role === 'member'
     ? { label: 'メンバー', color: 'bg-gray-100 text-gray-700' }
@@ -248,9 +255,12 @@ export default function OrganizationSettingsPage() {
                   disabled
                   className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  組織名の変更はオーナーのみ可能です
-                </p>
+                {/* role===nullの間（確認中）は、実際はオーナーかもしれないので断定した案内を出さない */}
+                {role !== null && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    組織名の変更はオーナーのみ可能です
+                  </p>
+                )}
               </>
             )}
           </div>
