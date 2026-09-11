@@ -1,4 +1,5 @@
 import { buildTaskDeepLink } from '@/lib/taskLinks'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 
 export interface PushNotificationRow {
   id: string
@@ -52,16 +53,18 @@ export function buildPushMessage(n: PushNotificationRow, role: PushRecipientRole
   const body = n.payload.message ?? ''
   const taskId = n.payload.task_id
 
+  const safeLink =
+    LINK_PAYLOAD_TYPES.has(n.type) && isSafeInternalPath(n.payload.link) ? n.payload.link : null
+
   const url =
-    LINK_PAYLOAD_TYPES.has(n.type) && n.payload.link
-      ? n.payload.link
-      : role === 'client'
-        ? taskId
-          ? `/portal/task/${taskId}`
-          : '/portal'
-        : taskId
-          ? buildTaskDeepLink(n.org_id, n.space_id, taskId)
-          : '/inbox'
+    safeLink ??
+    (role === 'client'
+      ? taskId
+        ? `/portal/task/${taskId}`
+        : '/portal'
+      : taskId
+        ? buildTaskDeepLink(n.org_id, n.space_id, taskId)
+        : '/inbox')
 
   return { title, body, url, tag: `taskapp-${n.id}` }
 }

@@ -4,8 +4,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { getInstallationRepositories, getInstallationPermissions } from '@/lib/github'
 import { verifySignedState } from '@/lib/github/config'
+import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 
 export const runtime = 'nodejs'
+
+// state は署名済みで通常はサイト内パスしか入らないが、戻り先の検査は
+// isSafeInternalPath 一か所に揃えるため、ここでも改めて確認する。
+const DEFAULT_REDIRECT = '/settings/org-integrations'
 
 // Untyped client — github_installations/github_repositories are not in Database types
 let _supabaseAdmin: SupabaseClient | null = null
@@ -36,13 +41,13 @@ export async function GET(request: NextRequest) {
 
   // state の署名を検証して orgId と redirectUri を取得
   let orgId: string | null = null
-  let redirectUri = '/settings/integrations/github'
+  let redirectUri = DEFAULT_REDIRECT
 
   if (state) {
     const verified = verifySignedState(state)
     if (verified) {
       orgId = verified.orgId
-      redirectUri = verified.redirectUri || redirectUri
+      redirectUri = isSafeInternalPath(verified.redirectUri) ? verified.redirectUri : DEFAULT_REDIRECT
     } else {
       console.error('Invalid or expired OAuth state')
       return NextResponse.redirect(

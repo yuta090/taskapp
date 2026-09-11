@@ -148,6 +148,29 @@ describe('GET /api/github/callback', () => {
     expect(permissionsUpdateEqCalls).toContainEqual(['installation_id', 159612227])
   })
 
+  // state は署名済みなので通常はここに危険な値が来ないが、戻り先の検査は
+  // 一か所（isSafeInternalPath）に揃えておき、万一 state の中身が想定と違っても
+  // サイト外へは絶対にリダイレクトしない。
+  it('state の戻り先がサイト内パスでなければ既定の戻り先にする', async () => {
+    const { GET, createSignedState } = await load()
+    const res = await GET(req('159612227', createSignedState(ORG_ID, 'https://evil.example/x')))
+
+    expect(res.status).toBe(307)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.origin).toBe('https://agentpm.app')
+    expect(location.pathname).toBe('/settings/org-integrations')
+  })
+
+  it('state の戻り先に制御文字が入っていれば既定の戻り先にする', async () => {
+    const { GET, createSignedState } = await load()
+    const res = await GET(req('159612227', createSignedState(ORG_ID, '/\t/evil.example')))
+
+    expect(res.status).toBe(307)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.origin).toBe('https://agentpm.app')
+    expect(location.pathname).toBe('/settings/org-integrations')
+  })
+
   it('許可範囲の取得・保存に失敗しても、インストール自体は成功のまま止まらない（列未追加のマイグレーション未適用に備える）', async () => {
     getInstallationPermissionsMock.mockRejectedValueOnce(new Error('column "permissions" does not exist'))
     const { GET, createSignedState } = await load()
