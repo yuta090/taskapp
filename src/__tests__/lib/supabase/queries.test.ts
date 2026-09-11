@@ -163,6 +163,32 @@ describe('fetchTasksQuery — 全件をページングで読む', () => {
     })
   })
 
+  it('1ページ目・2ページ目それぞれの task_owners を owners へ id ごとに取り出し、tasks側には残さない', async () => {
+    // ensureTaskIds 撤去後、担当者を揃えるのはこの取り出し処理だけになった。ここが壊れると
+    // ボールを渡すときに担当者が空のまま rpc_pass_ball に渡り、担当者が消えてしまう。
+    const owner1 = { id: 'o1', task_id: 'p1-0', side: 'internal', user_id: 'u1' }
+    const owner2 = { id: 'o2', task_id: 'p2-0', side: 'client', user_id: 'u2' }
+    const page1 = Array.from({ length: TASKS_PAGE_SIZE }, (_, i) =>
+      i === 0 ? makeTask('p1-0', { task_owners: [owner1] }) : makeTask(`p1-${i}`)
+    )
+    const page2 = [makeTask('p2-0', { task_owners: [owner2] })]
+    const tasksChain = makeTasksChain([
+      { data: page1, error: null },
+      { data: page2, error: null },
+    ])
+    const supabase = makeSupabase(tasksChain)
+
+    const result = await fetchTasksQuery(supabase, 'org-1', 'space-1')
+
+    expect(result.owners['p1-0']).toEqual([owner1])
+    expect(result.owners['p2-0']).toEqual([owner2])
+    result.tasks.forEach((t) => {
+      expect((t as unknown as { task_owners?: unknown }).task_owners).toBeUndefined()
+    })
+    // task_owners を同じクエリで一緒に読んでいること（実装どおりの列指定）
+    expect(tasksChain.select).toHaveBeenCalledWith('*, task_owners (*)')
+  })
+
   it('補完クエリ（.in(\'id\', …)）は発行しない（options 自体を廃止済み）', async () => {
     const tasksChain = makeTasksChain([{ data: [makeTask('a')], error: null }])
     const supabase = makeSupabase(tasksChain)
@@ -296,16 +322,21 @@ describe('fetchMeetingsQuery — 全件をページングで読む', () => {
 })
 
 /**
- * notes / minutes_md はどの画面（一覧・行・詳細パネル・portal）でも使われておらず、
- * 一覧の全件ぶんが読み込まれブラウザの永続キャッシュ(IndexedDB)にも保存されるだけの
- * 無駄なので、一覧クエリでは読まない。
+ * notes はどの画面でも読んでおらず、一覧の全件ぶんが読み込まれブラウザの永続キャッシュ
+ * (IndexedDB)にも保存されるだけの無駄なので、一覧クエリでは読まない。
+ *
+ * minutes_md（議事録本文）は詳細パネル専用。一覧には含めず、開いたときに
+ * useMeetings.fetchMeetingDetail が `select('*')` でオンデマンド取得する。一覧の行が
+ * `minutes_md === undefined` のままであること自体が「詳細をまだ取っていない」の
+ * 目印(MeetingsPageClient)として使われているため、null 等に揃えず、そのまま
+ * 列自体を返さないでおく必要がある。
  */
-describe('MEETING_LIST_COLUMNS — 使っていない列は読まない', () => {
+describe('MEETING_LIST_COLUMNS — 使っていない列は読まない・議事録本文は一覧に含めない', () => {
   it('notes を含まない', () => {
     expect(MEETING_LIST_COLUMNS).not.toMatch(/\bnotes\b/)
   })
 
-  it('minutes_md を含まない', () => {
+  it('minutes_md を含まない（詳細パネルの fetchMeetingDetail が別途取得するため）', () => {
     expect(MEETING_LIST_COLUMNS).not.toMatch(/\bminutes_md\b/)
   })
 })

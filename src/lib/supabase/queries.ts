@@ -24,8 +24,15 @@ export interface MeetingsQueryData {
 }
 
 /**
- * Meeting list columns。notes / minutes_md はどの画面でも使っていないため除く
- * （一覧の全件ぶん読まれ、ブラウザの永続キャッシュ(IndexedDB)にも保存されてしまうだけの無駄）。
+ * Meeting list columns。
+ *
+ * - notes はどの画面でも読んでいないため除く（一覧の全件ぶん読まれ、ブラウザの永続
+ *   キャッシュ(IndexedDB)にも保存されてしまうだけの無駄）。
+ * - minutes_md（議事録本文）は詳細パネル専用で、一覧には含めない。開いたときに
+ *   useMeetings.fetchMeetingDetail が `select('*')` でオンデマンド取得する。一覧の行が
+ *   `minutes_md === undefined`（selectで列自体を返していない）のままであること自体が
+ *   「詳細をまだ取っていない」の目印(MeetingsPageClient)になっているため、null 等に
+ *   揃えてはいけない。
  */
 export const MEETING_LIST_COLUMNS = `
   id, org_id, space_id, title, held_at, status,
