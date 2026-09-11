@@ -27,6 +27,18 @@ function renderWithTarget() {
 // 与える必要がある。target/panel を個別に上書きできるようにしつつ、既定値は
 // 「表示されている」を表す非ゼロ矩形にする。
 const nativeGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+// usePanelPosition はフェードイン中の transform(scale-95) に影響されないよう
+// offsetWidth/offsetHeight でパネルを計測する（getBoundingClientRect は使わない）。
+// このため、パネルサイズをテストで差し替えるには offsetWidth/offsetHeight 側も
+// スタブする必要がある。
+const nativeOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetWidth'
+)!
+const nativeOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetHeight'
+)!
 const DEFAULT_TARGET_RECT: Partial<DOMRect> = {
   top: 100,
   left: 20,
@@ -37,7 +49,7 @@ const DEFAULT_TARGET_RECT: Partial<DOMRect> = {
 }
 const DEFAULT_PANEL_RECT: Partial<DOMRect> = { width: 320, height: 200 }
 
-/** Stubs getBoundingClientRect for elements matched by `selector` (and the walkthrough panel). */
+/** Stubs getBoundingClientRect/offsetWidth/offsetHeight for elements matched by `selector` (and the walkthrough panel). */
 function mockRects(rects: { target?: Partial<DOMRect>; panel?: Partial<DOMRect> } = {}) {
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     if (this.dataset.testid === 'walkthrough-panel') {
@@ -56,6 +68,29 @@ function mockRects(rects: { target?: Partial<DOMRect>; panel?: Partial<DOMRect> 
     }
     return nativeGetBoundingClientRect.call(this)
   }
+
+  const panelWidth = rects.panel?.width ?? DEFAULT_PANEL_RECT.width
+  const panelHeight = rects.panel?.height ?? DEFAULT_PANEL_RECT.height
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.dataset.testid === 'walkthrough-panel') return panelWidth
+      return nativeOffsetWidthDescriptor.get!.call(this)
+    },
+  })
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.dataset.testid === 'walkthrough-panel') return panelHeight
+      return nativeOffsetHeightDescriptor.get!.call(this)
+    },
+  })
+}
+
+function restoreRects() {
+  HTMLElement.prototype.getBoundingClientRect = nativeGetBoundingClientRect
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', nativeOffsetWidthDescriptor)
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', nativeOffsetHeightDescriptor)
 }
 
 describe('InternalOnboardingWalkthrough spotlight', () => {
@@ -65,7 +100,7 @@ describe('InternalOnboardingWalkthrough spotlight', () => {
   })
 
   afterEach(() => {
-    HTMLElement.prototype.getBoundingClientRect = nativeGetBoundingClientRect
+    restoreRects()
   })
 
   it('renders a centered dialog (no spotlight) for a step without targetSelector', async () => {
