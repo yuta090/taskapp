@@ -19,6 +19,8 @@ interface TaskRowProps {
   indent?: boolean
   onStatusChange?: (taskId: string, status: TaskStatus) => void
   reviewStatus?: ReviewStatus
+  /** 自分が社内承認を頼まれていて、まだ返事をしていない（「あなたの承認待ち」を出す） */
+  awaitingMyApproval?: boolean
   assigneeName?: string | null
   isNew?: boolean
   bulkMode?: boolean
@@ -238,9 +240,51 @@ function BallIndicator({ ball, waitingDays }: { ball: BallSide; waitingDays?: nu
   )
 }
 
-export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now }: TaskRowProps) {
+/**
+ * 社内承認の状態のバッジ。自分の番（承認を頼まれていて返事がまだ）なら「あなたの承認待ち」にする
+ * （「社内承認待ち」だけでは、誰の承認を待っているのか分からない）
+ */
+function ReviewStatusBadge({
+  reviewStatus,
+  isMyTurn,
+  className = '',
+}: {
+  reviewStatus: ReviewStatus | undefined
+  isMyTurn: boolean
+  className?: string
+}) {
+  if (isMyTurn) {
+    return (
+      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-50 text-indigo-ink ${className}`}>
+        あなたの承認待ち
+      </span>
+    )
+  }
+  if (!reviewStatus) return null
+  return (
+    <span
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+        reviewStatus === 'approved'
+          ? 'bg-green-50 text-green-700'
+          : reviewStatus === 'changes_requested'
+          ? 'bg-red-50 text-red-700'
+          : 'bg-amber-50 text-amber-700'
+      } ${className}`}
+    >
+      {reviewStatus === 'approved'
+        ? '社内承認済み'
+        : reviewStatus === 'changes_requested'
+        ? '差し戻し'
+        : '社内承認待ち'}
+    </span>
+  )
+}
+
+export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent = false, onStatusChange, reviewStatus: rawReviewStatus, awaitingMyApproval = false, assigneeName, isNew = false, bulkMode = false, isChecked = false, onCheckChange, onContextMenu, isMobile = false, now }: TaskRowProps) {
   // 取消済みレビューは「レビュー無し」と同じ扱い（バッジ非表示・再依頼クイックアクション表示）
   const reviewStatus = rawReviewStatus === 'cancelled' ? undefined : rawReviewStatus
+  // 自分の番の承認。承認済み・差し戻し・取り消しになった依頼には出さない（一覧の状態のほうが新しいことがある）
+  const isMyApprovalTurn = awaitingMyApproval && (rawReviewStatus === undefined || rawReviewStatus === 'open')
   const formattedDueDate = formatDate(task.due_date)
   const overdue = task.status !== 'done' && isOverdue(task.due_date)
   const clientWaitingDays =
@@ -344,15 +388,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
                 {task.title.startsWith('[BUG]') ? 'バグ報告' : task.title.startsWith('[Q&A]') ? '質問' : 'クライアント'}
               </span>
             )}
-            {reviewStatus && (
-              <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                reviewStatus === 'approved' ? 'bg-green-50 text-green-700'
-                  : reviewStatus === 'changes_requested' ? 'bg-red-50 text-red-700'
-                  : 'bg-amber-50 text-amber-700'
-              }`}>
-                {reviewStatus === 'approved' ? '社内承認済み' : reviewStatus === 'changes_requested' ? '差し戻し' : '社内承認待ち'}
-              </span>
-            )}
+            <ReviewStatusBadge reviewStatus={reviewStatus} isMyTurn={isMyApprovalTurn} className="flex-shrink-0" />
             {task.type === 'spec' && (
               <Tooltip content="仕様タスク: 決定が必要な仕様に紐づくタスク">
                 <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">SPEC</span>
@@ -514,23 +550,7 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         )}
 
         {/* Review status badge */}
-        {reviewStatus && (
-          <span
-            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-              reviewStatus === 'approved'
-                ? 'bg-green-50 text-green-700'
-                : reviewStatus === 'changes_requested'
-                ? 'bg-red-50 text-red-700'
-                : 'bg-amber-50 text-amber-700'
-            }`}
-          >
-            {reviewStatus === 'approved'
-              ? '社内承認済み'
-              : reviewStatus === 'changes_requested'
-              ? '差し戻し'
-              : '社内承認待ち'}
-          </span>
-        )}
+        <ReviewStatusBadge reviewStatus={reviewStatus} isMyTurn={isMyApprovalTurn} />
       </div>
 
       {/* Due date */}
@@ -545,8 +565,8 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         </div>
       )}
 
-      {/* Quick review action for in_review tasks without review */}
-      {task.status === 'in_review' && !reviewStatus && (
+      {/* Quick review action for in_review tasks without review（自分が頼まれている依頼があるなら出さない） */}
+      {task.status === 'in_review' && !reviewStatus && !isMyApprovalTurn && (
         <button
           type="button"
           onClick={(e) => {

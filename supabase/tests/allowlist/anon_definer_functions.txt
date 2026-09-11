@@ -1,0 +1,31 @@
+# anon（未ログイン）が実行できる SECURITY DEFINER の関数の許容リスト（scripts/verify-migrations-from-scratch.sh の検査 3）
+# 全 migration を流したあとの一覧から作った（2026-09-11・*_function_default_privileges.sql の時点）。
+# トリガー関数は直接呼べないので、検査にもこの一覧にも入れない。
+# ここに無い関数を anon が実行できると verify が落ちる。anon から呼ぶ必要が無い関数は revoke して、この一覧から消していく。
+# 1 行 1 関数（public.関数名(引数の型)）。# から始まる行と空行は読み飛ばす。
+public.app_can_access_space(uuid,uuid)
+public.app_is_org_internal(uuid)
+public.app_is_org_member(uuid)
+public.app_is_space_member(uuid)
+public.app_is_space_vendor(uuid)
+public.app_task_visible_to_caller(uuid,uuid,text,text)
+public.mfa_pre_request()
+public.mfa_satisfied()
+public.rpc_apply_preset_to_space(uuid,text,jsonb,jsonb,boolean)
+public.rpc_decide_considering(uuid,text,text,text,uuid,uuid)
+public.rpc_generate_meeting_minutes(uuid)
+public.rpc_get_minutes_preview(uuid,text)
+public.rpc_get_org_members(uuid)
+public.rpc_get_space_members(uuid)
+public.rpc_invoke_meeting_minutes_email(uuid)
+public.rpc_is_superadmin()
+public.rpc_meeting_end(uuid)
+public.rpc_meeting_start(uuid)
+public.rpc_parse_meeting_minutes(uuid,text)
+public.rpc_pass_ball(uuid,text,uuid[],uuid[],text,uuid)
+public.rpc_review_approve(uuid,uuid)
+public.rpc_review_block(uuid,text,uuid)
+public.rpc_review_cancel(uuid)
+public.rpc_review_open(uuid,uuid[],uuid)
+public.rpc_set_spec_state(uuid,text,uuid,text)
+public.rpc_validate_invite(text)

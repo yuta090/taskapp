@@ -6,6 +6,14 @@
 #   supabase/migrations には存在しなかった。そのため 20260703_010 / 20260706003903 が
 #   存在しない列を参照し、空DBからの再構築が不可能だった。
 #
+# あわせて、全 migration を流したあとの状態を検査する:
+#   - 二要素認証の RESTRICTIVE ポリシーが全 RLS テーブルにある・authenticator の pre-request
+#   - 関数の実行権（public に作る関数は既定で誰にも付かない。*_function_default_privileges.sql）:
+#       1) RLS のポリシーが直接呼ぶ public の関数を authenticated が実行できる
+#       2) 実行権（proacl）が null の public の関数が無い（トリガー関数・拡張の関数は除く）
+#       3) anon が実行できる SECURITY DEFINER の関数が、許容リスト（supabase/tests/allowlist/anon_definer_functions.txt）の中だけ
+#     関数の実行権は本番の Supabase と同じ既定（supabase/tests/harness/supabase_function_default_acl.sql）の上で見る。
+#
 # 前提: PostgreSQL 17 が入っていること（本番と同じメジャーバージョン）
 #   brew install postgresql@17
 #
@@ -26,11 +34,24 @@ pg_isready -h "$HOST" -p "$PORT" -q || {
   exit 1
 }
 
-cleanup() { psql -h "$HOST" -p "$PORT" -U postgres -q -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true; }
+# 後片付け。最後の確認まで来なかったときは、0 で終わらせない
+#   （bash は未定義の変数などで途中で落ちると、ここで $? が 0 になることがある）
+finished=0
+cleanup() {
+  local rc=$?
+  psql -h "$HOST" -p "$PORT" -U postgres -q -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true
+  if [ "$rc" -eq 0 ] && [ "$finished" -ne 1 ]; then
+    echo "❌ 検証が途中で止まりました（上のメッセージを確認してください）"
+    rc=1
+  fi
+  exit "$rc"
+}
 trap cleanup EXIT
 
 psql -h "$HOST" -p "$PORT" -U postgres -q -c "create database \"$DB\";"
 psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -f supabase/tests/_local_bootstrap.sql
+# 本番の Supabase と同じ「関数の既定の実行権」（無いと下の関数の実行権の検査が確かめにならない）
+psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -f supabase/tests/harness/supabase_function_default_acl.sql
 
 applied=0
 for f in $(ls supabase/migrations/*.sql | sort); do
@@ -58,4 +79,52 @@ if [ "$prereq" != "1" ]; then
   exit 1
 fi
 
-echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし・pre-request 設定あり）"
+# 関数の実行権（public に作る関数は既定で誰にも付かない）。3つとも見てから落とす
+fn_failed=0
+
+# 1) RLS のポリシー（authenticated か PUBLIC に効くもの）が直接呼ぶ public の関数は、authenticated が実行できる
+#    （実行できないと、そのポリシーのある表を読む・書くたびに権限エラーになる）
+no_exec=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select string_agg(distinct p.oid::regprocedure::text, ', ') from pg_policy pol join pg_depend d on d.classid = 'pg_policy'::regclass and d.objid = pol.oid and d.refclassid = 'pg_proc'::regclass join pg_proc p on p.oid = d.refobjid where p.pronamespace = 'public'::regnamespace and pol.polroles && array[0::oid, 'authenticated'::regrole::oid] and not has_function_privilege('authenticated', p.oid, 'execute')")
+if [ -n "$no_exec" ]; then
+  echo "❌ RLS のポリシーが呼ぶ関数を authenticated が実行できません: ${no_exec}"
+  echo "   → その関数を作った migration に grant execute on function … to authenticated を足してください"
+  fn_failed=1
+fi
+
+# 2) 実行権（proacl）が null の public の関数は無い（null = 組み込みの既定で PUBLIC が実行できる。トリガー関数・拡張の関数は除く）
+null_acl=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -t -A -c "select string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proacl is null and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype) and not exists (select 1 from pg_depend e where e.classid = 'pg_proc'::regclass and e.objid = p.oid and e.deptype = 'e')")
+if [ -n "$null_acl" ]; then
+  echo "❌ 実行権が決まっていない（proacl が null の）関数: ${null_acl}"
+  echo "   → 作った migration で revoke … from public, anon, authenticated → 呼ぶ役割にだけ grant してください"
+  fn_failed=1
+fi
+
+# 3) anon（未ログイン）が実行できる SECURITY DEFINER の関数は、許容リストの中だけ（名前は public.関数名(引数の型)）
+#    トリガー関数は直接呼べない（トリガーとしてしか動かない）ので除く
+allow=supabase/tests/allowlist/anon_definer_functions.txt
+anon_now=$(psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -q -t -A -c "set search_path = ''" -c "select p.oid::regprocedure::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype) and has_function_privilege('anon', p.oid, 'execute')" | LC_ALL=C sort)
+if [ ! -f "$allow" ]; then
+  echo "❌ 許容リストがありません: ${allow}"
+  fn_failed=1
+else
+  allowed=$({ grep -vE '^[[:space:]]*(#|$)' "$allow" || true; } | LC_ALL=C sort)
+  extra=$(LC_ALL=C comm -23 <(printf '%s\n' "$anon_now") <(printf '%s\n' "$allowed") | grep -v '^$' || true)
+  stale=$(LC_ALL=C comm -13 <(printf '%s\n' "$anon_now") <(printf '%s\n' "$allowed") | grep -v '^$' || true)
+  if [ -n "$extra" ]; then
+    echo "❌ anon（未ログイン）が実行できる SECURITY DEFINER の関数が、許容リスト（${allow}）の外にあります:"
+    printf '%s\n' "$extra" | sed 's/^/   /'
+    echo "   → anon から呼ぶ必要が無ければ revoke execute … from anon。必要なら許容リストに足す"
+    fn_failed=1
+  fi
+  if [ -n "$stale" ]; then
+    echo "ℹ️  許容リストにあるが、もう anon が実行できない関数（リストから消してよい）:"
+    printf '%s\n' "$stale" | sed 's/^/   /'
+  fi
+fi
+
+if [ "$fn_failed" -ne 0 ]; then
+  exit 1
+fi
+
+finished=1
+echo "✅ 空DBから ${applied} 件の migration を適用できました（二要素認証ポリシーの漏れなし・pre-request 設定あり・関数の実行権の検査を通過）"

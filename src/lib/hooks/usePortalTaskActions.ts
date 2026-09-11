@@ -69,6 +69,10 @@ export function usePortalTaskActions({ onActionStart }: UsePortalTaskActionsOpti
             const error = await response.json().catch(() => ({}))
             toast.error(error.error || 'コメントを入力してください。')
           }
+          // 409 は reason: 'blocked'（業務ルール待ち）でも取り直す。この一覧は
+          // 開いた時点の見積もり状態でボタンを出し分けているため、画面を開いた
+          // 後に社内側が見積もりを送る等して状態が変わった場合、取り直さないと
+          // 古いボタンが残ったまま先に進めなくなる。
           startTransition(() => router.refresh())
           return
         }

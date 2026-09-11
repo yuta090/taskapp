@@ -40,26 +40,6 @@ interface ApiKey {
   allowed_actions: string[]
 }
 
-// Generate a random API key
-function generateApiKey(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  const prefix = 'tsk_'
-  let key = prefix
-  for (let i = 0; i < 32; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return key
-}
-
-// SHA-256 hash function
-async function hashKey(key: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(key)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 export default function ApiKeysSettingsPage() {
   const { confirm, ConfirmDialog } = useConfirmDialog()
   const { user, loading: userLoading } = useCurrentUser()
@@ -129,18 +109,12 @@ export default function ApiKeysSettingsPage() {
     try {
       if (!user) throw new Error('認証が必要です')
 
-      // Generate key
-      const rawKey = generateApiKey()
-      const keyHash = await hashKey(rawKey)
-      const keyPrefix = rawKey.substring(0, 12) + '...'
-
+      // キーの本体はサーバー側で作る（画面では作らない）。応答に一度だけ平文が入る
       const response = await fetch('/api/keys/user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newKeyName.trim(),
-          keyHash,
-          keyPrefix,
           allowedSpaceIds: selectedSpaces,
           allowedActions,
         }),
@@ -148,9 +122,14 @@ export default function ApiKeysSettingsPage() {
 
       const result = await response.json()
       if (!response.ok) throw new Error(result.error)
+      // サーバーから平文キーを受け取れていなければ、入力欄を空にする前に失敗として扱う
+      // （消してしまうと、キーを画面に出せないまま入力し直しもできなくなる）
+      if (typeof result.key !== 'string' || !result.key) {
+        throw new Error('サーバーからキーを受け取れませんでした')
+      }
 
       // Show the key (only once)
-      setNewlyCreatedKey(rawKey)
+      setNewlyCreatedKey(result.key)
       setNewKeyName('')
       setSelectedSpaces([])
       setAllowedActions(['read'])

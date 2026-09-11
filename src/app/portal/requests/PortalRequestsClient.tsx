@@ -23,6 +23,8 @@ interface Request {
   type: 'task' | 'spec'
   createdAt: string
   description: string | null
+  estimatedCost?: number | null
+  estimateStatus?: 'none' | 'pending' | 'approved' | 'rejected'
 }
 
 interface PortalRequestsClientProps {
@@ -84,7 +86,12 @@ export function PortalRequestsClient({
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null)
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
 
-  const { handleApprove, handleRequestChanges } = usePortalTaskActions({
+  const {
+    handleApprove,
+    handleRequestChanges,
+    handleEstimateApprove,
+    handleEstimateReject,
+  } = usePortalTaskActions({
     onActionStart: () => setSelectedRequest(null),
   })
 
@@ -102,6 +109,13 @@ export function PortalRequestsClient({
     selectedRequest != null &&
     selectedRequest.ball === 'client' &&
     selectedRequest.status !== 'done'
+  // 見積もり確認待ちは通常の承認/修正依頼ではなく見積もりの承認・却下を渡す。
+  // 通常のハンドラを渡すと押した瞬間にサーバーが409(見積もり確認が必要)で
+  // 断ってしまい先に進めなくなる（要対応一覧と同じ切り分け）。
+  const isEstimatePending =
+    isApprovable &&
+    selectedRequest!.estimateStatus === 'pending' &&
+    selectedRequest!.estimatedCost != null
 
   const inspector = selectedRequest ? (
     <PortalTaskInspector
@@ -113,10 +127,14 @@ export function PortalRequestsClient({
         dueDate: selectedRequest.dueDate,
         type: selectedRequest.type,
         createdAt: selectedRequest.createdAt,
+        estimatedCost: selectedRequest.estimatedCost,
+        estimateStatus: selectedRequest.estimateStatus,
       }}
       onClose={() => setSelectedRequest(null)}
-      onApprove={isApprovable ? handleApprove : undefined}
-      onRequestChanges={isApprovable ? handleRequestChanges : undefined}
+      onApprove={isApprovable && !isEstimatePending ? handleApprove : undefined}
+      onRequestChanges={isApprovable && !isEstimatePending ? handleRequestChanges : undefined}
+      onEstimateApprove={isEstimatePending ? handleEstimateApprove : undefined}
+      onEstimateReject={isEstimatePending ? handleEstimateReject : undefined}
     />
   ) : null
 

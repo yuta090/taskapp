@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { createHash } from 'node:crypto'
 
 /**
  * /api/keys/user — user-scoped API key management.
@@ -32,7 +33,7 @@ let apiKeysSelectColumns: string[] = []
 /** 選ばれたプロジェクトの所属確認で取った列（役割を取っているかの確認用） */
 let accessibleSpaceColumns: string[] = []
 
-const insertMock = vi.fn(() => ({
+const insertMock = vi.fn((_payload: Record<string, unknown>) => ({
   select: vi.fn(() => ({
     single: vi.fn(() => Promise.resolve(insertResponse)),
   })),
@@ -127,8 +128,6 @@ function callGet() {
 
 const basePostBody = {
   name: 'CLI Key',
-  keyHash: 'hashed-value',
-  keyPrefix: 'sk_live_ab',
   allowedSpaceIds: [SPACE_A],
   allowedActions: ['read'],
 }
@@ -162,7 +161,7 @@ describe('POST /api/keys/user', () => {
   })
 
   it('returns 400 when required fields are missing', async () => {
-    const response = await callPost({ name: 'x', keyHash: 'y', keyPrefix: 'z', allowedSpaceIds: [] })
+    const response = await callPost({ name: 'x', allowedSpaceIds: [] })
 
     expect(response.status).toBe(400)
     expect(insertMock).not.toHaveBeenCalled()
@@ -289,6 +288,62 @@ describe('POST /api/keys/user', () => {
 
     expect(response.status).toBe(200)
     expect(insertMock).toHaveBeenCalled()
+  })
+})
+
+// APIキーは推測できない乱数からサーバー側で作る。画面（ブラウザ）から届いたキー・ハッシュは信用しない
+describe('POST /api/keys/user — key generation happens on the server', () => {
+  it('creates the key even when the browser sends no keyHash/keyPrefix at all', async () => {
+    const response = await callPost({ name: 'CLI Key', allowedSpaceIds: [SPACE_A], allowedActions: ['read'] })
+
+    expect(response.status).toBe(200)
+    expect(insertMock).toHaveBeenCalled()
+  })
+
+  // 本番切り替え直後、開きっぱなしの古い画面（ブラウザ側でキーを作る旧版）が
+  // 自分で作った keyHash/keyPrefix を送ってくることがある。黙って無視すると、
+  // 画面に表示済みのキーが実際には保存されていない（＝使えない）という事故になるため、作らずに断る
+  it('rejects with 400 and does not create a key when the browser sends keyHash', async () => {
+    const response = await callPost({ ...basePostBody, keyHash: 'client-made-hash' })
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toContain('再読み込み')
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects with 400 and does not create a key when the browser sends keyPrefix', async () => {
+    const response = await callPost({ ...basePostBody, keyPrefix: 'client_prefix' })
+    const data = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(data.error).toContain('再読み込み')
+    expect(insertMock).not.toHaveBeenCalled()
+  })
+
+  it('returns a plaintext key (tsk_ + 32 alphanumerics) whose SHA-256 matches the stored hash', async () => {
+    const response = await callPost(basePostBody)
+    const data = await response.json()
+
+    expect(data.key).toMatch(/^tsk_[A-Za-z0-9]{32}$/)
+    const inserted = insertMock.mock.calls.at(-1)?.[0] as { key_hash: string }
+    expect(inserted.key_hash).toBe(createHash('sha256').update(data.key).digest('hex'))
+  })
+
+  it('marks the response as non-cacheable, since it carries a one-time plaintext key', async () => {
+    const response = await callPost(basePostBody)
+
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('generates a different key on every call', async () => {
+    await callPost(basePostBody)
+    const first = (insertMock.mock.calls.at(-1)?.[0] as { key_hash: string }).key_hash
+
+    await callPost(basePostBody)
+    const second = (insertMock.mock.calls.at(-1)?.[0] as { key_hash: string }).key_hash
+
+    expect(first).not.toBe(second)
   })
 })
 

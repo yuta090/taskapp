@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Tray,
@@ -20,6 +20,8 @@ import {
 import { EmptyState, ErrorRetry, LoadingState, TruncatedText } from '@/components/shared'
 import { WARNING } from '@/lib/design/tokens'
 import { useNotifications, type NotificationWithPayload } from '@/lib/hooks/useNotifications'
+import { useUnreadNotificationCount } from '@/lib/hooks/useUnreadNotificationCount'
+import { INBOX_UNREAD_LIMIT } from '@/lib/notifications/inboxLimits'
 import { isActionableNotification } from '@/lib/notifications/classify'
 import { isSafeInternalPath } from '@/lib/auth/safeRedirect'
 import { useInspector } from '@/components/layout'
@@ -185,10 +187,13 @@ function formatTimeAgo(dateString: string): string {
 interface NotificationItemProps {
   notification: NotificationWithPayload
   isSelected: boolean
-  onClick: () => void
+  /** 押された通知の id を受け取る。行ごとに新しい関数を作らないので、memo で描き直しを省ける */
+  onSelect: (id: string) => void
 }
 
-function NotificationItem({ notification, isSelected, onClick }: NotificationItemProps) {
+// 一覧は新しい50件＋未読（最大200件）。↑↓ で移るたび・既読になるたびに全行を描き直さないよう memo にする
+const NotificationItem = memo(function NotificationItem({ notification, isSelected, onSelect }: NotificationItemProps) {
+  const onClick = () => onSelect(notification.id)
   const isUnread = notification.read_at === null
   const payload = notification.payload
   const isUrgent = payload.urgent === true
@@ -261,15 +266,24 @@ function NotificationItem({ notification, isSelected, onClick }: NotificationIte
       </div>
     </div>
   )
-}
+})
 
 export default function InboxClient() {
   const searchParams = useSearchParams()
   const { setInspector } = useInspector()
   const { notifications, loading, error, fetchNotifications, markAsRead, markAsActioned, markAllAsRead } = useNotifications()
 
+  // 全体の未読（左メニューのバッジと同じ件数・同じキャッシュ）。一覧に読み込むのは新しい50件＋未読（最大200件）なので、
+  // それより古い未読がたまっていれば、一覧の下に件数だけ出す
+  const { count: totalUnreadCount } = useUnreadNotificationCount()
+
   const selectedId = searchParams.get('id')
-  const unreadCount = notifications.filter(n => n.read_at === null).length
+  const loadedUnreadCount = notifications.filter(n => n.read_at === null).length
+  // 見出しの件数はバッジとそろえる（全体の件数がまだ届いていないときは、読み込んだ分を出す）
+  const unreadCount = Math.max(loadedUnreadCount, totalUnreadCount)
+  // 未読を上限まで読み込んでも全体のほうが多い＝さらに古い未読がある。上限に届いていないのに全体のほうが多いのは、
+  // 一覧を読んだあとに届いた分（一覧を取り直せば出る）なので「さらに古い」とは出さない
+  const olderUnreadCount = loadedUnreadCount >= INBOX_UNREAD_LIMIT ? unreadCount - loadedUnreadCount : 0
 
   // ── Filter state ──
   const [readFilter, setReadFilter] = useState<ReadFilter>('all')
@@ -339,11 +353,6 @@ export default function InboxClient() {
       selectNotification(filteredNotifications[newIndex].id)
     }
   }, [selectedIndex, filteredNotifications, selectNotification])
-
-  // Handle notification click
-  const handleNotificationClick = useCallback((notification: NotificationWithPayload) => {
-    selectNotification(notification.id)
-  }, [selectNotification])
 
   // Handle close inspector
   const handleCloseInspector = useCallback(() => {
@@ -563,10 +572,16 @@ export default function InboxClient() {
                 key={notification.id}
                 notification={notification}
                 isSelected={notification.id === selectedId}
-                onClick={() => handleNotificationClick(notification)}
+                onSelect={selectNotification}
               />
             ))}
           </div>
+        )}
+
+        {!loading && !error && olderUnreadCount > 0 && (
+          <p className="px-4 py-3 text-xs text-gray-500">
+            さらに古い未読が {olderUnreadCount} 件あります。「すべて既読」で片付けられます。
+          </p>
         )}
       </div>
     </div>

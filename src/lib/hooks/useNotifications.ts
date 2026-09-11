@@ -8,6 +8,7 @@ import type { Notification, Json } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 import { unreadCountQueryKey, type UnreadCountData } from '@/lib/hooks/useUnreadNotificationCount'
+import { INBOX_RECENT_LIMIT, INBOX_UNREAD_LIMIT } from '@/lib/notifications/inboxLimits'
 
 export interface NotificationWithPayload extends Omit<Notification, 'payload'> {
   /** Set when user completes an action (approve, start work, etc.) — distinct from read_at */
@@ -58,6 +59,18 @@ export interface UseNotificationsState {
   markAllAsRead: () => Promise<void>
 }
 
+type NotificationRow = NotificationWithPayload & { spaces?: { name: string } | null }
+
+/** 新しい50件と未読をまとめる（両方に入っているお知らせは1件に）。新しい順に並べる */
+function mergeNewestFirst(recent: NotificationRow[], unread: NotificationRow[]): NotificationRow[] {
+  const byId = new Map<string, NotificationRow>()
+  for (const n of [...recent, ...unread]) {
+    if (!byId.has(n.id)) byId.set(n.id, n)
+  }
+  return [...byId.values()].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )
+}
 
 export function useNotifications(): UseNotificationsState {
   const queryClient = useQueryClient()
@@ -85,24 +98,33 @@ export function useNotifications(): UseNotificationsState {
       const { user, error: userError } = await getCachedUser(supabase)
       if (userError || !user) return []
 
-      let query = (supabase as SupabaseClient)
-        .from('notifications')
-        .select('*, spaces(name)')
-        .eq('to_user_id', user.id)
-        .eq('channel', 'in_app')
-        .order('created_at', { ascending: false })
-        .limit(50)
-
-      if (activeOrgId) {
-        query = query.eq('org_id', activeOrgId)
+      const baseQuery = () => {
+        let query = (supabase as SupabaseClient)
+          .from('notifications')
+          .select('*, spaces(name)')
+          .eq('to_user_id', user.id)
+          .eq('channel', 'in_app')
+        if (activeOrgId) {
+          query = query.eq('org_id', activeOrgId)
+        }
+        return query
       }
 
-      const { data: fetchData, error: fetchError } = await query
+      // 新しい50件と、未読（上限まで）を同時に読む（待ちを直列にしない）
+      const [recentResult, unreadResult] = await Promise.all([
+        baseQuery().order('created_at', { ascending: false }).limit(INBOX_RECENT_LIMIT),
+        baseQuery().is('read_at', null).order('created_at', { ascending: false }).limit(INBOX_UNREAD_LIMIT),
+      ])
 
-      if (fetchError) throw fetchError
+      if (recentResult.error) throw recentResult.error
+      // 未読が読めないときは一覧もエラーにする（一部だけ出して「全部読んだ」と見せない）
+      if (unreadResult.error) throw unreadResult.error
 
       // Flatten joined space name into space_name field
-      return (fetchData || []).map((n: NotificationWithPayload & { spaces?: { name: string } | null }) => ({
+      return mergeNewestFirst(
+        (recentResult.data ?? []) as NotificationRow[],
+        (unreadResult.data ?? []) as NotificationRow[]
+      ).map((n) => ({
         ...n,
         space_name: n.spaces?.name ?? null,
       }))
