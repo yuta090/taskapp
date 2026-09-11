@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { VendorPortalShell } from '@/components/vendor-portal'
-import { createClient } from '@/lib/supabase/client'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { getBallStatusLabel } from '@/lib/agency/labels'
+import { VENDOR_TASK_STATUSES, isVendorTaskStatus } from '@/lib/vendor/vendorStatuses'
 
 interface Task {
   id: string
@@ -63,10 +62,6 @@ export function VendorTasksClient({
   const [filter, setFilter] = useState<FilterType>('all')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (supabaseRef.current == null) supabaseRef.current = createClient()
-  const supabase = supabaseRef.current
-
   const filteredTasks = useMemo(() => {
     if (filter === 'all') return tasks
     if (filter === 'vendor') return tasks.filter((t) => t.ball === 'vendor')
@@ -88,19 +83,35 @@ export function VendorTasksClient({
       // Optimistic update
       setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)))
 
-      const { error } = await (supabase as SupabaseClient)
-        .from('tasks')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', taskId)
+      // 表示がまだこの変更で入れた値のときだけ戻す。応答が返る前に別の変更が
+      // 先に進んでいたら、古い失敗でその新しい表示を巻き戻してはいけない。
+      const revert = () =>
+        setTasks((ts) =>
+          ts.map((t) => (t.id === taskId && t.status === newStatus ? { ...t, status: prev.status } : t))
+        )
 
-      if (error) {
-        setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, status: prev.status } : t)))
+      try {
+        const response = await fetch(`/api/vendor-portal/tasks/${taskId}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
+        })
+
+        if (response.ok) {
+          toast.success('ステータスを更新しました')
+          return
+        }
+
+        const body = await response.json().catch(() => ({}))
+        revert()
+        toast.error(body.error || 'ステータスの更新に失敗しました')
+      } catch (error) {
+        console.error('Vendor task status change failed:', error)
+        revert()
         toast.error('ステータスの更新に失敗しました')
-      } else {
-        toast.success('ステータスを更新しました')
       }
     },
-    [tasks, supabase]
+    [tasks]
   )
 
   return (
@@ -176,20 +187,32 @@ export function VendorTasksClient({
                     </span>
                   )}
 
-                  {/* Status select */}
-                  <select
-                    value={task.status}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => handleStatusChange(task.id, e.target.value)}
-                    className={`flex-shrink-0 px-2 py-1 text-xs rounded-md border-0 cursor-pointer focus:ring-1 focus:ring-indigo-300 ${
-                      STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    <option value="backlog">{STATUS_LABELS.backlog}</option>
-                    <option value="todo">{STATUS_LABELS.todo}</option>
-                    <option value="in_progress">{STATUS_LABELS.in_progress}</option>
-                    <option value="in_review">{STATUS_LABELS.in_review}</option>
-                  </select>
+                  {/* Status: 変更できる4状態のときだけ選択肢を出す。それ以外
+                      （完了・検討中など）は状態名の表示だけにする。 */}
+                  {isVendorTaskStatus(task.status) ? (
+                    <select
+                      value={task.status}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleStatusChange(task.id, e.target.value)}
+                      className={`flex-shrink-0 px-2 py-1 text-xs rounded-md border-0 cursor-pointer focus:ring-1 focus:ring-indigo-300 ${
+                        STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {VENDOR_TASK_STATUSES.map((value) => (
+                        <option key={value} value={value}>
+                          {STATUS_LABELS[value]}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span
+                      className={`flex-shrink-0 px-2 py-1 text-xs rounded-md ${
+                        STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {STATUS_LABELS[task.status] || task.status}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
