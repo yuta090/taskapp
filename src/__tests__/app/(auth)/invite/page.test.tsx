@@ -89,6 +89,7 @@ function fulfilledParams<T>(value: T): Promise<T> {
 }
 
 let locationAssignSpy: ReturnType<typeof vi.fn>
+let locationReloadSpy: ReturnType<typeof vi.fn>
 
 function renderPage() {
   return render(
@@ -107,8 +108,9 @@ describe('InviteAcceptPage — 受諾動線', () => {
     mockFetch.mockResolvedValue(acceptResponse())
     mockSignInWithPassword.mockResolvedValue({ error: null })
     locationAssignSpy = vi.fn()
+    locationReloadSpy = vi.fn()
     Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign: locationAssignSpy },
+      value: { ...window.location, assign: locationAssignSpy, reload: locationReloadSpy },
       writable: true,
     })
   })
@@ -204,8 +206,10 @@ describe('InviteAcceptPage — 受諾動線', () => {
 
   // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
   // 実際には破棄されておらず、受諾成功直後に維持している loading を戻す機会が無いまま
-  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
-  it('受諾成功後にbfcacheから復元されたら、ボタンのローディングを解除する', async () => {
+  // ボタンが永久に押せなくなる。招待の受諾は取り消せない（受諾済みトークンで再送信すると
+  // 「招待リンクが無効です」になる）ため、loading を戻すだけでなく reload() してこのページ
+  // 自身の実際の状態から作り直す（コードレビュー指摘）。
+  it('受諾成功後にbfcacheから復元されたら、ページを reload() する（loading解除だけにしない）', async () => {
     renderPage()
 
     await waitFor(() => {
@@ -226,7 +230,7 @@ describe('InviteAcceptPage — 受諾動線', () => {
     Object.defineProperty(event, 'persisted', { value: true })
     fireEvent(window, event)
 
-    expect(screen.getByRole('button', { name: 'アカウントを作成して参加' })).not.toBeDisabled()
+    expect(locationReloadSpy).toHaveBeenCalledTimes(1)
   })
 
   it('無効なトークンはエラーカードを表示（回帰）', async () => {

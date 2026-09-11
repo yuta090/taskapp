@@ -169,8 +169,12 @@ async function proxyCore(request: NextRequest): Promise<NextResponse> {
   // セキュリティモデル:
   // - middlewareはルーティング層（認証済みか否かでページ振り分け）
   // - 実際のセキュリティ境界はSupabase RLS（全データクエリでtoken検証）
-  // - cookieはSameSite + Secureで保護（実際は httpOnly: false — @supabase/ssr の既定で
-  //   ブラウザJSからも読める。改竄不可という意味ではなく、署名検証はSupabase Auth側で行う）
+  // - cookieの実体は @supabase/ssr 0.8.0 の DEFAULT_COOKIE_OPTIONS（path:'/', sameSite:'lax',
+  //   httpOnly:false）— secure は既定で付与されない（明示的に上書きしていない限り無し）。
+  //   ここで呼んでいる getSession() もJWTの署名検証はしない（ローカルのJWTをデコードして
+  //   期限だけ見る）。署名検証は実際にデータへアクセスする段（Supabase Auth API・RLS）で行う
+  //   ため、このブロックの getSession() は「未認証かどうかのルーティング判定」以上の
+  //   セキュリティ境界ではない
   // - 仮にsessionが不正でも、RLSがデータアクセスをブロック
   if (!needsServerVerification) {
     const { data: { session } } = await supabase.auth.getSession()

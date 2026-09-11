@@ -153,6 +153,14 @@ export async function signOutAndLeave({
       clearSupabaseAuthCookies()
     }
   } finally {
+    // isSignOutInProgress() の旗は関数の開始時に一度だけ立てているため、push解除や
+    // signOut() 自体が遅い回線で10秒（SIGN_OUT_IN_PROGRESS_WINDOW_MS）を超えて掛かると、
+    // ここに来る前に自然失効してしまう。失効した状態で clearQueryCacheBounded() や
+    // 遷移までの間隙があると、QueryProvider の persister（`!isSignOutInProgress()` の間だけ
+    // 書き込む）が taskapp-query-cache:<uid> を wipe 後・unload 前に再書き込みしてしまう
+    // 恐れがある。IDB削除・遷移の直前でもう一度旗を立て直し、その間ずっと有効にしておく
+    signOutInProgressAt = Date.now()
+
     // signOut() の成否に関わらず、遷移する前に必ず IDB のクエリキャッシュを消す
     // （タイムアウトで打ち切られるので、ここが離脱を止めることはない）
     await clearQueryCacheBounded()

@@ -255,6 +255,36 @@ describe('signOutAndLeave', () => {
       expect(callOrder).toEqual(['clearQueryCache', 'replace'])
     })
 
+    it('clearQueryCache が reject しても、離脱する（try/catch を外しても検知できる回帰）', async () => {
+      mockClearQueryCache.mockRejectedValue(new Error('idb'))
+
+      await expect(signOutAndLeave({ to: '/login' })).resolves.toBeUndefined()
+
+      expect(replaceSpy).toHaveBeenCalledWith('/login')
+    })
+
+    it('clearQueryCache が解決するまで location.replace を呼ばない（await を外しても検知できる順序の回帰）', async () => {
+      let resolveClear!: () => void
+      mockClearQueryCache.mockImplementation(
+        () => new Promise<void>((resolve) => { resolveClear = resolve })
+      )
+
+      const promise = signOutAndLeave({ to: '/login' })
+
+      // clearQueryCache は永久に解決しないpromiseで止まっているので、マイクロタスクを
+      // 何度flushしても（=事前の await cleanupPushOnLogout / await signOut() を全て
+      // 通過しきっても）それ以上先には進まない。replace が「await していなくても
+      // 呼ばれてしまう」実装（clearQueryCacheBounded() の呼び出しから await を外す）を
+      // 検知するための回帰テスト
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+      expect(replaceSpy).not.toHaveBeenCalled()
+
+      resolveClear()
+      await promise
+
+      expect(replaceSpy).toHaveBeenCalledWith('/login')
+    })
+
     it('clearQueryCache が解決しなくても、タイムアウトで打ち切って離脱する', async () => {
       vi.useFakeTimers()
       try {
@@ -313,6 +343,44 @@ describe('signOutAndLeave', () => {
 
         dateSpy.mockReturnValue(1_000_000 + 10_000)
         expect(fresh.isSignOutInProgress()).toBe(false)
+      } finally {
+        dateSpy.mockRestore()
+      }
+    })
+
+    // signOutInProgressAt は関数の開始時に一度立てるだけだと、push解除や signOut() 自体が
+    // 遅い回線で10秒を超えて掛かったときに失効してしまい、QueryProvider の persister
+    // （!isSignOutInProgress() の間だけ書き込む）が wipe と unload の間に
+    // taskapp-query-cache:<uid> を再書き込みしてしまう恐れがある。IDB削除・遷移の直前で
+    // 旗を立て直すことの回帰テスト
+    it('signOut()が10秒を超えて掛かっても、IDB削除・遷移の直前でもう一度旗を立て直し有効にし続ける', async () => {
+      vi.resetModules()
+      const fresh = await import('@/lib/auth/signOutClient')
+      const dateSpy = vi.spyOn(Date, 'now')
+      try {
+        dateSpy.mockReturnValue(1_000_000)
+
+        let observedAtClear: boolean | null = null
+        let observedAtReplace: boolean | null = null
+
+        mockSignOut.mockImplementation(() => {
+          // 遅い回線を模して、signOut() が解決する時点では既に10秒
+          // （SIGN_OUT_IN_PROGRESS_WINDOW_MS）を超えて経過している
+          dateSpy.mockReturnValue(1_000_000 + 11_000)
+          return Promise.resolve({ error: null })
+        })
+        mockClearQueryCache.mockImplementation(() => {
+          observedAtClear = fresh.isSignOutInProgress()
+          return Promise.resolve()
+        })
+        replaceSpy.mockImplementation(() => {
+          observedAtReplace = fresh.isSignOutInProgress()
+        })
+
+        await fresh.signOutAndLeave({ to: '/login' })
+
+        expect(observedAtClear).toBe(true)
+        expect(observedAtReplace).toBe(true)
       } finally {
         dateSpy.mockRestore()
       }

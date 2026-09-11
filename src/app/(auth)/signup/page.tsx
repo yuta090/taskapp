@@ -54,8 +54,11 @@ function SignupForm() {
 
   // 成功後は window.location.assign() がページを破棄するまでローディングを維持し続ける設計
   // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
-  // ページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
-  useResetOnBfcacheRestore(() => setLoading(false))
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。
+  // アカウント作成は取り消せない（成功後に再送信すると「既に登録されています」になる）ため、
+  // loading を戻すだけでは古い（作成前の）画面のまま再入力させてしまう。reload() して
+  // このページ自身の実際の状態から作り直す（例: メール確認要の場合は成功画面を再表示できる）
+  useResetOnBfcacheRestore(() => window.location.reload())
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

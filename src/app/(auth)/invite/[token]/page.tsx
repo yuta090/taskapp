@@ -42,8 +42,11 @@ export default function InviteAcceptPage({
 
   // 受諾成功後は window.location.assign() がページを破棄するまで loading を維持し続ける設計
   // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
-  // ページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
-  useResetOnBfcacheRestore(() => setLoading(false))
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。
+  // 招待の受諾は取り消せない（受諾済みトークンで再送信すると「招待リンクが無効です」に
+  // なる）ため、loading を戻すだけでは古い（受諾前の）画面のまま再操作させてしまう。
+  // reload() してこのページ自身の実際の状態（= 招待は既に使用済み）から作り直す
+  useResetOnBfcacheRestore(() => window.location.reload())
 
   const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
     setLoading(true)

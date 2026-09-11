@@ -30,13 +30,15 @@ function fillForm({ orgName = '株式会社テスト', email = 'test@example.com
 }
 
 let locationAssignSpy: ReturnType<typeof vi.fn>
+let locationReloadSpy: ReturnType<typeof vi.fn>
 
 describe('SignupPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     locationAssignSpy = vi.fn()
+    locationReloadSpy = vi.fn()
     Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign: locationAssignSpy },
+      value: { ...window.location, assign: locationAssignSpy, reload: locationReloadSpy },
       writable: true,
     })
   })
@@ -124,8 +126,10 @@ describe('SignupPage', () => {
 
   // iPhone Safari 等が bfcache（swipe back）からこのページをそのまま復元すると、ページは
   // 実際には破棄されておらず、成功直後に維持しているローディングを戻す機会が無いまま
-  // ボタンが永久に押せなくなる。pageshow(persisted:true) を検知したら解除する。
-  it('should clear the loading state when the page is restored from bfcache after success', async () => {
+  // ボタンが永久に押せなくなる。アカウント作成は取り消せない（再送信すると「既に登録され
+  // ています」になる）ため、loading を戻すだけでなく reload() してこのページ自身の実際の
+  // 状態から作り直す（コードレビュー指摘）。
+  it('should reload the page (not merely clear loading) when restored from bfcache after success', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: { id: 'user-1' }, session: { access_token: 'tok' } },
       error: null,
@@ -145,7 +149,7 @@ describe('SignupPage', () => {
     Object.defineProperty(event, 'persisted', { value: true })
     fireEvent(window, event)
 
-    expect(screen.getByRole('button', { name: 'アカウント作成' })).not.toBeDisabled()
+    expect(locationReloadSpy).toHaveBeenCalledTimes(1)
   })
 
   it('should reset the submit button loading state when signUp fails', async () => {
