@@ -15,7 +15,20 @@ import { NextRequest } from 'next/server'
  *   `_create_task_notification` RPC) addressed to task.created_by.
  * - request_changes resolves a real internal owner via resolveReturnAssignee
  *   and writes it back as assignee_id in the same update.
+ *
+ * These tests also cover the split between confirmation and write:
+ * - Confirmation (reading the task, checking client membership, checking
+ *   the task is actually in the client's court) happens on the logged-in
+ *   user's own session.
+ * - Writing (updating tasks, creating the in-app notification) happens on
+ *   a server-side client, and only after confirmation succeeds.
  */
+
+/** Builds a minimal (unsigned) JWT carrying only the claims checkAal2 reads. */
+function jwt(payload: Record<string, unknown>) {
+  const b64 = (s: string) => Buffer.from(s).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  return `${b64('{"alg":"HS256"}')}.${b64(JSON.stringify(payload))}.sig`
+}
 
 const mockUser = { id: 'client-user-1' }
 
@@ -27,19 +40,27 @@ const baseTask = {
   status: 'in_review',
   ball: 'client' as const,
   type: 'task' as const,
-  estimated_cost: null,
-  estimate_status: 'none' as const,
+  estimated_cost: null as number | null,
+  estimate_status: 'none' as 'none' | 'pending',
   created_by: 'internal-pm-1',
   assignee_id: 'client-reviewer-1',
 }
 
-let authResponse: { data: { user: typeof mockUser | null } }
+let authResponse: { data: { user: (typeof mockUser & { factors?: Array<{ status: string }> }) | null } }
+/** JWT access token used by the session's getSession() (drives the aal claim). */
+let sessionAccessToken: string | null = null
 let taskResponse: { data: typeof baseTask | null; error: null | { message: string } }
 let clientMembershipResponse: { data: { id: string; role: string } | null; error: null }
 let updateTaskResponse: { data: { id: string } | null; error: null | { message: string } }
 let commentInsertResponse: { error: null | { message: string } }
 
-const updateCalls: Array<Record<string, unknown>> = []
+interface AdminUpdateCall {
+  payload: Record<string, unknown>
+  eqCalls: Array<[string, unknown]>
+}
+
+const adminUpdateCalls: AdminUpdateCall[] = []
+const adminCommentInsertCalls: Array<Record<string, unknown>> = []
 
 const createTaskNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve())
 const createAuditLogMock = vi.fn((..._args: unknown[]) => Promise.resolve({ success: true }))
@@ -60,22 +81,40 @@ vi.mock('@/app/api/portal/tasks/resolveReturnAssignee', () => ({
   resolveReturnAssignee: (...args: unknown[]) => resolveReturnAssigneeMock(...args),
 }))
 
-function makeTasksUpdateBuilder() {
+/** Records each `.eq()`/`.neq()` condition on a tasks UPDATE, plus the payload. */
+function makeTasksUpdateBuilder(payload: Record<string, unknown>) {
+  const eqCalls: Array<[string, unknown]> = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {}
-  builder.eq = vi.fn(() => builder)
-  builder.neq = vi.fn(() => builder)
+  builder.eq = vi.fn((col: string, val: unknown) => {
+    eqCalls.push([col, val])
+    return builder
+  })
+  builder.neq = vi.fn((col: string, val: unknown) => {
+    eqCalls.push([`neq:${col}`, val])
+    return builder
+  })
   builder.select = vi.fn(() => ({
     single: vi.fn(() => Promise.resolve(updateTaskResponse)),
   }))
+  adminUpdateCalls.push({ payload, eqCalls })
   return builder
 }
 
+// Session client: used only to confirm who is acting and what they may act on
+// (reading the task, checking client membership) plus the client-authored
+// comment, never for writing task state.
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
       auth: {
         getUser: vi.fn(() => Promise.resolve(authResponse)),
+        // 二要素認証ガード(mfaGuardResponse)が読む。既定は未登録相当（factors無し）。
+        getSession: vi.fn(() =>
+          Promise.resolve({
+            data: { session: sessionAccessToken ? { access_token: sessionAccessToken } : null },
+          })
+        ),
       },
       from: vi.fn((table: string) => {
         if (table === 'tasks') {
@@ -85,10 +124,6 @@ vi.mock('@/lib/supabase/server', () => ({
                 single: vi.fn(() => Promise.resolve(taskResponse)),
               })),
             })),
-            update: vi.fn((payload: Record<string, unknown>) => {
-              updateCalls.push(payload)
-              return makeTasksUpdateBuilder()
-            }),
           }
         }
         if (table === 'space_memberships') {
@@ -104,15 +139,33 @@ vi.mock('@/lib/supabase/server', () => ({
             })),
           }
         }
-        if (table === 'task_comments') {
-          return {
-            insert: vi.fn(() => Promise.resolve(commentInsertResponse)),
-          }
-        }
-        throw new Error(`Unexpected table: ${table}`)
+        throw new Error(`Unexpected table on session client: ${table}`)
       }),
     })
   ),
+}))
+
+// Server-side (service role) client: performs the actual writes, only once
+// confirmation on the session client has passed.
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => ({
+    from: vi.fn((table: string) => {
+      if (table === 'tasks') {
+        return {
+          update: vi.fn((payload: Record<string, unknown>) => makeTasksUpdateBuilder(payload)),
+        }
+      }
+      if (table === 'task_comments') {
+        return {
+          insert: vi.fn((payload: Record<string, unknown>) => {
+            adminCommentInsertCalls.push(payload)
+            return Promise.resolve(commentInsertResponse)
+          }),
+        }
+      }
+      throw new Error(`Unexpected table on admin client: ${table}`)
+    }),
+  })),
 }))
 
 const { POST } = await import('@/app/api/portal/tasks/[taskId]/route')
@@ -129,14 +182,125 @@ function callPost(body: Record<string, unknown>) {
 describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee restore (H-1)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    updateCalls.length = 0
+    adminUpdateCalls.length = 0
+    adminCommentInsertCalls.length = 0
 
     authResponse = { data: { user: mockUser } }
+    sessionAccessToken = null
     taskResponse = { data: { ...baseTask }, error: null }
     clientMembershipResponse = { data: { id: 'membership-1', role: 'client' }, error: null }
     updateTaskResponse = { data: { id: 'task-1' }, error: null }
     commentInsertResponse = { error: null }
     resolveReturnAssigneeMock.mockResolvedValue('resolved-internal-owner')
+  })
+
+  describe('confirm on session, write on server', () => {
+    it('二要素認証が登録済み×コード未入力(aal1)なら止め、admin の書き込みは0回', async () => {
+      authResponse = { data: { user: { ...mockUser, factors: [{ status: 'verified' }] } } }
+      sessionAccessToken = jwt({ aal: 'aal1' })
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(403)
+      expect(adminUpdateCalls).toHaveLength(0)
+      expect(adminCommentInsertCalls).toHaveLength(0)
+    })
+
+    it('writes the task update through the server-side client, with the confirmed id/space_id/ball fixed as conditions', async () => {
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(200)
+      expect(adminUpdateCalls).toHaveLength(1)
+      const conditions = Object.fromEntries(adminUpdateCalls[0].eqCalls)
+      expect(conditions).toMatchObject({
+        id: 'task-1',
+        space_id: 'space-1',
+        ball: 'client',
+        client_scope: 'deliverable',
+      })
+    })
+
+    it('returns 401 and never reaches the server-side write when there is no session', async () => {
+      authResponse = { data: { user: null } }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(401)
+      expect(adminUpdateCalls).toHaveLength(0)
+      expect(adminCommentInsertCalls).toHaveLength(0)
+    })
+
+    it('never reaches the server-side write when the task cannot be read on the session', async () => {
+      taskResponse = { data: null, error: { message: 'not found' } }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(404)
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+
+    it('never reaches the server-side write when the task is already done', async () => {
+      taskResponse = { data: { ...baseTask, status: 'done' }, error: null }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(409)
+      expect(adminUpdateCalls).toHaveLength(0)
+      expect(adminCommentInsertCalls).toHaveLength(0)
+    })
+
+    it('never reaches the server-side write when the task is not in the client\'s court', async () => {
+      taskResponse = { data: { ...baseTask, ball: 'internal' as unknown as typeof baseTask.ball }, error: null }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(409)
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+
+    it('never reaches the server-side write when the user has no client membership on the space', async () => {
+      clientMembershipResponse = { data: null, error: null }
+
+      const response = await callPost({ action: 'approve' })
+
+      expect(response.status).toBe(403)
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+
+    it('writes the client-authored comment through the server-side client, with the confirmed user id as the author', async () => {
+      const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+      expect(response.status).toBe(200)
+      expect(adminCommentInsertCalls).toHaveLength(1)
+      expect(adminCommentInsertCalls[0]).toMatchObject({
+        task_id: 'task-1',
+        space_id: 'space-1',
+        org_id: 'org-1',
+        actor_id: mockUser.id,
+        body: '色を直してください',
+        visibility: 'client',
+      })
+    })
+
+    it('never inserts the comment when the user has no client membership on the space', async () => {
+      clientMembershipResponse = { data: null, error: null }
+
+      const response = await callPost({ action: 'request_changes', comment: '色を直してください' })
+
+      expect(response.status).toBe(403)
+      expect(adminCommentInsertCalls).toHaveLength(0)
+    })
+
+    it('passes the server-side client to the in-app notification RPC', async () => {
+      await callPost({ action: 'approve' })
+
+      expect(createTaskNotificationMock).toHaveBeenCalledTimes(1)
+      const [clientArg] = createTaskNotificationMock.mock.calls[0]
+      // Same object identity as what createAdminClient() returned.
+      const adminModule = await import('@/lib/supabase/admin')
+      const adminInstance = (adminModule.createAdminClient as ReturnType<typeof vi.fn>).mock.results[0].value
+      expect(clientArg).toBe(adminInstance)
+    })
   })
 
   describe('approve', () => {
@@ -187,7 +351,7 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       )
 
       // The first update() call on 'tasks' is the ball/assignee transfer.
-      expect(updateCalls[0]).toMatchObject({
+      expect(adminUpdateCalls[0].payload).toMatchObject({
         ball: 'internal',
         assignee_id: 'resolved-internal-owner',
       })
@@ -216,10 +380,102 @@ describe('POST /api/portal/tasks/[taskId] — in-app notification & assignee res
       expect(response.status).toBe(500)
       expect(createTaskNotificationMock).not.toHaveBeenCalled()
 
-      // Second update() call is the rollback; must restore the original assignee.
-      expect(updateCalls[1]).toMatchObject({
+      // Second update() call is the rollback; must restore the original assignee,
+      // scoped to the same confirmed space and the ball value it is reverting from.
+      expect(adminUpdateCalls[1].payload).toMatchObject({
         ball: 'client',
         assignee_id: 'client-reviewer-1',
+      })
+      const rollbackConditions = Object.fromEntries(adminUpdateCalls[1].eqCalls)
+      expect(rollbackConditions).toMatchObject({ id: 'task-1', space_id: 'space-1', ball: 'internal' })
+      // The rollback's updated_at guard must match the forward update's timestamp
+      // (so it never clobbers a newer state written in between).
+      expect(rollbackConditions.updated_at).toBe(adminUpdateCalls[0].payload.updated_at)
+    })
+  })
+
+  describe('estimate_approve / estimate_reject', () => {
+    const pendingEstimateTask = {
+      ...baseTask,
+      estimate_status: 'pending' as const,
+      estimated_cost: 50000,
+    }
+
+    it('estimate_approve の UPDATE 条件が id・space_id・ball・estimate_status・client_scope で固定される', async () => {
+      taskResponse = { data: pendingEstimateTask, error: null }
+
+      const response = await callPost({ action: 'estimate_approve' })
+
+      expect(response.status).toBe(200)
+      expect(adminUpdateCalls).toHaveLength(1)
+      const conditions = Object.fromEntries(adminUpdateCalls[0].eqCalls)
+      expect(conditions).toMatchObject({
+        id: 'task-1',
+        space_id: 'space-1',
+        ball: 'client',
+        estimate_status: 'pending',
+        client_scope: 'deliverable',
+      })
+    })
+
+    it('estimate_approve は見積もりが確認待ちでなければ 409 で admin の書き込みは0回', async () => {
+      taskResponse = { data: { ...baseTask, estimate_status: 'none' }, error: null }
+
+      const response = await callPost({ action: 'estimate_approve' })
+
+      expect(response.status).toBe(409)
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+
+    it('estimate_reject の UPDATE 条件が id・space_id・ball・estimate_status・client_scope で固定される', async () => {
+      taskResponse = { data: pendingEstimateTask, error: null }
+
+      const response = await callPost({ action: 'estimate_reject', comment: '再検討をお願いします' })
+
+      expect(response.status).toBe(200)
+      const conditions = Object.fromEntries(adminUpdateCalls[0].eqCalls)
+      expect(conditions).toMatchObject({
+        id: 'task-1',
+        space_id: 'space-1',
+        ball: 'client',
+        estimate_status: 'pending',
+        client_scope: 'deliverable',
+      })
+    })
+
+    it('estimate_reject は見積もりが確認待ちでなければ 409 で admin の書き込みは0回', async () => {
+      taskResponse = { data: { ...baseTask, estimate_status: 'none' }, error: null }
+
+      const response = await callPost({ action: 'estimate_reject', comment: '再検討をお願いします' })
+
+      expect(response.status).toBe(409)
+      expect(adminUpdateCalls).toHaveLength(0)
+    })
+
+    it('estimate_reject でコメントの INSERT が失敗したら、確認済みの条件で見積状態を戻す', async () => {
+      taskResponse = { data: pendingEstimateTask, error: null }
+      commentInsertResponse = { error: { message: 'insert failed' } }
+
+      const response = await callPost({ action: 'estimate_reject', comment: '再検討をお願いします' })
+
+      expect(response.status).toBe(500)
+      expect(adminUpdateCalls).toHaveLength(2)
+      const rollbackConditions = Object.fromEntries(adminUpdateCalls[1].eqCalls)
+      expect(rollbackConditions).toMatchObject({ id: 'task-1', space_id: 'space-1', estimate_status: 'rejected' })
+      expect(rollbackConditions.updated_at).toBe(adminUpdateCalls[0].payload.updated_at)
+    })
+
+    it('見積もりのコメントも visibility=client・確認済みの org_id で INSERT される', async () => {
+      taskResponse = { data: pendingEstimateTask, error: null }
+
+      const response = await callPost({ action: 'estimate_reject', comment: '再検討をお願いします' })
+
+      expect(response.status).toBe(200)
+      expect(adminCommentInsertCalls[0]).toMatchObject({
+        task_id: 'task-1',
+        org_id: 'org-1',
+        space_id: 'space-1',
+        visibility: 'client',
       })
     })
   })

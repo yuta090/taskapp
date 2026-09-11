@@ -12,8 +12,9 @@ import { NextRequest } from 'next/server'
  *
  * Fix under test:
  * - spaceId is derived from the fetched task, never trusted from the body.
- * - Caller must be an internal (non-client) member of the task's org or space,
- *   verified via the caller's own session client (not the admin client).
+ * - Caller must be an internal member of the task's org or space (neither a
+ *   client nor a vendor account), verified via the caller's own session
+ *   client (not the admin client).
  * - Non-members get 403 with zero side effects (no token insert, no email).
  */
 
@@ -55,6 +56,27 @@ vi.mock('@/lib/email/approval', () => ({
   sendApprovalEmail: (...args: unknown[]) => sendApprovalEmailMock(...args),
 }))
 
+/**
+ * `orgMembershipResponse` / `spaceMembershipResponse` represent the raw
+ * membership row for the caller (before the `.not('role', 'in', ...)` role
+ * filter is applied). This mirrors the real DB filter so tests can express
+ * "the caller has a vendor/client row" and see it correctly excluded.
+ */
+function applyInternalRoleFilter<T extends { data: { role: string } | null; error: unknown }>(
+  response: T,
+  excludedCsv: string
+): T {
+  if (!response.data) return response
+  const excluded = excludedCsv.replace(/[()"]/g, '').split(',')
+  if (excluded.includes(response.data.role)) {
+    return { ...response, data: null, error: { message: 'no rows', code: 'PGRST116' } }
+  }
+  return response
+}
+
+/** Records every `.not(column, op, value)` call made against the session client. */
+const notCalls: Array<{ table: string; column: string; op: string; value: string }> = []
+
 // Session-scoped client (RLS-respecting) used for authorization checks.
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() =>
@@ -68,10 +90,14 @@ vi.mock('@/lib/supabase/server', () => ({
             select: vi.fn(() => ({
               eq: vi.fn(() => ({
                 eq: vi.fn(() => ({
-                  neq: vi.fn(() => ({
-                    single: vi.fn(() => Promise.resolve(orgMembershipResponse)),
-                    maybeSingle: vi.fn(() => Promise.resolve(orgMembershipResponse)),
-                  })),
+                  not: vi.fn((column: string, op: string, value: string) => {
+                    notCalls.push({ table: 'org_memberships', column, op, value })
+                    const filtered = applyInternalRoleFilter(orgMembershipResponse, value)
+                    return {
+                      single: vi.fn(() => Promise.resolve(filtered)),
+                      maybeSingle: vi.fn(() => Promise.resolve(filtered)),
+                    }
+                  }),
                 })),
               })),
             })),
@@ -82,10 +108,14 @@ vi.mock('@/lib/supabase/server', () => ({
             select: vi.fn(() => ({
               eq: vi.fn(() => ({
                 eq: vi.fn(() => ({
-                  neq: vi.fn(() => ({
-                    single: vi.fn(() => Promise.resolve(spaceMembershipResponse)),
-                    maybeSingle: vi.fn(() => Promise.resolve(spaceMembershipResponse)),
-                  })),
+                  not: vi.fn((column: string, op: string, value: string) => {
+                    notCalls.push({ table: 'space_memberships', column, op, value })
+                    const filtered = applyInternalRoleFilter(spaceMembershipResponse, value)
+                    return {
+                      single: vi.fn(() => Promise.resolve(filtered)),
+                      maybeSingle: vi.fn(() => Promise.resolve(filtered)),
+                    }
+                  }),
                 })),
               })),
             })),
@@ -181,6 +211,7 @@ function callPost(body: Record<string, unknown>) {
 describe('POST /api/portal/notify-approval', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    notCalls.length = 0
 
     authResponse = { data: { user: mockUser } }
     taskResponse = { data: mockTask, error: null }
@@ -215,6 +246,46 @@ describe('POST /api/portal/notify-approval', () => {
     expect(response.status).toBe(403)
     expect(tokenInsertMock).not.toHaveBeenCalled()
     expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 for a vendor account (not an internal member) even with a space membership row', async () => {
+    orgMembershipResponse = { data: null, error: null }
+    spaceMembershipResponse = { data: { role: 'vendor' }, error: null }
+
+    const response = await callPost({ taskId: 'task-1', spaceId: 'space-1' })
+
+    expect(response.status).toBe(403)
+    expect(tokenInsertMock).not.toHaveBeenCalled()
+    expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 for a vendor account with only an org membership row', async () => {
+    orgMembershipResponse = { data: { role: 'vendor' }, error: null }
+    spaceMembershipResponse = { data: null, error: null }
+
+    const response = await callPost({ taskId: 'task-1', spaceId: 'space-1' })
+
+    expect(response.status).toBe(403)
+    expect(tokenInsertMock).not.toHaveBeenCalled()
+    expect(sendApprovalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('excludes exactly role=client and role=vendor via .not(\'role\', \'in\', ...) on both space and org membership checks', async () => {
+    orgMembershipResponse = { data: { role: 'member' }, error: null }
+    spaceMembershipResponse = { data: null, error: null }
+
+    await callPost({ taskId: 'task-1', spaceId: 'space-1' })
+
+    expect(notCalls).toContainEqual(
+      expect.objectContaining({ table: 'space_memberships', column: 'role', op: 'in' })
+    )
+    expect(notCalls).toContainEqual(
+      expect.objectContaining({ table: 'org_memberships', column: 'role', op: 'in' })
+    )
+    for (const call of notCalls) {
+      const excluded = call.value.replace(/[()"]/g, '').split(',')
+      expect(excluded.sort()).toEqual(['client', 'vendor'])
+    }
   })
 
   it('ignores a body-supplied spaceId that differs from the task and still enforces authorization on the real org/space', async () => {

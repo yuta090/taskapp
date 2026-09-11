@@ -29,16 +29,28 @@ export interface MeetingsQueryData {
  * - notes はどの画面でも読んでいないため除く（一覧の全件ぶん読まれ、ブラウザの永続
  *   キャッシュ(IndexedDB)にも保存されてしまうだけの無駄）。
  * - minutes_md（議事録本文）は詳細パネル専用で、一覧には含めない。開いたときに
- *   useMeetings.fetchMeetingDetail が `select('*')` でオンデマンド取得する。一覧の行が
- *   `minutes_md === undefined`（selectで列自体を返していない）のままであること自体が
- *   「詳細をまだ取っていない」の目印(MeetingsPageClient)になっているため、null 等に
- *   揃えてはいけない。
+ *   useMeetings.fetchMeetingDetail が `MEETING_DETAIL_COLUMNS` でオンデマンド取得する。
+ *   一覧の行が `minutes_md === undefined`（selectで列自体を返していない）のままである
+ *   こと自体が「詳細をまだ取っていない」の目印(MeetingsPageClient)になっているため、
+ *   null 等に揃えてはいけない。
  */
 export const MEETING_LIST_COLUMNS = `
   id, org_id, space_id, title, held_at, status,
   started_at, ended_at, summary_subject, summary_body,
   created_at, updated_at,
   meeting_participants (*)
+` as const
+
+/**
+ * Meeting detail columns。会議の詳細（議事録本文）をオンデマンド取得するときに使う。
+ *
+ * 画面で使う列だけ（一覧の列 + minutes_md）。notes・milestone_id・created_by・
+ * meeting_url・external_meeting_id・video_provider は読まない。
+ */
+export const MEETING_DETAIL_COLUMNS = `
+  id, org_id, space_id, title, held_at, status,
+  started_at, ended_at, minutes_md, summary_subject, summary_body,
+  created_at, updated_at
 ` as const
 
 // ── Shared query functions ──
