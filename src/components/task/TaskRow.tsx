@@ -360,10 +360,14 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
             )}
             {assigneeName && (
               <span
-                className="flex-shrink-0 w-4 h-4 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[9px] font-medium ml-auto"
-                title={assigneeName}
+                data-testid="task-row-assignee"
+                className="ml-auto min-w-0 flex items-center gap-1 text-[11px] text-gray-500"
+                title={`担当: ${assigneeName}`}
               >
-                {assigneeName.charAt(0)}
+                <span className="flex-shrink-0 w-4 h-4 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[9px] font-medium">
+                  {assigneeName.charAt(0)}
+                </span>
+                <span className="truncate max-w-[6rem]">{assigneeName}</span>
               </span>
             )}
           </div>
@@ -555,13 +559,17 @@ export const TaskRow = memo(function TaskRow({ task, isSelected, onClick, indent
         </button>
       )}
 
-      {/* Assignee avatar */}
+      {/* Assignee — 頭文字だけだと同じ頭文字の人を見分けられないので、名前も出す */}
       {assigneeName && (
         <div
-          className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px] font-medium"
-          title={assigneeName}
+          data-testid="task-row-assignee"
+          className="flex-shrink-0 flex items-center gap-1.5 max-w-[8rem] text-[11px] text-gray-500"
+          title={`担当: ${assigneeName}`}
         >
-          {assigneeName.charAt(0)}
+          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px] font-medium">
+            {assigneeName.charAt(0)}
+          </span>
+          <span className="truncate">{assigneeName}</span>
         </div>
       )}
 
