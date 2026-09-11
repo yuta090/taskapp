@@ -21,6 +21,11 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
+const mockClearQueryCache = vi.fn(() => Promise.resolve())
+vi.mock('@/lib/query/persistedCache', () => ({
+  clearQueryCache: () => mockClearQueryCache(),
+}))
+
 const { signOutAndLeave } = await import('@/lib/auth/signOutClient')
 
 function stubLocation(overrides: Partial<Location> = {}) {
@@ -57,6 +62,7 @@ describe('signOutAndLeave', () => {
     clearAllCookies()
     ;({ replaceSpy, reloadSpy } = stubLocation())
     mockSignOut.mockResolvedValue({ error: null })
+    mockClearQueryCache.mockImplementation(() => Promise.resolve())
   })
 
   afterEach(() => {
@@ -200,6 +206,108 @@ describe('signOutAndLeave', () => {
     })
   })
 
+  // --- IDB のクエリキャッシュは signOut() の成否に関わらず必ず消す ------------------------------
+  // auth-js の signOut() はネットワーク断・5xx で throw せず { error } を返すだけで、この場合
+  // SIGNED_OUT イベントが発火しないため QueryProvider 側の削除に頼れない。ここで必ず消す。
+  describe('clearQueryCache() を離脱前に必ず待つ', () => {
+    it('signOut() 成功時も、location.replace の前に clearQueryCache を待つ', async () => {
+      const callOrder: string[] = []
+      mockClearQueryCache.mockImplementation(() => {
+        callOrder.push('clearQueryCache')
+        return Promise.resolve()
+      })
+      replaceSpy.mockImplementation(() => { callOrder.push('replace') })
+
+      await signOutAndLeave({ to: '/login' })
+
+      expect(mockClearQueryCache).toHaveBeenCalled()
+      expect(replaceSpy).toHaveBeenCalledWith('/login')
+      expect(callOrder).toEqual(['clearQueryCache', 'replace'])
+    })
+
+    it('signOut() が { error } を返しても、離脱前に clearQueryCache を待つ', async () => {
+      mockSignOut.mockResolvedValue({ error: new Error('network down') })
+      const callOrder: string[] = []
+      mockClearQueryCache.mockImplementation(() => {
+        callOrder.push('clearQueryCache')
+        return Promise.resolve()
+      })
+      replaceSpy.mockImplementation(() => { callOrder.push('replace') })
+
+      await signOutAndLeave({ to: '/login' })
+
+      expect(mockClearQueryCache).toHaveBeenCalled()
+      expect(callOrder).toEqual(['clearQueryCache', 'replace'])
+    })
+
+    it('signOut() が例外を投げても、離脱前に clearQueryCache を待つ', async () => {
+      mockSignOut.mockRejectedValue(new Error('offline'))
+      const callOrder: string[] = []
+      mockClearQueryCache.mockImplementation(() => {
+        callOrder.push('clearQueryCache')
+        return Promise.resolve()
+      })
+      replaceSpy.mockImplementation(() => { callOrder.push('replace') })
+
+      await signOutAndLeave({ to: '/login' })
+
+      expect(mockClearQueryCache).toHaveBeenCalled()
+      expect(callOrder).toEqual(['clearQueryCache', 'replace'])
+    })
+
+    it('clearQueryCache が reject しても、離脱する（try/catch を外しても検知できる回帰）', async () => {
+      mockClearQueryCache.mockRejectedValue(new Error('idb'))
+
+      await expect(signOutAndLeave({ to: '/login' })).resolves.toBeUndefined()
+
+      expect(replaceSpy).toHaveBeenCalledWith('/login')
+    })
+
+    it('clearQueryCache が解決するまで location.replace を呼ばない（await を外しても検知できる順序の回帰）', async () => {
+      let resolveClear!: () => void
+      mockClearQueryCache.mockImplementation(
+        () => new Promise<void>((resolve) => { resolveClear = resolve })
+      )
+
+      const promise = signOutAndLeave({ to: '/login' })
+
+      // clearQueryCache は永久に解決しないpromiseで止まっているので、マイクロタスクを
+      // 何度flushしても（=事前の await cleanupPushOnLogout / await signOut() を全て
+      // 通過しきっても）それ以上先には進まない。replace が「await していなくても
+      // 呼ばれてしまう」実装（clearQueryCacheBounded() の呼び出しから await を外す）を
+      // 検知するための回帰テスト
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+      expect(replaceSpy).not.toHaveBeenCalled()
+
+      resolveClear()
+      await promise
+
+      expect(replaceSpy).toHaveBeenCalledWith('/login')
+    })
+
+    it('clearQueryCache が解決しなくても、タイムアウトで打ち切って離脱する', async () => {
+      vi.useFakeTimers()
+      try {
+        // 二度と解決しない Promise（IDB が詰まって固まったケースを模す）
+        mockClearQueryCache.mockImplementation(() => new Promise(() => {}))
+
+        const promise = signOutAndLeave({ to: '/login' })
+
+        // まだタイムアウト前は離脱していない
+        await vi.advanceTimersByTimeAsync(500)
+        expect(replaceSpy).not.toHaveBeenCalled()
+
+        // タイムアウト経過後は打ち切って離脱する
+        await vi.advanceTimersByTimeAsync(600)
+        await promise
+
+        expect(replaceSpy).toHaveBeenCalledWith('/login')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
   // --- isSignOutInProgress() ---------------------------------------------------------------
   describe('isSignOutInProgress()', () => {
     it('実行前は false、auth.signOut() を呼んでいる最中（解決前）は true になる（モジュール新規インスタンスで検証）', async () => {
@@ -235,6 +343,44 @@ describe('signOutAndLeave', () => {
 
         dateSpy.mockReturnValue(1_000_000 + 10_000)
         expect(fresh.isSignOutInProgress()).toBe(false)
+      } finally {
+        dateSpy.mockRestore()
+      }
+    })
+
+    // signOutInProgressAt は関数の開始時に一度立てるだけだと、push解除や signOut() 自体が
+    // 遅い回線で10秒を超えて掛かったときに失効してしまい、QueryProvider の persister
+    // （!isSignOutInProgress() の間だけ書き込む）が wipe と unload の間に
+    // taskapp-query-cache:<uid> を再書き込みしてしまう恐れがある。IDB削除・遷移の直前で
+    // 旗を立て直すことの回帰テスト
+    it('signOut()が10秒を超えて掛かっても、IDB削除・遷移の直前でもう一度旗を立て直し有効にし続ける', async () => {
+      vi.resetModules()
+      const fresh = await import('@/lib/auth/signOutClient')
+      const dateSpy = vi.spyOn(Date, 'now')
+      try {
+        dateSpy.mockReturnValue(1_000_000)
+
+        let observedAtClear: boolean | null = null
+        let observedAtReplace: boolean | null = null
+
+        mockSignOut.mockImplementation(() => {
+          // 遅い回線を模して、signOut() が解決する時点では既に10秒
+          // （SIGN_OUT_IN_PROGRESS_WINDOW_MS）を超えて経過している
+          dateSpy.mockReturnValue(1_000_000 + 11_000)
+          return Promise.resolve({ error: null })
+        })
+        mockClearQueryCache.mockImplementation(() => {
+          observedAtClear = fresh.isSignOutInProgress()
+          return Promise.resolve()
+        })
+        replaceSpy.mockImplementation(() => {
+          observedAtReplace = fresh.isSignOutInProgress()
+        })
+
+        await fresh.signOutAndLeave({ to: '/login' })
+
+        expect(observedAtClear).toBe(true)
+        expect(observedAtReplace).toBe(true)
       } finally {
         dateSpy.mockRestore()
       }

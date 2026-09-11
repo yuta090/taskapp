@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 
 interface GoogleSignInButtonProps {
   label: string
@@ -10,6 +11,12 @@ interface GoogleSignInButtonProps {
 
 export function GoogleSignInButton({ label, redirectTo }: GoogleSignInButtonProps) {
   const [loading, setLoading] = useState(false)
+
+  // signInWithOAuth() は Google のアカウント選択画面へリダイレクトするため、成功時は
+  // ページが破棄されるまで loading を維持したままにする。ただし iPhone Safari で Google の
+  // アカウント選択画面からスワイプで戻ると、このページが bfcache からそのまま復元され、
+  // ページは実際には破棄されておらず loading が永久に解除されない。bfcache復元を検知したら解除する
+  useResetOnBfcacheRestore(() => setLoading(false))
 
   async function handleClick() {
     setLoading(true)

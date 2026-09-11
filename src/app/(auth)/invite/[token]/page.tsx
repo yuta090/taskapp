@@ -7,6 +7,7 @@ import { AuthCard, AuthInput, AuthButton } from '@/components/auth'
 import { createClient } from '@/lib/supabase/client'
 import { signOutAndLeave } from '@/lib/auth/signOutClient'
 import { shouldAutoAcceptInvite } from '@/lib/invite/emailMatch'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface InviteInfo {
@@ -38,6 +39,14 @@ export default function InviteAcceptPage({
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
   const [emailMismatch, setEmailMismatch] = useState(false)
+
+  // 受諾成功後は window.location.assign() がページを破棄するまで loading を維持し続ける設計
+  // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。
+  // 招待の受諾は取り消せない（受諾済みトークンで再送信すると「招待リンクが無効です」に
+  // なる）ため、loading を戻すだけでは古い（受諾前の）画面のまま再操作させてしまう。
+  // reload() してこのページ自身の実際の状態（= 招待は既に使用済み）から作り直す
+  useResetOnBfcacheRestore(() => window.location.reload())
 
   // password state を閉じ込めない（呼び出し側から引数で渡す）。閉じ込めると
   // 1文字入力するたびにこの useCallback の参照が変わり、これに依存する下の

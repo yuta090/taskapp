@@ -9,6 +9,7 @@ import { normalizeTotpCode } from '@/lib/auth/mfa'
 import { isSafeInternalPath, safeInternalPathOr } from '@/lib/auth/safeRedirect'
 import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
 import { getActiveOrgId } from '@/lib/org/activeOrg'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
@@ -103,6 +104,11 @@ export default function MfaChallengeClient() {
     },
     [factorId, code, submitting, redirect],
   )
+
+  // verify 成功後は window.location.replace() がページを破棄するまで submitting を維持し
+  // 続ける設計（二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま
+  // 復元するとページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
+  useResetOnBfcacheRestore(() => setSubmitting(false))
 
   const handleSignOut = useCallback(async () => {
     // コード入力を突破していない(aal2未達)ため、この画面までで push 購読を登録できることは無い

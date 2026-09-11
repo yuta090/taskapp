@@ -11,6 +11,7 @@ import { resolvePostLoginLanding } from '@/lib/auth/resolveLanding'
 import { formatAuthErrorMessage } from '@/lib/auth/authErrorMessage'
 import { getActiveOrgId } from '@/lib/org/activeOrg'
 import { needsMfaChallenge, MFA_CHALLENGE_PATH } from '@/lib/auth/mfa'
+import { useResetOnBfcacheRestore } from '@/lib/hooks/useResetOnBfcacheRestore'
 import { UUID_REGEX } from '@/lib/uuid'
 
 /**
@@ -81,6 +82,15 @@ export default function LoginClient() {
       setLoggedInEmail(session?.user?.email ?? null)
     })
   }, [])
+
+  // 成功後は window.location.assign() がページを破棄するまでローディングを維持し続ける設計
+  // （二重送信防止）だが、iPhone Safari 等が bfcache からこのページをそのまま復元すると
+  // ページは破棄されておらず、ボタンが永久に押せなくなる。bfcache復元を検知したら解除する
+  useResetOnBfcacheRestore(() => {
+    setLoading(false)
+    setQuickLoginLoading(null)
+    setReturningToApp(false)
+  })
 
   async function handleReturnToApp() {
     setReturningToApp(true)
