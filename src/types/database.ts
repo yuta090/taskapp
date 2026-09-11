@@ -691,7 +691,9 @@ export interface Database {
           space_id: string
           title: string
           held_at: string | null
-          notes: string | null
+          // notes はどの画面でも読まないため、一覧・詳細の select では省いている
+          // （notes を含む select だけが notes を返す）。
+          notes?: string | null
           status: MeetingStatus
           started_at: string | null
           ended_at: string | null

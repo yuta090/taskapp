@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
+/** Builds a minimal (unsigned) JWT carrying only the claims checkAal2 reads. */
+function jwt(payload: Record<string, unknown>) {
+  const b64 = (s: string) => Buffer.from(s).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  return `${b64('{"alg":"HS256"}')}.${b64(JSON.stringify(payload))}.sig`
+}
+
 // Mock data
 const mockUser = { id: 'client-user-123' }
 const mockMembership = {
@@ -9,8 +15,11 @@ const mockMembership = {
 }
 const mockCreatedTask = { id: 'task-new-001' }
 
-let authResponse: { data: { user: typeof mockUser | null } }
+let authResponse: { data: { user: (typeof mockUser & { factors?: Array<{ status: string }> }) | null } }
+/** JWT access token used by the session's getSession() (drives the aal claim). */
+let sessionAccessToken: string | null = null
 let membershipResponse: { data: typeof mockMembership | null; error: null }
+let spacesResponse: { data: { portal_visible_sections: unknown } | null; error: null | { message: string } }
 let insertResponse: { data: typeof mockCreatedTask | null; error: null | { message: string } }
 let insertCallArgs: Record<string, unknown> | undefined
 
@@ -20,11 +29,19 @@ vi.mock('@/lib/audit', () => ({
   generateAuditSummary: vi.fn(() => 'summary'),
 }))
 
+// Session client: only used to confirm who is acting (client membership +
+// space) and whether the requests section is enabled — never to write.
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() => {
     return Promise.resolve({
       auth: {
         getUser: vi.fn(() => Promise.resolve(authResponse)),
+        // 二要素認証ガード(mfaGuardResponse)が読む。既定は未登録相当（factors無し）。
+        getSession: vi.fn(() =>
+          Promise.resolve({
+            data: { session: sessionAccessToken ? { access_token: sessionAccessToken } : null },
+          })
+        ),
       },
       from: vi.fn((table: string) => {
         if (table === 'space_memberships') {
@@ -40,31 +57,41 @@ vi.mock('@/lib/supabase/server', () => ({
             })),
           }
         }
-        if (table === 'tasks') {
-          return {
-            insert: vi.fn((args: Record<string, unknown>) => {
-              insertCallArgs = args
-              return {
-                select: vi.fn(() => ({
-                  single: vi.fn(() => Promise.resolve(insertResponse)),
-                })),
-              }
-            }),
-          }
-        }
         if (table === 'spaces') {
           return {
             select: vi.fn(() => ({
               eq: vi.fn(() => ({
-                single: vi.fn(() => Promise.resolve({ data: { portal_visible_sections: null }, error: null })),
+                single: vi.fn(() => Promise.resolve(spacesResponse)),
               })),
             })),
           }
         }
-        return {}
+        throw new Error(`Unexpected table on session client: ${table}`)
       }),
     })
   }),
+}))
+
+// Server-side (service role) client: performs the actual task creation, only
+// after confirmation on the session client has passed.
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => ({
+    from: vi.fn((table: string) => {
+      if (table === 'tasks') {
+        return {
+          insert: vi.fn((args: Record<string, unknown>) => {
+            insertCallArgs = args
+            return {
+              select: vi.fn(() => ({
+                single: vi.fn(() => Promise.resolve(insertResponse)),
+              })),
+            }
+          }),
+        }
+      }
+      throw new Error(`Unexpected table on admin client: ${table}`)
+    }),
+  })),
 }))
 
 const { POST } = await import('@/app/api/portal/requests/route')
@@ -81,7 +108,9 @@ describe('POST /api/portal/requests', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authResponse = { data: { user: mockUser } }
+    sessionAccessToken = null
     membershipResponse = { data: mockMembership, error: null }
+    spacesResponse = { data: { portal_visible_sections: null }, error: null }
     insertResponse = { data: mockCreatedTask, error: null }
     insertCallArgs = undefined
   })
@@ -98,6 +127,16 @@ describe('POST /api/portal/requests', () => {
     membershipResponse = { data: null, error: null }
     const response = await POST(createRequest({ title: 'Test', category: 'feature', description: 'test' }))
     expect(response.status).toBe(403)
+  })
+
+  // vendor（外部の協力会社アカウント）は相手先ではないため、リクエスト送信の
+  // 起動元にはなれない。membership の検索が role='client' に絞られているので、
+  // vendor では該当行が見つからず 403 になる。
+  it('should return 403 for a vendor account (not a client membership)', async () => {
+    membershipResponse = { data: null, error: null }
+    const response = await POST(createRequest({ title: 'Test', category: 'feature', description: 'test' }))
+    expect(response.status).toBe(403)
+    expect(insertCallArgs).toBeUndefined()
   })
 
   // --- Validation: common fields ---
@@ -343,5 +382,82 @@ describe('POST /api/portal/requests', () => {
     }))
     expect(response.status).toBe(200)
     expect(allowed).toContain(insertCallArgs?.status)
+  })
+
+  // --- Confirm on session, write on server ---
+
+  it('writes the new task through the server-side client, with space_id fixed to the confirmed membership', async () => {
+    const response = await POST(createRequest({
+      title: 'CSV出力機能がほしい',
+      category: 'feature',
+      description: '月次報告用にCSVダウンロードしたい',
+    }))
+    expect(response.status).toBe(200)
+    expect(insertCallArgs).toMatchObject({
+      space_id: mockMembership.space_id,
+      org_id: mockMembership.spaces.org_id,
+      origin: 'client',
+      ball: 'internal',
+      client_scope: 'deliverable',
+    })
+  })
+
+  it('never reaches the server-side write when the user has no client membership', async () => {
+    membershipResponse = { data: null, error: null }
+    const response = await POST(createRequest({ title: 'Test', category: 'feature', description: 'test' }))
+    expect(response.status).toBe(403)
+    expect(insertCallArgs).toBeUndefined()
+  })
+
+  it('二要素認証が登録済み×コード未入力(aal1)なら止め、admin の書き込みは0回', async () => {
+    authResponse = { data: { user: { ...mockUser, factors: [{ status: 'verified' }] } } }
+    sessionAccessToken = jwt({ aal: 'aal1' })
+
+    const response = await POST(createRequest({ title: 'Test', category: 'feature', description: 'test' }))
+
+    expect(response.status).toBe(403)
+    expect(insertCallArgs).toBeUndefined()
+  })
+
+  it('リクエスト送信の表示区分が無効なときは INSERT しない', async () => {
+    spacesResponse = { data: { portal_visible_sections: { requests: false } }, error: null }
+
+    const response = await POST(createRequest({ title: 'Test', category: 'feature', description: 'test' }))
+    const data = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(data.error).toContain('無効')
+    expect(insertCallArgs).toBeUndefined()
+  })
+
+  it('表示区分の読み取りに失敗したときも、フェイルクローズで INSERT しない', async () => {
+    spacesResponse = { data: null, error: { message: 'db error' } }
+
+    const response = await POST(createRequest({ title: 'Test', category: 'feature', description: 'test' }))
+
+    expect(response.status).toBe(403)
+    expect(insertCallArgs).toBeUndefined()
+  })
+
+  it('body に space_id/org_id/ball/client_scope/created_by を混ぜても、確認済みの値で上書きする', async () => {
+    const response = await POST(createRequest({
+      title: 'CSV出力機能がほしい',
+      category: 'feature',
+      description: '月次報告用にCSVダウンロードしたい',
+      space_id: 'attacker-space',
+      org_id: 'attacker-org',
+      ball: 'client',
+      client_scope: 'internal',
+      created_by: 'someone-else',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(insertCallArgs).toMatchObject({
+      space_id: mockMembership.space_id,
+      org_id: mockMembership.spaces.org_id,
+      ball: 'internal',
+      client_scope: 'deliverable',
+      created_by: mockUser.id,
+    })
   })
 })

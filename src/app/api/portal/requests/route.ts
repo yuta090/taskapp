@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { isPortalSectionEnabled } from '@/lib/portal/checkPortalSection'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -104,6 +106,9 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+    if (mfaBlock) return mfaBlock
 
     const body: RequestBody = await request.json()
     const { title, category, description, bugDetails } = body
@@ -237,7 +242,12 @@ export async function POST(request: NextRequest) {
     const taskTitle = `[${label}] ${title.trim()}`
     const now = new Date().toISOString()
 
-    const { data: task, error: insertError } = await (supabase as SupabaseClient)
+    // 相手先(client)の操作は、本人の確認(membership)をログイン中のセッションで
+    // 行った上で、実際の書き込みはサーバー側(service role)で行う。space_id は
+    // 上で確かめた membership の値に固定する。
+    const admin = createAdminClient()
+
+    const { data: task, error: insertError } = await (admin as SupabaseClient)
       .from('tasks')
       .insert({
         org_id: orgId,

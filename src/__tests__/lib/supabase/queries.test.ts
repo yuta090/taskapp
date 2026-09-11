@@ -4,6 +4,7 @@ import {
   fetchMeetingsQuery,
   collectRemainingPages,
   MEETING_LIST_COLUMNS,
+  MEETING_DETAIL_COLUMNS,
   TASKS_PAGE_SIZE,
   MAX_COLLECT_PAGES,
 } from '@/lib/supabase/queries'
@@ -413,9 +414,9 @@ describe('collectRemainingPages（export された共通ヘルパー単体）', 
  * (IndexedDB)にも保存されるだけの無駄なので、一覧クエリでは読まない。
  *
  * minutes_md（議事録本文）は詳細パネル専用。一覧には含めず、開いたときに
- * useMeetings.fetchMeetingDetail が `select('*')` でオンデマンド取得する。一覧の行が
- * `minutes_md === undefined` のままであること自体が「詳細をまだ取っていない」の
- * 目印(MeetingsPageClient)として使われているため、null 等に揃えず、そのまま
+ * useMeetings.fetchMeetingDetail が `MEETING_DETAIL_COLUMNS` でオンデマンド取得する。
+ * 一覧の行が `minutes_md === undefined` のままであること自体が「詳細をまだ取っていない」
+ * の目印(MeetingsPageClient)として使われているため、null 等に揃えず、そのまま
  * 列自体を返さないでおく必要がある。
  */
 describe('MEETING_LIST_COLUMNS — 使っていない列は読まない・議事録本文は一覧に含めない', () => {
@@ -425,5 +426,27 @@ describe('MEETING_LIST_COLUMNS — 使っていない列は読まない・議事
 
   it('minutes_md を含まない（詳細パネルの fetchMeetingDetail が別途取得するため）', () => {
     expect(MEETING_LIST_COLUMNS).not.toMatch(/\bminutes_md\b/)
+  })
+})
+
+describe('MEETING_DETAIL_COLUMNS — notes を含まず、一覧と同じ基本列 + minutes_md を持つ', () => {
+  it('notes を含まない', () => {
+    expect(MEETING_DETAIL_COLUMNS).not.toMatch(/\bnotes\b/)
+  })
+
+  it('minutes_md を含む（議事録本文のオンデマンド取得のため）', () => {
+    expect(MEETING_DETAIL_COLUMNS).toMatch(/\bminutes_md\b/)
+  })
+
+  it('一覧で使っている基本列（meeting_participants の埋め込みを除く）をすべて含む', () => {
+    const listBaseColumns = MEETING_LIST_COLUMNS
+      .replace(/meeting_participants\s*\(\*\)/, '')
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean)
+
+    for (const column of listBaseColumns) {
+      expect(MEETING_DETAIL_COLUMNS).toMatch(new RegExp(`\\b${column}\\b`))
+    }
   })
 })

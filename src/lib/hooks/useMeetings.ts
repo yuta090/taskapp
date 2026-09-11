@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { rpc } from '@/lib/supabase/rpc'
 import { getCachedUser } from '@/lib/supabase/cached-auth'
-import { fetchMeetingsQuery } from '@/lib/supabase/queries'
+import { fetchMeetingsQuery, MEETING_DETAIL_COLUMNS } from '@/lib/supabase/queries'
 import type { MeetingsQueryData } from '@/lib/supabase/queries'
 import type { Meeting, MeetingParticipant } from '@/types/database'
 
@@ -107,10 +107,10 @@ export function useMeetings({
   const fetchMeetingDetail = useCallback(
     async (meetingId: string): Promise<Meeting | null> => {
       try {
-        const { data: detailData, error: fetchError } = await supabase
+        const { data: detailData, error: fetchError } = await (supabase as SupabaseClient)
           .from('meetings')
-          .select('*')
-          .eq('id' as never, meetingId as never)
+          .select(MEETING_DETAIL_COLUMNS)
+          .eq('id', meetingId)
           .single()
 
         if (fetchError) throw fetchError
@@ -178,7 +178,7 @@ export function useMeetings({
             status: 'planned',
             created_by: authUser.id,
           })
-          .select('*')
+          .select(MEETING_DETAIL_COLUMNS)
           .single()
 
         if (createError) throw createError

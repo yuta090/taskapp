@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { mfaGuardResponse } from '@/lib/auth/apiMfaGuard'
 import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { rpc } from '@/lib/supabase/rpc'
 import { resolveReturnAssignee } from '../resolveReturnAssignee'
@@ -118,6 +120,9 @@ export async function POST(
     if (!user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
+    // 二要素認証: 登録済み × コード未入力(aal1) は service role で触る前に弾く（RLS 経由でない経路の防衛）
+    const mfaBlock = await mfaGuardResponse(supabase as SupabaseClient, user)
+    if (mfaBlock) return mfaBlock
 
     // Parse request body
     const body: TaskActionBody = await request.json()
@@ -221,13 +226,18 @@ export async function POST(
       )
     }
 
+    // 確認（ログイン・タスクの読み取り・membership・区分）が全て終わったあとで、
+    // 実際の書き込みに使うサーバー側(service role)クライアントを作る。書き込む
+    // 行は確認済みの id・space_id・ball・client_scope の条件で固定する。
+    const admin = createAdminClient()
+
     const now = new Date().toISOString()
     // Safe trimmed comment for use in request_changes branch
     const trimmedComment = comment?.trim() || ''
 
     if (action === 'estimate_approve') {
       // Approve estimate: set estimate_status to approved, ball to internal
-      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
+      const { data: updatedTask, error: updateError } = await (admin as SupabaseClient)
         .from('tasks')
         .update({
           estimate_status: 'approved',
@@ -235,7 +245,9 @@ export async function POST(
           updated_at: now,
         })
         .eq('id', taskId)
+        .eq('space_id', task.space_id)
         .eq('ball', 'client')
+        .eq('client_scope', 'deliverable')
         .eq('estimate_status', 'pending')
         .select('id')
         .single()
@@ -280,7 +292,7 @@ export async function POST(
 
     if (action === 'estimate_reject') {
       // Reject estimate: set estimate_status to rejected, ball to internal
-      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
+      const { data: updatedTask, error: updateError } = await (admin as SupabaseClient)
         .from('tasks')
         .update({
           estimate_status: 'rejected',
@@ -288,7 +300,9 @@ export async function POST(
           updated_at: now,
         })
         .eq('id', taskId)
+        .eq('space_id', task.space_id)
         .eq('ball', 'client')
+        .eq('client_scope', 'deliverable')
         .eq('estimate_status', 'pending')
         .select('id')
         .single()
@@ -301,7 +315,7 @@ export async function POST(
       }
 
       // Insert comment
-      const commentPromise = (supabase as SupabaseClient)
+      const commentPromise = (admin as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -342,10 +356,11 @@ export async function POST(
       if (commentError) {
         console.error('Failed to create estimate reject comment:', commentError)
         // Attempt to revert estimate status (conditional to avoid clobbering newer state)
-        await (supabase as SupabaseClient)
+        await (admin as SupabaseClient)
           .from('tasks')
           .update({ estimate_status: 'pending', ball: 'client', updated_at: now })
           .eq('id', taskId)
+          .eq('space_id', task.space_id)
           .eq('estimate_status', 'rejected')
           .eq('updated_at', now)
 
@@ -365,8 +380,8 @@ export async function POST(
     if (action === 'approve') {
       // Update task status to done and transfer ball to internal
       // IMPORTANT: Include ball='client' in WHERE clause to prevent race conditions
-       
-      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
+
+      const { data: updatedTask, error: updateError } = await (admin as SupabaseClient)
         .from('tasks')
         .update({
           status: 'done',
@@ -374,7 +389,9 @@ export async function POST(
           updated_at: now,
         })
         .eq('id', taskId)
+        .eq('space_id', task.space_id)
         .eq('ball', 'client')  // Race condition protection
+        .eq('client_scope', 'deliverable')
         .neq('status', 'done') // Don't update already-done tasks
         .select('id')
         .single()
@@ -420,7 +437,7 @@ export async function POST(
       })
 
       // In-app inbox notification so the approval is visible without Slack
-      await notifyTaskCreator(supabase as SupabaseClient<Database>, {
+      await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
         orgId: task.org_id,
         spaceId: task.space_id,
         createdBy: task.created_by,
@@ -452,7 +469,7 @@ export async function POST(
 
       // IMPORTANT: Include ball='client' in WHERE clause to prevent race conditions
 
-      const { data: updatedTask, error: updateError } = await (supabase as SupabaseClient)
+      const { data: updatedTask, error: updateError } = await (admin as SupabaseClient)
         .from('tasks')
         .update({
           ball: 'internal',
@@ -460,7 +477,9 @@ export async function POST(
           updated_at: now,
         })
         .eq('id', taskId)
+        .eq('space_id', task.space_id)
         .eq('ball', 'client')  // Race condition protection
+        .eq('client_scope', 'deliverable')
         .neq('status', 'done') // Don't update already-done tasks
         .select('id')
         .single()
@@ -475,8 +494,8 @@ export async function POST(
       }
 
       // Run audit log (fire-and-forget) and comment insert (required) in parallel
-       
-      const commentPromise = (supabase as SupabaseClient)
+
+      const commentPromise = (admin as SupabaseClient)
         .from('task_comments')
         .insert({
           org_id: task.org_id,
@@ -523,10 +542,11 @@ export async function POST(
 
         // Attempt to revert the ball (and assignee) change (conditional to avoid clobbering newer state)
 
-        await (supabase as SupabaseClient)
+        await (admin as SupabaseClient)
           .from('tasks')
           .update({ ball: 'client', assignee_id: task.assignee_id, updated_at: now })
           .eq('id', taskId)
+          .eq('space_id', task.space_id)
           .eq('ball', 'internal')
           .eq('updated_at', now)
 
@@ -537,7 +557,7 @@ export async function POST(
       }
 
       // In-app inbox notification so the change request is visible without Slack
-      await notifyTaskCreator(supabase as SupabaseClient<Database>, {
+      await notifyTaskCreator(admin as unknown as SupabaseClient<Database>, {
         orgId: task.org_id,
         spaceId: task.space_id,
         createdBy: task.created_by,
