@@ -12,6 +12,7 @@ import { createAuditLog, generateAuditSummary } from '@/lib/audit'
 import { getCachedUser, getCachedUserId } from '@/lib/supabase/cached-auth'
 import { fetchTasksQuery } from '@/lib/supabase/queries'
 import type { TasksQueryData, ReviewStatus } from '@/lib/supabase/queries'
+import { myPendingReviewsRootKey } from '@/lib/hooks/useMyPendingReviews'
 import type {
   Task,
   TaskOwner,
@@ -868,6 +869,9 @@ export function useTasks({ orgId, spaceId }: UseTasksOptions): UseTasksReturn {
         reviewStatuses: nextReviews,
       }
     })
+    // 一覧の「あなたの承認待ち」も取り直す。承認者が複数いると依頼は open のままなので、上の状態だけでは
+    // 自分が返事をしても印が消えない
+    void queryClient.invalidateQueries({ queryKey: myPendingReviewsRootKey })
   }, [queryClient, orgId, spaceId])
 
   return {
