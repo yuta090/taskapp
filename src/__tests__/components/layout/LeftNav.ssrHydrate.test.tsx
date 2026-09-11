@@ -1,5 +1,5 @@
 import React, { act } from 'react'
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import { renderToString } from 'react-dom/server'
 import { hydrateRoot } from 'react-dom/client'
 
@@ -17,6 +17,12 @@ import { hydrateRoot } from 'react-dom/client'
 let phase: 'server' | 'client' = 'server'
 let pathname = '/org1/secretary'
 let params: Record<string, string> = { orgId: 'org1' }
+// ブラウザ側（キャッシュ復元済み想定）にグループを1つ含めるかどうか。groups自体は
+// hydration前は空(EMPTY_GROUPS)で描画されないため、サーバー側は常に空のまま
+let includeGroupOnClient = false
+
+// LeftNav.tsx の GROUP_COLLAPSED_KEY と同じ値（非公開の定数なのでテスト側で直接指定）
+const GROUP_COLLAPSED_KEY = 'taskapp:sidebar:group-collapsed'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
@@ -50,7 +56,7 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
               orgName: 'テスト組織',
               role: 'admin',
               archivedAt: null,
-              groupId: null,
+              groupId: includeGroupOnClient ? 'group1' : null,
               sortOrder: 0,
             },
           ],
@@ -58,7 +64,7 @@ vi.mock('@/lib/hooks/useUserSpaces', () => ({
 }))
 vi.mock('@/lib/hooks/useSpaceGroups', () => ({
   useSpaceGroups: () => ({
-    groups: [],
+    groups: phase === 'client' && includeGroupOnClient ? [{ id: 'group1', name: 'グループA', sortOrder: 0 }] : [],
     createGroup: vi.fn(),
     renameGroup: vi.fn(),
     deleteGroup: vi.fn(),
@@ -133,6 +139,8 @@ async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
       : null,
     userName: container.textContent?.includes('テスト太郎') ?? false,
     projectName: container.textContent?.includes('テストプロジェクト') ?? false,
+    orgName: container.textContent?.includes('テスト組織') ?? false,
+    groupHeader: container.textContent?.includes('グループA') ?? false,
   }
 
   act(() => root.unmount())
@@ -141,6 +149,11 @@ async function renderThenHydrate(clientOrgValue: ActiveOrgContextValue) {
 }
 
 describe('LeftNav — サーバーの描画とハイドレーション時の描画の食い違いが無い（React #418）', () => {
+  afterEach(() => {
+    includeGroupOnClient = false
+    localStorage.removeItem(GROUP_COLLAPSED_KEY)
+  })
+
   it('/org1/secretary: cookie由来のactiveOrgIdがURLと異なっていても、食い違い警告は出ず、URLのorgIdで「秘書」が出る', async () => {
     pathname = '/org1/secretary'
     params = { orgId: 'org1' }
@@ -182,5 +195,34 @@ describe('LeftNav — サーバーの描画とハイドレーション時の描�
     expect(result.windowErrors).toEqual([])
     // hydration完了後は、確定した組織のもとで「秘書」が出る
     expect(result.secretaryHref).toBe('/org1/secretary')
+    // 組織名の表示が「組織未設定」のまま止まらず、hydration後に実際の名前へ戻ることを確かめる
+    expect(result.orgName).toBe(true)
+  })
+
+  it('ブラウザ側にグループが1つあり、localStorageで折りたたみ済みでも食い違い警告は出ず、hydration後は折りたたまれて描かれる', async () => {
+    pathname = '/org1/project/space1'
+    params = { orgId: 'org1', spaceId: 'space1' }
+    includeGroupOnClient = true
+    // groups自体はhydration前は空(EMPTY_GROUPS)で描画されないため、lazy useStateの
+    // 初期値でこの値を読んでもサーバー側の描画とは食い違わない（LeftNav.tsx参照）
+    localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify(['group1']))
+
+    const clientOrgValue: ActiveOrgContextValue = {
+      ...serverOrgValue,
+      activeOrgId: 'org1',
+      activeOrgName: 'テスト組織',
+      orgs: [{ orgId: 'org1', orgName: 'テスト組織', role: 'owner' }],
+      orgsStatus: 'verified',
+      loading: false,
+    }
+
+    const result = await renderThenHydrate(clientOrgValue)
+
+    expect(result.consoleErrors).toEqual([])
+    expect(result.windowErrors).toEqual([])
+    // グループ自体はhydration後に描かれる
+    expect(result.groupHeader).toBe(true)
+    // 折りたたみ済みなので、配下のプロジェクトは描かれない
+    expect(result.projectName).toBe(false)
   })
 })
