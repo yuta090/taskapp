@@ -4,6 +4,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import MyTasksClient from '@/app/(internal)/my/MyTasksClient'
 import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
+import { invalidateCachedUser } from '@/lib/supabase/cached-auth'
 
 /**
  * Regression coverage for the empty-My-Tasks copy added as part of the
@@ -14,6 +15,8 @@ import { ActiveOrgContext } from '@/lib/org/ActiveOrgProvider'
 
 const mocks = vi.hoisted(() => ({
   taskRows: [] as unknown[],
+  spaceRows: [] as unknown[],
+  milestoneRows: [] as unknown[],
   spaceTasks: [] as unknown[],
   owners: {} as Record<string, unknown[]>,
   loading: false,
@@ -29,6 +32,16 @@ const mocks = vi.hoisted(() => ({
   createTask: vi.fn(),
   handleReviewChange: vi.fn(),
   push: vi.fn(),
+  // ↓ 一覧の読み込みを react-query 化した分のテスト用（getUser の挙動・from() 呼び出し記録）
+  getUserImpl: () =>
+    Promise.resolve({ data: { user: null }, error: null }) as Promise<{
+      data: { user: unknown }
+      error: unknown
+    }>,
+  fromCalls: [] as Array<{ table: string; eqs: Array<[string, unknown]> }>,
+  // 既定の table 別振り分け(taskRows/spaceRows/milestoneRows)を上書きしたいテスト用。
+  // null の間は既定の振り分けを使う。
+  fromOverride: null as null | ((table: string) => unknown),
 }))
 
 // next/navigation はグローバルの setup.ts で常に空の URLSearchParams を返すモックに
@@ -85,14 +98,50 @@ vi.mock('@/lib/hooks/useTasks', () => ({
 }))
 
 // Chainable stand-in for `supabase.from(...).select().eq().order()` — the
-// tasks table resolves to mocks.taskRows, everything else to an empty set.
-function makeChainable(result: { data: unknown; error: unknown } = { data: [], error: null }) {
+// tasks table resolves to mocks.taskRows, everything else to an empty set。
+// table名と .eq() の呼び出し引数を mocks.fromCalls に記録する（並列に問い合わせているか・
+// org/userId で絞り込んでいるかをテストで確かめるため）。
+function makeChainable(table: string, result: { data: unknown; error: unknown } = { data: [], error: null }) {
+  const record: { table: string; eqs: Array<[string, unknown]> } = { table, eqs: [] }
+  mocks.fromCalls.push(record)
   const chainable: Record<string, unknown> = new Proxy(
     {},
     {
       get(_target, prop) {
         if (prop === 'then') {
           return (resolve: (v: unknown) => void) => resolve(result)
+        }
+        if (prop === 'eq') {
+          return (col: string, val: unknown) => {
+            record.eqs.push([col, val])
+            return chainable
+          }
+        }
+        return () => chainable
+      },
+    }
+  )
+  return chainable
+}
+
+/** `.then()` が呼ばれたことだけを記録し、二度と解決しない代役（並列実行の検証用） */
+function makeHangingChainable(table: string) {
+  const record: { table: string; eqs: Array<[string, unknown]> } = { table, eqs: [] }
+  mocks.fromCalls.push(record)
+  const chainable: Record<string, unknown> = new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === 'then') {
+          return () => {
+            // resolve/reject を一切呼ばない = 呼ばれた記録(fromCalls)だけ残して待たせ続ける
+          }
+        }
+        if (prop === 'eq') {
+          return (col: string, val: unknown) => {
+            record.eqs.push([col, val])
+            return chainable
+          }
         }
         return () => chainable
       },
@@ -103,9 +152,20 @@ function makeChainable(result: { data: unknown; error: unknown } = { data: [], e
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { getUser: vi.fn(() => Promise.resolve({ data: { user: null }, error: null })) },
+    auth: { getUser: vi.fn(() => mocks.getUserImpl()) },
     from: vi.fn((table: string) =>
-      makeChainable(table === 'tasks' ? { data: mocks.taskRows, error: null } : { data: [], error: null })
+      mocks.fromOverride
+        ? mocks.fromOverride(table)
+        : makeChainable(
+            table,
+            table === 'tasks'
+              ? { data: mocks.taskRows, error: null }
+              : table === 'spaces'
+                ? { data: mocks.spaceRows, error: null }
+                : table === 'milestones'
+                  ? { data: mocks.milestoneRows, error: null }
+                  : { data: [], error: null }
+          )
     ),
     rpc: vi.fn(),
   }),
@@ -138,12 +198,12 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function buildTree(queryClient: QueryClient) {
+function buildTree(queryClient: QueryClient, orgId = 'org-1') {
   return (
     <QueryClientProvider client={queryClient}>
       <ActiveOrgContext.Provider
         value={{
-          activeOrgId: 'org-1',
+          activeOrgId: orgId,
           activeOrgName: 'テスト組織',
           activeOrgRole: 'admin',
           orgs: [],
@@ -177,6 +237,8 @@ function renderNode(node: React.ReactElement) {
 
 beforeEach(() => {
   mocks.taskRows = []
+  mocks.spaceRows = []
+  mocks.milestoneRows = []
   mocks.spaceTasks = []
   mocks.owners = {}
   mocks.loading = false
@@ -195,8 +257,22 @@ beforeEach(() => {
   mocks.createTask.mockClear()
   mocks.handleReviewChange.mockClear()
   mocks.push.mockClear()
+  mocks.getUserImpl = () => Promise.resolve({ data: { user: null }, error: null })
+  mocks.fromCalls = []
+  mocks.fromOverride = null
+  // cached-auth.ts はモジュール単位のキャッシュを持つため、あるテストで解決した getUser の
+  // 結果が別のテスト（getUser が永遠に返らないことを前提とするもの）に漏れないようにする
+  invalidateCachedUser()
   window.history.replaceState(null, '', '/my')
 })
+
+/** 本番の DEV_USER_ID フォールバックと同じ値（localhost かつ未ログイン時の担当者ID） */
+const DEV_USER_ID = '0124bcca-7c66-406c-b1ae-2be8dac241c5'
+
+/** MyTasksClient が使う /my 一覧のキャッシュキー */
+function myTasksKeyFor(userId: string, orgId: string | null) {
+  return ['myTasks', userId, orgId] as const
+}
 
 describe('MyTasksClient — 空状態の教育化 (初回UX改善 D)', () => {
   it('担当タスクが0件のとき、担当者設定への誘導文を表示する', async () => {
@@ -639,5 +715,221 @@ describe('MyTasksClient — お知らせベルの置き場所', () => {
     const bell = screen.getByRole('button', { name: 'お知らせ' })
     expect(bell.closest('header')).not.toBeNull()
     expect(bell.closest('[data-header-bell]')).not.toBeNull()
+  })
+})
+
+/**
+ * 一覧の読み込みを react-query のキャッシュに載せ替えた分の回帰テスト。
+ * - キャッシュ（IndexedDB からの復元を想定）があれば、通信を待たずに前回のデータを出す
+ * - 本人ID(getUser・認証サーバーへの1往復)の解決を待たずに、tasks/spaces/milestonesの
+ *   問い合わせが並列に出る
+ * - queryKey に userId と activeOrgId を含み、別の組織に切り替えたら別データになる
+ * - 行の完了トグルはキャッシュを楽観的に書き換え、失敗したら戻し、dataUpdatedAt は据え置く
+ */
+describe('MyTasksClient — 一覧の読み込みを react-query のキャッシュに載せる', () => {
+  it('キャッシュに前回のデータがあれば、通信を待たずにすぐ一覧を出す（読み込み中を経由しない）', () => {
+    // staleTime: Infinity にして、マウント直後のバックグラウンド再取得が
+    // このテストの「一度も読み込み中を経由していない」という主張と混ざらないようにする
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    // QueryProvider が restoreClient で(通信無しで)先に入れておく ['currentUser'] を再現する。
+    // これが無いと userId の確定を待つ間だけ「読み込み中」を経由してしまい、このテストの
+    // 前提（キャッシュがあれば即座に出る）を検証できない。
+    queryClient.setQueryData(['currentUser'], null)
+    queryClient.setQueryData(myTasksKeyFor(DEV_USER_ID, 'org-1'), {
+      tasks: [makeTask()],
+      reviewStatuses: {},
+      spaces: [],
+      milestones: [],
+      fetchedAt: Date.now(),
+    })
+
+    render(buildTree(queryClient))
+
+    // waitFor を使わず、render 直後の同期的な結果だけを見る＝通信を待っていないことの証拠
+    expect(screen.getByText('マイタスクA')).toBeInTheDocument()
+    expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument()
+  })
+
+  it('本人ID(getUser)が永遠に返らなくても、tasks/spaces/milestonesの問い合わせは出る', async () => {
+    // getUser は二度と解決しない。ただし ['currentUser'] は QueryProvider の restoreClient が
+    // 通信無し(getSession)で先に入れておいたのと同じ状態を再現する — これにより
+    // useCurrentUser 自身は getUser を一切呼ばずに済む
+    mocks.getUserImpl = () => new Promise(() => {})
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['currentUser'], null)
+
+    render(buildTree(queryClient))
+
+    // tasks 側は別経路(userId 確定後の useQuery)なので、getUser が解決しないままでも
+    // 3本の問い合わせが出ることを確かめる。
+    await waitFor(() => {
+      const tables = mocks.fromCalls.map((c) => c.table)
+      expect(tables).toEqual(expect.arrayContaining(['tasks', 'spaces', 'milestones']))
+    })
+  })
+
+  it('tasks/spaces/milestonesの3本は並列に問い合わせる（1本が止まっていても他は出る）', async () => {
+    // tasks 用の問い合わせだけを「呼ばれた記録は残すが二度と解決しない」代役にする。
+    // 直列(waterfall)実装なら、tasks が解決するまで spaces/milestones は構築すらされない。
+    mocks.fromOverride = (table: string) =>
+      table === 'tasks' ? makeHangingChainable(table) : makeChainable(table, { data: [], error: null })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['currentUser'], null)
+
+    render(buildTree(queryClient))
+
+    await waitFor(() => {
+      const tables = mocks.fromCalls.map((c) => c.table)
+      expect(tables).toEqual(expect.arrayContaining(['tasks', 'spaces', 'milestones']))
+    })
+  })
+
+  it('queryKeyにuserIdとactiveOrgIdが入り、orgを切り替えると別データになる（前の組織の行は出ない）', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(['currentUser'], null)
+    queryClient.setQueryData(myTasksKeyFor(DEV_USER_ID, 'org-1'), {
+      tasks: [makeTask({ title: '組織1のタスク' })],
+      reviewStatuses: {},
+      spaces: [],
+      milestones: [],
+      fetchedAt: Date.now(),
+    })
+
+    const { rerender } = render(buildTree(queryClient, 'org-1'))
+    expect(await screen.findByText('組織1のタスク')).toBeInTheDocument()
+
+    rerender(buildTree(queryClient, 'org-2'))
+
+    // 前の組織(org-1)のキャッシュに紐づいた行はもう出ない（別のqueryKeyに切り替わったため）
+    await waitFor(() => expect(screen.queryByText('組織1のタスク')).not.toBeInTheDocument())
+
+    // 新しい組織(org-2)のキーで問い合わせが飛んだことも確認する
+    await waitFor(() => {
+      const orgFilters = mocks.fromCalls
+        .filter((c) => c.table === 'tasks')
+        .flatMap((c) => c.eqs)
+      expect(orgFilters).toContainEqual(['org_id', 'org-2'])
+    })
+  })
+
+  it('完了にする操作は一覧のキャッシュを楽観的に書き換え、取得時刻(dataUpdatedAt)は据え置く', async () => {
+    // staleTime: Infinity で、マウント時のバックグラウンド再取得(既定データ=空)が
+    // このあとの楽観的更新・dataUpdatedAt の検証と競合しないようにする
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(['currentUser'], null)
+    const key = myTasksKeyFor(DEV_USER_ID, 'org-1')
+    queryClient.setQueryData(
+      key,
+      { tasks: [makeTask()], reviewStatuses: {}, spaces: [], milestones: [], fetchedAt: 500 },
+      { updatedAt: 1000 }
+    )
+
+    render(buildTree(queryClient))
+    expect(await screen.findByText('マイタスクA')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '完了にする' }))
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(key) as { tasks: Array<{ id: string; status: string }> }
+      expect(cached.tasks[0].status).toBe('done')
+    })
+    expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBe(1000)
+  })
+
+  it('サーバー側の更新に失敗したら、一覧のキャッシュを元の状態に戻す', async () => {
+    // staleTime: Infinity で、tasks を全滅させる fromOverride がマウント時の
+    // バックグラウンド再取得にも刺さって表示自体が消えてしまう事故を防ぐ
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(['currentUser'], null)
+    const key = myTasksKeyFor(DEV_USER_ID, 'org-1')
+    queryClient.setQueryData(key, {
+      tasks: [makeTask()],
+      reviewStatuses: {},
+      spaces: [],
+      milestones: [],
+      fetchedAt: 500,
+    })
+
+    // tasks テーブルへの問い合わせ（完了トグルの update() が通る経路）を失敗させる。
+    // 一覧はキャッシュ済み・staleTimeも無限large なので、これが一覧表示自体に影響しない。
+    mocks.fromOverride = (table: string) =>
+      table === 'tasks'
+        ? makeChainable(table, { data: null, error: new Error('network error') })
+        : makeChainable(table, { data: [], error: null })
+
+    render(buildTree(queryClient))
+    expect(await screen.findByText('マイタスクA')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '完了にする' }))
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(key) as { tasks: Array<{ id: string; status: string }> }
+      expect(cached.tasks[0].status).toBe('todo')
+    })
+  })
+
+  it('MyTaskInspector に渡る listFetchedAt は、キャッシュに入れた fetchedAt と同じ', async () => {
+    // lastInspectorNode() は MyTaskInspector 自身ではなく、その中で setInspector に渡された
+    // 要素（プレースホルダ or TaskInspector）を返すため listFetchedAt を直接読むことはできない。
+    // 代わりに、listFetchedAt を基準にした既存の新旧判定（MyTaskInspector 参照）を通して間接的に
+    // 確かめる: fetchedAt を「未来の値」にしておき、それより古い dataUpdatedAt（詳細側の
+    // useTasks 結果）を渡すと「一覧より古い」と判定されて fetchTasks が1回呼ばれるはず。
+    // listFetchedAt が正しく fetchedAt に渡っていなければ（例えば 0 のまま）この判定は起きない。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(['currentUser'], null)
+    const key = myTasksKeyFor(DEV_USER_ID, 'org-1')
+    const fetchedAt = Date.now() + 10 * 60_000
+    queryClient.setQueryData(key, {
+      tasks: [makeTask()],
+      reviewStatuses: {},
+      spaces: [],
+      milestones: [],
+      fetchedAt,
+    })
+    mocks.spaceTasks = [makeTask()]
+    mocks.dataUpdatedAt = Date.now() // fetchedAt(未来)より古い
+
+    render(buildTree(queryClient))
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+
+    await waitFor(() => expect(mocks.fetchTasks).toHaveBeenCalledTimes(1))
+  })
+
+  it('詳細パネルでの同期・削除は、一覧のキャッシュ(myTasksKey)そのものを書き換える', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(['currentUser'], null)
+    const key = myTasksKeyFor(DEV_USER_ID, 'org-1')
+    queryClient.setQueryData(key, {
+      tasks: [makeTask()],
+      reviewStatuses: {},
+      spaces: [{ id: 'space-1', org_id: 'org-1', name: 'テストスペース' }],
+      milestones: [],
+      fetchedAt: 12345,
+    })
+    mocks.spaceTasks = [makeTask()]
+
+    const { rerender } = render(buildTree(queryClient))
+
+    fireEvent.click(await screen.findByText('マイタスクA'))
+    await waitFor(() => expect(lastInspectorNode()?.props.task.id).toBe('t1'))
+
+    // 詳細側での同期（useTasks 側の結果が変わった）→ 一覧のキャッシュ(myTasksKey)自体が書き換わる
+    mocks.spaceTasks = [makeTask({ title: 'マイタスクA（更新後）' })]
+    rerender(buildTree(queryClient))
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(key) as { tasks: Array<{ id: string; title: string }> }
+      expect(cached.tasks.some((t) => t.title === 'マイタスクA（更新後）')).toBe(true)
+    })
+
+    // 詳細から削除 → 一覧のキャッシュからも消える
+    await act(async () => {
+      await lastInspectorNode().props.onDelete()
+    })
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(key) as { tasks: Array<{ id: string }> }
+      expect(cached.tasks.some((t) => t.id === 't1')).toBe(false)
+    })
   })
 })

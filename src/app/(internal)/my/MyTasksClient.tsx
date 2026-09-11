@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useContext, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Target, Folder, CaretDown, CaretRight, FunnelSimple, SortAscending, SortDescending, X, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -12,6 +12,7 @@ import { TaskRow } from '@/components/task/TaskRow'
 import { useInspector } from '@/components/layout'
 import { useTasks } from '@/lib/hooks/useTasks'
 import type { TasksQueryData } from '@/lib/hooks/useTasks'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { getEligibleParents } from '@/lib/gantt/treeUtils'
 import type { Task, Space, Milestone, TaskStatus, ReviewStatus } from '@/types/database'
 import { splitEmbeddedReviews, type EmbeddedReviews } from '@/lib/tasks/reviewStatus'
@@ -332,27 +333,82 @@ function MyTaskInspector({ task, openedAt, listFetchedAt, onClose, onSynced, onD
   return null
 }
 
+/** react-query に載せる /my 一覧データの形。3本の問い合わせをまとめて1つのキャッシュにする */
+interface MyTasksData {
+  tasks: Task[]
+  reviewStatuses: Record<string, ReviewStatus>
+  spaces: Space[]
+  milestones: Milestone[]
+  /**
+   * クエリを発行した直前の時刻（ms）。MyTaskInspector 側で「一覧と同じくらい新しいか」を
+   * 判定する listFetchedAt として使う。IDB から復元したキャッシュにもこの値が残っているため、
+   * 開いた瞬間に前回のデータを表示しても判定はそのまま成り立つ。
+   */
+  fetchedAt: number
+}
+
+/**
+ * /my の一覧（担当タスク・所属スペース・マイルストーン）をまとめて取得する。
+ * 1人あたりの担当タスクは最大44件程度（本番実績）のため、tasks の range ページングは
+ * 行わない（fetchTasksQuery と違い1000件超を想定しない）。
+ */
+async function fetchMyTasksData(
+  supabase: SupabaseClient,
+  userId: string,
+  orgId: string | null
+): Promise<MyTasksData> {
+  // クエリ発行の直前に記録。MyTaskInspector 側の判定に使う（MyTasksData.fetchedAt 参照）
+  const fetchedAt = Date.now()
+
+  // 社内承認の状態（reviews）も同じ1回の取得で読む（別に取りに行くと待ちが直列になる）
+  let tasksQuery = supabase
+    .from('tasks')
+    .select('*, reviews(status, created_at)')
+    .eq('assignee_id', userId)
+
+  let spacesQuery = supabase.from('spaces').select('*')
+
+  let milestonesQuery = supabase
+    .from('milestones')
+    .select('*')
+    .order('due_date', { ascending: true, nullsFirst: false })
+
+  if (orgId) {
+    tasksQuery = tasksQuery.eq('org_id', orgId)
+    spacesQuery = spacesQuery.eq('org_id', orgId)
+    milestonesQuery = milestonesQuery.eq('org_id', orgId)
+  }
+
+  const [tasksRes, spacesRes, milestonesRes] = await Promise.all([
+    tasksQuery,
+    spacesQuery,
+    milestonesQuery,
+  ])
+
+  if (tasksRes.error) {
+    throw new Error('タスクの取得に失敗しました')
+  }
+
+  const { tasks, reviewStatuses } = splitEmbeddedReviews(
+    (tasksRes.data || []) as Array<Task & { reviews?: EmbeddedReviews }>
+  )
+
+  return {
+    tasks,
+    reviewStatuses,
+    spaces: (spacesRes.data || []) as Space[],
+    milestones: (milestonesRes.data || []) as Milestone[],
+    fetchedAt,
+  }
+}
+
+// 本番で未ログインのまま /my を開いたときのエラー。毎レンダー new Error しないよう固定する
+const LOGIN_REQUIRED_ERROR = new Error('ログインが必要です')
+
 export default function MyTasksClient() {
-  const [tasks, setTasks] = useState<Task[]>([])
-  // 行の完了トグル(updateTaskStatus)を tasks の変更のたびに作り直さない（TaskRow の memo を効かせる）ための ref
-  const tasksRef = useRef(tasks)
-  useEffect(() => {
-    tasksRef.current = tasks
-  })
-  const [spaces, setSpaces] = useState<Space[]>([])
-  const [milestones, setMilestones] = useState<Milestone[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const [retryKey, setRetryKey] = useState(0)
-  // タスクごとの最新の社内承認の状態。無いと「社内承認中」の行すべてに「社内承認を依頼」が出てしまう
-  const [reviewStatuses, setReviewStatuses] = useState<Record<string, ReviewStatus>>({})
-  const [userId, setUserId] = useState<string | null>(null)
   const [collapsedMilestones, setCollapsedMilestones] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<FilterState>(defaultFilters)
   const [showFilters, setShowFilters] = useState(false)
-  // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
-  // 一覧と同じくらい新しいか」を判定するために渡す（詳細参照）
-  const [listFetchedAt, setListFetchedAt] = useState(0)
 
   // Restore persisted state from localStorage after hydration
   useEffect(() => {
@@ -367,6 +423,54 @@ export default function MyTasksClient() {
   const isCreateOpen = searchParams.get('create') !== null
   const supabase = useMemo(() => createClient() as SupabaseClient, [])
   const { activeOrgId, loading: orgLoading } = useContext(ActiveOrgContext)
+  const queryClient = useQueryClient()
+
+  // 本人のID。supabase.auth.getUser()（認証サーバーへの1往復）を直接待つのではなく、
+  // QueryProvider が restoreClient で（ローカルのセッションから、通信無しで）先に入れておく
+  // ['currentUser'] を読む useCurrentUser を使う（TaskInspector と同じ取り方）。キャッシュが
+  // 新しければ、通信を待たずに即座に user が決まる。
+  const { user: authUser, loading: authLoading } = useCurrentUser()
+  const isLocalhostDev = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  // 本人が特定できないまま authLoading が終わった = 未ログイン。localhost では既存の
+  // 開発用ダミー担当者にフォールバックする（authLoading の間は急がない — 一瞬だけ
+  // ダミーの一覧を出してから本人の一覧に切り替わる、という事故を防ぐため）
+  const userId = authUser?.id ?? (!authLoading && isLocalhostDev ? DEV_USER_ID : null)
+  const loginRequired = !authLoading && !userId
+
+  // 一覧(tasks/spaces/milestones の3本)を1つのキャッシュにまとめる。userId と activeOrgId を
+  // 必ず含めることで、別の人・別の組織のデータが混ざらない（org切り替えで取り直す）
+  const myTasksKey = useMemo(
+    () => ['myTasks', userId, activeOrgId ?? null] as const,
+    [userId, activeOrgId]
+  )
+
+  const myTasksQuery = useQuery<MyTasksData>({
+    queryKey: myTasksKey,
+    queryFn: () => fetchMyTasksData(supabase, userId as string, activeOrgId ?? null),
+    // org解決前・本人ID未決定の間はフェッチしない（cross-org leak防止）
+    enabled: !orgLoading && !!userId,
+  })
+
+  const tasks = useMemo(() => myTasksQuery.data?.tasks ?? [], [myTasksQuery.data?.tasks])
+  const reviewStatuses = useMemo(
+    () => myTasksQuery.data?.reviewStatuses ?? {},
+    [myTasksQuery.data?.reviewStatuses]
+  )
+  const spaces = useMemo(() => myTasksQuery.data?.spaces ?? [], [myTasksQuery.data?.spaces])
+  const milestones = useMemo(() => myTasksQuery.data?.milestones ?? [], [myTasksQuery.data?.milestones])
+  // /my の一覧を読み込み始めた時刻。MyTaskInspector 側で「useTasks のキャッシュが
+  // 一覧と同じくらい新しいか」を判定するために渡す（詳細参照）
+  const listFetchedAt = myTasksQuery.data?.fetchedAt ?? 0
+  // 「読み込み中」はデータがまだ無いとき(isPending)だけ出す。キャッシュがあれば
+  // （IndexedDBから復元したものでも）通信を待たずに即座に表示する
+  const loading = !loginRequired && myTasksQuery.isPending
+  const error = loginRequired ? LOGIN_REQUIRED_ERROR : (myTasksQuery.error as Error | null)
+
+  // 行の完了トグル(updateTaskStatus)を tasks の変更のたびに作り直さない（TaskRow の memo を効かせる）ための ref
+  const tasksRef = useRef(tasks)
+  useEffect(() => {
+    tasksRef.current = tasks
+  })
 
   // 選んだタスクは右側に詳細を出す（ページは移動しない）。URL にも残し、再読み込み・共有で同じ表示に戻せるようにする
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('task'))
@@ -412,18 +516,34 @@ export default function MyTasksClient() {
   const handleInspectorClose = useCallback(() => selectTask(null), [selectTask])
 
   const handleInspectorSynced = useCallback((updated: Task, reviewStatus: ReviewStatus | undefined) => {
-    setTasks(prev => (prev.includes(updated) ? prev : prev.map(t => (t.id === updated.id ? updated : t))))
-    // 詳細側で承認が見つからないときは、一覧の状態を消さない（詳細側の承認の読み込みは失敗しても
-    // 黙って空になるため。消すと依頼済みのタスクに「社内承認を依頼」が戻ってしまう）
-    if (reviewStatus) {
-      setReviewStatuses(prev => (prev[updated.id] === reviewStatus ? prev : { ...prev, [updated.id]: reviewStatus }))
-    }
-  }, [])
+    queryClient.setQueryData<MyTasksData>(
+      myTasksKey,
+      (old) => {
+        if (!old) return old
+        const nextTasks = old.tasks.includes(updated)
+          ? old.tasks
+          : old.tasks.map((t) => (t.id === updated.id ? updated : t))
+        // 詳細側で承認が見つからないときは、一覧の状態を消さない（詳細側の承認の読み込みは
+        // 失敗しても黙って空になるため。消すと依頼済みのタスクに「社内承認を依頼」が戻ってしまう）
+        const nextReviewStatuses =
+          reviewStatus && old.reviewStatuses[updated.id] !== reviewStatus
+            ? { ...old.reviewStatuses, [updated.id]: reviewStatus }
+            : old.reviewStatuses
+        if (nextTasks === old.tasks && nextReviewStatuses === old.reviewStatuses) return old
+        return { ...old, tasks: nextTasks, reviewStatuses: nextReviewStatuses }
+      },
+      { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
+    )
+  }, [queryClient, myTasksKey])
 
   const handleInspectorDeleted = useCallback((taskId: string) => {
-    setTasks(prev => prev.filter(t => t.id !== taskId))
+    queryClient.setQueryData<MyTasksData>(
+      myTasksKey,
+      (old) => (old ? { ...old, tasks: old.tasks.filter((t) => t.id !== taskId) } : old),
+      { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
+    )
     selectTask(null)
-  }, [selectTask])
+  }, [selectTask, queryClient, myTasksKey])
 
   const selectedTask = useMemo(
     () => (selectedTaskId ? tasks.find(t => t.id === selectedTaskId) ?? null : null),
@@ -544,14 +664,18 @@ export default function MyTasksClient() {
 
         // If the created task is assigned to the current user, add to the list
         if (createdTask.assignee_id === userId || createdTask.assignee_id === DEV_USER_ID) {
-          setTasks((prev) => [createdTask, ...prev])
+          queryClient.setQueryData<MyTasksData>(
+            myTasksKey,
+            (old) => (old ? { ...old, tasks: [createdTask, ...old.tasks] } : old),
+            { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
+          )
         }
       } catch (err) {
         console.error('Failed to create task:', err)
         toast.error('タスクの作成に失敗しました')
       }
     },
-    [supabase, userId, spaces]
+    [supabase, userId, spaces, queryClient, myTasksKey]
   )
 
   const updateFilters = useCallback((updates: Partial<FilterState>) => {
@@ -575,14 +699,23 @@ export default function MyTasksClient() {
     })
   }, [])
 
-  const queryClient = useQueryClient()
   // tasks を直接依存に入れると一覧の変更のたびに作り直され、TaskRow の memo を素通りしてしまう
   // ため、直前の状態は tasksRef 経由で読む（onStatusChange は安定した参照のまま渡せる）
   const updateTaskStatus = useCallback(async (taskId: string, status: TaskStatus) => {
     const prevStatus = tasksRef.current.find(t => t.id === taskId)?.status
 
-    // Optimistic update
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t))
+    // 裏で走っているかもしれない再取得が、この後の楽観的更新を古いデータで
+    // 上書きしないよう、先に取り消す
+    await queryClient.cancelQueries({ queryKey: myTasksKey })
+
+    // Optimistic update。dataUpdatedAt は据え置く（updateTaskStatus 内の他の setQueryData と
+    // 同じ理由 — 該当タスクの行だけを直接いじっているのであって、一覧全体を読み直したわけ
+    // ではないので、更新したことにすると詳細パネル側の新旧判定が壊れる）
+    queryClient.setQueryData<MyTasksData>(
+      myTasksKey,
+      (old) => (old ? { ...old, tasks: old.tasks.map(t => t.id === taskId ? { ...t, status } : t) } : old),
+      { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
+    )
 
     const { error } = await (supabase as SupabaseClient)
       .from('tasks')
@@ -591,7 +724,11 @@ export default function MyTasksClient() {
 
     if (error) {
       // Revert on error
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: prevStatus ?? t.status } : t))
+      queryClient.setQueryData<MyTasksData>(
+        myTasksKey,
+        (old) => (old ? { ...old, tasks: old.tasks.map(t => t.id === taskId ? { ...t, status: prevStatus ?? t.status } : t) } : old),
+        { updatedAt: queryClient.getQueryState(myTasksKey)?.dataUpdatedAt }
+      )
       console.error('Failed to update task status:', error)
       return
     }
@@ -612,91 +749,11 @@ export default function MyTasksClient() {
         { updatedAt: queryClient.getQueryState(key)?.dataUpdatedAt }
       )
     }
-  }, [supabase, queryClient])
-
-  useEffect(() => {
-    // org解決前はフェッチしない（cross-org leak防止）
-    if (orgLoading) return
-
-    async function fetchData(uid: string) {
-      setUserId(uid)
-      // クエリ発行の直前に記録。MyTaskInspector 側で useTasks のキャッシュ(プロジェクト単位)が
-      // この一覧取得より新しいかどうかを判定するのに使う
-      const fetchStartedAt = Date.now()
-
-      // 社内承認の状態（reviews）も同じ1回の取得で読む（別に取りに行くと待ちが直列になる）
-      let tasksQuery = supabase
-        .from('tasks')
-        .select('*, reviews(status, created_at)')
-        .eq('assignee_id', uid)
-
-      let spacesQuery = supabase
-        .from('spaces')
-        .select('*')
-
-      let milestonesQuery = supabase
-        .from('milestones')
-        .select('*')
-        .order('due_date', { ascending: true, nullsFirst: false })
-
-      if (activeOrgId) {
-        tasksQuery = tasksQuery.eq('org_id', activeOrgId)
-        spacesQuery = spacesQuery.eq('org_id', activeOrgId)
-        milestonesQuery = milestonesQuery.eq('org_id', activeOrgId)
-      }
-
-      // 想定外の形のデータや通信の失敗で落ちても、「読み込み中」のまま止めない
-      try {
-        const [tasksRes, spacesRes, milestonesRes] = await Promise.all([
-          tasksQuery,
-          spacesQuery,
-          milestonesQuery,
-        ])
-
-        if (tasksRes.error) {
-          setError(new Error('タスクの取得に失敗しました'))
-        } else {
-          const { tasks: fetchedTasks, reviewStatuses: fetchedReviewStatuses } = splitEmbeddedReviews(
-            (tasksRes.data || []) as Array<Task & { reviews?: EmbeddedReviews }>
-          )
-          setTasks(fetchedTasks)
-          setReviewStatuses(fetchedReviewStatuses)
-          setSpaces(spacesRes.data || [])
-          setMilestones(milestonesRes.data || [])
-          setListFetchedAt(fetchStartedAt)
-        }
-      } catch (err) {
-        console.error('Failed to load my tasks:', err)
-        setError(new Error('タスクの取得に失敗しました'))
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    async function initAuth() {
-      const { data: { user } } = await supabase.auth.getUser()
-
-      if (user) {
-        await fetchData(user.id)
-      } else {
-        if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-          console.log('[MyTasks] Development mode: using demo user')
-          await fetchData(DEV_USER_ID)
-        } else {
-          setError(new Error('ログインが必要です'))
-          setLoading(false)
-        }
-      }
-    }
-
-    initAuth()
-  }, [supabase, activeOrgId, orgLoading, retryKey])
+  }, [supabase, queryClient, myTasksKey])
 
   const handleRetry = useCallback(() => {
-    setError(null)
-    setLoading(true)
-    setRetryKey((k) => k + 1)
-  }, [])
+    void myTasksQuery.refetch()
+  }, [myTasksQuery])
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
