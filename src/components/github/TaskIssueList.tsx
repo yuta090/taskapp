@@ -13,6 +13,7 @@ import {
 } from '@/lib/hooks'
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue'
 import { isGitHubConfigured } from '@/lib/github/enabled'
+import { formatTimeAgo } from '@/lib/github/formatTimeAgo'
 import type { GitHubIssue, TaskGitHubIssueLink } from '@/lib/github/types'
 
 interface TaskIssueListProps {
@@ -36,6 +37,17 @@ function issueStateStyle(issue: GitHubIssue): string {
   if (issue.state === 'open') return 'bg-green-50 border-green-200 text-green-600'
   if (issue.state_reason === 'not_planned') return 'bg-gray-50 border-gray-200 text-gray-500'
   return 'bg-indigo-50 border-indigo-200 text-indigo-ink'
+}
+
+/**
+ * PR-B: url は authenticated から読めない列になったため、画面側で組み立てる。
+ * リポジトリ名が読める（＝github_repositories の埋め込みがある。RLSで接続した本人だけに
+ * 絞られている）ときだけ URL を返す
+ */
+function buildIssueUrl(issue: GitHubIssue): string | undefined {
+  const fullName = issue.github_repositories?.full_name
+  if (!fullName) return undefined
+  return `https://github.com/${fullName}/issues/${issue.issue_number}`
 }
 
 /**
@@ -174,24 +186,44 @@ export function TaskIssueList({ taskId, spaceId, orgId, readOnly = false }: Task
             const issue = link.github_issues
             if (!issue) return null
 
+            // 埋め込みが読める（full_name がある）＝ RLS（github_repositories は接続した
+            // 本人だけが読める）で既に守られている。isMe は使わない（常に full_name の有無と
+            // 同じ結果にしかならず、無駄な RPC を1回増やすだけのため）
+            const url = buildIssueUrl(issue)
+            // GitHub 側の更新日時を優先（updated_at はこちらの行を書き換えた時刻）
+            const timeAgo = formatTimeAgo(issue.github_updated_at ?? issue.updated_at)
+
+            const content = (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold">#{issue.issue_number}</span>
+                  <span className="text-xs">{issueStateLabel(issue)}</span>
+                  {issue.github_repositories?.full_name && (
+                    <span className="text-xs text-gray-500 truncate">{issue.github_repositories.full_name}</span>
+                  )}
+                  {url && <ArrowSquareOut className="text-gray-400 text-xs" />}
+                </div>
+                <p className="text-sm text-gray-800 font-medium truncate mt-0.5">{issue.title}</p>
+                <p className="text-xs text-gray-500 mt-1">{timeAgo}</p>
+              </>
+            )
+
             return (
               <div key={link.id} className="relative group" data-testid={`task-issue-row-${issue.issue_number}`}>
-                <a
-                  href={issue.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`block p-3 rounded-lg border hover:opacity-90 transition-opacity ${issueStateStyle(issue)}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold">#{issue.issue_number}</span>
-                    <span className="text-xs">{issueStateLabel(issue)}</span>
-                    <ArrowSquareOut className="text-gray-400 text-xs" />
+                {url ? (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`block p-3 rounded-lg border hover:opacity-90 transition-opacity ${issueStateStyle(issue)}`}
+                  >
+                    {content}
+                  </a>
+                ) : (
+                  <div className={`block p-3 rounded-lg border ${issueStateStyle(issue)}`}>
+                    {content}
                   </div>
-                  <p className="text-sm text-gray-800 font-medium truncate mt-0.5">{issue.title}</p>
-                  {issue.assignee_logins.length > 0 && (
-                    <p className="text-xs text-gray-500 mt-1">担当: {issue.assignee_logins.join(', ')}</p>
-                  )}
-                </a>
+                )}
                 {!readOnly && (
                   <button
                     onClick={() => handleUnlink(link.id)}

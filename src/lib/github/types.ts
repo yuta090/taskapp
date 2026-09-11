@@ -1,13 +1,13 @@
 // GitHub API Types
 
+// access_token / token_expires_at は使われておらず(値0件)、列ごと削除する
+// migration（20260911085205_github_column_grants.sql）に合わせ、型からも外す
 export interface GitHubInstallation {
   id: string
   org_id: string
   installation_id: number
   account_login: string
   account_type: 'Organization' | 'User'
-  access_token?: string
-  token_expires_at?: string
   created_by: string
   created_at: string
   updated_at: string
@@ -39,18 +39,16 @@ export interface SpaceGitHubRepo {
   github_repositories?: GitHubRepository
 }
 
+// pr_url / head_branch / base_branch / author_login / author_avatar_url は
+// authenticated から読めない列（PR-B・接続者本人にも見せない設計）。
+// リンク・作者名は画面側で github_repositories の埋め込み(full_name)から組み立てる
 export interface GitHubPullRequest {
   id: string
   org_id: string
   github_repo_id: string
   pr_number: number
   pr_title: string
-  pr_url: string
   pr_state: 'open' | 'closed' | 'merged'
-  author_login?: string
-  author_avatar_url?: string
-  head_branch?: string
-  base_branch?: string
   additions: number
   deletions: number
   commits_count: number
@@ -74,17 +72,16 @@ export interface TaskGitHubLink {
 
 // GitHub Issues 連携（GITHUB_ISSUES_LINK_SPEC.md §5・§9 PR1）
 
+// url / author_login / assignee_logins は authenticated から読めない列（PR-B）。
+// リンクは画面側で github_repositories の埋め込み(full_name)から組み立てる
 export interface GitHubIssue {
   id: string
   org_id: string
   github_repo_id: string
   issue_number: number
   title: string
-  url: string
   state: 'open' | 'closed'
   state_reason: string | null
-  author_login: string | null
-  assignee_logins: string[]
   issue_created_at: string | null
   closed_at: string | null
   github_updated_at: string | null
@@ -103,6 +100,20 @@ export interface TaskGitHubIssueLink {
   created_by?: string | null
   created_at: string
   github_issues?: GitHubIssue
+}
+
+/**
+ * RPC `github_connection_status(p_org)` の戻り。「いま誰が接続しているか」を
+ * 社内メンバーだけに返す（アカウント名・許可範囲は含まない）。設定画面などで
+ * 「接続済み（接続者: ○○さん）」を出すために使う。
+ * タスク画面のリポジトリ名・リンクの出し分けには使わない（github_repositories の
+ * 埋め込みの有無＝RLSの結果そのもので決める）。
+ */
+export interface GitHubConnectionStatus {
+  connected: boolean
+  connectedBy: string | null
+  connectedAt: string | null
+  isMe: boolean
 }
 
 export interface TaskGitHubIssueRollup {

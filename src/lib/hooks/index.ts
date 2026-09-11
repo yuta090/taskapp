@@ -24,6 +24,7 @@ export {
   useIssueLinkCandidates,
   useManualLinkIssue,
   useUnlinkIssue,
+  useGitHubConnection,
 } from './useGitHub'
 export {
   useSlackWorkspace,

@@ -574,11 +574,9 @@ describe('useTasks — 期限の正本境界(due_authority_connection_id)', () =
   })
 })
 
-// /my の詳細パネル(MyTaskInspector)は ensureTaskIds で「直近50件の外にあっても必ず
-// 含めたいタスク」を指定する。fetchTasksQuery 自体のテスト（queries.test.ts）とは別に、
-// useTasks がそれを実際の fetch（初回・fetchTasks() による再取得の両方）まで
-// 取りこぼさず渡していることを確認する。
-describe('useTasks — ensureTaskIds が実際の fetch まで届く', () => {
+// fetchTasksQuery は今はそのプロジェクトの全タスクを読み込むため、useTasks は
+// options を一切渡さない（orgId/spaceId の3引数のみ）。
+describe('useTasks — fetchTasksQuery に options を渡さない', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetchTasksQuery.mockResolvedValue({ tasks: [], owners: {}, reviewStatuses: {} })
@@ -588,19 +586,14 @@ describe('useTasks — ensureTaskIds が実際の fetch まで届く', () => {
     vi.restoreAllMocks()
   })
 
-  it('初回取得と fetchTasks() による再取得の両方で ensureTaskIds を渡す', async () => {
+  it('初回取得と fetchTasks() による再取得の両方で options を渡さない', async () => {
     const { result } = renderHook(
-      () => useTasks({ orgId: 'o1', spaceId: 's1', ensureTaskIds: ['t9'] }),
+      () => useTasks({ orgId: 'o1', spaceId: 's1' }),
       { wrapper: createWrapper() }
     )
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(mockFetchTasksQuery).toHaveBeenCalledWith(
-      expect.anything(),
-      'o1',
-      's1',
-      { ensureTaskIds: ['t9'] }
-    )
+    expect(mockFetchTasksQuery).toHaveBeenCalledWith(expect.anything(), 'o1', 's1')
 
     mockFetchTasksQuery.mockClear()
 
@@ -608,12 +601,7 @@ describe('useTasks — ensureTaskIds が実際の fetch まで届く', () => {
       await result.current.fetchTasks()
     })
 
-    expect(mockFetchTasksQuery).toHaveBeenCalledWith(
-      expect.anything(),
-      'o1',
-      's1',
-      { ensureTaskIds: ['t9'] }
-    )
+    expect(mockFetchTasksQuery).toHaveBeenCalledWith(expect.anything(), 'o1', 's1')
   })
 })
 
