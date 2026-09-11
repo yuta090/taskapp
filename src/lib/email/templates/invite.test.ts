@@ -72,6 +72,6 @@ describe('renderInviteEmail', () => {
 
   it('補足(note)が空ならボタン下の補足は出ない', () => {
     const out = renderInviteEmail({ variant: 'client', fields: { ...INVITE_TEMPLATE_DEFAULTS.invite_client, note: '' }, vars, inviteUrl })
-    expect(out.html).not.toContain('アカウント登録は不要です')
+    expect(out.html).not.toContain('リンク先でパスワードを決めるだけで参加できます')
   })
 })

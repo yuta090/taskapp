@@ -39,12 +39,16 @@ export default function InviteAcceptPage({
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
   const [emailMismatch, setEmailMismatch] = useState(false)
 
-  const acceptInvite = useCallback(async (isAutoAccept: boolean) => {
+  // password state を閉じ込めない（呼び出し側から引数で渡す）。閉じ込めると
+  // 1文字入力するたびにこの useCallback の参照が変わり、これに依存する下の
+  // 招待読み込み用 useEffect まで毎回再実行されてしまう（getSession/rpc_validate_invite の
+  // 再発行・パスワード入力中に再検証が走る不具合の原因だった）
+  const acceptInvite = useCallback(async (isAutoAccept: boolean, passwordArg?: string) => {
     setLoading(true)
     setError('')
 
     try {
-      if (!isAutoAccept && password.length < 8) {
+      if (!isAutoAccept && (!passwordArg || passwordArg.length < 8)) {
         setError('パスワードは8文字以上で入力してください')
         setLoading(false)
         return
@@ -54,7 +58,7 @@ export default function InviteAcceptPage({
       const response = await fetch(`/api/invites/${token}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: isAutoAccept ? undefined : JSON.stringify({ password }),
+        body: isAutoAccept ? undefined : JSON.stringify({ password: passwordArg }),
       })
       const data = await response.json()
 
@@ -68,7 +72,7 @@ export default function InviteAcceptPage({
         const supabase = createClient()
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: data.email,
-          password,
+          password: passwordArg as string,
         })
 
         if (signInError) {
@@ -100,7 +104,7 @@ export default function InviteAcceptPage({
       setError('エラーが発生しました')
       setLoading(false)
     }
-  }, [password, token])
+  }, [token])
 
   useEffect(() => {
     async function loadInvite() {
@@ -140,7 +144,15 @@ export default function InviteAcceptPage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await acceptInvite(false)
+    // 既存ユーザー（is_existing_user）はここに到達する時点で必ずログイン済み（未ログインなら
+    // 前段の「ログインして参加」カードで止まる）。パスワード欄自体が無いため、自動受諾に失敗
+    // した後の手動再試行はパスワード確認なしの自動受諾パスで再試行する（誤って
+    // 「パスワードは8文字以上」を出さない）
+    if (inviteInfo?.is_existing_user) {
+      await acceptInvite(true)
+    } else {
+      await acceptInvite(false, password)
+    }
   }
 
   if (checkingAuth) {
