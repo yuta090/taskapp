@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchTasksQuery, fetchMeetingsQuery, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
+import { fetchTasksQuery, fetchMeetingsQuery, collectRemainingPages, TASKS_PAGE_SIZE } from '@/lib/supabase/queries'
 
 /**
  * fetchTasksQuery は空間(space)の全タスクを、TASKS_PAGE_SIZE件ずつ range ページングで
@@ -374,5 +374,53 @@ describe('fetchMeetingsQuery — 全件をページングで読む', () => {
       { id: 'p1', meeting_id: 'a', side: 'client', user_id: 'u1' },
     ])
     expect((result.meetings[0] as unknown as { meeting_participants?: unknown }).meeting_participants).toBeUndefined()
+  })
+})
+
+/**
+ * collectRemainingPages は fetchTasksQuery/fetchMeetingsQuery 以外の呼び出し元
+ * （例: ポータルの会議一覧 fetchPortalMeetingsData）からも使えるよう export されている。
+ * ここではテーブル固有の形に依らない、ヘルパー単体としての振る舞いを確かめる。
+ */
+describe('collectRemainingPages（export された共通ヘルパー単体）', () => {
+  it('1ページ目が pageSize 未満なら続きのページを取得しない', async () => {
+    const fetchPage = vi.fn()
+    const firstPage = [{ id: 'a' }, { id: 'b' }]
+
+    const result = await collectRemainingPages(firstPage, fetchPage, 10)
+
+    expect(result).toEqual(firstPage)
+    expect(fetchPage).not.toHaveBeenCalled()
+  })
+
+  it('1ページ目がちょうど pageSize 件なら続きを取得し、境界の重複idを1件にまとめる', async () => {
+    const firstPage = [{ id: 'a' }, { id: 'b' }]
+    // 1回目は pageSize と同数（=まだ続きがあるかもしれない）を返し、2回目（呼ばれなければ
+    // 既定値）は pageSize 未満（=空）を返して読み切りを終える。fetchPage が常に pageSize
+    // と同数を返し続ける固定モックにすると collectRemainingPages が無限ループし OOM する
+    // ため、必ずページが尽きるキュー形式のモックにする。
+    const pageResults = [{ data: [{ id: 'b' }, { id: 'c' }], error: null }]
+    let callCount = 0
+    const fetchPage = vi.fn(() => {
+      const result = pageResults[callCount] ?? { data: [], error: null }
+      callCount += 1
+      return Promise.resolve(result)
+    })
+
+    const result = await collectRemainingPages(firstPage, fetchPage, 2)
+
+    expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c'])
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+    expect(fetchPage).toHaveBeenNthCalledWith(1, 2, 3)
+    expect(fetchPage).toHaveBeenNthCalledWith(2, 4, 5)
+  })
+
+  it('ページ取得がエラーを返すと reject する', async () => {
+    const firstPage = [{ id: 'a' }, { id: 'b' }]
+    const fetchPage = vi.fn(() => Promise.resolve({ data: null, error: { message: 'boom' } }))
+
+    await expect(collectRemainingPages(firstPage, fetchPage, 2)).rejects.toMatchObject({
+      message: 'boom',
+    })
   })
 })

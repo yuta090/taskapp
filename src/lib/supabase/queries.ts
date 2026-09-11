@@ -78,7 +78,7 @@ export const TASKS_PAGE_SIZE = 1000
  * 作成すると全行が1つずれ、あるページの最後の行が次ページの先頭にもう一度現れうる。
  * そのため最後に id で重複除去（先勝ち）してから返す。
  */
-async function collectRemainingPages<T extends { id: string }>(
+export async function collectRemainingPages<T extends { id: string }>(
   firstPageRows: T[],
   // Supabase のクエリビルダは Promise ではなく PromiseLike（then を持つだけ）のため、
   // Promise<...> にすると tsc が型不一致で弾く。await は PromiseLike で十分動くので
