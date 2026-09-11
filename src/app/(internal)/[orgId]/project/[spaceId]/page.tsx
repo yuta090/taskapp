@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { TasksPageClient } from './TasksPageClient'
 
 interface Props {
@@ -10,9 +9,5 @@ interface Props {
 
 export default async function TasksPage({ params }: Props) {
   const { orgId, spaceId } = await params
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <TasksPageClient orgId={orgId} spaceId={spaceId} />
-    </Suspense>
-  )
+  return <TasksPageClient orgId={orgId} spaceId={spaceId} />
 }

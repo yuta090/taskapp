@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { GroupLinksClient } from './GroupLinksClient'
 
 interface Props {
@@ -11,9 +10,5 @@ interface Props {
  */
 export default async function ConnectLineGroupsPage({ params }: Props) {
   const { orgId } = await params
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <GroupLinksClient orgId={orgId} />
-    </Suspense>
-  )
+  return <GroupLinksClient orgId={orgId} />
 }

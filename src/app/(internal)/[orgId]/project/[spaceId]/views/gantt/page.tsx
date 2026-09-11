@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { GanttPageClient } from './GanttPageClient'
 
 interface Props {
@@ -10,9 +9,5 @@ interface Props {
 
 export default async function GanttPage({ params }: Props) {
   const { orgId, spaceId } = await params
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <GanttPageClient orgId={orgId} spaceId={spaceId} />
-    </Suspense>
-  )
+  return <GanttPageClient orgId={orgId} spaceId={spaceId} />
 }

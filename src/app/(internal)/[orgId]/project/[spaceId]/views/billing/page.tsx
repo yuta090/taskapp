@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { BillingPageClient } from './BillingPageClient'
 
 interface Props {
@@ -10,9 +9,5 @@ interface Props {
 
 export default async function BillingPage({ params }: Props) {
   const { orgId, spaceId } = await params
-  return (
-    <Suspense fallback={<div className="flex-1" />}>
-      <BillingPageClient orgId={orgId} spaceId={spaceId} />
-    </Suspense>
-  )
+  return <BillingPageClient orgId={orgId} spaceId={spaceId} />
 }
